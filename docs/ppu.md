@@ -133,7 +133,42 @@ mechanism behind raster effects — they must land at the exact dot (`ref-docs/2
 - **Visual golden:** deterministic framebuffer hashes for a canonical commercial set
   (`tests/golden/`); ROMs stay gitignored in `tests/roms/external/`.
 
+## Implementation status (`rustysnes-ppu`, v0.1.0)
+
+The crate is a working dual-chip model. Public API the scheduler/bus call:
+
+- **Storage:** `vram: [u16; 0x8000]`, `cgram: [u16; 256]`, `oam: [u8; 544]` (all owned).
+- **Registers:** `write_reg(&mut self, addr: u16, val: u8)` / `read_reg(&mut self, addr: u16) -> u8`
+  cover `$2100`–`$213F`. Modeled quirks: shared BG-offset write latch (PPU1/PPU2 halves), the
+  Mode-7 / scroll write-twice latch, `VMAIN` remap + increment-on-low/high, the CGRAM
+  write-twice + `$213B` read-twice, the OAM even-byte latch, the `$2139/A` VRAM read prefetch
+  latch, `MPYL/M/H` Mode-7 multiply, `SLHV $2137` latch, `OPHCT/OPVCT` read-twice 9-bit,
+  `STAT77/78` (over-flags + version + NTSC/PAL + field; `$213F` read clears the latch). Reads
+  of write-only/unused registers return the PPU MDR (open-bus) latch.
+- **Timeline:** `tick_dot(&mut self, bus: &mut impl VideoBus)` advances H 0..=340 / V per region
+  (262 NTSC / 312 PAL), sets VBlank at V=225 (V=240 overscan) and HBlank, fires
+  `notify_scanline`/`notify_vblank`, raises NMI at VBlank start, and level-fires the HV-IRQ
+  comparator (`set_hv_irq(enable_h, enable_v, h, v)` programs it).
+- **Polls (the scheduler reads these — no extra `VideoBus` methods were added):**
+  `nmi_pending()`/`ack_nmi()`, `irq_pending()`/`ack_irq()`, `in_vblank()`/`in_hblank()`,
+  `dot()`/`scanline()`, `frame_ready()`/`take_frame()`/`frame_count()`, `framebuffer() -> &[u16]`.
+- **Rendering model:** **per-scanline** — the whole visible line is composited at the line's
+  end into a `256×239` 15-bit framebuffer. This is bit-identical in the *final frame* to a
+  per-dot renderer (the determinism contract only requires the finished frame be reproducible)
+  and far simpler. BG modes 0–7 tile fetch (2/4/8 bpp), per-mode priority tables, 16×16 tiles,
+  mosaic (vertical+horizontal block), Mode 7 affine (matrix + center + wrap/flip from M7SEL,
+  EXTBG high-bit priority), the 128-sprite OAM pipeline with the 32-sprite range / 34-tile time
+  limits (reverse-order fetch → low index survives → STAT77 bits 6/7), color math (add/sub/half,
+  per-layer enable, fixed-color/subscreen addend, direct color), windows (W1/W2 OR/AND/XOR/XNOR
+  + per-layer enable + the CGWSEL color-math regions), and INIDISP master brightness all work.
+  Not yet wired to dot resolution: hi-res Modes 5/6 render at 256-wide (the 512-px doubling is
+  deferred), offset-per-tile (Modes 2/4/6), pseudo-hires, and interlace field doubling — the
+  per-line compositor is the simplification point for those, landing with HDMA/raster work.
+
 ## Open questions
 
 - Exact long-dot placement within the 1364-clock line under interlace transitions — resolve
   against the test ROMs (`ref-docs/2026-06-24-ppu.md` "Note on a flagged discrepancy").
+- Mid-scanline raster effects (HDMA palette/scroll splits) need the scheduler to drive register
+  writes at the exact dot; the per-scanline compositor already samples end-of-line register
+  state, so single-split-per-line effects work, but multi-split-per-line needs dot-resolution.

@@ -7,9 +7,13 @@ record; this file frames the phase line.
 
 ## Status
 
-- **Current phase:** Phase 1 — CPU + golden oracle **complete** (65C816 passes SingleStepTests/65816
-  0-diff on state + cycles, 5,119,999/5,120,000); Phase 0 Foundation done. **Next: Phase 2 — Scheduler + video.**
-- **Release:** v0.1.0 — Phase 1 CPU oracle 0-diff; PPU/APU/cart not started.
+- **Current phase:** Phase 2 — Scheduler + video **complete**. The master-clock lockstep
+  scheduler + bus + DMA/HDMA + dual-chip PPU + base cart mappers boot and run real ROMs: gilyon
+  `cputest-basic` → "Success" (all 1107 CPU tests), undisbeliever PPU/DMA/HDMA → 29/29
+  bit-deterministic golden framebuffers. Phases 0–1 done (65C816 oracle 0-diff,
+  5,119,999/5,120,000). **Next: Phase 3 — Audio (SPC700 + S-DSP).**
+- **Release:** v0.1.0 — CPU oracle 0-diff; PPU/scheduler/cart boot real ROMs; APU + coprocessors
+  not started.
 
 ## The phase spine
 

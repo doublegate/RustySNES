@@ -39,13 +39,51 @@ pub struct Cart {
 impl Cart {
     /// Decode a raw ROM image into a [`Cart`] (header detection + board selection).
     ///
+    /// Strips a 512-byte copier prefix when present, detects the internal header, and builds
+    /// the matching board backed by the real ROM bytes + a zeroed, header-sized SRAM.
+    ///
     /// # Errors
     /// Returns [`HeaderError`] if the image is too small or no internal header scores a valid
     /// map mode at any candidate offset (LoROM `$7FC0` / HiROM `$FFC0` / ExHiROM `$40FFC0`).
-    pub fn from_rom(rom: &[u8]) -> Result<Self, HeaderError> {
+    pub fn load(rom: &[u8]) -> Result<Self, HeaderError> {
         let header = Header::detect(rom)?;
-        let board = board::select(&header);
+        // `Header::detect` records the copier-prefix length; build the board from the stripped
+        // image so ROM offset 0 is the first real cartridge byte.
+        let stripped = &rom[header.copier_prefix..];
+        let board = board::select(&header, stripped);
         Ok(Self { header, board })
+    }
+
+    /// Decode a raw ROM image into a [`Cart`]. Alias of [`Cart::load`].
+    ///
+    /// # Errors
+    /// See [`Cart::load`].
+    pub fn from_rom(rom: &[u8]) -> Result<Self, HeaderError> {
+        Self::load(rom)
+    }
+
+    /// Read a byte at a 24-bit CPU address `(bank << 16) | addr` via the active board.
+    pub fn read24(&mut self, addr24: u32) -> u8 {
+        self.board.read24(addr24)
+    }
+
+    /// Write a byte at a 24-bit CPU address `(bank << 16) | addr` via the active board.
+    pub fn write24(&mut self, addr24: u32, val: u8) {
+        self.board.write24(addr24, val);
+    }
+
+    /// Borrow the current SRAM contents (for a battery save). Empty if the cart has no SRAM.
+    #[must_use]
+    pub fn save_sram(&self) -> &[u8] {
+        self.board.sram()
+    }
+
+    /// Restore SRAM contents (from a battery save). Copies up to the board's SRAM length; a
+    /// shorter slice leaves the tail zeroed, a longer one is truncated.
+    pub fn load_sram(&mut self, data: &[u8]) {
+        let dst = self.board.sram_mut();
+        let n = data.len().min(dst.len());
+        dst[..n].copy_from_slice(&data[..n]);
     }
 
     /// Advance any on-cart coprocessor by one of its clock units. Default boards no-op.
@@ -70,5 +108,42 @@ mod tests {
     #[test]
     fn empty_rom_is_rejected() {
         assert!(Cart::from_rom(&[]).is_err());
+        assert!(Cart::load(&[]).is_err());
+    }
+
+    #[test]
+    fn load_lorom_and_sram_roundtrip() {
+        use alloc::vec;
+        use alloc::vec::Vec;
+        // Minimal valid LoROM image (64 KiB) with 8 KiB battery SRAM.
+        let mut rom: Vec<u8> = vec![0u8; 0x1_0000];
+        let base = 0x7FC0;
+        for (i, b) in b"RUSTYSNES LOROM TEST ".iter().enumerate() {
+            rom[base + i] = *b;
+        }
+        rom[base + 0x15] = 0x20; // LoROM, slow
+        rom[base + 0x16] = 0x02; // ROM+RAM+battery
+        rom[base + 0x18] = 0x03; // 8 KiB SRAM
+        rom[base + 0x19] = 0x01; // North America / NTSC
+        let checksum: u16 = 0x4321;
+        rom[base + 0x1C..base + 0x1E].copy_from_slice(&(!checksum).to_le_bytes());
+        rom[base + 0x1E..base + 0x20].copy_from_slice(&checksum.to_le_bytes());
+        rom[base + 0x3C..base + 0x3E].copy_from_slice(&0x8000u16.to_le_bytes());
+        rom[0x1234] = 0x5A; // a ROM byte to read back
+
+        let mut cart = Cart::load(&rom).expect("valid lorom");
+        assert_eq!(cart.header.map_mode, MapMode::LoRom);
+        assert_eq!(cart.header.sram_size, 0x2000);
+        // ROM offset 0x1234 lives at bank $00:$9234 ($8000 + 0x1234).
+        assert_eq!(cart.read24(0x00_9234), 0x5A);
+        // SRAM round-trip.
+        cart.write24(0x70_0010, 0x77);
+        assert_eq!(cart.read24(0x70_0010), 0x77);
+        assert_eq!(cart.save_sram()[0x10], 0x77);
+        // load_sram restores.
+        let mut snap = vec![0u8; 0x2000];
+        snap[0x10] = 0xEE;
+        cart.load_sram(&snap);
+        assert_eq!(cart.read24(0x70_0010), 0xEE);
     }
 }

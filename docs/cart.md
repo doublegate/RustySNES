@@ -31,6 +31,23 @@ $70–$7D/$F0–$FF $0000–$7FFF; HiROM SRAM typically banks $20–$3F/$A0–$B
 is flagged in `$FFD6` low nibble ($2). Build per-board windows from the cartridge database +
 ares board definitions during Phase 4 (`ref-docs/research-report.md` "Open questions" #3).
 
+### Phase-2 base-board decode (implemented in `board.rs`)
+
+Base LoROM/HiROM/ExHiROM now decode against real `rom: Box<[u8]>` + zeroed `sram: Box<[u8]>`
+storage. The `(bank, addr)` → backing-store math (`bank = addr24 >> 16`, `addr = addr24 & 0xFFFF`):
+
+| Model | ROM region(s) | ROM offset formula | SRAM window | SRAM index |
+|---|---|---|---|---|
+| **LoROM** | every bank, `$8000–$FFFF` | `((bank & 0x7F) << 15) \| (addr & 0x7FFF)` | banks $70–$7D / $F0–$FF, `$0000–$7FFF` | `(lo-0x70)*0x8000 + addr`, `% sram_size` |
+| **HiROM** | $40–$7D / $C0–$FF full 64 KiB; $00–$3F / $80–$BF `$8000–$FFFF` | `((bank & 0x3F) << 16) \| addr` | banks $20–$3F / $A0–$BF, `$6000–$7FFF` | `(lo-0x20)*0x2000 + (addr-0x6000)`, `% sram_size` |
+| **ExHiROM** | same regions as HiROM | `high \| ((bank & 0x3F) << 16) \| addr`, where `high = (bank & 0x80 != 0) ? 0 : (1<<22)` | banks $20–$3F (low half), `$6000–$7FFF` | as HiROM |
+
+The ExHiROM `high` bit is A23-inverted: banks $80–$FF (A23=1) select the first 4 MiB; banks
+$00–$7D (A23=0) select the extra 4 MiB. ROM offsets are folded to `rom_size` by the `mirror`
+helper (clean-room port of ares `Bus::mirror`): power-of-two sizes mask, non-power-of-two
+sizes split the largest power-of-two block linear + mirror the remainder. SRAM size is
+`if $FFD8 == 0 { 0 } else { 0x400 << $FFD8 }`; ROM and open-bus regions are read-only.
+
 ## Coprocessor families
 
 Per `ref-docs/2026-06-24-coprocessors.md` §§B–C. **Emulation-approach key:** the NEC DSP

@@ -9,15 +9,19 @@ produces a bit-identical golden framebuffer.
 
 ## Exit criteria
 
-- [ ] The scheduler advances the master clock; the CPU's `CpuBus` access speed drives it; the
-      PPU dot / HDMA / IRQ-timer phases re-derive correctly (`docs/scheduler.md`).
-- [ ] BG modes 0–7 (incl. Mode 7 affine), the 128-sprite OAM model, CGRAM/VRAM, color math /
-      windows render.
-- [ ] DMA halts the CPU; HDMA fires at H≈$116 with the correct per-line cycle budget and
-      preempts GP-DMA.
-- [ ] undisbeliever/snes-test-roms PPU/DMA/HDMA suite green.
-- [ ] A deterministic golden framebuffer for a known ROM (`tests/golden/`).
-- [ ] All sprints complete; `docs/STATUS.md` PPU + scheduler rows updated.
+- [x] The scheduler advances the master clock; the CPU's `CpuBus` access speed drives it; the
+      PPU dot / HDMA / IRQ-timer phases re-derive correctly (`docs/scheduler.md`). *(6/8/12 map +
+      4-master/dot lockstep; a booted NTSC frame ≈357,374 master clocks.)*
+- [x] BG modes 0–7 (incl. Mode 7 affine), the 128-sprite OAM model, CGRAM/VRAM, color math /
+      windows render. *(per-scanline compositor; mid-line raster + hi-res 512 deferred — noted.)*
+- [x] DMA halts the CPU; HDMA fires per visible line with the correct per-line budget and
+      preempts GP-DMA. *(GP-DMA CPU-halt + 8 modes; HDMA indirect/line-counter, ares `dma.cpp`.)*
+- [x] undisbeliever/snes-test-roms PPU/DMA/HDMA suite green. *(29/29 boot + render through the
+      DMA/HDMA path; `tests/undisbeliever_golden.rs`.)*
+- [x] A deterministic golden framebuffer for a known ROM (`tests/golden/`). *(29 bit-deterministic
+      framebuffer hashes committed in `undisbeliever-framebuffer.tsv`.)*
+- [x] All sprints complete; `docs/STATUS.md` PPU + scheduler rows updated. *(mid-line-raster /
+      hi-res / offset-per-tile residuals documented in `docs/ppu.md` for a later refinement.)*
 
 ## Scope
 

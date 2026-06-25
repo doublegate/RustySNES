@@ -6,6 +6,8 @@
 extern crate alloc;
 
 pub mod bus;
+pub mod dma;
+pub mod dma_bus;
 pub mod scheduler;
 
 // Re-export the chip crates (the public surface).

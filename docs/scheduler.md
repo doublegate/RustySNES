@@ -134,6 +134,26 @@ bit-deterministic. Resonator drift is **deliberately not modeled** in the determ
 - The SPC resync: blargg `spc_mem_access_times` + the IPL-boot handshake; gilyon SPC tables.
 - Scanline-length variants: a deterministic golden framebuffer for a known ROM at each region.
 
+## Implementation status (Phase 2)
+
+The scheduler lives in `rustysnes-core` as the `Bus` (the master-clock phase + memory decode +
+DMA/HDMA) plus the `System` run loop (`scheduler.rs`):
+
+- **The clock is CPU-driven.** Each `CpuBus::read24`/`write24` stashes the region access speed
+  (`Bus::access_speed`, the ares `CPU::wait` map above), and the following `on_cpu_cycle` advances
+  the master clock by it — internal CPU cycles default to 6. `advance_master` steps the PPU dot
+  clock (4 master/dot) and the SPC accumulator in-line, so it is true lockstep. A booted NTSC
+  frame measures ≈357,374 master clocks (spec ≈357,368).
+- **DMA/HDMA** is `dma.rs` (clean-room from ares `dma.cpp`): GP-DMA halts the CPU and charges
+  `8`/byte; HDMA runs per visible scanline with the per-mode lengths `{1,2,2,4,4,4,2,4}`, indirect
+  pointers, and the line counter. The `System` fires HDMA at scanline boundaries.
+- **NMI / IRQ:** the RDNMI (`$4210`) VBlank flag sets at VBlank **regardless** of the NMITIMEN
+  enable (so VBlank-poll loops like gilyon's work); the NMI *interrupt* and the H/V-IRQ comparator
+  (pushed to the PPU each dot) fire only when enabled.
+- **Deferred refinements** (no committed ROM depends on them yet): the 40-clock DRAM-refresh CPU
+  stall, the exact H=$116 HDMA dot phase (currently the scanline-boundary trigger), and the
+  PAL-frame master-clock cycle-check.
+
 ## Open questions
 
 - Exact per-opcode master-clock breakdown for rarer addressing modes — a verify-against-the-
