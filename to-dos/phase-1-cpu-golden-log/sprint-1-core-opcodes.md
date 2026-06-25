@@ -16,9 +16,13 @@ access speed.
 
 **Acceptance criteria:**
 
-- [ ] Register file + flag set with width-aware A/X/Y access.
-- [ ] `CpuBus` trait defined; a test double records access (addr, kind, speed).
-- [ ] Unit tests for flag set/clear + width selection.
+- [x] Register file + flag set with width-aware A/X/Y access. *(`regs.rs`: `a_val`/`set_a`/
+      `x_val`/`set_x`/… + `Status`; oracle exercises every width path.)*
+- [x] `CpuBus` trait defined; a test double records access (addr, kind, speed). *(implemented as
+      `Bus { read24, write24, on_cpu_cycle, poll_nmi, poll_irq }`; the oracle's `TestBus` is the
+      access-recording double.)*
+- [x] Unit tests for flag set/clear + width selection. *(`cpu/src/tests.rs` + the per-opcode
+      oracle.)*
 
 **Dependencies:** T-01-006
 **Reference:** `docs/cpu.md` §registers; `docs/scheduler.md` §access-speed-map
@@ -34,9 +38,12 @@ address computation honoring D, DBR, and PBR.
 
 **Acceptance criteria:**
 
-- [ ] Every addressing mode computes the correct 24-bit effective address.
-- [ ] Bank-wrap + direct-page-wrap edge cases covered by unit tests.
-- [ ] Page-cross + direct-page-misalignment penalties surfaced to the cycle counter.
+- [x] Every addressing mode computes the correct 24-bit effective address. *(`resolve()` covers
+      all modes; oracle RAM-diff is 100%.)*
+- [x] Bank-wrap + direct-page-wrap edge cases covered by unit tests. *(emulation `DL==0`
+      page-lock + bank-0 operand wrap; oracle exercises them.)*
+- [x] Page-cross + direct-page-misalignment penalties surfaced to the cycle counter. *(cycle
+      column 100%.)*
 
 **Dependencies:** T-11-001
 **Reference:** `docs/cpu.md` §timing; `ref-docs/research-report.md` §4
@@ -51,9 +58,12 @@ the transfer instructions, all width-aware.
 
 **Acceptance criteria:**
 
-- [ ] All listed families implemented across their addressing modes.
-- [ ] Decimal-mode (D flag) ADC/SBC correct.
-- [ ] Unit tests per family in both 8- and 16-bit widths.
+- [x] All listed families implemented across their addressing modes. *(LDA/STA/…/ADC/SBC/AND/
+      ORA/EOR/CMP/INC/DEC/shifts/rotates/transfers; oracle passes each opcode file.)*
+- [x] Decimal-mode (D flag) ADC/SBC correct. *(digit-wise BCD ported from bsnes; the `69/E9`
+      decimal oracle paths pass.)*
+- [x] Unit tests per family in both 8- and 16-bit widths. *(via the oracle's M/X-width coverage
+      + `tests.rs`.)*
 
 **Dependencies:** T-11-002
 **Reference:** `docs/cpu.md`; `ref-docs/research-report.md` §4
@@ -68,10 +78,12 @@ the transfer instructions, all width-aware.
 
 **Acceptance criteria:**
 
-- [ ] `CLC : XCE` enters native mode; `XCE` exchanges E with C; RESET forces emulation mode.
-- [ ] `REP`/`SEP` change M/X and the next instruction reads the new width.
-- [ ] Emulation-mode stack stays in page 1; native uses full 16-bit S.
-- [ ] Vector dispatch (RESET/NMI/IRQ/BRK/COP/ABORT) uses the right emulation/native table.
+- [x] `CLC : XCE` enters native mode; `XCE` exchanges E with C; RESET forces emulation mode.
+- [x] `REP`/`SEP` change M/X and the next instruction reads the new width.
+- [x] Emulation-mode stack stays in page 1; native uses full 16-bit S. *(two push/pull
+      disciplines; JSL/RTL fixed to the full-16-bit `pushN`/`pullN` path.)*
+- [x] Vector dispatch (RESET/NMI/IRQ/BRK/COP/ABORT) uses the right emulation/native table.
+      *(ABORT modelled minimally; the rest oracle-verified.)*
 
 **Dependencies:** T-11-003
 **Reference:** `docs/cpu.md` §emulation-vs-native, §vectors

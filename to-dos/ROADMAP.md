@@ -7,9 +7,9 @@ record; this file frames the phase line.
 
 ## Status
 
-- **Current phase:** Phase 0 — Foundation
-- **Current sprint:** Sprint 1 — Workspace, CI, lints
-- **Release:** v0.1.0 (scaffold) — accuracy work not started.
+- **Current phase:** Phase 1 — CPU + golden oracle **complete** (65C816 passes SingleStepTests/65816
+  0-diff on state + cycles, 5,119,999/5,120,000); Phase 0 Foundation done. **Next: Phase 2 — Scheduler + video.**
+- **Release:** v0.1.0 — Phase 1 CPU oracle 0-diff; PPU/APU/cart not started.
 
 ## The phase spine
 

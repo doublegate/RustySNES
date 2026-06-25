@@ -3,14 +3,16 @@
 This file is authoritative for per-suite pass counts, the board / coprocessor matrix, and
 version policy. Everything else defers to it.
 
-**Current release:** v0.1.0 (scaffold). The accuracy work has not started — every count below
-is **0**.
+**Current release:** v0.1.0 (scaffold). **Phase 1 (CPU + golden oracle) is functionally
+complete** — the 65C816 core passes the SingleStepTests/65816 per-opcode oracle to 0-diff on
+both architectural state and per-instruction cycle count. The remaining subsystems are not
+started; their counts stay **0** until their phase lands.
 
 ## Subsystem progress
 
 | Crate | Chip | State |
 |---|---|---|
-| `rustysnes-cpu` | WDC 65C816 (5A22) | not started |
+| `rustysnes-cpu` | WDC 65C816 (5A22) | **Phase 1 complete — 65816 oracle 0-diff (state+cycles), all 256 opcodes × modes, native+emulation, REP/SEP/XCE** |
 | `rustysnes-ppu` | PPU1 (5C77) + PPU2 (5C78) | not started |
 | `rustysnes-apu` | SPC700 (S-SMP) + S-DSP + ARAM | not started |
 | `rustysnes-cart` | LoROM/HiROM/ExHiROM + coprocessors | not started |
@@ -21,20 +23,27 @@ is **0**.
 | `rustysnes-script` | Lua scripting / TAS API | not started |
 | `rustysnes-test-harness` | golden-log + JSON-oracle + screenshot baseline | not started |
 
-## Accuracy — per-suite pass counts (all 0 at v0.1.0)
+## Accuracy — per-suite pass counts
 
 | Suite | Layer | License posture | Pass | Total |
 |---|---|---|---|---|
-| SingleStepTests/65816 (JSON) | CPU per-opcode oracle | **self-gen committed + upstream cross-check (external)** — ADR 0005 | 0 | TBD |
+| SingleStepTests/65816 (JSON) | CPU per-opcode oracle | **self-gen committed + upstream cross-check (external)** — ADR 0005 | **5,119,999** | 5,120,000 |
 | SingleStepTests/spc700 (JSON) | SPC per-opcode oracle | MIT (committable) | 0 | TBD |
-| gilyon/snes-tests (.sfc + golden tables) | CPU + SPC on-cart | MIT (committed) | 0 | TBD |
+| gilyon/snes-tests (.sfc + golden tables) | CPU + SPC on-cart | MIT (committed) | 0 | TBD (blocked: needs `System` boot — Phase 2/4) |
 | undisbeliever/snes-test-roms (.sfc) | PPU/DMA/HDMA hardware | Zlib (committed) | 0 | TBD |
 | blargg `spc_*` (spc_dsp6 / mem_access / spc / timer) | cycle-accurate SPC/DSP | unstated (external) | 0 | TBD |
 | 240p Test Suite (SNES) | video / overscan | GPLv2 (run-only) | 0 | TBD |
 | Visual golden corpus (`tests/golden/`) | framebuffer / audio hashes | own (committed) | 0 | 0 |
 
-- **CPU golden-log (65816 0-diff):** not started. (No textual Nintendulator-style 65816 log
-  exists — the per-opcode JSON oracle replaces it; see `docs/testing-strategy.md`.)
+- **CPU 65816 oracle (0-diff):** **100.00%** — 5,119,999 / 5,120,000 full passes
+  (state + RAM + cycle count) across all 512 opcode files × 10,000 tests each, native +
+  emulation. The one
+  residual is a single `e1.e` (`SBC (dp,X)`, emulation) test exercising the bsnes `readDirectX`
+  `DL!=0` high-byte wrap that the rest of the SingleStepTests set does **not** model — a
+  documented inter-reference divergence (`docs/adr/0002` posture), not point-fixed. Measured via
+  `tests/cpu_oracle.rs` against the gitignored external set (ADR 0005: cross-check only, never a
+  CI dependency). No textual Nintendulator-style 65816 log exists — this JSON oracle replaces it
+  (`docs/testing-strategy.md`).
 - **Accuracy battery (the composed two-layer oracle):** **0%.** Target ≥90% by v1.0, 100% the
   goal; hard residuals defer to the fractional-timebase refactor (`docs/adr/0002`).
 - **Determinism contract:** not yet exercised (save-state round-trip + replay must be

@@ -16,6 +16,8 @@ rustysnes-core = { path = "../rustysnes-core", version = "0.1.0" }
 
 [dev-dependencies]
 insta = "1"
+serde_json = "1"
+rustysnes-cpu = { path = "../rustysnes-cpu", version = "0.1.0" }
 
 [lints]
 workspace = true

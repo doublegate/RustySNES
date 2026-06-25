@@ -3,6 +3,7 @@
 Guidance for Claude Code working in RustySNES.
 
 ## What this is
+
 RustySNES is a cycle-accurate Super Nintendo Entertainment System / Super Famicom emulator in Rust at the Mesen2 / ares / higan bar.
 Currently **v0.1.0 (scaffold)** — accuracy work has not started; `docs/STATUS.md` has the real per-subsystem counts.
 Architecture (the load-bearing facts — read `docs/architecture.md`):
@@ -17,6 +18,7 @@ Architecture (the load-bearing facts — read `docs/architecture.md`):
 - **Additive features are default-off** so shipped/native/no_std/wasm stay byte-identical.
 
 ## Where things live
+
 - `crates/rustysnes-cpu/` — WDC 65C816 (cpu)
 - `crates/rustysnes-ppu/` — PPU1 (5C77) + PPU2 (5C78) (video)
 - `crates/rustysnes-apu/` — SPC700 + S-DSP (audio)
@@ -29,6 +31,7 @@ Architecture (the load-bearing facts — read `docs/architecture.md`):
 - `to-dos/ROADMAP.md` — planning entry point; tickets `T-PS-NNN`.
 
 ## Build / test / lint
+
 ```bash
 cargo check --workspace && cargo test --workspace
 cargo test --workspace --features test-roms
@@ -40,6 +43,7 @@ cargo build -p rustysnes-core --target thumbv7em-none-eabihf --no-default-featur
 ```
 
 ## Conventions
+
 Rust edition 2024, toolchain pinned 1.96. Workspace lints: `pedantic`+`nursery`+`missing_docs`+`unsafe_code` all `warn`, CI is `-D warnings` (every pub item needs a doc comment); SNES-term exceptions live in `clippy.toml`.
 Conventional Commits; chip change touches the chip code AND its `docs/<chip>.md`; user-visible
 changes go in `CHANGELOG [Unreleased]`; hot paths allocation-free; `unsafe` only in frontend +

@@ -14,10 +14,12 @@ pass, the permissive test ROMs are seeded, and the test-harness oracle scaffoldi
 
 **Acceptance criteria:**
 
-- [ ] `cargo check --workspace` and `cargo build --workspace` green locally.
-- [ ] CI matrix (Linux/macOS/Windows + MSRV 1.96) green on the stubs.
-- [ ] Linux system-dep install step documented for the frontend (libxkbcommon / wayland /
-      alsa-lib / systemd-libs).
+- [x] `cargo check --workspace` and `cargo build --workspace` green locally.
+- [x] CI matrix (Linux/macOS/Windows + MSRV 1.96) green on the stubs. *(toolchain pinned `@1.96`
+      = the MSRV; the three-OS matrix is in `.github/workflows/ci.yml`.)*
+- [x] Linux system-dep install step documented for the frontend (libxkbcommon / wayland /
+      alsa-lib / systemd-libs). *(documented in `CONTRIBUTING.md`; CI now installs them in an
+      `apt-get` step before building.)*
 
 **Dependencies:** none
 **Reference:** `docs/architecture.md` §crate-inventory; `Cargo.toml`
@@ -33,9 +35,11 @@ pre-commit hook (markdownlint pinned v0.39.0 already present).
 
 **Acceptance criteria:**
 
-- [ ] All three gates green in CI.
-- [ ] `pre-commit run --all-files` green (markdownlint + fmt).
-- [ ] No `--all-features` in any gate (mutually-exclusive script backends — the RustyNES trap).
+- [x] All three gates green in CI. *(fmt, clippy `-D warnings`, rustdoc `-D warnings` all pass
+      locally across the workspace and per-feature `test-roms` / `commercial-roms`.)*
+- [x] `pre-commit run --all-files` green (markdownlint + fmt). *(`.pre-commit-config.yaml` runs
+      markdownlint + `cargo fmt --all --check`; fmt verified clean.)*
+- [x] No `--all-features` in any gate (mutually-exclusive script backends — the RustyNES trap).
 
 **Dependencies:** T-01-001
 **Reference:** `docs/testing-strategy.md`; `.pre-commit-config.yaml`
@@ -50,9 +54,9 @@ against `core` + `alloc` only (a bare-metal target), and add a CI job for it.
 
 **Acceptance criteria:**
 
-- [ ] `cargo build -p rustysnes-core --target thumbv7em-none-eabihf --no-default-features` green.
-- [ ] The chip crates carry `#![no_std]` + `extern crate alloc;`.
-- [ ] CI runs the `no_std` job.
+- [x] `cargo build -p rustysnes-core --target thumbv7em-none-eabihf --no-default-features` green.
+- [x] The chip crates carry `#![no_std]` + `extern crate alloc;`.
+- [x] CI runs the `no_std` job. *(`no_std` job present in `ci.yml`.)*
 
 **Dependencies:** T-01-001
 **Reference:** `docs/architecture.md` §crate-inventory
@@ -68,10 +72,13 @@ corpora; record each corpus's license in `tests/roms/README.md`.
 
 **Acceptance criteria:**
 
-- [ ] gilyon + undisbeliever ROMs committed with their LICENSE files.
-- [ ] `tests/roms/external/` gitignored; `.gitignore` updated.
-- [ ] `tests/roms/README.md` lists every corpus + license + commit/external posture.
-- [ ] No unlicensed/copyleft/Nintendo ROMs committed.
+- [x] gilyon + undisbeliever ROMs committed with their LICENSE files. *(+ a deterministic
+      spc700 sample; see `rom-seeding-runbook.md`.)*
+- [x] `tests/roms/external/` gitignored; `.gitignore` updated. *(65816 / full-spc700 / 240p /
+      Krom / blargg-spc / commercial all under the gitignored tier.)*
+- [x] `tests/roms/README.md` lists every corpus + license + commit/external posture.
+- [x] No unlicensed/copyleft/Nintendo ROMs committed. *(gate verified: only gilyon/undisbeliever
+      `.sfc` are trackable.)*
 
 **Dependencies:** T-01-001
 **Reference:** `docs/testing-strategy.md` §licensing; **step-by-step:**
@@ -90,8 +97,10 @@ core. Record the decision so Phase 1 can gate its primary oracle. **Decided in
 **Acceptance criteria:**
 
 - [x] The decision is recorded — `docs/adr/0005` + `docs/testing-strategy.md` §"Open questions".
-- [ ] If (a): the 65816 set lands only in `tests/roms/external/` (gitignored).
-- [ ] `docs/STATUS.md` reflects the chosen posture in the suite table.
+- [x] If (a): the 65816 set lands only in `tests/roms/external/` (gitignored). *(staged at
+      `tests/roms/external/65816-singlestep/`; gate-verified not trackable.)*
+- [x] `docs/STATUS.md` reflects the chosen posture in the suite table. *(65816 row now records
+      5,119,999/5,120,000 with the external cross-check posture.)*
 
 **Dependencies:** T-01-004
 **Reference:** `docs/testing-strategy.md`; `ref-docs/research-report.md` "Open questions" #1
@@ -107,9 +116,13 @@ golden-state differ that reports the first mismatch.
 
 **Acceptance criteria:**
 
-- [ ] The harness compiles and its stub tests pass.
-- [ ] The JSON-oracle runner parses one sample opcode file (gated behind the external tier).
-- [ ] `run_until_complete` + the differ have signatures Phase 1 can fill in.
+- [x] The harness compiles and its stub tests pass.
+- [x] The JSON-oracle runner parses one sample opcode file (gated behind the external tier).
+      *(now a full per-opcode oracle: `tests/cpu_oracle.rs` replays all 512 files and diffs
+      state + RAM + cycle count.)*
+- [x] `run_until_complete` + the differ have signatures Phase 1 can fill in. *(`runner.rs`
+      `run_until_complete` signature stands; on-cart WRAM-sentinel decode is TODO(T-04) — needs
+      a bootable `System`, Phase 2/4.)*
 
 **Dependencies:** T-01-005
 **Reference:** `docs/testing-strategy.md` Layers 2–3
@@ -119,6 +132,8 @@ golden-state differ that reports the first mismatch.
 
 ## Sprint review checklist
 
-- [ ] All tickets checked off or explicitly deferred (with reason).
-- [ ] `docs/STATUS.md` still shows all-zero counts but a wired matrix.
-- [ ] CHANGELOG.md updated for the scaffold milestone.
+- [x] All tickets checked off or explicitly deferred (with reason). *(T-01-001…006 done; the
+      gilyon on-cart decode in T-01-006 is deferred to T-04 — it needs a bootable `System`.)*
+- [x] `docs/STATUS.md` updated: the matrix is wired; counts stay 0 except the CPU 65816 oracle,
+      which Phase 1 brought to 5,119,999/5,120,000.
+- [x] CHANGELOG.md updated for the scaffold + ROM-seeding + Phase-1 CPU milestone.

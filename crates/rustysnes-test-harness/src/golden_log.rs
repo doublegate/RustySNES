@@ -51,7 +51,7 @@ pub fn diff_against_golden(captured: &[GoldenLine], golden: &[GoldenLine]) -> Op
 /// The SNES analogue of nestest's `PC=$C000` start. The concrete entry vector + reset cycle
 /// count come from the exerciser ROM; this is the skeleton.
 #[must_use]
-pub fn cpu_for_golden_log() -> Cpu {
+pub const fn cpu_for_golden_log() -> Cpu {
     // TODO(T-04): set PBR:PC to the exerciser entry + the post-reset cycle count.
     Cpu::new()
 }

@@ -2,3 +2,7 @@ ref-docs/
 ref-proj/
 docs/archive/
 to-dos/archive/
+target/
+tests/roms/external/
+tests/roms/gilyon/
+tests/roms/spc700-singlestep/

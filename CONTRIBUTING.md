@@ -4,24 +4,24 @@ Thanks for your interest in contributing.
 
 ## Development setup
 
-<FILL — language-appropriate. Examples:
+RustySNES is a pure-Rust workspace.
 
-### Rust
 - Install [rustup](https://rustup.rs).
-- Toolchain is pinned in `rust-toolchain.toml`; `rustup` will auto-install.
-- `cargo check` to verify the workspace compiles.
-- `cargo test` to run tests.
+- The toolchain is pinned in `rust-toolchain.toml` (Rust 1.96, edition 2024);
+  `rustup` auto-installs it, including the `wasm32-unknown-unknown` and
+  `thumbv7em-none-eabihf` targets the gates exercise.
+- `cargo check --workspace` to verify the workspace compiles.
+- `cargo test --workspace` to run the unit and integration tests.
+- `cargo test --workspace --features test-roms` to add the test-ROM oracle.
 
-### Python
-- Python 3.11+ recommended.
-- `pip install -e ".[dev]"` to install with dev dependencies.
-- `pytest` to run tests.
+On Linux, the frontend crate pulls in the wgpu / winit / cpal system deps:
 
-### C / C++
-- CMake 3.20+, a C++20 compiler.
-- `cmake -B build -DCMAKE_BUILD_TYPE=Debug && cmake --build build`.
-- `ctest --test-dir build` to run tests.
->
+```bash
+# Debian / Ubuntu
+sudo apt-get install -y libxkbcommon-dev libwayland-dev libxkbcommon-x11-dev libasound2-dev libudev-dev
+# Arch / CachyOS
+sudo pacman -S --needed libxkbcommon wayland alsa-lib systemd-libs
+```
 
 ## Workflow
 
@@ -35,50 +35,39 @@ Thanks for your interest in contributing.
 
 ## Quality gate
 
-Before opening a PR, ensure:
+Before opening a PR, ensure every gate below is green:
 
-<FILL — language-appropriate. Examples:
-
-### Rust
-- [ ] `cargo fmt --check` passes
-- [ ] `cargo clippy --workspace -- -D warnings` passes
+- [ ] `cargo fmt --all --check` passes
+- [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes
 - [ ] `cargo test --workspace` passes
-- [ ] New public items have rustdoc
+- [ ] `cargo build -p rustysnes-core --target thumbv7em-none-eabihf --no-default-features`
+      passes (the chip stack stays `no_std`)
+- [ ] `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` passes
+- [ ] New public items have rustdoc (`missing_docs` is a workspace lint)
+- [ ] User-visible changes are noted in `CHANGELOG.md` under `[Unreleased]`
 
-### Python
-- [ ] `ruff check` passes
-- [ ] `ruff format --check` passes
-- [ ] `mypy src` passes
-- [ ] `pytest` passes
-- [ ] New public functions have type hints and docstrings
-
-### C / C++
-- [ ] `clang-format --dry-run --Werror src/**/*.{c,cpp,h}` passes
-- [ ] Build is clean with `-Wall -Wextra -Wpedantic`
-- [ ] `ctest` passes
->
+Never run `cargo clippy --all-features`: the `scripting` (native mlua) and
+`script-wasm` (wasm piccolo) backends are mutually exclusive, so the feature
+set cannot resolve. Use the explicit per-feature jobs instead.
 
 ## Documentation expectations
 
 - New subsystems get a doc in `docs/`.
 - Architecture-affecting changes update `docs/architecture.md`.
+- A chip-behavior change touches both the chip code and the chip's
+  `docs/<subsystem>.md` — they drift apart easily; don't let them.
 - User-visible changes are noted in `CHANGELOG.md` under `[Unreleased]`.
 - Ticket completion is reflected in the relevant `to-dos/` sprint file.
 
 ## Commit messages
 
-<FILL — pick a convention. Common options:
-
-# Conventional Commits:
 Use [Conventional Commits](https://www.conventionalcommits.org):
-`<type>(<scope>): <subject>`
+`<type>(<scope>): <subject>`.
 
-Types: feat, fix, docs, refactor, test, chore, perf, build, ci.
-
-# Or imperative-mood:
-Imperative subject ≤72 chars, blank line, then optional body
-explaining the why (not the what — the diff shows the what).
->
+Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`, `build`,
+`ci`. Keep the imperative subject at or under 72 characters; an optional body
+explains the why (not the what — the diff shows the what). No emojis in code,
+comments, or commits (project policy).
 
 ## Code review
 
