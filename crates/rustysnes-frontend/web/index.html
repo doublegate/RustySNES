@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RustySNES</title>
+    <style>
+        html, body { margin: 0; height: 100%; background: #101014; color: #e0e0e0;
+            font-family: system-ui, sans-serif; }
+        #app { display: flex; align-items: center; justify-content: center; height: 100%; }
+        canvas { image-rendering: pixelated; background: #000; }
+    </style>
+    <!-- Trunk links the wasm cdylib (cargo-bin name = rustysnes-frontend). -->
+    <link data-trunk rel="rust" data-bin="rustysnes" data-type="main" />
+</head>
+<body>
+    <div id="app">
+        <noscript>RustySNES needs JavaScript + WebAssembly.</noscript>
+    </div>
+</body>
+</html>

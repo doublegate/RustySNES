@@ -1,0 +1,24 @@
+# Workspace clippy config. The `doc-valid-idents` list extends clippy's default set of
+# identifiers that `clippy::doc_markdown` (pedantic) accepts WITHOUT backticks — these are
+# SNES hardware proper nouns / acronyms that read as plain English in prose, so backticking
+# every occurrence would be noisier than the lint it satisfies.
+doc-valid-idents = [
+    "..",
+    "LoROM",
+    "HiROM",
+    "ExHiROM",
+    "SNES",
+    "SRAM",
+    "ARAM",
+    "VRAM",
+    "CGRAM",
+    "WRAM",
+    "FastROM",
+    "SlowROM",
+    "AccuracyCoin",
+    "RustySNES",
+    "RustyNES",
+    "SuperFX",
+    "PeterLemon",
+    "TetaNES",
+]

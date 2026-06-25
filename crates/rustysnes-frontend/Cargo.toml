@@ -1,0 +1,108 @@
+[package]
+name = "rustysnes-frontend"
+description = "RustySNES: cross-platform SNES emulator binary (winit + wgpu + cpal + egui)"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords = ["snes", "emulator", "super-nintendo", "wgpu", "cpal"]
+categories = ["emulators", "games"]
+
+[lib]
+name = "rustysnes_frontend"
+path = "src/lib.rs"
+# `cdylib` produces the `.wasm` artifact that wasm-bindgen + trunk consume to
+# ship the browser frontend; `rlib` keeps the regular crate-graph integration
+# so the `[[bin]]` below depends on the lib without duplicating sources.
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "rustysnes"
+path = "src/main.rs"
+
+[features]
+# Two wasm32 frontends; exactly one is compiled (each provides a unique
+# `#[wasm_bindgen(start)]`). `wasm-winit` (default) is the full winit + wgpu +
+# egui experience; `wasm-canvas` is a lightweight canvas-2D embed.
+# `emu-thread` runs single-player frame production off the winit thread (native
+# only; inert on wasm). `help-tui` adds the ratatui terminal help browser.
+#
+# NOTE: `emu-thread` is OFF in the v0.1 default because it requires `EmuCore:
+# Send`, which in turn needs `rustysnes-cart`'s `Board` trait to be `Send` (the
+# RustyNES `Mapper: Send` rule). The cart crate's `Board` is not yet `Send`
+# (a one-word change owned by the cart/core phase). Until then the synchronous
+# in-`render` drive (the `not(feature = "emu-thread")` path in `app.rs`) is the
+# default. Flip `Board: Send` + re-add `emu-thread` here to enable the dedicated
+# emulation thread. TODO(impl-phase).
+default = ["wasm-winit", "help-tui"]
+wasm-winit = []
+wasm-canvas = []
+emu-thread = []
+help-tui = ["dep:ratatui"]
+
+# Off-by-default forward placeholders, mirroring the RustyNES feature surface so
+# the chip-implementation phase can switch them on without restructuring the
+# manifest. They wire no extra code yet (the panels/hooks are TODO stubs).
+debug-hooks = []
+hd-pack = []
+scripting = []
+retroachievements = []
+
+[lints]
+workspace = true
+
+[dependencies]
+rustysnes-core = { path = "../rustysnes-core", version = "0.1.0" }
+
+# winit + wgpu + cpal + egui shell. Versions pinned to the same tier RustyNES
+# ships (egui/wgpu 0.34/29, winit 0.30) so the lift-and-adapt stays drift-free.
+winit = "0.30"
+wgpu = { version = "29", features = ["webgl"] }
+cpal = "0.18"
+egui = "0.34"
+egui-wgpu = "0.34"
+egui-winit = { version = "0.34", default-features = false, features = ["links", "wayland", "x11"] }
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+toml = "1.1"
+
+# Already transitive deps of wgpu; direct here is free.
+pollster = "0.4"
+bytemuck = "1"
+web-time = "1.1"
+
+# Native-only deps (gilrs/rfd/directories/clap/ratatui). A browser tab has no
+# gamepad-via-gilrs, no rfd dialog, no terminal — the wasm builds never see
+# these (the modules are `cfg(not(target_arch = "wasm32"))`-gated).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+gilrs = "0.11"
+rfd = "0.17"
+directories = "5"
+# clap 4 styled `--help` + `help <topic>` + shell completions (unconditional);
+# the interactive ratatui TUI browser is behind the default-on `help-tui` feature.
+clap = { version = "4", features = ["derive", "color", "cargo"] }
+clap_complete = "4"
+anstyle = "1"
+ratatui = { version = "0.30", optional = true }
+
+# wasm32 target deps. The chip stack is `no_std + alloc`, so the browser build
+# only needs the wasm-bindgen + web-sys bridge here.
+# GOTCHA: the wasm-bindgen CLI pin in web/Trunk.toml MUST equal the resolved
+# wasm-bindgen LIBRARY version in Cargo.lock (grep -A1 'name = "wasm-bindgen"').
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.100"
+wasm-bindgen-futures = "0.4.50"
+console_error_panic_hook = "0.1.7"
+js-sys = "0.3.77"
+web-sys = { version = "0.3.77", features = [
+    "Document", "Window", "Element", "HtmlElement", "HtmlCanvasElement",
+    "Event", "EventTarget", "KeyboardEvent",
+    "CanvasRenderingContext2d", "ImageData", "Storage",
+] }
+
+[dev-dependencies]
+# Validate the embedded WGSL at test time with the same naga wgpu uses at run
+# time, so a shader error fails CI instead of aborting the app.
+naga = { version = "29", features = ["wgsl-in"] }
