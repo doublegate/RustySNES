@@ -4,6 +4,7 @@ Guidance for Claude Code working in RustySNES.
 
 ## What this is
 RustySNES is a cycle-accurate Super Nintendo Entertainment System / Super Famicom emulator in Rust at the Mesen2 / ares / higan bar.
+Currently **v0.1.0 (scaffold)** — accuracy work has not started; `docs/STATUS.md` has the real per-subsystem counts.
 Architecture (the load-bearing facts — read `docs/architecture.md`):
 
 - **The timing master is master clock** @ 21477270 Hz; a
@@ -21,6 +22,7 @@ Architecture (the load-bearing facts — read `docs/architecture.md`):
 - `crates/rustysnes-apu/` — SPC700 + S-DSP (audio)
 - `crates/rustysnes-cart/` — LoROM/HiROM/ExHiROM + coprocessors (cart)
 - `crates/rustysnes-core/` — Bus + scheduler · `crates/rustysnes-frontend/` — egui shell (binary `rustysnes`)
+- `crates/rustysnes-netplay/` — rollback netplay · `crates/rustysnes-cheevos/` — RetroAchievements (opt-in FFI) · `crates/rustysnes-script/` — Lua scripting / TAS API
 - `crates/rustysnes-test-harness/` — the accuracy oracle
 - `docs/` — the spec (update in the same PR as code); `docs/STATUS.md` = single source of truth;
   `docs/adr/` — ADRs. `ref-docs/` — immutable research. `ref-proj/` — study clones (gitignored).
@@ -32,11 +34,13 @@ cargo check --workspace && cargo test --workspace
 cargo test --workspace --features test-roms
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings   # + per-feature jobs; NEVER --all-features
+# frontend opt-in features (default-off): wasm-canvas · emu-thread · debug-hooks · hd-pack · scripting · retroachievements; harness: test-roms · commercial-roms
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 cargo build -p rustysnes-core --target thumbv7em-none-eabihf --no-default-features   # no_std gate
 ```
 
 ## Conventions
+Rust edition 2024, toolchain pinned 1.96. Workspace lints: `pedantic`+`nursery`+`missing_docs`+`unsafe_code` all `warn`, CI is `-D warnings` (every pub item needs a doc comment); SNES-term exceptions live in `clippy.toml`.
 Conventional Commits; chip change touches the chip code AND its `docs/<chip>.md`; user-visible
 changes go in `CHANGELOG [Unreleased]`; hot paths allocation-free; `unsafe` only in frontend +
 FFI with `// SAFETY:`; never commit commercial ROMs; never `--all-features`. Start clean at
