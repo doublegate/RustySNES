@@ -17,7 +17,7 @@ are not started.
 |---|---|---|
 | `rustysnes-cpu` | WDC 65C816 (5A22) | **Phase 1 complete — 65816 oracle 0-diff (state+cycles), all 256 opcodes × modes, native+emulation, REP/SEP/XCE** |
 | `rustysnes-ppu` | PPU1 (5C77) + PPU2 (5C78) | **Phase 2 — BG 0-7 + Mode 7 + 128-sprite OAM + color math + windows + dot/HV timeline; per-scanline compositor (mid-line raster/hi-res deferred)** |
-| `rustysnes-apu` | SPC700 (S-SMP) + S-DSP + ARAM | not started (Phase 3; the master-clock SPC accumulator + the 4 port latches are wired) |
+| `rustysnes-apu` | SPC700 (S-SMP) + S-DSP + ARAM | **Phase 3 — SPC700 oracle 0-diff; S-DSP behavioral; integrated into the machine: the 4 `$2140-$2143` ports route through the real `Apu`, the integer-accumulator async resync clocks the SMP in **cycle-exact sub-instruction lockstep** (`68_352/715_909`, ADR 0004), SMP base-clock + timer + DSP rates ares-correct; blargg `spc_*` boot+upload+run bit-deterministically; the **timer-phase fix** (timebase/timers clocked before the write side effect, ares/Mesen2-correct) + the **DSP GAIN mode-7 threshold fix** (unsigned `hidden_env >= 0x600`, blargg/ares-correct) drive **all four `spc_*` (`spc_smp`/`spc_timer`/`spc_mem_access_times`/`spc_dsp6`) to literal `PASSED TESTS`** (asserted)** |
 | `rustysnes-cart` | LoROM/HiROM/ExHiROM + coprocessors | **Phase 2 — base LoROM/HiROM/ExHiROM header detect + ROM/SRAM decode + mirroring; coprocessors Phase 4** |
 | `rustysnes-core` | Bus + master-clock scheduler + DMA/HDMA | **Phase 2 — master-clock lockstep (6/8/12 access map), full memory decode, CPU regs + mul/div, GP-DMA + HDMA, NMI/HV-IRQ** |
 | `rustysnes-frontend` | egui shell + audio ring + pacing | not started |
@@ -31,10 +31,10 @@ are not started.
 | Suite | Layer | License posture | Pass | Total |
 |---|---|---|---|---|
 | SingleStepTests/65816 (JSON) | CPU per-opcode oracle | **self-gen committed + upstream cross-check (external)** — ADR 0005 | **5,119,999** | 5,120,000 |
-| SingleStepTests/spc700 (JSON) | SPC per-opcode oracle | MIT (committable) | 0 | TBD |
+| SingleStepTests/spc700 (JSON) | SPC per-opcode oracle | MIT (committable) | **256,000** | 256,000 (0-diff) |
 | gilyon/snes-tests (cputest-basic .sfc) | CPU on-cart (boots on `System`) | MIT (committed) | **1107** | 1107 (= "Success") |
 | undisbeliever/snes-test-roms (.sfc) | PPU/DMA/HDMA hardware (golden framebuffer) | Zlib (committed) | **29** | 29 (deterministic) |
-| blargg `spc_*` (spc_dsp6 / mem_access / spc / timer) | cycle-accurate SPC/DSP | unstated (external) | 0 | TBD |
+| blargg `spc_*` (spc_dsp6 / mem_access / smp / timer) | cycle-accurate SPC/DSP (cycle-stepped S-DSP + timer-phase + GAIN mode-7 fixes) | unstated (external) | **4 boot+run det.; 4 literal PASS** | 4 (all → literal `PASSED TESTS` asserted: `spc_smp`/`spc_timer`/`spc_mem_access_times` via timer-phase fix, `spc_dsp6` via DSP GAIN mode-7 unsigned-threshold fix) |
 | 240p Test Suite (SNES) | video / overscan | GPLv2 (run-only) | 0 | TBD |
 | Visual golden corpus (`tests/golden/`) | framebuffer / audio hashes | own (committed) | **29** | 29 |
 
@@ -56,6 +56,32 @@ are not started.
   CPU+scheduler+bus+DMA/HDMA+PPU path and produce **bit-deterministic** framebuffer hashes
   matching the committed baseline `tests/golden/undisbeliever-framebuffer.tsv`
   (`tests/undisbeliever_golden.rs`). This is the Phase-2 deterministic-golden-framebuffer gate.
+- **SPC700 per-opcode oracle (0-diff):** **100.00%** state + cycle count over all 256 opcodes
+  (`tests/spc700_oracle.rs`): 12,800 committed-sample tests in-tree, 256,000 in the full external
+  tier. Unaffected by the Phase-3 SMP base-clock correction (the oracle replays against its own
+  flat bus, measuring access count, not the integrated wait-state model).
+- **blargg `spc_*` (Phase-3 audio integration — cycle-exact SMP↔CPU + cycle-stepped S-DSP):** the
+  SMP advances in **cycle-exact sub-instruction lockstep** with the main CPU (`Apu::advance_smp_cycle`
+  releases one SMP base clock at a time from a recorded micro-op timeline; each SMP→CPU port write
+  becomes visible at the precise base cycle it lands on), **and the S-DSP is now itself
+  cycle-stepped** — it runs its 32-step ares micro-sequence one `Dsp::tick` per 2 SMP base clocks
+  (32 ticks = one 32 kHz sample) instead of a whole sample per 64 clocks, so a mid-instruction
+  DSP-register read sees cycle-correct OUTX/ENVX/ENDX/envelope state (`docs/apu.md`
+  §cycle-accurate DSP, §cycle-exact). All four ROMs (`spc_smp`, `spc_timer`, `spc_mem_access_times`,
+  `spc_dsp6`) boot, complete the IPL upload handshake, run the SPC700 program, and stream their
+  detailed result text. The gate (`tests/blargg_spc.rs`) **decodes and asserts the real on-screen
+  verdict**, retaining the deterministic + baseline-hash assertion (`spc_timer` / `spc_mem_access_times`
+  re-blessed in `tests/golden/blargg-spc.tsv` for the timer-phase timing change; `spc_smp` /
+  `spc_dsp6` hashes unchanged); it is **not** weakened to determinism-only. The **timer-phase fix**
+  (`RecordingSmpBus::write` now advances the SMP timebase + clocks the timers **before** the write
+  side effect, matching ares `step()` / Mesen2 `Spc::Write` `IncCycleCount`-first; `docs/apu.md`
+  §timer phase) drove `spc_smp`, `spc_timer`, `spc_mem_access_times` to blargg's literal
+  `PASSED TESTS`; the **DSP GAIN mode-7 threshold fix** (the bent/two-slope GAIN increase compares
+  its internal envelope latch against `0x600` **unsigned** — blargg `SPC_DSP` `(unsigned) hidden_env`
+  / ares `(u32) _envelope` — so a latch left negative by a prior GAIN decrease still trips the
+  reduced slope; `docs/apu.md` §DSP GAIN mode-7 threshold) drove `spc_dsp6` to `PASSED TESTS` too.
+  **All four ROMs now reach blargg's literal `PASSED TESTS`** (the gate asserts each, not a
+  determinism proxy). The per-opcode SPC700 (oracle 0-diff) + per-tick S-DSP math is correct.
 - **Master-clock totals:** a booted NTSC frame advances ≈357,374 master clocks (spec ≈357,368),
   confirming the 6/8/12 access map + dot timeline.
 - **Accuracy battery (the composed two-layer oracle):** the CPU layer is 0-diff; the on-cart

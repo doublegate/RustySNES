@@ -125,6 +125,45 @@ ports. This is the higan/bsnes cooperative-threaded technique (`docs/adr/0001`,
 bit-deterministic. Resonator drift is **deliberately not modeled** in the deterministic core
 (see `docs/adr/0004`).
 
+### Implementation (Phase 3 — T-31-003)
+
+The accumulator lives in `Bus::Clock::spc_accum` (a `u64`) and is stepped inside
+`Bus::advance_master` — the same per-master-tick loop that drives the PPU dot clock — so the SMP
+advances in **true lockstep**, not catch-up:
+
+```text
+spc_accum += SPC_NUM;                       // SPC_NUM = 68_352
+while spc_accum >= SPC_DEN {                 // SPC_DEN = 715_909
+    spc_accum -= SPC_DEN;
+    apu.advance_smp_cycle();                 // release one SMP *base* clock
+}
+```
+
+`68_352 / 715_909` is the exact rational `(apuFrequency / 12) / 21_477_270` reduced by gcd = 30,
+where `apuFrequency = 32040 × 768 = 24_606_720` Hz (ares) and the SMP runs at `apuFrequency / 12 ≈
+2.05 MHz` (a normal SMP access = `SMP_WAIT` = 2 base clocks → the ~1.025 MHz effective opcode rate;
+`docs/apu.md`). Integer-only, so the SPC domain is bit-deterministic (`docs/adr/0004`).
+
+Because the SMP is advanced at master-clock granularity, by the time the CPU reads `$2140-$2143`
+the SMP has already been clocked up to that exact master instant — `Bus::b_read`/`b_write` route
+those four ports straight through `Apu::cpu_read_port` / `Apu::cpu_write_port` (the dead
+`apu_ports` latch array is gone). The "forced per-scanline sync" the model above describes is
+therefore **subsumed by the continuous lockstep** (the SMP is never arbitrarily ahead), which is
+stronger than the latency-bounded on-demand sync and stays fully deterministic.
+
+**Cycle-exact SMP step (T-31-004):** `advance_smp_cycle` now releases **exactly one SMP base clock
+per call** by draining a recorded micro-op timeline of the in-flight instruction (one entry per
+SPC700 bus access), committing each SMP→CPU port write at the precise base cycle its access
+completes — rather than running a whole instruction at the budget boundary. So a CPU read of
+`$2140-$2143` observes the SMP exactly up to that master instant and no further, the cooperative-
+thread interleaving achieved single-threaded (full derivation in `docs/apu.md` §cycle-exact). This
+got all four blargg `spc_*` ROMs to **stream their result text** (decoded + asserted by
+`tests/blargg_spc.rs`). The **timer-phase fix** (T-31-006) then drove `spc_smp` / `spc_timer` /
+`spc_mem_access_times` to blargg's **literal PASS** — the residual was the recording bus clocking the
+SPC700 timer *after* the write side effect instead of before (ares/Mesen2 clock it first), not a
+CPU-leading-vs-symmetric clock-model asymmetry as earlier believed (`docs/apu.md` §timer phase).
+`spc_dsp6` remains Failed 02 on a separate S-DSP echo/envelope residual.
+
 ## Test plan
 
 - The variable-cycle map: verify against the SingleStepTests/65816 per-cycle bus traces

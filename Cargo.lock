@@ -3142,6 +3142,7 @@ name = "rustysnes-test-harness"
 version = "0.1.0"
 dependencies = [
  "insta",
+ "rustysnes-apu",
  "rustysnes-core",
  "rustysnes-cpu",
  "serde_json",

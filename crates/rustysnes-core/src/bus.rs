@@ -2,9 +2,12 @@
 //!
 //! It holds the PPU1/PPU2, the SPC700+S-DSP, the cart (→ board / coprocessor), WRAM,
 //! controllers, the open-bus latch, the CPU-side registers (`$4200-$421F`), the mul/div unit,
-//! and the DMA/HDMA controller. The 65C816 borrows `&mut Bus` during an instruction; the
-//! video/audio chips see narrower bus traits ([`rustysnes_ppu::VideoBus`],
-//! [`rustysnes_apu::AudioBus`], [`crate::dma_bus::DmaBus`]) implemented on this same struct.
+//! and the DMA/HDMA controller. The 65C816 borrows `&mut Bus` during an instruction; the PPU and
+//! DMA see narrower bus traits ([`rustysnes_ppu::VideoBus`], [`crate::dma_bus::DmaBus`])
+//! implemented on this same struct. The APU owns its ARAM/DSP internally; the Bus drives it
+//! through [`rustysnes_apu::Apu`] directly — the four `$2140-$2143` port latches via
+//! [`rustysnes_apu::Apu::cpu_read_port`]/[`rustysnes_apu::Apu::cpu_write_port`] and the SPC clock
+//! via [`rustysnes_apu::Apu::advance_smp_cycle`] (the integer-accumulator async resync).
 //!
 //! ## The master clock lives here
 //!
@@ -29,7 +32,7 @@
 
 use alloc::boxed::Box;
 
-use rustysnes_apu::{Apu, AudioBus};
+use rustysnes_apu::Apu;
 use rustysnes_cart::{Cart, Region};
 use rustysnes_cpu::Bus as CpuBus;
 use rustysnes_ppu::{Ppu, Region as PpuRegion, VideoBus};
@@ -41,10 +44,20 @@ use crate::dma_bus::DmaBus;
 const WRAM_SIZE: usize = 128 * 1024;
 /// Master clocks per PPU dot (nominal; long-dot remainder folded into the 1364/1360/1368 line).
 const MASTER_PER_DOT: u32 = 4;
-/// SPC700 fractional-clock numerator (master ticks → SPC cycles): ~1.024 MHz.
-const SPC_NUM: u64 = 1_024_000;
-/// SPC700 fractional-clock denominator: the NTSC master clock Hz.
-const SPC_DEN: u64 = 21_477_270;
+/// SPC700 fractional-clock numerator (master ticks → SMP **base** clocks).
+///
+/// The unit the APU advances per [`rustysnes_apu::Apu::advance_smp_cycle`] call is one SMP *base*
+/// clock = `apuFrequency / 12` (ares `SMP::create(apuFrequency()/12, …)`; `apuFrequency =
+/// 32040 × 768 = 24_606_720` Hz → base = `2_050_560` Hz). A normal SMP access is `SMP_WAIT` = 2
+/// base clocks, giving the ~1.025 MHz effective opcode rate and an exact `32_040` Hz S-DSP sample.
+///
+/// The async resync (`docs/scheduler.md` §async-resync, ADR 0004) is an **integer** accumulator —
+/// no floats, so the SPC domain is bit-deterministic. The exact rational is
+/// `2_050_560 / 21_477_270` (SMP base rate over the NTSC master rate); gcd = 30, giving the reduced
+/// `68_352 / 715_909` kept here to bound accumulator growth (`spc_accum` stays below `SPC_DEN`).
+const SPC_NUM: u64 = 68_352;
+/// SPC700 fractional-clock denominator: the NTSC master clock Hz, reduced by gcd = 30.
+const SPC_DEN: u64 = 715_909;
 
 /// The master-clock phase + the CPU-side timing registers the Bus advances in lockstep.
 #[derive(Debug, Clone)]
@@ -123,9 +136,6 @@ pub struct Bus {
     /// Controller shift latches (`$4016/$4017`) + the auto-read result (`$4218-$421F`).
     joypad: [u16; 2],
     joypad_strobe: bool,
-    /// The four CPU↔APU communication-port latches (`$2140-$2143`). The full SPC700 handshake
-    /// is Phase 3; until then these are simple latches so port-polling boot code doesn't wedge.
-    apu_ports: [u8; 4],
     /// Open-bus latch: the last value driven on the data bus.
     #[allow(clippy::struct_field_names)] // "open_bus" is the hardware name for the latch.
     open_bus: u8,
@@ -163,7 +173,6 @@ impl Bus {
             wram_addr: 0,
             joypad: [0; 2],
             joypad_strobe: false,
-            apu_ports: [0; 4],
             open_bus: 0,
             muldiv: MulDiv::default(),
         }
@@ -217,10 +226,12 @@ impl Bus {
             self.clock.spc_accum += SPC_NUM;
             while self.clock.spc_accum >= SPC_DEN {
                 self.clock.spc_accum -= SPC_DEN;
-                // SPC700/S-DSP advance one of their cycles; resync only at the four ports.
-                // (APU model is Phase 3; the accumulator + tick hook are wired now.)
-                let mut view = AudioView;
-                self.apu.tick(&mut view);
+                // Release one SPC700 master cycle in lockstep with the master clock. The four
+                // CPU↔APU port latches live INSIDE the `Apu` (`cpu_read_port`/`cpu_write_port`),
+                // so advancing here at master-clock granularity means a CPU read of $2140-$2143
+                // already observes every SMP port write up to this exact master instant — the
+                // deterministic async resync (T-31-003; `docs/scheduler.md` §async-resync).
+                self.apu.advance_smp_cycle();
             }
         }
     }
@@ -258,7 +269,11 @@ impl Bus {
     fn b_read(&mut self, low: u8) -> u8 {
         match low {
             0x00..=0x3F => self.ppu.read_reg(0x2100 | u16::from(low)),
-            0x40..=0x43 => self.apu_ports[(low & 3) as usize],
+            // $2140-$2143 — the four CPU↔APU communication ports. A CPU read returns what the
+            // SMP last wrote to that port (a one-way latch, NOT an echo of the CPU's own write).
+            // The APU is already advanced up to "now" by the lockstep accumulator in
+            // `advance_master`, so this observes every SMP write up to this master instant.
+            0x40..=0x43 => self.apu.cpu_read_port(low & 3),
             0x80 => {
                 let v = self.wram[(self.wram_addr & 0x1_FFFF) as usize];
                 self.wram_addr = (self.wram_addr + 1) & 0x1_FFFF;
@@ -271,7 +286,8 @@ impl Bus {
     fn b_write(&mut self, low: u8, val: u8) {
         match low {
             0x00..=0x3F => self.ppu.write_reg(0x2100 | u16::from(low), val),
-            0x40..=0x43 => self.apu_ports[(low & 3) as usize] = val,
+            // $2140-$2143 — deposit into the CPU→SMP latch the SMP's IPL/program reads at $F4-$F7.
+            0x40..=0x43 => self.apu.cpu_write_port(low & 3, val),
             0x80 => {
                 self.wram[(self.wram_addr & 0x1_FFFF) as usize] = val;
                 self.wram_addr = (self.wram_addr + 1) & 0x1_FFFF;
@@ -475,10 +491,6 @@ impl VideoBus for CartView<'_> {
         self.cart.as_mut().map_or(self.open, |c| c.read24(addr24))
     }
 }
-
-/// A null audio view (the APU tick's port handshake is Phase 3; the accumulator is wired now).
-struct AudioView;
-impl AudioBus for AudioView {}
 
 /// The DMA controller's view: A-bus (24-bit) via the decode, B-bus via `b_read`/`b_write`.
 impl DmaBus for Bus {
