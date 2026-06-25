@@ -30,3 +30,18 @@ Cargo.lock.bak
 /tests/captures/
 /perf-logs/
 /web/dist/
+
+# Commercial-ROM safety net (ADR 0003): never commit ROM bytes anywhere. Broad-exclude every
+# SNES ROM/copier/patch extension, then re-include ONLY the committed permissive suites.
+*.sfc
+*.smc
+*.swc
+*.fig
+*.bs
+*.ips
+*.bps
+*.ups
+!/tests/roms/gilyon/**
+!/tests/roms/undisbeliever/**
+# (spc700 oracle is .json, golden baselines are .snap — both unaffected by the rules above;
+#  tests/roms/commercial-corpus.json is metadata only and intentionally committed.)
