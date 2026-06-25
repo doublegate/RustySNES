@@ -8,7 +8,7 @@ corpora are committed; everything unlicensed / copyleft / Nintendo lives in the 
 
 ## Target layout
 
-```
+```text
 tests/
   roms/
     README.md                 # committed — the license ledger (already present)

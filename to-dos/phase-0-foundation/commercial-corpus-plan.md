@@ -42,12 +42,27 @@ population** and the bucket is labelled population-limited (ADR 0003 BestEffort)
 
 ## Current coverage (survey over the local set, 995 ROMs, 2026-06-25)
 
-Manifest: **48 ROMs across 16 buckets**. Well-covered (≥5): LoROM-plain (714), HiROM-plain
-(222), SA-1 (15), DSP-1 (16), GSU-1 (7), GSU-2 (8), CX4 (5). Region NTSC=962 / PAL=33;
-battery-backed=436.
+Survey populations (avail per bucket): LoROM-plain (714), HiROM-plain (222), SA-1 (15),
+DSP-1 (16), GSU-1 (7), GSU-2 (8), CX4 (5). Region NTSC=962 / PAL=33; battery-backed=436.
 
 Population-limited (took all available — games don't exist beyond this): S-DD1 (2), DSP-2 (1),
 DSP-4 (1), SPC7110 (1), OBC1 (1), ST010 (1).
+
+### Curated manifest (popularity-weighted, 2026-06-25)
+
+Manifest: **36 entries across 16 buckets** (`commercial-corpus.json` schema `/2`). Within each
+bucket the picks are **beloved / iconic retail games deliberately spread across genres and
+studios** (no Mega-Man-X-style clustering) so the captured screenshots are visually distinct
+and recognizable — Chrono Trigger / FF VI / Secret of Mana / DKC / EarthBound (HiROM-plain);
+Super Mario World / Zelda LttP / Super Metroid / Castlevania IV / Contra III (LoROM-plain);
+Star Fox + Stunt Race FX + Vortex (GSU-1); Yoshi's Island + Doom + Winter Gold (the whole GSU-2
+population); Super Mario RPG + Kirby Super Star + Kirby's Dream Land 3 + Marvelous + Panic Bomber
+(SA-1); etc. Each entry carries a `note` (why it's interesting) and a `provenance` tag.
+Of the 36: **29 USA/World retail**, 1 JP retail, 1 BS-X BIOS, and **5 English fan-translations**
+— the translations appear ONLY in population-limited Japan-only buckets (Ace wo Nerae HiROM/DSP-1,
+Wonder Project J HiROM/GSU-1, Tengai Makyou Zero HiROM/SPC7110, Star Ocean LoROM/S-DD1, Marvelous
+LoROM/SA-1) where no retail English dump exists. Population-limited chips take their entire real
+retail population (CX4=2, GSU-2=3, S-DD1=2, single-game DSP-2/DSP-4/OBC1/ST010/SPC7110/Other).
 
 **Missing → see [`rom-acquisition-list.md`](rom-acquisition-list.md):** ExHiROM, DSP-3, ST011,
 ST018, S-RTC (all Japan-only; 4 titles close all 5 gaps).
