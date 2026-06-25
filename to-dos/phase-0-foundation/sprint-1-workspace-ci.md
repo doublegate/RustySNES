@@ -74,7 +74,8 @@ corpora; record each corpus's license in `tests/roms/README.md`.
 - [ ] No unlicensed/copyleft/Nintendo ROMs committed.
 
 **Dependencies:** T-01-001
-**Reference:** `docs/testing-strategy.md` §licensing
+**Reference:** `docs/testing-strategy.md` §licensing; **step-by-step:**
+[`rom-seeding-runbook.md`](rom-seeding-runbook.md)
 **Estimated complexity:** S
 
 ---
@@ -83,11 +84,12 @@ corpora; record each corpus's license in `tests/roms/README.md`.
 
 **Description:** the SingleStepTests/65816 set ships no LICENSE. Decide between (a) gitignored
 external tier, (b) securing permission, or (c) self-generating equivalent JSON from a validated
-core. Record the decision so Phase 1 can gate its primary oracle.
+core. Record the decision so Phase 1 can gate its primary oracle. **Decided in
+[`docs/adr/0005`](../../docs/adr/0005-65816-opcode-oracle-license.md): hybrid (c)+(a).**
 
 **Acceptance criteria:**
 
-- [ ] The decision is recorded in `docs/testing-strategy.md` §licensing "Open questions".
+- [x] The decision is recorded — `docs/adr/0005` + `docs/testing-strategy.md` §"Open questions".
 - [ ] If (a): the 65816 set lands only in `tests/roms/external/` (gitignored).
 - [ ] `docs/STATUS.md` reflects the chosen posture in the suite table.
 

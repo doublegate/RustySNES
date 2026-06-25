@@ -85,5 +85,7 @@ screenshots but never inflate the accuracy number.
 
 ## Open questions
 
-- Whether to self-generate the 65816 JSON oracle (removes the license dependency entirely) or
-  pursue permission — a Phase 1 decision.
+- ~~Whether to self-generate the 65816 JSON oracle (removes the license dependency entirely) or
+  pursue permission.~~ **Resolved — `docs/adr/0005`:** self-generate the committed oracle of
+  record, cross-validated against the gitignored upstream set + gilyon + ares before freeze; the
+  unlicensed upstream set stays a local cross-check, never committed, never a CI dependency.

@@ -25,7 +25,7 @@ is **0**.
 
 | Suite | Layer | License posture | Pass | Total |
 |---|---|---|---|---|
-| SingleStepTests/65816 (JSON) | CPU per-opcode oracle | **NO license — gitignored / self-gen** | 0 | TBD |
+| SingleStepTests/65816 (JSON) | CPU per-opcode oracle | **self-gen committed + upstream cross-check (external)** — ADR 0005 | 0 | TBD |
 | SingleStepTests/spc700 (JSON) | SPC per-opcode oracle | MIT (committable) | 0 | TBD |
 | gilyon/snes-tests (.sfc + golden tables) | CPU + SPC on-cart | MIT (committed) | 0 | TBD |
 | undisbeliever/snes-test-roms (.sfc) | PPU/DMA/HDMA hardware | Zlib (committed) | 0 | TBD |
