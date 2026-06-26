@@ -104,6 +104,19 @@ pub trait Board {
     fn irq_pending(&self) -> bool {
         false
     }
+
+    /// Supply a coprocessor firmware dump (e.g. the DSP-1 `dsp1.rom`). Default `false` — a base
+    /// board has no firmware to load. A chip-ROM-dump coprocessor returns `true` once the dump is
+    /// accepted; without it the board is non-functional, never silently degraded (`docs/adr/0003`).
+    fn load_firmware(&mut self, _bytes: &[u8]) -> bool {
+        false
+    }
+
+    /// Count of host accesses to the coprocessor's data ports since power-on (debugger /
+    /// diagnostics). Default `0` — base boards have no coprocessor.
+    fn coprocessor_host_accesses(&self) -> u64 {
+        0
+    }
 }
 
 /// Fold a linear ROM offset into a `size`-byte image with hardware-accurate mirroring.
@@ -136,16 +149,29 @@ const fn mirror(mut address: u32, size: u32) -> u32 {
 
 /// Select the concrete board for a parsed header, allocating ROM + zeroed SRAM.
 ///
-/// `rom` must be the copier-prefix-stripped image (see [`Header::detect`]). Base map mode →
-/// base board. In Phase 2 every cart is a base board; coprocessor boards land in Phase 4.
+/// `rom` must be the copier-prefix-stripped image (see [`Header::detect`]). The base map mode
+/// picks the base board; a detected coprocessor wraps it (DSP-1 → [`crate::coproc::Dsp1Board`]).
+/// Coprocessor boards that depend on a chip-ROM dump are inert until the firmware is supplied via
+/// [`Board::load_firmware`] (`docs/adr/0003`).
 #[must_use]
 pub fn select(header: &Header, rom: &[u8]) -> Box<dyn Board> {
+    let rom_len = rom.len();
     let rom: Box<[u8]> = Box::from(rom);
     let sram = vec![0u8; header.sram_size].into_boxed_slice();
-    match header.map_mode {
+    let base: Box<dyn Board> = match header.map_mode {
         MapMode::LoRom => Box::new(LoRom::new(rom, sram)),
         MapMode::HiRom => Box::new(HiRom::new(rom, sram)),
         MapMode::ExHiRom => Box::new(ExHiRom::new(rom, sram)),
+    };
+    match header.coprocessor {
+        CoproId::Dsp => Box::new(crate::coproc::Dsp1Board::new(
+            base,
+            header.map_mode,
+            rom_len,
+        )),
+        // Other coprocessor families land in later sprints; until then the cart runs as its base
+        // board (the coprocessor window is simply unmapped, never silently faked).
+        _ => base,
     }
 }
 

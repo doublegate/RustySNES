@@ -185,12 +185,35 @@ impl Header {
             map_mode,
             fast_rom: h[field::MAP_MODE] & 0x10 != 0,
             region,
-            // Phase-2 base mappers only — coprocessor decode is best-effort and stays None.
-            coprocessor: Coprocessor::None,
+            coprocessor: coprocessor_from_chipset(chipset),
             rom_size: image.len(),
             sram_size,
             has_battery,
         }
+    }
+}
+
+/// Derive the on-cart coprocessor from the chipset byte (`$xFD6`).
+///
+/// The low nibble is the cartridge type: `0`/`1`/`2` are plain ROM(+RAM(+battery)); `3`–`6` flag
+/// that a coprocessor is present. The high nibble then names it: `0`=DSP (`µPD77C25` family),
+/// `1`=Super FX/GSU, `2`=OBC1, `3`=SA-1, `4`=S-DD1, `F`=custom (SPC7110/CX4/ST01x via the `$xFBF`
+/// subtype). Phase 4 implements the DSP family; the others are detected so the board can route to
+/// the right (base, until later sprints) implementation and the tier/honesty gate stays honest.
+const fn coprocessor_from_chipset(chipset: u8) -> Coprocessor {
+    // No coprocessor unless the type nibble marks one present.
+    if !matches!(chipset & 0x0F, 0x3..=0x6) {
+        return Coprocessor::None;
+    }
+    match chipset >> 4 {
+        0x0 => Coprocessor::Dsp,
+        0x1 => Coprocessor::SuperFx,
+        0x2 => Coprocessor::Obc1,
+        0x3 => Coprocessor::Sa1,
+        0x4 => Coprocessor::SDd1,
+        // `$F` custom would need the `$xFBF` subtype to disambiguate SPC7110/CX4/ST01x; those are
+        // BestEffort, later-sprint families — leave them as None until their boards land.
+        _ => Coprocessor::None,
     }
 }
 

@@ -15,10 +15,12 @@
 extern crate alloc;
 
 pub mod board;
+pub mod coproc;
 pub mod header;
 pub mod tier;
 
 pub use board::{Board, Coprocessor, ExHiRom, HiRom, LoRom, MappedAddr};
+pub use coproc::{Dsp1Board, Revision, Upd77c25};
 pub use header::{Header, HeaderError, MapMode, Region};
 pub use tier::{BoardTier, board_tier};
 
@@ -89,6 +91,16 @@ impl Cart {
     /// Advance any on-cart coprocessor by one of its clock units. Default boards no-op.
     pub fn coprocessor_tick(&mut self) {
         self.board.coprocessor_tick();
+    }
+
+    /// Supply a coprocessor firmware dump (the user-provided chip ROM, e.g. DSP-1 `dsp1.rom`).
+    ///
+    /// Returns `true` if this cart's board carried a chip-ROM-dump coprocessor that accepted the
+    /// image. A cart without such a coprocessor (or a dump of the wrong size) returns `false` and
+    /// is unchanged — the honesty posture of `docs/adr/0003`: absent the dump the coprocessor is
+    /// non-functional, never silently degraded.
+    pub fn install_coprocessor_firmware(&mut self, bytes: &[u8]) -> bool {
+        self.board.load_firmware(bytes)
     }
 }
 

@@ -8,6 +8,27 @@ All notable changes to RustySNES are documented here. The format is based on
 
 ### Added
 
+- **Phase 4 — DSP-1 (NEC µPD77C25) + the shared NEC DSP engine:** a clean-room
+  `no_std`/`forbid(unsafe_code)` port of the NEC µPD77C25 / µPD96050 LLE core
+  (`rustysnes-cart::coproc::upd77c25`) — the full DSP instruction set (OP/RT/JP/LD, the K×L
+  signed-multiplier pipeline, dual accumulators + 6-flag condition sets, the 16-deep stack,
+  program/data ROM + data RAM, and the DR/SR/DP host ports), revision-parameterized so one engine
+  backs DSP-1/2/3/4 + ST010/011 (six chips). Added the `Dsp1Board` (`coproc::dsp1`) wrapping a base
+  LoROM/HiROM board and intercepting the DR/SR window, with the snes9x/ares-equivalent window
+  selection (HiROM `$00–$1F:$6000–$7FFF`; LoROM ≤1 MiB `$30–$3F:$8000–$FFFF`; LoROM >1 MiB
+  `$60–$6F:$0000–$7FFF`). Header detection now decodes the coprocessor from the `$FFD6` chipset
+  byte, and `board::select` routes `Coprocessor::Dsp` to the DSP-1 board. New
+  `Cart::install_coprocessor_firmware` + `Board::load_firmware` hook: the µPD77C25 is **inert until
+  the user supplies the `dsp1.rom` / `dsp1b.rom` chip dump** (gitignored, never committed —
+  `docs/adr/0003`), never silently degraded. Host↔chip sync is the RQM-handshake catch-up
+  (`run_until_rqm`) — byte-exact at the bus boundary and fully deterministic, no core-scheduler
+  hook. New harness gate `dsp1_oncart` (feature `test-roms`, self-skips when ROMs/firmware absent):
+  boots Super Mario Kart / Pilotwings / Super Bases Loaded 2 / Aim for the Ace on the full System,
+  asserts DSP detection, the RQM-handshake access count on both the LoROM and HiROM windows, a
+  committed deterministic golden framebuffer, and the firmware-differential (the Mode-7 titles
+  render differently with the chip installed). Engine unit tests cover the decode/ALU/multiplier
+  via a hand-assembled synthetic firmware. The `mapper_tier_honesty` gate stays green (DSP-1 is the
+  first real `Core/Curated` coprocessor backing the oracle).
 - **Phase 3 — Audio (SPC700 + S-DSP + ARAM):** a clean-room SPC700 (S-SMP) core driving the
   SingleStepTests/spc700 oracle to **0-diff — 100% state + cycle count over all 256 opcodes**
   (12,800 committed-sample tests in-tree; 256,000 in the full external tier). Full 256-opcode

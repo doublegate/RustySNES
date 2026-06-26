@@ -74,6 +74,42 @@ One **µPD77C25 / µPD96050 LLE engine** covers **DSP-1/2/3/4 and ST010/011 — 
 engine**. Implement it once in `rustysnes-cart` and drive each chip's program/data ROM through
 it. This is the single biggest economy in the coprocessor breadth phase.
 
+### The µPD77C25 / µPD96050 engine (implemented — `crate::coproc::upd77c25`)
+
+A clean-room port of ares' `uPD96050` component (ISC), parameterized by `Revision` (`Upd7725` =
+DSP-1..4, 2 K×24 program + 1 K×16 data ROM; `Upd96050` = ST010/011, 16 K×24 + 2 K×16). The full
+NEC DSP instruction set is decoded from the 24-bit word (OP / RT / JP / LD): the K×L signed
+multiplier pipeline, the dual accumulators + 6-flag condition sets, the 16-deep call stack, the
+program/data ROM + data RAM, and the DR / SR / DP host ports. Registers wrap at the revision's
+PC/RP/DP widths.
+
+**Host synchronization (the only cross-clock coupling):** the chip free-runs on its ~7.6 MHz
+oscillator and hand-shakes the CPU solely through the **RQM** ("request for master") status bit —
+DSP-1 games always poll `SR.rqm`, never a wall-clock cycle count. The engine therefore advances to
+its next parked (RQM-set) state after every host DR access (`run_until_rqm`, capped). This keeps
+the bus boundary byte-exact and fully deterministic (`docs/adr/0004`) without a free-running
+per-master-clock tick, and needs no core-scheduler hook.
+
+### DSP-1 board mapping + the firmware requirement (`crate::coproc::dsp1`)
+
+`Dsp1Board` wraps a base LoROM/HiROM board (ROM + SRAM decode delegated) and intercepts only the
+DR/SR window. There is **no canonical per-game window table**; the board picks the de-facto window
+from map mode + ROM size — the heuristic snes9x/bsnes use absent a cartridge DB, which coincides
+with every ares DSP-1 board definition:
+
+| Map mode / size     | DSP window (banks : addr)        | DR / SR split |
+|---------------------|----------------------------------|---------------|
+| HiROM               | `$00–$1F,$80–$9F : $6000–$7FFF`   | DR `$6xxx`, SR `$7xxx` |
+| LoROM, ROM ≤ 1 MiB  | `$30–$3F,$B0–$BF : $8000–$FFFF`   | DR `$8000–$BFFF`, SR `$C000–$FFFF` |
+| LoROM, ROM > 1 MiB  | `$60–$6F,$E0–$EF : $0000–$7FFF`   | DR `$0000–$3FFF`, SR `$4000–$7FFF` |
+
+**Firmware is user-supplied, never committed** (`docs/adr/0003`, edge case #2). The µPD77C25 runs a
+fixed 8 KiB chip-ROM dump (`dsp1.rom` or the revised `dsp1b.rom`): the program ROM (2048 LE 24-bit
+words) followed by the data ROM (1024 LE 16-bit words). Place it at the **gitignored**
+`tests/roms/external/firmware/dsp1*.rom` and install it via
+`Cart::install_coprocessor_firmware(&bytes)`. **Absent the dump the board is inert** — SR/DR read
+as open bus, the game wedges on its first DSP poll — it is never silently degraded.
+
 ### Per-chip notes (the load-bearing ones)
 
 - **DSP-1** (`Core/Curated`): NEC µPD77C25, Mode-7 3D math; 15+ games (Super Mario Kart,
@@ -126,6 +162,13 @@ pub trait Cart {
 - **Coprocessors:** Krom/PeterLemon GSU ROMs (reference-only); commercial dumps booted locally
   with committed screenshots / `.snap` only (never the ROM — `tests/roms/external/` is
   gitignored). Tier each board and assert the honesty gate (`docs/adr/0003`).
+- **DSP-1 (`dsp1_oncart`, feature `test-roms`):** boots the staged DSP-1 dumps on the full System
+  with the user-supplied (gitignored) `dsp1*.rom`, asserting (a) `Coprocessor::Dsp` detection, (b)
+  a non-zero RQM-handshake access count on **both** the LoROM (Pilotwings) and HiROM (Super Mario
+  Kart) windows — only possible if the window is mapped right *and* the µPD77C25 returns RQM, (c)
+  a committed deterministic golden framebuffer hash, and (d) the firmware-differential (the Mode-7
+  titles render differently with the chip installed). Engine decode/ALU/multiplier are unit-tested
+  against a hand-assembled synthetic firmware (no copyrighted bytes).
 
 ## Open questions
 
