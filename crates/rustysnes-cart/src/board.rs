@@ -157,6 +157,18 @@ const fn mirror(mut address: u32, size: u32) -> u32 {
 pub fn select(header: &Header, rom: &[u8]) -> Box<dyn Board> {
     let rom_len = rom.len();
     let rom: Box<[u8]> = Box::from(rom);
+
+    // Super FX / GSU owns its own ROM/RAM mapping (no base-board delegation): the GSU program
+    // lives in the cart ROM, so the board is functional with no chip-ROM dump. It re-decodes the
+    // LoROM Super FX map itself, so it never builds a base board.
+    if header.coprocessor == CoproId::SuperFx {
+        return Box::new(crate::coproc::superfx::select(
+            header.map_mode,
+            rom,
+            header.sram_size,
+        ));
+    }
+
     let sram = vec![0u8; header.sram_size].into_boxed_slice();
     let base: Box<dyn Board> = match header.map_mode {
         MapMode::LoRom => Box::new(LoRom::new(rom, sram)),

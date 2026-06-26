@@ -16,7 +16,8 @@ use rustysnes_core::cart::{BoardTier, Coprocessor, board_tier};
 /// mapping (`Coprocessor::None`) and DSP-1 are oracle-gated; the enhancement-chip families
 /// graduate into this set as redistributable fixtures land. A `BestEffort` family must NEVER
 /// appear here.
-const ORACLE_COPROCESSORS: &[Coprocessor] = &[Coprocessor::None, Coprocessor::Dsp];
+const ORACLE_COPROCESSORS: &[Coprocessor] =
+    &[Coprocessor::None, Coprocessor::Dsp, Coprocessor::SuperFx];
 
 /// Every board backing the accuracy oracle must resolve to an accuracy-gated tier.
 #[test]

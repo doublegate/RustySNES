@@ -16,7 +16,10 @@ honesty gate from the first board (`docs/adr/0003`). BestEffort breadth is Phase
       the full NEC DSP instruction set, revision-parameterized for the six NEC chips;
       `coproc::dsp1` the Lo/HiROM DR/SR windows; boots Super Mario Kart / Pilotwings / Super
       Bases Loaded 2 / Aim for the Ace with user-supplied `dsp1*.rom`; `dsp1_oncart` gate green).
-      Super FX/GSU and SA-1 (reusing the Phase-1 65C816 core) cycle-accurate from cart ROM — next.
+      **Super FX/GSU DONE** (`coproc::gsu` the full Argonaut RISC core + `coproc::superfx` the
+      `SuperFxBoard` LoROM Super FX map + bus arbitration; host-synced on the Go flag; boots the
+      58 Krom GSU test ROMs via `superfx_oncart` — detection + GSU-executed liveness + FillPoly
+      plot-pipeline-into-RAM + deterministic golden). SA-1 (reusing the Phase-1 65C816 core) — next.
 - [ ] The honesty gate is live: no BestEffort board backs the oracle.
 - [ ] Each implemented board boots a commercial dump locally → committed screenshots / `.snap`
       (never the ROM).
@@ -52,7 +55,25 @@ Out-of-scope (Phase 7):
   firmware-differential). Honesty gate green. Remaining DSP siblings (DSP-2/3/4, ST010/011) reuse
   this engine in Phase 7.
 - Sprint 3 — Super FX/GSU + SA-1.
-  **Status:** stub.
+  **Status:** **Super FX/GSU complete; SA-1 next.** `coproc::gsu` is a clean-room port of ares'
+  GSU + SuperFX components (ISC): the full Argonaut RISC instruction set + the ALT-mode machine,
+  the `mult`/`fmult`/`lmult` multiplier, the ROM/RAM buffers with their latency, the 256-byte
+  opcode cache, the branch-delay pipeline, and the PLOT/RPIX pixel-plot pipeline (pixel cache +
+  color/cmode logic + SCBR/SCMR 2/4/8 bpp character addressing). `coproc::superfx::SuperFxBoard`
+  owns the cart ROM + Game Pak RAM, decodes the LoROM Super FX CPU map, and arbitrates the shared
+  bus (snooze-vector / open-bus). No chip dump — the GSU program is in cart ROM; host-synced on the
+  Go flag (`run_until_stopped`, the DSP-1 `run_until_rqm` analogue), so no core-scheduler tick.
+  `board::select` routes `Coprocessor::SuperFx`; tier stays Curated, honesty gate green
+  (`ORACLE_COPROCESSORS` ∋ SuperFx). Validated by `superfx_oncart` (58 Krom GSU ROMs:
+  detection + GSU-executed liveness + FillPoly-into-RAM plot-pipeline + deterministic golden) + the
+  per-opcode `GSUTest` suite + engine unit tests.
+
+  **Deferred / honest gaps:** no commercial Super FX dumps are staged
+  (`commercial/LoRom/GSU-1`/`GSU-2` are empty), so Star Fox / Yoshi's Island / Doom are not yet
+  boot-validated — the Krom homebrew GSU suite is the current liveness/golden oracle. A 4 bpp
+  `FillPoly` polygon reaches the framebuffer; full PPU BG-mode display coverage for the 2/8 bpp
+  plot demos is a PPU concern, not the GSU's (the GSU correctly plots the bitmap into Game Pak RAM
+  in every mode, asserted via `Board::sram`). SA-1 is the remaining Sprint-3 board.
 
 ## Dependencies
 

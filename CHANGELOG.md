@@ -8,6 +8,33 @@ All notable changes to RustySNES are documented here. The format is based on
 
 ### Added
 
+- **Phase 4 — Super FX / GSU (Argonaut RISC) coprocessor:** a clean-room
+  `no_std`/`forbid(unsafe_code)` port of the GSU core (`rustysnes-cart::coproc::gsu`) — the full
+  Argonaut RISC: R0–R15 (R15 = PC) with the FROM/TO/WITH register-select prefixes, the
+  ALT1/ALT2/ALT3 composite-mode machine, the ALU + signed/unsigned `mult`/`umult` and the
+  `fmult`/`lmult` multiplier, the ROM buffer (ROMBR:R14 + busy/latency) and RAM buffer
+  (RAMBR/RAMADDR + deferred-write latency), the 256-byte/32-line opcode cache, the 1-instruction
+  pipeline that gives the GSU its branch delay slot, and the PLOT/RPIX pixel-plot pipeline (the
+  two-deep pixel cache, the color/cmode logic with dither/freeze-high/high-nibble/transparent, and
+  the SCBR/SCMR screen-base + 2/4/8 bpp character-format addressing) + the SFR status flags. Added
+  `SuperFxBoard` (`coproc::superfx`): it owns the cart ROM + the Game Pak RAM (the GSU plot
+  bitmap), decodes the LoROM Super FX CPU map (the `$3000–$32FF` register/cache window, the LoROM +
+  linear ROM windows, the `$70–$71` + `$6000–$7FFF` RAM windows), and arbitrates the shared
+  ROM/RAM bus (the snooze-vector / open-bus model while the GSU owns the bus). Unlike the DSP
+  family there is **no chip-ROM dump** — the GSU program lives in the cartridge ROM — so the board
+  is functional the moment the cart loads. Host↔GSU sync reuses the DSP-1 idea: the board runs the
+  GSU **to completion the instant the CPU sets the Go flag** (`Gsu::run_until_stopped`, capped),
+  byte-exact and deterministic with **no free-running core-scheduler tick**. `board::select` routes
+  `Coprocessor::SuperFx` (the base board is never built — Super FX re-decodes its own map). New
+  harness gate `superfx_oncart` (feature `test-roms`, self-skips when ROMs absent): boots the 58
+  Krom GSU test ROMs (2/4/8 bpp PlotPixel/PlotLine/FillPoly + the per-instruction `GSUTest` suite)
+  on the full System and asserts SuperFx detection, that the GSU actually executed its program out
+  of cart ROM, that the `FillPoly` suites plot a substantial bitmap into the Game Pak RAM (the
+  whole plot pipeline end-to-end at the cart boundary, PPU-independent), and a committed
+  deterministic golden framebuffer. `mapper_tier_honesty` adds `SuperFx` to the oracle set and
+  stays green (Super FX is the second `Core/Curated` coprocessor backing the oracle). Engine unit
+  tests cover a hand-assembled `ibt`/`stop` program through the full host-sync path + the board
+  ROM/RAM/register decode.
 - **Phase 4 — DSP-1 (NEC µPD77C25) + the shared NEC DSP engine:** a clean-room
   `no_std`/`forbid(unsafe_code)` port of the NEC µPD77C25 / µPD96050 LLE core
   (`rustysnes-cart::coproc::upd77c25`) — the full DSP instruction set (OP/RT/JP/LD, the K×L

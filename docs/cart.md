@@ -90,6 +90,58 @@ its next parked (RQM-set) state after every host DR access (`run_until_rqm`, cap
 the bus boundary byte-exact and fully deterministic (`docs/adr/0004`) without a free-running
 per-master-clock tick, and needs no core-scheduler hook.
 
+### The GSU core + the Super FX board (implemented — `crate::coproc::gsu` + `crate::coproc::superfx`)
+
+Phase 4's second Core/Curated coprocessor. Unlike the NEC DSP family there is **no chip-ROM
+dump** — the GSU program lives in the cartridge ROM the user already owns — so the board is
+functional the moment a Super FX cart loads (`docs/adr/0003`: never silently degraded, and here
+nothing to degrade).
+
+**The GSU core (`coproc::gsu::Gsu`)** is a clean-room port of ares' `GSU` + `SuperFX` components
+(ISC). It implements the full Argonaut RISC: R0–R15 (R15 = PC) with the FROM/TO/WITH source/dest
+register-select prefixes; the ALT1/ALT2/ALT3 composite-mode machine that re-skins each opcode
+(e.g. `add`→`adc`→`add #N`→`adc #N`); the ALU + signed/unsigned `mult`/`umult` + the
+`fmult`/`lmult` 16×16 multiplier; the ROM buffer (ROMBR:R14 with `R`-flag busy + latency) and the
+RAM buffer (RAMBR/RAMADDR with the deferred-write latency); the 256-byte / 32-line opcode cache
+(`CACHE`, `cbr`, the `$3100–$32FF` cache window); the **1-instruction pipeline** that gives the
+GSU its branch delay slot (`peekpipe`/`pipe`); the PLOT/RPIX pixel-plot pipeline with the two-deep
+pixel cache, the `color`/`cmode` colour logic (dither / freeze-high / high-nibble / transparent),
+and the SCBR/SCMR screen-base + 2/4/8 bpp character-format addressing; and the SFR status flags
+(Z/CY/S/OV, **Go**, R, ALT1/2, B, IRQ).
+
+**Host-sync (the only cross-clock coupling).** The GSU is started by the CPU writing R15's high
+byte at `$301F`, which sets **Go** and begins execution at `(PBR:R15)`; the chip free-runs until
+`STOP` clears Go (and, unless CFGR masks it, raises the cart IRQ), and software polls SFR for Go.
+Because Go is the only observable coupling — exactly the RQM role the DSP-1 uses — the board runs
+the GSU to completion the instant Go is set (`Gsu::run_until_stopped`, capped against a runaway
+program). This is byte-exact and fully deterministic (`docs/adr/0004`) and needs **no
+free-running core-scheduler tick** — the same economy as the DSP-1 `run_until_rqm`.
+
+**The Super FX board (`coproc::superfx::SuperFxBoard`)** owns the ROM (shared, read-only) and the
+Game Pak RAM (the GSU plot bitmap, sized from the header clamped to a 64 KiB minimum, power-of-two
+masked), intercepts the GSU register window, and decodes the LoROM Super FX CPU map:
+
+| Region (banks : addr)            | Target                              |
+|----------------------------------|-------------------------------------|
+| `$00–$3F,$80–$BF : $3000–$32FF`  | GSU registers + opcode-cache window |
+| `$00–$3F,$80–$BF : $8000–$FFFF`  | Game Pak ROM (LoROM windows)        |
+| `$40–$5F,$C0–$DF : $0000–$FFFF`  | Game Pak ROM (linear)               |
+| `$70–$71,$F0–$F1 : $0000–$FFFF`  | Game Pak RAM (the plot bitmap)      |
+| `$00–$3F,$80–$BF : $6000–$7FFF`  | Game Pak RAM low window (8 KiB)     |
+
+**Bus arbitration (not simultaneous — edge case #3).** While Go is set the GSU owns whichever of
+ROM/RAM its SCMR `RON`/`RAN` bits grant; a CPU ROM read then returns the hardware "snooze vector"
+(ares `CPUROM::read`) and a CPU RAM read returns open bus. Run-to-completion-on-Go serialises this
+naturally; the checks are kept for fidelity. The GSU and the CPU share the **same** ROM/RAM bytes,
+so a GSU plot into `$70:xxxx` is exactly what the CPU then DMAs to VRAM.
+
+`Coprocessor::SuperFx` routes through `board::select` to this board (the base board is never
+built — Super FX re-decodes the map itself). Tier stays **Curated** and is in the honesty
+oracle set. Validated by the `superfx_oncart` harness gate (58 Krom GSU ROMs: detection +
+GSU-executed liveness + a `FillPoly`-into-RAM plot-pipeline assertion + deterministic golden;
+see the test plan) plus engine unit tests (a hand-assembled `ibt`/`stop` program through the full
+host-sync path, plus the per-instruction Krom `GSUTest` suite booted on the System).
+
 ### DSP-1 board mapping + the firmware requirement (`crate::coproc::dsp1`)
 
 `Dsp1Board` wraps a base LoROM/HiROM board (ROM + SRAM decode delegated) and intercepts only the
@@ -114,9 +166,11 @@ as open bus, the game wedges on its first DSP poll — it is never silently degr
 
 - **DSP-1** (`Core/Curated`): NEC µPD77C25, Mode-7 3D math; 15+ games (Super Mario Kart,
   Pilotwings); memory-mapped DR/SR command ports.
-- **Super FX / GSU** (`Core/Curated`): Argonaut RISC plotting into bitmap RAM; 10.74 MHz
-  (Mario Chip 1) or 21.47 MHz; 32/64 KB cart RAM arbitrated with the SNES CPU (not
-  simultaneous); Star Fox, Yoshi's Island (GSU-2), Doom.
+- **Super FX / GSU** (`Core/Curated`, **implemented** — `coproc::gsu` + `coproc::superfx`):
+  Argonaut RISC plotting into bitmap RAM; 10.74 MHz (Mario Chip 1) or 21.47 MHz (CLSR); 32/64/128
+  KB cart RAM arbitrated with the SNES CPU (not simultaneous, the snooze-vector/open-bus model);
+  runs its program from cart ROM (no chip dump); host-synced on the Go flag; Star Fox, Yoshi's
+  Island (GSU-2), Doom. See "The GSU core + the Super FX board" above.
 - **SA-1** (`Core/Curated`): a second 65C816 @ 10.74 MHz — the most complex coprocessor.
   Registers $2200–$230E; I-RAM $3000–$37FF; shared BW-RAM (8-bit half-speed, 1-cycle stall per
   access); Character-Conversion DMA + arithmetic unit; ~35 games (Super Mario RPG, Kirby Super
@@ -162,6 +216,18 @@ pub trait Cart {
 - **Coprocessors:** Krom/PeterLemon GSU ROMs (reference-only); commercial dumps booted locally
   with committed screenshots / `.snap` only (never the ROM — `tests/roms/external/` is
   gitignored). Tier each board and assert the honesty gate (`docs/adr/0003`).
+- **Super FX (`superfx_oncart`, feature `test-roms`):** boots the staged Krom GSU test ROMs
+  (`tests/roms/external/krom/CHIP/GSU/`, CC0/homebrew, gitignored) — the `2/4/8 bpp`
+  PlotPixel/PlotLine/FillPoly demos + the per-instruction `GSUTest` suite — on the full System and
+  asserts (a) `Coprocessor::SuperFx` detection, (b) the GSU actually executed its program out of
+  cart ROM (non-zero coprocessor-activity count — only possible if the `$3000–$32FF` window is
+  mapped right *and* the host-sync run path works), (c) the `FillPoly` suites plot a substantial
+  bitmap into the Game Pak RAM (read back via `Board::sram`), proving the whole plot pipeline —
+  opcode-cache fetch, the `getbl`/`getbh` ROM-buffer scan-table reads, `ldw`/`stw` RAM, and the
+  PLOT pixel-cache → character-format flush — end-to-end at the cart boundary (PPU-independent),
+  and (d) a deterministic committed golden framebuffer hash. A 4 bpp `FillPoly` polygon also
+  reaches the framebuffer; full PPU BG-mode coverage for 2/8 bpp is a PPU concern. The GSU
+  instruction set is additionally exercised by the `GSUTest` per-opcode ROMs.
 - **DSP-1 (`dsp1_oncart`, feature `test-roms`):** boots the staged DSP-1 dumps on the full System
   with the user-supplied (gitignored) `dsp1*.rom`, asserting (a) `Coprocessor::Dsp` detection, (b)
   a non-zero RQM-handshake access count on **both** the LoROM (Pilotwings) and HiROM (Super Mario

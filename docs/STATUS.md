@@ -18,7 +18,7 @@ are not started.
 | `rustysnes-cpu` | WDC 65C816 (5A22) | **Phase 1 complete — 65816 oracle 0-diff (state+cycles), all 256 opcodes × modes, native+emulation, REP/SEP/XCE** |
 | `rustysnes-ppu` | PPU1 (5C77) + PPU2 (5C78) | **Phase 2 — BG 0-7 + Mode 7 + 128-sprite OAM + color math + windows + dot/HV timeline; per-scanline compositor (mid-line raster/hi-res deferred)** |
 | `rustysnes-apu` | SPC700 (S-SMP) + S-DSP + ARAM | **Phase 3 — SPC700 oracle 0-diff; S-DSP behavioral; integrated into the machine: the 4 `$2140-$2143` ports route through the real `Apu`, the integer-accumulator async resync clocks the SMP in **cycle-exact sub-instruction lockstep** (`68_352/715_909`, ADR 0004), SMP base-clock + timer + DSP rates ares-correct; blargg `spc_*` boot+upload+run bit-deterministically; the **timer-phase fix** (timebase/timers clocked before the write side effect, ares/Mesen2-correct) + the **DSP GAIN mode-7 threshold fix** (unsigned `hidden_env >= 0x600`, blargg/ares-correct) drive **all four `spc_*` (`spc_smp`/`spc_timer`/`spc_mem_access_times`/`spc_dsp6`) to literal `PASSED TESTS`** (asserted)** |
-| `rustysnes-cart` | LoROM/HiROM/ExHiROM + coprocessors | **Phase 2 base map modes + Phase 4 DSP-1: chipset-byte coprocessor detection, the shared µPD77C25/µPD96050 LLE engine, and the DSP-1 board (boots real DSP-1 games with user-supplied firmware). Super FX/GSU + SA-1 next** |
+| `rustysnes-cart` | LoROM/HiROM/ExHiROM + coprocessors | **Phase 2 base map modes + Phase 4 coprocessors: chipset-byte detection, the shared µPD77C25/µPD96050 LLE engine + DSP-1 board (real DSP-1 games with user-supplied firmware), and the Super FX/GSU — full Argonaut RISC core (`coproc::gsu`) + `SuperFxBoard` (`coproc::superfx`), host-synced on the Go flag, boots the Krom GSU suite (`superfx_oncart`). SA-1 next** |
 | `rustysnes-core` | Bus + master-clock scheduler + DMA/HDMA | **Phase 2 — master-clock lockstep (6/8/12 access map), full memory decode, CPU regs + mul/div, GP-DMA + HDMA, NMI/HV-IRQ** |
 | `rustysnes-frontend` | egui shell + audio ring + pacing | not started |
 | `rustysnes-netplay` | rollback netplay | not started |
@@ -35,6 +35,8 @@ are not started.
 | gilyon/snes-tests (cputest-basic .sfc) | CPU on-cart (boots on `System`) | MIT (committed) | **1107** | 1107 (= "Success") |
 | undisbeliever/snes-test-roms (.sfc) | PPU/DMA/HDMA hardware (golden framebuffer) | Zlib (committed) | **29** | 29 (deterministic) |
 | blargg `spc_*` (spc_dsp6 / mem_access / smp / timer) | cycle-accurate SPC/DSP (cycle-stepped S-DSP + timer-phase + GAIN mode-7 fixes) | unstated (external) | **4 boot+run det.; 4 literal PASS** | 4 (all → literal `PASSED TESTS` asserted: `spc_smp`/`spc_timer`/`spc_mem_access_times` via timer-phase fix, `spc_dsp6` via DSP GAIN mode-7 unsigned-threshold fix) |
+| DSP-1 commercial dumps (`dsp1_oncart`) | DSP-1 coprocessor (boots on `System` w/ user firmware) | ROMs+firmware gitignored (golden committed) | **4 boot+det.** | 4 (detection + RQM-access + golden + firmware-diff) |
+| Krom GSU suite (`superfx_oncart`) | Super FX/GSU coprocessor (boots on `System`) | CC0/homebrew (gitignored; golden committed) | **58 boot+live+det.** | 58 (SuperFx detect + GSU-executed + FillPoly-into-RAM plot pipeline + golden) |
 | 240p Test Suite (SNES) | video / overscan | GPLv2 (run-only) | 0 | TBD |
 | Visual golden corpus (`tests/golden/`) | framebuffer / audio hashes | own (committed) | **29** | 29 |
 
@@ -96,7 +98,7 @@ are not started.
 | Chip | Core | Tier | Shared LLE core | State |
 |---|---|---|---|---|
 | DSP-1/1A/1B | µPD77C25 | **Core/Curated** | µPD77C25 (shared, 6 chips) | **implemented** — full µPD7725 LLE engine (`coproc::upd77c25`) + `Dsp1Board` (Lo/HiROM DR/SR windows). Boots Super Mario Kart / Pilotwings / Super Bases Loaded 2 / Aim for the Ace on the full System with user-supplied `dsp1*.rom`; deterministic golden + firmware-differential + RQM-handshake access gate (`dsp1_oncart`, 4 ROMs). Honesty gate green (`ORACLE_COPROCESSORS` ∋ DSP). Firmware gitignored, never committed |
-| Super FX / GSU-1/2 | Argonaut RISC | **Core/Curated** | — (cart ROM) | not started |
+| Super FX / GSU-1/2 | Argonaut RISC | **Core/Curated** | — (cart ROM) | **implemented** — full GSU core (`coproc::gsu`: complete Argonaut RISC instruction set + ALT-mode machine, the multiplier, ROM/RAM buffers, opcode cache, the branch-delay pipeline, and the PLOT/RPIX pixel-plot pipeline) + `SuperFxBoard` (`coproc::superfx`: LoROM Super FX map, GSU register window, CPU↔GSU ROM/RAM arbitration). No chip dump — the GSU program is in cart ROM; host-synced on the Go flag (`run_until_stopped`, the DSP-1 `run_until_rqm` analogue), no core tick. Validated by `superfx_oncart` (58 Krom GSU ROMs: SuperFx detection + GSU-executed liveness + a FillPoly-into-RAM plot-pipeline assertion + deterministic golden) + the per-opcode `GSUTest` suite + engine unit tests. Honesty gate green (`ORACLE_COPROCESSORS` ∋ SuperFx) |
 | SA-1 | 65C816 @ 10.74 MHz | **Core/Curated** | (reuses CPU core) | not started |
 | DSP-2 / DSP-3 / DSP-4 | µPD77C25 | BestEffort | µPD77C25 (shared) | not started |
 | ST010 / ST011 | µPD96050 | BestEffort | µPD96050 (shared) | not started |
