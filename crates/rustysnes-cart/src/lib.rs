@@ -20,7 +20,7 @@ pub mod header;
 pub mod tier;
 
 pub use board::{Board, Coprocessor, ExHiRom, HiRom, LoRom, MappedAddr};
-pub use coproc::{Dsp1Board, Gsu, Revision, SuperFxBoard, Upd77c25};
+pub use coproc::{Dsp1Board, Gsu, Revision, Sa1Board, SuperFxBoard, Upd77c25};
 pub use header::{Header, HeaderError, MapMode, Region};
 pub use tier::{BoardTier, board_tier};
 

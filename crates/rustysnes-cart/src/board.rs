@@ -117,6 +117,58 @@ pub trait Board {
     fn coprocessor_host_accesses(&self) -> u64 {
         0
     }
+
+    // --- Second-CPU hooks (SA-1). -----------------------------------------------------------
+    //
+    // The one-directional crate graph forbids `rustysnes-cart` from depending on `rustysnes-cpu`,
+    // so a board that carries a *second* 65C816 (the SA-1) keeps the entire coprocessor SYSTEM
+    // state here and exposes the second CPU's memory view + control lines through these default-
+    // no-op hooks. `rustysnes-core` owns the second `rustysnes_cpu::Cpu` instance and drives it
+    // through these. See `docs/scheduler.md` §SA-1 and [`crate::coproc::sa1`].
+
+    /// Whether this board carries a second CPU that core must instantiate + step. Default `false`.
+    fn has_second_cpu(&self) -> bool {
+        false
+    }
+
+    /// Read a byte through the second CPU's memory view (its own address decode). Default open bus.
+    fn second_cpu_read(&mut self, addr24: u32) -> u8 {
+        let _ = addr24;
+        0
+    }
+
+    /// Write a byte through the second CPU's memory view. Default no-op.
+    fn second_cpu_write(&mut self, addr24: u32, val: u8) {
+        let _ = (addr24, val);
+    }
+
+    /// Whether the second CPU is currently allowed to execute (not held in reset / sleep). Default
+    /// `false`.
+    fn second_cpu_running(&self) -> bool {
+        false
+    }
+
+    /// Take a pending second-CPU reset edge (e.g. SA-1 RESB 1→0). Returns `true` exactly once per
+    /// edge; core then resets the second CPU. Default `false`.
+    fn second_cpu_take_reset(&mut self) -> bool {
+        false
+    }
+
+    /// Edge-triggered NMI to the second CPU (acknowledges on a `true` return). Default `false`.
+    fn second_cpu_poll_nmi(&mut self) -> bool {
+        false
+    }
+
+    /// Level-sensitive IRQ to the second CPU (honored when its `I` flag is clear). Default `false`.
+    fn second_cpu_poll_irq(&self) -> bool {
+        false
+    }
+
+    /// Advance the second CPU's internal timer/counters by `clocks` of its own master clock.
+    /// Default no-op.
+    fn second_cpu_tick(&mut self, clocks: u32) {
+        let _ = clocks;
+    }
 }
 
 /// Fold a linear ROM offset into a `size`-byte image with hardware-accurate mirroring.
@@ -166,6 +218,17 @@ pub fn select(header: &Header, rom: &[u8]) -> Box<dyn Board> {
             header.map_mode,
             rom,
             header.sram_size,
+        ));
+    }
+
+    // SA-1 owns its own Super-MMC ROM/BW-RAM/I-RAM mapping (no base-board delegation); the SA-1
+    // program lives in the cart ROM, so the board is functional the moment the cart loads. The
+    // second 65C816 is instantiated + stepped by `rustysnes-core` via the second-CPU hooks.
+    if header.coprocessor == CoproId::Sa1 {
+        return Box::new(crate::coproc::sa1::select(
+            rom,
+            header.sram_size,
+            header.region,
         ));
     }
 

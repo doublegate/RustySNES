@@ -11,16 +11,26 @@
 //! the GSU program lives in the cartridge ROM — so it is functional the moment the cart loads. It
 //! reuses the same host-sync idea: the GSU runs to completion the instant the CPU sets the Go
 //! flag, so no free-running core-scheduler tick is needed.
+//!
+//! Phase 4's third Core/Curated coprocessor is the **SA-1** ([`sa1::Sa1Board`]) — a second WDC
+//! 65C816 @ ~10.74 MHz plus a support ASIC. Like Super FX it carries no chip-ROM dump (the SA-1
+//! program is in the cartridge ROM). Unlike the host-sync chips it is a real parallel CPU: this
+//! board owns the entire SA-1 *system* (registers, Super-MMC banking, BW-RAM, I-RAM, arithmetic
+//! unit, DMA, var-len, H/V timer) and exposes the SA-1 CPU's memory view via the `Board`
+//! second-CPU hooks; `rustysnes-core` instantiates and steps the second CPU (the crate graph
+//! forbids `rustysnes-cart` from depending on `rustysnes-cpu`).
 
 // Chip-name jargon (µPD77C25, µPD96050, ST010, …) is not Rust code.
 #![allow(clippy::doc_markdown)]
 
 pub mod dsp1;
 pub mod gsu;
+pub mod sa1;
 pub mod superfx;
 pub mod upd77c25;
 
 pub use dsp1::Dsp1Board;
 pub use gsu::Gsu;
+pub use sa1::Sa1Board;
 pub use superfx::SuperFxBoard;
 pub use upd77c25::{Revision, Upd77c25};

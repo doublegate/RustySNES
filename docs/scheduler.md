@@ -108,6 +108,35 @@ H and/or V counter position (`$4207–$420A`), enabling mid-frame raster effects
 (`ref-docs/research-report.md` §2). The H/V counters are latched by reading SLHV `$2137` and
 read back from `$213C`/`$213D`. These fire off the master-clock phase, not the CPU cycle.
 
+## SA-1 — the second CPU (Phase 4)
+
+The SA-1 coprocessor is a **second WDC 65C816** clocked at master / 2 (~10.74 MHz), so each SA-1
+CPU cycle is **2 master clocks**. The crate graph forbids `rustysnes-cart` from depending on
+`rustysnes-cpu`, so the SA-1 *system* state lives in `coproc::sa1::Sa1Board` (the cart) while the
+scheduler (`rustysnes-core`) owns the second `rustysnes_cpu::Cpu` and drives it through the
+`Board` second-CPU hooks (`docs/cart.md` §SA-1).
+
+**The stepping model is deterministic catch-up, not a free-running thread.** `System` holds an
+optional `sa1_cpu`, instantiated in `reset()` iff the installed cart `has_second_cpu()`. After every
+main-CPU instruction (and the HDMA/DMA bus-steals inside the run loop), `run_sa1` measures the
+master clock the *untouched* main CPU has elapsed since the last call and converts it to an SA-1
+cycle budget (`Δmaster / 2`). It then steps the second CPU — against a thin `Sa1Bus` adapter that
+routes `read24`/`write24` to `Board::second_cpu_{read,write}` — until the budget is spent, charging
+each instruction's returned cycle count (×2) to the SA-1 H/V timer via `second_cpu_tick`. Because
+the budget is a pure function of `bus.clock.master` (which is a pure function of the deterministic
+main CPU), **installing and stepping the second CPU never perturbs the main CPU's behaviour or the
+existing scheduler timing** — the `cpu_oracle` stays bit-identical, and the SA-1 only runs for SA-1
+carts (gated by `sa1_cpu.is_some()`).
+
+**Control + interrupts.** The SA-1 powers up held in reset (RESB). When the S-CPU clears RESB the
+board latches a reset edge that `run_sa1` consumes to reset the second CPU (its reset/NMI/IRQ vector
+fetches are redirected inside the board to the SA-1's own CRV/CNV/CIV vectors). While the SA-1 is
+held in reset or asleep (`second_cpu_running()` is false) the budget drains into the timer only.
+The SA-1→S-CPU IRQ is `Board::irq_pending()`, ORed into the main bus IRQ line in `poll_irq`; the
+S-CPU→SA-1 IRQ/NMI feed the second CPU's `poll_irq`/`poll_nmi`. The SA-1 timing is approximate
+catch-up (not sub-instruction lockstep with the main CPU's bus accesses), which is exact for the
+register/arithmetic/DMA results games observe and keeps the contract fully deterministic.
+
 ## The SPC700 async resync (the accuracy crux)
 
 Per `ref-docs/2026-06-24-apu.md` §2: the SPC700 / S-DSP run on their own ~1.024 MHz timebase

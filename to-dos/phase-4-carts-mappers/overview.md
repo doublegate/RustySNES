@@ -19,7 +19,13 @@ honesty gate from the first board (`docs/adr/0003`). BestEffort breadth is Phase
       **Super FX/GSU DONE** (`coproc::gsu` the full Argonaut RISC core + `coproc::superfx` the
       `SuperFxBoard` LoROM Super FX map + bus arbitration; host-synced on the Go flag; boots the
       58 Krom GSU test ROMs via `superfx_oncart` — detection + GSU-executed liveness + FillPoly
-      plot-pipeline-into-RAM + deterministic golden). SA-1 (reusing the Phase-1 65C816 core) — next.
+      plot-pipeline-into-RAM + deterministic golden). **SA-1 DONE** (`coproc::sa1::Sa1Board` the
+      full SA-1 system — Super-MMC banking, BW-RAM 2/4 bpp bitmap, I-RAM, arithmetic/var-len units,
+      H/V timer, normal + char-conversion DMA — plus the second 65C816 instantiated + stepped in
+      `rustysnes-core` via the new `Board` second-CPU hooks, in deterministic master-clock catch-up
+      that leaves the main CPU oracle 0-diff; `sa1_oncart` gate green: 18 commercial SA-1 carts,
+      detection + S-CPU↔SA-1 traffic + aggregate SA-1-executed liveness + deterministic golden).
+      **Phase 4 Core/Curated coprocessors complete.**
 - [ ] The honesty gate is live: no BestEffort board backs the oracle.
 - [ ] Each implemented board boots a commercial dump locally → committed screenshots / `.snap`
       (never the ROM).
@@ -55,7 +61,8 @@ Out-of-scope (Phase 7):
   firmware-differential). Honesty gate green. Remaining DSP siblings (DSP-2/3/4, ST010/011) reuse
   this engine in Phase 7.
 - Sprint 3 — Super FX/GSU + SA-1.
-  **Status:** **Super FX/GSU complete; SA-1 next.** `coproc::gsu` is a clean-room port of ares'
+  **Status:** **complete — Super FX/GSU and SA-1 both done; Phase 4 Core/Curated coprocessors
+  finished.** `coproc::gsu` is a clean-room port of ares'
   GSU + SuperFX components (ISC): the full Argonaut RISC instruction set + the ALT-mode machine,
   the `mult`/`fmult`/`lmult` multiplier, the ROM/RAM buffers with their latency, the 256-byte
   opcode cache, the branch-delay pipeline, and the PLOT/RPIX pixel-plot pipeline (pixel cache +
@@ -73,7 +80,29 @@ Out-of-scope (Phase 7):
   boot-validated — the Krom homebrew GSU suite is the current liveness/golden oracle. A 4 bpp
   `FillPoly` polygon reaches the framebuffer; full PPU BG-mode display coverage for the 2/8 bpp
   plot demos is a PPU concern, not the GSU's (the GSU correctly plots the bitmap into Game Pak RAM
-  in every mode, asserted via `Board::sram`). SA-1 is the remaining Sprint-3 board.
+  in every mode, asserted via `Board::sram`).
+
+  **SA-1 (complete).** `coproc::sa1::Sa1Board` is a clean-room port of ares' `sfc/coprocessor/sa1`
+  (ISC): the `$2200–$23FF` register file, the Super-MMC ROM banking (CXB/DXB/EXB/FXB), BW-RAM (the
+  shared RAM with the `$2224` S-CPU window, the `$40–$4F` linear image, the SA-1 2/4 bpp bitmap +
+  linear projections, and the SWEN/CWEN/BWPA write-protect), 2 KiB I-RAM, the arithmetic unit
+  (mul/div/sigma), the variable-length bit unit, the H/V timer, and the normal + type-1/2
+  character-conversion DMA. The crate graph forbids `rustysnes-cart` from depending on
+  `rustysnes-cpu`, so the **second 65C816** lives in `rustysnes-core`: the scheduler owns an
+  optional `sa1_cpu`, exposes the SA-1 memory view + control lines through the new default-no-op
+  `Board` second-CPU hooks, wires a `Sa1Bus` adapter, and steps the second CPU in deterministic
+  master-clock catch-up — gated to SA-1 carts and bounded by the untouched master clock, so the
+  main CPU oracle stays 0-diff. `board::select` routes `Coprocessor::Sa1`; tier stays Curated,
+  honesty gate green (`ORACLE_COPROCESSORS` ∋ Sa1). Validated by `sa1_oncart` (18 commercial SA-1
+  carts: detection + S-CPU↔SA-1 register traffic for all 18 + an aggregate SA-1-executed liveness
+  floor — observed 10, incl. Super Mario RPG / both Kirbys / PGA Tour 96 / Power Rangers Zeo at
+  millions of SA-1 cycles — + deterministic golden) + board unit tests.
+
+  **Deferred / honest gaps (SA-1):** the SA-1 timing is deterministic master-clock catch-up, not
+  sub-instruction lockstep with the main CPU's individual bus accesses (exact for the register /
+  arithmetic / DMA results games observe; the cross-CPU bus-conflict wait-states are not modelled).
+  ~7 of the 18 staged carts defer waking the SA-1 (RDYB held, sometimes behind a main-CPU intro)
+  past the boot-smoke frame budget, so the liveness gate is an aggregate floor, not per-ROM 100 %.
 
 ## Dependencies
 

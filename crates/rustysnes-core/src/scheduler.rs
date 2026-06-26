@@ -13,9 +13,19 @@
 use rustysnes_cpu::Cpu;
 
 use crate::bus::Bus;
+use crate::sa1_bus::Sa1Bus;
 
 /// A generous instruction budget per frame so a wedged ROM can't spin forever in `run_frame`.
 const MAX_STEPS_PER_FRAME: u64 = 2_000_000;
+
+/// The SA-1 65C816 runs at ~10.74 MHz = master clock / 2, so each SA-1 CPU cycle is **2 master
+/// clocks**. The scheduler advances the SA-1 in a deterministic catch-up bounded by the master
+/// clock that the (untouched) main CPU has already advanced.
+const SA1_MASTER_PER_CYCLE: u64 = 2;
+
+/// Safety cap on SA-1 instructions executed in a single catch-up call (a wedged SA-1 program can't
+/// spin forever); far above any real per-step budget.
+const MAX_SA1_STEPS_PER_CALL: u32 = 200_000;
 
 /// Owns the run loop. Determinism contract: same seed + ROM + input => bit-identical AV.
 #[derive(Debug)]
@@ -30,6 +40,14 @@ pub struct System {
     booted: bool,
     /// The PPU scanline observed on the previous step (to detect line boundaries for HDMA).
     last_line: u16,
+    /// The second 65C816 (the SA-1's CPU), present only when an SA-1 cart is installed. Stepped in
+    /// deterministic catch-up against the main CPU's master-clock advance (`docs/scheduler.md`
+    /// §SA-1). `None` for every non-SA-1 cart, so the main CPU's behaviour/timing is unchanged.
+    sa1_cpu: Option<Cpu>,
+    /// Master-clock value last accounted to the SA-1 catch-up (delta = now − this).
+    sa1_last_master: u64,
+    /// Sub-cycle master-clock credit carried between SA-1 catch-up calls.
+    sa1_credit: u64,
 }
 
 impl System {
@@ -42,6 +60,9 @@ impl System {
             seed,
             booted: false,
             last_line: 0,
+            sa1_cpu: None,
+            sa1_last_master: 0,
+            sa1_credit: 0,
         }
     }
 
@@ -51,6 +72,69 @@ impl System {
         self.cpu.reset(&mut self.bus);
         self.booted = self.bus.cart.is_some();
         self.last_line = self.bus.ppu.scanline();
+        // Instantiate the SA-1's second CPU iff the installed cart carries one. It stays held in
+        // reset (the SA-1 board powers up with RESB asserted) until the main CPU clears RESB, at
+        // which point `run_sa1` resets it from the SA-1 reset vector (CRV).
+        self.sa1_cpu = self
+            .bus
+            .cart
+            .as_ref()
+            .filter(|c| c.board.has_second_cpu())
+            .map(|_| Cpu::new());
+        self.sa1_last_master = self.bus.clock.master;
+        self.sa1_credit = 0;
+    }
+
+    /// Advance the SA-1's second CPU to catch up with the master clock the main CPU has elapsed
+    /// since the last call. Deterministic and bounded entirely by `bus.clock.master` (which is a
+    /// pure function of the untouched main CPU), so installing the second CPU never perturbs the
+    /// main CPU's behaviour or the existing scheduler timing.
+    fn run_sa1(&mut self) {
+        let Some(mut cpu) = self.sa1_cpu.take() else {
+            return;
+        };
+        let now = self.bus.clock.master;
+        let delta = now.wrapping_sub(self.sa1_last_master);
+        self.sa1_last_master = now;
+        let mut credit = self.sa1_credit + delta;
+
+        if let Some(cart) = self.bus.cart.as_mut() {
+            let board = cart.board.as_mut();
+            if board.has_second_cpu() {
+                if board.second_cpu_take_reset() {
+                    let mut adapter = Sa1Bus { board: &mut *board };
+                    cpu.reset(&mut adapter);
+                }
+                let mut guard = 0u32;
+                while credit >= SA1_MASTER_PER_CYCLE && guard < MAX_SA1_STEPS_PER_CALL {
+                    guard += 1;
+                    if board.second_cpu_running() {
+                        let cyc = {
+                            let mut adapter = Sa1Bus { board: &mut *board };
+                            cpu.step(&mut adapter)
+                        };
+                        // SA-1 cycles → master clocks (×2). `cyc` is a single instruction's count,
+                        // so this never overflows a u32.
+                        let clocks = cyc.max(1).saturating_mul(2);
+                        board.second_cpu_tick(clocks);
+                        credit = credit.saturating_sub(u64::from(clocks));
+                    } else {
+                        // Held in reset / asleep: drain the budget into the timer in one go (keeps
+                        // the H/V counters advancing) and stop stepping the CPU.
+                        let drain = credit & !1;
+                        board.second_cpu_tick(u32::try_from(drain).unwrap_or(u32::MAX) & !1);
+                        credit &= 1;
+                    }
+                }
+            } else {
+                credit = 0;
+            }
+        } else {
+            credit = 0;
+        }
+
+        self.sa1_credit = credit;
+        self.sa1_cpu = Some(cpu);
     }
 
     /// Run one full video frame: step the CPU until the PPU's frame-count advances, firing the
@@ -82,7 +166,20 @@ impl System {
                     self.bus.run_hdma_line();
                 }
             }
+
+            // Catch the SA-1 up to the master clock (no-op when no SA-1 cart is installed).
+            if self.sa1_cpu.is_some() {
+                self.run_sa1();
+            }
         }
+    }
+
+    /// Cumulative cycles the SA-1's second CPU has executed since power-on, or `None` when no SA-1
+    /// cart is installed. A non-zero value is the SA-1 liveness signal: the second 65C816 actually
+    /// fetched + executed out of the cart ROM (many SA-1 titles run their main logic on the SA-1).
+    #[must_use]
+    pub fn sa1_cycles(&self) -> Option<u64> {
+        self.sa1_cpu.as_ref().map(|c| c.cycles)
     }
 
     /// Step a single CPU instruction (drives the whole machine in lockstep via the Bus).
@@ -91,6 +188,9 @@ impl System {
             self.reset();
         }
         self.cpu.step(&mut self.bus);
+        if self.sa1_cpu.is_some() {
+            self.run_sa1();
+        }
     }
 
     /// Advance by one CPU instruction (kept for API compatibility with the old skeleton). The

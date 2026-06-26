@@ -543,7 +543,10 @@ impl CpuBus for Bus {
     }
 
     fn poll_irq(&mut self) -> bool {
-        self.clock.irq_line
+        // OR the PPU/APU HV-IRQ level with any on-cart coprocessor IRQ (SA-1 → S-CPU, SPC7110 RTC,
+        // …). The `Board::irq_pending` hook is documented to be ORed here; base/host-sync boards
+        // return `false` so non-coprocessor carts are unaffected.
+        self.clock.irq_line || self.cart.as_ref().is_some_and(|c| c.board.irq_pending())
     }
 
     fn on_cpu_cycle(&mut self) {

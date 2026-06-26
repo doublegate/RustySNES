@@ -142,6 +142,60 @@ GSU-executed liveness + a `FillPoly`-into-RAM plot-pipeline assertion + determin
 see the test plan) plus engine unit tests (a hand-assembled `ibt`/`stop` program through the full
 host-sync path, plus the per-instruction Krom `GSUTest` suite booted on the System).
 
+### The SA-1 system + the second CPU (implemented — `crate::coproc::sa1` + `rustysnes-core`)
+
+Phase 4's third Core/Curated coprocessor and the most complex: the **SA-1** is a second WDC
+65C816 @ ~10.74 MHz (master clock / 2) plus a support ASIC. Like Super FX it carries **no chip-ROM
+dump** — the SA-1 program lives in the cartridge ROM — so the board is functional the moment an
+SA-1 cart loads (`docs/adr/0003`).
+
+**Why it spans two crates.** The one-directional crate graph forbids `rustysnes-cart` from
+depending on `rustysnes-cpu`. So `coproc::sa1::Sa1Board` owns the entire SA-1 **system** state and
+exposes the SA-1 CPU's *memory view + control lines* through the `Board` second-CPU hooks
+(`has_second_cpu` / `second_cpu_read` / `second_cpu_write` / `second_cpu_running` /
+`second_cpu_take_reset` / `second_cpu_poll_nmi` / `second_cpu_poll_irq` / `second_cpu_tick`);
+`rustysnes-core` owns the second `rustysnes_cpu::Cpu` and steps it (see `docs/scheduler.md` §SA-1).
+The board is a clean-room port of ares' `sfc/coprocessor/sa1` (ISC).
+
+**The SA-1 system (`coproc::sa1`)** implements: the `$2200–$23FF` register file (SA-1 control/reset,
+the bidirectional S-CPU↔SA-1 IRQ/NMI/message lines, the S-CPU NMI/IRQ vector redirect SNV/SIV); the
+**Super-MMC** ROM banking (CXB/DXB/EXB/FXB — four selectable 1 MiB blocks projected into the LoROM
+`$8000–$FFFF` windows and the HiROM `$C0–$FF` banks); **BW-RAM** (shared battery RAM, the `$2224`
+8 KiB-block S-CPU window + the `$40–$4F` linear image + the SA-1 `$60–$6F` 2/4 bpp **bitmap** and
+`$40–$5F` linear projections, with the SWEN/CWEN/BWPA write-protect); **I-RAM** (2 KiB internal,
+SIWP/CIWP per-256-byte write-protect); the **arithmetic unit** (`$2250–$2254`: signed multiply /
+unsigned divide / cumulative-sum sigma with the 40-bit accumulator + overflow); the
+**variable-length bit** processor (`$2258–$225B`, `$230C/$230D`); the **H/V timer** (the linear /
+HV counter that raises the SA-1 timer IRQ); and the **DMA** unit (normal ROM/BW-RAM/I-RAM transfer
+plus the type-1 and type-2 **character-conversion** DMA that transcodes linear BW-RAM ↔ planar
+I-RAM).
+
+S-CPU (main) memory map handled by `Board::read24`/`write24`:
+
+| Region (banks : addr)            | Target                                |
+|----------------------------------|---------------------------------------|
+| `$00–$3F,$80–$BF : $2200–$23FF`  | SA-1 registers (S-CPU side)           |
+| `$00–$3F,$80–$BF : $3000–$37FF`  | I-RAM (2 KiB)                         |
+| `$00–$3F,$80–$BF : $6000–$7FFF`  | BW-RAM (8 KiB block, `$2224` BMAPS)  |
+| `$00–$3F,$80–$BF : $8000–$FFFF`  | ROM (Super-MMC blocks C/D)           |
+| `$40–$4F : $0000–$FFFF`          | BW-RAM (linear)                      |
+| `$C0–$FF : $0000–$FFFF`          | ROM (Super-MMC blocks)               |
+
+**The reset/interrupt handshake.** The SA-1 powers up held in reset (RESB asserted). The S-CPU
+programs the SA-1 reset vector (CRV) + Super-MMC banks, then clears RESB (`$2200`) — the board
+latches a reset edge that `rustysnes-core` consumes to reset the second CPU (its reset/NMI/IRQ
+vector fetches are redirected to CRV/CNV/CIV inside `second_cpu_read`, since the SA-1 uses its own
+vectors, not the ROM `$FFEx` vectors). The SA-1→S-CPU IRQ is the board's `irq_pending()`, ORed into
+the main bus IRQ line; the S-CPU→SA-1 IRQ/NMI drive the second CPU's `poll_irq`/`poll_nmi`.
+
+`Coprocessor::Sa1` routes through `board::select` to this board (the base board is never built —
+SA-1 owns its own Super-MMC decode). Tier stays **Curated** and is in the honesty oracle set.
+Validated by the `sa1_oncart` harness gate (18 staged commercial SA-1 carts: per-ROM SA-1 detection
++ S-CPU↔SA-1 register traffic, an aggregate "the SA-1 CPU executed millions of cycles" liveness
+floor — Super Mario RPG, both Kirby titles, PGA Tour 96, Power Rangers Zeo, … — and a deterministic
+golden framebuffer) plus board unit tests (decode regions, reset+vector handshake, arithmetic unit,
+I-RAM/BW-RAM round-trips, Super-MMC ROM windows).
+
 ### DSP-1 board mapping + the firmware requirement (`crate::coproc::dsp1`)
 
 `Dsp1Board` wraps a base LoROM/HiROM board (ROM + SRAM decode delegated) and intercepts only the

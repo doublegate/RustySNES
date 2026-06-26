@@ -8,6 +8,27 @@ All notable changes to RustySNES are documented here. The format is based on
 
 ### Added
 
+- **Phase 4 — SA-1 (second 65C816 + ASIC) coprocessor:** a clean-room
+  `no_std`/`forbid(unsafe_code)` port of the SA-1 system (`rustysnes-cart::coproc::sa1::Sa1Board`,
+  from ares' `sfc/coprocessor/sa1`, ISC) — the `$2200–$23FF` register file (SA-1 control/reset, the
+  bidirectional S-CPU↔SA-1 IRQ/NMI/message lines + the S-CPU NMI/IRQ vector redirect), the Super-MMC
+  ROM banking (CXB/DXB/EXB/FXB), BW-RAM (the shared battery RAM with the `$2224` 8 KiB S-CPU window,
+  the `$40–$4F` linear image, the SA-1 2/4 bpp bitmap + linear projections, and the SWEN/CWEN/BWPA
+  write-protect), 2 KiB I-RAM (SIWP/CIWP protect), the arithmetic unit (signed multiply / unsigned
+  divide / cumulative-sum sigma), the variable-length bit unit, the H/V timer, and the normal +
+  type-1/type-2 character-conversion DMA. The **second 65C816** is instantiated and stepped in
+  `rustysnes-core` (the one-directional crate graph keeps the CPU core out of the cart crate): the
+  scheduler owns an optional `sa1_cpu`, wires a `Sa1Bus` adapter to the new `Board` second-CPU hooks
+  (`has_second_cpu` / `second_cpu_read|write` / `second_cpu_running` / `second_cpu_take_reset` /
+  `second_cpu_poll_nmi|irq` / `second_cpu_tick`), and advances it in deterministic master-clock
+  catch-up — so the SA-1 runs in parallel **without perturbing the main CPU** (the `cpu_oracle`
+  stays 0-diff; SA-1 stepping is gated to SA-1 carts). `Board::irq_pending()` is now ORed into the
+  bus IRQ line (the documented wiring), so the SA-1→S-CPU IRQ reaches the main CPU. `board::select`
+  routes `Coprocessor::Sa1` (no chip dump — the SA-1 program is in cart ROM). Tier stays
+  **Curated** and joins the honesty oracle set. Validated by the new `sa1_oncart` harness gate (18
+  commercial SA-1 carts: detection + S-CPU↔SA-1 register traffic for all 18, an aggregate
+  "the SA-1 CPU executed millions of cycles" liveness floor — Super Mario RPG, both Kirby titles,
+  PGA Tour 96, Power Rangers Zeo, … — and a deterministic golden framebuffer) plus board unit tests.
 - **Phase 4 — Super FX / GSU (Argonaut RISC) coprocessor:** a clean-room
   `no_std`/`forbid(unsafe_code)` port of the GSU core (`rustysnes-cart::coproc::gsu`) — the full
   Argonaut RISC: R0–R15 (R15 = PC) with the FROM/TO/WITH register-select prefixes, the
