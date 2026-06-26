@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "emu-thread")]
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Instant;
 
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -35,6 +36,113 @@ use crate::ui_shell::{MenuAction, ShellInfo, ShellState};
 
 #[cfg(feature = "emu-thread")]
 use crate::emu_thread::{EmuThread, SharedInput};
+
+/// Wall-clock fixed-timestep pacer + FPS meter for the synchronous (non-threaded) drive.
+///
+/// winit redraws fire at the **display** refresh (one `RedrawRequested` per vsync), so stepping
+/// exactly one emulated frame per redraw runs the emulator at the monitor's rate — 2.4× too fast
+/// on a 144 Hz panel. Instead we accumulate real elapsed time and run `run_frame` only once a
+/// frame's worth (`1 / region-rate`) has elapsed, presenting the latest framebuffer in between.
+/// The present mode then governs only vsync/tearing, never emulation speed. Catch-up is capped to
+/// avoid a spiral of death after a stall.
+struct Pacer {
+    /// Wall-clock instant of the previous `tick`/`idle` (for the elapsed-time delta).
+    last: Instant,
+    /// Unconsumed real time carried toward the next emulated frame, in seconds.
+    accumulator: f64,
+    /// Target seconds per emulated frame (`1 / region.frame_rate()`).
+    period: f64,
+    /// Emulated frames produced since the last FPS-window flush.
+    fps_frames: u32,
+    /// Wall time accrued since the last FPS-window flush, in seconds.
+    fps_time: f64,
+    /// The most recently computed smoothed FPS (refreshed twice a second).
+    fps: f32,
+}
+
+/// Cap on emulated frames produced in a single present, so a long stall (debugger break, GC
+/// pause) is absorbed rather than triggering an unbounded catch-up burst.
+const MAX_CATCHUP_FRAMES: u32 = 4;
+/// FPS display refresh window, in seconds (averages out the per-present batch jitter).
+const FPS_WINDOW: f64 = 0.5;
+
+impl Pacer {
+    fn new(rate: f64) -> Self {
+        Self {
+            last: Instant::now(),
+            accumulator: 0.0,
+            period: 1.0 / rate,
+            fps_frames: 0,
+            fps_time: 0.0,
+            fps: 0.0,
+        }
+    }
+
+    /// Advance the wall clock and return how many emulated frames to run this present (0..=cap).
+    #[cfg_attr(feature = "emu-thread", allow(dead_code))]
+    fn tick(&mut self) -> u32 {
+        let now = Instant::now();
+        // Clamp the delta so a hitch can't inject a huge backlog (spiral-of-death guard).
+        let dt = (now - self.last).as_secs_f64().min(0.25);
+        self.last = now;
+        self.advance(dt)
+    }
+
+    /// The time-source-free core of [`Pacer::tick`]: fold `dt` seconds of real time into the
+    /// accumulator and return how many whole emulated frames it earns (capped). Split out so the
+    /// pacing math is unit-testable without sleeping on the wall clock.
+    #[cfg_attr(feature = "emu-thread", allow(dead_code))]
+    fn advance(&mut self, dt: f64) -> u32 {
+        self.accumulator += dt;
+        self.fps_time += dt;
+
+        let mut frames = 0;
+        while self.accumulator >= self.period && frames < MAX_CATCHUP_FRAMES {
+            self.accumulator -= self.period;
+            frames += 1;
+        }
+        if frames == MAX_CATCHUP_FRAMES {
+            self.accumulator = 0.0; // drop the backlog rather than chase it forever
+        }
+
+        self.fps_frames += frames;
+        self.flush_fps();
+        frames
+    }
+
+    /// Threaded build: the emulation thread produces frames elsewhere, so credit one present here
+    /// and let the window average it into a present-rate FPS for the status bar.
+    #[cfg_attr(not(feature = "emu-thread"), allow(dead_code))]
+    fn note_present(&mut self) {
+        let now = Instant::now();
+        let dt = (now - self.last).as_secs_f64().min(0.25);
+        self.last = now;
+        self.fps_time += dt;
+        self.fps_frames += 1;
+        self.flush_fps();
+    }
+
+    /// Reset pacing while paused so resuming doesn't replay accumulated wall time as a burst.
+    fn idle(&mut self) {
+        self.last = Instant::now();
+        self.accumulator = 0.0;
+        self.fps_frames = 0;
+        self.fps_time = 0.0;
+        self.fps = 0.0;
+    }
+
+    /// Recompute the smoothed FPS once the averaging window has elapsed.
+    // The averaged FPS is a small display value (~50–60); the f64→f32 narrowing is intentional and
+    // its precision loss is irrelevant for a status-bar readout.
+    #[allow(clippy::cast_possible_truncation)]
+    fn flush_fps(&mut self) {
+        if self.fps_time >= FPS_WINDOW {
+            self.fps = (f64::from(self.fps_frames) / self.fps_time) as f32;
+            self.fps_frames = 0;
+            self.fps_time = 0.0;
+        }
+    }
+}
 
 /// The live application state, constructed in `resumed()` (the winit 0.30 idiom — a window
 /// cannot be created before the event loop resumes).
@@ -61,6 +169,12 @@ struct Active {
     resampler: Resampler,
     /// The egui shell's persistent UI state.
     shell: ShellState,
+    /// Wall-clock fixed-timestep pacer + FPS meter (drives the synchronous emulation cadence
+    /// independent of the display refresh).
+    pacer: Pacer,
+    /// The present-mode string currently applied to the surface; compared against the live config
+    /// each present so a Settings → Video toggle reconfigures the wgpu surface.
+    applied_present_mode: String,
 }
 
 /// The app: holds the config + the deferred ROM path until `resumed()` builds `Active`.
@@ -178,6 +292,8 @@ impl ApplicationHandler for App {
                 status: initial_status,
                 ..ShellState::default()
             },
+            pacer: Pacer::new(self.config.region.frame_rate()),
+            applied_present_mode: self.config.video.present_mode.clone(),
         });
     }
 
@@ -239,28 +355,57 @@ impl App {
     // is inherent to the wgpu/egui frame sequence and reads more clearly as a unit.
     #[allow(clippy::too_many_lines)]
     fn render(active: &mut Active, config: &mut Config) -> Vec<MenuAction> {
+        // --- (0) Apply a pending Settings → Video present-mode change to the live surface. ---
+        // The Settings window mutates `config.video.present_mode` during the prior egui pass; the
+        // surface was only ever configured once at startup, so the toggle did nothing until now.
+        if config.video.present_mode != active.applied_present_mode {
+            let applied = active.gfx.set_present_mode(&config.video.present_mode);
+            active
+                .applied_present_mode
+                .clone_from(&config.video.present_mode);
+            eprintln!("rustysnes: present mode applied -> {applied:?}");
+        }
+
         let paused = active.shell.paused;
         // --- (1) Copy framebuffer + audio + read-only info under a BRIEF lock, then drop it. ---
         let (fb, fb_dims, info, audio_samples) = {
+            // `mut` is only needed on the synchronous drive path (run_frame/set_pad); the threaded
+            // build only reads through the guard here.
+            #[cfg_attr(feature = "emu-thread", allow(unused_mut))]
             let mut emu = active.core.lock().unwrap_or_else(PoisonError::into_inner);
-            // When NOT threaded, step exactly one frame here (synchronous drive), unless paused.
+            // When NOT threaded, run as many whole emulated frames as real elapsed time has earned
+            // (fixed-timestep), so emulation tracks the region rate, not the display refresh.
             #[cfg(not(feature = "emu-thread"))]
             let audio_samples = if paused {
+                active.pacer.idle();
                 Vec::new()
             } else {
+                let frames = active.pacer.tick();
                 emu.set_pad(0, active.pad1);
-                emu.run_frame();
-                emu.audio().to_vec()
+                let mut samples = Vec::new();
+                for _ in 0..frames {
+                    emu.run_frame();
+                    samples.extend_from_slice(emu.audio());
+                }
+                samples
             };
             // Threaded build: the emu thread owns frame production; audio-from-thread is a TODO.
+            // Still advance the FPS meter's wall clock so the status bar reads the present rate.
             #[cfg(feature = "emu-thread")]
-            let audio_samples: Vec<(i16, i16)> = Vec::new();
+            let audio_samples: Vec<(i16, i16)> = {
+                if paused {
+                    active.pacer.idle();
+                } else {
+                    active.pacer.note_present();
+                }
+                Vec::new()
+            };
             let dims = emu.fb_dims();
             let fb = emu.framebuffer().to_vec();
             let info = ShellInfo {
                 cart_name: emu.cart_name().map(str::to_string),
                 region: emu.region(),
-                fps: 0.0, // TODO(impl-phase): wire the pacer's smoothed FPS estimate.
+                fps: active.pacer.fps,
                 rom_loaded: emu.rom_loaded(),
             };
             drop(emu); // release the brief lock BEFORE the wgpu upload + egui pass
@@ -481,4 +626,65 @@ fn try_install_firmware(emu: &mut EmuCore, rom_path: &Path) -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+// The test bodies convert small, known-positive `f64` counts (~30..240) to `u32` loop bounds; the
+// truncation/sign lints are irrelevant for these literals.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+mod tests {
+    use super::{FPS_WINDOW, MAX_CATCHUP_FRAMES, Pacer};
+    use crate::FRAME_RATE_NTSC;
+
+    /// The fixed-timestep pacer must run the emulator at the region rate regardless of how often
+    /// presents arrive: stepping the accumulator at a 144 Hz display rate and at a 30 Hz display
+    /// rate both yield ~60 emulated frames per simulated second. This is the bug-2 guarantee —
+    /// emulation speed is decoupled from the monitor refresh.
+    #[test]
+    fn pacing_tracks_region_rate_not_present_rate() {
+        for present_hz in [30.0_f64, 60.0, 75.0, 144.0, 240.0] {
+            let mut pacer = Pacer::new(FRAME_RATE_NTSC);
+            let dt = 1.0 / present_hz;
+            let presents = present_hz.round() as u32; // one simulated second
+            let mut frames = 0u32;
+            for _ in 0..presents {
+                frames += pacer.advance(dt);
+            }
+            let expected = FRAME_RATE_NTSC.round() as u32; // ~60
+            let diff = frames.abs_diff(expected);
+            assert!(
+                diff <= 2,
+                "present_hz={present_hz}: emulated {frames} frames/s, expected ~{expected}"
+            );
+        }
+    }
+
+    /// A long stall must not trigger an unbounded catch-up burst: a single huge delta is clamped
+    /// and capped to at most `MAX_CATCHUP_FRAMES` (spiral-of-death guard).
+    #[test]
+    fn pacing_caps_catchup_after_stall() {
+        let mut pacer = Pacer::new(FRAME_RATE_NTSC);
+        let frames = pacer.advance(10.0); // a 10-second stall
+        assert!(
+            frames <= MAX_CATCHUP_FRAMES,
+            "catch-up burst {frames} exceeded cap {MAX_CATCHUP_FRAMES}"
+        );
+    }
+
+    /// The FPS meter reports the measured emulated-frame rate once the averaging window elapses.
+    #[test]
+    fn fps_meter_reports_region_rate() {
+        let mut pacer = Pacer::new(FRAME_RATE_NTSC);
+        let dt = 1.0 / 144.0;
+        // Run just past the FPS averaging window at a 144 Hz present rate.
+        let presents = (FPS_WINDOW * 144.0).ceil() as u32 + 1;
+        for _ in 0..presents {
+            pacer.advance(dt);
+        }
+        assert!(
+            (pacer.fps - 60.0).abs() < 3.0,
+            "fps meter read {}, expected ~60",
+            pacer.fps
+        );
+    }
 }

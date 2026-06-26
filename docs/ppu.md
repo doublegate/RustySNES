@@ -94,6 +94,17 @@ Per `ref-docs/2026-06-24-ppu.md` §6:
   color), **CGADSUB $2131** (add/sub, half, per-layer enable), **COLDATA $2132** (fixed
   color). **Windows $2123–$2129** (W1/W2, OR/AND/XOR/XNOR, positions). **TM $212C / TS $212D**
   main / sub layer enable.
+  - **Subscreen-backdrop addend = the fixed color.** When "add subscreen" (CGWSEL bit 1) is set
+    but the *subscreen* pixel at that column is the backdrop (no opaque sub-layer wrote it), the
+    addend is **COLDATA's fixed color**, not CGRAM[0] — mirroring ares `DAC::above`
+    (`io.blendMode && math.transparent ⇒ blendMode = false ⇒ addend = fixedColor()`), and the
+    half is suppressed for that pixel. This is what paints SMW's blue sky (the fixed color) over
+    the black main backdrop; treating the sub-backdrop as CGRAM[0] renders the sky black.
+  - **BG palette-group offset.** A BG tilemap entry carries a 3-bit palette group (bits 12–10).
+    The CGRAM index of a BG pixel is `paletteBase + (group << bpp) + color` (masked to a byte;
+    `bpp` = 2/4/8, so 8bpp ignores the group), where `paletteBase = id<<5` only in Mode 0. Per
+    ares `background.cpp`. Dropping the group collapses every tile onto palette group 0 and
+    washes multi-palette art (the SMW logo/border).
 
 ## Frame structure / resolutions
 

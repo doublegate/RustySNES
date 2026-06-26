@@ -241,13 +241,19 @@ impl Ppu {
                 continue;
             }
 
-            // BG palette base for Mode 0 (each BG gets a 32-color region).
-            let pal_base = if self.io.bg_mode == 0 {
-                (bg as u8) << 5
+            // BG palette index: Mode 0 gives each BG its own 32-color region; every other mode
+            // shares the 256-entry CGRAM. The tilemap's 3-bit palette group selects a sub-palette
+            // of `2^bpp` colors, contributing `group << bpp` (masked to a byte; 8bpp ignores the
+            // group). Dropping this group offset is what collapsed every BG tile onto palette
+            // group 0 and washed the SMW logo/border colors. Matches ares `background.cpp`:
+            //   paletteIndex = paletteBase + (paletteNumber << paletteShift) & 0xff
+            let pal_base: u16 = if self.io.bg_mode == 0 {
+                (bg as u16) << 5
             } else {
                 0
             };
-            let final_pal = pal_base.wrapping_add(palette_idx);
+            let group_off = (u16::from(group) << bpp) & 0xff;
+            let final_pal = (pal_base + group_off + u16::from(palette_idx)) as u8;
             let prio = pr.bg[bg][usize::from(priority_hi)];
 
             let xi = x as usize;
@@ -728,12 +734,22 @@ impl Ppu {
             let mut out = if main_force_black { 0 } else { main_color };
 
             if math_layer && math_allowed {
-                let addend = if self.io.add_subscreen {
+                // SNES color-math addend selection (ares `DAC::above`): the subscreen is the
+                // addend ONLY when "add subscreen" is enabled AND the subscreen pixel is opaque
+                // (a real layer wrote it). When the subscreen pixel is the backdrop (transparent),
+                // the hardware falls back to the COLDATA fixed color even with add-subscreen on —
+                // this is what paints SMW's blue sky (fixed_color) over the black main backdrop.
+                let use_subscreen = self.io.add_subscreen && bp.opaque;
+                let addend = if use_subscreen {
                     self.layer_color(&bp)
                 } else {
                     self.io.fixed_color
                 };
-                let halve = self.io.color_halve && (!self.io.add_subscreen || bp.opaque);
+                // Halving applies only when the main pixel is not forced black and (for the
+                // subscreen addend) the subscreen is opaque — matching ares' `colorHalve` gate.
+                let halve = self.io.color_halve
+                    && !main_force_black
+                    && (!self.io.add_subscreen || bp.opaque);
                 out = if self.io.color_subtract {
                     color_sub(out, addend, halve)
                 } else {

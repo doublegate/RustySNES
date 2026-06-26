@@ -221,6 +221,38 @@ All notable changes to RustySNES are documented here. The format is based on
 
 ### Fixed
 
+- **PPU color math — subscreen-backdrop addend is the fixed color (washed/black backgrounds).**
+  When "add subscreen" (CGWSEL $2130 bit 1) is enabled but the subscreen pixel at a column is the
+  backdrop (no opaque sub-layer wrote it), the color-math addend must be **COLDATA's fixed color**,
+  not CGRAM[0]. `compose_dac` (`crates/rustysnes-ppu/src/render.rs`) used `layer_color(&bp)`, which
+  returns CGRAM[0] (black) for a transparent subscreen pixel, so SMW's blue title sky (painted by
+  the fixed color over a black main backdrop) rendered **black**. Now the addend falls back to the
+  fixed color when the subscreen is transparent, and the half is suppressed for that pixel —
+  matching ares `DAC::above` (`io.blendMode && math.transparent ⇒ addend = fixedColor()`). Verified
+  by an ares (ISC) framebuffer pixel-diff on Super Mario World: the title sky now reads the fixed
+  color (BGR555 `0x7393` ⇒ light blue) instead of `0x0000`.
+- **PPU background palette-group offset (washed multi-palette BG art).** A BG tilemap entry's 3-bit
+  palette group (bits 12–10) was fetched but dropped from the CGRAM index, collapsing every BG tile
+  onto palette group 0 — the SMW logo and brick border rendered as flat grey/cream instead of their
+  per-letter colors. `render_bg` now computes `paletteBase + (group << bpp) + color` (masked to a
+  byte; 8bpp ignores the group; `paletteBase = id<<5` only in Mode 0), per ares `background.cpp`.
+  The ares pixel-diff confirms the title logo/border colors now match. **undisbeliever golden stays
+  29/29** (no re-bless — none of those ROMs exercise a hash-affecting non-zero BG palette group or
+  subscreen-backdrop math); the PPU stays `#![no_std]` + `forbid(unsafe_code)`.
+- **Frontend pacing — emulation ran at the display refresh, not the region rate (~2–3× too fast).**
+  The synchronous (default) drive stepped exactly one emulated frame per winit `RedrawRequested`,
+  i.e. once per display vsync, so a 144 Hz monitor ran the emulator 2.4× too fast. The present path
+  now drives emulation from a wall-clock **fixed-timestep accumulator** (`app::Pacer`): `run_frame`
+  runs only once `1 / region.frame_rate()` seconds of real time have accrued (NTSC 60.0988 /
+  PAL 50.0070 Hz), the latest framebuffer is presented in between, catch-up after a stall is capped
+  to avoid a spiral of death, and the present mode now governs **only** vsync/tearing. Unit-tested
+  to hold ~60 fps across 30/60/75/144/240 Hz present rates (`pacing_tracks_region_rate_not_present_rate`).
+- **Frontend FPS counter always read `0.0`.** `ShellInfo::fps` was hardcoded to `0.0`; the new
+  `Pacer` measures the emulated-frame rate over a 0.5 s window and feeds the status bar.
+- **Frontend Settings → Video present-mode toggle did nothing.** The radio wrote
+  `config.video.present_mode` but the wgpu surface was only configured once at startup. The present
+  path now detects the change and calls the new `Gfx::set_present_mode`, which re-validates against
+  the surface's supported modes (falling back to `Fifo`) and reconfigures the live surface.
 - **S-DSP GAIN mode-7 threshold (blargg `spc_dsp6` literal PASS, T-31-007):** `Dsp::envelope_run`
   compared the voice's internal envelope latch (`env_internal`) against the bent/two-slope
   `GAIN`-increase threshold `0x600` with a **signed** test, where blargg `SPC_DSP`

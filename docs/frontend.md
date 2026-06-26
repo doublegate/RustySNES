@@ -45,6 +45,34 @@ Netplay rollback is likewise frontend-orchestrated against the deterministic cor
 - The optional non-deterministic "hardware-accurate audio" SPC-drift toggle (`docs/apu.md`
   §determinism-caveat) is a frontend setting, off by default, outside the deterministic path.
 
+### Fixed-timestep wall-clock pacing (synchronous drive)
+
+winit's `RedrawRequested` fires once per **display** vsync, so stepping exactly one emulated
+frame per redraw runs the emulator at the *monitor's* refresh — e.g. 2.4× too fast on a 144 Hz
+panel. The synchronous (default, non-`emu-thread`) path therefore drives emulation from a
+**wall-clock fixed-timestep accumulator** (`app::Pacer`): each present accumulates the real
+elapsed time and runs `run_frame` only once `1 / region.frame_rate()` seconds have accrued,
+presenting the latest framebuffer in between. Catch-up after a stall is capped
+(`MAX_CATCHUP_FRAMES`, with the leftover backlog dropped) to avoid a spiral of death, and the
+delta is clamped. The **present mode then governs only vsync/tearing, never emulation speed.**
+The pacer's math is unit-tested (`pacing_tracks_region_rate_not_present_rate`) to hold ~60 fps
+across 30/60/75/144/240 Hz present rates.
+
+### FPS meter
+
+`Pacer` doubles as the FPS meter: it counts emulated frames produced per wall-second over a
+0.5 s window and exposes the smoothed value as `ShellInfo::fps`, which the status bar renders.
+(In the `emu-thread` build the meter counts presents instead, since frames are produced off the
+winit thread.)
+
+### Present-mode application
+
+The Settings → Video present-mode radio writes `config.video.present_mode`; the present path
+detects a change against the last-applied mode and calls `Gfx::set_present_mode`, which
+re-validates the request against the surface's supported modes (falling back to `Fifo`) and
+**reconfigures the live wgpu surface**. Previously the surface was only ever configured once at
+startup, so the toggle had no effect.
+
 ## Input
 
 - USB gamepads auto-bind to P1; keyboard fallback for P1/P2.

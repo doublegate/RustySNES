@@ -106,6 +106,9 @@ pub struct Gfx {
     fb_w: u32,
     /// See [`Gfx::fb_w`].
     fb_h: u32,
+    /// The surface's supported present modes (queried once at init), so a later Settings change
+    /// can re-validate a requested mode against the hardware without re-acquiring the adapter.
+    present_modes: Vec<wgpu::PresentMode>,
 }
 
 impl Gfx {
@@ -299,7 +302,24 @@ impl Gfx {
             uniform_buf,
             fb_w: SNES_W,
             fb_h: SNES_H_NTSC,
+            present_modes: caps.present_modes,
         })
+    }
+
+    /// Re-apply a present-mode preference to the live surface (the Settings → Video toggle).
+    ///
+    /// Re-validates `pref` against the surface's supported modes, rewrites the surface
+    /// configuration, and reconfigures so the new vsync/tearing behavior takes effect on the next
+    /// present. Returns the mode actually applied (which falls back to `Fifo` if the request is
+    /// unsupported). A no-op if the resolved mode already matches the live one.
+    pub fn set_present_mode(&mut self, pref: &str) -> wgpu::PresentMode {
+        let mode = select_present_mode(pref, &self.present_modes);
+        if mode == self.config.present_mode {
+            return mode;
+        }
+        self.config.present_mode = mode;
+        self.surface.configure(&self.device, &self.config);
+        mode
     }
 
     /// Re-negotiate the surface on a window resize.
