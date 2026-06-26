@@ -10,9 +10,11 @@
 //! lock inside the egui closure. The frontend owns rate control + run-ahead — NEVER the core
 //! (the determinism contract).
 //!
-//! v0.1.0 status: this is a COMPILING SKELETON. The chip crates are themselves skeletons, so
-//! the present path shows a cleared/placeholder frame; the deep debugger panels are TODO
-//! stubs. The point is the shell structure + the core wiring, not pixel output yet.
+//! Phase 5 status: PLAYABLE on native. The chip stack is complete, so the present path decodes
+//! the real PPU framebuffer, the S-DSP audio drives the cpal stream, and keyboard/gamepad input
+//! reaches the controllers. The deep debugger panels are still TODO stubs, and save-states /
+//! rewind / run-ahead are deferred to a follow-up sprint (they need a core-wide snapshot). The
+//! wasm32 build compiles; its browser frontend is a bootstrap scaffold.
 //
 // TODO(v-next): after the second/third Rusty<System>, the console-agnostic shell wants to be
 // a shared `rusty-frontend-core` crate parameterized over a `Console` trait (framebuffer

@@ -88,8 +88,8 @@ impl ShellState {
     /// windows) and collect any requested [`MenuAction`]s. Returns the actions for the app to
     /// dispatch AFTER this pass — this function NEVER touches the emulator.
     ///
-    /// Uses the egui 0.34 panel API: the caller passes the root `Ui` from `Context::run_ui`,
-    /// into which the top/bottom panels are nested with `show_inside`.
+    /// Uses the egui 0.35 panel API: the caller passes the root `Ui` from `Context::run_ui`,
+    /// into which the top/bottom panels are nested with `Panel::show`.
     // One straight-line immediate-mode egui pass (menu bar + status bar + windows); the line
     // count is inherent to the panel layout and reads more clearly as a unit than split apart.
     #[allow(clippy::too_many_lines)]
@@ -102,7 +102,7 @@ impl ShellState {
         let mut actions = Vec::new();
         let ctx = root_ui.ctx().clone();
 
-        egui::Panel::top("menu_bar").show_inside(root_ui, |ui| {
+        egui::Panel::top("menu_bar").show(root_ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("Open ROM…").clicked() {
@@ -205,7 +205,7 @@ impl ShellState {
             });
         });
 
-        egui::Panel::bottom("status_bar").show_inside(root_ui, |ui| {
+        egui::Panel::bottom("status_bar").show(root_ui, |ui| {
             ui.horizontal(|ui| {
                 let title = info.cart_name.as_deref().unwrap_or(if info.rom_loaded {
                     "<unknown cart>"

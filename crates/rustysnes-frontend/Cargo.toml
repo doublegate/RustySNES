@@ -56,14 +56,17 @@ workspace = true
 [dependencies]
 rustysnes-core = { path = "../rustysnes-core", version = "0.1.0" }
 
-# winit + wgpu + cpal + egui shell. Versions pinned to the same tier RustyNES
-# ships (egui/wgpu 0.34/29, winit 0.30) so the lift-and-adapt stays drift-free.
+# winit + wgpu + cpal + egui shell. Versions tracked to the latest published,
+# mutually-compatible tier (2026-06): egui/egui-wgpu/egui-winit 0.35, wgpu 29
+# (the newest major egui-wgpu 0.35 builds against), winit 0.30 (the newest
+# winit egui-winit 0.35 supports — winit 0.31 is beta-only and egui-winit
+# pins to 0.30, so winit is the crate gating us off 0.31).
 winit = "0.30"
 wgpu = { version = "29", features = ["webgl"] }
 cpal = "0.18"
-egui = "0.34"
-egui-wgpu = "0.34"
-egui-winit = { version = "0.34", default-features = false, features = ["links", "wayland", "x11"] }
+egui = "0.35"
+egui-wgpu = "0.35"
+egui-winit = { version = "0.35", default-features = false, features = ["links", "wayland", "x11"] }
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 toml = "1.1"
@@ -79,7 +82,7 @@ web-time = "1.1"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gilrs = "0.11"
 rfd = "0.17"
-directories = "5"
+directories = "6"
 # clap 4 styled `--help` + `help <topic>` + shell completions (unconditional);
 # the interactive ratatui TUI browser is behind the default-on `help-tui` feature.
 clap = { version = "4", features = ["derive", "color", "cargo"] }
@@ -92,11 +95,11 @@ ratatui = { version = "0.30", optional = true }
 # GOTCHA: the wasm-bindgen CLI pin in web/Trunk.toml MUST equal the resolved
 # wasm-bindgen LIBRARY version in Cargo.lock (grep -A1 'name = "wasm-bindgen"').
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.100"
-wasm-bindgen-futures = "0.4.50"
+wasm-bindgen = "0.2.126"
+wasm-bindgen-futures = "0.4.76"
 console_error_panic_hook = "0.1.7"
-js-sys = "0.3.77"
-web-sys = { version = "0.3.77", features = [
+js-sys = "0.3.103"
+web-sys = { version = "0.3.103", features = [
     "Document", "Window", "Element", "HtmlElement", "HtmlCanvasElement",
     "Event", "EventTarget", "KeyboardEvent",
     "CanvasRenderingContext2d", "ImageData", "Storage",

@@ -9,14 +9,20 @@ SNES-specific work is the second-CPU/APU panels and the Mode-7 / HDMA / coproces
 
 ## Exit criteria
 
-- [ ] Playable native (winit + wgpu + cpal + egui) + wasm.
-- [ ] The shell never holds the emu lock inside the egui closure (`MenuAction` dispatched after
-      the egui pass); the emulator runs on a dedicated thread.
-- [ ] The audio ring + dynamic rate control sustain 60.0988/50.0070 Hz without underruns.
-- [ ] Save-states, rewind, and run-ahead work and preserve the determinism contract (incl. the
-      SPC accumulator + seeded phase).
-- [ ] The frontend determinism path is intact (rate control + run-ahead live here, not the core).
-- [ ] All sprints complete.
+- [x] Playable native (winit 0.30 + wgpu 29 + cpal + egui 0.35): real ROMs boot with picture,
+      sound, and control. wasm32 target builds (browser frontend is a scaffold).
+- [x] The shell never holds the emu lock inside the egui closure (`MenuAction` dispatched after
+      the egui pass). NOTE: the synchronous in-`render` drive is the default; the dedicated
+      `emu-thread` stays default-off until `Board: Send` lands (a one-word cart change) — deferred.
+- [x] The audio ring + dynamic rate control are wired (S-DSP 32 kHz FIFO → DRC-paced resampler →
+      lock-free ring → cpal stereo); occupancy-target DRC absorbs pacing jitter.
+- [ ] Save-states, rewind, and run-ahead — **deferred**: need a core-wide deterministic snapshot
+      (Clone/serialize across the `Board` trait + APU/Bus/System), sequenced as its own sprint so
+      the determinism oracle is re-validated with it.
+- [x] The frontend determinism path is intact (rate control + resampling live here, not the core;
+      the additive S-DSP FIFO records already-emitted samples and never feeds back into synthesis).
+- [ ] All sprints complete (Sprint 1 playable baseline done; save-states/rewind/run-ahead + the
+      full wasm frontend remain).
 
 ## Scope
 

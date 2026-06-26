@@ -16,7 +16,7 @@
 //!
 //! The frontend owns pacing + run-ahead; the core never sees wall-clock time (determinism).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 #[cfg(feature = "emu-thread")]
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -26,6 +26,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
+use crate::audio::{AudioOutput, AudioRing, Resampler, drc_ratio};
 use crate::config::Config;
 use crate::emu::EmuCore;
 use crate::gfx::Gfx;
@@ -53,6 +54,11 @@ struct Active {
     _emu_thread: EmuThread,
     /// The current frame's accumulated P1 button state (when not threaded, stepped inline).
     pad1: Buttons,
+    /// The cpal output stream + its lock-free ring (the producer pushes resampled audio here).
+    /// `None` if no audio device was available (the emulator still runs, silently).
+    audio: Option<AudioOutput>,
+    /// The producer-side 32 kHz → device-rate resampler.
+    resampler: Resampler,
     /// The egui shell's persistent UI state.
     shell: ShellState,
 }
@@ -127,16 +133,16 @@ impl ApplicationHandler for App {
 
         // Power on the emulator at the configured region.
         let mut emu = EmuCore::new(0, self.config.region);
-        if let Some(path) = self.pending_rom.take() {
-            match std::fs::read(&path) {
-                Ok(bytes) => {
-                    if let Err(e) = emu.load_rom(&bytes) {
-                        eprintln!("rustysnes: failed to load {}: {e}", path.display());
-                    }
-                }
-                Err(e) => eprintln!("rustysnes: cannot read {}: {e}", path.display()),
-            }
-        }
+        let initial_status = self
+            .pending_rom
+            .take()
+            .map_or_else(String::new, |path| load_rom_file(&mut emu, &path));
+
+        // Open the audio device (best-effort: a missing device leaves the emulator silent, not
+        // dead). The producer-side resampler converts the S-DSP 32 kHz stream to the device rate.
+        let audio = AudioOutput::new(Arc::new(AudioRing::new(13))).ok();
+        let dst_rate = audio.as_ref().map_or(48_000, |a| a.sample_rate);
+        let resampler = Resampler::new(dst_rate, self.config.audio.volume);
         // `Arc<Mutex<EmuCore>>` is the right shape for the (default-off) dedicated emulation
         // thread + the present path. It is not yet `Send + Sync` only because
         // `rustysnes-cart`'s `Board` trait is not `Send` (the RustyNES `Mapper: Send` rule the
@@ -166,7 +172,12 @@ impl ApplicationHandler for App {
             #[cfg(feature = "emu-thread")]
             _emu_thread: emu_thread,
             pad1: Buttons::default(),
-            shell: ShellState::default(),
+            audio,
+            resampler,
+            shell: ShellState {
+                status: initial_status,
+                ..ShellState::default()
+            },
         });
     }
 
@@ -224,16 +235,26 @@ impl App {
 
     /// One render: copy the framebuffer under a brief lock, blit, run the egui shell, present.
     /// Returns the menu actions to dispatch AFTER this pass (never dispatched mid-egui).
+    // One straight-line present pass (lock-copy → audio push → blit → egui → submit); the length
+    // is inherent to the wgpu/egui frame sequence and reads more clearly as a unit.
+    #[allow(clippy::too_many_lines)]
     fn render(active: &mut Active, config: &mut Config) -> Vec<MenuAction> {
-        // --- (1) Copy framebuffer + read-only info under a BRIEF lock, then drop it. ---
-        let (fb, fb_dims, info) = {
+        let paused = active.shell.paused;
+        // --- (1) Copy framebuffer + audio + read-only info under a BRIEF lock, then drop it. ---
+        let (fb, fb_dims, info, audio_samples) = {
             let mut emu = active.core.lock().unwrap_or_else(PoisonError::into_inner);
-            // When NOT threaded, step exactly one frame here (synchronous drive).
+            // When NOT threaded, step exactly one frame here (synchronous drive), unless paused.
             #[cfg(not(feature = "emu-thread"))]
-            {
+            let audio_samples = if paused {
+                Vec::new()
+            } else {
                 emu.set_pad(0, active.pad1);
                 emu.run_frame();
-            }
+                emu.audio().to_vec()
+            };
+            // Threaded build: the emu thread owns frame production; audio-from-thread is a TODO.
+            #[cfg(feature = "emu-thread")]
+            let audio_samples: Vec<(i16, i16)> = Vec::new();
             let dims = emu.fb_dims();
             let fb = emu.framebuffer().to_vec();
             let info = ShellInfo {
@@ -243,8 +264,21 @@ impl App {
                 rom_loaded: emu.rom_loaded(),
             };
             drop(emu); // release the brief lock BEFORE the wgpu upload + egui pass
-            (fb, dims, info)
+            (fb, dims, info, audio_samples)
         };
+
+        // --- Push the frame's audio through the resampler into the ring (outside the lock). ---
+        if let Some(audio) = active
+            .audio
+            .as_ref()
+            .filter(|_| config.audio.enabled && !audio_samples.is_empty())
+        {
+            active.resampler.set_volume(config.audio.volume);
+            let cap = audio.ring.capacity();
+            let ratio = drc_ratio(audio.ring.occupancy(), cap / 2, cap);
+            active.resampler.process(&audio_samples, ratio, &audio.ring);
+        }
+
         active.gfx.upload(&fb, fb_dims.0, fb_dims.1);
 
         // --- (2) Acquire the surface. ---
@@ -339,18 +373,8 @@ impl App {
                         .add_filter("SNES ROM", &["sfc", "smc", "fig", "swc"])
                         .pick_file()
                     {
-                        match std::fs::read(&path) {
-                            Ok(bytes) => {
-                                let mut emu =
-                                    active.core.lock().unwrap_or_else(PoisonError::into_inner);
-                                if let Err(e) = emu.load_rom(&bytes) {
-                                    active.shell.status = format!("load failed: {e}");
-                                } else {
-                                    active.shell.status = format!("Loaded {}", path.display());
-                                }
-                            }
-                            Err(e) => active.shell.status = format!("read failed: {e}"),
-                        }
+                        let mut emu = active.core.lock().unwrap_or_else(PoisonError::into_inner);
+                        active.shell.status = load_rom_file(&mut emu, &path);
                     }
                 }
                 MenuAction::CloseRom => {
@@ -368,23 +392,93 @@ impl App {
                 }
                 MenuAction::TogglePause => {
                     active.shell.paused = !active.shell.paused;
-                    // TODO(impl-phase): gate the emu thread / audio on the paused flag.
+                    active.shell.status = if active.shell.paused {
+                        "Paused".into()
+                    } else {
+                        "Running".into()
+                    };
                 }
                 MenuAction::ToggleDebugger => {
                     active.shell.debugger_open = !active.shell.debugger_open;
                 }
                 MenuAction::OpenSettings => active.shell.settings_open = true,
                 MenuAction::Quit => event_loop.exit(),
-                // TODO(impl-phase): Reset / PowerCycle / SaveState / LoadState wire to the core.
-                MenuAction::Reset
-                | MenuAction::PowerCycle
-                | MenuAction::SaveState
-                | MenuAction::LoadState => {
-                    active.shell.status = format!("{action:?}: TODO");
+                MenuAction::Reset => {
+                    active
+                        .core
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .reset();
+                    active.shell.status = "Reset".into();
+                }
+                MenuAction::PowerCycle => {
+                    active
+                        .core
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .power_cycle();
+                    active.shell.status = "Power cycled".into();
+                }
+                // Save-states need a core-wide deterministic snapshot (Clone/serialize across the
+                // Board trait + APU/Bus/System); that is the next frontend sprint — see
+                // docs/frontend.md "Save-states".
+                MenuAction::SaveState | MenuAction::LoadState => {
+                    active.shell.status =
+                        "Save/Load state: not yet implemented (core snapshot pending)".into();
                 }
             }
         }
         // Persist any Settings-window edits to config (best-effort).
         let _ = config.save();
     }
+}
+
+/// Read a ROM file into `emu`, then best-effort install any required coprocessor firmware and a
+/// `.srm` battery save sitting next to the ROM. Returns a human-readable status line.
+fn load_rom_file(emu: &mut EmuCore, path: &Path) -> String {
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) => return format!("read failed: {e}"),
+    };
+    if let Err(e) = emu.load_rom(&bytes) {
+        return format!("load failed: {e}");
+    }
+    let mut status = format!("Loaded {}", path.display());
+
+    // Coprocessor firmware (DSP-1.. / CX4): try the known dumps next to the ROM + the dev dir.
+    if emu.needs_firmware() && !try_install_firmware(emu, path) {
+        status = format!(
+            "{status} — coprocessor firmware required ({}); place it beside the ROM or in a \
+             firmware/ folder",
+            emu.firmware_candidates().join(", ")
+        );
+    }
+
+    // Battery SRAM sidecar (`<rom>.srm`).
+    let srm = path.with_extension("srm");
+    if let Ok(sram) = std::fs::read(&srm) {
+        emu.load_sram(&sram);
+    }
+    status
+}
+
+/// Search the standard locations for any of the cart's candidate firmware dumps and install the
+/// first one the board accepts. Returns whether a dump was installed.
+fn try_install_firmware(emu: &mut EmuCore, rom_path: &Path) -> bool {
+    let rom_dir = rom_path.parent().map(Path::to_path_buf);
+    for name in emu.firmware_candidates() {
+        let mut candidates: Vec<PathBuf> = Vec::new();
+        if let Some(dir) = rom_dir.as_ref() {
+            candidates.push(dir.join(name));
+            candidates.push(dir.join("firmware").join(name));
+        }
+        // Dev convenience: the gitignored staging dir, relative to the workspace cwd.
+        candidates.push(Path::new("tests/roms/external/firmware").join(name));
+        for cand in candidates {
+            if std::fs::read(&cand).is_ok_and(|bytes| emu.install_firmware(&bytes)) {
+                return true;
+            }
+        }
+    }
+    false
 }

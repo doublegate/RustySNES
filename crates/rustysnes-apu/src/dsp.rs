@@ -28,6 +28,13 @@
 
 extern crate alloc;
 use alloc::boxed::Box;
+use alloc::vec::Vec;
+
+/// Cap on the additive output-sample FIFO (see [`Dsp::out`]). At 32 kHz this is ~0.5 s of audio;
+/// the frontend drains it every frame, so the cap is only a runaway guard for callers that never
+/// drain (e.g. the accuracy oracle, which never reads the FIFO). Purely additive instrumentation:
+/// recording the already-emitted DAC samples does not touch synthesis, so determinism is intact.
+const AUDIO_FIFO_CAP: usize = 16_384;
 
 /// Number of bytes of audio RAM the DSP addresses.
 pub const ARAM_SIZE: usize = 0x1_0000;
@@ -217,6 +224,11 @@ pub struct Dsp {
     phase: u8,
     /// Most-recent stereo output sample, latched once per 32-tick frame (at phase 27).
     last_sample: (i16, i16),
+    /// Additive output-sample FIFO: every 32 kHz stereo DAC sample the DSP emits, in order, for
+    /// the frontend's audio ring. Bounded by [`AUDIO_FIFO_CAP`]; drained via [`Self::drain_audio`].
+    /// This records the samples the synthesis already produced — it never feeds back into the DSP,
+    /// so the deterministic audio contract is unaffected (callers that never drain simply ignore it).
+    out: Vec<(i16, i16)>,
 }
 
 impl core::fmt::Debug for Dsp {
@@ -253,6 +265,7 @@ impl Dsp {
             gaussian: Box::new([0; 512]),
             phase: 0,
             last_sample: (0, 0),
+            out: Vec::new(),
         };
         for (n, v) in dsp.voice.iter_mut().enumerate() {
             v.index = (n as u8) << 4;
@@ -271,6 +284,12 @@ impl Dsp {
     #[must_use]
     pub const fn last_sample(&self) -> (i16, i16) {
         self.last_sample
+    }
+
+    /// Drain every queued 32 kHz output sample into `sink` (appended in emission order), emptying
+    /// the FIFO. The frontend calls this once per frame to feed its audio ring.
+    pub fn drain_audio(&mut self, sink: &mut Vec<(i16, i16)>) {
+        sink.append(&mut self.out);
     }
 
     /// Whether main output is muted (FLG.6).
@@ -1002,7 +1021,12 @@ impl Dsp {
             outl = 0;
             outr = 0;
         }
-        self.last_sample = (outl as i16, outr as i16);
+        let sample = (outl as i16, outr as i16);
+        self.last_sample = sample;
+        // Additive capture for the frontend ring (bounded; never affects synthesis).
+        if self.out.len() < AUDIO_FIFO_CAP {
+            self.out.push(sample);
+        }
     }
 
     /// echo28: latch the echo read-only flag.

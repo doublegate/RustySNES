@@ -9,6 +9,15 @@ dependencies"; `docs/adr/0004` (the determinism boundary).
 and permissive (mirrors RustyNES). It is an **always-on egui shell, not a bare window** —
 egui runs every frame.
 
+**Status (Phase 5): playable native.** A real commercial ROM boots in a window with picture
+(PPU BGR555 → RGBA8, aspect-correct 4:3 sub-rect letterbox blit), sound (S-DSP 32 kHz FIFO →
+producer-side DRC-paced linear resampler → lock-free ring → cpal stereo), and control (keyboard +
+gilrs gamepad → `Bus::set_joypad`). ROM load auto-resolves coprocessor firmware + `.srm` SRAM;
+Reset / Power-Cycle / Pause are wired. The dependency stack tracks the latest mutually-compatible
+tier: egui/egui-wgpu/egui-winit **0.35**, wgpu **29**, winit **0.30** (winit 0.31 is beta-only and
+egui-winit 0.35 pins to 0.30 — winit is the crate gating us off 0.31). Native + `wasm32` both
+build; the `playable_smoke` test is the headless AV proof.
+
 ## The shell model (the load-bearing rule)
 
 - egui draws a **persistent menu bar** (File / Emulation / Tools / View / Debug / Help) +
@@ -49,6 +58,12 @@ Netplay rollback is likewise frontend-orchestrated against the deterministic cor
 - Save-states serialize the deterministic core state (including the SPC relative-time
   accumulator and the seeded power-on phase).
 - Rewind is a ring of keyframes + deltas; run-ahead re-simulates from a snapshot.
+
+**Deferred (next sprint):** save-states / rewind / run-ahead are not yet implemented. They require
+a core-wide deterministic snapshot — `Clone`/serialize across the `Board` trait (and its boards),
+the `Apu`/`Dsp`, `Bus`, and `System` — which is a larger core/cart change than the Phase-5
+frontend work and is sequenced as its own sprint so the determinism oracle is re-validated with it.
+The menu items are present and report this honestly rather than corrupting state.
 
 ## wasm
 

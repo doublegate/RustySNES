@@ -8,6 +8,37 @@ All notable changes to RustySNES are documented here. The format is based on
 
 ### Added
 
+- **Phase 5 — Playable native frontend (`rustysnes-frontend`).** The always-on egui shell is now a
+  working SNES emulator: a real commercial ROM boots in a window with picture, sound, and control.
+  - **Video:** `EmuCore` decodes the PPU's 256×(224|239) 15-bit BGR555 framebuffer to RGBA8 each
+    frame and uploads it to the wgpu streaming texture; the blit now samples only the live sub-rect
+    and letterboxes to the 4:3 SNES display aspect via a small uniform (the prior skeleton sampled
+    the whole oversized texture). The stale "PPU produces no pixels / cleared frame" path in
+    `emu.rs` is replaced with the real present path.
+  - **Audio:** a new additive S-DSP output FIFO (`Apu::drain_audio`, captured at the DAC-latch point
+    in `dsp::echo27`) feeds a producer-side linear resampler (32 kHz → cpal device rate, DRC-paced)
+    into the lock-free ring; the cpal callback now emits true stereo. The FIFO is pure
+    instrumentation over already-emitted samples, so the deterministic audio contract is unchanged.
+  - **Input:** keyboard (default SNES map) + gilrs gamepad late-latch into `Bus::set_joypad` for P1
+    and P2.
+  - **Cartridge UX:** ROM load resolves coprocessor firmware (DSP-1.. / CX4) from beside the ROM /
+    a `firmware/` dir and auto-loads a `<rom>.srm` battery save; **Reset**, **Power-Cycle**, and
+    **Pause** are wired to the core; a missing firmware dump surfaces a clear "supply it" message
+    (the `docs/adr/0003` honesty posture).
+  - **Dependency stack refreshed to the latest mutually-compatible tier:** egui / egui-wgpu /
+    egui-winit **0.35**, wgpu **29**, winit **0.30** (winit 0.31 is beta-only and egui-winit 0.35
+    pins to 0.30 — winit is the gating crate), directories **6**, wasm-bindgen **0.2.126** /
+    web-sys · js-sys **0.3.103** / wasm-bindgen-futures **0.4.76**. Native **and**
+    `wasm32-unknown-unknown` both build.
+  - **Validation:** a `playable_smoke` integration test drives a staged commercial ROM through the
+    same `EmuCore` path the GUI uses and asserts a structured (non-blank) frame **and** a non-silent
+    audio stream (Super Mario World: 256×224 picture + 63,975 samples over 120 frames); it skips
+    cleanly when no ROM is staged. The native binary was also launched headless under xvfb (clean
+    init + run, no panic).
+  - **Deferred:** save-states / rewind / run-ahead (need a core-wide deterministic snapshot across
+    the `Board` trait + APU/Bus/System) and the full wasm browser frontend (the wasm entry point is
+    a compiling bootstrap scaffold).
+
 - **Phase 4 — SA-1 (second 65C816 + ASIC) coprocessor:** a clean-room
   `no_std`/`forbid(unsafe_code)` port of the SA-1 system (`rustysnes-cart::coproc::sa1::Sa1Board`,
   from ares' `sfc/coprocessor/sa1`, ISC) — the `$2200–$23FF` register file (SA-1 control/reset, the

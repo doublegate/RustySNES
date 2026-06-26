@@ -39,6 +39,9 @@ pub const MAX_W: u32 = SNES_W_HIRES;
 /// The maximum framebuffer height the texture is sized for (see [`MAX_W`]).
 pub const MAX_H: u32 = SNES_H_HIRES;
 
+/// The SNES display aspect ratio (4:3) the blit letterboxes the framebuffer into.
+const TARGET_ASPECT: f32 = 4.0 / 3.0;
+
 /// Expand a 15-bit SNES **BGR555** color word (`0bbbbbgggggrrrrr`) to a packed little-endian
 /// RGBA8 (`0xAABBGGRR`) value suitable for an RGBA8 framebuffer / wgpu texture upload.
 ///
@@ -91,10 +94,14 @@ pub struct Gfx {
     pub config: wgpu::SurfaceConfiguration,
     /// The streaming framebuffer texture (sized to the hi-res worst case).
     texture: wgpu::Texture,
-    /// The bind group binding `texture` + the nearest sampler for the blit.
+    /// The bind group binding `texture` + the nearest sampler + the blit uniform.
     bind_group: wgpu::BindGroup,
     /// The fullscreen-triangle blit pipeline.
     pipeline: wgpu::RenderPipeline,
+    /// The blit uniform (`vec4<f32>` = `uv_scale.xy`, `pos_scale.xy`): the UV sub-rect of the live
+    /// framebuffer within the oversized texture + the aspect-correct letterbox scale. Rewritten
+    /// each `blit`.
+    uniform_buf: wgpu::Buffer,
     /// The active framebuffer dimensions (the sub-rect of the texture that's live this mode).
     fb_w: u32,
     /// See [`Gfx::fb_w`].
@@ -184,7 +191,18 @@ impl Gfx {
             label: Some("rustysnes-nearest"),
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
+            // Clamp so the sub-rect sample never bleeds into the unused texture region.
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
             ..Default::default()
+        });
+
+        // The blit uniform: uv_scale (live sub-rect within the oversized texture) + pos_scale
+        // (aspect-correct letterbox). Initialized to the full-texture identity; rewritten per blit.
+        let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("rustysnes-blit-uniform"),
+            contents: bytemuck::cast_slice(&[1.0f32, 1.0, 1.0, 1.0]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -210,6 +228,16 @@ impl Gfx {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -223,6 +251,10 @@ impl Gfx {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: uniform_buf.as_entire_binding(),
                 },
             ],
         });
@@ -256,14 +288,6 @@ impl Gfx {
             multiview_mask: None,
             cache: None,
         });
-        // A one-time empty upload keeps the texture deterministically cleared (the skeleton
-        // presents a blank frame until the PPU model lands).
-        let _ = &device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("rustysnes-noop"),
-            contents: &[0u8; 4],
-            usage: wgpu::BufferUsages::COPY_SRC,
-        });
-
         Ok(Self {
             device,
             queue,
@@ -272,6 +296,7 @@ impl Gfx {
             texture,
             bind_group,
             pipeline,
+            uniform_buf,
             fb_w: SNES_W,
             fb_h: SNES_H_NTSC,
         })
@@ -345,7 +370,33 @@ impl Gfx {
 
     /// Record the framebuffer blit into `encoder`, clearing then drawing the fullscreen
     /// triangle that samples the streaming texture. The egui shell pass is layered after this.
+    ///
+    /// Before drawing it rewrites the blit uniform with (a) the UV sub-rect of the live
+    /// framebuffer inside the oversized texture and (b) the aspect-correct letterbox scale, so
+    /// only the `fb_w × fb_h` content shows and it keeps the 4:3 SNES display aspect regardless of
+    /// the window shape.
+    // The blit math casts small screen/texture dimensions (all well under 2^23) to f32 for the
+    // UV + letterbox ratios; the precision loss is irrelevant for these layout fractions.
+    #[allow(clippy::cast_precision_loss)]
     pub fn blit(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
+        // (a) UV scale: the live sub-rect within the MAX_W × MAX_H texture.
+        let uv_x = self.fb_w as f32 / MAX_W as f32;
+        let uv_y = self.fb_h as f32 / MAX_H as f32;
+        // (b) Letterbox: fit the 4:3 SNES display aspect inside the surface.
+        let win_w = self.config.width.max(1) as f32;
+        let win_h = self.config.height.max(1) as f32;
+        let win_aspect = win_w / win_h;
+        let (pos_x, pos_y) = if win_aspect > TARGET_ASPECT {
+            (TARGET_ASPECT / win_aspect, 1.0) // window too wide -> pillarbox
+        } else {
+            (1.0, win_aspect / TARGET_ASPECT) // window too tall -> letterbox
+        };
+        self.queue.write_buffer(
+            &self.uniform_buf,
+            0,
+            bytemuck::cast_slice(&[uv_x, uv_y, pos_x, pos_y]),
+        );
+
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("rustysnes-blit-pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -364,9 +415,6 @@ impl Gfx {
         });
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
-        // Sample only the live sub-rect by drawing a quad scaled to fb/MAX; the blit shader
-        // already maps UVs over the full triangle, so a future hi-res-aware UV uniform is a
-        // TODO. For the skeleton (blank frame) the full-texture sample is acceptable.
         pass.draw(0..3, 0..1);
     }
 }
@@ -375,6 +423,8 @@ impl Gfx {
 const BLIT_WGSL: &str = r"
 @group(0) @binding(0) var tex: texture_2d<f32>;
 @group(0) @binding(1) var samp: sampler;
+// params.xy = UV scale (live sub-rect); params.zw = clip-space letterbox scale.
+@group(0) @binding(2) var<uniform> params: vec4<f32>;
 
 struct VsOut {
     @builtin(position) pos: vec4<f32>,
@@ -387,8 +437,10 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
     var out: VsOut;
     let x = f32((vi << 1u) & 2u) * 2.0 - 1.0;
     let y = f32(vi & 2u) * 2.0 - 1.0;
-    out.pos = vec4<f32>(x, y, 0.0, 1.0);
-    out.uv = vec2<f32>((x + 1.0) * 0.5, (1.0 - y) * 0.5);
+    // Map the base fullscreen UV (0..1 over the visible screen), scaled to the live sub-rect.
+    out.uv = vec2<f32>((x + 1.0) * 0.5, (1.0 - y) * 0.5) * params.xy;
+    // Letterbox by shrinking the triangle; the cleared black border fills the rest.
+    out.pos = vec4<f32>(x * params.z, y * params.w, 0.0, 1.0);
     return out;
 }
 

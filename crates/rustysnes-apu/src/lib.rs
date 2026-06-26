@@ -467,6 +467,13 @@ impl Apu {
         self.dsp.last_sample()
     }
 
+    /// Drain every 32 kHz stereo sample the S-DSP has emitted since the last drain into `sink`
+    /// (in emission order). The frontend calls this once per frame to feed its audio ring; the
+    /// FIFO is additive instrumentation over the DAC output and never perturbs synthesis.
+    pub fn drain_audio(&mut self, sink: &mut Vec<(i16, i16)>) {
+        self.dsp.drain_audio(sink);
+    }
+
     /// Read a DSP register through `$00F2`/`$00F3` semantics (testing / debug).
     #[must_use]
     pub fn dsp_read(&self, address: u8) -> u8 {

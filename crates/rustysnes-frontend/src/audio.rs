@@ -4,15 +4,13 @@
 //! resample ratio toward a target ring occupancy so audio neither starves nor overflows.
 //!
 //! This is the RustyNES audio path, SNES-adapted: the S-DSP's native output is **32 kHz**
-//! stereo, resampled (in a future `resampler` stage) to the cpal device rate (commonly 48 kHz).
-//! The ring + DRC are console-agnostic; only the source rate + channel count differ.
+//! stereo, resampled by [`Resampler`] (producer-side linear interpolation) to the cpal device
+//! rate (commonly 48 kHz). The ring + DRC are console-agnostic; only the source rate + channel
+//! count differ.
 //!
 //! The DRC servo + resampler live in the FRONTEND (never the core's synthesis) — that is what
 //! keeps the determinism contract intact (the core emits the same samples regardless of how the
 //! frontend paces playback).
-//!
-//! v0.1.0: the cpal stream is wired and plays silence (the APU is a skeleton). The ring + DRC
-//! math are real and tested.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -93,6 +91,67 @@ impl AudioRing {
     }
 }
 
+/// A producer-side linear resampler from the S-DSP's 32 kHz `i16` stereo stream to the cpal
+/// device rate.
+///
+/// It pushes interleaved `f32` L/R into the [`AudioRing`]; the dynamic-rate-control ratio nudges
+/// the step so the ring stays near its target occupancy (absorbing pacing jitter without changing
+/// the deterministic source samples — the `docs/frontend.md` determinism boundary).
+pub struct Resampler {
+    /// Source advance per output sample, before the DRC nudge (`src_rate / dst_rate`).
+    base_step: f64,
+    /// Fractional source position within the current `[last, cur]` interval (`0.0..1.0`).
+    frac: f64,
+    /// The previous source sample, the left endpoint of the interpolation interval.
+    last: (f32, f32),
+    /// Master volume in `0.0..=1.0`.
+    volume: f32,
+}
+
+impl Resampler {
+    /// Build a resampler from the S-DSP rate to `dst_rate` (the cpal device rate).
+    #[must_use]
+    pub fn new(dst_rate: u32, volume: f32) -> Self {
+        let dst = f64::from(dst_rate.max(1));
+        Self {
+            base_step: f64::from(SDSP_RATE) / dst,
+            frac: 0.0,
+            last: (0.0, 0.0),
+            volume,
+        }
+    }
+
+    /// Update the master volume (from the Settings slider).
+    pub const fn set_volume(&mut self, volume: f32) {
+        self.volume = volume.clamp(0.0, 1.0);
+    }
+
+    /// Resample `input` (32 kHz `i16` stereo) into `ring` at the device rate, applying `drc` (a
+    /// ratio near 1.0 from [`drc_ratio`]). One push per channel sample (interleaved L, R).
+    // The `frac` while-loop emits one output sample per crossing of a source-sample interval — a
+    // float accumulator is the natural form for a fractional resampler; `left`/`right` are the
+    // intentionally-parallel stereo pair.
+    #[allow(clippy::while_float, clippy::similar_names)]
+    pub fn process(&mut self, input: &[(i16, i16)], drc: f64, ring: &AudioRing) {
+        let step = (self.base_step * drc).max(1e-6);
+        let vol = self.volume;
+        for &(l, r) in input {
+            let cur = (f32::from(l) / 32768.0 * vol, f32::from(r) / 32768.0 * vol);
+            while self.frac < 1.0 {
+                #[allow(clippy::cast_possible_truncation)]
+                let t = self.frac as f32;
+                let left = (cur.0 - self.last.0).mul_add(t, self.last.0);
+                let right = (cur.1 - self.last.1).mul_add(t, self.last.1);
+                ring.push(left);
+                ring.push(right);
+                self.frac += step;
+            }
+            self.frac -= 1.0;
+            self.last = cur;
+        }
+    }
+}
+
 /// The dynamic-rate-control servo: nudge the resample ratio toward a target ring occupancy.
 ///
 /// Given the current ring occupancy vs. a target, return a small resample-ratio adjustment (a
@@ -148,11 +207,20 @@ impl AudioOutput {
             .build_output_stream(
                 config,
                 move |data: &mut [f32], _| {
-                    // Drain the ring into the device buffer; underrun -> silence (ring.pop).
+                    // Drain the interleaved L/R ring into the device buffer; underrun -> silence.
+                    // Always pop an L/R pair to keep the ring stereo-aligned, then fan out to the
+                    // device's channel count (mono = average; >=2 = L,R with extras duplicated).
                     for frame in data.chunks_mut(channels.max(1)) {
-                        let s = stream_ring.pop();
-                        for ch in frame.iter_mut() {
-                            *ch = s;
+                        let l = stream_ring.pop();
+                        let r = stream_ring.pop();
+                        if channels == 1 {
+                            frame[0] = 0.5 * (l + r);
+                        } else {
+                            frame[0] = l;
+                            frame[1] = r;
+                            for ch in frame.iter_mut().skip(2) {
+                                *ch = l;
+                            }
                         }
                     }
                 },
