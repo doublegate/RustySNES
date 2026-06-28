@@ -12,6 +12,6 @@ jobs:
     environment:
       name: github-pages
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       # Build the wasm demo (trunk) at / and the rustdoc at /api/, then deploy ONE artifact.
       # GOTCHA: keep web/Trunk.toml's wasm-bindgen pin == Cargo.lock library version.
