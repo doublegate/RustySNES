@@ -11,7 +11,37 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
       # Build the wasm demo (trunk) at / and the rustdoc at /api/, then deploy ONE artifact.
       # GOTCHA: keep web/Trunk.toml's wasm-bindgen pin == Cargo.lock library version.
+      - uses: dtolnay/rust-toolchain@1.96
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install Linux frontend system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libasound2-dev \
+            libudev-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+      - name: Install trunk
+        run: cargo install trunk --locked
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Build wasm demo
+        run: trunk build --release
+        working-directory: web
+      - name: Build rustdoc
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+      - name: Assemble site
+        run: |
+          mkdir -p _site/api
+          cp -r web/dist/. _site/
+          cp -r target/doc/. _site/api/
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
