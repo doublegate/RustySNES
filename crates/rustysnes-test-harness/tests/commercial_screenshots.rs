@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Commercial-ROM boot-screenshot generator — the RustySNES port of RustyNES's
 //! `external_coverage` screenshot mechanism.
 //!
@@ -117,6 +118,12 @@ fn generate_commercial_screenshots() {
             continue;
         };
 
+        if !cart.header.has_battery && cart.header.sram_size > 0 {
+            // Some homebrew uses SRAM size as a generic RAM allocation without setting battery
+            // backup. The commercial DB treats sram_size>0 + no_battery as valid volatile RAM, but
+            // for screenshots we're running actual games. (We might relax this later).
+        }
+
         // Install the coprocessor firmware the cart needs (if available); else it boots inert.
         let co = cart.header.coprocessor;
         for fw in firmware_candidates(co) {
@@ -130,31 +137,33 @@ fn generate_commercial_screenshots() {
         let mut system = System::new(0);
         system.bus.cart = Some(cart);
         // Mirror RustyNES's RepeatStartTap: warm up, then tap Start (joypad bit 12) periodically
-        // to advance past title/menu screens into the attract demo / first interactive frame, so
-        // the captured screenshot is a meaningful screen rather than a boot/black transition.
         for f in 0..frames {
             let pad: u16 = if f >= 180 && f % 90 < 6 { 0x1000 } else { 0 };
             system.bus.set_joypad(0, pad);
             system.run_frame();
+
+            if dump && f > 0 && f % 300 == 0 {
+                let h = u32::from(system.bus.ppu.visible_height()).min(239);
+                let w = 256u32;
+                let fb = system.bus.framebuffer();
+                let mut ppm = format!("P6\n{w} {h}\n255\n").into_bytes();
+                for &px in fb.iter().take((w * h) as usize) {
+                    ppm.extend_from_slice(&bgr555_to_rgb(px));
+                }
+                
+                let rel_str = rel.with_extension("").to_string_lossy().to_string();
+                let file_name = format!("{}_frame_{}.ppm", Path::new(&rel_str).file_name().unwrap().to_string_lossy(), f);
+                let out = Path::new(&dump_dir).join(rel.parent().unwrap_or(Path::new(""))).join(file_name);
+                
+                if let Some(parent) = out.parent() {
+                    std::fs::create_dir_all(parent).ok();
+                }
+                if std::fs::write(&out, ppm).is_ok() {
+                    shot += 1;
+                }
+            }
         }
         ok += 1;
-
-        if dump {
-            let h = u32::from(system.bus.ppu.visible_height()).min(239);
-            let w = 256u32;
-            let fb = system.bus.framebuffer();
-            let mut ppm = format!("P6\n{w} {h}\n255\n").into_bytes();
-            for &px in fb.iter().take((w * h) as usize) {
-                ppm.extend_from_slice(&bgr555_to_rgb(px));
-            }
-            let out = Path::new(&dump_dir).join(rel.with_extension("ppm"));
-            if let Some(parent) = out.parent() {
-                std::fs::create_dir_all(parent).ok();
-            }
-            if std::fs::write(&out, ppm).is_ok() {
-                shot += 1;
-            }
-        }
     }
     eprintln!(
         "commercial_screenshots: {ok} booted, {shot} shots written to {dump_dir} ({skipped} unreadable headers){}",

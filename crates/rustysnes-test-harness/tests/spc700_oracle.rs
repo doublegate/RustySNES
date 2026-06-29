@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! SPC700 per-opcode oracle cross-check (Phase 3 / T-31-001).
 //!
 //! Replays the SingleStepTests/spc700 JSON through `rustysnes_apu::Spc700::step` against a flat

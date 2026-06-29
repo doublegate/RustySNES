@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Board-tier honesty gate (ADR 0003 — the RustyNES `mapper_tier_honesty` port).
 //!
 //! The headline claim ("N boards / coprocessors, accuracy-battery 100%") is only honest if no

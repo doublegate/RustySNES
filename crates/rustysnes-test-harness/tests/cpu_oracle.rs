@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! 65C816 per-opcode oracle cross-check (ADR 0005).
 //!
 //! Replays the SingleStepTests/65816 JSON through `rustysnes_cpu::Cpu::step` and diffs the final

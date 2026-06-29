@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Super FX / GSU on-cart coprocessor — boot + liveness + determinism gate.
 //!
 //! Boots the locally-staged Krom GSU test ROMs (CC0/homebrew, gitignored under

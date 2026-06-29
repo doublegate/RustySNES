@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! gilyon/snes-tests on-cart CPU validation (the Phase-1 deferred criterion, unblocked by the
 //! Phase-2 bootable `System`).
 //!

@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! undisbeliever/snes-test-roms PPU/DMA/HDMA suite — deterministic golden framebuffer gate.
 //!
 //! These are *visual* hardware-behavior ROMs (HDMA glitches, INIDISP timing, S-CPU A-bus DMA

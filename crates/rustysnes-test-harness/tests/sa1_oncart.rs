@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! SA-1 on-cart coprocessor — boot + liveness + determinism gate.
 //!
 //! Boots the locally-staged commercial SA-1 cartridges (gitignored under

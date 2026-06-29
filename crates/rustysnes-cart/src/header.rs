@@ -168,24 +168,36 @@ impl Header {
         let chipset = h[field::CHIPSET];
         let region = region_from_code(h[field::REGION]);
 
-        let ram_byte = h[field::RAM_SIZE];
-        let sram_size = if ram_byte == 0 {
-            0
-        } else {
-            // `0x400 << byte` (1 KiB unit). Clamp the shift so a corrupt byte can't overflow.
-            0x400usize.checked_shl(u32::from(ram_byte)).unwrap_or(0)
-        };
+        let raw_sram = h[field::RAM_SIZE];
+        let fast_rom = h[field::MAP_MODE] & 0x10 != 0;
+        let coprocessor = coprocessor_from_chipset(chipset);
 
         // `$xFD6` low nibble: 2 / 5 / 6 imply battery-backed RAM (RAM+battery, RAM+battery+RTC).
         let has_battery = matches!(chipset & 0x0F, 0x2 | 0x5 | 0x6);
+
+        let mut sram_size = match raw_sram {
+            0 => 0,
+            n => 1024 << n,
+        };
+
+        // GSU games often declare 0 SRAM size but have 32 KiB or 64 KiB of on-cart RAM for the plot buffer.
+        if coprocessor == Coprocessor::SuperFx && sram_size == 0 {
+            let title_bytes = &image[offset + field::TITLE..offset + field::TITLE + field::TITLE_LEN];
+            let title = core::str::from_utf8(title_bytes).unwrap_or("").to_uppercase();
+            if title.contains("DOOM") || title.contains("WINTER GOLD") || title.contains("STARFOX2") || title.contains("STAR FOX 2") {
+                sram_size = 0x1_0000; // 64 KiB
+            } else {
+                sram_size = 0x8000; // 32 KiB
+            }
+        }
 
         Self {
             offset,
             copier_prefix,
             map_mode,
-            fast_rom: h[field::MAP_MODE] & 0x10 != 0,
+            fast_rom,
             region,
-            coprocessor: coprocessor_from_chipset(chipset),
+            coprocessor,
             rom_size: image.len(),
             sram_size,
             has_battery,

@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! DSP-1 (`µPD77C25`) on-cart coprocessor — boot + determinism + firmware-differential gate.
 //!
 //! Boots the locally-staged DSP-1 commercial dumps on the full `rustysnes_core::System` with the

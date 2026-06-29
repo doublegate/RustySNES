@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! blargg `spc_*` cycle-accurate SPC700 / S-DSP suite — the audio oracle (Phase 3 / T-31-003).
 //!
 //! These are bootable SNES ROMs: the main CPU uploads an SPC700 audio program through the four
