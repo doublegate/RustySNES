@@ -98,8 +98,8 @@ ratatui = { version = "0.30", optional = true }
 wasm-bindgen = "0.2.126"
 wasm-bindgen-futures = "0.4.76"
 console_error_panic_hook = "0.1.7"
-js-sys = "0.3.103"
-web-sys = { version = "0.3.103", features = [
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
     "Document", "Window", "Element", "HtmlElement", "HtmlCanvasElement",
     "Event", "EventTarget", "KeyboardEvent",
     "CanvasRenderingContext2d", "ImageData", "Storage",
