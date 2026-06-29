@@ -57,6 +57,7 @@ cargo test --workspace --features test-roms             # the ROM oracles (gitig
 cargo clippy --workspace --all-targets -- -D warnings   # + per-feature jobs; NEVER --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 cargo build -p rustysnes-core --target thumbv7em-none-eabihf --no-default-features   # no_std gate
+cd crates/rustysnes-frontend/web && trunk build --release                            # wasm pages deploy (keep Trunk.toml wasm-bindgen pinned to Cargo.lock)
 ```
 
 Frontend opt-in features (default-off): wasm-canvas · emu-thread · debug-hooks · hd-pack ·

@@ -13,11 +13,12 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       # Build the wasm demo (trunk) at / and the rustdoc at /api/, then deploy ONE artifact.
-      # GOTCHA: keep web/Trunk.toml's wasm-bindgen pin == Cargo.lock library version.
-      - uses: dtolnay/rust-toolchain@1.96
+      # GOTCHA: keep crates/rustysnes-frontend/web/Trunk.toml's wasm-bindgen pin == Cargo.lock library version.
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: 1.96
           targets: wasm32-unknown-unknown
       - name: Install Linux frontend system deps
         run: |
@@ -30,13 +31,13 @@ jobs:
         uses: actions/configure-pages@v5
       - name: Build wasm demo
         run: trunk build --release
-        working-directory: web
+        working-directory: crates/rustysnes-frontend/web
       - name: Build rustdoc
         run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
       - name: Assemble site
         run: |
           mkdir -p _site/api
-          cp -r web/dist/. _site/
+          cp -r crates/rustysnes-frontend/web/dist/. _site/
           cp -r target/doc/. _site/api/
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
