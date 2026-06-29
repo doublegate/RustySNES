@@ -1,7 +1,7 @@
 #![allow(missing_docs)]
 #![cfg(feature = "test-roms")]
-use std::fs;
 use rustysnes_core::cart::Cart;
+use std::fs;
 
 #[test]
 fn parse_yoshi() {

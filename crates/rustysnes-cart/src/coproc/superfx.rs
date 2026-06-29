@@ -93,7 +93,11 @@ impl SuperFxBoard {
         let rom_len = rom.len();
         let rom_mask = round_pow2(rom_len as u32).wrapping_sub(1);
 
-        let actual_sram_size = if sram_size == 0 { Self::RAM_MIN } else { sram_size };
+        let actual_sram_size = if sram_size == 0 {
+            Self::RAM_MIN
+        } else {
+            sram_size
+        };
         let ram_len = round_pow2(actual_sram_size as u32) as usize;
         let ram = vec![0u8; ram_len].into_boxed_slice();
         let ram_mask = (ram_len as u32).wrapping_sub(1);

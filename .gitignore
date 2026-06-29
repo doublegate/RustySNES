@@ -22,6 +22,10 @@ Cargo.lock
 *.lib
 *.pdb
 
+# Ad-hoc compiled debug helpers under scripts/ (e.g. `rustc scripts/foo.rs -o scripts/foo`)
+# — the .rs source is committable, the extension-less binary it produces is not.
+/scripts/parse_title
+
 # --- WebAssembly / trunk / wasm-pack ---
 /pkg/
 /dist/

@@ -150,11 +150,17 @@ fn generate_commercial_screenshots() {
                 for &px in fb.iter().take((w * h) as usize) {
                     ppm.extend_from_slice(&bgr555_to_rgb(px));
                 }
-                
+
                 let rel_str = rel.with_extension("").to_string_lossy().to_string();
-                let file_name = format!("{}_frame_{}.ppm", Path::new(&rel_str).file_name().unwrap().to_string_lossy(), f);
-                let out = Path::new(&dump_dir).join(rel.parent().unwrap_or(Path::new(""))).join(file_name);
-                
+                let file_name = format!(
+                    "{}_frame_{}.ppm",
+                    Path::new(&rel_str).file_name().unwrap().to_string_lossy(),
+                    f
+                );
+                let out = Path::new(&dump_dir)
+                    .join(rel.parent().unwrap_or(Path::new("")))
+                    .join(file_name);
+
                 if let Some(parent) = out.parent() {
                     std::fs::create_dir_all(parent).ok();
                 }

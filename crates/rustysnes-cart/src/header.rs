@@ -182,9 +182,16 @@ impl Header {
 
         // GSU games often declare 0 SRAM size but have 32 KiB or 64 KiB of on-cart RAM for the plot buffer.
         if coprocessor == Coprocessor::SuperFx && sram_size == 0 {
-            let title_bytes = &image[offset + field::TITLE..offset + field::TITLE + field::TITLE_LEN];
-            let title = core::str::from_utf8(title_bytes).unwrap_or("").to_uppercase();
-            if title.contains("DOOM") || title.contains("WINTER GOLD") || title.contains("STARFOX2") || title.contains("STAR FOX 2") {
+            let title_bytes =
+                &image[offset + field::TITLE..offset + field::TITLE + field::TITLE_LEN];
+            let title = core::str::from_utf8(title_bytes)
+                .unwrap_or("")
+                .to_uppercase();
+            if title.contains("DOOM")
+                || title.contains("WINTER GOLD")
+                || title.contains("STARFOX2")
+                || title.contains("STAR FOX 2")
+            {
                 sram_size = 0x1_0000; // 64 KiB
             } else {
                 sram_size = 0x8000; // 32 KiB

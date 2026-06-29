@@ -993,9 +993,9 @@ impl Gsu {
         let operand: i32 = if self.alt2() {
             n as i32
         } else {
-            self.r[n] as i16 as i32
+            i32::from(self.r[n])
         };
-        let sr = self.sr() as i16 as i32;
+        let sr = i32::from(self.sr());
         let carry = if self.alt1() {
             i32::from(self.flag(SFR_CY))
         } else {
@@ -1013,11 +1013,11 @@ impl Gsu {
     // $60-$6f sub/sbc/cmp
     fn i_sub_sbc_cmp(&mut self, n: usize, _mem: &mut GsuMem) {
         let operand: i32 = if !self.alt2() || self.alt1() {
-            self.r[n] as i16 as i32
+            i32::from(self.r[n])
         } else {
             n as i32
         };
-        let sr = self.sr() as i16 as i32;
+        let sr = i32::from(self.sr());
         let borrow = if !self.alt2() && self.alt1() {
             i32::from(!self.flag(SFR_CY))
         } else {
