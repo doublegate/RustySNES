@@ -87,13 +87,14 @@ impl SuperFxBoard {
     const RAM_MIN: usize = 0x1_0000;
 
     /// Build a Super FX board over `rom`, sizing the Game Pak RAM from the header (`sram_size`)
-    /// clamped up to the `RAM_MIN` 64 KiB minimum and rounded to a power of two.
+    /// but falling back to the `RAM_MIN` 64 KiB minimum if 0, and rounding to a power of two.
     #[must_use]
     pub fn new(rom: Box<[u8]>, sram_size: usize) -> Self {
         let rom_len = rom.len();
         let rom_mask = round_pow2(rom_len as u32).wrapping_sub(1);
 
-        let ram_len = round_pow2(sram_size.max(Self::RAM_MIN) as u32) as usize;
+        let actual_sram_size = if sram_size == 0 { Self::RAM_MIN } else { sram_size };
+        let ram_len = round_pow2(actual_sram_size as u32) as usize;
         let ram = vec![0u8; ram_len].into_boxed_slice();
         let ram_mask = (ram_len as u32).wrapping_sub(1);
 

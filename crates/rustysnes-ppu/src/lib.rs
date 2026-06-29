@@ -574,6 +574,10 @@ impl Ppu {
         &self.framebuffer[..]
     }
 
+    pub fn get_vram(&self) -> &[u16] {
+        &self.vram[..]
+    }
+
     /// Borrow the framebuffer and clear the `frame_ready` flag (one-shot presentation).
     pub fn take_frame(&mut self) -> &[u16] {
         self.frame_ready = false;
