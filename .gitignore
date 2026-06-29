@@ -45,3 +45,6 @@ Cargo.lock.bak
 !/tests/roms/undisbeliever/**
 # (spc700 oracle is .json, golden baselines are .snap — both unaffected by the rules above;
 #  tests/roms/commercial-corpus.json is metadata only and intentionally committed.)
+
+# Master-Claude backups
+*.mc-bak
