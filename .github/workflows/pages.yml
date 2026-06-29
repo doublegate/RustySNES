@@ -30,7 +30,7 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Build wasm demo
-        run: RUSTFLAGS="-C target-feature=-reference-types" trunk build --release --public-url /RustySNES/
+        run: RUSTFLAGS="-C target-feature=-reference-types" trunk build --release --public-url ./
         working-directory: crates/rustysnes-frontend/web
       - name: Build rustdoc
         run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
