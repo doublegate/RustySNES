@@ -224,6 +224,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **65C816 memory-access timing is now cycle-exact (ares `CPU::read`/`write` phasing).** A CPU cycle
+  used to perform its bus access *first* and advance the master clock *after*, so a register write
+  landed a full cycle (6/8/12 master clocks) too early relative to the PPU/HDMA. The CPU now asks the
+  bus for the access cost (`Bus::access_cycles`, ares `wait`) and sequences the advance
+  (`Bus::advance`, ares `step`) around the access: a **write** advances the whole cycle then stores
+  (lands at the cycle end), a **read** advances cost−4, reads, then advances 4 (lands four clocks
+  before the end). Instruction cycle *counts* are unchanged (the CPU-timing tables still pass); only
+  the sub-cycle phase at which each access becomes visible to the PPU/HDMA moves to the hardware-exact
+  instant. `superfx-framebuffer.tsv` re-blessed for the re-phased GSU concurrency (Star Fox fly-in
+  ship + planet verified still rendering); undisbeliever stays 29/29. Note: the `hdmaen_latch` band
+  pattern still differs from ares because HDMA is serviced at the scanline boundary rather than at
+  its dot-accurate hcounter — a separate limitation tracked independently.
 - **Star Fox fly-in now renders correctly (Super FX) — ship and planet.** Four coupled fixes across
   the DMA/HDMA, PPU, cart, and CPU paths, all validated against ares:
   - **HDMA during GP-DMA (missing ship segment).** `Bus::run_gp_dma` takes the `Dma` out of the bus,

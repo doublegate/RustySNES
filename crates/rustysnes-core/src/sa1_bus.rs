@@ -39,6 +39,6 @@ impl CpuBus for Sa1Bus<'_> {
         self.board.second_cpu_poll_irq()
     }
 
-    // `on_cpu_cycle` is intentionally the default no-op: the SA-1's timebase is charged by the
+    // `advance` is intentionally the default no-op: the SA-1's timebase is charged by the
     // scheduler from the instruction's returned cycle count, not per bus access.
 }

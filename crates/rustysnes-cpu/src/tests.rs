@@ -14,7 +14,6 @@ struct TestBus {
     mem: Vec<u8>,
     nmi: bool,
     irq: bool,
-    cycles: u64,
 }
 
 impl TestBus {
@@ -23,7 +22,6 @@ impl TestBus {
             mem: vec![0; 0x100_0000],
             nmi: false,
             irq: false,
-            cycles: 0,
         }
     }
     fn load(&mut self, addr: u32, bytes: &[u8]) {
@@ -51,9 +49,6 @@ impl Bus for TestBus {
     }
     fn poll_irq(&mut self) -> bool {
         self.irq
-    }
-    fn on_cpu_cycle(&mut self) {
-        self.cycles += 1;
     }
 }
 

@@ -34,26 +34,36 @@ impl Cpu {
     // Bus plumbing. Every byte access ticks `on_cpu_cycle` and bumps the cycle counters.
     // ----------------------------------------------------------------------------------
 
-    /// Read a byte at a 24-bit address, charging one CPU cycle.
+    /// Read a byte at a 24-bit address, charging one CPU cycle. ares `CPU::read`: advance the
+    /// clock to four master clocks before the cycle end, latch the byte there, then advance the
+    /// final four — so the read lands at the hardware-exact dot.
     pub(crate) fn bus_read8(&mut self, bus: &mut impl Bus, addr: u32) -> u8 {
-        let v = bus.read24(addr & 0x00FF_FFFF);
-        bus.on_cpu_cycle();
+        let addr = addr & 0x00FF_FFFF;
+        let speed = bus.access_cycles(addr);
+        bus.advance(speed - 4);
+        let v = bus.read24(addr);
+        bus.advance(4);
         self.cycles += 1;
         self.cyc += 1;
         v
     }
 
-    /// Write a byte at a 24-bit address, charging one CPU cycle.
+    /// Write a byte at a 24-bit address, charging one CPU cycle. ares `CPU::write`: advance the
+    /// whole cycle FIRST, then perform the write — the store lands at the END of its cycle, so a
+    /// register write becomes visible to the PPU/HDMA one cycle later than an equivalent read.
     pub(crate) fn bus_write8(&mut self, bus: &mut impl Bus, addr: u32, val: u8) {
-        bus.write24(addr & 0x00FF_FFFF, val);
-        bus.on_cpu_cycle();
+        let addr = addr & 0x00FF_FFFF;
+        let speed = bus.access_cycles(addr);
+        bus.advance(speed);
+        bus.write24(addr, val);
         self.cycles += 1;
         self.cyc += 1;
     }
 
-    /// Internal (no-bus) cycle, e.g. ALU/indexing dead cycles. Charges one CPU cycle.
+    /// Internal (no-bus) cycle, e.g. ALU/indexing dead cycles. Charges one CPU cycle (ares
+    /// `CPU::idle`: a flat six-clock step with no memory access).
     pub(crate) fn io(&mut self, bus: &mut impl Bus) {
-        bus.on_cpu_cycle();
+        bus.advance(6);
         self.cycles += 1;
         self.cyc += 1;
     }

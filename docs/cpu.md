@@ -59,10 +59,21 @@ of the per-access speed, instruction cycle *counts* vary
 - **+1 cycle if an indexed access crosses a page boundary.**
 
 So a single opcode's master-clock cost is `Σ(access_speed_i) + internal_cycles×6`, where the
-number of accesses depends on the M/X widths and the addressing mode. The CPU crate exposes
-each cycle's intended access (read/write, address, internal) to the Bus, which returns the
-speed; the scheduler advances the master clock accordingly (`docs/scheduler.md` §master-clock
-model).
+number of accesses depends on the M/X widths and the addressing mode.
+
+**Sub-cycle access phase (ares `CPU::read`/`write`/`idle`).** Within a cycle the memory access is
+*not* simultaneous with the clock advance — the CPU asks the Bus for the access cost
+(`Bus::access_cycles`, ares `wait`) and sequences the advance (`Bus::advance`, ares `step`) around
+the access so it lands at the hardware-exact instant:
+
+- **write** — advance the full cost, *then* store: the write lands at the **end** of its cycle.
+- **read** — advance `cost − 4`, read, then advance `4`: the read lands **four clocks before** the
+  cycle end.
+- **internal (I/O)** — a flat six-clock advance, no access.
+
+This phase is load-bearing: it fixes the exact hcounter at which a register write becomes visible to
+the PPU/HDMA (a store is seen a cycle later than a same-address read). It does not change instruction
+cycle *counts*.
 
 ## Interfaces (sketch)
 

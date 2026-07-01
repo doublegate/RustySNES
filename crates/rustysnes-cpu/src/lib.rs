@@ -11,11 +11,11 @@
 //!
 //! # Cycle-count unit
 //!
-//! [`Cpu::step`] returns a count of **CPU cycles** (the number of `bus.on_cpu_cycle()` ticks
-//! the instruction consumed: one per bus byte access plus internal I/O cycles), per the
-//! standard 65C816 timing tables and the variable-timing rules in `docs/cpu.md`. It does
-//! **not** apply the per-access master-clock speed weighting (6/8/12) — that is the Bus's
-//! job. The value equals the increment of [`Cpu::cycles`] across the call.
+//! [`Cpu::step`] returns a count of **CPU cycles** (one per bus byte access plus internal I/O
+//! cycles the instruction consumed), per the standard 65C816 timing tables and the
+//! variable-timing rules in `docs/cpu.md`. It does **not** apply the per-access master-clock
+//! speed weighting (6/8/12) — the CPU asks the Bus for that via `Bus::access_cycles` and drives
+//! it with `Bus::advance`. The value equals the increment of [`Cpu::cycles`] across the call.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -62,7 +62,7 @@ pub mod vectors {
 pub struct Cpu {
     /// Architectural register file (A/X/Y/S/D/DBR/PBR/PC/P/E).
     pub regs: Regs,
-    /// Cumulative CPU cycles consumed across all instructions (one per `on_cpu_cycle`).
+    /// Cumulative CPU cycles consumed across all instructions (one per bus access or I/O cycle).
     pub cycles: u64,
     /// `WAI` latch: the CPU is waiting for an interrupt; cleared when one is taken.
     pub waiting: bool,

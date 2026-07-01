@@ -12,13 +12,13 @@
 //! ## The master clock lives here
 //!
 //! The SNES CPU cycle is **6, 8, or 12 master clocks** depending on the address region (and the
-//! FastROM bit). The CPU model charges one "CPU cycle" per bus access via [`CpuBus::on_cpu_cycle`]
-//! — but that call carries no address, so the Bus stashes the access speed of the most recent
-//! [`CpuBus::read24`]/[`CpuBus::write24`] in `clock.next_speed` and consumes it on the next
-//! `on_cpu_cycle`. Internal (no-bus) CPU cycles leave `next_speed` at the default `6`. Each
-//! master-clock advance steps the PPU dot clock (4 master/dot) and the SPC accumulator in
-//! lockstep, so a mid-instruction PPU event (an HV-IRQ at a precise dot, a mid-scanline register
-//! write seen by the next instruction) lands at the right time without per-quirk patches.
+//! FastROM bit). The CPU asks the Bus for the access cost via [`CpuBus::access_cycles`] (ares
+//! `wait`) and drives the clock with [`CpuBus::advance`] (ares `step`), sequencing the advance
+//! around each [`CpuBus::read24`]/[`CpuBus::write24`] so the access lands at the hardware-exact
+//! instant — a write at the end of its cycle, a read four clocks before it. Each master-clock
+//! advance steps the PPU dot clock (4 master/dot) and the SPC accumulator in lockstep, so a
+//! mid-instruction PPU event (an HV-IRQ at a precise dot, a mid-scanline register write seen at
+//! the right hcounter) lands at the right time without per-quirk patches.
 
 // Byte-splitting a 16-bit register into its low/high `u8` (`reg as u8`, `(reg >> 8) as u8`) and
 // folding addresses to `u16`/`usize` is the bread-and-butter of a memory bus; flagging each
@@ -68,8 +68,6 @@ pub struct Clock {
     dot_accum: u32,
     /// Fractional accumulator for the asynchronous SPC700 domain.
     spc_accum: u64,
-    /// Master clocks the *next* `on_cpu_cycle` should advance by (set by `read24`/`write24`).
-    next_speed: u32,
     /// `$420D` MEMSEL bit 0 — FastROM (`true` = 6-clock WS2 ROM, `false` = 8-clock).
     fast_rom: bool,
     /// `$4200` NMITIMEN — bit7 NMI-enable, bit5 V-IRQ, bit4 H-IRQ, bit0 auto-joypad.
@@ -94,7 +92,6 @@ impl Default for Clock {
             master: 0,
             dot_accum: 0,
             spc_accum: 0,
-            next_speed: 6,
             fast_rom: false,
             nmitimen: 0,
             nmi_line: false,
@@ -577,16 +574,25 @@ impl DmaBus for Bus {
 /// The 65C816's view: route a 24-bit access + drive the master clock in lockstep.
 impl CpuBus for Bus {
     fn read24(&mut self, addr24: u32) -> u8 {
-        self.clock.next_speed = self.access_speed(addr24);
         let val = self.decode_read(addr24);
         self.open_bus = val;
         val
     }
 
     fn write24(&mut self, addr24: u32, val: u8) {
-        self.clock.next_speed = self.access_speed(addr24);
         self.open_bus = val;
         self.decode_write(addr24, val);
+    }
+
+    fn access_cycles(&self, addr24: u32) -> u32 {
+        self.access_speed(addr24)
+    }
+
+    fn advance(&mut self, clocks: u32) {
+        // ares `CPU::step`: tick the PPU dot clock, SPC, host-synced coprocessor, and HDMA in
+        // lockstep. The CPU sequences its calls to this around each access (see `CpuBus`) so a
+        // register write lands at the hardware-exact hcounter.
+        self.advance_master(clocks);
     }
 
     fn poll_nmi(&mut self) -> bool {
@@ -598,14 +604,6 @@ impl CpuBus for Bus {
         // …). The `Board::irq_pending` hook is documented to be ORed here; base/host-sync boards
         // return `false` so non-coprocessor carts are unaffected.
         self.clock.irq_line || self.cart.as_ref().is_some_and(|c| c.board.irq_pending())
-    }
-
-    fn on_cpu_cycle(&mut self) {
-        // Advance the master clock by the speed of the access this cycle paid for (set by
-        // read24/write24); an internal CPU cycle leaves it at the default 6.
-        let speed = self.clock.next_speed;
-        self.clock.next_speed = 6;
-        self.advance_master(speed);
     }
 }
 
@@ -677,8 +675,13 @@ mod tests {
     fn master_clock_advances_on_access() {
         let mut bus = Bus::default();
         let before = bus.clock.master;
-        <Bus as CpuBus>::read24(&mut bus, 0x00_8000); // sets next_speed = 8
-        bus.on_cpu_cycle(); // advances 8
+        // SlowROM ($00:8000) costs 8 master clocks; `advance` is what moves the clock.
+        let speed = <Bus as CpuBus>::access_cycles(&bus, 0x00_8000);
+        assert_eq!(speed, 8);
+        <Bus as CpuBus>::advance(&mut bus, speed);
+        assert_eq!(bus.clock.master, before + 8);
+        // `read24`/`write24` are pure accesses now — they do not move the clock.
+        <Bus as CpuBus>::read24(&mut bus, 0x00_8000);
         assert_eq!(bus.clock.master, before + 8);
     }
 }
