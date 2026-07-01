@@ -164,13 +164,26 @@ impl Dma {
         if mask == 0 {
             return 0;
         }
-        // Whole-transfer alignment overhead (ares charges 8 once before the run).
+        // Whole-transfer alignment overhead (ares charges 8 once before the run). Each `bus.step`
+        // advances the master clock *now* so the PPU scanline is current at every B-bus write —
+        // see `DmaBus::step`. The returned `cost` is the same total, retained for callers/tests;
+        // the concrete Bus advances via `step` and must NOT re-charge `cost` afterwards.
+        //
+        // While this transfer runs, the bus has lent us its controller, so its own per-tick HDMA
+        // path is dormant; we interleave HDMA at every scanline boundary the transfer crosses
+        // (hardware: HDMA preempts general DMA at each scanline start). `last_line` seeds from the
+        // bus's own HDMA bookkeeping so no line runs twice or is skipped.
+        let mut last_line = bus.hdma_last_line();
+        bus.step(8);
         cost += 8;
+        cost += self.service_hdma_during_gp(&mut last_line, bus);
         for ch in 0..8 {
             if mask & (1 << ch) == 0 {
                 continue;
             }
-            cost += 8; // per-channel setup
+            bus.step(8); // per-channel setup
+            cost += 8;
+            cost += self.service_hdma_during_gp(&mut last_line, bus);
             let channel = self.channels[ch];
             let mut src = channel.source_addr;
             // `count == 0` means 0x10000 bytes (ares decrements then tests).
@@ -179,8 +192,22 @@ impl Dma {
             loop {
                 let a = (u32::from(channel.source_bank) << 16) | u32::from(src);
                 let b = channel.b_address(index);
-                Self::transfer_unit(channel, a, b, bus);
+                // ares `Channel::transfer`: the access side steps 4 clocks, reads, steps 4 more,
+                // then the write side lands (no extra step) — 8 clocks/byte with the destination
+                // write occurring after the scanline has advanced.
+                bus.step(4);
+                if channel.direction_b_to_a() {
+                    let data = bus.read_b(b);
+                    bus.step(4);
+                    bus.write_a(a, data);
+                } else {
+                    let data = bus.read_a(a);
+                    bus.step(4);
+                    bus.write_b(b, data);
+                }
                 cost += 8; // 8 master clocks per byte
+                // HDMA preempts at scanline starts — interleave it if this byte crossed a line.
+                cost += self.service_hdma_during_gp(&mut last_line, bus);
                 if !channel.fixed() {
                     src = if channel.reverse() {
                         src.wrapping_sub(1)
@@ -217,6 +244,51 @@ impl Dma {
 
     // ---- HDMA -------------------------------------------------------------------------------
 
+    /// Service one scanline's HDMA lifecycle: at V=0 reset the bookkeeping and load the tables,
+    /// on each visible line (`1..=vh`) run one transfer, otherwise nothing. Returns the
+    /// master-clock cost. Shared by the per-master-tick path (`Bus::advance_master`) and the
+    /// in-GP-DMA interleave (`Dma::run_gp` via `Self::service_hdma_during_gp`) so HDMA stays
+    /// scanline-accurate even while a GP-DMA is advancing the clock across line boundaries.
+    #[must_use]
+    pub fn service_hdma_line(&mut self, line: u16, vh: u16, bus: &mut impl DmaBus) -> u32 {
+        // ares `timing.cpp`: `hdmaReset()` runs at frame start regardless of HDMAEN; only the
+        // subsequent `hdmaSetup()` is gated on any channel being enabled. Resetting
+        // unconditionally clears `hdma_completed` so a channel finished last frame can go active
+        // again if HDMAEN enables it mid-frame (`hdma_setup` itself no-ops when HDMAEN==0).
+        if line == 0 {
+            self.hdma_reset();
+            return self.hdma_setup(bus);
+        }
+        if self.hdma_enable == 0 {
+            return 0;
+        }
+        if line <= vh { self.hdma_run(bus) } else { 0 }
+    }
+
+    /// Interleave HDMA into a running GP-DMA: while the bus took our controller (so its own
+    /// per-tick HDMA path is dormant), fire HDMA at each scanline boundary the GP-DMA crosses,
+    /// mirroring how HDMA preempts general DMA at the start of every scanline on hardware.
+    /// `last_line` carries the last-serviced scanline across byte iterations; the bus's own
+    /// bookkeeping is synced so `Bus::advance_master` resumes cleanly afterward. Returns the
+    /// master-clock cost of any transfer performed (already stepped onto `bus`).
+    fn service_hdma_during_gp(&mut self, last_line: &mut u16, bus: &mut impl DmaBus) -> u32 {
+        if self.hdma_enable == 0 {
+            return 0;
+        }
+        let line = bus.scanline();
+        if line == *last_line {
+            return 0;
+        }
+        *last_line = line;
+        bus.set_hdma_last_line(line);
+        let vh = bus.visible_height();
+        let cost = self.service_hdma_line(line, vh, bus);
+        if cost > 0 {
+            bus.step(cost);
+        }
+        cost
+    }
+
     /// Reset every channel's HDMA bookkeeping at the start of a frame (V=0). ares `hdmaReset`.
     pub fn hdma_reset(&mut self) {
         for c in &mut self.channels {
@@ -234,10 +306,15 @@ impl Dma {
         }
         let mut cost: u32 = 8;
         for ch in 0..8 {
+            // ares `Channel::hdmaSetup`: `hdmaDoTransfer = true` for EVERY channel, then the
+            // early-out for disabled ones. A channel disabled at frame start keeps its stale
+            // address/line_counter; if HDMAEN enables it mid-frame it resumes transferring from
+            // there (the "HDMAEN latch" quirk). Skipping the flag here would wrongly leave a
+            // mid-frame-enabled channel dormant for the rest of the frame.
+            self.channels[ch].hdma_do_transfer = true;
             if self.hdma_enable & (1 << ch) == 0 {
                 continue;
             }
-            self.channels[ch].hdma_do_transfer = true;
             self.channels[ch].hdma_addr = self.channels[ch].source_addr;
             self.channels[ch].line_counter = 0;
             cost += self.hdma_reload(ch, bus);

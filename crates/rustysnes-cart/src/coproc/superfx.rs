@@ -17,14 +17,30 @@
 //! | `$70-$71,$F0-$F1 : $0000-$FFFF`    | Game Pak RAM (the GSU plot bitmap)        |
 //! | `$00-$3F,$80-$BF : $6000-$7FFF`    | Game Pak RAM low window (8 KiB)           |
 //!
-//! ## Bus arbitration (not simultaneous — `docs/cart.md` edge case #3)
+//! ## Bus arbitration (`docs/cart.md` edge case #3)
 //!
 //! While the GSU runs with Go set it owns whichever of ROM/RAM its SCMR `RON`/`RAN` bits grant;
 //! the CPU cannot read them. A CPU ROM read during GSU ROM ownership returns the hardware "snooze
-//! vector" (ares `CPUROM::read`); a CPU RAM read during GSU RAM ownership returns open bus. The
-//! board runs the GSU to completion the instant the CPU sets Go (the DSP-1 host-sync pattern),
-//! so this arbitration is naturally serialised; the checks are kept for fidelity and for the
-//! window where Go is set but the GSU has not yet been pumped.
+//! vector" (ares `CPUROM::read`); a CPU RAM read during GSU RAM ownership returns open bus. With
+//! true CPU/GSU interleaving (see below) the CPU genuinely can execute its own instructions
+//! while a `Go` burst is in flight, so this arbitration is a live path, not just a narrow corner
+//! case around the instant Go is set.
+//!
+//! ## Host-synchronization ([`Board::coprocessor_tick`])
+//!
+//! Setting Go (a CPU write to `$301F`, R15's high byte) only arms the GSU — it does **not** run
+//! it to completion inline, and does not even run one whole instruction inline. The Bus
+//! (`rustysnes-core`) advances it by exactly one master clock per [`Board::coprocessor_tick`]
+//! call, from inside its own per-master-tick loop (`advance_master`) — the same place the PPU
+//! dot and the APU's SMP-cycle release happen, called unconditionally every tick regardless of
+//! whether a coprocessor is even present. This mirrors ares's `SuperFX : Thread` cothread, which
+//! the scheduler interleaves with the main CPU at native master-clock granularity
+//! (`sfc/coprocessor/superfx/superfx.cpp`'s `Thread::create` + `timing.cpp`'s
+//! `Thread::synchronize` after every access) — the CPU can do unrelated work, or even service a
+//! *second* `Go` burst, in between two ticks of the first one, instead of only ever observing
+//! the coprocessor's result after an entire burst (or an entire multi-`Go` render split across a
+//! left half and a right half) drains "atomically" inside the one bus write that armed it
+//! (`Gsu::tick` doc has the detail on what is, and isn't, deferred).
 
 // Chip-name jargon (GSU, Super FX, SCMR, …) is not Rust code; the rom/ram-mask pairs are
 // deliberately parallel names; ROM/RAM sizes narrow from usize at the bus boundary.
@@ -110,17 +126,6 @@ impl SuperFxBoard {
             ram_mask,
             host_accesses: 0,
         }
-    }
-
-    /// Borrow the Game Pak RAM as a [`GsuMem`] and run the GSU to completion (host-sync).
-    fn run_gsu(&mut self) {
-        let mut mem = GsuMem {
-            rom: &self.rom,
-            rom_mask: self.rom_mask,
-            ram: &mut self.ram,
-            ram_mask: self.ram_mask,
-        };
-        self.gsu.run_until_stopped(&mut mem);
     }
 
     /// Classify a 24-bit CPU address into one of the board's regions.
@@ -215,15 +220,19 @@ impl Board for SuperFxBoard {
         match Self::classify(addr24) {
             Region::Register(addr) => {
                 self.host_accesses = self.host_accesses.wrapping_add(1);
-                if self.gsu.write_register(addr, val) {
-                    // The CPU just set Go: run the GSU to completion (host-sync).
-                    self.run_gsu();
-                }
+                // Setting Go here only arms the GSU; the Bus drives it to completion one
+                // instruction at a time via `coprocessor_step` so the master clock advances
+                // in step with the GSU instead of jumping by the whole burst at once
+                // (`Board::coprocessor_step` doc — ares `SuperFX::step`/`Thread::synchronize`).
+                let _went_go = self.gsu.write_register(addr, val);
             }
             Region::Ram(off) => {
-                if !self.gsu.owns_ram()
-                    && let Some(slot) = self.ram.get_mut((off & self.ram_mask) as usize)
-                {
+                // The S-CPU write lands in Game Pak RAM unconditionally, even while the GSU owns
+                // the RAM bus (RAN) — matching ares `SuperFX::CPURAM::write`, which never gates the
+                // write. (Reads DO return open bus while the GSU owns RAM — see `read24` — but
+                // writes do not.) Gating the write here silently dropped CPU-authored data whenever
+                // it was posted during a GSU-active window.
+                if let Some(slot) = self.ram.get_mut((off & self.ram_mask) as usize) {
                     *slot = val;
                 }
             }
@@ -252,6 +261,16 @@ impl Board for SuperFxBoard {
         // Either is a non-zero liveness signal only if the bus window is mapped right and the GSU
         // actually executed.
         self.host_accesses.wrapping_add(self.gsu.instructions())
+    }
+
+    fn coprocessor_tick(&mut self) {
+        let mut mem = GsuMem {
+            rom: &self.rom,
+            rom_mask: self.rom_mask,
+            ram: &mut self.ram,
+            ram_mask: self.ram_mask,
+        };
+        self.gsu.tick(&mut mem);
     }
 }
 
@@ -327,7 +346,15 @@ mod tests {
         // Set PBR=0 ($3034), R15=0 (already 0), then write R15 high byte ($301F) to set Go.
         b.write24(0x00_3034, 0x00); // PBR = 0
         b.write24(0x00_301E, 0x00); // R15 low = 0
-        b.write24(0x00_301F, 0x00); // R15 high = 0 -> sets Go, runs to STOP
+        b.write24(0x00_301F, 0x00); // R15 high = 0 -> sets Go
+
+        // Go no longer runs synchronously inside `write24` (the host-sync model moved to
+        // `Board::coprocessor_tick`, driven one master clock at a time by the Bus's
+        // `advance_master` loop in `rustysnes-core` so the GSU interleaves with the CPU's own
+        // instructions instead of draining to completion atomically). Drive it the same way.
+        while b.gsu.go() {
+            b.coprocessor_tick();
+        }
 
         // After the run Go is clear (STOP executed) and the GSU made progress.
         assert!(b.gsu.instructions() > 0, "GSU did not execute");

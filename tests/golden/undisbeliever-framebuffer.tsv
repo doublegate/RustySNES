@@ -4,12 +4,12 @@ hdma-2100-glitch	0x8b4c3bfae51182ee
 hdma-21ff-2100-0f-glitch	0x8b4c3bfae51182ee
 hdma-21ff-2100-glitch	0xb9901e129a29336e
 hdma-21ff-glitch	0x8b4c3bfae51182ee
-hdmaen_latch_test	0xe6f91c0a20ea6f25
-hdmaen_latch_test_2	0xe6f91c0a20ea6f25
+hdmaen_latch_test	0xd8aca8cd47b57f25
+hdmaen_latch_test_2	0xd8aca8cd47b57f25
 inidisp_brightness_delay	0x98869a4be4d1df25
 inidisp_d7_glitch_test	0x8b4c3bfae51182ee
 inidisp_enable_display_mid_frame	0x5aff1c37afd3bc33
-inidisp_forgot_to_force_blank	0xd065a59deba34f25
+inidisp_forgot_to_force_blank	0x1def296dfd2ebaa5
 inidisp_hammer_0f	0x8b4c3bfae51182ee
 inidisp_hammer_0f00	0x8b4c3bfae51182ee
 inidisp_hammer_0f0f	0x8b4c3bfae51182ee

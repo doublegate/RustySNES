@@ -224,6 +224,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Star Fox fly-in now renders correctly (Super FX) — ship and planet.** Four coupled fixes across
+  the DMA/HDMA, PPU, cart, and CPU paths, all validated against ares:
+  - **HDMA during GP-DMA (missing ship segment).** `Bus::run_gp_dma` takes the `Dma` out of the bus,
+    so while a framebuffer GP-DMA ran, HDMA (Star Fox's per-line force-blank) was dormant and the
+    DMA's tail lines dropped. The taken `Dma` now drives HDMA itself at scanline crossings via
+    `Dma::service_hdma_line` / `service_hdma_during_gp` (new `DmaBus` scanline hooks); a
+    frame-crossing framebuffer DMA no longer drops writes.
+  - **HDMA setup/reset faithfulness.** `hdma_setup` sets `hdma_do_transfer` for every channel before
+    the enable-check and `service_hdma_line` runs `hdma_reset` unconditionally at frame start
+    (matching ares `Channel::hdmaSetup` / `timing.cpp`), so a channel enabled mid-frame reactivates.
+  - **Mode-2 offset-per-tile (missing planet).** The planet is a mode-2 OPT BG2 layer, not a GSU
+    object; `render_bg` ignored OPT so its columns never scrolled in. Implemented mode-2/4/6 OPT
+    (`bg3_opt_tile` + per-column `world_x`/`world_y` override), transcribed from ares
+    `background.cpp` — a general accuracy improvement for any OPT-using game.
+  - **Super FX CPU→Game Pak RAM writes are unconditional.** `SuperFxBoard::write24` no longer gates
+    RAM writes behind GSU ownership (reads still return open bus), matching ares `CPURAM::write`.
+  - **65C816 `WAI` wakes on any asserted interrupt line** regardless of the `I` flag (WDC datasheet);
+    a masked-IRQ `SEI; WAI` sync primitive no longer hangs.
+  - Goldens re-blessed for the intentional behavior change: `superfx-framebuffer.tsv` (Super FX
+    corpus now plots structured framebuffers) and the two `hdmaen_latch` entries in
+    `undisbeliever-framebuffer.tsv` (HDMA now executes instead of a blank screen). undisbeliever
+    stays 29/29; `superfx_oncart` passes. Exact `hdmaen_latch` band-parity with ares additionally
+    needs cycle-exact 65C816 write timing and is tracked separately.
 - **PPU color math — subscreen-backdrop addend is the fixed color (washed/black backgrounds).**
   When "add subscreen" (CGWSEL $2130 bit 1) is enabled but the subscreen pixel at a column is the
   backdrop (no opaque sub-layer wrote it), the color-math addend must be **COLDATA's fixed color**,

@@ -44,6 +44,7 @@
 
 use alloc::boxed::Box;
 use alloc::vec;
+use alloc::vec::Vec;
 
 /// The Game Pak ROM/RAM the GSU reads and plots into, with the GSU-internal 24-bit decode.
 ///
@@ -217,12 +218,28 @@ pub struct Gsu {
     clocks: u64,
     /// Cumulative instructions executed (the liveness counter the board exposes).
     instructions: u64,
+    /// Per-bus-access clock checkpoints queued by [`Gsu::step`] within the instruction
+    /// currently being drained by [`Gsu::step_one`]; `pending_idx` is the next unread entry
+    /// (an index cursor avoids an O(n) pop-front on every access).
+    pending_clocks: Vec<u32>,
+    /// Read cursor into `pending_clocks`.
+    pending_idx: usize,
+    /// Master clocks still owed on the checkpoint most recently pulled by [`Gsu::tick`] before
+    /// the next one may be pulled — the countdown that paces per-access checkpoints out one
+    /// master clock at a time (mirrors the `romcl`/`ramcl` delayed-commit pattern, generalized
+    /// to gate overall instruction progress rather than just ROM/RAM buffer latches). The
+    /// instruction's memory side effects are NOT deferred to when this reaches zero — they
+    /// already happened, eagerly, the moment [`Gsu::step_one`] pulled the checkpoint; `owed`
+    /// only withholds the checkpoint *after* it (i.e. gates how soon the GSU can make its next
+    /// move), which is the piece that lets the CPU's own instructions interleave in between.
+    owed: u32,
 }
 
 impl Clone for Gsu {
     fn clone(&self) -> Self {
         Self {
             cache_buffer: self.cache_buffer.clone(),
+            pending_clocks: self.pending_clocks.clone(),
             ..*self
         }
     }
@@ -292,6 +309,9 @@ impl Gsu {
             pixelcache: [PixelCache::empty(); 2],
             clocks: 0,
             instructions: 0,
+            pending_clocks: Vec::new(),
+            pending_idx: 0,
+            owed: 0,
         }
     }
 
@@ -319,10 +339,16 @@ impl Gsu {
         self.sfr & SFR_IRQ != 0
     }
 
-    /// Cumulative instruction count — the board's coprocessor-activity / liveness counter.
+    /// The number of instructions executed since power-on.
     #[must_use]
     pub const fn instructions(&self) -> u64 {
         self.instructions
+    }
+
+    /// The number of GSU clock cycles executed.
+    #[must_use]
+    pub const fn clocks(&self) -> u64 {
+        self.clocks
     }
 
     // --- SFR helpers. ----------------------------------------------------------------------
@@ -386,9 +412,69 @@ impl Gsu {
 
     // --- The host-sync driver. -------------------------------------------------------------
 
+    /// Drain one bus-access clock checkpoint (ares `SuperFX::step`/`Thread::synchronize`
+    /// granularity — `sfc/coprocessor/superfx/timing.cpp`) and report its clock count, running
+    /// as many further GSU instructions as needed to produce one. The board's host loop calls
+    /// this in a loop, folding each returned delta into the master clock immediately, so the
+    /// PPU/NMI/APU advance in step with the GSU at true per-access granularity instead of
+    /// crediting an entire instruction — or an entire multi-instruction burst — all at once
+    /// (which let a two-pass render, e.g. a screen split into a left-half then a right-half
+    /// `Go` burst, desync the two halves' notion of "now"). Each instruction still runs to
+    /// completion eagerly inside `Gsu::main_step` — only the *reporting* of its accesses to
+    /// the caller is paced one at a time, which is externally indistinguishable from true
+    /// per-access interleaving because nothing GSU-side reads back caller/Bus state
+    /// mid-instruction. Returns `0` once `Go` clears and there is nothing left queued.
+    pub fn step_one(&mut self, mem: &mut GsuMem) -> u32 {
+        loop {
+            if self.pending_idx < self.pending_clocks.len() {
+                let clocks = self.pending_clocks[self.pending_idx];
+                self.pending_idx += 1;
+                if self.pending_idx == self.pending_clocks.len() {
+                    self.pending_clocks.clear();
+                    self.pending_idx = 0;
+                }
+                if clocks > 0 {
+                    return clocks;
+                }
+                continue;
+            }
+            if !self.go() {
+                return 0;
+            }
+            self.main_step(mem);
+        }
+    }
+
+    /// Advance by exactly one master clock (ares `SuperFX::main`, scheduled by its `Thread` at
+    /// native master-clock granularity — `sfc/coprocessor/superfx/superfx.cpp`). The board's
+    /// host loop calls this from inside the Bus's own per-master-tick loop, unconditionally,
+    /// every single tick — the same place the PPU dot and the APU's SMP-cycle release happen —
+    /// so the GSU genuinely interleaves with the CPU's own instruction stream instead of a `Go`
+    /// burst draining to completion "atomically" inside the one bus write that armed it (which
+    /// left the CPU unable to do any of its own work, or service a second `Go` burst, until the
+    /// first fully finished). `owed` paces [`Gsu::step_one`]'s per-access checkpoints out one
+    /// master clock at a time: the instruction's own side effects still land eagerly the moment
+    /// its checkpoint is pulled (no full deferred-commit — see the field doc), but the *next*
+    /// GSU instruction can no longer start until the real number of elapsed master clocks the
+    /// current one costs has actually passed, letting the CPU run freely in between.
+    pub fn tick(&mut self, mem: &mut GsuMem) {
+        if self.owed > 0 {
+            self.owed -= 1;
+            return;
+        }
+        let clocks = self.step_one(mem);
+        if clocks > 0 {
+            self.owed = clocks - 1;
+        }
+    }
+
     /// Run the GSU to completion: step instructions while Go is set, capped against a runaway
     /// program. Called by the board the instant the CPU sets Go (the DSP-1 `run_until_rqm`
     /// analogue). Returns when the program executes `STOP` (Go clears) or the cap trips.
+    ///
+    /// Prefer [`Gsu::step_one`] driven by the board's host loop when master-clock-accurate
+    /// interleaving matters (e.g. a screen render split across multiple `Go` bursts within one
+    /// displayed frame) — this method is for callers that only need the final result.
     pub fn run_until_stopped(&mut self, mem: &mut GsuMem) {
         /// Instruction cap: a generous bound (~30 frames of GSU work) so a wedged program can't
         /// spin the host forever. A correct program reaches `STOP` long before this.
@@ -397,6 +483,10 @@ impl Gsu {
         while self.go() && self.instructions - start < MAX_INSTRUCTIONS {
             self.main_step(mem);
         }
+        // Nobody drains the per-access checkpoints this run pushed (only `step_one`'s callers
+        // want them) — clear them so they don't accumulate across repeated calls.
+        self.pending_clocks.clear();
+        self.pending_idx = 0;
     }
 
     /// Execute one GSU instruction (ares `SuperFX::main`, the Go-set path).
@@ -436,6 +526,15 @@ impl Gsu {
             }
         }
         self.clocks = self.clocks.wrapping_add(u64::from(clocks));
+        // Queue this access's clocks as a synchronization checkpoint (ares `SuperFX::step`
+        // calls `Thread::synchronize(cpu)` at exactly this point, every single bus access —
+        // `sfc/coprocessor/superfx/timing.cpp`). `step_one` drains one checkpoint per call so
+        // the board's host loop can fold each one into the master clock immediately instead of
+        // crediting an entire instruction (or an entire multi-instruction burst) at once. The
+        // instruction still runs to completion eagerly here — only the *reporting* of its bus
+        // accesses to the Bus is deferred/paced, which is externally indistinguishable from true
+        // per-access interleaving because nothing GSU-side reads back Bus state mid-instruction.
+        self.pending_clocks.push(clocks);
     }
 
     /// Latency for a normal (non-cache-hit) clocked access — halved at 21 MHz (CLSR).

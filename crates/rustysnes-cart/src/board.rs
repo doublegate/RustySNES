@@ -86,9 +86,19 @@ pub trait Board {
 
     // --- Default-no-op coprocessor / IRQ hooks (the `notify_a12`-equivalents). ---
 
-    /// Advance the on-cart coprocessor by one of its clock units. Default no-op (base
-    /// LoROM/HiROM/ExHiROM have no coprocessor). Super FX / SA-1 / DSP-n override this; the
-    /// scheduler drives it from the master-clock loop on the coprocessor's divisor.
+    /// Advance the on-cart coprocessor by one master clock. The Bus calls this from inside its
+    /// own per-master-tick loop (`advance_master`, alongside the PPU dot and the APU's
+    /// SMP-cycle release) — every single tick, unconditionally, on the coprocessor's divisor —
+    /// so a host-driven coprocessor (Super FX/GSU) runs genuinely concurrently with the CPU's
+    /// own subsequent instructions instead of draining an entire `Go` burst to completion
+    /// "atomically" inside the one bus write that armed it. This mirrors ares's `SuperFX :
+    /// Thread` cothread, which the scheduler interleaves with the main CPU at native
+    /// master-clock granularity (`sfc/coprocessor/superfx/superfx.cpp`'s `Thread::create` +
+    /// `timing.cpp`'s `Thread::synchronize` after every access) — the CPU can do unrelated
+    /// work, or even service a *second* `Go` burst, in between two ticks of the first one,
+    /// instead of only ever observing the coprocessor's result after it fully finishes
+    /// (`Gsu::tick` doc has the detail on what is, and isn't, deferred). Default no-op (base
+    /// LoROM/HiROM/ExHiROM have no coprocessor; DSP-n stays RQM-polled, not tick-driven).
     fn coprocessor_tick(&mut self) {}
 
     /// Notify the board that the PPU is starting a new scanline. Default no-op. (Reserved for

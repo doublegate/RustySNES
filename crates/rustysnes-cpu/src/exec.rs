@@ -656,7 +656,13 @@ impl Cpu {
             self.waiting = false;
             self.service_interrupt(bus, false, false);
         } else if self.waiting {
-            // WAI with no pending interrupt: burn an idle cycle and stay parked.
+            // WAI exits on ANY asserted interrupt line (NMI/IRQ/ABORT/RESET) regardless of the
+            // `I` flag (WDC 65816 datasheet) — `I` only gates whether the CPU *vectors* to the
+            // handler, not whether WAI wakes. A masked IRQ (I=1) here must still clear `waiting`
+            // so execution resumes at the instruction after WAI; otherwise a program using
+            // `SEI; WAI` as a cheap interrupt-line sync primitive (no vectoring wanted) hangs
+            // forever once an IRQ source it never unmasks fires.
+            self.waiting = !irq;
             self.io(bus);
         } else {
             let opcode = self.fetch8(bus);
