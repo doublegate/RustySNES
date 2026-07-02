@@ -287,6 +287,15 @@ impl System {
                 s.remaining()
             )));
         }
+        // SYS0 is the envelope's last section; reject anything appended after it (a corrupted or
+        // concatenated blob), the same "no unconsumed trailing bytes" posture every nested
+        // section's own load_state already enforces on itself.
+        if r.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "save-state has {} trailing byte(s) after the SYS0 section",
+                r.remaining()
+            )));
+        }
         Ok(())
     }
 }

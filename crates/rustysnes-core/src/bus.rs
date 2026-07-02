@@ -143,8 +143,9 @@ impl Clock {
         self.nmi_line = s.read_bool()?;
         self.rdnmi_flag = s.read_bool()?;
         self.irq_line = s.read_bool()?;
-        self.htime = s.read_u16()?;
-        self.vtime = s.read_u16()?;
+        // htime/vtime are 9-bit comparators (write24 masks bit 8 with & 1 at $4208/$420A already).
+        self.htime = s.read_u16()? & 0x01FF;
+        self.vtime = s.read_u16()? & 0x01FF;
         Ok(())
     }
 }
@@ -590,11 +591,14 @@ impl Bus {
         12
     }
 
-    /// Write the PPU, APU, DMA controller, WRAM + the Bus's own timing/register state, and (if a
-    /// cart is loaded) its battery SRAM + coprocessor state into a `"BUS0"` section. The cart's
-    /// ROM/header are NOT written: the caller must reload the same ROM (`Cart::load`) and install
-    /// it before calling [`Bus::load_state`], the same "never embed a ROM byte" contract every
-    /// coprocessor board in `rustysnes-cart` already follows.
+    /// Write the PPU's own section, the APU's own section, the DMA controller's own section,
+    /// then a `"BUS0"` section for WRAM + the Bus's own timing/register state, then (if a cart is
+    /// loaded) its battery SRAM + coprocessor state as a final untagged tail (a presence flag,
+    /// the length-prefixed SRAM bytes, then the board's own `save_state` bytes — the cart has no
+    /// single section of its own since its payload is really "however many bytes the board's own
+    /// implementation writes"). The cart's ROM/header are NOT written: the caller must reload the
+    /// same ROM (`Cart::load`) and install it before calling [`Bus::load_state`], the same "never
+    /// embed a ROM byte" contract every coprocessor board in `rustysnes-cart` already follows.
     pub fn save_state(&self, w: &mut SaveWriter) {
         self.ppu.save_state(w);
         self.apu.save_state(w);
@@ -639,7 +643,8 @@ impl Bus {
         self.clock.load_state(&mut s)?;
         self.muldiv.load_state(&mut s)?;
         self.wram.copy_from_slice(s.read_bytes(WRAM_SIZE)?);
-        self.wram_addr = s.read_u32()?;
+        // wram_addr is a 17-bit register (every use site already masks it & 0x1_FFFF).
+        self.wram_addr = s.read_u32()? & 0x1_FFFF;
         self.joypad[0] = s.read_u16()?;
         self.joypad[1] = s.read_u16()?;
         self.joypad_strobe = s.read_bool()?;

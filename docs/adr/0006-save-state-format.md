@@ -33,9 +33,9 @@ and diffing the deterministic output against a fork that kept running uninterrup
 
 ## Decision
 
-- **Format:** a versioned, tagged binary blob — a fixed header (magic bytes, format version
-  `u16`, target crate-version string) followed by one length-prefixed section per top-level
-  component (`Cpu`, `Bus` core fields, `Ppu`, `Apu`, `Cart`/`Board` — the board's own `Debug`
+- **Format:** a versioned, tagged binary blob — a fixed header (a 4-byte magic, `b"RSNS"`, plus a
+  `u16` format version) followed by one length-prefixed section per top-level component (`Cpu`,
+  `Bus` core fields, `Ppu`, `Apu`, `Cart`/`Board` — the board's own `Debug`
   impl already enumerates its exact fields, giving a natural per-board serialization surface).
   Sections are ordered and length-prefixed specifically so an unknown/newer section from a
   future format version can be skipped rather than corrupting the whole load.

@@ -101,8 +101,8 @@ for every coprocessor board that carries register-file state: `Dsp1Board`, `NecD
 
 ### T-52-003 — `System::save_state()`/`load_state()` (the versioned envelope)
 
-**Description:** in `rustysnes-core`, implement the format header (magic, format version,
-crate-version string) + length-prefixed sections wrapping `Cpu`, the `Bus`-owned state (WRAM,
+**Description:** in `rustysnes-core`, implement the format header (a 4-byte magic + `u16` format
+version) + length-prefixed sections wrapping `Cpu`, the `Bus`-owned state (WRAM,
 DMA, `Clock`), `Ppu`, `Apu`, and `Cart`/`Board` (via T-52-002's per-board hooks). Replace the
 `Unsupported` stubs `ref-proj/RUSTYMU-INTEGRATION.md` documents for
 `System::save_state()`/`load_state()` with real implementations. `load_state()` rejects an
