@@ -71,7 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   regs.rs/lib.rs masking at each *use* site is accounted for (`cgram_address` is a `u8` matching
   the 256-entry `cgram` exactly; `oam_address`/VRAM offsets are masked at every access site, not
   trusted verbatim there either), so neither `load_state` needed additional range validation for
-  memory safety. 2 new round-trip/validation tests (`rustysnes-cpu` ×1, `rustysnes-ppu` ×2).
+  memory safety. 3 new round-trip/validation tests (`rustysnes-cpu` ×1, `rustysnes-ppu` ×2).
   `Apu` and the `System`-level versioned envelope that assembles every subsystem above are
   tracked as the sprint's remaining work, not yet implemented.
 

@@ -327,7 +327,7 @@ impl WindowLayer {
         self.one_invert = s.read_bool()?;
         self.two_enable = s.read_bool()?;
         self.two_invert = s.read_bool()?;
-        self.mask = s.read_u8()?;
+        self.mask = s.read_u8()? & 0x03;
         Ok(())
     }
 }
@@ -456,17 +456,22 @@ impl Io {
     /// array index: `cgram_address` (`u8`) indexes the 256-entry `cgram` exactly; `oam_address`
     /// is masked `& 0x03ff` at every read/write site in `regs.rs` before use (never trusted
     /// verbatim there either); `vram_address`/`vram_read_latch`-derived offsets are masked
-    /// `& 0x7fff` at every VRAM access site. So no additional masking is needed here for memory
-    /// safety.
+    /// `& 0x7fff` at every VRAM access site — so none of those needed additional masking for
+    /// memory safety. Every register a normal write constrains to a narrower width than its
+    /// storage type IS masked here to that width, though (`display_brightness`/`mosaic_size`
+    /// 4-bit, `bg_mode`/`obj_base_size` 3-bit, `bg_screen_size`/`vram_mapping`/`m7_repeat`/
+    /// `color_window_above`/`color_window_below`/`WindowLayer::mask` 2-bit), matching the same
+    /// "apply the engine's own normal-operation invariant on load" reasoning already applied
+    /// elsewhere in this project.
     fn load_state(&mut self, s: &mut SaveReader) -> Result<(), SaveStateError> {
-        self.display_brightness = s.read_u8()?;
+        self.display_brightness = s.read_u8()? & 0x0F;
         self.display_disable = s.read_bool()?;
-        self.bg_mode = s.read_u8()?;
+        self.bg_mode = s.read_u8()? & 0x07;
         self.bg3_priority = s.read_bool()?;
         for v in &mut self.tile_size {
             *v = s.read_bool()?;
         }
-        self.mosaic_size = s.read_u8()?;
+        self.mosaic_size = s.read_u8()? & 0x0F;
         for v in &mut self.mosaic_enable {
             *v = s.read_bool()?;
         }
@@ -474,7 +479,7 @@ impl Io {
             *v = s.read_u16()?;
         }
         for v in &mut self.bg_screen_size {
-            *v = s.read_u8()?;
+            *v = s.read_u8()? & 0x03;
         }
         for v in &mut self.bg_tiledata_addr {
             *v = s.read_u16()?;
@@ -486,13 +491,13 @@ impl Io {
             *v = s.read_u16()?;
         }
         self.vram_increment_size = s.read_u16()?;
-        self.vram_mapping = s.read_u8()?;
+        self.vram_mapping = s.read_u8()? & 0x03;
         self.vram_increment_high = s.read_bool()?;
         self.vram_address = s.read_u16()?;
         self.vram_read_latch = s.read_u16()?;
         self.m7_hflip = s.read_bool()?;
         self.m7_vflip = s.read_bool()?;
-        self.m7_repeat = s.read_u8()?;
+        self.m7_repeat = s.read_u8()? & 0x03;
         self.m7a = s.read_u16()?;
         self.m7b = s.read_u16()?;
         self.m7c = s.read_u16()?;
@@ -523,8 +528,8 @@ impl Io {
         }
         self.direct_color = s.read_bool()?;
         self.add_subscreen = s.read_bool()?;
-        self.color_window_above = s.read_u8()?;
-        self.color_window_below = s.read_u8()?;
+        self.color_window_above = s.read_u8()? & 0x03;
+        self.color_window_below = s.read_u8()? & 0x03;
         for v in &mut self.color_math_enable {
             *v = s.read_bool()?;
         }
@@ -538,7 +543,7 @@ impl Io {
         self.extbg = s.read_bool()?;
         self.obj_tiledata_addr = s.read_u16()?;
         self.obj_nameselect = s.read_u16()?;
-        self.obj_base_size = s.read_u8()?;
+        self.obj_base_size = s.read_u8()? & 0x07;
         self.latch_h = s.read_u16()?;
         self.latch_v = s.read_u16()?;
         self.counter_latched = s.read_bool()?;
@@ -914,7 +919,7 @@ impl Ppu {
             *word = s.read_u16()?;
         }
         for word in &mut self.cgram {
-            *word = s.read_u16()?;
+            *word = s.read_u16()? & 0x7FFF;
         }
         self.oam.copy_from_slice(s.read_bytes(544)?);
         self.io.load_state(&mut s)?;
@@ -945,7 +950,7 @@ impl Ppu {
         self.frame_ready = s.read_bool()?;
         self.frame_count = s.read_u64()?;
         for word in self.framebuffer.iter_mut() {
-            *word = s.read_u16()?;
+            *word = s.read_u16()? & 0x7FFF;
         }
         if s.remaining() != 0 {
             return Err(SaveStateError::Invalid(alloc::format!(

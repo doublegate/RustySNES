@@ -138,8 +138,11 @@ impl Cpu {
     /// [`SaveStateError`] on truncated/corrupt input or a section with unconsumed trailing
     /// bytes. `p` is restored via [`Status::from_bits_truncate`], which silently drops any bit
     /// outside the flag set instead of erroring — `Status` covers all 8 bits of the real
-    /// hardware register, so no encoding of a save-state byte is actually invalid here; there is
-    /// nothing to reject.
+    /// hardware register, so no encoding of a save-state byte is actually invalid here. `x`/`y`/
+    /// `s`/`pbr` are masked to the widths `emulation`/`Status::X` force during normal operation
+    /// (8-bit `X`/`Y` with the high byte forced to zero, `S` confined to page `$01`, `PBR` forced
+    /// to `0`, per `docs/cpu.md`'s emulation-mode rules) — the same "apply the engine's own
+    /// normal-operation invariant on load" reasoning already applied elsewhere in this project.
     pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
         let mut s = r.expect_section(*b"CPU0")?;
         self.regs.a = s.read_u16()?;
@@ -161,6 +164,15 @@ impl Cpu {
                 "CPU0 section has {} trailing byte(s)",
                 s.remaining()
             )));
+        }
+        if self.regs.emulation {
+            self.regs.x &= 0x00FF;
+            self.regs.y &= 0x00FF;
+            self.regs.s = 0x0100 | (self.regs.s & 0x00FF);
+            self.regs.pbr = 0;
+        } else if self.regs.p.contains(Status::X) {
+            self.regs.x &= 0x00FF;
+            self.regs.y &= 0x00FF;
         }
         Ok(())
     }
