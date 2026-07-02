@@ -7,6 +7,8 @@
 
 #![allow(clippy::doc_markdown, clippy::similar_names)]
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 const MPS: u32 = 0;
 const LPS: u32 = 1;
 const HALF: u16 = 0x55;
@@ -246,6 +248,92 @@ impl Decompressor {
             4 => deinterleave(u64::from(deinterleave(self.pixels, 32)), 32),
             _ => 0,
         };
+    }
+
+    /// Write this decoder's full mid-stream state — the 5x15 context table, `bpp`, the data-ROM
+    /// cursor, the range-coder's bit/range/input/output accumulators, and the pixel/colormap
+    /// history — into an `"SPCD"` section, so a save-state landing mid-tile-decompress resumes
+    /// correctly. There is no firmware/chip-ROM byte here to exclude (`docs/adr/0003`).
+    pub fn save_state(&self, w: &mut SaveWriter) {
+        w.section(*b"SPCD", |s| {
+            for root in &self.context {
+                for node in root {
+                    s.write_u8(node.prediction);
+                    s.write_u8(node.swap);
+                }
+            }
+            s.write_u32(self.bpp);
+            s.write_u32(self.offset);
+            s.write_u32(self.bits);
+            s.write_u16(self.range);
+            s.write_u16(self.input);
+            s.write_u8(self.output);
+            s.write_u64(self.pixels);
+            s.write_u64(self.colormap);
+            s.write_u32(self.result);
+        });
+    }
+
+    /// The inverse of [`Self::save_state`].
+    ///
+    /// # Errors
+    /// [`SaveStateError`] on truncated/corrupt input, a section with unconsumed trailing bytes,
+    /// or [`SaveStateError::Invalid`] if a restored value would violate an invariant real
+    /// execution can never break: `node.prediction` indexes the 53-entry `EVOLUTION` table
+    /// directly (`decode`'s `EVOLUTION[ctx.prediction as usize]`) so an out-of-range value would
+    /// panic on the very next decode step (a semantic state-machine index, not a hardware
+    /// register width — rejected, not masked, matching `Obc1Board`'s cursor-field posture); `bpp`
+    /// must be one of `{0,1,2,4}` — `0` is the power-on/never-`initialize`d `Default` value,
+    /// `{1,2,4}` are the only values a real `1 << mode` (`mode` is a 2-bit register field) can
+    /// ever produce — since any other value would either shift-overflow (`1 << plane` for
+    /// `plane >= self.bpp`) or spin `for plane in 0..self.bpp` unboundedly if left untrusted;
+    /// `bits` is clamped to `0..=8` (`0` is likewise the power-on default; `decode` decrements it
+    /// every range-coder step and resets it to 8 only on reaching exactly 0, so an out-of-range
+    /// restored value risks an underflow panic on the very next decrement once `bpp` is nonzero);
+    /// `node.swap` is masked to 1 bit, a genuine hardware flip-flop.
+    pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        let mut s = r.expect_section(*b"SPCD")?;
+        for root in &mut self.context {
+            for node in root.iter_mut() {
+                let prediction = s.read_u8()?;
+                if usize::from(prediction) >= EVOLUTION.len() {
+                    return Err(SaveStateError::Invalid(alloc::format!(
+                        "SPC7110 decompressor prediction {prediction} is out of EVOLUTION's range (0-{})",
+                        EVOLUTION.len() - 1
+                    )));
+                }
+                node.prediction = prediction;
+                node.swap = s.read_u8()? & 1;
+            }
+        }
+        let bpp = s.read_u32()?;
+        if !matches!(bpp, 0 | 1 | 2 | 4) {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "SPC7110 decompressor bpp {bpp} is not one of 0, 1, 2, or 4"
+            )));
+        }
+        self.bpp = bpp;
+        self.offset = s.read_u32()?;
+        let bits = s.read_u32()?;
+        if bits > 8 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "SPC7110 decompressor bits {bits} is out of the valid 0-8 range"
+            )));
+        }
+        self.bits = bits;
+        self.range = s.read_u16()?;
+        self.input = s.read_u16()?;
+        self.output = s.read_u8()?;
+        self.pixels = s.read_u64()?;
+        self.colormap = s.read_u64()?;
+        self.result = s.read_u32()?;
+        if s.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "SPCD section has {} trailing byte(s)",
+                s.remaining()
+            )));
+        }
+        Ok(())
     }
 }
 
