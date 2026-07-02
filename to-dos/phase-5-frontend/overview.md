@@ -16,9 +16,9 @@ SNES-specific work is the second-CPU/APU panels and the Mode-7 / HDMA / coproces
       `emu-thread` stays default-off until `Board: Send` lands (a one-word cart change) — deferred.
 - [x] The audio ring + dynamic rate control are wired (S-DSP 32 kHz FIFO → DRC-paced resampler →
       lock-free ring → cpal stereo); occupancy-target DRC absorbs pacing jitter.
-- [ ] Save-states, rewind, and run-ahead — **deferred**: need a core-wide deterministic snapshot
-      (Clone/serialize across the `Board` trait + APU/Bus/System), sequenced as its own sprint so
-      the determinism oracle is re-validated with it.
+- [ ] Save-states (Sprint 2, `v0.2.0`) — the core-wide deterministic snapshot format is drafted
+      as `docs/adr/0006-save-state-format.md`; implementation not yet started.
+- [ ] Rewind and run-ahead (Sprint 3, `v0.3.0`) — depends on Sprint 2's save-state primitive.
 - [x] The frontend determinism path is intact (rate control + resampling live here, not the core;
       the additive S-DSP FIFO records already-emitted samples and never feeds back into synthesis).
 - [ ] All sprints complete (Sprint 1 playable baseline done; save-states/rewind/run-ahead + the
@@ -38,10 +38,13 @@ Out-of-scope (Phase 8):
 ## Sprints
 
 - [Sprint 1 — The egui shell + emu thread + audio ring](sprint-1-shell.md) — the playable
-  native baseline.
-- Sprint 2 — Save-states, rewind, run-ahead, gamepads.
-  **Status:** stub — refine when Sprint 1 is ~complete.
-- Sprint 3 — The wasm build + `--help` TUI.
+  native baseline. **Status:** complete (`v0.1.0`).
+- [Sprint 2 — Save-states](sprint-2-save-states.md) — the versioned core-wide snapshot format
+  (`docs/adr/0006`) + `System::save_state()`/`load_state()` + the round-trip determinism proof.
+  **Release:** `v0.2.0 "Persistence"`.
+- Sprint 3 — Rewind, run-ahead, gamepads.
+  **Status:** stub — refine when Sprint 2 is ~complete. **Release:** `v0.3.0 "Continuum"`.
+- Sprint 4 — The wasm build + `--help` TUI.
   **Status:** stub.
 
 ## Dependencies
