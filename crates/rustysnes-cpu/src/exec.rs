@@ -702,8 +702,14 @@ impl Cpu {
     /// Service a hardware/software interrupt (NMI/IRQ/BRK/COP). Pushes the return frame and
     /// loads `PC` from the appropriate emulation/native vector, then sets `I` and clears `D`.
     fn service_interrupt(&mut self, bus: &mut impl Bus, software: bool, nmi: bool) {
-        // Two internal cycles for the hardware sequence (signature varies; one suffices for
-        // count parity with the reference's interrupt handler timing).
+        // The 65C816 hardware interrupt sequence opens with TWO internal (dead) cycles before it
+        // begins pushing the return frame (WDC datasheet: IRQ/NMI = 2 internal + push PBR[native]
+        // + push PCH + push PCL + push P + 2 vector fetches). This path is hardware IRQ/NMI ONLY —
+        // BRK/COP are handled by `op_brk`/`op_cop` and are cycle-validated by the single-step
+        // oracle, so widening this to the correct 2 cycles does not touch their counts. The extra
+        // cycle also matters for interrupt *latency*: it pushes an IRQ-driven register write ~1
+        // dot later, which is one input to the `hdmaen_latch_test` HDMAEN-vs-latch race.
+        self.io(bus);
         self.io(bus);
         if !self.regs.emulation {
             self.push8(bus, self.regs.pbr);
