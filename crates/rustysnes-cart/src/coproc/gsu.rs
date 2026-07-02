@@ -46,6 +46,8 @@ use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 /// The Game Pak ROM/RAM the GSU reads and plots into, with the GSU-internal 24-bit decode.
 ///
 /// The board constructs this each run, borrowing its ROM (shared, read-only) and its Game Pak
@@ -1382,5 +1384,165 @@ impl Gsu {
             self.write_r(n, hi | lo);
         }
         self.reset_prefix();
+    }
+
+    /// Bound on `pending_clocks`' saved length: `step` pushes at most a handful of bus-access
+    /// checkpoints per instruction, so a claimed length beyond this is corrupt/hostile input, not
+    /// a value real execution could ever produce (the zip-bomb-style "reject an absurd claimed
+    /// size" posture, not a hardware width mask).
+    const MAX_SAVED_PENDING_CLOCKS: usize = 64;
+
+    /// Write this core's full mutable state — every register, the status/control fields, both
+    /// bus-buffer latches, the opcode cache, the plot pixel cache, the liveness counters, and the
+    /// in-flight per-access checkpoint queue (`pending_clocks`/`pending_idx`/`owed`) — into a
+    /// `"GSU0"` section. There is no firmware/ROM byte here to exclude: the GSU's program lives in
+    /// the cart's own ROM, which `System::save_state` captures separately (`docs/adr/0003`). The
+    /// checkpoint queue matters because [`Self::tick`]-driven (master-clock-interleaved) execution
+    /// can leave a `Go` burst genuinely mid-flight at any save point, unlike the run-to-completion
+    /// [`Self::run_until_stopped`] path, which always drains it back to empty first.
+    pub fn save_state(&self, w: &mut SaveWriter) {
+        w.section(*b"GSU0", |s| {
+            for &reg in &self.r {
+                s.write_u16(reg);
+            }
+            s.write_bool(self.r14_mod);
+            s.write_bool(self.r15_mod);
+            s.write_u16(self.sfr);
+            #[allow(clippy::cast_possible_truncation)] // sreg/dreg are always 0-15
+            s.write_u8(self.sreg as u8);
+            #[allow(clippy::cast_possible_truncation)]
+            s.write_u8(self.dreg as u8);
+            s.write_u8(self.pipeline);
+            s.write_u8(self.pbr);
+            s.write_u8(self.rombr);
+            s.write_bool(self.rambr);
+            s.write_u16(self.cbr);
+            s.write_u8(self.scbr);
+            s.write_u8(self.scmr_ht);
+            s.write_bool(self.scmr_ron);
+            s.write_bool(self.scmr_ran);
+            s.write_u8(self.scmr_md);
+            s.write_u8(self.colr);
+            s.write_bool(self.por_obj);
+            s.write_bool(self.por_freezehigh);
+            s.write_bool(self.por_highnibble);
+            s.write_bool(self.por_dither);
+            s.write_bool(self.por_transparent);
+            s.write_bool(self.bramr);
+            s.write_u8(self.vcr);
+            s.write_bool(self.cfgr_irq);
+            s.write_bool(self.cfgr_ms0);
+            s.write_bool(self.clsr);
+            s.write_u32(self.romcl);
+            s.write_u8(self.romdr);
+            s.write_u32(self.ramcl);
+            s.write_u16(self.ramar);
+            s.write_u8(self.ramdr);
+            s.write_u16(self.ramaddr);
+            s.write_bytes(&*self.cache_buffer);
+            for &valid in &self.cache_valid {
+                s.write_bool(valid);
+            }
+            for pc in &self.pixelcache {
+                s.write_u16(pc.offset);
+                s.write_u8(pc.bitpend);
+                s.write_bytes(&pc.data);
+            }
+            s.write_u64(self.clocks);
+            s.write_u64(self.instructions);
+            #[allow(clippy::cast_possible_truncation)] // bounded by MAX_SAVED_PENDING_CLOCKS
+            s.write_u32(self.pending_clocks.len() as u32);
+            for &c in &self.pending_clocks {
+                s.write_u32(c);
+            }
+            #[allow(clippy::cast_possible_truncation)] // <= pending_clocks.len(), same bound
+            s.write_u32(self.pending_idx as u32);
+            s.write_u32(self.owed);
+        });
+    }
+
+    /// The inverse of [`Self::save_state`].
+    ///
+    /// # Errors
+    /// [`SaveStateError`] on truncated/corrupt input, a section with unconsumed trailing bytes, or
+    /// [`SaveStateError::Invalid`] if the saved `pending_clocks` length exceeds
+    /// [`Self::MAX_SAVED_PENDING_CLOCKS`] or `pending_idx` exceeds the restored queue's length
+    /// (both would otherwise let a corrupted save-state desync [`Self::step_one`]'s cursor).
+    /// `sreg`/`dreg` are masked to 4 bits — they index the 16-entry register file directly.
+    pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        let mut s = r.expect_section(*b"GSU0")?;
+        for reg in &mut self.r {
+            *reg = s.read_u16()?;
+        }
+        self.r14_mod = s.read_bool()?;
+        self.r15_mod = s.read_bool()?;
+        self.sfr = s.read_u16()?;
+        self.sreg = usize::from(s.read_u8()? & 0xF);
+        self.dreg = usize::from(s.read_u8()? & 0xF);
+        self.pipeline = s.read_u8()?;
+        self.pbr = s.read_u8()?;
+        self.rombr = s.read_u8()?;
+        self.rambr = s.read_bool()?;
+        self.cbr = s.read_u16()?;
+        self.scbr = s.read_u8()?;
+        self.scmr_ht = s.read_u8()?;
+        self.scmr_ron = s.read_bool()?;
+        self.scmr_ran = s.read_bool()?;
+        self.scmr_md = s.read_u8()?;
+        self.colr = s.read_u8()?;
+        self.por_obj = s.read_bool()?;
+        self.por_freezehigh = s.read_bool()?;
+        self.por_highnibble = s.read_bool()?;
+        self.por_dither = s.read_bool()?;
+        self.por_transparent = s.read_bool()?;
+        self.bramr = s.read_bool()?;
+        self.vcr = s.read_u8()?;
+        self.cfgr_irq = s.read_bool()?;
+        self.cfgr_ms0 = s.read_bool()?;
+        self.clsr = s.read_bool()?;
+        self.romcl = s.read_u32()?;
+        self.romdr = s.read_u8()?;
+        self.ramcl = s.read_u32()?;
+        self.ramar = s.read_u16()?;
+        self.ramdr = s.read_u8()?;
+        self.ramaddr = s.read_u16()?;
+        self.cache_buffer.copy_from_slice(s.read_bytes(512)?);
+        for valid in &mut self.cache_valid {
+            *valid = s.read_bool()?;
+        }
+        for pc in &mut self.pixelcache {
+            pc.offset = s.read_u16()?;
+            pc.bitpend = s.read_u8()?;
+            pc.data.copy_from_slice(s.read_bytes(8)?);
+        }
+        self.clocks = s.read_u64()?;
+        self.instructions = s.read_u64()?;
+        let pending_len = s.read_u32()? as usize;
+        if pending_len > Self::MAX_SAVED_PENDING_CLOCKS {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "GSU pending_clocks length {pending_len} exceeds the sane bound of {}",
+                Self::MAX_SAVED_PENDING_CLOCKS
+            )));
+        }
+        self.pending_clocks.clear();
+        for _ in 0..pending_len {
+            self.pending_clocks.push(s.read_u32()?);
+        }
+        let pending_idx = s.read_u32()? as usize;
+        if pending_idx > self.pending_clocks.len() {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "GSU pending_idx {pending_idx} exceeds the restored queue length {}",
+                self.pending_clocks.len()
+            )));
+        }
+        self.pending_idx = pending_idx;
+        self.owed = s.read_u32()?;
+        if s.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "GSU0 section has {} trailing byte(s)",
+                s.remaining()
+            )));
+        }
+        Ok(())
     }
 }

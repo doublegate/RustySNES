@@ -53,6 +53,8 @@
 use alloc::boxed::Box;
 use alloc::vec;
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 use crate::board::{Board, Coprocessor, MappedAddr};
 use crate::coproc::gsu::{Gsu, GsuMem};
 use crate::header::MapMode;
@@ -272,6 +274,18 @@ impl Board for SuperFxBoard {
         };
         self.gsu.tick(&mut mem);
     }
+
+    // ROM/RAM are NOT written here — `System::save_state` captures them separately
+    // (`Board::save_state`'s doc contract); `rom_mask`/`ram_mask` are re-derived from those
+    // buffers' lengths at construction time, not saved state. `host_accesses` (a debugger
+    // counter) is also excluded.
+    fn save_state(&self, w: &mut SaveWriter) {
+        self.gsu.save_state(w);
+    }
+
+    fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.gsu.load_state(r)
+    }
 }
 
 /// Select a Super FX board for `rom`. The base `map_mode` is informational (Super FX carts are
@@ -361,5 +375,35 @@ mod tests {
         // SFR low byte: Go (bit 5) clear.
         let sfr_lo = b.read24(0x00_3030);
         assert_eq!(sfr_lo & 0x20, 0, "Go should be clear after STOP");
+    }
+
+    #[test]
+    fn gsu_state_round_trips_through_save_state() {
+        let mut rom = vec![0u8; 0x1_0000];
+        rom[0] = 0xa0; // ibt r0
+        rom[1] = 0x11; // #$11
+        rom[2] = 0x00; // stop
+        let mut b = SuperFxBoard::new(rom.into_boxed_slice(), 0);
+        b.write24(0x00_3034, 0x00);
+        b.write24(0x00_301E, 0x00);
+        b.write24(0x00_301F, 0x00);
+        while b.gsu.go() {
+            b.coprocessor_tick();
+        }
+        let instructions_before = b.gsu.instructions();
+        let r0_before = b.gsu.read_register(0x00);
+
+        let mut w = SaveWriter::new();
+        b.save_state(&mut w);
+        let bytes = w.into_bytes();
+
+        let mut fresh = SuperFxBoard::new(vec![0u8; 0x1_0000].into_boxed_slice(), 0);
+        let mut r = SaveReader::new(&bytes);
+        fresh.load_state(&mut r).unwrap();
+
+        assert_eq!(fresh.gsu.instructions(), instructions_before);
+        assert_eq!(fresh.gsu.read_register(0x00), r0_before);
+        assert!(!fresh.gsu.go());
+        assert_eq!(r.remaining(), 0);
     }
 }

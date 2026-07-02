@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Save-state foundation (parts 1-3 of N).** New `rustysnes-savestate` leaf crate: `SaveWriter`
+- **Save-state foundation (parts 1-4 of N).** New `rustysnes-savestate` leaf crate: `SaveWriter`
   (an allocation-free append-only builder with primitive writers + a `section(tag, body)` helper
   for nested, self-describing sections — writes directly into the parent buffer with a length
   placeholder patched in place, not a throwaway nested `Vec` per section) and `SaveReader` (a
@@ -39,11 +39,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mid-DMA-transfer resumes the decompression correctly instead of desyncing the stream; a
   `ContextInfo::status` out of `EVOLUTION_TABLE`'s range is rejected as invalid rather than
   masked, since it's a semantic state-machine index, not a hardware register width, while
-  `current_bitplane` IS masked, being a genuine 3-bit hardware quantity). `#![no_std]` holds
-  throughout; 8 new round-trip/validation tests across `rustysnes-cart` (`obc1.rs` ×3, `dsp1.rs`
-  ×1, `necdsp_variant.rs` ×1, `upd77c25.rs` ×1, `cx4.rs` ×1, `sdd1.rs` ×1). The remaining
-  coprocessor boards (`Spc7110Board`, `SuperFxBoard`, `Sa1Board`), `Cpu`/`Ppu`/`Apu`, and the
-  `System`-level versioned envelope that assembles them are tracked as the sprint's remaining
+  `current_bitplane` IS masked, being a genuine 3-bit hardware quantity). Extended further to
+  `SuperFxBoard` (its `Gsu` core's full register file, status/control fields, both bus-buffer
+  latches, the opcode cache, the plot pixel cache, and the in-flight per-access checkpoint
+  queue — the latter matters because master-clock-interleaved `Gsu::tick` execution, unlike the
+  run-to-completion `run_until_stopped` path, can leave a `Go` burst genuinely mid-flight at any
+  save point; a claimed checkpoint-queue length or cursor beyond what real execution could ever
+  produce is rejected as invalid, not trusted) and `Sa1Board` (the full `$2200-$23FF` register
+  file, the 2 KiB I-RAM, the H/V timer counters, and the character-conversion DMA staging flags —
+  BW-RAM stays excluded, captured separately via the existing `Board::sram` path). `#![no_std]`
+  holds throughout; 10 new round-trip/validation tests across `rustysnes-cart` (`obc1.rs` ×3,
+  `dsp1.rs` ×1, `necdsp_variant.rs` ×1, `upd77c25.rs` ×1, `cx4.rs` ×1, `sdd1.rs` ×1,
+  `superfx.rs` ×1, `sa1.rs` ×1). `Spc7110Board`, `Cpu`/`Ppu`/`Apu`, and the `System`-level
+  versioned envelope that assembles all of the above are tracked as the sprint's remaining
   tickets, not yet implemented.
 
 ## [0.1.0] "Foundation" - 2026-07-02
