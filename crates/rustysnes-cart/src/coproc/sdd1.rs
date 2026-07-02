@@ -274,15 +274,23 @@ impl Board for Sdd1Board {
         let mut s = r.expect_section(*b"SDB1")?;
         self.r4800 = s.read_u8()?;
         self.r4801 = s.read_u8()?;
-        self.r4804 = s.read_u8()?;
-        self.r4805 = s.read_u8()?;
-        self.r4806 = s.read_u8()?;
-        self.r4807 = s.read_u8()?;
+        // r4804-r4807 are masked to 0x8F on every normal write24 (see above); mask on load too so
+        // a hand-edited/corrupted save-state can't restore a hardware-illegal high-bit pattern.
+        self.r4804 = s.read_u8()? & 0x8F;
+        self.r4805 = s.read_u8()? & 0x8F;
+        self.r4806 = s.read_u8()? & 0x8F;
+        self.r4807 = s.read_u8()? & 0x8F;
         for c in &mut self.dma {
             c.address = s.read_u32()?;
             c.size = s.read_u16()?;
         }
         self.dma_ready = s.read_bool()?;
+        if s.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "SDB1 section has {} trailing byte(s)",
+                s.remaining()
+            )));
+        }
         self.decompressor.load_state(r)
     }
 }
@@ -337,7 +345,7 @@ mod tests {
         b.notify_dma_channel(2, 0xC1_2345, 9);
         let mmc_map = [0u8, 1, 2, 3];
         b.decompressor.init(0, &b.rom, &mmc_map);
-        b.decompressor.read(&b.rom.clone(), &mmc_map); // advance mid-stream before snapshotting
+        b.decompressor.read(&b.rom, &mmc_map); // advance mid-stream before snapshotting
 
         let mut w = SaveWriter::new();
         b.save_state(&mut w);
@@ -353,12 +361,11 @@ mod tests {
 
         // The restored decoder must continue the SAME stream from the SAME point: its next N
         // decoded bytes must match the original decoder's next N bytes exactly.
-        let continuation_rom = fresh.rom.clone();
         let expected: alloc::vec::Vec<u8> = (0..8)
-            .map(|_| b.decompressor.read(&b.rom.clone(), &mmc_map))
+            .map(|_| b.decompressor.read(&b.rom, &mmc_map))
             .collect();
         let actual: alloc::vec::Vec<u8> = (0..8)
-            .map(|_| fresh.decompressor.read(&continuation_rom, &mmc_map))
+            .map(|_| fresh.decompressor.read(&fresh.rom, &mmc_map))
             .collect();
         assert_eq!(actual, expected);
         assert_eq!(r.remaining(), 0);

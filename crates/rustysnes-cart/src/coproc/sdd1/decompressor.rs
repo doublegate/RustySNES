@@ -433,16 +433,18 @@ impl Decompressor {
     /// The inverse of [`Self::save_state`].
     ///
     /// # Errors
-    /// [`SaveStateError`] on truncated/corrupt input, or [`SaveStateError::Invalid`] if a
-    /// `ContextInfo::status` is out of `EVOLUTION_TABLE`'s range: `status` indexes that 33-entry
-    /// table directly (`Pem::get_bit`), so an out-of-range value from a hand-edited/corrupted
-    /// save-state would panic on the very next decode step — this is a semantic state-machine
-    /// index (not a natural hardware register width), so it's rejected rather than masked, the
-    /// same "enum-like constraint" reasoning `Obc1Board::load_state` already applies to its
-    /// cursor fields. `current_bitplane` IS masked (`& 0x07`) rather than rejected: it is a
-    /// genuine 3-bit hardware quantity indexing the fixed 8-entry `previous_bitplane_bits`/`bg`
-    /// arrays, exactly the same "width mask, not semantic validation" case as the NEC DSP
-    /// engine's `pc`/`rp`/`dp`/`sp`.
+    /// [`SaveStateError`] on truncated/corrupt input, a section with unconsumed trailing bytes,
+    /// or [`SaveStateError::Invalid`] if a `ContextInfo::status` is out of `EVOLUTION_TABLE`'s
+    /// range: `status` indexes that 33-entry table directly (`Pem::get_bit`), so an out-of-range
+    /// value from a hand-edited/corrupted save-state would panic on the very next decode step —
+    /// this is a semantic state-machine index (not a natural hardware register width), so it's
+    /// rejected rather than masked, the same "enum-like constraint" reasoning
+    /// `Obc1Board::load_state` already applies to its cursor fields. Every other field masked
+    /// below IS a genuine narrow hardware quantity (`ContextInfo::mps` a 1-bit flip-flop,
+    /// `current_bitplane` a 3-bit index into the fixed 8-entry `previous_bitplane_bits`/`bg`
+    /// arrays, and `bitplanes_info`/`context_bits_info` fixed 2-bit mode selectors matching the
+    /// exact masks their own `init`/`get_bit`/`decompress` logic already applies) — the same
+    /// "width mask, not semantic validation" case as the NEC DSP engine's `pc`/`rp`/`dp`/`sp`.
     pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
         let mut s = r.expect_section(*b"SDD1")?;
         self.im.offset = s.read_u32()?;
@@ -460,19 +462,25 @@ impl Decompressor {
                 )));
             }
             c.status = status;
-            c.mps = s.read_u8()?;
+            c.mps = s.read_u8()? & 1;
         }
-        self.cm.bitplanes_info = s.read_u8()?;
-        self.cm.context_bits_info = s.read_u8()?;
+        self.cm.bitplanes_info = s.read_u8()? & 0xC0;
+        self.cm.context_bits_info = s.read_u8()? & 0x30;
         self.cm.bit_number = s.read_u8()?;
         self.cm.current_bitplane = s.read_u8()? & 0x07;
         for word in &mut self.cm.previous_bitplane_bits {
             *word = s.read_u16()?;
         }
-        self.ol.bitplanes_info = s.read_u8()?;
+        self.ol.bitplanes_info = s.read_u8()? & 0xC0;
         self.ol.r0 = s.read_u8()?;
         self.ol.r1 = s.read_u8()?;
         self.ol.r2 = s.read_u8()?;
+        if s.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "SDD1 section has {} trailing byte(s)",
+                s.remaining()
+            )));
+        }
         Ok(())
     }
 }

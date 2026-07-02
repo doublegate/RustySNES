@@ -743,37 +743,42 @@ impl Hg51b {
     ///
     /// # Errors
     /// [`SaveStateError`] on truncated/corrupt input (the section framing itself already rejects
-    /// a wrong tag or a truncated read). No field here is used as an unchecked array index by a
-    /// width narrower than its own type (`pc`/`cache.pc` are `u8` matching the 256-entry cache
-    /// page exactly; `cache.page` is a `bool` matching the 2-entry page arrays exactly), so unlike
-    /// the NEC DSP engine's `load_state`, no additional masking is needed here for memory safety.
+    /// a wrong tag or a truncated read) or a section with unconsumed trailing bytes. Every
+    /// hardware register narrower than its Rust storage type is masked to its real width on load
+    /// (`pb`/`p`/`cache.pb` are 15-bit, `a`/`mdr`/`rom`/`ram`/`mar`/`dpr`/`gpr` are 24-bit, `mul`
+    /// is 48-bit, `wait.rom`/`wait.ram` are 3-bit) — the same "apply the engine's own
+    /// normal-operation width invariant on load" reasoning already applied to the NEC DSP engine's
+    /// `pc`/`rp`/`dp`/`sp`, extended here to every register (this core happens to have no field
+    /// whose valid range is narrower than its type in a way that risks an out-of-bounds array
+    /// index, but an unmasked wide value would still desync subsequent arithmetic from hardware
+    /// behavior, which matters for save-state fidelity even without a panic risk).
     pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
         let mut s = r.expect_section(*b"HG51")?;
-        self.r.pb = s.read_u16()?;
+        self.r.pb = s.read_u16()? & 0x7FFF;
         self.r.pc = s.read_u8()?;
         self.r.n = s.read_bool()?;
         self.r.z = s.read_bool()?;
         self.r.c = s.read_bool()?;
         self.r.v = s.read_bool()?;
         self.r.i = s.read_bool()?;
-        self.r.a = s.read_u32()?;
-        self.r.p = s.read_u16()?;
-        self.r.mul = s.read_u64()?;
-        self.r.mdr = s.read_u32()?;
-        self.r.rom = s.read_u32()?;
-        self.r.ram = s.read_u32()?;
-        self.r.mar = s.read_u32()?;
-        self.r.dpr = s.read_u32()?;
+        self.r.a = s.read_u32()? & 0xFF_FFFF;
+        self.r.p = s.read_u16()? & 0x7FFF;
+        self.r.mul = s.read_u64()? & 0xFF_FF_FF_FF_FF_FF;
+        self.r.mdr = s.read_u32()? & 0xFF_FFFF;
+        self.r.rom = s.read_u32()? & 0xFF_FFFF;
+        self.r.ram = s.read_u32()? & 0xFF_FFFF;
+        self.r.mar = s.read_u32()? & 0xFF_FFFF;
+        self.r.dpr = s.read_u32()? & 0xFF_FFFF;
         for g in &mut self.r.gpr {
-            *g = s.read_u32()?;
+            *g = s.read_u32()? & 0xFF_FFFF;
         }
         self.io.lock = s.read_bool()?;
         self.io.halt = s.read_bool()?;
         self.io.irq = s.read_bool()?;
         self.io.rom_mapping = s.read_bool()?;
-        self.io.vector = s.read_bytes(32)?.try_into().unwrap_or([0; 32]);
-        self.io.wait.rom = s.read_u32()?;
-        self.io.wait.ram = s.read_u32()?;
+        self.io.vector.copy_from_slice(s.read_bytes(32)?);
+        self.io.wait.rom = s.read_u32()? & 7;
+        self.io.wait.ram = s.read_u32()? & 7;
         self.io.suspend.enable = s.read_bool()?;
         self.io.suspend.duration = s.read_u32()?;
         self.io.cache.enable = s.read_bool()?;
@@ -783,7 +788,7 @@ impl Hg51b {
         self.io.cache.address[0] = s.read_u32()?;
         self.io.cache.address[1] = s.read_u32()?;
         self.io.cache.base = s.read_u32()?;
-        self.io.cache.pb = s.read_u16()?;
+        self.io.cache.pb = s.read_u16()? & 0x7FFF;
         self.io.cache.pc = s.read_u8()?;
         self.io.dma.enable = s.read_bool()?;
         self.io.dma.source = s.read_u32()?;
@@ -804,6 +809,12 @@ impl Hg51b {
         }
         for word in &mut self.stack {
             *word = s.read_u32()?;
+        }
+        if s.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "HG51 section has {} trailing byte(s)",
+                s.remaining()
+            )));
         }
         Ok(())
     }
