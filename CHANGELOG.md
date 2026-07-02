@@ -25,6 +25,15 @@ see the S-DSP entry below).
 
 ### Added
 
+- **Zip-archive ROM loading** (`rustysnes-frontend`): `EmuCore::load_rom` now sniffs the local-
+  file-header magic and transparently extracts the first `.sfc`/`.smc`/`.fig`/`.swc` entry from a
+  `.zip`-wrapped ROM before header detection — the common distribution format for commercial ROM
+  dumps. Pure in-memory (a `Cursor` over the already-loaded byte slice, `deflate`-only via a
+  pure-Rust `flate2` backend), so it works identically on native and the `wasm32-unknown-unknown`
+  target with no system zlib dependency. A plain unwrapped `.sfc`/`.smc` file still passes through
+  unchanged. Note: the wasm/GitHub Pages build's in-browser file-loading UI itself is still a
+  bootstrap scaffold (see `docs/STATUS.md`) — this lands the extraction logic every future loading
+  path (native today, the browser UI once it exists) shares, not a browser-side feature yet.
 - **Phase 7 — BestEffort coprocessors: OBC1, DSP-2, DSP-4, ST010, CX4, S-DD1, SPC7110.**
   - **OBC1** (`coproc::obc1`): dedicated 8 KiB RAM behind a reprogrammable cursor register.
     Validated against real Metal Combat: Falcon's Revenge.
