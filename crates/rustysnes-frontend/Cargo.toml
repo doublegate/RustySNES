@@ -76,6 +76,15 @@ pollster = "0.4"
 bytemuck = "1"
 web-time = "1.1"
 
+# Archive-wrapped ROM support (`.zip`, the common commercial-ROM distribution format):
+# `EmuCore::load_rom` sniffs the local-file-header magic and transparently extracts the first
+# `.sfc`/`.smc`/`.fig`/`.swc` entry before header detection. Pure in-memory (a `Cursor` over the
+# already-loaded byte slice, no filesystem access), so this works identically on native and
+# wasm32. `deflate` only (no `zstd`/`lzma`/`bzip2`) — the format essentially every SNES ROM zip
+# in the wild uses; the default `flate2` backend is pure Rust, so this stays wasm-compatible with
+# no system zlib dependency.
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+
 # Native-only deps (gilrs/rfd/directories/clap/ratatui). A browser tab has no
 # gamepad-via-gilrs, no rfd dialog, no terminal — the wasm builds never see
 # these (the modules are `cfg(not(target_arch = "wasm32"))`-gated).

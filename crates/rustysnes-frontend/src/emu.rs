@@ -70,21 +70,28 @@ impl EmuCore {
         }
     }
 
-    /// Load a raw ROM image (header detection + board selection happen in `rustysnes-cart`).
-    /// On success the cart is installed in a fresh Bus and the system is left ready to boot from
-    /// the cart's reset vector on the first [`Self::run_frame`].
+    /// Load a raw ROM image, transparently unwrapping a zip archive first if `rom` is one (see
+    /// [`extract_rom_bytes`] — the common case of a `.sfc`/`.smc` distributed zipped). Header
+    /// detection + board selection happen in `rustysnes-cart`. On success the cart is installed
+    /// in a fresh Bus and the system is left ready to boot from the cart's reset vector on the
+    /// first [`Self::run_frame`].
     ///
     /// # Errors
-    /// Returns an [`EmuError`] if the image is empty or no valid SNES header is found.
+    /// Returns an [`EmuError`] if the image is empty, is a zip archive that can't be opened or
+    /// contains no recognizable ROM entry, or no valid SNES header is found.
     pub fn load_rom(&mut self, rom: &[u8]) -> Result<(), EmuError> {
         if rom.is_empty() {
             return Err(EmuError::Empty);
         }
-        let cart = Cart::from_rom(rom).map_err(|e| EmuError::Header(format!("{e:?}")))?;
+        let rom = extract_rom_bytes(rom)?;
+        if rom.is_empty() {
+            return Err(EmuError::Empty);
+        }
+        let cart = Cart::from_rom(&rom).map_err(|e| EmuError::Header(format!("{e:?}")))?;
         let mut system = System::new(0);
         system.bus.cart = Some(cart);
         self.system = system;
-        self.rom = rom.to_vec();
+        self.rom = rom.into_owned();
         self.firmware.clear();
         self.rom_loaded = true;
         self.audio.clear();
@@ -263,6 +270,54 @@ pub enum EmuError {
     /// No valid SNES header was found (LoROM/HiROM/ExHiROM detection failed).
     #[error("invalid SNES ROM header: {0}")]
     Header(String),
+    /// The image looked like a zip archive but couldn't be opened, or contained no recognizable
+    /// SNES ROM entry.
+    #[error("zip archive: {0}")]
+    Archive(String),
+}
+
+/// SNES ROM file extensions recognized inside a zip archive, checked case-insensitively
+/// (`.sfc`/`.smc` are by far the most common; `.fig`/`.swc` are older copier-header dumps this
+/// project's header detection already strips — see `docs/cartridge-format.md`).
+const ROM_EXTENSIONS: [&str; 4] = ["sfc", "smc", "fig", "swc"];
+
+/// If `bytes` is a zip archive (sniffed by the local-file-header magic `PK\x03\x04`, or the
+/// empty-archive end-of-central-directory magic `PK\x05\x06`), extract the first entry whose
+/// extension is in [`ROM_EXTENSIONS`] and return its decompressed bytes. Otherwise returns `bytes`
+/// unchanged — a plain `.sfc`/`.smc` file passes straight through. Pure in-memory (a `Cursor` over
+/// the slice already in hand), so this is identical on native and wasm32.
+fn extract_rom_bytes(bytes: &[u8]) -> Result<std::borrow::Cow<'_, [u8]>, EmuError> {
+    let is_zip = bytes.len() >= 4 && (bytes[..4] == *b"PK\x03\x04" || bytes[..4] == *b"PK\x05\x06");
+    if !is_zip {
+        return Ok(std::borrow::Cow::Borrowed(bytes));
+    }
+    let cursor = std::io::Cursor::new(bytes);
+    let mut archive =
+        zip::ZipArchive::new(cursor).map_err(|e| EmuError::Archive(format!("{e}")))?;
+    let rom_index = (0..archive.len())
+        .find(|&i| {
+            archive.name_for_index(i).is_some_and(|name| {
+                std::path::Path::new(name)
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| ROM_EXTENSIONS.iter().any(|r| ext.eq_ignore_ascii_case(r)))
+            })
+        })
+        .ok_or_else(|| {
+            EmuError::Archive(format!(
+                "no .sfc/.smc/.fig/.swc entry found (tried {} entries)",
+                archive.len()
+            ))
+        })?;
+    let mut entry = archive
+        .by_index(rom_index)
+        .map_err(|e| EmuError::Archive(format!("{e}")))?;
+    // `read_to_end` grows the buffer as needed; no need to pre-size from `entry.size()` (a
+    // `u64` that would need a lossy cast on 32-bit targets for a capacity hint only).
+    let mut out = Vec::new();
+    std::io::Read::read_to_end(&mut entry, &mut out)
+        .map_err(|e| EmuError::Archive(format!("{e}")))?;
+    Ok(std::borrow::Cow::Owned(out))
 }
 
 #[cfg(test)]
@@ -290,5 +345,56 @@ mod tests {
     fn run_frame_does_not_panic_without_rom() {
         let mut core = EmuCore::new(0, Region::Ntsc);
         core.run_frame();
+    }
+
+    fn zip_containing(name: &str, bytes: &[u8]) -> Vec<u8> {
+        let mut buf = std::io::Cursor::new(Vec::new());
+        let mut writer = zip::ZipWriter::new(&mut buf);
+        writer
+            .start_file(name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        std::io::Write::write_all(&mut writer, bytes).unwrap();
+        writer.finish().unwrap();
+        buf.into_inner()
+    }
+
+    #[test]
+    fn non_zip_bytes_pass_through_unchanged() {
+        let rom = b"not a zip, just a plain ROM image";
+        let out = extract_rom_bytes(rom).unwrap();
+        assert_eq!(&*out, rom);
+    }
+
+    #[test]
+    fn zip_wrapped_rom_is_transparently_extracted() {
+        let rom = vec![0xAB_u8; 512];
+        let zipped = zip_containing("Game.sfc", &rom);
+        let out = extract_rom_bytes(&zipped).unwrap();
+        assert_eq!(&*out, rom.as_slice());
+    }
+
+    #[test]
+    fn zip_with_no_rom_entry_errors() {
+        let zipped = zip_containing("readme.txt", b"not a ROM");
+        assert!(matches!(
+            extract_rom_bytes(&zipped),
+            Err(EmuError::Archive(_))
+        ));
+    }
+
+    #[test]
+    fn zip_wrapped_rom_loads_end_to_end() {
+        // A minimal-but-valid LoROM header at $7FC0 so `Cart::from_rom` accepts it — mirrors
+        // the header layout `rustysnes-cart::header` scores (title + map-mode + checksum bytes
+        // are permissive; only the size/offset need to line up for LoROM detection to win).
+        let mut rom = vec![0u8; 0x8000];
+        rom[0x7FC0..0x7FC0 + 21].copy_from_slice(b"TEST ROM             ");
+        rom[0x7FD5] = 0x20; // LoROM
+        rom[0x7FD6] = 0x00; // no coprocessor
+        rom[0x7FD7] = 0x08; // ROM size (2^8 KiB = 256 KiB, permissive)
+        let zipped = zip_containing("test.sfc", &rom);
+        let mut core = EmuCore::new(0, Region::Ntsc);
+        core.load_rom(&zipped).expect("zip-wrapped ROM should load");
+        assert!(core.rom_loaded());
     }
 }
