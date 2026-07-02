@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet — see `to-dos/VERSION-PLAN.md` for the `v0.2.0 "Persistence"` scope in progress.
+
+## [0.1.0] "Foundation" - 2026-07-02
+
+The first tagged release. Everything below accumulated across CPU, PPU/scheduler, APU, cart/
+coprocessor, and frontend development before any release was ever cut — this tag closes that
+gap; see `to-dos/VERSION-PLAN.md` for why and for the release ladder going forward.
+
+**Oracle/golden suites: all held, no regressions.** 65816 SingleStepTests 0-diff (state+cycles,
+5,119,999/5,120,000 gated on license), SPC700 SingleStepTests 0-diff, gilyon on-cart CPU suite
+1107/1107 "Success", undisbeliever PPU/DMA/HDMA golden 29/29, blargg `spc_smp`/`spc_timer`/
+`spc_mem_access_times` literal `PASSED TESTS`, `spc_dsp6` known residual (reported honestly,
+see the S-DSP entry below).
+
 ### Added
 
 - **Phase 7 — BestEffort coprocessors: OBC1, DSP-2, DSP-4, ST010, CX4, S-DD1, SPC7110.**
