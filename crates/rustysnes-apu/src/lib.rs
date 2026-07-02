@@ -597,11 +597,16 @@ impl Apu {
     ///
     /// # Errors
     /// [`SaveStateError`] on truncated/corrupt input, a section with unconsumed trailing bytes,
-    /// or [`SaveStateError::Invalid`] if the saved instruction plan's claimed length exceeds
-    /// `MAX_SAVED_PLAN_LEN` or `plan_pos` exceeds the restored plan's length (mirroring the
-    /// GSU's `pending_clocks`/`pending_idx` validation in `rustysnes-cart` — an in-flight
-    /// instruction has at most a handful of micro-ops, so a larger claimed length could never
-    /// have come from real execution).
+    /// or [`SaveStateError::Invalid`] if: the saved instruction plan's claimed length exceeds
+    /// `MAX_SAVED_PLAN_LEN` (mirroring the GSU's `pending_clocks` validation in
+    /// `rustysnes-cart` — an in-flight instruction has at most a handful of micro-ops, so a
+    /// larger claimed length could never have come from real execution); a step's `base_clocks`
+    /// is neither `1` nor `2` (`record`/`record_next_instruction` only ever push `SMP_WAIT` or
+    /// `SMP_WAIT >> 1`; an out-of-range value risks `plan_sub` never reaching it, wedging
+    /// `advance_smp_cycle`, or an unbounded drain); `plan_pos` exceeds the restored plan's
+    /// length; or `plan_sub` is inconsistent with `plan_pos` (nonzero while `plan_pos` is already
+    /// past the end of the plan, or `>=` the step at `plan_pos`'s own `base_clocks` — either
+    /// would let `advance_smp_cycle` commit a deferred port write at the wrong cycle on resume).
     pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
         let mut s = r.expect_section(*b"APU0")?;
         self.cpu.load_state(&mut s)?;
@@ -623,6 +628,11 @@ impl Apu {
         self.plan.clear();
         for _ in 0..plan_len {
             let base_clocks = s.read_u32()?;
+            if base_clocks == 0 || base_clocks > SMP_WAIT {
+                return Err(SaveStateError::Invalid(alloc::format!(
+                    "APU instruction plan step base_clocks {base_clocks} is not 1 or {SMP_WAIT}"
+                )));
+            }
             let port_write = if s.read_bool()? {
                 let port = s.read_u8()?;
                 let val = s.read_u8()?;
@@ -643,7 +653,18 @@ impl Apu {
             )));
         }
         self.plan_pos = plan_pos;
-        self.plan_sub = s.read_u32()?;
+        let plan_sub = s.read_u32()?;
+        let plan_sub_valid = self
+            .plan
+            .get(plan_pos)
+            .map_or(plan_sub == 0, |step| plan_sub < step.base_clocks);
+        if !plan_sub_valid {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "APU plan_sub {plan_sub} is inconsistent with plan_pos {plan_pos} (plan length {})",
+                self.plan.len()
+            )));
+        }
+        self.plan_sub = plan_sub;
         if s.remaining() != 0 {
             return Err(SaveStateError::Invalid(alloc::format!(
                 "APU0 section has {} trailing byte(s)",

@@ -84,13 +84,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the DSP sample counter, and the in-flight instruction micro-op plan — the SPC700 analogue of
   the GSU's `pending_clocks`/`pending_idx`, needed because `Apu::advance_smp_cycle`'s
   sub-instruction lockstep can leave an instruction genuinely mid-drain at any save point; a
-  claimed plan length beyond `MAX_SAVED_PLAN_LEN` or a `plan_pos` beyond the restored plan's own
-  length is rejected, mirroring the GSU's validation exactly). The 64-byte IPL boot ROM is never
-  written (a fixed public-domain constant, identical on every SNES). No field anywhere in the
-  APU needed additional width masking for memory safety beyond `Echo::history_offset` and a
-  timer's `stage3`: every other index-driving field (`Voice::buffer_offset`/`gaussian_offset`,
-  `Brr` addresses, `Io::dsp_address`) is already masked or wrapped at its own use site, not
-  trusted verbatim there either. 2 new round-trip/validation tests (`rustysnes-apu` ×2).
+  claimed plan length beyond `MAX_SAVED_PLAN_LEN` is rejected (mirroring the GSU's validation);
+  a step's `base_clocks` outside `{1, 2}` (the only values `record`/`record_next_instruction`
+  ever produce) is rejected; `plan_pos` beyond the restored plan's length is rejected; and
+  `plan_sub` inconsistent with `plan_pos` (nonzero past the plan's end, or `>=` the step at
+  `plan_pos`'s own `base_clocks`) is rejected too — either would let `advance_smp_cycle` commit a
+  deferred port write at the wrong cycle on resume. The 64-byte IPL boot ROM is never written (a
+  fixed public-domain constant, identical on every SNES). Every voice's `index` (masked `&
+  0x70`, the 8 legal voice-register bases — found in review: an unmasked value `>= 0x80` would
+  index `registers[128]` out of bounds via `index | 0x09`) and `buffer_offset` (masked `% 12`,
+  the ring-buffer's own size — a second use site the initial pass missed lacks the `%12` wrap
+  `gaussian_interpolate` applies) are masked on load; `Echo::history_offset` and a timer's
+  `stage3` are masked too. 2 new round-trip/validation tests (`rustysnes-apu` ×2).
   **T-52-003's per-subsystem acceptance criterion is now fully met** — `Cpu`/`Ppu`/`Apu` all
   round-trip their state. The `System`-level versioned envelope (magic + format version) that
   assembles every subsystem above, and the round-trip determinism test that is the format's

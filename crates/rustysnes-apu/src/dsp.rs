@@ -308,7 +308,10 @@ impl Voice {
     }
 
     fn load_state(&mut self, s: &mut SaveReader) -> Result<(), SaveStateError> {
-        self.index = s.read_u8()?;
+        // index is used as `self.registers[index as usize | 0x09]` (voice8/voice9); masking to
+        // the 8 legal voice-register bases (0x00, 0x10, .., 0x70) keeps that combined index
+        // within the 128-entry registers array regardless of what a corrupted save-state claims.
+        self.index = s.read_u8()? & 0x70;
         self.volume[0] = s.read_u8()?.cast_signed();
         self.volume[1] = s.read_u8()?.cast_signed();
         self.pitch = s.read_u16()?;
@@ -325,7 +328,11 @@ impl Voice {
         for v in &mut self.buffer {
             *v = s.read_u16()?.cast_signed();
         }
-        self.buffer_offset = s.read_u8()?;
+        // buffer_offset indexes the fixed 12-entry `buffer` ring directly at some use sites
+        // (`brr_decode`'s `buffer[if bo == 0 {11} else {bo - 1}]`) without the `% 12` wrap
+        // `gaussian_interpolate` applies; masking here (matching every normal-operation
+        // increment's own `+= 1; if >= 12 { = 0 }` wrap) covers both call sites.
+        self.buffer_offset = s.read_u8()? % 12;
         self.gaussian_offset = s.read_u16()?;
         self.brr_address = s.read_u16()?;
         self.brr_offset = s.read_u8()?;
@@ -1380,10 +1387,12 @@ impl Dsp {
     /// `EnvMode`'s four variants (a semantic enum constraint), or if the saved output FIFO's
     /// claimed length exceeds `MAX_SAVED_AUDIO_FIFO` (the same bound the live FIFO itself is
     /// never allowed to exceed, so a larger claimed length could never have come from real
-    /// execution). No field here needed additional width masking for memory safety beyond
-    /// `Echo::history_offset` (see that type's own `load_state`): every other index-driving field
-    /// in this module (`Voice::buffer_offset`/`gaussian_offset`, `Brr` addresses) is already
-    /// masked or wrapped at its own use site in this file, not trusted verbatim there either.
+    /// execution). Every voice's `index` (masked `& 0x70`, the 8 legal voice-register bases) and
+    /// `buffer_offset` (masked `% 12`, the ring-buffer's own size) and `Echo::history_offset`
+    /// (masked `& 7`) are masked on load, matching the exact width real execution never exceeds
+    /// (see each type's own `load_state` for the specific use-site cited); every other
+    /// index-driving field in this module (`gaussian_offset`, `Brr` addresses) is already masked
+    /// or wrapped at every one of its use sites, not trusted verbatim there either.
     pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
         let mut s = r.expect_section(*b"SDSP")?;
         self.registers.copy_from_slice(s.read_bytes(128)?);
