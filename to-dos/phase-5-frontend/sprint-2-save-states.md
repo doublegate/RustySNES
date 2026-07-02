@@ -12,14 +12,20 @@ primitives, `docs/adr/0006`) landed as a new leaf crate, including an allocation
 section writer (found in review — the naive version allocated a `Vec` per section, a real
 concern given rewind/run-ahead will create/restore save-states repeatedly per frame).
 `Board::save_state`/`load_state` hooks added with a default no-op (covers `LoRom`/`HiRom`/
-`ExHiRom` for free), implemented for `Obc1Board`, `Dsp1Board`, and `NecDspVariantBoard` (which
-covers DSP-1/DSP-2/DSP-4/ST010 via the shared `Upd77c25` engine's own `save_state`/`load_state`).
+`ExHiRom` for free), implemented for `Obc1Board`, `Dsp1Board`, `NecDspVariantBoard` (which
+covers DSP-1/DSP-2/DSP-4/ST010 via the shared `Upd77c25` engine's own `save_state`/`load_state`),
+`Cx4Board` (its `Hg51b` core's full register/IO/cache/stack state), and `Sdd1Board` (its MMC
+registers, DMA-snoop shadow state, and `Decompressor`'s full mid-stream entropy-decoder state).
 Untrusted-input validation is load-bearing here, not decorative: `Obc1Board::load_state` rejects
 an out-of-range cursor (a real finding — an unvalidated value would panic on the next register
-access) and any section with unconsumed trailing bytes. Remaining boards (`Cx4Board`+`Hg51b`,
-`Sdd1Board`+its `Decompressor`, `Spc7110Board`+its `Decompressor`+`EpsonRtc`, `SuperFxBoard`+
-`Gsu`, `Sa1Board`), `Cpu`/`Ppu`/`Apu`, and the `System`-level envelope are still open — see
-T-52-002/003/004 below.
+access) and any section with unconsumed trailing bytes; `Upd77c25::load_state` masks (not
+rejects) its pointer registers to their revision-correct hardware widths (a bot-flagged finding
+on both PR #4 and #5 — see CHANGELOG); `Decompressor::load_state` rejects an out-of-range PEM
+context status (a semantic state-machine index) while masking `current_bitplane` (a genuine
+3-bit hardware quantity) — the same width-mask-vs-semantic-reject distinction applied
+consistently across every board implemented so far. Remaining boards (`Spc7110Board`+its
+`Decompressor`+`EpsonRtc`, `SuperFxBoard`+`Gsu`, `Sa1Board`), `Cpu`/`Ppu`/`Apu`, and the
+`System`-level envelope are still open — see T-52-002/003/004 below.
 
 ## Tickets
 

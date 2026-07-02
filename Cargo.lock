@@ -3138,6 +3138,7 @@ name = "rustysnes-cart"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.13.0",
+ "rustysnes-savestate",
  "thiserror 2.0.18",
 ]
 

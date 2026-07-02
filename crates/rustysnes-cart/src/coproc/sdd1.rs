@@ -34,6 +34,8 @@
 use alloc::boxed::Box;
 use alloc::vec;
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 use crate::board::{Board, Coprocessor, MappedAddr};
 use crate::header::MapMode;
 
@@ -246,6 +248,43 @@ impl Board for Sdd1Board {
             c.size = count;
         }
     }
+
+    // ROM/SRAM are NOT written here — `System::save_state` captures them separately (see
+    // `crate::board::Board::save_state`'s doc). Only the MMC bank registers, the snooped-DMA
+    // shadow state, and the entropy decoder's mid-stream state (needed to resume a
+    // decompression correctly if a save-state lands mid-DMA-transfer) are this board's own.
+    fn save_state(&self, w: &mut SaveWriter) {
+        w.section(*b"SDB1", |s| {
+            s.write_u8(self.r4800);
+            s.write_u8(self.r4801);
+            s.write_u8(self.r4804);
+            s.write_u8(self.r4805);
+            s.write_u8(self.r4806);
+            s.write_u8(self.r4807);
+            for c in &self.dma {
+                s.write_u32(c.address);
+                s.write_u16(c.size);
+            }
+            s.write_bool(self.dma_ready);
+        });
+        self.decompressor.save_state(w);
+    }
+
+    fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        let mut s = r.expect_section(*b"SDB1")?;
+        self.r4800 = s.read_u8()?;
+        self.r4801 = s.read_u8()?;
+        self.r4804 = s.read_u8()?;
+        self.r4805 = s.read_u8()?;
+        self.r4806 = s.read_u8()?;
+        self.r4807 = s.read_u8()?;
+        for c in &mut self.dma {
+            c.address = s.read_u32()?;
+            c.size = s.read_u16()?;
+        }
+        self.dma_ready = s.read_bool()?;
+        self.decompressor.load_state(r)
+    }
 }
 
 /// Build an [`Sdd1Board`] for a cart detected as S-DD1 (`board::select`).
@@ -284,5 +323,44 @@ mod tests {
         b.notify_dma_channel(0, 0xC0_0000, 4);
         assert_eq!(b.dma[0].address, 0xC0_0000);
         assert_eq!(b.dma[0].size, 4);
+    }
+
+    #[test]
+    fn registers_and_decompressor_round_trip_through_save_state() {
+        // A non-trivial (non-all-zero) ROM so the decode stream isn't degenerate.
+        let mut rom = vec![0u8; 0x40_0000];
+        for (i, b) in rom.iter_mut().enumerate().take(64) {
+            *b = (i as u8).wrapping_mul(37).wrapping_add(11);
+        }
+        let mut b = Sdd1Board::new(rom.into_boxed_slice(), 0);
+        b.write24(0x00_4805, 0x77); // masked to 0x8F -> 0x05, exercised below
+        b.notify_dma_channel(2, 0xC1_2345, 9);
+        let mmc_map = [0u8, 1, 2, 3];
+        b.decompressor.init(0, &b.rom, &mmc_map);
+        b.decompressor.read(&b.rom.clone(), &mmc_map); // advance mid-stream before snapshotting
+
+        let mut w = SaveWriter::new();
+        b.save_state(&mut w);
+        let bytes = w.into_bytes();
+
+        let mut fresh = Sdd1Board::new(b.rom.clone(), 0);
+        let mut r = SaveReader::new(&bytes);
+        fresh.load_state(&mut r).unwrap();
+
+        assert_eq!(fresh.r4805, 0x77 & 0x8F);
+        assert_eq!(fresh.dma[2].address, 0xC1_2345);
+        assert_eq!(fresh.dma[2].size, 9);
+
+        // The restored decoder must continue the SAME stream from the SAME point: its next N
+        // decoded bytes must match the original decoder's next N bytes exactly.
+        let continuation_rom = fresh.rom.clone();
+        let expected: alloc::vec::Vec<u8> = (0..8)
+            .map(|_| b.decompressor.read(&b.rom.clone(), &mmc_map))
+            .collect();
+        let actual: alloc::vec::Vec<u8> = (0..8)
+            .map(|_| fresh.decompressor.read(&continuation_rom, &mmc_map))
+            .collect();
+        assert_eq!(actual, expected);
+        assert_eq!(r.remaining(), 0);
     }
 }
