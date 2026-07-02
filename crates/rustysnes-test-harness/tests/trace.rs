@@ -2,13 +2,17 @@
 #![cfg(feature = "test-roms")]
 use rustysnes_core::System;
 use rustysnes_core::cart::Cart;
-use rustysnes_core::dma_bus::DmaBus;
 use std::fs;
 
 #[test]
 fn trace_secret_of_mana() {
-    let rom =
-        fs::read("../../tests/roms/external/commercial/HiRom/None/Secret of Mana.sfc").unwrap();
+    // Commercial ROMs are gitignored (never committed), so self-skip when absent — CI runs with
+    // `--features test-roms` but without the `external/` corpus, and must stay green.
+    let Ok(rom) = fs::read("../../tests/roms/external/commercial/HiRom/None/Secret of Mana.sfc")
+    else {
+        eprintln!("commercial ROM absent; skipping trace_secret_of_mana");
+        return;
+    };
     let cart = Cart::from_rom(&rom).unwrap();
     let mut sys = System::new(0);
     sys.bus.cart = Some(cart);

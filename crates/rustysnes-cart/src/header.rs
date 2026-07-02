@@ -170,7 +170,12 @@ impl Header {
 
         let raw_sram = h[field::RAM_SIZE];
         let fast_rom = h[field::MAP_MODE] & 0x10 != 0;
-        let coprocessor = coprocessor_from_chipset(chipset);
+
+        let title_bytes = &image[offset + field::TITLE..offset + field::TITLE + field::TITLE_LEN];
+        let title_upper = core::str::from_utf8(title_bytes)
+            .unwrap_or("")
+            .to_uppercase();
+        let coprocessor = coprocessor_from_chipset(chipset, &title_upper);
 
         // `$xFD6` low nibble: 2 / 5 / 6 imply battery-backed RAM (RAM+battery, RAM+battery+RTC).
         let has_battery = matches!(chipset & 0x0F, 0x2 | 0x5 | 0x6);
@@ -182,15 +187,10 @@ impl Header {
 
         // GSU games often declare 0 SRAM size but have 32 KiB or 64 KiB of on-cart RAM for the plot buffer.
         if coprocessor == Coprocessor::SuperFx && sram_size == 0 {
-            let title_bytes =
-                &image[offset + field::TITLE..offset + field::TITLE + field::TITLE_LEN];
-            let title = core::str::from_utf8(title_bytes)
-                .unwrap_or("")
-                .to_uppercase();
-            if title.contains("DOOM")
-                || title.contains("WINTER GOLD")
-                || title.contains("STARFOX2")
-                || title.contains("STAR FOX 2")
+            if title_upper.contains("DOOM")
+                || title_upper.contains("WINTER GOLD")
+                || title_upper.contains("STARFOX2")
+                || title_upper.contains("STAR FOX 2")
             {
                 sram_size = 0x1_0000; // 64 KiB
             } else {
@@ -212,16 +212,27 @@ impl Header {
     }
 }
 
-/// Derive the on-cart coprocessor from the chipset byte (`$xFD6`).
+/// Derive the on-cart coprocessor from the chipset byte (`$xFD6`) plus (for the ambiguous `$F`
+/// "custom" nibble only) the cart's title.
 ///
 /// The low nibble is the cartridge type: `0`/`1`/`2` are plain ROM(+RAM(+battery)); `3`–`6` flag
 /// that a coprocessor is present. The high nibble then names it: `0`=DSP (`µPD77C25` family),
-/// `1`=Super FX/GSU, `2`=OBC1, `3`=SA-1, `4`=S-DD1, `F`=custom (SPC7110/CX4/ST01x via the `$xFBF`
-/// subtype). Phase 4 implements the DSP family; the others are detected so the board can route to
-/// the right (base, until later sprints) implementation and the tier/honesty gate stays honest.
-const fn coprocessor_from_chipset(chipset: u8) -> Coprocessor {
-    // No coprocessor unless the type nibble marks one present.
-    if !matches!(chipset & 0x0F, 0x3..=0x6) {
+/// `1`=Super FX/GSU, `2`=OBC1, `3`=SA-1, `4`=S-DD1, `F`=custom (SPC7110/CX4/ST01x).
+///
+/// `$F` is genuinely ambiguous from header bytes alone — real emulators disambiguate it (and, for
+/// that matter, DSP-1 vs DSP-2/3/4/ST010/011 under the SAME `$0` nibble) via a bundled cartridge
+/// database keyed on title/checksum, not header parsing; even ares' own header path never reads
+/// an `$xFBF` "subtype" byte (confirmed against `sfc/cartridge/`, and empirically against a real
+/// Mega Man X2 dump, whose `$7FBF` is `$10` — not any documented subtype value). Lacking a
+/// database, title-match the two known CX4 games here, the same single-game-chip approach
+/// [`crate::coproc::necdsp_variant::Variant::detect`] uses for the DSP family's singles.
+fn coprocessor_from_chipset(chipset: u8, title_upper: &str) -> Coprocessor {
+    // No coprocessor unless the type nibble marks one present. The `$F` custom category doesn't
+    // follow the same RAM/battery low-nibble convention as `$0-$4` (e.g. SPC7110+RTC is `$F9`,
+    // outside `0x3..=0x6` — confirmed against a real Far East of Eden Zero dump's `$FFD6`), so it
+    // skips this gate and relies entirely on the title match below (already safe: no match falls
+    // through to `Coprocessor::None`).
+    if chipset >> 4 != 0xF && !matches!(chipset & 0x0F, 0x3..=0x6) {
         return Coprocessor::None;
     }
     match chipset >> 4 {
@@ -230,8 +241,25 @@ const fn coprocessor_from_chipset(chipset: u8) -> Coprocessor {
         0x2 => Coprocessor::Obc1,
         0x3 => Coprocessor::Sa1,
         0x4 => Coprocessor::SDd1,
-        // `$F` custom would need the `$xFBF` subtype to disambiguate SPC7110/CX4/ST01x; those are
-        // BestEffort, later-sprint families — leave them as None until their boards land.
+        0xF => {
+            if title_upper.contains("MEGA MAN X2")
+                || title_upper.contains("MEGAMAN X2")
+                || title_upper.contains("ROCKMAN X2")
+                || title_upper.contains("MEGA MAN X3")
+                || title_upper.contains("MEGAMAN X3")
+                || title_upper.contains("ROCKMAN X3")
+            {
+                Coprocessor::Cx4
+            } else if title_upper.contains("TENGAI MAKYO")
+                || title_upper.contains("FAR EAST OF EDEN")
+            {
+                Coprocessor::Spc7110
+            } else {
+                // ST018 and other undetected `$F` customs stay BestEffort/not-started: the cart
+                // runs as its base board (unmapped coprocessor window) rather than guessing.
+                Coprocessor::None
+            }
+        }
         _ => Coprocessor::None,
     }
 }

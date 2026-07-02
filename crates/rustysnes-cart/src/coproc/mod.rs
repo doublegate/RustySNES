@@ -23,14 +23,28 @@
 // Chip-name jargon (µPD77C25, µPD96050, ST010, …) is not Rust code.
 #![allow(clippy::doc_markdown)]
 
+pub mod cx4;
 pub mod dsp1;
+pub mod epsonrtc;
 pub mod gsu;
+pub mod hg51b;
+pub mod necdsp_variant;
+pub mod obc1;
 pub mod sa1;
+pub mod sdd1;
+pub mod spc7110;
 pub mod superfx;
 pub mod upd77c25;
 
+pub use cx4::Cx4Board;
 pub use dsp1::Dsp1Board;
+pub use epsonrtc::EpsonRtc;
 pub use gsu::Gsu;
+pub use hg51b::{Hg51b, Hg51bBus};
+pub use necdsp_variant::{NecDspVariantBoard, Variant as NecDspVariant};
+pub use obc1::Obc1Board;
 pub use sa1::Sa1Board;
+pub use sdd1::Sdd1Board;
+pub use spc7110::Spc7110Board;
 pub use superfx::SuperFxBoard;
 pub use upd77c25::{Revision, Upd77c25};

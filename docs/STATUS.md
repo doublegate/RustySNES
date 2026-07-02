@@ -8,8 +8,11 @@ video) are functionally complete** — the 65C816 passes the SingleStepTests/658
 0-diff (state + cycles), and the machine **boots and runs real ROMs**: the master-clock lockstep
 scheduler + bus memory map + DMA/HDMA + the dual-chip PPU produce a deterministic framebuffer.
 gilyon's on-cart CPU suite reports "Success" (all 1107 tests), and the undisbeliever PPU/DMA/HDMA
-suite renders bit-deterministic golden framebuffers. Audio (Phase 3) and coprocessors (Phase 4)
-are not started.
+suite renders bit-deterministic golden framebuffers. Audio (Phase 3) is complete. Coprocessors
+(Phase 4/7): Core/Curated (DSP-1, Super FX, SA-1) plus the BestEffort DSP-2/DSP-4/ST010, S-DD1,
+CX4, and OBC1 are implemented and validated against real commercial ROMs (see the coprocessor
+matrix below); SPC7110 is implemented but not yet booting to real content on its one available
+ROM; ST018 and standalone S-RTC are not started.
 
 ## Subsystem progress
 
@@ -24,7 +27,7 @@ are not started.
 | `rustysnes-netplay` | rollback netplay | not started |
 | `rustysnes-cheevos` | RetroAchievements (opt-in FFI) | not started |
 | `rustysnes-script` | Lua scripting / TAS API | not started |
-| `rustysnes-test-harness` | golden-log + JSON-oracle + screenshot baseline | not started |
+| `rustysnes-test-harness` | golden-log + JSON-oracle + screenshot baseline | **implemented and in active use** — the accuracy oracle (65816/SPC700 SingleStepTests runners, gilyon/undisbeliever/blargg golden-log gates, the `*_oncart` per-coprocessor commercial-ROM validation harnesses, and `commercial_screenshots.rs` the boot-screenshot generator behind `test-roms`/`commercial-roms`) |
 
 ## Accuracy — per-suite pass counts
 
@@ -101,14 +104,14 @@ are not started.
 | DSP-1/1A/1B | µPD77C25 | **Core/Curated** | µPD77C25 (shared, 6 chips) | **implemented** — full µPD7725 LLE engine (`coproc::upd77c25`) + `Dsp1Board` (Lo/HiROM DR/SR windows). Boots Super Mario Kart / Pilotwings / Super Bases Loaded 2 / Aim for the Ace on the full System with user-supplied `dsp1*.rom`; deterministic golden + firmware-differential + RQM-handshake access gate (`dsp1_oncart`, 4 ROMs). Honesty gate green (`ORACLE_COPROCESSORS` ∋ DSP). Firmware gitignored, never committed |
 | Super FX / GSU-1/2 | Argonaut RISC | **Core/Curated** | — (cart ROM) | **implemented** — full GSU core (`coproc::gsu`: complete Argonaut RISC instruction set + ALT-mode machine, the multiplier, ROM/RAM buffers, opcode cache, the branch-delay pipeline, and the PLOT/RPIX pixel-plot pipeline) + `SuperFxBoard` (`coproc::superfx`: LoROM Super FX map, GSU register window, CPU↔GSU ROM/RAM arbitration). No chip dump — the GSU program is in cart ROM; host-synced on the Go flag (`run_until_stopped`, the DSP-1 `run_until_rqm` analogue), no core tick. Validated by `superfx_oncart` (58 Krom GSU ROMs: SuperFx detection + GSU-executed liveness + a FillPoly-into-RAM plot-pipeline assertion + deterministic golden) + the per-opcode `GSUTest` suite + engine unit tests. Honesty gate green (`ORACLE_COPROCESSORS` ∋ SuperFx) |
 | SA-1 | 65C816 @ 10.74 MHz | **Core/Curated** | (reuses CPU core) | **implemented** — the full SA-1 system (`coproc::sa1::Sa1Board`: the `$2200–$23FF` register file, Super-MMC ROM banking, BW-RAM with the 2/4 bpp bitmap + linear projections + write-protect, 2 KiB I-RAM, the arithmetic unit, var-len bit unit, H/V timer, and normal + type-1/2 character-conversion DMA) + the **second 65C816** instantiated and stepped in `rustysnes-core` (deterministic master-clock catch-up via the `Board` second-CPU hooks — the crate graph keeps the CPU core out of the cart crate). No chip dump — the SA-1 program is in cart ROM. Validated by `sa1_oncart` (18 commercial SA-1 carts: detection + S-CPU↔SA-1 traffic for all 18, an aggregate "SA-1 CPU executed" liveness floor ≥8 — observed 10 incl. Super Mario RPG / both Kirbys / PGA Tour 96 / Power Rangers Zeo — + deterministic golden) + board unit tests. The main CPU oracle stays 0-diff (SA-1 stepping is gated to SA-1 carts and bounded by the untouched master clock). Honesty gate green (`ORACLE_COPROCESSORS` ∋ Sa1) |
-| DSP-2 / DSP-3 / DSP-4 | µPD77C25 | BestEffort | µPD77C25 (shared) | not started |
-| ST010 / ST011 | µPD96050 | BestEffort | µPD96050 (shared) | not started |
-| S-DD1 | Nintendo ASIC | BestEffort | — | not started |
-| SPC7110 (+RTC-4513) | Hudson ASIC | BestEffort | — (frozen RTC) | not started |
-| CX4 | Hitachi HG51B169 | BestEffort/Curated | — | not started |
-| OBC1 | simple ASIC | BestEffort | — (HLE) | not started |
+| DSP-2 / DSP-4 | µPD77C25 | BestEffort | µPD77C25 (shared) | **implemented** — `coproc::necdsp_variant::NecDspVariantBoard` reuses the DSP-1 µPD7725 LLE engine, title-detected (`Variant::detect`). DSP-2 uses the generic bit-0 DR/SR split; DSP-4 needed a DSP-1-style half-boundary split instead (found + fixed against a real Top Gear 3000 boot-time 16-bit hardware check). Validated against real Dungeon Master (DSP-2) and Top Gear 3000 (DSP-4) — real title + gameplay content |
+| ST010 / ST011 | µPD96050 | BestEffort | µPD96050 (shared) | **implemented** — same `NecDspVariantBoard`, µPD96050 DR/SR bit-0 split + the DP battery data-RAM window. Validated against real F1 ROC II — real title + gameplay content |
+| S-DD1 | Nintendo ASIC | BestEffort | — | **implemented** — `coproc::sdd1`: Golomb-code + adaptive-binary-probability decompressor (`Decompressor`, ports ares' constant tables verbatim) streamed during fixed-address DMA via a new `Board::notify_dma_channel` hook (`rustysnes-core` snoops `$43n2-$43n6` writes). No chip dump — decompresses the cart's own compressed ROM. Validated against real Star Ocean and Street Fighter Alpha 2 — real title + gameplay content, after fixing a `u8`-shift-by-8 overflow bug in the codeword reader (ares' `n8` implicitly widens through C++ int promotion; the Rust port needed an explicit `u32` widen) |
+| SPC7110 (+RTC-4513) | Hudson ASIC | BestEffort | — (frozen RTC) | **implemented, not yet booting to real content** — `coproc::spc7110`: DCU (Hudson adaptive binary range coder over 1/2/4bpp planes), data-port unit, ALU (16×16 multiply, 32/16 divide), memory-control unit, plus a paired `coproc::epsonrtc::EpsonRtc` (RTC-4513, seeded to a fixed epoch — real wall-clock time would break the determinism contract). Wired against the one available ROM (Far East of Eden Zero / Tengai Makyou Zero): header detection fixed (title is "TENGAI MAKYO" not "…MAKYOU"; the `$F`-custom chipset-nibble gate excluded RTC carts' `$F9` byte), and a `$40-$7D` HiROM-style ROM mirror added (confirmed needed — the game's own boot code executes there). The CPU still runs off into unmapped low addresses a few dozen frames into boot regardless of the PROM/DROM split tried (1 MiB, 2 MiB, and a flat whole-image mapping were all tried); root cause not yet found. No further chip-name jargon investigation attempted this session — flagged for a follow-up debugging pass |
+| CX4 | Hitachi HG51B169 | BestEffort/Curated | — | **implemented** — clean-room `coproc::hg51b` (HG51B S169 core: sequential mask/value opcode decode transcribed from ares' `pattern(...)` strings, register file, cache, DMA, suspend/wait state machine) + `Cx4Board`. No chip dump — the CX4 program runs from cart ROM; only a small 3 KiB data-ROM constant table (`cx4.rom`) needs external supply. Validated against real Mega Man X2 and Mega Man X3 — real Capcom copyright screens + real gameplay, after fixing a real bug where DMA/cache work triggered while the chip was halted never ran |
+| OBC1 | simple ASIC | BestEffort | — (HLE) | **implemented** — `coproc::obc1::Obc1Board`: dedicated 8 KiB RAM, a reprogrammable cursor (`$1FF5`/`$1FF6`) over 4-byte slots + a packed 2-bit-per-slot status byte (`$1FF4`). Validated against real Metal Combat: Falcon's Revenge — real gameplay cinematic |
 | ST018 | ARMv3 | BestEffort | — (separate ARM LLE) | not started |
-| S-RTC | Epson RTC | BestEffort | — (frozen time) | not started |
+| S-RTC | Epson RTC | BestEffort | — (frozen time) | not started (the `EpsonRTC` core landed under SPC7110 above, since Far East of Eden Zero is the only cart pairing it with a second coprocessor; a standalone S-RTC-only board hasn't been wired) |
 
 One **µPD77C25 / µPD96050 LLE engine** covers DSP-1/2/3/4 + ST010/011 (six chips, one engine).
 

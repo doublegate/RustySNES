@@ -72,6 +72,11 @@ pub const SCREEN_HEIGHT: usize = 239;
 /// First active output dot on a visible line.
 const ACTIVE_DOT_START: u16 = 22;
 
+/// Dots by which the HV-IRQ horizontal comparator lags the programmed `HTIME`, modelling the
+/// SNES hardware communication delay between the counter unit and the CPU's interrupt logic
+/// (ares `hcounter(10) == (HTIME+1)<<2` ⇒ fire at dot `HTIME + 3.5`; see `check_hv_irq`).
+const HIRQ_TRIGGER_DELAY: u16 = 4;
+
 /// Total framebuffer length, in 15-bit BGR pixels.
 pub const FRAMEBUFFER_LEN: usize = SCREEN_WIDTH * SCREEN_HEIGHT;
 
@@ -490,8 +495,23 @@ impl Ppu {
     }
 
     /// Level-evaluate the HV-IRQ comparator at the current (h, v).
+    ///
+    /// The horizontal match is asserted [`HIRQ_TRIGGER_DELAY`] dots *after* the programmed
+    /// `HTIME`, modelling the SNES's hardware communication delay between the H/V counter unit
+    /// and the CPU's interrupt logic. ares encodes this as `hcounter(10) == io.htime` with
+    /// `io.htime` stored as `(HTIME + 1) << 2` clocks (`sfc/cpu/irq.cpp`, `sfc/cpu/io.cpp`), i.e.
+    /// the IRQ fires at hcounter `HTIME*4 + 14` = dot `HTIME + 3.5`. Without this delay an
+    /// IRQ-gated register write (e.g. the `hdmaen_latch_test` `STA $420C`) lands ~3–4 dots early,
+    /// which — combined with the dot-1104 HDMA latch — collapses the test's banded HDMAEN-vs-latch
+    /// crossing into a uniform per-line alternation.
     const fn check_hv_irq(&mut self) {
-        let h_match = !self.irq_enable_h || self.h == self.irq_h;
+        // Adding the delay can push the target past the end of the line. On hardware the H counter
+        // never reaches those values (ares' stored `(HTIME+1)<<2 + 10` clocks then exceeds the max
+        // hcounter), so the IRQ simply never fires for such HTIME — suppress rather than wrap into
+        // the next line, which would be a spurious match hardware/ares never produce.
+        let h_target = self.irq_h + HIRQ_TRIGGER_DELAY;
+        let h_hit = h_target < DOTS_PER_LINE && self.h == h_target;
+        let h_match = !self.irq_enable_h || h_hit;
         let v_match = !self.irq_enable_v || self.v == self.irq_v;
         if (self.irq_enable_h || self.irq_enable_v) && h_match && v_match {
             self.irq_pending = true;
@@ -666,10 +686,13 @@ mod tests {
         }
         assert!(fired_at.is_some());
         let (h, v) = fired_at.unwrap();
-        // The IRQ is evaluated at the start of tick before H increments, so it fires the dot
-        // after the match; assert we observed it on the programmed scanline.
+        // The H comparator lags HTIME by `HIRQ_TRIGGER_DELAY` dots (hardware counter→IRQ
+        // communication delay; see `check_hv_irq`), and it is evaluated at the start of tick
+        // before H increments, so the IRQ is observed at dot `HTIME + HIRQ_TRIGGER_DELAY` (or the
+        // dot after) on the programmed scanline.
         assert_eq!(v, 50);
-        assert!(h == 100 || h == 101);
+        let target = 100 + HIRQ_TRIGGER_DELAY;
+        assert!(h == target || h == target + 1);
     }
 
     #[test]

@@ -34,26 +34,36 @@ impl Cpu {
     // Bus plumbing. Every byte access ticks `on_cpu_cycle` and bumps the cycle counters.
     // ----------------------------------------------------------------------------------
 
-    /// Read a byte at a 24-bit address, charging one CPU cycle.
+    /// Read a byte at a 24-bit address, charging one CPU cycle. ares `CPU::read`: advance the
+    /// clock to four master clocks before the cycle end, latch the byte there, then advance the
+    /// final four — so the read lands at the hardware-exact dot.
     pub(crate) fn bus_read8(&mut self, bus: &mut impl Bus, addr: u32) -> u8 {
-        let v = bus.read24(addr & 0x00FF_FFFF);
-        bus.on_cpu_cycle();
+        let addr = addr & 0x00FF_FFFF;
+        let speed = bus.access_cycles(addr);
+        bus.advance(speed - 4);
+        let v = bus.read24(addr);
+        bus.advance(4);
         self.cycles += 1;
         self.cyc += 1;
         v
     }
 
-    /// Write a byte at a 24-bit address, charging one CPU cycle.
+    /// Write a byte at a 24-bit address, charging one CPU cycle. ares `CPU::write`: advance the
+    /// whole cycle FIRST, then perform the write — the store lands at the END of its cycle, so a
+    /// register write becomes visible to the PPU/HDMA one cycle later than an equivalent read.
     pub(crate) fn bus_write8(&mut self, bus: &mut impl Bus, addr: u32, val: u8) {
-        bus.write24(addr & 0x00FF_FFFF, val);
-        bus.on_cpu_cycle();
+        let addr = addr & 0x00FF_FFFF;
+        let speed = bus.access_cycles(addr);
+        bus.advance(speed);
+        bus.write24(addr, val);
         self.cycles += 1;
         self.cyc += 1;
     }
 
-    /// Internal (no-bus) cycle, e.g. ALU/indexing dead cycles. Charges one CPU cycle.
+    /// Internal (no-bus) cycle, e.g. ALU/indexing dead cycles. Charges one CPU cycle (ares
+    /// `CPU::idle`: a flat six-clock step with no memory access).
     pub(crate) fn io(&mut self, bus: &mut impl Bus) {
-        bus.on_cpu_cycle();
+        bus.advance(6);
         self.cycles += 1;
         self.cyc += 1;
     }
@@ -656,7 +666,13 @@ impl Cpu {
             self.waiting = false;
             self.service_interrupt(bus, false, false);
         } else if self.waiting {
-            // WAI with no pending interrupt: burn an idle cycle and stay parked.
+            // WAI exits on ANY asserted interrupt line (NMI/IRQ/ABORT/RESET) regardless of the
+            // `I` flag (WDC 65816 datasheet) — `I` only gates whether the CPU *vectors* to the
+            // handler, not whether WAI wakes. A masked IRQ (I=1) here must still clear `waiting`
+            // so execution resumes at the instruction after WAI; otherwise a program using
+            // `SEI; WAI` as a cheap interrupt-line sync primitive (no vectoring wanted) hangs
+            // forever once an IRQ source it never unmasks fires.
+            self.waiting = !irq;
             self.io(bus);
         } else {
             let opcode = self.fetch8(bus);
@@ -686,8 +702,14 @@ impl Cpu {
     /// Service a hardware/software interrupt (NMI/IRQ/BRK/COP). Pushes the return frame and
     /// loads `PC` from the appropriate emulation/native vector, then sets `I` and clears `D`.
     fn service_interrupt(&mut self, bus: &mut impl Bus, software: bool, nmi: bool) {
-        // Two internal cycles for the hardware sequence (signature varies; one suffices for
-        // count parity with the reference's interrupt handler timing).
+        // The 65C816 hardware interrupt sequence opens with TWO internal (dead) cycles before it
+        // begins pushing the return frame (WDC datasheet: IRQ/NMI = 2 internal + push PBR[native]
+        // + push PCH + push PCL + push P + 2 vector fetches). This path is hardware IRQ/NMI ONLY —
+        // BRK/COP are handled by `op_brk`/`op_cop` and are cycle-validated by the single-step
+        // oracle, so widening this to the correct 2 cycles does not touch their counts. The extra
+        // cycle also matters for interrupt *latency*: it pushes an IRQ-driven register write ~1
+        // dot later, which is one input to the `hdmaen_latch_test` HDMAEN-vs-latch race.
+        self.io(bus);
         self.io(bus);
         if !self.regs.emulation {
             self.push8(bus, self.regs.pbr);

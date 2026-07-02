@@ -12,13 +12,13 @@
 //! ## The master clock lives here
 //!
 //! The SNES CPU cycle is **6, 8, or 12 master clocks** depending on the address region (and the
-//! FastROM bit). The CPU model charges one "CPU cycle" per bus access via [`CpuBus::on_cpu_cycle`]
-//! — but that call carries no address, so the Bus stashes the access speed of the most recent
-//! [`CpuBus::read24`]/[`CpuBus::write24`] in `clock.next_speed` and consumes it on the next
-//! `on_cpu_cycle`. Internal (no-bus) CPU cycles leave `next_speed` at the default `6`. Each
-//! master-clock advance steps the PPU dot clock (4 master/dot) and the SPC accumulator in
-//! lockstep, so a mid-instruction PPU event (an HV-IRQ at a precise dot, a mid-scanline register
-//! write seen by the next instruction) lands at the right time without per-quirk patches.
+//! FastROM bit). The CPU asks the Bus for the access cost via [`CpuBus::access_cycles`] (ares
+//! `wait`) and drives the clock with [`CpuBus::advance`] (ares `step`), sequencing the advance
+//! around each [`CpuBus::read24`]/[`CpuBus::write24`] so the access lands at the hardware-exact
+//! instant — a write at the end of its cycle, a read four clocks before it. Each master-clock
+//! advance steps the PPU dot clock (4 master/dot) and the SPC accumulator in lockstep, so a
+//! mid-instruction PPU event (an HV-IRQ at a precise dot, a mid-scanline register write seen at
+//! the right hcounter) lands at the right time without per-quirk patches.
 
 // Byte-splitting a 16-bit register into its low/high `u8` (`reg as u8`, `(reg >> 8) as u8`) and
 // folding addresses to `u16`/`usize` is the bread-and-butter of a memory bus; flagging each
@@ -44,6 +44,11 @@ use crate::dma_bus::DmaBus;
 const WRAM_SIZE: usize = 128 * 1024;
 /// Master clocks per PPU dot (nominal; long-dot remainder folded into the 1364/1360/1368 line).
 const MASTER_PER_DOT: u32 = 4;
+/// PPU dot at which each visible scanline's HDMA transfer fires — ares' `hdmaPosition` of hcounter
+/// 1104 (`sfc/cpu/timing.cpp`) divided by [`MASTER_PER_DOT`]. Running the table at this exact dot
+/// (rather than the scanline boundary) latches a mid-line `$420C` write on the hardware-correct
+/// scanline, which is what makes the `hdmaen_latch_test` show a banded HDMAEN-vs-latch crossing.
+const HDMA_RUN_DOT: u16 = 276;
 /// SPC700 fractional-clock numerator (master ticks → SMP **base** clocks).
 ///
 /// The unit the APU advances per [`rustysnes_apu::Apu::advance_smp_cycle`] call is one SMP *base*
@@ -68,8 +73,6 @@ pub struct Clock {
     dot_accum: u32,
     /// Fractional accumulator for the asynchronous SPC700 domain.
     spc_accum: u64,
-    /// Master clocks the *next* `on_cpu_cycle` should advance by (set by `read24`/`write24`).
-    next_speed: u32,
     /// `$420D` MEMSEL bit 0 — FastROM (`true` = 6-clock WS2 ROM, `false` = 8-clock).
     fast_rom: bool,
     /// `$4200` NMITIMEN — bit7 NMI-enable, bit5 V-IRQ, bit4 H-IRQ, bit0 auto-joypad.
@@ -94,7 +97,6 @@ impl Default for Clock {
             master: 0,
             dot_accum: 0,
             spc_accum: 0,
-            next_speed: 6,
             fast_rom: false,
             nmitimen: 0,
             nmi_line: false,
@@ -140,6 +142,16 @@ pub struct Bus {
     #[allow(clippy::struct_field_names)] // "open_bus" is the hardware name for the latch.
     open_bus: u8,
     muldiv: MulDiv,
+    /// The last visible scanline HDMA was serviced on, so [`Bus::advance_master`] runs each line's
+    /// HDMA exactly once — even when the master clock is being advanced *inside* a GP-DMA (real
+    /// hardware interleaves HDMA at the start of every scanline, preempting the general DMA).
+    last_hdma_line: u16,
+    /// Re-entrancy guard: true while an HDMA transfer's own cycle cost is being charged, so the
+    /// nested `advance_master` doesn't recursively re-trigger HDMA for the same line.
+    in_hdma: bool,
+    /// Whether this frame's V=0 HDMA setup (table reset + reload) has already fired, so it runs
+    /// exactly once per frame independent of the per-line run at [`HDMA_RUN_DOT`].
+    hdma_setup_done: bool,
 }
 
 impl Default for Bus {
@@ -175,6 +187,9 @@ impl Bus {
             joypad_strobe: false,
             open_bus: 0,
             muldiv: MulDiv::default(),
+            last_hdma_line: u16::MAX,
+            in_hdma: false,
+            hdma_setup_done: false,
         }
     }
 
@@ -223,6 +238,35 @@ impl Bus {
                 self.clock.dot_accum -= MASTER_PER_DOT;
                 self.tick_ppu_dot();
             }
+            // HDMA, clock-driven so both its per-frame init (V=0) and per-line transfers stay
+            // scanline-accurate even while the master clock is being advanced *inside* a GP-DMA —
+            // hardware re-initializes HDMA at V=0 and interleaves a transfer at the start of every
+            // visible scanline, preempting the general DMA, regardless of a DMA spanning the frame
+            // boundary. Driving it from the scheduler instead delayed the V=0 init behind a
+            // frame-crossing framebuffer DMA, shifting the whole HDMA table late (Star Fox's
+            // force-blank then missed its own framebuffer DMA). The `in_hdma` guard stops the
+            // transfer's own cost (the nested `advance_master`) from re-triggering the same line.
+            if !self.in_hdma && self.dma.hdma_enable != 0 {
+                let v = self.ppu.scanline();
+                let vh = self.ppu.visible_height();
+                // ares services HDMA at two distinct points (`sfc/cpu/timing.cpp`): a once-per-frame
+                // *setup* at V=0 (`service_hdma_line(0, …)` resets the tables + reloads), and a
+                // per-visible-line *run* at hcounter 1104 = [`HDMA_RUN_DOT`]. Running the transfer at
+                // that exact dot — not at the scanline boundary — latches a mid-line HDMAEN write on
+                // the hardware-correct scanline (the `hdmaen_latch_test` crossing).
+                if v == 0 {
+                    if !self.hdma_setup_done {
+                        self.hdma_setup_done = true;
+                        self.service_hdma(0, vh);
+                    }
+                } else {
+                    self.hdma_setup_done = false;
+                    if v <= vh && self.ppu.dot() == HDMA_RUN_DOT && self.last_hdma_line != v {
+                        self.last_hdma_line = v;
+                        self.service_hdma(v, vh);
+                    }
+                }
+            }
             self.clock.spc_accum += SPC_NUM;
             while self.clock.spc_accum >= SPC_DEN {
                 self.clock.spc_accum -= SPC_DEN;
@@ -233,7 +277,31 @@ impl Bus {
                 // deterministic async resync (T-31-003; `docs/scheduler.md` §async-resync).
                 self.apu.advance_smp_cycle();
             }
+            // Release a host-synced coprocessor (Super FX/GSU) one master clock at a time, in
+            // lockstep with the CPU's own instruction stream — not drained to completion inside
+            // the single bus write that arms it. Real hardware runs the GSU as a genuinely
+            // concurrent cothread (ares `SuperFX : Thread`); the CPU keeps executing its own
+            // instructions while the GSU works and only observes the result whenever it next
+            // polls, instead of the entire render completing "atomically" before the CPU's next
+            // instruction can run (`Board::coprocessor_tick` doc has the detail).
+            if let Some(c) = self.cart.as_mut() {
+                c.coprocessor_tick();
+            }
         }
+    }
+
+    /// Run one HDMA phase (`line == 0` → per-frame reset+setup; else the visible-line transfer),
+    /// charging its master-clock cost back onto the scheduler. The `in_hdma` re-entrancy guard
+    /// stops the nested `advance_master(cost)` from re-triggering HDMA for the same line.
+    fn service_hdma(&mut self, line: u16, vh: u16) {
+        self.in_hdma = true;
+        let mut dma = core::mem::take(&mut self.dma);
+        let cost = dma.service_hdma_line(line, vh, self);
+        self.dma = dma;
+        if cost > 0 {
+            self.advance_master(cost);
+        }
+        self.in_hdma = false;
     }
 
     /// Tick the PPU one dot through a cart-only view (split borrow), then harvest its NMI/IRQ.
@@ -379,30 +447,11 @@ impl Bus {
     /// Run GP-DMA to completion (CPU halted), advancing the master clock by the transfer cost.
     fn run_gp_dma(&mut self, mask: u8) {
         let mut dma = core::mem::take(&mut self.dma);
-        let cost = dma.run_gp(mask, self);
+        // `run_gp` advances the master clock itself, byte-by-byte, via `DmaBus::step` (so the PPU
+        // scanline stays current and V-blank-crossing VRAM writes actually land). Do NOT charge
+        // the returned cost again here — that would double the DMA's wall-time.
+        let _cost = dma.run_gp(mask, self);
         self.dma = dma;
-        self.advance_master(cost);
-    }
-
-    /// Run one visible-scanline's HDMA (called by the scheduler at the line boundary), charging
-    /// the per-line budget to the master clock.
-    pub fn run_hdma_line(&mut self) {
-        if self.dma.hdma_enable == 0 {
-            return;
-        }
-        let mut dma = core::mem::take(&mut self.dma);
-        let cost = dma.hdma_run(self);
-        self.dma = dma;
-        self.advance_master(cost);
-    }
-
-    /// Per-frame HDMA setup (called at V=0), charging its cost to the master clock.
-    pub fn hdma_frame_setup(&mut self) {
-        let mut dma = core::mem::take(&mut self.dma);
-        dma.hdma_reset();
-        let cost = dma.hdma_setup(self);
-        self.dma = dma;
-        self.advance_master(cost);
     }
 
     // --- The 24-bit memory decode. ---------------------------------------------------------
@@ -435,8 +484,20 @@ impl Bus {
                 0x2100..=0x21FF => self.b_write(addr as u8, val),
                 0x4016 | 0x4200..=0x421F => self.write_cpu_reg(addr, val),
                 0x4300..=0x437F => {
-                    self.dma
-                        .write_reg(((addr >> 4) & 0xF) as usize, (addr & 0xF) as u8, val);
+                    let ch = ((addr >> 4) & 0xF) as usize;
+                    let reg = (addr & 0xF) as u8;
+                    self.dma.write_reg(ch, reg, val);
+                    // S-DD1's DMA-address/size snoop (Board::notify_dma_channel doc) — only the
+                    // registers that hold that state are worth reporting on.
+                    if matches!(reg, 2..=6)
+                        && let Some(c) = self.dma.channels.get(ch & 7)
+                    {
+                        let address = (u32::from(c.source_bank) << 16) | u32::from(c.source_addr);
+                        if let Some(cart) = self.cart.as_mut() {
+                            cart.board
+                                .notify_dma_channel(ch & 7, address, c.count_or_indirect);
+                        }
+                    }
                 }
                 _ => self.cart_write_raw(addr24, val),
             },
@@ -452,6 +513,10 @@ impl Bus {
 
     fn cart_write_raw(&mut self, addr24: u32, val: u8) {
         if let Some(c) = self.cart.as_mut() {
+            // Arms a host-synced coprocessor (Super FX/GSU) if this write set Go — it does not
+            // run it. `advance_master`'s per-tick loop drives it forward one master clock at a
+            // time via `Board::coprocessor_tick`, genuinely concurrently with the CPU's own
+            // subsequent instructions (`Board::coprocessor_tick` doc has the detail).
             c.write24(addr24, val);
         }
     }
@@ -521,21 +586,47 @@ impl DmaBus for Bus {
     fn write_b(&mut self, addr: u8, val: u8) {
         self.b_write(addr, val);
     }
+    fn step(&mut self, clocks: u32) {
+        // Advance the whole system (PPU dot clock, SPC, host-synced coprocessor) mid-DMA so the
+        // scanline that gates VRAM/CGRAM/OAM access is current at each transferred byte.
+        self.advance_master(clocks);
+    }
+    fn scanline(&self) -> u16 {
+        self.ppu.scanline()
+    }
+    fn visible_height(&self) -> u16 {
+        self.ppu.visible_height()
+    }
+    fn hdma_last_line(&self) -> u16 {
+        self.last_hdma_line
+    }
+    fn set_hdma_last_line(&mut self, line: u16) {
+        self.last_hdma_line = line;
+    }
 }
 
 /// The 65C816's view: route a 24-bit access + drive the master clock in lockstep.
 impl CpuBus for Bus {
     fn read24(&mut self, addr24: u32) -> u8 {
-        self.clock.next_speed = self.access_speed(addr24);
         let val = self.decode_read(addr24);
         self.open_bus = val;
         val
     }
 
     fn write24(&mut self, addr24: u32, val: u8) {
-        self.clock.next_speed = self.access_speed(addr24);
         self.open_bus = val;
         self.decode_write(addr24, val);
+    }
+
+    fn access_cycles(&self, addr24: u32) -> u32 {
+        self.access_speed(addr24)
+    }
+
+    fn advance(&mut self, clocks: u32) {
+        // ares `CPU::step`: tick the PPU dot clock, SPC, host-synced coprocessor, and HDMA in
+        // lockstep. The CPU sequences its calls to this around each access (see `CpuBus`) so a
+        // register write lands at the hardware-exact hcounter.
+        self.advance_master(clocks);
     }
 
     fn poll_nmi(&mut self) -> bool {
@@ -547,14 +638,6 @@ impl CpuBus for Bus {
         // …). The `Board::irq_pending` hook is documented to be ORed here; base/host-sync boards
         // return `false` so non-coprocessor carts are unaffected.
         self.clock.irq_line || self.cart.as_ref().is_some_and(|c| c.board.irq_pending())
-    }
-
-    fn on_cpu_cycle(&mut self) {
-        // Advance the master clock by the speed of the access this cycle paid for (set by
-        // read24/write24); an internal CPU cycle leaves it at the default 6.
-        let speed = self.clock.next_speed;
-        self.clock.next_speed = 6;
-        self.advance_master(speed);
     }
 }
 
@@ -626,8 +709,13 @@ mod tests {
     fn master_clock_advances_on_access() {
         let mut bus = Bus::default();
         let before = bus.clock.master;
-        <Bus as CpuBus>::read24(&mut bus, 0x00_8000); // sets next_speed = 8
-        bus.on_cpu_cycle(); // advances 8
+        // SlowROM ($00:8000) costs 8 master clocks; `advance` is what moves the clock.
+        let speed = <Bus as CpuBus>::access_cycles(&bus, 0x00_8000);
+        assert_eq!(speed, 8);
+        <Bus as CpuBus>::advance(&mut bus, speed);
+        assert_eq!(bus.clock.master, before + 8);
+        // `read24`/`write24` are pure accesses now — they do not move the clock.
+        <Bus as CpuBus>::read24(&mut bus, 0x00_8000);
         assert_eq!(bus.clock.master, before + 8);
     }
 }

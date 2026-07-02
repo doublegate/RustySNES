@@ -59,10 +59,21 @@ of the per-access speed, instruction cycle *counts* vary
 - **+1 cycle if an indexed access crosses a page boundary.**
 
 So a single opcode's master-clock cost is `Σ(access_speed_i) + internal_cycles×6`, where the
-number of accesses depends on the M/X widths and the addressing mode. The CPU crate exposes
-each cycle's intended access (read/write, address, internal) to the Bus, which returns the
-speed; the scheduler advances the master clock accordingly (`docs/scheduler.md` §master-clock
-model).
+number of accesses depends on the M/X widths and the addressing mode.
+
+**Sub-cycle access phase (ares `CPU::read`/`write`/`idle`).** Within a cycle the memory access is
+*not* simultaneous with the clock advance — the CPU asks the Bus for the access cost
+(`Bus::access_cycles`, ares `wait`) and sequences the advance (`Bus::advance`, ares `step`) around
+the access so it lands at the hardware-exact instant:
+
+- **write** — advance the full cost, *then* store: the write lands at the **end** of its cycle.
+- **read** — advance `cost − 4`, read, then advance `4`: the read lands **four clocks before** the
+  cycle end.
+- **internal (I/O)** — a flat six-clock advance, no access.
+
+This phase is load-bearing: it fixes the exact hcounter at which a register write becomes visible to
+the PPU/HDMA (a store is seen a cycle later than a same-address read). It does not change instruction
+cycle *counts*.
 
 ## Interfaces (sketch)
 
@@ -150,7 +161,13 @@ per-opcode-oracle exit criterion (`docs/adr/0005` self-gen oracle of record is t
   bsnes `algorithms.cpp` (the V/C/Z/N semantics, including the `>0x9F` / `<=0xFF` fixups).
 - `REP`/`SEP`/`XCE` width + emulation transitions; `PLP`/`RTI` re-mask M/X in emulation.
 - Interrupt vectoring (NMI/IRQ/BRK/COP, native vs emulation tables); IRQ gated on `I` clear;
-  NMI/IRQ polled at the instruction boundary.
+  NMI/IRQ polled at the instruction boundary. Hardware NMI/IRQ open with **two** internal
+  (dead) cycles before pushing the return frame (WDC sequence: 2 internal + push PBR[native] +
+  push PCH + push PCL + push P + 2 vector fetches). BRK/COP (their own opcodes, cycle-validated
+  by the single-step oracle) are handled separately and keep their standard-table counts — the
+  two-cycle interrupt open is on the hardware NMI/IRQ path only, and also feeds interrupt
+  *latency* (it delays an IRQ-driven register write by one cycle, one input to the
+  `hdmaen_latch_test` HDMAEN-vs-latch race; `docs/scheduler.md` §H/V-IRQ).
 - **Cycle counts** are the standard-table base plus the documented `+1` adjustments (M=0
   16-bit access, D-low≠0, indexed page-cross, branch-taken / emulation branch page-cross), and
   `STP`/`WAI` cost the oracle's 4 cycles. `step()` returns the CPU-cycle count == the

@@ -151,21 +151,16 @@ impl System {
         let start_frame = self.bus.ppu.frame_count();
         let mut steps = 0u64;
 
-        // Per-frame HDMA setup happens once at the top of the frame.
-        self.bus.hdma_frame_setup();
+        // HDMA per-frame init + per-line transfers are now driven clock-accurately from
+        // `Bus::advance_master` (at V=0 and each visible line), so they stay correct even when a
+        // framebuffer DMA spans the frame boundary. The scheduler no longer sequences HDMA.
 
         while self.bus.ppu.frame_count() == start_frame && steps < MAX_STEPS_PER_FRAME {
             self.cpu.step(&mut self.bus);
             steps += 1;
 
-            // Detect a scanline boundary and run HDMA for the new visible line.
-            let line = self.bus.ppu.scanline();
-            if line != self.last_line {
-                self.last_line = line;
-                if line >= 1 && line <= self.bus.ppu.visible_height() {
-                    self.bus.run_hdma_line();
-                }
-            }
+            // HDMA is now serviced clock-accurately inside `Bus::advance_master` (so it stays
+            // line-accurate even mid-GP-DMA); the scheduler no longer polls scanline boundaries.
 
             // Catch the SA-1 up to the master clock (no-op when no SA-1 cart is installed).
             if self.sa1_cpu.is_some() {

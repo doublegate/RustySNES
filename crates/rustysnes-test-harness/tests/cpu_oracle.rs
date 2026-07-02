@@ -28,11 +28,10 @@ use std::path::PathBuf;
 use rustysnes_cpu::{Bus, Cpu, Status};
 use serde_json::Value;
 
-/// A flat 24-bit memory the single-step tests seed and diff. The CPU drives `on_cpu_cycle` once
-/// per cycle, so `cycles` equals the instruction's cycle count.
+/// A flat 24-bit memory the single-step tests seed and diff. Cycle counts come from the value
+/// [`Cpu::step`] returns (the per-instruction cycle count), not the bus.
 struct TestBus {
     mem: HashMap<u32, u8>,
-    cycles: u32,
 }
 
 impl Bus for TestBus {
@@ -41,9 +40,6 @@ impl Bus for TestBus {
     }
     fn write24(&mut self, addr24: u32, val: u8) {
         self.mem.insert(addr24 & 0x00FF_FFFF, val);
-    }
-    fn on_cpu_cycle(&mut self) {
-        self.cycles += 1;
     }
 }
 
@@ -78,7 +74,6 @@ fn run_one(t: &Value) -> (bool, bool, bool) {
     let init = &t["initial"];
     let mut bus = TestBus {
         mem: HashMap::new(),
-        cycles: 0,
     };
     for pair in init["ram"].as_array().into_iter().flatten() {
         let a = pair[0].as_u64().unwrap_or(0) as u32 & 0x00FF_FFFF;
@@ -104,19 +99,20 @@ fn run_one(t: &Value) -> (bool, bool, bool) {
     let got_cycles = if opcode == 0x44 || opcode == 0x54 {
         // Drive whole-byte iterations until the next one would overshoot the budget, then run
         // the partial tail (opcode fetch + first operand) to hit the exact cycle count.
-        while bus.cycles + 7 <= expected_cycles {
-            let before = bus.cycles;
-            cpu.step(&mut bus);
-            if bus.cycles == before {
+        let mut acc = 0u32;
+        while acc + 7 <= expected_cycles {
+            let c = cpu.step(&mut bus);
+            if c == 0 {
                 break; // safety: no progress
             }
+            acc += c;
         }
         // Partial tail: re-fetch opcode (+1) and the dst-bank operand (+1) → PC at opcode+2.
-        while bus.cycles < expected_cycles {
+        while acc < expected_cycles {
             cpu.regs.pc = cpu.regs.pc.wrapping_add(1);
-            bus.cycles += 1;
+            acc += 1;
         }
-        bus.cycles
+        acc
     } else {
         cpu.step(&mut bus)
     };

@@ -102,6 +102,20 @@ impl Cart {
     pub fn install_coprocessor_firmware(&mut self, bytes: &[u8]) -> bool {
         self.board.load_firmware(bytes)
     }
+
+    /// The specific firmware file name this cart's board expects, if it knows exactly which chip
+    /// dump it needs (see [`crate::board::Board::firmware_hint`]). `None` for boards that accept
+    /// any same-family dump (or carry no firmware-dependent coprocessor at all).
+    #[must_use]
+    pub fn firmware_hint(&self) -> Option<&'static str> {
+        self.board.firmware_hint()
+    }
+
+    /// Count of host accesses to the coprocessor's data ports since power-on (debugger/diag).
+    #[must_use]
+    pub fn coprocessor_host_accesses(&self) -> u64 {
+        self.board.coprocessor_host_accesses()
+    }
 }
 
 impl core::fmt::Debug for Cart {

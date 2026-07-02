@@ -86,9 +86,19 @@ pub trait Board {
 
     // --- Default-no-op coprocessor / IRQ hooks (the `notify_a12`-equivalents). ---
 
-    /// Advance the on-cart coprocessor by one of its clock units. Default no-op (base
-    /// LoROM/HiROM/ExHiROM have no coprocessor). Super FX / SA-1 / DSP-n override this; the
-    /// scheduler drives it from the master-clock loop on the coprocessor's divisor.
+    /// Advance the on-cart coprocessor by one master clock. The Bus calls this from inside its
+    /// own per-master-tick loop (`advance_master`, alongside the PPU dot and the APU's
+    /// SMP-cycle release) — every single tick, unconditionally, on the coprocessor's divisor —
+    /// so a host-driven coprocessor (Super FX/GSU) runs genuinely concurrently with the CPU's
+    /// own subsequent instructions instead of draining an entire `Go` burst to completion
+    /// "atomically" inside the one bus write that armed it. This mirrors ares's `SuperFX :
+    /// Thread` cothread, which the scheduler interleaves with the main CPU at native
+    /// master-clock granularity (`sfc/coprocessor/superfx/superfx.cpp`'s `Thread::create` +
+    /// `timing.cpp`'s `Thread::synchronize` after every access) — the CPU can do unrelated
+    /// work, or even service a *second* `Go` burst, in between two ticks of the first one,
+    /// instead of only ever observing the coprocessor's result after it fully finishes
+    /// (`Gsu::tick` doc has the detail on what is, and isn't, deferred). Default no-op (base
+    /// LoROM/HiROM/ExHiROM have no coprocessor; DSP-n stays RQM-polled, not tick-driven).
     fn coprocessor_tick(&mut self) {}
 
     /// Notify the board that the PPU is starting a new scanline. Default no-op. (Reserved for
@@ -98,6 +108,19 @@ pub trait Board {
     /// Notify the board of one elapsed CPU cycle. Default no-op. Coprocessors with a
     /// CPU-cycle-driven IRQ/refresh counter override this.
     fn notify_cpu_cycle(&mut self) {}
+
+    /// Notify the board that DMA channel `channel`'s `$43n2-$43n6` source-address/byte-count
+    /// registers were just written, reporting the channel's CURRENT full 24-bit source address
+    /// and 16-bit count. Default no-op. The `$4300-$437F` DMA register file lives in
+    /// `rustysnes-core::Bus` (not routed through `Board::read24`/`write24` at all under normal
+    /// SNES addressing), so a board that needs to observe DMA setup — S-DD1's decompression-
+    /// during-DMA hook, which snoops these exact registers on real hardware (ares
+    /// `sfc/coprocessor/sdd1/sdd1.cpp` `dmaWrite`) — has no other way to see it; this hook is
+    /// `rustysnes-core`'s side of that snoop, called after every relevant register write
+    /// regardless of board (cheap no-op for the other 99% of carts).
+    fn notify_dma_channel(&mut self, channel: usize, address: u32, count: u16) {
+        let _ = (channel, address, count);
+    }
 
     /// Whether the board is currently asserting its IRQ line (SA-1, Super FX, SPC7110 RTC).
     /// Default `false`. The bus ORs this with the other IRQ sources.
@@ -110,6 +133,18 @@ pub trait Board {
     /// accepted; without it the board is non-functional, never silently degraded (`docs/adr/0003`).
     fn load_firmware(&mut self, _bytes: &[u8]) -> bool {
         false
+    }
+
+    /// The specific firmware file name this board expects (e.g. `"dsp2.rom"`), if the board knows
+    /// exactly which chip dump it needs. Default `None` — most chip-ROM-dump coprocessors accept
+    /// any same-family, same-size dump (DSP-1 accepts either `dsp1.rom` or `dsp1b.rom`), so callers
+    /// searching a firmware directory should try this exact name FIRST when present: several NEC
+    /// DSP chips share an identical firmware byte size (`docs/cart.md` §"the shared NEC core"), so
+    /// trying a same-sized-but-wrong-chip's dump would silently load the wrong lookup tables/
+    /// program into the engine — this hint is what stops that ambiguity for the single-game
+    /// variants (DSP-2/4, ST010) that DO need one exact file, not a same-family candidate list.
+    fn firmware_hint(&self) -> Option<&'static str> {
+        None
     }
 
     /// Count of host accesses to the coprocessor's data ports since power-on (debugger /
@@ -208,6 +243,13 @@ const fn mirror(mut address: u32, size: u32) -> u32 {
 #[must_use]
 pub fn select(header: &Header, rom: &[u8]) -> Box<dyn Board> {
     let rom_len = rom.len();
+    // Extracted before `rom` is boxed below: the 21-byte internal title, used only to disambiguate
+    // the single-game NEC DSP variants (DSP-2/4, ST010) from plain DSP-1 — see `necdsp_variant`'s
+    // module doc for why the header's coprocessor byte alone can't tell them apart.
+    let title_upper = rom
+        .get(header.offset..header.offset + 21)
+        .and_then(|b| core::str::from_utf8(b).ok())
+        .map(str::to_uppercase);
     let rom: Box<[u8]> = Box::from(rom);
 
     // Super FX / GSU owns its own ROM/RAM mapping (no base-board delegation): the GSU program
@@ -232,6 +274,28 @@ pub fn select(header: &Header, rom: &[u8]) -> Box<dyn Board> {
         ));
     }
 
+    // S-DD1 owns its own ROM mapping (no base-board delegation): its bank-fold formula and
+    // DMA-decompression hook need the full ROM read path uninterrupted — see `coproc::sdd1`'s
+    // module doc. No chip-ROM dump; the algorithm runs against the cart's own compressed data.
+    if header.coprocessor == CoproId::SDd1 {
+        return Box::new(crate::coproc::sdd1::select(
+            header.map_mode,
+            rom,
+            header.sram_size,
+        ));
+    }
+
+    // SPC7110 owns its own PROM/DROM/RAM mapping (no base-board delegation): its unified linear
+    // data-ROM fold and the register window's whole-bank $50/$58 mirrors need the full ROM read
+    // path uninterrupted — see `coproc::spc7110`'s module doc.
+    if header.coprocessor == CoproId::Spc7110 {
+        return Box::new(crate::coproc::spc7110::select(
+            header.map_mode,
+            rom,
+            header.sram_size,
+        ));
+    }
+
     let sram = vec![0u8; header.sram_size].into_boxed_slice();
     let base: Box<dyn Board> = match header.map_mode {
         MapMode::LoRom => Box::new(LoRom::new(rom, sram)),
@@ -239,11 +303,21 @@ pub fn select(header: &Header, rom: &[u8]) -> Box<dyn Board> {
         MapMode::ExHiRom => Box::new(ExHiRom::new(rom, sram)),
     };
     match header.coprocessor {
-        CoproId::Dsp => Box::new(crate::coproc::Dsp1Board::new(
-            base,
-            header.map_mode,
-            rom_len,
-        )),
+        CoproId::Dsp => {
+            let variant = title_upper
+                .as_deref()
+                .and_then(crate::coproc::NecDspVariant::detect);
+            match variant {
+                Some(v) => Box::new(crate::coproc::NecDspVariantBoard::new(base, v)),
+                None => Box::new(crate::coproc::Dsp1Board::new(
+                    base,
+                    header.map_mode,
+                    rom_len,
+                )),
+            }
+        }
+        CoproId::Obc1 => Box::new(crate::coproc::Obc1Board::new(base)),
+        CoproId::Cx4 => Box::new(crate::coproc::Cx4Board::new(base)),
         // Other coprocessor families land in later sprints; until then the cart runs as its base
         // board (the coprocessor window is simply unmapped, never silently faked).
         _ => base,

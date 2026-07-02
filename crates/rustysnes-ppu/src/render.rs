@@ -190,6 +190,8 @@ impl Ppu {
     }
 
     /// Render one non-Mode-7 background into the above/below pixel buffers.
+    // `bg3_hofs`/`bg3_vofs` (offset-per-tile) intentionally mirror the `hofs`/`vofs` naming.
+    #[allow(clippy::similar_names)]
     fn render_bg(&self, bg: usize, pr: &ModePriorities, above: &mut [Pixel], below: &mut [Pixel]) {
         let bpp = self.bg_bpp(bg);
         if bpp == 0 {
@@ -217,6 +219,15 @@ impl Ppu {
             line_y = (line_y / m) * m;
         }
 
+        // Offset-per-tile (OPT) applies to BG1/BG2 in modes 2, 4, 6: BG3's tilemap supplies a
+        // per-tile-column horizontal and/or vertical offset that overrides the BG's own scroll for
+        // that column (ares `PPU::Background::render`). Star Fox's intro planet lives in the lower
+        // half of BG2's 64x64 tilemap and is scrolled into view column-by-column via OPT V-offsets;
+        // ignoring OPT is what left the planet off-screen (only the star quadrant showed).
+        let opt_mode = matches!(self.io.bg_mode, 2 | 4 | 6) && bg < 2;
+        let opt_valid = 0x2000u16 << bg; // BG1 => 0x2000, BG2 => 0x4000
+        let hofs_fine = hofs & 7;
+
         for x in 0..SCREEN_WIDTH as u32 {
             let px = if self.io.mosaic_enable[bg] && self.io.mosaic_size > 1 {
                 let m = u32::from(self.io.mosaic_size);
@@ -224,8 +235,36 @@ impl Ppu {
             } else {
                 x
             };
-            let world_x = px.wrapping_add(hofs);
-            let world_y = line_y.wrapping_add(vofs);
+            let mut world_x = px.wrapping_add(hofs);
+            let mut world_y = line_y.wrapping_add(vofs);
+            if opt_mode {
+                let offset_x = (px + hofs_fine) & !7;
+                if offset_x >= tile_w {
+                    // first tile column(s) are exempt
+                    let bg3_hofs = u32::from(self.io.bg_hofs[2]);
+                    let bg3_vofs = u32::from(self.io.bg_vofs[2]);
+                    let base_x = (offset_x - tile_w).wrapping_add(bg3_hofs & !7);
+                    let hlookup = self.bg3_opt_tile(base_x, bg3_vofs);
+                    let fine = (px + hofs_fine) & 7;
+                    if self.io.bg_mode == 4 {
+                        if hlookup & opt_valid != 0 {
+                            if hlookup & 0x8000 == 0 {
+                                world_x = offset_x + (u32::from(hlookup) & !7) + fine;
+                            } else {
+                                world_y = line_y.wrapping_add(u32::from(hlookup));
+                            }
+                        }
+                    } else {
+                        let vlookup = self.bg3_opt_tile(base_x, bg3_vofs.wrapping_add(8));
+                        if hlookup & opt_valid != 0 {
+                            world_x = offset_x + (u32::from(hlookup) & !7) + fine;
+                        }
+                        if vlookup & opt_valid != 0 {
+                            world_y = line_y.wrapping_add(u32::from(vlookup));
+                        }
+                    }
+                }
+            }
 
             let (palette_idx, group, priority_hi) = self.fetch_bg_pixel(
                 world_x,
@@ -271,6 +310,31 @@ impl Ppu {
                 below[xi] = pixel;
             }
         }
+    }
+
+    /// Read a raw BG3 tilemap entry at world `(hoffset, voffset)` — the offset-per-tile source for
+    /// modes 2/4/6 (ares `PPU::Background::getTile` applied to BG3). The entry is reinterpreted as
+    /// a scroll offset, not a character, by the OPT logic in the BG render loop.
+    fn bg3_opt_tile(&self, hoffset: u32, voffset: u32) -> u16 {
+        let ss = self.io.bg_screen_size[2];
+        let shift = if self.io.tile_size[2] { 4 } else { 3 };
+        let tile_x = hoffset >> shift;
+        let tile_y = voffset >> shift;
+        let screen_x = if ss & 1 != 0 { 32u32 << 5 } else { 0 };
+        let screen_y = if ss & 2 != 0 {
+            32u32 << (5 + (ss & 1))
+        } else {
+            0
+        };
+        let mut offset = ((tile_y & 0x1f) << 5) | (tile_x & 0x1f);
+        if tile_x & 0x20 != 0 {
+            offset += screen_x;
+        }
+        if tile_y & 0x20 != 0 {
+            offset += screen_y;
+        }
+        let addr = (u32::from(self.io.bg_screen_addr[2]).wrapping_add(offset)) & 0x7fff;
+        self.vram[addr as usize]
     }
 
     /// Fetch one BG pixel: returns (palette index within the BG palette, palette group, hi-prio).

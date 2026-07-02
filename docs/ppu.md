@@ -159,7 +159,10 @@ The crate is a working dual-chip model. Public API the scheduler/bus call:
 - **Timeline:** `tick_dot(&mut self, bus: &mut impl VideoBus)` advances H 0..=340 / V per region
   (262 NTSC / 312 PAL), sets VBlank at V=225 (V=240 overscan) and HBlank, fires
   `notify_scanline`/`notify_vblank`, raises NMI at VBlank start, and level-fires the HV-IRQ
-  comparator (`set_hv_irq(enable_h, enable_v, h, v)` programs it).
+  comparator (`set_hv_irq(enable_h, enable_v, h, v)` programs it). The horizontal match is
+  asserted `HIRQ_TRIGGER_DELAY` (4) dots **after** the programmed `HTIME`, modelling the SNES
+  counter→CPU interrupt communication delay (ares `hcounter(10) == (HTIME+1)<<2`; see
+  `docs/scheduler.md` §H/V-IRQ). Without it an IRQ-gated register write lands a few dots early.
 - **Polls (the scheduler reads these — no extra `VideoBus` methods were added):**
   `nmi_pending()`/`ack_nmi()`, `irq_pending()`/`ack_irq()`, `in_vblank()`/`in_hblank()`,
   `dot()`/`scanline()`, `frame_ready()`/`take_frame()`/`frame_count()`, `framebuffer() -> &[u16]`.
