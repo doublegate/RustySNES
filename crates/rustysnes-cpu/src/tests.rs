@@ -655,3 +655,32 @@ fn cycle_count_matches_cycles_field_delta() {
     let ret = cpu.step(&mut bus);
     assert_eq!(u64::from(ret), cpu.cycles - before);
 }
+
+#[test]
+fn register_file_round_trips_through_save_state() {
+    use rustysnes_savestate::{SaveReader, SaveWriter};
+
+    let mut bus = TestBus::new();
+    let mut cpu = native_cpu(&mut bus);
+    cpu.regs.a = 0x1234;
+    cpu.regs.x = 0x5678;
+    cpu.regs.pc = 0xABCD;
+    cpu.cycles = 42;
+    cpu.waiting = true;
+
+    let mut w = SaveWriter::new();
+    cpu.save_state(&mut w);
+    let bytes = w.into_bytes();
+
+    let mut fresh = Cpu::new();
+    let mut r = SaveReader::new(&bytes);
+    fresh.load_state(&mut r).unwrap();
+
+    assert_eq!(fresh.regs.a, 0x1234);
+    assert_eq!(fresh.regs.x, 0x5678);
+    assert_eq!(fresh.regs.pc, 0xABCD);
+    assert_eq!(fresh.regs.emulation, cpu.regs.emulation);
+    assert_eq!(fresh.cycles, 42);
+    assert!(fresh.waiting);
+    assert_eq!(r.remaining(), 0);
+}

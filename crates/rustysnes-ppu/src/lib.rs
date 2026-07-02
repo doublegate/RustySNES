@@ -50,6 +50,8 @@ extern crate alloc;
 
 use alloc::boxed::Box;
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 pub mod bus;
 mod regs;
 mod render;
@@ -308,6 +310,250 @@ impl Default for Io {
             ppu1_mdr: 0,
             ppu2_mdr: 0,
         }
+    }
+}
+
+impl WindowLayer {
+    fn save_state(self, s: &mut SaveWriter) {
+        s.write_bool(self.one_enable);
+        s.write_bool(self.one_invert);
+        s.write_bool(self.two_enable);
+        s.write_bool(self.two_invert);
+        s.write_u8(self.mask);
+    }
+
+    fn load_state(&mut self, s: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.one_enable = s.read_bool()?;
+        self.one_invert = s.read_bool()?;
+        self.two_enable = s.read_bool()?;
+        self.two_invert = s.read_bool()?;
+        self.mask = s.read_u8()? & 0x03;
+        Ok(())
+    }
+}
+
+impl WindowIo {
+    fn save_state(&self, s: &mut SaveWriter) {
+        s.write_u8(self.one_left);
+        s.write_u8(self.one_right);
+        s.write_u8(self.two_left);
+        s.write_u8(self.two_right);
+        for l in &self.layer {
+            l.save_state(s);
+        }
+    }
+
+    fn load_state(&mut self, s: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.one_left = s.read_u8()?;
+        self.one_right = s.read_u8()?;
+        self.two_left = s.read_u8()?;
+        self.two_right = s.read_u8()?;
+        for l in &mut self.layer {
+            l.load_state(s)?;
+        }
+        Ok(())
+    }
+}
+
+impl Io {
+    /// Write every register field, in declaration order, into the caller's section.
+    fn save_state(&self, s: &mut SaveWriter) {
+        s.write_u8(self.display_brightness);
+        s.write_bool(self.display_disable);
+        s.write_u8(self.bg_mode);
+        s.write_bool(self.bg3_priority);
+        for &v in &self.tile_size {
+            s.write_bool(v);
+        }
+        s.write_u8(self.mosaic_size);
+        for &v in &self.mosaic_enable {
+            s.write_bool(v);
+        }
+        for &v in &self.bg_screen_addr {
+            s.write_u16(v);
+        }
+        for &v in &self.bg_screen_size {
+            s.write_u8(v);
+        }
+        for &v in &self.bg_tiledata_addr {
+            s.write_u16(v);
+        }
+        for &v in &self.bg_hofs {
+            s.write_u16(v);
+        }
+        for &v in &self.bg_vofs {
+            s.write_u16(v);
+        }
+        s.write_u16(self.vram_increment_size);
+        s.write_u8(self.vram_mapping);
+        s.write_bool(self.vram_increment_high);
+        s.write_u16(self.vram_address);
+        s.write_u16(self.vram_read_latch);
+        s.write_bool(self.m7_hflip);
+        s.write_bool(self.m7_vflip);
+        s.write_u8(self.m7_repeat);
+        s.write_u16(self.m7a);
+        s.write_u16(self.m7b);
+        s.write_u16(self.m7c);
+        s.write_u16(self.m7d);
+        s.write_u16(self.m7x);
+        s.write_u16(self.m7y);
+        s.write_u16(self.m7_hofs);
+        s.write_u16(self.m7_vofs);
+        s.write_u8(self.cgram_address);
+        s.write_bool(self.cgram_latch_high);
+        s.write_u8(self.cgram_byte_latch);
+        s.write_u16(self.oam_base_address);
+        s.write_bool(self.oam_priority_rotation);
+        s.write_u16(self.oam_address);
+        s.write_u8(self.oam_byte_latch);
+        self.win.save_state(s);
+        for &v in &self.main_enable {
+            s.write_bool(v);
+        }
+        for &v in &self.sub_enable {
+            s.write_bool(v);
+        }
+        for &v in &self.win_main_enable {
+            s.write_bool(v);
+        }
+        for &v in &self.win_sub_enable {
+            s.write_bool(v);
+        }
+        s.write_bool(self.direct_color);
+        s.write_bool(self.add_subscreen);
+        s.write_u8(self.color_window_above);
+        s.write_u8(self.color_window_below);
+        for &v in &self.color_math_enable {
+            s.write_bool(v);
+        }
+        s.write_bool(self.color_halve);
+        s.write_bool(self.color_subtract);
+        s.write_u16(self.fixed_color);
+        s.write_bool(self.interlace);
+        s.write_bool(self.obj_interlace);
+        s.write_bool(self.overscan);
+        s.write_bool(self.pseudo_hires);
+        s.write_bool(self.extbg);
+        s.write_u16(self.obj_tiledata_addr);
+        s.write_u16(self.obj_nameselect);
+        s.write_u8(self.obj_base_size);
+        s.write_u16(self.latch_h);
+        s.write_u16(self.latch_v);
+        s.write_bool(self.counter_latched);
+        s.write_bool(self.ophct_high_toggle);
+        s.write_bool(self.opvct_high_toggle);
+        s.write_bool(self.range_over);
+        s.write_bool(self.time_over);
+        s.write_u8(self.ppu1_mdr);
+        s.write_u8(self.ppu2_mdr);
+    }
+
+    /// The inverse of [`Self::save_state`].
+    ///
+    /// # Errors
+    /// [`SaveStateError`] on truncated/corrupt input. No field here is used as an unchecked
+    /// array index: `cgram_address` (`u8`) indexes the 256-entry `cgram` exactly; `oam_address`
+    /// is masked `& 0x03ff` at every read/write site in `regs.rs` before use (never trusted
+    /// verbatim there either); `vram_address`/`vram_read_latch`-derived offsets are masked
+    /// `& 0x7fff` at every VRAM access site — so none of those needed additional masking for
+    /// memory safety. Every register a normal write constrains to a narrower width than its
+    /// storage type IS masked here to that width, though (`display_brightness`/`mosaic_size`
+    /// 4-bit, `bg_mode`/`obj_base_size` 3-bit, `bg_screen_size`/`vram_mapping`/`m7_repeat`/
+    /// `color_window_above`/`color_window_below`/`WindowLayer::mask` 2-bit), matching the same
+    /// "apply the engine's own normal-operation invariant on load" reasoning already applied
+    /// elsewhere in this project.
+    fn load_state(&mut self, s: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.display_brightness = s.read_u8()? & 0x0F;
+        self.display_disable = s.read_bool()?;
+        self.bg_mode = s.read_u8()? & 0x07;
+        self.bg3_priority = s.read_bool()?;
+        for v in &mut self.tile_size {
+            *v = s.read_bool()?;
+        }
+        self.mosaic_size = s.read_u8()? & 0x0F;
+        for v in &mut self.mosaic_enable {
+            *v = s.read_bool()?;
+        }
+        for v in &mut self.bg_screen_addr {
+            *v = s.read_u16()?;
+        }
+        for v in &mut self.bg_screen_size {
+            *v = s.read_u8()? & 0x03;
+        }
+        for v in &mut self.bg_tiledata_addr {
+            *v = s.read_u16()?;
+        }
+        for v in &mut self.bg_hofs {
+            *v = s.read_u16()?;
+        }
+        for v in &mut self.bg_vofs {
+            *v = s.read_u16()?;
+        }
+        self.vram_increment_size = s.read_u16()?;
+        self.vram_mapping = s.read_u8()? & 0x03;
+        self.vram_increment_high = s.read_bool()?;
+        self.vram_address = s.read_u16()?;
+        self.vram_read_latch = s.read_u16()?;
+        self.m7_hflip = s.read_bool()?;
+        self.m7_vflip = s.read_bool()?;
+        self.m7_repeat = s.read_u8()? & 0x03;
+        self.m7a = s.read_u16()?;
+        self.m7b = s.read_u16()?;
+        self.m7c = s.read_u16()?;
+        self.m7d = s.read_u16()?;
+        self.m7x = s.read_u16()?;
+        self.m7y = s.read_u16()?;
+        self.m7_hofs = s.read_u16()?;
+        self.m7_vofs = s.read_u16()?;
+        self.cgram_address = s.read_u8()?;
+        self.cgram_latch_high = s.read_bool()?;
+        self.cgram_byte_latch = s.read_u8()?;
+        self.oam_base_address = s.read_u16()?;
+        self.oam_priority_rotation = s.read_bool()?;
+        self.oam_address = s.read_u16()?;
+        self.oam_byte_latch = s.read_u8()?;
+        self.win.load_state(s)?;
+        for v in &mut self.main_enable {
+            *v = s.read_bool()?;
+        }
+        for v in &mut self.sub_enable {
+            *v = s.read_bool()?;
+        }
+        for v in &mut self.win_main_enable {
+            *v = s.read_bool()?;
+        }
+        for v in &mut self.win_sub_enable {
+            *v = s.read_bool()?;
+        }
+        self.direct_color = s.read_bool()?;
+        self.add_subscreen = s.read_bool()?;
+        self.color_window_above = s.read_u8()? & 0x03;
+        self.color_window_below = s.read_u8()? & 0x03;
+        for v in &mut self.color_math_enable {
+            *v = s.read_bool()?;
+        }
+        self.color_halve = s.read_bool()?;
+        self.color_subtract = s.read_bool()?;
+        self.fixed_color = s.read_u16()?;
+        self.interlace = s.read_bool()?;
+        self.obj_interlace = s.read_bool()?;
+        self.overscan = s.read_bool()?;
+        self.pseudo_hires = s.read_bool()?;
+        self.extbg = s.read_bool()?;
+        self.obj_tiledata_addr = s.read_u16()?;
+        self.obj_nameselect = s.read_u16()?;
+        self.obj_base_size = s.read_u8()? & 0x07;
+        self.latch_h = s.read_u16()?;
+        self.latch_v = s.read_u16()?;
+        self.counter_latched = s.read_bool()?;
+        self.ophct_high_toggle = s.read_bool()?;
+        self.opvct_high_toggle = s.read_bool()?;
+        self.range_over = s.read_bool()?;
+        self.time_over = s.read_bool()?;
+        self.ppu1_mdr = s.read_u8()?;
+        self.ppu2_mdr = s.read_u8()?;
+        Ok(())
     }
 }
 
@@ -619,6 +865,101 @@ impl Ppu {
     pub const fn oam_byte(&self, index: u16) -> u8 {
         self.oam[(index as usize) % 544]
     }
+
+    /// Write VRAM/CGRAM/OAM, the full register file, the write latches, the dot/scanline
+    /// timeline, the interrupt/frame poll state, and the composited framebuffer into a `"PPU0"`
+    /// section. There is no firmware/ROM byte here to exclude — the PPU carries no chip-ROM
+    /// dump (`docs/adr/0003`); `region` is written too since it's set by cart detection, not
+    /// re-derivable from anything else stored here.
+    pub fn save_state(&self, w: &mut SaveWriter) {
+        w.section(*b"PPU0", |s| {
+            for &word in self.vram.iter() {
+                s.write_u16(word);
+            }
+            for &word in &self.cgram {
+                s.write_u16(word);
+            }
+            s.write_bytes(&self.oam);
+            self.io.save_state(s);
+            s.write_u8(match self.region {
+                Region::Ntsc => 0,
+                Region::Pal => 1,
+            });
+            s.write_u16(self.mode7_byte_latch);
+            s.write_u16(self.bgofs_prev1);
+            s.write_u16(self.bgofs_prev2);
+            s.write_u16(self.h);
+            s.write_u16(self.v);
+            s.write_bool(self.field);
+            s.write_bool(self.vblank);
+            s.write_bool(self.hblank);
+            s.write_bool(self.nmi_pending);
+            s.write_bool(self.irq_pending);
+            s.write_bool(self.irq_enable_h);
+            s.write_bool(self.irq_enable_v);
+            s.write_u16(self.irq_h);
+            s.write_u16(self.irq_v);
+            s.write_bool(self.frame_ready);
+            s.write_u64(self.frame_count);
+            for &word in self.framebuffer.iter() {
+                s.write_u16(word);
+            }
+        });
+    }
+
+    /// The inverse of [`Self::save_state`].
+    ///
+    /// # Errors
+    /// [`SaveStateError`] on truncated/corrupt input, a section with unconsumed trailing bytes,
+    /// or [`SaveStateError::Invalid`] if the encoded `region` discriminant doesn't match one of
+    /// [`Region`]'s two variants (a semantic enum constraint, not a hardware register width).
+    pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        let mut s = r.expect_section(*b"PPU0")?;
+        for word in self.vram.iter_mut() {
+            *word = s.read_u16()?;
+        }
+        for word in &mut self.cgram {
+            *word = s.read_u16()? & 0x7FFF;
+        }
+        self.oam.copy_from_slice(s.read_bytes(544)?);
+        self.io.load_state(&mut s)?;
+        let region = s.read_u8()?;
+        self.region = match region {
+            0 => Region::Ntsc,
+            1 => Region::Pal,
+            _ => {
+                return Err(SaveStateError::Invalid(alloc::format!(
+                    "Ppu region discriminant {region} is not a valid Region variant (0-1)"
+                )));
+            }
+        };
+        self.mode7_byte_latch = s.read_u16()?;
+        self.bgofs_prev1 = s.read_u16()?;
+        self.bgofs_prev2 = s.read_u16()?;
+        self.h = s.read_u16()?;
+        self.v = s.read_u16()?;
+        self.field = s.read_bool()?;
+        self.vblank = s.read_bool()?;
+        self.hblank = s.read_bool()?;
+        self.nmi_pending = s.read_bool()?;
+        self.irq_pending = s.read_bool()?;
+        self.irq_enable_h = s.read_bool()?;
+        self.irq_enable_v = s.read_bool()?;
+        self.irq_h = s.read_u16()?;
+        self.irq_v = s.read_u16()?;
+        self.frame_ready = s.read_bool()?;
+        self.frame_count = s.read_u64()?;
+        for word in self.framebuffer.iter_mut() {
+            *word = s.read_u16()? & 0x7FFF;
+        }
+        if s.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "PPU0 section has {} trailing byte(s)",
+                s.remaining()
+            )));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -631,6 +972,71 @@ mod tests {
         let p = Ppu::new();
         assert_eq!(p.framebuffer().len(), FRAMEBUFFER_LEN);
         assert_eq!(p.region, Region::Ntsc);
+    }
+
+    #[test]
+    fn full_state_round_trips_through_save_state() {
+        let mut p = Ppu::with_region(Region::Pal);
+        p.io.bg_mode = 7;
+        p.io.vram_address = 0x1234;
+        p.vram[0x100] = 0xBEEF;
+        p.cgram[10] = 0x7FFF;
+        p.oam[5] = 0x42;
+        p.h = 200;
+        p.v = 150;
+        p.frame_count = 99;
+
+        let mut w = SaveWriter::new();
+        p.save_state(&mut w);
+        let bytes = w.into_bytes();
+
+        let mut fresh = Ppu::new();
+        let mut r = SaveReader::new(&bytes);
+        fresh.load_state(&mut r).unwrap();
+
+        assert_eq!(fresh.region, Region::Pal);
+        assert_eq!(fresh.io.bg_mode, 7);
+        assert_eq!(fresh.io.vram_address, 0x1234);
+        assert_eq!(fresh.vram[0x100], 0xBEEF);
+        assert_eq!(fresh.cgram[10], 0x7FFF);
+        assert_eq!(fresh.oam[5], 0x42);
+        assert_eq!(fresh.h, 200);
+        assert_eq!(fresh.v, 150);
+        assert_eq!(fresh.frame_count, 99);
+        assert_eq!(r.remaining(), 0);
+    }
+
+    #[test]
+    fn out_of_range_region_discriminant_is_rejected_not_panicked_on() {
+        let p = Ppu::new();
+        let mut w = SaveWriter::new();
+        p.save_state(&mut w);
+        let mut bytes = w.into_bytes();
+
+        // The region byte follows VRAM + CGRAM + OAM + the whole Io section. Skip past those by
+        // replaying load_state's own field order (rather than hardcoding a byte offset), so this
+        // stays correct if a field is added/removed above it.
+        let mut r = SaveReader::new(&bytes);
+        let mut s = r.expect_section(*b"PPU0").unwrap();
+        for _ in 0..0x8000 {
+            s.read_u16().unwrap(); // vram
+        }
+        for _ in 0..256 {
+            s.read_u16().unwrap(); // cgram
+        }
+        s.read_bytes(544).unwrap(); // oam
+        let mut io_scratch = Io::default();
+        io_scratch.load_state(&mut s).unwrap(); // consumes exactly one Io's worth of bytes
+
+        let offset = bytes.len() - s.remaining();
+        bytes[offset] = 99;
+
+        let mut fresh = Ppu::new();
+        let mut r2 = SaveReader::new(&bytes);
+        assert!(matches!(
+            fresh.load_state(&mut r2),
+            Err(SaveStateError::Invalid(_))
+        ));
     }
 
     #[test]

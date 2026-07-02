@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Save-state foundation (parts 1-5 of N).** New `rustysnes-savestate` leaf crate: `SaveWriter`
+- **Save-state foundation (parts 1-6 of N).** New `rustysnes-savestate` leaf crate: `SaveWriter`
   (an allocation-free append-only builder with primitive writers + a `section(tag, body)` helper
   for nested, self-describing sections — writes directly into the parent buffer with a length
   placeholder patched in place, not a throwaway nested `Vec` per section) and `SaveReader` (a
@@ -60,9 +60,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Obc1Board` already applies to its own cursor fields). `#![no_std]` holds throughout; 13 new
   round-trip/validation tests across `rustysnes-cart` (`obc1.rs` ×3, `dsp1.rs` ×1,
   `necdsp_variant.rs` ×1, `upd77c25.rs` ×1, `cx4.rs` ×1, `sdd1.rs` ×1, `superfx.rs` ×1,
-  `sa1.rs` ×1, `epsonrtc.rs` ×2, `spc7110.rs` ×1). `Cpu`/`Ppu`/`Apu` and the `System`-level
-  versioned envelope that assembles every board above are tracked as the sprint's remaining
-  tickets (T-52-002's board-coverage acceptance criterion is now fully met), not yet implemented.
+  `sa1.rs` ×1, `epsonrtc.rs` ×2, `spc7110.rs` ×1). T-52-002's board-coverage acceptance
+  criterion is now fully met. T-52-003 (the wider core snapshot) begins here: `Cpu::save_state`/
+  `load_state` (the full 65C816 register file, the `WAI`/`STP` latches, and the cumulative cycle
+  counter into a `"CPU0"` section) and `Ppu::save_state`/`load_state` (VRAM/CGRAM/OAM, the full
+  register file — including the six-layer window unit — the write latches, the dot/scanline
+  timeline, the interrupt/frame poll state, `region`, and the composited framebuffer into a
+  `"PPU0"` section; an out-of-range `region` discriminant is rejected as invalid). Neither engine
+  has an array index whose valid range is narrower than its storage type once the existing
+  regs.rs/lib.rs masking at each *use* site is accounted for (`cgram_address` is a `u8` matching
+  the 256-entry `cgram` exactly; `oam_address`/VRAM offsets are masked at every access site, not
+  trusted verbatim there either), so neither `load_state` needed additional range validation for
+  memory safety. 3 new round-trip/validation tests (`rustysnes-cpu` ×1, `rustysnes-ppu` ×2).
+  `Apu` and the `System`-level versioned envelope that assembles every subsystem above are
+  tracked as the sprint's remaining work, not yet implemented.
 
 ## [0.1.0] "Foundation" - 2026-07-02
 
