@@ -44,6 +44,11 @@ use crate::dma_bus::DmaBus;
 const WRAM_SIZE: usize = 128 * 1024;
 /// Master clocks per PPU dot (nominal; long-dot remainder folded into the 1364/1360/1368 line).
 const MASTER_PER_DOT: u32 = 4;
+/// PPU dot at which each visible scanline's HDMA transfer fires — ares' `hdmaPosition` of hcounter
+/// 1104 (`sfc/cpu/timing.cpp`) divided by [`MASTER_PER_DOT`]. Running the table at this exact dot
+/// (rather than the scanline boundary) latches a mid-line `$420C` write on the hardware-correct
+/// scanline, which is what makes the `hdmaen_latch_test` show a banded HDMAEN-vs-latch crossing.
+const HDMA_RUN_DOT: u16 = 276;
 /// SPC700 fractional-clock numerator (master ticks → SMP **base** clocks).
 ///
 /// The unit the APU advances per [`rustysnes_apu::Apu::advance_smp_cycle`] call is one SMP *base*
@@ -144,6 +149,9 @@ pub struct Bus {
     /// Re-entrancy guard: true while an HDMA transfer's own cycle cost is being charged, so the
     /// nested `advance_master` doesn't recursively re-trigger HDMA for the same line.
     in_hdma: bool,
+    /// Whether this frame's V=0 HDMA setup (table reset + reload) has already fired, so it runs
+    /// exactly once per frame independent of the per-line run at [`HDMA_RUN_DOT`].
+    hdma_setup_done: bool,
 }
 
 impl Default for Bus {
@@ -181,6 +189,7 @@ impl Bus {
             muldiv: MulDiv::default(),
             last_hdma_line: u16::MAX,
             in_hdma: false,
+            hdma_setup_done: false,
         }
     }
 
@@ -238,11 +247,24 @@ impl Bus {
             // force-blank then missed its own framebuffer DMA). The `in_hdma` guard stops the
             // transfer's own cost (the nested `advance_master`) from re-triggering the same line.
             if !self.in_hdma && self.dma.hdma_enable != 0 {
-                let line = self.ppu.scanline();
-                if line != self.last_hdma_line {
-                    self.last_hdma_line = line;
-                    let vh = self.ppu.visible_height();
-                    self.service_hdma(line, vh);
+                let v = self.ppu.scanline();
+                let vh = self.ppu.visible_height();
+                // ares services HDMA at two distinct points (`sfc/cpu/timing.cpp`): a once-per-frame
+                // *setup* at V=0 (`service_hdma_line(0, …)` resets the tables + reloads), and a
+                // per-visible-line *run* at hcounter 1104 = [`HDMA_RUN_DOT`]. Running the transfer at
+                // that exact dot — not at the scanline boundary — latches a mid-line HDMAEN write on
+                // the hardware-correct scanline (the `hdmaen_latch_test` crossing).
+                if v == 0 {
+                    if !self.hdma_setup_done {
+                        self.hdma_setup_done = true;
+                        self.service_hdma(0, vh);
+                    }
+                } else {
+                    self.hdma_setup_done = false;
+                    if v <= vh && self.ppu.dot() == HDMA_RUN_DOT && self.last_hdma_line != v {
+                        self.last_hdma_line = v;
+                        self.service_hdma(v, vh);
+                    }
                 }
             }
             self.clock.spc_accum += SPC_NUM;
@@ -462,8 +484,20 @@ impl Bus {
                 0x2100..=0x21FF => self.b_write(addr as u8, val),
                 0x4016 | 0x4200..=0x421F => self.write_cpu_reg(addr, val),
                 0x4300..=0x437F => {
-                    self.dma
-                        .write_reg(((addr >> 4) & 0xF) as usize, (addr & 0xF) as u8, val);
+                    let ch = ((addr >> 4) & 0xF) as usize;
+                    let reg = (addr & 0xF) as u8;
+                    self.dma.write_reg(ch, reg, val);
+                    // S-DD1's DMA-address/size snoop (Board::notify_dma_channel doc) — only the
+                    // registers that hold that state are worth reporting on.
+                    if matches!(reg, 2..=6)
+                        && let Some(c) = self.dma.channels.get(ch & 7)
+                    {
+                        let address = (u32::from(c.source_bank) << 16) | u32::from(c.source_addr);
+                        if let Some(cart) = self.cart.as_mut() {
+                            cart.board
+                                .notify_dma_channel(ch & 7, address, c.count_or_indirect);
+                        }
+                    }
                 }
                 _ => self.cart_write_raw(addr24, val),
             },
