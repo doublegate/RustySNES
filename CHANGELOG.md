@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Save-state foundation (parts 1-2 of N).** New `rustysnes-savestate` leaf crate: `SaveWriter`
+- **Save-state foundation (parts 1-3 of N).** New `rustysnes-savestate` leaf crate: `SaveWriter`
   (an allocation-free append-only builder with primitive writers + a `section(tag, body)` helper
   for nested, self-describing sections — writes directly into the parent buffer with a length
   placeholder patched in place, not a throwaway nested `Vec` per section) and `SaveReader` (a
@@ -29,11 +29,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `load_state` — every register + the 2048-word data RAM, deliberately excluding firmware, which
   is never embedded in a save-state, and the host-access debugger counter; the pointer registers
   `pc`/`rp`/`dp`/`sp` are masked to their revision-correct widths on load rather than trusted
-  verbatim, since they're used as unchecked array indices elsewhere in the engine). `#![no_std]`
-  holds throughout; 6 new round-trip/validation tests across `rustysnes-cart` (`obc1.rs` ×3,
-  `dsp1.rs` ×1, `necdsp_variant.rs` ×1, `upd77c25.rs` ×1). The remaining coprocessor boards,
-  `Cpu`/`Ppu`/`Apu`, and the `System`-level versioned envelope that assembles them are tracked as
-  the sprint's remaining tickets, not yet implemented.
+  verbatim, since they're used as unchecked array indices elsewhere in the engine). Extended to
+  `Cx4Board` (its `Hg51b` core's full register file, IO block, both cached 256-word program
+  pages, the 3 KiB data RAM, and the 8-deep call stack — the 3 KiB data-ROM constant table,
+  `cx4.rom`, is firmware and stays excluded) and `Sdd1Board` (the MMC bank registers, the
+  snooped-DMA shadow state, and the `Decompressor`'s full mid-stream entropy-decoder state — input
+  cursor, all 8 Golomb bit generators, the probability-estimation module's 32-entry context
+  table, the context model, and the output-logic register triple — so a save-state landing
+  mid-DMA-transfer resumes the decompression correctly instead of desyncing the stream; a
+  `ContextInfo::status` out of `EVOLUTION_TABLE`'s range is rejected as invalid rather than
+  masked, since it's a semantic state-machine index, not a hardware register width, while
+  `current_bitplane` IS masked, being a genuine 3-bit hardware quantity). `#![no_std]` holds
+  throughout; 8 new round-trip/validation tests across `rustysnes-cart` (`obc1.rs` ×3, `dsp1.rs`
+  ×1, `necdsp_variant.rs` ×1, `upd77c25.rs` ×1, `cx4.rs` ×1, `sdd1.rs` ×1). The remaining
+  coprocessor boards (`Spc7110Board`, `SuperFxBoard`, `Sa1Board`), `Cpu`/`Ppu`/`Apu`, and the
+  `System`-level versioned envelope that assembles them are tracked as the sprint's remaining
+  tickets, not yet implemented.
 
 ## [0.1.0] "Foundation" - 2026-07-02
 

@@ -31,6 +31,8 @@
 
 use alloc::boxed::Box;
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 /// The host-facing memory surface the HG51B core reads/writes through.
 ///
 /// The S-CPU's cart ROM (shared, read-only from the chip's side) and any other
@@ -668,6 +670,153 @@ impl Hg51b {
             0x60..=0x7F => self.r.gpr[usize::from(address & 0xF)] = data,
             _ => {}
         }
+    }
+
+    /// Write this core's mutable state — every register, the IO block, the two cached program
+    /// pages, the 3 KiB data RAM, and the 8-deep call stack — into an `"HG51"` section. The data
+    /// ROM (`cx4.rom`, firmware) is deliberately NOT written, per `docs/adr/0003`'s "never embed a
+    /// chip-ROM dump in a save-state" posture: it is reloaded fresh via [`Self::load_data_rom`]
+    /// before a matching [`Self::load_state`] call. `instructions_run` (a debugger counter, not
+    /// emulated-hardware state) is also omitted.
+    pub fn save_state(&self, w: &mut SaveWriter) {
+        w.section(*b"HG51", |s| {
+            s.write_u16(self.r.pb);
+            s.write_u8(self.r.pc);
+            s.write_bool(self.r.n);
+            s.write_bool(self.r.z);
+            s.write_bool(self.r.c);
+            s.write_bool(self.r.v);
+            s.write_bool(self.r.i);
+            s.write_u32(self.r.a);
+            s.write_u16(self.r.p);
+            s.write_u64(self.r.mul);
+            s.write_u32(self.r.mdr);
+            s.write_u32(self.r.rom);
+            s.write_u32(self.r.ram);
+            s.write_u32(self.r.mar);
+            s.write_u32(self.r.dpr);
+            for &g in &self.r.gpr {
+                s.write_u32(g);
+            }
+            s.write_bool(self.io.lock);
+            s.write_bool(self.io.halt);
+            s.write_bool(self.io.irq);
+            s.write_bool(self.io.rom_mapping);
+            s.write_bytes(&self.io.vector);
+            s.write_u32(self.io.wait.rom);
+            s.write_u32(self.io.wait.ram);
+            s.write_bool(self.io.suspend.enable);
+            s.write_u32(self.io.suspend.duration);
+            s.write_bool(self.io.cache.enable);
+            s.write_bool(self.io.cache.page);
+            s.write_bool(self.io.cache.lock[0]);
+            s.write_bool(self.io.cache.lock[1]);
+            s.write_u32(self.io.cache.address[0]);
+            s.write_u32(self.io.cache.address[1]);
+            s.write_u32(self.io.cache.base);
+            s.write_u16(self.io.cache.pb);
+            s.write_u8(self.io.cache.pc);
+            s.write_bool(self.io.dma.enable);
+            s.write_u32(self.io.dma.source);
+            s.write_u32(self.io.dma.target);
+            s.write_u16(self.io.dma.length);
+            s.write_bool(self.io.bus.enable);
+            s.write_bool(self.io.bus.reading);
+            s.write_bool(self.io.bus.writing);
+            s.write_u32(self.io.bus.pending);
+            s.write_u32(self.io.bus.address);
+            for page in self.program_ram.iter() {
+                for &word in page {
+                    s.write_u16(word);
+                }
+            }
+            for &byte in self.data_ram.iter() {
+                s.write_u8(byte);
+            }
+            for &word in &self.stack {
+                s.write_u32(word);
+            }
+        });
+    }
+
+    /// The inverse of [`Self::save_state`].
+    ///
+    /// # Errors
+    /// [`SaveStateError`] on truncated/corrupt input (the section framing itself already rejects
+    /// a wrong tag or a truncated read) or a section with unconsumed trailing bytes. Every
+    /// hardware register narrower than its Rust storage type is masked to its real width on load
+    /// (`pb`/`p`/`cache.pb` are 15-bit, `a`/`mdr`/`rom`/`ram`/`mar`/`dpr`/`gpr` are 24-bit, `mul`
+    /// is 48-bit, `wait.rom`/`wait.ram` are 3-bit) — the same "apply the engine's own
+    /// normal-operation width invariant on load" reasoning already applied to the NEC DSP engine's
+    /// `pc`/`rp`/`dp`/`sp`, extended here to every register (this core happens to have no field
+    /// whose valid range is narrower than its type in a way that risks an out-of-bounds array
+    /// index, but an unmasked wide value would still desync subsequent arithmetic from hardware
+    /// behavior, which matters for save-state fidelity even without a panic risk).
+    pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        let mut s = r.expect_section(*b"HG51")?;
+        self.r.pb = s.read_u16()? & 0x7FFF;
+        self.r.pc = s.read_u8()?;
+        self.r.n = s.read_bool()?;
+        self.r.z = s.read_bool()?;
+        self.r.c = s.read_bool()?;
+        self.r.v = s.read_bool()?;
+        self.r.i = s.read_bool()?;
+        self.r.a = s.read_u32()? & 0xFF_FFFF;
+        self.r.p = s.read_u16()? & 0x7FFF;
+        self.r.mul = s.read_u64()? & 0xFF_FF_FF_FF_FF_FF;
+        self.r.mdr = s.read_u32()? & 0xFF_FFFF;
+        self.r.rom = s.read_u32()? & 0xFF_FFFF;
+        self.r.ram = s.read_u32()? & 0xFF_FFFF;
+        self.r.mar = s.read_u32()? & 0xFF_FFFF;
+        self.r.dpr = s.read_u32()? & 0xFF_FFFF;
+        for g in &mut self.r.gpr {
+            *g = s.read_u32()? & 0xFF_FFFF;
+        }
+        self.io.lock = s.read_bool()?;
+        self.io.halt = s.read_bool()?;
+        self.io.irq = s.read_bool()?;
+        self.io.rom_mapping = s.read_bool()?;
+        self.io.vector.copy_from_slice(s.read_bytes(32)?);
+        self.io.wait.rom = s.read_u32()? & 7;
+        self.io.wait.ram = s.read_u32()? & 7;
+        self.io.suspend.enable = s.read_bool()?;
+        self.io.suspend.duration = s.read_u32()?;
+        self.io.cache.enable = s.read_bool()?;
+        self.io.cache.page = s.read_bool()?;
+        self.io.cache.lock[0] = s.read_bool()?;
+        self.io.cache.lock[1] = s.read_bool()?;
+        self.io.cache.address[0] = s.read_u32()?;
+        self.io.cache.address[1] = s.read_u32()?;
+        self.io.cache.base = s.read_u32()?;
+        self.io.cache.pb = s.read_u16()? & 0x7FFF;
+        self.io.cache.pc = s.read_u8()?;
+        self.io.dma.enable = s.read_bool()?;
+        self.io.dma.source = s.read_u32()?;
+        self.io.dma.target = s.read_u32()?;
+        self.io.dma.length = s.read_u16()?;
+        self.io.bus.enable = s.read_bool()?;
+        self.io.bus.reading = s.read_bool()?;
+        self.io.bus.writing = s.read_bool()?;
+        self.io.bus.pending = s.read_u32()?;
+        self.io.bus.address = s.read_u32()?;
+        for page in self.program_ram.iter_mut() {
+            for word in page.iter_mut() {
+                *word = s.read_u16()?;
+            }
+        }
+        for byte in self.data_ram.iter_mut() {
+            *byte = s.read_u8()?;
+        }
+        for word in &mut self.stack {
+            *word = s.read_u32()?;
+        }
+        if s.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "HG51 section has {} trailing byte(s)",
+                s.remaining()
+            )));
+        }
+        Ok(())
     }
 }
 

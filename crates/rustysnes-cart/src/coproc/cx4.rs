@@ -25,6 +25,8 @@
 
 use alloc::boxed::Box;
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 use crate::board::{Board, Coprocessor, MappedAddr};
 use crate::coproc::hg51b::{Hg51b, Hg51bBus};
 
@@ -170,6 +172,16 @@ impl Board for Cx4Board {
     fn coprocessor_host_accesses(&self) -> u64 {
         self.hg51b.instructions_run()
     }
+
+    fn save_state(&self, w: &mut SaveWriter) {
+        self.hg51b.save_state(w);
+        self.inner.save_state(w);
+    }
+
+    fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.hg51b.load_state(r)?;
+        self.inner.load_state(r)
+    }
 }
 
 #[cfg(test)]
@@ -211,5 +223,24 @@ mod tests {
         let mut b = board();
         b.write24(0x00_6000, 0x42);
         assert_eq!(b.read24(0x00_6000), 0x42);
+    }
+
+    #[test]
+    fn engine_state_round_trips_through_save_state() {
+        let mut b = board();
+        b.write24(0x00_6000, 0x42);
+        b.write24(0x00_7F4D, 0x12); // cache.pb low byte (a register outside the data-ROM path)
+
+        let mut w = SaveWriter::new();
+        b.save_state(&mut w);
+        let bytes = w.into_bytes();
+
+        let mut fresh = board();
+        let mut r = SaveReader::new(&bytes);
+        fresh.load_state(&mut r).unwrap();
+
+        assert_eq!(fresh.read24(0x00_6000), 0x42);
+        assert_eq!(fresh.read24(0x00_7F4D), 0x12);
+        assert_eq!(r.remaining(), 0);
     }
 }
