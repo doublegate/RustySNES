@@ -8,10 +8,18 @@ round-trip determinism test. This is the prerequisite for rewind/run-ahead (Spri
 **Estimated duration:** 1–2 weeks
 **Release:** `v0.2.0 "Persistence"` (`to-dos/VERSION-PLAN.md`)
 **Progress:** `rustysnes-savestate` (the `SaveWriter`/`SaveReader`/`SaveStateError` wire-format
-primitives, `docs/adr/0006`) landed as a new leaf crate; `Board::save_state`/`load_state` hooks
-added with a default no-op (covers `LoRom`/`HiRom`/`ExHiRom` for free) and proven end-to-end on
-`Obc1Board` (a round-trip unit test + the no_std gate both green). Remaining boards, `Cpu`/`Ppu`/
-`Apu`, and the `System`-level envelope are still open — see T-52-002/003/004 below.
+primitives, `docs/adr/0006`) landed as a new leaf crate, including an allocation-free nested-
+section writer (found in review — the naive version allocated a `Vec` per section, a real
+concern given rewind/run-ahead will create/restore save-states repeatedly per frame).
+`Board::save_state`/`load_state` hooks added with a default no-op (covers `LoRom`/`HiRom`/
+`ExHiRom` for free), implemented for `Obc1Board`, `Dsp1Board`, and `NecDspVariantBoard` (which
+covers DSP-1/DSP-2/DSP-4/ST010 via the shared `Upd77c25` engine's own `save_state`/`load_state`).
+Untrusted-input validation is load-bearing here, not decorative: `Obc1Board::load_state` rejects
+an out-of-range cursor (a real finding — an unvalidated value would panic on the next register
+access) and any section with unconsumed trailing bytes. Remaining boards (`Cx4Board`+`Hg51b`,
+`Sdd1Board`+its `Decompressor`, `Spc7110Board`+its `Decompressor`+`EpsonRtc`, `SuperFxBoard`+
+`Gsu`, `Sa1Board`), `Cpu`/`Ppu`/`Apu`, and the `System`-level envelope are still open — see
+T-52-002/003/004 below.
 
 ## Tickets
 

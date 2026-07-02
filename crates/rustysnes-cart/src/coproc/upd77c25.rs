@@ -41,6 +41,8 @@
 use alloc::boxed::Box;
 use alloc::vec;
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 /// Which NEC DSP variant the firmware targets — selects the register widths.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Revision {
@@ -717,6 +719,146 @@ impl Upd77c25 {
     pub fn flags_packed(&self) -> u16 {
         self.flag_a.to_bits() | self.flag_b.to_bits() << 6
     }
+
+    /// Write this engine's mutable state — every register + the 2048-word data RAM — into a
+    /// `"NDSP"` section. Firmware (`program_rom`/`data_rom`) is deliberately NOT written: it is
+    /// never embedded in a save-state (the same "never carry a ROM/firmware byte" posture
+    /// `docs/adr/0003` already applies elsewhere), reloaded fresh via [`Self::load_firmware`]
+    /// before a matching [`Self::load_state`] call. `host_accesses` (a debugger counter, not
+    /// emulated-hardware state) is also omitted — restoring it to a stale value would misrepresent
+    /// activity that happened after the save, not before it.
+    pub fn save_state(&self, w: &mut SaveWriter) {
+        w.section(*b"NDSP", |s| {
+            for &word in &self.stack {
+                s.write_u16(word);
+            }
+            s.write_u16(self.pc);
+            s.write_u16(self.rp);
+            s.write_u16(self.dp);
+            s.write_u8(self.sp);
+            s.write_u16(self.si);
+            s.write_u16(self.so);
+            s.write_u16(self.k.cast_unsigned());
+            s.write_u16(self.l.cast_unsigned());
+            s.write_u16(self.m.cast_unsigned());
+            s.write_u16(self.n.cast_unsigned());
+            s.write_u16(self.a.cast_unsigned());
+            s.write_u16(self.b.cast_unsigned());
+            s.write_u16(self.tr);
+            s.write_u16(self.trb);
+            s.write_u16(self.dr);
+            write_status(s, self.sr);
+            write_flag(s, self.flag_a);
+            write_flag(s, self.flag_b);
+            for &word in &self.data_ram {
+                s.write_u16(word);
+            }
+        });
+    }
+
+    /// The inverse of [`Self::save_state`].
+    ///
+    /// # Errors
+    /// [`SaveStateError`] on truncated/corrupt input (the section framing itself already rejects
+    /// a wrong tag or a truncated read).
+    pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        let mut s = r.expect_section(*b"NDSP")?;
+        for slot in &mut self.stack {
+            *slot = s.read_u16()?;
+        }
+        // pc/rp/dp/sp are used as UNCHECKED array indices elsewhere in this engine
+        // (`program_rom[pc]`, `data_rom[rp]`, `stack[sp]`; `dp` is re-masked at every use site
+        // already, but masking it here too keeps every pointer register consistently normalized
+        // on load) because normal execution NEVER produces an out-of-range value — every mutator
+        // masks on write (`set_pc`, the DPINC/DPDEC/DPCLR ops, the call/return stack-pointer
+        // wrap). Untrusted save-state bytes carry no such guarantee, so apply the identical masks
+        // here: this is the engine's own normal-operation invariant, not new validation logic,
+        // and (being width masks on genuinely N-bit hardware registers, not a "must be one of a
+        // few enum-like values" semantic constraint) masking is the hardware-accurate transform,
+        // not a silent-degradation shortcut.
+        self.pc = s.read_u16()? & self.revision.pc_mask();
+        self.rp = s.read_u16()? & self.revision.rp_mask();
+        self.dp = s.read_u16()? & self.revision.dp_mask();
+        self.sp = s.read_u8()? & 0xF;
+        self.si = s.read_u16()?;
+        self.so = s.read_u16()?;
+        self.k = s.read_u16()?.cast_signed();
+        self.l = s.read_u16()?.cast_signed();
+        self.m = s.read_u16()?.cast_signed();
+        self.n = s.read_u16()?.cast_signed();
+        self.a = s.read_u16()?.cast_signed();
+        self.b = s.read_u16()?.cast_signed();
+        self.tr = s.read_u16()?;
+        self.trb = s.read_u16()?;
+        self.dr = s.read_u16()?;
+        self.sr = read_status(&mut s)?;
+        self.flag_a = read_flag(&mut s)?;
+        self.flag_b = read_flag(&mut s)?;
+        for slot in &mut self.data_ram {
+            *slot = s.read_u16()?;
+        }
+        if s.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "NDSP section has {} trailing byte(s)",
+                s.remaining()
+            )));
+        }
+        Ok(())
+    }
+}
+
+fn write_flag(s: &mut SaveWriter, f: Flag) {
+    s.write_bool(f.ov0);
+    s.write_bool(f.ov1);
+    s.write_bool(f.z);
+    s.write_bool(f.c);
+    s.write_bool(f.s0);
+    s.write_bool(f.s1);
+}
+
+fn read_flag(s: &mut SaveReader) -> Result<Flag, SaveStateError> {
+    Ok(Flag {
+        ov0: s.read_bool()?,
+        ov1: s.read_bool()?,
+        z: s.read_bool()?,
+        c: s.read_bool()?,
+        s0: s.read_bool()?,
+        s1: s.read_bool()?,
+    })
+}
+
+fn write_status(s: &mut SaveWriter, st: Status) {
+    s.write_bool(st.p0);
+    s.write_bool(st.p1);
+    s.write_bool(st.ei);
+    s.write_bool(st.sic);
+    s.write_bool(st.soc);
+    s.write_bool(st.drc);
+    s.write_bool(st.dma);
+    s.write_bool(st.drs);
+    s.write_bool(st.usf0);
+    s.write_bool(st.usf1);
+    s.write_bool(st.rqm);
+    s.write_bool(st.siack);
+    s.write_bool(st.soack);
+}
+
+fn read_status(s: &mut SaveReader) -> Result<Status, SaveStateError> {
+    Ok(Status {
+        p0: s.read_bool()?,
+        p1: s.read_bool()?,
+        ei: s.read_bool()?,
+        sic: s.read_bool()?,
+        soc: s.read_bool()?,
+        drc: s.read_bool()?,
+        dma: s.read_bool()?,
+        drs: s.read_bool()?,
+        usf0: s.read_bool()?,
+        usf1: s.read_bool()?,
+        rqm: s.read_bool()?,
+        siack: s.read_bool()?,
+        soack: s.read_bool()?,
+    })
 }
 
 #[cfg(test)]
@@ -825,5 +967,49 @@ mod tests {
         assert_eq!(eng.read_dr(), 0);
         eng.run_until_rqm(); // no-op, must not hang
         assert!(!eng.load_firmware(&[0u8; 100])); // too short
+    }
+
+    #[test]
+    fn out_of_range_pointer_registers_are_masked_not_panicked_on() {
+        // A hand-edited/corrupted save-state can claim any 16-bit pc/rp/sp — real hardware would
+        // never produce a value wider than the register, so load_state must mask (not trust) them
+        // before they're used as unchecked array indices (program_rom[pc]/data_rom[rp]/stack[sp]).
+        let mut w = SaveWriter::new();
+        w.section(*b"NDSP", |s| {
+            for _ in 0..16 {
+                s.write_u16(0);
+            } // stack
+            s.write_u16(0xFFFF); // pc
+            s.write_u16(0xFFFF); // rp
+            s.write_u16(0xFFFF); // dp
+            s.write_u8(0xFF); // sp
+            for _ in 0..10 {
+                s.write_u16(0);
+            } // si/so/k/l/m/n/a/b/tr/trb
+            s.write_u16(0); // dr
+            for _ in 0..13 {
+                s.write_bool(false);
+            } // sr
+            for _ in 0..12 {
+                s.write_bool(false);
+            } // flag_a + flag_b
+            for _ in 0..2048 {
+                s.write_u16(0);
+            } // data_ram
+        });
+        let bytes = w.into_bytes();
+
+        let mut eng = Upd77c25::new(Revision::Upd7725);
+        let mut r = SaveReader::new(&bytes);
+        eng.load_state(&mut r).unwrap();
+
+        assert!(eng.pc <= Revision::Upd7725.pc_mask());
+        assert!(eng.rp <= Revision::Upd7725.rp_mask());
+        assert!(eng.dp <= Revision::Upd7725.dp_mask());
+        assert!(eng.sp <= 0xF);
+        // Exercise the indices that would have panicked pre-fix.
+        let _ = eng.program_rom[usize::from(eng.pc)];
+        let _ = eng.data_rom[usize::from(eng.rp)];
+        let _ = eng.stack[usize::from(eng.sp)];
     }
 }
