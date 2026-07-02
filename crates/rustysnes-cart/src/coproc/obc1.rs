@@ -18,6 +18,8 @@
 use alloc::boxed::Box;
 use alloc::vec;
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 use crate::board::{Board, Coprocessor, MappedAddr};
 
 /// OBC1's own dedicated RAM size — 8 KiB (`ares` `SHVC-2E3M-01` Save-RAM size, confirmed against
@@ -178,6 +180,27 @@ impl Board for Obc1Board {
     fn sram_mut(&mut self) -> &mut [u8] {
         &mut self.ram
     }
+
+    // The RAM itself round-trips via `sram`/`sram_mut` above (`System::save_state` captures SRAM
+    // separately) — the only extra state is the movable cursor, plus whatever the wrapped base
+    // board carries (nothing for plain LoROM today, but delegating keeps this composable if that
+    // ever changes).
+    fn save_state(&self, w: &mut SaveWriter) {
+        w.section(*b"OBC1", |s| {
+            s.write_u16(self.status.address);
+            s.write_u16(self.status.baseptr);
+            s.write_u16(self.status.shift);
+        });
+        self.inner.save_state(w);
+    }
+
+    fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        let mut s = r.expect_section(*b"OBC1")?;
+        self.status.address = s.read_u16()?;
+        self.status.baseptr = s.read_u16()?;
+        self.status.shift = s.read_u16()?;
+        self.inner.load_state(r)
+    }
 }
 
 #[cfg(test)]
@@ -233,5 +256,25 @@ mod tests {
         assert_eq!(b.status.baseptr, 0x1800);
         b.write24(0x00_7FF5, 0);
         assert_eq!(b.status.baseptr, 0x1C00);
+    }
+
+    #[test]
+    fn cursor_round_trips_through_save_state() {
+        let mut b = board();
+        b.write24(0x00_7FF6, 5); // reprogram address/shift away from power-on defaults
+        b.write24(0x00_7FF5, 1); // baseptr = $1800
+
+        let mut w = SaveWriter::new();
+        b.save_state(&mut w);
+        let bytes = w.into_bytes();
+
+        let mut fresh = board();
+        let mut r = SaveReader::new(&bytes);
+        fresh.load_state(&mut r).unwrap();
+
+        assert_eq!(fresh.status.address, b.status.address);
+        assert_eq!(fresh.status.baseptr, b.status.baseptr);
+        assert_eq!(fresh.status.shift, b.status.shift);
+        assert_eq!(r.remaining(), 0);
     }
 }

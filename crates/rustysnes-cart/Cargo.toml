@@ -13,6 +13,7 @@ std = []
 [dependencies]
 bitflags = "2"
 thiserror = { version = "2", default-features = false }
+rustysnes-savestate = { path = "../rustysnes-savestate", version = "0.1.0" }
 
 [lints]
 workspace = true

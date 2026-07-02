@@ -7,6 +7,11 @@ round-trip determinism test. This is the prerequisite for rewind/run-ahead (Spri
 (Phase 8 `v1.2.0`), and TAS movies (Phase 8 `v1.4.0`) — none of those build until this lands.
 **Estimated duration:** 1–2 weeks
 **Release:** `v0.2.0 "Persistence"` (`to-dos/VERSION-PLAN.md`)
+**Progress:** `rustysnes-savestate` (the `SaveWriter`/`SaveReader`/`SaveStateError` wire-format
+primitives, `docs/adr/0006`) landed as a new leaf crate; `Board::save_state`/`load_state` hooks
+added with a default no-op (covers `LoRom`/`HiRom`/`ExHiRom` for free) and proven end-to-end on
+`Obc1Board` (a round-trip unit test + the no_std gate both green). Remaining boards, `Cpu`/`Ppu`/
+`Apu`, and the `System`-level envelope are still open — see T-52-002/003/004 below.
 
 ## Tickets
 
