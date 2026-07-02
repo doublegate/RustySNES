@@ -42,6 +42,8 @@
 use alloc::boxed::Box;
 use alloc::vec;
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 use crate::board::{Board, Coprocessor, MappedAddr};
 use crate::coproc::epsonrtc::EpsonRtc;
 use crate::header::MapMode;
@@ -607,6 +609,135 @@ impl Spc7110Board {
     }
 }
 
+impl Spc7110Board {
+    /// Write every register across the DCU/data-port/ALU/memory-control units, the DCU's
+    /// `dcu_tile` scratch buffer, the decompressor's mid-stream state, and the paired RTC into an
+    /// `"SP70"` section. PROM/DROM/battery-SRAM are never written (`System::save_state` captures
+    /// SRAM separately via `Board::sram`; ROM is never embedded, `docs/adr/0003`).
+    pub fn save_state(&self, w: &mut SaveWriter) {
+        w.section(*b"SP70", |s| {
+            s.write_u8(self.r4801);
+            s.write_u8(self.r4802);
+            s.write_u8(self.r4803);
+            s.write_u8(self.r4804);
+            s.write_u8(self.r4805);
+            s.write_u8(self.r4806);
+            s.write_u8(self.r4807);
+            s.write_u8(self.r4809);
+            s.write_u8(self.r480a);
+            s.write_u8(self.r480b);
+            s.write_u8(self.r480c);
+            s.write_u8(self.dcu_mode);
+            s.write_u32(self.dcu_address);
+            s.write_u32(self.dcu_offset);
+            s.write_bytes(&self.dcu_tile);
+            s.write_u8(self.r4810);
+            s.write_u8(self.r4811);
+            s.write_u8(self.r4812);
+            s.write_u8(self.r4813);
+            s.write_u8(self.r4814);
+            s.write_u8(self.r4815);
+            s.write_u8(self.r4816);
+            s.write_u8(self.r4817);
+            s.write_u8(self.r4818);
+            s.write_u8(self.r4820);
+            s.write_u8(self.r4821);
+            s.write_u8(self.r4822);
+            s.write_u8(self.r4823);
+            s.write_u8(self.r4824);
+            s.write_u8(self.r4825);
+            s.write_u8(self.r4826);
+            s.write_u8(self.r4827);
+            s.write_u8(self.r4828);
+            s.write_u8(self.r4829);
+            s.write_u8(self.r482a);
+            s.write_u8(self.r482b);
+            s.write_u8(self.r482c);
+            s.write_u8(self.r482d);
+            s.write_u8(self.r482e);
+            s.write_u8(self.r482f);
+            s.write_u8(self.r4830);
+            s.write_u8(self.r4831);
+            s.write_u8(self.r4832);
+            s.write_u8(self.r4833);
+            s.write_u8(self.r4834);
+        });
+        self.decompressor.save_state(w);
+        self.rtc.save_state(w);
+    }
+
+    /// The inverse of [`Self::save_state`].
+    ///
+    /// # Errors
+    /// [`SaveStateError`] on truncated/corrupt input, a section with unconsumed trailing bytes,
+    /// or whatever `Decompressor::load_state`/`EpsonRtc::load_state` themselves reject.
+    /// `dcu_offset` is masked to `& 31`: it indexes the fixed 32-byte `dcu_tile` directly
+    /// (`dcu_tile[self.dcu_offset as usize]`), and every normal-operation mutator already masks
+    /// it to `8 * bpp - 1` (at most 31) before storing, so this applies the engine's own
+    /// existing invariant rather than new validation policy. Every register masked/write-limited
+    /// on a normal `write_reg` call (`r4803`/`r480b`/`r4813`/`r4818`/`r482e`/`r4830`-`r4834`) is
+    /// masked identically on load. `dcu_mode` is restored verbatim: it's a raw data-ROM byte with
+    /// no enforced range even during normal execution (an out-of-range value there is a
+    /// pre-existing, save-state-independent hazard tracked separately, not something this format
+    /// can or should paper over).
+    pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        let mut s = r.expect_section(*b"SP70")?;
+        self.r4801 = s.read_u8()?;
+        self.r4802 = s.read_u8()?;
+        self.r4803 = s.read_u8()? & 0x7F; // write_reg $4803: data & 0x7f
+        self.r4804 = s.read_u8()?;
+        self.r4805 = s.read_u8()?;
+        self.r4806 = s.read_u8()?;
+        self.r4807 = s.read_u8()?;
+        self.r4809 = s.read_u8()?;
+        self.r480a = s.read_u8()?;
+        self.r480b = s.read_u8()? & 0x03; // write_reg $480b: data & 0x03
+        self.r480c = s.read_u8()?;
+        self.dcu_mode = s.read_u8()?;
+        self.dcu_address = s.read_u32()?;
+        self.dcu_offset = s.read_u32()? & 31;
+        self.dcu_tile.copy_from_slice(s.read_bytes(32)?);
+        self.r4810 = s.read_u8()?;
+        self.r4811 = s.read_u8()?;
+        self.r4812 = s.read_u8()?;
+        self.r4813 = s.read_u8()? & 0x7F; // write_reg $4813: data & 0x7f
+        self.r4814 = s.read_u8()?;
+        self.r4815 = s.read_u8()?;
+        self.r4816 = s.read_u8()?;
+        self.r4817 = s.read_u8()?;
+        self.r4818 = s.read_u8()? & 0x7F; // write_reg $4818: data & 0x7f
+        self.r4820 = s.read_u8()?;
+        self.r4821 = s.read_u8()?;
+        self.r4822 = s.read_u8()?;
+        self.r4823 = s.read_u8()?;
+        self.r4824 = s.read_u8()?;
+        self.r4825 = s.read_u8()?;
+        self.r4826 = s.read_u8()?;
+        self.r4827 = s.read_u8()?;
+        self.r4828 = s.read_u8()?;
+        self.r4829 = s.read_u8()?;
+        self.r482a = s.read_u8()?;
+        self.r482b = s.read_u8()?;
+        self.r482c = s.read_u8()?;
+        self.r482d = s.read_u8()?;
+        self.r482e = s.read_u8()? & 0x01; // write_reg $482e: data & 0x01
+        self.r482f = s.read_u8()?;
+        self.r4830 = s.read_u8()? & 0x87; // write_reg $4830: data & 0x87
+        self.r4831 = s.read_u8()? & 0x07; // write_reg $4831: data & 0x07
+        self.r4832 = s.read_u8()? & 0x07; // write_reg $4832: data & 0x07
+        self.r4833 = s.read_u8()? & 0x07; // write_reg $4833: data & 0x07
+        self.r4834 = s.read_u8()? & 0x07; // write_reg $4834: data & 0x07
+        if s.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "SP70 section has {} trailing byte(s)",
+                s.remaining()
+            )));
+        }
+        self.decompressor.load_state(r)?;
+        self.rtc.load_state(r)
+    }
+}
+
 /// Sign-extend a 16-bit value into a `u32` (ares `(i16)adjust`/`(i16)stride` idiom).
 const fn sign_extend16(v: u16) -> u32 {
     (v.cast_signed() as i32).cast_unsigned()
@@ -717,6 +848,14 @@ impl Board for Spc7110Board {
     fn sram_mut(&mut self) -> &mut [u8] {
         &mut self.ram
     }
+
+    fn save_state(&self, w: &mut SaveWriter) {
+        Self::save_state(self, w);
+    }
+
+    fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        Self::load_state(self, r)
+    }
 }
 
 /// Build a [`Spc7110Board`] for a cart detected as SPC7110 (`board::select`).
@@ -799,5 +938,38 @@ mod tests {
         // bank 00 offset 8000-ffff and bank c0 offset 0000-ffff both land under 0x100000.
         assert!(Spc7110Board::mcurom_linear(0x00, 0x8000) < 0x10_0000);
         assert!(Spc7110Board::mcurom_linear(0xc0, 0x0000) < 0x10_0000);
+    }
+
+    #[test]
+    fn register_and_rtc_state_round_trips_through_save_state() {
+        let mut b = board();
+        b.write24(0x00_4801, 0xAB);
+        b.write24(0x00_4830, 0xFF); // masked to 0x87
+        b.rtc.write(0, 1); // RTC chip select
+        b.rtc.write(1, 0x03); // mode: write
+        b.rtc.write(1, 0x00); // seek to offset 0
+        b.rtc.write(1, 0x07); // write secondlo = 7
+
+        let mut w = SaveWriter::new();
+        b.save_state(&mut w);
+        let bytes = w.into_bytes();
+
+        let mut fresh = board();
+        let mut r = SaveReader::new(&bytes);
+        fresh.load_state(&mut r).unwrap();
+
+        assert_eq!(fresh.read24(0x00_4801), 0xAB);
+        assert_eq!(fresh.read24(0x00_4830), 0x87);
+        // Read the restored RTC clock field back out through its own public read/seek protocol
+        // (mirrors epsonrtc.rs's own round-trip test — `secondlo` is private to that module).
+        // Deselect then reselect first: the restored state is already mid-Write with chipselect
+        // already 1, and a same-value chipselect write does NOT reset the state machine (matches
+        // real hardware — see epsonrtc.rs's own round-trip test for the identical deselect step).
+        fresh.rtc.write(0, 0);
+        fresh.rtc.write(0, 1);
+        fresh.rtc.write(1, 0x0c); // mode: read
+        fresh.rtc.write(1, 0x00); // seek to offset 0
+        assert_eq!(fresh.rtc.read(1), 7);
+        assert_eq!(r.remaining(), 0);
     }
 }

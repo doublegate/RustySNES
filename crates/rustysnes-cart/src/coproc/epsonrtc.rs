@@ -16,6 +16,8 @@
 
 #![allow(clippy::doc_markdown)]
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 /// The RTC-4513's protocol state machine (ares `EpsonRTC::State`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum State {
@@ -284,6 +286,120 @@ impl EpsonRtc {
             _ => {}
         }
     }
+
+    /// Write every clock field + the handshake state machine into a `"RTC0"` section. There is
+    /// no firmware/chip-ROM byte here to exclude (this is a pure register-file clean-room port,
+    /// per `docs/adr/0003`).
+    pub fn save_state(&self, w: &mut SaveWriter) {
+        w.section(*b"RTC0", |s| {
+            s.write_u8(self.secondlo);
+            s.write_u8(self.secondhi);
+            s.write_u8(self.batteryfailure);
+            s.write_u8(self.minutelo);
+            s.write_u8(self.minutehi);
+            s.write_u8(self.resync);
+            s.write_u8(self.hourlo);
+            s.write_u8(self.hourhi);
+            s.write_u8(self.meridian);
+            s.write_u8(self.daylo);
+            s.write_u8(self.dayhi);
+            s.write_u8(self.dayram);
+            s.write_u8(self.monthlo);
+            s.write_u8(self.monthhi);
+            s.write_u8(self.monthram);
+            s.write_u8(self.yearlo);
+            s.write_u8(self.yearhi);
+            s.write_u8(self.weekday);
+            s.write_u8(self.hold);
+            s.write_u8(self.calendar);
+            s.write_u8(self.irqflag);
+            s.write_u8(self.roundseconds);
+            s.write_u8(self.irqmask);
+            s.write_u8(self.irqduty);
+            s.write_u8(self.irqperiod);
+            s.write_u8(self.pause);
+            s.write_u8(self.stop);
+            s.write_u8(self.atime);
+            s.write_u8(self.test);
+            s.write_u8(self.chipselect);
+            s.write_u8(match self.state {
+                State::Mode => 0,
+                State::Seek => 1,
+                State::Read => 2,
+                State::Write => 3,
+            });
+            s.write_u8(self.offset);
+            s.write_bool(self.ready);
+            s.write_u8(self.mdr);
+        });
+    }
+
+    /// The inverse of [`Self::save_state`].
+    ///
+    /// # Errors
+    /// [`SaveStateError`] on truncated/corrupt input, a section with unconsumed trailing bytes,
+    /// or [`SaveStateError::Invalid`] if the encoded `state` discriminant doesn't match one of
+    /// `State`'s four variants (a semantic enum constraint, not a hardware register width — the
+    /// same posture `Obc1Board::load_state` already applies to its own cursor fields). Every
+    /// clock/handshake field below is masked to the widest value `rtc_write`/`write` can ever
+    /// produce (nibble fields `& 0x0F`, single-bit flags `& 0x01`, the few wider-but-still-narrow
+    /// fields their own specific mask) so a hand-edited/corrupted save-state can't inject a
+    /// physically-unwritable bit pattern into a register real hardware could never hold.
+    pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        let mut s = r.expect_section(*b"RTC0")?;
+        self.secondlo = s.read_u8()? & 0x0F;
+        self.secondhi = s.read_u8()? & 0x07;
+        self.batteryfailure = s.read_u8()? & 0x01;
+        self.minutelo = s.read_u8()? & 0x0F;
+        self.minutehi = s.read_u8()? & 0x0F;
+        self.resync = s.read_u8()? & 0x01;
+        self.hourlo = s.read_u8()? & 0x0F;
+        self.hourhi = s.read_u8()? & 0x0F;
+        self.meridian = s.read_u8()? & 0x01;
+        self.daylo = s.read_u8()? & 0x0F;
+        self.dayhi = s.read_u8()? & 0x03;
+        self.dayram = s.read_u8()? & 0x03;
+        self.monthlo = s.read_u8()? & 0x0F;
+        self.monthhi = s.read_u8()? & 0x01;
+        self.monthram = s.read_u8()? & 0x07;
+        self.yearlo = s.read_u8()? & 0x0F;
+        self.yearhi = s.read_u8()? & 0x0F;
+        self.weekday = s.read_u8()? & 0x0F;
+        self.hold = s.read_u8()? & 0x01;
+        self.calendar = s.read_u8()? & 0x01;
+        self.irqflag = s.read_u8()? & 0x01;
+        self.roundseconds = s.read_u8()? & 0x01;
+        self.irqmask = s.read_u8()? & 0x01;
+        self.irqduty = s.read_u8()? & 0x01;
+        self.irqperiod = s.read_u8()? & 0x03;
+        self.pause = s.read_u8()? & 0x01;
+        self.stop = s.read_u8()? & 0x01;
+        self.atime = s.read_u8()? & 0x01;
+        self.test = s.read_u8()? & 0x01;
+        self.chipselect = s.read_u8()? & 0x0F;
+        let state = s.read_u8()?;
+        self.state = match state {
+            0 => State::Mode,
+            1 => State::Seek,
+            2 => State::Read,
+            3 => State::Write,
+            _ => {
+                return Err(SaveStateError::Invalid(alloc::format!(
+                    "EpsonRtc state discriminant {state} is not a valid State variant (0-3)"
+                )));
+            }
+        };
+        self.offset = s.read_u8()? & 0x0F;
+        self.ready = s.read_bool()?;
+        self.mdr = s.read_u8()? & 0x0F;
+        if s.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "RTC0 section has {} trailing byte(s)",
+                s.remaining()
+            )));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -310,5 +426,50 @@ mod tests {
         let mut rtc = EpsonRtc::new();
         rtc.write(0, 1);
         assert_eq!(rtc.read(2), 0x80);
+    }
+
+    #[test]
+    fn clock_and_handshake_state_round_trips_through_save_state() {
+        let mut rtc = EpsonRtc::new();
+        rtc.write(0, 1);
+        rtc.write(1, 0x03); // mode: write
+        rtc.write(1, 0x00); // seek to offset 0
+        rtc.write(1, 0x05); // write secondlo = 5
+
+        let mut w = SaveWriter::new();
+        rtc.save_state(&mut w);
+        let bytes = w.into_bytes();
+
+        let mut fresh = EpsonRtc::new();
+        let mut r = SaveReader::new(&bytes);
+        fresh.load_state(&mut r).unwrap();
+
+        assert_eq!(fresh.secondlo, 5);
+        assert_eq!(fresh.state, State::Write);
+        assert_eq!(r.remaining(), 0);
+    }
+
+    #[test]
+    fn out_of_range_state_discriminant_is_rejected_not_panicked_on() {
+        let rtc = EpsonRtc::new();
+        let mut w = SaveWriter::new();
+        rtc.save_state(&mut w);
+        let mut bytes = w.into_bytes();
+        // The state discriminant follows 30 preceding u8 fields — corrupt it to a value with no
+        // matching State variant.
+        let mut r = SaveReader::new(&bytes);
+        let mut s = r.expect_section(*b"RTC0").unwrap();
+        for _ in 0..30 {
+            s.read_u8().unwrap();
+        }
+        let offset = bytes.len() - s.remaining();
+        bytes[offset] = 99;
+
+        let mut fresh = EpsonRtc::new();
+        let mut r2 = SaveReader::new(&bytes);
+        assert!(matches!(
+            fresh.load_state(&mut r2),
+            Err(SaveStateError::Invalid(_))
+        ));
     }
 }

@@ -28,9 +28,13 @@ core's full state, including the in-flight per-access checkpoint queue that
 master-clock-interleaved `tick`-driven execution can leave mid-flight at any save point — a
 claimed queue length/cursor beyond what real execution could ever produce is rejected, not
 trusted) and `Sa1Board` (the full register file, I-RAM, H/V timer, and DMA staging flags;
-BW-RAM stays excluded, captured separately via `Board::sram`). Remaining: `Spc7110Board`+its
-`Decompressor`+`EpsonRtc`, `Cpu`/`Ppu`/`Apu`, and the `System`-level envelope — see
-T-52-002/003/004 below.
+BW-RAM stays excluded, captured separately via `Board::sram`). Completed with `Spc7110Board`
+(every DCU/data-port/ALU/memory-control register + `dcu_tile`, with `dcu_offset` masked since it
+indexes it directly) and its `Decompressor` (a prediction index outside `EVOLUTION`'s range is
+rejected, `bpp`/`bits` are bounded to the only values real execution ever produces) and paired
+`EpsonRtc` (an out-of-range handshake-state discriminant is rejected) — **T-52-002's
+board-coverage acceptance criterion is now fully met, every coprocessor board round-trips its
+state**. Remaining: `Cpu`/`Ppu`/`Apu` and the `System`-level envelope — see T-52-003/004 below.
 
 ## Tickets
 
@@ -67,12 +71,12 @@ for every coprocessor board that carries register-file state: `Dsp1Board`, `NecD
 
 **Acceptance criteria:**
 
-- [ ] Every board with non-ROM/SRAM state round-trips its exact register file through
+- [x] Every board with non-ROM/SRAM state round-trips its exact register file through
       `save_state`/`load_state` (a per-board unit test: mutate a few registers, save, zero the
       board, load, assert equality).
-- [ ] The default no-op impl compiles and is exercised for at least one ROM-only board (`LoRom`
+- [x] The default no-op impl compiles and is exercised for at least one ROM-only board (`LoRom`
       with no coprocessor).
-- [ ] `#![no_std]` holds: `cargo build -p rustysnes-cart --no-default-features` (the workspace's
+- [x] `#![no_std]` holds: `cargo build -p rustysnes-cart --no-default-features` (the workspace's
       existing no_std gate) still passes.
 
 **Dependencies:** T-52-001

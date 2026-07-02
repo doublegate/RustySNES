@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Save-state foundation (parts 1-4 of N).** New `rustysnes-savestate` leaf crate: `SaveWriter`
+- **Save-state foundation (parts 1-5 of N).** New `rustysnes-savestate` leaf crate: `SaveWriter`
   (an allocation-free append-only builder with primitive writers + a `section(tag, body)` helper
   for nested, self-describing sections — writes directly into the parent buffer with a length
   placeholder patched in place, not a throwaway nested `Vec` per section) and `SaveReader` (a
@@ -47,12 +47,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   save point; a claimed checkpoint-queue length or cursor beyond what real execution could ever
   produce is rejected as invalid, not trusted) and `Sa1Board` (the full `$2200-$23FF` register
   file, the 2 KiB I-RAM, the H/V timer counters, and the character-conversion DMA staging flags —
-  BW-RAM stays excluded, captured separately via the existing `Board::sram` path). `#![no_std]`
-  holds throughout; 10 new round-trip/validation tests across `rustysnes-cart` (`obc1.rs` ×3,
-  `dsp1.rs` ×1, `necdsp_variant.rs` ×1, `upd77c25.rs` ×1, `cx4.rs` ×1, `sdd1.rs` ×1,
-  `superfx.rs` ×1, `sa1.rs` ×1). `Spc7110Board`, `Cpu`/`Ppu`/`Apu`, and the `System`-level
-  versioned envelope that assembles all of the above are tracked as the sprint's remaining
-  tickets, not yet implemented.
+  BW-RAM stays excluded, captured separately via the existing `Board::sram` path). This
+  completes save-state coverage for every coprocessor board (T-52-002): `Spc7110Board` (every
+  DCU/data-port/ALU/memory-control register, the `dcu_tile` scratch buffer — `dcu_offset` masked
+  `& 31` since it indexes it directly — and its `Decompressor`'s mid-tile range-coder state,
+  including its 5x15 context table; a prediction index outside the 53-entry `EVOLUTION` table is
+  rejected, `bpp` is validated against the only values a real `1 << mode` can produce
+  (`{0,1,2,4}`), and `bits` is bounded `0..=8` — all guard against the same
+  corrupted-save-state-triggers-a-shift/index-panic class of bug already fixed on the other
+  boards) and its paired `EpsonRtc` (every clock field + the 4-state handshake machine; an
+  out-of-range state discriminant is rejected as invalid, the same enum-constraint posture
+  `Obc1Board` already applies to its own cursor fields). `#![no_std]` holds throughout; 13 new
+  round-trip/validation tests across `rustysnes-cart` (`obc1.rs` ×3, `dsp1.rs` ×1,
+  `necdsp_variant.rs` ×1, `upd77c25.rs` ×1, `cx4.rs` ×1, `sdd1.rs` ×1, `superfx.rs` ×1,
+  `sa1.rs` ×1, `epsonrtc.rs` ×2, `spc7110.rs` ×1). `Cpu`/`Ppu`/`Apu` and the `System`-level
+  versioned envelope that assembles every board above are tracked as the sprint's remaining
+  tickets (T-52-002's board-coverage acceptance criterion is now fully met), not yet implemented.
 
 ## [0.1.0] "Foundation" - 2026-07-02
 

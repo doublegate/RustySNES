@@ -576,6 +576,21 @@ mod tests {
     }
 
     #[test]
+    fn default_no_op_save_state_round_trips_on_a_rom_only_board() {
+        // T-52-002's stated acceptance criterion: the default no-op impl is exercised for at
+        // least one ROM-only board (no coprocessor state beyond what System::save_state already
+        // captures via Board::sram directly).
+        let mut b = LoRom::new(boxed(vec![0; 0x8000]), boxed(vec![0; 0x2000]));
+        let mut w = SaveWriter::new();
+        b.save_state(&mut w);
+        let bytes = w.into_bytes();
+        assert!(bytes.is_empty(), "the default no-op must write nothing");
+        let mut r = SaveReader::new(&bytes);
+        b.load_state(&mut r).unwrap();
+        assert_eq!(r.remaining(), 0);
+    }
+
+    #[test]
     fn lorom_decode_and_windowing() {
         // 64 KiB ROM = two 32 KiB banks. Mark distinctive bytes.
         let mut rom = vec![0u8; 0x1_0000];
