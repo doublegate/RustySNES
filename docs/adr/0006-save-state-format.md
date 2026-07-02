@@ -2,13 +2,15 @@
 
 ## Status
 
-Proposed; partially implemented. (Accepted once `System::save_state()`/`load_state()` land in
-`v0.2.0 "Persistence"`, `to-dos/VERSION-PLAN.md`.)
+Proposed; implementation complete pending the round-trip determinism test (T-52-004). (Accepted
+once that test is green, `v0.2.0 "Persistence"`, `to-dos/VERSION-PLAN.md`.)
 
 **Progress:** the wire-format primitives (`rustysnes-savestate`: `SaveWriter`/`SaveReader`/
-`SaveStateError`) and the `Board::save_state`/`load_state` trait hooks are landed, proven
-end-to-end on `Obc1Board`. Remaining: the rest of the coprocessor boards, `Cpu`/`Ppu`/`Apu`, and
-the `System`-level versioned envelope that assembles them — tracked in
+`SaveStateError`), the `Board::save_state`/`load_state` trait hooks (every coprocessor board),
+`Cpu`/`Ppu`/`Apu`, and `System::save_state()`/`load_state()` — the versioned envelope (4-byte
+magic `b"RSNS"` + `u16` format version, wrapping `Cpu`, the whole `Bus` including the cart's
+coprocessor state and battery SRAM, and the SA-1 second CPU when present) — are all landed.
+Remaining: the round-trip determinism test itself (T-52-004), tracked in
 `to-dos/phase-5-frontend/sprint-2-save-states.md`.
 
 ## Context

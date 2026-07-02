@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Save-state foundation (parts 1-7 of N).** New `rustysnes-savestate` leaf crate: `SaveWriter`
+- **Save-state foundation (parts 1-8 of N).** New `rustysnes-savestate` leaf crate: `SaveWriter`
   (an allocation-free append-only builder with primitive writers + a `section(tag, body)` helper
   for nested, self-describing sections — writes directly into the parent buffer with a length
   placeholder patched in place, not a throwaway nested `Vec` per section) and `SaveReader` (a
@@ -96,11 +96,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the ring-buffer's own size — a second use site the initial pass missed lacks the `%12` wrap
   `gaussian_interpolate` applies) are masked on load; `Echo::history_offset` and a timer's
   `stage3` are masked too. 2 new round-trip/validation tests (`rustysnes-apu` ×2).
-  **T-52-003's per-subsystem acceptance criterion is now fully met** — `Cpu`/`Ppu`/`Apu` all
-  round-trip their state. The `System`-level versioned envelope (magic + format version) that
-  assembles every subsystem above, and the round-trip determinism test that is the format's
-  actual spec, are tracked as the sprint's remaining tickets (T-52-003's envelope half /
-  T-52-004), not yet implemented.
+  T-52-003 completes here with `System::save_state()`/`load_state()` (`rustysnes-core` now
+  depends on `rustysnes-savestate` too) — the versioned envelope: a 4-byte magic (`b"RSNS"`) + a
+  `u16` format version `System::load_state` rejects if newer than this build understands
+  (`SaveStateError::UnsupportedVersion`), or if the leading bytes aren't the magic at all
+  (`SaveStateError::BadMagic`), wrapping `Cpu`, the whole `Bus` (`Ppu`/`Apu`/the new `Dma`/
+  `Clock`/`MulDiv` save-states + WRAM, plus — if a cart is loaded — its coprocessor state and
+  battery SRAM), and the SA-1 second CPU + its master-clock catch-up accounting when present. A
+  save-state's cart/SA-1 presence, and a restored SRAM image's length, are cross-checked against
+  the target `System`'s own installed state on load and rejected on mismatch rather than
+  silently corrupted — restoring a cart-carrying save-state requires the caller to have already
+  loaded the SAME ROM first, the same "never embed a ROM/firmware byte" posture every
+  coprocessor's firmware already follows. `docs/adr/0006`'s status is now "implementation
+  complete pending the round-trip determinism test." 6 new round-trip/validation tests
+  (`rustysnes-core`: `dma.rs` ×1, `scheduler.rs` ×3 covering the no-cart round trip plus bad-magic
+  and newer-format-version rejection). **T-52-003 is now fully complete** — every subsystem
+  (`Cpu`/`Ppu`/`Apu`/`Bus`/`Cart`) round-trips its exact state through one versioned envelope.
+  The round-trip determinism test that is the format's actual spec (T-52-004) is the sprint's
+  one remaining ticket, not yet implemented.
 
 ## [0.1.0] "Foundation" - 2026-07-02
 

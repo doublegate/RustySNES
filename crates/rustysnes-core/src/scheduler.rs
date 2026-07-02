@@ -10,10 +10,22 @@
 //! cart's reset vector, step instructions until the PPU signals end-of-frame, and fire the
 //! per-line HDMA + the per-frame HDMA setup at the right scanline phases.
 
+use alloc::vec::Vec;
+
 use rustysnes_cpu::Cpu;
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
 
 use crate::bus::Bus;
 use crate::sa1_bus::Sa1Bus;
+
+/// The save-state format's major version (`docs/adr/0006-save-state-format.md`). Bump this any
+/// time a section's on-disk layout changes in a way an older reader can't skip past; the reader
+/// (this crate's [`System::load_state`]) rejects any `found > FORMAT_VERSION` rather than
+/// silently misinterpreting a newer layout.
+const FORMAT_VERSION: u16 = 1;
+/// The save-state envelope's leading magic bytes — identifies the blob as a RustySNES save-state
+/// before anything else is trusted.
+const MAGIC: &[u8; 4] = b"RSNS";
 
 /// A generous instruction budget per frame so a wedged ROM can't spin forever in `run_frame`.
 const MAX_STEPS_PER_FRAME: u64 = 2_000_000;
@@ -194,6 +206,89 @@ impl System {
         let _ = self.seed;
         self.step_instruction();
     }
+
+    /// Serialize the entire emulated machine — the main CPU, the whole [`Bus`] (PPU, APU, DMA,
+    /// WRAM, plus the cart's coprocessor state and battery SRAM if a cart is loaded), the
+    /// determinism seed, the boot/HDMA-line bookkeeping, and (if present) the SA-1 second CPU
+    /// plus its master-clock catch-up accounting — into a versioned binary blob
+    /// (`docs/adr/0006-save-state-format.md`). The blob leads with a 4-byte magic and a `u16`
+    /// format-version header that [`Self::load_state`] checks before trusting anything else. The
+    /// cart's ROM is never embedded (`docs/adr/0003`'s "never embed a ROM/firmware byte" posture,
+    /// already applied to every coprocessor's firmware) — restoring a cart-carrying save-state
+    /// requires the caller to have already loaded the SAME ROM onto the target `System` first.
+    #[must_use]
+    pub fn save_state(&self) -> Vec<u8> {
+        let mut w = SaveWriter::new();
+        w.write_bytes(MAGIC);
+        w.write_u16(FORMAT_VERSION);
+        self.cpu.save_state(&mut w);
+        self.bus.save_state(&mut w);
+        w.section(*b"SYS0", |s| {
+            s.write_u64(self.seed);
+            s.write_bool(self.booted);
+            s.write_u16(self.last_line);
+            match &self.sa1_cpu {
+                Some(cpu) => {
+                    s.write_bool(true);
+                    cpu.save_state(s);
+                }
+                None => s.write_bool(false),
+            }
+            s.write_u64(self.sa1_last_master);
+            s.write_u64(self.sa1_credit);
+        });
+        w.into_bytes()
+    }
+
+    /// The inverse of [`Self::save_state`].
+    ///
+    /// # Errors
+    /// [`SaveStateError::BadMagic`] if `bytes` doesn't lead with the expected magic (not a
+    /// RustySNES save-state at all); [`SaveStateError::UnsupportedVersion`] if the format version
+    /// is newer than this build understands; [`SaveStateError`] on truncated/corrupt input or a
+    /// section with unconsumed trailing bytes; or [`SaveStateError::Invalid`] if the save-state's
+    /// SA-1-second-CPU presence, or (via [`Bus::load_state`]) cart presence/SRAM size, doesn't
+    /// match this `System`'s own installed state — restoring onto the wrong ROM/board
+    /// configuration is rejected rather than silently corrupting it.
+    pub fn load_state(&mut self, bytes: &[u8]) -> Result<(), SaveStateError> {
+        let mut r = SaveReader::new(bytes);
+        if r.read_bytes(4)? != MAGIC {
+            return Err(SaveStateError::BadMagic);
+        }
+        let version = r.read_u16()?;
+        if version > FORMAT_VERSION {
+            return Err(SaveStateError::UnsupportedVersion {
+                found: version,
+                max: FORMAT_VERSION,
+            });
+        }
+        self.cpu.load_state(&mut r)?;
+        self.bus.load_state(&mut r)?;
+        let mut s = r.expect_section(*b"SYS0")?;
+        self.seed = s.read_u64()?;
+        self.booted = s.read_bool()?;
+        self.last_line = s.read_u16()?;
+        let had_sa1 = s.read_bool()?;
+        match (&mut self.sa1_cpu, had_sa1) {
+            (Some(cpu), true) => cpu.load_state(&mut s)?,
+            (None, false) => {}
+            (Some(_), false) | (None, true) => {
+                return Err(SaveStateError::Invalid(alloc::string::String::from(
+                    "save-state SA-1 second-CPU presence does not match this System's \
+                     installed cart (load the same ROM before restoring)",
+                )));
+            }
+        }
+        self.sa1_last_master = s.read_u64()?;
+        self.sa1_credit = s.read_u64()?;
+        if s.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "SYS0 section has {} trailing byte(s)",
+                s.remaining()
+            )));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -219,5 +314,49 @@ mod tests {
         let mut sys = System::new(0);
         sys.reset();
         assert!(!sys.booted);
+    }
+
+    #[test]
+    fn system_state_round_trips_without_a_cart() {
+        let mut sys = System::new(42);
+        sys.reset();
+        sys.cpu.regs.a = 0x1234;
+        sys.bus.clock.master = 999;
+
+        let bytes = sys.save_state();
+
+        let mut fresh = System::new(0);
+        fresh.load_state(&bytes).unwrap();
+
+        assert_eq!(fresh.cpu.regs.a, 0x1234);
+        assert_eq!(fresh.bus.clock.master, 999);
+        assert_eq!(fresh.seed, 42);
+    }
+
+    #[test]
+    fn bad_magic_is_rejected_not_panicked_on() {
+        let sys = System::new(0);
+        let mut bytes = sys.save_state();
+        bytes[0] = b'X';
+
+        let mut fresh = System::new(0);
+        assert!(matches!(
+            fresh.load_state(&bytes),
+            Err(SaveStateError::BadMagic)
+        ));
+    }
+
+    #[test]
+    fn newer_format_version_is_rejected_not_panicked_on() {
+        let sys = System::new(0);
+        let mut bytes = sys.save_state();
+        // The u16 format-version field immediately follows the 4-byte magic.
+        bytes[4..6].copy_from_slice(&(FORMAT_VERSION + 1).to_le_bytes());
+
+        let mut fresh = System::new(0);
+        assert!(matches!(
+            fresh.load_state(&bytes),
+            Err(SaveStateError::UnsupportedVersion { .. })
+        ));
     }
 }

@@ -15,6 +15,7 @@ rustysnes-cpu = { path = "../rustysnes-cpu", version = "0.1.0", default-features
 rustysnes-ppu = { path = "../rustysnes-ppu", version = "0.1.0", default-features = false }
 rustysnes-apu = { path = "../rustysnes-apu", version = "0.1.0", default-features = false }
 rustysnes-cart = { path = "../rustysnes-cart", version = "0.1.0", default-features = false }
+rustysnes-savestate = { path = "../rustysnes-savestate", version = "0.1.0" }
 
 [lints]
 workspace = true
