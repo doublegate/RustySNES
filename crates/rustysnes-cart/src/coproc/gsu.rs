@@ -1466,7 +1466,7 @@ impl Gsu {
     /// # Errors
     /// [`SaveStateError`] on truncated/corrupt input, a section with unconsumed trailing bytes, or
     /// [`SaveStateError::Invalid`] if the saved `pending_clocks` length exceeds
-    /// [`Self::MAX_SAVED_PENDING_CLOCKS`] or `pending_idx` exceeds the restored queue's length
+    /// `MAX_SAVED_PENDING_CLOCKS` or `pending_idx` exceeds the restored queue's length
     /// (both would otherwise let a corrupted save-state desync [`Self::step_one`]'s cursor).
     /// `sreg`/`dreg` are masked to 4 bits — they index the 16-entry register file directly.
     pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
