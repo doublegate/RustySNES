@@ -20,6 +20,8 @@
     clippy::needless_pass_by_ref_mut
 )]
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 use crate::psw::Psw;
 
 /// The narrow seam the SPC700 core drives. Each method models exactly one SPC700 clock cycle.
@@ -256,6 +258,46 @@ impl Spc700 {
         p.set_v((!(i32::from(x) ^ i32::from(y)) & (i32::from(x) ^ z) & 0x80) != 0);
         p.set_n(z & 0x80 != 0);
         z as u8
+    }
+
+    /// Write the architectural register file plus the `STOP`/`SLEEP` latches into an `"SPC0"`
+    /// section. There is no firmware/ROM byte here to exclude — the SPC700 core carries none.
+    pub fn save_state(&self, w: &mut SaveWriter) {
+        w.section(*b"SPC0", |s| {
+            s.write_u16(self.regs.pc);
+            s.write_u8(self.regs.a);
+            s.write_u8(self.regs.x);
+            s.write_u8(self.regs.y);
+            s.write_u8(self.regs.sp);
+            s.write_u8(self.regs.psw.bits());
+            s.write_bool(self.stopped);
+            s.write_bool(self.waiting);
+        });
+    }
+
+    /// The inverse of [`Self::save_state`].
+    ///
+    /// # Errors
+    /// [`SaveStateError`] on truncated/corrupt input or a section with unconsumed trailing
+    /// bytes. `psw` covers all 8 bits of the real hardware register (`Psw` is a bare packed
+    /// `u8`), so there is no invalid encoding to reject.
+    pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        let mut s = r.expect_section(*b"SPC0")?;
+        self.regs.pc = s.read_u16()?;
+        self.regs.a = s.read_u8()?;
+        self.regs.x = s.read_u8()?;
+        self.regs.y = s.read_u8()?;
+        self.regs.sp = s.read_u8()?;
+        self.regs.psw = Psw::from_bits(s.read_u8()?);
+        self.stopped = s.read_bool()?;
+        self.waiting = s.read_bool()?;
+        if s.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "SPC0 section has {} trailing byte(s)",
+                s.remaining()
+            )));
+        }
+        Ok(())
     }
 
     pub(crate) fn alu_w(&mut self, op: AluW, x: u16, y: u16) -> u16 {

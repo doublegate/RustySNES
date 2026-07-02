@@ -30,6 +30,8 @@ extern crate alloc;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 /// Cap on the additive output-sample FIFO (see [`Dsp::out`]). At 32 kHz this is ~0.5 s of audio;
 /// the frontend drains it every frame, so the cap is only a runaway guard for callers that never
 /// drain (e.g. the accuracy oracle, which never reads the FIFO). Purely additive instrumentation:
@@ -244,6 +246,265 @@ impl Default for Dsp {
         Self::new()
     }
 }
+
+impl EnvMode {
+    const fn to_u8(self) -> u8 {
+        match self {
+            Self::Release => 0,
+            Self::Attack => 1,
+            Self::Decay => 2,
+            Self::Sustain => 3,
+        }
+    }
+
+    fn from_u8(v: u8) -> Result<Self, SaveStateError> {
+        match v {
+            0 => Ok(Self::Release),
+            1 => Ok(Self::Attack),
+            2 => Ok(Self::Decay),
+            3 => Ok(Self::Sustain),
+            _ => Err(SaveStateError::Invalid(alloc::format!(
+                "S-DSP EnvMode discriminant {v} is not a valid variant (0-3)"
+            ))),
+        }
+    }
+}
+
+impl Voice {
+    fn save_state(&self, s: &mut SaveWriter) {
+        s.write_u8(self.index);
+        s.write_u8(self.volume[0].cast_unsigned());
+        s.write_u8(self.volume[1].cast_unsigned());
+        s.write_u16(self.pitch);
+        s.write_u8(self.source);
+        s.write_u8(self.adsr0);
+        s.write_u8(self.adsr1);
+        s.write_u8(self.gain);
+        s.write_u8(self.envx);
+        s.write_bool(self.keyon);
+        s.write_bool(self.keyoff);
+        s.write_bool(self.modulate);
+        s.write_bool(self.noise);
+        s.write_bool(self.echo);
+        for &v in &self.buffer {
+            s.write_u16(v.cast_unsigned());
+        }
+        s.write_u8(self.buffer_offset);
+        s.write_u16(self.gaussian_offset);
+        s.write_u16(self.brr_address);
+        s.write_u8(self.brr_offset);
+        s.write_u8(self.keyon_delay);
+        s.write_u8(self.envelope_mode.to_u8());
+        s.write_u16(self.envelope);
+        s.write_u32(self.env_internal.cast_unsigned());
+        s.write_bool(self.keylatch);
+        s.write_bool(self._keyon);
+        s.write_bool(self._keyoff);
+        s.write_bool(self._modulate);
+        s.write_bool(self._noise);
+        s.write_bool(self._echo);
+        s.write_bool(self._end);
+        s.write_bool(self._looped);
+    }
+
+    fn load_state(&mut self, s: &mut SaveReader) -> Result<(), SaveStateError> {
+        // index is used as `self.registers[index as usize | 0x09]` (voice8/voice9); masking to
+        // the 8 legal voice-register bases (0x00, 0x10, .., 0x70) keeps that combined index
+        // within the 128-entry registers array regardless of what a corrupted save-state claims.
+        self.index = s.read_u8()? & 0x70;
+        self.volume[0] = s.read_u8()?.cast_signed();
+        self.volume[1] = s.read_u8()?.cast_signed();
+        self.pitch = s.read_u16()?;
+        self.source = s.read_u8()?;
+        self.adsr0 = s.read_u8()?;
+        self.adsr1 = s.read_u8()?;
+        self.gain = s.read_u8()?;
+        self.envx = s.read_u8()?;
+        self.keyon = s.read_bool()?;
+        self.keyoff = s.read_bool()?;
+        self.modulate = s.read_bool()?;
+        self.noise = s.read_bool()?;
+        self.echo = s.read_bool()?;
+        for v in &mut self.buffer {
+            *v = s.read_u16()?.cast_signed();
+        }
+        // buffer_offset indexes the fixed 12-entry `buffer` ring directly at some use sites
+        // (`brr_decode`'s `buffer[if bo == 0 {11} else {bo - 1}]`) without the `% 12` wrap
+        // `gaussian_interpolate` applies; masking here (matching every normal-operation
+        // increment's own `+= 1; if >= 12 { = 0 }` wrap) covers both call sites.
+        self.buffer_offset = s.read_u8()? % 12;
+        self.gaussian_offset = s.read_u16()?;
+        self.brr_address = s.read_u16()?;
+        self.brr_offset = s.read_u8()?;
+        self.keyon_delay = s.read_u8()?;
+        self.envelope_mode = EnvMode::from_u8(s.read_u8()?)?;
+        self.envelope = s.read_u16()?;
+        self.env_internal = s.read_u32()?.cast_signed();
+        self.keylatch = s.read_bool()?;
+        self._keyon = s.read_bool()?;
+        self._keyoff = s.read_bool()?;
+        self._modulate = s.read_bool()?;
+        self._noise = s.read_bool()?;
+        self._echo = s.read_bool()?;
+        self._end = s.read_bool()?;
+        self._looped = s.read_bool()?;
+        Ok(())
+    }
+}
+
+impl MainVol {
+    fn save_state(&self, s: &mut SaveWriter) {
+        s.write_bool(self.reset);
+        s.write_bool(self.mute);
+        s.write_u8(self.volume[0].cast_unsigned());
+        s.write_u8(self.volume[1].cast_unsigned());
+        s.write_u32(self.output[0].cast_unsigned());
+        s.write_u32(self.output[1].cast_unsigned());
+    }
+
+    fn load_state(&mut self, s: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.reset = s.read_bool()?;
+        self.mute = s.read_bool()?;
+        self.volume[0] = s.read_u8()?.cast_signed();
+        self.volume[1] = s.read_u8()?.cast_signed();
+        self.output[0] = s.read_u32()?.cast_signed();
+        self.output[1] = s.read_u32()?.cast_signed();
+        Ok(())
+    }
+}
+
+impl Echo {
+    fn save_state(&self, s: &mut SaveWriter) {
+        s.write_u8(self.feedback.cast_unsigned());
+        s.write_u8(self.volume[0].cast_unsigned());
+        s.write_u8(self.volume[1].cast_unsigned());
+        for &v in &self.fir {
+            s.write_u8(v.cast_unsigned());
+        }
+        for channel in &self.history {
+            for &v in channel {
+                s.write_u16(v.cast_unsigned());
+            }
+        }
+        s.write_u8(self.page);
+        s.write_u8(self.delay);
+        s.write_bool(self.readonly);
+        s.write_u32(self.input[0].cast_unsigned());
+        s.write_u32(self.input[1].cast_unsigned());
+        s.write_u32(self.output[0].cast_unsigned());
+        s.write_u32(self.output[1].cast_unsigned());
+        s.write_u8(self._page);
+        s.write_bool(self._readonly);
+        s.write_u16(self.address);
+        s.write_u16(self.offset);
+        s.write_u16(self.length);
+        s.write_u8(self.history_offset);
+    }
+
+    fn load_state(&mut self, s: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.feedback = s.read_u8()?.cast_signed();
+        self.volume[0] = s.read_u8()?.cast_signed();
+        self.volume[1] = s.read_u8()?.cast_signed();
+        for v in &mut self.fir {
+            *v = s.read_u8()?.cast_signed();
+        }
+        for channel in &mut self.history {
+            for v in channel.iter_mut() {
+                *v = s.read_u16()?.cast_signed();
+            }
+        }
+        self.page = s.read_u8()?;
+        self.delay = s.read_u8()?;
+        self.readonly = s.read_bool()?;
+        self.input[0] = s.read_u32()?.cast_signed();
+        self.input[1] = s.read_u32()?.cast_signed();
+        self.output[0] = s.read_u32()?.cast_signed();
+        self.output[1] = s.read_u32()?.cast_signed();
+        self._page = s.read_u8()?;
+        self._readonly = s.read_bool()?;
+        self.address = s.read_u16()?;
+        self.offset = s.read_u16()?;
+        self.length = s.read_u16()?;
+        // history_offset is a genuine 3-bit index into the fixed 8-entry `history` rows
+        // (`echo_write`/`echo_read` both mask it `& 7` at every use site already), so masking on
+        // load applies the engine's own existing invariant rather than new validation policy.
+        self.history_offset = s.read_u8()? & 7;
+        Ok(())
+    }
+}
+
+impl Noise {
+    fn save_state(self, s: &mut SaveWriter) {
+        s.write_u8(self.frequency);
+        s.write_u16(self.lfsr);
+    }
+
+    fn load_state(&mut self, s: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.frequency = s.read_u8()?;
+        self.lfsr = s.read_u16()?;
+        Ok(())
+    }
+}
+
+impl Brr {
+    fn save_state(&self, s: &mut SaveWriter) {
+        s.write_u8(self.bank);
+        s.write_u8(self._bank);
+        s.write_u8(self.source);
+        s.write_u16(self.address);
+        s.write_u16(self.next_address);
+        s.write_u8(self.header);
+        s.write_u8(self.byte);
+    }
+
+    fn load_state(&mut self, s: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.bank = s.read_u8()?;
+        self._bank = s.read_u8()?;
+        self.source = s.read_u8()?;
+        self.address = s.read_u16()?;
+        self.next_address = s.read_u16()?;
+        self.header = s.read_u8()?;
+        self.byte = s.read_u8()?;
+        Ok(())
+    }
+}
+
+impl Latch {
+    fn save_state(self, s: &mut SaveWriter) {
+        s.write_u8(self.adsr0);
+        s.write_u8(self.envx);
+        s.write_u8(self.outx);
+        s.write_u16(self.pitch);
+        s.write_u16(self.output.cast_unsigned());
+    }
+
+    fn load_state(&mut self, s: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.adsr0 = s.read_u8()?;
+        self.envx = s.read_u8()?;
+        self.outx = s.read_u8()?;
+        self.pitch = s.read_u16()?;
+        self.output = s.read_u16()?.cast_signed();
+        Ok(())
+    }
+}
+
+impl Clock {
+    fn save_state(self, s: &mut SaveWriter) {
+        s.write_u16(self.counter);
+        s.write_bool(self.sample);
+    }
+
+    fn load_state(&mut self, s: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.counter = s.read_u16()?;
+        self.sample = s.read_bool()?;
+        Ok(())
+    }
+}
+
+/// Cap on the saved output-sample FIFO's length — matches [`AUDIO_FIFO_CAP`], the same bound the
+/// live FIFO itself is never allowed to exceed (see [`Dsp::run_sample`]'s push site), so a claimed
+/// length beyond this could never have been produced by real execution.
+const MAX_SAVED_AUDIO_FIFO: usize = AUDIO_FIFO_CAP;
 
 impl Dsp {
     /// Construct at power-on (builds the Gaussian interpolation table once).
@@ -1085,6 +1346,87 @@ impl Dsp {
             aram[address.wrapping_add(1) as usize] = (sample >> 8) as u8;
         }
         self.echo.output[channel] = 0;
+    }
+
+    /// Write the full S-DSP register file mirror, all 8 voices, the shared main-volume/echo/
+    /// noise/BRR/latch/clock sub-units, the 32-step micro-sequence phase, the last emitted
+    /// sample, and the queued (undrained) output-sample FIFO into a `"SDSP"` section. The
+    /// Gaussian interpolation table is NOT written: it is a pure compile-time-derived constant
+    /// (built once by `Self::build_gaussian` at construction) with no external/chip-ROM input,
+    /// so a freshly-constructed `Dsp` already has the exact same table — writing it would only
+    /// bloat every save-state with 1 KiB of always-identical data.
+    pub fn save_state(&self, w: &mut SaveWriter) {
+        w.section(*b"SDSP", |s| {
+            s.write_bytes(&self.registers);
+            for v in &self.voice {
+                v.save_state(s);
+            }
+            self.mainvol.save_state(s);
+            self.echo.save_state(s);
+            self.noise.save_state(s);
+            self.brr.save_state(s);
+            self.latch.save_state(s);
+            self.clock.save_state(s);
+            s.write_u8(self.phase);
+            s.write_u16(self.last_sample.0.cast_unsigned());
+            s.write_u16(self.last_sample.1.cast_unsigned());
+            #[allow(clippy::cast_possible_truncation)] // bounded by MAX_SAVED_AUDIO_FIFO
+            s.write_u32(self.out.len() as u32);
+            for &(l, r) in &self.out {
+                s.write_u16(l.cast_unsigned());
+                s.write_u16(r.cast_unsigned());
+            }
+        });
+    }
+
+    /// The inverse of [`Self::save_state`].
+    ///
+    /// # Errors
+    /// [`SaveStateError`] on truncated/corrupt input, a section with unconsumed trailing bytes,
+    /// [`SaveStateError::Invalid`] if a voice's `envelope_mode` discriminant doesn't match one of
+    /// `EnvMode`'s four variants (a semantic enum constraint), or if the saved output FIFO's
+    /// claimed length exceeds `MAX_SAVED_AUDIO_FIFO` (the same bound the live FIFO itself is
+    /// never allowed to exceed, so a larger claimed length could never have come from real
+    /// execution). Every voice's `index` (masked `& 0x70`, the 8 legal voice-register bases) and
+    /// `buffer_offset` (masked `% 12`, the ring-buffer's own size) and `Echo::history_offset`
+    /// (masked `& 7`) are masked on load, matching the exact width real execution never exceeds
+    /// (see each type's own `load_state` for the specific use-site cited); every other
+    /// index-driving field in this module (`gaussian_offset`, `Brr` addresses) is already masked
+    /// or wrapped at every one of its use sites, not trusted verbatim there either.
+    pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        let mut s = r.expect_section(*b"SDSP")?;
+        self.registers.copy_from_slice(s.read_bytes(128)?);
+        for v in &mut self.voice {
+            v.load_state(&mut s)?;
+        }
+        self.mainvol.load_state(&mut s)?;
+        self.echo.load_state(&mut s)?;
+        self.noise.load_state(&mut s)?;
+        self.brr.load_state(&mut s)?;
+        self.latch.load_state(&mut s)?;
+        self.clock.load_state(&mut s)?;
+        self.phase = s.read_u8()?;
+        self.last_sample.0 = s.read_u16()?.cast_signed();
+        self.last_sample.1 = s.read_u16()?.cast_signed();
+        let fifo_len = s.read_u32()? as usize;
+        if fifo_len > MAX_SAVED_AUDIO_FIFO {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "S-DSP output FIFO length {fifo_len} exceeds the sane bound of {MAX_SAVED_AUDIO_FIFO}"
+            )));
+        }
+        self.out.clear();
+        for _ in 0..fifo_len {
+            let l = s.read_u16()?.cast_signed();
+            let r = s.read_u16()?.cast_signed();
+            self.out.push((l, r));
+        }
+        if s.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "SDSP section has {} trailing byte(s)",
+                s.remaining()
+            )));
+        }
+        Ok(())
     }
 }
 
