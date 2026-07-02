@@ -28,8 +28,8 @@ RustySNES combines **accuracy-first emulation** with the **safety guarantees of 
 **Key differentiators:**
 
 - **Reference-grade accuracy** — A from-scratch core on a 21.477 MHz NTSC master clock with a lockstep scheduler for every chip. The 5A22 CPU's variable-cycle (6/8/12) instruction timings and dot-accurate PPU/HDMA behavior are cycle-exact, not approximated.
-- **Determinism as a hard contract** — The asynchronous SPC700/S-DSP audio processor is kept perfectly coherent with the main CPU through an integer relative-time accumulator, with no floating point in the timing path. The same seed, ROM, and input sequence yield a bit-identical framebuffer and audio output — the foundation save-states, rewind, and netplay rollback all build on.
-- **Honest accuracy tiering** — Every coprocessor/board is tiered Core / Curated / BestEffort (see `docs/adr/0003`); a CI honesty gate ensures no unverified BestEffort board ever backs the accuracy oracle. Nothing is silently degraded.
+- **Determinism as a hard contract** — The asynchronous SPC700/S-DSP audio processor is kept perfectly coherent with the main CPU through an integer relative-time accumulator, with no floating point in the timing path. The same seed, ROM, and input sequence yield a bit-identical framebuffer and audio output — the foundation that save-states, rewind, and netplay rollback all build on.
+- **Honest accuracy tiering** — Every coprocessor/board is tiered Core / Curated / BestEffort (see [`docs/adr/0003`](docs/adr/0003-accuracy-tiering-honesty-gate.md)); a CI honesty gate ensures no unverified BestEffort board ever backs the accuracy oracle. Nothing is silently degraded.
 - **Safe, modular Rust** — The chip stack is `no_std + alloc` with a one-directional workspace graph, making each component independently testable.
 
 ---
@@ -42,7 +42,7 @@ RustySNES combines **accuracy-first emulation** with the **safety guarantees of 
 | **Coprocessors** | ✅ Shipped (Core/Curated): DSP-1, Super FX/GSU, SA-1. ✅ Shipped (BestEffort, validated against real ROMs): DSP-2, DSP-4, ST010, CX4, OBC1, S-DD1. 🚧 SPC7110 implemented, not yet booting. ⏳ ST018, standalone S-RTC not started. |
 | **Native desktop frontend** | ✅ Shipped — `winit` + `wgpu` + `cpal` + `egui`; keyboard + gamepad input, ROM/firmware/SRAM loading (including zip-archived ROMs), Reset/Power-Cycle/Pause. |
 | **WebAssembly build** | 🚧 Compiles; the in-browser UI (canvas surface, `requestAnimationFrame` loop, file loading) is a bootstrap scaffold, not yet a playable demo. |
-| **Save states** | ⏳ Planned — `v0.2.0`, see `docs/adr/0006`. |
+| **Save states** | ⏳ Planned — `v0.2.0`, see [`docs/adr/0006`](docs/adr/0006-save-state-format.md). |
 | **Rewind / run-ahead** | ⏳ Planned — `v0.3.0`, builds on save-states. |
 | **Lua scripting** | ⏳ Planned — post-`v1.0.0`. |
 | **Debugger (breakpoints, memory viewer)** | ⏳ Planned — post-`v1.0.0`. |

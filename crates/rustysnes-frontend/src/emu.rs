@@ -281,11 +281,18 @@ pub enum EmuError {
 /// project's header detection already strips — see `docs/cartridge-format.md`).
 const ROM_EXTENSIONS: [&str; 4] = ["sfc", "smc", "fig", "swc"];
 
+/// Hard cap on a zip entry's decompressed size, enforced while reading (not just checked against
+/// the (attacker-controlled, spoofable) declared size up front). The largest official SNES ROM is
+/// 6 MiB and the largest known fan hack is ~12 MiB; 32 MiB leaves generous headroom while still
+/// bounding a "zip bomb" (a small archive that claims/produces a huge decompressed stream) to a
+/// sane memory ceiling instead of unbounded growth.
+const MAX_DECOMPRESSED_ROM_SIZE: u64 = 32 * 1024 * 1024;
+
 /// If `bytes` is a zip archive (sniffed by the local-file-header magic `PK\x03\x04`, or the
-/// empty-archive end-of-central-directory magic `PK\x05\x06`), extract the first entry whose
-/// extension is in [`ROM_EXTENSIONS`] and return its decompressed bytes. Otherwise returns `bytes`
-/// unchanged — a plain `.sfc`/`.smc` file passes straight through. Pure in-memory (a `Cursor` over
-/// the slice already in hand), so this is identical on native and wasm32.
+/// empty-archive end-of-central-directory magic `PK\x05\x06`), extract the first non-directory
+/// entry whose extension is in [`ROM_EXTENSIONS`] and return its decompressed bytes. Otherwise
+/// returns `bytes` unchanged — a plain `.sfc`/`.smc` file passes straight through. Pure in-memory
+/// (a `Cursor` over the slice already in hand), so this is identical on native and wasm32.
 fn extract_rom_bytes(bytes: &[u8]) -> Result<std::borrow::Cow<'_, [u8]>, EmuError> {
     let is_zip = bytes.len() >= 4 && (bytes[..4] == *b"PK\x03\x04" || bytes[..4] == *b"PK\x05\x06");
     if !is_zip {
@@ -297,10 +304,15 @@ fn extract_rom_bytes(bytes: &[u8]) -> Result<std::borrow::Cow<'_, [u8]>, EmuErro
     let rom_index = (0..archive.len())
         .find(|&i| {
             archive.name_for_index(i).is_some_and(|name| {
-                std::path::Path::new(name)
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .is_some_and(|ext| ROM_EXTENSIONS.iter().any(|r| ext.eq_ignore_ascii_case(r)))
+                // Directory entries conventionally end with `/` (zip spec) — a directory named
+                // e.g. `Game.sfc/` must not match, or extraction below fails on an empty read.
+                !name.ends_with('/')
+                    && std::path::Path::new(name)
+                        .extension()
+                        .and_then(|ext| ext.to_str())
+                        .is_some_and(|ext| {
+                            ROM_EXTENSIONS.iter().any(|r| ext.eq_ignore_ascii_case(r))
+                        })
             })
         })
         .ok_or_else(|| {
@@ -313,10 +325,19 @@ fn extract_rom_bytes(bytes: &[u8]) -> Result<std::borrow::Cow<'_, [u8]>, EmuErro
         .by_index(rom_index)
         .map_err(|e| EmuError::Archive(format!("{e}")))?;
     // `read_to_end` grows the buffer as needed; no need to pre-size from `entry.size()` (a
-    // `u64` that would need a lossy cast on 32-bit targets for a capacity hint only).
+    // `u64` that would need a lossy cast on 32-bit targets for a capacity hint only) — and that
+    // declared size is attacker-controlled anyway, which is exactly what `take` below guards
+    // against: capping the ACTUAL bytes read, not trusting the header's claim.
+    let mut limited = std::io::Read::take(&mut entry, MAX_DECOMPRESSED_ROM_SIZE + 1);
     let mut out = Vec::new();
-    std::io::Read::read_to_end(&mut entry, &mut out)
+    std::io::Read::read_to_end(&mut limited, &mut out)
         .map_err(|e| EmuError::Archive(format!("{e}")))?;
+    if out.len() as u64 > MAX_DECOMPRESSED_ROM_SIZE {
+        return Err(EmuError::Archive(format!(
+            "entry exceeds the {MAX_DECOMPRESSED_ROM_SIZE}-byte decompressed-size limit \
+             (zip bomb protection)"
+        )));
+    }
     Ok(std::borrow::Cow::Owned(out))
 }
 
@@ -376,6 +397,36 @@ mod tests {
     #[test]
     fn zip_with_no_rom_entry_errors() {
         let zipped = zip_containing("readme.txt", b"not a ROM");
+        assert!(matches!(
+            extract_rom_bytes(&zipped),
+            Err(EmuError::Archive(_))
+        ));
+    }
+
+    #[test]
+    fn zip_directory_entry_named_like_a_rom_is_not_matched() {
+        // A directory entry conventionally ends with `/` in the zip central directory; a folder
+        // literally named "Game.sfc" must not be picked over (or instead of) a real ROM entry.
+        let mut buf = std::io::Cursor::new(Vec::new());
+        let mut writer = zip::ZipWriter::new(&mut buf);
+        writer
+            .add_directory("Game.sfc/", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        let rom = vec![0xCD_u8; 128];
+        writer
+            .start_file("Real Game.sfc", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        std::io::Write::write_all(&mut writer, &rom).unwrap();
+        writer.finish().unwrap();
+        let zipped = buf.into_inner();
+        let out = extract_rom_bytes(&zipped).unwrap();
+        assert_eq!(&*out, rom.as_slice());
+    }
+
+    #[test]
+    fn oversized_zip_entry_is_rejected_not_read_unbounded() {
+        let huge = vec![0u8; usize::try_from(MAX_DECOMPRESSED_ROM_SIZE + 1).unwrap()];
+        let zipped = zip_containing("Big.sfc", &huge);
         assert!(matches!(
             extract_rom_bytes(&zipped),
             Err(EmuError::Archive(_))
