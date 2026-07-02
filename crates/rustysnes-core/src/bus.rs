@@ -36,6 +36,7 @@ use rustysnes_apu::Apu;
 use rustysnes_cart::{Cart, Region};
 use rustysnes_cpu::Bus as CpuBus;
 use rustysnes_ppu::{Ppu, Region as PpuRegion, VideoBus};
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
 
 use crate::dma::Dma;
 use crate::dma_bus::DmaBus;
@@ -117,6 +118,53 @@ struct MulDiv {
     dividend: u16,
     rddiv: u16,
     rdmpy: u16,
+}
+
+impl Clock {
+    fn save_state(&self, s: &mut SaveWriter) {
+        s.write_u64(self.master);
+        s.write_u32(self.dot_accum);
+        s.write_u64(self.spc_accum);
+        s.write_bool(self.fast_rom);
+        s.write_u8(self.nmitimen);
+        s.write_bool(self.nmi_line);
+        s.write_bool(self.rdnmi_flag);
+        s.write_bool(self.irq_line);
+        s.write_u16(self.htime);
+        s.write_u16(self.vtime);
+    }
+
+    fn load_state(&mut self, s: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.master = s.read_u64()?;
+        self.dot_accum = s.read_u32()?;
+        self.spc_accum = s.read_u64()?;
+        self.fast_rom = s.read_bool()?;
+        self.nmitimen = s.read_u8()?;
+        self.nmi_line = s.read_bool()?;
+        self.rdnmi_flag = s.read_bool()?;
+        self.irq_line = s.read_bool()?;
+        // htime/vtime are 9-bit comparators (write24 masks bit 8 with & 1 at $4208/$420A already).
+        self.htime = s.read_u16()? & 0x01FF;
+        self.vtime = s.read_u16()? & 0x01FF;
+        Ok(())
+    }
+}
+
+impl MulDiv {
+    fn save_state(&self, s: &mut SaveWriter) {
+        s.write_u8(self.mpya);
+        s.write_u16(self.dividend);
+        s.write_u16(self.rddiv);
+        s.write_u16(self.rdmpy);
+    }
+
+    fn load_state(&mut self, s: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.mpya = s.read_u8()?;
+        self.dividend = s.read_u16()?;
+        self.rddiv = s.read_u16()?;
+        self.rdmpy = s.read_u16()?;
+        Ok(())
+    }
 }
 
 /// Everything mutable lives here.
@@ -541,6 +589,99 @@ impl Bus {
         }
         // $00-3F/$80-BF:4000-41FF (joypad serial).
         12
+    }
+
+    /// Write the PPU's own section, the APU's own section, the DMA controller's own section,
+    /// then a `"BUS0"` section for WRAM + the Bus's own timing/register state, then (if a cart is
+    /// loaded) its battery SRAM + coprocessor state as a final untagged tail (a presence flag,
+    /// the length-prefixed SRAM bytes, then the board's own `save_state` bytes — the cart has no
+    /// single section of its own since its payload is really "however many bytes the board's own
+    /// implementation writes"). The cart's ROM/header are NOT written: the caller must reload the
+    /// same ROM (`Cart::load`) and install it before calling [`Bus::load_state`], the same "never
+    /// embed a ROM byte" contract every coprocessor board in `rustysnes-cart` already follows.
+    pub fn save_state(&self, w: &mut SaveWriter) {
+        self.ppu.save_state(w);
+        self.apu.save_state(w);
+        self.dma.save_state(w);
+        w.section(*b"BUS0", |s| {
+            self.clock.save_state(s);
+            self.muldiv.save_state(s);
+            s.write_bytes(&*self.wram);
+            s.write_u32(self.wram_addr);
+            s.write_u16(self.joypad[0]);
+            s.write_u16(self.joypad[1]);
+            s.write_bool(self.joypad_strobe);
+            s.write_u8(self.open_bus);
+            s.write_u16(self.last_hdma_line);
+            s.write_bool(self.in_hdma);
+            s.write_bool(self.hdma_setup_done);
+        });
+        match &self.cart {
+            Some(cart) => {
+                w.write_bool(true);
+                w.write_len_prefixed(cart.board.sram());
+                cart.board.save_state(w);
+            }
+            None => w.write_bool(false),
+        }
+    }
+
+    /// The inverse of [`Self::save_state`].
+    ///
+    /// # Errors
+    /// [`SaveStateError`] on truncated/corrupt input, a section with unconsumed trailing bytes,
+    /// or [`SaveStateError::Invalid`] if the save-state's cart presence doesn't match this
+    /// `Bus`'s own (a save-state taken with a cart loaded can only be restored onto a `Bus` that
+    /// already has the SAME cart's ROM loaded — via [`rustysnes_cart::Cart::load`] — installed
+    /// first; there is no ROM byte in the save-state to reconstruct it from) or if a restored
+    /// SRAM image's length doesn't match the installed cart's own SRAM size (a mismatched ROM).
+    pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.ppu.load_state(r)?;
+        self.apu.load_state(r)?;
+        self.dma.load_state(r)?;
+        let mut s = r.expect_section(*b"BUS0")?;
+        self.clock.load_state(&mut s)?;
+        self.muldiv.load_state(&mut s)?;
+        self.wram.copy_from_slice(s.read_bytes(WRAM_SIZE)?);
+        // wram_addr is a 17-bit register (every use site already masks it & 0x1_FFFF).
+        self.wram_addr = s.read_u32()? & 0x1_FFFF;
+        self.joypad[0] = s.read_u16()?;
+        self.joypad[1] = s.read_u16()?;
+        self.joypad_strobe = s.read_bool()?;
+        self.open_bus = s.read_u8()?;
+        self.last_hdma_line = s.read_u16()?;
+        self.in_hdma = s.read_bool()?;
+        self.hdma_setup_done = s.read_bool()?;
+        if s.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "BUS0 section has {} trailing byte(s)",
+                s.remaining()
+            )));
+        }
+        let had_cart = r.read_bool()?;
+        match (&mut self.cart, had_cart) {
+            (Some(cart), true) => {
+                let sram = r.read_len_prefixed()?;
+                if sram.len() != cart.board.sram().len() {
+                    return Err(SaveStateError::Invalid(alloc::format!(
+                        "save-state SRAM length {} does not match the installed cart's {} \
+                         (wrong ROM loaded before restoring?)",
+                        sram.len(),
+                        cart.board.sram().len()
+                    )));
+                }
+                cart.board.sram_mut().copy_from_slice(sram);
+                cart.board.load_state(r)?;
+            }
+            (None, false) => {}
+            (Some(_), false) | (None, true) => {
+                return Err(SaveStateError::Invalid(alloc::string::String::from(
+                    "save-state cart presence does not match this Bus's installed cart \
+                     (load the same ROM before restoring, or restore onto a fresh Bus)",
+                )));
+            }
+        }
+        Ok(())
     }
 }
 

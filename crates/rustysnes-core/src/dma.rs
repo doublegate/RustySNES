@@ -19,6 +19,8 @@
 // deliberate narrowing casts are allowed module-wide (mirrors the CPU/bus modules).
 #![allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 use crate::dma_bus::DmaBus;
 
 /// Per-mode B-bus register count (how many distinct B-bus addresses a transfer unit touches).
@@ -85,6 +87,33 @@ impl Channel {
         self.dmap & 0x07
     }
 
+    fn save_state(self, s: &mut SaveWriter) {
+        s.write_u8(self.dmap);
+        s.write_u8(self.target);
+        s.write_u16(self.source_addr);
+        s.write_u8(self.source_bank);
+        s.write_u16(self.count_or_indirect);
+        s.write_u8(self.indirect_bank);
+        s.write_u16(self.hdma_addr);
+        s.write_u8(self.line_counter);
+        s.write_bool(self.hdma_completed);
+        s.write_bool(self.hdma_do_transfer);
+    }
+
+    fn load_state(&mut self, s: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.dmap = s.read_u8()?;
+        self.target = s.read_u8()?;
+        self.source_addr = s.read_u16()?;
+        self.source_bank = s.read_u8()?;
+        self.count_or_indirect = s.read_u16()?;
+        self.indirect_bank = s.read_u8()?;
+        self.hdma_addr = s.read_u16()?;
+        self.line_counter = s.read_u8()?;
+        self.hdma_completed = s.read_bool()?;
+        self.hdma_do_transfer = s.read_bool()?;
+        Ok(())
+    }
+
     /// The B-bus address for transfer-unit byte `index` (ares `Channel::transfer` switch).
     const fn b_address(self, index: u8) -> u8 {
         let bump = match self.mode() {
@@ -133,6 +162,38 @@ impl Dma {
             0xA => c.line_counter = val,
             _ => {}
         }
+    }
+
+    /// Write all 8 channels + the `MDMAEN`/`HDMAEN` enables into a `"DMA0"` section.
+    pub fn save_state(&self, w: &mut SaveWriter) {
+        w.section(*b"DMA0", |s| {
+            for &c in &self.channels {
+                c.save_state(s);
+            }
+            s.write_u8(self.gp_enable);
+            s.write_u8(self.hdma_enable);
+        });
+    }
+
+    /// The inverse of [`Self::save_state`].
+    ///
+    /// # Errors
+    /// [`SaveStateError`] on truncated/corrupt input or a section with unconsumed trailing
+    /// bytes.
+    pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        let mut s = r.expect_section(*b"DMA0")?;
+        for c in &mut self.channels {
+            c.load_state(&mut s)?;
+        }
+        self.gp_enable = s.read_u8()?;
+        self.hdma_enable = s.read_u8()?;
+        if s.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "DMA0 section has {} trailing byte(s)",
+                s.remaining()
+            )));
+        }
+        Ok(())
     }
 
     /// Read a DMA channel register `$43nA`.
@@ -511,5 +572,28 @@ mod tests {
         dma.gp_enable = 0x01;
         let _ = dma.run_gp(0x01, &mut bus);
         assert_eq!(dma.gp_enable, 0);
+    }
+
+    #[test]
+    fn all_channels_round_trip_through_save_state() {
+        let mut dma = Dma::new();
+        dma.write_reg(3, 0x0, 0x81);
+        dma.write_reg(3, 0x1, 0x18);
+        dma.gp_enable = 0x08;
+        dma.hdma_enable = 0x01;
+
+        let mut w = SaveWriter::new();
+        dma.save_state(&mut w);
+        let bytes = w.into_bytes();
+
+        let mut fresh = Dma::new();
+        let mut r = SaveReader::new(&bytes);
+        fresh.load_state(&mut r).unwrap();
+
+        assert_eq!(fresh.channels[3].dmap, 0x81);
+        assert_eq!(fresh.channels[3].target, 0x18);
+        assert_eq!(fresh.gp_enable, 0x08);
+        assert_eq!(fresh.hdma_enable, 0x01);
+        assert_eq!(r.remaining(), 0);
     }
 }

@@ -3155,6 +3155,7 @@ dependencies = [
  "rustysnes-cart",
  "rustysnes-cpu",
  "rustysnes-ppu",
+ "rustysnes-savestate",
 ]
 
 [[package]]

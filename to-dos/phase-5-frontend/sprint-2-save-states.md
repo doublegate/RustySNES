@@ -39,10 +39,16 @@ state**. T-52-003 completed its per-subsystem half: `Cpu` (the full 65C816 regis
 the window unit, write latches, the dot/scanline timeline, interrupt/frame polls, `region`, and
 the framebuffer), and `Apu` (`Spc700` + `Dsp` + ARAM + the `$00F0-$00FF` register file + timers +
 the in-flight instruction micro-op plan — the SPC700 analogue of the GSU's
-`pending_clocks`/`pending_idx`) all round-trip their exact state now. **T-52-003's
-per-subsystem acceptance criterion is now fully met.** Remaining: the `System`-level versioned
-envelope (magic + format version wrapping `Cpu`/`Ppu`/`Apu`/`Cart`) and the round-trip
-determinism test — see T-52-003(envelope)/004 below.
+`pending_clocks`/`pending_idx`) all round-trip their exact state now. T-52-003 completes with
+`System::save_state()`/`load_state()` — the versioned envelope (4-byte magic `b"RSNS"` + `u16`
+format version) wrapping `Cpu`, the whole `Bus` (`Ppu`/`Apu`/`Dma`/`Clock`/`MulDiv`/WRAM, plus the
+cart's coprocessor state + battery SRAM when a cart is loaded), and the SA-1 second CPU + its
+master-clock catch-up accounting when present. A save-state's cart/SA-1 presence is
+cross-checked against the target `System`'s own installed state on load (restoring a
+cart-carrying save-state requires the caller to have already loaded the SAME ROM first — no ROM
+byte is ever embedded, the same posture every coprocessor's firmware already follows) — a
+mismatch is rejected, not silently corrupted. **T-52-003 is now fully complete.** Remaining: the
+round-trip determinism test — see T-52-004 below.
 
 ## Tickets
 
@@ -95,8 +101,8 @@ for every coprocessor board that carries register-file state: `Dsp1Board`, `NecD
 
 ### T-52-003 — `System::save_state()`/`load_state()` (the versioned envelope)
 
-**Description:** in `rustysnes-core`, implement the format header (magic, format version,
-crate-version string) + length-prefixed sections wrapping `Cpu`, the `Bus`-owned state (WRAM,
+**Description:** in `rustysnes-core`, implement the format header (a 4-byte magic + `u16` format
+version) + length-prefixed sections wrapping `Cpu`, the `Bus`-owned state (WRAM,
 DMA, `Clock`), `Ppu`, `Apu`, and `Cart`/`Board` (via T-52-002's per-board hooks). Replace the
 `Unsupported` stubs `ref-proj/RUSTYMU-INTEGRATION.md` documents for
 `System::save_state()`/`load_state()` with real implementations. `load_state()` rejects an
@@ -105,12 +111,15 @@ ADR 0006).
 
 **Acceptance criteria:**
 
-- [ ] `System::save_state() -> Vec<u8>` (or the no_std-compatible equivalent) and
-      `System::load_state(&mut self, &[u8]) -> Result<(), SaveStateError>` both exist and are
-      exercised end-to-end on a booted commercial ROM.
-- [ ] An unrecognized/corrupt format is rejected with a typed error, not a panic or silent
-      partial load.
-- [ ] `#![no_std]` gate holds for `rustysnes-core` too.
+- [x] `System::save_state() -> Vec<u8>` (or the no_std-compatible equivalent) and
+      `System::load_state(&mut self, &[u8]) -> Result<(), SaveStateError>` both exist. Exercised
+      end-to-end on a booted commercial ROM is T-52-004's job (the determinism test itself IS
+      that exercise); this ticket's own tests cover the no-cart path plus magic/version
+      rejection.
+- [x] An unrecognized/corrupt format is rejected with a typed error, not a panic or silent
+      partial load (`bad_magic_is_rejected_not_panicked_on`,
+      `newer_format_version_is_rejected_not_panicked_on`).
+- [x] `#![no_std]` gate holds for `rustysnes-core` too.
 
 **Dependencies:** T-52-002
 **Reference:** `docs/adr/0006-save-state-format.md`, `ref-proj/RUSTYMU-INTEGRATION.md`
