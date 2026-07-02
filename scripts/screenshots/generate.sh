@@ -18,7 +18,7 @@ SHOTS="$REPO/screenshots"
 echo ">> capturing title + gameplay frames for every staged ROM (PPM dump)"
 rm -rf "$DUMP"; mkdir -p "$DUMP"
 RUSTYSNES_DUMP_FRAMES=1 RUSTYSNES_DUMP_DIR="$DUMP" \
-  cargo test -p rustysnes-test-harness --features test-roms --test commercial_screenshots --release -- --nocapture 2>&1 \
+  cargo test -p rustysnes-test-harness --features "test-roms commercial-roms" --test commercial_screenshots --release -- --nocapture 2>&1 \
   | grep -iE 'commercial_screenshots:|SKIP' || true
 
 echo ">> converting PPM -> PNG (mirroring the ROM tree under screenshots/)"

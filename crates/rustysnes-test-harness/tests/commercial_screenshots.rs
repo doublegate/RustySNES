@@ -25,16 +25,24 @@
 //! `tests/roms/`) so `scripts/screenshots/generate.sh` can convert + montage them.
 //!
 //! This is a SCREENSHOT GENERATOR, not a correctness gate: with no env var set it just boots each
-//! ROM (a smoke net) and self-skips entirely when the corpus is absent (CI stays green). Only the
-//! produced PNGs (`screenshots/`) are ever committed — never a ROM or firmware byte (ADR 0003).
+//! ROM (a smoke net) and self-skips entirely when the corpus is absent. It is gated behind
+//! `commercial-roms`, NOT `test-roms` — CI's `cargo test --workspace --features test-roms` never
+//! passes `commercial-roms`, so this file does not compile (let alone run) in CI. It walks and
+//! boots every ROM under `tests/roms/` (including the large committed permissive suites, gilyon/
+//! undisbeliever/blargg — each already validated by its own dedicated, much faster test), which
+//! made this by far the most expensive single test in the workspace when it ran unconditionally
+//! under `test-roms`. Run it explicitly, locally, only when actually regenerating screenshots.
+//! Only the produced PNGs (`screenshots/`) are ever committed — never a ROM or firmware byte
+//! (ADR 0003).
 //!
 //! Usage:
 //! ```text
 //! RUSTYSNES_DUMP_FRAMES=1 [RUSTYSNES_ROM_FILTER=substr] [RUSTYSNES_DUMP_DIR=/tmp/...] \
 //!   [RUSTYSNES_DUMP_CANDIDATES=1] \
-//!   cargo test -p rustysnes-test-harness --features test-roms --test commercial_screenshots -- --nocapture
+//!   cargo test -p rustysnes-test-harness --features "test-roms commercial-roms" \
+//!     --test commercial_screenshots --release -- --nocapture
 //! ```
-#![cfg(feature = "test-roms")]
+#![cfg(feature = "commercial-roms")]
 // Screenshot generator: bounded framebuffer values narrowed to u8 (intentional), and the
 // module doc lists bare env-var names / paths in a usage block.
 #![allow(clippy::cast_possible_truncation, clippy::doc_markdown)]
@@ -276,7 +284,7 @@ fn write_ppm(fb: &[u16], w: u32, h: u32, dump_dir: &str, rel: &Path, suffix: &st
         stem.file_name().unwrap().to_string_lossy()
     );
     let out = Path::new(dump_dir)
-        .join(rel.parent().unwrap_or(Path::new("")))
+        .join(rel.parent().unwrap_or_else(|| Path::new("")))
         .join(file_name);
     if let Some(parent) = out.parent() {
         std::fs::create_dir_all(parent).ok();
