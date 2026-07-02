@@ -34,11 +34,15 @@ indexes it directly) and its `Decompressor` (a prediction index outside `EVOLUTI
 rejected, `bpp`/`bits` are bounded to the only values real execution ever produces) and paired
 `EpsonRtc` (an out-of-range handshake-state discriminant is rejected) — **T-52-002's
 board-coverage acceptance criterion is now fully met, every coprocessor board round-trips its
-state**. T-52-003 underway: `Cpu` (the full 65C816 register file + `WAI`/`STP` latches + cycle
-counter) and `Ppu` (VRAM/CGRAM/OAM, the full register file including the window unit, write
-latches, the dot/scanline timeline, interrupt/frame polls, `region`, and the framebuffer) both
-round-trip their state now. Remaining: `Apu` and the `System`-level versioned envelope — see
-T-52-003/004 below.
+state**. T-52-003 completed its per-subsystem half: `Cpu` (the full 65C816 register file +
+`WAI`/`STP` latches + cycle counter), `Ppu` (VRAM/CGRAM/OAM, the full register file including
+the window unit, write latches, the dot/scanline timeline, interrupt/frame polls, `region`, and
+the framebuffer), and `Apu` (`Spc700` + `Dsp` + ARAM + the `$00F0-$00FF` register file + timers +
+the in-flight instruction micro-op plan — the SPC700 analogue of the GSU's
+`pending_clocks`/`pending_idx`) all round-trip their exact state now. **T-52-003's
+per-subsystem acceptance criterion is now fully met.** Remaining: the `System`-level versioned
+envelope (magic + format version wrapping `Cpu`/`Ppu`/`Apu`/`Cart`) and the round-trip
+determinism test — see T-52-003(envelope)/004 below.
 
 ## Tickets
 

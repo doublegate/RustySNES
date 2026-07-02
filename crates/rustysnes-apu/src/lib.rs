@@ -43,6 +43,7 @@ mod spc700_exec;
 mod nostd_math;
 
 use dsp::{ARAM_SIZE, Dsp};
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
 use spc700::{Spc700, Spc700Bus};
 
 /// SMP base clocks one bus access consumes — ares `cycleWaitStates[0]` (the reset wait state).
@@ -189,6 +190,31 @@ impl Timer {
         self.stage3 = 0;
         v
     }
+
+    fn save_state(&self, s: &mut SaveWriter) {
+        s.write_u16(self.divisor);
+        s.write_u16(self.stage0);
+        s.write_bool(self.stage1);
+        s.write_u8(self.stage2);
+        s.write_u8(self.stage3);
+        s.write_bool(self.line);
+        s.write_bool(self.enable);
+        s.write_u8(self.target);
+    }
+
+    fn load_state(&mut self, s: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.divisor = s.read_u16()?;
+        self.stage0 = s.read_u16()?;
+        self.stage1 = s.read_bool()?;
+        self.stage2 = s.read_u8()?;
+        // stage3 is the 4-bit visible counter (sync_stage1 already masks it & 0x0F on every
+        // normal increment); mask on load too rather than trust it verbatim.
+        self.stage3 = s.read_u8()? & 0x0F;
+        self.line = s.read_bool()?;
+        self.enable = s.read_bool()?;
+        self.target = s.read_u8()?;
+        Ok(())
+    }
 }
 
 /// Memory-mapped register / control state at `$00F0-$00FF` (ares `SMP::IO`).
@@ -228,6 +254,37 @@ impl Default for Io {
             apu: [0; 4],
             aux: [0; 2],
         }
+    }
+}
+
+impl Io {
+    fn save_state(&self, s: &mut SaveWriter) {
+        s.write_bool(self.timers_disable);
+        s.write_bool(self.ram_writable);
+        s.write_bool(self.ram_disable);
+        s.write_bool(self.timers_enable);
+        s.write_u8(self.external_wait);
+        s.write_u8(self.internal_wait);
+        s.write_bool(self.iplrom_enable);
+        s.write_u8(self.dsp_address);
+        s.write_bytes(&self.cpu);
+        s.write_bytes(&self.apu);
+        s.write_bytes(&self.aux);
+    }
+
+    fn load_state(&mut self, s: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.timers_disable = s.read_bool()?;
+        self.ram_writable = s.read_bool()?;
+        self.ram_disable = s.read_bool()?;
+        self.timers_enable = s.read_bool()?;
+        self.external_wait = s.read_u8()?;
+        self.internal_wait = s.read_u8()?;
+        self.iplrom_enable = s.read_bool()?;
+        self.dsp_address = s.read_u8()?;
+        self.cpu.copy_from_slice(s.read_bytes(4)?);
+        self.apu.copy_from_slice(s.read_bytes(4)?);
+        self.aux.copy_from_slice(s.read_bytes(2)?);
+        Ok(())
     }
 }
 
@@ -497,7 +554,111 @@ impl Apu {
     pub fn smp_stopped(&self) -> bool {
         self.cpu.stopped
     }
+
+    /// Write the SPC700 core, the S-DSP, ARAM, the `$00F0-$00FF` register file, the three
+    /// timers, the DSP output-sample counter, and the in-flight instruction micro-op plan
+    /// (`plan`/`plan_pos`/`plan_sub`) into an `"APU0"` section. `iplrom` is NOT written: it is
+    /// the fixed public-domain 64-byte boot ROM ([`IPL_ROM`]), identical on every SNES and never
+    /// user-supplied, so a freshly-constructed `Apu` already carries the exact same bytes
+    /// (`docs/adr/0003`'s "never embed a chip-ROM/firmware byte" posture applied to a constant
+    /// that needs no embedding in the first place).
+    pub fn save_state(&self, w: &mut SaveWriter) {
+        w.section(*b"APU0", |s| {
+            self.cpu.save_state(s);
+            self.dsp.save_state(s);
+            s.write_bytes(&*self.aram);
+            self.io.save_state(s);
+            for t in &self.timers {
+                t.save_state(s);
+            }
+            s.write_u32(self.dsp_counter);
+            s.write_u32(self.cycle_budget);
+            s.write_u32(self.next_instruction_cost);
+            #[allow(clippy::cast_possible_truncation)] // bounded by MAX_SAVED_PLAN_LEN
+            s.write_u32(self.plan.len() as u32);
+            for step in &self.plan {
+                s.write_u32(step.base_clocks);
+                match step.port_write {
+                    Some((port, val)) => {
+                        s.write_bool(true);
+                        s.write_u8(port);
+                        s.write_u8(val);
+                    }
+                    None => s.write_bool(false),
+                }
+            }
+            #[allow(clippy::cast_possible_truncation)] // <= plan.len(), same bound
+            s.write_u32(self.plan_pos as u32);
+            s.write_u32(self.plan_sub);
+        });
+    }
+
+    /// The inverse of [`Self::save_state`].
+    ///
+    /// # Errors
+    /// [`SaveStateError`] on truncated/corrupt input, a section with unconsumed trailing bytes,
+    /// or [`SaveStateError::Invalid`] if the saved instruction plan's claimed length exceeds
+    /// `MAX_SAVED_PLAN_LEN` or `plan_pos` exceeds the restored plan's length (mirroring the
+    /// GSU's `pending_clocks`/`pending_idx` validation in `rustysnes-cart` — an in-flight
+    /// instruction has at most a handful of micro-ops, so a larger claimed length could never
+    /// have come from real execution).
+    pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        let mut s = r.expect_section(*b"APU0")?;
+        self.cpu.load_state(&mut s)?;
+        self.dsp.load_state(&mut s)?;
+        self.aram.copy_from_slice(s.read_bytes(ARAM_SIZE)?);
+        self.io.load_state(&mut s)?;
+        for t in &mut self.timers {
+            t.load_state(&mut s)?;
+        }
+        self.dsp_counter = s.read_u32()?;
+        self.cycle_budget = s.read_u32()?;
+        self.next_instruction_cost = s.read_u32()?;
+        let plan_len = s.read_u32()? as usize;
+        if plan_len > MAX_SAVED_PLAN_LEN {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "APU instruction plan length {plan_len} exceeds the sane bound of {MAX_SAVED_PLAN_LEN}"
+            )));
+        }
+        self.plan.clear();
+        for _ in 0..plan_len {
+            let base_clocks = s.read_u32()?;
+            let port_write = if s.read_bool()? {
+                let port = s.read_u8()?;
+                let val = s.read_u8()?;
+                Some((port, val))
+            } else {
+                None
+            };
+            self.plan.push(CycleStep {
+                base_clocks,
+                port_write,
+            });
+        }
+        let plan_pos = s.read_u32()? as usize;
+        if plan_pos > self.plan.len() {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "APU plan_pos {plan_pos} exceeds the restored plan length {}",
+                self.plan.len()
+            )));
+        }
+        self.plan_pos = plan_pos;
+        self.plan_sub = s.read_u32()?;
+        if s.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "APU0 section has {} trailing byte(s)",
+                s.remaining()
+            )));
+        }
+        Ok(())
+    }
 }
+
+/// Bound on the saved in-flight instruction plan's length: [`Apu::step_instruction`] records at
+/// most a handful of micro-ops per instruction, so a claimed length beyond this is corrupt/hostile
+/// input, not a value real execution could ever produce (mirrors the GSU's
+/// `MAX_SAVED_PENDING_CLOCKS` in `rustysnes-cart`).
+const MAX_SAVED_PLAN_LEN: usize = 64;
 
 /// The concrete [`Spc700Bus`] the full APU presents to its SPC700: ARAM + IPL ROM + the
 /// memory-mapped registers (`$00F0-$00FF`) + timers + DSP. Cycle counting (`wait`-state model
@@ -960,5 +1121,65 @@ mod tests {
         apu.run_cycles(2000);
         // DSP produced at least one sample frame (still silence pre-program, but the path ran).
         let _ = apu.sample();
+    }
+
+    #[test]
+    fn full_state_round_trips_through_save_state() {
+        let mut apu = Apu::new();
+        apu.run_cycles(2000);
+        apu.cpu.regs.a = 0x42;
+        apu.aram[0x100] = 0x7A;
+        apu.dsp.write(0x00, 0x11); // voice 0 volume-left register
+        let pc_before = apu.cpu.regs.pc;
+
+        let mut w = SaveWriter::new();
+        apu.save_state(&mut w);
+        let bytes = w.into_bytes();
+
+        let mut fresh = Apu::new();
+        let mut r = SaveReader::new(&bytes);
+        fresh.load_state(&mut r).unwrap();
+
+        assert_eq!(fresh.cpu.regs.a, 0x42);
+        assert_eq!(fresh.cpu.regs.pc, pc_before);
+        assert_eq!(fresh.aram[0x100], 0x7A);
+        assert_eq!(fresh.dsp.read(0x00), 0x11);
+        assert_eq!(r.remaining(), 0);
+    }
+
+    #[test]
+    fn oversized_instruction_plan_length_is_rejected_not_trusted() {
+        let apu = Apu::new();
+        let mut w = SaveWriter::new();
+        apu.save_state(&mut w);
+        let mut bytes = w.into_bytes();
+
+        // Locate the plan-length u32 by replaying load_state's own field order up to it, mirroring
+        // the GSU pending_clocks test in rustysnes-cart's gsu.rs.
+        let mut r = SaveReader::new(&bytes);
+        let mut s = r.expect_section(*b"APU0").unwrap();
+        let mut probe = Spc700::new();
+        probe.load_state(&mut s).unwrap();
+        let mut dsp_probe = Dsp::new();
+        dsp_probe.load_state(&mut s).unwrap();
+        s.read_bytes(ARAM_SIZE).unwrap();
+        let mut io_probe = Io::default();
+        io_probe.load_state(&mut s).unwrap();
+        for _ in 0..3 {
+            let mut t = Timer::default();
+            t.load_state(&mut s).unwrap();
+        }
+        s.read_u32().unwrap(); // dsp_counter
+        s.read_u32().unwrap(); // cycle_budget
+        s.read_u32().unwrap(); // next_instruction_cost
+        let offset = bytes.len() - s.remaining();
+        bytes[offset..offset + 4].copy_from_slice(&1000u32.to_le_bytes());
+
+        let mut fresh = Apu::new();
+        let mut r2 = SaveReader::new(&bytes);
+        assert!(matches!(
+            fresh.load_state(&mut r2),
+            Err(SaveStateError::Invalid(_))
+        ));
     }
 }
