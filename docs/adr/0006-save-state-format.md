@@ -2,8 +2,14 @@
 
 ## Status
 
-Proposed. (Accepted once `System::save_state()`/`load_state()` land in `v0.2.0
-"Persistence"`, `to-dos/VERSION-PLAN.md`.)
+Proposed; partially implemented. (Accepted once `System::save_state()`/`load_state()` land in
+`v0.2.0 "Persistence"`, `to-dos/VERSION-PLAN.md`.)
+
+**Progress:** the wire-format primitives (`rustysnes-savestate`: `SaveWriter`/`SaveReader`/
+`SaveStateError`) and the `Board::save_state`/`load_state` trait hooks are landed, proven
+end-to-end on `Obc1Board`. Remaining: the rest of the coprocessor boards, `Cpu`/`Ppu`/`Apu`, and
+the `System`-level versioned envelope that assembles them — tracked in
+`to-dos/phase-5-frontend/sprint-2-save-states.md`.
 
 ## Context
 

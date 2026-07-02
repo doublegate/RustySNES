@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/rustysnes-savestate",
     "crates/rustysnes-core",
     "crates/rustysnes-cpu",
     "crates/rustysnes-ppu",

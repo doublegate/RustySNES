@@ -18,6 +18,8 @@
 use alloc::boxed::Box;
 use alloc::vec;
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 use crate::board::{Board, Coprocessor, MappedAddr};
 
 /// OBC1's own dedicated RAM size — 8 KiB (`ares` `SHVC-2E3M-01` Save-RAM size, confirmed against
@@ -178,6 +180,49 @@ impl Board for Obc1Board {
     fn sram_mut(&mut self) -> &mut [u8] {
         &mut self.ram
     }
+
+    // The RAM itself round-trips via `sram`/`sram_mut` above (`System::save_state` captures SRAM
+    // separately) — the only extra state is the movable cursor, plus whatever the wrapped base
+    // board carries (nothing for plain LoROM today, but delegating keeps this composable if that
+    // ever changes).
+    fn save_state(&self, w: &mut SaveWriter) {
+        w.section(*b"OBC1", |s| {
+            s.write_u16(self.status.address);
+            s.write_u16(self.status.baseptr);
+            s.write_u16(self.status.shift);
+        });
+        self.inner.save_state(w);
+    }
+
+    fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        let mut s = r.expect_section(*b"OBC1")?;
+        let address = s.read_u16()?;
+        let baseptr = s.read_u16()?;
+        let shift = s.read_u16()?;
+        // Untrusted (possibly hand-edited or corrupted) input: `address`/`baseptr`/`shift` are
+        // never independently free-form (they're always derived from a 7-bit `$1FF6` write and a
+        // 1-bit `$1FF5` write — see `write_register` above), so validate the exact ranges hardware
+        // can actually produce rather than trusting the bytes. An out-of-range `shift` in
+        // particular would panic on the next `$1FF4` access (`(val & 3) << shift` overflows a u8
+        // once shift >= 8) — this is the boundary that check protects.
+        if address > 0x7F || !matches!(baseptr, 0x1800 | 0x1C00) || !matches!(shift, 0 | 2 | 4 | 6)
+        {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "OBC1 cursor out of range: address={address:#x} baseptr={baseptr:#x} \
+                 shift={shift}"
+            )));
+        }
+        if s.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "OBC1 section has {} trailing byte(s)",
+                s.remaining()
+            )));
+        }
+        self.status.address = address;
+        self.status.baseptr = baseptr;
+        self.status.shift = shift;
+        self.inner.load_state(r)
+    }
 }
 
 #[cfg(test)]
@@ -233,5 +278,62 @@ mod tests {
         assert_eq!(b.status.baseptr, 0x1800);
         b.write24(0x00_7FF5, 0);
         assert_eq!(b.status.baseptr, 0x1C00);
+    }
+
+    #[test]
+    fn cursor_round_trips_through_save_state() {
+        let mut b = board();
+        b.write24(0x00_7FF6, 5); // reprogram address/shift away from power-on defaults
+        b.write24(0x00_7FF5, 1); // baseptr = $1800
+
+        let mut w = SaveWriter::new();
+        b.save_state(&mut w);
+        let bytes = w.into_bytes();
+
+        let mut fresh = board();
+        let mut r = SaveReader::new(&bytes);
+        fresh.load_state(&mut r).unwrap();
+
+        assert_eq!(fresh.status.address, b.status.address);
+        assert_eq!(fresh.status.baseptr, b.status.baseptr);
+        assert_eq!(fresh.status.shift, b.status.shift);
+        assert_eq!(r.remaining(), 0);
+    }
+
+    #[test]
+    fn out_of_range_cursor_is_rejected_not_panicked_on() {
+        // shift=8 would panic on the next $1FF4 access ((val & 3) << 8 overflows a u8) if it were
+        // accepted — this is exactly the untrusted-input boundary `load_state` must guard.
+        let mut w = SaveWriter::new();
+        w.section(*b"OBC1", |s| {
+            s.write_u16(0); // address: valid
+            s.write_u16(0x1C00); // baseptr: valid
+            s.write_u16(8); // shift: OUT OF RANGE
+        });
+        let bytes = w.into_bytes();
+        let mut b = board();
+        let mut r = SaveReader::new(&bytes);
+        assert!(matches!(
+            b.load_state(&mut r),
+            Err(SaveStateError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn trailing_bytes_in_section_are_rejected() {
+        let mut w = SaveWriter::new();
+        w.section(*b"OBC1", |s| {
+            s.write_u16(0);
+            s.write_u16(0x1C00);
+            s.write_u16(0);
+            s.write_u8(0xFF); // extra byte the real format never writes
+        });
+        let bytes = w.into_bytes();
+        let mut b = board();
+        let mut r = SaveReader::new(&bytes);
+        assert!(matches!(
+            b.load_state(&mut r),
+            Err(SaveStateError::Invalid(_))
+        ));
     }
 }

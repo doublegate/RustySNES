@@ -9,7 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet — see `to-dos/VERSION-PLAN.md` for the `v0.2.0 "Persistence"` scope in progress.
+`v0.2.0 "Persistence"` in progress — see `to-dos/VERSION-PLAN.md` and
+`to-dos/phase-5-frontend/sprint-2-save-states.md`.
+
+### Added
+
+- **Save-state foundation (part 1 of N).** New `rustysnes-savestate` leaf crate: `SaveWriter` (an
+  append-only builder with primitive writers + a `section(tag, body)` helper for nested,
+  self-describing sections) and `SaveReader` (a bounds-checked cursor with the mirror-image
+  readers, returning `Result` instead of panicking on truncated/corrupt input) — the wire-format
+  primitives `docs/adr/0006-save-state-format.md` specifies. `Board::save_state`/`load_state`
+  hooks added to `rustysnes-cart`, default no-op (correct, not just convenient, for the base
+  LoROM/HiROM/ExHiROM boards, which carry no extra coprocessor state). Proven end-to-end on
+  `Obc1Board`: its 3-field cursor round-trips through a save/load cycle, asserted by a new unit
+  test. `#![no_std]` holds throughout. The remaining coprocessor boards, `Cpu`/`Ppu`/`Apu`, and
+  the `System`-level versioned envelope that assembles them are tracked as the sprint's remaining
+  tickets, not yet implemented.
 
 ## [0.1.0] "Foundation" - 2026-07-02
 

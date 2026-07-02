@@ -12,6 +12,8 @@
 use alloc::boxed::Box;
 use alloc::vec;
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 use crate::header::{Coprocessor as CoproId, Header, MapMode};
 
 /// The result of a board's address decode: where a 24-bit CPU address lands.
@@ -151,6 +153,38 @@ pub trait Board {
     /// diagnostics). Default `0` — base boards have no coprocessor.
     fn coprocessor_host_accesses(&self) -> u64 {
         0
+    }
+
+    // --- Save-state hooks (`docs/adr/0006`). --------------------------------------------------
+    //
+    // ROM and SRAM are NOT written here — `System::save_state` captures SRAM separately (it's
+    // also the battery-save path, `Board::sram`/`sram_mut`) and never captures ROM at all (it's
+    // loaded fresh from the user's own file on restore, never embedded in a save-state — the same
+    // "never commit/carry a ROM byte" posture `docs/adr/0003` already applies to firmware dumps).
+    // These hooks cover everything else a board's coprocessor carries: register files, cursors,
+    // decompressor/engine state.
+
+    /// Write this board's coprocessor state (registers, cursors, sub-engine state — NOT ROM/SRAM,
+    /// see above). Default no-op: the base LoROM/HiROM/ExHiROM boards and any coprocessor board
+    /// that hasn't opted in yet carry no extra state beyond what `System::save_state` already
+    /// captures directly, so writing nothing is correct, not merely convenient — restoring such a
+    /// board's post-load state is already exact.
+    fn save_state(&self, w: &mut SaveWriter) {
+        let _ = w;
+    }
+
+    /// The inverse of [`Self::save_state`] — restore state a matching `save_state` call wrote.
+    /// Default no-op, matching that default. A board overriding one MUST override the other; an
+    /// asymmetric pair would silently desync a restored coprocessor from its own register file,
+    /// which is exactly the honesty-gate failure mode `docs/adr/0003`/`docs/adr/0006` forbid.
+    ///
+    /// # Errors
+    /// A board rejects malformed/truncated bytes via [`SaveStateError`] rather than partially
+    /// applying them — never a panic on untrusted (user-supplied, possibly hand-edited or
+    /// corrupted) save-state data.
+    fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        let _ = r;
+        Ok(())
     }
 
     // --- Second-CPU hooks (SA-1). -----------------------------------------------------------
