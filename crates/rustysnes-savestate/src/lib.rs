@@ -13,12 +13,18 @@
 //!
 //! # Format
 //!
-//! A save-state is a sequence of **tagged, length-prefixed sections** — a 4-byte ASCII tag, a
-//! `u32` little-endian byte length, then that many bytes of section-defined content. Wrapping a
-//! component's state as one such section (via [`SaveWriter::section`] / [`SaveReader::section`])
-//! is what lets a newer format skip a section it doesn't recognize (a bumped-version load) rather
-//! than corrupting the rest of the load, and lets a struct that changed its own internal layout
-//! stay self-describing without a central schema registry.
+//! This crate defines the **section framing** a save-state's payload is built from — a full
+//! save-state additionally has a top-level header (magic bytes + format version + crate-version
+//! string, ADR 0006) that `rustysnes-core::System::save_state`/`load_state` writes/checks before
+//! ever touching a section; that envelope is out of scope here (see [`SaveStateError::BadMagic`]/
+//! [`SaveStateError::UnsupportedVersion`], which exist for that caller to use).
+//!
+//! A section is **tagged and length-prefixed** — a 4-byte ASCII tag, a `u32` little-endian byte
+//! length, then that many bytes of section-defined content. Wrapping a component's state as one
+//! such section (via [`SaveWriter::section`] / [`SaveReader::section`]) is what lets a newer
+//! format skip a section it doesn't recognize (a bumped-version load) rather than corrupting the
+//! rest of the load, and lets a struct that changed its own internal layout stay self-describing
+//! without a central schema registry.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -143,11 +149,21 @@ impl SaveWriter {
     /// whatever `body` writes. `tag` should be a short, stable, human-legible identifier (e.g.
     /// `*b"CPU0"`, `*b"BRD1"`) — stable across releases even if the section's internal layout
     /// changes, since [`SaveReader::section`] uses it to skip a section it doesn't recognize.
+    ///
+    /// `body` writes directly into this writer's own buffer (no nested `Vec` allocation — a
+    /// save-state gets created and restored repeatedly during rewind/run-ahead, so allocating one
+    /// throwaway buffer per (possibly nested) section on every such call would add up); the length
+    /// header is a zero placeholder written up front and patched in place once `body` returns and
+    /// the section's true length is known.
     pub fn section(&mut self, tag: [u8; 4], body: impl FnOnce(&mut Self)) {
-        let mut inner = Self::new();
-        body(&mut inner);
         self.write_bytes(&tag);
-        self.write_len_prefixed(inner.as_bytes());
+        let len_pos = self.buf.len();
+        self.write_u32(0); // placeholder, patched below
+        let start = self.buf.len();
+        body(self);
+        let len = self.buf.len() - start;
+        #[allow(clippy::cast_possible_truncation)] // save-state sections never approach 4 GiB
+        self.buf[len_pos..len_pos + 4].copy_from_slice(&(len as u32).to_le_bytes());
     }
 }
 
