@@ -92,11 +92,15 @@ Per `ref-docs/research-report.md` §5 and `ref-docs/2026-06-24-ppu.md` §5:
   +8 cycles / channel, +12–24 cycles whole-transfer alignment. **The CPU is fully halted**
   until all transfers finish; the transfer fires "in the middle of the following
   instruction." Cannot cross a bank. Model as a **CPU stall inserted at the MDMAEN write**.
-- **HDMA** (`HDMAEN $420C`): fires at ~H=$116 each visible line; **~18 cycles overhead** when
-  any channel is active, **+8 cycles per active direct channel per scanline**,
-  **+8 cycles / byte**; **indirect channels cost 24 cycles** (16-cycle pointer load). Worst
-  case ~466 cycles / scanline (8 channels, indirect, 4 bytes). **HDMA preempts GP-DMA.**
-  Model as a per-line budget evaluated at H≈$116.
+- **HDMA** (`HDMAEN $420C`): serviced at two dot-accurate points per ares `sfc/cpu/timing.cpp`
+  — a once-per-frame **setup** at V=0 (table reset + reload) and a per-visible-line **run** at
+  **hcounter 1104 = dot 276** (`HDMA_RUN_DOT`), *not* at the scanline boundary. Costs: **~18
+  cycles overhead** when any channel is active, **+8 cycles per active direct channel per
+  scanline**, **+8 cycles / byte**; **indirect channels cost 24 cycles** (16-cycle pointer
+  load). Worst case ~466 cycles / scanline (8 channels, indirect, 4 bytes). **HDMA preempts
+  GP-DMA.** Servicing at the exact dot (rather than the line boundary) is what latches a
+  mid-line `$420C` write on the hardware-correct scanline — the banded HDMAEN-vs-latch crossing
+  of undisbeliever's `hdmaen_latch_test` (see §H/V-IRQ for the write-timing half of that race).
 
 This precise, content-dependent cycle theft is the second reason (after the variable CPU
 cycle) the scheduler must be master-clock resolution.
@@ -107,6 +111,22 @@ The 5A22 raises NMI at VBlank start (V=225, or V=240 in overscan) and an IRQ at 
 H and/or V counter position (`$4207–$420A`), enabling mid-frame raster effects
 (`ref-docs/research-report.md` §2). The H/V counters are latched by reading SLHV `$2137` and
 read back from `$213C`/`$213D`. These fire off the master-clock phase, not the CPU cycle.
+
+The horizontal comparator asserts the IRQ **`HIRQ_TRIGGER_DELAY` (4) dots after** the programmed
+`HTIME`, modelling the hardware communication delay between the counter unit and the CPU's
+interrupt logic (ares `sfc/cpu/irq.cpp`: `hcounter(10) == io.htime` with `io.htime` stored as
+`(HTIME+1) << 2` clocks ⇒ the IRQ fires at hcounter `HTIME*4 + 14` = dot `HTIME + 3.5`). This
+delay lands an IRQ-gated register write (e.g. `hdmaen_latch_test`'s `STA $420C` after `WAI`) on
+the hardware-correct dot; without it the write drifts ~3–4 dots early and — against the fixed
+dot-1104 HDMA latch — collapses the test's banded crossing into a uniform per-line alternation.
+
+> **On `hdmaen_latch_test` (ROM 1) determinism.** undisbeliever documents `hdmaen_latch_test.sfc`
+> as *not a stable test* — its exact bands differ on every power-cycle on real hardware, because
+> the HDMAEN-write-vs-latch race turns on the sub-cycle CPU/DMA phase at power-on. RustySNES is
+> deterministic (seed+ROM ⇒ fixed output), so it produces one fixed realization of the banding;
+> the committed golden is a regression snapshot of *that*, not a byte-match to any other emulator.
+> What is spec-accurate and portable is the **mechanism**: dot-1104 HDMA latch + `HTIME+3.5` IRQ
+> assertion ⇒ the write-drift straddles the latch ⇒ a banded crossing rather than flat alternation.
 
 ## SA-1 — the second CPU (Phase 4)
 

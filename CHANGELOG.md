@@ -11,6 +11,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 7 — BestEffort coprocessors: OBC1, DSP-2, DSP-4, ST010, CX4, S-DD1, SPC7110.**
+  - **OBC1** (`coproc::obc1`): dedicated 8 KiB RAM behind a reprogrammable cursor register.
+    Validated against real Metal Combat: Falcon's Revenge.
+  - **DSP-2 / DSP-4 / ST010** (`coproc::necdsp_variant`): reuse the DSP-1 µPD77C25/µPD96050 LLE
+    engine, title-detected. DSP-4 needed a DSP-1-style half-window DR/SR split instead of the
+    generic bit-0 split (found via a real Top Gear 3000 boot-time hardware check). Validated
+    against real Dungeon Master, Top Gear 3000, and F1 ROC II.
+  - **CX4** (`coproc::hg51b` + `coproc::cx4`): a clean-room Hitachi HG51B S169 core (sequential
+    mask/value opcode decode transcribed from ares' `pattern(...)` strings) — no chip dump for the
+    program (runs from cart ROM), only a 3 KiB data-ROM constant table. Fixed a real bug where
+    pending DMA/cache work triggered while the chip was halted never ran. Validated against real
+    Mega Man X2 and X3.
+  - **S-DD1** (`coproc::sdd1`): a Golomb-code + adaptive-binary-probability decompressor streamed
+    during fixed-address DMA via a new `Board::notify_dma_channel` hook (`rustysnes-core::Dma`
+    owns the DMA registers directly, so the cart needs an explicit snoop). Fixed a real `u8`
+    shift-by-8 overflow in the codeword reader (well-defined in the original C++ via implicit int
+    promotion; a genuine bug once ported literally to Rust). Validated against real Star Ocean and
+    Street Fighter Alpha 2.
+  - **SPC7110** (`coproc::spc7110`) + a paired **Epson RTC-4513** (`coproc::epsonrtc`, seeded to a
+    fixed epoch to preserve the determinism contract): decompression unit, data-port unit, ALU, and
+    a 4×1 MiB bankable memory-control unit. Fixed two header-detection bugs uncovered while wiring
+    it up (the title string is "TENGAI MAKYO", not "…MAKYOU"; the `$F`-custom chipset-nibble gate
+    wrongly excluded RTC carts' `$F9` byte) and added a `$40-$7D` HiROM-style ROM mirror. Does not
+    yet boot to real content on its one available ROM (Far East of Eden Zero) — implemented but
+    unvalidated, tracked as a known gap.
+
 - **Phase 5 — Playable native frontend (`rustysnes-frontend`).** The always-on egui shell is now a
   working SNES emulator: a real commercial ROM boots in a window with picture, sound, and control.
   - **Video:** `EmuCore` decodes the PPU's 256×(224|239) 15-bit BGR555 framebuffer to RGBA8 each
@@ -224,6 +250,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Dot-accurate HDMA servicing + H-IRQ / interrupt latency ⇒ `hdmaen_latch_test` now bands.** Three
+  coupled accuracy fixes, all traced to ares source, turn undisbeliever's `hdmaen_latch_test` from a
+  flat per-line alternation into the banded HDMAEN-vs-latch crossing hardware shows:
+  - **HDMA is serviced at its dot-accurate position, not the scanline boundary.** Per ares
+    `sfc/cpu/timing.cpp`, HDMA now runs a once-per-frame **setup** at V=0 and a per-visible-line
+    **run** at **hcounter 1104 = dot 276** (`HDMA_RUN_DOT`). Servicing at that exact dot latches a
+    mid-line `STA $420C` on the hardware-correct scanline. (`superfx-framebuffer.tsv`
+    `GSU2BPP256x192PlotLine` re-blessed for the re-timed GSU concurrency — Star Fox fly-in ship +
+    planet verified still rendering; `sa1-framebuffer.tsv` `SD F-1 Grand Prix` re-blessed, same boot
+    screen confirmed against HEAD, positions shifted by the IRQ delay below.)
+  - **Hardware NMI/IRQ open with two internal cycles, not one** (`CPU::service_interrupt`). The WDC
+    sequence is 2 internal + pushes + 2 vector fetches; the path is hardware IRQ/NMI only, so BRK/COP
+    keep their oracle-validated counts (5.12M-test CPU oracle still 100%).
+  - **The H-IRQ comparator lags `HTIME` by 4 dots** (`HIRQ_TRIGGER_DELAY`, PPU `check_hv_irq`),
+    modelling the counter→interrupt communication delay ares encodes as `hcounter(10) ==
+    (HTIME+1)<<2` (fire at dot `HTIME + 3.5`). Together these push the IRQ-gated `$420C` write-drift
+    up across the dot-1104 latch, producing the crossing.
+
+  **Determinism caveat (honesty gate):** undisbeliever documents `hdmaen_latch_test.sfc` as *not a
+  stable test* — its exact bands differ every power-cycle on real hardware. RustySNES is
+  deterministic, so it produces one fixed realization; the re-blessed golden is a regression snapshot
+  of that, **not** a byte-match to ares. What is portable and spec-accurate is the *mechanism*, now
+  present. `docs/scheduler.md` §§DMA/HDMA, H/V-IRQ; `docs/cpu.md`; `docs/ppu.md` updated.
 - **65C816 memory-access timing is now cycle-exact (ares `CPU::read`/`write` phasing).** A CPU cycle
   used to perform its bus access *first* and advance the master clock *after*, so a register write
   landed a full cycle (6/8/12 master clocks) too early relative to the PPU/HDMA. The CPU now asks the
@@ -233,9 +282,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before the end). Instruction cycle *counts* are unchanged (the CPU-timing tables still pass); only
   the sub-cycle phase at which each access becomes visible to the PPU/HDMA moves to the hardware-exact
   instant. `superfx-framebuffer.tsv` re-blessed for the re-phased GSU concurrency (Star Fox fly-in
-  ship + planet verified still rendering); undisbeliever stays 29/29. Note: the `hdmaen_latch` band
-  pattern still differs from ares because HDMA is serviced at the scanline boundary rather than at
-  its dot-accurate hcounter — a separate limitation tracked independently.
+  ship + planet verified still rendering); undisbeliever stays 29/29. (The `hdmaen_latch` banding
+  this note previously deferred is resolved by the dot-accurate HDMA + IRQ-latency entry below.)
 - **Star Fox fly-in now renders correctly (Super FX) — ship and planet.** Four coupled fixes across
   the DMA/HDMA, PPU, cart, and CPU paths, all validated against ares:
   - **HDMA during GP-DMA (missing ship segment).** `Bus::run_gp_dma` takes the `Dma` out of the bus,

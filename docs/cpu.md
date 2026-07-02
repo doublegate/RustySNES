@@ -161,7 +161,13 @@ per-opcode-oracle exit criterion (`docs/adr/0005` self-gen oracle of record is t
   bsnes `algorithms.cpp` (the V/C/Z/N semantics, including the `>0x9F` / `<=0xFF` fixups).
 - `REP`/`SEP`/`XCE` width + emulation transitions; `PLP`/`RTI` re-mask M/X in emulation.
 - Interrupt vectoring (NMI/IRQ/BRK/COP, native vs emulation tables); IRQ gated on `I` clear;
-  NMI/IRQ polled at the instruction boundary.
+  NMI/IRQ polled at the instruction boundary. Hardware NMI/IRQ open with **two** internal
+  (dead) cycles before pushing the return frame (WDC sequence: 2 internal + push PBR[native] +
+  push PCH + push PCL + push P + 2 vector fetches). BRK/COP (their own opcodes, cycle-validated
+  by the single-step oracle) are handled separately and keep their standard-table counts — the
+  two-cycle interrupt open is on the hardware NMI/IRQ path only, and also feeds interrupt
+  *latency* (it delays an IRQ-driven register write by one cycle, one input to the
+  `hdmaen_latch_test` HDMAEN-vs-latch race; `docs/scheduler.md` §H/V-IRQ).
 - **Cycle counts** are the standard-table base plus the documented `+1` adjustments (M=0
   16-bit access, D-low≠0, indexed page-cross, branch-taken / emulation branch page-cross), and
   `STP`/`WAI` cost the oracle's 4 cycles. `step()` returns the CPU-cycle count == the
