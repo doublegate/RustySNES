@@ -56,6 +56,8 @@
 use alloc::boxed::Box;
 use alloc::vec;
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 use crate::board::{Board, Coprocessor, MappedAddr};
 use crate::header::Region;
 
@@ -275,6 +277,186 @@ impl Io {
             mr: 0,
             overflow: false,
         }
+    }
+
+    /// Write every register field, in declaration order, into the caller's section.
+    fn save_state(&self, s: &mut SaveWriter) {
+        s.write_bool(self.sa1_irq);
+        s.write_bool(self.sa1_rdyb);
+        s.write_bool(self.sa1_resb);
+        s.write_bool(self.sa1_nmi);
+        s.write_u8(self.smeg);
+        s.write_bool(self.cpu_irqen);
+        s.write_bool(self.chdma_irqen);
+        s.write_bool(self.cpu_irqcl);
+        s.write_bool(self.chdma_irqcl);
+        s.write_u16(self.crv);
+        s.write_u16(self.cnv);
+        s.write_u16(self.civ);
+        s.write_bool(self.cpu_irq);
+        s.write_bool(self.cpu_ivsw);
+        s.write_bool(self.cpu_nvsw);
+        s.write_u8(self.cmeg);
+        s.write_bool(self.sa1_irqen);
+        s.write_bool(self.timer_irqen);
+        s.write_bool(self.dma_irqen);
+        s.write_bool(self.sa1_nmien);
+        s.write_bool(self.sa1_irqcl);
+        s.write_bool(self.timer_irqcl);
+        s.write_bool(self.dma_irqcl);
+        s.write_bool(self.sa1_nmicl);
+        s.write_u16(self.snv);
+        s.write_u16(self.siv);
+        s.write_bool(self.hvselb);
+        s.write_bool(self.ven);
+        s.write_bool(self.hen);
+        s.write_u16(self.hcnt);
+        s.write_u16(self.vcnt);
+        s.write_bool(self.cbmode);
+        s.write_bool(self.dbmode);
+        s.write_bool(self.ebmode);
+        s.write_bool(self.fbmode);
+        s.write_u32(self.cb);
+        s.write_u32(self.db);
+        s.write_u32(self.eb);
+        s.write_u32(self.fb);
+        s.write_u8(self.sbm);
+        s.write_bool(self.sw46);
+        s.write_u8(self.cbm);
+        s.write_bool(self.swen);
+        s.write_bool(self.cwen);
+        s.write_u8(self.bwp);
+        s.write_u8(self.siwp);
+        s.write_u8(self.ciwp);
+        s.write_bool(self.dmaen);
+        s.write_bool(self.dprio);
+        s.write_bool(self.cden);
+        s.write_bool(self.cdsel);
+        s.write_u8(self.dd);
+        s.write_u8(self.sd);
+        s.write_bool(self.chdend);
+        s.write_u8(self.dmasize);
+        s.write_u8(self.dmacb);
+        s.write_u32(self.dsa);
+        s.write_u32(self.dda);
+        s.write_u16(self.dtc);
+        s.write_bool(self.bbf);
+        s.write_bytes(&self.brf);
+        s.write_bool(self.acm);
+        s.write_bool(self.md);
+        s.write_u16(self.ma);
+        s.write_u16(self.mb);
+        s.write_bool(self.hl);
+        s.write_u8(self.vb);
+        s.write_u32(self.va);
+        s.write_u8(self.vbit);
+        s.write_bool(self.cpu_irqfl);
+        s.write_bool(self.chdma_irqfl);
+        s.write_bool(self.sa1_irqfl);
+        s.write_bool(self.timer_irqfl);
+        s.write_bool(self.dma_irqfl);
+        s.write_bool(self.sa1_nmifl);
+        s.write_u16(self.hcr);
+        s.write_u16(self.vcr);
+        s.write_u64(self.mr);
+        s.write_bool(self.overflow);
+    }
+
+    /// The inverse of [`Self::save_state`].
+    ///
+    /// # Errors
+    /// [`SaveStateError`] on truncated/corrupt input. Every field below that's masked/clamped on
+    /// every normal register write (cited per-field against the exact write site) is masked or
+    /// clamped identically on load, since several (`bwp`/`dmacb`/`dmasize` in particular) feed
+    /// bit-shift amounts elsewhere in this board — an out-of-range value from a hand-edited or
+    /// corrupted save-state would otherwise risk a shift-overflow panic.
+    fn load_state(&mut self, s: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.sa1_irq = s.read_bool()?;
+        self.sa1_rdyb = s.read_bool()?;
+        self.sa1_resb = s.read_bool()?;
+        self.sa1_nmi = s.read_bool()?;
+        self.smeg = s.read_u8()? & 0x0F; // write_io_cpu: data & 0x0f
+        self.cpu_irqen = s.read_bool()?;
+        self.chdma_irqen = s.read_bool()?;
+        self.cpu_irqcl = s.read_bool()?;
+        self.chdma_irqcl = s.read_bool()?;
+        self.crv = s.read_u16()?;
+        self.cnv = s.read_u16()?;
+        self.civ = s.read_u16()?;
+        self.cpu_irq = s.read_bool()?;
+        self.cpu_ivsw = s.read_bool()?;
+        self.cpu_nvsw = s.read_bool()?;
+        self.cmeg = s.read_u8()? & 0x0F; // write_io_sa1: data & 0x0f
+        self.sa1_irqen = s.read_bool()?;
+        self.timer_irqen = s.read_bool()?;
+        self.dma_irqen = s.read_bool()?;
+        self.sa1_nmien = s.read_bool()?;
+        self.sa1_irqcl = s.read_bool()?;
+        self.timer_irqcl = s.read_bool()?;
+        self.dma_irqcl = s.read_bool()?;
+        self.sa1_nmicl = s.read_bool()?;
+        self.snv = s.read_u16()?;
+        self.siv = s.read_u16()?;
+        self.hvselb = s.read_bool()?;
+        self.ven = s.read_bool()?;
+        self.hen = s.read_bool()?;
+        self.hcnt = s.read_u16()?;
+        self.vcnt = s.read_u16()?;
+        self.cbmode = s.read_bool()?;
+        self.dbmode = s.read_bool()?;
+        self.ebmode = s.read_bool()?;
+        self.fbmode = s.read_bool()?;
+        self.cb = s.read_u32()? & 0x07;
+        self.db = s.read_u32()? & 0x07;
+        self.eb = s.read_u32()? & 0x07;
+        self.fb = s.read_u32()? & 0x07;
+        self.sbm = s.read_u8()? & 0x1F;
+        self.sw46 = s.read_bool()?;
+        self.cbm = s.read_u8()? & 0x7F;
+        self.swen = s.read_bool()?;
+        self.cwen = s.read_bool()?;
+        self.bwp = s.read_u8()? & 0x0F;
+        self.siwp = s.read_u8()?;
+        self.ciwp = s.read_u8()?;
+        self.dmaen = s.read_bool()?;
+        self.dprio = s.read_bool()?;
+        self.cden = s.read_bool()?;
+        self.cdsel = s.read_bool()?;
+        self.dd = s.read_u8()? & 0x01;
+        self.sd = s.read_u8()? & 0x03;
+        self.chdend = s.read_bool()?;
+        // dmasize/dmacb are masked then additionally clamped on every normal write (see
+        // write_io_sa1's own `if > N { = N }` follow-up); 6-dmacb / 7-dmacb / 2-dmacb are used as
+        // subtraction-then-shift amounts elsewhere in this board, so an unclamped restored value
+        // risks the same subtraction-underflow-then-shift-overflow panic these clamps prevent.
+        self.dmasize = (s.read_u8()? & 0x07).min(5);
+        self.dmacb = (s.read_u8()? & 0x03).min(2);
+        self.dsa = s.read_u32()? & 0xFF_FFFF;
+        self.dda = s.read_u32()? & 0xFF_FFFF;
+        self.dtc = s.read_u16()?;
+        self.bbf = s.read_bool()?;
+        self.brf.copy_from_slice(s.read_bytes(16)?);
+        self.acm = s.read_bool()?;
+        self.md = s.read_bool()?;
+        self.ma = s.read_u16()?;
+        self.mb = s.read_u16()?;
+        self.hl = s.read_bool()?;
+        // vb: write_io_sa1 masks with & 0x0f then maps a masked-to-zero result to 16 (never 0).
+        let vb = s.read_u8()? & 0x0F;
+        self.vb = if vb == 0 { 16 } else { vb };
+        self.va = s.read_u32()? & 0xFF_FFFF;
+        self.vbit = s.read_u8()? & 0x07;
+        self.cpu_irqfl = s.read_bool()?;
+        self.chdma_irqfl = s.read_bool()?;
+        self.sa1_irqfl = s.read_bool()?;
+        self.timer_irqfl = s.read_bool()?;
+        self.dma_irqfl = s.read_bool()?;
+        self.sa1_nmifl = s.read_bool()?;
+        self.hcr = s.read_u16()?;
+        self.vcr = s.read_u16()?;
+        self.mr = s.read_u64()?;
+        self.overflow = s.read_bool()?;
+        Ok(())
     }
 }
 
@@ -1257,6 +1439,42 @@ impl Board for Sa1Board {
         self.host_accesses
     }
 
+    // Write the full SA-1 system state — the $2200-$23FF register file, the 2 KiB I-RAM, the H/V
+    // timer counters, and the character-conversion DMA staging flags — into a "SA10" section. ROM
+    // is never embedded (docs/adr/0003); BW-RAM is System::save_state's own Board::sram capture,
+    // not duplicated here; host_accesses (a debugger counter) is excluded, matching every board.
+    fn save_state(&self, w: &mut SaveWriter) {
+        w.section(*b"SA10", |s| {
+            self.io.save_state(s);
+            s.write_u16(self.timer.scanlines);
+            s.write_u16(self.timer.vcounter);
+            s.write_u16(self.timer.hcounter);
+            s.write_bool(self.reset_pending);
+            s.write_bool(self.bwram_dma);
+            s.write_u8(self.dma_line);
+            s.write_bytes(&*self.iram);
+        });
+    }
+
+    fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        let mut s = r.expect_section(*b"SA10")?;
+        self.io.load_state(&mut s)?;
+        self.timer.scanlines = s.read_u16()?;
+        self.timer.vcounter = s.read_u16()?;
+        self.timer.hcounter = s.read_u16()?;
+        self.reset_pending = s.read_bool()?;
+        self.bwram_dma = s.read_bool()?;
+        self.dma_line = s.read_u8()? & 15; // masked identically at every normal increment
+        self.iram.copy_from_slice(s.read_bytes(IRAM_SIZE)?);
+        if s.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "SA10 section has {} trailing byte(s)",
+                s.remaining()
+            )));
+        }
+        Ok(())
+    }
+
     // --- Second-CPU (SA-1 65C816) hooks; core owns the CPU + steps it via these. ------------
 
     fn has_second_cpu(&self) -> bool {
@@ -1450,5 +1668,29 @@ mod tests {
         assert_eq!(b.read24(0x00_8000), 0xAA);
         // $01:$8000 -> within 0x8000 -> ROM 0x8000.
         assert_eq!(b.read24(0x01_8000), 0xBB);
+    }
+
+    #[test]
+    fn system_state_round_trips_through_save_state() {
+        let mut b = board();
+        b.write24(0x00_2203, 0x34); // CRV low
+        b.write24(0x00_2204, 0x12); // CRV high
+        b.write24(0x00_2200, 0x00); // RESB 1->0 (armed reset_pending)
+        b.write24(0x00_2229, 0xFF); // SIWP open
+        b.write24(0x00_3010, 0x5A); // I-RAM byte
+
+        let mut w = SaveWriter::new();
+        b.save_state(&mut w);
+        let bytes = w.into_bytes();
+
+        let mut fresh = board();
+        let mut r = SaveReader::new(&bytes);
+        fresh.load_state(&mut r).unwrap();
+
+        assert_eq!(fresh.second_cpu_read(0x00_FFFC), 0x34);
+        assert_eq!(fresh.second_cpu_read(0x00_FFFD), 0x12);
+        assert!(fresh.second_cpu_take_reset());
+        assert_eq!(fresh.read24(0x00_3010), 0x5A);
+        assert_eq!(r.remaining(), 0);
     }
 }

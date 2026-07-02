@@ -23,9 +23,14 @@ rejects) its pointer registers to their revision-correct hardware widths (a bot-
 on both PR #4 and #5 — see CHANGELOG); `Decompressor::load_state` rejects an out-of-range PEM
 context status (a semantic state-machine index) while masking `current_bitplane` (a genuine
 3-bit hardware quantity) — the same width-mask-vs-semantic-reject distinction applied
-consistently across every board implemented so far. Remaining boards (`Spc7110Board`+its
-`Decompressor`+`EpsonRtc`, `SuperFxBoard`+`Gsu`, `Sa1Board`), `Cpu`/`Ppu`/`Apu`, and the
-`System`-level envelope are still open — see T-52-002/003/004 below.
+consistently across every board implemented so far. Extended to `SuperFxBoard` (its `Gsu`
+core's full state, including the in-flight per-access checkpoint queue that
+master-clock-interleaved `tick`-driven execution can leave mid-flight at any save point — a
+claimed queue length/cursor beyond what real execution could ever produce is rejected, not
+trusted) and `Sa1Board` (the full register file, I-RAM, H/V timer, and DMA staging flags;
+BW-RAM stays excluded, captured separately via `Board::sram`). Remaining: `Spc7110Board`+its
+`Decompressor`+`EpsonRtc`, `Cpu`/`Ppu`/`Apu`, and the `System`-level envelope — see
+T-52-002/003/004 below.
 
 ## Tickets
 
