@@ -71,7 +71,7 @@ impl EmuCore {
     }
 
     /// Load a raw ROM image, transparently unwrapping a zip archive first if `rom` is one (see
-    /// [`extract_rom_bytes`] — the common case of a `.sfc`/`.smc` distributed zipped). Header
+    /// `extract_rom_bytes` — the common case of a `.sfc`/`.smc` distributed zipped). Header
     /// detection + board selection happen in `rustysnes-cart`. On success the cart is installed
     /// in a fresh Bus and the system is left ready to boot from the cart's reset vector on the
     /// first [`Self::run_frame`].
