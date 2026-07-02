@@ -1480,15 +1480,18 @@ impl Gsu {
         self.sreg = usize::from(s.read_u8()? & 0xF);
         self.dreg = usize::from(s.read_u8()? & 0xF);
         self.pipeline = s.read_u8()?;
-        self.pbr = s.read_u8()?;
-        self.rombr = s.read_u8()?;
+        // pbr/rombr/cbr/scmr_ht/scmr_md are masked identically on every normal write (see the
+        // cited write sites); masking here too keeps a restored register within the same range
+        // real execution could ever produce.
+        self.pbr = s.read_u8()? & 0x7F;
+        self.rombr = s.read_u8()? & 0x7F;
         self.rambr = s.read_bool()?;
-        self.cbr = s.read_u16()?;
+        self.cbr = s.read_u16()? & 0xFFF0;
         self.scbr = s.read_u8()?;
-        self.scmr_ht = s.read_u8()?;
+        self.scmr_ht = s.read_u8()? & 0x03;
         self.scmr_ron = s.read_bool()?;
         self.scmr_ran = s.read_bool()?;
-        self.scmr_md = s.read_u8()?;
+        self.scmr_md = s.read_u8()? & 0x03;
         self.colr = s.read_u8()?;
         self.por_obj = s.read_bool()?;
         self.por_freezehigh = s.read_bool()?;
@@ -1544,5 +1547,107 @@ impl Gsu {
             )));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Replay `load_state`'s own field order up to (not including) `pending_clocks`' length
+    /// prefix, discarding each value, and return the byte offset of that length prefix within
+    /// `bytes` — computed dynamically (not hardcoded) so it can't silently go stale if a field is
+    /// added/removed/reordered above it.
+    fn pending_len_offset(bytes: &[u8]) -> usize {
+        let mut r = SaveReader::new(bytes);
+        let mut s = r.expect_section(*b"GSU0").unwrap();
+        for _ in 0..16 {
+            s.read_u16().unwrap(); // r[16]
+        }
+        s.read_bool().unwrap(); // r14_mod
+        s.read_bool().unwrap(); // r15_mod
+        s.read_u16().unwrap(); // sfr
+        s.read_u8().unwrap(); // sreg
+        s.read_u8().unwrap(); // dreg
+        s.read_u8().unwrap(); // pipeline
+        s.read_u8().unwrap(); // pbr
+        s.read_u8().unwrap(); // rombr
+        s.read_bool().unwrap(); // rambr
+        s.read_u16().unwrap(); // cbr
+        s.read_u8().unwrap(); // scbr
+        s.read_u8().unwrap(); // scmr_ht
+        s.read_bool().unwrap(); // scmr_ron
+        s.read_bool().unwrap(); // scmr_ran
+        s.read_u8().unwrap(); // scmr_md
+        s.read_u8().unwrap(); // colr
+        for _ in 0..5 {
+            s.read_bool().unwrap(); // por_*
+        }
+        s.read_bool().unwrap(); // bramr
+        s.read_u8().unwrap(); // vcr
+        s.read_bool().unwrap(); // cfgr_irq
+        s.read_bool().unwrap(); // cfgr_ms0
+        s.read_bool().unwrap(); // clsr
+        s.read_u32().unwrap(); // romcl
+        s.read_u8().unwrap(); // romdr
+        s.read_u32().unwrap(); // ramcl
+        s.read_u16().unwrap(); // ramar
+        s.read_u8().unwrap(); // ramdr
+        s.read_u16().unwrap(); // ramaddr
+        s.read_bytes(512).unwrap(); // cache_buffer
+        for _ in 0..32 {
+            s.read_bool().unwrap(); // cache_valid
+        }
+        for _ in 0..2 {
+            s.read_u16().unwrap(); // pixelcache offset
+            s.read_u8().unwrap(); // pixelcache bitpend
+            s.read_bytes(8).unwrap(); // pixelcache data
+        }
+        s.read_u64().unwrap(); // clocks
+        s.read_u64().unwrap(); // instructions
+        bytes.len() - s.remaining()
+    }
+
+    #[test]
+    fn oversized_pending_clocks_length_is_rejected_not_trusted() {
+        let gsu = Gsu::new();
+        let mut w = SaveWriter::new();
+        gsu.save_state(&mut w);
+        let mut bytes = w.into_bytes();
+
+        let offset = pending_len_offset(&bytes);
+        // No real execution can ever produce a pending_clocks length this large (step() only
+        // ever pushes a handful of checkpoints per instruction) — a hand-edited/corrupted
+        // save-state claiming otherwise must be rejected before it's ever trusted to read that
+        // many entries.
+        bytes[offset..offset + 4].copy_from_slice(&1000u32.to_le_bytes());
+
+        let mut fresh = Gsu::new();
+        let mut r = SaveReader::new(&bytes);
+        assert!(matches!(
+            fresh.load_state(&mut r),
+            Err(SaveStateError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn pending_idx_beyond_the_restored_queue_is_rejected_not_trusted() {
+        let gsu = Gsu::new();
+        let mut w = SaveWriter::new();
+        gsu.save_state(&mut w);
+        let mut bytes = w.into_bytes();
+
+        // A fresh Gsu's pending_clocks is empty (length 0), so pending_idx immediately follows
+        // the 4-byte length field with zero entries in between.
+        let len_offset = pending_len_offset(&bytes);
+        let idx_offset = len_offset + 4;
+        bytes[idx_offset..idx_offset + 4].copy_from_slice(&1u32.to_le_bytes());
+
+        let mut fresh = Gsu::new();
+        let mut r = SaveReader::new(&bytes);
+        assert!(matches!(
+            fresh.load_state(&mut r),
+            Err(SaveStateError::Invalid(_))
+        ));
     }
 }

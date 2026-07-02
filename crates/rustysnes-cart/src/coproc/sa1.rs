@@ -365,14 +365,17 @@ impl Io {
     /// The inverse of [`Self::save_state`].
     ///
     /// # Errors
-    /// [`SaveStateError`] on truncated/corrupt input. No field here indexes an array by a value
-    /// narrower than its own storage type, so no additional masking is needed for memory safety.
+    /// [`SaveStateError`] on truncated/corrupt input. Every field below that's masked/clamped on
+    /// every normal register write (cited per-field against the exact write site) is masked or
+    /// clamped identically on load, since several (`bwp`/`dmacb`/`dmasize` in particular) feed
+    /// bit-shift amounts elsewhere in this board — an out-of-range value from a hand-edited or
+    /// corrupted save-state would otherwise risk a shift-overflow panic.
     fn load_state(&mut self, s: &mut SaveReader) -> Result<(), SaveStateError> {
         self.sa1_irq = s.read_bool()?;
         self.sa1_rdyb = s.read_bool()?;
         self.sa1_resb = s.read_bool()?;
         self.sa1_nmi = s.read_bool()?;
-        self.smeg = s.read_u8()?;
+        self.smeg = s.read_u8()? & 0x0F; // write_io_cpu: data & 0x0f
         self.cpu_irqen = s.read_bool()?;
         self.chdma_irqen = s.read_bool()?;
         self.cpu_irqcl = s.read_bool()?;
@@ -383,7 +386,7 @@ impl Io {
         self.cpu_irq = s.read_bool()?;
         self.cpu_ivsw = s.read_bool()?;
         self.cpu_nvsw = s.read_bool()?;
-        self.cmeg = s.read_u8()?;
+        self.cmeg = s.read_u8()? & 0x0F; // write_io_sa1: data & 0x0f
         self.sa1_irqen = s.read_bool()?;
         self.timer_irqen = s.read_bool()?;
         self.dma_irqen = s.read_bool()?;
@@ -403,29 +406,33 @@ impl Io {
         self.dbmode = s.read_bool()?;
         self.ebmode = s.read_bool()?;
         self.fbmode = s.read_bool()?;
-        self.cb = s.read_u32()?;
-        self.db = s.read_u32()?;
-        self.eb = s.read_u32()?;
-        self.fb = s.read_u32()?;
-        self.sbm = s.read_u8()?;
+        self.cb = s.read_u32()? & 0x07;
+        self.db = s.read_u32()? & 0x07;
+        self.eb = s.read_u32()? & 0x07;
+        self.fb = s.read_u32()? & 0x07;
+        self.sbm = s.read_u8()? & 0x1F;
         self.sw46 = s.read_bool()?;
-        self.cbm = s.read_u8()?;
+        self.cbm = s.read_u8()? & 0x7F;
         self.swen = s.read_bool()?;
         self.cwen = s.read_bool()?;
-        self.bwp = s.read_u8()?;
+        self.bwp = s.read_u8()? & 0x0F;
         self.siwp = s.read_u8()?;
         self.ciwp = s.read_u8()?;
         self.dmaen = s.read_bool()?;
         self.dprio = s.read_bool()?;
         self.cden = s.read_bool()?;
         self.cdsel = s.read_bool()?;
-        self.dd = s.read_u8()?;
-        self.sd = s.read_u8()?;
+        self.dd = s.read_u8()? & 0x01;
+        self.sd = s.read_u8()? & 0x03;
         self.chdend = s.read_bool()?;
-        self.dmasize = s.read_u8()?;
-        self.dmacb = s.read_u8()?;
-        self.dsa = s.read_u32()?;
-        self.dda = s.read_u32()?;
+        // dmasize/dmacb are masked then additionally clamped on every normal write (see
+        // write_io_sa1's own `if > N { = N }` follow-up); 6-dmacb / 7-dmacb / 2-dmacb are used as
+        // subtraction-then-shift amounts elsewhere in this board, so an unclamped restored value
+        // risks the same subtraction-underflow-then-shift-overflow panic these clamps prevent.
+        self.dmasize = (s.read_u8()? & 0x07).min(5);
+        self.dmacb = (s.read_u8()? & 0x03).min(2);
+        self.dsa = s.read_u32()? & 0xFF_FFFF;
+        self.dda = s.read_u32()? & 0xFF_FFFF;
         self.dtc = s.read_u16()?;
         self.bbf = s.read_bool()?;
         self.brf.copy_from_slice(s.read_bytes(16)?);
@@ -434,9 +441,11 @@ impl Io {
         self.ma = s.read_u16()?;
         self.mb = s.read_u16()?;
         self.hl = s.read_bool()?;
-        self.vb = s.read_u8()?;
-        self.va = s.read_u32()?;
-        self.vbit = s.read_u8()?;
+        // vb: write_io_sa1 masks with & 0x0f then maps a masked-to-zero result to 16 (never 0).
+        let vb = s.read_u8()? & 0x0F;
+        self.vb = if vb == 0 { 16 } else { vb };
+        self.va = s.read_u32()? & 0xFF_FFFF;
+        self.vbit = s.read_u8()? & 0x07;
         self.cpu_irqfl = s.read_bool()?;
         self.chdma_irqfl = s.read_bool()?;
         self.sa1_irqfl = s.read_bool()?;
@@ -1455,7 +1464,7 @@ impl Board for Sa1Board {
         self.timer.hcounter = s.read_u16()?;
         self.reset_pending = s.read_bool()?;
         self.bwram_dma = s.read_bool()?;
-        self.dma_line = s.read_u8()?;
+        self.dma_line = s.read_u8()? & 15; // masked identically at every normal increment
         self.iram.copy_from_slice(s.read_bytes(IRAM_SIZE)?);
         if s.remaining() != 0 {
             return Err(SaveStateError::Invalid(alloc::format!(
