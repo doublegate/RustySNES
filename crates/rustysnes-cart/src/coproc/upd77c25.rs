@@ -760,18 +760,26 @@ impl Upd77c25 {
     ///
     /// # Errors
     /// [`SaveStateError`] on truncated/corrupt input (the section framing itself already rejects
-    /// a wrong tag or a truncated read — there is no additional semantic range to validate here,
-    /// unlike a board-level cursor: every field is a fixed-width register the DSP hardware itself
-    /// never partially constrains).
+    /// a wrong tag or a truncated read).
     pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
         let mut s = r.expect_section(*b"NDSP")?;
         for slot in &mut self.stack {
             *slot = s.read_u16()?;
         }
-        self.pc = s.read_u16()?;
-        self.rp = s.read_u16()?;
-        self.dp = s.read_u16()?;
-        self.sp = s.read_u8()?;
+        // pc/rp/dp/sp are used as UNCHECKED array indices elsewhere in this engine
+        // (`program_rom[pc]`, `data_rom[rp]`, `stack[sp]`; `dp` is re-masked at every use site
+        // already, but masking it here too keeps every pointer register consistently normalized
+        // on load) because normal execution NEVER produces an out-of-range value — every mutator
+        // masks on write (`set_pc`, the DPINC/DPDEC/DPCLR ops, the call/return stack-pointer
+        // wrap). Untrusted save-state bytes carry no such guarantee, so apply the identical masks
+        // here: this is the engine's own normal-operation invariant, not new validation logic,
+        // and (being width masks on genuinely N-bit hardware registers, not a "must be one of a
+        // few enum-like values" semantic constraint) masking is the hardware-accurate transform,
+        // not a silent-degradation shortcut.
+        self.pc = s.read_u16()? & self.revision.pc_mask();
+        self.rp = s.read_u16()? & self.revision.rp_mask();
+        self.dp = s.read_u16()? & self.revision.dp_mask();
+        self.sp = s.read_u8()? & 0xF;
         self.si = s.read_u16()?;
         self.so = s.read_u16()?;
         self.k = s.read_u16()?.cast_signed();
@@ -959,5 +967,49 @@ mod tests {
         assert_eq!(eng.read_dr(), 0);
         eng.run_until_rqm(); // no-op, must not hang
         assert!(!eng.load_firmware(&[0u8; 100])); // too short
+    }
+
+    #[test]
+    fn out_of_range_pointer_registers_are_masked_not_panicked_on() {
+        // A hand-edited/corrupted save-state can claim any 16-bit pc/rp/sp — real hardware would
+        // never produce a value wider than the register, so load_state must mask (not trust) them
+        // before they're used as unchecked array indices (program_rom[pc]/data_rom[rp]/stack[sp]).
+        let mut w = SaveWriter::new();
+        w.section(*b"NDSP", |s| {
+            for _ in 0..16 {
+                s.write_u16(0);
+            } // stack
+            s.write_u16(0xFFFF); // pc
+            s.write_u16(0xFFFF); // rp
+            s.write_u16(0xFFFF); // dp
+            s.write_u8(0xFF); // sp
+            for _ in 0..10 {
+                s.write_u16(0);
+            } // si/so/k/l/m/n/a/b/tr/trb
+            s.write_u16(0); // dr
+            for _ in 0..13 {
+                s.write_bool(false);
+            } // sr
+            for _ in 0..12 {
+                s.write_bool(false);
+            } // flag_a + flag_b
+            for _ in 0..2048 {
+                s.write_u16(0);
+            } // data_ram
+        });
+        let bytes = w.into_bytes();
+
+        let mut eng = Upd77c25::new(Revision::Upd7725);
+        let mut r = SaveReader::new(&bytes);
+        eng.load_state(&mut r).unwrap();
+
+        assert!(eng.pc <= Revision::Upd7725.pc_mask());
+        assert!(eng.rp <= Revision::Upd7725.rp_mask());
+        assert!(eng.dp <= Revision::Upd7725.dp_mask());
+        assert!(eng.sp <= 0xF);
+        // Exercise the indices that would have panicked pre-fix.
+        let _ = eng.program_rom[usize::from(eng.pc)];
+        let _ = eng.data_rom[usize::from(eng.rp)];
+        let _ = eng.stack[usize::from(eng.sp)];
     }
 }
