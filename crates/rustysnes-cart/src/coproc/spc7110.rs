@@ -674,22 +674,24 @@ impl Spc7110Board {
     /// `dcu_offset` is masked to `& 31`: it indexes the fixed 32-byte `dcu_tile` directly
     /// (`dcu_tile[self.dcu_offset as usize]`), and every normal-operation mutator already masks
     /// it to `8 * bpp - 1` (at most 31) before storing, so this applies the engine's own
-    /// existing invariant rather than new validation policy. Every other register here is
-    /// restored verbatim (unmasked): each is already only ever used in ways that can't index an
-    /// array or overflow a shift by an unmasked amount, matching how `dcu_mode` itself (a raw
-    /// data-ROM byte with no enforced range even during normal execution) is handled.
+    /// existing invariant rather than new validation policy. Every register masked/write-limited
+    /// on a normal `write_reg` call (`r4803`/`r480b`/`r4813`/`r4818`/`r482e`/`r4830`-`r4834`) is
+    /// masked identically on load. `dcu_mode` is restored verbatim: it's a raw data-ROM byte with
+    /// no enforced range even during normal execution (an out-of-range value there is a
+    /// pre-existing, save-state-independent hazard tracked separately, not something this format
+    /// can or should paper over).
     pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
         let mut s = r.expect_section(*b"SP70")?;
         self.r4801 = s.read_u8()?;
         self.r4802 = s.read_u8()?;
-        self.r4803 = s.read_u8()?;
+        self.r4803 = s.read_u8()? & 0x7F; // write_reg $4803: data & 0x7f
         self.r4804 = s.read_u8()?;
         self.r4805 = s.read_u8()?;
         self.r4806 = s.read_u8()?;
         self.r4807 = s.read_u8()?;
         self.r4809 = s.read_u8()?;
         self.r480a = s.read_u8()?;
-        self.r480b = s.read_u8()?;
+        self.r480b = s.read_u8()? & 0x03; // write_reg $480b: data & 0x03
         self.r480c = s.read_u8()?;
         self.dcu_mode = s.read_u8()?;
         self.dcu_address = s.read_u32()?;
@@ -698,12 +700,12 @@ impl Spc7110Board {
         self.r4810 = s.read_u8()?;
         self.r4811 = s.read_u8()?;
         self.r4812 = s.read_u8()?;
-        self.r4813 = s.read_u8()?;
+        self.r4813 = s.read_u8()? & 0x7F; // write_reg $4813: data & 0x7f
         self.r4814 = s.read_u8()?;
         self.r4815 = s.read_u8()?;
         self.r4816 = s.read_u8()?;
         self.r4817 = s.read_u8()?;
-        self.r4818 = s.read_u8()?;
+        self.r4818 = s.read_u8()? & 0x7F; // write_reg $4818: data & 0x7f
         self.r4820 = s.read_u8()?;
         self.r4821 = s.read_u8()?;
         self.r4822 = s.read_u8()?;
@@ -718,13 +720,13 @@ impl Spc7110Board {
         self.r482b = s.read_u8()?;
         self.r482c = s.read_u8()?;
         self.r482d = s.read_u8()?;
-        self.r482e = s.read_u8()?;
+        self.r482e = s.read_u8()? & 0x01; // write_reg $482e: data & 0x01
         self.r482f = s.read_u8()?;
-        self.r4830 = s.read_u8()?;
-        self.r4831 = s.read_u8()?;
-        self.r4832 = s.read_u8()?;
-        self.r4833 = s.read_u8()?;
-        self.r4834 = s.read_u8()?;
+        self.r4830 = s.read_u8()? & 0x87; // write_reg $4830: data & 0x87
+        self.r4831 = s.read_u8()? & 0x07; // write_reg $4831: data & 0x07
+        self.r4832 = s.read_u8()? & 0x07; // write_reg $4832: data & 0x07
+        self.r4833 = s.read_u8()? & 0x07; // write_reg $4833: data & 0x07
+        self.r4834 = s.read_u8()? & 0x07; // write_reg $4834: data & 0x07
         if s.remaining() != 0 {
             return Err(SaveStateError::Invalid(alloc::format!(
                 "SP70 section has {} trailing byte(s)",

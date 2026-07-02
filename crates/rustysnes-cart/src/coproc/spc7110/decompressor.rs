@@ -287,10 +287,12 @@ impl Decompressor {
     /// `{1,2,4}` are the only values a real `1 << mode` (`mode` is a 2-bit register field) can
     /// ever produce — since any other value would either shift-overflow (`1 << plane` for
     /// `plane >= self.bpp`) or spin `for plane in 0..self.bpp` unboundedly if left untrusted;
-    /// `bits` is clamped to `0..=8` (`0` is likewise the power-on default; `decode` decrements it
-    /// every range-coder step and resets it to 8 only on reaching exactly 0, so an out-of-range
-    /// restored value risks an underflow panic on the very next decrement once `bpp` is nonzero);
-    /// `node.swap` is masked to 1 bit, a genuine hardware flip-flop.
+    /// `bits` is clamped to `1..=8` (falling back to 8, `initialize`'s own power-on value) since a
+    /// restored `0` risks an underflow panic on the very next decrement once `bpp` is nonzero;
+    /// `range` is clamped to `128..=256` (falling back to 256, likewise `initialize`'s value)
+    /// since a restored `0` would spin the normalization loop
+    /// (`while self.range <= MAX / 2 { self.range <<= 1; }`) forever, hanging the host rather than
+    /// just decoding garbage; `node.swap` is masked to 1 bit, a genuine hardware flip-flop.
     pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
         let mut s = r.expect_section(*b"SPCD")?;
         for root in &mut self.context {
@@ -314,14 +316,21 @@ impl Decompressor {
         }
         self.bpp = bpp;
         self.offset = s.read_u32()?;
+        // Clamped (not rejected): `decode()` decrements `bits` every range-coder step and resets
+        // it to 8 only at exactly 0, so a restored value outside 1..=8 would underflow-panic on
+        // the very next decrement once `bpp` is nonzero (found in review — the earlier bounds
+        // check let `bits == 0` through, missing this exact case). `range` is likewise clamped:
+        // the normalization loop (`while self.range <= MAX / 2 { self.range <<= 1; }`) never
+        // terminates if `range` is restored as `0`, which would hang the host, not just decode
+        // garbage. Both defaults mirror `initialize`'s own power-on values.
         let bits = s.read_u32()?;
-        if bits > 8 {
-            return Err(SaveStateError::Invalid(alloc::format!(
-                "SPC7110 decompressor bits {bits} is out of the valid 0-8 range"
-            )));
-        }
-        self.bits = bits;
-        self.range = s.read_u16()?;
+        self.bits = if (1..=8).contains(&bits) { bits } else { 8 };
+        let range = s.read_u16()?;
+        self.range = if (128..=256).contains(&range) {
+            range
+        } else {
+            MAX + 1
+        };
         self.input = s.read_u16()?;
         self.output = s.read_u8()?;
         self.pixels = s.read_u64()?;

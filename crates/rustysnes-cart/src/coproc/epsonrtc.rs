@@ -340,39 +340,43 @@ impl EpsonRtc {
     /// [`SaveStateError`] on truncated/corrupt input, a section with unconsumed trailing bytes,
     /// or [`SaveStateError::Invalid`] if the encoded `state` discriminant doesn't match one of
     /// `State`'s four variants (a semantic enum constraint, not a hardware register width — the
-    /// same posture `Obc1Board::load_state` already applies to its own cursor fields).
+    /// same posture `Obc1Board::load_state` already applies to its own cursor fields). Every
+    /// clock/handshake field below is masked to the widest value `rtc_write`/`write` can ever
+    /// produce (nibble fields `& 0x0F`, single-bit flags `& 0x01`, the few wider-but-still-narrow
+    /// fields their own specific mask) so a hand-edited/corrupted save-state can't inject a
+    /// physically-unwritable bit pattern into a register real hardware could never hold.
     pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
         let mut s = r.expect_section(*b"RTC0")?;
-        self.secondlo = s.read_u8()?;
-        self.secondhi = s.read_u8()?;
-        self.batteryfailure = s.read_u8()?;
-        self.minutelo = s.read_u8()?;
-        self.minutehi = s.read_u8()?;
-        self.resync = s.read_u8()?;
-        self.hourlo = s.read_u8()?;
-        self.hourhi = s.read_u8()?;
-        self.meridian = s.read_u8()?;
-        self.daylo = s.read_u8()?;
-        self.dayhi = s.read_u8()?;
-        self.dayram = s.read_u8()?;
-        self.monthlo = s.read_u8()?;
-        self.monthhi = s.read_u8()?;
-        self.monthram = s.read_u8()?;
-        self.yearlo = s.read_u8()?;
-        self.yearhi = s.read_u8()?;
-        self.weekday = s.read_u8()?;
-        self.hold = s.read_u8()?;
-        self.calendar = s.read_u8()?;
-        self.irqflag = s.read_u8()?;
-        self.roundseconds = s.read_u8()?;
-        self.irqmask = s.read_u8()?;
-        self.irqduty = s.read_u8()?;
-        self.irqperiod = s.read_u8()?;
-        self.pause = s.read_u8()?;
-        self.stop = s.read_u8()?;
-        self.atime = s.read_u8()?;
-        self.test = s.read_u8()?;
-        self.chipselect = s.read_u8()?;
+        self.secondlo = s.read_u8()? & 0x0F;
+        self.secondhi = s.read_u8()? & 0x07;
+        self.batteryfailure = s.read_u8()? & 0x01;
+        self.minutelo = s.read_u8()? & 0x0F;
+        self.minutehi = s.read_u8()? & 0x0F;
+        self.resync = s.read_u8()? & 0x01;
+        self.hourlo = s.read_u8()? & 0x0F;
+        self.hourhi = s.read_u8()? & 0x0F;
+        self.meridian = s.read_u8()? & 0x01;
+        self.daylo = s.read_u8()? & 0x0F;
+        self.dayhi = s.read_u8()? & 0x03;
+        self.dayram = s.read_u8()? & 0x03;
+        self.monthlo = s.read_u8()? & 0x0F;
+        self.monthhi = s.read_u8()? & 0x01;
+        self.monthram = s.read_u8()? & 0x07;
+        self.yearlo = s.read_u8()? & 0x0F;
+        self.yearhi = s.read_u8()? & 0x0F;
+        self.weekday = s.read_u8()? & 0x0F;
+        self.hold = s.read_u8()? & 0x01;
+        self.calendar = s.read_u8()? & 0x01;
+        self.irqflag = s.read_u8()? & 0x01;
+        self.roundseconds = s.read_u8()? & 0x01;
+        self.irqmask = s.read_u8()? & 0x01;
+        self.irqduty = s.read_u8()? & 0x01;
+        self.irqperiod = s.read_u8()? & 0x03;
+        self.pause = s.read_u8()? & 0x01;
+        self.stop = s.read_u8()? & 0x01;
+        self.atime = s.read_u8()? & 0x01;
+        self.test = s.read_u8()? & 0x01;
+        self.chipselect = s.read_u8()? & 0x0F;
         let state = s.read_u8()?;
         self.state = match state {
             0 => State::Mode,
@@ -385,9 +389,9 @@ impl EpsonRtc {
                 )));
             }
         };
-        self.offset = s.read_u8()?;
+        self.offset = s.read_u8()? & 0x0F;
         self.ready = s.read_bool()?;
-        self.mdr = s.read_u8()?;
+        self.mdr = s.read_u8()? & 0x0F;
         if s.remaining() != 0 {
             return Err(SaveStateError::Invalid(alloc::format!(
                 "RTC0 section has {} trailing byte(s)",
