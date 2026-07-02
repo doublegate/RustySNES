@@ -34,7 +34,11 @@ indexes it directly) and its `Decompressor` (a prediction index outside `EVOLUTI
 rejected, `bpp`/`bits` are bounded to the only values real execution ever produces) and paired
 `EpsonRtc` (an out-of-range handshake-state discriminant is rejected) — **T-52-002's
 board-coverage acceptance criterion is now fully met, every coprocessor board round-trips its
-state**. Remaining: `Cpu`/`Ppu`/`Apu` and the `System`-level envelope — see T-52-003/004 below.
+state**. T-52-003 underway: `Cpu` (the full 65C816 register file + `WAI`/`STP` latches + cycle
+counter) and `Ppu` (VRAM/CGRAM/OAM, the full register file including the window unit, write
+latches, the dot/scanline timeline, interrupt/frame polls, `region`, and the framebuffer) both
+round-trip their state now. Remaining: `Apu` and the `System`-level versioned envelope — see
+T-52-003/004 below.
 
 ## Tickets
 

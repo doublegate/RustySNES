@@ -30,6 +30,8 @@ pub use addr::{Effective, Mode};
 pub use bus::Bus;
 pub use regs::{Regs, Status};
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 /// Native-mode interrupt/exception vector addresses (bank `0`).
 pub mod vectors {
     /// Native COP software interrupt vector (`$00FFE4`).
@@ -104,6 +106,63 @@ impl Cpu {
         let hi = self.bus_read8(bus, vectors::RESET + 1);
         self.regs.pc = u16::from(lo) | (u16::from(hi) << 8);
         self.regs.pbr = 0;
+    }
+
+    /// Write the full architectural register file plus the `WAI`/`STP` latches and cumulative
+    /// cycle counter into a `"CPU0"` section. `cyc` (the per-instruction accumulator, reset at
+    /// the start of every [`Cpu::step`]) is included too even though a save-state can only ever
+    /// be taken between instructions (where it's always `0`) — it costs one `u32` to round-trip
+    /// exactly rather than assume that invariant holds for every future caller of this format.
+    pub fn save_state(&self, w: &mut SaveWriter) {
+        w.section(*b"CPU0", |s| {
+            s.write_u16(self.regs.a);
+            s.write_u16(self.regs.x);
+            s.write_u16(self.regs.y);
+            s.write_u16(self.regs.s);
+            s.write_u16(self.regs.d);
+            s.write_u8(self.regs.dbr);
+            s.write_u8(self.regs.pbr);
+            s.write_u16(self.regs.pc);
+            s.write_u8(self.regs.p.bits());
+            s.write_bool(self.regs.emulation);
+            s.write_u64(self.cycles);
+            s.write_bool(self.waiting);
+            s.write_bool(self.stopped);
+            s.write_u32(self.cyc);
+        });
+    }
+
+    /// The inverse of [`Self::save_state`].
+    ///
+    /// # Errors
+    /// [`SaveStateError`] on truncated/corrupt input or a section with unconsumed trailing
+    /// bytes. `p` is restored via [`Status::from_bits_truncate`], which silently drops any bit
+    /// outside the flag set instead of erroring — `Status` covers all 8 bits of the real
+    /// hardware register, so no encoding of a save-state byte is actually invalid here; there is
+    /// nothing to reject.
+    pub fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        let mut s = r.expect_section(*b"CPU0")?;
+        self.regs.a = s.read_u16()?;
+        self.regs.x = s.read_u16()?;
+        self.regs.y = s.read_u16()?;
+        self.regs.s = s.read_u16()?;
+        self.regs.d = s.read_u16()?;
+        self.regs.dbr = s.read_u8()?;
+        self.regs.pbr = s.read_u8()?;
+        self.regs.pc = s.read_u16()?;
+        self.regs.p = Status::from_bits_truncate(s.read_u8()?);
+        self.regs.emulation = s.read_bool()?;
+        self.cycles = s.read_u64()?;
+        self.waiting = s.read_bool()?;
+        self.stopped = s.read_bool()?;
+        self.cyc = s.read_u32()?;
+        if s.remaining() != 0 {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "CPU0 section has {} trailing byte(s)",
+                s.remaining()
+            )));
+        }
+        Ok(())
     }
 }
 

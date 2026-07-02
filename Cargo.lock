@@ -3161,6 +3161,7 @@ name = "rustysnes-cpu"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.13.0",
+ "rustysnes-savestate",
 ]
 
 [[package]]
@@ -3206,6 +3207,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.13.0",
  "rustysnes-cart",
+ "rustysnes-savestate",
 ]
 
 [[package]]
