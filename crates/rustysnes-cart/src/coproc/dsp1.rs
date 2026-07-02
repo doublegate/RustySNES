@@ -22,6 +22,8 @@
 
 use alloc::boxed::Box;
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 use crate::board::{Board, Coprocessor, MappedAddr};
 use crate::coproc::upd77c25::{Revision, Upd77c25};
 use crate::header::MapMode;
@@ -162,6 +164,18 @@ impl Board for Dsp1Board {
     fn coprocessor_host_accesses(&self) -> u64 {
         self.dsp.host_accesses()
     }
+
+    // `window` is fixed at construction (derived from map mode + ROM size, never mutated), so it
+    // needs no save-state entry — only the engine's own mutable register/RAM state does.
+    fn save_state(&self, w: &mut SaveWriter) {
+        self.dsp.save_state(w);
+        self.inner.save_state(w);
+    }
+
+    fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.dsp.load_state(r)?;
+        self.inner.load_state(r)
+    }
 }
 
 #[cfg(test)]
@@ -210,5 +224,33 @@ mod tests {
         let mut b = dsp_lorom_small();
         assert!(!b.load_firmware(&[0u8; 16]));
         assert!(!b.firmware_loaded());
+    }
+
+    #[test]
+    fn engine_state_round_trips_through_save_state() {
+        let mut b = dsp_lorom_small();
+        // write_dp/read_dp are no-ops until firmware is loaded (matches real hardware — the
+        // register file is meaningless without a program); an all-zero dump is enough (only its
+        // LENGTH is validated) to unlock the data-RAM host port for this test.
+        assert!(b.load_firmware(&[0u8; 8192]));
+        b.dsp.write_dp(0x10, 0xAB);
+        b.dsp.write_dp(0x11, 0xCD);
+        let before = b.dsp.data_ram_word(0x10 >> 1);
+        assert_ne!(
+            before, 0,
+            "the write above should have produced non-zero data-RAM content"
+        );
+
+        let mut w = SaveWriter::new();
+        b.save_state(&mut w);
+        let bytes = w.into_bytes();
+
+        let mut fresh = dsp_lorom_small();
+        assert!(fresh.load_firmware(&[0u8; 8192]));
+        let mut r = SaveReader::new(&bytes);
+        fresh.load_state(&mut r).unwrap();
+
+        assert_eq!(fresh.dsp.data_ram_word(0x10 >> 1), before);
+        assert_eq!(r.remaining(), 0);
     }
 }

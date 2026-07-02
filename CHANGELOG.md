@@ -15,16 +15,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Save-state foundation (part 1 of N).** New `rustysnes-savestate` leaf crate: `SaveWriter` (an
-  append-only builder with primitive writers + a `section(tag, body)` helper for nested,
-  self-describing sections) and `SaveReader` (a bounds-checked cursor with the mirror-image
-  readers, returning `Result` instead of panicking on truncated/corrupt input) — the wire-format
-  primitives `docs/adr/0006-save-state-format.md` specifies. `Board::save_state`/`load_state`
-  hooks added to `rustysnes-cart`, default no-op (correct, not just convenient, for the base
-  LoROM/HiROM/ExHiROM boards, which carry no extra coprocessor state). Proven end-to-end on
-  `Obc1Board`: its 3-field cursor round-trips through a save/load cycle, asserted by a new unit
-  test. `#![no_std]` holds throughout. The remaining coprocessor boards, `Cpu`/`Ppu`/`Apu`, and
-  the `System`-level versioned envelope that assembles them are tracked as the sprint's remaining
-  tickets, not yet implemented.
+  allocation-free append-only builder with primitive writers + a `section(tag, body)` helper for
+  nested, self-describing sections — writes directly into the parent buffer with a length
+  placeholder patched in place, not a throwaway nested `Vec` per section) and `SaveReader` (a
+  bounds-checked cursor with the mirror-image readers, returning `Result` instead of panicking on
+  truncated/corrupt input) — the wire-format primitives `docs/adr/0006-save-state-format.md`
+  specifies. `Board::save_state`/`load_state` hooks added to `rustysnes-cart`, default no-op
+  (correct, not just convenient, for the base LoROM/HiROM/ExHiROM boards, which carry no extra
+  coprocessor state). Implemented for `Obc1Board` (its 3-field cursor, with untrusted-input
+  validation — an out-of-range value is rejected rather than risking a later panic, and a section
+  with unconsumed trailing bytes is rejected too), `Dsp1Board`, and `NecDspVariantBoard` (which
+  covers DSP-2/DSP-4/ST010 for free via the shared `Upd77c25` engine's own `save_state`/
+  `load_state` — every register + the 2048-word data RAM, deliberately excluding firmware, which
+  is never embedded in a save-state, and the host-access debugger counter). `#![no_std]` holds
+  throughout; 4 new round-trip/validation tests. The remaining coprocessor boards, `Cpu`/`Ppu`/
+  `Apu`, and the `System`-level versioned envelope that assembles them are tracked as the sprint's
+  remaining tickets, not yet implemented.
 
 ## [0.1.0] "Foundation" - 2026-07-02
 

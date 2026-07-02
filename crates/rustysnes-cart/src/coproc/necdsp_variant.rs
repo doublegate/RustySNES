@@ -32,6 +32,8 @@
 
 use alloc::boxed::Box;
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 use crate::board::{Board, Coprocessor, MappedAddr};
 use crate::coproc::upd77c25::{Revision, Upd77c25};
 
@@ -240,6 +242,18 @@ impl Board for NecDspVariantBoard {
     fn firmware_hint(&self) -> Option<&'static str> {
         Some(self.variant.firmware_name())
     }
+
+    // `variant` is fixed at construction (title-detected once, never mutated), so it needs no
+    // save-state entry — only the engine's own mutable register/RAM state does.
+    fn save_state(&self, w: &mut SaveWriter) {
+        self.dsp.save_state(w);
+        self.inner.save_state(w);
+    }
+
+    fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.dsp.load_state(r)?;
+        self.inner.load_state(r)
+    }
 }
 
 #[cfg(test)]
@@ -318,5 +332,26 @@ mod tests {
         let mut b = board(Variant::Dsp2);
         assert!(!b.dsp.firmware_loaded());
         assert_eq!(b.read24(0x20_8000), 0);
+    }
+
+    #[test]
+    fn engine_state_round_trips_through_save_state() {
+        let mut b = board(Variant::Dsp2); // Upd7725 revision, 8192-byte firmware
+        assert!(b.load_firmware(&[0u8; 8192]));
+        b.dsp.write_dp(0x20, 0x5A);
+        let before = b.dsp.data_ram_word(0x20 >> 1);
+        assert_ne!(before, 0);
+
+        let mut w = SaveWriter::new();
+        b.save_state(&mut w);
+        let bytes = w.into_bytes();
+
+        let mut fresh = board(Variant::Dsp2);
+        assert!(fresh.load_firmware(&[0u8; 8192]));
+        let mut r = SaveReader::new(&bytes);
+        fresh.load_state(&mut r).unwrap();
+
+        assert_eq!(fresh.dsp.data_ram_word(0x20 >> 1), before);
+        assert_eq!(r.remaining(), 0);
     }
 }
