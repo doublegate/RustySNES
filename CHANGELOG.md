@@ -9,12 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-`v0.2.0 "Persistence"` in progress — see `to-dos/VERSION-PLAN.md` and
-`to-dos/phase-5-frontend/sprint-2-save-states.md`.
+## [0.2.0] "Persistence" - 2026-07-02
+
+A versioned, deterministic core-wide snapshot format — the prerequisite every downstream Reach
+feature (rewind/run-ahead in `v0.3.0`, netplay rollback in `v1.2.0`, TAS replay in `v1.4.0`)
+builds on. See `to-dos/VERSION-PLAN.md` and `to-dos/phase-5-frontend/sprint-2-save-states.md`.
+
+**Oracle/golden suites: all held, no regressions.** The full workspace test suite (including
+`--features test-roms`) is green; the round-trip determinism test additionally proves the new
+save-state format bit-identical across a no-coprocessor ROM, a `Curated` Super FX ROM, and a
+`BestEffort` commercial coprocessor ROM.
 
 ### Added
 
-- **Save-state foundation (parts 1-8 of N).** New `rustysnes-savestate` leaf crate: `SaveWriter`
+- **Save-state foundation (parts 1-9 of N — the complete `v0.2.0` scope).** New
+  `rustysnes-savestate` leaf crate: `SaveWriter`
   (an allocation-free append-only builder with primitive writers + a `section(tag, body)` helper
   for nested, self-describing sections — writes directly into the parent buffer with a length
   placeholder patched in place, not a throwaway nested `Vec` per section) and `SaveReader` (a
@@ -107,13 +116,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the target `System`'s own installed state on load and rejected on mismatch rather than
   silently corrupted — restoring a cart-carrying save-state requires the caller to have already
   loaded the SAME ROM first, the same "never embed a ROM/firmware byte" posture every
-  coprocessor's firmware already follows. `docs/adr/0006`'s status is now "implementation
-  complete pending the round-trip determinism test." 6 new round-trip/validation tests
-  (`rustysnes-core`: `dma.rs` ×1, `scheduler.rs` ×3 covering the no-cart round trip plus bad-magic
-  and newer-format-version rejection). **T-52-003 is now fully complete** — every subsystem
+  coprocessor's firmware already follows. 6 new round-trip/validation tests (`rustysnes-core`:
+  `dma.rs` ×1, `scheduler.rs` ×3 covering the no-cart round trip plus bad-magic and
+  newer-format-version rejection). **T-52-003 is now fully complete** — every subsystem
   (`Cpu`/`Ppu`/`Apu`/`Bus`/`Cart`) round-trips its exact state through one versioned envelope.
-  The round-trip determinism test that is the format's actual spec (T-52-004) is the sprint's
-  one remaining ticket, not yet implemented.
+  Closes with **T-52-004, the round-trip determinism test that is this format's actual spec**
+  (`crates/rustysnes-test-harness/tests/save_state_determinism.rs`): boot a ROM, run 30 frames,
+  snapshot, restore the snapshot onto a SEPARATE freshly-booted `System` (the same ROM loaded
+  fresh — a save-state never embeds a ROM byte), run 30 more frames on both the original
+  (continuing uninterrupted) and the restored system, and assert the framebuffer + queued audio
+  samples are byte-identical between the two. Green across a no-coprocessor ROM (the committed
+  gilyon `cputest-basic.sfc`, always present), a `Curated`-tier Super FX Krom ROM, and a
+  `BestEffort`-tier commercial coprocessor ROM (the latter two self-skip when the gitignored
+  external corpus is absent, matching every other on-cart test in this suite). **`docs/adr/0006`
+  is now `Accepted`** — the save-state format is a stable public contract every post-`v1.0.0`
+  Reach feature (netplay rollback, TAS replay) can build on. This closes out the `v0.2.0
+  "Persistence"` sprint in full.
 
 ## [0.1.0] "Foundation" - 2026-07-02
 

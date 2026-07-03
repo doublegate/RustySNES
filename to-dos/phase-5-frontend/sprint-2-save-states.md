@@ -61,9 +61,10 @@ format is implemented and the round-trip test (T-52-004) is green.
 
 **Acceptance criteria:**
 
-- [ ] ADR 0006 status is `Accepted`.
-- [ ] Any deviation from the ADR's drafted format is folded back into the ADR text (the ADR
-      stays the source of truth for the format, not just a historical proposal).
+- [x] ADR 0006 status is `Accepted`.
+- [x] Any deviation from the ADR's drafted format is folded back into the ADR text (the ADR
+      stays the source of truth for the format, not just a historical proposal) — the header
+      shape (magic + format version only, no crate-version string) was corrected during review.
 
 **Dependencies:** none
 **Reference:** `docs/adr/0006-save-state-format.md`
@@ -138,10 +139,14 @@ CX4), and a no-coprocessor ROM.
 
 **Acceptance criteria:**
 
-- [ ] The round-trip test is green for all three sampled ROM categories.
-- [ ] The test lives in `crates/rustysnes-test-harness/tests/` alongside the existing
+- [x] The round-trip test is green for all three sampled ROM categories
+      (`crates/rustysnes-test-harness/tests/save_state_determinism.rs`: a no-coprocessor ROM
+      (committed gilyon `cputest-basic.sfc`, always present), a `Curated` Super FX Krom ROM, and
+      a `BestEffort` commercial coprocessor ROM — the latter two self-skip when the gitignored
+      external corpus is absent, matching every other on-cart test in this suite).
+- [x] The test lives in `crates/rustysnes-test-harness/tests/` alongside the existing
       determinism/golden-framebuffer tests, following their existing structure.
-- [ ] CHANGELOG.md `[Unreleased]` gets the `v0.2.0` entry once this lands.
+- [x] CHANGELOG.md `[Unreleased]` gets the `v0.2.0` entry once this lands.
 
 **Dependencies:** T-52-003
 **Reference:** `docs/adr/0004-determinism-contract.md`, `docs/adr/0006-save-state-format.md`
@@ -151,9 +156,12 @@ CX4), and a no-coprocessor ROM.
 
 ## Sprint review checklist
 
-- [ ] All tickets checked off or explicitly deferred (with reason).
-- [ ] ADR 0006 flipped to `Accepted`.
-- [ ] `docs/STATUS.md`'s frontend row updated: save-states no longer "deferred."
-- [ ] CHANGELOG.md `[Unreleased]` describes the format + the round-trip proof.
-- [ ] `to-dos/VERSION-PLAN.md`'s `v0.2.0` entry checked off; `v0.3.0 "Continuum"` (rewind/
-      run-ahead, Sprint 3) opened next.
+- [x] All tickets checked off or explicitly deferred (with reason) — T-52-001 through T-52-004
+      all fully complete.
+- [x] ADR 0006 flipped to `Accepted`.
+- [x] `docs/STATUS.md`'s frontend row updated: save-states no longer "deferred."
+- [x] CHANGELOG.md now has a real `[0.2.0] "Persistence"` release section describing the format
+      + the round-trip proof (renamed from `[Unreleased]`, with a fresh empty `[Unreleased]`
+      above it).
+- [x] `to-dos/VERSION-PLAN.md`'s `v0.2.0` entry checked off; `v0.3.0 "Continuum"` (rewind/
+      run-ahead, Sprint 3) is next up.
