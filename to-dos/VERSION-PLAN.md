@@ -86,7 +86,13 @@ this. See `to-dos/phase-5-frontend/sprint-2-save-states.md` for the ticket break
       **Still open:** real-ROM-boot + golden-framebuffer validation against an actual PAL
       cartridge — no PAL ROM exists in the local test corpus yet, so this is honestly tracked as
       remaining, not silently claimed done.
-- [ ] ExLoROM memory-map model (currently "deferred" in `docs/STATUS.md`).
+- [x] ExLoROM memory-map model: `MapMode::ExLoRom` + the `ExLoRom` board (`board.rs`), header
+      detection at `$40_7FC0` (`header.rs`). The decode formula is sourced directly from
+      bsnes's runtime board database (`board: EXLOROM`/`EXLOROM-RAM`,
+      `target-bsnes/resource/system/boards.bml`), not guessed from the header-detection
+      heuristic alone — see `docs/cart.md` §ExLoROM for the full provenance chain. **Still
+      open:** no real ExLoROM ROM (commercial or homebrew) exists in the local corpus, so this
+      board has only formula-level unit-test coverage, not golden-framebuffer validation.
 
 ### v0.4.0 "Completion" — finish the coprocessor/board matrix
 

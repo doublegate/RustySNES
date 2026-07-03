@@ -44,8 +44,8 @@ impl DspWindow {
     const fn select(map_mode: MapMode, rom_len: usize) -> Self {
         match map_mode {
             MapMode::HiRom | MapMode::ExHiRom => Self::HiRom,
-            MapMode::LoRom if rom_len > 0x10_0000 => Self::LoRomLarge,
-            MapMode::LoRom => Self::LoRomSmall,
+            MapMode::LoRom | MapMode::ExLoRom if rom_len > 0x10_0000 => Self::LoRomLarge,
+            MapMode::LoRom | MapMode::ExLoRom => Self::LoRomSmall,
         }
     }
 

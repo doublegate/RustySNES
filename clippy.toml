@@ -7,6 +7,7 @@ doc-valid-idents = [
     "LoROM",
     "HiROM",
     "ExHiROM",
+    "ExLoROM",
     "SNES",
     "SRAM",
     "ARAM",
