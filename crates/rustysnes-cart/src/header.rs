@@ -123,11 +123,17 @@ mod field {
 impl Header {
     /// The candidate header *base* offsets (`$xFC0`) before any copier-prefix adjustment,
     /// paired with the map mode each location implies.
+    //
+    // The extended (>4 MiB) candidates are listed FIRST: `Self::detect`'s tie-break keeps
+    // whichever candidate is found first when two offsets score identically (only strictly
+    // higher scores replace `best`), and a >4 MiB image's real header can, in principle, tie a
+    // spurious high-scoring match at the smaller offset — ordering extended modes first means a
+    // tie favors the model that actually explains the full image, not the truncated one.
     const CANDIDATES: [(usize, MapMode); 4] = [
-        (0x7FC0, MapMode::LoRom),
-        (0xFFC0, MapMode::HiRom),
         (0x40_FFC0, MapMode::ExHiRom),
         (0x40_7FC0, MapMode::ExLoRom),
+        (0x7FC0, MapMode::LoRom),
+        (0xFFC0, MapMode::HiRom),
     ];
 
     /// Detect the internal header in a raw ROM image.
