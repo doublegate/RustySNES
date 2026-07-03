@@ -1,9 +1,43 @@
 name: CI
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
 permissions:
   contents: read
 jobs:
-  test:
+  # Fast gate: every push/PR. Formatting + lint only (Linux) — the full test suite, the 3-OS
+  # matrix, the doc build, and the no_std build are reserved for release-tag pushes (`full-test`
+  # / `no_std` below) so PR/push CI stays quick. The tradeoff: a broken PR is only caught by the
+  # full battery at the next tag, not on every merge — accepted deliberately to keep iteration
+  # fast; the human-run pre-merge verification gate (AGENTS.md) already covers the same ground
+  # per-PR before this even runs.
+  lint:
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+    env:
+      CARGO_NET_RETRY: "10"
+      CARGO_HTTP_MULTIPLEXING: "false"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.96
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown, thumbv7em-none-eabihf
+      # The egui/winit frontend links against X11/Wayland/ALSA on Linux (see CONTRIBUTING.md).
+      - name: Install Linux frontend system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libasound2-dev \
+            libudev-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # Full gate: release-tag pushes ONLY (`v*`). The complete verification battery — the 3-OS
+  # matrix, both test invocations, and the doc-warnings gate.
+  full-test:
+    if: startsWith(github.ref, 'refs/tags/v')
     env:
       CARGO_NET_RETRY: "10"
       CARGO_HTTP_MULTIPLEXING: "false"
@@ -17,7 +51,6 @@ jobs:
         with:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown, thumbv7em-none-eabihf
-      # The egui/winit frontend links against X11/Wayland/ALSA on Linux (see CONTRIBUTING.md).
       - name: Install Linux frontend system deps
         if: runner.os == 'Linux'
         run: |
@@ -30,7 +63,10 @@ jobs:
       - run: cargo test --workspace --features test-roms
       - run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
         if: runner.os == 'Linux'
+
+  # Release-tag pushes ONLY — see `lint` above for why this doesn't run on every PR/push.
   no_std:
+    if: startsWith(github.ref, 'refs/tags/v')
     env:
       CARGO_NET_RETRY: "10"
       CARGO_HTTP_MULTIPLEXING: "false"
