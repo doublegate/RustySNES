@@ -248,7 +248,13 @@ impl Bus {
     /// real-world audio/video pacing concern the frontend owns (`docs/adr/0004`); the core's
     /// master-clock counter is a pure tick count, not wall-clock time, so nothing else in the
     /// core depends on which oscillator frequency a real console would use.
-    pub const fn sync_region_from_cart(&mut self) {
+    // Deliberately NOT `const fn`: `Bus` holds heap-allocated/complex nested state (`Box`-owned
+    // WRAM, the PPU/APU), and this method reads a `Cart` (a `Box<dyn Board>` behind it) — pinning
+    // this to a `const` API guarantee for no actual const-context caller buys nothing and would
+    // force a breaking API change the moment any of that state gains a genuinely non-const need
+    // (logging, validation, additional resets).
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn sync_region_from_cart(&mut self) {
         let Some(cart) = &self.cart else { return };
         let ppu_region = match cart.header.region {
             Region::Ntsc => PpuRegion::Ntsc,

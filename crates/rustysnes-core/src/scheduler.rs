@@ -311,10 +311,10 @@ mod tests {
     use rustysnes_ppu::Region as PpuRegion;
 
     /// A minimal synthetic LoROM header (offset `$7FC0`) with a controllable region byte
-    /// (`$xFD9`, `field::REGION` in `rustysnes-cart`'s header module — duplicated here rather
-    /// than exported, since it's a small, stable, publicly-documented header layout,
-    /// `docs/cartridge-format.md`). `region == 0x00` selects Japan/NTSC; `0x02` selects
-    /// Europe/PAL (`Header::region_from_code`'s `0x02..=0x0C -> Pal` range).
+    /// (`$7FD9` for this LoROM offset — `field::REGION` in `rustysnes-cart`'s header module,
+    /// duplicated here rather than exported, since it's a small, stable, publicly-documented
+    /// header layout, `docs/cartridge-format.md`). `region == 0x00` selects Japan/NTSC; `0x02`
+    /// selects Europe/PAL (`Header::region_from_code`'s `0x02..=0x0C -> Pal` range).
     fn synth_rom(region: u8) -> alloc::vec::Vec<u8> {
         let mut rom = alloc::vec![0u8; 0x1_0000];
         let h = 0x7FC0;

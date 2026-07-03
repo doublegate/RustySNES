@@ -97,9 +97,9 @@ Phase-2 mid-line-raster gap here.
 **Status:** DSP-2/DSP-4/ST010/S-DD1/CX4/OBC1 done + validated; SPC7110 implemented but not
 booting; ST018 and standalone S-RTC not started; PAL region auto-detection implemented +
 validated (golden-ROM-boot proof still open, no PAL ROM in the local corpus); ExLoROM remains.
-**Release mapping:** the done work shipped inside `v0.1.0`; PAL auto-detect shipped inside
-`v0.2.0`; the remainder is `v0.3.0` (ExLoROM, PAL golden-boot proof if a ROM surfaces) and
-`v0.4.0` (SPC7110 fix, ST018, standalone S-RTC).
+**Release mapping:** the done work shipped inside `v0.1.0`; PAL auto-detect is landing inside
+`v0.3.0 "Continuum"` alongside rewind/run-ahead; the remainder is `v0.3.0` (ExLoROM, PAL
+golden-boot proof if a ROM surfaces) and `v0.4.0` (SPC7110 fix, ST018, standalone S-RTC).
 → [overview](phase-7-breadth/overview.md)
 
 ### Phase 8 — Reach (additive, off-by-default) 🚧 not started (all three crates are 1-line stubs)
