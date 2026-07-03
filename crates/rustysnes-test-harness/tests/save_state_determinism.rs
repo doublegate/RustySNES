@@ -23,9 +23,9 @@
 
 use std::path::{Path, PathBuf};
 
+use rustysnes_core::System;
 use rustysnes_core::cart::Coprocessor;
 use rustysnes_core::cart::tier::{BoardTier, board_tier};
-use rustysnes_core::{Bus, System};
 
 /// Frames to run before taking the snapshot.
 const FRAMES_BEFORE_SAVE: u32 = 30;
@@ -72,12 +72,6 @@ fn boot(rom: &[u8], firmware: Option<&[u8]>, frames: u32) -> Option<System> {
     Some(sys)
 }
 
-fn drain_audio_hash(bus: &mut Bus) -> u64 {
-    let mut samples = Vec::new();
-    bus.apu.drain_audio(&mut samples);
-    hash_audio(&samples)
-}
-
 /// The round-trip check: continuing the original system uninterrupted must produce the exact
 /// same framebuffer + audio as saving, restoring onto a fresh system, and continuing that one.
 fn check_round_trip(rom_path: &Path, firmware: Option<&[u8]>) -> Result<(), String> {
@@ -86,6 +80,12 @@ fn check_round_trip(rom_path: &Path, firmware: Option<&[u8]>) -> Result<(), Stri
 
     let mut original =
         boot(&rom, firmware, FRAMES_BEFORE_SAVE).ok_or_else(|| format!("failed to boot {path}"))?;
+    // The audio FIFO is host-side instrumentation, not core state (it's never written by
+    // Dsp::save_state — see that method's own doc), so the boot phase's samples must be
+    // discarded here rather than left to leak into the post-restore comparison below (the
+    // `restored` system, booted with 0 frames, would never have accumulated them).
+    let mut discard = Vec::new();
+    original.bus.apu.drain_audio(&mut discard);
     let snapshot = original.save_state();
 
     // A separate System, the same ROM loaded fresh (never from the save-state's own bytes — a
@@ -96,26 +96,35 @@ fn check_round_trip(rom_path: &Path, firmware: Option<&[u8]>) -> Result<(), Stri
         .load_state(&snapshot)
         .map_err(|e| format!("{path}: load_state failed: {e}"))?;
 
+    // Drain every frame (not just at the end): 30 frames of undrained audio can overflow the
+    // APU's bounded output FIFO (`AUDIO_FIFO_CAP`), silently dropping samples and making the
+    // comparison miss a real divergence.
+    let mut audio_orig = Vec::new();
+    let mut audio_rest = Vec::new();
     for _ in 0..FRAMES_AFTER {
         original.run_frame();
+        original.bus.apu.drain_audio(&mut audio_orig);
         restored.run_frame();
+        restored.bus.apu.drain_audio(&mut audio_rest);
     }
 
-    let fb_orig = hash_fb(original.bus.framebuffer());
-    let fb_rest = hash_fb(restored.bus.framebuffer());
-    let audio_orig = drain_audio_hash(&mut original.bus);
-    let audio_rest = drain_audio_hash(&mut restored.bus);
-
+    let fb_orig = original.bus.framebuffer();
+    let fb_rest = restored.bus.framebuffer();
     if fb_orig != fb_rest {
         return Err(format!(
-            "{path}: framebuffer diverged after restore (orig={fb_orig:#018x} \
-             restored={fb_rest:#018x})"
+            "{path}: framebuffer diverged after restore (orig={:#018x} restored={:#018x})",
+            hash_fb(fb_orig),
+            hash_fb(fb_rest),
         ));
     }
     if audio_orig != audio_rest {
         return Err(format!(
-            "{path}: audio diverged after restore (orig={audio_orig:#018x} \
-             restored={audio_rest:#018x})"
+            "{path}: audio diverged after restore (orig={:#018x} restored={:#018x}, \
+             {} vs {} samples)",
+            hash_audio(&audio_orig),
+            hash_audio(&audio_rest),
+            audio_orig.len(),
+            audio_rest.len(),
         ));
     }
     Ok(())
@@ -133,7 +142,7 @@ fn collect_roms(dir: &Path) -> Vec<PathBuf> {
             let p = e.path();
             if p.is_dir() {
                 stack.push(p);
-            } else if p.extension().is_some_and(|x| x == "sfc") {
+            } else if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("sfc")) {
                 out.push(p);
             }
         }
@@ -171,6 +180,10 @@ fn best_effort_coprocessor_rom_round_trips() {
         return;
     }
     let roms = collect_roms(&dir);
+    // Any firmware-free BestEffort ROM works (CX4 needs cx4.rom to do anything observable;
+    // S-DD1/SPC7110/OBC1 run firmware-free), but prefer S-DD1 specifically when one exists,
+    // rather than whichever firmware-free BestEffort title happens to sort first.
+    let mut fallback = None;
     let mut picked = None;
     for path in &roms {
         let Ok(rom) = std::fs::read(path) else {
@@ -181,13 +194,15 @@ fn best_effort_coprocessor_rom_round_trips() {
         };
         if board_tier(cart.header.coprocessor) == BoardTier::BestEffort
             && cart.header.coprocessor != Coprocessor::Cx4
-        // CX4 needs cx4.rom firmware to do anything observable; S-DD1/SPC7110/OBC1 run firmware-free.
         {
-            picked = Some(path.clone());
-            break;
+            if cart.header.coprocessor == Coprocessor::SDd1 {
+                picked = Some(path.clone());
+                break;
+            }
+            fallback.get_or_insert_with(|| path.clone());
         }
     }
-    let Some(path) = picked else {
+    let Some(path) = picked.or(fallback) else {
         eprintln!(
             "SKIP best_effort_coprocessor_rom_round_trips: no firmware-free BestEffort ROM found \
              in the local commercial corpus"
