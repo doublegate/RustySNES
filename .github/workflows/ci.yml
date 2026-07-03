@@ -7,12 +7,16 @@ on:
 permissions:
   contents: read
 jobs:
-  # Fast gate: every push/PR. Formatting + lint only (Linux) — the full test suite, the 3-OS
-  # matrix, the doc build, and the no_std build are reserved for release-tag pushes (`full-test`
-  # / `no_std` below) so PR/push CI stays quick. The tradeoff: a broken PR is only caught by the
-  # full battery at the next tag, not on every merge — accepted deliberately to keep iteration
-  # fast; the human-run pre-merge verification gate (AGENTS.md) already covers the same ground
-  # per-PR before this even runs.
+  # Fast gate: every PR event (opened/synchronize/...) and every push to `main`. Formatting +
+  # lint only (Linux) — the full test suite, the 3-OS matrix, the doc build, and the no_std build
+  # are reserved for release-tag pushes (`full-test` / `no_std` below) so PR/push CI stays quick.
+  # NOTE: a bare push to a feature branch with no open PR does NOT trigger this (the `push`
+  # trigger above is scoped to `branches: [main]` + tag pushes) — every commit on a PR branch
+  # still runs it via the `pull_request` `synchronize` event, so this is a non-issue in practice
+  # for this project's branch-then-PR workflow, but don't rely on push-to-feature-branch CI.
+  # The tradeoff: a broken PR is only caught by the full battery at the next tag, not on every
+  # merge — accepted deliberately to keep iteration fast; the human-run pre-merge verification
+  # gate (AGENTS.md) already covers the same ground per-PR before this even runs.
   lint:
     if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
     env:
