@@ -16,4 +16,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - name: Install Linux frontend system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libasound2-dev \
+            libudev-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
       - run: cargo build --release -p rustysnes-frontend --target ${{ matrix.target }}

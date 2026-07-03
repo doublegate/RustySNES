@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`release.yml`'s Linux build was broken.** The tag-triggered release workflow never installed
+  the Linux system dependencies (`libxkbcommon-dev`/`libwayland-dev`/`libasound2-dev`/
+  `libudev-dev`/`libx11-dev`/`libxcursor-dev`/`libxrandr-dev`/`libxi-dev`) that `ci.yml`/
+  `pages.yml` already do, so `cargo build --release -p rustysnes-frontend` failed immediately at
+  `libudev-sys`'s `pkg-config` build step on every `ubuntu-latest` release build — caught when
+  the `v0.2.0` tag push actually exercised this workflow for the first time. Added the same
+  install step `ci.yml` uses, gated to the Linux matrix leg.
+
 ## [0.2.0] "Persistence" - 2026-07-02
 
 A versioned, deterministic core-wide snapshot format — the prerequisite every downstream Reach
