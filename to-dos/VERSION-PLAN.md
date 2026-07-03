@@ -55,19 +55,22 @@ exist; `rustysnes-netplay`/`rustysnes-cheevos`/`rustysnes-script` are empty stub
 blocks v0.1.0 — it's exactly the honest "not started" status `docs/STATUS.md` already carries,
 and v0.1.0's job is only to stop hiding the substantial *finished* work behind an unreleased tag.
 
-### v0.2.0 "Persistence" — save-states
+### v0.2.0 "Persistence" — save-states — **RELEASED 2026-07-02**
 
 **Goal:** the prerequisite for rewind, run-ahead, netplay, and TAS movies — all four build on
 this. See `to-dos/phase-5-frontend/sprint-2-save-states.md` for the ticket breakdown.
 
-- A versioned, deterministic snapshot format across `Bus` (WRAM, PPU, APU/ARAM, DMA, clock),
-  `Cart`/`Board` (coprocessor register state), and the CPU registers.
-- `rustysnes-core::System::save_state()`/`load_state()` (currently `Unsupported` stubs per
-  `ref-proj/RUSTYMU-INTEGRATION.md`).
-- A round-trip determinism test: save → run N frames on a fork → load → run the same N frames
-  on the original → byte-identical framebuffer/audio (extends the existing determinism-contract
-  test pattern, `docs/adr/0004`).
-- New ADR: the save-state binary format + versioning/compatibility policy.
+- [x] A versioned, deterministic snapshot format across `Bus` (WRAM, PPU, APU/ARAM, DMA, clock),
+      `Cart`/`Board` (every coprocessor's register state), and the CPU registers.
+- [x] `rustysnes-core::System::save_state()`/`load_state()` — a 4-byte magic + `u16` format
+      version envelope, replacing the `Unsupported` stubs `ref-proj/RUSTYMU-INTEGRATION.md`
+      documented.
+- [x] A round-trip determinism test: save → restore onto a fresh `System` → run N frames on
+      both the original (continuing) and the restored system → byte-identical framebuffer +
+      audio, across a no-coprocessor / `Curated` / `BestEffort` sample (extends the existing
+      determinism-contract test pattern, `docs/adr/0004`).
+- [x] New ADR: `docs/adr/0006-save-state-format.md` (the save-state binary format +
+      versioning/compatibility policy), status `Accepted`.
 
 ### v0.3.0 "Continuum" — rewind, run-ahead, PAL, ExLoROM
 

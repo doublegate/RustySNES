@@ -2,16 +2,16 @@
 
 ## Status
 
-Proposed; implementation complete pending the round-trip determinism test (T-52-004). (Accepted
-once that test is green, `v0.2.0 "Persistence"`, `to-dos/VERSION-PLAN.md`.)
+Accepted (`v0.2.0 "Persistence"`, `to-dos/VERSION-PLAN.md`).
 
-**Progress:** the wire-format primitives (`rustysnes-savestate`: `SaveWriter`/`SaveReader`/
-`SaveStateError`), the `Board::save_state`/`load_state` trait hooks (every coprocessor board),
-`Cpu`/`Ppu`/`Apu`, and `System::save_state()`/`load_state()` — the versioned envelope (4-byte
-magic `b"RSNS"` + `u16` format version, wrapping `Cpu`, the whole `Bus` including the cart's
-coprocessor state and battery SRAM, and the SA-1 second CPU when present) — are all landed.
-Remaining: the round-trip determinism test itself (T-52-004), tracked in
-`to-dos/phase-5-frontend/sprint-2-save-states.md`.
+**Progress:** fully implemented and proven. The wire-format primitives (`rustysnes-savestate`:
+`SaveWriter`/`SaveReader`/`SaveStateError`), the `Board::save_state`/`load_state` trait hooks
+(every coprocessor board), `Cpu`/`Ppu`/`Apu`, and `System::save_state()`/`load_state()` — the
+versioned envelope (4-byte magic `b"RSNS"` + `u16` format version, wrapping `Cpu`, the whole
+`Bus` including the cart's coprocessor state and battery SRAM, and the SA-1 second CPU when
+present) — are all landed. The round-trip determinism test that is this format's actual spec
+(`crates/rustysnes-test-harness/tests/save_state_determinism.rs`, T-52-004) is green across a
+no-coprocessor ROM, a `Curated` Super FX ROM, and a `BestEffort` commercial-coprocessor ROM.
 
 ## Context
 
