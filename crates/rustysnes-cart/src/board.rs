@@ -335,6 +335,7 @@ pub fn select(header: &Header, rom: &[u8]) -> Box<dyn Board> {
         MapMode::LoRom => Box::new(LoRom::new(rom, sram)),
         MapMode::HiRom => Box::new(HiRom::new(rom, sram)),
         MapMode::ExHiRom => Box::new(ExHiRom::new(rom, sram)),
+        MapMode::ExLoRom => Box::new(ExLoRom::new(rom, sram)),
     };
     match header.coprocessor {
         CoproId::Dsp => {
@@ -555,6 +556,79 @@ impl Board for ExHiRom {
     }
 }
 
+/// ExLoROM (unofficial — no dedicated `$xFD5` mode value): the extended LoROM layout for
+/// titles over 4 MiB that keep LoROM's 32 KiB bank windowing instead of switching to HiROM's
+/// linear banks.
+///
+/// Banks `$80–$FF` address the first 4 MiB; banks `$00–$7D` address the extra (high) 4 MiB —
+/// the same A23-inverted high/low bank split [`ExHiRom`] uses, applied to LoROM's `$8000`
+/// window instead of HiROM's full bank.
+///
+/// No real ExLoROM ROM (commercial or homebrew) exists in this project's local corpus, so this
+/// board has no golden-framebuffer validation — see `docs/adr/0003`. The formula is sourced
+/// directly from bsnes's own runtime board database (`board: EXLOROM` / `EXLOROM-RAM`,
+/// `target-bsnes/resource/system/boards.bml`: `map address=00-7d:8000-ffff mask=0x808000
+/// base=0x400000` / `map address=80-ff:8000-ffff mask=0x808000 base=0x000000`), decoded against
+/// `Bus::reduce`'s bit-packing algorithm (`sfc/memory/memory.cpp`) rather than guessed — not
+/// from the header-detection heuristic alone. See `docs/cart.md` §ExLoROM.
+#[derive(Debug, Clone)]
+pub struct ExLoRom {
+    rom: Box<[u8]>,
+    sram: Box<[u8]>,
+}
+
+impl ExLoRom {
+    /// Construct an ExLoROM board from owned ROM + (zeroed, header-sized) SRAM.
+    #[must_use]
+    pub const fn new(rom: Box<[u8]>, sram: Box<[u8]>) -> Self {
+        Self { rom, sram }
+    }
+}
+
+impl Board for ExLoRom {
+    fn name(&self) -> &'static str {
+        "ExLoROM"
+    }
+
+    fn map(&self, addr24: u32) -> MappedAddr {
+        let bank = (addr24 >> 16) & 0xFF;
+        let addr = addr24 & 0xFFFF;
+        let lo = bank & 0x7F;
+
+        // SRAM: banks $70–$7D and $F0–$FF, $0000–$7FFF (LoROM-style window; when present).
+        if !self.sram.is_empty() && (0x70..=0x7D).contains(&lo) && addr < 0x8000 {
+            let idx = (lo - 0x70) * 0x8000 + addr;
+            #[allow(clippy::cast_possible_truncation)]
+            let len = self.sram.len() as u32;
+            return MappedAddr::Sram(idx % len);
+        }
+
+        // ROM: $8000–$FFFF of every bank, LoROM's 32 KiB windowing; bit 22 of the offset is the
+        // inverse of A23 (bank bit 7) — banks $80–$FF select the first 4 MiB, banks $00–$7D
+        // select the extra 4 MiB (same inversion as ExHiROM's `high`, just added to the LoROM
+        // packed offset instead of the HiROM one).
+        if addr >= 0x8000 {
+            let high = if bank & 0x80 != 0 { 0 } else { 1u32 << 22 };
+            let off = high | (lo << 15) | (addr & 0x7FFF);
+            #[allow(clippy::cast_possible_truncation)]
+            let size = self.rom.len() as u32;
+            return MappedAddr::Rom(mirror(off, size));
+        }
+
+        MappedAddr::Open
+    }
+
+    fn rom(&self) -> &[u8] {
+        &self.rom
+    }
+    fn sram(&self) -> &[u8] {
+        &self.sram
+    }
+    fn sram_mut(&mut self) -> &mut [u8] {
+        &mut self.sram
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -667,5 +741,32 @@ mod tests {
         let mut b = ExHiRom::new(boxed(rom), boxed(vec![]));
         assert_eq!(b.read24(0xC0_0000), 0x55);
         assert_eq!(b.read24(0x40_0000), 0x66);
+    }
+
+    #[test]
+    fn exlorom_high_and_low_banks() {
+        // 8 MiB ROM. Bank $80:$8000 -> first 4 MiB (offset 0). Bank $00:$8000 -> extra 4 MiB
+        // (offset 0x400000). Bank $01:$8000 -> extra 4 MiB + one 32 KiB window (0x400000+0x8000).
+        let mut rom = vec![0u8; 0x80_0000];
+        rom[0x00_0000] = 0x55; // first half base
+        rom[0x40_0000] = 0x66; // extra half base
+        rom[0x40_8000] = 0x77; // extra half, bank $01's window
+        let mut b = ExLoRom::new(boxed(rom), boxed(vec![]));
+        assert_eq!(b.read24(0x80_8000), 0x55);
+        assert_eq!(b.read24(0x00_8000), 0x66);
+        assert_eq!(b.read24(0x01_8000), 0x77);
+        // $0000-$7FFF of a bank is open bus (no SRAM here).
+        assert_eq!(b.map(0x80_0000), MappedAddr::Open);
+    }
+
+    #[test]
+    fn exlorom_sram_roundtrip() {
+        let rom = vec![0u8; 0x80_0000];
+        let sram = vec![0u8; 0x2000];
+        let mut b = ExLoRom::new(boxed(rom), boxed(sram));
+        b.write24(0x70_0000, 0x42);
+        assert_eq!(b.read24(0x70_0000), 0x42);
+        assert_eq!(b.read24(0xF0_0000), 0x42); // mirror
+        assert_eq!(b.sram()[0], 0x42);
     }
 }

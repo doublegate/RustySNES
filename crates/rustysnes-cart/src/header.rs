@@ -31,6 +31,9 @@ pub enum MapMode {
     HiRom,
     /// ExHiROM (`$25`).
     ExHiRom,
+    /// ExLoROM (unofficial — no dedicated `$xFD5` value; homebrew/flashcart >4 MiB titles that
+    /// keep LoROM's 32 KiB bank windowing instead of switching to HiROM's linear banks).
+    ExLoRom,
 }
 
 /// Console region, derived from the destination-code header byte (`$xFD9`).
@@ -120,10 +123,11 @@ mod field {
 impl Header {
     /// The candidate header *base* offsets (`$xFC0`) before any copier-prefix adjustment,
     /// paired with the map mode each location implies.
-    const CANDIDATES: [(usize, MapMode); 3] = [
+    const CANDIDATES: [(usize, MapMode); 4] = [
         (0x7FC0, MapMode::LoRom),
         (0xFFC0, MapMode::HiRom),
         (0x40_FFC0, MapMode::ExHiRom),
+        (0x40_7FC0, MapMode::ExLoRom),
     ];
 
     /// Detect the internal header in a raw ROM image.
@@ -276,9 +280,14 @@ const fn region_from_code(code: u8) -> Region {
 }
 
 /// The map-mode low nibble each candidate location expects (`$xFD5 & 0x0F`).
+///
+/// ExLoROM has no dedicated value — it's unofficial (confirmed against ares/bsnes: neither
+/// assigns it a distinct `$xFD5` nibble) — so real ExLoROM carts fall back to reporting plain
+/// LoROM's `$0` nibble here; this candidate is still disambiguated from true LoROM purely by
+/// its header *offset* (`$40_7FC0`, only reachable by images >4 MiB).
 const fn expected_mode_nibble(map_mode: MapMode) -> u8 {
     match map_mode {
-        MapMode::LoRom => 0x0,
+        MapMode::LoRom | MapMode::ExLoRom => 0x0,
         MapMode::HiRom => 0x1,
         MapMode::ExHiRom => 0x5,
     }
@@ -411,6 +420,18 @@ mod tests {
     fn garbage_rejected() {
         let rom = vec![0u8; 0x1_0000];
         assert_eq!(Header::detect(&rom), Err(HeaderError::NoValidHeader));
+    }
+
+    #[test]
+    fn detects_exlorom() {
+        // ExLoROM has no dedicated $xFD5 nibble, so the header reports plain LoROM's ($0) —
+        // disambiguated purely by the $40_7FC0 offset, only reachable by images >4 MiB.
+        let mut rom = vec![0u8; 0x40_8000];
+        let synth = synth_image(0x7FC0, 0x0, 0x00, 0x01);
+        rom[0x40_0000..0x40_8000].copy_from_slice(&synth[0..0x8000]);
+        let h = Header::detect(&rom).expect("exlorom header should detect");
+        assert_eq!(h.map_mode, MapMode::ExLoRom);
+        assert_eq!(h.offset, 0x40_7FC0);
     }
 
     #[test]

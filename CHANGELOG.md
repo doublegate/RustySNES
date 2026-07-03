@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **PAL region auto-detection.** `Bus::sync_region_from_cart` reads the cart header's
+  destination-code byte and reconfigures the PPU's line-count/status-bit timeline at
+  `System::reset()` — the 50 Hz/312-line table already existed in the scheduler, but nothing
+  previously wired the header's own region detection into the running machine, so PAL carts
+  silently ran at NTSC timing. Proven end-to-end by a synthetic-header test that runs a full
+  frame and asserts it completes at the correct 312-line count, not just that the region flag
+  flips. Only the PPU's line-count/status-bit timeline is region-dependent in the core; the
+  differing NTSC/PAL master-clock rate is a frontend/real-world-pacing concern (`docs/adr/0004`).
+  **Still open:** no real PAL ROM exists in the local corpus, so this has no golden-ROM-boot
+  validation yet.
+- **ExLoROM memory-map model.** `MapMode::ExLoRom` + the `ExLoRom` board: header detection at
+  `$40_7FC0` and an A23-inverted, LoROM-windowed ROM decode (`high | ((bank & 0x7F) << 15) |
+  (addr & 0x7FFF)`) for >4 MiB titles that keep LoROM's 32 KiB bank windowing instead of
+  switching to HiROM's linear banks. ExLoROM has no dedicated `$FFD5` mode value — ares/bsnes
+  both document it as unofficial — so the decode formula is sourced directly from bsnes's own
+  *runtime* board database (`board: EXLOROM`/`EXLOROM-RAM`,
+  `target-bsnes/resource/system/boards.bml`), decoded against bsnes's `Bus::reduce` bit-packing
+  algorithm, rather than guessed from the header-detection heuristic alone. See `docs/cart.md`
+  §ExLoROM for the full provenance chain. **Still open:** no real ExLoROM ROM (commercial or
+  homebrew) exists in the local corpus, so this board has only formula-level unit-test coverage,
+  not golden-framebuffer validation.
+
 ### Fixed
 
 - **`release.yml`'s Linux build was broken.** The tag-triggered release workflow never installed

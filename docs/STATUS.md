@@ -125,7 +125,7 @@ One **µPD77C25 / µPD96050 LLE engine** covers DSP-1/2/3/4 + ST010/011 (six chi
 | LoROM ($20) | $007FC0 | **Phase 2 — score-based header detect + ROM/SRAM decode + mirroring** |
 | HiROM ($21) | $00FFC0 | **Phase 2 — detect + $C0+ linear + $00-3F:$8000 window + SRAM** |
 | ExHiROM ($25) | $40FFC0 | **Phase 2 — detect + A23-inverted extended-bank decode** |
-| ExLoROM | — | deferred |
+| ExLoROM | $407FC0 (unofficial, no dedicated `$FFD5` value) | **v0.3.0 — detect + A23-inverted LoROM-windowed decode (sourced from bsnes's runtime board database); no real-ROM validation, no ExLoROM dump in the local corpus** |
 
 ## Region timing
 

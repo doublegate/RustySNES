@@ -24,7 +24,7 @@ Per `ref-docs/2026-06-24-coprocessors.md` §A (SNESdev Memory map):
 | **LoROM** | $20 | 32 KiB windows in $8000–$FFFF of each bank; A15 skipped; A16–A21 → ROM A15–A20 | `$007FC0` | 4 MiB |
 | **HiROM** | $21 | 64 KiB linear banks, full ROM at $C0–$FF; data crosses banks freely | `$00FFC0` | 4 MiB |
 | **ExHiROM** | $25 | >4 MiB (≤~8 MiB): $80–$FF = first 4 MiB, $00–$7D = extra; *Tales of Phantasia*, *Star Ocean* | `$40FFC0` | ~8 MiB |
-| **ExLoROM** | — | LoROM extension (mostly homebrew / flashcart) | — | — |
+| **ExLoROM** | — (unofficial, no dedicated value) | LoROM extension for >4 MiB titles (mostly homebrew / flashcart) | `$407FC0` | ~8 MiB |
 
 **SRAM mapping is board-dependent — no single canonical table.** LoROM SRAM typically banks
 $70–$7D/$F0–$FF $0000–$7FFF; HiROM SRAM typically banks $20–$3F/$A0–$BF $6000–$7FFF. Battery
@@ -41,12 +41,28 @@ storage. The `(bank, addr)` → backing-store math (`bank = addr24 >> 16`, `addr
 | **LoROM** | every bank, `$8000–$FFFF` | `((bank & 0x7F) << 15) \| (addr & 0x7FFF)` | banks $70–$7D / $F0–$FF, `$0000–$7FFF` | `(lo-0x70)*0x8000 + addr`, `% sram_size` |
 | **HiROM** | $40–$7D / $C0–$FF full 64 KiB; $00–$3F / $80–$BF `$8000–$FFFF` | `((bank & 0x3F) << 16) \| addr` | banks $20–$3F / $A0–$BF, `$6000–$7FFF` | `(lo-0x20)*0x2000 + (addr-0x6000)`, `% sram_size` |
 | **ExHiROM** | same regions as HiROM | `high \| ((bank & 0x3F) << 16) \| addr`, where `high = (bank & 0x80 != 0) ? 0 : (1<<22)` | banks $20–$3F (low half), `$6000–$7FFF` | as HiROM |
+| **ExLoROM** | every bank, `$8000–$FFFF` | `high \| ((bank & 0x7F) << 15) \| (addr & 0x7FFF)`, where `high = (bank & 0x80 != 0) ? 0 : (1<<22)` | banks $70–$7D / $F0–$FF, `$0000–$7FFF` (as LoROM) | as LoROM |
 
-The ExHiROM `high` bit is A23-inverted: banks $80–$FF (A23=1) select the first 4 MiB; banks
-$00–$7D (A23=0) select the extra 4 MiB. ROM offsets are folded to `rom_size` by the `mirror`
-helper (clean-room port of ares `Bus::mirror`): power-of-two sizes mask, non-power-of-two
-sizes split the largest power-of-two block linear + mirror the remainder. SRAM size is
+The ExHiROM/ExLoROM `high` bit is A23-inverted: banks $80–$FF (A23=1) select the first 4 MiB;
+banks $00–$7D (A23=0) select the extra 4 MiB. ROM offsets are folded to `rom_size` by the
+`mirror` helper (clean-room port of ares `Bus::mirror`): power-of-two sizes mask, non-power-of-
+two sizes split the largest power-of-two block linear + mirror the remainder. SRAM size is
 `if $FFD8 == 0 { 0 } else { 0x400 << $FFD8 }`; ROM and open-bus regions are read-only.
+
+**ExLoROM provenance.** Unlike LoROM/HiROM/ExHiROM, ExLoROM has no dedicated `$FFD5` mode
+value — ares/bsnes both document it as unofficial (`ref-proj/ares/mia/medium/super-famicom.cpp`:
+"ExLoROM mode is unofficial, and lacks a mapping mode value"; real carts often report plain
+LoROM's `$20` there). The decode formula above is not a guess from the header-detection
+heuristic — it's sourced directly from bsnes's own *runtime* board database
+(`ref-proj/bsnes/bsnes/target-bsnes/resource/system/boards.bml`, `board: EXLOROM` /
+`EXLOROM-RAM`: `map address=00-7d:8000-ffff mask=0x808000 base=0x400000` / `map
+address=80-ff:8000-ffff mask=0x808000 base=0x000000`), decoded against bsnes's `Bus::reduce`
+bit-packing algorithm (`sfc/memory/memory.cpp`) — which, for that mask, is exactly the LoROM
+packed offset `((bank & 0x7F) << 15) | (addr & 0x7FFF)` with the same A23-inverted 4 MiB
+half-select ExHiROM already uses. **No real ExLoROM ROM (commercial or homebrew) exists in this
+project's local corpus**, so this board has no golden-framebuffer validation — only the
+formula-level unit tests in `board.rs` (`docs/adr/0003`'s honesty gate: this is flagged, not
+silently presented as hardware-proven).
 
 ## Coprocessor families
 

@@ -13,7 +13,9 @@ record; this file frames the phase line.
   validated against real commercial ROMs; SPC7110 implemented but not yet booting to real
   content; ST018 and standalone S-RTC not started; PAL region auto-detection is implemented and
   validated end-to-end (`Bus::sync_region_from_cart`; no golden-ROM-boot proof yet — no PAL ROM
-  in the local corpus); ExLoROM remains. Phase 5 (frontend) **partially complete**: the
+  in the local corpus); ExLoROM is implemented (decode formula sourced from bsnes's own runtime
+  board database; no golden-ROM-boot proof — no ExLoROM ROM in the local corpus). Phase 5
+  (frontend) **partially complete**: the
   native+wasm shell is playable (video/audio/input/ROM-load wired) and save-states are **fully
   implemented** (`v0.2.0 "Persistence"`, `docs/adr/0006` — every subsystem round-trips its exact
   state through one versioned envelope, proven by a round-trip determinism test) — rewind/
@@ -25,7 +27,8 @@ record; this file frames the phase line.
   GitHub, establishing the real release cadence `to-dos/VERSION-PLAN.md` defines — read it
   alongside this file; it maps the phases above onto a concrete, named `v0.x.0` → `v1.0.0`
   ladder with release-cut criteria per rung. `v0.3.0 "Continuum"` (rewind, run-ahead, PAL/
-  ExLoROM completion) is next.
+  ExLoROM completion) is in progress — PAL auto-detect and ExLoROM are both landed; rewind/
+  run-ahead remain.
 
 ## The phase spine
 
@@ -95,11 +98,13 @@ Phase-2 mid-line-raster gap here.
 **Goal:** the remaining BestEffort coprocessors + niche peripherals; region timing as data.
 **Exit:** the full coprocessor / board matrix in `docs/STATUS.md`.
 **Status:** DSP-2/DSP-4/ST010/S-DD1/CX4/OBC1 done + validated; SPC7110 implemented but not
-booting; ST018 and standalone S-RTC not started; PAL region auto-detection implemented +
-validated (golden-ROM-boot proof still open, no PAL ROM in the local corpus); ExLoROM remains.
-**Release mapping:** the done work shipped inside `v0.1.0`; PAL auto-detect is landing inside
-`v0.3.0 "Continuum"` alongside rewind/run-ahead; the remainder is `v0.3.0` (ExLoROM, PAL
-golden-boot proof if a ROM surfaces) and `v0.4.0` (SPC7110 fix, ST018, standalone S-RTC).
+booting; ST018 and standalone S-RTC not started; PAL region auto-detection and ExLoROM are both
+implemented (each with a documented, honest validation gap — no PAL ROM and no ExLoROM ROM
+exist in the local corpus, so neither has golden-framebuffer proof).
+**Release mapping:** the done work shipped inside `v0.1.0`; PAL auto-detect and ExLoROM landed
+inside `v0.3.0 "Continuum"` alongside rewind/run-ahead (still open); the remainder is `v0.3.0`
+(rewind/run-ahead, PAL/ExLoROM golden-boot proof if ROMs surface) and `v0.4.0` (SPC7110 fix,
+ST018, standalone S-RTC).
 → [overview](phase-7-breadth/overview.md)
 
 ### Phase 8 — Reach (additive, off-by-default) 🚧 not started (all three crates are 1-line stubs)

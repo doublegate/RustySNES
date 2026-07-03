@@ -10,13 +10,13 @@ decides LoROM vs HiROM vs ExHiROM, the coprocessor family, and the ROM/RAM/regio
 ## The internal header ($FFC0–$FFDF)
 
 Located at a map-mode-dependent ROM offset (`docs/cart.md` §memory-map-models):
-**$007FC0** (LoROM), **$00FFC0** (HiROM), **$40FFC0** (ExHiROM). Per
+**$007FC0** (LoROM), **$00FFC0** (HiROM), **$40FFC0** (ExHiROM), **$407FC0** (ExLoROM). Per
 `ref-docs/research-report.md` §6 and `ref-docs/2026-06-24-coprocessors.md` §A:
 
 | Offset | Field | Meaning |
 |---|---|---|
 | $FFC0–$FFD4 | Title | 21-byte ASCII game title |
-| **$FFD5** | Map-mode + speed | `001smmmm`: bit7 `0=Slow / 1=Fast`; low nibble map mode `$0`=LoROM, `$1`=HiROM, `$5`=ExHiROM |
+| **$FFD5** | Map-mode + speed | `001smmmm`: bit7 `0=Slow / 1=Fast`; low nibble map mode `$0`=LoROM, `$1`=HiROM, `$5`=ExHiROM; ExLoROM has no dedicated value and typically reports `$0` (LoROM) — disambiguated by header *offset* alone |
 | **$FFD6** | Chipset | low nibble feature (`$0`=ROM, `$1`=+RAM, `$2`=+RAM+battery); high nibble coprocessor family (`$0x`=DSP, `$1x`=GSU/Super FX, `$2x`=OBC1, `$3x`=SA-1, `$Ex`=Other, `$Fx`=Custom) |
 | $FFD7 | ROM size | `1 << N` KiB |
 | $FFD8 | RAM size | `1 << N` KiB (SRAM) |
@@ -30,7 +30,7 @@ vector used by the detection heuristic.
 ## Auto-detection (the score heuristic)
 
 Per `ref-docs/2026-06-24-coprocessors.md` §A "Auto-detection": score the candidate header at
-**$7FC0 / $FFC0 / $40FFC0**, take the highest, on:
+**$7FC0 / $FFC0 / $40FFC0 / $407FC0**, take the highest, on:
 
 1. **complement + checksum == $FFFF** (the strongest signal),
 2. the **map-mode byte matches its location** (a $20 header found at $7FC0, etc.),
@@ -59,3 +59,6 @@ Cross-validate fields against SnesLab where SNESdev is ambiguous
 
 - A few homebrew / flashcart ExLoROM headers do not follow the heuristic cleanly — fall back
   to a size + reset-vector vote (Phase 4).
+- ExLoROM detection/decode is implemented (`docs/cart.md` §ExLoROM) but has **no real-ROM
+  validation** — no commercial or homebrew ExLoROM dump exists in this project's local corpus.
+  If one surfaces, add it to the header-detection round-trip corpus above.
