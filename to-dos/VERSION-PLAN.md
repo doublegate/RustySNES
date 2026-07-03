@@ -74,13 +74,19 @@ this. See `to-dos/phase-5-frontend/sprint-2-save-states.md` for the ticket break
 
 ### v0.3.0 "Continuum" — rewind, run-ahead, PAL, ExLoROM
 
-- Rewind: a host-owned ring buffer of save-states (frontend crate, not core — matches the
-  existing architectural boundary that rate control lives in the frontend, `docs/adr/0004`).
-- Run-ahead: N-frame resimulate-and-discard using the same save-state primitive.
-- PAL region timing validated (the 50 Hz/312-line table already exists in the scheduler per
-  `docs/scheduler.md`; only real-ROM-boot + golden-framebuffer validation is missing —
-  `docs/STATUS.md` currently lists it "not started").
-- ExLoROM memory-map model (currently "deferred" in `docs/STATUS.md`).
+- [ ] Rewind: a host-owned ring buffer of save-states (frontend crate, not core — matches the
+      existing architectural boundary that rate control lives in the frontend, `docs/adr/0004`).
+- [ ] Run-ahead: N-frame resimulate-and-discard using the same save-state primitive.
+- [x] PAL region auto-detection: `Bus::sync_region_from_cart` reads the cart header's
+      destination-code byte at `System::reset()` and reconfigures the PPU's line count/status bit
+      (the 50 Hz/312-line table already existed in the scheduler per `docs/scheduler.md`; nothing
+      previously wired the header's own PAL detection into the running machine). Proven
+      end-to-end by `rustysnes-core::scheduler`'s `pal_cart_auto_detects_pal_region_on_reset`
+      (a full 312-line frame actually completes, not just the region flag flipping).
+      **Still open:** real-ROM-boot + golden-framebuffer validation against an actual PAL
+      cartridge — no PAL ROM exists in the local test corpus yet, so this is honestly tracked as
+      remaining, not silently claimed done.
+- [ ] ExLoROM memory-map model (currently "deferred" in `docs/STATUS.md`).
 
 ### v0.4.0 "Completion" — finish the coprocessor/board matrix
 

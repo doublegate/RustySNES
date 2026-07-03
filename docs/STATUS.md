@@ -131,10 +131,14 @@ One **µPD77C25 / µPD96050 LLE engine** covers DSP-1/2/3/4 + ST010/011 (six chi
 
 | Region | Master clock | Lines/frame | State |
 |---|---|---|---|
-| NTSC | 21.477270 MHz | 262 (+1 interlaced) | not started |
-| PAL | 21.281370 MHz | 312 (+1 interlaced) | not started |
+| NTSC | 21.477270 MHz | 262 (+1 interlaced) | **implemented + validated** — the default region; every oracle/golden/commercial ROM in the accuracy battery boots and runs at this timing |
+| PAL | 21.281370 MHz | 312 (+1 interlaced) | **implemented + auto-detected** — `Bus::sync_region_from_cart` reads the cart header's destination-code byte at `System::reset()` and reconfigures the PPU's line count/status bit accordingly (`rustysnes-core::scheduler` tests `pal_cart_auto_detects_pal_region_on_reset`/`ntsc_cart_auto_detects_ntsc_region_on_reset` prove this end-to-end, including a full 312-line frame actually completing). No PAL ROM is available in the local test corpus yet, so golden-framebuffer validation against a real PAL cartridge boot (the accuracy-battery-equivalent proof NTSC already has) remains open — tracked, not silently claimed |
 
-Region is **data, not a build fork** (`docs/scheduler.md`).
+Region is **data, not a build fork** (`docs/scheduler.md`). The differing NTSC/PAL master-clock
+*rate* (Hz) is a real-world audio/video pacing concern the frontend owns (`docs/adr/0004`); the
+core's master-clock counter is a pure tick count, so nothing else in the core depends on which
+oscillator frequency a real console would use — only the PPU's line-count/status-bit timeline
+is region-dependent here.
 
 ## Version policy
 
