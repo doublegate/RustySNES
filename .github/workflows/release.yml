@@ -17,7 +17,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - name: Install Linux frontend system deps
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libxkbcommon-dev libwayland-dev libasound2-dev \
