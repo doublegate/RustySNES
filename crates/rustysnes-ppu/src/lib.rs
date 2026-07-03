@@ -675,6 +675,12 @@ impl Ppu {
         self.region = region;
     }
 
+    /// The active video region (NTSC/PAL).
+    #[must_use]
+    pub const fn region(&self) -> Region {
+        self.region
+    }
+
     /// The total visible height for the current overscan setting (224 or 239).
     #[must_use]
     pub const fn visible_height(&self) -> u16 {

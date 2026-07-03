@@ -79,8 +79,12 @@ impl System {
     }
 
     /// Reset the CPU from the cart's emulation reset vector (`$00FFFC`). Safe to call with no
-    /// cart (the CPU reads open bus and parks); the boot flag tracks readiness.
+    /// cart (the CPU reads open bus and parks); the boot flag tracks readiness. Auto-detects
+    /// NTSC vs PAL from the installed cart's header (`Bus::sync_region_from_cart`) before
+    /// resetting the CPU, so a PAL cart boots at the PAL line count/timing without the caller
+    /// (frontend or test) having to know or guess the region up front.
     pub fn reset(&mut self) {
+        self.bus.sync_region_from_cart();
         self.cpu.reset(&mut self.bus);
         self.booted = self.bus.cart.is_some();
         self.last_line = self.bus.ppu.scanline();
@@ -303,6 +307,61 @@ impl System {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rustysnes_cart::Cart;
+    use rustysnes_ppu::Region as PpuRegion;
+
+    /// A minimal synthetic LoROM header (offset `$7FC0`) with a controllable region byte
+    /// (`$7FD9` for this LoROM offset — `field::REGION` in `rustysnes-cart`'s header module,
+    /// duplicated here rather than exported, since it's a small, stable, publicly-documented
+    /// header layout, `docs/cartridge-format.md`). `region == 0x00` selects Japan/NTSC; `0x02`
+    /// selects Europe/PAL (`Header::region_from_code`'s `0x02..=0x0C -> Pal` range).
+    fn synth_rom(region: u8) -> alloc::vec::Vec<u8> {
+        let mut rom = alloc::vec![0u8; 0x1_0000];
+        let h = 0x7FC0;
+        rom[h + 0x15] = 0x20; // MAP_MODE: slow LoROM
+        rom[h + 0x16] = 0x00; // CHIPSET: ROM only
+        rom[h + 0x18] = 0x00; // RAM_SIZE: none
+        rom[h + 0x19] = region; // REGION
+        let checksum: u16 = 0x1234;
+        let complement = !checksum;
+        rom[h + 0x1C..h + 0x1E].copy_from_slice(&complement.to_le_bytes());
+        rom[h + 0x1E..h + 0x20].copy_from_slice(&checksum.to_le_bytes());
+        rom[h + 0x3C..h + 0x3E].copy_from_slice(&0x8000u16.to_le_bytes()); // reset vector
+        rom
+    }
+
+    #[test]
+    fn ntsc_cart_auto_detects_ntsc_region_on_reset() {
+        let mut sys = System::new(0);
+        sys.bus.cart = Some(Cart::from_rom(&synth_rom(0x00)).expect("ntsc header"));
+        sys.reset();
+        assert_eq!(sys.bus.ppu.region(), PpuRegion::Ntsc);
+        assert_eq!(sys.bus.ppu.region().lines_per_frame(), 262);
+    }
+
+    #[test]
+    fn pal_cart_auto_detects_pal_region_on_reset() {
+        let mut sys = System::new(0);
+        sys.bus.cart = Some(Cart::from_rom(&synth_rom(0x02)).expect("pal header"));
+        sys.reset();
+        assert_eq!(sys.bus.ppu.region(), PpuRegion::Pal);
+        assert_eq!(sys.bus.ppu.region().lines_per_frame(), 312);
+
+        // End-to-end: booting and running one full frame actually completes at the PAL line
+        // count, not just the region flag being set (proves the auto-detected region reaches
+        // the PPU's real dot/scanline timeline, not merely a cosmetic label).
+        sys.run_frame();
+        assert_eq!(sys.bus.ppu.frame_count(), 1);
+    }
+
+    #[test]
+    fn no_cart_reset_does_not_touch_region() {
+        // sync_region_from_cart is a no-op with no cart installed; region stays at whatever the
+        // Bus was constructed with (System::new always builds NTSC by default).
+        let mut sys = System::new(0);
+        sys.reset();
+        assert_eq!(sys.bus.ppu.region(), PpuRegion::Ntsc);
+    }
 
     #[test]
     fn new_system_unbooted() {

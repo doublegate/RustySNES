@@ -241,6 +241,28 @@ impl Bus {
         }
     }
 
+    /// Reconfigure the PPU's region (line count / 50-vs-60 Hz status bit) from the installed
+    /// cart's header, auto-detecting NTSC vs PAL rather than requiring the frontend to guess or
+    /// hardcode it. A no-op when no cart is installed. Region only ever affects the PPU's
+    /// line-count/status-bit timeline here — the differing NTSC/PAL master-clock *rate* (Hz) is a
+    /// real-world audio/video pacing concern the frontend owns (`docs/adr/0004`); the core's
+    /// master-clock counter is a pure tick count, not wall-clock time, so nothing else in the
+    /// core depends on which oscillator frequency a real console would use.
+    // Deliberately NOT `const fn`: `Bus` holds heap-allocated/complex nested state (`Box`-owned
+    // WRAM, the PPU/APU), and this method reads a `Cart` (a `Box<dyn Board>` behind it) — pinning
+    // this to a `const` API guarantee for no actual const-context caller buys nothing and would
+    // force a breaking API change the moment any of that state gains a genuinely non-const need
+    // (logging, validation, additional resets).
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn sync_region_from_cart(&mut self) {
+        let Some(cart) = &self.cart else { return };
+        let ppu_region = match cart.header.region {
+            Region::Ntsc => PpuRegion::Ntsc,
+            Region::Pal => PpuRegion::Pal,
+        };
+        self.ppu.set_region(ppu_region);
+    }
+
     /// Set the latched controller state for a player (`0` = P1, `1` = P2). 12-bit `BYsSUDLR....`.
     pub fn set_joypad(&mut self, player: usize, state: u16) {
         if let Some(slot) = self.joypad.get_mut(player) {

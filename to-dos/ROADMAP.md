@@ -11,18 +11,21 @@ record; this file frames the phase line.
   0-diff). Phase 4 (Core/Curated coprocessors: DSP-1, Super FX, SA-1) **complete**. Phase 7
   (BestEffort coprocessors) **mostly complete**: DSP-2/DSP-4/ST010/S-DD1/CX4/OBC1 implemented +
   validated against real commercial ROMs; SPC7110 implemented but not yet booting to real
-  content; ST018 and standalone S-RTC not started; PAL region timing and ExLoROM remain.
-  Phase 5 (frontend) **partially complete**: the native+wasm shell is playable (video/audio/
-  input/ROM-load wired), but save-states/rewind/run-ahead are **not implemented** — this is the
-  most consequential open item, since Phase 8 (netplay, TAS movies) and rewind both build on it.
-  Phase 6 (accuracy push) and Phase 8 (netplay/RetroAchievements/scripting — all three crates
-  are still 1-line stubs) have not started. See `docs/STATUS.md` for the authoritative
-  per-subsystem table this line summarizes.
-- **Release:** despite all of the above, **no version of RustySNES has ever been tagged or
-  released** — everything has accumulated inside a single perpetual `CHANGELOG.md`
-  `[Unreleased]` section. Closing that gap and establishing a real release cadence is
-  `to-dos/VERSION-PLAN.md`'s job — read it alongside this file; it maps the phases above onto a
-  concrete, named `v0.x.0` → `v1.0.0` ladder with release-cut criteria per rung.
+  content; ST018 and standalone S-RTC not started; PAL region auto-detection is implemented and
+  validated end-to-end (`Bus::sync_region_from_cart`; no golden-ROM-boot proof yet — no PAL ROM
+  in the local corpus); ExLoROM remains. Phase 5 (frontend) **partially complete**: the
+  native+wasm shell is playable (video/audio/input/ROM-load wired) and save-states are **fully
+  implemented** (`v0.2.0 "Persistence"`, `docs/adr/0006` — every subsystem round-trips its exact
+  state through one versioned envelope, proven by a round-trip determinism test) — rewind/
+  run-ahead (the frontend orchestration built on that primitive) are the remaining open item,
+  since Phase 8 (netplay, TAS movies) build on it too. Phase 6 (accuracy push) and Phase 8
+  (netplay/RetroAchievements/scripting — all three crates are still 1-line stubs) have not
+  started. See `docs/STATUS.md` for the authoritative per-subsystem table this line summarizes.
+- **Release:** `v0.1.0 "Foundation"` and `v0.2.0 "Persistence"` are tagged and released on
+  GitHub, establishing the real release cadence `to-dos/VERSION-PLAN.md` defines — read it
+  alongside this file; it maps the phases above onto a concrete, named `v0.x.0` → `v1.0.0`
+  ladder with release-cut criteria per rung. `v0.3.0 "Continuum"` (rewind, run-ahead, PAL/
+  ExLoROM completion) is next.
 
 ## The phase spine
 
@@ -92,9 +95,11 @@ Phase-2 mid-line-raster gap here.
 **Goal:** the remaining BestEffort coprocessors + niche peripherals; region timing as data.
 **Exit:** the full coprocessor / board matrix in `docs/STATUS.md`.
 **Status:** DSP-2/DSP-4/ST010/S-DD1/CX4/OBC1 done + validated; SPC7110 implemented but not
-booting; ST018 and standalone S-RTC not started; PAL region timing and ExLoROM remain.
-**Release mapping:** the done work shipped inside `v0.1.0`; the remainder is `v0.3.0`
-(PAL/ExLoROM) and `v0.4.0` (SPC7110 fix, ST018, standalone S-RTC).
+booting; ST018 and standalone S-RTC not started; PAL region auto-detection implemented +
+validated (golden-ROM-boot proof still open, no PAL ROM in the local corpus); ExLoROM remains.
+**Release mapping:** the done work shipped inside `v0.1.0`; PAL auto-detect is landing inside
+`v0.3.0 "Continuum"` alongside rewind/run-ahead; the remainder is `v0.3.0` (ExLoROM, PAL
+golden-boot proof if a ROM surfaces) and `v0.4.0` (SPC7110 fix, ST018, standalone S-RTC).
 → [overview](phase-7-breadth/overview.md)
 
 ### Phase 8 — Reach (additive, off-by-default) 🚧 not started (all three crates are 1-line stubs)
