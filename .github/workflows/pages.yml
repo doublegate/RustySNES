@@ -6,6 +6,12 @@ permissions:
   contents: read
   pages: write
   id-token: write
+# Only the latest main push's deploy matters — a superseded run doing a wasted rebuild+deploy of
+# an already-stale commit is pure cost with no benefit (deploy-pages itself also serializes on the
+# `github-pages` environment, so a cancelled stale run couldn't have raced a newer deploy anyway).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -13,20 +19,26 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Build the wasm demo (trunk) at / and the rustdoc at /api/, then deploy ONE artifact.
       # GOTCHA: keep crates/rustysnes-frontend/web/Trunk.toml's wasm-bindgen pin == Cargo.lock library version.
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.96
           targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
       - name: Install Linux frontend system deps
         run: |
           sudo apt-get update
           sudo apt-get install -y libxkbcommon-dev libwayland-dev libasound2-dev \
             libudev-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+      # Prebuilt binary download instead of `cargo install trunk --locked` (which compiled trunk
+      # + its whole dependency tree from source on every single run — minutes of pure setup cost
+      # for a tool whose own source never changes here).
       - name: Install trunk
-        run: cargo install trunk --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Build wasm demo

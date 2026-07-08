@@ -2,6 +2,11 @@ name: Release
 on:
   push:
     tags: ["v*"]
+# A tag is normally pushed once, but this guards a mistaken re-push (delete+recreate the same
+# tag) from queuing a redundant duplicate build behind the one already running.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     strategy:
@@ -16,6 +21,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
       - name: Install Linux frontend system deps
         if: runner.os == 'Linux'
         run: |
