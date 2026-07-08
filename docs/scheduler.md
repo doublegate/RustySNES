@@ -278,9 +278,10 @@ computed `dram_refresh_position`; both need a `docs/adr/0006` save-state format 
 measurement this document already cites and see where the new total lands, **before** touching
 anything else. Given the real regression risk to the golden-framebuffer suite (any change to when
 `advance_master` fires shifts exactly when PPU dot boundaries land relative to CPU instruction
-execution, which is precisely the kind of thing `hdmaen_latch_test`/undisbeliever's other timing-
-sensitive ROMs are built to catch), run the **full** `cargo test --workspace --features
-test-roms` battery — not just `cargo test --workspace` — before considering this done, and treat
+execution, which is precisely the kind of thing `hdmaen_latch_test`/undisbeliever's other
+timing-sensitive ROMs are built to catch), run the **full**
+`cargo test --workspace --features test-roms` battery — not just `cargo test --workspace` —
+before considering this done, and treat
 any golden-hash change as a real finding to investigate (re-bless only if the new value is
 independently confirmed hardware-correct), never a nuisance to silence.
 

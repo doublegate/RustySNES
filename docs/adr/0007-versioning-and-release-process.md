@@ -10,9 +10,10 @@ records why the policy exists and won't change without a new one).
 
 RustySNES had built most of an accurate SNES emulator (CPU/PPU/APU at oracle parity, eight
 validated coprocessors, a playable frontend) before it had ever cut a GitHub release — every
-milestone sat inside one perpetual `CHANGELOG.md` `[Unreleased]` section, and `to-dos/
-VERSION-PLAN.md`'s own skeleton (an earlier draft) described work that was already shipped. This
-is the same process gap RustyNES had already solved for the NES side of this workspace: a real,
+milestone sat inside one perpetual `CHANGELOG.md` `[Unreleased]` section, and
+`to-dos/VERSION-PLAN.md`'s own skeleton (an earlier draft) described work that was already
+shipped. This is the same process gap RustyNES had already solved for the NES side of this
+workspace: a real,
 named, git-tagged release ladder with dense, technically detailed tag annotations, cut on a
 regular cadence rather than left to accumulate indefinitely.
 

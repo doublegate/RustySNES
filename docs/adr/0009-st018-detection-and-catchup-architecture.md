@@ -12,8 +12,8 @@ coprocessor), neither of which followed an existing precedent in this codebase e
 1. **Detection.** ST018's real hardware signature is fully unambiguous from header bytes alone —
    both Mesen2 (`BaseCartridge::GetCoprocessorType`) and ares (`mia/medium/super-famicom.cpp`)
    detect it via the extended-header byte `$xFBF` (`RomType` high nibble `$F` + `CartridgeType ==
-   0x02`), no title match needed. But this project's own `coprocessor_from_chipset` (`crate::
-   header`) deliberately does **not** read `$xFBF` for the *other* `$F`-nibble customs
+   0x02`), no title match needed. But this project's own `coprocessor_from_chipset`
+   (`crate::header`) deliberately does **not** read `$xFBF` for the *other* `$F`-nibble customs
    (CX4/SPC7110/S-RTC) — an earlier investigation found that byte unreliable against a real Mega
    Man X2 dump and fell back to title-matching instead. Introducing a new, differently-sourced
    detection mechanism just for ST018 (reading `$xFBF` where every sibling coprocessor

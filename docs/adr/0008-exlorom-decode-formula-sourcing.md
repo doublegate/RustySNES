@@ -42,8 +42,8 @@ never claimed as golden-framebuffer-validated.
   unverifiable inference — a future maintainer (or bot reviewer) can re-derive it independently.
 - (+) Establishes "read a reference emulator's runtime board database, not just its documentation
   comments" as the go-to sourcing pattern for any future undocumented-mode board this project
-  adds (the same technique that resolved ST018's `ARM-LOROM-RAM` board memory map, `docs/
-  st018-arm-notes.md`).
+  adds (the same technique that resolved ST018's `ARM-LOROM-RAM` board memory map,
+  `docs/st018-arm-notes.md`).
 - (−) The formula is only as trustworthy as bsnes's own board database being correct for this
   specific unofficial mode — there is no independent second source to cross-check it against
   until a real ExLoROM ROM surfaces to validate end-to-end.
