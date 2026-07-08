@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] "Completion" - 2026-07-08
+
+Closes out Phase 7's BestEffort coprocessor/board matrix: a full ARMv3 (ARM6-class) CPU core for
+ST018 (Hayazashi Nidan Morita Shogi 2), a standalone Sharp RTC-4513 board (Daikaijuu Monogatari
+II), and a confirmed, fixed SPC7110 addressing bug (materially improved boot progress, one
+narrowed-but-still-open gap honestly documented, not silently claimed fixed). See
+`to-dos/VERSION-PLAN.md`.
+
+**Oracle/golden suites: all held, no regressions.** The full workspace test suite (including
+`--features test-roms`), the `no_std` gate, and `RUSTDOCFLAGS="-D warnings" cargo doc` are all
+green.
+
+This release landed across PRs #24-30, each independently reviewed by Gemini + Copilot and
+adjudicated before merge.
+
 ### Added
 
 - **ST018: the SNES-side board wrapper — `v0.4.0 "Completion"` is done**
@@ -30,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   full coprocessor/board matrix (`docs/STATUS.md`).
 
 - **ST018: multiply, multiply-long, and single data swap — the ARMv3 instruction set is complete**
-  (`coproc::armv3::cpu`, `v0.4.0` "Completion" work, in progress). Step 8 of the ARMv3 core build
+  (`coproc::armv3::cpu`). Step 8 of the ARMv3 core build
   order (`docs/st018-arm-notes.md`). `MUL`/`MLA`/`UMULL`/`UMLAL`/`SMULL`/`SMLAL`: a deliberate
   fidelity tradeoff over the reference's cycle-exact `GbaCpuMultiply` circuit simulation (Booth's
   algorithm with an empirically-reverse-engineered correction table, built for GBA test-ROM
@@ -43,7 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   opcode category.
 
 - **ST018: LDR/STR and LDM/STM (single/block data transfer)**
-  (`coproc::armv3::cpu`, `v0.4.0` "Completion" work, in progress). Steps 6+7 of the ARMv3 core
+  (`coproc::armv3::cpu`). Steps 6+7 of the ARMv3 core
   build order (`docs/st018-arm-notes.md`). `LDR`/`STR`: immediate and shifted-register offsets,
   pre/post-indexed addressing (post-indexed always writes back, even without the explicit W bit;
   a load into the same register as the base never writes back), and the real ARM6-class quirk
@@ -54,7 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   after the transfer, the `LDM ... {..., pc}^` exception-return idiom). 7 new tests.
 
 - **ST018: data processing, branch, MSR/MRS, and exception entry**
-  (`coproc::armv3::cpu`, `v0.4.0` "Completion" work, in progress). Steps 4+5 of the ARMv3 core
+  (`coproc::armv3::cpu`). Steps 4+5 of the ARMv3 core
   build order (`docs/st018-arm-notes.md`). All 16 data-processing ALU ops (both immediate and
   shifted-register operand forms, including the register-specified-shift `+4`-on-top-of-`+8` R15
   exposure quirk) and the implicit `MOVS PC, ...`-restores-CPSR-from-SPSR exception-return
@@ -67,7 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (User → Supervisor → User).
 
 - **ST018: the ARM register file, mode-switch banking, and the 3-stage pipeline**
-  (`coproc::armv3::regs`, `v0.4.0` "Completion" work, in progress). Steps 2+3 of the ARMv3 core
+  (`coproc::armv3::regs`). Steps 2+3 of the ARMv3 core
   build order (`docs/st018-arm-notes.md`). Register banking ports real ARM hardware exactly:
   `R8-R12` shared across every mode except FIQ (which gets a fully private bank), `R13`/`R14`
   banked separately per mode including a distinct User-mode bank, and per-mode SPSR routing —
@@ -80,8 +95,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `regs.rs`, 14 new tests). Instruction decode/execute and the board wrapper remain.
 
 - **ST018 foundation: the ARMv3 barrel shifter, condition codes, and ALU core**
-  (`coproc::armv3`, `v0.4.0` "Completion" work, in progress). The first increment of a full
-  ARMv3 (ARM6-class) CPU core for Star Ocean's LLE coprocessor — clean-room port of Mesen2's
+  (`coproc::armv3`). The first increment of a full
+  ARMv3 (ARM6-class) CPU core for ST018 (Hayazashi Nidan Morita Shogi 2's LLE coprocessor,
+  not Star Ocean's -- Star Ocean uses S-DD1 only) — clean-room port of Mesen2's
   `ArmV3Cpu` (chosen over ares' generic ARM7TDMI-based `armdsp`, a Thumb-capable superset the
   real pre-Thumb ST018 chip never needed). Ports only the pure, state-free primitives every ARM
   instruction depends on: `LSL`/`LSR`/`ASR`/`ROR`/`RRX` (every documented `shift ≥ 32` boundary
@@ -92,7 +108,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   quirk) remain, sequenced in that order per `docs/st018-arm-notes.md` — a from-scratch ARM core
   is comparable in scope to the 65C816 core, not a small register-file port.
 
-- **Standalone S-RTC board** (`coproc::sharprtc::SharpRtcBoard`, `v0.4.0` "Completion" work).
+- **Standalone S-RTC board** (`coproc::sharprtc::SharpRtcBoard`).
   A standalone Sharp RTC-4513 real-time clock (Daikaijuu Monogatari II, ExHiROM) — a different
   chip/protocol from the Epson RTC-4513 already paired with SPC7110: a 2-register (`$2800`/
   `$2801`) handshake over a 13-slot decimal clock file (second/minute/hour/day/month/year + an
