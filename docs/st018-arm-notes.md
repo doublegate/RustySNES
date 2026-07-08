@@ -202,9 +202,22 @@ Bus window is `$00-3F,$80-BF:$3000-$3FFF` (registered whole, dispatched internal
    when its decoded field is nonzero), the R15+8 exposure inside data processing, `BL`'s `LR =
    R15-4` (not `R15`), masked `MSR` writes, and a full SWI-then-`MOVS PC,LR` round trip proving
    CPSR round-trips through a real mode change (User → Supervisor → User).
-6. LDR/STR (single data transfer) — every addressing-mode permutation.
-7. LDM/STM (block data transfer) — the highest-complexity instruction, tackle last with maximum
-   pipeline/register-bank confidence already established.
+6. **LDR/STR (single data transfer)** — done (`Cpu::exec_single_data_transfer`). Immediate and
+   shifted-register offsets (shift amount always immediate here — no register-specified-shift
+   form for this instruction class, unlike data processing); pre/post-indexed addressing;
+   post-indexed addressing writes back unconditionally, even without the explicit W bit; a load
+   into the same register as the base is never written back; storing R15 stores address+12 (one
+   MORE than the usual +8), a real ARM6-class store-timing quirk ported exactly where the source
+   applies it.
+7. **LDM/STM (block data transfer)** — done (`Cpu::exec_block_data_transfer`), the highest-
+   complexity instruction, tackled with the pipeline/register-bank confidence established in
+   steps 2-6. Every documented quirk ported verbatim: the empty-register-list glitch (only R15
+   transfers, but the address advances as if all 16 did), the load/store write-back timing
+   asymmetry (before the loop for a load, at the first transferred register for a store), and the
+   S-bit's dual role (forces temporary User-bank register access during the transfer, UNLESS it's
+   a load with R15 in the list, in which case it instead triggers a full CPSR-from-SPSR restore
+   after the transfer — the `LDM ... {..., pc}^` exception-return idiom). 7 new tests, including
+   the empty-list glitch and a full `LDM^`-with-PC exception-return round trip.
 8. Multiply/multiply-long, single data swap.
 9. The SNES-side board wrapper: SA-1-style deterministic master-clock catch-up, the handshake
    registers, firmware loading for PRG/data ROM + work RAM save-state.
