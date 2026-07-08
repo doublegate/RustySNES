@@ -29,12 +29,17 @@ record; this file frames the phase line.
   (netplay/RetroAchievements/scripting — all three crates are still 1-line stubs) have not
   started. See `docs/STATUS.md` for the authoritative per-subsystem table this line summarizes.
 - **Release:** `v0.1.0 "Foundation"`, `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"` (rewind,
-  run-ahead, PAL auto-detect, ExLoROM), and `v0.4.0 "Completion"` (SPC7110 addressing fix, ST018,
-  standalone S-RTC) are all tagged and released on GitHub, establishing the real release cadence
-  `to-dos/VERSION-PLAN.md` defines — read it alongside this file; it maps the phases above onto a
-  concrete, named `v0.x.0` → `v1.0.0` ladder with release-cut criteria per rung.
-  `v0.5.0 "Fidelity"` (the accuracy-dashboard + hardware-gotcha regression suite push,
-  benchmarked against RustyNES's AccuracyCoin-equivalent rigor) is next.
+  run-ahead, PAL auto-detect, ExLoROM), `v0.4.0 "Completion"` (SPC7110 addressing fix, ST018,
+  standalone S-RTC), and `v0.5.0 "Fidelity"` (the accuracy-pass-rate dashboard + the full named
+  hardware-gotcha regression list — every item fixed, correctly reclassified as an intentional
+  non-goal, or honestly researched-and-deferred with a mechanism write-up; two deferrals surfaced
+  genuine findings for `v0.6.0`+: a real off-by-one-line HDMA/compositor timing bug, and a
+  confirmed regression that correctly stopped an unverified open-bus fix from landing) are all
+  tagged and released on GitHub, establishing the real release cadence `to-dos/VERSION-PLAN.md`
+  defines — read it alongside this file; it maps the phases above onto a concrete, named
+  `v0.x.0` → `v1.0.0` ladder with release-cut criteria per rung. `v0.6.0 "Shippable"` (release
+  engineering + doc parity — several of its items already landed inside `v0.5.0`, pulled forward
+  as low-risk wins) is next.
 
 ## The phase spine
 
@@ -90,14 +95,25 @@ pacing, gamepads, save-states, rewind, run-ahead, the wasm build.
 `v0.3.0`; the full wasm frontend (Sprint 4) remains.
 → [overview](phase-5-frontend/overview.md)
 
-### Phase 6 — Accuracy to target 🚧 not started as a dedicated push
+### Phase 6 — Accuracy to target ✅ dashboard + triage complete, fixes carried forward
 
 **Goal:** drive the composed two-layer accuracy battery to ≥90% (100% the goal); identify the
 hard-tier residuals and decide which defer to the fractional-timebase refactor. Un-defer the
 Phase-2 mid-line-raster gap here.
+**Status:** the accuracy-pass-rate dashboard is done (`docs/STATUS.md` §Accuracy dashboard) and
+every named hardware-gotcha item has been triaged with evidence — fixed (a real HDMA dot-phase
+doc/code drift), correctly reclassified as an intentional non-goal (`$4203`/`$4206`, the
+"DMA/HDMA-collision crash quirk"), or honestly researched-and-deferred (DRAM refresh,
+open-bus-via-HDMA-latch, mid-scanline/HDMA-driven register timing, hi-res color-math precision).
+The Phase-2 mid-line-raster gap is now **confirmed real** (a genuine off-by-one-line compositor
+bug, not fixed — `docs/ppu.md` §Mid-scanline/HDMA-driven register timing), which is real progress
+(the ambiguity is gone) but not yet the "un-defer" this phase's goal describes; that fix, plus
+whatever the ≥90% target needs after these fixes land, is real remaining work carried into
+`v0.6.0`+, not silently claimed done.
 **Exit:** accuracy battery at target; residuals documented + deferred, not point-fixed
-(`docs/adr/0002`).
-**Release mapping:** `v0.5.0` (`to-dos/VERSION-PLAN.md`).
+(`docs/adr/0002`). **Not yet met** — see Status above.
+**Release mapping:** `v0.5.0` (`to-dos/VERSION-PLAN.md`), triage complete; the confirmed fixes
+carry into `v0.6.0`+.
 → [overview](phase-6-accuracy-to-100/overview.md)
 
 ### Phase 7 — Breadth 🚧 mostly complete

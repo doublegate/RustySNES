@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] "Fidelity" - 2026-07-08
+
+Closes out the accuracy-pass-rate dashboard RustySNES previously lacked (`docs/STATUS.md`'s new
+"Accuracy dashboard" section, RustyNES's AccuracyCoin-equivalent) and works the full named
+hardware-gotcha regression list this release's goal called for: every item is now either fixed
+(a real, previously-undocumented doc/code drift in HDMA dot-phase timing), correctly reclassified
+as an intentional non-goal with primary-source justification (`$4203`/`$4206`, the
+"DMA/HDMA-collision crash quirk"), or honestly researched-and-deferred with a full mechanism
+write-up and regression evidence for whoever picks it up next (open-bus-via-HDMA-latch, DRAM
+refresh, mid-scanline/HDMA-driven register timing, hi-res color-math precision). Two of those
+deferrals surfaced genuine findings worth flagging for `v0.6.0`+: a real, previously-unknown
+off-by-one-line compositor bug (documented in `docs/ppu.md`, not yet fixed — touches the hottest
+code path in the engine with no dedicated test ROM yet), and a confirmed real regression (a
+prototype open-bus fix broke all 24 Super FX golden hashes) that correctly stopped an
+unverified change from landing. Also pulls forward several `v0.6.0 "Shippable"` release-engineering
+items opportunistically (a `security.yml` CI gate, checksummed release assets, a real Criterion
+benchmark, `docs/DOCUMENTATION_INDEX.md`, `docs/audit/`, 3 ADR backfills) since they were
+low-risk, self-contained wins ready ahead of schedule. See `to-dos/VERSION-PLAN.md`.
+
+**Oracle/golden suites: all held, no regressions.** The full workspace test suite (339 tests
+across 39 suites, including `--features test-roms`), the `no_std` gate, and
+`RUSTDOCFLAGS="-D warnings" cargo doc` are all green. The new `security.yml` gate (`cargo audit`
++ `cargo deny check`) is also green, its first real end-to-end run.
+
+This release landed across PRs #33-34, each independently reviewed by Gemini + Copilot,
+human-reviewed, and adjudicated before merge.
+
 ### Added
 
 - **Mid-scanline/HDMA-driven register timing + hi-res color-math precision: researched — `v0.5.0`
@@ -77,7 +104,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the README.
 
 - **`$4203`/`$4206` multiply/divide overlap: researched and correctly reclassified — `v0.5.0`
-  "Fidelity" work, in progress.** The 65816 hardware-gotcha list named this as an open item;
+  "Fidelity" work.** The 65816 hardware-gotcha list named this as an open item;
   research against SNESdev's own Errata page shows starting a new multiply/divide while a
   previous one's 8-cycle latency hasn't elapsed produces genuinely **undefined** `RDMPY`/`RDDIV`
   output — no canonical corrupted value is documented anywhere to port, and fabricating one would
@@ -87,7 +114,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is a stable latch; a fresh `$4203` write alone starts another multiply against whatever it
   already holds, no `$4202` rewrite needed).
 
-- **ADR backfill: 3 new ADRs, `v0.5.0` "Fidelity" / `v0.6.0` "Shippable" work, in progress.**
+- **ADR backfill: 3 new ADRs, `v0.5.0` "Fidelity" / `v0.6.0` "Shippable" work.**
   `docs/adr/0007` (the versioning/release-process adoption itself — the named `v0.x.0` ladder,
   the tag-body-is-the-release-note convention), `docs/adr/0008` (why the ExLoROM decode formula
   is sourced from bsnes's runtime board database rather than extrapolated from LoROM or the
@@ -110,7 +137,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   docs) — the standalone Sharp S-RTC has no established "4513" part number anywhere; that number
   belongs only to the different Epson chip paired with SPC7110.
 
-- **`docs/STATUS.md`: an accuracy dashboard — `v0.5.0` "Fidelity" work, in progress.** RustySNES
+- **`docs/STATUS.md`: an accuracy dashboard — `v0.5.0` "Fidelity" work.** RustySNES
   has no single monolithic oracle ROM the way RustyNES's AccuracyCoin does (an early skeleton for
   exactly that approach, `rustysnes-test-harness::accuracy_battery`, ticket T-04, was never
   implemented and is superseded, not a competing source of truth), so rather than force the
@@ -123,6 +150,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   vs unit-test-only (3/9) — always
   current, reaffirmed every release from here on, plus a named-residuals line so known gaps stay
   visible instead of buried in prose.
+
+- **Nintendo Aging/Controller/SNES Test Program ROMs: researched, reclassified as a stretch
+  goal — `v0.5.0` "Fidelity" work.** These Nintendo factory-diagnostic cartridges are real and
+  individually preserved (Internet Archive, SNES Central, The Cutting Room Floor) but carry the
+  same copyright status as the commercial ROMs this project already gates behind
+  `--features commercial-roms`. Checked whether RustyNES pursued an NES equivalent as precedent:
+  it did not — its AccuracyCoin is one third-party homebrew ROM, not a Nintendo-authored factory
+  diagnostic, so this checklist item's original premise didn't hold. Deferred to a later release
+  as a stretch goal rather than pursued this release.
 
 ## [0.4.0] "Completion" - 2026-07-08
 
