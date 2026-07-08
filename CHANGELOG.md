@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Checksummed release assets (SHA-256) — `v0.6.0` "Shippable" work, pulled forward.**
+  `.github/workflows/release.yml` gained a `Checksum` step that emits a detached `<archive>.sha256`
+  alongside each platform's packaged binary archive, portable across the three runner shells
+  (tries `sha256sum`, falls back to `shasum -a 256`, since GNU coreutils' `sha256sum` is absent on
+  macOS runners and Perl's `shasum` isn't guaranteed on Windows' Git-Bash `PATH`); the upload step
+  now attaches both files. Not yet exercised end-to-end against a real tag.
+
 - **`docs/benchmarks.md` + a real Criterion benchmark — `v0.6.0` "Shippable" work, pulled
   forward.** The first-ever measured performance number on this codebase:
   `crates/rustysnes-core/benches/headless_frame.rs` (Criterion 0.7) measures headless full-frame

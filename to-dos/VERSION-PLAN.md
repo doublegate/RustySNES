@@ -182,8 +182,13 @@ isn't about emulation accuracy.
       fact, since none of the first three tags had attached artifacts) ahead of this rung, since
       it was a real user-facing gap, not deferred work. wasm→Pages deploy (`pages.yml`) was
       already exercised on every `main` push since `v0.1.0`.
-- Add checksummed assets (SHA-256) to the release archives — the current packaging step doesn't
-  emit them yet (deferred here, not urgent enough to block anything).
+- [x] Checksummed assets (SHA-256): `release.yml` gained a `Checksum` step (portable across the
+      three runner shells — tries `sha256sum`, falls back to `shasum -a 256`, since neither tool
+      alone is guaranteed present on every one of Linux/macOS/Windows) that emits a detached
+      `<archive>.sha256` alongside each platform archive; the upload step now attaches both.
+      Not yet exercised end-to-end against a real tag (next tag push / `workflow_dispatch`
+      backfill will be the first live proof, mirroring how the artifact-attachment fix itself
+      was only proven real by `v0.4.0`).
 - Add a dedicated `security.yml` (`cargo audit` + `cargo deny`, on a schedule + every PR touching
   `Cargo.lock`) and a single `lint` job running fmt+clippy+rustdoc all `-D warnings` as one gate,
   mirroring RustyNES's 8-workflow `.github/workflows/` structure (`ci.yml`, `security.yml`,
