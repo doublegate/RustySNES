@@ -32,9 +32,9 @@ record; this file frames the phase line.
   run-ahead, PAL auto-detect, ExLoROM), and `v0.4.0 "Completion"` (SPC7110 addressing fix, ST018,
   standalone S-RTC) are all tagged and released on GitHub, establishing the real release cadence
   `to-dos/VERSION-PLAN.md` defines — read it alongside this file; it maps the phases above onto a
-  concrete, named `v0.x.0` → `v1.0.0` ladder with release-cut criteria per rung. `v0.5.0
-  "Fidelity"` (the accuracy-dashboard + hardware-gotcha regression suite push, benchmarked
-  against RustyNES's AccuracyCoin-equivalent rigor) is next.
+  concrete, named `v0.x.0` → `v1.0.0` ladder with release-cut criteria per rung.
+  `v0.5.0 "Fidelity"` (the accuracy-dashboard + hardware-gotcha regression suite push,
+  benchmarked against RustyNES's AccuracyCoin-equivalent rigor) is next.
 
 ## The phase spine
 
