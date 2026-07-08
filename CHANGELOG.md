@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mid-scanline/HDMA-driven register timing + hi-res color-math precision: researched — `v0.5.0`
+  "Fidelity" work.** Confirmed a genuine, previously-undocumented off-by-one-line compositor bug
+  against ares' per-pixel reference model (`ppu/main.cpp`'s active-pixel rendering runs strictly
+  *before* HDMA's per-line service point): RustySNES's end-of-line compositor applies a line `V`
+  HDMA-driven register write to line `V` itself, when real hardware only ever observes it starting
+  line `V+1` (the mechanism behind Air Strike Patrol's BG3 raster scroll and any similar
+  HDMA-driven per-line effect). Corrected two related overclaims this same investigation surfaced
+  (`docs/ppu.md`'s "single-split-per-line effects work" claim, and both that doc's and
+  `crates/rustysnes-ppu/src/lib.rs`'s claim that the per-scanline compositor is unconditionally
+  "bit-identical" to a per-dot renderer). Not fixed this pass — the change touches the hottest
+  code path in the engine (every frame, all 29 currently-passing goldens) with no dedicated test
+  ROM yet to verify a fix against; full mechanism and what a fix needs documented in
+  `docs/ppu.md` §Mid-scanline/HDMA-driven register timing. Separately confirmed hi-res
+  color-math precision (Bishoujo Janshi Suchie-Pai / Marvelous+SA-1) is blocked entirely on
+  512-wide hi-res output not existing yet (ares' `DAC::run()` shows hi-res is a dual-half-pixel
+  alternating-compositor-result trick, not a numeric-precision tweak) — a real feature gap, not
+  this pass's scope; full mechanism in `docs/ppu.md` §Hi-res color-math precision. No `.rs` code
+  changed beyond doc comments; full workspace + `--features test-roms` suites verified unaffected.
+
 - **The "DMA/HDMA-collision crash quirk": researched and reclassified — `v0.5.0` "Fidelity"
   work.** The SNESdev errata page's DMA section bundles three distinct behaviors under this
   vague label: a version-1-5A22-only crash and a version-2-5A22-only silent-DMA-failure bug

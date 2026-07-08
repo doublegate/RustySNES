@@ -159,10 +159,23 @@ AccuracyCoin-equivalent). See `to-dos/phase-6-accuracy-to-100/`.
   Super FX/GSU games' GP-DMA ROM→GSU-RAM transfers interact with the change. Not landed; see
   `docs/scheduler.md` §Open bus via DMA/HDMA for the full mechanism and what a future
   investigation needs (an access-level trace, mirroring `docs/audit/spc7110-boot-crash-2026-07-08.md`'s
-  approach for the SPC7110 gap). Still open: true
-  mid-scanline/mid-dot writes (the "Air Strike Patrol BG3 scroll" case — this un-defers Phase 2's
-  flagged "mid-line raster deferred" gap), hi-res color-math precision (Bishoujo Janshi Suchie-Pai
-  / Marvelous+SA-1). **Researched and
+  approach for the SPC7110 gap). **Researched, confirmed, deferred:** true mid-scanline/mid-dot
+  writes (the "Air Strike Patrol BG3 scroll" case) — confirmed against ares' per-pixel reference
+  model (`ppu/main.cpp`'s `cycleRenderPixel()` only runs for hcounter `[56, 1078]`, strictly
+  *before* HDMA's per-line run at hcounter 1104) that RustySNES's end-of-line compositor has a
+  genuine, systemic off-by-one-line bug: an HDMA-driven per-line register write during line `V`
+  is meant to take effect starting line `V+1`, but the current compositor (reading live register
+  state at dot 340, after line `V`'s own HDMA already ran) applies it to line `V` itself. This
+  un-defers (confirms as real, not yet fixes) Phase 2's flagged "mid-line raster deferred" gap.
+  Not fixed this pass — the fix touches the hottest code path in the engine (every frame, all 29
+  goldens) with no dedicated test ROM yet to verify against; full mechanism, why it's deferred,
+  and what a fix needs in `docs/ppu.md` §Mid-scanline/HDMA-driven register timing. **Researched,
+  deferred (blocked on a larger feature, not a precision nuance):** hi-res color-math precision
+  (Bishoujo Janshi Suchie-Pai / Marvelous+SA-1) — confirmed against ares' `DAC::run()` that hi-res
+  is a dual-half-pixel output trick (alternating `above`/`below` compositor results at 2× the
+  pixel rate), which RustySNES cannot model at all yet since Modes 5/6 don't emit 512-wide output
+  in the first place (a real feature gap, not a numeric-precision tweak) — full mechanism in
+  `docs/ppu.md` §Hi-res color-math precision. **Researched and
   reclassified:** the 65816 `$4203`/`$4206` overlapping-multiply/divide case (SNESdev's own
   errata documents this as producing genuinely *undefined* RDMPY/RDDIV output — no canonical
   "corrupted" value exists to port, and inventing one would violate `docs/adr/0004`'s

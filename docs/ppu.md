@@ -167,9 +167,13 @@ The crate is a working dual-chip model. Public API the scheduler/bus call:
   `nmi_pending()`/`ack_nmi()`, `irq_pending()`/`ack_irq()`, `in_vblank()`/`in_hblank()`,
   `dot()`/`scanline()`, `frame_ready()`/`take_frame()`/`frame_count()`, `framebuffer() -> &[u16]`.
 - **Rendering model:** **per-scanline** — the whole visible line is composited at the line's
-  end into a `256×239` 15-bit framebuffer. This is bit-identical in the *final frame* to a
-  per-dot renderer (the determinism contract only requires the finished frame be reproducible)
-  and far simpler. BG modes 0–7 tile fetch (2/4/8 bpp), per-mode priority tables, 16×16 tiles,
+  end into a `256×239` 15-bit framebuffer. This is far simpler than a per-dot renderer, and
+  bit-identical to one **only when no register a line's rendering reads is changed mid-line**
+  (the determinism contract only requires the finished frame be reproducible, so this is a valid
+  simplification *when the equivalence holds* — but it does NOT always hold: see "Mid-scanline/
+  HDMA-driven register timing" below for a confirmed off-by-one-line compositor bug this
+  end-of-line-sampling approach causes for HDMA-driven per-line register changes). BG modes 0–7
+  tile fetch (2/4/8 bpp), per-mode priority tables, 16×16 tiles,
   mosaic (vertical+horizontal block), Mode 7 affine (matrix + center + wrap/flip from M7SEL,
   EXTBG high-bit priority), the 128-sprite OAM pipeline with the 32-sprite range / 34-tile time
   limits (reverse-order fetch → low index survives → STAT77 bits 6/7), color math (add/sub/half,
@@ -184,5 +188,121 @@ The crate is a working dual-chip model. Public API the scheduler/bus call:
 - Exact long-dot placement within the 1364-clock line under interlace transitions — resolve
   against the test ROMs (`ref-docs/2026-06-24-ppu.md` "Note on a flagged discrepancy").
 - Mid-scanline raster effects (HDMA palette/scroll splits) need the scheduler to drive register
-  writes at the exact dot; the per-scanline compositor already samples end-of-line register
-  state, so single-split-per-line effects work, but multi-split-per-line needs dot-resolution.
+  writes at the exact dot. **Correction (researched this pass, superseding the prior claim
+  here):** the per-scanline compositor does NOT correctly handle even single-split-per-line HDMA
+  effects — see "Mid-scanline/HDMA-driven register timing" below for the confirmed off-by-one-line
+  bug and why it isn't fixed in this pass.
+
+## Mid-scanline/HDMA-driven register timing — researched, confirmed, deferred (v0.5.0)
+
+**Status: a genuine off-by-one-line compositor bug is confirmed against ares' per-pixel reference
+model. Not fixed this pass — the fix touches the single hottest code path in the engine (every
+frame, all 29 currently-passing `undisbeliever` goldens, every commercial screenshot test) and
+needs dedicated empirical verification against the full golden suite, not a rushed change.**
+
+### The bug (the "Air Strike Patrol BG3 scroll" case)
+
+RustySNES's compositor renders scanline `V` at the very end of that line's own dot loop
+(`Ppu::end_of_scanline`, called when `h` wraps `DOTS_PER_LINE → 0`, i.e. after all 341 dots of
+line `V` — including line `V`'s own HDMA run — have already been processed by
+`Bus::advance_master`). HDMA's per-visible-line *run* fires at dot 276 (`HDMA_RUN_DOT`,
+`docs/scheduler.md` §DMA/HDMA bus-steal), which is *before* dot 340 where `end_of_scanline` runs.
+So when line `V`'s own HDMA write updates a scroll/CGRAM/window register, RustySNES's compositor
+— reading live register state at dot 340 — observes that NEW value and paints it across the
+*entirety* of line `V`'s already-rendered pixels.
+
+Real hardware does not do this. ares' PPU is a genuine per-pixel renderer (`ref-proj/ares/ares/
+sfc/ppu/main.cpp`): `PPU::main()`'s `cycle<Cycle>()` unrolling only calls `cycleRenderPixel()`
+(the DAC/compositor output stage, `dac.cpp`'s `DAC::run()`) for `Cycle` in `[56, 1078]`
+(`main.cpp:217-219`) — i.e. every active pixel of line `V` is drawn using live register state by
+hcounter ~1078 (dot ~269.5), *before* HDMA services that same line at hcounter 1104 (dot 276,
+`ref-proj/ares/ares/sfc/cpu/timing.cpp`'s `hdmaRun()` trigger). A per-line HDMA write during line
+`V` therefore lands **after** line `V` has already finished drawing on real hardware — it can only
+take effect starting line `V+1`. This is the entire mechanism games like Air Strike Patrol rely on
+for a smooth per-line BG3 raster scroll: HDMA writes `S[V+1]` during line `V`'s late-active
+period, ready in time for line `V+1`'s draw.
+
+RustySNES's current end-of-line compositor instead applies `S[V+1]` to line `V` itself — every
+HDMA-driven per-line register change lands **one scanline too early**. This is a real,
+previously-undocumented accuracy bug (the prior claim in this doc, that "the per-scanline
+compositor already samples end-of-line register state, so single-split-per-line effects work",
+was wrong — corrected above). It is a systemic bug, not confined to Air Strike Patrol; any title
+that HDMA-drives a per-line scroll/window/CGRAM change is affected. The `crates/rustysnes-ppu/
+src/lib.rs` module doc's claim that the per-scanline compositor is "bit-identical in the final
+framebuffer to a per-dot renderer" is likewise only true when no register HDMA-changes mid-line —
+false in exactly this case.
+
+### Why it isn't fixed this pass
+
+The conceptually correct fix is small in shape — composite line `V` using the register state as
+it stood *before* line `V`'s own HDMA run (dot 276), not after — but the safe way to land it
+(e.g. moving `Ppu::end_of_scanline`'s render trigger earlier, or snapshotting the relevant
+registers at a boundary the scheduler and PPU currently have no shared concept of) touches:
+
+- The single hottest, most heavily-tested code path in the whole engine — every one of the 29
+  currently-passing `undisbeliever` golden-framebuffer hashes (`docs/STATUS.md`'s accuracy
+  dashboard), every `*_oncart`/commercial-screenshot test, and the `playable_smoke` gate all
+  render through this exact function.
+- A cross-crate coordination gap: `rustysnes-ppu` has no visibility into `rustysnes-core`'s HDMA
+  scheduling today (by design — the PPU only sees the narrow `VideoBus` trait,
+  `docs/architecture.md` §2) — the fix needs a clean way to communicate "render now, before this
+  line's HDMA" without leaking DMA/HDMA concerns into the PPU crate's dependency graph.
+- No dedicated committed test ROM demonstrating this specific per-line-scroll-split pattern
+  exists yet in `tests/roms/` (an Air-Strike-Patrol-equivalent ROM, homebrew or a permissively
+  licensed `undisbeliever`/Krom/PeterLemon test, would make the fix independently verifiable
+  rather than validated only against the existing (possibly HDMA-timing-insensitive) goldens).
+
+Landing an unverified change against this surface area is a real regression risk to a currently
+green suite — mirrors `docs/scheduler.md`'s DRAM-refresh and open-bus-via-HDMA-latch treatment:
+research and confirm the mechanism, but do not force an implementation through without the
+verification infrastructure to prove it's actually correct.
+
+### What a future investigation/fix needs
+
+1. A committed test ROM (or a hand-assembled 65C816 program in a new `#[test]`, mirroring the
+   pattern already used for rewind/run-ahead's synthetic per-frame signal tests) that exercises
+   exactly this case: HDMA-driven per-line BG scroll changing every line, verified against a
+   known-correct per-line expected value sequence.
+2. A design for how the scheduler communicates "line `V`'s HDMA run has completed" to the PPU
+   without giving the PPU direct DMA/HDMA knowledge — e.g. a new narrow `VideoBus` (or a new
+   `Ppu` method the scheduler calls at the right dot) that triggers `end_of_scanline`'s render
+   step early, at (or just before) `HDMA_RUN_DOT`, rather than at dot 340.
+3. A full re-run of `cargo test --workspace --features test-roms` (the complete golden/oracle
+   suite, not a subset) after the change, checked line-by-line against the *reason* for any
+   diff — since some or all of the 29 current goldens may shift by exactly one scanline's worth
+   of register state for any ROM that already uses HDMA-driven per-line effects, and each such
+   shift needs confirming as "now correct" rather than blindly re-baselined.
+
+## Hi-res (Modes 5/6) color-math precision — researched, deferred (v0.5.0)
+
+**Status: researched; blocked entirely on 512-px hi-res output not existing yet (a real feature
+gap, not a precision nuance to layer on top of an existing feature) — see "Implementation status"
+above ("hi-res Modes 5/6 render at 256-wide, the 512-px doubling is deferred").**
+
+Real hardware's hi-res color-math trick (the mechanism Bishoujo Janshi Suchie-Pai / Marvelous+SA-1
+rely on for pseudo-transparency/anti-aliasing) is confirmed against ares' DAC (`ref-proj/ares/
+ares/sfc/ppu/dac.cpp`, `DAC::run()`): in hi-res, **each PPU pixel clock emits two real output
+columns** by alternating between two *different* compositor results, not by computing 512
+independently-color-math'd columns —
+
+```
+*line++ = hires ? belowColor : aboveColor;  // the "even" 512-wide column
+*line++ = aboveColor;                        // the "odd" 512-wide column (always the normal path)
+```
+
+`aboveColor` is the normal (256-wide) main-screen-composited-with-color-math pixel; `belowColor`
+is the *sub*-screen pixel blended a second time against the fixed/subscreen color (`DAC::below`,
+`dac.cpp:43-80`) — i.e. hi-res mode doesn't add new *spatial* detail, it doubles the horizontal
+rate and interleaves "with color math" and "as if reading one pixel earlier, blended differently"
+outputs to fake a smoother 512-wide gradient. This is architecturally a real feature (dual-output
+DAC stage), not a numeric-precision tweak to the existing color-math formula.
+
+Since `rustysnes-ppu` doesn't yet emit 512-wide output at all (Modes 5/6 currently render at the
+normal 256-wide resolution, per "Implementation status" above), there is no existing hi-res output
+path to add color-math precision *to* — the color-math mechanism described here can only be
+modeled once genuine dual-half-pixel hi-res output is built. That's a real feature addition (a new
+`DAC`-equivalent output stage emitting two columns per pixel clock, alternating `above`/`below`
+compositor results), not a small targeted fix, and is explicitly out of scope for this pass per
+the same regression-risk discipline as the mid-scanline item above. Tracked as: build 512-wide
+hi-res output first (a separate, larger v0.5.0/v0.6.0-scope item), then revisit hi-res color-math
+precision once that foundation exists.
