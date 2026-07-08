@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ST018: the ARM register file, mode-switch banking, and the 3-stage pipeline**
+  (`coproc::armv3::regs`, `v0.4.0` "Completion" work, in progress). Steps 2+3 of the ARMv3 core
+  build order (`docs/st018-arm-notes.md`). Register banking ports real ARM hardware exactly:
+  `R8-R12` shared across every mode except FIQ (which gets a fully private bank), `R13`/`R14`
+  banked separately per mode including a distinct User-mode bank, and per-mode SPSR routing —
+  proven by round-trip tests for each banking rule. The pipeline model is the entire mechanism
+  behind ARM's well-known "PC reads as address+8" quirk (no `+8` constant exists anywhere in this
+  port; it falls out of the 3-stage Fetch/Decode/Execute timing itself) — proven by dedicated
+  tests asserting the exact R15 value observed at power-on, steady-state stepping, and across a
+  taken branch, since every later instruction's correctness depends on this being right first
+  (`crates/rustysnes-cart/src/coproc/armv3.rs` split into a directory module: `primitives.rs` +
+  `regs.rs`, 14 new tests). Instruction decode/execute and the board wrapper remain.
+
 - **ST018 foundation: the ARMv3 barrel shifter, condition codes, and ALU core**
   (`coproc::armv3`, `v0.4.0` "Completion" work, in progress). The first increment of a full
   ARMv3 (ARM6-class) CPU core for Star Ocean's LLE coprocessor — clean-room port of Mesen2's
