@@ -656,7 +656,13 @@ impl Cpu {
             if first_reg && write_back {
                 // Write-back happens here for a STORE (and, harmlessly, a second time with the
                 // same value for a LOAD, which already wrote back above -- ported as-is, not
-                // "optimized" away, matching the source exactly).
+                // "optimized" away, matching the source exactly). If `psr_force_user` switched
+                // to User mode above, this `set_r` deliberately lands in the User bank rather
+                // than `org_mode`'s bank (a real, empirically-validated ARM quirk -- Mesen2's
+                // `ArmBlockDataTransfer` cites `gba-tests/arm` test 522 for this exact ordering;
+                // combining S-bit-forced-user-bank transfer with base-register write-back is
+                // otherwise UNPREDICTABLE per the ARM ARM, so this is the one documented,
+                // test-verified answer, not a bug to "fix" toward `org_mode`).
                 self.set_r(rn, write_back_addr);
                 first_reg = false;
             }
