@@ -81,7 +81,7 @@ it); Super FX and SA-1 run their program from cart ROM (no chip dump).
 | CX4 | Hitachi HG51B169 | 20 MHz | 2 | no | LLE (prog ROM) | BestEffort/Curated |
 | OBC1 | simple ASIC | — | 1 | no | HLE | BestEffort |
 | ST010 / ST011 | µPD96050 | ~10 / 15 MHz | 1 each | µPD96050 (≈77C25) | LLE (shared) | BestEffort (shared) |
-| ST018 | ARMv3 | ~21.44 MHz | 1 | no | LLE ARM core | BestEffort (not started) |
+| ST018 | ARMv3 | ~21.44 MHz | 1 | no | LLE ARM core | BestEffort (foundation started, `coproc::armv3`) |
 | S-RTC | Sharp RTC-4513 | — | 1 | no | HLE + frozen time | BestEffort |
 
 ### Key leverage — the shared NEC core
@@ -310,6 +310,23 @@ as open bus, the game wedges on its first DSP poll — it is never silently degr
   coverage only, not golden-framebuffer validation (`docs/adr/0003`); header detection is a
   best-effort title match (`"DAIKAIJUU MONOGATARI"` / `"DAIKAIJU MONOGATARI"`), the same posture
   already carried openly for CX4/SPC7110's own `$F`-nibble disambiguation.
+- **ST018** (`BestEffort`, **foundation started, not board-reachable yet** — `coproc::armv3`): a
+  full ARMv3 (ARM6-class, pre-Thumb) CPU core for Star Ocean — comparable in scope to
+  `rustysnes-cpu`'s 65C816, not a small register-file port like this project's other BestEffort
+  coprocessors. Deliberately built bottom-up: this module currently ports only the pure,
+  state-free primitives every ARM instruction depends on — the barrel shifter (`LSL`/`LSR`/`ASR`/
+  `ROR`/`RRX`, including every documented `shift ≥ 32` boundary case), the 4-bit condition-code
+  checker, and the `ADD`/`SUB`/logical-op flag formulas — each verified against the ARM
+  Architecture Reference Manual's own truth tables. Clean-room port of Mesen2's `ArmV3Cpu`
+  (`Core/SNES/Coprocessors/ST018/`), chosen over ares' `sfc/coprocessor/armdsp` (which instead
+  wraps ares' generic shared ARM7TDMI component — a full ARM+Thumb superset the real ARMv3-class
+  ST018 chip, predating Thumb, never needed). Instruction decode, the register file + mode
+  banking, the 3-stage pipeline (whose exact timing implicitly produces ARM's well-known
+  "PC reads as address+8" quirk — a real, easy-to-get-subtly-wrong fidelity point, deliberately
+  sequenced AFTER the pipeline model is solid rather than guessed at per-instruction), and the
+  board wrapper are not yet implemented; `Coprocessor::St018` doesn't exist yet and `board::select`
+  cannot reach this module. See the `st018-armv3-scoping` session memory for the full architecture
+  notes and suggested build order.
 
 ## Header detection
 

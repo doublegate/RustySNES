@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ST018 foundation: the ARMv3 barrel shifter, condition codes, and ALU core**
+  (`coproc::armv3`, `v0.4.0` "Completion" work, in progress). The first increment of a full
+  ARMv3 (ARM6-class) CPU core for Star Ocean's LLE coprocessor — clean-room port of Mesen2's
+  `ArmV3Cpu` (chosen over ares' generic ARM7TDMI-based `armdsp`, a Thumb-capable superset the
+  real pre-Thumb ST018 chip never needed). Ports only the pure, state-free primitives every ARM
+  instruction depends on: `LSL`/`LSR`/`ASR`/`ROR`/`RRX` (every documented `shift ≥ 32` boundary
+  case), the 4-bit condition-code checker, and the `ADD`/`SUB`/logical-op flag formulas — each
+  verified against the ARM Architecture Reference Manual's own truth tables (12 new tests).
+  Deliberately NOT wired to any board yet: instruction decode, the register file + mode banking,
+  and the 3-stage pipeline (whose exact timing implicitly produces ARM's "PC reads as address+8"
+  quirk) remain, sequenced in that order per the session memory tracking this work — a from-
+  scratch ARM core is comparable in scope to the 65C816 core, not a small register-file port.
+
 - **Standalone S-RTC board** (`coproc::sharprtc::SharpRtcBoard`, `v0.4.0` "Completion" work).
   A standalone Sharp RTC-4513 real-time clock (Daikaijuu Monogatari II, ExHiROM) — a different
   chip/protocol from the Epson RTC-4513 already paired with SPC7110: a 2-register (`$2800`/
