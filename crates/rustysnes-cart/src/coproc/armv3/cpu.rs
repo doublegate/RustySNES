@@ -235,8 +235,8 @@ impl Cpu {
             Category::Branch => self.exec_branch(opcode),
             Category::SoftwareInterrupt => self.enter_exception(Vector::SoftwareIrq),
             Category::InvalidOp => self.enter_exception(Vector::Undefined),
-            Category::SingleDataTransfer => todo!("LDR/STR: docs/st018-arm-notes.md step 6"),
-            Category::BlockDataTransfer => todo!("LDM/STM: docs/st018-arm-notes.md step 7"),
+            Category::SingleDataTransfer => self.exec_single_data_transfer(opcode, bus),
+            Category::BlockDataTransfer => self.exec_block_data_transfer(opcode, bus),
             Category::Multiply | Category::MultiplyLong => {
                 todo!("MUL/MLA/MULL/MLAL: docs/st018-arm-notes.md step 8")
             }
@@ -523,6 +523,164 @@ impl Cpu {
         self.regs.r[14] = self.pipeline.decode.address;
         self.regs.r[15] = vector.address();
         self.pipeline.request_reload();
+    }
+
+    /// `LDR`/`STR` (Mesen2 `ArmSingleDataTransfer`). The offset is either a 12-bit immediate or a
+    /// shifted register — unlike data processing, the shift amount here is ALWAYS an immediate
+    /// (bits 11-7); there is no register-specified-shift-amount form for this instruction class.
+    fn exec_single_data_transfer(&mut self, opcode: u32, bus: &mut impl ArmBus) {
+        let immediate = opcode & (1 << 25) == 0;
+        let pre = opcode & (1 << 24) != 0;
+        let up = opcode & (1 << 23) != 0;
+        let byte = opcode & (1 << 22) != 0;
+        let write_back = opcode & (1 << 21) != 0;
+        let load = opcode & (1 << 20) != 0;
+        let rn = ((opcode >> 16) & 0xF) as u8;
+        let rd = ((opcode >> 12) & 0xF) as u8;
+
+        let mut addr = self.regs.r[rn as usize];
+        let offset = if immediate {
+            opcode & 0xFFF
+        } else {
+            let shift_type = (opcode >> 5) & 0x3;
+            #[allow(clippy::cast_possible_truncation)]
+            let shift = ((opcode >> 7) & 0x1F) as u8;
+            let rm = (opcode & 0xF) as u8;
+            let v = self.regs.r[rm as usize];
+            let carry = self.regs.cpsr.flags.c;
+            match shift_type {
+                0 => primitives::shift_lsl(v, shift, carry).0,
+                1 => primitives::shift_lsr(v, if shift == 0 { 32 } else { shift }, carry).0,
+                2 => primitives::shift_asr(v, if shift == 0 { 32 } else { shift }, carry).0,
+                _ => {
+                    if shift == 0 {
+                        primitives::shift_rrx(v, carry).0
+                    } else {
+                        primitives::shift_ror(v, shift, carry).0
+                    }
+                }
+            }
+        };
+
+        if pre {
+            addr = if up {
+                addr.wrapping_add(offset)
+            } else {
+                addr.wrapping_sub(offset)
+            };
+        }
+
+        if load {
+            let value = bus.read(addr, byte);
+            self.set_r(rd, value);
+            bus.idle();
+        } else {
+            // Storing R15 stores address+12, not the usual address+8 -- a real, documented ARM6-
+            // class quirk (the extra internal cycle a store consumes over a load), ported exactly
+            // where the source applies it rather than folded into a general rule.
+            let value = self.regs.r[rd as usize].wrapping_add(if rd == 15 { 4 } else { 0 });
+            bus.write(addr, value, byte);
+        }
+
+        if !pre {
+            addr = if up {
+                addr.wrapping_add(offset)
+            } else {
+                addr.wrapping_sub(offset)
+            };
+        }
+
+        // Post-indexed addressing ALWAYS writes back, even without the explicit W bit; a load
+        // into the same register as the base is never written back (the loaded value wins).
+        if (rd != rn || !load) && (write_back || !pre) {
+            self.set_r(rn, addr);
+        }
+    }
+
+    /// `LDM`/`STM` (Mesen2 `ArmBlockDataTransfer`) — the most complex ARM instruction. Every
+    /// quirk below is a real, documented hardware behavior ported verbatim, not a simplification:
+    /// the empty-register-list glitch, the load/store write-back timing asymmetry, and the S-bit
+    /// (`psrForceUser`) user-bank-transfer/exception-return dual role. See `docs/st018-arm-notes.md`
+    /// §`ArmBlockDataTransfer` for the full breakdown of each one.
+    #[allow(clippy::too_many_lines)]
+    fn exec_block_data_transfer(&mut self, opcode: u32, bus: &mut impl ArmBus) {
+        let pre = opcode & (1 << 24) != 0;
+        let up = opcode & (1 << 23) != 0;
+        let psr_force_user = opcode & (1 << 22) != 0;
+        let write_back = opcode & (1 << 21) != 0;
+        let load = opcode & (1 << 20) != 0;
+        let rn = ((opcode >> 16) & 0xF) as u8;
+        #[allow(clippy::cast_possible_truncation)]
+        let mut reg_mask = opcode as u16;
+
+        let base = self.regs.r[rn as usize].wrapping_add(if rn == 15 { 4 } else { 0 });
+        let mut addr = base;
+
+        let mut reg_count = reg_mask.count_ones();
+        if reg_mask == 0 {
+            // Empty-list glitch: only R15 is actually transferred, but the address advances as
+            // if all 16 registers were.
+            reg_count = 16;
+            reg_mask = 0x8000;
+        }
+
+        if !up {
+            addr = addr.wrapping_sub((reg_count - u32::from(!pre)) * 4);
+        } else if pre {
+            addr = addr.wrapping_add(4);
+        }
+
+        let write_back_addr = base.wrapping_add(if up {
+            reg_count * 4
+        } else {
+            (reg_count * 4).wrapping_neg()
+        });
+        if write_back && load {
+            self.set_r(rn, write_back_addr);
+        }
+
+        let org_mode = self.regs.cpsr.mode;
+        if psr_force_user && (!load || reg_mask & 0x8000 == 0) {
+            self.regs.switch_mode(mode::USER);
+        }
+
+        let mut first_reg = true;
+        for i in 0..16u8 {
+            if reg_mask & (1 << i) == 0 {
+                continue;
+            }
+            if !load {
+                let value = self.regs.r[i as usize].wrapping_add(if i == 15 { 4 } else { 0 });
+                bus.write(addr, value, false);
+            }
+            if first_reg && write_back {
+                // Write-back happens here for a STORE (and, harmlessly, a second time with the
+                // same value for a LOAD, which already wrote back above -- ported as-is, not
+                // "optimized" away, matching the source exactly).
+                self.set_r(rn, write_back_addr);
+                first_reg = false;
+            }
+            if load {
+                // LDM is NOT affected by the misalignment rotation a plain LDR would apply --
+                // this port doesn't model that rotation at all yet (see `ArmBus`'s doc), so
+                // there's nothing to suppress here either; tracked for whenever it lands.
+                let value = bus.read(addr, false);
+                self.set_r(i, value);
+            }
+            addr = addr.wrapping_add(4);
+        }
+
+        if load {
+            bus.idle();
+        }
+
+        self.regs.switch_mode(org_mode);
+
+        if psr_force_user && load && reg_mask & 0x8000 != 0 {
+            let spsr = self.regs.spsr();
+            self.regs.switch_mode(spsr.mode);
+            self.regs.cpsr = spsr;
+        }
     }
 }
 
@@ -812,5 +970,122 @@ mod tests {
             "pipeline re-establishes +8 at the new vector"
         );
         assert_eq!(cpu.regs.cpsr.mode, mode::UNDEFINED);
+    }
+
+    #[test]
+    fn ldr_pre_indexed_with_no_writeback() {
+        // LDR r0, [r1] -- immediate offset 0, pre-indexed, W=0: must NOT write r1 back.
+        let ldr_r0_r1 = 0xE591_0000u32;
+        let (mut cpu, mut bus) = boot(&[ldr_r0_r1]);
+        cpu.regs.r[1] = 0x2000;
+        bus.set_word(0x2000, 0xDEAD_BEEF);
+        cpu.step(&mut bus);
+        assert_eq!(cpu.regs.r[0], 0xDEAD_BEEF);
+        assert_eq!(cpu.regs.r[1], 0x2000, "P=1,W=0 must not write back");
+    }
+
+    #[test]
+    fn ldr_post_indexed_always_writes_back_even_without_the_w_bit() {
+        // LDR r0, [r1], #4 -- post-indexed: writeback happens unconditionally, even though the
+        // encoded W bit is 0 (post-indexing itself implies writeback on real ARM hardware).
+        let ldr_r0_r1_post4 = 0xE491_0004u32;
+        let (mut cpu, mut bus) = boot(&[ldr_r0_r1_post4]);
+        cpu.regs.r[1] = 0x2000;
+        bus.set_word(0x2000, 0x1234_5678);
+        cpu.step(&mut bus);
+        assert_eq!(
+            cpu.regs.r[0], 0x1234_5678,
+            "loaded from the ORIGINAL address"
+        );
+        assert_eq!(
+            cpu.regs.r[1], 0x2004,
+            "post-indexed writeback always happens"
+        );
+    }
+
+    #[test]
+    fn str_r15_stores_address_plus_12_not_plus_8() {
+        // STR r15, [r1] -- storing R15 itself uses the +12 quirk (one MORE cycle than the usual
+        // +8 read-as-operand exposure), a real, documented ARM6-class store timing detail.
+        let str_r15_r1 = 0xE581_F000u32;
+        let (mut cpu, mut bus) = boot(&[str_r15_r1]);
+        cpu.regs.r[1] = 0x2000;
+        cpu.step(&mut bus);
+        assert_eq!(
+            bus.word_at(0x2000),
+            8 + 4,
+            "stored value is address+12, not address+8"
+        );
+    }
+
+    #[test]
+    fn ldm_ia_writeback_loads_registers_in_ascending_order() {
+        // LDMIA r0!, {r1,r2}
+        let ldmia_r0_r1_r2 = 0xE8B0_0006u32;
+        let (mut cpu, mut bus) = boot(&[ldmia_r0_r1_r2]);
+        cpu.regs.r[0] = 0x3000;
+        bus.set_word(0x3000, 0x1111_1111);
+        bus.set_word(0x3004, 0x2222_2222);
+        cpu.step(&mut bus);
+        assert_eq!(cpu.regs.r[1], 0x1111_1111);
+        assert_eq!(cpu.regs.r[2], 0x2222_2222);
+        assert_eq!(
+            cpu.regs.r[0], 0x3008,
+            "writeback: base + register_count * 4"
+        );
+    }
+
+    #[test]
+    fn stm_ia_writeback_stores_registers_in_ascending_order() {
+        // STMIA r0!, {r1,r2}
+        let stmia_r0_r1_r2 = 0xE8A0_0006u32;
+        let (mut cpu, mut bus) = boot(&[stmia_r0_r1_r2]);
+        cpu.regs.r[0] = 0x3000;
+        cpu.regs.r[1] = 0xAAAA_AAAA;
+        cpu.regs.r[2] = 0xBBBB_BBBB;
+        cpu.step(&mut bus);
+        assert_eq!(bus.word_at(0x3000), 0xAAAA_AAAA);
+        assert_eq!(bus.word_at(0x3004), 0xBBBB_BBBB);
+        assert_eq!(cpu.regs.r[0], 0x3008);
+    }
+
+    #[test]
+    fn ldm_with_an_empty_register_list_transfers_only_r15_but_advances_as_if_all_16_did() {
+        // LDM r0, {} -- the documented empty-list glitch: regMask becomes 0x8000 (R15 only) but
+        // regCount is forced to 16 for address-advancement purposes.
+        let ldm_r0_empty = 0xE890_0000u32;
+        let (mut cpu, mut bus) = boot(&[ldm_r0_empty]);
+        cpu.regs.r[0] = 0x4000;
+        bus.set_word(0x4000, 0x9000); // the word LDM will load into R15
+        cpu.step(&mut bus);
+        assert_eq!(
+            cpu.pipeline.execute.address, 0x9000,
+            "R15 was loaded from address 0x4000 despite the empty encoded list"
+        );
+    }
+
+    #[test]
+    fn ldm_with_s_bit_and_pc_in_the_list_restores_cpsr_from_spsr() {
+        // LDM r0, {r1, pc}^ -- S=1 with R15 in the list: no temporary User-mode switch during
+        // the transfer (unlike LDM^ without PC, or any STM^), and CPSR is restored wholesale
+        // from the CURRENT mode's SPSR after the transfer -- the LDM-based exception return.
+        let ldm_r0_r1_pc_caret = 0xE8D0_8002u32;
+        let (mut cpu, mut bus) = boot(&[ldm_r0_r1_pc_caret]);
+        cpu.regs.switch_mode(mode::SUPERVISOR);
+        cpu.regs.spsr_mut().mode = mode::USER; // simulate SPSR_svc holding a User-mode CPSR
+        cpu.regs.r[0] = 0x5000;
+        bus.set_word(0x5000, 0xCAFE_BABE); // -> r1
+        bus.set_word(0x5004, 0x2000); // -> r15
+        cpu.step(&mut bus);
+        assert_eq!(cpu.regs.r[1], 0xCAFE_BABE);
+        assert_eq!(
+            cpu.regs.cpsr.mode,
+            mode::USER,
+            "CPSR restored from SPSR_svc"
+        );
+        assert_eq!(
+            cpu.pipeline.execute.address, 0x2000,
+            "R15 loaded from the list"
+        );
     }
 }

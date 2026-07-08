@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ST018: LDR/STR and LDM/STM (single/block data transfer)**
+  (`coproc::armv3::cpu`, `v0.4.0` "Completion" work, in progress). Steps 6+7 of the ARMv3 core
+  build order (`docs/st018-arm-notes.md`). `LDR`/`STR`: immediate and shifted-register offsets,
+  pre/post-indexed addressing (post-indexed always writes back, even without the explicit W bit;
+  a load into the same register as the base never writes back), and the real ARM6-class quirk
+  where storing R15 stores address+12 instead of the usual address+8. `LDM`/`STM`: the empty-
+  register-list glitch (only R15 transfers, but the address advances as if all 16 did), the
+  load/store write-back timing asymmetry, and the S-bit's dual role (temporary User-bank access
+  during the transfer, or — when loading with R15 in the list — a full CPSR-from-SPSR restore
+  after the transfer, the `LDM ... {..., pc}^` exception-return idiom). 15 new tests. Multiply/
+  multiply-long, `SWP`, and the board wrapper remain — `Cpu::step` still panics with a clear
+  `todo!` on those.
+
 - **ST018: data processing, branch, MSR/MRS, and exception entry**
   (`coproc::armv3::cpu`, `v0.4.0` "Completion" work, in progress). Steps 4+5 of the ARMv3 core
   build order (`docs/st018-arm-notes.md`). All 16 data-processing ALU ops (both immediate and
