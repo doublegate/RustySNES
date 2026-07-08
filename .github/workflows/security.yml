@@ -1,0 +1,66 @@
+name: Security
+
+# Dependency-vulnerability scan (cargo-audit) + license/advisory/source policy (cargo-deny).
+#
+# Pure-documentation pushes are skipped: they cannot change Cargo.lock or any `.rs` code, so
+# there is nothing for these jobs to find. The weekly `schedule` cron still re-runs the full
+# suite, so a NEW advisory published against an unchanged dependency is still caught even when no
+# code is pushed.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "ref-docs/**"
+      - "to-dos/**"
+      - "LICENSE-*"
+      - ".gitignore"
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "ref-docs/**"
+      - "to-dos/**"
+      - "LICENSE-*"
+      - ".gitignore"
+  schedule:
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Least-privilege default: neither job below writes to the repo or uploads anything -- both only
+# read the checked-out tree and Cargo.lock.
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Install the PREBUILT binary, never `cargo install` (build-from-source): the repo pins
+      # rustc 1.96, but a from-source cargo-audit build can need a newer toolchain than that to
+      # COMPILE. The prebuilt binary runs fine under any toolchain -- it only parses Cargo.lock,
+      # it never compiles this project.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit
+
+  deny:
+    name: Cargo Deny Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Same rationale as the audit job: the prebuilt binary avoids needing a newer toolchain
+      # than the repo's pinned 1.96 just to build the checker itself. Policy lives in `deny.toml`.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - run: cargo deny check

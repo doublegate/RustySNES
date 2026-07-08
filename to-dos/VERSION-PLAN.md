@@ -189,13 +189,18 @@ isn't about emulation accuracy.
       Not yet exercised end-to-end against a real tag (next tag push / `workflow_dispatch`
       backfill will be the first live proof, mirroring how the artifact-attachment fix itself
       was only proven real by `v0.4.0`).
-- Add a dedicated `security.yml` (`cargo audit` + `cargo deny`, on a schedule + every PR touching
-  `Cargo.lock`) and a single `lint` job running fmt+clippy+rustdoc all `-D warnings` as one gate,
-  mirroring RustyNES's 8-workflow `.github/workflows/` structure (`ci.yml`, `security.yml`,
-  `release.yml`, `release-auto.yml`, `web.yml`, plus its mobile/PGO workflows this project has no
-  mobile-target reason to copy) — RustySNES currently has 3 (`ci.yml`, `pages.yml`, `release.yml`)
-  and workspace lints are `warn`, not enforced as `-D warnings` at the attribute level (CI's own
-  `-- -D warnings` command-line flag is the actual gate today; keep that, add the dedicated job).
+- [x] `security.yml`: `cargo audit` + `cargo deny check` jobs, gated on `main`/PR pushes
+      touching non-doc paths + a Monday 00:00 UTC `schedule` + `workflow_dispatch`, mirroring
+      RustyNES's structure. `deny.toml` was built from RustySNES's own `cargo deny list` output
+      (not copied from RustyNES's), independently confirming the identical winit/egui/wgpu
+      dependency chain trips the same 3 RUSTSEC IDs RustyNES already documented
+      (RUSTSEC-2026-0192 `ttf-parser` unmaintained; -0194/-0195 `quick-xml`, reachable only via
+      `wayland-scanner`'s compile-time proc-macro parsing trusted vendored XML, never runtime
+      input) — suppressed in `deny.toml` + `.cargo/audit.toml` with the full rationale, after
+      explicit user review and approval. RustySNES now has 4 workflows (`ci.yml`, `pages.yml`,
+      `release.yml`, `security.yml`) against RustyNES's 8 — the dedicated `lint`-job-with-rustdoc
+      extension (`ci.yml`'s existing `lint` job runs fmt+clippy but not `cargo doc`) and the
+      mobile/PGO workflows (no mobile target here) remain open, lower-priority gaps.
 - [x] `docs/DOCUMENTATION_INDEX.md` — the full documentation map (subsystem specs, ADRs, testing
       strategy, external references), linked from the README, matching RustyNES's own index.
 - [x] `docs/benchmarks.md` + a real Criterion benchmark

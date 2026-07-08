@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`security.yml` CI gate — `v0.6.0` "Shippable" work, pulled forward.** A new dedicated
+  workflow runs `cargo audit` and `cargo deny check` on every `main`/PR push touching non-doc
+  paths, plus a weekly schedule so a newly-published advisory against an unchanged dependency is
+  still caught. Added `deny.toml`, built from RustySNES's own `cargo deny list` output (not
+  copied from RustyNES's config) — independently confirms the same winit/egui/wgpu dependency
+  chain trips the identical 3 RUSTSEC advisories RustyNES already documented (`ttf-parser`
+  unmaintained via winit's Wayland decoration stack; `quick-xml`'s two advisories, reachable only
+  through `wayland-scanner`'s compile-time XML parsing of trusted vendored protocol files, never
+  runtime input). Suppressed in `deny.toml` + the new `.cargo/audit.toml` with the full
+  rationale, after explicit review and approval.
+
 - **Checksummed release assets (SHA-256) — `v0.6.0` "Shippable" work, pulled forward.**
   `.github/workflows/release.yml` gained a `Checksum` step that emits a detached `<archive>.sha256`
   alongside each platform's packaged binary archive, portable across the three runner shells

@@ -1,0 +1,24 @@
+# cargo-audit configuration (the "Dependency Audit" CI job, `.github/workflows/security.yml`).
+#
+# Keep this ignore list IN SYNC with `deny.toml`'s `[advisories].ignore` -- the two tools scan
+# the same RUSTSEC database and gate the same workflow. Every entry's full justification lives in
+# deny.toml; this file only mirrors the IDs. Never suppress an advisory reachable from a runtime
+# code path. Each suppression below was independently verified against RustySNES's own
+# Cargo.lock (not copied from RustyNES's equivalent file, which happens to hit the identical
+# dependency chain via the same winit/egui/wgpu frontend stack) and explicitly approved by the
+# user (2026-07-08) after review.
+
+[advisories]
+ignore = [
+    # ttf-parser unmaintained (informational, not a vulnerability) -- transitive via winit's
+    # Wayland client-side-decoration font stack (winit -> sctk-adwaita -> ab_glyph ->
+    # owned_ttf_parser -> ttf-parser 0.25.1, already the latest release); no upgrade path exists
+    # until winit's decoration stack moves off ab_glyph. Full rationale in deny.toml.
+    "RUSTSEC-2026-0192",
+    # quick-xml 0.39.4 (two real advisories) -- consumed ONLY by the wayland-scanner PROC-MACRO
+    # parsing vendored Wayland protocol XML at COMPILE TIME (trusted input, never runtime/
+    # untrusted data); no upgrade path until wayland-scanner (its own max version, 0.31.10) moves
+    # off its ^0.39 quick-xml pin. Full rationale in deny.toml.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+]

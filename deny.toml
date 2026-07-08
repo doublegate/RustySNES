@@ -1,0 +1,76 @@
+# cargo-deny configuration for RustySNES.
+# https://embarkstudios.github.io/cargo-deny/
+#
+# Built from this workspace's actual dependency tree (`cargo deny list` / `cargo deny check`),
+# not copied from RustyNES's config -- the two projects share a lot of the same egui/winit/wgpu
+# frontend dependency chain (hence overlapping RUSTSEC exceptions below), but this file's allow
+# list and exceptions are each independently verified against RustySNES's own `Cargo.lock`.
+
+[graph]
+all-features = false
+no-default-features = false
+
+[advisories]
+yanked = "deny"
+# Keep this list minimal -- only "unmaintained"/"unsound" informational advisories on transitive
+# deps with no safe upgrade path; never suppress a real exploitable vulnerability without an
+# equivalent no-safe-upgrade justification recorded here.
+ignore = [
+    # `ttf-parser` unmaintained. NOT a vulnerability -- an informational "unmaintained" advisory.
+    # A pure transitive dep of `winit` via its Wayland client-side-decoration font stack: winit ->
+    # sctk-adwaita -> ab_glyph -> owned_ttf_parser -> ttf-parser 0.25.1 (already the latest
+    # release). No safe upgrade exists until winit's decoration stack moves off ab_glyph.
+    "RUSTSEC-2026-0192",
+    # `quick-xml 0.39.4` -- two real advisories (quadratic duplicate-attribute scan; unbounded
+    # NsReader namespace allocation), BOTH requiring attacker-controlled XML input. The only
+    # consumer here is `wayland-scanner` 0.31.10, a PROC-MACRO that parses the vendored Wayland
+    # protocol XML files at COMPILE TIME -- no runtime code path in this project parses XML at
+    # all, and the inputs are trusted files shipped inside the wayland-protocols crates, never
+    # external data. No upgrade path exists: 0.39.4 is the max of its line, the fixes live in
+    # quick-xml >= 0.40, and wayland-scanner 0.31.10 (its own max version) pins ^0.39. Revisit on
+    # the next wayland-scanner / smithay-client-toolkit release.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+]
+
+[licenses]
+# Every license actually present in `cargo deny list` against this workspace's Cargo.lock, plus
+# the two multi-license (OR-expression) crates whose non-permissive term (self_cell's
+# `GPL-2.0-only`, r-efi's `LGPL-2.1-or-later`) is satisfied by the permissive term already in this
+# list -- neither GPL-2.0-only nor LGPL-2.1-or-later needs to be allow-listed itself.
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",       # Boost Software License
+    "CC0-1.0",       # Creative Commons Zero
+    "ISC",
+    "MIT",
+    "MPL-2.0",       # weak copyleft (file-level), used by option-ext
+    "OFL-1.1",       # SIL Open Font License -- egui/epaint default fonts
+    "Ubuntu-font-1.0",  # epaint_default_fonts (egui 0.35) bundled default font
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+[licenses.private]
+ignore = false
+
+[bans]
+# Duplicate transitive-dependency versions are unavoidable here too (egui/wgpu/winit each pin
+# their own point versions of common crates like hashbrown/windows-sys/objc2) -- not a policy
+# violation, just how a fast-moving GUI stack's dependency graph looks; downgrade to a warning
+# rather than failing the gate on something no manifest change here can fix.
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
