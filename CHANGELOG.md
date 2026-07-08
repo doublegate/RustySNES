@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`release.yml` built platform binaries but never attached them to the GitHub release.**
+  `v0.1.0`, `v0.2.0`, and `v0.3.0` all shipped with zero release assets — the workflow ran
+  `cargo build --release` per platform and stopped there. Added a packaging step (tar.gz on
+  Linux/macOS, zip on Windows, each bundling the binary + `README.md`/`LICENSE-MIT`/
+  `LICENSE-APACHE`) and an upload step (`gh release upload`, self-healing via `gh release
+  create` if the release doesn't exist yet) so every future tag automatically attaches its
+  build artifacts. Backfilled `tar.gz`/`zip` archives onto the existing `v0.1.0`/`v0.2.0`/
+  `v0.3.0` releases by hand to close the retroactive gap.
+
 ## [0.3.0] "Continuum" - 2026-07-08
 
 Rewind, run-ahead, PAL region auto-detection, and the ExLoROM memory-map model — the frontend

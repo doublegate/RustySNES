@@ -143,9 +143,16 @@ AccuracyCoin-equivalent). See `to-dos/phase-6-accuracy-to-100/`.
 **Goal:** bring CI and docs up to RustyNES's depth — the part of "match RustyNES's level" that
 isn't about emulation accuracy.
 
-- Actually exercise `.github/workflows/release.yml` end-to-end (it exists but, with zero tags
-  ever cut, has never really run): the multi-platform build matrix (linux-gnu/macOS/Windows),
-  release archives, wasm→Pages deploy.
+- [x] Actually exercise `.github/workflows/release.yml` end-to-end: the multi-platform build
+      matrix (linux-gnu/macOS/Windows) now packages each platform's binary + README/LICENSE into
+      a `tar.gz`/`zip` archive and attaches it to the tag's GitHub release (self-healing —
+      creates a minimal release first if the agent-authored `gh release create` ceremony step
+      hasn't run yet). Landed retroactively on `v0.1.0`/`v0.2.0`/`v0.3.0` (backfilled after the
+      fact, since none of the first three tags had attached artifacts) ahead of this rung, since
+      it was a real user-facing gap, not deferred work. wasm→Pages deploy (`pages.yml`) was
+      already exercised on every `main` push since `v0.1.0`.
+- Add checksummed assets (SHA-256) to the release archives — the current packaging step doesn't
+  emit them yet (deferred here, not urgent enough to block anything).
 - Add a `cargo audit`/`cargo deny` CI gate and a single `lint` job running fmt+clippy+rustdoc
   all `-D warnings`, mirroring RustyNES's `ci.yml` structure (RustySNES's workspace lints are
   currently `warn`, not enforced as `-D warnings` at the attribute level).
