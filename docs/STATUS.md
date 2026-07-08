@@ -3,16 +3,19 @@
 This file is authoritative for per-suite pass counts, the board / coprocessor matrix, and
 version policy. Everything else defers to it.
 
-**Current release:** v0.1.0 (scaffold). **Phases 1 (CPU + golden oracle) and 2 (scheduler +
-video) are functionally complete** — the 65C816 passes the SingleStepTests/65816 oracle to
-0-diff (state + cycles), and the machine **boots and runs real ROMs**: the master-clock lockstep
-scheduler + bus memory map + DMA/HDMA + the dual-chip PPU produce a deterministic framebuffer.
-gilyon's on-cart CPU suite reports "Success" (all 1107 tests), and the undisbeliever PPU/DMA/HDMA
-suite renders bit-deterministic golden framebuffers. Audio (Phase 3) is complete. Coprocessors
-(Phase 4/7): Core/Curated (DSP-1, Super FX, SA-1) plus the BestEffort DSP-2/DSP-4/ST010, S-DD1,
-CX4, and OBC1 are implemented and validated against real commercial ROMs (see the coprocessor
-matrix below); SPC7110 is implemented but not yet booting to real content on its one available
-ROM; ST018 and standalone S-RTC are not started.
+**Current release:** `v0.3.0 "Continuum"` (`v0.1.0 "Foundation"` and `v0.2.0 "Persistence"`
+precede it; see `to-dos/VERSION-PLAN.md` for the full ladder). **Phases 1 (CPU + golden oracle)
+and 2 (scheduler + video) are functionally complete** — the 65C816 passes the
+SingleStepTests/65816 oracle to 0-diff (state + cycles), and the machine **boots and runs real
+ROMs**: the master-clock lockstep scheduler + bus memory map + DMA/HDMA + the dual-chip PPU
+produce a deterministic framebuffer. gilyon's on-cart CPU suite reports "Success" (all 1107
+tests), and the undisbeliever PPU/DMA/HDMA suite renders bit-deterministic golden framebuffers.
+Audio (Phase 3) is complete. Coprocessors (Phase 4/7): Core/Curated (DSP-1, Super FX, SA-1) plus
+the BestEffort DSP-2/DSP-4/ST010, S-DD1, CX4, and OBC1 are implemented and validated against
+real commercial ROMs (see the coprocessor matrix below); SPC7110 is implemented but not yet
+booting to real content on its one available ROM; ST018 and standalone S-RTC are not started.
+Save-states (`v0.2.0`), rewind, run-ahead, PAL region auto-detection, and ExLoROM (all `v0.3.0`)
+are implemented and shipped — see the frontend and memory-map-model tables below.
 
 ## Subsystem progress
 

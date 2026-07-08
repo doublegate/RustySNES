@@ -42,8 +42,9 @@ RustySNES combines **accuracy-first emulation** with the **safety guarantees of 
 | **Coprocessors** | ✅ Shipped (Core/Curated): DSP-1, Super FX/GSU, SA-1. ✅ Shipped (BestEffort, validated against real ROMs): DSP-2, DSP-4, ST010, CX4, OBC1, S-DD1. 🚧 SPC7110 implemented, not yet booting. ⏳ ST018, standalone S-RTC not started. |
 | **Native desktop frontend** | ✅ Shipped — `winit` + `wgpu` + `cpal` + `egui`; keyboard + gamepad input, ROM/firmware/SRAM loading (including zip-archived ROMs), Reset/Power-Cycle/Pause. |
 | **WebAssembly build** | 🚧 Compiles; the in-browser UI (canvas surface, `requestAnimationFrame` loop, file loading) is a bootstrap scaffold, not yet a playable demo. |
-| **Save states** | ⏳ Planned — `v0.2.0`, see [`docs/adr/0006`](docs/adr/0006-save-state-format.md). |
-| **Rewind / run-ahead** | ⏳ Planned — `v0.3.0`, builds on save-states. |
+| **Save states** | ✅ Shipped — `v0.2.0`, a versioned deterministic envelope, see [`docs/adr/0006`](docs/adr/0006-save-state-format.md). |
+| **Rewind / run-ahead** | ✅ Shipped — `v0.3.0`; config-driven, off by default (`rewind.capacity: 0` / `run_ahead.frames: 0`). |
+| **PAL region auto-detection / ExLoROM** | ✅ Shipped — `v0.3.0`; neither has golden-ROM-boot validation yet (no PAL or ExLoROM ROM in the local corpus). |
 | **Lua scripting** | ⏳ Planned — post-`v1.0.0`. |
 | **Debugger (breakpoints, memory viewer)** | ⏳ Planned — post-`v1.0.0`. |
 | **Rollback netplay** | ⏳ Planned — post-`v1.0.0`, builds on save-states. |
