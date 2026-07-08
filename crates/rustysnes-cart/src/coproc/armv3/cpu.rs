@@ -15,6 +15,8 @@
 // coprocessor cores in this crate (`sdd1`, `gsu`, `superfx`, `upd77c25`, `hg51b`, `sa1`).
 #![allow(clippy::similar_names)]
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 use crate::coproc::armv3::bus::ArmBus;
 use crate::coproc::armv3::primitives::{self, Flags};
 use crate::coproc::armv3::regs::{Cpsr, Mode, Pipeline, Regs, mode};
@@ -797,6 +799,22 @@ impl Cpu {
         let new_value = self.regs.r[rm as usize].wrapping_add(if rm == 15 { 4 } else { 0 });
         bus.write(addr, new_value, byte);
         self.set_r(rd, old);
+    }
+
+    /// Serialize the full register file + pipeline state (the board wrapper composes this with
+    /// its own handshake/ROM/RAM state — `docs/st018-arm-notes.md` step 9).
+    pub(crate) fn save_state(&self, w: &mut SaveWriter) {
+        self.regs.save_state(w);
+        self.pipeline.save_state(w);
+    }
+
+    /// The inverse of [`Self::save_state`].
+    ///
+    /// # Errors
+    /// Propagates [`SaveReader`]'s own truncation error.
+    pub(crate) fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.regs.load_state(r)?;
+        self.pipeline.load_state(r)
     }
 }
 

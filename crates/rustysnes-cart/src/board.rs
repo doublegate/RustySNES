@@ -354,6 +354,7 @@ pub fn select(header: &Header, rom: &[u8]) -> Box<dyn Board> {
         CoproId::Obc1 => Box::new(crate::coproc::Obc1Board::new(base)),
         CoproId::Cx4 => Box::new(crate::coproc::Cx4Board::new(base)),
         CoproId::Srtc => Box::new(crate::coproc::SharpRtcBoard::new(base)),
+        CoproId::St018 => Box::new(crate::coproc::St018Board::new(base)),
         // Other coprocessor families land in later sprints; until then the cart runs as its base
         // board (the coprocessor window is simply unmapped, never silently faked).
         _ => base,
