@@ -105,7 +105,11 @@ this. See `to-dos/phase-5-frontend/sprint-2-save-states.md` for the ticket break
       open:** no real ExLoROM ROM (commercial or homebrew) exists in the local corpus, so this
       board has only formula-level unit-test coverage, not golden-framebuffer validation.
 
-### v0.4.0 "Completion" — finish the coprocessor/board matrix — **IN PROGRESS**
+### v0.4.0 "Completion" — finish the coprocessor/board matrix — **COMPLETE, READY TO TAG**
+
+All three line items landed: standalone S-RTC and ST018 fully implemented; SPC7110's addressing
+bug found and fixed (the boot-crash gap that remains is honestly tracked, not a blocker — see the
+SPC7110 entry below and `docs/cart.md` §SPC7110).
 
 Closes Phase 7's exit criterion ("the full coprocessor/board matrix in `docs/STATUS.md`").
 
@@ -122,8 +126,13 @@ Closes Phase 7's exit criterion ("the full coprocessor/board matrix in `docs/STA
       the CPU eventually `RTI`s from genuine PROM code into a WRAM address confirmed entirely
       unpopulated — but not fixed; needs a proper disassembler + symbol trace, out of scope for
       this pass. See `docs/cart.md` §SPC7110 / `docs/STATUS.md` for the full diagnostic trail.
-- [ ] **ST018** (ARMv3 LLE) — the one BestEffort coprocessor with no work started; a new ARM core
-      following the clean-room-port pattern already used for `hg51b` (CX4) / `upd77c25` (DSP).
+- [x] **ST018** (ARMv3 LLE) — a full ARMv3 (ARM6-class) CPU core, clean-room ported from Mesen2's
+      `ArmV3Cpu` (barrel shifter/ALU, mode-banked register file, 3-stage pipeline, the complete
+      instruction set) + `St018Board` (firmware loading, the `$3800`/`$3802`/`$3804` handshake,
+      driven by `Board::coprocessor_tick` rather than the SA-1 second-CPU hooks since this core
+      is self-contained in `rustysnes-cart`). Detected via title match on the confirmed real
+      cart, Hayazashi Nidan Morita Shogi 2 (an earlier investigation wrongly assumed Star Ocean).
+      No commercial dump in the local corpus — unit-test-level coverage only.
 
 ### v0.5.0 "Fidelity" — the accuracy push
 

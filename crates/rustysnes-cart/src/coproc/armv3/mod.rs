@@ -1,4 +1,8 @@
-//! The ARMv3 (ARM6-class, pre-Thumb) CPU core — ST018's LLE engine (Star Ocean).
+//! The ARMv3 (ARM6-class, pre-Thumb) CPU core — ST018's LLE engine.
+//!
+//! ST018 is Hayazashi Nidan Morita Shogi 2's coprocessor; see [`board`]'s doc for the detection
+//! research — an earlier version of this doc wrongly attributed this chip to Star Ocean, which
+//! uses S-DD1 only, no ARM chip.
 //!
 //! Clean-room port of Mesen2's `ArmV3Cpu` (MIT, `Core/SNES/Coprocessors/ST018/ArmV3Cpu.cpp`) —
 //! chosen over ares' `sfc/coprocessor/armdsp`, which instead reuses ares' generic shared
@@ -13,13 +17,15 @@
 //! 2. [`regs`] — the register file, mode-switch banking, and the 3-stage pipeline model.
 //! 3. [`bus`] + [`cpu`] — the full instruction set: data processing, branch, MSR/MRS, exception
 //!    entry, `LDR`/`STR`, `LDM`/`STM`, multiply/multiply-long, and `SWP`/`SWPB`.
-//! 4. The `ST018` board wrapper (not yet started; not reachable from `board::select`).
+//! 4. [`board`] — the SNES-side board wrapper, wired into `board::select`.
 
+pub mod board;
 pub mod bus;
 pub mod cpu;
 pub mod primitives;
 pub mod regs;
 
+pub use board::St018Board;
 pub use bus::ArmBus;
 pub use cpu::Cpu;
 pub use primitives::{

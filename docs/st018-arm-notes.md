@@ -1,12 +1,25 @@
 # ST018 — ARMv3 core implementation notes
 
-`ST018` (Star Ocean's coprocessor) is the last unimplemented `v0.4.0 "Completion"` line item
-(`to-dos/VERSION-PLAN.md`; the other two, SPC7110's addressing fix and standalone S-RTC, landed in
-PR #23). It is a full ARMv3 (ARM6-class, pre-Thumb) CPU core — comparable in scope to
-`rustysnes-cpu`'s 65C816 (`exec.rs`), not a small register-file port like this project's other
-BestEffort coprocessors. It is landing incrementally (`crate::coproc::armv3`); this document is the
-architecture reference for that work, kept up to date alongside the code per the project's
-docs-as-spec rule.
+`ST018` was the last unimplemented `v0.4.0 "Completion"` line item (`to-dos/VERSION-PLAN.md`; the
+other two, SPC7110's addressing fix and standalone S-RTC, landed in PR #23) — **it is now fully
+implemented**, closing out `v0.4.0`'s coprocessor/board matrix. It is a full ARMv3 (ARM6-class,
+pre-Thumb) CPU core — comparable in scope to `rustysnes-cpu`'s 65C816 (`exec.rs`), not a small
+register-file port like this project's other BestEffort coprocessors. It landed incrementally
+(`crate::coproc::armv3`, PRs #24-30); this document is the architecture reference for that work,
+kept up to date alongside the code per the project's docs-as-spec rule.
+
+**The one confirmed commercial cart is *Hayazashi Nidan Morita Shogi 2*** (SETA, 1995,
+Japan-only; internal title `NIDAN MORITASHOGI2` per superfamicom.org, not yet verified against a
+real dump). An earlier version of this document wrongly attributed this chip to Star Ocean —
+Star Ocean uses S-DD1 only, no ARM coprocessor. Confirmed against two independent reference
+sources: Mesen2's own header detection (`BaseCartridge::GetCoprocessorType`, `RomType` high
+nibble `$F` + `CartridgeType == 0x02`, `BaseCartridge.cpp:296-298`) and ares' heuristic detector
+(`mia/medium/super-famicom.cpp:789`, the identical `cartridgeTypeHi==0xf &&
+cartridgeSubType==0x02` signature read from the extended-header byte `$xFBF`). This project's own
+`coprocessor_from_chipset` (`crate::header`) does NOT read `$xFBF` for the disambiguation — it
+title-matches instead, mirroring the same convention already established for the other `$F`-
+nibble customs (CX4/SPC7110/S-RTC), after an earlier investigation found that byte unreliable for
+THOSE chips against a real Mega Man X2 dump.
 
 **Port source: Mesen2's `Core/SNES/Coprocessors/ST018/`** (`ArmV3Cpu.cpp`/`.h`, `ArmV3Types.h`,
 `St018.cpp`/`.h`/`Types.h`), NOT ares' `sfc/coprocessor/armdsp/` — ares reuses its generic shared
@@ -16,28 +29,32 @@ scope to port.
 
 ## Board/bus facts
 
-From `ref-proj/bsnes/bsnes/target-bsnes/resource/system/boards.bml`, `board: EXLOROM-RAM-ARMDSP`
-(Star Ocean's board):
+From `ref-proj/bsnes/bsnes/target-bsnes/resource/system/boards.bml`, `board: ARM-LOROM-RAM`:
 
 ```
-memory type=ROM content=Program
-  map address=00-7d,80-ff:8000-ffff mask=0x8000
-  map address=40-6f,c0-ef:0000-7fff mask=0x8000
-memory type=RAM content=Save
-  map address=70-7d,f0-ff:0000-ffff
-processor architecture=ARM6
-  map address=00-3f,80-bf:3800-38ff
-  memory type=ROM content=Program architecture=ARM6
-  memory type=ROM content=Data architecture=ARM6
-  memory type=RAM content=Data architecture=ARM6
-  oscillator
+board: ARM-LOROM-RAM
+  memory type=ROM content=Program
+    map address=00-7d,80-ff:8000-ffff mask=0x8000
+    map address=40-6f,c0-ef:0000-7fff mask=0x8000
+  memory type=RAM content=Save
+    map address=70-7d,f0-ff:0000-ffff
+  processor architecture=ARM6
+    map address=00-3f,80-bf:3800-38ff
+    memory type=ROM content=Program architecture=ARM6
+    memory type=ROM content=Data architecture=ARM6
+    memory type=RAM content=Data architecture=ARM6
+    oscillator
 ```
 
-Base board is ExLoROM (this project's `board::ExLoRom` already exists — no new base-board work
-needed). The ARM side needs external chip-ROM dumps: `PrgRomSize = 0x20000` (128 KiB program),
-`DataRomSize = 0x8000` (32 KiB data), `WorkRamSize = 0x4000` (16 KiB work RAM) — an LLE chip like
-the NEC DSP family (user-supplied firmware, `docs/adr/0003`), not a cart-ROM-resident program like
-GSU/SA-1/CX4.
+The real cart's SNES-side map mode is plain LoROM per superfamicom.org (512 KiB ROM, well under
+the >4 MiB threshold ExLoROM exists for) — `board::select` builds whichever base board the
+header's own map-mode byte calls for and wraps it, so `St018Board` doesn't hard-code either
+choice; this memory map (bit-22-inversion-folded ROM + the `$70-7D,$F0-FF` SRAM window) is
+identical to what this project's `board::ExLoRom` already implements, and correctly degenerates
+to plain LoROM behavior for a ROM this small. The ARM side needs external chip-ROM dumps:
+`PrgRomSize = 0x20000` (128 KiB program), `DataRomSize = 0x8000` (32 KiB data), `WorkRamSize =
+0x4000` (16 KiB work RAM) — an LLE chip like the NEC DSP family (user-supplied firmware,
+`docs/adr/0003`), not a cart-ROM-resident program like GSU/SA-1/CX4.
 
 ## Architecture
 
@@ -145,15 +162,24 @@ GSU/SA-1/CX4.
 
 ## Board-side bus protocol (host-sync model)
 
-**ST018 is architecturally an SA-1, NOT a GSU/DSP-1.** The reference `Run()` catches the ARM CPU's
-own cycle counter up to the current master-clock value in a loop that steps the ARM CPU once per
-catch-up cycle — the ARM runs continuously in lockstep with the master clock, not "triggered, then
-runs to completion on a Go/RQM flag" like GSU/DSP-1. `Run()` is called before every register
-read/write and at end-of-frame ("catch up before any observation"). **Port this exactly like this
-project's existing SA-1 second-CPU deterministic master-clock catch-up** (`rustysnes-core`'s
-`run_sa1`, `docs/scheduler.md` §SA-1) — the architecture is already proven in this codebase, just
-needs an ARM CPU instance instead of a second 65C816. Do NOT reach for a run-to-completion pattern;
-it's the wrong model for this chip.
+**ST018 is architecturally an SA-1, NOT a GSU/DSP-1** — but NOT wired the same way `rustysnes-core`
+wires SA-1's second 65C816. The reference `Run()` catches the ARM CPU's own cycle counter up to
+the current master-clock value in a loop that steps the ARM CPU once per catch-up cycle — the ARM
+runs continuously in lockstep with the master clock, not "triggered, then runs to completion on a
+Go/RQM flag" like GSU/DSP-1. `Run()` is called before every register read/write and at
+end-of-frame ("catch up before any observation"). **Implemented via [`Board::coprocessor_tick`]**
+(the existing GSU/Super FX host-sync hook, fired once per master-clock unit from inside
+`rustysnes-core`'s own per-tick loop) instead of the SA-1 second-CPU hooks: SA-1's second CPU is
+an instance of `rustysnes_cpu::Cpu`, which `rustysnes-cart` can't depend on (the one-directional
+crate graph), so it must live in `rustysnes-core` and be driven through `Board::second_cpu_*`.
+ST018's ARM core (`crate::coproc::armv3::Cpu`) is entirely self-contained within `rustysnes-cart`
+already, so `St018Board` owns and steps it directly — `coprocessor_tick` increments a local
+`target_cycle` by one per call (mathematically equivalent to the reference's
+`_memoryManager->GetMasterClock()`, since both start at 0 and advance 1:1 with the master clock)
+and steps the core in a `while arm_cycle_count < target_cycle` loop, functionally identical to the
+reference's `Run()` but driven every tick instead of lazily on access — strictly more granular,
+with no `rustysnes-core`-side plumbing needed at all. Do NOT reach for a run-to-completion
+pattern; it's the wrong model for this chip.
 
 Bus window is `$00-3F,$80-BF:$3000-$3FFF` (registered whole, dispatched internally), not just
 `$3800-38FF` as `boards.bml` implies at a glance:
@@ -232,10 +258,27 @@ Bus window is `$00-3F,$80-BF:$3000-$3FFF` (registered whole, dispatched internal
    documented cycle-count table), cross-verified opcode encodings against `Category::decode`'s
    Multiply/MultiplyLong/SingleDataSwap carve-outs before trusting them. This closes out the ARMv3
    instruction set — [`Cpu::step`] no longer has any unimplemented category.
-9. The SNES-side board wrapper: SA-1-style deterministic master-clock catch-up, the handshake
-   registers, firmware loading for PRG/data ROM + work RAM save-state.
-10. Wire into `board::select` for `Coprocessor::St018` (new header enum variant + chipset-byte
-    detection — Star Ocean's title, no existing title-match precedent to crib from).
+9. **The SNES-side board wrapper** — done (`crate::coproc::armv3::board::St018Board`). Driven by
+   `Board::coprocessor_tick` rather than the SA-1 second-CPU hooks (see the board-side bus
+   protocol section above for why); the `$3800`/`$3802`/`$3804` handshake registers over the
+   whole `$3000-$3FFF` window; a single combined `0x28000`-byte firmware dump split into 128 KiB
+   PRG ROM + 32 KiB data ROM; 16 KiB work RAM; save-state coverage of the full register file +
+   pipeline + handshake state (never the firmware/ROM bytes themselves, matching this project's
+   "never carry a ROM byte in a save-state" rule). One genuine fidelity nuance surfaced while
+   porting: Mesen2's `PowerOn(forReset)` saves `CycleCount` before re-priming the pipeline and
+   restores it afterward ONLY when `forReset=true` (the SNES-side reset-edge path) — NOT at
+   construction/firmware-load (`forReset=false`), so the priming reads' own bus-cycle cost is
+   charged normally there but discarded on a true reset. `St018Board::power_on_arm`/`reset_arm`
+   port this exact asymmetry (a bug caught by a test that assumed cycle-preservation applied to
+   every power-on call, not just the reset-edge one). 9 new tests.
+10. **Wired into `board::select`** — done. `Coprocessor::St018` (new header enum variant) is
+    detected via a title match on `NIDAN MORITASHOGI2`/`MORITA SHOGI2` (the confirmed real game,
+    Hayazashi Nidan Morita Shogi 2 — an EARLIER version of this document wrongly assumed Star
+    Ocean, which uses S-DD1 only), mirroring the same title-match convention already established
+    for the other `$F`-nibble customs (see this document's intro for the full detection
+    research). No commercial dump exists in this project's local corpus to verify the exact
+    title string against, the same honesty gap already carried openly for the other
+    title-matched customs.
 
 No commercial Star Ocean ROM exists in this project's local corpus (the same honesty gap already
 carried openly for ExLoROM/PAL auto-detect/standalone S-RTC) — this will land `BestEffort`-tier,

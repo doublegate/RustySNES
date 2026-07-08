@@ -38,6 +38,7 @@ pub mod spc7110;
 pub mod superfx;
 pub mod upd77c25;
 
+pub use armv3::St018Board;
 pub use cx4::Cx4Board;
 pub use dsp1::Dsp1Board;
 pub use epsonrtc::EpsonRtc;

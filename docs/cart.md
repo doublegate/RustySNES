@@ -81,7 +81,7 @@ it); Super FX and SA-1 run their program from cart ROM (no chip dump).
 | CX4 | Hitachi HG51B169 | 20 MHz | 2 | no | LLE (prog ROM) | BestEffort/Curated |
 | OBC1 | simple ASIC | — | 1 | no | HLE | BestEffort |
 | ST010 / ST011 | µPD96050 | ~10 / 15 MHz | 1 each | µPD96050 (≈77C25) | LLE (shared) | BestEffort (shared) |
-| ST018 | ARMv3 | ~21.44 MHz | 1 | no | LLE ARM core | BestEffort (foundation started, `coproc::armv3`) |
+| ST018 | ARMv3 | ~21.44 MHz | 1 | no | LLE ARM core | BestEffort (implemented, `coproc::armv3`) |
 | S-RTC | Sharp RTC-4513 | — | 1 | no | HLE + frozen time | BestEffort |
 
 ### Key leverage — the shared NEC core
@@ -310,23 +310,25 @@ as open bus, the game wedges on its first DSP poll — it is never silently degr
   coverage only, not golden-framebuffer validation (`docs/adr/0003`); header detection is a
   best-effort title match (`"DAIKAIJUU MONOGATARI"` / `"DAIKAIJU MONOGATARI"`), the same posture
   already carried openly for CX4/SPC7110's own `$F`-nibble disambiguation.
-- **ST018** (`BestEffort`, **foundation started, not board-reachable yet** — `coproc::armv3`): a
-  full ARMv3 (ARM6-class, pre-Thumb) CPU core for Star Ocean — comparable in scope to
-  `rustysnes-cpu`'s 65C816, not a small register-file port like this project's other BestEffort
-  coprocessors. Deliberately built bottom-up: this module currently ports only the pure,
-  state-free primitives every ARM instruction depends on — the barrel shifter (`LSL`/`LSR`/`ASR`/
-  `ROR`/`RRX`, including every documented `shift ≥ 32` boundary case), the 4-bit condition-code
-  checker, and the `ADD`/`SUB`/logical-op flag formulas — each verified against the ARM
-  Architecture Reference Manual's own truth tables. Clean-room port of Mesen2's `ArmV3Cpu`
+- **ST018** (`BestEffort`, **implemented** — `coproc::armv3`): a full ARMv3 (ARM6-class,
+  pre-Thumb) CPU core, comparable in scope to `rustysnes-cpu`'s 65C816, not a small register-file
+  port like this project's other BestEffort coprocessors. Clean-room port of Mesen2's `ArmV3Cpu`
   (`Core/SNES/Coprocessors/ST018/`), chosen over ares' `sfc/coprocessor/armdsp` (which instead
   wraps ares' generic shared ARM7TDMI component — a full ARM+Thumb superset the real ARMv3-class
-  ST018 chip, predating Thumb, never needed). Instruction decode, the register file + mode
-  banking, the 3-stage pipeline (whose exact timing implicitly produces ARM's well-known
-  "PC reads as address+8" quirk — a real, easy-to-get-subtly-wrong fidelity point, deliberately
-  sequenced AFTER the pipeline model is solid rather than guessed at per-instruction), and the
-  board wrapper are not yet implemented; `Coprocessor::St018` doesn't exist yet and `board::select`
-  cannot reach this module. See `docs/st018-arm-notes.md` for the full architecture notes and
-  suggested build order.
+  ST018 chip, predating Thumb, never needed). Built bottom-up: the barrel shifter/condition-codes/
+  ALU core, the register file + mode banking, the 3-stage pipeline (whose exact timing implicitly
+  produces ARM's well-known "PC reads as address+8" quirk), the full instruction set (data
+  processing, branch, MSR/MRS, exception entry, `LDR`/`STR`, `LDM`/`STM`, multiply/multiply-long,
+  `SWP`/`SWPB`), and finally the SNES-side board wrapper (`St018Board`) — driven by
+  `Board::coprocessor_tick` (the same host-sync hook GSU/Super FX use) rather than the SA-1
+  second-CPU hooks, since this ARM core (unlike SA-1's second 65C816) is entirely self-contained
+  within `rustysnes-cart` and doesn't cross the one-directional crate graph. `Coprocessor::St018`
+  is detected via a title match on the confirmed real cart, *Hayazashi Nidan Morita Shogi 2*
+  (`NIDAN MORITASHOGI2`) — an earlier version of this doc wrongly assumed Star Ocean, which uses
+  S-DD1 only, no ARM coprocessor; no commercial dump exists in this project's local corpus to
+  verify the exact title string against, the same honesty gap already carried openly for the
+  other title-matched `$F`-nibble customs. See `docs/st018-arm-notes.md` for the full
+  architecture notes, detection research, and build order.
 
 ## Header detection
 

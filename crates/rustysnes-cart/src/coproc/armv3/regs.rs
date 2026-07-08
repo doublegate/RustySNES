@@ -6,6 +6,8 @@
 //! instruction decode/execute exists (nothing here depends on it, and the pipeline model is the
 //! single highest-risk fidelity point every later instruction depends on getting right).
 
+use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
+
 use crate::coproc::armv3::primitives::Flags;
 
 /// The 7 real ARM processor modes.
@@ -79,6 +81,35 @@ impl Cpsr {
             | ((self.irq_disable as u32) << 7)
             | ((self.fiq_disable as u32) << 6)
             | ((self.mode & 0x1F) as u32)
+    }
+
+    /// The inverse of [`Self::to_u32`] — used only by save-state restore (never by real ARM code,
+    /// which always goes through [`Regs::switch_mode`]/the SPSR-restore path instead of an
+    /// arbitrary 32-bit value). `mode` is masked to 5 bits and OR'd with [`mode::BIT`], matching
+    /// [`Regs::switch_mode`]'s own defensive mask so a corrupted save-state byte can't leak a
+    /// stray high bit into later bank-switch decisions.
+    #[must_use]
+    const fn from_u32(packed: u32) -> Self {
+        Self {
+            #[allow(clippy::cast_possible_truncation)]
+            mode: (packed as u8 & 0x1F) | mode::BIT,
+            fiq_disable: packed & (1 << 6) != 0,
+            irq_disable: packed & (1 << 7) != 0,
+            flags: Flags {
+                n: packed & (1 << 31) != 0,
+                z: packed & (1 << 30) != 0,
+                c: packed & (1 << 29) != 0,
+                v: packed & (1 << 28) != 0,
+            },
+        }
+    }
+
+    fn save_state(self, w: &mut SaveWriter) {
+        w.write_u32(self.to_u32());
+    }
+
+    fn load_state(r: &mut SaveReader) -> Result<Self, SaveStateError> {
+        Ok(Self::from_u32(r.read_u32()?))
     }
 }
 
@@ -209,6 +240,74 @@ impl Regs {
             _ => &mut self.cpsr,
         }
     }
+
+    /// Serialize every register/bank/SPSR (the board wrapper's `Board::save_state` composes this
+    /// with its own handshake/ROM/RAM state — see `docs/st018-arm-notes.md` step 9).
+    pub(crate) fn save_state(&self, w: &mut SaveWriter) {
+        for v in self.r {
+            w.write_u32(v);
+        }
+        self.cpsr.save_state(w);
+        for v in self.user_bank {
+            w.write_u32(v);
+        }
+        for v in self.fiq_bank {
+            w.write_u32(v);
+        }
+        for v in self.irq_bank {
+            w.write_u32(v);
+        }
+        for v in self.svc_bank {
+            w.write_u32(v);
+        }
+        for v in self.abt_bank {
+            w.write_u32(v);
+        }
+        for v in self.und_bank {
+            w.write_u32(v);
+        }
+        self.fiq_spsr.save_state(w);
+        self.irq_spsr.save_state(w);
+        self.svc_spsr.save_state(w);
+        self.abt_spsr.save_state(w);
+        self.und_spsr.save_state(w);
+    }
+
+    /// The inverse of [`Self::save_state`].
+    ///
+    /// # Errors
+    /// Propagates [`SaveReader`]'s own truncation error; every field here is a plain integer/bool
+    /// with no invalid-discriminant risk (unlike an enum), so there is nothing else to reject.
+    pub(crate) fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        for v in &mut self.r {
+            *v = r.read_u32()?;
+        }
+        self.cpsr = Cpsr::load_state(r)?;
+        for v in &mut self.user_bank {
+            *v = r.read_u32()?;
+        }
+        for v in &mut self.fiq_bank {
+            *v = r.read_u32()?;
+        }
+        for v in &mut self.irq_bank {
+            *v = r.read_u32()?;
+        }
+        for v in &mut self.svc_bank {
+            *v = r.read_u32()?;
+        }
+        for v in &mut self.abt_bank {
+            *v = r.read_u32()?;
+        }
+        for v in &mut self.und_bank {
+            *v = r.read_u32()?;
+        }
+        self.fiq_spsr = Cpsr::load_state(r)?;
+        self.irq_spsr = Cpsr::load_state(r)?;
+        self.svc_spsr = Cpsr::load_state(r)?;
+        self.abt_spsr = Cpsr::load_state(r)?;
+        self.und_spsr = Cpsr::load_state(r)?;
+        Ok(())
+    }
 }
 
 /// One fetched-but-not-yet-executed instruction word, tagged with the address it was fetched
@@ -292,6 +391,37 @@ impl Pipeline {
             address: *r15,
             opcode: read_code(*r15),
         };
+    }
+
+    pub(crate) fn save_state(&self, w: &mut SaveWriter) {
+        self.fetch.save_state(w);
+        self.decode.save_state(w);
+        self.execute.save_state(w);
+        w.write_bool(self.reload_requested);
+    }
+
+    /// # Errors
+    /// Propagates [`SaveReader`]'s own truncation error.
+    pub(crate) fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
+        self.fetch = Insn::load_state(r)?;
+        self.decode = Insn::load_state(r)?;
+        self.execute = Insn::load_state(r)?;
+        self.reload_requested = r.read_bool()?;
+        Ok(())
+    }
+}
+
+impl Insn {
+    fn save_state(self, w: &mut SaveWriter) {
+        w.write_u32(self.address);
+        w.write_u32(self.opcode);
+    }
+
+    fn load_state(r: &mut SaveReader) -> Result<Self, SaveStateError> {
+        Ok(Self {
+            address: r.read_u32()?,
+            opcode: r.read_u32()?,
+        })
     }
 }
 

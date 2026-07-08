@@ -70,6 +70,8 @@ pub enum Coprocessor {
     Obc1,
     /// Sharp RTC-4513 standalone real-time clock (Daikaijuu Monogatari II).
     Srtc,
+    /// ST018 — a full `ARMv3` (ARM6) CPU coprocessor (Hayazashi Nidan Morita Shogi 2).
+    St018,
 }
 
 /// A parsed SNES internal header.
@@ -228,8 +230,9 @@ impl Header {
 /// "custom" nibble only) the cart's title.
 ///
 /// The low nibble is the cartridge type: `0`/`1`/`2` are plain ROM(+RAM(+battery)); `3`–`6` flag
-/// that a coprocessor is present. The high nibble then names it: `0`=DSP (`µPD77C25` family),
-/// `1`=Super FX/GSU, `2`=OBC1, `3`=SA-1, `4`=S-DD1, `F`=custom (SPC7110/CX4/ST01x).
+/// that a coprocessor is present. The high nibble then names it: `0`=DSP (`µPD77C25` family,
+/// including the single-game ST010/ST011 variants — see below), `1`=Super FX/GSU, `2`=OBC1,
+/// `3`=SA-1, `4`=S-DD1, `F`=custom (SPC7110/CX4/S-RTC/ST018).
 ///
 /// `$F` is genuinely ambiguous from header bytes alone — real emulators disambiguate it (and, for
 /// that matter, DSP-1 vs DSP-2/3/4/ST010/011 under the SAME `$0` nibble) via a bundled cartridge
@@ -270,9 +273,22 @@ fn coprocessor_from_chipset(chipset: u8, title_upper: &str) -> Coprocessor {
                 || title_upper.contains("DAIKAIJU MONOGATARI")
             {
                 Coprocessor::Srtc
+            } else if title_upper.contains("MORITASHOGI2") || title_upper.contains("MORITA SHOGI2")
+            {
+                // ST018 (Hayazashi Nidan Morita Shogi 2) — internal title `NIDAN MORITASHOGI2`
+                // per an independent database (superfamicom.org), not yet verified against a
+                // real dump (no commercial copy exists in this project's local corpus, the same
+                // honesty gap already carried openly for the other title-matched `$F` customs).
+                // Real emulators (Mesen2, ares) disambiguate this one specific chip via the
+                // extended-header `CartridgeType`/`cartridgeSubType` byte at `$xFBF` instead of a
+                // title match — this project deliberately does NOT read that byte for the OTHER
+                // `$F`-nibble customs above (found unreliable against a real Mega Man X2 dump),
+                // so this mirrors that same established title-match convention rather than
+                // introducing a new, differently-verified header field just for this one chip.
+                Coprocessor::St018
             } else {
-                // ST018 and other undetected `$F` customs stay BestEffort/not-started: the cart
-                // runs as its base board (unmapped coprocessor window) rather than guessing.
+                // Other undetected `$F` customs stay BestEffort/not-started: the cart runs as
+                // its base board (unmapped coprocessor window) rather than guessing.
                 Coprocessor::None
             }
         }

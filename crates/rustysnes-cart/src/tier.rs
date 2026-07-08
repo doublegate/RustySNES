@@ -56,7 +56,8 @@ pub const fn board_tier(copro: Coprocessor) -> BoardTier {
         | Coprocessor::Spc7110
         | Coprocessor::Cx4
         | Coprocessor::Obc1
-        | Coprocessor::Srtc => BoardTier::BestEffort,
+        | Coprocessor::Srtc
+        | Coprocessor::St018 => BoardTier::BestEffort,
     }
 }
 

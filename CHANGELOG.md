@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ST018: the SNES-side board wrapper — `v0.4.0 "Completion"` is done**
+  (`coproc::armv3::board::St018Board`). Steps 9+10 of the ARMv3 core build order
+  (`docs/st018-arm-notes.md`), the final piece: `Coprocessor::St018` (new header enum variant),
+  detected via a title match on the confirmed real cart, *Hayazashi Nidan Morita Shogi 2*
+  (`NIDAN MORITASHOGI2`) — an earlier investigation wrongly assumed this chip was Star Ocean's,
+  which uses S-DD1 only, no ARM coprocessor. Driven by `Board::coprocessor_tick` (the existing
+  GSU/Super FX host-sync hook, fired once per master-clock unit) rather than the SA-1 second-CPU
+  hooks: unlike SA-1's second 65C816, this ARM core is entirely self-contained within
+  `rustysnes-cart` already, so `St018Board` owns and steps it directly with no `rustysnes-core`
+  changes needed. A single combined `0x28000`-byte firmware dump splits into 128 KiB PRG ROM +
+  32 KiB data ROM; the `$3800`/`$3802`/`$3804` handshake registers over the whole `$3000-$3FFF`
+  window; 16 KiB work RAM; full save-state coverage (register file, pipeline, handshake state —
+  never the firmware bytes themselves). Ported a genuine fidelity nuance found while wiring this
+  up: the reference's `PowerOn(forReset)` only preserves the ARM's cycle counter across a TRUE
+  reset (the SNES-side `$3804` `1->0` edge), not at construction/firmware-load — a bug a test
+  caught by assuming cycle-preservation applied everywhere. 9 new tests. Closes out `v0.4.0`'s
+  full coprocessor/board matrix (`docs/STATUS.md`).
+
 - **ST018: multiply, multiply-long, and single data swap — the ARMv3 instruction set is complete**
   (`coproc::armv3::cpu`, `v0.4.0` "Completion" work, in progress). Step 8 of the ARMv3 core build
   order (`docs/st018-arm-notes.md`). `MUL`/`MLA`/`UMULL`/`UMLAL`/`SMULL`/`SMLAL`: a deliberate
@@ -22,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (real hardware's value there is implementation-defined/meaningless and isn't simulated). `SWP`/
   `SWPB`: atomic read-then-idle-then-write at one address, with `rm==15` writing `R15+4`. 7 new
   tests. This closes out the full ARMv3 instruction set — `Cpu::step` no longer panics on any
-  opcode category. Only the SNES-side board wrapper and its `board::select` wiring remain.
+  opcode category.
 
 - **ST018: LDR/STR and LDM/STM (single/block data transfer)**
   (`coproc::armv3::cpu`, `v0.4.0` "Completion" work, in progress). Steps 6+7 of the ARMv3 core
