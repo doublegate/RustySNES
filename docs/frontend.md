@@ -83,15 +83,35 @@ startup, so the toggle had no effect.
 
 ## Save-states, rewind, run-ahead
 
-- Save-states serialize the deterministic core state (including the SPC relative-time
-  accumulator and the seeded power-on phase).
-- Rewind is a ring of keyframes + deltas; run-ahead re-simulates from a snapshot.
-
-**Deferred (next sprint):** save-states / rewind / run-ahead are not yet implemented. They require
-a core-wide deterministic snapshot — `Clone`/serialize across the `Board` trait (and its boards),
-the `Apu`/`Dsp`, `Bus`, and `System` — which is a larger core/cart change than the Phase-5
-frontend work and is sequenced as its own sprint so the determinism oracle is re-validated with it.
-The menu items are present and report this honestly rather than corrupting state.
+- **Save-states** (`v0.2.0 "Persistence"`, `docs/adr/0006`) serialize the deterministic core
+  state (including the SPC relative-time accumulator and the seeded power-on phase) into one
+  versioned envelope via `System::save_state`/`load_state`. `EmuCore::save_state`/`load_state`
+  (`emu.rs`) wrap it for the frontend, additionally re-rendering the framebuffer and clearing the
+  audio FIFO on load (a state load jumps time discontinuously). Emulation → Save State / Load
+  State drives a single quick-save slot held in `Active::quick_save`.
+- **Rewind** (`v0.3.0 "Continuum"`, `crate::rewind::RewindBuffer`) is a bounded ring buffer of
+  FULL save-state snapshots, recorded every `config.rewind.interval_frames` real frames (default
+  6, i.e. ~10 Hz) up to `config.rewind.capacity` entries, oldest evicted first. This is simpler
+  than the originally-sketched "keyframes + deltas" design — delta-compression is a possible
+  future memory optimization, not a correctness requirement. **`capacity: 0` is the shipped
+  default**, making recording a permanent no-op — off by default until a Settings-UI toggle + a
+  dedicated hotkey land; the Emulation → Rewind menu item and the mechanism itself are both live
+  today, driven purely by config. A user (or future UI) enabling it might reasonably pick
+  something like `capacity: 300` at the default 6-frame interval (≈30s of NTSC rewind) — that's
+  an example config, not what ships. Recorded snapshots are discarded (`RewindBuffer::clear`) on
+  ROM load/close (a new cart invalidates any prior snapshot), NOT on Reset/Power-Cycle (rewinding
+  past an accidental reset is a legitimate use).
+- **Run-ahead** (`v0.3.0 "Continuum"`, `crate::rewind::step_with_run_ahead`) peeks
+  `config.run_ahead.frames` frames ahead using the currently-latched input each displayed frame,
+  presents that peek's video, then rolls back and re-runs exactly ONE real frame — so the
+  persisted state (and its audio, the continuous stream — peek audio is never played) only ever
+  advances by one frame per call, regardless of the peek depth. `frames: 0` (the shipped default)
+  degrades to a plain `run_frame` — off by default.
+- Both are pure re-simulation of the SAME deterministic core (`docs/adr/0004`): no injected
+  timing/RNG, just running the existing `run_frame`/`save_state`/`load_state` extra times. Proven
+  by `rewind.rs`'s tests, which hand-assemble a tiny 65C816 program (NMI-driven WRAM counter →
+  CGRAM backdrop write) to get a real, observable per-frame state signal rather than asserting
+  against a synthetic fingerprint.
 
 ## wasm
 

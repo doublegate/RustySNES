@@ -23,10 +23,13 @@ pub enum MenuAction {
     PowerCycle,
     /// Toggle pause.
     TogglePause,
-    /// Save a save-state to the active slot.
+    /// Save a save-state to the active (single) quick-save slot.
     SaveState,
-    /// Load a save-state from the active slot.
+    /// Load a save-state from the active (single) quick-save slot.
     LoadState,
+    /// Step back by one recorded rewind snapshot (`config.rewind`; a no-op when disabled or the
+    /// buffer is empty).
+    Rewind,
     /// Switch the console region (NTSC/PAL).
     SetRegion(Region),
     /// Toggle the debugger overlay visibility.
@@ -164,6 +167,13 @@ impl ShellState {
                         .clicked()
                     {
                         actions.push(MenuAction::LoadState);
+                        ui.close();
+                    }
+                    if ui
+                        .add_enabled(info.rom_loaded, egui::Button::new("Rewind"))
+                        .clicked()
+                    {
+                        actions.push(MenuAction::Rewind);
                         ui.close();
                     }
                     ui.separator();

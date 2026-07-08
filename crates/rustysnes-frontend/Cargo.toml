@@ -55,6 +55,7 @@ workspace = true
 
 [dependencies]
 rustysnes-core = { path = "../rustysnes-core", version = "0.1.0" }
+rustysnes-savestate = { path = "../rustysnes-savestate", version = "0.1.0" }
 
 # winit + wgpu + cpal + egui shell. Versions tracked to the latest published,
 # mutually-compatible tier (2026-06): egui/egui-wgpu/egui-winit 0.35, wgpu 29

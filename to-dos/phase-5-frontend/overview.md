@@ -19,10 +19,14 @@ SNES-specific work is the second-CPU/APU panels and the Mode-7 / HDMA / coproces
 - [x] Save-states (Sprint 2, `v0.2.0 "Persistence"`) — the core-wide deterministic snapshot
       format (`docs/adr/0006-save-state-format.md`, `Accepted`) is fully implemented and proven
       by a round-trip determinism test.
-- [ ] Rewind and run-ahead (Sprint 3, `v0.3.0`) — depends on Sprint 2's save-state primitive.
+- [x] Rewind and run-ahead (Sprint 3, `v0.3.0 "Continuum"`) — `crate::rewind::RewindBuffer` (a
+      bounded ring of full snapshots) + `crate::rewind::step_with_run_ahead` (N-frame
+      peek-and-discard), both built on Sprint 2's save-state primitive, config-driven and off by
+      default. Proven by tests that hand-assemble a tiny 65C816 program for a real per-frame
+      state signal, not a synthetic fingerprint.
 - [x] The frontend determinism path is intact (rate control + resampling live here, not the core;
       the additive S-DSP FIFO records already-emitted samples and never feeds back into synthesis).
-- [ ] All sprints complete (Sprint 1 + 2 done; rewind/run-ahead + the full wasm frontend remain).
+- [ ] All sprints complete (Sprint 1-3 done; the full wasm frontend, Sprint 4, remains).
 
 ## Scope
 
@@ -42,9 +46,9 @@ Out-of-scope (Phase 8):
 - [Sprint 2 — Save-states](sprint-2-save-states.md) — the versioned core-wide snapshot format
   (`docs/adr/0006`) + `System::save_state()`/`load_state()` + the round-trip determinism proof.
   **Status:** complete. **Release:** `v0.2.0 "Persistence"`.
-- Sprint 3 — Rewind, run-ahead, gamepads.
-  **Status:** starting — PAL region auto-detection (a `v0.3.0 "Continuum"` line item alongside
-  this sprint) has already landed. **Release:** `v0.3.0 "Continuum"`.
+- Sprint 3 — Rewind, run-ahead, gamepads (gamepads already wired in Sprint 1).
+  **Status:** complete — rewind + run-ahead + PAL region auto-detection + ExLoROM (the other
+  `v0.3.0 "Continuum"` line items) have all landed. **Release:** `v0.3.0 "Continuum"`.
 - Sprint 4 — The wasm build + `--help` TUI.
   **Status:** stub.
 

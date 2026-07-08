@@ -16,19 +16,21 @@ record; this file frames the phase line.
   in the local corpus); ExLoROM is implemented (decode formula sourced from bsnes's own runtime
   board database; no golden-ROM-boot proof — no ExLoROM ROM in the local corpus). Phase 5
   (frontend) **partially complete**: the
-  native+wasm shell is playable (video/audio/input/ROM-load wired) and save-states are **fully
+  native+wasm shell is playable (video/audio/input/ROM-load wired), save-states are **fully
   implemented** (`v0.2.0 "Persistence"`, `docs/adr/0006` — every subsystem round-trips its exact
-  state through one versioned envelope, proven by a round-trip determinism test) — rewind/
-  run-ahead (the frontend orchestration built on that primitive) are the remaining open item,
-  since Phase 8 (netplay, TAS movies) build on it too. Phase 6 (accuracy push) and Phase 8
+  state through one versioned envelope, proven by a round-trip determinism test), and rewind +
+  run-ahead (`v0.3.0 "Continuum"`, `crate::rewind` — a bounded ring buffer of full snapshots +
+  N-frame peek-and-discard, both config-driven and off by default) are now **fully implemented**
+  — the frontend orchestration Phase 8 (netplay, TAS movies) will build on. Phase 6 (accuracy
+  push) and Phase 8
   (netplay/RetroAchievements/scripting — all three crates are still 1-line stubs) have not
   started. See `docs/STATUS.md` for the authoritative per-subsystem table this line summarizes.
 - **Release:** `v0.1.0 "Foundation"` and `v0.2.0 "Persistence"` are tagged and released on
   GitHub, establishing the real release cadence `to-dos/VERSION-PLAN.md` defines — read it
   alongside this file; it maps the phases above onto a concrete, named `v0.x.0` → `v1.0.0`
   ladder with release-cut criteria per rung. `v0.3.0 "Continuum"` (rewind, run-ahead, PAL/
-  ExLoROM completion) is in progress — PAL auto-detect and ExLoROM are both landed; rewind/
-  run-ahead remain.
+  ExLoROM completion) is **complete** — all four line items (rewind, run-ahead, PAL auto-detect,
+  ExLoROM) have landed. Ready to tag.
 
 ## The phase spine
 
@@ -74,13 +76,14 @@ the first board.
 green (`docs/adr/0003`).
 → [overview](phase-4-carts-mappers/overview.md)
 
-### Phase 5 — Frontend 🚧 partial — the shell is playable; save-states/rewind/run-ahead not started
+### Phase 5 — Frontend 🚧 partial — the shell is playable; save-states/rewind/run-ahead landed; the full wasm frontend (Sprint 4) remains
 
 **Goal:** the always-on egui shell (menu/status/Settings + debugger panels), the audio ring +
 pacing, gamepads, save-states, rewind, run-ahead, the wasm build.
 **Exit:** playable native + wasm; the frontend determinism path intact.
 **Release mapping:** the playable shell shipped inside the retroactive `v0.1.0` tag
-(`to-dos/VERSION-PLAN.md`); save-states are `v0.2.0`, rewind/run-ahead are `v0.3.0`.
+(`to-dos/VERSION-PLAN.md`); save-states shipped in `v0.2.0`; rewind/run-ahead shipped in
+`v0.3.0`; the full wasm frontend (Sprint 4) remains.
 → [overview](phase-5-frontend/overview.md)
 
 ### Phase 6 — Accuracy to target 🚧 not started as a dedicated push
@@ -102,9 +105,9 @@ booting; ST018 and standalone S-RTC not started; PAL region auto-detection and E
 implemented (each with a documented, honest validation gap — no PAL ROM and no ExLoROM ROM
 exist in the local corpus, so neither has golden-framebuffer proof).
 **Release mapping:** the done work shipped inside `v0.1.0`; PAL auto-detect and ExLoROM landed
-inside `v0.3.0 "Continuum"` alongside rewind/run-ahead (still open); the remainder is `v0.3.0`
-(rewind/run-ahead, PAL/ExLoROM golden-boot proof if ROMs surface) and `v0.4.0` (SPC7110 fix,
-ST018, standalone S-RTC).
+inside `v0.3.0 "Continuum"` alongside rewind/run-ahead (all four line items complete); the
+remainder is a PAL/ExLoROM golden-boot proof if a real ROM ever surfaces (`v0.3.x`, opportunistic
+— not gating) and `v0.4.0` (SPC7110 fix, ST018, standalone S-RTC).
 → [overview](phase-7-breadth/overview.md)
 
 ### Phase 8 — Reach (additive, off-by-default) 🚧 not started (all three crates are 1-line stubs)

@@ -12,8 +12,8 @@
 //!
 //! Phase 5 status: PLAYABLE on native. The chip stack is complete, so the present path decodes
 //! the real PPU framebuffer, the S-DSP audio drives the cpal stream, and keyboard/gamepad input
-//! reaches the controllers. The deep debugger panels are still TODO stubs, and save-states /
-//! rewind / run-ahead are deferred to a follow-up sprint (they need a core-wide snapshot). The
+//! reaches the controllers. Save-states, rewind, and run-ahead (`rewind` module) are implemented
+//! and config-driven (off by default). The deep debugger panels are still TODO stubs. The
 //! wasm32 build compiles; its browser frontend is a bootstrap scaffold.
 //
 // TODO(v-next): after the second/third Rusty<System>, the console-agnostic shell wants to be
@@ -31,6 +31,7 @@ pub mod config;
 pub mod emu;
 pub mod gfx;
 pub mod input;
+pub mod rewind;
 pub mod ui_shell;
 
 // The always-on egui App shell + the run loop. Native only — wasm routes through `wasm::start`.

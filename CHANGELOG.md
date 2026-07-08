@@ -32,6 +32,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   §ExLoROM for the full provenance chain. **Still open:** no real ExLoROM ROM (commercial or
   homebrew) exists in the local corpus, so this board has only formula-level unit-test coverage,
   not golden-framebuffer validation.
+- **Rewind.** `rustysnes-frontend::rewind::RewindBuffer` — a bounded ring buffer of FULL
+  `EmuCore::save_state` snapshots, recorded every `config.rewind.interval_frames` real frames
+  (default 6, ~10 Hz) up to `config.rewind.capacity` entries, oldest evicted first. Simpler than
+  `docs/frontend.md`'s original "keyframes + deltas" sketch — delta-compression is a possible
+  future memory optimization, not a correctness requirement. Wired into the synchronous
+  frame-drive loop (`app.rs`) + a new Emulation → Rewind menu item; **`capacity: 0` is the
+  shipped default**, making recording a permanent no-op (e.g. `capacity: 300` at the default
+  6-frame interval would give ≈30s of NTSC rewind, but that's an example config, not what
+  ships). Snapshots are discarded on ROM load/close (a new cart invalidates any prior snapshot),
+  NOT on Reset/Power-Cycle
+  (rewinding past an accidental reset is a legitimate use case).
+- **Run-ahead.** `rustysnes-frontend::rewind::step_with_run_ahead` — peeks `config.run_ahead.frames`
+  frames ahead each displayed frame using the currently-latched input, presents that peek's
+  video, then rolls back and re-runs exactly ONE real frame — so persisted state (and audio, the
+  continuous stream; peek audio is never played) only ever advances by one frame per call,
+  regardless of peek depth. Wired into the frame-drive loop; `frames: 0` (the shipped default)
+  degrades to a plain `run_frame`. Both rewind and run-ahead are pure re-simulation of the SAME
+  deterministic core (`docs/adr/0004`) — no injected timing/RNG — and are proven by tests that
+  hand-assemble a tiny 65C816 program (an NMI handler incrementing a WRAM counter into the CGRAM
+  backdrop color) to get a real, observable per-frame state signal rather than a synthetic
+  fingerprint; a naive in-loop instruction counter turned out to be exactly periodic at a fixed
+  video-frame boundary, which is what motivated tying the counter to the NMI/vblank edge instead.
+- **Quick-save/load.** The previously-stubbed Emulation → Save State / Load State menu items now
+  actually call `EmuCore::save_state`/`load_state` against a single in-memory slot
+  (`Active::quick_save`), completing the `docs/frontend.md` "not yet implemented" TODO left over
+  from before `v0.2.0`'s save-state format landed.
+- **`EmuCore::save_state`/`load_state`.** Thin wrappers around `System::save_state`/`load_state`
+  (`docs/adr/0006`) that additionally re-render the framebuffer and clear the audio FIFO on load
+  (a state load jumps time discontinuously) — the shared primitive rewind, run-ahead, and
+  quick-save all build on.
 
 ### Fixed
 

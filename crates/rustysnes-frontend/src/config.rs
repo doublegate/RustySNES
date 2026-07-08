@@ -101,6 +101,39 @@ impl Default for AudioConfig {
     }
 }
 
+/// Rewind settings (`crate::rewind::RewindBuffer`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RewindConfig {
+    /// Maximum snapshots retained. `0` disables rewind entirely (additive-default-off).
+    pub capacity: usize,
+    /// Record a snapshot every this many real frames (minimum 1 — clamped by
+    /// `RewindBuffer::new`).
+    pub interval_frames: u32,
+}
+
+impl Default for RewindConfig {
+    fn default() -> Self {
+        // 300 snapshots @ every 6th frame (~10 Hz recording) covers ~30s of NTSC rewind at a
+        // memory cost bounded by `capacity`, not by frame count — see `crate::rewind` module docs
+        // for why full snapshots (not delta-compressed keyframes) were chosen. Off by default
+        // (`capacity: 0`) until Settings UI + a hotkey to actually trigger it lands.
+        Self {
+            capacity: 0,
+            interval_frames: 6,
+        }
+    }
+}
+
+/// Run-ahead settings (`crate::rewind::step_with_run_ahead`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RunAheadConfig {
+    /// Frames to peek ahead each displayed frame. `0` disables run-ahead entirely
+    /// (additive-default-off) — `step_with_run_ahead` degrades to a plain `run_frame`.
+    pub frames: u32,
+}
+
 /// The full frontend config (serialized to `config.toml`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -115,6 +148,10 @@ pub struct Config {
     pub p1: KeyBindings,
     /// Player 2 keyboard binds (the second-pad default is a TODO; empty = unbound).
     pub p2: KeyBindings,
+    /// Rewind (`v0.3.0 "Continuum"`).
+    pub rewind: RewindConfig,
+    /// Run-ahead (`v0.3.0 "Continuum"`).
+    pub run_ahead: RunAheadConfig,
 }
 
 impl Config {
