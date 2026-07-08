@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ST018: multiply, multiply-long, and single data swap — the ARMv3 instruction set is complete**
+  (`coproc::armv3::cpu`, `v0.4.0` "Completion" work, in progress). Step 8 of the ARMv3 core build
+  order (`docs/st018-arm-notes.md`). `MUL`/`MLA`/`UMULL`/`UMLAL`/`SMULL`/`SMLAL`: a deliberate
+  fidelity tradeoff over the reference's cycle-exact `GbaCpuMultiply` circuit simulation (Booth's
+  algorithm with an empirically-reverse-engineered correction table, built for GBA test-ROM
+  precision) — this port instead computes the mathematically correct widened result directly and
+  idles for the ARM ARM's own *documented* early-termination cycle count (1/2/3/4 cycles by how
+  many of Rs's top bytes are all-0/all-1), leaving the multiply C flag deliberately unchanged
+  (real hardware's value there is implementation-defined/meaningless and isn't simulated). `SWP`/
+  `SWPB`: atomic read-then-idle-then-write at one address, with `rm==15` writing `R15+4`. 7 new
+  tests. This closes out the full ARMv3 instruction set — `Cpu::step` no longer panics on any
+  opcode category. Only the SNES-side board wrapper and its `board::select` wiring remain.
+
 - **ST018: LDR/STR and LDM/STM (single/block data transfer)**
   (`coproc::armv3::cpu`, `v0.4.0` "Completion" work, in progress). Steps 6+7 of the ARMv3 core
   build order (`docs/st018-arm-notes.md`). `LDR`/`STR`: immediate and shifted-register offsets,

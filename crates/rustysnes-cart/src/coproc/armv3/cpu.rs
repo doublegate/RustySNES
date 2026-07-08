@@ -4,11 +4,16 @@
 //! [`crate::coproc::armv3::bus::ArmBus`] trait and drives them one instruction at a time (Mesen2
 //! `ArmV3Cpu::Exec`/`InitArmOpTable` and friends).
 //!
-//! **Status: data processing, branch, MSR/MRS, and exception entry are implemented.** The
-//! memory-instruction classes (`LDR`/`STR`, `LDM`/`STM`, `MUL`/`MLA`/`MULL`/`MLAL`, `SWP`) are
-//! NOT yet implemented — [`Cpu::step`] panics with a clear `todo!` on any opcode decoding to one
-//! of those categories, matching this project's "no half-finished implementation pretending to
-//! be complete" posture (`docs/st018-arm-notes.md` tracks the remaining build order).
+//! **Status: the full ARMv3 instruction set is implemented** — data processing, branch, MSR/MRS,
+//! exception entry, `LDR`/`STR`, `LDM`/`STM`, `MUL`/`MLA`/`MULL`/`MLAL`, and `SWP`/`SWPB`. Only the
+//! SNES-side board wrapper (firmware loading, the master-clock catch-up loop, the handshake
+//! registers) and its `board::select` wiring remain (`docs/st018-arm-notes.md` tracks the
+//! remaining build order).
+
+// Register-heavy decode code inherently pairs up short, similarly-named fields (`rm`/`rn`/`rs`,
+// `rm_val`/`rs_val`) that mirror the ARM ARM's own mnemonics — same rationale as the other
+// coprocessor cores in this crate (`sdd1`, `gsu`, `superfx`, `upd77c25`, `hg51b`, `sa1`).
+#![allow(clippy::similar_names)]
 
 use crate::coproc::armv3::bus::ArmBus;
 use crate::coproc::armv3::primitives::{self, Flags};
@@ -195,10 +200,6 @@ impl Cpu {
 
     /// Execute the instruction currently in the Execute pipeline stage (if its condition holds),
     /// then advance the pipeline (Mesen2 `Exec`). Call once per CPU cycle-step.
-    ///
-    /// # Panics
-    /// If the opcode decodes to one of the not-yet-implemented memory-instruction categories
-    /// (`LDR`/`STR`, `LDM`/`STM`, `MUL`/`MLA`/`MULL`/`MLAL`, `SWP`) — see the module doc.
     pub fn step(&mut self, bus: &mut impl ArmBus) {
         let opcode = self.pipeline.execute.opcode;
         let cond = (opcode >> 28) as u8;
@@ -237,10 +238,9 @@ impl Cpu {
             Category::InvalidOp => self.enter_exception(Vector::Undefined),
             Category::SingleDataTransfer => self.exec_single_data_transfer(opcode, bus),
             Category::BlockDataTransfer => self.exec_block_data_transfer(opcode, bus),
-            Category::Multiply | Category::MultiplyLong => {
-                todo!("MUL/MLA/MULL/MLAL: docs/st018-arm-notes.md step 8")
-            }
-            Category::SingleDataSwap { .. } => todo!("SWP: docs/st018-arm-notes.md step 8"),
+            Category::Multiply => self.exec_multiply(opcode, bus),
+            Category::MultiplyLong => self.exec_multiply_long(opcode, bus),
+            Category::SingleDataSwap { byte } => self.exec_single_data_swap(opcode, byte, bus),
         }
     }
 
@@ -689,6 +689,132 @@ impl Cpu {
             self.regs.cpsr = spsr;
         }
     }
+
+    /// `MUL`/`MLA` (Mesen2 `ArmMultiply`). The reference source delegates the actual multiply and
+    /// its variable cycle count to a cycle-EXACT Booth's-algorithm circuit simulation
+    /// (`GbaCpuMultiply`) built for GBA hardware test-ROM precision — deliberately NOT ported
+    /// here (see `docs/st018-arm-notes.md`'s multiply section for the full rationale). This
+    /// computes the mathematically correct 64-bit-widened result directly and idles for the ARM
+    /// ARM's own DOCUMENTED (not reverse-engineered) early-termination cycle count instead
+    /// (`multiply_cycles`). The result and Z/N flags are bit-exact either way; only the idle-
+    /// cycle count and the C flag (see below) differ from GBA-test-ROM-level precision.
+    fn exec_multiply(&mut self, opcode: u32, bus: &mut impl ArmBus) {
+        let rd = ((opcode >> 16) & 0xF) as u8;
+        let rn = ((opcode >> 12) & 0xF) as u8;
+        let rs = ((opcode >> 8) & 0xF) as u8;
+        let rm = (opcode & 0xF) as u8;
+        let update_flags = opcode & (1 << 20) != 0;
+        let mult_and_acc = opcode & (1 << 21) != 0;
+
+        let rm_val = self.regs.r[rm as usize];
+        let rs_val = self.regs.r[rs as usize];
+        let mut result = rm_val.wrapping_mul(rs_val);
+        if mult_and_acc {
+            result = result.wrapping_add(self.regs.r[rn as usize]);
+        }
+
+        for _ in 0..multiply_cycles(rs_val) {
+            bus.idle();
+        }
+        if mult_and_acc {
+            bus.idle();
+        }
+
+        if rd != 15 {
+            self.set_r(rd, result);
+        }
+        if update_flags {
+            // C is left UNCHANGED, not fabricated: real ARMv3/v4 hardware sets it to an
+            // implementation-defined ("meaningless") value derived from internal multiplier
+            // state that this port deliberately doesn't simulate (see the function doc) --
+            // leaving it alone is a documented, deterministic choice, not an oversight.
+            self.regs.cpsr.flags.z = result == 0;
+            self.regs.cpsr.flags.n = result & 0x8000_0000 != 0;
+        }
+    }
+
+    /// `MULL`/`MLAL` (Mesen2 `ArmMultiplyLong`) — signed or unsigned 64-bit-widened multiply,
+    /// optionally accumulating into the existing `Rl:Rh` pair. See [`Self::exec_multiply`]'s doc
+    /// for the same cycle-count/`C`-flag tradeoff (applies identically here).
+    fn exec_multiply_long(&mut self, opcode: u32, bus: &mut impl ArmBus) {
+        let rh = ((opcode >> 16) & 0xF) as u8;
+        let rl = ((opcode >> 12) & 0xF) as u8;
+        let rs = ((opcode >> 8) & 0xF) as u8;
+        let rm = (opcode & 0xF) as u8;
+        let update_flags = opcode & (1 << 20) != 0;
+        let mult_and_acc = opcode & (1 << 21) != 0;
+        let signed = opcode & (1 << 22) != 0;
+
+        bus.idle();
+
+        let rm_val = self.regs.r[rm as usize];
+        let rs_val = self.regs.r[rs as usize];
+        let mut result: u64 = if signed {
+            (i64::from(rm_val.cast_signed()) * i64::from(rs_val.cast_signed())).cast_unsigned()
+        } else {
+            u64::from(rm_val) * u64::from(rs_val)
+        };
+        if mult_and_acc {
+            let acc =
+                (u64::from(self.regs.r[rh as usize]) << 32) | u64::from(self.regs.r[rl as usize]);
+            result = result.wrapping_add(acc);
+        }
+
+        for _ in 0..multiply_cycles(rs_val) {
+            bus.idle();
+        }
+        if mult_and_acc {
+            bus.idle();
+        }
+
+        #[allow(clippy::cast_possible_truncation)]
+        if rl != 15 {
+            self.set_r(rl, result as u32);
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        if rh != 15 {
+            self.set_r(rh, (result >> 32) as u32);
+        }
+        if update_flags {
+            // See exec_multiply's doc: C is left unchanged, not fabricated.
+            self.regs.cpsr.flags.z = result == 0;
+            self.regs.cpsr.flags.n = result & (1 << 63) != 0;
+        }
+    }
+
+    /// `SWP`/`SWPB` (Mesen2 `ArmSingleDataSwap`): an atomic read-modify-write at ONE address —
+    /// read the old value into `rd`, then write `rm`'s value (or, for `rm==15`, `R15+4`) to the
+    /// SAME address, in that exact order with an idle cycle between them (a real read-then-write
+    /// bus cycle real hardware serializes, not two independent accesses).
+    fn exec_single_data_swap(&mut self, opcode: u32, byte: bool, bus: &mut impl ArmBus) {
+        let rn = ((opcode >> 16) & 0xF) as u8;
+        let rd = ((opcode >> 12) & 0xF) as u8;
+        let rm = (opcode & 0xF) as u8;
+
+        let addr = self.regs.r[rn as usize];
+        let old = bus.read(addr, byte);
+        bus.idle();
+        let new_value = self.regs.r[rm as usize].wrapping_add(if rm == 15 { 4 } else { 0 });
+        bus.write(addr, new_value, byte);
+        self.set_r(rd, old);
+    }
+}
+
+/// The ARM ARM's documented (not reverse-engineered) multiply early-termination cycle count: 1
+/// cycle if bits 31-8 of the multiplier are all the same (all-0 or all-1), 2 if bits 31-16, 3 if
+/// bits 31-24, else 4. Real silicon terminates the multiply pipeline early once the remaining
+/// high bits of `Rs` stop contributing partial products — this is the documented rule, not
+/// `GbaCpuMultiply`'s cycle-exact Booth's-algorithm derivation (see `docs/st018-arm-notes.md`).
+const fn multiply_cycles(rs: u32) -> u32 {
+    if rs & 0xFFFF_FF00 == 0 || rs & 0xFFFF_FF00 == 0xFFFF_FF00 {
+        1
+    } else if rs & 0xFFFF_0000 == 0 || rs & 0xFFFF_0000 == 0xFFFF_0000 {
+        2
+    } else if rs & 0xFF00_0000 == 0 || rs & 0xFF00_0000 == 0xFF00_0000 {
+        3
+    } else {
+        4
+    }
 }
 
 #[cfg(test)]
@@ -1094,5 +1220,100 @@ mod tests {
             cpu.pipeline.execute.address, 0x2000,
             "R15 loaded from the list"
         );
+    }
+
+    #[test]
+    fn mul_computes_the_low_32_bits_and_sets_z_n() {
+        // MULS r0, r1, r2  (r0 = r1 * r2, S=1)
+        let muls_r0_r1_r2 = 0xE010_0291u32;
+        let (mut cpu, mut bus) = boot(&[muls_r0_r1_r2]);
+        cpu.regs.r[1] = 6;
+        cpu.regs.r[2] = 7;
+        cpu.step(&mut bus);
+        assert_eq!(cpu.regs.r[0], 42);
+        assert!(!cpu.regs.cpsr.flags.z);
+        assert!(!cpu.regs.cpsr.flags.n);
+    }
+
+    #[test]
+    fn mla_accumulates_into_the_multiply_result() {
+        // MLA r0, r1, r2, r3  (r0 = r1*r2 + r3)
+        let mla_r0_r1_r2_r3 = 0xE020_3291u32;
+        let (mut cpu, mut bus) = boot(&[mla_r0_r1_r2_r3]);
+        cpu.regs.r[1] = 6;
+        cpu.regs.r[2] = 7;
+        cpu.regs.r[3] = 100;
+        cpu.step(&mut bus);
+        assert_eq!(cpu.regs.r[0], 142);
+    }
+
+    #[test]
+    fn umull_widens_to_64_bits_across_two_registers() {
+        // UMULLS r3, r2, r0, r1  (r2:r3 = r0 * r1, unsigned, S=1)
+        let umulls_r3_r2_r0_r1 = 0xE092_3190u32;
+        let (mut cpu, mut bus) = boot(&[umulls_r3_r2_r0_r1]);
+        cpu.regs.r[0] = 0xFFFF_FFFF;
+        cpu.regs.r[1] = 2;
+        cpu.step(&mut bus);
+        let result = (u64::from(cpu.regs.r[2]) << 32) | u64::from(cpu.regs.r[3]);
+        assert_eq!(result, u64::from(0xFFFF_FFFFu32) * 2);
+        assert!(!cpu.regs.cpsr.flags.z);
+    }
+
+    #[test]
+    fn smull_sign_extends_negative_operands() {
+        // SMULLS r3, r2, r0, r1  (r2:r3 = r0 * r1, signed, S=1)
+        let smulls_r3_r2_r0_r1 = 0xE0D2_3190u32;
+        let (mut cpu, mut bus) = boot(&[smulls_r3_r2_r0_r1]);
+        cpu.regs.r[0] = (-5i32).cast_unsigned();
+        cpu.regs.r[1] = 3;
+        cpu.step(&mut bus);
+        let result = ((u64::from(cpu.regs.r[2]) << 32) | u64::from(cpu.regs.r[3])).cast_signed();
+        assert_eq!(result, -15);
+        assert!(cpu.regs.cpsr.flags.n, "negative 64-bit result sets N");
+    }
+
+    #[test]
+    fn swp_reads_the_old_value_then_writes_the_new_one_atomically() {
+        // SWP r0, r2, [r1]  (r0 = [r1]; [r1] = r2)
+        let swp_r0_r2_r1 = 0xE101_0092u32;
+        let (mut cpu, mut bus) = boot(&[swp_r0_r2_r1]);
+        cpu.regs.r[1] = 0x2000;
+        cpu.regs.r[2] = 0xBEEF_CAFE;
+        bus.set_word(0x2000, 0x1111_1111);
+        cpu.step(&mut bus);
+        assert_eq!(cpu.regs.r[0], 0x1111_1111, "old value read into rd");
+        assert_eq!(
+            bus.word_at(0x2000),
+            0xBEEF_CAFE,
+            "new value written to the same address"
+        );
+    }
+
+    #[test]
+    fn swpb_swaps_a_single_byte() {
+        // SWPB r0, r2, [r1]
+        let swpb_r0_r2_r1 = 0xE141_0092u32;
+        let (mut cpu, mut bus) = boot(&[swpb_r0_r2_r1]);
+        cpu.regs.r[1] = 0x2000;
+        cpu.regs.r[2] = 0xAB;
+        bus.set_word(0x2000, 0xFFFF_FF42); // low byte = 0x42
+        cpu.step(&mut bus);
+        assert_eq!(cpu.regs.r[0], 0x42, "old byte read into rd");
+        assert_eq!(
+            bus.word_at(0x2000),
+            0xFFFF_FFAB,
+            "only the low byte was swapped"
+        );
+    }
+
+    #[test]
+    fn multiply_cycles_matches_the_documented_early_termination_rule() {
+        assert_eq!(multiply_cycles(0), 1);
+        assert_eq!(multiply_cycles(0xFF), 1);
+        assert_eq!(multiply_cycles(0xFFFF_FF00), 1);
+        assert_eq!(multiply_cycles(0xFFFF), 2);
+        assert_eq!(multiply_cycles(0x00FF_FFFF), 3);
+        assert_eq!(multiply_cycles(0x7FFF_FFFF), 4);
     }
 }
