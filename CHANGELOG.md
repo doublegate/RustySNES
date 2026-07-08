@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The "DMA/HDMA-collision crash quirk": researched and reclassified — `v0.5.0` "Fidelity"
+  work.** The SNESdev errata page's DMA section bundles three distinct behaviors under this
+  vague label: a version-1-5A22-only crash and a version-2-5A22-only silent-DMA-failure bug
+  (both chip-revision defects compliant commercial ROMs are written to avoid, not reproduced as
+  a crash by any mainstream reference emulator), plus a version-agnostic silent whole-frame HDMA
+  failure that's well-defined but has no known commercial title or committed test ROM depending
+  on it — no oracle exists to verify an implementation against, and the sibling open-bus
+  investigation (below) already demonstrated this exact class of change carries real regression
+  risk even when the documented mechanism is correct. A fourth item on the same errata list
+  (A-bus address restrictions) turned out to already be correctly implemented, as is the general
+  "HDMA preempts GP-DMA" priority ordering — the well-defined half of what "collision" could have
+  meant was never actually a gap. Full citation and per-sub-case reasoning in `docs/scheduler.md`.
+
 - **`security.yml` CI gate — `v0.6.0` "Shippable" work, pulled forward.** A new dedicated
   workflow runs `cargo audit` and `cargo deny check` on every `main`/PR push touching non-doc
   paths, plus a weekly schedule so a newly-published advisory against an unchanged dependency is

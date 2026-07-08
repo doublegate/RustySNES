@@ -159,7 +159,7 @@ AccuracyCoin-equivalent). See `to-dos/phase-6-accuracy-to-100/`.
   Super FX/GSU games' GP-DMA ROM→GSU-RAM transfers interact with the change. Not landed; see
   `docs/scheduler.md` §Open bus via DMA/HDMA for the full mechanism and what a future
   investigation needs (an access-level trace, mirroring `docs/audit/spc7110-boot-crash-2026-07-08.md`'s
-  approach for the SPC7110 gap). Still open: the DMA/HDMA-collision crash quirk, true
+  approach for the SPC7110 gap). Still open: true
   mid-scanline/mid-dot writes (the "Air Strike Patrol BG3 scroll" case — this un-defers Phase 2's
   flagged "mid-line raster deferred" gap), hi-res color-math precision (Bishoujo Janshi Suchie-Pai
   / Marvelous+SA-1). **Researched and
@@ -169,6 +169,20 @@ AccuracyCoin-equivalent). See `to-dos/phase-6-accuracy-to-100/`.
   determinism-contract spirit of not fabricating behavior real hardware itself doesn't define
   one way). This is correctly a **documented, intentional non-goal**, not an open implementation
   item — `crates/rustysnes-core/src/bus.rs`'s `MulDiv` doc comment cites the errata directly.
+  **Also researched and reclassified:** the "DMA/HDMA-collision crash quirk" — the SNESdev errata
+  page's DMA section actually bundles three distinct behaviors under that vague umbrella: a
+  version-1-5A22-only crash and a version-2-5A22-only silent-DMA-failure bug (both chip-revision
+  defects compliant commercial ROMs are written to avoid, not reproduced as a crash by any
+  mainstream reference emulator), plus a version-agnostic silent whole-frame HDMA failure that IS
+  well-defined but has no known commercial title or committed test ROM depending on it either way
+  — no oracle exists to verify an implementation against, and the sibling open-bus investigation
+  (above) just demonstrated this exact class of change carries real regression risk even when the
+  mechanism is correct. A fourth item on the same errata list (A-bus address restrictions) is
+  already correctly implemented (`DmaBus for Bus`'s blocked-address branches,
+  `crates/rustysnes-core/src/bus.rs`), as is the general "HDMA preempts GP-DMA" priority ordering
+  (`run_gp`'s `service_hdma_during_gp`, `crates/rustysnes-core/src/dma.rs`) — the well-defined
+  half of what "collision" could have meant was never actually a gap. Full citation and
+  per-sub-case reasoning in `docs/scheduler.md` §The "DMA/HDMA-collision crash quirk".
 - Track the composed accuracy battery's pass rate as a literal, always-current dashboard number
   in `docs/STATUS.md`, cited in every release from here on — the same treatment RustyNES gives
   its own AccuracyCoin score (currently `139/141` shipped-default, `141/141` behind a default-off

@@ -157,6 +157,62 @@ line, mirroring `CpuBus::read24`/`write24`) rather than assume it survives anywh
 This precise, content-dependent cycle theft is the second reason (after the variable CPU
 cycle) the scheduler must be master-clock resolution.
 
+### The "DMA/HDMA-collision crash quirk" — researched, reclassified as a non-goal
+
+**Status: researched against the primary source; the umbrella label bundles three distinct real
+behaviors, none of which should be modeled as a hard emulated crash. One sub-case (A-bus address
+restrictions) is already correctly implemented. Not an open implementation item.**
+
+Per the SNESdev wiki's [Errata](https://snes.nesdev.org/wiki/Errata) page (§S-CPU (5A22) → DMA),
+three distinct DMA/HDMA-interaction defects are documented, and the vague "collision crash
+quirk" label this project's own planning docs used bundles all of them under one name:
+
+1. **Version-1 5A22 ("S-CPU") crash: "the chip can crash if DMA finishes right before HDMA
+   happens."** A genuine silicon defect specific to the FIRST hardware revision only (later
+   `S-CPU-A`, `S-CPU-B`, and the 1-CHIP SNES are unaffected). The errata page frames this as a
+   pitfall for *game developers* to avoid ("generally only a problem for games that want to use
+   DMA to clear WRAM or copy data from a coprocessor to WRAM... during rendering"), not a
+   behavior players or emulators need to reproduce — a compliant commercial ROM is written to
+   never trigger it. No mainstream accurate emulator (ares/bsnes/Mesen2 — confirmed by reading
+   `ref-proj/ares/ares/sfc/cpu/timing.cpp`'s `dmaEdge()`, which implements only the well-defined
+   general HDMA-preempts-DMA *priority* ordering, not a crash) treats this as anything but
+   undefined/out-of-scope, matching this project's own precedent for the `$4203`/`$4206`
+   overlapping-multiply case (`MulDiv`'s doc comment, `crates/rustysnes-core/src/bus.rs`):
+   fabricating a specific "crash" behavior for a chip-revision-specific defect no compliant ROM
+   is meant to hit would manufacture behavior real hardware doesn't universally define, violating
+   `docs/adr/0004`'s determinism-contract spirit.
+2. **Version-2 5A22 ("S-CPU-A") DMA-fails-silently bug**: "a recent HDMA transfer to/from
+   INIDISP (meaning `BBADn` is set to `$00`) can make a DMA transfer fail" — the transfer
+   silently does nothing, leaving `DASnL`/`DASnH` unchanged instead of zeroed. Also
+   version-specific (does NOT affect rev-1, `S-CPU-B`, or the 1-CHIP SNES) and requires an
+   unusual configuration (an HDMA channel targeting `INIDISP`, `$2100`, a display-control
+   register no ordinary graphics/audio HDMA use case would pick) that has a documented
+   developer-side workaround (`BBADn = $ff` + transfer pattern 1). No known commercial title or
+   committed test ROM in this project's corpus exercises it.
+3. **Version-agnostic silent HDMA failure**: "HDMA can fail if a DMA transfer ends when HDMA
+   starts (just after the start of scanline 0) and the previous value read by DMA is `0`" — when
+   this triggers, "the HDMA channel stops at the start of scanline 0 and there are no H-Blank
+   transfers for an entire frame." Unlike the two chip-revision-specific items above, the errata
+   page does not scope this one to a particular 5A22 version, and it is not a crash — a real,
+   well-defined-enough silent misbehavior that in principle COULD be modeled. It is not landed
+   here because: it requires a coincidental data condition (the last DMA-read byte happens to be
+   exactly `$00` at the exact scanline-0 boundary) with no known commercial game or committed
+   test ROM that depends on it either triggering or being absent, so there is no oracle to verify
+   an implementation against — and the sibling open-bus-via-HDMA-latch investigation just
+   demonstrated (above) that this exact class of change (touching DMA/HDMA/open-bus interaction
+   inside `Bus::advance_master`) carries real, non-obvious regression risk to currently-passing
+   golden suites even when the documented mechanism is correct. If a future test ROM or
+   commercial title is found to depend on this, it becomes a concrete, verifiable ticket; until
+   then it stays documented, not implemented, per this project's own regression-risk discipline.
+
+**Already correctly implemented, not part of this non-goal**: the errata page's fourth DMA item —
+A-bus addresses that cannot reach the B-bus, the CPU/DMA I/O registers, or (for `WMDATA`) another
+WRAM location — is already modeled in `DmaBus for Bus`'s `read_a`/`write_a` blocked-address
+branches (`crates/rustysnes-core/src/bus.rs`, referenced in the "Open bus via DMA/HDMA" section
+above) and in the general **"HDMA preempts GP-DMA"** priority ordering (`run_gp`'s
+`service_hdma_during_gp` calls, `crates/rustysnes-core/src/dma.rs`) — the well-defined half of
+what "collision" could have meant is not a gap at all.
+
 ## H/V-IRQ and NMI
 
 The 5A22 raises NMI at VBlank start (V=225, or V=240 in overscan) and an IRQ at a programmed
