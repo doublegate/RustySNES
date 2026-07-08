@@ -1,20 +1,8 @@
-//! The ARMv3 (ARM6-class, pre-Thumb) CPU core — ST018's LLE engine (Star Ocean).
+//! Pure, state-free ARM primitives: the barrel shifter, condition codes, and the ALU core.
 //!
-//! **Status: foundation only.** This module currently ports the pure, state-free primitives every
-//! ARM instruction is built from — the barrel shifter, the condition-code checker, and the
-//! Add/Sub/logical-op ALU core — each verified against the ARM Architecture Reference Manual's own
-//! documented truth tables. It does NOT yet implement instruction decode, the register file, mode
-//! banking, the 3-stage pipeline, or any board wiring; `ST018` is not yet reachable from
-//! `board::select`. See `docs/st018-arm-notes.md` for the full architecture notes and the
-//! suggested build order this module follows (barrel shifter + condition codes + ALU core first,
-//! deliberately, since they're testable in complete isolation from the pipeline-timing complexity
-//! that the rest of the core depends on getting exactly right).
-//!
-//! Clean-room port of Mesen2's `ArmV3Cpu` (MIT, `Core/SNES/Coprocessors/ST018/ArmV3Cpu.cpp`) —
-//! chosen over ares' `sfc/coprocessor/armdsp`, which instead reuses ares' generic shared
-//! `component/processor/arm7tdmi` (a full ARM+Thumb ARM7TDMI superset the real ST018 chip, an
-//! ARMv3/ARM6-class part that predates Thumb, never needed). Mesen2's dedicated `ArmV3Cpu` is the
-//! more faithful, more focused scope.
+//! The barrel shifter, the condition-code checker, and the Add/Sub/logical-op ALU core — each
+//! verified against the ARM Architecture Reference Manual's own documented truth tables. See the
+//! parent module (`coproc::armv3`) doc for the full picture.
 
 // Chip-name jargon (ARMv3, CPSR, SPSR, ...) is not Rust code. `Flags` is a direct port of the
 // architectural N/Z/C/V condition-code register — four independent hardware bits, not a

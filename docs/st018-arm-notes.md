@@ -179,11 +179,15 @@ Bus window is `$00-3F,$80-BF:$3000-$3FFF` (registered whole, dispatched internal
 1. **Barrel shifter + condition codes + ALU core** — done (`crate::coproc::armv3`, PR #24). Pure
    functions, fully unit-tested against the ARM ARM's documented truth tables — no CPU state
    needed yet.
-2. Register file + mode-switch banking, tested via bank round-trips (write a banked reg, switch
-   mode and back, confirm the original mode's value is preserved).
-3. The 3-stage pipeline model + R15's implicit +8 exposure, with a dedicated test asserting the
-   exact R15 value observed by an instruction at each pipeline stage — get this right BEFORE
-   porting any instruction, per the gotcha above.
+2. **Register file + mode-switch banking** — done (`crate::coproc::armv3::regs::Regs`). Tested via
+   bank round-trips (write a banked reg, switch mode and back, confirm the original mode's value
+   is preserved; separately confirm R8-R12 sharing vs. FIQ's private bank vs. R13/R14's per-mode
+   banking including the distinct User bank; SPSR routing per mode).
+3. **The 3-stage pipeline model + R15's implicit +8 exposure** — done
+   (`crate::coproc::armv3::regs::Pipeline`). A dedicated test asserts the exact R15 value observed
+   at each pipeline stage across power-on, steady-state stepping, and a taken branch, confirming
+   the +8 exposure and the branch-target's one-step arrival in Execute — this was the gotcha to
+   get right BEFORE porting any instruction, and it's now locked down by tests.
 4. Data processing (the biggest single instruction class, but the most mechanical once 1-3 are
    solid).
 5. Branch, MSR/MRS, software interrupt/exception entry.
