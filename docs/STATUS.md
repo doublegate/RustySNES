@@ -23,17 +23,21 @@ are implemented and shipped — see the frontend and memory-map-model tables bel
 
 ## Accuracy dashboard
 
-RustySNES doesn't have one monolithic all-in-one oracle ROM the way RustyNES's AccuracyCoin does
-(no equivalent SNES test-ROM exists) — the accuracy story here is a **composed multi-layer
-battery** across independently-sourced suites (`docs/testing-strategy.md`). Rather than force
-these heterogeneous suites into one artificial summed fraction (a 5.12M-case CPU oracle would
-swamp a 4-ROM audio suite in any raw sum, which would be misleading, not informative — this
-project's honesty-gate posture, `docs/adr/0003`, applies to how numbers are presented too), each
-layer's own status is tracked here, always current, reaffirmed every release:
+RustySNES doesn't have one monolithic all-in-one oracle ROM the way RustyNES's AccuracyCoin does.
+An early skeleton for exactly that approach exists (`rustysnes-test-harness::accuracy_battery`,
+ticket T-04) but was never implemented and has since been superseded — no publicly available
+SNES ROM plays the AccuracyCoin role, and the composed multi-suite approach below is what
+actually shipped; that skeleton is tracked as dead code to remove in a follow-up, not a competing
+source of truth. The accuracy story here is instead a **composed multi-layer battery** across
+independently-sourced suites (`docs/testing-strategy.md`). Rather than force these heterogeneous
+suites into one artificial summed fraction (a 5.12M-case CPU oracle would swamp a 4-ROM audio
+suite in any raw sum, which would be misleading, not informative — this project's honesty-gate
+posture, `docs/adr/0003`, applies to how numbers are presented too), each layer's own status is
+tracked here, always current, reaffirmed every release:
 
 | Layer | Status | Detail |
 |---|---|---|
-| CPU (65C816) per-opcode oracle | ✅ **0-diff, 100.00%** | 5,119,999 / 5,120,000 (SingleStepTests/65816; the one residual is a documented inter-reference divergence, `docs/adr/0002`, not a bug) |
+| CPU (65C816) per-opcode oracle | ✅ **0-diff vs. reference** | 5,119,999 / 5,120,000 (SingleStepTests/65816; the one residual is a documented inter-reference divergence, `docs/adr/0002`, not a bug — not literally 0 of 5,120,000, but 0 against the chosen reference behavior every other test vector agrees on) |
 | SPC700 per-opcode oracle | ✅ **0-diff, 100.00%** | 256,000 / 256,000 (SingleStepTests/spc700) |
 | On-cart CPU (gilyon `cputest-basic`) | ✅ **green** | 1107 / 1107 "Success" |
 | PPU/DMA/HDMA golden framebuffer (undisbeliever) | ✅ **green, deterministic** | 29 / 29 ROMs bit-identical across runs |
