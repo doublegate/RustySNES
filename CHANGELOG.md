@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   register-list glitch (only R15 transfers, but the address advances as if all 16 did), the
   load/store write-back timing asymmetry, and the S-bit's dual role (temporary User-bank access
   during the transfer, or — when loading with R15 in the list — a full CPSR-from-SPSR restore
-  after the transfer, the `LDM ... {..., pc}^` exception-return idiom). 15 new tests. Multiply/
+  after the transfer, the `LDM ... {..., pc}^` exception-return idiom). 7 new tests. Multiply/
   multiply-long, `SWP`, and the board wrapper remain — `Cpu::step` still panics with a clear
   `todo!` on those.
 

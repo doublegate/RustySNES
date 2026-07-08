@@ -576,8 +576,8 @@ impl Cpu {
             bus.idle();
         } else {
             // Storing R15 stores address+12, not the usual address+8 -- a real, documented ARM6-
-            // class quirk (the extra internal cycle a store consumes over a load), ported exactly
-            // where the source applies it rather than folded into a general rule.
+            // class quirk, ported exactly where the source applies it rather than folded into a
+            // general rule.
             let value = self.regs.r[rd as usize].wrapping_add(if rd == 15 { 4 } else { 0 });
             bus.write(addr, value, byte);
         }
@@ -662,8 +662,9 @@ impl Cpu {
             }
             if load {
                 // LDM is NOT affected by the misalignment rotation a plain LDR would apply --
-                // this port doesn't model that rotation at all yet (see `ArmBus`'s doc), so
-                // there's nothing to suppress here either; tracked for whenever it lands.
+                // this port doesn't model that rotation at all (`ArmBus::read` reads four fixed
+                // byte lanes, matching the real board's `St018::ReadCpu`, which doesn't rotate
+                // either -- see `docs/st018-arm-notes.md`), so there's nothing to suppress here.
                 let value = bus.read(addr, false);
                 self.set_r(i, value);
             }

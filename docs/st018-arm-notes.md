@@ -216,7 +216,7 @@ Bus window is `$00-3F,$80-BF:$3000-$3FFF` (registered whole, dispatched internal
    asymmetry (before the loop for a load, at the first transferred register for a store), and the
    S-bit's dual role (forces temporary User-bank register access during the transfer, UNLESS it's
    a load with R15 in the list, in which case it instead triggers a full CPSR-from-SPSR restore
-   after the transfer — the `LDM ... {..., pc}^` exception-return idiom). 8 new tests, including
+   after the transfer — the `LDM ... {..., pc}^` exception-return idiom). 7 new tests, including
    the empty-list glitch and a full `LDM^`-with-PC exception-return round trip.
 8. Multiply/multiply-long, single data swap.
 9. The SNES-side board wrapper: SA-1-style deterministic master-clock catch-up, the handshake
