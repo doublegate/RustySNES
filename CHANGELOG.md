@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`$4203`/`$4206` multiply/divide overlap: researched and correctly reclassified — `v0.5.0`
+  "Fidelity" work, in progress.** The 65816 hardware-gotcha list named this as an open item;
+  research against SNESdev's own Errata page shows starting a new multiply/divide while a
+  previous one's 8-cycle latency hasn't elapsed produces genuinely **undefined** `RDMPY`/`RDDIV`
+  output — no canonical corrupted value is documented anywhere to port, and fabricating one would
+  violate the determinism contract's spirit (`docs/adr/0004`). `MulDiv`'s doc comment now cites
+  the errata directly and explains why this stays a documented non-goal rather than an open gap.
+  Added a regression test locking in the well-defined case real hardware *does* document (MPYA
+  is a stable latch; a fresh `$4203` write alone starts another multiply against whatever it
+  already holds, no `$4202` rewrite needed).
+
 - **ADR backfill: 3 new ADRs, `v0.5.0` "Fidelity" / `v0.6.0` "Shippable" work, in progress.**
   `docs/adr/0007` (the versioning/release-process adoption itself — the named `v0.x.0` ladder,
   the tag-body-is-the-release-note convention), `docs/adr/0008` (why the ExLoROM decode formula

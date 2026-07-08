@@ -140,11 +140,18 @@ Closes Phase 7's exit criterion ("the full coprocessor/board matrix in `docs/STA
 AccuracyCoin-equivalent). See `to-dos/phase-6-accuracy-to-100/`.
 
 - A named hardware-gotcha regression suite, each a targeted test: DRAM refresh (40 clocks/
-  scanline — confirm modeled, not just documented), HDMA mid-scanline placement, the DMA/HDMA-
-  collision crash quirk, open-bus-via-HDMA-latch (the "Speedy Gonzales stage 6-1" case), true
-  mid-scanline/mid-dot writes (the "Air Strike Patrol BG3 scroll" case — this un-defers Phase
-  2's flagged "mid-line raster deferred" gap), hi-res color-math precision (Bishoujo Janshi
-  Suchie-Pai / Marvelous+SA-1), and the 65816 `$4203` double-write multiplier edge case.
+  scanline — **researched, not yet implemented**, `docs/scheduler.md` §DRAM refresh — a real
+  architectural tension needs resolving empirically before landing, not a simple port), HDMA
+  mid-scanline placement, the DMA/HDMA-collision crash quirk, open-bus-via-HDMA-latch (the
+  "Speedy Gonzales stage 6-1" case), true mid-scanline/mid-dot writes (the "Air Strike Patrol
+  BG3 scroll" case — this un-defers Phase 2's flagged "mid-line raster deferred" gap), hi-res
+  color-math precision (Bishoujo Janshi Suchie-Pai / Marvelous+SA-1). **Researched and
+  reclassified:** the 65816 `$4203`/`$4206` overlapping-multiply/divide case (SNESdev's own
+  errata documents this as producing genuinely *undefined* RDMPY/RDDIV output — no canonical
+  "corrupted" value exists to port, and inventing one would violate `docs/adr/0004`'s
+  determinism-contract spirit of not fabricating behavior real hardware itself doesn't define
+  one way). This is correctly a **documented, intentional non-goal**, not an open implementation
+  item — `crates/rustysnes-core/src/bus.rs`'s `MulDiv` doc comment cites the errata directly.
 - Track the composed accuracy battery's pass rate as a literal, always-current dashboard number
   in `docs/STATUS.md`, cited in every release from here on — the same treatment RustyNES gives
   its own AccuracyCoin score (currently `139/141` shipped-default, `141/141` behind a default-off
