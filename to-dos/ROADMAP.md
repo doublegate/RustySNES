@@ -28,9 +28,10 @@ record; this file frames the phase line.
 - **Release:** `v0.1.0 "Foundation"` and `v0.2.0 "Persistence"` are tagged and released on
   GitHub, establishing the real release cadence `to-dos/VERSION-PLAN.md` defines — read it
   alongside this file; it maps the phases above onto a concrete, named `v0.x.0` → `v1.0.0`
-  ladder with release-cut criteria per rung. `v0.3.0 "Continuum"` (rewind, run-ahead, PAL/
-  ExLoROM completion) is **complete** — all four line items (rewind, run-ahead, PAL auto-detect,
-  ExLoROM) have landed. Ready to tag.
+  ladder with release-cut criteria per rung. `v0.3.0 "Continuum"`'s code (rewind, run-ahead, PAL
+  auto-detect, ExLoROM) is fully merged to `main`; the tag/GitHub release is cut immediately
+  after this PR merges. `v0.4.0 "Completion"` (SPC7110 boot fix, ST018, standalone S-RTC) is
+  next.
 
 ## The phase spine
 
