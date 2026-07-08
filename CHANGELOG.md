@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0] "Completion" - 2026-07-08
 
 Closes out Phase 7's BestEffort coprocessor/board matrix: a full ARMv3 (ARM6-class) CPU core for
-ST018 (Hayazashi Nidan Morita Shogi 2), a standalone Sharp RTC-4513 board (Daikaijuu Monogatari
+ST018 (Hayazashi Nidan Morita Shogi 2), a standalone Sharp S-RTC board (Daikaijuu Monogatari
 II), and a confirmed, fixed SPC7110 addressing bug (materially improved boot progress, one
 narrowed-but-still-open gap honestly documented, not silently claimed fixed). See
 `to-dos/VERSION-PLAN.md`.
@@ -109,7 +109,7 @@ adjudicated before merge.
   is comparable in scope to the 65C816 core, not a small register-file port.
 
 - **Standalone S-RTC board** (`coproc::sharprtc::SharpRtcBoard`).
-  A standalone Sharp RTC-4513 real-time clock (Daikaijuu Monogatari II, ExHiROM) — a different
+  A standalone Sharp S-RTC real-time clock (Daikaijuu Monogatari II, ExHiROM) — a different
   chip/protocol from the Epson RTC-4513 already paired with SPC7110: a 2-register (`$2800`/
   `$2801`) handshake over a 13-slot decimal clock file (second/minute/hour/day/month/year + an
   auto-computed weekday) through a `Ready -> Command -> Read`/`Write` state machine. Seeded to a
