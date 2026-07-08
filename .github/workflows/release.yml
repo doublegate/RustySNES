@@ -15,9 +15,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, ext: tar.gz }
-          - { os: macos-latest, target: aarch64-apple-darwin, ext: tar.gz }
-          - { os: windows-latest, target: x86_64-pc-windows-msvc, ext: zip }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -55,10 +55,10 @@ jobs:
         shell: pwsh
         run: |
           $stage = "rustysnes-${{ github.ref_name }}-${{ matrix.target }}"
-          New-Item -ItemType Directory -Path $stage | Out-Null
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/rustysnes.exe" $stage/
           Copy-Item README.md, LICENSE-MIT, LICENSE-APACHE $stage/
-          Compress-Archive -Path $stage -DestinationPath "$stage.zip"
+          Compress-Archive -Force -Path $stage -DestinationPath "$stage.zip"
           Add-Content -Path $env:GITHUB_ENV -Value "ASSET=$stage.zip"
 
       # Attach to the GitHub release matching this tag, creating a minimal one first if it
@@ -72,8 +72,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1 || \
-            gh release create "${{ github.ref_name }}" --repo "${{ github.repository }}" \
-              --title "${{ github.ref_name }}" --generate-notes
-          gh release upload "${{ github.ref_name }}" "$ASSET" \
-            --repo "${{ github.repository }}" --clobber
+          TAG="${{ github.ref_name }}"
+          REPO="${{ github.repository }}"
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            # All 3 matrix legs run concurrently and race this same check-then-create — a second
+            # leg's `gh release create` can fail with "already exists" if a racing leg won. That
+            # is not a real failure (the release now exists either way), so don't let it fail the
+            # job; instead re-check existence and only error if the release is STILL missing
+            # (a genuine creation failure, e.g. a permissions problem).
+            gh release create "$TAG" --repo "$REPO" --title "$TAG" --generate-notes || true
+            gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 || {
+              echo "::error::release $TAG still missing after create attempt" >&2
+              exit 1
+            }
+          fi
+          gh release upload "$TAG" "$ASSET" --repo "$REPO" --clobber
