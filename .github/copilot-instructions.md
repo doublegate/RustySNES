@@ -58,7 +58,8 @@ trunk build --release
 ## Common errors and workarounds
 
 - **Linux frontend build/link errors (missing X11/Wayland/ALSA/udev libs).**  
-  Install system deps first: `libxkbcommon-dev libwayland-dev libasound2-dev libudev-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev`.
+  Install system deps first, matching `CONTRIBUTING.md`'s canonical list exactly (don't diverge
+  from it here): `libxkbcommon-dev libwayland-dev libxkbcommon-x11-dev libasound2-dev libudev-dev`.
 
 - **`cargo clippy --all-features` fails due to feature incompatibility.**  
   Do **not** use `--all-features`; use `cargo clippy --workspace --all-targets -- -D warnings` (and explicit feature jobs when needed).
