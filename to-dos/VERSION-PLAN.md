@@ -147,11 +147,22 @@ AccuracyCoin-equivalent). See `to-dos/phase-6-accuracy-to-100/`.
   not the scanline boundary, per ares `sfc/cpu/timing.cpp`), proven by the committed
   `hdmaen_latch_test`/`hdmaen_latch_test_2` goldens (`docs/scheduler.md` §DMA/HDMA bus-steal); the
   "Implementation status" section further down the same doc had drifted out of sync with this and
-  wrongly still described it as a scanline-boundary trigger + deferred work — corrected. Still
-  open: the DMA/HDMA-collision crash quirk, open-bus-via-HDMA-latch (the "Speedy Gonzales stage
-  6-1" case), true mid-scanline/mid-dot writes (the "Air Strike Patrol BG3 scroll" case — this
-  un-defers Phase 2's flagged "mid-line raster deferred" gap), hi-res color-math precision
-  (Bishoujo Janshi Suchie-Pai / Marvelous+SA-1). **Researched and
+  wrongly still described it as a scanline-boundary trigger + deferred work — corrected.
+  **Researched, prototyped, regressed, deferred:** open-bus-via-HDMA-latch (the "Speedy Gonzales
+  stage 6-1" case) — the mechanism is confirmed against two independent primary sources (SNESdev
+  wiki + byuu/Near's original mGBA writeup): `Bus::open_bus` is currently updated only by direct
+  CPU accesses, never by a DMA/HDMA-driven byte, which is wrong versus real hardware. A prototype
+  making `DmaBus for Bus`'s `read_a`/`write_a`/`read_b`/`write_b` update `open_bus` on every
+  transfer (mirroring `CpuBus::read24`/`write24`) passed the full base workspace suite but broke
+  all 24 `superfx_boots_live_and_deterministic` golden hashes (confirmed caused by this exact
+  change, not pre-existing) for a reason not yet root-caused — very likely something in how
+  Super FX/GSU games' GP-DMA ROM→GSU-RAM transfers interact with the change. Not landed; see
+  `docs/scheduler.md` §Open bus via DMA/HDMA for the full mechanism and what a future
+  investigation needs (an access-level trace, mirroring `docs/audit/spc7110-boot-crash-2026-07-08.md`'s
+  approach for the SPC7110 gap). Still open: the DMA/HDMA-collision crash quirk, true
+  mid-scanline/mid-dot writes (the "Air Strike Patrol BG3 scroll" case — this un-defers Phase 2's
+  flagged "mid-line raster deferred" gap), hi-res color-math precision (Bishoujo Janshi Suchie-Pai
+  / Marvelous+SA-1). **Researched and
   reclassified:** the 65816 `$4203`/`$4206` overlapping-multiply/divide case (SNESdev's own
   errata documents this as producing genuinely *undefined* RDMPY/RDDIV output — no canonical
   "corrupted" value exists to port, and inventing one would violate `docs/adr/0004`'s

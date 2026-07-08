@@ -102,6 +102,58 @@ Per `ref-docs/research-report.md` §5 and `ref-docs/2026-06-24-ppu.md` §5:
   mid-line `$420C` write on the hardware-correct scanline — the banded HDMAEN-vs-latch crossing
   of undisbeliever's `hdmaen_latch_test` (see §H/V-IRQ for the write-timing half of that race).
 
+### Open bus via DMA/HDMA (the "Speedy Gonzales stage 6-1" case) — researched, prototyped, regressed, deferred
+
+**Status: researched and mechanism-confirmed against two independent primary sources; a
+prototype implementation reproduces the documented fix but causes a full regression against
+`superfx_oncart`'s golden framebuffer hashes for a reason not yet root-caused. Not landed.**
+
+The open-bus latch (`Bus::open_bus`, the MDR) is a physical property of the SNES's shared data
+bus, not a CPU-only concept: **any** device that drives a byte onto the bus updates what a later
+unmapped read observes, whether that device is the CPU or the DMA/HDMA controller. Currently
+`open_bus` is updated only by direct CPU bus accesses (`CpuBus::read24`/`write24`); a DMA/HDMA
+byte transfer never touches it — silently wrong versus real hardware.
+
+This is the documented mechanism behind Speedy Gonzales in Los Gatos Bandidos' stage 6-1 softlock
+(a "Holy Grail" emulation bug, unsolved by any emulator until 2010): the game polls an unmapped
+address (`$225C`) in a tight loop, expecting to read back `$18` — the last byte of the CPU's own
+load instruction, echoed twice (low then high byte) to form the address `$1818`. If an HDMA
+transfer fires between the loop's instruction fetch and its execution, the HDMA-driven byte
+re-latches the bus first; when that byte happens to be `0`, the loop reads back `$0000` instead
+of `$1818`, which satisfies the exit condition and breaks the softlock. Sources: the SNESdev
+wiki's [Open bus](https://snes.nesdev.org/wiki/Open_bus) page and mGBA's ["Holy Grail" Bugs in
+Emulation, Part 2](https://mgba.io/2017/07/31/holy-grail-bugs-2/) (byuu/Near's original
+writeup of the fix, "Adding OpenBus (the MDR) writing to S9xSetPPU, which didn't have it before,
+and is used in HDMA, fixes the game").
+
+**The prototype and what it broke.** Making `DmaBus for Bus`'s `read_a`/`write_a`/`read_b`/
+`write_b` set `open_bus` on every successful transfer (mirroring `CpuBus::read24`/`write24`
+exactly, with the blocked-address branches — the A-bus cannot reach the B-bus or the CPU/DMA I/O
+registers, ares `validA` — deliberately left untouched since nothing is actually driven onto the
+bus there) passed the full base workspace suite (`cargo test --workspace`, zero regressions) but
+broke every one of `superfx_boots_live_and_deterministic`'s 24 golden hashes
+(`crates/rustysnes-test-harness/tests/superfx_oncart.rs`) — confirmed to be caused by this exact
+change (the same test passes cleanly on the unmodified tree). The breadth of the mismatch (all 24
+sub-cases, not one edge case) points at something systemic in how Super FX/GSU games' GP-DMA
+transfers (very likely the common pattern of DMA-copying a compressed level/graphics image from
+cart ROM into GSU RAM before the GSU renders it) interact with this change, not a narrow timing
+coincidence — but the exact mechanism has not been traced. Candidates for a future investigation:
+whether the GSU's own host-synced `Board::coprocessor_tick` (driven from the same
+`Bus::advance_master` loop, `docs/cart.md` §Super FX) depends, directly or indirectly, on
+`open_bus` staying CPU-only during a DMA transfer; or a subtler ordering issue between when a GSU
+board's `read24`/`write24` hook runs during a DMA transfer versus when a real CPU access would
+normally run it.
+
+**What would need to be true before landing this:** the same instrumented investigation this
+needs is exactly what `docs/audit/spc7110-boot-crash-2026-07-08.md` is doing for the SPC7110 gap
+— an instruction/access-level trace correlated against the Super FX board's own read/write hook
+calls during the failing DMA transfers, to see exactly which byte diverges and why. Until that
+trace exists, this stays a documented non-landing rather than a forced-through change, per this
+project's own regression-risk discipline (mirrors the DRAM-refresh treatment above). The prototype
+diff is not committed or applied on any branch; whoever resumes this should re-derive it from this
+section's description (the four `DmaBus for Bus` methods each gain one `self.open_bus = <value>;`
+line, mirroring `CpuBus::read24`/`write24`) rather than assume it survives anywhere.
+
 This precise, content-dependent cycle theft is the second reason (after the variable CPU
 cycle) the scheduler must be master-clock resolution.
 
