@@ -33,9 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   register-list glitch (only R15 transfers, but the address advances as if all 16 did), the
   load/store write-back timing asymmetry, and the S-bit's dual role (temporary User-bank access
   during the transfer, or — when loading with R15 in the list — a full CPSR-from-SPSR restore
-  after the transfer, the `LDM ... {..., pc}^` exception-return idiom). 7 new tests. Multiply/
-  multiply-long, `SWP`, and the board wrapper remain — `Cpu::step` still panics with a clear
-  `todo!` on those.
+  after the transfer, the `LDM ... {..., pc}^` exception-return idiom). 7 new tests.
 
 - **ST018: data processing, branch, MSR/MRS, and exception entry**
   (`coproc::armv3::cpu`, `v0.4.0` "Completion" work, in progress). Steps 4+5 of the ARMv3 core
@@ -48,8 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   priority (sparse Multiply/MultiplyLong/SingleDataSwap/SoftwareInterrupt carve-outs win over the
   broader ranges they overlap) without needing a real 4096-entry lookup table. 11 new tests,
   including a full `SWI`-then-`MOVS PC,LR` round trip proving CPSR survives a real mode change
-  (User → Supervisor → User). `LDR`/`STR`, `LDM`/`STM`, multiply, and `SWP` remain — `Cpu::step`
-  panics with a clear `todo!` on any of those opcode categories in the meantime.
+  (User → Supervisor → User).
 
 - **ST018: the ARM register file, mode-switch banking, and the 3-stage pipeline**
   (`coproc::armv3::regs`, `v0.4.0` "Completion" work, in progress). Steps 2+3 of the ARMv3 core
