@@ -72,7 +72,7 @@ this. See `to-dos/phase-5-frontend/sprint-2-save-states.md` for the ticket break
 - [x] New ADR: `docs/adr/0006-save-state-format.md` (the save-state binary format +
       versioning/compatibility policy), status `Accepted`.
 
-### v0.3.0 "Continuum" — rewind, run-ahead, PAL, ExLoROM — **RELEASED 2026-07-08**
+### v0.3.0 "Continuum" — rewind, run-ahead, PAL, ExLoROM — **all code merged to `main`, tag pending**
 
 - [x] Rewind: `crate::rewind::RewindBuffer` — a host-owned ring buffer of FULL save-state
       snapshots (frontend crate, not core — matches the existing architectural boundary that
