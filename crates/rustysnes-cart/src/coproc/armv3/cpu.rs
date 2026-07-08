@@ -211,7 +211,12 @@ impl Cpu {
     /// Write `value` into `reg`, requesting a pipeline reload if `reg` is R15 (Mesen2 `SetR`) —
     /// every instruction that can write the PC (data processing, `LDR`, `LDM`, branch) routes
     /// through this so the reload is never forgotten.
-    const fn set_r(&mut self, reg: u8, value: u32) {
+    ///
+    /// Not marked `const fn`: `Cpu` carries nested `Regs`/`Pipeline` fields, and const-ness here
+    /// is fragile against future field changes to either — the same posture `coproc::hg51b`
+    /// documents for its own dense register-port methods.
+    #[allow(clippy::missing_const_for_fn)]
+    fn set_r(&mut self, reg: u8, value: u32) {
         self.regs.r[reg as usize] = value;
         if reg == 15 {
             self.pipeline.request_reload();
@@ -287,12 +292,13 @@ impl Cpu {
             let mut v = self.regs.r[rm as usize];
             let use_reg_shift = opcode & (1 << 4) != 0;
             let shift = if use_reg_shift {
-                // Register-specified shift amount costs an extra internal cycle; R15 (as
-                // rm/rn/rs) reads as address+12 here instead of the usual address+8, since the
-                // pipeline has already advanced R15 to +8 and this is one MORE cycle on top --
-                // ported as an explicit +4 exactly where the source applies it, not folded into
-                // a general "R15 always reads +12 in this instruction" rule (rs itself is NOT
-                // adjusted, only rm/rn are, matching the source).
+                // Register-specified shift amount costs an extra internal cycle; R15 (as ANY of
+                // rm, rn, or rs) reads as address+12 here instead of the usual address+8, since
+                // the pipeline has already advanced R15 to +8 and this is one MORE cycle on top.
+                // The source applies the +4 to each of the three independently (`shift = R(rs) +
+                // (rs==15?4:0)`, then separately `op2 += 4`/`op1 += 4` for rm/rn) -- ported as
+                // three explicit +4s exactly where the source applies each one, not folded into
+                // a single "R15 always reads +12 in this instruction" rule applied once.
                 bus.idle();
                 let rs = ((opcode >> 8) & 0xF) as u8;
                 #[allow(clippy::cast_possible_truncation)]
@@ -419,7 +425,10 @@ impl Cpu {
     /// `R15 - 4`, NOT `R15` itself — R15 is already +8 ahead of the branch instruction's own
     /// address by the time this runs, so `R15 - 4` = branch_addr + 4 = the correct "next
     /// sequential instruction" return address.
-    const fn exec_branch(&mut self, opcode: u32) {
+    ///
+    /// Not marked `const fn`: same rationale as [`Self::set_r`].
+    #[allow(clippy::missing_const_for_fn)]
+    fn exec_branch(&mut self, opcode: u32) {
         let with_link = opcode & (1 << 24) != 0;
         #[allow(clippy::cast_possible_wrap)]
         let offset = ((opcode as i32) << 8) >> 6; // sign-extend the 24-bit field, then <<2
@@ -488,7 +497,10 @@ impl Cpu {
     }
 
     /// `MRS` (Mesen2 `ArmMrs`): read CPSR or the current mode's SPSR into a register.
-    const fn exec_mrs(&mut self, opcode: u32) {
+    ///
+    /// Not marked `const fn`: same rationale as [`Self::set_r`].
+    #[allow(clippy::missing_const_for_fn)]
+    fn exec_mrs(&mut self, opcode: u32) {
         let use_spsr = opcode & (1 << 22) != 0;
         let rd = ((opcode >> 12) & 0xF) as u8;
         let value = if use_spsr {
@@ -659,6 +671,28 @@ mod tests {
         assert_eq!(
             cpu.regs.r[0], 8,
             "PC read as an operand is address+8, not address"
+        );
+    }
+
+    #[test]
+    fn register_specified_shift_amount_also_adds_4_when_rs_is_r15() {
+        // ADD r0, r0, r1, LSR r15 -- op=ADD, I=0, S=0, Rn=0, Rd=0, Rs=15, shift_type=LSR(01),
+        // Rm=1. (LSL(00) is deliberately NOT used here: on this exact decode table a
+        // register-shifted-by-register LSL always collides with Multiply/MultiplyLong/SWP's
+        // sparse index carve-outs -- verified by brute-force sweep over every ALU op -- so it's
+        // simply unreachable as a data-processing encoding, matching real ARM hardware's own
+        // Multiply-vs-data-processing disambiguation. LSR sidesteps that collision entirely.)
+        let add_r0_r1_lsr_r15 = 0xE080_0FB1u32;
+        let (mut cpu, mut bus) = boot(&[add_r0_r1_lsr_r15]);
+        cpu.regs.r[0] = 0;
+        cpu.regs.r[1] = 0x1000;
+        // R15 during Execute is 8 (power-on default); if rs==15 gets the documented +4, the
+        // shift amount is 12 (0x1000 >> 12 == 1); without it, the shift would be 8 (>> 8 == 16).
+        cpu.step(&mut bus);
+        assert_eq!(
+            cpu.regs.r[0], 1,
+            "rs==15 must read as address+12 (the usual +8, plus the extra internal cycle), \
+             exactly like rm/rn do -- the source applies +4 to all three independently"
         );
     }
 
