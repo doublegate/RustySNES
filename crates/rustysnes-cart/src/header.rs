@@ -230,8 +230,9 @@ impl Header {
 /// "custom" nibble only) the cart's title.
 ///
 /// The low nibble is the cartridge type: `0`/`1`/`2` are plain ROM(+RAM(+battery)); `3`–`6` flag
-/// that a coprocessor is present. The high nibble then names it: `0`=DSP (`µPD77C25` family),
-/// `1`=Super FX/GSU, `2`=OBC1, `3`=SA-1, `4`=S-DD1, `F`=custom (SPC7110/CX4/ST01x/ST018/S-RTC).
+/// that a coprocessor is present. The high nibble then names it: `0`=DSP (`µPD77C25` family,
+/// including the single-game ST010/ST011 variants — see below), `1`=Super FX/GSU, `2`=OBC1,
+/// `3`=SA-1, `4`=S-DD1, `F`=custom (SPC7110/CX4/S-RTC/ST018).
 ///
 /// `$F` is genuinely ambiguous from header bytes alone — real emulators disambiguate it (and, for
 /// that matter, DSP-1 vs DSP-2/3/4/ST010/011 under the SAME `$0` nibble) via a bundled cartridge

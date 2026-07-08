@@ -1,11 +1,12 @@
 # ST018 — ARMv3 core implementation notes
 
-`ST018` is the last unimplemented `v0.4.0 "Completion"` line item (`to-dos/VERSION-PLAN.md`; the
-other two, SPC7110's addressing fix and standalone S-RTC, landed in PR #23). It is a full ARMv3
-(ARM6-class, pre-Thumb) CPU core — comparable in scope to `rustysnes-cpu`'s 65C816 (`exec.rs`),
-not a small register-file port like this project's other BestEffort coprocessors. It is landing
-incrementally (`crate::coproc::armv3`); this document is the architecture reference for that
-work, kept up to date alongside the code per the project's docs-as-spec rule.
+`ST018` was the last unimplemented `v0.4.0 "Completion"` line item (`to-dos/VERSION-PLAN.md`; the
+other two, SPC7110's addressing fix and standalone S-RTC, landed in PR #23) — **it is now fully
+implemented**, closing out `v0.4.0`'s coprocessor/board matrix. It is a full ARMv3 (ARM6-class,
+pre-Thumb) CPU core — comparable in scope to `rustysnes-cpu`'s 65C816 (`exec.rs`), not a small
+register-file port like this project's other BestEffort coprocessors. It landed incrementally
+(`crate::coproc::armv3`, PRs #24-30); this document is the architecture reference for that work,
+kept up to date alongside the code per the project's docs-as-spec rule.
 
 **The one confirmed commercial cart is *Hayazashi Nidan Morita Shogi 2*** (SETA, 1995,
 Japan-only; internal title `NIDAN MORITASHOGI2` per superfamicom.org, not yet verified against a
