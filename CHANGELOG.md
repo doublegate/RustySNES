@@ -110,6 +110,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   docs) — the standalone Sharp S-RTC has no established "4513" part number anywhere; that number
   belongs only to the different Epson chip paired with SPC7110.
 
+- **`docs/STATUS.md`: an accuracy dashboard — `v0.5.0` "Fidelity" work, in progress.** RustySNES
+  has no single monolithic oracle ROM the way RustyNES's AccuracyCoin does (an early skeleton for
+  exactly that approach, `rustysnes-test-harness::accuracy_battery`, ticket T-04, was never
+  implemented and is superseded, not a competing source of truth), so rather than force the
+  composed multi-layer battery into one misleading summed fraction (a 5.12M-case CPU oracle
+  would swamp a 4-ROM audio suite), a new "Accuracy dashboard" table tracks each layer's own
+  status — the CPU per-opcode oracle (0-diff against its chosen reference; one documented
+  inter-reference divergence, not a bug, `docs/adr/0002`), the SPC700 per-opcode oracle (0-diff,
+  100.00%), on-cart CPU, PPU/DMA golden framebuffer, audio boot+run, Core/Curated coprocessors
+  (honesty-gate green, 3/3), and BestEffort coprocessors split into real-title-validated (6/9)
+  vs unit-test-only (3/9) — always
+  current, reaffirmed every release from here on, plus a named-residuals line so known gaps stay
+  visible instead of buried in prose.
+
 ## [0.4.0] "Completion" - 2026-07-08
 
 Closes out Phase 7's BestEffort coprocessor/board matrix: a full ARMv3 (ARM6-class) CPU core for

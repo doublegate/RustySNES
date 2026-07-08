@@ -21,6 +21,40 @@ implemented (`v0.4.0`, unit-tested only — no commercial dump in the local corp
 Save-states (`v0.2.0`), rewind, run-ahead, PAL region auto-detection, and ExLoROM (all `v0.3.0`)
 are implemented and shipped — see the frontend and memory-map-model tables below.
 
+## Accuracy dashboard
+
+RustySNES doesn't have one monolithic all-in-one oracle ROM the way RustyNES's AccuracyCoin does.
+An early skeleton for exactly that approach exists (`rustysnes-test-harness::accuracy_battery`,
+ticket T-04) but was never implemented and has since been superseded — no publicly available
+SNES ROM plays the AccuracyCoin role, and the composed multi-suite approach below is what
+actually shipped; that skeleton is tracked as dead code to remove in a follow-up, not a competing
+source of truth. The accuracy story here is instead a **composed multi-layer battery** across
+independently-sourced suites (`docs/testing-strategy.md`). Rather than force these heterogeneous
+suites into one artificial summed fraction (a 5.12M-case CPU oracle would swamp a 4-ROM audio
+suite in any raw sum, which would be misleading, not informative — this project's honesty-gate
+posture, `docs/adr/0003`, applies to how numbers are presented too), each layer's own status is
+tracked here, always current, reaffirmed every release:
+
+| Layer | Status | Detail |
+|---|---|---|
+| CPU (65C816) per-opcode oracle | ✅ **0-diff vs. reference** | 5,119,999 / 5,120,000 (SingleStepTests/65816; the one residual is a documented inter-reference divergence, `docs/adr/0002`, not a bug — not literally 0 of 5,120,000, but 0 against the chosen reference behavior every other test vector agrees on) |
+| SPC700 per-opcode oracle | ✅ **0-diff, 100.00%** | 256,000 / 256,000 (SingleStepTests/spc700) |
+| On-cart CPU (gilyon `cputest-basic`) | ✅ **green** | 1107 / 1107 "Success" |
+| PPU/DMA/HDMA golden framebuffer (undisbeliever) | ✅ **green, deterministic** | 29 / 29 ROMs bit-identical across runs |
+| Audio boot+run (blargg `spc_*`) | ✅ **literal PASS, all 4** | `spc_smp`, `spc_timer`, `spc_mem_access_times`, `spc_dsp6` — asserted, not a determinism proxy |
+| Core/Curated coprocessors (oracle-gated) | ✅ **3 / 3, honesty gate green** | DSP-1 (4 commercial ROMs), Super FX/GSU (58 Krom ROMs + per-opcode suite), SA-1 (18 commercial carts) — `ORACLE_COPROCESSORS` |
+| BestEffort coprocessors, real-title validated | ✅ **6 / 9** | DSP-2, DSP-4, ST010, S-DD1, CX4, OBC1 — each boots a real commercial title to real gameplay content |
+| BestEffort coprocessors, unit-test only | ⚠️ **3 / 9** | SPC7110 (wired against its one available ROM but doesn't reach a bootable screen — the addressing-bug fix in `v0.4.0` improved but didn't close this), ST018, S-RTC (neither has a commercial dump in the local corpus) |
+| Determinism contract | ✅ **proven** | bit-identical framebuffer/audio across runs; save-state round-trip proven across all three board tiers (no-coprocessor, Curated, BestEffort) |
+
+**Named residuals, tracked not hidden:** the 65816 `e1.e` divergence (`docs/adr/0002`); DSP-3 and
+ST011 have no board wired (no verified board/window entry to pin against, `necdsp_variant.rs`);
+SPC7110's post-`RTI` WRAM-population gap (`docs/cart.md` §SPC7110); PAL and ExLoROM both lack
+golden-ROM-boot proof (no ROM in the local corpus for either). `v0.5.0 "Fidelity"` is where the
+next layer — a named hardware-gotcha regression suite (DRAM refresh, HDMA mid-scanline placement,
+the DMA/HDMA-collision crash quirk, open-bus-via-HDMA-latch, true mid-dot writes, hi-res
+color-math precision, the `$4203` double-write edge case) — gets added to this table.
+
 ## Subsystem progress
 
 | Crate | Chip | State |
@@ -97,8 +131,10 @@ are implemented and shipped — see the frontend and memory-map-model tables bel
   determinism proxy). The per-opcode SPC700 (oracle 0-diff) + per-tick S-DSP math is correct.
 - **Master-clock totals:** a booted NTSC frame advances ≈357,374 master clocks (spec ≈357,368),
   confirming the 6/8/12 access map + dot timeline.
-- **Accuracy battery (the composed two-layer oracle):** the CPU layer is 0-diff; the on-cart
-  layer is gilyon-basic green + undisbeliever golden. Audio + coprocessor layers pending.
+- **Accuracy battery (the composed multi-layer oracle):** see the "Accuracy dashboard" section at
+  the top of this document for the always-current, per-layer status table — the CPU, SPC700,
+  on-cart CPU, PPU/DMA golden, and audio layers are all green; the coprocessor layer is 6/9
+  BestEffort boards real-title validated plus all 3 Core/Curated boards honesty-gate green.
 - **Determinism contract:** the framebuffer is verified bit-identical across runs (same seed +
   ROM ⇒ identical hash) for all 29 undisbeliever ROMs; the full save-state round-trip (save,
   restore onto a fresh `System`, continue both, compare framebuffer + audio) is proven for a
