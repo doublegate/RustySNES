@@ -66,7 +66,10 @@ impl Default for Cpsr {
 
 impl Cpsr {
     /// Pack into the 32-bit CPSR/SPSR register layout (Mesen2 `ArmV3CpuFlags::ToInt32`) — used by
-    /// `MRS` and the (not-yet-ported) exception-entry path.
+    /// `MRS` and the (not-yet-ported) exception-entry path. `self.mode` is masked to its real
+    /// 5-bit width here too (belt-and-suspenders on top of [`Regs::switch_mode`]'s own mask, so a
+    /// stray high bit can never leak into the adjacent interrupt-mask/reserved bits regardless of
+    /// how `mode` was set).
     #[must_use]
     pub const fn to_u32(self) -> u32 {
         ((self.flags.n as u32) << 31)
@@ -75,7 +78,7 @@ impl Cpsr {
             | ((self.flags.v as u32) << 28)
             | ((self.irq_disable as u32) << 7)
             | ((self.fiq_disable as u32) << 6)
-            | (self.mode as u32)
+            | ((self.mode & 0x1F) as u32)
     }
 }
 
@@ -120,13 +123,16 @@ impl Regs {
     /// Switch the active processor mode, banking `R8-R14` in/out exactly like real ARM hardware
     /// (Mesen2 `SwitchMode`).
     ///
-    /// `new_mode` is OR'd with [`mode::BIT`] unconditionally (bit 4 is always set on real
-    /// hardware — every caller, including `MSR`'s raw 5-bit mode field, relies on this rather
-    /// than validating it themselves). A no-op if the mode is already active (matches the
-    /// source's early-return, and avoids a redundant full 7-register bank round-trip on every
-    /// same-mode `MSR`).
+    /// `new_mode` is masked to its real 5-bit hardware width THEN OR'd with [`mode::BIT`]
+    /// unconditionally (bit 4 is always set on real hardware — every caller, including `MSR`'s
+    /// raw mode field, relies on this rather than validating it themselves). The mask keeps
+    /// `self.cpsr.mode` a clean 5-bit value everywhere it's read (in particular
+    /// [`Cpsr::to_u32`]'s packed layout, where a stray high bit would corrupt the adjacent
+    /// interrupt-mask/reserved bits) even if some future caller passes an unmasked byte. A no-op
+    /// if the mode is already active (matches the source's early-return, and avoids a redundant
+    /// full 7-register bank round-trip on every same-mode `MSR`).
     pub fn switch_mode(&mut self, new_mode: Mode) {
-        let new_mode = new_mode | mode::BIT;
+        let new_mode = (new_mode & 0x1F) | mode::BIT;
         if self.cpsr.mode == new_mode {
             return;
         }
@@ -256,12 +262,15 @@ impl Pipeline {
     fn reload(&mut self, r15: &mut u32, read_code: &mut impl FnMut(u32) -> u32) {
         self.reload_requested = false;
         *r15 &= !0x3;
-        self.fetch = Insn {
+        // The source writes this fetch into `self.fetch` first, then immediately shifts it into
+        // `self.decode` (and shifts the stale prior `decode` into `execute`) before this
+        // function returns. Both intermediate writes are dead: `process`'s own unconditional
+        // shift, right after this call returns, overwrites `execute` again before anything reads
+        // it. Skip straight to the observable end state instead of replaying the redundant steps.
+        self.decode = Insn {
             address: *r15,
             opcode: read_code(*r15),
         };
-        self.execute = self.decode;
-        self.decode = self.fetch;
         *r15 = r15.wrapping_add(4);
         self.fetch = Insn {
             address: *r15,
@@ -383,6 +392,21 @@ mod tests {
         // real mode constant, per the source's unconditional `mode | 0x10`.
         regs.switch_mode(0b0001);
         assert_eq!(regs.cpsr.mode, mode::FIQ);
+    }
+
+    #[test]
+    fn mode_is_masked_to_5_bits_even_when_the_caller_passes_stray_high_bits() {
+        // A high bit above the real 5-bit mode field must never survive into `cpsr.mode` --
+        // otherwise it would corrupt the adjacent interrupt-mask/reserved bits once packed by
+        // `Cpsr::to_u32`.
+        let mut regs = Regs::default();
+        regs.switch_mode(0xE1); // 0xE1 & 0x1F == 0x01, | mode::BIT == mode::FIQ
+        assert_eq!(regs.cpsr.mode, mode::FIQ);
+        assert_eq!(
+            regs.cpsr.to_u32() & 0xFF,
+            u32::from(mode::FIQ),
+            "no stray high bits leak into the packed CPSR's interrupt-mask/reserved bits"
+        );
     }
 
     #[test]
