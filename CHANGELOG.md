@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] "Continuum" - 2026-07-08
+
+Rewind, run-ahead, PAL region auto-detection, and the ExLoROM memory-map model — the frontend
+orchestration layer built on `v0.2.0`'s save-state primitive, plus the remaining `Phase 7`
+memory-map coverage. See `to-dos/VERSION-PLAN.md`.
+
+**Oracle/golden suites: all held, no regressions.** The full workspace test suite (including
+`--features test-roms`), the `no_std` gate, the wasm32 build check, and `RUSTDOCFLAGS="-D
+warnings" cargo doc` are all green.
+
 ### Added
 
 - **PAL region auto-detection.** `Bus::sync_region_from_cart` reads the cart header's
@@ -72,6 +82,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `libudev-sys`'s `pkg-config` build step on every `ubuntu-latest` release build — caught when
   the `v0.2.0` tag push actually exercised this workflow for the first time. Added the same
   install step `ci.yml` uses, gated to the Linux matrix leg.
+
+### Changed
+
+- **CI now runs the full verification battery only on release-tag pushes.** `ci.yml`'s single
+  `test` job (3-OS matrix, both `cargo test` invocations, the doc-warnings gate) ran on every
+  single push and PR — expensive CI minutes for what's usually mid-review iteration, not a
+  release candidate. Split into `lint` (fmt --check + clippy -D warnings, Linux only, every
+  push/PR) and `full-test` + `no_std` (the complete battery), the latter two gated to `v*` tag
+  pushes only, matching `release.yml`'s existing tag-only trigger.
+- **Further CI/CD cost reductions.** Concurrency groups (`cancel-in-progress: true`) on
+  `ci.yml`, `pages.yml`, and `release.yml` — a new push to the same PR/branch/ref now cancels the
+  already-stale in-flight run. `Swatinem/rust-cache` in every job that runs cargo, caching
+  `~/.cargo/registry`, `~/.cargo/git`, and `target/`. Dropped the `wasm32-unknown-unknown`/
+  `thumbv7em-none-eabihf` toolchain-target installs from `ci.yml`'s `lint`/`full-test` jobs
+  (neither ever cross-compiles — pure unused setup cost). Trimmed `full-test`'s `cargo fmt
+  --all --check` to a single matrix leg (formatting is platform-independent). Replaced
+  `pages.yml`'s `cargo install trunk --locked` (compiled trunk + its whole dependency tree from
+  source on every `main` push) with a prebuilt-binary download via `taiki-e/install-action`.
 
 ## [0.2.0] "Persistence" - 2026-07-02
 
