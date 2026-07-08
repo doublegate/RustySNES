@@ -11,9 +11,8 @@
 //! Built bottom-up, in the order `docs/st018-arm-notes.md` lays out:
 //! 1. [`primitives`] — the barrel shifter, condition codes, ALU core (pure functions, no state).
 //! 2. [`regs`] — the register file, mode-switch banking, and the 3-stage pipeline model.
-//! 3. [`bus`] + [`cpu`] — instruction decode/execute for data processing, branch, MSR/MRS, and
-//!    exception entry. The memory-instruction classes (`LDR`/`STR`, `LDM`/`STM`, multiply,
-//!    `SWP`) remain — see [`cpu`]'s module doc.
+//! 3. [`bus`] + [`cpu`] — the full instruction set: data processing, branch, MSR/MRS, exception
+//!    entry, `LDR`/`STR`, `LDM`/`STM`, multiply/multiply-long, and `SWP`/`SWPB`.
 //! 4. The `ST018` board wrapper (not yet started; not reachable from `board::select`).
 
 pub mod bus;

@@ -218,7 +218,20 @@ Bus window is `$00-3F,$80-BF:$3000-$3FFF` (registered whole, dispatched internal
    a load with R15 in the list, in which case it instead triggers a full CPSR-from-SPSR restore
    after the transfer — the `LDM ... {..., pc}^` exception-return idiom). 7 new tests, including
    the empty-list glitch and a full `LDM^`-with-PC exception-return round trip.
-8. Multiply/multiply-long, single data swap.
+8. **Multiply/multiply-long, single data swap** — done (`Cpu::exec_multiply`/`exec_multiply_long`/
+   `exec_single_data_swap`). A deliberate fidelity tradeoff, documented in code: the reference
+   `GbaCpuMultiply` is a cycle-exact Booth's-algorithm circuit simulation built for GBA-test-ROM
+   precision (CSA arrays, an author-acknowledged empirically-reverse-engineered correction
+   table) and is NOT ported; instead this computes the mathematically correct widened result
+   directly and idles for the ARM ARM's own *documented* (not reverse-engineered) early-
+   termination cycle count (1/2/3/4 cycles by how many of Rs's top bytes are all-0/all-1). The C
+   flag is deliberately left unchanged on multiply (real hardware's value there is
+   implementation-defined/meaningless, and this port doesn't simulate it — a conscious choice,
+   not an oversight). `SWP`/`SWPB` read-then-idle-then-write the same address atomically, with
+   `rm==15` writing `R15+4`. 7 new tests (`MUL`/`MLA`/`UMULL`/`SMULL`/`SWP`/`SWPB` plus the
+   documented cycle-count table), cross-verified opcode encodings against `Category::decode`'s
+   Multiply/MultiplyLong/SingleDataSwap carve-outs before trusting them. This closes out the ARMv3
+   instruction set — [`Cpu::step`] no longer has any unimplemented category.
 9. The SNES-side board wrapper: SA-1-style deterministic master-clock catch-up, the handshake
    registers, firmware loading for PRG/data ROM + work RAM save-state.
 10. Wire into `board::select` for `Coprocessor::St018` (new header enum variant + chipset-byte
