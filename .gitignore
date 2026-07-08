@@ -135,7 +135,6 @@ flamegraph.svg
 
 # --- Documentation ---
 /docs/_site/
-/docs/audit/
 /ref-proj/
 
 # --- Temporary files ---
