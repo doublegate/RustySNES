@@ -39,7 +39,7 @@ RustySNES combines **accuracy-first emulation** with the **safety guarantees of 
 | Feature | Status |
 | --- | --- |
 | **Cycle-accurate CPU/PPU/APU** | ✅ Shipped — 65816 + SPC700 oracle 0-diff, master-clock lockstep scheduler, dot-accurate HDMA/interrupts. |
-| **Coprocessors** | ✅ Shipped (Core/Curated): DSP-1, Super FX/GSU, SA-1. ✅ Shipped (BestEffort, validated against real ROMs): DSP-2, DSP-4, ST010, CX4, OBC1, S-DD1. 🚧 SPC7110 implemented, not yet booting. ⏳ ST018, standalone S-RTC not started. |
+| **Coprocessors** | ✅ Shipped (Core/Curated): DSP-1, Super FX/GSU, SA-1. ✅ Shipped (BestEffort, validated against real ROMs): DSP-2, DSP-4, ST010, CX4, OBC1, S-DD1. ✅ Shipped (BestEffort, `v0.4.0`, unit-tested only — no commercial dump in the local corpus): ST018 (full ARMv3 core), standalone S-RTC. 🚧 SPC7110 implemented, addressing bug fixed, still not booting. |
 | **Native desktop frontend** | ✅ Shipped — `winit` + `wgpu` + `cpal` + `egui`; keyboard + gamepad input, ROM/firmware/SRAM loading (including zip-archived ROMs), Reset/Power-Cycle/Pause. |
 | **WebAssembly build** | 🚧 Compiles; the in-browser UI (canvas surface, `requestAnimationFrame` loop, file loading) is a bootstrap scaffold, not yet a playable demo. |
 | **Save states** | ✅ Shipped — `v0.2.0`, a versioned deterministic envelope, see [`docs/adr/0006`](docs/adr/0006-save-state-format.md). |
