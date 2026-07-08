@@ -9,9 +9,11 @@ record; this file frames the phase line.
 
 - **Current phase:** Phases 0–3 **complete** (CPU oracle 0-diff, scheduler + video, audio
   0-diff). Phase 4 (Core/Curated coprocessors: DSP-1, Super FX, SA-1) **complete**. Phase 7
-  (BestEffort coprocessors) **mostly complete**: DSP-2/DSP-4/ST010/S-DD1/CX4/OBC1 implemented +
-  validated against real commercial ROMs; SPC7110 implemented but not yet booting to real
-  content; ST018 and standalone S-RTC not started; PAL region auto-detection is implemented and
+  (BestEffort coprocessors) **mostly complete**: DSP-2/DSP-4/ST010/S-DD1/CX4/OBC1/standalone
+  S-RTC implemented + validated (S-RTC unit-tested only, no commercial dump available); SPC7110
+  implemented with a confirmed, fixed addressing bug that materially improved but did not fully
+  resolve its boot crash (`docs/cart.md` §SPC7110); ST018 not started; PAL region auto-detection
+  is implemented and
   validated end-to-end (`Bus::sync_region_from_cart`; no golden-ROM-boot proof yet — no PAL ROM
   in the local corpus); ExLoROM is implemented (decode formula sourced from bsnes's own runtime
   board database; no golden-ROM-boot proof — no ExLoROM ROM in the local corpus). Phase 5
@@ -100,14 +102,17 @@ Phase-2 mid-line-raster gap here.
 
 **Goal:** the remaining BestEffort coprocessors + niche peripherals; region timing as data.
 **Exit:** the full coprocessor / board matrix in `docs/STATUS.md`.
-**Status:** DSP-2/DSP-4/ST010/S-DD1/CX4/OBC1 done + validated; SPC7110 implemented but not
-booting; ST018 and standalone S-RTC not started; PAL region auto-detection and ExLoROM are both
-implemented (each with a documented, honest validation gap — no PAL ROM and no ExLoROM ROM
-exist in the local corpus, so neither has golden-framebuffer proof).
+**Status:** DSP-2/DSP-4/ST010/S-DD1/CX4/OBC1/standalone S-RTC done + validated (S-RTC unit-tested
+only — no commercial dump available); SPC7110 implemented, a confirmed addressing bug fixed
+(materially improved, still not booting to real content — `docs/cart.md` §SPC7110); ST018 not
+started; PAL region auto-detection and ExLoROM are both implemented (each with a documented,
+honest validation gap — no PAL ROM and no ExLoROM ROM exist in the local corpus, so neither has
+golden-framebuffer proof).
 **Release mapping:** the done work shipped inside `v0.1.0`; PAL auto-detect and ExLoROM landed
-inside `v0.3.0 "Continuum"` alongside rewind/run-ahead (all four line items complete); the
-remainder is a PAL/ExLoROM golden-boot proof if a real ROM ever surfaces (`v0.3.x`, opportunistic
-— not gating) and `v0.4.0` (SPC7110 fix, ST018, standalone S-RTC).
+inside `v0.3.0 "Continuum"` alongside rewind/run-ahead (all four line items complete); standalone
+S-RTC and the SPC7110 addressing fix land inside `v0.4.0 "Completion"` (in progress — ST018
+remains); the PAL/ExLoROM golden-boot proof remains opportunistic (`v0.3.x`, not gating) if a
+real ROM ever surfaces.
 → [overview](phase-7-breadth/overview.md)
 
 ### Phase 8 — Reach (additive, off-by-default) 🚧 not started (all three crates are 1-line stubs)

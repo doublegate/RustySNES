@@ -9,7 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Standalone S-RTC board** (`coproc::sharprtc::SharpRtcBoard`, `v0.4.0` "Completion" work).
+  A standalone Sharp RTC-4513 real-time clock (Daikaijuu Monogatari II, ExHiROM) — a different
+  chip/protocol from the Epson RTC-4513 already paired with SPC7110: a 2-register (`$2800`/
+  `$2801`) handshake over a 13-slot decimal clock file (second/minute/hour/day/month/year + an
+  auto-computed weekday) through a `Ready -> Command -> Read`/`Write` state machine. Seeded to a
+  fixed epoch, never wall-clock-advanced (`docs/adr/0004`'s determinism contract, matching
+  `EpsonRtc`'s existing posture). No commercial dump exists in the local corpus — unit-test-level
+  coverage only, header detection is a best-effort title match, matching the existing CX4/SPC7110
+  disambiguation pattern (`docs/adr/0003`).
+
 ### Fixed
+
+- **SPC7110 boot-crash root cause: a real DROM/PROM address-mirroring bug found and fixed.**
+  `datarom_read`/`mcurom_read` folded out-of-range data-ROM offsets with a plain `offset % len`;
+  real hardware (ares `Bus::mirror`) instead repeatedly strips the largest power-of-two block
+  that keeps the address in range, which only coincides with modulo when the buffer size is
+  itself a power of two — Far East of Eden Zero's 6 MiB DROM is not. A register-selected read
+  past the physical chip size but inside the addressable window silently returned the wrong
+  byte. Ported the real algorithm (`spc7110::bus_mirror`) into every PROM/DROM lookup. This
+  pushed the previously-observed wild-PC excursion from ~20-30 frames into boot to ~90+ frames,
+  and it now self-recovers via a BRK/RTI loop rather than crashing outright — real, measurable
+  progress, though the CPU still does not reach a bootable screen: it eventually `RTI`s (from
+  genuine PROM code) into a WRAM location that's confirmed entirely unpopulated, a separate,
+  still-open issue documented in `docs/cart.md` §SPC7110 and `docs/STATUS.md`'s coprocessor
+  matrix rather than silently claimed fixed.
 
 - **`release.yml` built platform binaries but never attached them to the GitHub release.**
   `v0.1.0`, `v0.2.0`, and `v0.3.0` all shipped with zero release assets — the workflow ran

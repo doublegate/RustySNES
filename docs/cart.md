@@ -81,8 +81,8 @@ it); Super FX and SA-1 run their program from cart ROM (no chip dump).
 | CX4 | Hitachi HG51B169 | 20 MHz | 2 | no | LLE (prog ROM) | BestEffort/Curated |
 | OBC1 | simple ASIC | — | 1 | no | HLE | BestEffort |
 | ST010 / ST011 | µPD96050 | ~10 / 15 MHz | 1 each | µPD96050 (≈77C25) | LLE (shared) | BestEffort (shared) |
-| ST018 | ARMv3 | ~21.44 MHz | 1 | no | LLE ARM core | BestEffort |
-| S-RTC | Epson RTC | — | 1 | no | HLE + frozen time | BestEffort |
+| ST018 | ARMv3 | ~21.44 MHz | 1 | no | LLE ARM core | BestEffort (not started) |
+| S-RTC | Sharp RTC-4513 | — | 1 | no | HLE + frozen time | BestEffort |
 
 ### Key leverage — the shared NEC core
 
@@ -269,16 +269,47 @@ as open bus, the game wedges on its first DSP poll — it is never silently degr
   constant table (`cx4.rom`) needs external supply. Validated against real Mega Man X2 / X3.
 - **OBC1** (`BestEffort`, **implemented** — `coproc::obc1`): dedicated 8 KiB RAM behind a
   reprogrammable cursor register. Validated against real Metal Combat: Falcon's Revenge.
-- **SPC7110** (`BestEffort`, **implemented, not yet validated** — `coproc::spc7110`): a
-  decompression unit (Hudson adaptive binary range coder over 1/2/4bpp planes), data-port unit,
-  ALU, and memory-control unit (four independently-bankable 1 MiB data-ROM windows). Paired with
-  the RTC-4513 above on its one commercial title, Far East of Eden Zero. Boots partway (past the
-  reset vector and into ROM-resident code across several banks) before running off into an
-  unmapped low address; not yet root-caused. Cartridge geometry note: unlike every other
+- **SPC7110** (`BestEffort`, **implemented, boot-crash root cause partially fixed, still not
+  booting to real content** — `coproc::spc7110`): a decompression unit (Hudson adaptive binary
+  range coder over 1/2/4bpp planes), data-port unit, ALU, and memory-control unit (four
+  independently-bankable 1 MiB data-ROM windows). Paired with the RTC-4513 above on its one
+  commercial title, Far East of Eden Zero. Cartridge geometry note: unlike every other
   coprocessor here, SPC7110 carts physically carry a separate small PROM (program) chip plus a
   much larger DROM (data) chip, concatenated in a raw dump; `coproc::spc7110::select` guesses the
   split (1 MiB PROM) from Far East of Eden Zero's documented physical geometry — there is no
   header field or generic formula that recovers this split for an arbitrary SPC7110 title.
+  **Confirmed and fixed (`v0.4.0`):** `datarom_read`/`mcurom_read`'s PROM/DROM lookups used a
+  plain `offset % len` fold; real hardware (ares `Bus::mirror`, `sfc/memory/inline.hpp`) instead
+  repeatedly strips the largest power-of-two block that keeps the address in range — the two
+  agree only when the buffer size is itself a power of two, which Far East of Eden Zero's 6 MiB
+  DROM (`7 MiB image − 1 MiB PROM`) is NOT. A register-selected read past the physical chip size
+  but inside the addressable window (`r4830`-`r4833` select up to 8 MiB) silently returned the
+  WRONG byte, corrupting whatever data-ROM-resident table the game read through it. Ported the
+  real `Bus::mirror` algorithm (`spc7110::bus_mirror`) and applied it to every PROM/DROM lookup;
+  the wild-PC excursion this caused moved from ~20-30 frames into boot (BRK-storming into
+  unmapped low banks, per the original diagnostic) to ~90+ frames, and it now self-recovers via a
+  BRK/RTI oscillation instead of a permanent crash. **Still open:** the CPU eventually executes an
+  `RTI` (traced to `$CD:D2B3`, genuine PROM-resident code, not decompression garbage) that pops a
+  return frame pointing into WRAM (`$20:0848`, mirror of `$7E:0848`) which is confirmed **entirely
+  zeroed** — the game expects real code to already be resident there (very likely written via a
+  DCU-driven decompress-to-WRAM step that either hasn't run yet or is itself still buggy) and
+  there isn't any. Full root-causing this needs a proper instruction-level disassembler + symbol
+  trace against the DCU/data-port write sequence, which is out of this session's scope — tracked
+  as future SPC7110 work, not silently claimed fixed (`docs/adr/0003`).
+- **S-RTC** (`BestEffort`, **implemented** — `coproc::sharprtc`): a standalone Sharp RTC-4513
+  real-time clock (Daikaijuu Monogatari II, an ExHiROM title; ares board
+  `EXHIROM-RAM-SHARPRTC`). A DIFFERENT chip/protocol from SPC7110's paired Epson RTC-4513 despite
+  the similar name: a 2-register (`$2800` data, `$2801` unused) handshake that walks a 13-slot
+  decimal clock file (second/minute/hour/day/month/year + an auto-computed weekday) through a
+  `Ready -> Command -> Read`/`Write` state machine driven by magic values written to `$2800`
+  (`$0D`=enter read, `$0E`=enter command, then `$00`=write / `$04`=reset-to-epoch as the command
+  byte). Wraps a base `ExHiRom` board (`SharpRtcBoard::new`); ROM/SRAM delegate to it unchanged.
+  Like the Epson RTC-4513, this port seeds a fixed epoch and never advances the clock other than
+  via explicit register writes (`docs/adr/0004`'s determinism contract). No commercial Daikaijuu
+  Monogatari II dump exists in this project's local corpus, so this board has unit-test-level
+  coverage only, not golden-framebuffer validation (`docs/adr/0003`); header detection is a
+  best-effort title match (`"DAIKAIJUU MONOGATARI"` / `"DAIKAIJU MONOGATARI"`), the same posture
+  already carried openly for CX4/SPC7110's own `$F`-nibble disambiguation.
 
 ## Header detection
 

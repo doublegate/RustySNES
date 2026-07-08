@@ -68,6 +68,8 @@ pub enum Coprocessor {
     Cx4,
     /// OBC1 (Metal Combat).
     Obc1,
+    /// Sharp RTC-4513 standalone real-time clock (Daikaijuu Monogatari II).
+    Srtc,
 }
 
 /// A parsed SNES internal header.
@@ -264,6 +266,10 @@ fn coprocessor_from_chipset(chipset: u8, title_upper: &str) -> Coprocessor {
                 || title_upper.contains("FAR EAST OF EDEN")
             {
                 Coprocessor::Spc7110
+            } else if title_upper.contains("DAIKAIJUU MONOGATARI")
+                || title_upper.contains("DAIKAIJU MONOGATARI")
+            {
+                Coprocessor::Srtc
             } else {
                 // ST018 and other undetected `$F` customs stay BestEffort/not-started: the cart
                 // runs as its base board (unmapped coprocessor window) rather than guessing.
