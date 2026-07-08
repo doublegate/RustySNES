@@ -28,12 +28,13 @@ record; this file frames the phase line.
   push) and Phase 8
   (netplay/RetroAchievements/scripting — all three crates are still 1-line stubs) have not
   started. See `docs/STATUS.md` for the authoritative per-subsystem table this line summarizes.
-- **Release:** `v0.1.0 "Foundation"`, `v0.2.0 "Persistence"`, and `v0.3.0 "Continuum"` (rewind,
-  run-ahead, PAL auto-detect, ExLoROM) are all tagged and released on GitHub, establishing the
-  real release cadence `to-dos/VERSION-PLAN.md` defines — read it alongside this file; it maps
-  the phases above onto a concrete, named `v0.x.0` → `v1.0.0` ladder with release-cut criteria
-  per rung. `v0.4.0 "Completion"` (SPC7110 boot fix, ST018, standalone S-RTC) is
-  now complete and ready to tag.
+- **Release:** `v0.1.0 "Foundation"`, `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"` (rewind,
+  run-ahead, PAL auto-detect, ExLoROM), and `v0.4.0 "Completion"` (SPC7110 addressing fix, ST018,
+  standalone S-RTC) are all tagged and released on GitHub, establishing the real release cadence
+  `to-dos/VERSION-PLAN.md` defines — read it alongside this file; it maps the phases above onto a
+  concrete, named `v0.x.0` → `v1.0.0` ladder with release-cut criteria per rung. `v0.5.0
+  "Fidelity"` (the accuracy-dashboard + hardware-gotcha regression suite push, benchmarked
+  against RustyNES's AccuracyCoin-equivalent rigor) is next.
 
 ## The phase spine
 

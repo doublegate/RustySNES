@@ -105,7 +105,7 @@ this. See `to-dos/phase-5-frontend/sprint-2-save-states.md` for the ticket break
       open:** no real ExLoROM ROM (commercial or homebrew) exists in the local corpus, so this
       board has only formula-level unit-test coverage, not golden-framebuffer validation.
 
-### v0.4.0 "Completion" — finish the coprocessor/board matrix — **COMPLETE, READY TO TAG**
+### v0.4.0 "Completion" — finish the coprocessor/board matrix — **RELEASED 2026-07-08**
 
 All three line items landed: standalone S-RTC and ST018 fully implemented; SPC7110's addressing
 bug found and fixed (the boot-crash gap that remains is honestly tracked, not a blocker — see the
@@ -113,7 +113,7 @@ SPC7110 entry below and `docs/cart.md` §SPC7110).
 
 Closes Phase 7's exit criterion ("the full coprocessor/board matrix in `docs/STATUS.md`").
 
-- [x] **Standalone S-RTC.** `coproc::sharprtc::SharpRtcBoard` — a standalone Sharp RTC-4513
+- [x] **Standalone S-RTC.** `coproc::sharprtc::SharpRtcBoard` — a standalone Sharp S-RTC
       (Daikaijuu Monogatari II, ExHiROM), distinct chip/protocol from SPC7110's paired Epson
       RTC-4513. Unit-tested; no commercial dump in the local corpus, so not golden-framebuffer
       validated (`docs/adr/0003`).
@@ -147,7 +147,10 @@ AccuracyCoin-equivalent). See `to-dos/phase-6-accuracy-to-100/`.
   Suchie-Pai / Marvelous+SA-1), and the 65816 `$4203` double-write multiplier edge case.
 - Track the composed accuracy battery's pass rate as a literal, always-current dashboard number
   in `docs/STATUS.md`, cited in every release from here on — the same treatment RustyNES gives
-  "AccuracyCoin 139/139."
+  its own AccuracyCoin score (currently `139/141` shipped-default, `141/141` behind a default-off
+  feature flag per its own "bake, then promote" gate — worth mirroring that exact pattern:
+  ship honest partial coverage default-on, land experimental fixes default-off until proven
+  against a broad commercial-ROM byte-identity oracle, then promote in a dedicated point release).
 - Pursue the Nintendo Aging/Controller/SNES Test Program ROMs if obtainable, as an independent
   oracle layer.
 - Anything needing the fractional-timebase refactor (`docs/adr/0002`) is explicitly deferred
@@ -168,14 +171,24 @@ isn't about emulation accuracy.
       already exercised on every `main` push since `v0.1.0`.
 - Add checksummed assets (SHA-256) to the release archives — the current packaging step doesn't
   emit them yet (deferred here, not urgent enough to block anything).
-- Add a `cargo audit`/`cargo deny` CI gate and a single `lint` job running fmt+clippy+rustdoc
-  all `-D warnings`, mirroring RustyNES's `ci.yml` structure (RustySNES's workspace lints are
-  currently `warn`, not enforced as `-D warnings` at the attribute level).
+- Add a dedicated `security.yml` (`cargo audit` + `cargo deny`, on a schedule + every PR touching
+  `Cargo.lock`) and a single `lint` job running fmt+clippy+rustdoc all `-D warnings` as one gate,
+  mirroring RustyNES's 8-workflow `.github/workflows/` structure (`ci.yml`, `security.yml`,
+  `release.yml`, `release-auto.yml`, `web.yml`, plus its mobile/PGO workflows this project has no
+  mobile-target reason to copy) — RustySNES currently has 3 (`ci.yml`, `pages.yml`, `release.yml`)
+  and workspace lints are `warn`, not enforced as `-D warnings` at the attribute level (CI's own
+  `-- -D warnings` command-line flag is the actual gate today; keep that, add the dedicated job).
 - New docs: `docs/benchmarks.md` (a results doc recording actual measured numbers — distinct
-  from the existing `docs/performance.md`, which is targets/rules), `docs/DOCUMENTATION_INDEX.md`.
-- ADR backfill for cross-cutting decisions made along this ladder that don't yet have one
-  (save-state format from v0.2.0, this versioning-process adoption itself) — grow past today's
-  5 ADRs toward RustyNES's 27, documenting decisions as they're made rather than retroactively.
+  from the existing `docs/performance.md`, which is targets/rules), `docs/DOCUMENTATION_INDEX.md`,
+  a `docs/audit/` directory for dense investigation write-ups (RustyNES's pattern for campaigns
+  like the SPC7110 boot-crash trace this project still owes, `docs/cart.md` §SPC7110).
+- ADR backfill for cross-cutting decisions made along this ladder that don't yet have one. Save-
+  state format is already covered (`docs/adr/0006`); still missing: the versioning/release-
+  process adoption itself (this document + the tag-body-is-the-release-note convention), the
+  ExLoROM decode-formula sourcing decision (`docs/cart.md` §ExLoROM), and ST018's detection
+  method + `Board::coprocessor_tick`-not-second-CPU-hooks architectural choice
+  (`docs/st018-arm-notes.md`) — grow past today's 6 ADRs toward RustyNES's 30, documenting
+  decisions as they're made rather than retroactively.
 - `to-dos/ROADMAP.md` and this file updated to reflect the ladder's actual progress at every
   release, not left stale (the mistake this rewrite is fixing).
 
