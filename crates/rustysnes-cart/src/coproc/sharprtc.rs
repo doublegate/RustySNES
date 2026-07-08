@@ -145,8 +145,12 @@ impl SharpRtcBoard {
 
     /// Read one BCD-ish decimal digit of the clock file (ares `SharpRTC::rtcRead`, `address` is
     /// the 0-12 slot). Every arm is `< 100`, well within `u8` range.
-    #[allow(clippy::cast_possible_truncation)]
-    const fn rtc_read(&self, address: u8) -> u8 {
+    ///
+    /// Not marked `const fn`: `SharpRtcBoard` carries a heap-allocated `inner: Box<dyn Board>`
+    /// field, so `const`-ness here is cosmetic and fragile against future field changes — the
+    /// same posture `coproc::hg51b` already documents for its own dense register-port methods.
+    #[allow(clippy::missing_const_for_fn, clippy::cast_possible_truncation)]
+    fn rtc_read(&self, address: u8) -> u8 {
         let v = match address {
             0 => self.second % 10,
             1 => self.second / 10,
@@ -167,7 +171,11 @@ impl SharpRtcBoard {
     }
 
     /// Write one decimal digit of the clock file (ares `SharpRTC::rtcWrite`).
-    const fn rtc_write(&mut self, address: u8, data: u32) {
+    ///
+    /// Not marked `const fn`: same rationale as [`Self::rtc_read`] (the enclosing struct carries
+    /// a heap-allocated `Box<dyn Board>`).
+    #[allow(clippy::missing_const_for_fn)]
+    fn rtc_write(&mut self, address: u8, data: u32) {
         match address {
             0 => self.second = self.second / 10 * 10 + data,
             1 => self.second = data * 10 + self.second % 10,
@@ -330,10 +338,13 @@ impl Board for SharpRtcBoard {
 
     fn load_state(&mut self, r: &mut SaveReader) -> Result<(), SaveStateError> {
         let mut s = r.expect_section(*b"SRTC")?;
-        // Every field below is a plain decimal digit/counter the write path derives from a
-        // masked 4-bit register write (`rtc_write`) or the fixed `calculate_weekday`
-        // computation — never independently free-form — so validate the exact ranges hardware
-        // can actually produce, matching `Obc1Board::load_state`'s posture for its own cursor.
+        // Unlike `Obc1Board`'s cursor (an out-of-range `shift` panics the next `$1FF4` access
+        // via a `<<`-overflow), NONE of the clock digits below can panic on any `u32` value:
+        // `rtc_read`/`rtc_write` only ever `%`/`/` them, which never panics. Accepting them as-is
+        // (rather than inventing bit-width bounds these decimal-digit fields don't actually
+        // have — each is built from two masked-but-not-decimal-clamped 4-bit register writes, so
+        // the real reachable range isn't a clean power-of-two mask either) matches this
+        // project's "reject only what would otherwise panic or corrupt an enum" posture.
         let second = s.read_u32()?;
         let minute = s.read_u32()?;
         let hour = s.read_u32()?;
@@ -342,22 +353,11 @@ impl Board for SharpRtcBoard {
         let year = s.read_u32()?;
         let weekday = s.read_u32()?;
         let state_byte = s.read_u8()?;
-        let index_byte = s.read_u8()?;
-        if second > 99
-            || minute > 99
-            || hour > 99
-            || day > 99
-            || month > 9
-            || year > 999
-            || weekday > 9
-            || index_byte > 14
-        {
-            return Err(SaveStateError::Invalid(alloc::format!(
-                "SharpRtcBoard clock/cursor out of range: second={second} minute={minute} \
-                 hour={hour} day={day} month={month} year={year} weekday={weekday} \
-                 index_byte={index_byte}"
-            )));
-        }
+        // `index_byte` is `index + 1` (see `save_state`); clamp to the encoding's valid 0..=14
+        // range (decodes to the real `-1..=13` sentinel-plus-slots range) rather than rejecting —
+        // `read_register`/`write_register` already re-check `index` against `0..12`/`>12` on
+        // every access, so an over-clamped value self-corrects on the very next register access.
+        let index_byte = s.read_u8()?.min(14);
         let index = i32::from(index_byte) - 1;
         let state = match state_byte {
             0 => State::Ready,
