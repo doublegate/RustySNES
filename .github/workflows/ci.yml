@@ -6,6 +6,12 @@ on:
   pull_request:
 permissions:
   contents: read
+# Cancel a superseded run (a new push to the same PR/branch) instead of letting stale, already-
+# obsolete runs burn minutes to completion — the single biggest per-PR cost lever besides scoping
+# the full battery to tags (below).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   # Fast gate: every PR event (opened/synchronize/...) and every push to `main`. Formatting +
   # lint only (Linux) — the full test suite, the 3-OS matrix, the doc build, and the no_std build
@@ -25,10 +31,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # fmt/clippy only ever check the HOST target here (no `--target` is ever passed to either
+      # command in this job) — installing the wasm32/thumbv7em cross targets bought nothing but
+      # setup time on every single PR push. Only `no_std` (which actually cross-compiles) needs
+      # thumbv7em-none-eabihf; nothing in ci.yml builds for wasm32 (that's `pages.yml`'s job).
       - uses: dtolnay/rust-toolchain@1.96
         with:
           components: rustfmt, clippy
-          targets: wasm32-unknown-unknown, thumbv7em-none-eabihf
+      - uses: Swatinem/rust-cache@v2
       # The egui/winit frontend links against X11/Wayland/ALSA on Linux (see CONTRIBUTING.md).
       - name: Install Linux frontend system deps
         run: |
@@ -51,17 +61,23 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+      # Same rationale as `lint`: neither fmt nor clippy nor `cargo test` cross-compiles here, so
+      # no extra targets are installed.
       - uses: dtolnay/rust-toolchain@1.96
         with:
           components: rustfmt, clippy
-          targets: wasm32-unknown-unknown, thumbv7em-none-eabihf
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: full-test-${{ matrix.os }}
       - name: Install Linux frontend system deps
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libxkbcommon-dev libwayland-dev libasound2-dev \
             libudev-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+      # Formatting is platform-independent (pure source-text parsing) — one leg is enough.
       - run: cargo fmt --all --check
+        if: runner.os == 'Linux'
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: cargo test --workspace --features test-roms
@@ -80,4 +96,5 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.96
         with:
           targets: thumbv7em-none-eabihf
+      - uses: Swatinem/rust-cache@v2
       - run: cargo build -p rustysnes-core --target thumbv7em-none-eabihf --no-default-features
