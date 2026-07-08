@@ -34,12 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not golden-framebuffer validation.
 - **Rewind.** `rustysnes-frontend::rewind::RewindBuffer` — a bounded ring buffer of FULL
   `EmuCore::save_state` snapshots, recorded every `config.rewind.interval_frames` real frames
-  (default 6, ~10 Hz) up to `config.rewind.capacity` entries (default 300 ≈ 30s of NTSC rewind),
-  oldest evicted first. Simpler than `docs/frontend.md`'s original "keyframes + deltas" sketch —
-  delta-compression is a possible future memory optimization, not a correctness requirement.
-  Wired into the synchronous frame-drive loop (`app.rs`) + a new Emulation → Rewind menu item;
-  `capacity: 0` (the shipped default) makes recording a permanent no-op. Snapshots are discarded
-  on ROM load/close (a new cart invalidates any prior snapshot), NOT on Reset/Power-Cycle
+  (default 6, ~10 Hz) up to `config.rewind.capacity` entries, oldest evicted first. Simpler than
+  `docs/frontend.md`'s original "keyframes + deltas" sketch — delta-compression is a possible
+  future memory optimization, not a correctness requirement. Wired into the synchronous
+  frame-drive loop (`app.rs`) + a new Emulation → Rewind menu item; **`capacity: 0` is the
+  shipped default**, making recording a permanent no-op (e.g. `capacity: 300` at the default
+  6-frame interval would give ≈30s of NTSC rewind, but that's an example config, not what
+  ships). Snapshots are discarded on ROM load/close (a new cart invalidates any prior snapshot),
+  NOT on Reset/Power-Cycle
   (rewinding past an accidental reset is a legitimate use case).
 - **Run-ahead.** `rustysnes-frontend::rewind::step_with_run_ahead` — peeks `config.run_ahead.frames`
   frames ahead each displayed frame using the currently-latched input, presents that peek's

@@ -64,8 +64,10 @@ impl RewindBuffer {
         self.states.is_empty()
     }
 
-    /// Discard every recorded snapshot (e.g. on ROM load/Reset/Power-Cycle, where rewinding past
-    /// the discontinuity would be meaningless).
+    /// Discard every recorded snapshot. Call this on ROM load/close — a new cart invalidates any
+    /// prior snapshot (they belong to a different ROM/format). Deliberately NOT called on
+    /// Reset/Power-Cycle: rewinding past an accidental reset is a legitimate use case, so those
+    /// discontinuities keep the buffer intact (see `app.rs`'s `MenuAction` dispatch).
     pub fn clear(&mut self) {
         self.states.clear();
         self.frames_since_snapshot = 0;
@@ -78,7 +80,12 @@ impl RewindBuffer {
         if self.capacity == 0 {
             return;
         }
-        self.frames_since_snapshot += 1;
+        // Saturating: a multi-year 60 FPS session could otherwise overflow this counter (panic in
+        // debug, wrap in release). Self-healing at the saturation point: once pinned at
+        // `u32::MAX`, the very next call is `>= interval_frames` (triggering a snapshot, which
+        // resets the counter to 0), so this never permanently stops recording — worst case is one
+        // extra snapshot taken slightly early.
+        self.frames_since_snapshot = self.frames_since_snapshot.saturating_add(1);
         if self.frames_since_snapshot < self.interval_frames {
             return;
         }
@@ -121,6 +128,12 @@ impl RewindBuffer {
 ///
 /// Returns the framebuffer to actually present (which may be `frames` frames "ahead" of what's
 /// persisted) and its `(width, height)`.
+///
+/// # Panics
+/// Panics if restoring `snapshot` (taken from `core` moments earlier, same session, same cart)
+/// fails — that can only mean a genuine internal invariant violation, not a legitimate,
+/// recoverable error; silently skipping the rollback would leave `core` incorrectly persisting
+/// the deep-peeked state instead of advancing by exactly one frame.
 #[must_use]
 pub fn step_with_run_ahead(core: &mut EmuCore, frames: u32) -> (Vec<u8>, (u32, u32)) {
     if frames == 0 {
@@ -137,12 +150,14 @@ pub fn step_with_run_ahead(core: &mut EmuCore, frames: u32) -> (Vec<u8>, (u32, u
 
     // Roll back to the pre-peek state and re-run exactly one real frame: this is what actually
     // persists (and produces the continuous audio stream), regardless of how deep the peek ran.
-    // A restore failure here can only mean `snapshot` (taken from `core` a few lines above, same
-    // session, same cart) is somehow invalid — treat it the same as the peek never having
-    // happened, by simply not rolling back, rather than panicking on a same-session round trip.
-    if core.load_state(&snapshot).is_ok() {
-        core.run_frame();
-    }
+    // `snapshot` was taken from THIS SAME `core` a few lines above (same session, same cart), so
+    // a restore failure here can only mean a genuine internal invariant violation, not a
+    // legitimate/recoverable error — silently skipping the rollback would leave `core` incorrectly
+    // persisting the deep-peeked state (and its audio) instead of advancing by exactly one frame,
+    // breaking this function's whole contract. Fail loudly instead of corrupting state quietly.
+    core.load_state(&snapshot)
+        .expect("run-ahead rollback: snapshot taken from this same core moments ago must restore");
+    core.run_frame();
 
     (peek_framebuffer, peek_dims)
 }

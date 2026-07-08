@@ -91,14 +91,16 @@ startup, so the toggle had no effect.
   State drives a single quick-save slot held in `Active::quick_save`.
 - **Rewind** (`v0.3.0 "Continuum"`, `crate::rewind::RewindBuffer`) is a bounded ring buffer of
   FULL save-state snapshots, recorded every `config.rewind.interval_frames` real frames (default
-  6, i.e. ~10 Hz) up to `config.rewind.capacity` entries (default 300 ≈ 30s of NTSC rewind),
-  oldest evicted first. This is simpler than the originally-sketched "keyframes + deltas" design
-  — delta-compression is a possible future memory optimization, not a correctness requirement.
-  `capacity: 0` (the shipped default) makes recording a permanent no-op — off by default until a
-  Settings-UI toggle + a dedicated hotkey land; the Emulation → Rewind menu item and the
-  mechanism itself are both live today, driven purely by config. Recorded snapshots are
-  discarded (`RewindBuffer::clear`) on ROM load/close (a new cart invalidates any prior
-  snapshot), NOT on Reset/Power-Cycle (rewinding past an accidental reset is a legitimate use).
+  6, i.e. ~10 Hz) up to `config.rewind.capacity` entries, oldest evicted first. This is simpler
+  than the originally-sketched "keyframes + deltas" design — delta-compression is a possible
+  future memory optimization, not a correctness requirement. **`capacity: 0` is the shipped
+  default**, making recording a permanent no-op — off by default until a Settings-UI toggle + a
+  dedicated hotkey land; the Emulation → Rewind menu item and the mechanism itself are both live
+  today, driven purely by config. A user (or future UI) enabling it might reasonably pick
+  something like `capacity: 300` at the default 6-frame interval (≈30s of NTSC rewind) — that's
+  an example config, not what ships. Recorded snapshots are discarded (`RewindBuffer::clear`) on
+  ROM load/close (a new cart invalidates any prior snapshot), NOT on Reset/Power-Cycle (rewinding
+  past an accidental reset is a legitimate use).
 - **Run-ahead** (`v0.3.0 "Continuum"`, `crate::rewind::step_with_run_ahead`) peeks
   `config.run_ahead.frames` frames ahead using the currently-latched input each displayed frame,
   presents that peek's video, then rolls back and re-runs exactly ONE real frame — so the
