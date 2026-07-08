@@ -182,13 +182,13 @@ isn't about emulation accuracy.
   from the existing `docs/performance.md`, which is targets/rules), `docs/DOCUMENTATION_INDEX.md`,
   a `docs/audit/` directory for dense investigation write-ups (RustyNES's pattern for campaigns
   like the SPC7110 boot-crash trace this project still owes, `docs/cart.md` §SPC7110).
-- ADR backfill for cross-cutting decisions made along this ladder that don't yet have one. Save-
-  state format is already covered (`docs/adr/0006`); still missing: the versioning/release-
-  process adoption itself (this document + the tag-body-is-the-release-note convention), the
-  ExLoROM decode-formula sourcing decision (`docs/cart.md` §ExLoROM), and ST018's detection
-  method + `Board::coprocessor_tick`-not-second-CPU-hooks architectural choice
-  (`docs/st018-arm-notes.md`) — grow past today's 6 ADRs toward RustyNES's 30, documenting
-  decisions as they're made rather than retroactively.
+- [x] ADR backfill for cross-cutting decisions made along this ladder. Save-state format was
+      already covered (`docs/adr/0006`); the three real gaps are now filled: `docs/adr/0007`
+      (the versioning/release-process adoption itself — this document + the tag-body-is-the-
+      release-note convention), `docs/adr/0008` (the ExLoROM decode-formula sourcing decision),
+      and `docs/adr/0009` (ST018's title-match detection method + `Board::coprocessor_tick`-not-
+      second-CPU-hooks architectural choice) — 9 ADRs now, growing toward RustyNES's 30 as new
+      decisions land, documented as they're made rather than retroactively.
 - `to-dos/ROADMAP.md` and this file updated to reflect the ladder's actual progress at every
   release, not left stale (the mistake this rewrite is fixing).
 

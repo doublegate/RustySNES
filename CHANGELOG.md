@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **ADR backfill: 3 new ADRs, `v0.5.0` "Fidelity" / `v0.6.0` "Shippable" work, in progress.**
+  `docs/adr/0007` (the versioning/release-process adoption itself — the named `v0.x.0` ladder,
+  the tag-body-is-the-release-note convention), `docs/adr/0008` (why the ExLoROM decode formula
+  is sourced from bsnes's runtime board database rather than extrapolated from LoROM or the
+  header-detection heuristic), and `docs/adr/0009` (ST018's title-match detection method, kept
+  consistent with the rest of the `$F`-nibble coprocessor family rather than reading the
+  `$xFBF` byte other customs are known-unreliable against; and the `Board::coprocessor_tick`
+  catch-up architecture chosen over the SA-1 second-CPU hooks, since ST018's ARM core is
+  self-contained in `rustysnes-cart` unlike SA-1's second 65C816). Also adds implementation
+  guidance for the still-unstarted DRAM-refresh hardware-gotcha fix to `docs/scheduler.md`,
+  surfacing a real architectural tension this project's CPU-driven master clock has with real
+  hardware's independent video-timing generator that needs resolving empirically (against the
+  full golden-framebuffer suite) before that fix lands, not assumed safe up front.
+
 ## [0.4.0] "Completion" - 2026-07-08
 
 Closes out Phase 7's BestEffort coprocessor/board matrix: a full ARMv3 (ARM6-class) CPU core for
