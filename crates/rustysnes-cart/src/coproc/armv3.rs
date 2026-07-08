@@ -5,10 +5,10 @@
 //! Add/Sub/logical-op ALU core — each verified against the ARM Architecture Reference Manual's own
 //! documented truth tables. It does NOT yet implement instruction decode, the register file, mode
 //! banking, the 3-stage pipeline, or any board wiring; `ST018` is not yet reachable from
-//! `board::select`. See the `st018-armv3-scoping` session memory for the full architecture notes
-//! and the suggested build order this module follows (barrel shifter + condition codes + ALU core
-//! first, deliberately, since they're testable in complete isolation from the pipeline-timing
-//! complexity that the rest of the core depends on getting exactly right).
+//! `board::select`. See `docs/st018-arm-notes.md` for the full architecture notes and the
+//! suggested build order this module follows (barrel shifter + condition codes + ALU core first,
+//! deliberately, since they're testable in complete isolation from the pipeline-timing complexity
+//! that the rest of the core depends on getting exactly right).
 //!
 //! Clean-room port of Mesen2's `ArmV3Cpu` (MIT, `Core/SNES/Coprocessors/ST018/ArmV3Cpu.cpp`) —
 //! chosen over ares' `sfc/coprocessor/armdsp`, which instead reuses ares' generic shared
@@ -118,10 +118,19 @@ pub const fn rotate_right(value: u32, shift: u32) -> u32 {
     value.rotate_right(shift)
 }
 
-/// `ROR` by a fixed 1-31 amount, also returning the carry-out (bit `shift-1` of `value`) — Mesen2's
+/// `ROR` by a `0..=31` amount, also returning the carry-out (bit `shift-1` of `value`) — Mesen2's
 /// 3-argument `RotateRight`, used by `ArmDataProcessing`'s immediate-operand rotate.
+///
+/// Every current call site only ever passes a nonzero `shift` (the immediate encodings derive it
+/// as `nibble * 2` from a nonzero nibble, matching [`rotate_right`]'s own contract), but this is a
+/// public helper, so `shift == 0` is handled safely and total rather than left to underflow
+/// `shift - 1`: it returns `carry_in` unchanged, matching every other shift function in this
+/// module's shared "shift 0 preserves the existing carry" contract (see [`shift_lsl`]).
 #[must_use]
-pub const fn rotate_right_carry(value: u32, shift: u32) -> (u32, bool) {
+pub const fn rotate_right_carry(value: u32, shift: u32, carry_in: bool) -> (u32, bool) {
+    if shift == 0 {
+        return (value, carry_in);
+    }
     let carry = (value >> (shift - 1)) & 1 != 0;
     (rotate_right(value, shift), carry)
 }
@@ -372,8 +381,22 @@ mod tests {
     #[test]
     fn rotate_right_matches_the_manual_bit_algebra() {
         assert_eq!(rotate_right(0x0000_0001, 1), 0x8000_0000);
-        let (v, c) = rotate_right_carry(0x0000_0001, 1);
+        let (v, c) = rotate_right_carry(0x0000_0001, 1, false);
         assert_eq!(v, 0x8000_0000);
         assert!(c, "carry = bit(shift-1) = bit 0 of the original value");
+    }
+
+    #[test]
+    fn rotate_right_carry_by_zero_is_total_and_preserves_carry_in() {
+        // shift=0 must not underflow `shift - 1`; it preserves carry_in unchanged, matching every
+        // other shift function's shared "shift 0 changes nothing" contract.
+        assert_eq!(
+            rotate_right_carry(0x1234_5678, 0, true),
+            (0x1234_5678, true)
+        );
+        assert_eq!(
+            rotate_right_carry(0x1234_5678, 0, false),
+            (0x1234_5678, false)
+        );
     }
 }

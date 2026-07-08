@@ -325,8 +325,8 @@ as open bus, the game wedges on its first DSP poll — it is never silently degr
   "PC reads as address+8" quirk — a real, easy-to-get-subtly-wrong fidelity point, deliberately
   sequenced AFTER the pipeline model is solid rather than guessed at per-instruction), and the
   board wrapper are not yet implemented; `Coprocessor::St018` doesn't exist yet and `board::select`
-  cannot reach this module. See the `st018-armv3-scoping` session memory for the full architecture
-  notes and suggested build order.
+  cannot reach this module. See `docs/st018-arm-notes.md` for the full architecture notes and
+  suggested build order.
 
 ## Header detection
 
