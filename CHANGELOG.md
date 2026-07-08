@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`docs/benchmarks.md` + a real Criterion benchmark — `v0.6.0` "Shippable" work, pulled
+  forward.** The first-ever measured performance number on this codebase:
+  `crates/rustysnes-core/benches/headless_frame.rs` (Criterion 0.7) measures headless full-frame
+  throughput against a real committed test ROM (`tests/roms/undisbeliever/inidisp_hammer_0f00.sfc`,
+  chosen for no coprocessor/DMA-heavy content so the measurement isolates the base
+  CPU+PPU+scheduler cost). Result: **3.27 ms/frame** steady state, against `docs/performance.md`'s
+  ≤~2ms target — real-time headroom is fine (~5.1× at NTSC's 16.64ms/frame budget), but the
+  target itself isn't met yet. Documented honestly as a baseline to measure future optimization
+  against, not a claim of having hit the target.
+
 - **`docs/DOCUMENTATION_INDEX.md` — `v0.6.0` "Shippable" work, pulled forward.** The full
   documentation map (subsystem specs, ADRs, testing strategy, `ref-docs`/`ref-proj`/`to-dos`
   cross-references, external hardware-reference links), matching RustyNES's own index and linked

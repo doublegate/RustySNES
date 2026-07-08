@@ -187,10 +187,15 @@ isn't about emulation accuracy.
   `-- -D warnings` command-line flag is the actual gate today; keep that, add the dedicated job).
 - [x] `docs/DOCUMENTATION_INDEX.md` — the full documentation map (subsystem specs, ADRs, testing
       strategy, external references), linked from the README, matching RustyNES's own index.
-- New docs still needed: `docs/benchmarks.md` (a results doc recording actual measured numbers —
-  distinct from the existing `docs/performance.md`, which is targets/rules), a `docs/audit/`
-  directory for dense investigation write-ups (RustyNES's pattern for campaigns like the
-  SPC7110 boot-crash trace this project still owes, `docs/cart.md` §SPC7110).
+- [x] `docs/benchmarks.md` + a real Criterion benchmark
+      (`crates/rustysnes-core/benches/headless_frame.rs`) — the first-ever measured number on
+      this codebase: **3.27 ms/frame** steady state against `docs/performance.md`'s ≤~2ms target
+      (real-time headroom is fine at ~5.1×, but the target itself isn't met yet — an honest
+      baseline, not a claim of hitting it).
+      Establishes the number every future optimization pass is measured against.
+- New docs still needed: a `docs/audit/` directory for dense investigation write-ups (RustyNES's
+  pattern for campaigns like the SPC7110 boot-crash trace this project still owes, `docs/cart.md`
+  §SPC7110).
 - [x] ADR backfill for cross-cutting decisions made along this ladder. Save-state format was
       already covered (`docs/adr/0006`); the three real gaps are now filled: `docs/adr/0007`
       (the versioning/release-process adoption itself — this document + the tag-body-is-the-

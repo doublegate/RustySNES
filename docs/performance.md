@@ -38,8 +38,13 @@ Per `ref-docs/research-report.md` §§1–5, the per-cycle cost is dominated by:
 
 ## Profiling plan
 
-- `cargo bench -p rustysnes-cpu` / `-ppu` / `-apu` / `-core` (Criterion) per crate.
-- `perf record` on a headless replay of a known ROM for the integration hot path.
+- `cargo bench -p rustysnes-cpu` / `-ppu` / `-apu` / `-core` (Criterion) per crate. The
+  integration-level headless-frame benchmark is landed
+  (`crates/rustysnes-core/benches/headless_frame.rs`) — see `docs/benchmarks.md` for the actual
+  measured number and how to reproduce it. Per-crate hot-path benchmarks (CPU dispatch, PPU
+  per-dot emission, the SPC700 resync) are not yet split out.
+- `perf record` on a headless replay of a known ROM for the integration hot path — not yet run;
+  `docs/benchmarks.md`'s current baseline is Criterion wall-clock only, no flamegraph yet.
 - A perf-capture regression gate in CI once the core is real (mirrors the RustyNES pattern).
 
 ## Open questions

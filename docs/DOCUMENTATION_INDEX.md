@@ -31,7 +31,8 @@ The core "spec" docs — kept in sync with the code in the same PR as a change (
 |----------|-------|
 | [STATUS.md](STATUS.md) | **Single source of truth** — the accuracy dashboard, per-suite pass counts, coprocessor/board matrix, version policy |
 | [testing-strategy.md](testing-strategy.md) | The testing layers; test ROMs and golden framebuffers as the spec |
-| [performance.md](performance.md) | Performance targets and rules (see `../to-dos/VERSION-PLAN.md` `v0.6.0` for the still-open `benchmarks.md` results doc) |
+| [performance.md](performance.md) | Performance targets and rules |
+| [benchmarks.md](benchmarks.md) | The reproducible benchmark record — actual measured numbers |
 | [compatibility.md](compatibility.md) | ROM-format + coprocessor + per-game compatibility status |
 | [glossary.md](glossary.md) | SNES hardware + emulation terminology |
 | [SALVAGE_MANIFEST.md](SALVAGE_MANIFEST.md) | What was salvaged from prior exploratory work vs. built fresh |
