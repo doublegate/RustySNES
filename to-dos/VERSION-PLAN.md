@@ -185,10 +185,12 @@ isn't about emulation accuracy.
   mobile-target reason to copy) — RustySNES currently has 3 (`ci.yml`, `pages.yml`, `release.yml`)
   and workspace lints are `warn`, not enforced as `-D warnings` at the attribute level (CI's own
   `-- -D warnings` command-line flag is the actual gate today; keep that, add the dedicated job).
-- New docs: `docs/benchmarks.md` (a results doc recording actual measured numbers — distinct
-  from the existing `docs/performance.md`, which is targets/rules), `docs/DOCUMENTATION_INDEX.md`,
-  a `docs/audit/` directory for dense investigation write-ups (RustyNES's pattern for campaigns
-  like the SPC7110 boot-crash trace this project still owes, `docs/cart.md` §SPC7110).
+- [x] `docs/DOCUMENTATION_INDEX.md` — the full documentation map (subsystem specs, ADRs, testing
+      strategy, external references), linked from the README, matching RustyNES's own index.
+- New docs still needed: `docs/benchmarks.md` (a results doc recording actual measured numbers —
+  distinct from the existing `docs/performance.md`, which is targets/rules), a `docs/audit/`
+  directory for dense investigation write-ups (RustyNES's pattern for campaigns like the
+  SPC7110 boot-crash trace this project still owes, `docs/cart.md` §SPC7110).
 - [x] ADR backfill for cross-cutting decisions made along this ladder. Save-state format was
       already covered (`docs/adr/0006`); the three real gaps are now filled: `docs/adr/0007`
       (the versioning/release-process adoption itself — this document + the tag-body-is-the-

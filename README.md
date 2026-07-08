@@ -69,6 +69,8 @@ The workspace strictly enforces a one-directional dependency graph to isolate em
 - `rustysnes-test-harness` — The accuracy oracle (SingleStepTests runners, golden-log suites, per-coprocessor commercial-ROM validation)
 - `rustysnes-netplay`, `rustysnes-cheevos`, `rustysnes-script` — reserved crates for the post-`v1.0.0` Reach features (netplay, RetroAchievements, Lua scripting); currently scaffolds.
 
+See [`docs/DOCUMENTATION_INDEX.md`](docs/DOCUMENTATION_INDEX.md) for the full documentation map (subsystem specs, ADRs, testing strategy, and more).
+
 ## Build / test
 
 ```bash

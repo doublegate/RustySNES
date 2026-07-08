@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`docs/DOCUMENTATION_INDEX.md` — `v0.6.0` "Shippable" work, pulled forward.** The full
+  documentation map (subsystem specs, ADRs, testing strategy, `ref-docs`/`ref-proj`/`to-dos`
+  cross-references, external hardware-reference links), matching RustyNES's own index and linked
+  from the README.
+
 - **`$4203`/`$4206` multiply/divide overlap: researched and correctly reclassified — `v0.5.0`
   "Fidelity" work, in progress.** The 65816 hardware-gotcha list named this as an open item;
   research against SNESdev's own Errata page shows starting a new multiply/divide while a
