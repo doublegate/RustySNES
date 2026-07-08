@@ -141,11 +141,17 @@ AccuracyCoin-equivalent). See `to-dos/phase-6-accuracy-to-100/`.
 
 - A named hardware-gotcha regression suite, each a targeted test: DRAM refresh (40 clocks/
   scanline — **researched, not yet implemented**, `docs/scheduler.md` §DRAM refresh — a real
-  architectural tension needs resolving empirically before landing, not a simple port), HDMA
-  mid-scanline placement, the DMA/HDMA-collision crash quirk, open-bus-via-HDMA-latch (the
-  "Speedy Gonzales stage 6-1" case), true mid-scanline/mid-dot writes (the "Air Strike Patrol
-  BG3 scroll" case — this un-defers Phase 2's flagged "mid-line raster deferred" gap), hi-res
-  color-math precision (Bishoujo Janshi Suchie-Pai / Marvelous+SA-1). **Researched and
+  architectural tension needs resolving empirically before landing, not a simple port). **Already
+  implemented, docs were stale (fixed this pass):** HDMA mid-scanline placement — `Bus::advance_master`
+  already fires HDMA's per-line run at the hardware-correct dot 276 (`HDMA_RUN_DOT`, hcounter 1104,
+  not the scanline boundary, per ares `sfc/cpu/timing.cpp`), proven by the committed
+  `hdmaen_latch_test`/`hdmaen_latch_test_2` goldens (`docs/scheduler.md` §DMA/HDMA bus-steal); the
+  "Implementation status" section further down the same doc had drifted out of sync with this and
+  wrongly still described it as a scanline-boundary trigger + deferred work — corrected. Still
+  open: the DMA/HDMA-collision crash quirk, open-bus-via-HDMA-latch (the "Speedy Gonzales stage
+  6-1" case), true mid-scanline/mid-dot writes (the "Air Strike Patrol BG3 scroll" case — this
+  un-defers Phase 2's flagged "mid-line raster deferred" gap), hi-res color-math precision
+  (Bishoujo Janshi Suchie-Pai / Marvelous+SA-1). **Researched and
   reclassified:** the 65816 `$4203`/`$4206` overlapping-multiply/divide case (SNESdev's own
   errata documents this as producing genuinely *undefined* RDMPY/RDDIV output — no canonical
   "corrupted" value exists to port, and inventing one would violate `docs/adr/0004`'s

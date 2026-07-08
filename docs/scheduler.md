@@ -234,13 +234,17 @@ DMA/HDMA) plus the `System` run loop (`scheduler.rs`):
   frame measures ≈357,374 master clocks (spec ≈357,368).
 - **DMA/HDMA** is `dma.rs` (clean-room from ares `dma.cpp`): GP-DMA halts the CPU and charges
   `8`/byte; HDMA runs per visible scanline with the per-mode lengths `{1,2,2,4,4,4,2,4}`, indirect
-  pointers, and the line counter. The `System` fires HDMA at scanline boundaries.
+  pointers, and the line counter. `Bus::advance_master` fires HDMA's per-frame setup at V=0 and
+  its per-visible-line run at the hardware-correct **dot 276** (`HDMA_RUN_DOT`, hcounter 1104 —
+  not the scanline boundary), matching ares `sfc/cpu/timing.cpp`; this dot-accurate phase is what
+  latches a mid-line `$420C` write on the correct scanline (§DMA/HDMA bus-steal above), proven by
+  the committed `hdmaen_latch_test`/`hdmaen_latch_test_2` goldens.
 - **NMI / IRQ:** the RDNMI (`$4210`) VBlank flag sets at VBlank **regardless** of the NMITIMEN
   enable (so VBlank-poll loops like gilyon's work); the NMI *interrupt* and the H/V-IRQ comparator
   (pushed to the PPU each dot) fire only when enabled.
 - **Deferred refinements** (no committed ROM depends on them yet): the 40-clock DRAM-refresh CPU
-  stall, the exact H=$116 HDMA dot phase (currently the scanline-boundary trigger), and the
-  PAL-frame master-clock cycle-check.
+  stall (researched, not yet implemented — see §DRAM refresh above) and the PAL-frame
+  master-clock cycle-check.
 
 ### DRAM refresh — implementation notes (`v0.5.0` hardware-gotcha item, not yet started)
 
