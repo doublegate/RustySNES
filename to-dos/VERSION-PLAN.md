@@ -74,9 +74,20 @@ this. See `to-dos/phase-5-frontend/sprint-2-save-states.md` for the ticket break
 
 ### v0.3.0 "Continuum" — rewind, run-ahead, PAL, ExLoROM
 
-- [ ] Rewind: a host-owned ring buffer of save-states (frontend crate, not core — matches the
-      existing architectural boundary that rate control lives in the frontend, `docs/adr/0004`).
-- [ ] Run-ahead: N-frame resimulate-and-discard using the same save-state primitive.
+- [x] Rewind: `crate::rewind::RewindBuffer` — a host-owned ring buffer of FULL save-state
+      snapshots (frontend crate, not core — matches the existing architectural boundary that
+      rate control lives in the frontend, `docs/adr/0004`), recorded every `interval_frames`
+      real frames, capacity-bounded, oldest evicted first. Simpler than the original "keyframes +
+      deltas" sketch in `docs/frontend.md`; delta-compression is a future memory optimization,
+      not a correctness requirement. Wired into `app.rs`'s frame-drive loop + an Emulation →
+      Rewind menu item; config-driven and off by default (`capacity: 0`).
+- [x] Run-ahead: `crate::rewind::step_with_run_ahead` — N-frame resimulate-and-discard using the
+      same save-state primitive: peeks N frames ahead for the presented video, rolls back, then
+      re-runs exactly one real frame so persisted state (and audio, the continuous stream) only
+      ever advances by one frame per call. Wired into `app.rs`'s frame-drive loop; config-driven
+      and off by default (`frames: 0`). Both proven by `rewind.rs` tests that hand-assemble a
+      tiny 65C816 program (NMI-driven WRAM counter → CGRAM write) for a real, observable
+      per-frame state signal — not a synthetic fingerprint.
 - [x] PAL region auto-detection: `Bus::sync_region_from_cart` reads the cart header's
       destination-code byte at `System::reset()` and reconfigures the PPU's line count/status bit
       (the 50 Hz/312-line table already existed in the scheduler per `docs/scheduler.md`; nothing

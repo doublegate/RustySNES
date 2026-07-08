@@ -175,6 +175,11 @@ struct Active {
     /// The present-mode string currently applied to the surface; compared against the live config
     /// each present so a Settings → Video toggle reconfigures the wgpu surface.
     applied_present_mode: String,
+    /// The rewind ring buffer (`config.rewind`-driven; a zero-capacity buffer is a permanent
+    /// no-op, so this is always constructed, never `Option`-wrapped).
+    rewind: crate::rewind::RewindBuffer,
+    /// A single quick-save-state slot (`MenuAction::SaveState`/`LoadState`).
+    quick_save: Option<Vec<u8>>,
 }
 
 /// The app: holds the config + the deferred ROM path until `resumed()` builds `Active`.
@@ -294,6 +299,11 @@ impl ApplicationHandler for App {
             },
             pacer: Pacer::new(self.config.region.frame_rate()),
             applied_present_mode: self.config.video.present_mode.clone(),
+            rewind: crate::rewind::RewindBuffer::new(
+                self.config.rewind.capacity,
+                self.config.rewind.interval_frames,
+            ),
+            quick_save: None,
         });
     }
 
@@ -376,6 +386,8 @@ impl App {
             // When NOT threaded, run as many whole emulated frames as real elapsed time has earned
             // (fixed-timestep), so emulation tracks the region rate, not the display refresh.
             #[cfg(not(feature = "emu-thread"))]
+            let mut run_ahead_frame = None;
+            #[cfg(not(feature = "emu-thread"))]
             let audio_samples = if paused {
                 active.pacer.idle();
                 Vec::new()
@@ -384,8 +396,20 @@ impl App {
                 emu.set_pad(0, active.pad1);
                 let mut samples = Vec::new();
                 for _ in 0..frames {
-                    emu.run_frame();
+                    // Run-ahead (config-driven, off by default): peeks `run_ahead.frames` frames
+                    // ahead for the PRESENTED video, while `emu`'s own persisted state (and audio
+                    // — the continuous stream) only ever advances by exactly one real frame, same
+                    // as the plain path below. See `crate::rewind::step_with_run_ahead`.
+                    if config.run_ahead.frames > 0 {
+                        run_ahead_frame = Some(crate::rewind::step_with_run_ahead(
+                            &mut emu,
+                            config.run_ahead.frames,
+                        ));
+                    } else {
+                        emu.run_frame();
+                    }
                     samples.extend_from_slice(emu.audio());
+                    active.rewind.record(&emu);
                 }
                 samples
             };
@@ -400,8 +424,14 @@ impl App {
                 }
                 Vec::new()
             };
-            let dims = emu.fb_dims();
-            let fb = emu.framebuffer().to_vec();
+            // Run-ahead presents the deepest peeked frame, not `emu`'s own (1-real-frame-behind)
+            // framebuffer; when it didn't run (paused, disabled, or the threaded build) fall back
+            // to the emulator's own current frame, matching the pre-run-ahead behavior exactly.
+            #[cfg(not(feature = "emu-thread"))]
+            let (fb, dims) =
+                run_ahead_frame.unwrap_or_else(|| (emu.framebuffer().to_vec(), emu.fb_dims()));
+            #[cfg(feature = "emu-thread")]
+            let (fb, dims) = (emu.framebuffer().to_vec(), emu.fb_dims());
             let info = ShellInfo {
                 cart_name: emu.cart_name().map(str::to_string),
                 region: emu.region(),
@@ -521,6 +551,10 @@ impl App {
                         let mut emu = active.core.lock().unwrap_or_else(PoisonError::into_inner);
                         active.shell.status = load_rom_file(&mut emu, &path);
                     }
+                    // A new cart invalidates every prior snapshot (rewind ring + quick-save) —
+                    // restoring one now would apply a foreign ROM's state to this System.
+                    active.rewind.clear();
+                    active.quick_save = None;
                 }
                 MenuAction::CloseRom => {
                     active
@@ -529,6 +563,8 @@ impl App {
                         .unwrap_or_else(PoisonError::into_inner)
                         .close_rom();
                     active.shell.status = "ROM closed".into();
+                    active.rewind.clear();
+                    active.quick_save = None;
                 }
                 MenuAction::SetRegion(region) => {
                     config.region = region;
@@ -564,12 +600,38 @@ impl App {
                         .power_cycle();
                     active.shell.status = "Power cycled".into();
                 }
-                // Save-states need a core-wide deterministic snapshot (Clone/serialize across the
-                // Board trait + APU/Bus/System); that is the next frontend sprint — see
-                // docs/frontend.md "Save-states".
-                MenuAction::SaveState | MenuAction::LoadState => {
-                    active.shell.status =
-                        "Save/Load state: not yet implemented (core snapshot pending)".into();
+                MenuAction::SaveState => {
+                    let saved = {
+                        let emu = active.core.lock().unwrap_or_else(PoisonError::into_inner);
+                        emu.rom_loaded().then(|| emu.save_state())
+                    };
+                    active.shell.status = if let Some(bytes) = saved {
+                        active.quick_save = Some(bytes);
+                        "Save state saved".into()
+                    } else {
+                        "Save state: no ROM loaded".into()
+                    };
+                }
+                MenuAction::LoadState => {
+                    let result = active.quick_save.as_ref().map(|bytes| {
+                        let mut emu = active.core.lock().unwrap_or_else(PoisonError::into_inner);
+                        emu.load_state(bytes)
+                    });
+                    active.shell.status = match result {
+                        Some(Ok(())) => "Save state loaded".into(),
+                        Some(Err(e)) => format!("Save state load failed: {e}"),
+                        None => "Load state: no save state yet".into(),
+                    };
+                }
+                MenuAction::Rewind => {
+                    let mut emu = active.core.lock().unwrap_or_else(PoisonError::into_inner);
+                    active.shell.status = if active.rewind.step_back(&mut emu) {
+                        "Rewound".into()
+                    } else if active.rewind.is_enabled() {
+                        "Rewind: buffer empty".into()
+                    } else {
+                        "Rewind: disabled (config.rewind.capacity == 0)".into()
+                    };
                 }
             }
         }

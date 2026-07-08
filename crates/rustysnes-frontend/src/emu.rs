@@ -259,6 +259,35 @@ impl EmuCore {
     pub const fn region(&self) -> Region {
         self.region
     }
+
+    /// Snapshot the full deterministic core state (`rustysnes_core::System::save_state`,
+    /// `docs/adr/0006`) for rewind/run-ahead/quick-save. Frontend-only state (the decoded RGBA8
+    /// framebuffer, the retained ROM/firmware bytes for Power-Cycle, latched pads) is NOT part of
+    /// this — it's outside the deterministic core and is re-derived after [`Self::load_state`].
+    #[must_use]
+    pub fn save_state(&self) -> Vec<u8> {
+        self.system.save_state()
+    }
+
+    /// Restore a snapshot taken by [`Self::save_state`] from a `System` with the SAME cart
+    /// already loaded (a save-state never embeds ROM bytes, `docs/adr/0006`) — the caller must
+    /// have already `load_rom`'d the matching ROM. Re-renders the framebuffer immediately so the
+    /// UI reflects the restored frame without waiting for the next [`Self::run_frame`], and
+    /// clears the audio FIFO (a state load jumps time discontinuously; there is no continuous
+    /// audio stream to drain across that jump).
+    ///
+    /// # Errors
+    /// Propagates [`rustysnes_savestate::SaveStateError`] if `bytes` is truncated/corrupt, from
+    /// an incompatible format version, or doesn't match this `System`'s currently-loaded cart
+    /// (SRAM size, coprocessor presence) — the state is left unchanged on error.
+    pub fn load_state(&mut self, bytes: &[u8]) -> Result<(), rustysnes_savestate::SaveStateError> {
+        self.system.load_state(bytes)?;
+        self.audio.clear();
+        if self.rom_loaded {
+            self.render_framebuffer();
+        }
+        Ok(())
+    }
 }
 
 /// ROM-load / emulation errors surfaced to the UI.

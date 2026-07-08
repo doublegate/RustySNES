@@ -3187,6 +3187,7 @@ dependencies = [
  "ratatui",
  "rfd",
  "rustysnes-core",
+ "rustysnes-savestate",
  "serde",
  "thiserror 2.0.18",
  "toml",
