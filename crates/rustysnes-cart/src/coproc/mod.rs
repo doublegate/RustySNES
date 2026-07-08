@@ -23,6 +23,7 @@
 // Chip-name jargon (µPD77C25, µPD96050, ST010, …) is not Rust code.
 #![allow(clippy::doc_markdown)]
 
+pub mod armv3;
 pub mod cx4;
 pub mod dsp1;
 pub mod epsonrtc;
