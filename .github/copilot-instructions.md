@@ -17,9 +17,9 @@ RustySNES is a cycle-accurate SNES/SFC emulator in Rust. Accuracy and determinis
 - Master-clock lockstep timing model is fundamental.
 - `rustysnes-core::Bus` owns mutable machine state; CPU borrows `&mut Bus`.
 - Keep crate dependencies one-directional; chip crates do not depend on each other.
-- Determinism is mandatory (seed + ROM + input => bit-identical output).
+- Determinism is mandatory (seed + ROM + input → bit-identical output).
 - Test ROMs are the behavioral spec; if docs disagree with passing ROM behavior, update docs.
-- Additive features remain default-off so native/no_std/wasm outputs stay byte-identical with features off.
+- Additive features remain default-off so native/no_std/wasm outputs stay byte-identical in default configurations.
 
 ## Workspace map
 
@@ -60,7 +60,7 @@ trunk build --release
 - **Linux frontend build/link errors (missing X11/Wayland/ALSA/udev libs).**  
   Install system deps first: `libxkbcommon-dev libwayland-dev libasound2-dev libudev-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev`.
 
-- **`cargo clippy --all-features` fails due feature incompatibility.**  
+- **`cargo clippy --all-features` fails due to feature incompatibility.**  
   Do **not** use `--all-features`; use `cargo clippy --workspace --all-targets -- -D warnings` (and explicit feature jobs when needed).
 
 - **`trunk build` / Pages wasm build fails from `wasm-bindgen` mismatch.**  
@@ -71,14 +71,6 @@ trunk build --release
 
 ## Repo-specific safety and policy notes
 
-- Never commit commercial ROMs or copyleft/unlicensed ROM corpora into the MIT/Apache tree.
+- Never commit commercial ROMs or copyleft/unlicensed ROM corpora into this dual-licensed MIT/Apache-2.0 repository.
 - Keep `unsafe` confined to existing allowed areas (frontend/FFI) and document each `unsafe` block with `// SAFETY:`.
 - For chip behavior changes, update both code and the corresponding `docs/<chip>.md`.
-
-## Errors encountered while preparing this onboarding file
-
-- **Large-file reads were truncated by tooling (`view` size limits).**  
-  Workaround: use targeted `view_range`/`rg` queries instead of full-file dumps.
-
-- **Broad repository-wide `rg` produced oversized output.**  
-  Workaround: narrow searches by directory/glob and use tighter patterns.
