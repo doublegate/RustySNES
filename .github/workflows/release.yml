@@ -2,10 +2,20 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Manual re-run against an already-tagged release — e.g. to backfill artifacts onto a release
+  # that predates this workflow's packaging/upload steps, or to rebuild after a transient
+  # platform-specific failure without re-tagging (which would be destructive to a published tag).
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and attach artifacts to (e.g. v0.2.0)"
+        required: true
 # A tag is normally pushed once, but this guards a mistaken re-push (delete+recreate the same
-# tag) from queuing a redundant duplicate build behind the one already running.
+# tag) from queuing a redundant duplicate build behind the one already running. Manual dispatches
+# for different tags get independent groups (keyed on the resolved tag, not the ref) so backfilling
+# multiple historical releases in a row doesn't cancel each other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: true
 # `gh release upload`/`gh release create` (below) need write access to create/attach to releases.
 permissions:
@@ -19,8 +29,14 @@ jobs:
           - { os: macos-latest, target: aarch64-apple-darwin }
           - { os: windows-latest, target: x86_64-pc-windows-msvc }
     runs-on: ${{ matrix.os }}
+    env:
+      # A manual dispatch supplies the target tag explicitly (defaults are not evaluated for a
+      # `push` trigger, where `github.ref_name` is already the pushed tag).
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -44,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          stage="rustysnes-${{ github.ref_name }}-${{ matrix.target }}"
+          stage="rustysnes-${TAG}-${{ matrix.target }}"
           mkdir -p "$stage"
           cp "target/${{ matrix.target }}/release/rustysnes" "$stage/"
           cp README.md LICENSE-MIT LICENSE-APACHE "$stage/"
@@ -54,7 +70,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $stage = "rustysnes-${{ github.ref_name }}-${{ matrix.target }}"
+          $stage = "rustysnes-${env:TAG}-${{ matrix.target }}"
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/rustysnes.exe" $stage/
           Copy-Item README.md, LICENSE-MIT, LICENSE-APACHE $stage/
@@ -65,14 +81,14 @@ jobs:
       # doesn't exist yet (the release ceremony normally authors the real release notes with
       # `gh release create --notes-file` around the same time the tag is pushed — this is a
       # self-healing fallback for whichever finishes first, not the primary way releases get
-      # their notes). `--clobber` makes a re-run (e.g. after a failed job) idempotent.
+      # their notes). `--clobber` makes a re-run (e.g. after a failed job, or a manual backfill
+      # dispatch) idempotent.
       - name: Attach artifact to the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          TAG="${{ github.ref_name }}"
           REPO="${{ github.repository }}"
           if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             # All 3 matrix legs run concurrently and race this same check-then-create — a second
