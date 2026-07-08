@@ -188,9 +188,20 @@ Bus window is `$00-3F,$80-BF:$3000-$3FFF` (registered whole, dispatched internal
    at each pipeline stage across power-on, steady-state stepping, and a taken branch, confirming
    the +8 exposure and the branch-target's one-step arrival in Execute — this was the gotcha to
    get right BEFORE porting any instruction, and it's now locked down by tests.
-4. Data processing (the biggest single instruction class, but the most mechanical once 1-3 are
-   solid).
-5. Branch, MSR/MRS, software interrupt/exception entry.
+4. **Data processing** — done (`crate::coproc::armv3::cpu::Cpu::exec_data_processing`). All 16 ALU
+   ops, both immediate and shifted-register operand forms (including the register-specified-shift
+   `+4`-on-top-of-+8 R15 exposure), and the implicit `MOVS PC, ...`-restores-CPSR-from-SPSR
+   exception-return quirk — checked unconditionally on the decoded destination field, matching the
+   source, not gated on whether a result was actually written.
+5. **Branch, MSR/MRS, software interrupt/exception entry** — done (`Cpu::exec_branch`/`exec_msr`/
+   `exec_mrs`/`enter_exception`). The opcode-category decode (`Cpu`'s internal `Category::decode`)
+   mirrors the reference `InitArmOpTable`'s exact construction-order priority (Multiply/
+   MultiplyLong/SingleDataSwap/SoftwareInterrupt all carve sparse holes out of ranges that would
+   otherwise read as DataProcessing/InvalidOp) without needing a real 4096-entry table. 11 tests
+   cover condition-code gating, flag semantics (including CMP never writing a destination even
+   when its decoded field is nonzero), the R15+8 exposure inside data processing, `BL`'s `LR =
+   R15-4` (not `R15`), masked `MSR` writes, and a full SWI-then-`MOVS PC,LR` round trip proving
+   CPSR round-trips through a real mode change (User → Supervisor → User).
 6. LDR/STR (single data transfer) — every addressing-mode permutation.
 7. LDM/STM (block data transfer) — the highest-complexity instruction, tackle last with maximum
    pipeline/register-bank confidence already established.

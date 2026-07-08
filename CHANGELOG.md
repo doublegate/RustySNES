@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ST018: data processing, branch, MSR/MRS, and exception entry**
+  (`coproc::armv3::cpu`, `v0.4.0` "Completion" work, in progress). Steps 4+5 of the ARMv3 core
+  build order (`docs/st018-arm-notes.md`). All 16 data-processing ALU ops (both immediate and
+  shifted-register operand forms, including the register-specified-shift `+4`-on-top-of-`+8` R15
+  exposure quirk) and the implicit `MOVS PC, ...`-restores-CPSR-from-SPSR exception-return
+  behavior; `B`/`BL` (`LR = R15-4`, not `R15`, since R15 is already pipeline-advanced); masked
+  `MSR` writes and `MRS` reads; and exception entry for `SWI`/undefined-instruction traps. The
+  opcode-category decoder mirrors the reference `InitArmOpTable`'s exact construction-order
+  priority (sparse Multiply/MultiplyLong/SingleDataSwap/SoftwareInterrupt carve-outs win over the
+  broader ranges they overlap) without needing a real 4096-entry lookup table. 11 new tests,
+  including a full `SWI`-then-`MOVS PC,LR` round trip proving CPSR survives a real mode change
+  (User → Supervisor → User). `LDR`/`STR`, `LDM`/`STM`, multiply, and `SWP` remain — `Cpu::step`
+  panics with a clear `todo!` on any of those opcode categories in the meantime.
+
 - **ST018: the ARM register file, mode-switch banking, and the 3-stage pipeline**
   (`coproc::armv3::regs`, `v0.4.0` "Completion" work, in progress). Steps 2+3 of the ARMv3 core
   build order (`docs/st018-arm-notes.md`). Register banking ports real ARM hardware exactly:
