@@ -1,4 +1,4 @@
-//! The Sharp RTC-4513 standalone real-time clock — the only commercial cart is Daikaijuu
+//! The Sharp S-RTC standalone real-time clock — the only commercial cart is Daikaijuu
 //! Monogatari II (an ExHiROM title; ares board `EXHIROM-RAM-SHARPRTC`).
 //!
 //! Clean-room port of ares' `SharpRTC` (ISC, `sfc/coprocessor/sharprtc/`): a 2-register (`$2800`
@@ -39,7 +39,7 @@ use crate::board::{Board, Coprocessor, MappedAddr};
 /// so [`SharpRtcBoard`]'s own `tick*` family from ares is intentionally not ported).
 const DAYS_IN_MONTH: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
-/// The RTC-4513's protocol state machine (ares `SharpRTC::State`).
+/// The S-RTC's protocol state machine (ares `SharpRTC::State`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum State {
     #[default]

@@ -18,8 +18,11 @@
 //! H runs 0..=339 (340 wraps to a new line), V runs 0..=261 (NTSC) / 0..=311 (PAL). Active
 //! output is dots 22..=277 on lines 1..=224 (1..=239 overscan); `VBlank` asserts at V=225
 //! (V=240 overscan). The renderer is per-scanline (it composites a whole visible line at the
-//! line's end), which is bit-identical in the final framebuffer to a per-dot renderer and far
-//! simpler — the determinism contract only requires the *final frame* be reproducible.
+//! line's end), which is far simpler than a per-dot renderer and bit-identical to one *only when
+//! no register a line's rendering reads changes mid-line* — a per-line HDMA-driven register
+//! write (e.g. a raster scroll split) currently lands one scanline too early against real
+//! hardware, a confirmed, documented, not-yet-fixed gap (`docs/ppu.md` §Mid-scanline/HDMA-driven
+//! register timing).
 //!
 //! # Rendering note (clean-room)
 //!

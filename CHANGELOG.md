@@ -11,6 +11,105 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mid-scanline/HDMA-driven register timing + hi-res color-math precision: researched — `v0.5.0`
+  "Fidelity" work.** Confirmed a genuine, previously-undocumented off-by-one-line compositor bug
+  against ares' per-pixel reference model (`ppu/main.cpp`'s active-pixel rendering runs strictly
+  *before* HDMA's per-line service point): RustySNES's end-of-line compositor applies a line `V`
+  HDMA-driven register write to line `V` itself, when real hardware only ever observes it starting
+  line `V+1` (the mechanism behind Air Strike Patrol's BG3 raster scroll and any similar
+  HDMA-driven per-line effect). Corrected two related overclaims this same investigation surfaced
+  (`docs/ppu.md`'s "single-split-per-line effects work" claim, and both that doc's and
+  `crates/rustysnes-ppu/src/lib.rs`'s claim that the per-scanline compositor is unconditionally
+  "bit-identical" to a per-dot renderer). Not fixed this pass — the change touches the hottest
+  code path in the engine (every frame, all 29 currently-passing goldens) with no dedicated test
+  ROM yet to verify a fix against; full mechanism and what a fix needs documented in
+  `docs/ppu.md` §Mid-scanline/HDMA-driven register timing. Separately confirmed hi-res
+  color-math precision (Bishoujo Janshi Suchie-Pai / Marvelous+SA-1) is blocked entirely on
+  512-wide hi-res output not existing yet (ares' `DAC::run()` shows hi-res is a dual-half-pixel
+  alternating-compositor-result trick, not a numeric-precision tweak) — a real feature gap, not
+  this pass's scope; full mechanism in `docs/ppu.md` §Hi-res color-math precision. No `.rs` code
+  changed beyond doc comments; full workspace + `--features test-roms` suites verified unaffected.
+
+- **The "DMA/HDMA-collision crash quirk": researched and reclassified — `v0.5.0` "Fidelity"
+  work.** The SNESdev errata page's DMA section bundles three distinct behaviors under this
+  vague label: a version-1-5A22-only crash and a version-2-5A22-only silent-DMA-failure bug
+  (both chip-revision defects compliant commercial ROMs are written to avoid, not reproduced as
+  a crash by any mainstream reference emulator), plus a version-agnostic silent whole-frame HDMA
+  failure that's well-defined but has no known commercial title or committed test ROM depending
+  on it — no oracle exists to verify an implementation against, and the sibling open-bus
+  investigation (below) already demonstrated this exact class of change carries real regression
+  risk even when the documented mechanism is correct. A fourth item on the same errata list
+  (A-bus address restrictions) turned out to already be correctly implemented, as is the general
+  "HDMA preempts GP-DMA" priority ordering — the well-defined half of what "collision" could have
+  meant was never actually a gap. Full citation and per-sub-case reasoning in `docs/scheduler.md`.
+
+- **`security.yml` CI gate — `v0.6.0` "Shippable" work, pulled forward.** A new dedicated
+  workflow runs `cargo audit` and `cargo deny check` on every `main`/PR push touching non-doc
+  paths, plus a weekly schedule so a newly-published advisory against an unchanged dependency is
+  still caught. Added `deny.toml`, built from RustySNES's own `cargo deny list` output (not
+  copied from RustyNES's config) — independently confirms the same winit/egui/wgpu dependency
+  chain trips the identical 3 RUSTSEC advisories RustyNES already documented (`ttf-parser`
+  unmaintained via winit's Wayland decoration stack; `quick-xml`'s two advisories, reachable only
+  through `wayland-scanner`'s compile-time XML parsing of trusted vendored protocol files, never
+  runtime input). Suppressed in `deny.toml` + the new `.cargo/audit.toml` with the full
+  rationale, after explicit review and approval.
+
+- **Checksummed release assets (SHA-256) — `v0.6.0` "Shippable" work, pulled forward.**
+  `.github/workflows/release.yml` gained a `Checksum` step that emits a detached `<archive>.sha256`
+  alongside each platform's packaged binary archive, portable across the three runner shells
+  (tries `sha256sum`, falls back to `shasum -a 256`, since GNU coreutils' `sha256sum` is absent on
+  macOS runners and Perl's `shasum` isn't guaranteed on Windows' Git-Bash `PATH`); the upload step
+  now attaches both files. Not yet exercised end-to-end against a real tag.
+
+- **`docs/benchmarks.md` + a real Criterion benchmark — `v0.6.0` "Shippable" work, pulled
+  forward.** The first-ever measured performance number on this codebase:
+  `crates/rustysnes-core/benches/headless_frame.rs` (Criterion 0.7) measures headless full-frame
+  throughput against a real committed test ROM (`tests/roms/undisbeliever/inidisp_hammer_0f00.sfc`,
+  chosen for no coprocessor/DMA-heavy content so the measurement isolates the base
+  CPU+PPU+scheduler cost). Result: **3.27 ms/frame** steady state, against `docs/performance.md`'s
+  ≤~2ms target — real-time headroom is fine (~5.1× at NTSC's 16.64ms/frame budget), but the
+  target itself isn't met yet. Documented honestly as a baseline to measure future optimization
+  against, not a claim of having hit the target.
+
+- **`docs/DOCUMENTATION_INDEX.md` — `v0.6.0` "Shippable" work, pulled forward.** The full
+  documentation map (subsystem specs, ADRs, testing strategy, `ref-docs`/`ref-proj`/`to-dos`
+  cross-references, external hardware-reference links), matching RustyNES's own index and linked
+  from the README.
+
+- **`$4203`/`$4206` multiply/divide overlap: researched and correctly reclassified — `v0.5.0`
+  "Fidelity" work, in progress.** The 65816 hardware-gotcha list named this as an open item;
+  research against SNESdev's own Errata page shows starting a new multiply/divide while a
+  previous one's 8-cycle latency hasn't elapsed produces genuinely **undefined** `RDMPY`/`RDDIV`
+  output — no canonical corrupted value is documented anywhere to port, and fabricating one would
+  violate the determinism contract's spirit (`docs/adr/0004`). `MulDiv`'s doc comment now cites
+  the errata directly and explains why this stays a documented non-goal rather than an open gap.
+  Added a regression test locking in the well-defined case real hardware *does* document (MPYA
+  is a stable latch; a fresh `$4203` write alone starts another multiply against whatever it
+  already holds, no `$4202` rewrite needed).
+
+- **ADR backfill: 3 new ADRs, `v0.5.0` "Fidelity" / `v0.6.0` "Shippable" work, in progress.**
+  `docs/adr/0007` (the versioning/release-process adoption itself — the named `v0.x.0` ladder,
+  the tag-body-is-the-release-note convention), `docs/adr/0008` (why the ExLoROM decode formula
+  is sourced from bsnes's runtime board database rather than extrapolated from LoROM or the
+  header-detection heuristic), and `docs/adr/0009` (ST018's title-match detection method, kept
+  consistent with the rest of the `$F`-nibble coprocessor family rather than reading the
+  `$xFBF` byte other customs are known-unreliable against; and the `Board::coprocessor_tick`
+  catch-up architecture chosen over the SA-1 second-CPU hooks, since ST018's ARM core is
+  self-contained in `rustysnes-cart` unlike SA-1's second 65C816). Also adds implementation
+  guidance for the still-unstarted DRAM-refresh hardware-gotcha fix to `docs/scheduler.md`,
+  surfacing a real architectural tension this project's CPU-driven master clock has with real
+  hardware's independent video-timing generator that needs resolving empirically (against the
+  full golden-framebuffer suite) before that fix lands, not assumed safe up front.
+
+- **`docs/audit/` — `v0.6.0` "Shippable" work, pulled forward.** A new decision-rationale /
+  open-investigation directory (modeled on RustyNES's own `docs/audit/`), seeded with the full
+  SPC7110 boot-crash trail: the `v0.4.0`-landed `bus_mirror` addressing fix (confirmed root
+  cause #1) and the still-open gap (root cause #2, narrowed to two candidate hypotheses, not
+  yet fixed) that keeps Far East of Eden Zero from booting to real content. Also fixed two
+  remaining "Sharp RTC-4513" naming errors (`docs/cart.md`, `coproc::sharprtc`'s module/struct
+  docs) — the standalone Sharp S-RTC has no established "4513" part number anywhere; that number
+  belongs only to the different Epson chip paired with SPC7110.
+
 - **`docs/STATUS.md`: an accuracy dashboard — `v0.5.0` "Fidelity" work, in progress.** RustySNES
   has no single monolithic oracle ROM the way RustyNES's AccuracyCoin does (an early skeleton for
   exactly that approach, `rustysnes-test-harness::accuracy_battery`, ticket T-04, was never

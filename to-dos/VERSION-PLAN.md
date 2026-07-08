@@ -140,11 +140,62 @@ Closes Phase 7's exit criterion ("the full coprocessor/board matrix in `docs/STA
 AccuracyCoin-equivalent). See `to-dos/phase-6-accuracy-to-100/`.
 
 - A named hardware-gotcha regression suite, each a targeted test: DRAM refresh (40 clocks/
-  scanline — confirm modeled, not just documented), HDMA mid-scanline placement, the DMA/HDMA-
-  collision crash quirk, open-bus-via-HDMA-latch (the "Speedy Gonzales stage 6-1" case), true
-  mid-scanline/mid-dot writes (the "Air Strike Patrol BG3 scroll" case — this un-defers Phase
-  2's flagged "mid-line raster deferred" gap), hi-res color-math precision (Bishoujo Janshi
-  Suchie-Pai / Marvelous+SA-1), and the 65816 `$4203` double-write multiplier edge case.
+  scanline — **researched, not yet implemented**, `docs/scheduler.md` §DRAM refresh — a real
+  architectural tension needs resolving empirically before landing, not a simple port). **Already
+  implemented, docs were stale (fixed this pass):** HDMA mid-scanline placement — `Bus::advance_master`
+  already fires HDMA's per-line run at the hardware-correct dot 276 (`HDMA_RUN_DOT`, hcounter 1104,
+  not the scanline boundary, per ares `sfc/cpu/timing.cpp`), proven by the committed
+  `hdmaen_latch_test`/`hdmaen_latch_test_2` goldens (`docs/scheduler.md` §DMA/HDMA bus-steal); the
+  "Implementation status" section further down the same doc had drifted out of sync with this and
+  wrongly still described it as a scanline-boundary trigger + deferred work — corrected.
+  **Researched, prototyped, regressed, deferred:** open-bus-via-HDMA-latch (the "Speedy Gonzales
+  stage 6-1" case) — the mechanism is confirmed against two independent primary sources (SNESdev
+  wiki + byuu/Near's original mGBA writeup): `Bus::open_bus` is currently updated only by direct
+  CPU accesses, never by a DMA/HDMA-driven byte, which is wrong versus real hardware. A prototype
+  making `DmaBus for Bus`'s `read_a`/`write_a`/`read_b`/`write_b` update `open_bus` on every
+  transfer (mirroring `CpuBus::read24`/`write24`) passed the full base workspace suite but broke
+  all 24 `superfx_boots_live_and_deterministic` golden hashes (confirmed caused by this exact
+  change, not pre-existing) for a reason not yet root-caused — very likely something in how
+  Super FX/GSU games' GP-DMA ROM→GSU-RAM transfers interact with the change. Not landed; see
+  `docs/scheduler.md` §Open bus via DMA/HDMA for the full mechanism and what a future
+  investigation needs (an access-level trace, mirroring `docs/audit/spc7110-boot-crash-2026-07-08.md`'s
+  approach for the SPC7110 gap). **Researched, confirmed, deferred:** true mid-scanline/mid-dot
+  writes (the "Air Strike Patrol BG3 scroll" case) — confirmed against ares' per-pixel reference
+  model (`ppu/main.cpp`'s `cycleRenderPixel()` only runs for hcounter `[56, 1078]`, strictly
+  *before* HDMA's per-line run at hcounter 1104) that RustySNES's end-of-line compositor has a
+  genuine, systemic off-by-one-line bug: an HDMA-driven per-line register write during line `V`
+  is meant to take effect starting line `V+1`, but the current compositor (reading live register
+  state at dot 340, after line `V`'s own HDMA already ran) applies it to line `V` itself. This
+  un-defers (confirms as real, not yet fixes) Phase 2's flagged "mid-line raster deferred" gap.
+  Not fixed this pass — the fix touches the hottest code path in the engine (every frame, all 29
+  goldens) with no dedicated test ROM yet to verify against; full mechanism, why it's deferred,
+  and what a fix needs in `docs/ppu.md` §Mid-scanline/HDMA-driven register timing. **Researched,
+  deferred (blocked on a larger feature, not a precision nuance):** hi-res color-math precision
+  (Bishoujo Janshi Suchie-Pai / Marvelous+SA-1) — confirmed against ares' `DAC::run()` that hi-res
+  is a dual-half-pixel output trick (alternating `above`/`below` compositor results at 2× the
+  pixel rate), which RustySNES cannot model at all yet since Modes 5/6 don't emit 512-wide output
+  in the first place (a real feature gap, not a numeric-precision tweak) — full mechanism in
+  `docs/ppu.md` §Hi-res color-math precision. **Researched and
+  reclassified:** the 65816 `$4203`/`$4206` overlapping-multiply/divide case (SNESdev's own
+  errata documents this as producing genuinely *undefined* RDMPY/RDDIV output — no canonical
+  "corrupted" value exists to port, and inventing one would violate `docs/adr/0004`'s
+  determinism-contract spirit of not fabricating behavior real hardware itself doesn't define
+  one way). This is correctly a **documented, intentional non-goal**, not an open implementation
+  item — `crates/rustysnes-core/src/bus.rs`'s `MulDiv` doc comment cites the errata directly.
+  **Also researched and reclassified:** the "DMA/HDMA-collision crash quirk" — the SNESdev errata
+  page's DMA section actually bundles three distinct behaviors under that vague umbrella: a
+  version-1-5A22-only crash and a version-2-5A22-only silent-DMA-failure bug (both chip-revision
+  defects compliant commercial ROMs are written to avoid, not reproduced as a crash by any
+  mainstream reference emulator), plus a version-agnostic silent whole-frame HDMA failure that IS
+  well-defined but has no known commercial title or committed test ROM depending on it either way
+  — no oracle exists to verify an implementation against, and the sibling open-bus investigation
+  (above) just demonstrated this exact class of change carries real regression risk even when the
+  mechanism is correct. A fourth item on the same errata list (A-bus address restrictions) is
+  already correctly implemented (`DmaBus for Bus`'s blocked-address branches,
+  `crates/rustysnes-core/src/bus.rs`), as is the general "HDMA preempts GP-DMA" priority ordering
+  (`run_gp`'s `service_hdma_during_gp`, `crates/rustysnes-core/src/dma.rs`) — the well-defined
+  half of what "collision" could have meant was never actually a gap. Full citation and
+  per-sub-case reasoning in `docs/scheduler.md` §The "DMA/HDMA-collision crash quirk".
 - Track the composed accuracy battery's pass rate as a literal, always-current dashboard number
   in `docs/STATUS.md`, cited in every release from here on — the same treatment RustyNES gives
   its own AccuracyCoin score (currently `139/141` shipped-default, `141/141` behind a default-off
@@ -169,26 +220,43 @@ isn't about emulation accuracy.
       fact, since none of the first three tags had attached artifacts) ahead of this rung, since
       it was a real user-facing gap, not deferred work. wasm→Pages deploy (`pages.yml`) was
       already exercised on every `main` push since `v0.1.0`.
-- Add checksummed assets (SHA-256) to the release archives — the current packaging step doesn't
-  emit them yet (deferred here, not urgent enough to block anything).
-- Add a dedicated `security.yml` (`cargo audit` + `cargo deny`, on a schedule + every PR touching
-  `Cargo.lock`) and a single `lint` job running fmt+clippy+rustdoc all `-D warnings` as one gate,
-  mirroring RustyNES's 8-workflow `.github/workflows/` structure (`ci.yml`, `security.yml`,
-  `release.yml`, `release-auto.yml`, `web.yml`, plus its mobile/PGO workflows this project has no
-  mobile-target reason to copy) — RustySNES currently has 3 (`ci.yml`, `pages.yml`, `release.yml`)
-  and workspace lints are `warn`, not enforced as `-D warnings` at the attribute level (CI's own
-  `-- -D warnings` command-line flag is the actual gate today; keep that, add the dedicated job).
-- New docs: `docs/benchmarks.md` (a results doc recording actual measured numbers — distinct
-  from the existing `docs/performance.md`, which is targets/rules), `docs/DOCUMENTATION_INDEX.md`,
-  a `docs/audit/` directory for dense investigation write-ups (RustyNES's pattern for campaigns
-  like the SPC7110 boot-crash trace this project still owes, `docs/cart.md` §SPC7110).
-- ADR backfill for cross-cutting decisions made along this ladder that don't yet have one. Save-
-  state format is already covered (`docs/adr/0006`); still missing: the versioning/release-
-  process adoption itself (this document + the tag-body-is-the-release-note convention), the
-  ExLoROM decode-formula sourcing decision (`docs/cart.md` §ExLoROM), and ST018's detection
-  method + `Board::coprocessor_tick`-not-second-CPU-hooks architectural choice
-  (`docs/st018-arm-notes.md`) — grow past today's 6 ADRs toward RustyNES's 30, documenting
-  decisions as they're made rather than retroactively.
+- [x] Checksummed assets (SHA-256): `release.yml` gained a `Checksum` step (portable across the
+      three runner shells — tries `sha256sum`, falls back to `shasum -a 256`, since neither tool
+      alone is guaranteed present on every one of Linux/macOS/Windows) that emits a detached
+      `<archive>.sha256` alongside each platform archive; the upload step now attaches both.
+      Not yet exercised end-to-end against a real tag (next tag push / `workflow_dispatch`
+      backfill will be the first live proof, mirroring how the artifact-attachment fix itself
+      was only proven real by `v0.4.0`).
+- [x] `security.yml`: `cargo audit` + `cargo deny check` jobs, gated on `main`/PR pushes
+      touching non-doc paths + a Monday 00:00 UTC `schedule` + `workflow_dispatch`, mirroring
+      RustyNES's structure. `deny.toml` was built from RustySNES's own `cargo deny list` output
+      (not copied from RustyNES's), independently confirming the identical winit/egui/wgpu
+      dependency chain trips the same 3 RUSTSEC IDs RustyNES already documented
+      (RUSTSEC-2026-0192 `ttf-parser` unmaintained; -0194/-0195 `quick-xml`, reachable only via
+      `wayland-scanner`'s compile-time proc-macro parsing trusted vendored XML, never runtime
+      input) — suppressed in `deny.toml` + `.cargo/audit.toml` with the full rationale, after
+      explicit user review and approval. RustySNES now has 4 workflows (`ci.yml`, `pages.yml`,
+      `release.yml`, `security.yml`) against RustyNES's 8 — the dedicated `lint`-job-with-rustdoc
+      extension (`ci.yml`'s existing `lint` job runs fmt+clippy but not `cargo doc`) and the
+      mobile/PGO workflows (no mobile target here) remain open, lower-priority gaps.
+- [x] `docs/DOCUMENTATION_INDEX.md` — the full documentation map (subsystem specs, ADRs, testing
+      strategy, external references), linked from the README, matching RustyNES's own index.
+- [x] `docs/benchmarks.md` + a real Criterion benchmark
+      (`crates/rustysnes-core/benches/headless_frame.rs`) — the first-ever measured number on
+      this codebase: **3.27 ms/frame** steady state against `docs/performance.md`'s ≤~2ms target
+      (real-time headroom is fine at ~5.1×, but the target itself isn't met yet — an honest
+      baseline, not a claim of hitting it).
+      Establishes the number every future optimization pass is measured against.
+- New docs still needed: a `docs/audit/` directory for dense investigation write-ups (RustyNES's
+  pattern for campaigns like the SPC7110 boot-crash trace this project still owes, `docs/cart.md`
+  §SPC7110).
+- [x] ADR backfill for cross-cutting decisions made along this ladder. Save-state format was
+      already covered (`docs/adr/0006`); the three real gaps are now filled: `docs/adr/0007`
+      (the versioning/release-process adoption itself — this document + the tag-body-is-the-
+      release-note convention), `docs/adr/0008` (the ExLoROM decode-formula sourcing decision),
+      and `docs/adr/0009` (ST018's title-match detection method + `Board::coprocessor_tick`-not-
+      second-CPU-hooks architectural choice) — 9 ADRs now, growing toward RustyNES's 30 as new
+      decisions land, documented as they're made rather than retroactively.
 - `to-dos/ROADMAP.md` and this file updated to reflect the ladder's actual progress at every
   release, not left stale (the mistake this rewrite is fixing).
 

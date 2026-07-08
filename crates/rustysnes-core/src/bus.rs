@@ -109,9 +109,22 @@ impl Default for Clock {
     }
 }
 
-/// The CPU multiply/divide unit (`$4202-$4206` → `$4214-$4217`). The SNES computes these with a
-/// hardware latency; the deterministic core resolves them instantly (the result is what tests
-/// read), which is accurate for every documented program.
+/// The CPU multiply/divide unit (`$4202-$4206` → `$4214-$4217`). The SNES computes these with an
+/// 8-CPU-cycle hardware latency; the deterministic core resolves them instantly (the result is
+/// what tests read), which is accurate for every documented program that waits for the real
+/// hardware's own latency before reading `RDMPY`/`RDDIV` — as every known commercial title does.
+///
+/// **Deliberately not modeled: the SNESdev-documented overlapping-operation errata** ("Starting
+/// a multiplication (`$4203` WRMPYB) or division (`$4206` WRDIVB) while the 5A22 is still
+/// processing a previous multiplication or division can cause the 5A22 to output erroneous
+/// values to `RDDIV` and/or `RDMPY`," <https://snes.nesdev.org/wiki/Errata>). This is genuinely
+/// **undefined** hardware behavior — no canonical "corrupted" value is documented anywhere, so
+/// there is nothing correct to port; inventing a specific fabricated corruption value would
+/// itself violate the determinism contract's spirit (`docs/adr/0004`) by pretending a real, one
+/// true answer exists for a case real hardware itself doesn't define one for. No known program
+/// relies on this (a program that hit it would already be behaving unpredictably on real
+/// hardware), so this is a **documented, intentional non-goal**, not an open gap — see
+/// `to-dos/VERSION-PLAN.md`'s `v0.5.0 "Fidelity"` hardware-gotcha list for the same reasoning.
 #[derive(Debug, Clone, Default)]
 struct MulDiv {
     mpya: u8,
@@ -866,6 +879,24 @@ mod tests {
         <Bus as CpuBus>::write24(&mut bus, 0x00_4206, 0x07); // / 7 -> 14 r 2
         assert_eq!(<Bus as CpuBus>::read24(&mut bus, 0x00_4214), 14);
         assert_eq!(<Bus as CpuBus>::read24(&mut bus, 0x00_4216), 2);
+    }
+
+    /// `$4202` (MPYA) is a stable latch, not re-armed per multiply — real hardware documents
+    /// that a fresh `$4203` (WRMPYB) write alone starts a new multiply against whatever MPYA
+    /// already holds (`SNESdev`'s Multiplication page). The genuinely undefined case (starting a
+    /// new multiply/divide before the previous one's 8-cycle latency elapses, `SNESdev`'s Errata
+    /// page) is deliberately NOT covered here — see `MulDiv`'s own doc comment for why there is
+    /// no correct value to assert against.
+    #[test]
+    fn muldiv_mpya_latch_survives_across_sequential_multiplies() {
+        let mut bus = Bus::default();
+        <Bus as CpuBus>::write24(&mut bus, 0x00_4202, 0x05); // MPYA = 5
+        <Bus as CpuBus>::write24(&mut bus, 0x00_4203, 0x06); // MPYB -> 5*6 = 30
+        assert_eq!(<Bus as CpuBus>::read24(&mut bus, 0x00_4216), 30);
+        // MPYA is untouched by the write above; a fresh $4203 alone starts another multiply
+        // against the SAME latched 5.
+        <Bus as CpuBus>::write24(&mut bus, 0x00_4203, 0x07); // MPYB -> 5*7 = 35
+        assert_eq!(<Bus as CpuBus>::read24(&mut bus, 0x00_4216), 35);
     }
 
     #[test]

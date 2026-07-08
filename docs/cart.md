@@ -82,7 +82,7 @@ it); Super FX and SA-1 run their program from cart ROM (no chip dump).
 | OBC1 | simple ASIC | — | 1 | no | HLE | BestEffort |
 | ST010 / ST011 | µPD96050 | ~10 / 15 MHz | 1 each | µPD96050 (≈77C25) | LLE (shared) | BestEffort (shared) |
 | ST018 | ARMv3 | ~21.44 MHz | 1 | no | LLE ARM core | BestEffort (implemented, `coproc::armv3`) |
-| S-RTC | Sharp RTC-4513 | — | 1 | no | HLE + frozen time | BestEffort |
+| S-RTC | Sharp S-RTC | — | 1 | no | HLE + frozen time | BestEffort |
 
 ### Key leverage — the shared NEC core
 
@@ -296,7 +296,7 @@ as open bus, the game wedges on its first DSP poll — it is never silently degr
   there isn't any. Full root-causing this needs a proper instruction-level disassembler + symbol
   trace against the DCU/data-port write sequence, which is out of this session's scope — tracked
   as future SPC7110 work, not silently claimed fixed (`docs/adr/0003`).
-- **S-RTC** (`BestEffort`, **implemented** — `coproc::sharprtc`): a standalone Sharp RTC-4513
+- **S-RTC** (`BestEffort`, **implemented** — `coproc::sharprtc`): a standalone Sharp S-RTC
   real-time clock (Daikaijuu Monogatari II, an ExHiROM title; ares board
   `EXHIROM-RAM-SHARPRTC`). A DIFFERENT chip/protocol from SPC7110's paired Epson RTC-4513 despite
   the similar name: a 2-register (`$2800` data, `$2801` unused) handshake that walks a 13-slot

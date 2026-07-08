@@ -102,8 +102,116 @@ Per `ref-docs/research-report.md` §5 and `ref-docs/2026-06-24-ppu.md` §5:
   mid-line `$420C` write on the hardware-correct scanline — the banded HDMAEN-vs-latch crossing
   of undisbeliever's `hdmaen_latch_test` (see §H/V-IRQ for the write-timing half of that race).
 
+### Open bus via DMA/HDMA (the "Speedy Gonzales stage 6-1" case) — researched, prototyped, regressed, deferred
+
+**Status: researched and mechanism-confirmed against two independent primary sources; a
+prototype implementation reproduces the documented fix but causes a full regression against
+`superfx_oncart`'s golden framebuffer hashes for a reason not yet root-caused. Not landed.**
+
+The open-bus latch (`Bus::open_bus`, the MDR) is a physical property of the SNES's shared data
+bus, not a CPU-only concept: **any** device that drives a byte onto the bus updates what a later
+unmapped read observes, whether that device is the CPU or the DMA/HDMA controller. Currently
+`open_bus` is updated only by direct CPU bus accesses (`CpuBus::read24`/`write24`); a DMA/HDMA
+byte transfer never touches it — silently wrong versus real hardware.
+
+This is the documented mechanism behind Speedy Gonzales in Los Gatos Bandidos' stage 6-1 softlock
+(a "Holy Grail" emulation bug, unsolved by any emulator until 2010): the game polls an unmapped
+address (`$225C`) in a tight loop, expecting to read back `$18` — the last byte of the CPU's own
+load instruction, echoed twice (low then high byte) to form the address `$1818`. If an HDMA
+transfer fires between the loop's instruction fetch and its execution, the HDMA-driven byte
+re-latches the bus first; when that byte happens to be `0`, the loop reads back `$0000` instead
+of `$1818`, which satisfies the exit condition and breaks the softlock. Sources: the SNESdev
+wiki's [Open bus](https://snes.nesdev.org/wiki/Open_bus) page and mGBA's ["Holy Grail" Bugs in
+Emulation, Part 2](https://mgba.io/2017/07/31/holy-grail-bugs-2/) (byuu/Near's original
+writeup of the fix, "Adding OpenBus (the MDR) writing to S9xSetPPU, which didn't have it before,
+and is used in HDMA, fixes the game").
+
+**The prototype and what it broke.** Making `DmaBus for Bus`'s `read_a`/`write_a`/`read_b`/
+`write_b` set `open_bus` on every successful transfer (mirroring `CpuBus::read24`/`write24`
+exactly, with the blocked-address branches — the A-bus cannot reach the B-bus or the CPU/DMA I/O
+registers, ares `validA` — deliberately left untouched since nothing is actually driven onto the
+bus there) passed the full base workspace suite (`cargo test --workspace`, zero regressions) but
+broke every one of `superfx_boots_live_and_deterministic`'s 24 golden hashes
+(`crates/rustysnes-test-harness/tests/superfx_oncart.rs`) — confirmed to be caused by this exact
+change (the same test passes cleanly on the unmodified tree). The breadth of the mismatch (all 24
+sub-cases, not one edge case) points at something systemic in how Super FX/GSU games' GP-DMA
+transfers (very likely the common pattern of DMA-copying a compressed level/graphics image from
+cart ROM into GSU RAM before the GSU renders it) interact with this change, not a narrow timing
+coincidence — but the exact mechanism has not been traced. Candidates for a future investigation:
+whether the GSU's own host-synced `Board::coprocessor_tick` (driven from the same
+`Bus::advance_master` loop, `docs/cart.md` §Super FX) depends, directly or indirectly, on
+`open_bus` staying CPU-only during a DMA transfer; or a subtler ordering issue between when a GSU
+board's `read24`/`write24` hook runs during a DMA transfer versus when a real CPU access would
+normally run it.
+
+**What would need to be true before landing this:** the same instrumented investigation this
+needs is exactly what `docs/audit/spc7110-boot-crash-2026-07-08.md` is doing for the SPC7110 gap
+— an instruction/access-level trace correlated against the Super FX board's own read/write hook
+calls during the failing DMA transfers, to see exactly which byte diverges and why. Until that
+trace exists, this stays a documented non-landing rather than a forced-through change, per this
+project's own regression-risk discipline (mirrors the DRAM-refresh treatment above). The prototype
+diff is not committed or applied on any branch; whoever resumes this should re-derive it from this
+section's description (the four `DmaBus for Bus` methods each gain one `self.open_bus = <value>;`
+line, mirroring `CpuBus::read24`/`write24`) rather than assume it survives anywhere.
+
 This precise, content-dependent cycle theft is the second reason (after the variable CPU
 cycle) the scheduler must be master-clock resolution.
+
+### The "DMA/HDMA-collision crash quirk" — researched, reclassified as a non-goal
+
+**Status: researched against the primary source; the umbrella label bundles three distinct real
+behaviors, none of which should be modeled as a hard emulated crash. One sub-case (A-bus address
+restrictions) is already correctly implemented. Not an open implementation item.**
+
+Per the SNESdev wiki's [Errata](https://snes.nesdev.org/wiki/Errata) page (§S-CPU (5A22) → DMA),
+three distinct DMA/HDMA-interaction defects are documented, and the vague "collision crash
+quirk" label this project's own planning docs used bundles all of them under one name:
+
+1. **Version-1 5A22 ("S-CPU") crash: "the chip can crash if DMA finishes right before HDMA
+   happens."** A genuine silicon defect specific to the FIRST hardware revision only (later
+   `S-CPU-A`, `S-CPU-B`, and the 1-CHIP SNES are unaffected). The errata page frames this as a
+   pitfall for *game developers* to avoid ("generally only a problem for games that want to use
+   DMA to clear WRAM or copy data from a coprocessor to WRAM... during rendering"), not a
+   behavior players or emulators need to reproduce — a compliant commercial ROM is written to
+   never trigger it. No mainstream accurate emulator (ares/bsnes/Mesen2 — confirmed by reading
+   `ref-proj/ares/ares/sfc/cpu/timing.cpp`'s `dmaEdge()`, which implements only the well-defined
+   general HDMA-preempts-DMA *priority* ordering, not a crash) treats this as anything but
+   undefined/out-of-scope, matching this project's own precedent for the `$4203`/`$4206`
+   overlapping-multiply case (`MulDiv`'s doc comment, `crates/rustysnes-core/src/bus.rs`):
+   fabricating a specific "crash" behavior for a chip-revision-specific defect no compliant ROM
+   is meant to hit would manufacture behavior real hardware doesn't universally define, violating
+   `docs/adr/0004`'s determinism-contract spirit.
+2. **Version-2 5A22 ("S-CPU-A") DMA-fails-silently bug**: "a recent HDMA transfer to/from
+   INIDISP (meaning `BBADn` is set to `$00`) can make a DMA transfer fail" — the transfer
+   silently does nothing, leaving `DASnL`/`DASnH` unchanged instead of zeroed. Also
+   version-specific (does NOT affect rev-1, `S-CPU-B`, or the 1-CHIP SNES) and requires an
+   unusual configuration (an HDMA channel targeting `INIDISP`, `$2100`, a display-control
+   register no ordinary graphics/audio HDMA use case would pick) that has a documented
+   developer-side workaround (`BBADn = $ff` + transfer pattern 1). No known commercial title or
+   committed test ROM in this project's corpus exercises it.
+3. **Version-agnostic silent HDMA failure**: "HDMA can fail if a DMA transfer ends when HDMA
+   starts (just after the start of scanline 0) and the previous value read by DMA is `0`" — when
+   this triggers, "the HDMA channel stops at the start of scanline 0 and there are no H-Blank
+   transfers for an entire frame." Unlike the two chip-revision-specific items above, the errata
+   page does not scope this one to a particular 5A22 version, and it is not a crash — a real,
+   well-defined-enough silent misbehavior that in principle COULD be modeled. It is not landed
+   here because: it requires a coincidental data condition (the last DMA-read byte happens to be
+   exactly `$00` at the exact scanline-0 boundary) with no known commercial game or committed
+   test ROM that depends on it either triggering or being absent, so there is no oracle to verify
+   an implementation against — and the sibling open-bus-via-HDMA-latch investigation just
+   demonstrated (above) that this exact class of change (touching DMA/HDMA/open-bus interaction
+   inside `Bus::advance_master`) carries real, non-obvious regression risk to currently-passing
+   golden suites even when the documented mechanism is correct. If a future test ROM or
+   commercial title is found to depend on this, it becomes a concrete, verifiable ticket; until
+   then it stays documented, not implemented, per this project's own regression-risk discipline.
+
+**Already correctly implemented, not part of this non-goal**: the errata page's fourth DMA item —
+A-bus addresses that cannot reach the B-bus, the CPU/DMA I/O registers, or (for `WMDATA`) another
+WRAM location — is already modeled in `DmaBus for Bus`'s `read_a`/`write_a` blocked-address
+branches (`crates/rustysnes-core/src/bus.rs`, referenced in the "Open bus via DMA/HDMA" section
+above) and in the general **"HDMA preempts GP-DMA"** priority ordering (`run_gp`'s
+`service_hdma_during_gp` calls, `crates/rustysnes-core/src/dma.rs`) — the well-defined half of
+what "collision" could have meant is not a gap at all.
 
 ## H/V-IRQ and NMI
 
@@ -234,13 +342,60 @@ DMA/HDMA) plus the `System` run loop (`scheduler.rs`):
   frame measures ≈357,374 master clocks (spec ≈357,368).
 - **DMA/HDMA** is `dma.rs` (clean-room from ares `dma.cpp`): GP-DMA halts the CPU and charges
   `8`/byte; HDMA runs per visible scanline with the per-mode lengths `{1,2,2,4,4,4,2,4}`, indirect
-  pointers, and the line counter. The `System` fires HDMA at scanline boundaries.
+  pointers, and the line counter. `Bus::advance_master` fires HDMA's per-frame setup at V=0 and
+  its per-visible-line run at the hardware-correct **dot 276** (`HDMA_RUN_DOT`, hcounter 1104 —
+  not the scanline boundary), matching ares `sfc/cpu/timing.cpp`; this dot-accurate phase is what
+  latches a mid-line `$420C` write on the correct scanline (§DMA/HDMA bus-steal above), proven by
+  the committed `hdmaen_latch_test`/`hdmaen_latch_test_2` goldens.
 - **NMI / IRQ:** the RDNMI (`$4210`) VBlank flag sets at VBlank **regardless** of the NMITIMEN
   enable (so VBlank-poll loops like gilyon's work); the NMI *interrupt* and the H/V-IRQ comparator
   (pushed to the PPU each dot) fire only when enabled.
 - **Deferred refinements** (no committed ROM depends on them yet): the 40-clock DRAM-refresh CPU
-  stall, the exact H=$116 HDMA dot phase (currently the scanline-boundary trigger), and the
-  PAL-frame master-clock cycle-check.
+  stall (researched, not yet implemented — see §DRAM refresh above) and the PAL-frame
+  master-clock cycle-check.
+
+### DRAM refresh — implementation notes (`v0.5.0` hardware-gotcha item, not yet started)
+
+ares' model (`sfc/cpu/timing.cpp`/`cpu.hpp`): `CPU::step` checks `hcounter() >=
+dramRefreshPosition` on every tick; the first time it trips each scanline it runs 5 iterations of
+`step(6)` (refresh active) + `step(2)` (refresh inactive) + `aluEdge()` — 40 clocks total, matching
+this doc's own "40 master clocks" figure. `dramRefreshPosition` is recomputed at the start of each
+scanline as `530 + 8 - dmaCounter()` (`io.version == 2`, the revision essentially every commercial
+cart uses; `dmaCounter()` is `counter.cpu & 7`, a phase-alignment term averaging out where in the
+CPU's own 8-clock DMA-divider cycle the scanline happened to start).
+
+**The real complication for this project's architecture, not present in ares': the master clock
+here is CPU-driven** (`Bus::advance_master` only advances because a `CpuBus` access charged it
+some cost — see "The clock is CPU-driven" above), whereas real hardware's PPU dot/scanline timing
+is generated by an **independent, fixed-rate** clock: a booted frame is *always* exactly 357,368
+(NTSC) master clocks long regardless of what the CPU does, because the video timing generator
+doesn't care about CPU state. Refresh doesn't add clocks to the frame in real hardware — it's the
+CPU losing 40 clocks *out of* the frame's fixed budget to a stall, exactly like a slow ROM access.
+GP-DMA already gets this right by construction (its own `advance_master` calls for the transfer's
+`8`/byte cost make the CPU's own progress "spend" more of the fixed budget), so the DMA precedent
+suggests refresh should integrate the same way: charge `advance_master(40)` transparently inside
+the tick loop the same way HDMA already is, mirroring ares' position check.
+
+**What's still unverified before implementing this for real:** whether the observed "≈357,374 vs
+spec ≈357,368" gap this document already reports (measured on a booted frame *without* refresh
+modeled) is evidence the CPU-driven model does NOT actually reproduce the fixed-total invariant
+exactly (i.e., it's currently only approximately right through happening-to-have-correct-enough
+wait-state costs, not because the architecture enforces the total) — in which case adding
+~40×262≈10,480 refresh clocks on top could overshoot spec by a wide, clearly-wrong margin, which
+would be a real, diagnostic sign of a deeper modeling gap, not just "the residual refresh clocks
+finally added." This needs to be checked **empirically**, not assumed: implement the stall (new
+`Clock` fields — a per-scanline "already refreshed" flag reset at each scanline transition, the
+computed `dram_refresh_position`; both need a `docs/adr/0006` save-state format version bump since
+`Clock::save_state`/`load_state` change shape), then re-run the exact master-clock-per-frame
+measurement this document already cites and see where the new total lands, **before** touching
+anything else. Given the real regression risk to the golden-framebuffer suite (any change to when
+`advance_master` fires shifts exactly when PPU dot boundaries land relative to CPU instruction
+execution, which is precisely the kind of thing `hdmaen_latch_test`/undisbeliever's other
+timing-sensitive ROMs are built to catch), run the **full**
+`cargo test --workspace --features test-roms` battery — not just `cargo test --workspace` —
+before considering this done, and treat
+any golden-hash change as a real finding to investigate (re-bless only if the new value is
+independently confirmed hardware-correct), never a nuisance to silence.
 
 ## Open questions
 
