@@ -196,7 +196,7 @@ impl Spc7110Board {
             return 0;
         }
         self.drom
-            .get((offset as usize) % self.drom.len().max(1))
+            .get(bus_mirror(offset, self.drom.len() as u32) as usize)
             .copied()
             .unwrap_or(0)
     }
@@ -325,7 +325,7 @@ impl Spc7110Board {
         if (r4834 & 3) != 3 && (address & 0x40_0000) != 0 {
             return 0;
         }
-        drom.get((offset as usize) % drom.len().max(1))
+        drom.get(bus_mirror(offset, drom.len() as u32) as usize)
             .copied()
             .unwrap_or(0)
     }
@@ -433,14 +433,14 @@ impl Spc7110Board {
         if linear < 0x10_0000 {
             let a = linear & 0x0f_ffff;
             if !self.prom.is_empty() {
-                return self.prom[(a as usize) % self.prom.len()];
+                return self.prom[bus_mirror(a, self.prom.len() as u32) as usize];
             }
             return self.datarom_read(a | (0x10_0000 * u32::from(self.r4830 & 7)));
         }
         if linear < 0x20_0000 {
             let a = linear & 0x0f_ffff;
             if self.r4834 & 4 != 0 && !self.prom.is_empty() {
-                return self.prom[((0x10_0000 + a) as usize) % self.prom.len()];
+                return self.prom[bus_mirror(0x10_0000 + a, self.prom.len() as u32) as usize];
             }
             return self.datarom_read(a | (0x10_0000 * u32::from(self.r4831 & 7)));
         }
@@ -457,7 +457,7 @@ impl Spc7110Board {
 
     fn mcuram_addr(&self, bank: u32, offset_in_window: u32) -> usize {
         let a = ((bank & 0x07) << 13) | (offset_in_window & 0x1FFF);
-        (a as usize) % self.ram.len().max(1)
+        bus_mirror(a, self.ram.len() as u32) as usize
     }
 
     // ============================
@@ -741,6 +741,39 @@ impl Spc7110Board {
 /// Sign-extend a 16-bit value into a `u32` (ares `(i16)adjust`/`(i16)stride` idiom).
 const fn sign_extend16(v: u16) -> u32 {
     (v.cast_signed() as i32).cast_unsigned()
+}
+
+/// ares' `Bus::mirror` (`sfc/memory/inline.hpp`): folds `address` into a buffer of `size` bytes
+/// by repeatedly stripping the largest power-of-two block that keeps `address` in range, NOT a
+/// plain `address % size`. The two agree only when `size` is itself a power of two.
+///
+/// This matters here specifically because SPC7110 DROM chips are **not** power-of-two sized —
+/// Far East of Eden Zero's is 6 MiB (7 MiB image minus the 1 MiB PROM split, `select`) — while
+/// register-selected read windows (`r4830`-`r4833`, `dataromRead`'s `r4834`-sized mask) can
+/// address up to 8 MiB. A plain modulo silently returns the WRONG byte for any offset past the
+/// physical chip size but inside the addressable window, corrupting whatever data-ROM-resident
+/// table the game reads through it — the root cause of the SPC7110 boot crash this replaces
+/// (`docs/cart.md` §SPC7110).
+const fn bus_mirror(address: u32, size: u32) -> u32 {
+    if size == 0 {
+        return 0;
+    }
+    let mut address = address;
+    let mut size = size;
+    let mut base = 0u32;
+    let mut mask = 1u32 << 23;
+    while address >= size {
+        while address & mask == 0 {
+            mask >>= 1;
+        }
+        address -= mask;
+        if size > mask {
+            size -= mask;
+            base += mask;
+        }
+        mask >>= 1;
+    }
+    base + address
 }
 
 impl Board for Spc7110Board {

@@ -105,19 +105,25 @@ this. See `to-dos/phase-5-frontend/sprint-2-save-states.md` for the ticket break
       open:** no real ExLoROM ROM (commercial or homebrew) exists in the local corpus, so this
       board has only formula-level unit-test coverage, not golden-framebuffer validation.
 
-### v0.4.0 "Completion" — finish the coprocessor/board matrix
+### v0.4.0 "Completion" — finish the coprocessor/board matrix — **IN PROGRESS**
 
 Closes Phase 7's exit criterion ("the full coprocessor/board matrix in `docs/STATUS.md`").
 
-- **SPC7110 fully validated.** Resume from `coprocessor-phase7-status.md` (session memory): the
-  CPU currently runs into unmapped memory ~20-30 frames into boot on Far East of Eden Zero
-  regardless of PROM/DROM split tried. Add a 65816 disassembler to `rustysnes-cpu` (useful
-  beyond this one bug) to get a real trace at the crash point; pursue the SPC7110 "Check
-  Program" factory-diagnostic test ROM as a better oracle than a full commercial boot.
-- **ST018** (ARMv3 LLE) — the one BestEffort coprocessor with no work started; a new ARM core
-  following the clean-room-port pattern already used for `hg51b` (CX4) / `upd77c25` (DSP).
-- **Standalone S-RTC** — `coproc::epsonrtc::EpsonRtc` already exists (built for SPC7110's
-  paired RTC); wire it as its own board for S-RTC-only carts.
+- [x] **Standalone S-RTC.** `coproc::sharprtc::SharpRtcBoard` — a standalone Sharp RTC-4513
+      (Daikaijuu Monogatari II, ExHiROM), distinct chip/protocol from SPC7110's paired Epson
+      RTC-4513. Unit-tested; no commercial dump in the local corpus, so not golden-framebuffer
+      validated (`docs/adr/0003`).
+- [~] **SPC7110 — real progress, not yet fully validated.** Found + fixed a genuine addressing
+      bug: `datarom_read`/`mcurom_read` used a plain `offset % len` fold where real hardware
+      (ares `Bus::mirror`) uses a block-mirror algorithm that only coincides with modulo when
+      the buffer size is a power of two — Far East of Eden Zero's 6 MiB DROM is not. This moved
+      the wild-PC excursion from ~20-30 frames into boot to ~90+ frames (now a self-recovering
+      BRK/RTI loop, not a permanent crash). Root cause of the REMAINING failure is narrowed —
+      the CPU eventually `RTI`s from genuine PROM code into a WRAM address confirmed entirely
+      unpopulated — but not fixed; needs a proper disassembler + symbol trace, out of scope for
+      this pass. See `docs/cart.md` §SPC7110 / `docs/STATUS.md` for the full diagnostic trail.
+- [ ] **ST018** (ARMv3 LLE) — the one BestEffort coprocessor with no work started; a new ARM core
+      following the clean-room-port pattern already used for `hg51b` (CX4) / `upd77c25` (DSP).
 
 ### v0.5.0 "Fidelity" — the accuracy push
 

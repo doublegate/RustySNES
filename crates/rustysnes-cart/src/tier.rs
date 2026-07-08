@@ -52,9 +52,11 @@ pub const fn board_tier(copro: Coprocessor) -> BoardTier {
         // The big well-documented enhancement chips: curated as fixtures land.
         Coprocessor::SuperFx | Coprocessor::Sa1 => BoardTier::Curated,
         // The decompression / niche chips: best-effort until a fixture + oracle exist.
-        Coprocessor::SDd1 | Coprocessor::Spc7110 | Coprocessor::Cx4 | Coprocessor::Obc1 => {
-            BoardTier::BestEffort
-        }
+        Coprocessor::SDd1
+        | Coprocessor::Spc7110
+        | Coprocessor::Cx4
+        | Coprocessor::Obc1
+        | Coprocessor::Srtc => BoardTier::BestEffort,
     }
 }
 
