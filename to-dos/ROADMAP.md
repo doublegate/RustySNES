@@ -25,9 +25,12 @@ record; this file frames the phase line.
   run-ahead (`v0.3.0 "Continuum"`, `crate::rewind` — a bounded ring buffer of full snapshots +
   N-frame peek-and-discard, both config-driven and off by default) are now **fully implemented**
   — the frontend orchestration Phase 8 (netplay, TAS movies) will build on. Phase 6 (accuracy
-  push) and Phase 8
-  (netplay/RetroAchievements/scripting — all three crates are still 1-line stubs) have not
-  started. See `docs/STATUS.md` for the authoritative per-subsystem table this line summarizes.
+  push) **dashboard + triage complete, fixes carried forward** (see the Phase 6 section below —
+  the accuracy-pass-rate dashboard is done and every named hardware-gotcha item is triaged with
+  evidence, but the confirmed mid-line-raster fix and the accuracy-percentage push itself remain
+  open). Phase 8 (netplay/RetroAchievements/scripting — all three crates are still 1-line stubs)
+  has not started. See `docs/STATUS.md` for the authoritative per-subsystem table this line
+  summarizes.
 - **Release:** `v0.1.0 "Foundation"`, `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"` (rewind,
   run-ahead, PAL auto-detect, ExLoROM), `v0.4.0 "Completion"` (SPC7110 addressing fix, ST018,
   standalone S-RTC), and `v0.5.0 "Fidelity"` (the accuracy-pass-rate dashboard + the full named
