@@ -51,6 +51,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hardware's independent video-timing generator that needs resolving empirically (against the
   full golden-framebuffer suite) before that fix lands, not assumed safe up front.
 
+- **`docs/audit/` — `v0.6.0` "Shippable" work, pulled forward.** A new decision-rationale /
+  open-investigation directory (modeled on RustyNES's own `docs/audit/`), seeded with the full
+  SPC7110 boot-crash trail: the `v0.4.0`-landed `bus_mirror` addressing fix (confirmed root
+  cause #1) and the still-open gap (root cause #2, narrowed to two candidate hypotheses, not
+  yet fixed) that keeps Far East of Eden Zero from booting to real content. Also fixed two
+  remaining "Sharp RTC-4513" naming errors (`docs/cart.md`, `coproc::sharprtc`'s module/struct
+  docs) — the standalone Sharp S-RTC has no established "4513" part number anywhere; that number
+  belongs only to the different Epson chip paired with SPC7110.
+
 ## [0.4.0] "Completion" - 2026-07-08
 
 Closes out Phase 7's BestEffort coprocessor/board matrix: a full ARMv3 (ARM6-class) CPU core for

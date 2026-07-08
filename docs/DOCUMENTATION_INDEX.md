@@ -44,6 +44,7 @@ The core "spec" docs — kept in sync with the code in the same PR as a change (
 | Directory | Contents |
 |-----------|----------|
 | [adr/](adr/) | Architecture Decision Records (Michael Nygard format), `0001`–`0009` — the master-clock scheduler, the fractional-timebase-refactor deferral, the accuracy-tiering honesty gate, the determinism contract, the 65816 opcode-oracle license, the save-state format, the versioning/release-process adoption, ExLoROM's decode-formula sourcing, and ST018's detection + catch-up architecture. |
+| [audit/](audit/) | Decision-rationale / open-investigation audit reports — longer-form than an ADR, for capturing *why* an investigation is where it is (root-cause trail, ruled-out hypotheses). Currently: the SPC7110 boot-crash investigation. |
 
 ## Related, outside `docs/`
 
