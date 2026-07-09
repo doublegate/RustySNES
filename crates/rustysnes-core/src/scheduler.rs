@@ -12,7 +12,7 @@
 
 use alloc::vec::Vec;
 
-use rustysnes_cpu::Cpu;
+use rustysnes_cpu::{Cpu, Regs};
 use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
 
 use crate::bus::Bus;
@@ -202,6 +202,13 @@ impl System {
     #[must_use]
     pub fn sa1_cycles(&self) -> Option<u64> {
         self.sa1_cpu.as_ref().map(|c| c.cycles)
+    }
+
+    /// The SA-1 second CPU's architectural register file, or `None` when no SA-1 cart is
+    /// installed. For the debugger overlay's Cart panel (`docs/frontend.md` §open questions).
+    #[must_use]
+    pub fn sa1_regs(&self) -> Option<Regs> {
+        self.sa1_cpu.as_ref().map(|c| c.regs)
     }
 
     /// Step a single CPU instruction (drives the whole machine in lockstep via the Bus).

@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Debugger overlay: live CPU/PPU/APU/Cart state viewers — `v0.8.0 "Instrumentation"`,
+  T-81-001 (PR A of 2).** `ui_shell.rs`'s debugger window (menu entry, panel selector) has
+  existed since the frontend's first cut but every panel was a literal `"TODO(impl-phase)"`
+  label. This lands the state-viewer half: a new `DebugSnapshot` (mirroring `ShellInfo`'s
+  own copy-out-under-the-brief-lock pattern — the shell's non-negotiable rule that egui never
+  touches the emu lock directly) shows real 65C816 registers/flags, key PPU registers + the
+  dot/scanline timeline + a scrollable VRAM window + full CGRAM, SPC700 PC/halt state + all 8
+  S-DSP voices' key registers, and the active board name plus (when loaded) SA-1's second-CPU
+  registers or the Super FX/GSU register file — resolving `docs/frontend.md`'s open question in
+  the breadth-inclusive direction this whole ladder takes. New small read-only accessors added
+  to `rustysnes-ppu` (`bg_mode`/`display_brightness`), `rustysnes-core` (`System::sa1_regs`),
+  and a new `Board::debug_gsu_state` default-no-op trait hook (overridden by `SuperFxBoard`) —
+  all read-only, no new mutation paths, zero risk to the 0-diff CPU/SPC700 oracles (verified:
+  the full `--features test-roms` suite passes unchanged). The Debug menu entry that opens the
+  overlay is gated behind the `debug-hooks` feature (default off) — without it, the debugger
+  can never open, so the app never builds a snapshot and the default build's emulation output is
+  untouched. **Deferred to T-81-006, not this pass:** the 65C816 disassembler + breakpoints/
+  step controls (needs `System::step_instruction()`-driven stepping, not core changes) and
+  read/write watchpoints (needs a new `debug-hooks` feature on `rustysnes-core` itself + a
+  `Bus`-level hook — scoped as its own separate, focused change, T-81-001b, since it touches the
+  hottest path in the engine).
+
 ### Fixed
 
 - **`crates/rustysnes-frontend/web/index.html`: added the missing link to `/api/` on the live

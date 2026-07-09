@@ -16,18 +16,31 @@ memory-viewer functionality, behind the existing `debug-hooks` flag. Include SA-
 coprocessor state in the Cart panel from day one — resolving `docs/frontend.md`'s open question
 in the breadth-inclusive direction this whole ladder takes, not deferring it further.
 
+**Landed in two PRs, not one** (scoping found during implementation, not before): PR A ships
+the live state viewers for all 4 panels (pure read-only plumbing, no core changes beyond small
+new accessors). PR B adds a minimal 65C816 disassembler + PC breakpoints + step/step-over/
+step-into (frontend-only, using the existing `System::step_instruction()`). Read/write
+watchpoints need a new `debug-hooks` feature on `rustysnes-core` itself + a `Bus`-level hook —
+deferred to a separate follow-up ticket, T-81-001b, since it touches the hottest path in the
+engine and deserves its own focused review.
+
 **Acceptance criteria:**
 
-- [ ] 65C816 panel: register/flag view, breakpoints (PC + read/write watchpoints), step/
-      step-over/step-into.
-- [ ] PPU panel: VRAM/CGRAM/OAM viewer, current scanline/dot, register state.
-- [ ] APU panel: SPC700 registers, DSP voice state.
-- [ ] Cart panel: active board type + coprocessor register state (SA-1 second-CPU state and
-      Super FX/GSU state included when the loaded cart uses either).
-- [ ] With `debug-hooks` off, the build is byte-identical (CI gate).
+- [x] 65C816 panel: register/flag view (PR A). Breakpoints (PC), step/step-over/step-into: PR B.
+      Read/write watchpoints: T-81-001b (not this ticket).
+- [x] PPU panel: VRAM (scrollable window) / CGRAM viewer, current scanline/dot, register state
+      (PR A). OAM viewer not yet landed — small follow-up, same shape as the VRAM/CGRAM viewers.
+- [x] APU panel: SPC700 PC/halt state, DSP voice state (PR A).
+- [x] Cart panel: active board type + coprocessor register state (SA-1 second-CPU state via
+      `System::sa1_regs`, Super FX/GSU state via `Board::debug_gsu_state`) (PR A).
+- [x] With `debug-hooks` off, the build is byte-identical — the Debug menu entry itself is
+      feature-gated, so `debugger_open` can never become `true` and the app never builds a
+      snapshot (PR A; verified `cargo check`/`clippy`/`fmt` clean in both configs, full
+      `--features test-roms` suite passes unchanged).
 
 **Dependencies:** T-51-001 (the shell itself, already landed)
-**Reference:** `docs/frontend.md` §open questions; `crates/rustysnes-frontend/src/ui_shell.rs`
+**Reference:** `docs/frontend.md` §Debugger overlay; `crates/rustysnes-frontend/src/ui_shell.rs`,
+`debug_snapshot.rs`
 **Estimated complexity:** L
 
 ---

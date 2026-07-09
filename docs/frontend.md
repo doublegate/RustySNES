@@ -125,7 +125,21 @@ Reuse the egui shell, the audio ring, the pacing matrix, and the debugger-panel 
 from the RustyNES frontend; SNES-specific work is the second CPU/APU panel, the Mode-7 / HDMA
 debug views, and the coprocessor status panel.
 
+## Debugger overlay (`v0.8.0 "Instrumentation"`, T-81-001)
+
+`ui_shell.rs`'s debugger window's 4 panels (65C816 / PPU1+2 / SPC700+S-DSP / Cart) render a
+`DebugSnapshot` the app copies out under the same brief lock `ShellInfo` already uses — CPU
+registers/flags, key PPU registers + the dot/scanline timeline + a scrollable VRAM window + full
+CGRAM, SPC700 PC/halt state + all 8 S-DSP voices' key registers, and the active board name.
+Gated behind the `debug-hooks` feature (default off) at the menu-entry level: without it,
+`debugger_open` can never become `true`, so the app never builds a snapshot and the default
+build's emulation output is unaffected. Disassembly + breakpoints/step controls, and read/write
+watchpoints (needing a new `debug-hooks` feature on `rustysnes-core` itself + a `Bus`-level
+hook), are follow-up tickets (T-81-006, T-81-001b) — not yet landed.
+
 ## Open questions
 
-- Whether the second-CPU (SA-1 / Super FX) state warrants its own debugger panel from day one
-  or a Phase 8 add — defer to when Phase 4 lands SA-1.
+- ~~Whether the second-CPU (SA-1 / Super FX) state warrants its own debugger panel from day one
+  or a Phase 8 add~~ — **resolved, `v0.8.0`:** yes, from day one. The Cart panel shows SA-1's
+  second-CPU registers (`System::sa1_regs`) or the Super FX/GSU register file
+  (`Board::debug_gsu_state`) when the loaded cart uses either.

@@ -28,6 +28,7 @@
 #![allow(unsafe_code)]
 
 pub mod config;
+pub mod debug_snapshot;
 pub mod emu;
 pub mod gfx;
 pub mod input;
