@@ -1,6 +1,6 @@
 [package]
 name = "rustysnes-ppu"
-version = "0.1.0"
+version = "0.7.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -12,8 +12,8 @@ std = []
 
 [dependencies]
 bitflags = "2"
-rustysnes-cart = { path = "../rustysnes-cart", version = "0.1.0", default-features = false }
-rustysnes-savestate = { path = "../rustysnes-savestate", version = "0.1.0" }
+rustysnes-cart = { path = "../rustysnes-cart", version = "0.7.0", default-features = false }
+rustysnes-savestate = { path = "../rustysnes-savestate", version = "0.7.0" }
 
 [lints]
 workspace = true
