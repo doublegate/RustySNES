@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`crates/rustysnes-frontend/web/index.html`: added the missing link to `/api/` on the live
+  wasm demo page.** Found live by the user comparing against RustyNES's Pages deployment (which
+  has `<a href="api/">API documentation</a>` in its own footer) — RustySNES's demo page had no
+  path to the API docs at all short of manually typing `/api/` into the URL bar. Added a small
+  footer mirroring RustyNES's own pattern (a GitHub repo link + an API docs link), opening in a
+  new tab so navigating to it doesn't kill the running wasm instance's emulation state.
+
 ## [0.7.0] "Resolution" - 2026-07-09
 
 Implements true 512-px hi-res (Modes 5/6) output, the one bounded item left on `v0.5.0`'s

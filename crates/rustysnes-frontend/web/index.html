@@ -7,8 +7,12 @@
     <style>
         html, body { margin: 0; height: 100%; background: #101014; color: #e0e0e0;
             font-family: system-ui, sans-serif; }
-        #app { display: flex; align-items: center; justify-content: center; height: 100%; }
+        body { display: flex; flex-direction: column; }
+        #app { flex: 1; display: flex; align-items: center; justify-content: center; }
         canvas { image-rendering: pixelated; background: #000; }
+        .hint { text-align: center; margin: 0; padding: 0.75rem 0; font-size: 0.85rem;
+            color: #8a8a94; }
+        .hint a { color: #8a8a94; }
     </style>
     <!-- Trunk links the wasm cdylib (cargo-bin name = rustysnes-frontend). -->
     <link data-trunk rel="rust" href="../Cargo.toml" data-bin="rustysnes" data-type="main" />
@@ -17,5 +21,10 @@
     <div id="app">
         <noscript>RustySNES needs JavaScript + WebAssembly.</noscript>
     </div>
+    <p class="hint">
+        <a href="https://github.com/doublegate/RustySNES" target="_blank" rel="noopener noreferrer">github.com/doublegate/RustySNES</a>
+        &nbsp;·&nbsp;
+        <a href="api/" target="_blank" rel="noopener noreferrer">API documentation</a>
+    </p>
 </body>
 </html>
