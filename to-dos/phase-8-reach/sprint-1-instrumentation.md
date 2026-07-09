@@ -88,11 +88,20 @@ substrate as the debugger's memory panel.
 
 **Acceptance criteria:**
 
-- [ ] Game Genie code parsing + decode to a RAM-address/value patch.
-- [ ] Pro Action Replay code parsing + decode.
-- [ ] Patches apply every frame without breaking the determinism contract when the feature is
-      off (a cheat is host-applied external input, not a hardware behavior — model it that way).
-- [ ] With `cheats` off, the build is byte-identical (CI gate).
+- [x] Game Genie code parsing + decode to a RAM-address/value patch — `rustysnes_core::cheat::
+      decode_game_genie`, ported from bsnes's `CheatEditor::decodeSNES` and cross-checked
+      bit-for-bit against Mesen2's independent decoder; unit-tested against real commercial
+      codes from Mesen2's shipped `CheatDb.Snes.json`.
+- [x] Pro Action Replay code parsing + decode — `rustysnes_core::cheat::decode_pro_action_replay`
+      (straight 8-hex-digit `AAAAAADD`, no scrambling), same external-oracle test vectors.
+- [x] Patches apply every frame without breaking the determinism contract when the feature is
+      off (a cheat is host-applied external input, not a hardware behavior — model it that way) —
+      `crate::cheats::apply_all` pokes enabled entries into WRAM via `Bus::poke_wram` before each
+      frame runs; nothing executes unless `cheats` is on and at least one entry is enabled.
+- [x] With `cheats` off, the build is byte-identical (CI gate) — the frontend's cheat list/UI
+      module is `#[cfg(feature = "cheats")]`-gated entirely (the decode module itself stays
+      unconditional in `rustysnes-core`, same precedent as the `movie` module); full
+      default-feature workspace build/test/clippy/fmt/doc verified unaffected.
 
 **Dependencies:** none beyond the base memory-access surface
 **Reference:** RustyNES's cheat-code feature (parity target); `docs/adr/0004`
@@ -242,9 +251,9 @@ source); `../RustyNES/crates/rustynes-frontend/src/app.rs`'s `ApplicationHandler
 ## Sprint review checklist
 
 - [ ] All tickets checked off or explicitly deferred (with reason). T-81-001 (PR A landed, PR B +
-      T-81-001b deferred), T-81-002, T-81-005, T-81-006 done; T-81-003/T-81-004 remain.
-- [ ] Every instrumentation feature is off by default + byte-identical when off — verified for
-      `debug-hooks` (T-81-001) and `scripting` (T-81-002); `cheats` doesn't exist yet (T-81-003);
+      T-81-001b deferred), T-81-002, T-81-003, T-81-005, T-81-006 done; T-81-004 remains.
+- [ ] Every instrumentation feature is off by default + byte-identical when off — verified
+      individually for `debug-hooks` (T-81-001), `scripting` (T-81-002), and `cheats` (T-81-003);
       the formal CI gate covering all of them together is T-81-004, not yet landed.
 - [x] The live wasm demo actually renders and is playable, verified by a real headless-browser
       check, not just an HTTP status check — the default `wasm-winit` build (T-81-006), via a

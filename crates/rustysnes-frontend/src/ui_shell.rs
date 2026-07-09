@@ -10,6 +10,13 @@
 //! feature (default off): without it, `debugger_open` can never become `true`, so the app never
 //! builds a snapshot and the debugger is unreachable in a shipped default build.
 
+// `ShellState`'s bools are each an independent, feature-gated window-visibility/UI-transient
+// flag (debugger/settings/cheats open, paused) — a state machine would only obscure that they're
+// orthogonal, not a single mode to switch between.
+#![allow(clippy::struct_excessive_bools)]
+
+#[cfg(feature = "cheats")]
+use crate::cheats::CheatEntry;
 use crate::config::{Config, Region};
 use crate::debug_snapshot::DebugSnapshot;
 
@@ -90,6 +97,15 @@ pub struct ShellState {
     pub status: String,
     /// Whether emulation is paused (mirrored from the app for the menu checkmark).
     pub paused: bool,
+    /// Whether the Cheats window is visible (`v0.8.0` T-81-003).
+    #[cfg(feature = "cheats")]
+    pub cheats_open: bool,
+    /// The Cheats window's "add a code" text-entry buffer.
+    #[cfg(feature = "cheats")]
+    pub cheat_code_input: String,
+    /// The Cheats window's last parse-error message, if the most recent "Add" attempt failed.
+    #[cfg(feature = "cheats")]
+    pub cheat_code_error: Option<String>,
 }
 
 /// Read-only facts the shell needs to render the status bar + window title without taking the
@@ -122,6 +138,7 @@ impl ShellState {
         info: &ShellInfo,
         cfg: &mut Config,
         debug: Option<&DebugSnapshot>,
+        #[cfg(feature = "cheats")] cheats: &mut Vec<CheatEntry>,
     ) -> Vec<MenuAction> {
         let mut actions = Vec::new();
         let ctx = root_ui.ctx().clone();
@@ -237,7 +254,17 @@ impl ShellState {
                     }
                     #[cfg(not(all(feature = "scripting", not(target_arch = "wasm32"))))]
                     ui.label("(rebuild natively with --features scripting)");
-                    // TODO(impl-phase): NSF/SPC player, cheat editor, ROM-DB editor, TAStudio.
+                    #[cfg(feature = "cheats")]
+                    {
+                        ui.separator();
+                        if ui.button("Cheats…").clicked() {
+                            self.cheats_open = true;
+                            ui.close();
+                        }
+                    }
+                    #[cfg(not(feature = "cheats"))]
+                    ui.label("(rebuild with --features cheats for Game Genie/PAR codes)");
+                    // TODO(impl-phase): NSF/SPC player, ROM-DB editor, TAStudio.
                 });
 
                 ui.menu_button("View", |ui| {
@@ -289,6 +316,10 @@ impl ShellState {
         }
         if self.debugger_open {
             self.render_debugger(&ctx, debug);
+        }
+        #[cfg(feature = "cheats")]
+        if self.cheats_open {
+            self.render_cheats(&ctx, cheats);
         }
 
         actions
@@ -367,6 +398,58 @@ impl ShellState {
                 }
             });
         self.debugger_open = open;
+    }
+
+    /// The Cheats window (`v0.8.0` T-81-003): an "add a code" text entry (Game Genie `XXXX-XXXX`
+    /// or Pro Action Replay's 8 hex digits) plus the current entry list, each with an
+    /// enable/disable checkbox, its decoded `address=value`, and a remove button. Mutates
+    /// `cheats` directly (the same pattern `render_settings` already uses for `cfg`) — this list
+    /// lives in `Active`, not behind the emu lock, so mutating it here doesn't violate the
+    /// shell's never-touch-the-emu-lock rule.
+    #[cfg(feature = "cheats")]
+    fn render_cheats(&mut self, ctx: &egui::Context, cheats: &mut Vec<CheatEntry>) {
+        let mut open = self.cheats_open;
+        egui::Window::new("Cheats")
+            .open(&mut open)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut self.cheat_code_input);
+                    if ui.button("Add").clicked() {
+                        match CheatEntry::parse(&self.cheat_code_input) {
+                            Ok(entry) => {
+                                cheats.push(entry);
+                                self.cheat_code_input.clear();
+                                self.cheat_code_error = None;
+                            }
+                            Err(e) => self.cheat_code_error = Some(e.to_string()),
+                        }
+                    }
+                });
+                if let Some(err) = &self.cheat_code_error {
+                    ui.colored_label(egui::Color32::RED, err);
+                }
+                ui.separator();
+                let mut remove = None;
+                egui::Grid::new("cheat_list").num_columns(4).show(ui, |ui| {
+                    for (i, entry) in cheats.iter_mut().enumerate() {
+                        ui.checkbox(&mut entry.enabled, "");
+                        ui.label(&entry.code);
+                        ui.label(format!(
+                            "${:06X}={:02X}",
+                            entry.patch.address, entry.patch.value
+                        ));
+                        if ui.button("Remove").clicked() {
+                            remove = Some(i);
+                        }
+                        ui.end_row();
+                    }
+                });
+                if let Some(i) = remove {
+                    cheats.remove(i);
+                }
+            });
+        self.cheats_open = open;
     }
 }
 
