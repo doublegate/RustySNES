@@ -3,8 +3,13 @@
 This file is authoritative for per-suite pass counts, the board / coprocessor matrix, and
 version policy. Everything else defers to it.
 
-**Current release:** `v0.4.0 "Completion"` (`v0.1.0 "Foundation"`, `v0.2.0 "Persistence"`, and
-`v0.3.0 "Continuum"` precede it; see `to-dos/VERSION-PLAN.md` for the full ladder). **Phases 1 (CPU + golden oracle)
+**Current release:** `v0.5.0 "Fidelity"` (`v0.1.0 "Foundation"`, `v0.2.0 "Persistence"`,
+`v0.3.0 "Continuum"`, and `v0.4.0 "Completion"` precede it; see `to-dos/VERSION-PLAN.md` for the
+full ladder). `v0.5.0` closes out the accuracy-pass-rate dashboard (see "Accuracy dashboard"
+below) and works the full named hardware-gotcha regression list — every item fixed, correctly
+reclassified as an intentional non-goal, or honestly researched-and-deferred with a full
+mechanism write-up (`to-dos/VERSION-PLAN.md`'s v0.5.0 section has the per-item detail).
+**Phases 1 (CPU + golden oracle)
 and 2 (scheduler + video) are functionally complete** — the 65C816 passes the
 SingleStepTests/65816 oracle to 0-diff (state + cycles), and the machine **boots and runs real
 ROMs**: the master-clock lockstep scheduler + bus memory map + DMA/HDMA + the dual-chip PPU
