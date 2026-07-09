@@ -397,13 +397,16 @@ external-oracle verification exists to catch).
 The framebuffer's row stride (256 or 512) is latched once, at each frame's first visible
 scanline (`Ppu::frame_hires`, set from the live `Ppu::is_hires()` at `row == 0`), and held for
 every remaining line of that frame — a **deliberate, documented per-frame-not-per-scanline
-simplification**. Real hardware's hi-res-ness is technically a per-scanline DAC property
-(`BGMODE`/`SETINI` could theoretically change mid-frame via HDMA), but modeling that would be a
-materially bigger feature with no known motivating commercial title, mirroring this project's
-existing posture on the (separately tracked, still-open) mid-scanline/HDMA-driven register timing
-gap. If a scanline's own live hi-res state ever disagrees with the frame's latched geometry, that
-scanline silently writes only the normal (odd/above) column — a narrow, explicitly out-of-scope
-edge case, not a memory-safety concern.
+simplification**. `compose_dac` consults only this cached `frame_hires` value, never a live
+per-scanline `is_hires()` re-check, so every line of a frame writes the same column geometry (one
+column when `frame_hires` is false, two when true) for the frame's entire duration, with no
+per-scanline fallback logic at all. Real hardware's hi-res-ness is technically a per-scanline DAC
+property (`BGMODE`/`SETINI` could theoretically change mid-frame via HDMA), but modeling that
+would be a materially bigger feature with no known motivating commercial title, mirroring this
+project's existing posture on the (separately tracked, still-open) mid-scanline/HDMA-driven
+register timing gap. A title that changes `BGMODE`/`SETINI` mid-frame gets the *first* visible
+line's hi-res-ness applied uniformly across the whole frame, not a per-line-accurate mix — a
+narrow, explicitly out-of-scope edge case, not a memory-safety concern.
 
 ### Verification
 
