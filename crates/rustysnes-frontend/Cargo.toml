@@ -24,10 +24,19 @@ path = "src/main.rs"
 
 [features]
 # Two wasm32 frontends; exactly one is compiled (each provides a unique
-# `#[wasm_bindgen(start)]`). `wasm-winit` (default) is the full winit + wgpu +
-# egui experience; `wasm-canvas` is a lightweight canvas-2D embed.
+# `#[wasm_bindgen(start)]`, feature-gated in `lib.rs` so they can't collide).
+# `wasm-winit` is the eventual full winit + wgpu + egui experience (`T-81-006`,
+# not yet landed — no `wasm_winit.rs` module exists yet); `wasm-canvas` is the
+# `v0.8.0` MVP, a lightweight canvas-2D embed (`wasm.rs`).
 # `emu-thread` runs single-player frame production off the winit thread (native
 # only; inert on wasm). `help-tui` adds the ratatui terminal help browser.
+#
+# NOTE: `wasm-canvas`, not `wasm-winit`, is the default FOR NOW — `web/Trunk.toml`'s
+# `trunk build` (and `pages.yml`'s CI build) pass no explicit `--features`, so
+# whichever wasm frontend is default is what ships to the live demo. Selecting
+# `wasm-winit` today would build an empty wasm32 cdylib (no module claims that
+# feature yet) — a silent regression back to the blank-page bug T-81-005 fixes.
+# Flip this back to `wasm-winit` once T-81-006 lands a real `wasm_winit.rs`.
 #
 # NOTE: `emu-thread` is OFF in the v0.1 default because it requires `EmuCore:
 # Send`, which in turn needs `rustysnes-cart`'s `Board` trait to be `Send` (the
@@ -36,7 +45,7 @@ path = "src/main.rs"
 # in-`render` drive (the `not(feature = "emu-thread")` path in `app.rs`) is the
 # default. Flip `Board: Send` + re-add `emu-thread` here to enable the dedicated
 # emulation thread. TODO(impl-phase).
-default = ["wasm-winit", "help-tui"]
+default = ["wasm-canvas", "help-tui"]
 wasm-winit = []
 wasm-canvas = []
 emu-thread = []
@@ -111,8 +120,13 @@ console_error_panic_hook = "0.1.7"
 js-sys = "0.3"
 web-sys = { version = "0.3", features = [
     "Document", "Window", "Element", "HtmlElement", "HtmlCanvasElement",
+    "HtmlInputElement", "File", "FileList", "FileReader", "ProgressEvent",
     "Event", "EventTarget", "KeyboardEvent",
     "CanvasRenderingContext2d", "ImageData", "Storage",
+    "AudioContext", "AudioNode", "AudioDestinationNode",
+    "AudioWorklet", "AudioWorkletNode", "MessageEvent", "MessagePort",
+    "ScriptProcessorNode", "AudioProcessingEvent", "AudioBuffer",
+    "Blob", "BlobPropertyBag", "Url",
 ] }
 
 [dev-dependencies]

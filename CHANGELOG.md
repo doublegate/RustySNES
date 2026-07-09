@@ -33,6 +33,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Bus`-level hook — scoped as its own separate, focused change, T-81-001b, since it touches the
   hottest path in the engine).
 
+- **The live Pages demo actually renders now: the `wasm-canvas` MVP (T-81-005).** Replaced
+  `crates/rustysnes-frontend/src/wasm.rs`'s `v0.1.0` scaffold stub (panic hook + one log line,
+  never rendered anything) with a real canvas-2D frontend ported from RustyNES's proven shape: a
+  `CanvasRenderingContext2d.putImageData` blit of the existing RGBA8 framebuffer, a
+  `requestAnimationFrame` loop paced by a new shared `pacing::Pacer` (extracted from `app.rs`,
+  now used natively AND on wasm so a 144 Hz display doesn't run emulation 2.4x too fast), keyboard
+  input via DOM `keydown`/`keyup` (reusing `input::KeyBindings` unchanged), and ROM loading via
+  `<input type="file">`. Audio is a new `wasm_audio.rs`: `AudioWorkletNode` primary with a
+  `ScriptProcessorNode` fallback, reusing the native DRC/resampler core verbatim (extracted into a
+  new target-agnostic `audio_core.rs` specifically for this reuse, not reimplemented). No
+  `wgpu`/`egui` yet — that unification is `wasm-winit`/T-81-006, not yet landed; `wasm-canvas` is
+  the crate's default wasm feature for now so the live Pages build actually picks it up.
+  **Found and fixed a second, deeper, pre-existing bug while verifying this with a real
+  headless-browser load (Playwright/Chromium — not just an HTTP-status check, the exact gap that
+  let the stub ship unnoticed since `v0.1.0`):** `web/index.html`'s trunk directive
+  (`data-bin="rustysnes" data-type="main"`) built the `[[bin]]` (`main.rs`, whose wasm32 arm is an
+  empty `fn main() {}` that never references the lib), not the `[lib]` cdylib — so the actual
+  `#[wasm_bindgen(start)]` entry point got dead-code-eliminated entirely regardless of what code
+  `wasm.rs` contained; the built `.wasm` was confirmed to be only ~14 KB with zero emulator code
+  linked in. Fixed to `data-target-name="rustysnes_frontend"` (the same pattern RustyNES's own
+  working `index.html` uses). `pages.yml`'s `RUSTFLAGS="-C target-feature=-reference-types"` also
+  had to be removed — it broke wasm-bindgen's externref table generation once the demo actually
+  linked in real `Closure`-based code; it had been a silent no-op until now because there was no
+  real code for it to break. Verified end-to-end: a real committed test ROM loaded through the
+  live `#rom-input` in headless Chromium produced a canvas with 28672/57344 non-black pixels and
+  zero console errors. **Honest gap:** audio was verified to construct without throwing, but
+  headless automation cannot conclusively prove audible output through the browser's real
+  autoplay-gesture semantics — manual verification in a real browser is still owed.
+
 ### Changed
 
 - **Folded the real wasm frontend build into `v0.8.0 "Instrumentation"`'s scope, per explicit
