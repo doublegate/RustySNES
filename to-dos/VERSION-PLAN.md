@@ -229,7 +229,7 @@ AccuracyCoin-equivalent). See `to-dos/phase-6-accuracy-to-100/`.
 - Anything needing the fractional-timebase refactor (`docs/adr/0002`) is explicitly deferred
   and documented in the residual ledger, never point-fixed (that ADR's own rule).
 
-### v0.6.0 "Shippable" — release engineering + doc parity
+### v0.6.0 "Shippable" — release engineering + doc parity — **RELEASED 2026-07-08**
 
 **Goal:** bring CI and docs up to RustyNES's depth — the part of "match RustyNES's level" that
 isn't about emulation accuracy.

@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] "Shippable" - 2026-07-08
+
+Closes out the release-engineering and doc-parity half of "match RustyNES's level" that isn't
+about emulation accuracy — the part `v0.5.0 "Fidelity"` deliberately left for this rung, per
+`to-dos/VERSION-PLAN.md`'s own ladder. Every checklist item lands: `release.yml` exercised
+end-to-end with checksummed assets (first proven live by `v0.5.0`'s own build), `security.yml`
+(`cargo audit` + `cargo deny check`), the `lint` job now also gates `cargo doc`,
+`docs/DOCUMENTATION_INDEX.md`, `docs/benchmarks.md` + a real Criterion benchmark, `docs/audit/`,
+3 ADR backfills (9 total, up from 6), and — the item this rung adds on top of what `v0.5.0`
+already pulled forward — automated release-cutting (`release-auto.yml`), directly addressing the
+recurring manual-release-ceremony bottleneck the `v0.5.0` cut itself ran into. Also verified the
+wasm/Pages demo deploy is genuinely live (not just CI-green): the trunk-built `index.html`,
+wasm-bindgen JS loader, `.wasm` binary, and co-deployed rustdoc all return HTTP 200 with correct
+content-types at `https://doublegate.github.io/RustySNES/`.
+
+**Oracle/golden suites: all held, no regressions.** The full workspace test suite (including
+`--features test-roms`), the `no_std` gate, and `RUSTDOCFLAGS="-D warnings" cargo doc` are all
+green.
+
+This release landed across PRs #36-39, each independently reviewed by Gemini + Copilot,
+human-reviewed, and adjudicated before merge.
+
 ### Added
 
 - **Automated release-cutting (`release-auto.yml`) — `v0.6.0` "Shippable" work, pulled
