@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`ci.yml`'s `lint` job now gates on `cargo doc` too — `v0.6.0` "Shippable" work, pulled
+  forward.** The doc-warnings build was previously reserved for the tag-only `full-test` job, so
+  a broken intra-doc link or rustdoc-specific warning (neither caught by clippy's own lints)
+  could sit unnoticed on `main` between releases. `RUSTDOCFLAGS="-D warnings" cargo doc --workspace
+  --no-deps` is cheap locally (~4s), so it now runs on every PR/push alongside fmt+clippy.
+
+- **Mid-scanline/HDMA-driven register timing: regression-baseline test landed — `v0.6.0`
+  "Shippable" work, pulled forward.** `crates/rustysnes-core/tests/mid_scanline_hdma_baseline.rs`
+  is a minimal, self-authored hand-assembled 65C816 reproduction (HDMA drives `$2100` master
+  brightness; no BG/OBJ setup needed since a disabled-layers screen renders pure backdrop color,
+  isolating the exact compositor-vs-HDMA dot-timing bug) that locks in the confirmed-buggy
+  transition position (last-white row 99, first-black row 100 — exactly matching the
+  off-by-one-line shift the mechanism analysis predicts) as a numeric acceptance test. This
+  closes most of the "no dedicated test ROM" gap `docs/ppu.md` flagged as blocking a fix; the
+  cross-crate scheduler/PPU timing-communication design remains the real outstanding work. No
+  production code changed; full workspace + `--features test-roms` suites verified unaffected
+  (zero regressions).
+
 ## [0.5.0] "Fidelity" - 2026-07-08
 
 Closes out the accuracy-pass-rate dashboard RustySNES previously lacked (`docs/STATUS.md`'s new
@@ -37,18 +57,6 @@ This release landed across PRs #33-34, each independently reviewed by Gemini + C
 human-reviewed, and adjudicated before merge.
 
 ### Added
-
-- **Mid-scanline/HDMA-driven register timing: regression-baseline test landed — `v0.6.0`
-  "Shippable" work, pulled forward.** `crates/rustysnes-core/tests/mid_scanline_hdma_baseline.rs`
-  is a minimal, self-authored hand-assembled 65C816 reproduction (HDMA drives `$2100` master
-  brightness; no BG/OBJ setup needed since a disabled-layers screen renders pure backdrop color,
-  isolating the exact compositor-vs-HDMA dot-timing bug) that locks in the confirmed-buggy
-  transition position (last-white row 99, first-black row 100 — exactly matching the
-  off-by-one-line shift the mechanism analysis predicts) as a numeric acceptance test. This
-  closes most of the "no dedicated test ROM" gap `docs/ppu.md` flagged as blocking a fix; the
-  cross-crate scheduler/PPU timing-communication design remains the real outstanding work. No
-  production code changed; full workspace + `--features test-roms` suites verified unaffected
-  (zero regressions).
 
 - **Mid-scanline/HDMA-driven register timing + hi-res color-math precision: researched — `v0.5.0`
   "Fidelity" work.** Confirmed a genuine, previously-undocumented off-by-one-line compositor bug
