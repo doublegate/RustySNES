@@ -229,7 +229,7 @@ fn present(canvas: &HtmlCanvasElement, ctx: &CanvasRenderingContext2d, core: &Em
     let fb = core.framebuffer();
     if let Ok(image) = ImageData::new_with_u8_clamped_array_and_sh(wasm_bindgen::Clamped(fb), w, h)
     {
-        let _ = ctx.put_image_data(&image, 0, 0);
+        let _ = ctx.put_image_data(&image, 0.0, 0.0);
     }
 }
 

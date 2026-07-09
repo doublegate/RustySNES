@@ -115,6 +115,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`wasm.rs` (`wasm-canvas`): fixed a real, currently-broken build — `CanvasRenderingContext2d::put_image_data`'s dx/dy arguments must be `f64`, not `i32`.** Found live: this shipped broken in T-81-005's merge and silently failed the `wasm-canvas` build path from `main` (confirmed via the actual `pages.yml` deploy run for that merge, which failed at this exact line) — masked locally by a stray, untracked `.cargo/config.toml` left over from a different sibling project, whose `--cfg=web_sys_unstable_apis` rustflag switches `web-sys` to the *other* `put_image_data` overload (`i32` args, gated behind that unstable cfg), so local builds compiled while CI's genuinely clean environment did not. `wasm-canvas` is not the default wasm feature since T-81-006 landed (`wasm-winit` is), so this didn't affect the live demo, but it's a real defect in a still-supported, independently-selectable build path. Re-verified against an environment with that stray rustflag neutralized (`RUSTFLAGS=""`, matching CI): both `cargo clippy` and a real `trunk build` + headless-browser load now succeed genuinely, not just locally.
+
 - **`crates/rustysnes-frontend/web/index.html`: added the missing link to `/api/` on the live
   wasm demo page.** Found live by the user comparing against RustyNES's Pages deployment (which
   has `<a href="api/">API documentation</a>` in its own footer) — RustySNES's demo page had no
