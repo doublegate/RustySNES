@@ -158,7 +158,7 @@ impl ScriptEngine {
         self.writes_locked.set(locked);
     }
 
-    /// Override the default per-frame instruction budget ([`DEFAULT_INSTRUCTION_BUDGET`]).
+    /// Override the default per-frame instruction budget (1,000,000).
     pub fn set_instruction_budget(&self, budget: u64) {
         self.instruction_budget.set(budget);
     }
