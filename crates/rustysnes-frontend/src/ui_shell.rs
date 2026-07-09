@@ -433,15 +433,20 @@ impl ShellState {
                 let mut remove = None;
                 egui::Grid::new("cheat_list").num_columns(4).show(ui, |ui| {
                     for (i, entry) in cheats.iter_mut().enumerate() {
-                        ui.checkbox(&mut entry.enabled, "");
-                        ui.label(&entry.code);
-                        ui.label(format!(
-                            "${:06X}={:02X}",
-                            entry.patch.address, entry.patch.value
-                        ));
-                        if ui.button("Remove").clicked() {
-                            remove = Some(i);
-                        }
+                        // Every row's checkbox/button shares the same label ("" / "Remove") —
+                        // without a per-row id scope, egui collides their widget IDs, causing
+                        // clicks/toggles on one row to affect another.
+                        ui.push_id(i, |ui| {
+                            ui.checkbox(&mut entry.enabled, "");
+                            ui.label(&entry.code);
+                            ui.label(format!(
+                                "${:06X}={:02X}",
+                                entry.patch.address, entry.patch.value
+                            ));
+                            if ui.button("Remove").clicked() {
+                                remove = Some(i);
+                            }
+                        });
                         ui.end_row();
                     }
                 });

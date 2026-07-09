@@ -22,25 +22,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   decoders compute an identical address and value for any given code. Unit tests decode real
   commercial codes drawn from Mesen2's shipped cheat database
   (`ref-proj/Mesen2/UI/Dependencies/Internal/CheatDb.Snes.json`) as an external-oracle check, not
-  self-asserted values. Unlike NES's Game Genie (which intercepts PRG-ROM reads), neither SNES
-  format supports a compare byte and neither needs LoROM/HiROM bank translation in the decoder —
-  that stays the Bus's job, so a decoded patch is applied by poking WRAM directly via
-  `Bus::poke_wram` (the same bank/mirror-aware accessor `rustysnes-script`'s `emu.write` and TAS
-  movie playback build on, T-81-002); a cheat targeting a non-WRAM address is a silent no-op,
-  matching how real Game Genie/Pro Action Replay codes are overwhelmingly WRAM patches. A cheat
-  is host-applied external input (`docs/adr/0004`), not emulated hardware — with the new
-  `cheats` feature off, or no entries enabled, nothing here executes and the determinism
-  contract is untouched. A new Tools → Cheats… window (native and `wasm32` both — unlike
-  `scripting`'s `mlua`, cheat decoding is pure computation with no platform constraint) lets a
-  user type a code, see it decoded (or a parse-error message), enable/disable it, and remove it;
-  enabled entries are re-poked into WRAM every real frame, before it runs, so game code reading
-  the target address during that frame sees the forced value immediately. In-memory only for
-  this pass — no per-ROM disk persistence yet, matching the frontend's own quick-save slot's
-  current in-memory-only maturity level (a `RustyNES`-style per-ROM-SHA256 TOML file is a
-  natural follow-up once save-states themselves persist to disk). With `cheats` off, the crate's
-  cheat-list/UI code compiles out entirely (the decode module itself stays unconditional in
-  `rustysnes-core`, same as the `movie` module) — full default-feature workspace
-  build/test/clippy/fmt/doc verified unaffected.
+  self-asserted values. Neither SNES format supports a compare byte, and neither needs LoROM/
+  HiROM bank translation in the decoder — that stays the Bus's job. **A decoded patch is applied
+  as a `Bus::read24` CPU-read intercept (`Bus::set_cheats`), not a WRAM poke**: like NES's own
+  Game Genie, real SNES Game Genie/Pro Action Replay hardware is a pass-through cart that
+  intercepts cartridge-ROM reads — the review-caught test vectors above (`$02B1DD`, `$00993D`)
+  are themselves ROM addresses, so a `Bus::poke_wram`-only application (the initial design) would
+  have silently done nothing for virtually every real Game Genie code. `Bus::read24` checks the
+  installed patch list once per CPU-visible read (empty in every build that never calls
+  `set_cheats`, costing one branch when inactive) and substitutes a matching patch's value; the
+  underlying ROM/RAM byte itself is never modified. A cheat is host-applied external input
+  (`docs/adr/0004`), not emulated hardware — with the new `cheats` feature off, or no entries
+  enabled, nothing here executes and the determinism contract is untouched. A new Tools →
+  Cheats… window (native and `wasm32` both — unlike `scripting`'s `mlua`, cheat decoding is pure
+  computation with no platform constraint) lets a user type a code, see it decoded (or a
+  parse-error message), enable/disable it, and remove it; the enabled set is re-installed into
+  `Bus` every real frame (`crate::cheats::sync`). In-memory only for this pass — no per-ROM disk
+  persistence yet, matching the frontend's own quick-save slot's current in-memory-only maturity
+  level (a `RustyNES`-style per-ROM-SHA256 TOML file is a natural follow-up once save-states
+  themselves persist to disk). With `cheats` off, the crate's cheat-list/UI code compiles out
+  entirely (the decode module itself stays unconditional in `rustysnes-core`, same as the
+  `movie` module) — full default-feature workspace build/test/clippy/fmt/doc verified
+  unaffected.
 
 - **Sandboxed Lua scripting + TAS movie record/playback — `v0.8.0 "Instrumentation"`, T-81-002.**
   Fills in the previously-empty `rustysnes-script` crate stub with both halves of its stated

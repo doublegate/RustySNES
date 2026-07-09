@@ -1,15 +1,17 @@
 //! In-session cheat-code list (Game Genie / Pro Action Replay), `v0.8.0` T-81-003.
 //!
-//! Cheats are host-applied external input (`docs/adr/0004`), not emulated hardware — a decoded
-//! patch is poked into WRAM every frame via [`Bus::poke_wram`] (the same bank/mirror-aware WRAM
-//! accessor `rustysnes-script`'s `emu.write` and TAS movie playback both build on), so with the
-//! `cheats` feature off, or no entries enabled, the determinism contract is untouched: nothing
-//! here executes.
+//! Cheats are host-applied external input (`docs/adr/0004`), not emulated hardware — the
+//! currently-enabled patches are installed into `Bus` via [`Bus::set_cheats`], which checks them
+//! on every CPU-visible read (the same point real Game Genie/Pro Action Replay hardware
+//! intercepts at). With the `cheats` feature off, or no entries enabled, nothing here executes
+//! and the determinism contract is untouched.
 //!
-//! Decoding to a `(bank:offset address, value)` patch never touches LoROM/HiROM bank mapping —
-//! that is the Bus's own job. A cheat targeting a non-WRAM address is a silent no-op
-//! ([`Bus::poke_wram`]'s own documented behavior for an out-of-range address), matching how real
-//! Game Genie/Pro Action Replay codes are overwhelmingly WRAM patches in practice.
+//! This is deliberately a **read intercept**, not a `Bus::poke_wram`-style direct write: real
+//! Game Genie/Pro Action Replay codes overwhelmingly target cartridge ROM (the SNES equivalent
+//! of a pass-through cart, same as NES's own Game Genie), not WRAM — a write-based model would
+//! silently do nothing for the vast majority of real codes. Decoding to a `(bank:offset address,
+//! value)` patch never touches LoROM/HiROM bank mapping itself — that stays the Bus's own job,
+//! same as everything else that reaches it through [`Bus::set_cheats`].
 //!
 //! In-memory only for this pass — no per-ROM disk persistence yet, matching this frontend's own
 //! quick-save slot's current in-memory-only maturity level. A `RustyNES`-style per-ROM (keyed by
@@ -46,19 +48,26 @@ impl CheatEntry {
     }
 }
 
-/// Apply every enabled entry's patch to `bus`'s WRAM.
+/// Install every enabled entry's patch into `bus` (replacing any previously installed set), so
+/// [`Bus::read24`](rustysnes_core::cpu::Bus::read24)'s cheat intercept reflects the current
+/// list.
 ///
-/// Called once per real emulated frame, before it runs, so code that reads the target address
-/// during that frame sees the forced value rather than glimpsing one un-patched frame first.
-pub fn apply_all(entries: &[CheatEntry], bus: &mut Bus) {
-    for entry in entries.iter().filter(|e| e.enabled) {
-        bus.poke_wram(entry.patch.address, entry.patch.value);
-    }
+/// Called once per real frame from the app's drive loop — re-syncing unconditionally (rather
+/// than tracking a separate "did the list change" flag) is simpler, and the cost of clearing and
+/// re-filling a handful of small `Copy` patches is negligible next to a whole emulated frame.
+pub fn sync(entries: &[CheatEntry], bus: &mut Bus) {
+    let patches: Vec<CheatPatch> = entries
+        .iter()
+        .filter(|e| e.enabled)
+        .map(|e| e.patch)
+        .collect();
+    bus.set_cheats(&patches);
 }
 
 #[cfg(test)]
 mod tests {
     use rustysnes_core::System;
+    use rustysnes_core::cpu::Bus as CpuBus;
 
     use super::*;
 
@@ -82,13 +91,13 @@ mod tests {
     }
 
     #[test]
-    fn apply_all_pokes_only_enabled_entries_into_wram() {
+    fn sync_installs_only_enabled_entries() {
         let mut sys = System::new(0);
         let entries = vec![
             CheatEntry {
                 code: "A".into(),
                 patch: CheatPatch {
-                    address: 0x7E_0010,
+                    address: 0x02_B1DD,
                     value: 0x42,
                 },
                 enabled: true,
@@ -96,33 +105,45 @@ mod tests {
             CheatEntry {
                 code: "B".into(),
                 patch: CheatPatch {
-                    address: 0x7E_0020,
+                    address: 0x00_993D,
                     value: 0x99,
                 },
                 enabled: false,
             },
         ];
-        apply_all(&entries, &mut sys.bus);
-        assert_eq!(sys.bus.peek_wram(0x7E_0010), 0x42);
-        assert_eq!(sys.bus.peek_wram(0x7E_0020), 0x00);
+        sync(&entries, &mut sys.bus);
+        // The enabled entry's ROM-address patch is what the CPU-visible read sees — proving this
+        // is a read intercept, not a WRAM poke (a WRAM-only accessor cannot reach these
+        // addresses at all).
+        assert_eq!(sys.bus.read24(0x02_B1DD), 0x42);
+        // The disabled entry's address isn't intercepted, so it reads whatever an unmapped ROM
+        // access returns (open bus, not the disabled patch's value).
+        assert_ne!(sys.bus.read24(0x00_993D), 0x99);
     }
 
     #[test]
-    fn apply_all_reapplies_every_call_overriding_game_writes() {
-        // The whole point of a per-frame cheat: even if the game's own code writes a different
-        // value in between, the next `apply_all` call forces it back.
+    fn sync_replaces_the_previously_installed_set() {
         let mut sys = System::new(0);
-        let entries = vec![CheatEntry {
-            code: "A".into(),
-            patch: CheatPatch {
-                address: 0x7E_0010,
-                value: 0x42,
-            },
-            enabled: true,
-        }];
-        apply_all(&entries, &mut sys.bus);
-        sys.bus.poke_wram(0x7E_0010, 0x00);
-        apply_all(&entries, &mut sys.bus);
-        assert_eq!(sys.bus.peek_wram(0x7E_0010), 0x42);
+        sync(
+            &[CheatEntry {
+                code: "A".into(),
+                patch: CheatPatch {
+                    address: 0x02_B1DD,
+                    value: 0x42,
+                },
+                enabled: true,
+            }],
+            &mut sys.bus,
+        );
+        assert_eq!(sys.bus.read24(0x02_B1DD), 0x42);
+
+        // An empty sync must clear the previous set, not merely leave it stale. A cartless read
+        // falls back to the open-bus latch (whatever was last driven), so first drive it to a
+        // known, unrelated value — if the cheat were still installed it would force 0x42
+        // regardless of what open-bus currently holds; if it's truly cleared, the read reflects
+        // that unrelated driven value instead.
+        sync(&[], &mut sys.bus);
+        sys.bus.write24(0x00_0000, 0x77);
+        assert_eq!(sys.bus.read24(0x02_B1DD), 0x77);
     }
 }

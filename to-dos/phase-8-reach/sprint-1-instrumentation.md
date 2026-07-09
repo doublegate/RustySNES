@@ -96,8 +96,11 @@ substrate as the debugger's memory panel.
       (straight 8-hex-digit `AAAAAADD`, no scrambling), same external-oracle test vectors.
 - [x] Patches apply every frame without breaking the determinism contract when the feature is
       off (a cheat is host-applied external input, not a hardware behavior — model it that way) —
-      `crate::cheats::apply_all` pokes enabled entries into WRAM via `Bus::poke_wram` before each
-      frame runs; nothing executes unless `cheats` is on and at least one entry is enabled.
+      `crate::cheats::sync` installs the enabled entries into `Bus` every frame, and
+      `Bus::read24` checks them on every CPU-visible read (a read intercept, not a WRAM poke —
+      real Game Genie/Pro Action Replay codes overwhelmingly target cartridge ROM, which a
+      WRAM-only accessor cannot reach); nothing executes unless `cheats` is on and at least one
+      entry is enabled.
 - [x] With `cheats` off, the build is byte-identical (CI gate) — the frontend's cheat list/UI
       module is `#[cfg(feature = "cheats")]`-gated entirely (the decode module itself stays
       unconditional in `rustysnes-core`, same precedent as the `movie` module); full

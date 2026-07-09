@@ -609,11 +609,11 @@ impl App {
                     #[cfg(not(all(feature = "scripting", not(target_arch = "wasm32"))))]
                     emu.set_pad(0, active.pad1);
                     // Cheat patches (`v0.8.0`, T-81-003) are host-applied external input, same
-                    // framing as a movie's recorded input — poked into WRAM BEFORE this frame
-                    // runs, so code that reads the target address during the frame sees the
-                    // forced value immediately rather than glimpsing one un-patched frame first.
+                    // framing as a movie's recorded input — installed as a `Bus` read intercept
+                    // (real Game Genie/Pro Action Replay codes overwhelmingly target cartridge
+                    // ROM, not WRAM, so a poke-based model would silently do nothing for them).
                     #[cfg(feature = "cheats")]
-                    crate::cheats::apply_all(&active.cheats, &mut emu.system_mut().bus);
+                    crate::cheats::sync(&active.cheats, &mut emu.system_mut().bus);
                     // Run-ahead (config-driven, off by default): peeks `run_ahead.frames` frames
                     // ahead for the PRESENTED video, while `emu`'s own persisted state (and audio
                     // — the continuous stream) only ever advances by exactly one real frame, same

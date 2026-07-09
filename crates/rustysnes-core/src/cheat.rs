@@ -46,9 +46,16 @@ pub struct CheatPatch {
 }
 
 /// Map a Game Genie character to its 4-bit nibble (case-insensitive).
+///
+/// Rejects non-ASCII input outright rather than truncating it to a `u8` — a truncating cast
+/// (`c as u8`) could alias an unrelated non-ASCII codepoint onto a valid alphabet byte (e.g.
+/// `'\u{0144}'` truncates to `0x44`, `'D'`) and falsely "succeed" decoding garbage input.
 fn genie_nibble(c: char) -> Option<u8> {
-    let upper = c.to_ascii_uppercase();
-    u8::try_from(GENIE_ALPHABET.iter().position(|&a| a == upper as u8)?).ok()
+    if !c.is_ascii() {
+        return None;
+    }
+    let upper = c.to_ascii_uppercase() as u8;
+    u8::try_from(GENIE_ALPHABET.iter().position(|&a| a == upper)?).ok()
 }
 
 /// Decode a Game Genie code: `XXXX-XXXX` (case-insensitive, a dash at index 4, 9 characters
@@ -59,12 +66,17 @@ fn genie_nibble(c: char) -> Option<u8> {
 /// 4, or [`CheatError::InvalidCharacter`] if a non-dash character is outside the Game Genie
 /// alphabet.
 pub fn decode_game_genie(code: &str) -> Result<CheatPatch, CheatError> {
-    let chars: alloc::vec::Vec<char> = code.chars().collect();
-    if chars.len() != 9 || chars[4] != '-' {
+    // Determine the shape (length + dash position) BEFORE validating any character content —
+    // `decode`'s fallback to Pro Action Replay depends on `UnrecognizedFormat` meaning "this
+    // wasn't shaped like a Game Genie code at all," not "the first bad character happened to be
+    // found before an eventual length mismatch would have been noticed." Two passes over the
+    // iterator, but no heap allocation (an earlier `Vec<char>` collect was flagged for exactly
+    // that unnecessary no_std allocation).
+    if code.chars().count() != 9 || code.chars().nth(4) != Some('-') {
         return Err(CheatError::UnrecognizedFormat);
     }
     let mut raw: u32 = 0;
-    for (i, &c) in chars.iter().enumerate() {
+    for (i, c) in code.chars().enumerate() {
         if i == 4 {
             continue;
         }
@@ -113,6 +125,7 @@ pub fn decode_game_genie(code: &str) -> Result<CheatPatch, CheatError> {
 /// Returns [`CheatError::UnrecognizedFormat`] if `code` isn't 8 characters, or
 /// [`CheatError::InvalidCharacter`] if a character isn't a hex digit.
 pub fn decode_pro_action_replay(code: &str) -> Result<CheatPatch, CheatError> {
+    // Shape (length) first, content second — see `decode_game_genie`'s doc comment for why.
     if code.chars().count() != 8 {
         return Err(CheatError::UnrecognizedFormat);
     }
@@ -130,17 +143,23 @@ pub fn decode_pro_action_replay(code: &str) -> Result<CheatPatch, CheatError> {
     })
 }
 
-/// Decode `code` as a Game Genie code, falling back to Pro Action Replay if it doesn't match
-/// that shape.
+/// Decode `code` as a Game Genie code, falling back to Pro Action Replay only when `code`
+/// doesn't match the Game Genie shape at all.
 ///
 /// The two formats' valid shapes never overlap (9 characters with a dash vs. exactly 8 hex
-/// digits), so this dispatch is unambiguous.
+/// digits), so this dispatch is unambiguous. Only [`CheatError::UnrecognizedFormat`] falls
+/// through to the Pro Action Replay decoder — a Game Genie–shaped code with a genuinely invalid
+/// character (e.g. `C282-070G`) returns that specific [`CheatError::InvalidCharacter`] instead
+/// of a misleading "wrong format" from a decoder that was never going to match its shape either.
 ///
 /// # Errors
 /// Returns the [`CheatError`] from whichever format `code`'s length suggests; if neither format
 /// recognizes the shape at all, returns [`CheatError::UnrecognizedFormat`].
 pub fn decode(code: &str) -> Result<CheatPatch, CheatError> {
-    decode_game_genie(code).or_else(|_| decode_pro_action_replay(code))
+    match decode_game_genie(code) {
+        Err(CheatError::UnrecognizedFormat) => decode_pro_action_replay(code),
+        other => other,
+    }
 }
 
 #[cfg(test)]
@@ -257,5 +276,20 @@ mod tests {
             decode_pro_action_replay("7E0A2A06").unwrap()
         );
         assert_eq!(decode("not a code"), Err(CheatError::UnrecognizedFormat));
+    }
+
+    #[test]
+    fn unified_decode_does_not_mask_a_genuine_game_genie_character_error() {
+        // "C282-070G" is Game-Genie-shaped (9 chars, dash at index 4) but 'G' isn't in the
+        // alphabet — `decode` must surface that specific error, not silently fall through to
+        // Pro Action Replay (which would also fail, but with a less useful "wrong format").
+        assert_eq!(decode("C282-070G"), Err(CheatError::InvalidCharacter('G')));
+    }
+
+    #[test]
+    fn genie_nibble_rejects_non_ascii_rather_than_truncating() {
+        // '\u{0144}' truncates to 0x44 ('D') under a lossy `as u8` cast — must be rejected, not
+        // silently aliased onto a valid alphabet character.
+        assert_eq!(genie_nibble('\u{0144}'), None);
     }
 }
