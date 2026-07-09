@@ -208,7 +208,11 @@ is region-dependent here.
 ## Version policy
 
 - Start at **v0.1.0**. Additive features ship behind **default-off feature flags** so the
-  shipped / native / `no_std` / wasm builds stay byte-identical with the flags off.
+  shipped / native / `no_std` / wasm builds stay byte-identical with the flags off. Enforced in
+  CI since `v0.8.0` T-81-004: `.github/workflows/ci.yml`'s `lint` job clippys every new
+  `rustysnes-frontend` flag individually and combined, plus an explicit flags-off step
+  (`--no-default-features --features wasm-winit,help-tui`) as a named regression guard
+  independent of whatever `default` becomes.
 - The **fractional-timebase refactor** is the one milestone expected to break byte-identity /
   save-state compatibility (`docs/adr/0002`) — and only happens if hard residuals warrant it.
 - **Do NOT** import RustyNES engine-lineage "v2.0" anchors as RustySNES releases. The forward

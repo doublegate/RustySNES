@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The byte-identical-with-flags-off CI gate, extended for Sprint 1's three new flags —
+  `v0.8.0 "Instrumentation"`, T-81-004.** `.github/workflows/ci.yml`'s `lint` job (runs on
+  every PR/push to `main`) now clippys `debug-hooks`, `scripting`, and `cheats` individually
+  and combined (`debug-hooks,scripting,cheats`) — never `--all-features`, since `wasm-winit`/
+  `wasm-canvas` are mutually exclusive and an all-features build wouldn't even make sense.
+  Also adds an explicit `--no-default-features --features wasm-winit,help-tui` clippy step: a
+  named, protected flags-off regression guard, distinct from (if currently redundant with)
+  plain default-feature clippy — it stays correct even if a future change ever folds one of the
+  new flags into `default` without updating this line too. `full-test` (the exhaustive 3-OS,
+  release-tag-gated battery) additionally runs `cargo test -p rustysnes-frontend --features
+  debug-hooks,scripting,cheats` on Linux ahead of every tagged release, for real behavioral
+  coverage of the combined flags, not just clippy — scoped to Linux only, since `scripting`
+  vendors and compiles Lua 5.4 via `mlua`'s C source, and validating that specifically on
+  macOS/Windows is a genuinely separate question from "is the gate wired up," out of this
+  ticket's scope. Closes out `v0.8.0 "Instrumentation"` Sprint 1 (T-81-001 through T-81-006 all
+  landed).
+
 - **Game Genie / Pro Action Replay cheat-code support — `v0.8.0 "Instrumentation"`, T-81-003.**
   A new `rustysnes_core::cheat` module decodes SNES Game Genie (`XXXX-XXXX`, 9 characters
   including the dash, the 16-character alphabet `DF4709156BC8A23E`) and Pro Action Replay (8 hex
