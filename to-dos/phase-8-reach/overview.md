@@ -13,6 +13,13 @@ RustyNES front-loaded this exact breadth into its own v1.0.0, and matching that 
 stay genuinely post-`v1.0.0` Reach — polish items with no accuracy-adjacency, matching how
 RustyNES itself treated them.
 
+**Folded in after `v0.7.0`, per explicit direction:** the real wasm frontend build.
+`crates/rustysnes-frontend/src/wasm.rs` has been a scaffold stub since `v0.1.0` — it never
+builds the actual app, so the live Pages demo renders blank despite every prior "wasm demo is
+live" claim being true only at the HTTP level. Found live by direct comparison against
+RustyNES's own working wasm deployment, not by CI. Ported from RustyNES's proven two-stage
+shape (`wasm-canvas` MVP, then `wasm-winit` unification) — see Sprint 1 below.
+
 ## Exit criteria
 
 - [ ] Debugger overlay (65C816/PPU/APU/Cart panels, including SA-1/Super FX coprocessor state
@@ -25,6 +32,11 @@ RustyNES itself treated them.
       full-snapshot design is fast enough for a real rollback window.
 - [ ] RetroAchievements (opt-in, native FFI, the `RustySNES/<ver> rcheevos/<ver>` User-Agent
       pattern).
+- [ ] The real wasm frontend: a `wasm-canvas` MVP (canvas-2D blit, `requestAnimationFrame`,
+      keyboard, ROM load) landed first for a fast working demo, then `wasm-winit` unification
+      (the same `App` native uses, via `EventLoopExtWebSys::spawn_app`) — both ported from
+      RustyNES's proven shape, verified by a real headless-browser render check, not just an
+      HTTP status check.
 - [ ] Every feature off by default; with all off, builds are byte-identical (a CI gate proves
       it, re-verified after each sprint below).
 - [ ] All sprints complete; `v1.0.0` cut prerequisites met (`to-dos/VERSION-PLAN.md`'s v1.0.0
@@ -35,8 +47,14 @@ RustyNES itself treated them.
 In-scope:
 
 - The five breadth feature families above, each default-off and byte-identical-when-off.
+- The real wasm frontend build (two stages — `wasm-canvas` MVP, then `wasm-winit`
+  unification), which requires un-gating `app.rs`/`audio.rs` from their current
+  `#[cfg(not(target_arch = "wasm32"))]` exclusion — a real, confirmed architectural gap, not
+  just plumbing (see Sprint 1's T-81-005/T-81-006 for the full breakdown).
 - The `Board: Send` fix `emu-thread` needs (a prerequisite for `v1.0.0`'s dedicated emulation
   thread, tracked here since it's discovered/fixed alongside this phase's instrumentation work).
+  Unrelated to the wasm-winit unification above — `emu-thread` is a native-only, single-player
+  dedicated-thread feature; wasm's own event loop is a separate concern.
 
 Out-of-scope (post-`v1.0.0` Reach, `to-dos/VERSION-PLAN.md`):
 
@@ -47,8 +65,8 @@ Out-of-scope (post-`v1.0.0` Reach, `to-dos/VERSION-PLAN.md`):
 
 ## Sprints
 
-- [Sprint 1 — Instrumentation](sprint-1-instrumentation.md) — debugger, scripting/TAS, cheats.
-  Maps to `v0.8.0 "Instrumentation"`.
+- [Sprint 1 — Instrumentation](sprint-1-instrumentation.md) — debugger, scripting/TAS, cheats,
+  the real wasm frontend (two stages). Maps to `v0.8.0 "Instrumentation"`.
 - [Sprint 2 — Community](sprint-2-community.md) — rollback netplay, RetroAchievements. Maps to
   `v0.9.0 "Community"`.
 
@@ -81,6 +99,12 @@ Phase 5 (the frontend + the exercised determinism contract); Phases 1–4 featur
   frontend-orchestrated resimulation model. Mitigate by keeping the two mutually exclusive by
   session type (a netplay session uses its own rollback-aware loop, never the generic
   `emu-thread` pacer) rather than trying to unify them.
+- **The wasm frontend shipping unverified again** — the root cause of the original stub going
+  unnoticed since `v0.1.0` was that every prior check (`pages.yml`, this project's own CHANGELOG
+  claims) only asserted the build/deploy pipeline succeeds, never that the resulting page
+  actually renders. Mitigate by requiring a real headless-browser render check (Playwright/
+  Chromium: assert a canvas exists and receives non-zero pixel data) as an explicit acceptance
+  criterion for both T-81-005 and T-81-006, not just a build-success check.
 
 ## Reference docs
 
