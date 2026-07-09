@@ -134,7 +134,7 @@ Closes Phase 7's exit criterion ("the full coprocessor/board matrix in `docs/STA
       cart, Hayazashi Nidan Morita Shogi 2 (an earlier investigation wrongly assumed Star Ocean).
       No commercial dump in the local corpus — unit-test-level coverage only.
 
-### v0.5.0 "Fidelity" — the accuracy push
+### v0.5.0 "Fidelity" — the accuracy push — **RELEASED 2026-07-08**
 
 **Goal:** build the accuracy-pass-rate dashboard RustySNES currently lacks (RustyNES's
 AccuracyCoin-equivalent). See `to-dos/phase-6-accuracy-to-100/`.
@@ -202,8 +202,24 @@ AccuracyCoin-equivalent). See `to-dos/phase-6-accuracy-to-100/`.
   feature flag per its own "bake, then promote" gate — worth mirroring that exact pattern:
   ship honest partial coverage default-on, land experimental fixes default-off until proven
   against a broad commercial-ROM byte-identity oracle, then promote in a dedicated point release).
-- Pursue the Nintendo Aging/Controller/SNES Test Program ROMs if obtainable, as an independent
-  oracle layer.
+- **Researched: obtainable, but reclassified as a `commercial-roms`-gated stretch goal, not
+  pursued this release.** The Nintendo Aging/Controller/SNES Test Program ROMs are real and
+  dumped — *Super Famicom Aging Program Ver. 1.00* and *Controller Test Program (Japan)* are
+  both individually preserved on the Internet Archive, and a further factory/QA test-program
+  archive (from tukuyomi's now-offline SNES emulation site) is mirrored at SNES Central; the
+  *NTF 2.5 Test Cartridge* (Nintendo World Class Service's own diagnostic, per The Cutting Room
+  Floor) is a third, separate artifact. All are Nintendo's own copyrighted internal software —
+  same legal status as the commercial ROMs this project already validates coprocessors against
+  (`docs/STATUS.md`'s BestEffort real-title-validated rows), so integrating one would follow the
+  exact same pattern: local-only under `tests/roms/external/` (gitignored), gated behind
+  `--features commercial-roms`, never committed. Checked whether RustyNES pursued an NES
+  equivalent (an "Aging"/factory-diagnostic cartridge, as opposed to its actual AccuracyCoin
+  approach — one comprehensive third-party homebrew ROM) as precedent for this being worth the
+  effort: it did not — no reference to an NES factory/aging diagnostic cartridge anywhere in
+  RustyNES's docs, CHANGELOG, or to-dos. This item's original phrasing assumed a RustyNES
+  precedent that doesn't actually exist. Deferred to a later release as a stretch goal (would add
+  a genuinely independent, Nintendo-authored oracle layer beyond this project's existing
+  third-party homebrew suites), not pursued in `v0.5.0`.
 - Anything needing the fractional-timebase refactor (`docs/adr/0002`) is explicitly deferred
   and documented in the residual ledger, never point-fixed (that ADR's own rule).
 
