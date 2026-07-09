@@ -183,6 +183,10 @@ impl Movie {
     }
 
     /// Serialize this movie to its on-disk byte format (see the module doc for the layout).
+    ///
+    /// # Panics
+    /// Panics if `self.frames.len()` exceeds `u32::MAX` (over 2 years of continuous 60fps
+    /// recording) — a header count that couldn't round-trip would silently corrupt the file.
     #[must_use]
     pub fn serialize(&self) -> Vec<u8> {
         let mut w = SaveWriter::new();
@@ -194,7 +198,10 @@ impl Movie {
         });
         w.write_u64(self.seed);
         w.write_bytes(&self.rom_sha256);
-        w.write_u32(u32::try_from(self.frames.len()).unwrap_or(u32::MAX));
+        w.write_u32(
+            u32::try_from(self.frames.len())
+                .expect("a recorded movie never exceeds u32::MAX frames (~2.27 years at 60fps)"),
+        );
         match &self.start {
             StartPoint::PowerOn => w.write_u8(0),
             StartPoint::SaveState(blob) => {
@@ -247,7 +254,12 @@ impl Movie {
             }
             other => return Err(MovieError::BadStartPointKind(other)),
         };
-        let mut frames = Vec::with_capacity(frame_count);
+        // Deliberately NOT `Vec::with_capacity(frame_count)`: `frame_count` is an untrusted u32
+        // straight from the file header, and a crafted/truncated file could claim up to ~4
+        // billion frames, demanding a huge up-front allocation before a single frame is actually
+        // read. Growing organically means allocation tracks real, successfully-read data — a
+        // truncated file bails via `MovieError::Truncated` on its first missing frame instead.
+        let mut frames = Vec::new();
         for _ in 0..frame_count {
             let p1 = r.read_u16().map_err(|_| MovieError::Truncated)?;
             let p2 = r.read_u16().map_err(|_| MovieError::Truncated)?;
@@ -430,6 +442,24 @@ mod tests {
         let bytes = movie.serialize();
         // Chop off the last frame's worth of bytes.
         let truncated = &bytes[..bytes.len() - 2];
+        assert_eq!(Movie::deserialize(truncated), Err(MovieError::Truncated));
+    }
+
+    #[test]
+    fn deserialize_rejects_a_forged_huge_frame_count_without_oom() {
+        // A crafted header claims ~4 billion frames but the file actually has none — this must
+        // fail via `Truncated` on the first missing frame, not attempt a
+        // `Vec::with_capacity(u32::MAX)` allocation up front (a real DoS vector for untrusted
+        // movie files).
+        let movie = tiny_movie();
+        let mut bytes = movie.serialize();
+        // The frame-count u32 sits right after magic(8) + version(2) + region(1) + seed(8) +
+        // rom_sha256(32).
+        let frame_count_offset = 8 + 2 + 1 + 8 + 32;
+        bytes[frame_count_offset..frame_count_offset + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        // Truncate right after the start-point byte, before any frame data.
+        let start_point_offset = frame_count_offset + 4;
+        let truncated = &bytes[..=start_point_offset];
         assert_eq!(Movie::deserialize(truncated), Err(MovieError::Truncated));
     }
 

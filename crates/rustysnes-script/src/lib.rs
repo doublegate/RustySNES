@@ -110,8 +110,17 @@ impl ScriptEngine {
         let log: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
         {
             let log = Rc::clone(&log);
-            let print_fn = lua.create_function(move |_, msg: String| {
-                log.borrow_mut().push(msg);
+            // Standard Lua `print` accepts any number of arguments of any type, formatting each
+            // via `tostring` and joining with tabs — a single-`String`-argument version raises a
+            // type error on `print(123)` or `print("a", "b")`, which is surprising enough to
+            // unload a script that would otherwise run fine.
+            let print_fn = lua.create_function(move |lua, args: mlua::MultiValue| {
+                let tostring: Function = lua.globals().get("tostring")?;
+                let mut parts = Vec::with_capacity(args.len());
+                for arg in args {
+                    parts.push(tostring.call::<String>(arg)?);
+                }
+                log.borrow_mut().push(parts.join("\t"));
                 Ok(())
             })?;
             lua.globals().set("print", print_fn)?;
@@ -142,10 +151,17 @@ impl ScriptEngine {
     /// Parse and execute `src` (a script's top level — typically just `emu.onFrame(...)`
     /// registration; the per-frame body runs later via [`Self::on_frame`]).
     ///
+    /// Replaces any script previously loaded into this engine: registered `emu.onFrame`
+    /// callbacks are cleared first, so loading a second script doesn't stack its callbacks on
+    /// top of the first's.
+    ///
     /// # Errors
     /// Returns [`ScriptError`] on a Lua parse error, a runtime error during the top-level
     /// execution, or the instruction budget tripping.
     pub fn load(&mut self, src: &str) -> Result<(), ScriptError> {
+        for key in self.frame_cbs.borrow_mut().drain(..) {
+            let _ = self.lua.remove_registry_value(key);
+        }
         self.instruction_count.set(0);
         self.lua.load(src).exec()?;
         Ok(())
@@ -270,6 +286,35 @@ mod tests {
         assert!(
             result.is_err(),
             "runaway loop must be interrupted, not hang"
+        );
+    }
+
+    #[test]
+    fn print_accepts_multiple_and_non_string_arguments() {
+        let mut engine = ScriptEngine::new().expect("engine builds");
+        engine
+            .load("emu.onFrame(function() print('Score:', 123, nil, true) end)")
+            .expect("script loads");
+        let mut sys = System::new(0);
+        engine.on_frame(&mut sys.bus).expect("frame runs");
+        assert_eq!(engine.drain_log(), vec!["Score:\t123\tnil\ttrue"]);
+    }
+
+    #[test]
+    fn load_replaces_previously_registered_frame_callbacks() {
+        let mut engine = ScriptEngine::new().expect("engine builds");
+        engine
+            .load("emu.onFrame(function() print('first') end)")
+            .expect("first script loads");
+        engine
+            .load("emu.onFrame(function() print('second') end)")
+            .expect("second script loads");
+        let mut sys = System::new(0);
+        engine.on_frame(&mut sys.bus).expect("frame runs");
+        assert_eq!(
+            engine.drain_log(),
+            vec!["second"],
+            "loading a new script must clear callbacks from any previously loaded script"
         );
     }
 

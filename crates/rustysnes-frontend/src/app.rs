@@ -504,7 +504,10 @@ impl App {
             MovieState::Recording(rec) => rec.capture(pad1.0, 0),
             MovieState::Idle => {}
         }
+        // Outside `Playing`, P2 is not live-driven by this frontend (single-player input) — reset
+        // it explicitly rather than leaving it at whatever a just-finished movie last set it to.
         emu.set_pad(0, pad1);
+        emu.set_pad(1, Buttons(0));
     }
 
     /// Run the loaded Lua script's per-frame callback, if any (`v0.8.0`, T-81-002). Writes are
@@ -1033,4 +1036,41 @@ fn try_install_firmware(emu: &mut EmuCore, rom_path: &Path) -> bool {
         }
     }
     false
+}
+
+#[cfg(all(test, feature = "scripting", not(target_arch = "wasm32")))]
+mod frame_input_tests {
+    use rustysnes_core::movie::{FrameInput, Movie, MoviePlayer, StartPoint};
+
+    use super::{App, Buttons, CartRegion, EmuCore, MovieState};
+    use crate::config::Region;
+
+    fn one_frame_movie(p2: u16) -> Movie {
+        Movie {
+            seed: 0,
+            region: CartRegion::Ntsc,
+            rom_sha256: [0; 32],
+            start: StartPoint::PowerOn,
+            frames: vec![FrameInput { p1: 0, p2 }],
+        }
+    }
+
+    #[test]
+    fn p2_resets_to_zero_once_movie_playback_finishes() {
+        let mut movie_state = MovieState::Playing(MoviePlayer::new(one_frame_movie(0x8080)));
+        let mut status = String::new();
+        let mut emu = EmuCore::new(0, Region::Ntsc);
+
+        // First call consumes the movie's only frame — P2 should reflect it.
+        App::apply_frame_input(&mut movie_state, Buttons(0), &mut status, &mut emu);
+        emu.run_frame();
+        assert_eq!(emu.system_mut().bus.joypad(1), 0x8080);
+
+        // Second call: playback is finished — must fall back to live input, not leave P2 stuck
+        // at the movie's last value.
+        App::apply_frame_input(&mut movie_state, Buttons(0), &mut status, &mut emu);
+        emu.run_frame();
+        assert_eq!(emu.system_mut().bus.joypad(1), 0);
+        assert!(matches!(movie_state, MovieState::Idle));
+    }
 }
