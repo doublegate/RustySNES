@@ -27,17 +27,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Debugger overlay live state viewers (T-81-001, PR A of 2).** `ui_shell.rs`'s debugger window
-  now shows real 65C816/PPU/APU/Cart state instead of `"TODO(impl-phase)"` placeholders, gated
-  behind the existing `debug-hooks` flag: a new `DebugSnapshot` (`debug_snapshot.rs`) is copied
-  out under the same brief emu lock `ShellInfo` already uses. The Cart panel includes SA-1
-  second-CPU register state (`System::sa1_regs`) and Super FX/GSU register-file state
-  (`Board::debug_gsu_state`) from day one, resolving `docs/frontend.md`'s previously-open
-  question. Disassembly + PC breakpoints/step controls (PR B) and read/write watchpoints
-  (T-81-001b, needs a new core-crate `debug-hooks` feature + a `Bus`-level hook) are tracked as
-  explicit follow-ups, not bundled into this PR. With `debug-hooks` off the Debug menu entry
-  itself is feature-gated, so `debugger_open` can never become `true` and the build stays
-  byte-identical.
+- **The live Pages demo actually renders now: the `wasm-canvas` MVP (T-81-005).** Replaced
+  `crates/rustysnes-frontend/src/wasm.rs`'s `v0.1.0` scaffold stub (panic hook + one log line,
+  never rendered anything) with a real canvas-2D frontend ported from RustyNES's proven shape: a
+  `CanvasRenderingContext2d.putImageData` blit of the existing RGBA8 framebuffer, a
+  `requestAnimationFrame` loop paced by a new shared `pacing::Pacer` (extracted from `app.rs`,
+  now used natively AND on wasm so a 144 Hz display doesn't run emulation 2.4x too fast), keyboard
+  input via DOM `keydown`/`keyup` (reusing `input::KeyBindings` unchanged), and ROM loading via
+  `<input type="file">`. Audio is a new `wasm_audio.rs`: `AudioWorkletNode` primary with a
+  `ScriptProcessorNode` fallback, reusing the native DRC/resampler core verbatim (extracted into a
+  new target-agnostic `audio_core.rs` specifically for this reuse, not reimplemented). No
+  `wgpu`/`egui` yet — that unification is `wasm-winit`/T-81-006, not yet landed; `wasm-canvas` is
+  the crate's default wasm feature for now so the live Pages build actually picks it up.
+  **Found and fixed a second, deeper, pre-existing bug while verifying this with a real
+  headless-browser load (Playwright/Chromium — not just an HTTP-status check, the exact gap that
+  let the stub ship unnoticed since `v0.1.0`):** `web/index.html`'s trunk directive
+  (`data-bin="rustysnes" data-type="main"`) built the `[[bin]]` (`main.rs`, whose wasm32 arm is an
+  empty `fn main() {}` that never references the lib), not the `[lib]` cdylib — so the actual
+  `#[wasm_bindgen(start)]` entry point got dead-code-eliminated entirely regardless of what code
+  `wasm.rs` contained; the built `.wasm` was confirmed to be only ~14 KB with zero emulator code
+  linked in. Fixed to `data-target-name="rustysnes_frontend"` (the same pattern RustyNES's own
+  working `index.html` uses). `pages.yml`'s `RUSTFLAGS="-C target-feature=-reference-types"` also
+  had to be removed — it broke wasm-bindgen's externref table generation once the demo actually
+  linked in real `Closure`-based code; it had been a silent no-op until now because there was no
+  real code for it to break. Verified end-to-end: a real committed test ROM loaded through the
+  live `#rom-input` in headless Chromium produced a canvas with 28672/57344 non-black pixels and
+  zero console errors. **Honest gap:** audio was verified to construct without throwing, but
+  headless automation cannot conclusively prove audible output through the browser's real
+  autoplay-gesture semantics — manual verification in a real browser is still owed.
 
 ### Fixed
 

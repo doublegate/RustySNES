@@ -42,7 +42,13 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Build wasm demo
-        run: RUSTFLAGS="-C target-feature=-reference-types" trunk build --release --public-url /RustySNES/
+        # No RUSTFLAGS override: `-C target-feature=-reference-types` (previously here) broke
+        # wasm-bindgen's externref table generation ("failed to find the
+        # `__wbindgen_externref_table_dealloc` function") once the demo actually linked in real
+        # `Closure`-based code (T-81-005) — it had been a silent no-op until now because the
+        # wasm artifact this workflow built was, until this fix, an empty ~14 KB stub (see
+        # `web/index.html`'s `data-target-name` comment for why).
+        run: trunk build --release --public-url /RustySNES/
         working-directory: crates/rustysnes-frontend/web
       - name: Build rustdoc
         run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps

@@ -110,15 +110,43 @@ page) even before stage 2 (T-81-006) is ready.
 
 **Acceptance criteria:**
 
-- [ ] The live demo shows a real picture and accepts keyboard input for a loaded ROM.
-- [ ] Audio plays via `AudioWorklet` (primary) with a `ScriptProcessorNode` fallback — no
-      `SharedArrayBuffer` (GitHub Pages can't send COOP/COEP headers), reusing the same DRC/
-      resampler logic `audio.rs` already has for native.
-- [ ] Verified with a real headless-browser load (e.g. Playwright/Chromium), not just an HTTP
-      200 check — assert a canvas element exists and receives non-zero pixel data after loading
-      a ROM. `pages.yml`'s existing verification only checks the build/deploy steps succeed;
-      this is the gap that let the stub ship unnoticed since `v0.1.0`.
-- [ ] `pages.yml` updated if the trunk build target/feature selection needs to change.
+- [x] The live demo shows a real picture and accepts keyboard input for a loaded ROM.
+- [x] Audio plays via `AudioWorklet` (primary) with a `ScriptProcessorNode` fallback — no
+      `SharedArrayBuffer` (GitHub Pages can't send COOP/COEP headers). The DRC/resampler core
+      (`Resampler`/`AudioRing`/`drc_ratio`) was extracted out of `audio.rs` into a new
+      target-agnostic `audio_core.rs` specifically so `wasm_audio.rs` reuses the SAME logic
+      native does, not a reimplementation — `audio_core::Resampler::process_into` is the one new
+      addition (appends to a `Vec<f32>` for the worklet's `postMessage` boundary instead of an
+      `AudioRing`; a `process_and_process_into_agree` test proves the two paths stay identical).
+- [x] Verified with a real headless-browser load (Playwright/Chromium, actually run — not just
+      described): loaded a real committed test ROM
+      (`tests/roms/undisbeliever/inidisp_brightness_delay.sfc`) through the live `#rom-input`,
+      confirmed a `<canvas>` element exists, and read back its pixel data — 28672/57344 pixels
+      non-black after one ROM load, zero console errors, `"RustySNES wasm-canvas: ready"` +
+      `"RustySNES: ROM loaded"` logged. This caught a real, separate, pre-existing bug (see
+      below) that a build/HTTP-status check alone would have missed entirely, exactly the gap
+      this criterion exists to close.
+- [x] `pages.yml` updated: two changes, both load-bearing, not cosmetic.
+      1. `web/index.html`'s trunk directive was `data-bin="rustysnes" data-type="main"`, which
+         built the `[[bin]]` (`main.rs`, whose wasm32 arm is an empty `fn main() {}` that never
+         references the lib) instead of the `[lib]` cdylib — the actual
+         `#[wasm_bindgen(start)]` entry point in `wasm.rs` got dead-code-eliminated entirely
+         since nothing in the binary's reachable call graph touched it. The built `.wasm` was
+         only ~14 KB (confirmed by direct inspection) with zero emulator code linked in — this,
+         not just "`wasm.rs` is a stub," was the actual root cause of the blank demo page since
+         `v0.1.0`; every prior release's stub would have produced the same empty artifact even
+         with real code in it. Fixed to `data-target-name="rustysnes_frontend"`, the same
+         pattern RustyNES's own working `index.html` uses (confirmed by reading its source).
+      2. `pages.yml`'s `RUSTFLAGS="-C target-feature=-reference-types"` broke wasm-bindgen's
+         externref table generation (`failed to find the __wbindgen_externref_table_dealloc
+         function`) once the demo actually linked in real `Closure`-based code — it had been a
+         silent no-op given bug 1 above (there was no real code to break). Removed.
+
+**Honest gap not claimed as covered:** audio was verified to construct without throwing (the
+`AudioContext`/`AudioWorkletNode`/`ScriptProcessorNode` graph builds cleanly, no console errors),
+but headless Chromium automation cannot conclusively prove audible output through the browser's
+real autoplay-gesture semantics — genuine manual verification in a real browser is still owed as
+a follow-up, same honesty posture as `v0.7.0`'s hi-res real-title-validation gap.
 
 **Dependencies:** none beyond what already exists (`emu.rs::framebuffer()`, existing keyboard/
 ROM-load native code as the porting reference)

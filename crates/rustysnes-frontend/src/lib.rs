@@ -13,8 +13,14 @@
 //! Phase 5 status: PLAYABLE on native. The chip stack is complete, so the present path decodes
 //! the real PPU framebuffer, the S-DSP audio drives the cpal stream, and keyboard/gamepad input
 //! reaches the controllers. Save-states, rewind, and run-ahead (`rewind` module) are implemented
-//! and config-driven (off by default). The deep debugger panels are still TODO stubs. The
-//! wasm32 build compiles; its browser frontend is a bootstrap scaffold.
+//! and config-driven (off by default). The deep debugger panels are still TODO stubs.
+//!
+//! `v0.8.0 "Instrumentation"`: the `wasm32` build is PLAYABLE too, via the `wasm-canvas` MVP
+//! (`wasm.rs`) — a canvas-2D blit + `AudioWorklet`/`ScriptProcessorNode` audio + keyboard input,
+//! no `wgpu`/`egui` yet. `wasm-canvas` is the default wasm feature FOR NOW (`Cargo.toml`'s own
+//! comment explains why): the `wasm-winit` full shell (routing through the same `App` native
+//! uses) is `T-81-006`, not yet landed, so there is no real `wasm_winit.rs` module for the
+//! `wasm-winit` flag to select yet. Default flips back to `wasm-winit` once T-81-006 lands.
 //
 // TODO(v-next): after the second/third Rusty<System>, the console-agnostic shell wants to be
 // a shared `rusty-frontend-core` crate parameterized over a `Console` trait (framebuffer
@@ -27,10 +33,12 @@
 // the chip stack stays `#![forbid(unsafe_code)]`.
 #![allow(unsafe_code)]
 
+pub mod audio_core;
 pub mod config;
 pub mod emu;
 pub mod gfx;
 pub mod input;
+pub(crate) mod pacing;
 pub mod rewind;
 pub mod ui_shell;
 
@@ -49,10 +57,16 @@ pub mod cli;
 #[cfg(all(not(target_arch = "wasm32"), feature = "help-tui"))]
 pub mod help_tui;
 
-// The wasm32 entry point (`#[wasm_bindgen(start)]`). Gated to wasm so it's absent from native
-// rustdoc; named here as a code span rather than an intra-doc link.
-#[cfg(target_arch = "wasm32")]
+// The `wasm-canvas` entry point (`#[wasm_bindgen(start)]`). Gated to wasm so it's absent from
+// native rustdoc; named here as a code span rather than an intra-doc link. Feature-gated (not
+// just target-gated) so it coexists with a future `wasm_winit` module without a duplicate
+// `#[wasm_bindgen(start)]` — "exactly one wasm frontend is compiled" per both modules' own docs.
+#[cfg(all(target_arch = "wasm32", feature = "wasm-canvas"))]
 pub mod wasm;
+// wasm audio output (`AudioWorkletNode`/`ScriptProcessorNode`), shared by both wasm frontends
+// (`wasm-canvas` today; `wasm-winit`, T-81-006, once it lands).
+#[cfg(target_arch = "wasm32")]
+pub mod wasm_audio;
 
 /// The native NTSC frame rate (the wall-clock pacing target for the produce loop).
 pub const FRAME_RATE_NTSC: f64 = 60.098_8;

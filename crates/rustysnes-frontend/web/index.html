@@ -8,18 +8,37 @@
         html, body { margin: 0; height: 100%; background: #101014; color: #e0e0e0;
             font-family: system-ui, sans-serif; }
         body { display: flex; flex-direction: column; }
-        #app { flex: 1; display: flex; align-items: center; justify-content: center; }
-        canvas { image-rendering: pixelated; background: #000; }
+        #app { flex: 1; display: flex; flex-direction: column; align-items: center;
+            justify-content: center; gap: 0.75rem; }
+        canvas { image-rendering: pixelated; background: #000; border: 2px solid #333;
+            width: 512px; height: 448px; }
+        #rom-input { color: #e0e0e0; font-size: 0.9rem; }
         .hint { text-align: center; margin: 0; padding: 0.75rem 0; font-size: 0.85rem;
             color: #8a8a94; }
         .hint a { color: #8a8a94; }
     </style>
-    <!-- Trunk links the wasm cdylib (cargo-bin name = rustysnes-frontend). -->
-    <link data-trunk rel="rust" href="../Cargo.toml" data-bin="rustysnes" data-type="main" />
+    <!-- `data-target-name="rustysnes_frontend"` selects the crate's `[lib]` target
+         (crate-type = ["cdylib", "rlib"]), NOT the `[[bin]]` (the package produces both, so
+         trunk needs disambiguation). This matters a lot: the previous directive here,
+         `data-bin="rustysnes"`, built `main.rs`, whose wasm32 arm is an empty `fn main() {}`
+         that never references the lib — the real `#[wasm_bindgen(start)]` entry point in
+         `wasm.rs` got dead-code-eliminated entirely, since nothing in the binary's reachable
+         call graph touched it. Found live: the resulting .wasm was only ~14 KB, with zero
+         emulator code linked in — the actual root cause of the "blank demo since v0.1.0" bug,
+         deeper than just `wasm.rs` being a stub (RustyNES's own working `index.html` uses this
+         same `data-target-name` pattern, confirmed by reading its source directly). Building the
+         lib as a cdylib means every `#[wasm_bindgen]`-annotated item (the start function
+         included) is unconditionally exported regardless of reachability — the behavior `[lib]`'s
+         own Cargo.toml doc comment always assumed but the trunk directive never actually invoked.
+         The `wasm-canvas` feature (the v0.8.0 MVP; T-81-005) is the crate's default wasm feature
+         for now — see Cargo.toml's `[features]` comment for why. -->
+    <link data-trunk rel="rust" href="../Cargo.toml" data-target-name="rustysnes_frontend" />
 </head>
 <body>
     <div id="app">
         <noscript>RustySNES needs JavaScript + WebAssembly.</noscript>
+        <canvas id="snes-canvas" width="256" height="224"></canvas>
+        <input type="file" id="rom-input" accept=".sfc,.smc,.fig,.swc,.zip" />
     </div>
     <p class="hint">
         <a href="https://github.com/doublegate/RustySNES" target="_blank" rel="noopener noreferrer">github.com/doublegate/RustySNES</a>
