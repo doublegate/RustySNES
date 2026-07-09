@@ -216,6 +216,30 @@ perturb a run it doesn't own. `rustysnes-script` is an optional native-only depe
 (`dep:rustysnes-script`, gated out of the wasm32 dependency graph entirely); with `scripting`
 off, none of this compiles in and the default build is unaffected.
 
+## Rollback netplay (`v0.9.0 "Community"`, T-82-002)
+
+A Tools → Netplay… window (native/UDP only, `#[cfg(all(feature = "netplay", not(target_arch =
+"wasm32")))]`) takes a local `host:port`, a peer `host:port`, and a P1/P2 slot, and dispatches
+`MenuAction::ConnectNetplay` (the actual socket bind/connect happens in `App::dispatch_actions`,
+never inside the egui pass). `rustysnes-netplay::RollbackSession` — ported from RustyNES's own
+`RollbackSession` shape, scoped to 2 players since the SNES core has no multitap emulation —
+drives `rustysnes_core::System` directly, not `EmuCore`: `Active::render`'s per-frame loop checks
+`NetplayState::is_connected()` first and, when true, calls `NetplayState::drive` (which calls
+`RollbackSession::advance` on the `System`, then `EmuCore::present_current_frame` to decode the
+framebuffer/drain audio from whatever the session settled on) via an early `continue` that skips
+the entire single-player `apply_frame_input`/cheats/rewind/script/`run_frame` path for that
+iteration — netplay's own drive loop, verified independent of `emu-thread` (`docs/adr/0004`'s
+determinism contract requires exactly one thing ever drive a given `System`). A dropped
+`NetMessage::Input` packet is resent every `advance()` call until the remote peer's cumulative
+ack catches up. **Known limitation, shared with rollback netplay generally**: a rollback event
+may audibly glitch (audio already sent to the output device during a since-corrected
+misprediction can't be "unplayed") even though video always reflects the corrected state
+cleanly. `rustysnes-netplay` is an optional native-only dependency (`dep:rustysnes-netplay`,
+gated out of the wasm32 dependency graph); with `netplay` off, none of this compiles in and the
+default build is unaffected. The crate's `WebRtcTransport` (wasm32) is itself complete and
+clippy-verified against the real `web_sys` API, but frontend SDP-negotiation UI to actually use
+it in-browser is a separate, not-yet-landed scope.
+
 ## Open questions
 
 - ~~Whether the second-CPU (SA-1 / Super FX) state warrants its own debugger panel from day one

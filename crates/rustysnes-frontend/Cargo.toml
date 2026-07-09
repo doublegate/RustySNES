@@ -59,6 +59,14 @@ scripting = ["dep:rustysnes-script"]
 # this flag gates only the frontend's cheat list + UI + per-frame application). No optional
 # dependency and no `target_arch` gate — decode is pure computation, unlike `scripting`'s `mlua`.
 cheats = []
+# `v0.9.0 "Community"`, T-82-002: GGPO-style rollback netplay (`rustysnes-netplay`). The frontend
+# wiring here is native-only (UDP, a real socket-based peer connection entered by address) — the
+# crate's `WebRtcTransport` is itself complete and wasm32-clippy-verified against the real
+# `web_sys` API, but the browser-side SDP-negotiation UI (async offer/answer/ICE exchange) is a
+# genuinely separate scope of frontend work, honestly deferred rather than half-wired. `dep:`
+# keeps the optional dependency out of the wasm32 dependency graph, on top of the
+# `target.'cfg(...)'` gate below already doing so.
+netplay = ["dep:rustysnes-netplay"]
 retroachievements = []
 
 [lints]
@@ -112,6 +120,7 @@ clap_complete = "4"
 anstyle = "1"
 ratatui = { version = "0.30", optional = true }
 rustysnes-script = { path = "../rustysnes-script", version = "0.7.0", optional = true }
+rustysnes-netplay = { path = "../rustysnes-netplay", version = "0.7.0", optional = true }
 
 # wasm32 target deps. The chip stack is `no_std + alloc`, so the browser build
 # only needs the wasm-bindgen + web-sys bridge here.

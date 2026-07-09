@@ -65,6 +65,13 @@ pub enum MenuAction {
     /// Stop TAS movie playback.
     #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
     StopMoviePlayback,
+    /// Bind/connect a native UDP netplay session (`v0.9.0` T-82-002) using the Netplay window's
+    /// current local-address/peer-address/player-slot fields.
+    #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+    ConnectNetplay,
+    /// End the active netplay session and fall back to single-player.
+    #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+    DisconnectNetplay,
 }
 
 /// Which debugger panel is selected in the overlay (SNES chip set).
@@ -106,6 +113,21 @@ pub struct ShellState {
     /// The Cheats window's last parse-error message, if the most recent "Add" attempt failed.
     #[cfg(feature = "cheats")]
     pub cheat_code_error: Option<String>,
+    /// Whether the Netplay window is visible (`v0.9.0` T-82-002).
+    #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+    pub netplay_open: bool,
+    /// The Netplay window's "local address" text-entry buffer (`host:port` to bind).
+    #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+    pub netplay_local_addr: String,
+    /// The Netplay window's "peer address" text-entry buffer (`host:port` to connect to).
+    #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+    pub netplay_peer_addr: String,
+    /// Which controller slot (`0` or `1`) this peer's own input will drive.
+    #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+    pub netplay_local_player: u8,
+    /// The Netplay window's last connection-attempt error message, if any.
+    #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+    pub netplay_error: Option<String>,
 }
 
 /// Read-only facts the shell needs to render the status bar + window title without taking the
@@ -139,6 +161,7 @@ impl ShellState {
         cfg: &mut Config,
         debug: Option<&DebugSnapshot>,
         #[cfg(feature = "cheats")] cheats: &mut Vec<CheatEntry>,
+        #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))] netplay_connected: bool,
     ) -> Vec<MenuAction> {
         let mut actions = Vec::new();
         let ctx = root_ui.ctx().clone();
@@ -264,6 +287,16 @@ impl ShellState {
                     }
                     #[cfg(not(feature = "cheats"))]
                     ui.label("(rebuild with --features cheats for Game Genie/PAR codes)");
+                    #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+                    {
+                        ui.separator();
+                        if ui.button("Netplay…").clicked() {
+                            self.netplay_open = true;
+                            ui.close();
+                        }
+                    }
+                    #[cfg(not(all(feature = "netplay", not(target_arch = "wasm32"))))]
+                    ui.label("(rebuild natively with --features netplay)");
                     // TODO(impl-phase): NSF/SPC player, ROM-DB editor, TAStudio.
                 });
 
@@ -320,6 +353,10 @@ impl ShellState {
         #[cfg(feature = "cheats")]
         if self.cheats_open {
             self.render_cheats(&ctx, cheats);
+        }
+        #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+        if self.netplay_open {
+            self.render_netplay(&ctx, netplay_connected, &mut actions);
         }
 
         actions
@@ -455,6 +492,60 @@ impl ShellState {
                 }
             });
         self.cheats_open = open;
+    }
+
+    /// The Netplay window (`v0.9.0` T-82-002): local/peer `host:port` text entry, a P1/P2 slot
+    /// picker, and a Connect/Disconnect button. Doesn't perform the actual socket I/O itself
+    /// (that needs the currently-loaded ROM's bytes under the emu lock, and this function NEVER
+    /// touches the emu lock) — it only edits the text-entry fields directly and pushes
+    /// [`MenuAction::ConnectNetplay`]/[`MenuAction::DisconnectNetplay`] for `App::dispatch_actions`
+    /// to actually act on afterward, same as every other I/O-performing menu action.
+    #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+    fn render_netplay(
+        &mut self,
+        ctx: &egui::Context,
+        connected: bool,
+        actions: &mut Vec<MenuAction>,
+    ) {
+        let mut open = self.netplay_open;
+        egui::Window::new("Netplay")
+            .open(&mut open)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.add_enabled_ui(!connected, |ui| {
+                    egui::Grid::new("netplay_fields")
+                        .num_columns(2)
+                        .show(ui, |ui| {
+                            ui.label("Local address");
+                            ui.text_edit_singleline(&mut self.netplay_local_addr);
+                            ui.end_row();
+                            ui.label("Peer address");
+                            ui.text_edit_singleline(&mut self.netplay_peer_addr);
+                            ui.end_row();
+                            ui.label("Player slot");
+                            ui.horizontal(|ui| {
+                                ui.radio_value(&mut self.netplay_local_player, 0, "P1");
+                                ui.radio_value(&mut self.netplay_local_player, 1, "P2");
+                            });
+                            ui.end_row();
+                        });
+                });
+                ui.separator();
+                if connected {
+                    ui.label("Connected.");
+                    if ui.button("Disconnect").clicked() {
+                        actions.push(MenuAction::DisconnectNetplay);
+                    }
+                } else {
+                    if ui.button("Connect").clicked() {
+                        actions.push(MenuAction::ConnectNetplay);
+                    }
+                    if let Some(err) = &self.netplay_error {
+                        ui.colored_label(egui::Color32::RED, err);
+                    }
+                }
+            });
+        self.netplay_open = open;
     }
 }
 

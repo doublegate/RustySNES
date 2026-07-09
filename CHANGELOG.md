@@ -11,6 +11,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **GGPO-style rollback netplay — `v0.9.0 "Community"`, T-82-002.** A new `rustysnes-netplay`
+  crate implements two-player rollback netcode, ported from RustyNES's own proven
+  `rustynes-netplay::session::RollbackSession` shape (the N-player mesh/Roster/spectator/NAT-
+  traversal breadth RustyNES also carries is deliberately NOT ported — out of this ticket's
+  stated scope, and the SNES core itself only has two physical controller ports, no multitap
+  emulation, so 2 players is the core's own real ceiling, not an arbitrary cut).
+  - **The rollback loop**: every real frame, predict the remote player's input (repeat its last
+    known value), run the frame, and keep a checkpoint (a full `System::save_state()` snapshot)
+    at the last confirmed frame. A contradicted prediction restores the checkpoint and
+    re-simulates forward with corrected input. The checkpoint itself advances as confirmation
+    catches up (bounding resimulation distance instead of always replaying from frame 0), and a
+    periodic desync checksum is computed only from state that's already fully settled — an
+    earlier draft computed it from possibly-still-predicted "live" state, which raced an
+    eventual correction and produced a false-positive desync between two peers that were, in
+    fact, converging correctly; fixed before landing.
+  - **Reliability**: a dropped `Input` packet is resent every `advance()` call until the remote
+    peer's cumulative `InputAck` catches up — an earlier draft had no resend path at all, which
+    permanently stalled a session the first time a single packet was lost under any non-zero
+    packet-loss condition; fixed before landing (caught by the adverse-conditions determinism
+    test, not just reasoned about).
+  - **Proof, not assertion**: `tests/determinism.rs` drives two sessions over a seeded,
+    deterministic `MemoryTransport` — one run under ideal (zero-latency) conditions, one under
+    real synthetic latency + jitter + 10% packet loss — and asserts both sessions' per-frame
+    framebuffer hash sequence matches a fresh, no-rollback reference run exactly, frame for
+    frame, under both conditions.
+  - **Transports**: `udp.rs`'s `UdpTransport` is a real `std::net::UdpSocket`, proven by a
+    genuine OS-level loopback round-trip test. `webrtc.rs`'s `WebRtcTransport` wraps a
+    `web_sys::RtcDataChannel`, wasm32-clippy-verified against the real API. **Honest scope
+    note**: the frontend's UI wiring is native/UDP only this pass — the browser-side SDP
+    offer/answer/ICE negotiation glue needed to actually establish a `RtcDataChannel` is a
+    genuinely separate scope of async signaling work, not half-wired in.
+  - **Frontend integration**: a new `netplay` feature (native-only) adds a Tools → Netplay…
+    window (local/peer `host:port`, a P1/P2 slot picker, Connect/Disconnect) and a
+    `NetplayState`. `Active::render`'s per-frame loop dispatches to `NetplayState::drive`
+    (which calls `RollbackSession::advance` directly on `System`) via an early `continue` that
+    skips the entire single-player `apply_frame_input`/cheats/rewind/script/`run_frame` path for
+    that iteration whenever a session is connected — netplay's own drive loop, verified
+    independent of `emu-thread`, never both driving the same `System`. A new
+    `EmuCore::present_current_frame` splits `run_frame`'s framebuffer-decode/audio-drain half
+    out on its own, since `RollbackSession::advance` drives the core crate's `System` directly
+    (not this frontend's `EmuCore`) and only the session's own settled result — not each
+    internal resimulation pass — should ever reach the screen. **Known limitation, shared with
+    rollback netplay generally, not specific to this implementation**: video always reflects
+    the corrected state cleanly, but audio already sent to a real output device during a
+    since-corrected misprediction can't be "unplayed" — a rollback event may audibly glitch,
+    the same accepted artifact GGPO-family netcode has elsewhere.
+  - With `netplay` off, the crate's frontend wiring compiles out entirely (`rustysnes-netplay`
+    itself stays an always-compiled workspace member, same precedent as `rustysnes-script`); full
+    default-feature workspace build/test/clippy/fmt/doc verified unaffected.
+
 - **Netplay save-state cost benchmark + rollback go/no-go call — `v0.9.0 "Community"`,
   T-82-001.** A new Criterion benchmark (`crates/rustysnes-core/benches/save_state_cost.rs`)
   measures `System::save_state()`/`load_state()` cost across three board tiers (no-coprocessor,
