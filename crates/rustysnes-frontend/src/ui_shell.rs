@@ -313,7 +313,9 @@ impl ShellState {
                 });
                 ui.separator();
                 let Some(debug) = debug else {
-                    ui.label("(no ROM loaded — nothing to inspect yet)");
+                    // `debug` tracks `debugger_open`, not ROM state (a snapshot builds fine for a
+                    // blank core) — don't claim a ROM-load reason that may not be why it's `None`.
+                    ui.label("(no debugger snapshot yet)");
                     return;
                 };
                 match self.panel {

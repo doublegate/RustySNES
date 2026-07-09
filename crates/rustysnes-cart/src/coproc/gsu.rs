@@ -414,7 +414,7 @@ impl Gsu {
 
     // --- Debug-only read accessors (no side effects, unlike `read_register`'s memory-mapped
     // window which can have read-clear/latch behavior on some addresses). For the debugger
-    // overlay's Cart panel (`docs/frontend.md` §open questions). ------------------------------
+    // overlay's Cart panel (`docs/frontend.md` §Debugger overlay). ------------------------------
 
     /// The R0-R15 general-purpose register file (R15 is also the program counter).
     #[must_use]

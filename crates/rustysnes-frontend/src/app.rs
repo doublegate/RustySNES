@@ -439,7 +439,7 @@ impl App {
                 rom_loaded: emu.rom_loaded(),
             };
             // Only build the debugger snapshot when the window is actually open — a real,
-            // avoidable per-frame cost otherwise (`docs/frontend.md` §open questions).
+            // avoidable per-frame cost otherwise (`docs/frontend.md` §Debugger overlay).
             let debug = active.shell.debugger_open.then(|| emu.debug_snapshot());
             drop(emu); // release the brief lock BEFORE the wgpu upload + egui pass
             (fb, dims, info, audio_samples, debug)

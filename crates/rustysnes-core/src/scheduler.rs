@@ -205,7 +205,7 @@ impl System {
     }
 
     /// The SA-1 second CPU's architectural register file, or `None` when no SA-1 cart is
-    /// installed. For the debugger overlay's Cart panel (`docs/frontend.md` §open questions).
+    /// installed. For the debugger overlay's Cart panel (`docs/frontend.md` §Debugger overlay).
     #[must_use]
     pub fn sa1_regs(&self) -> Option<Regs> {
         self.sa1_cpu.as_ref().map(|c| c.regs)

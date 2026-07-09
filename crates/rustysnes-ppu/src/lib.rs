@@ -892,7 +892,7 @@ impl Ppu {
     }
 
     /// The current `BGMODE` ($2105) value (0..=7) — which of the 8 tile/priority layouts is
-    /// active. For the debugger overlay's PPU panel (`docs/frontend.md` §open questions).
+    /// active. For the debugger overlay's PPU panel (`docs/frontend.md` §Debugger overlay).
     #[must_use]
     pub const fn bg_mode(&self) -> u8 {
         self.io.bg_mode

@@ -43,9 +43,10 @@ pub struct PpuSnapshot {
     /// The full 256-entry CGRAM palette (512 bytes — cheap to copy wholesale every frame, unlike
     /// VRAM's 64 KiB).
     pub cgram: [u16; 256],
-    /// A [`VRAM_WINDOW_LEN`]-word window of VRAM starting at `vram_window_start` (word address),
-    /// controlled by the debugger UI's scroll position — copying all 64 KiB every frame would be
-    /// real, avoidable per-frame cost for a window the user can only look at part of at once.
+    /// A [`VRAM_WINDOW_LEN`]-word window of VRAM starting at `vram_window_start` (word address) —
+    /// copying all 64 KiB every frame would be real, avoidable per-frame cost for a window the
+    /// user can only look at part of at once. `EmuCore::set_debug_vram_scroll` moves the window;
+    /// no UI control calls it yet (fixed at the window's start address today) — a follow-up.
     pub vram_window: [u16; VRAM_WINDOW_LEN],
     /// The word address `vram_window` starts at.
     pub vram_window_start: u16,

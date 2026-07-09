@@ -133,7 +133,7 @@ pub trait Board {
     /// The GSU register file (R0-R15 + SFR + PBR), for a Super FX board's debugger Cart panel.
     ///
     /// Default `None` — only [`crate::coproc::superfx::SuperFxBoard`] overrides this. A
-    /// read-only debug accessor, not a control surface (`docs/frontend.md` §open questions).
+    /// read-only debug accessor, not a control surface (`docs/frontend.md` §Debugger overlay).
     fn debug_gsu_state(&self) -> Option<([u16; 16], u16, u8)> {
         None
     }
