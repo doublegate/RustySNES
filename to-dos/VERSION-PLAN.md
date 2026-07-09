@@ -442,9 +442,9 @@ can switch them on without restructuring the manifest").
   `putImageData` blit of the RGBA8 framebuffer + a `requestAnimationFrame` loop + keyboard via DOM
   events + ROM load via `<input type="file">` — no `wgpu`/`egui`, ~500 lines in RustyNES's
   `wasm.rs`), then `wasm-winit` unification as a larger follow-up (routes wasm through the *same*
-  `App`/`ApplicationHandler` native already uses, via `winit::platform::web::
-  EventLoopExtWebSys::spawn_app` + an `EventLoopProxy` delivering `RomLoaded`/`GfxReady`-style
-  events in from JS — RustyNES's own `app.rs` states "the `ApplicationHandler` impl serves both
+  `App`/`ApplicationHandler` native already uses, via
+  `winit::platform::web::EventLoopExtWebSys::spawn_app` + an `EventLoopProxy` delivering
+  `RomLoaded`/`GfxReady`-style events in from JS — RustyNES's own `app.rs` states "the `ApplicationHandler` impl serves both
   native and wasm32," proving this reuse is architecturally sound, not aspirational). **Real,
   confirmed gap, not just plumbing:** RustySNES's `app.rs` and `audio.rs` are currently
   `#[cfg(not(target_arch = "wasm32"))]` — entirely excluded from the wasm build today, not merely

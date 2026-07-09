@@ -99,14 +99,17 @@ feature combo (never `--all-features`).
 
 **Description:** replace `crates/rustysnes-frontend/src/wasm.rs`'s scaffold stub (panic hook +
 one log line, never renders anything) with a working canvas-2D MVP behind the existing
-`wasm-canvas` flag, porting RustyNES's proven shape (`../RustyNES/crates/rustynes-frontend/src/
-wasm.rs`, not inventing a new approach): a `CanvasRenderingContext2d.putImageData` blit of the
-existing RGBA8 framebuffer (`emu.rs::framebuffer()` already produces this — no PPU/core changes
-needed), a `requestAnimationFrame` loop, keyboard input via DOM `keydown`/`keyup` events, ROM
-loading via `<input type="file">`. No `wgpu`/`egui` — this stage proves a real, visible,
-playable demo exists fast, without needing `app.rs`/`audio.rs` un-gated for wasm32 yet. Ships to
-the live Pages deployment as soon as it lands, closing the actual user-facing gap (a blank demo
-page) even before stage 2 (T-81-006) is ready.
+`wasm-canvas` flag, porting RustyNES's proven shape
+(`../RustyNES/crates/rustynes-frontend/src/wasm.rs`, not inventing a new approach): a
+`CanvasRenderingContext2d.putImageData` blit of the existing RGBA8 framebuffer
+(`emu.rs::framebuffer()` already produces this — no PPU/core changes needed), a
+`requestAnimationFrame` loop, keyboard input via DOM `keydown`/`keyup` events, ROM loading via
+`<input type="file">`, and audio via `AudioWorklet`/`ScriptProcessorNode` (ported from RustyNES's
+`wasm_audio.rs`, reusing the native DRC/resampler core — see the acceptance criteria below). No
+`wgpu`/`egui` — this stage proves a real, visible, playable demo exists fast, without needing
+`app.rs`/`audio.rs` un-gated for wasm32 yet. Ships to the live Pages deployment as soon as it
+lands, closing the actual user-facing gap (a blank demo page) even before stage 2 (T-81-006) is
+ready.
 
 **Acceptance criteria:**
 

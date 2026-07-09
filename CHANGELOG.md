@@ -21,8 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `wasm_winit.rs`, confirmed by reading the source directly): a `wasm-canvas` MVP first (canvas-2D
   blit, no `wgpu`/`egui`, ships a real working demo fast), then `wasm-winit` unification (routes
   wasm through the same `App` native uses — requires un-gating `app.rs`/`audio.rs` from their
-  current `wasm32` exclusion, a real architectural gap, not just plumbing). `to-dos/
-  VERSION-PLAN.md`'s `v0.8.0` section, `to-dos/phase-8-reach/overview.md`, and
+  current `wasm32` exclusion, a real architectural gap, not just plumbing).
+  `to-dos/VERSION-PLAN.md`'s `v0.8.0` section, `to-dos/phase-8-reach/overview.md`, and
   `sprint-1-instrumentation.md` (two new tickets, T-81-005/T-81-006) updated accordingly.
 
 ### Fixed
