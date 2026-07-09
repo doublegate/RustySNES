@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`release-auto.yml`: fixed a real shell-injection-style bug found on its first live run.**
+  Step outputs containing a literal `"` (e.g. a CHANGELOG header like
+  `## [0.6.0] "Shippable" - 2026-07-08`) were interpolated directly into `run:` script text —
+  GitHub Actions substitutes `${{ steps.X.outputs.Y }}` as raw text *before* the shell parses the
+  script, so an embedded quote silently closed the surrounding `header="..."` string early and
+  corrupted the value instead of erroring loudly. This is exactly what happened on `v0.6.0`'s own
+  first automated release: the title landed as `v0.6.0` instead of `v0.6.0 "Shippable"` (the tag
+  annotation itself, sourced from a file rather than a raw interpolation, was unaffected and
+  correct). Fixed by routing every step-output value used inside a `run:` block through `env:`
+  instead of direct interpolation, which passes real argv/environment data immune to this whole
+  class of bug — including a second, not-yet-exercised instance in the `gh release create --title`
+  call that would have hit the identical corruption the next time a title actually contained a
+  quoted theme name. Corrected the already-published `v0.6.0` release title retroactively via
+  `gh release edit`.
+
 ### Investigated (not landed)
 
 - **Mid-scanline/HDMA-driven register timing: a fix is designed, prototyped, and verified
