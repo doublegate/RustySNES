@@ -258,6 +258,10 @@ impl Board for SuperFxBoard {
         self.gsu.irq_pending()
     }
 
+    fn debug_gsu_state(&self) -> Option<([u16; 16], u16, u8)> {
+        Some((self.gsu.registers(), self.gsu.sfr(), self.gsu.pbr()))
+    }
+
     fn coprocessor_host_accesses(&self) -> u64 {
         // Surface the GSU instruction count when the chip has run, else the register-access count.
         // Either is a non-zero liveness signal only if the bus window is mapped right and the GSU

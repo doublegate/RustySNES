@@ -9,23 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **Folded the real wasm frontend build into `v0.8.0 "Instrumentation"`'s scope, per explicit
-  direction.** The user compared RustySNES's live Pages demo against RustyNES's working one and
-  found it renders a blank page — root-caused to `crates/rustysnes-frontend/src/wasm.rs` being
-  an explicitly-labeled scaffold stub since `v0.1.0` (installs a panic hook, logs one message,
-  returns — never builds the app or creates a canvas). Every prior "wasm demo is live"
-  verification (`v0.1.0`-`v0.6.0`) checked only HTTP-level liveness, never that the app actually
-  renders. Scoped as two stages ported from RustyNES's own proven shape (`wasm.rs`/
-  `wasm_winit.rs`, confirmed by reading the source directly): a `wasm-canvas` MVP first (canvas-2D
-  blit, no `wgpu`/`egui`, ships a real working demo fast), then `wasm-winit` unification (routes
-  wasm through the same `App` native uses — requires un-gating `app.rs`/`audio.rs` from their
-  current `wasm32` exclusion, a real architectural gap, not just plumbing). `to-dos/
-  VERSION-PLAN.md`'s `v0.8.0` section, `to-dos/phase-8-reach/overview.md`, and
-  `sprint-1-instrumentation.md` (two new tickets, T-81-005/T-81-006) updated accordingly.
-
 ### Added
+
+- **Debugger overlay: live CPU/PPU/APU/Cart state viewers — `v0.8.0 "Instrumentation"`,
+  T-81-001 (PR A of 2).** `ui_shell.rs`'s debugger window (menu entry, panel selector) has
+  existed since the frontend's first cut but every panel was a literal `"TODO(impl-phase)"`
+  label. This lands the state-viewer half: a new `DebugSnapshot` (mirroring `ShellInfo`'s
+  own copy-out-under-the-brief-lock pattern — the shell's non-negotiable rule that egui never
+  touches the emu lock directly) shows real 65C816 registers/flags, key PPU registers + the
+  dot/scanline timeline + a scrollable VRAM window + full CGRAM, SPC700 PC/halt state + all 8
+  S-DSP voices' key registers, and the active board name plus (when loaded) SA-1's second-CPU
+  registers or the Super FX/GSU register file — resolving `docs/frontend.md`'s open question in
+  the breadth-inclusive direction this whole ladder takes. New small read-only accessors added
+  to `rustysnes-ppu` (`bg_mode`/`display_brightness`), `rustysnes-core` (`System::sa1_regs`),
+  and a new `Board::debug_gsu_state` default-no-op trait hook (overridden by `SuperFxBoard`) —
+  all read-only, no new mutation paths, zero risk to the 0-diff CPU/SPC700 oracles (verified:
+  the full `--features test-roms` suite passes unchanged). The Debug menu entry that opens the
+  overlay is gated behind the `debug-hooks` feature (default off) — without it, the debugger
+  can never open, so the app never builds a snapshot and the default build's emulation output is
+  untouched. **Deferred to T-81-006, not this pass:** the 65C816 disassembler + breakpoints/
+  step controls (needs `System::step_instruction()`-driven stepping, not core changes) and
+  read/write watchpoints (needs a new `debug-hooks` feature on `rustysnes-core` itself + a
+  `Bus`-level hook — scoped as its own separate, focused change, T-81-001b, since it touches the
+  hottest path in the engine).
 
 - **The live Pages demo actually renders now: the `wasm-canvas` MVP (T-81-005).** Replaced
   `crates/rustysnes-frontend/src/wasm.rs`'s `v0.1.0` scaffold stub (panic hook + one log line,
@@ -55,6 +61,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   zero console errors. **Honest gap:** audio was verified to construct without throwing, but
   headless automation cannot conclusively prove audible output through the browser's real
   autoplay-gesture semantics — manual verification in a real browser is still owed.
+
+### Changed
+
+- **Folded the real wasm frontend build into `v0.8.0 "Instrumentation"`'s scope, per explicit
+  direction.** The user compared RustySNES's live Pages demo against RustyNES's working one and
+  found it renders a blank page — root-caused to `crates/rustysnes-frontend/src/wasm.rs` being
+  an explicitly-labeled scaffold stub since `v0.1.0` (installs a panic hook, logs one message,
+  returns — never builds the app or creates a canvas). Every prior "wasm demo is live"
+  verification (`v0.1.0`-`v0.6.0`) checked only HTTP-level liveness, never that the app actually
+  renders. Scoped as two stages ported from RustyNES's own proven shape (`wasm.rs`/
+  `wasm_winit.rs`, confirmed by reading the source directly): a `wasm-canvas` MVP first (canvas-2D
+  blit, no `wgpu`/`egui`, ships a real working demo fast), then `wasm-winit` unification (routes
+  wasm through the same `App` native uses — requires un-gating `app.rs`/`audio.rs` from their
+  current `wasm32` exclusion, a real architectural gap, not just plumbing).
+  `to-dos/VERSION-PLAN.md`'s `v0.8.0` section, `to-dos/phase-8-reach/overview.md`, and
+  `sprint-1-instrumentation.md` (two new tickets, T-81-005/T-81-006) updated accordingly.
 
 ### Fixed
 

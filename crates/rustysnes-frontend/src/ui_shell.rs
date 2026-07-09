@@ -1,13 +1,17 @@
 //! The always-on egui shell: the menu bar (File / Emulation / Tools / View / Debug / Help), the
-//! status bar, the tabbed Settings window, and the toggleable debugger-overlay scaffold.
+//! status bar, the tabbed Settings window, and the debugger overlay.
 //!
 //! THE NON-NEGOTIABLE RULE (RustyNES `docs/frontend.md`): egui runs **every frame**, and the
 //! shell NEVER holds the emu lock inside the egui closure. Menu interactions return a
-//! [`MenuAction`]; the app dispatches it *after* the egui pass. The debugger panels are SNES
-//! stubs (65C816 / PPU1+PPU2 / SPC700+S-DSP / cart-coprocessor) — TODO bodies, not real
-//! register read-outs, until the chip models land.
+//! [`MenuAction`]; the app dispatches it *after* the egui pass. The debugger's 4 panels
+//! (65C816 / PPU1+PPU2 / SPC700+S-DSP / cart-coprocessor) render the [`DebugSnapshot`] the app
+//! copies out under the same brief lock [`ShellInfo`] already uses — never touched from inside
+//! this module. The Debug menu entry that opens the overlay is gated behind the `debug-hooks`
+//! feature (default off): without it, `debugger_open` can never become `true`, so the app never
+//! builds a snapshot and the debugger is unreachable in a shipped default build.
 
 use crate::config::{Config, Region};
+use crate::debug_snapshot::DebugSnapshot;
 
 /// An action requested from the egui pass, dispatched by `App::dispatch_menu_action` AFTER the
 /// pass returns (so it never runs while the emu lock is held inside the egui closure).
@@ -101,6 +105,7 @@ impl ShellState {
         root_ui: &mut egui::Ui,
         info: &ShellInfo,
         cfg: &mut Config,
+        debug: Option<&DebugSnapshot>,
     ) -> Vec<MenuAction> {
         let mut actions = Vec::new();
         let ctx = root_ui.ctx().clone();
@@ -200,12 +205,15 @@ impl ShellState {
                 });
 
                 ui.menu_button("Debug", |ui| {
+                    #[cfg(feature = "debug-hooks")]
                     if ui
                         .checkbox(&mut self.debugger_open, "Debugger overlay")
                         .clicked()
                     {
                         ui.close();
                     }
+                    #[cfg(not(feature = "debug-hooks"))]
+                    ui.label("(rebuild with --features debug-hooks)");
                 });
 
                 ui.menu_button("Help", |ui| {
@@ -239,7 +247,7 @@ impl ShellState {
             self.render_settings(&ctx, cfg);
         }
         if self.debugger_open {
-            self.render_debugger(&ctx);
+            self.render_debugger(&ctx, debug);
         }
 
         actions
@@ -287,8 +295,11 @@ impl ShellState {
         self.settings_open = open;
     }
 
-    /// The debugger overlay: a panel selector + the SNES chip-panel stubs.
-    fn render_debugger(&mut self, ctx: &egui::Context) {
+    /// The debugger overlay: a panel selector + the SNES chip-panel live state viewers. `debug`
+    /// is `None` only when the debugger opens before the app's next lock-scope has built a
+    /// snapshot yet — every panel handles that by showing "no data yet" rather than assuming
+    /// the app has already supplied one.
+    fn render_debugger(&mut self, ctx: &egui::Context, debug: Option<&DebugSnapshot>) {
         let mut open = self.debugger_open;
         egui::Window::new("Debugger")
             .open(&mut open)
@@ -301,29 +312,203 @@ impl ShellState {
                     ui.selectable_value(&mut self.panel, DebugPanel::Cart, "Cart");
                 });
                 ui.separator();
+                let Some(debug) = debug else {
+                    // `debug` tracks `debugger_open`, not ROM state (a snapshot builds fine for a
+                    // blank core) — don't claim a ROM-load reason that may not be why it's `None`.
+                    ui.label("(no debugger snapshot yet)");
+                    return;
+                };
                 match self.panel {
-                    // TODO(impl-phase): each panel reads the live chip state (copied out under
-                    // the brief emu lock, never read inside this egui closure) and renders the
-                    // register grid + disassembly / viewers.
-                    DebugPanel::Cpu => {
-                        ui.label("65C816 — registers (A/X/Y 8/16-bit, D/DBR/PBR/S/P, E latch),");
-                        ui.label("disassembly, breakpoints. TODO(impl-phase).");
-                    }
-                    DebugPanel::Ppu => {
-                        ui.label("PPU1 (5C77) + PPU2 (5C78) — BG modes 0-7 + Mode 7 affine,");
-                        ui.label("OAM/CGRAM/VRAM viewers, the dot/scanline timeline. TODO.");
-                    }
-                    DebugPanel::Apu => {
-                        ui.label("SPC700 + S-DSP — the 2nd clock domain, 8 BRR voices, ARAM,");
-                        ui.label("the $2140-$2143 port handshake. TODO(impl-phase).");
-                    }
-                    DebugPanel::Cart => {
-                        ui.label("Cart — LoROM/HiROM/ExHiROM map + coprocessor (DSP-1..4 /");
-                        ui.label("Super FX / SA-1 / S-DD1 / SPC7110 / CX4 / OBC1). TODO.");
-                    }
+                    DebugPanel::Cpu => render_cpu_panel(ui, debug),
+                    DebugPanel::Ppu => render_ppu_panel(ui, debug),
+                    DebugPanel::Apu => render_apu_panel(ui, debug),
+                    DebugPanel::Cart => render_cart_panel(ui, debug),
                 }
             });
         self.debugger_open = open;
+    }
+}
+
+/// 65C816 registers + processor-status flags. Disassembly + breakpoints/stepping are a
+/// follow-up (T-81-006) — this panel is the live-state half of the ticket.
+fn render_cpu_panel(ui: &mut egui::Ui, debug: &DebugSnapshot) {
+    let r = &debug.cpu;
+    egui::Grid::new("cpu_regs").num_columns(2).show(ui, |ui| {
+        ui.label("A");
+        ui.label(format!("{:04X}", r.a));
+        ui.end_row();
+        ui.label("X");
+        ui.label(format!("{:04X}", r.x));
+        ui.end_row();
+        ui.label("Y");
+        ui.label(format!("{:04X}", r.y));
+        ui.end_row();
+        ui.label("S");
+        ui.label(format!("{:04X}", r.s));
+        ui.end_row();
+        ui.label("D");
+        ui.label(format!("{:04X}", r.d));
+        ui.end_row();
+        ui.label("DBR");
+        ui.label(format!("{:02X}", r.dbr));
+        ui.end_row();
+        ui.label("PBR");
+        ui.label(format!("{:02X}", r.pbr));
+        ui.end_row();
+        ui.label("PC");
+        ui.label(format!("{:04X}", r.pc));
+        ui.end_row();
+        ui.label("P");
+        ui.label(format!("{:?}", r.p));
+        ui.end_row();
+        ui.label("E (emulation)");
+        ui.label(if r.emulation { "1" } else { "0" });
+        ui.end_row();
+    });
+}
+
+/// Format a row of 16-bit words as space-separated 4-hex-digit groups, for the VRAM/CGRAM hex
+/// dumps. A plain loop, not `.map(...).collect::<String>()`, since collecting a `String` from a
+/// `format!`-per-item iterator reallocates on every item (`clippy::format_collect`).
+fn hex_row(words: &[u16]) -> String {
+    use core::fmt::Write as _;
+    let mut out = String::with_capacity(words.len() * 5);
+    for w in words {
+        let _ = write!(out, "{w:04X} ");
+    }
+    out
+}
+
+/// Key PPU registers + the dot/scanline timeline + CGRAM/a scrollable VRAM window.
+///
+/// # Panics
+/// Never in practice: `VRAM_WINDOW_LEN` (1024) and every `row * 8` byte offset within it fit
+/// comfortably in a `u16`, so the narrowing casts below can't actually truncate.
+#[allow(clippy::cast_possible_truncation)]
+fn render_ppu_panel(ui: &mut egui::Ui, debug: &DebugSnapshot) {
+    let p = &debug.ppu;
+    egui::Grid::new("ppu_regs").num_columns(2).show(ui, |ui| {
+        ui.label("BGMODE");
+        ui.label(p.bg_mode.to_string());
+        ui.end_row();
+        ui.label("Brightness");
+        ui.label(p.display_brightness.to_string());
+        ui.end_row();
+        ui.label("Hi-res");
+        ui.label(if p.is_hires { "yes (512-wide)" } else { "no" });
+        ui.end_row();
+        ui.label("Scanline / dot");
+        ui.label(format!("{} / {}", p.scanline, p.dot));
+        ui.end_row();
+        ui.label("VBlank / HBlank");
+        ui.label(format!(
+            "{} / {}",
+            if p.in_vblank { "yes" } else { "no" },
+            if p.in_hblank { "yes" } else { "no" }
+        ));
+        ui.end_row();
+    });
+    ui.separator();
+    ui.label(format!(
+        "VRAM window (words {:04X}-{:04X}):",
+        p.vram_window_start,
+        p.vram_window_start
+            .wrapping_add(crate::debug_snapshot::VRAM_WINDOW_LEN as u16 - 1)
+    ));
+    egui::ScrollArea::vertical()
+        .max_height(160.0)
+        .id_salt("vram_scroll")
+        .show(ui, |ui| {
+            for (row, chunk) in p.vram_window.chunks(8).enumerate() {
+                let addr = p.vram_window_start.wrapping_add((row * 8) as u16);
+                ui.monospace(format!("{addr:04X}: {}", hex_row(chunk)));
+            }
+        });
+    ui.separator();
+    ui.label("CGRAM (256 colors):");
+    egui::ScrollArea::vertical()
+        .max_height(100.0)
+        .id_salt("cgram_scroll")
+        .show(ui, |ui| {
+            for (row, chunk) in p.cgram.chunks(8).enumerate() {
+                ui.monospace(format!("{:02X}: {}", row * 8, hex_row(chunk)));
+            }
+        });
+}
+
+/// SPC700 + S-DSP: the SMP's own PC + halt state, and the 8 voices' key registers.
+fn render_apu_panel(ui: &mut egui::Ui, debug: &DebugSnapshot) {
+    let a = &debug.apu;
+    ui.label(format!(
+        "SMP PC: {:04X}  (stopped: {})",
+        a.smp_pc,
+        if a.smp_stopped { "yes" } else { "no" }
+    ));
+    ui.separator();
+    egui::Grid::new("dsp_voices").num_columns(8).show(ui, |ui| {
+        for h in [
+            "V", "VOL L/R", "PITCH", "SRCN", "ADSR", "GAIN", "ENVX", "OUTX",
+        ] {
+            ui.strong(h);
+        }
+        ui.end_row();
+        for (i, v) in a.voices.iter().enumerate() {
+            ui.label(i.to_string());
+            ui.label(format!("{}/{}", v.vol.0, v.vol.1));
+            ui.label(format!("{:04X}", v.pitch));
+            ui.label(format!("{:02X}", v.srcn));
+            ui.label(format!("{:02X}/{:02X}", v.adsr.0, v.adsr.1));
+            ui.label(format!("{:02X}", v.gain));
+            ui.label(format!("{:02X}", v.envx));
+            ui.label(format!("{:02X}", v.outx));
+            ui.end_row();
+        }
+    });
+}
+
+/// The active board + (when present) a Core/Curated coprocessor's own register state — SA-1's
+/// second-CPU regs or the Super FX/GSU register file, resolving `docs/frontend.md`'s open
+/// question in the breadth-inclusive direction this whole ladder takes.
+fn render_cart_panel(ui: &mut egui::Ui, debug: &DebugSnapshot) {
+    let c = &debug.cart;
+    ui.label(format!("Board: {}", c.board_name.unwrap_or("(no cart)")));
+    if let Some(r) = c.sa1 {
+        ui.separator();
+        ui.label("SA-1 second CPU:");
+        egui::Grid::new("sa1_regs").num_columns(2).show(ui, |ui| {
+            ui.label("A");
+            ui.label(format!("{:04X}", r.a));
+            ui.end_row();
+            ui.label("X");
+            ui.label(format!("{:04X}", r.x));
+            ui.end_row();
+            ui.label("Y");
+            ui.label(format!("{:04X}", r.y));
+            ui.end_row();
+            ui.label("PC");
+            ui.label(format!("{:02X}:{:04X}", r.pbr, r.pc));
+            ui.end_row();
+            ui.label("P");
+            ui.label(format!("{:?}", r.p));
+            ui.end_row();
+        });
+    }
+    if let Some(g) = c.gsu {
+        ui.separator();
+        ui.label("Super FX / GSU:");
+        egui::Grid::new("gsu_regs").num_columns(2).show(ui, |ui| {
+            for (i, chunk) in g.r.chunks(4).enumerate() {
+                ui.label(format!("R{}-R{}", i * 4, i * 4 + 3));
+                ui.monospace(hex_row(chunk));
+                ui.end_row();
+            }
+            ui.label("SFR");
+            ui.label(format!("{:04X}", g.sfr));
+            ui.end_row();
+            ui.label("PBR");
+            ui.label(format!("{:02X}", g.pbr));
+            ui.end_row();
+        });
     }
 }
 

@@ -271,7 +271,7 @@ impl App {
 
         let paused = active.shell.paused;
         // --- (1) Copy framebuffer + audio + read-only info under a BRIEF lock, then drop it. ---
-        let (fb, fb_dims, info, audio_samples) = {
+        let (fb, fb_dims, info, audio_samples, debug) = {
             // `mut` is only needed on the synchronous drive path (run_frame/set_pad); the threaded
             // build only reads through the guard here.
             #[cfg_attr(feature = "emu-thread", allow(unused_mut))]
@@ -331,8 +331,11 @@ impl App {
                 fps: active.pacer.fps,
                 rom_loaded: emu.rom_loaded(),
             };
+            // Only build the debugger snapshot when the window is actually open — a real,
+            // avoidable per-frame cost otherwise (`docs/frontend.md` §Debugger overlay).
+            let debug = active.shell.debugger_open.then(|| emu.debug_snapshot());
             drop(emu); // release the brief lock BEFORE the wgpu upload + egui pass
-            (fb, dims, info, audio_samples)
+            (fb, dims, info, audio_samples, debug)
         };
 
         // --- Push the frame's audio through the resampler into the ring (outside the lock). ---
@@ -371,7 +374,7 @@ impl App {
         let raw_input = active.egui_state.take_egui_input(&active.window);
         let mut actions = Vec::new();
         let full_output = active.egui_ctx.run_ui(raw_input, |ui| {
-            actions = active.shell.render(ui, &info, config);
+            actions = active.shell.render(ui, &info, config, debug.as_ref());
         });
         active
             .egui_state
