@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Folded the real wasm frontend build into `v0.8.0 "Instrumentation"`'s scope, per explicit
+  direction.** The user compared RustySNES's live Pages demo against RustyNES's working one and
+  found it renders a blank page — root-caused to `crates/rustysnes-frontend/src/wasm.rs` being
+  an explicitly-labeled scaffold stub since `v0.1.0` (installs a panic hook, logs one message,
+  returns — never builds the app or creates a canvas). Every prior "wasm demo is live"
+  verification (`v0.1.0`-`v0.6.0`) checked only HTTP-level liveness, never that the app actually
+  renders. Scoped as two stages ported from RustyNES's own proven shape (`wasm.rs`/
+  `wasm_winit.rs`, confirmed by reading the source directly): a `wasm-canvas` MVP first (canvas-2D
+  blit, no `wgpu`/`egui`, ships a real working demo fast), then `wasm-winit` unification (routes
+  wasm through the same `App` native uses — requires un-gating `app.rs`/`audio.rs` from their
+  current `wasm32` exclusion, a real architectural gap, not just plumbing). `to-dos/
+  VERSION-PLAN.md`'s `v0.8.0` section, `to-dos/phase-8-reach/overview.md`, and
+  `sprint-1-instrumentation.md` (two new tickets, T-81-005/T-81-006) updated accordingly.
+
 ## [0.7.0] "Resolution" - 2026-07-09
 
 Implements true 512-px hi-res (Modes 5/6) output, the one bounded item left on `v0.5.0`'s

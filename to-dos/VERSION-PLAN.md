@@ -402,13 +402,15 @@ established discipline:
   opportunistic posture already established across four prior releases; don't gate a rung on
   finding ROMs that may never become available.
 
-### v0.8.0 "Instrumentation" — debugger, scripting/TAS, cheats
+### v0.8.0 "Instrumentation" — debugger, scripting/TAS, cheats, the real wasm frontend
 
 One coherent theme: tooling that inspects and manipulates emulator state, all sharing the same
-memory-watch/introspection substrate. This is the first rung of the breadth pass — RustySNES's
-own crate manifest already anticipated it (`crates/rustysnes-frontend/Cargo.toml`'s `debug-hooks`/
-`scripting` flags, present since the frontend's first cut, "mirroring the RustyNES feature
-surface so the chip-implementation phase can switch them on without restructuring the manifest").
+memory-watch/introspection substrate — plus the wasm frontend build, folded in here per explicit
+direction after the live demo page was found rendering blank (see below). This is the first rung
+of the breadth pass — RustySNES's own crate manifest already anticipated the tooling half
+(`crates/rustysnes-frontend/Cargo.toml`'s `debug-hooks`/`scripting` flags, present since the
+frontend's first cut, "mirroring the RustyNES feature surface so the chip-implementation phase
+can switch them on without restructuring the manifest").
 
 - **Debugger overlay** — fills in `ui_shell.rs`'s already-wired 65C816/PPU/APU/Cart panels
   (currently `"TODO(impl-phase)"` placeholders) behind the existing `debug-hooks` flag; the
@@ -426,6 +428,43 @@ surface so the chip-implementation phase can switch them on without restructurin
   fundamentally memory-watch/poke tooling, the same substrate as the debugger's memory panel —
   grouped here rather than with netplay/RetroAchievements for that reason. Adds a new `cheats`
   feature flag matching the existing naming convention.
+- **The real wasm frontend** — `crates/rustysnes-frontend/src/wasm.rs` has been an explicitly-
+  labeled scaffold stub since `v0.1.0` (installs a panic hook, logs one message, returns — never
+  builds the `App`, creates a wgpu canvas surface, or drives a render loop), making the live
+  `https://doublegate.github.io/RustySNES/` demo a blank page despite every prior "wasm demo is
+  live" CHANGELOG claim (`v0.1.0`-`v0.6.0`) being true only at the HTTP level (200 status,
+  correct content-types) — found live by direct comparison against RustyNES's own working wasm
+  deployment, not by CI (`pages.yml` only asserts the build/deploy steps succeed, never that the
+  resulting app actually renders). `rustysnes-frontend/Cargo.toml`'s `wasm-winit` (default) /
+  `wasm-canvas` feature split already anticipated exactly the two-stage build RustyNES itself
+  used to reach a working wasm frontend (confirmed by reading RustyNES's `wasm.rs`/`wasm_winit.rs`
+  source directly, not inferred): a `wasm-canvas` MVP first (a `CanvasRenderingContext2d`
+  `putImageData` blit of the RGBA8 framebuffer + a `requestAnimationFrame` loop + keyboard via DOM
+  events + ROM load via `<input type="file">` — no `wgpu`/`egui`, ~500 lines in RustyNES's
+  `wasm.rs`), then `wasm-winit` unification as a larger follow-up (routes wasm through the *same*
+  `App`/`ApplicationHandler` native already uses, via `winit::platform::web::
+  EventLoopExtWebSys::spawn_app` + an `EventLoopProxy` delivering `RomLoaded`/`GfxReady`-style
+  events in from JS — RustyNES's own `app.rs` states "the `ApplicationHandler` impl serves both
+  native and wasm32," proving this reuse is architecturally sound, not aspirational). **Real,
+  confirmed gap, not just plumbing:** RustySNES's `app.rs` and `audio.rs` are currently
+  `#[cfg(not(target_arch = "wasm32"))]` — entirely excluded from the wasm build today, not merely
+  unused; `gfx.rs` has zero `wasm32`/`web_sys`/canvas references yet. Un-gating and adapting them
+  (swapping `cpal` for Web Audio behind a conditional path, gating out native-only deps like
+  `gilrs`/`directories`) is the same real work RustyNES needed for its own `wasm_winit.rs`
+  follow-up, not a small addition. Minimal wasm-canvas-MVP subsystem list, RustyNES file
+  (line count) → RustySNES port target: canvas-2D entry (`wasm.rs`, 538) → replaces the current
+  stub; audio (`wasm_audio.rs`, 456) → AudioWorklet primary + ScriptProcessorNode fallback, no
+  `SharedArrayBuffer` since GitHub Pages can't send COOP/COEP headers, reuses the same DRC/
+  resampler logic already in native `audio.rs`; gamepad (`wasm_gamepad.rs`, 64) → trivial,
+  `navigator.getGamepads()` polled from JS + one bridge fn; file I/O (`wasm_io.rs`, 345) → the
+  `<input type="file">` + generic save-file-with-fallback helper. **Explicitly out of scope for
+  this rung** (RustyNES's own Phase-8-equivalent reach features, needed only once RustySNES's
+  native equivalents exist, not as a wasm-specific prerequisite): `wasm_idb.rs` (IndexedDB
+  save-state persistence — native save-states already work, can defer), `wasm_save_states.rs`,
+  `wasm_touch.rs` (mobile touch overlay), `wasm_lobby.rs`/`wasm_netplay.rs` (netplay lobby UI —
+  belongs with `v0.9.0`'s netplay work instead), `wasm_script.rs`/`wasm_cheevos.rs` (wire once
+  this rung's own native scripting/`v0.9.0`'s cheevos land), `wasm_share.rs` (settings
+  share-links).
 - **Recurring gate, starting here:** a byte-identical-with-all-flags-off CI check (every new
   flag landed on this ladder must leave the default build unchanged) — re-verify after `v0.9.0`
   and `v1.0.0` too. Use explicit feature combos in CI, never `--all-features`.

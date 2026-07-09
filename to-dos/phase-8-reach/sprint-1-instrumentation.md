@@ -2,8 +2,9 @@
 
 **Phase:** Phase 8 — Instrumentation + Community
 **Sprint goal:** the debugger overlay, Lua scripting + TAS movie API, and cheat-code support
-ship behind default-off feature flags, each byte-identical with the feature off.
-**Estimated duration:** 3 weeks
+ship behind default-off feature flags, each byte-identical with the feature off; the wasm
+frontend goes from a scaffold stub to a genuinely working demo.
+**Estimated duration:** 3 weeks (native tooling) + 2-3 weeks (wasm frontend, two stages)
 **Release mapping:** `v0.8.0 "Instrumentation"` (`to-dos/VERSION-PLAN.md`)
 
 ## Tickets
@@ -94,8 +95,76 @@ feature combo (never `--all-features`).
 
 ---
 
+### T-81-005 — The real wasm frontend, stage 1: `wasm-canvas` MVP
+
+**Description:** replace `crates/rustysnes-frontend/src/wasm.rs`'s scaffold stub (panic hook +
+one log line, never renders anything) with a working canvas-2D MVP behind the existing
+`wasm-canvas` flag, porting RustyNES's proven shape (`../RustyNES/crates/rustynes-frontend/src/
+wasm.rs`, not inventing a new approach): a `CanvasRenderingContext2d.putImageData` blit of the
+existing RGBA8 framebuffer (`emu.rs::framebuffer()` already produces this — no PPU/core changes
+needed), a `requestAnimationFrame` loop, keyboard input via DOM `keydown`/`keyup` events, ROM
+loading via `<input type="file">`. No `wgpu`/`egui` — this stage proves a real, visible,
+playable demo exists fast, without needing `app.rs`/`audio.rs` un-gated for wasm32 yet. Ships to
+the live Pages deployment as soon as it lands, closing the actual user-facing gap (a blank demo
+page) even before stage 2 (T-81-006) is ready.
+
+**Acceptance criteria:**
+
+- [ ] The live demo shows a real picture and accepts keyboard input for a loaded ROM.
+- [ ] Audio plays via `AudioWorklet` (primary) with a `ScriptProcessorNode` fallback — no
+      `SharedArrayBuffer` (GitHub Pages can't send COOP/COEP headers), reusing the same DRC/
+      resampler logic `audio.rs` already has for native.
+- [ ] Verified with a real headless-browser load (e.g. Playwright/Chromium), not just an HTTP
+      200 check — assert a canvas element exists and receives non-zero pixel data after loading
+      a ROM. `pages.yml`'s existing verification only checks the build/deploy steps succeed;
+      this is the gap that let the stub ship unnoticed since `v0.1.0`.
+- [ ] `pages.yml` updated if the trunk build target/feature selection needs to change.
+
+**Dependencies:** none beyond what already exists (`emu.rs::framebuffer()`, existing keyboard/
+ROM-load native code as the porting reference)
+**Reference:** `../RustyNES/crates/rustynes-frontend/src/wasm.rs` (538 lines, the port source);
+`docs/frontend.md` §wasm
+**Estimated complexity:** L
+
+---
+
+### T-81-006 — The real wasm frontend, stage 2: `wasm-winit` unification
+
+**Description:** route the wasm build through the *same* `App`/`ApplicationHandler` native
+already uses, replacing the stage-1 canvas-2D path as the default (`wasm-winit` is already the
+default feature in `Cargo.toml`), via `winit::platform::web::EventLoopExtWebSys::spawn_app` +
+an `EventLoopProxy` delivering `RomLoaded`/`GfxReady`-style events in from JS — the exact shape
+RustyNES's `wasm_winit.rs` (254 lines) already proves works, ported not invented. Requires
+un-gating `app.rs` and `audio.rs` from their current `#[cfg(not(target_arch = "wasm32"))]`
+exclusion and adapting them for wasm32 (swap `cpal` for Web Audio behind a conditional path,
+gate out native-only deps — `gilrs`, `directories`, direct `std::fs`). This is the real work;
+stage 1 (T-81-005) deliberately avoids needing it so a working demo ships sooner.
+
+**Acceptance criteria:**
+
+- [ ] The same `App`/egui UI (menu bar, Settings, debugger panels once T-81-001 lands) renders
+      in the browser via wgpu, not just the stage-1 canvas blit.
+- [ ] `app.rs`/`audio.rs` compile and run for both native and `wasm32` targets from the same
+      source, matching RustyNES's own "`ApplicationHandler` impl serves both native and wasm32"
+      pattern.
+- [ ] Verified with the same real headless-browser check as T-81-005, re-run against the
+      winit/wgpu path.
+- [ ] With `wasm-canvas` (not `wasm-winit`) selected instead, the stage-1 MVP still builds and
+      works — the two paths stay independently functional, matching the manifest's existing
+      "exactly one is compiled" comment.
+
+**Dependencies:** T-81-005 (ships the interim working demo first); `Board: Send` is NOT required
+here (that's `v1.0.0`'s native `emu-thread` prerequisite, a separate, unrelated flag)
+**Reference:** `../RustyNES/crates/rustynes-frontend/src/wasm_winit.rs` (254 lines, the port
+source); `../RustyNES/crates/rustynes-frontend/src/app.rs`'s `ApplicationHandler` doc comment
+**Estimated complexity:** L
+
+---
+
 ## Sprint review checklist
 
 - [ ] All tickets checked off or explicitly deferred (with reason).
 - [ ] Every instrumentation feature is off by default + byte-identical when off.
+- [ ] The live wasm demo actually renders and is playable, verified by a real headless-browser
+      check, not just an HTTP status check.
 - [ ] CHANGELOG.md updated.
