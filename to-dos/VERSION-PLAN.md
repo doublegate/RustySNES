@@ -17,6 +17,16 @@ v0.2.0 (audio) → v0.3.0 (NEC DSP) → ... → v0.9.0 (Reach) progression; real
 that draft and diverged from its ordering, so the plan is reset here against what's actually
 built (`docs/STATUS.md` is the ground truth this ladder is checked against at every rung).
 
+**Second reversal (this update, post-`v0.6.0`):** the ladder that shipped `v0.1.0`-`v0.6.0`
+treated `v1.0.0` as an accuracy + stability gate with Phase 8 breadth (netplay, RetroAchievements,
+TAS, scripting, a debugger, cheats) deferred to named post-1.0 minors — itself a deliberate
+correction away from an even earlier draft that had folded that breadth into the 1.0 gate. This
+update reverses course a second time, per explicit direction: RustyNES's own v1.0.0 front-loaded
+nearly all of that breadth rather than deferring it, and matching that bar means RustySNES's
+`v0.7.0`→`v1.0.0` span needs to do the same. `to-dos/ROADMAP.md` and `to-dos/phase-8-reach/
+overview.md` are being rewritten in the same change so all three planning documents, plus
+`CHANGELOG.md` and `docs/STATUS.md`, agree on one consistent story rather than three.
+
 ## Versioning rule
 
 - **`v0.x.0`** (minor) = new scope — a phase-spine chunk or a themed feature set. Additive,
@@ -314,58 +324,141 @@ isn't about emulation accuracy.
 - `to-dos/ROADMAP.md` and this file updated to reflect the ladder's actual progress at every
   release, not left stale (the mistake this rewrite is fixing).
 
-### v1.0.0 — production cut
+### v0.7.0 "Resolution" — true hi-res output
 
-**Gate — deliberately not feature-count completeness** (matching RustyNES's actual v1.0 gate,
-not RustySNES's earlier v0.9.0-skeleton draft which conflated breadth with 1.0):
+The one item from `v0.5.0`'s carried-forward PPU gap list that's genuinely bounded, with no
+external unknowns (no ROM sourcing, no open-ended root-causing): full 512-px hi-res (Modes 5/6)
+output. Confirmed against ares' `DAC::run()` that hi-res is a dual-half-pixel
+alternating-compositor-result trick (`above`/`below` at 2× the pixel rate), not a numeric-
+precision tweak — the mechanism is already researched (`docs/ppu.md` §Hi-res color-math
+precision); this rung implements the 512-wide output itself, closing the real feature gap that
+was blocking the Bishoujo Janshi Suchie-Pai / Marvelous+SA-1 residual. Kept as its own minor
+rather than folded into the accuracy-debt cluster below, matching this project's
+one-theme-per-`v0.x.0` convention every prior rung has held to.
 
-1. The accuracy battery holds its v0.5.0-established target with zero regressions.
-2. The save-state/core API (v0.2.0) is **stable** — the contract every post-1.0 Reach feature
-   below relies on not breaking.
-   **Checked (v0.6.0-era):** `FORMAT_VERSION` (`rustysnes_core::scheduler`) has stayed at `1`
-   since `v0.2.0` even though `v0.4.0` added two new coprocessor board types (ST018, S-RTC) —
-   real evidence `docs/adr/0006-save-state-format.md`'s per-board-opaque-section design holds
-   up in practice, not just on paper: a new coprocessor extends the format without needing a
-   version bump. **Real gap found, not yet closed:** no committed old-format save-state
-   fixture + regression test proves actual backward-compatibility — only same-version
-   round-trip determinism is tested
-   (`crates/rustysnes-test-harness/tests/save_state_determinism.rs`). A byte-layout change to
-   any section that forgets to bump `FORMAT_VERSION` would go uncaught today. Add a committed
-   `FORMAT_VERSION=1` fixture blob (generated from a permissive/non-commercial ROM, such as
-   the committed gilyon test ROM) + a loadability regression test (the same Golden-Vector
-   pattern this project already uses for framebuffer hashes) before this gate item is checked
-   off — a small, well-scoped, non-risky addition (a new fixture + test, no production code
-   changes).
-3. A genuinely shippable multi-platform app: native binaries + a wasm demo, both produced by
-   the now-proven `v0.6.0` release pipeline.
-4. Green CI including the `no_std` gate and the wasm build.
-5. README / CHANGELOG / `docs/` / `docs/STATUS.md` fully in sync.
+### Ongoing, opportunistic — the carried-forward accuracy-debt cluster (v0.x.y patches, not a gating rung)
 
-Phase 8 (netplay, RetroAchievements, TAS, scripting, shaders) is explicitly **not** part of
-this gate — it ships after, as named minors, exactly as RustyNES deferred its own post-1.0
-breadth.
+Open-ended research items, not bounded deliverables — several have already carried forward
+across `v0.3.0`→`v0.6.0` without closing, so none of them gates a numbered `v0.x.0` rung above.
+Land each independently as a patch release whenever its investigation actually concludes,
+re-running the full `--features test-roms` suite before landing anything, per this project's
+established discipline:
 
-## Post-v1.0 — Reach (Phase 8, themed minors, additive/default-off)
+- **Mid-scanline/HDMA-driven register timing + the Super FX/GSU regression** — a fix is
+  designed, prototyped, and SA-1-verified-correct, but blocked on an unexplained regression
+  across all 24 GSU golden tests (`docs/ppu.md` §Mid-scanline/HDMA-driven register timing).
+  Resume from the stashed reconstruction on `investigate/gsu-mid-scanline-interaction`
+  (`git stash list` → "GSU investigation fix reconstruction"); next step is the access-level
+  trace of GSU VRAM/CGRAM writes that doc's "What a future investigation needs" section calls
+  for.
+- **Open-bus-via-HDMA-latch** — an independent prototype for this fix hit the **identical**
+  all-24-GSU-goldens failure signature as the item above (`docs/scheduler.md` §Open bus via
+  DMA/HDMA). Two independent fixes hitting the same unexplained failure shape is a real signal
+  this area of the master-clock tick sequence is fragile in a way not yet understood — treat
+  both investigations as linked, not coincidental; a resolution to one may unlock the other.
+- **SPC7110 boot gap** — needs a real 65C816 disassembler as prerequisite tooling before the
+  crash-point trace can proceed (`docs/audit/spc7110-boot-crash-2026-07-08.md`'s own "suggested
+  next steps"); building that disassembler is useful debugging infra beyond this one bug.
+- **DRAM refresh (40 clocks/scanline)** — researched, not yet implemented; a real architectural
+  timing tension needs resolving empirically before landing, not a simple port.
+- **ST018 / S-RTC / PAL / ExLoROM real-ROM validation** — currently unit-test-only or
+  formula-level only, blocked purely on sourcing a commercial dump for each. Keep the
+  opportunistic posture already established across four prior releases; don't gate a rung on
+  finding ROMs that may never become available.
 
-Each is one coherent theme, always reaffirms the accuracy gate never regressed (the RustyNES
-pattern). Ordered so each unlocks the next: scripting/debugger first (smallest closed-scope
-lift, most useful for accuracy work already done); netplay/TAS next (share the save-state +
-determinism foundation); RetroAchievements/shaders/cheats/Libretro last (polish, least
-accuracy-adjacent).
+### v0.8.0 "Instrumentation" — debugger, scripting/TAS, cheats
 
-- **v1.1.0** — Lua scripting (`rustysnes-script`, currently a 1-line stub) + a first debugger
-  pass (breakpoints, memory viewer — Mesen2-class tooling, the ambition already on record).
-- **v1.2.0** — Rollback netplay (`rustysnes-netplay`, currently a 1-line stub) — built directly
-  on v0.2.0's save-state format and the now-stable determinism contract.
-- **v1.3.0** — RetroAchievements (`rustysnes-cheevos`, currently a 1-line stub) — wrap the
-  `rcheevos` C library: a `read_memory` callback + `rc_client_do_frame()` called every frame,
-  including fast-forwarded ones.
-- **v1.4.0** — TAS movie recording/playback (deterministic input log + save-state-at-frame-0,
-  same foundation as netplay).
-- **v1.5.0+** — shader/filter pipeline (CRT/HQ2x), cheat-code support (Game Genie/Pro Action
-  Replay SNES format), a Libretro core. A stretch tail, not committed scope up front. Unlike
-  RustyNES's Android/iOS builds, **no mobile target is assumed** here unless there's real
-  appetite once the desktop+wasm app is solid — don't inherit that scope by default.
+One coherent theme: tooling that inspects and manipulates emulator state, all sharing the same
+memory-watch/introspection substrate. This is the first rung of the breadth pass — RustySNES's
+own crate manifest already anticipated it (`crates/rustysnes-frontend/Cargo.toml`'s `debug-hooks`/
+`scripting` flags, present since the frontend's first cut, "mirroring the RustyNES feature
+surface so the chip-implementation phase can switch them on without restructuring the manifest").
+
+- **Debugger overlay** — fills in `ui_shell.rs`'s already-wired 65C816/PPU/APU/Cart panels
+  (currently `"TODO(impl-phase)"` placeholders) behind the existing `debug-hooks` flag; the
+  shell itself (menu entry, window, panel selection) already exists, so this is instrumentation
+  work, not a from-scratch UI build. Includes SA-1/Super FX coprocessor state in the Cart panel
+  from day one — resolving `docs/frontend.md`'s open question the same direction this whole
+  ladder does: breadth-inclusive, not a further-deferred add-on.
+- **Scripting + TAS** — wires `rustysnes-script`'s full stated scope in one pass (its own
+  `docs/STATUS.md` entry already describes it as "Lua scripting / TAS API," so both land
+  together here rather than pairing TAS with netplay). Wires the existing `scripting` flag. TAS
+  needs a deterministic input log format plus save-state-at-frame-0 seeding — both build
+  directly on the existing `Bus::set_joypad`/save-state envelope, no new architectural work.
+- **Cheat-code support** (Game Genie / Pro Action Replay SNES format) — has zero existing
+  scaffold (no stub crate, no feature flag, unlike every other item on this ladder) and is
+  fundamentally memory-watch/poke tooling, the same substrate as the debugger's memory panel —
+  grouped here rather than with netplay/RetroAchievements for that reason. Adds a new `cheats`
+  feature flag matching the existing naming convention.
+- **Recurring gate, starting here:** a byte-identical-with-all-flags-off CI check (every new
+  flag landed on this ladder must leave the default build unchanged) — re-verify after `v0.9.0`
+  and `v1.0.0` too. Use explicit feature combos in CI, never `--all-features`.
+
+### v0.9.0 "Community" — netplay, RetroAchievements
+
+Both wire pre-existing stub crates against a named integration pattern; both are "connect
+RustySNES to other players or an external service."
+
+- **Rollback netplay** — wires the `rustysnes-netplay` stub crate. **Pre-work required before
+  committing to the existing full-snapshot save-state design:** benchmark
+  `System::save_state()`/`load_state()` cost — `docs/benchmarks.md` has only one number today
+  (steady-state frame time), and `RewindBuffer` was designed for ~10 Hz capture while rollback
+  netplay calls save/restore far more often. If full-snapshot cost is too high for a real
+  rollback window, delta/incremental snapshots become necessary — a real design change beyond
+  `docs/adr/0006`'s explicit "future memory optimization, not correctness requirement" framing
+  (a call made for rewind's occasional-capture case, not netplay's every-frame one); write a new
+  ADR if this triggers. **Architecture note:** `emu_thread.rs`'s pacing model is single-player-
+  only by its own doc comment; netplay's rollback drive loop is frontend-orchestrated
+  resimulation, a different control model. Keep the two mutually exclusive by session type (a
+  netplay session uses its own rollback-aware loop, not the generic `emu-thread` pacer) rather
+  than unifying them — this sidesteps any ordering conflict with `emu-thread` landing later, in
+  `v1.0.0`.
+- **RetroAchievements** — wires the `rustysnes-cheevos` stub crate + the existing
+  `retroachievements` flag, wrapping `rcheevos` via a `read_memory` callback +
+  `rc_client_do_frame()` called every frame including fast-forwarded ones.
+- **Recurring gate:** re-verify the byte-identical-with-flags-off CI check.
+
+### v1.0.0 — desktop UX shell maturity, performance engineering, production cut
+
+- **Fix `Board: Send` first.** `cargo check -p rustysnes-frontend --features emu-thread` fails
+  today — `dyn Board` isn't `Send`, breaking `Arc<Mutex<EmuCore>>: Send` for the thread closure.
+  No interior non-`Send` state exists in `rustysnes-cart`'s coprocessor code, so this really is
+  the "one-word change" the Cargo.toml comment already diagnoses — verify it stays that simple,
+  then wire the dedicated emulation thread behind `emu-thread`.
+- **Desktop UX shell maturity** — the shell (menu bar, status bar, 4-tab Settings) already
+  exists; this rung finishes it to RustyNES's bar: a thumbnail save-state manager (multi-slot,
+  replacing today's single quick-save slot), the Settings Input tab's key-rebind grid (currently
+  a literal `"TODO"` in source), light/dark/system themes, fullscreen, speed presets (25–300%),
+  per-channel audio mutes, a first-run welcome modal, and a Performance panel with histograms.
+- **New frame-time performance-regression CI gate** — RustyNES has one, RustySNES doesn't yet.
+- **Save-state `FORMAT_VERSION` backward-compat fixture + regression test** — the real, small,
+  still-open gap flagged above (v1.0.0 gate item 2, `v0.6.0`-era): only same-version round-trip
+  is tested today, not actual old-format loadability. Lands here.
+- **README.md rewrite** to RustyNES's README depth (structure/length/technical detail) — lands
+  here, once the feature set it needs to document is actually complete.
+- **Explicitly deferred, not part of the parity bar:** Super Scope / multitap / mouse
+  peripherals (no RustyNES analogue — NES has nothing comparable, so parity doesn't require
+  modeling these; `docs/frontend.md` already notes them as stubbed) and HD texture packs (the
+  `hd-pack` flag exists in the manifest already, but RustyNES itself doesn't have this feature,
+  so it sits outside the parity target).
+- **Final integration:** sync `docs/STATUS.md` + `to-dos/ROADMAP.md` + this document, run the
+  full regression gate (every oracle/golden suite + every feature-flag combination + the
+  `no_std` gate + the wasm build), then cut the tag.
+
+Gate, updated from the earlier accuracy-only framing: the accuracy battery holds its
+`v0.5.0`-established target with zero regressions; the save-state/core API is stable AND
+backward-compat-fixture-proven (item above); a genuinely shippable multi-platform app with the
+full breadth pass (debugger, scripting/TAS, cheats, netplay, RetroAchievements) landed and
+byte-identical-with-flags-off; green CI including `no_std` + wasm + the new perf-regression
+gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
+
+## Post-v1.0 — Reach (deferred)
+
+- **Libretro core**, a **shader/filter pipeline** (CRT/HQ2x), **HD texture packs** (wires the
+  already-scaffolded `hd-pack` flag), the **fractional-timebase MAJOR refactor**
+  (`docs/adr/0002`, only if hard residuals from the accuracy-debt cluster above actually warrant
+  it), and any future **mobile/Android** target (no appetite assumed by default, unlike
+  RustyNES's own Android build — don't inherit that scope blindly).
 
 ## Standards adopted for every release from v0.1.0 onward
 

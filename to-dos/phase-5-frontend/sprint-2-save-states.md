@@ -4,7 +4,7 @@
 **Sprint goal:** a versioned, deterministic core-wide snapshot format
 (`docs/adr/0006-save-state-format.md`) and `System::save_state()`/`load_state()`, proven by a
 round-trip determinism test. This is the prerequisite for rewind/run-ahead (Sprint 3), netplay
-(Phase 8 `v1.2.0`), and TAS movies (Phase 8 `v1.4.0`) — none of those build until this lands.
+(Phase 8 `v0.9.0`), and TAS movies (Phase 8 `v0.8.0`) — none of those build until this lands.
 **Estimated duration:** 1–2 weeks
 **Release:** `v0.2.0 "Persistence"` (`to-dos/VERSION-PLAN.md`)
 **Progress:** `rustysnes-savestate` (the `SaveWriter`/`SaveReader`/`SaveStateError` wire-format

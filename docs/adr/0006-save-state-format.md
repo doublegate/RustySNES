@@ -16,7 +16,7 @@ no-coprocessor ROM, a `Curated` Super FX ROM, and a `BestEffort` commercial-copr
 ## Context
 
 Save-states are the prerequisite for rewind, run-ahead, netplay rollback, and TAS movie replay
-(`to-dos/VERSION-PLAN.md`'s `v0.2.0`-`v1.2.0` ladder) — every one of those features snapshots
+(`to-dos/VERSION-PLAN.md`'s `v0.2.0`-`v0.9.0` ladder) — every one of those features snapshots
 and restores machine state, so the format decided here becomes a long-lived public contract the
 moment `v1.0.0` declares the save-state/core API stable. Getting the shape right once, rather
 than iterating on a de-facto format under later features' time pressure, is why this is an ADR
