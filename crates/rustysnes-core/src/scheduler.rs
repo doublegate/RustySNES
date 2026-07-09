@@ -211,6 +211,16 @@ impl System {
         self.sa1_cpu.as_ref().map(|c| c.regs)
     }
 
+    /// The determinism seed this `System` was constructed with (`Self::new`). A TAS movie's
+    /// power-on start point records this so a replay can verify the caller reconstructed the
+    /// System with the exact same seed before calling [`crate::movie::Movie::seek_to_start`] —
+    /// a different seed gives different power-on phase alignment, breaking bit-identical replay
+    /// even against the same ROM and input log (`docs/adr/0004`).
+    #[must_use]
+    pub const fn seed(&self) -> u64 {
+        self.seed
+    }
+
     /// Step a single CPU instruction (drives the whole machine in lockstep via the Bus).
     pub fn step_instruction(&mut self) {
         if !self.booted {

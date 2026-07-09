@@ -11,6 +11,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sandboxed Lua scripting + TAS movie record/playback — `v0.8.0 "Instrumentation"`, T-81-002.**
+  Fills in the previously-empty `rustysnes-script` crate stub with both halves of its stated
+  scope in one pass, behind the existing `scripting` flag.
+  - **Lua scripting**: `ScriptEngine` wraps `mlua` 0.12 (vendored Lua 5.4, `["lua54", "vendored"]`
+    — deliberately NOT `"send"`, since the `MaybeSend` bounds it imposes on `set_hook`/
+    `create_function` are incompatible with the `Rc<Cell<_>>`/`Rc<RefCell<_>>` internal state this
+    engine uses, and `ScriptEngine` never needs to cross threads: `emu-thread` is off by default
+    and not yet functional, since `rustysnes-cart::Board` isn't `Send` yet). Scripts run in a
+    hard sandbox: only `TABLE`/`STRING`/`MATH`/`COROUTINE` stdlibs are loaded, and `load`/
+    `loadfile`/`dofile`/`loadstring`/`collectgarbage`/`require`/`package`/`io`/`os`/`debug` are
+    explicitly nilled as belt-and-suspenders on top of the stdlib allowlist (verified: a unit
+    test asserts `io.open`, `os.execute`, and `require('os')` all fail). A per-frame instruction
+    budget (`Lua::set_hook` on `every_nth_instruction`, default 1,000,000) interrupts a runaway
+    script loop rather than hanging the frontend (verified with a real `while true do end`
+    script). `emu.read`/`emu.write` operate on WRAM only (new `Bus::joypad`/`Bus::poke_wram`
+    accessors), bound via `Lua::scope` for the exact duration of one `on_frame` call so the `&mut
+    Bus` borrow never escapes into the persistent Lua state (no `Rc<RefCell<Bus>>` needed).
+    `emu.onFrame(fn)` registers a per-frame callback; `print` is redirected into an internal log
+    drained by the frontend rather than going to stdout.
+  - **TAS movies**: a new `rustysnes_core::movie` module (no_std, no Lua/frontend coupling —
+    matching RustyNES's own crate boundary) defines the on-disk format (`RSNESMOV` magic, format
+    version, region, a u64 determinism seed, the ROM's SHA-256, a start-point kind byte
+    (power-on or an embedded save-state blob), then a raw `p1(u16)+p2(u16)` stream, one pair per
+    frame), built on the existing `rustysnes_savestate` tag/section framing. `MovieRecorder`
+    captures inputs frame-by-frame; `MoviePlayer` owns its `Movie` outright (not a borrow — a
+    `MoviePlayer<'a>` design was rejected during implementation since the frontend needs to hold
+    one across many real frames, which a borrow can't do without a self-referential lifetime) and
+    exposes `next_frame() -> Option<FrameInput>` as pure data. **A real ordering bug was caught
+    and fixed before it shipped**: `MoviePlayer` was originally going to call `Bus::set_joypad`
+    directly, but `EmuCore::run_frame()` already re-applies its own retained `self.pads` array to
+    `Bus::set_joypad` on every call — a direct write from the player would have silently raced
+    with (and lost to) that reapplication depending on call order, so `next_frame` returns data
+    only and the frontend applies it through `EmuCore::set_pad` instead. A new `System::seed()`
+    accessor lets `Movie::seek_to_start` reject a power-on movie replayed against a `System` built
+    with the wrong seed before any replay happens, rather than silently producing a diverged
+    trace. While a movie is recording or playing, `ScriptEngine::set_writes_locked` makes
+    `emu.write` a silent no-op, so a loaded script can never perturb a deterministic run it
+    doesn't own.
+  - **Frontend wiring**: a new Tools-menu set of actions (Load Script, Start/Stop Movie
+    Recording, Load & Play Movie, Stop Movie Playback) in `ui_shell.rs`/`app.rs`, all gated
+    `#[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]` (not just `feature =
+    "scripting"` alone — `mlua`'s vendored Lua VM needs a C compiler + `std`, unavailable on
+    `wasm32`; `rustysnes-script` is an optional dependency only under the native
+    `target.'cfg(...)'` dependency table). `rustysnes-script` is declared `optional = true` there.
+  - **Verified**: 5 new `rustysnes-script` unit tests (frame-callback invocation, WRAM
+    read/write round-trip, writes-locked no-op, runaway-loop interruption, sandbox-escape
+    rejection) and 8 new `rustysnes-core::movie` unit tests (format round-trip with both start
+    kinds, malformed/truncated input rejection, ROM-hash verification, seed-mismatch rejection,
+    recorder/player round-trip), all passing. A new `movie_determinism.rs` integration test
+    records 40 frames of VARYING synthetic input (not a static pad — a movie that never
+    exercises input divergence would pass trivially even with a broken recorder) against the
+    committed `cputest-basic.sfc` ROM, round-trips the movie through its real on-disk byte
+    format, replays it against a completely fresh `System`, and asserts per-frame framebuffer
+    hashes and total audio hash are byte-identical between the original recording and the
+    replay — the acceptance criterion, proven, not asserted. With `scripting` off, the build is
+    unaffected (the crate and all its code paths are compiled out entirely).
+
 - **The live wasm demo now runs the full native shell — `wasm-winit` unification (T-81-006).**
   `app.rs`'s `ApplicationHandler` is now ONE implementation shared by native and `wasm32` (a new
   `wasm_winit.rs` entry point, ported from RustyNES's own, not invented), with internal

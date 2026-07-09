@@ -198,6 +198,24 @@ build's emulation output is unaffected. Disassembly + breakpoints/step controls,
 watchpoints (needing a new `debug-hooks` feature on `rustysnes-core` itself + a `Bus`-level
 hook), are follow-up tickets (T-81-006, T-81-001b) — not yet landed.
 
+## Scripting + TAS movies (`v0.8.0 "Instrumentation"`, T-81-002)
+
+A Tools menu (native only, `#[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]`)
+exposes Load Script, Start/Stop Movie Recording, and Load & Play / Stop Movie Playback.
+`ScriptEngine` (`rustysnes-script`) wraps a sandboxed `mlua` 5.4 VM: `emu.read`/`emu.write`
+(WRAM only, bound via `Lua::scope` for the duration of one `on_frame` call so the `&mut Bus`
+borrow never escapes the persistent Lua state) and `emu.onFrame(fn)`. TAS movies
+(`rustysnes_core::movie`, no_std, no Lua coupling) record a deterministic `p1`/`p2` input stream
+per frame plus a determinism seed + ROM SHA-256 + start point (power-on or an embedded
+save-state); `MoviePlayer::next_frame()` returns pure data rather than writing `Bus::set_joypad`
+directly, since `EmuCore::run_frame()` already re-applies its own retained pad state every call —
+the frontend applies a movie's frame through `EmuCore::set_pad` instead, in `Active::render`'s
+per-frame drive loop (`apply_frame_input`). While a movie is recording or playing,
+`ScriptEngine::set_writes_locked` makes `emu.write` a silent no-op, so a loaded script can never
+perturb a run it doesn't own. `rustysnes-script` is an optional native-only dependency
+(`dep:rustysnes-script`, gated out of the wasm32 dependency graph entirely); with `scripting`
+off, none of this compiles in and the default build is unaffected.
+
 ## Open questions
 
 - ~~Whether the second-CPU (SA-1 / Super FX) state warrants its own debugger panel from day one

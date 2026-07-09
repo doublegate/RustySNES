@@ -50,7 +50,10 @@ help-tui = ["dep:ratatui"]
 # manifest. They wire no extra code yet (the panels/hooks are TODO stubs).
 debug-hooks = []
 hd-pack = []
-scripting = []
+# `v0.8.0 "Instrumentation"`, T-81-002: sandboxed Lua scripting (`rustysnes-script`, native-only —
+# `dep:` keeps the optional dependency out of the wasm32 dependency graph even if this feature
+# were ever selected there, on top of the `target.'cfg(...)'` gate below already doing so).
+scripting = ["dep:rustysnes-script"]
 retroachievements = []
 
 [lints]
@@ -89,9 +92,10 @@ web-time = "1.1"
 # no system zlib dependency.
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
-# Native-only deps (gilrs/rfd/directories/clap/ratatui). A browser tab has no
-# gamepad-via-gilrs, no rfd dialog, no terminal — the wasm builds never see
-# these (the modules are `cfg(not(target_arch = "wasm32"))`-gated).
+# Native-only deps (gilrs/rfd/directories/clap/ratatui/rustysnes-script). A browser tab has no
+# gamepad-via-gilrs, no rfd dialog, no terminal, and `mlua`'s vendored Lua VM needs a C compiler +
+# `std` — the wasm builds never see these (the modules are `cfg(not(target_arch = "wasm32"))`-
+# gated).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gilrs = "0.11"
 rfd = "0.17"
@@ -102,6 +106,7 @@ clap = { version = "4", features = ["derive", "color", "cargo"] }
 clap_complete = "4"
 anstyle = "1"
 ratatui = { version = "0.30", optional = true }
+rustysnes-script = { path = "../rustysnes-script", version = "0.7.0", optional = true }
 
 # wasm32 target deps. The chip stack is `no_std + alloc`, so the browser build
 # only needs the wasm-bindgen + web-sys bridge here.
