@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Automated release-cutting (`release-auto.yml`) — `v0.6.0` "Shippable" work, pulled
+  forward.** Mirrors RustyNES's `release-auto.yml` pattern (fires when `CI` completes
+  successfully on `main`, invokes `release.yml` via `workflow_call` since a bot-pushed tag
+  doesn't trigger `on: push: tags`) adapted to this project's own conventions, not copied:
+  RustySNES's crate versions stay pinned at `0.1.0` (nothing publishes to crates.io), so the
+  trigger is `CHANGELOG.md`'s own structure — an empty `[Unreleased]` immediately followed by a
+  real `## [X.Y.Z] "Name" - date` heading means that version was just closed out and is ready to
+  tag — rather than a Cargo.toml version bump. Creates a real annotated tag
+  (`git tag -a -F <notes>`) sourced directly from the CHANGELOG section (`docs/adr/0007`'s
+  tag-body-is-the-release-note convention), not a separate maintainer-authored notes file.
+  Idempotent: a no-op once the version's tag already exists. `release.yml` gained a matching
+  `workflow_call` trigger alongside its existing `push`/`workflow_dispatch` ones.
+
 - **`ci.yml`'s `lint` job now gates on `cargo doc` too — `v0.6.0` "Shippable" work, pulled
   forward.** The doc-warnings build was previously reserved for the tag-only `full-test` job, so
   a broken intra-doc link or rustdoc-specific warning (neither caught by clippy's own lints)
