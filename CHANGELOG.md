@@ -26,6 +26,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   quoted theme name. Corrected the already-published `v0.6.0` release title retroactively via
   `gh release edit`.
 
+### Investigated (not landed)
+
+- **Mid-scanline/HDMA-driven register timing: a fix is designed, prototyped, and verified
+  correct for the CPU/HDMA-driven case — but NOT landed, blocked by a second regression the same
+  change causes in Super FX/GSU rendering.** The confirmed off-by-one-line compositor bug
+  (`docs/ppu.md` §Mid-scanline/HDMA-driven register timing) has a prototype fix: `rustysnes-ppu`
+  would composite each line at a new `RENDER_DOT` constant (`= 276` — the same dot number HDMA's
+  own per-line run fires at, but sequenced strictly before it within that master-clock tick's
+  execution order) instead of at dot 340 (`end_of_scanline`), matching real hardware's per-pixel
+  timing. Prototyping and running the full `--features test-roms` suite confirmed this mechanism
+  is correct for CPU/HDMA-driven register changes: all 29 `undisbeliever` goldens held, and the
+  one golden it legitimately changes (SA-1's `SD F-1 Grand Prix`) was independently confirmed a
+  real accuracy improvement, not blindly accepted — diffing pre-/post-prototype framebuffers
+  row-by-row found 159/239 rows differed, and testing those against the fix's predicted "shifted
+  one line later" signature matched 232/237 checkable rows (97.9%; 237 = 239 minus the 2 boundary
+  rows a one-line-shift comparison can't reach) with zero unexplained outliers. **But the same
+  prototype broke all 24 Super FX/GSU golden tests** with a diff pattern that does *not* fit that
+  mechanism (a color bar shifted 4 rows in the opposite direction on one ROM; 7 genuine outliers
+  on another) — the identical failure signature an earlier, unrelated investigation this cycle
+  (open-bus-via-HDMA-latch) also hit and correctly did not land. Working hypothesis (not
+  confirmed): the GSU coprocessor's host-synced VRAM writes are sampled at a different point in
+  their own progress once the render trigger moves earlier in the master-clock tick — needs an
+  access-level trace to confirm. Reverted; full mechanism, both verifications, and what a future
+  investigation needs are documented in `docs/ppu.md` for whoever picks this up next.
+
 ## [0.6.0] "Shippable" - 2026-07-08
 
 Closes out the release-engineering and doc-parity half of "match RustyNES's level" that isn't
@@ -47,39 +72,6 @@ green.
 
 This release landed across PRs #36-39, each independently reviewed by Gemini + Copilot,
 human-reviewed, and adjudicated before merge.
-
-### Added
-
-- **Automated release-cutting (`release-auto.yml`) — `v0.6.0` "Shippable" work, pulled
-  forward.** Mirrors RustyNES's `release-auto.yml` pattern (fires when `CI` completes
-  successfully on `main`, invokes `release.yml` via `workflow_call` since a bot-pushed tag
-  doesn't trigger `on: push: tags`) adapted to this project's own conventions, not copied:
-  RustySNES's crate versions stay pinned at `0.1.0` (nothing publishes to crates.io), so the
-  trigger is `CHANGELOG.md`'s own structure — an empty `[Unreleased]` immediately followed by a
-  real `## [X.Y.Z] "Name" - date` heading means that version was just closed out and is ready to
-  tag — rather than a Cargo.toml version bump. Creates a real annotated tag
-  (`git tag -a -F <notes>`) sourced directly from the CHANGELOG section (`docs/adr/0007`'s
-  tag-body-is-the-release-note convention), not a separate maintainer-authored notes file.
-  Idempotent: a no-op once the version's tag already exists. `release.yml` gained a matching
-  `workflow_call` trigger alongside its existing `push`/`workflow_dispatch` ones.
-
-- **`ci.yml`'s `lint` job now gates on `cargo doc` too — `v0.6.0` "Shippable" work, pulled
-  forward.** The doc-warnings build was previously reserved for the tag-only `full-test` job, so
-  a broken intra-doc link or rustdoc-specific warning (neither caught by clippy's own lints)
-  could sit unnoticed on `main` between releases. `RUSTDOCFLAGS="-D warnings" cargo doc --workspace
-  --no-deps` is cheap locally (~4s), so it now runs on every PR/push alongside fmt+clippy.
-
-- **Mid-scanline/HDMA-driven register timing: regression-baseline test landed — `v0.6.0`
-  "Shippable" work, pulled forward.** `crates/rustysnes-core/tests/mid_scanline_hdma_baseline.rs`
-  is a minimal, self-authored hand-assembled 65C816 reproduction (HDMA drives `$2100` master
-  brightness; no BG/OBJ setup needed since a disabled-layers screen renders pure backdrop color,
-  isolating the exact compositor-vs-HDMA dot-timing bug) that locks in the confirmed-buggy
-  transition position (last-white row 99, first-black row 100 — exactly matching the
-  off-by-one-line shift the mechanism analysis predicts) as a numeric acceptance test. This
-  closes most of the "no dedicated test ROM" gap `docs/ppu.md` flagged as blocking a fix; the
-  cross-crate scheduler/PPU timing-communication design remains the real outstanding work. No
-  production code changed; full workspace + `--features test-roms` suites verified unaffected
-  (zero regressions).
 
 ## [0.5.0] "Fidelity" - 2026-07-08
 

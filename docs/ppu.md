@@ -172,7 +172,8 @@ The crate is a working dual-chip model. Public API the scheduler/bus call:
   (the determinism contract only requires the finished frame be reproducible, so this is a valid
   simplification *when the equivalence holds* — but it does NOT always hold: see "Mid-scanline/
   HDMA-driven register timing" below for a confirmed off-by-one-line compositor bug this
-  end-of-line-sampling approach causes for HDMA-driven per-line register changes). BG modes 0–7
+  end-of-line-sampling approach causes for HDMA-driven per-line register changes, and a designed
+  fix that is NOT yet landed pending a Super FX/GSU regression investigation). BG modes 0–7
   tile fetch (2/4/8 bpp), per-mode priority tables, 16×16 tiles,
   mosaic (vertical+horizontal block), Mode 7 affine (matrix + center + wrap/flip from M7SEL,
   EXTBG high-bit priority), the 128-sprite OAM pipeline with the 32-sprite range / 34-tile time
@@ -188,17 +189,24 @@ The crate is a working dual-chip model. Public API the scheduler/bus call:
 - Exact long-dot placement within the 1364-clock line under interlace transitions — resolve
   against the test ROMs (`ref-docs/2026-06-24-ppu.md` "Note on a flagged discrepancy").
 - Mid-scanline raster effects (HDMA palette/scroll splits) need the scheduler to drive register
-  writes at the exact dot. **Correction (researched this pass, superseding the prior claim
-  here):** the per-scanline compositor does NOT correctly handle even single-split-per-line HDMA
-  effects — see "Mid-scanline/HDMA-driven register timing" below for the confirmed off-by-one-line
-  bug and why it isn't fixed in this pass.
+  writes at the exact dot. **Correction (researched, superseding the prior claim here):** the
+  per-scanline compositor does NOT correctly handle even single-split-per-line HDMA effects — see
+  "Mid-scanline/HDMA-driven register timing" below for the confirmed off-by-one-line bug, a
+  designed and SA-1-verified fix, and why it isn't landed (a real, separate Super FX/GSU
+  regression the same change causes, not yet understood).
 
-## Mid-scanline/HDMA-driven register timing — researched, confirmed, deferred (v0.5.0)
+## Mid-scanline/HDMA-driven register timing — designed, prototyped, blocked (v0.6.0-era)
 
-**Status: a genuine off-by-one-line compositor bug is confirmed against ares' per-pixel reference
-model. Not fixed this pass — the fix touches the single hottest code path in the engine (every
-frame, all 29 currently-passing `undisbeliever` goldens, every commercial screenshot test) and
-needs dedicated empirical verification against the full golden suite, not a rushed change.**
+**Status: the off-by-one-line compositor bug confirmed in `v0.5.0` has a designed and prototyped
+fix that is independently verified CORRECT for CPU/HDMA-driven register changes (SA-1's `SD F-1
+Grand Prix`, pixel-exact confirmation, see "The SA-1 case" below) — but the SAME change causes a
+second, genuinely different, NOT-YET-UNDERSTOOD regression across every Super FX/GSU golden test
+(24/24), with a diff signature that does NOT fit the fix's own mechanism (see "The Super FX/GSU
+regression" below). Because both effects come from one code change, the fix cannot be landed
+piecemeal — it is NOT landed. The prototype (`rustysnes-ppu::RENDER_DOT`, `Ppu::tick_dot`
+compositing at that dot instead of end-of-scanline) is fully designed and described below so a
+future investigation can pick it up directly; the missing piece is understanding *why* GSU-driven
+rendering specifically regresses.**
 
 ### The bug (the "Air Strike Patrol BG3 scroll" case)
 
@@ -232,50 +240,95 @@ src/lib.rs` module doc's claim that the per-scanline compositor is "bit-identica
 framebuffer to a per-dot renderer" is likewise only true when no register HDMA-changes mid-line —
 false in exactly this case.
 
-### Why it isn't fixed this pass
+### The prototype fix (designed, not landed)
 
-The conceptually correct fix is small in shape — composite line `V` using the register state as
-it stood *before* line `V`'s own HDMA run (dot 276), not after — but the safe way to land it
-(e.g. moving `Ppu::end_of_scanline`'s render trigger earlier, or snapshotting the relevant
-registers at a boundary the scheduler and PPU currently have no shared concept of) touches:
+`rustysnes-ppu` would gain a new public constant, `RENDER_DOT` (`= 276`), documented as the PPU's
+own video-timing fact (not a DMA-specific one) that `rustysnes-core::bus`'s `HDMA_RUN_DOT` is
+defined equal to — a regression-locking `#[test]` in `rustysnes-core` would assert the two never
+drift apart, since `rustysnes-ppu` cannot depend on `rustysnes-core` (the crate graph is strictly
+one-directional, `docs/architecture.md`), so the PPU-owned constant is the single source of truth.
 
-- The single hottest, most heavily-tested code path in the whole engine — every one of the 29
-  currently-passing `undisbeliever` golden-framebuffer hashes (`docs/STATUS.md`'s accuracy
-  dashboard), every `*_oncart`/commercial-screenshot test, and the `playable_smoke` gate all
-  render through this exact function.
-- A cross-crate coordination gap: `rustysnes-ppu` has no visibility into `rustysnes-core`'s HDMA
-  scheduling today (by design — the PPU only sees the narrow `VideoBus` trait,
-  `docs/architecture.md` §2) — the fix needs a clean way to communicate "render now, before this
-  line's HDMA" without leaking DMA/HDMA concerns into the PPU crate's dependency graph.
-- No dedicated committed test ROM demonstrating this specific per-line-scroll-split pattern
-  exists yet in `tests/roms/` (an Air-Strike-Patrol-equivalent ROM, homebrew or a permissively
-  licensed `undisbeliever`/Krom/PeterLemon test, would make the fix independently verifiable
-  rather than validated only against the existing (possibly HDMA-timing-insensitive) goldens).
+`Ppu::tick_dot` would call `render_scanline` at `self.h == RENDER_DOT` (inside the main per-dot
+loop), not inside `end_of_scanline` (which currently runs it at dot 340/`DOTS_PER_LINE`
+wraparound). Because `Bus::advance_master` services line `V`'s own HDMA run at this same dot but
+*after* `tick_ppu_dot` returns within the same master-clock tick (the HDMA check runs after the
+PPU-dot call, `docs/scheduler.md` §DMA/HDMA bus-steal), line `V` would be composited using
+register state as it stood strictly *before* that line's own HDMA write — matching ares'
+per-pixel timing exactly, without giving the PPU crate any direct knowledge of DMA/HDMA.
 
-Landing an unverified change against this surface area is a real regression risk to a currently
-green suite — mirrors `docs/scheduler.md`'s DRAM-refresh and open-bus-via-HDMA-latch treatment:
-research and confirm the mechanism, but do not force an implementation through without the
-verification infrastructure to prove it's actually correct.
+### The SA-1 case (verified correct)
 
-### What a future investigation/fix needs
+Prototyping this change and running the full `--features test-roms` golden/oracle suite: all 29
+`undisbeliever` goldens held, every `*_oncart`/commercial-screenshot test held, with exactly
+**one** exception — SA-1's `SD F-1 Grand Prix` golden framebuffer hash changed. That one change
+was independently confirmed as a real accuracy improvement, not blindly re-blessed: dumping the
+pre-prototype and post-prototype framebuffers and diffing them row-by-row found 159/239 rows
+differ, and testing the specific hypothesis "does `fixed[row]` match `buggy[row-1]`" (the exact
+signature this change's mechanism predicts — content that used to render one line early now
+renders one line later) matched 232/237 candidate rows (97.9%) — "candidate rows" here means the
+239-row frame's checkable rows (239 minus the 2 boundary rows a row-1 lookup can't reach), not the
+159 rows found to differ above — with **zero** rows differing in any other pattern (every single
+differing row fully explained by a clean, uniform one-line-later shift — no unexplained
+artifacts). `SD F-1 Grand Prix` is a racing game, consistent with a
+per-line HDMA-driven road/gradient color effect (it drives `$2100`-adjacent CGRAM/brightness-class
+registers per scanline) that was rendering one line early before this change and would render on
+the hardware-correct line after it. This half of the change is real and correct — it just cannot
+ship in isolation from the GSU regression below, since both come from the same code path.
 
-1. A committed test ROM (or a hand-assembled 65C816 program in a new `#[test]`, mirroring the
-   pattern already used for rewind/run-ahead's synthetic per-frame signal tests) that exercises
-   exactly this case: HDMA-driven per-line BG scroll changing every line, verified against a
-   known-correct per-line expected value sequence.
-2. A design for how the scheduler communicates "line `V`'s HDMA run has completed" to the PPU
-   without giving the PPU direct DMA/HDMA knowledge — e.g. a new narrow `VideoBus` (or a new
-   `Ppu` method the scheduler calls at the right dot) that triggers `end_of_scanline`'s render
-   step early, at (or just before) `HDMA_RUN_DOT`, rather than at dot 340.
-3. A full re-run of `cargo test --workspace --features test-roms` (the complete golden/oracle
-   suite, not a subset) after the change, checked line-by-line against the *reason* for any
-   diff — since some or all of the 29 current goldens may shift by exactly one scanline's worth
-   of register state for any ROM that already uses HDMA-driven per-line effects, and each such
-   shift needs confirming as "now correct" rather than blindly re-baselined.
+### The Super FX/GSU regression (blocking, not understood)
 
-### Regression-baseline groundwork (landed)
+The same prototype broke **all 24** Super FX/GSU golden framebuffer tests
+(`crates/rustysnes-test-harness/tests/superfx_oncart.rs`) — every `GSU{2,4,8}BPP256x{128,160,192}
+{FillPoly,PlotLine,PlotPixel}` combination in the Krom corpus. This is the identical failure
+signature (all 24 GSU goldens, at once) an *earlier*, unrelated investigation this session
+(open-bus-via-HDMA-latch, `docs/scheduler.md` §Open bus via DMA/HDMA) also hit and correctly did
+not land — a second, independent confirmation that Super FX/GSU's interaction with changes near
+this exact area of the master-clock tick sequence is fragile in a way not yet understood.
 
-Item 1 above is now partially in place:
+Unlike the SA-1 case, the GSU diffs do **not** fit the "shifted one line later" signature the
+prototype's own mechanism predicts:
+
+- `GSU2BPP256x128FillPoly`: only 3 rows differ (not the broad, whole-frame shift SA-1 showed), but
+  the pattern is inconsistent with a clean shift — a solid color bar moved from row 219 to row
+  215 (4 rows *earlier*, the opposite direction and a larger magnitude than the fix's own
+  one-line-*later* mechanism), plus a subtle backdrop-color change at row 0 (`0x290000` →
+  `0x000000`) that may be related to line `V=0`'s special-cased once-per-frame HDMA *setup* (as
+  opposed to a normal per-line HDMA *run* — `docs/scheduler.md` §DMA/HDMA bus-steal) interacting
+  with the new render trigger differently than a normal visible line does.
+- `GSU2BPP256x128PlotPixel`: 10 rows differ, only 3 of which fit "unchanged or shifted-one-later"
+  — 7 are genuine outliers matching neither hypothesis.
+
+**Working hypothesis (not confirmed):** the GSU coprocessor is host-synced via
+`Board::coprocessor_tick`, stepped once per master-clock unit from inside the same
+`Bus::advance_master` loop the PPU's own dot-tick runs from (`docs/cart.md` §Super FX). Moving the
+PPU's render trigger from dot 340 (very late in the line) to dot 276 (earlier) may sample GSU
+VRAM/CGRAM writes at a point where the GSU's own per-tick progress differs from before — either
+catching genuinely in-progress GSU output that used to be complete by dot 340, or missing GSU
+writes that used to land before the old (later) sample point. This is a plausible, coherent
+explanation for why GSU-driven rendering specifically regresses while SA-1 (a second CPU that
+does not render directly into VRAM) improves from the identical change — but it has **not been
+confirmed** by tracing actual GSU tick/write timing against the new render point, only inferred
+from the shape of the pixel diffs above. A real investigation needs that trace, not more
+inference from framebuffer diffs alone.
+
+### What a future investigation needs
+
+1. An access-level trace of GSU VRAM/CGRAM writes (via `coprocessor_tick`) correlated against the
+   exact master-clock tick the new `RENDER_DOT` render call would fire on, for one of the
+   currently-passing GSU golden ROMs — to confirm or refute the host-sync-timing hypothesis above
+   (mirrors `docs/audit/spc7110-boot-crash-2026-07-08.md`'s access-level-trace approach for a
+   different coprocessor-timing gap).
+2. Once the mechanism is understood, either: (a) a GSU-aware adjustment to when/how the PPU
+   samples VRAM for lines a host-synced coprocessor is actively rendering into, or (b) evidence
+   that the current (pre-prototype) end-of-line render point is actually the *hardware-correct*
+   one for GSU-authored content specifically (in which case the fix would need to special-case
+   host-synced-coprocessor carts rather than apply universally).
+3. Full re-verification against `cargo test --workspace --features test-roms` (all 29
+   `undisbeliever` goldens + all 24 GSU goldens + SA-1's `SD F-1 Grand Prix`) before landing
+   anything — the same discipline this investigation and the sibling open-bus one both applied.
+
+### Regression-baseline test
+
 `crates/rustysnes-core/tests/mid_scanline_hdma_baseline.rs` is a minimal, self-authored
 hand-assembled 65C816 program (mirroring the pattern already used for rewind/run-ahead's
 synthetic per-frame signal tests) that drives `$2100` (`INIDISP`, master brightness) via HDMA
@@ -286,17 +339,13 @@ isolates the exact compositor-vs-HDMA dot-timing bug with no tilemap/tileset set
 cost of not being the specific "Air Strike Patrol BG3 scroll" scenario (a scroll-register variant
 remains open future work if a title-accurate reproduction is ever wanted).
 
-The test **locks in the current (confirmed-buggy) transition position** — `(last-white row 99,
-first-black row 100)`, i.e. `V=100`/`V=101` — derived and empirically confirmed exactly as this
-section's mechanism analysis predicts (`row = V - 1`; the write meant for `V+1` lands on `V`
-itself). It does **not** assert correct hardware behavior; a second test confirms the reproduction
-is deterministic across fresh runs. When the real fix (item 2 above) lands, this specific
-assertion is expected to flip to `(100, 101)` — a deliberate, reviewed Golden-Vector update
-(cross-checked against the full `--features test-roms` suite per item 3), not an accidental diff.
-This gives the eventual fix a concrete, already-passing-on-the-buggy-baseline acceptance test to
-flip, closing most of the "no dedicated committed test ROM" gap this section originally flagged
-as blocking — item 2 (the cross-crate scheduler/PPU timing-communication design) remains the real
-outstanding work.
+The test still **locks in the current (confirmed-buggy) transition position** —
+`(last-white row 99, first-black row 100)` — since the fix is not landed (see above). When a real
+fix eventually lands (and passes the Super FX/GSU investigation this section now requires), this
+specific assertion is expected to flip to `(100, 101)` — a deliberate, reviewed Golden-Vector
+update, cross-checked against the *full* `--features test-roms` suite including all 24 GSU
+goldens this time, not just the 29 `undisbeliever` ones. A second test confirms the reproduction
+stays deterministic across fresh runs.
 
 ## Hi-res (Modes 5/6) color-math precision — researched, deferred (v0.5.0)
 
