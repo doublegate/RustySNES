@@ -88,8 +88,24 @@ pub fn start() -> Result<(), JsValue> {
     Ok(())
 }
 
+/// The largest file `load_rom_file` will read — real SNES ROMs (even with a coprocessor firmware
+/// dump concatenated in some ad-hoc distributions) top out at a few MiB; this is a generous
+/// ceiling against a user accidentally selecting an unrelated large file (a video, a disk image)
+/// and triggering an unbounded `Vec<u8>` allocation on the wasm heap.
+const MAX_ROM_FILE_BYTES: f64 = 32.0 * 1024.0 * 1024.0;
+
 /// Read `file`'s bytes asynchronously and deliver them as an [`AppEvent::RomLoaded`] via `proxy`.
 fn load_rom_file(file: &web_sys::File, proxy: &EventLoopProxy<AppEvent>) {
+    if file.size() > MAX_ROM_FILE_BYTES {
+        web_sys::console::error_1(
+            &format!(
+                "RustySNES: selected file ({:.1} MiB) exceeds the 32 MiB ROM size limit",
+                file.size() / (1024.0 * 1024.0)
+            )
+            .into(),
+        );
+        return;
+    }
     ROM_READER.with(|cell| {
         let mut slot = cell.borrow_mut();
         if slot.is_none() {
@@ -111,8 +127,12 @@ fn load_rom_file(file: &web_sys::File, proxy: &EventLoopProxy<AppEvent>) {
             reader.set_onload(Some(on_load.as_ref().unchecked_ref()));
             *slot = Some((reader, on_load));
         }
-        if let Some((reader, _onload)) = slot.as_ref() {
-            let _ = reader.read_as_array_buffer(file);
+        if let Some((reader, _onload)) = slot.as_ref()
+            && let Err(e) = reader.read_as_array_buffer(file)
+        {
+            web_sys::console::error_1(
+                &format!("RustySNES: FileReader.readAsArrayBuffer failed: {e:?}").into(),
+            );
         }
     });
 }

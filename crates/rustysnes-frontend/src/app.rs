@@ -192,6 +192,15 @@ impl ApplicationHandler<AppEvent> for App {
         if self.active.is_some() {
             return; // already initialized (e.g. resumed after suspend)
         }
+        // `wasm32` only: `resumed()` can legitimately fire again (e.g. a tab losing/regaining
+        // visibility) before the async `Gfx::new_async` spawned by an EARLIER `resumed()` call
+        // has resolved (`self.active` is still `None` at that point, so the check above alone
+        // doesn't catch this) — without this guard, a second call would spawn a second
+        // concurrent `Gfx::new_async` future and a second window, racing the first.
+        #[cfg(target_arch = "wasm32")]
+        if self.pending_window.is_some() {
+            return; // a Gfx::new_async from an earlier resumed() call is still in flight
+        }
         let window = match Self::create_window(event_loop) {
             Ok(w) => w,
             Err(e) => {
