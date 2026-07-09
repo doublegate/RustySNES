@@ -24,9 +24,18 @@ fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// Boot a `System` from `rom_path`. Returns `None` only when the ROM is genuinely absent
+/// (`NotFound`) — the expected, self-skippable state for the gitignored commercial corpus. A
+/// ROM that exists but fails to read or parse panics with context instead of silently
+/// self-skipping, so a real regression there isn't masked as "corpus just isn't present."
 fn booted_system_from(rom_path: &Path) -> Option<System> {
-    let rom = std::fs::read(rom_path).ok()?;
-    let cart = Cart::from_rom(&rom).ok()?;
+    let rom = match std::fs::read(rom_path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => panic!("{} exists but failed to read: {e}", rom_path.display()),
+    };
+    let cart = Cart::from_rom(&rom)
+        .unwrap_or_else(|e| panic!("{} failed to parse as a cart: {e:?}", rom_path.display()));
     let mut sys = System::new(0);
     sys.bus.cart = Some(cart);
     sys.reset();
