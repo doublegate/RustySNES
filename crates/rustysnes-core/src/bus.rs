@@ -213,6 +213,10 @@ pub struct Bus {
     /// Whether this frame's V=0 HDMA setup (table reset + reload) has already fired, so it runs
     /// exactly once per frame independent of the per-line run at [`HDMA_RUN_DOT`].
     hdma_setup_done: bool,
+    /// Active cheat-code patches (`v0.8.0`, T-81-003) — checked on every CPU-visible read in
+    /// [`CpuBus::read24`]. Empty (the default, and the only state possible unless a frontend
+    /// explicitly calls [`Self::set_cheats`]) costs exactly one `is_empty()` branch per read.
+    cheats: alloc::vec::Vec<crate::cheat::CheatPatch>,
 }
 
 impl Default for Bus {
@@ -251,6 +255,7 @@ impl Bus {
             last_hdma_line: u16::MAX,
             in_hdma: false,
             hdma_setup_done: false,
+            cheats: alloc::vec::Vec::new(),
         }
     }
 
@@ -307,10 +312,11 @@ impl Bus {
 
     /// Non-intrusive write of WRAM (the write counterpart to [`Self::peek_wram`], same
     /// addressing, same "no clock/open-bus/register side effects" contract) — for `rustysnes-
-    /// script`'s Lua `emu.write` and a future cheat-code engine (T-81-003). A write to an address
-    /// outside WRAM's mirrors is silently ignored (matching `peek_wram`'s `_ => 0` read side)
-    /// rather than erroring, since a script/cheat address is arbitrary user input, not a bug to
-    /// surface loudly.
+    /// script`'s Lua `emu.write`. A write to an address outside WRAM's mirrors is silently
+    /// ignored (matching `peek_wram`'s `_ => 0` read side) rather than erroring, since a script
+    /// address is arbitrary user input, not a bug to surface loudly. (Cheat codes, T-81-003, use
+    /// [`Self::set_cheats`]'s CPU-read intercept instead — real Game Genie/Pro Action Replay
+    /// codes overwhelmingly target cartridge ROM, which this WRAM-only accessor cannot reach.)
     pub fn poke_wram(&mut self, addr24: u32, val: u8) {
         let bank = (addr24 >> 16) & 0xFF;
         let addr = (addr24 & 0xFFFF) as u16;
@@ -319,6 +325,19 @@ impl Bus {
             0x00..=0x3F | 0x80..=0xBF if addr < 0x2000 => self.wram[(addr & 0x1FFF) as usize] = val,
             _ => {}
         }
+    }
+
+    /// Install the currently-active cheat-code patches (`v0.8.0`, T-81-003), replacing any
+    /// previously installed set. [`CpuBus::read24`] checks this list on every CPU-visible read
+    /// and substitutes a matching patch's value — the same point in the pipeline real Game
+    /// Genie/Pro Action Replay hardware intercepts at, which is why this is a read intercept and
+    /// not a `poke_wram`-style direct write: those codes overwhelmingly target cartridge ROM, not
+    /// WRAM, so a write-based model would silently do nothing for the vast majority of real
+    /// codes. The underlying ROM/RAM byte is never modified — only what the CPU observes reading
+    /// it.
+    pub fn set_cheats(&mut self, patches: &[crate::cheat::CheatPatch]) {
+        self.cheats.clear();
+        self.cheats.extend_from_slice(patches);
     }
 
     /// Whether the PPU has a finished frame ready to present.
@@ -807,8 +826,20 @@ impl DmaBus for Bus {
 
 /// The 65C816's view: route a 24-bit access + drive the master clock in lockstep.
 impl CpuBus for Bus {
+    // `decode_read` must always run first for its side effects (e.g. an NMI-flag-clear-on-read
+    // register) even when a cheat overrides the value the CPU observes — so this can't be
+    // rephrased as a plain `if/else` expression the way clippy suggests.
+    #[allow(clippy::useless_let_if_seq)]
     fn read24(&mut self, addr24: u32) -> u8 {
-        let val = self.decode_read(addr24);
+        let mut val = self.decode_read(addr24);
+        // Cheat-code intercept (`v0.8.0`, T-81-003) — `self.cheats` is empty in every build that
+        // never calls `set_cheats`, so this costs one branch when inactive. See `set_cheats`'s
+        // doc for why this is a read intercept rather than a WRAM poke.
+        if !self.cheats.is_empty()
+            && let Some(patch) = self.cheats.iter().find(|p| p.address == addr24)
+        {
+            val = patch.value;
+        }
         self.open_bus = val;
         val
     }

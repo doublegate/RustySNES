@@ -55,6 +55,11 @@ use rustysnes_core::movie::{Movie, MoviePlayer, MovieRecorder};
 #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
 use rustysnes_script::ScriptEngine;
 
+// Game Genie / Pro Action Replay cheats (`v0.8.0`, T-81-003) — no platform constraint, unlike
+// `scripting`'s `mlua`.
+#[cfg(feature = "cheats")]
+use crate::cheats::CheatEntry;
+
 /// The typed winit user-event, used by both native and `wasm32` (native simply never sends one).
 ///
 /// On `wasm32` the wgpu init is async and the ROM arrives via the browser file picker, so
@@ -114,6 +119,9 @@ struct Active {
     /// TAS movie record/playback state (`v0.8.0`, T-81-002).
     #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
     movie: MovieState,
+    /// The in-session cheat-code list (`v0.8.0`, T-81-003). Empty until `Cheats…` adds entries.
+    #[cfg(feature = "cheats")]
+    cheats: Vec<CheatEntry>,
 }
 
 /// TAS movie record/playback state (`v0.8.0`, T-81-002) — mutually exclusive with itself (you
@@ -452,6 +460,8 @@ impl App {
             script: None,
             #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
             movie: MovieState::default(),
+            #[cfg(feature = "cheats")]
+            cheats: Vec::new(),
         });
     }
 
@@ -598,6 +608,12 @@ impl App {
                     );
                     #[cfg(not(all(feature = "scripting", not(target_arch = "wasm32"))))]
                     emu.set_pad(0, active.pad1);
+                    // Cheat patches (`v0.8.0`, T-81-003) are host-applied external input, same
+                    // framing as a movie's recorded input — installed as a `Bus` read intercept
+                    // (real Game Genie/Pro Action Replay codes overwhelmingly target cartridge
+                    // ROM, not WRAM, so a poke-based model would silently do nothing for them).
+                    #[cfg(feature = "cheats")]
+                    crate::cheats::sync(&active.cheats, &mut emu.system_mut().bus);
                     // Run-ahead (config-driven, off by default): peeks `run_ahead.frames` frames
                     // ahead for the PRESENTED video, while `emu`'s own persisted state (and audio
                     // — the continuous stream) only ever advances by exactly one real frame, same
@@ -693,7 +709,14 @@ impl App {
         let raw_input = active.egui_state.take_egui_input(&active.window);
         let mut actions = Vec::new();
         let full_output = active.egui_ctx.run_ui(raw_input, |ui| {
-            actions = active.shell.render(ui, &info, config, debug.as_ref());
+            actions = active.shell.render(
+                ui,
+                &info,
+                config,
+                debug.as_ref(),
+                #[cfg(feature = "cheats")]
+                &mut active.cheats,
+            );
         });
         active
             .egui_state

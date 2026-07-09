@@ -33,6 +33,11 @@
 #![allow(unsafe_code)]
 
 pub mod audio_core;
+// The in-session cheat-code list (`v0.8.0` T-81-003). No platform constraint like `scripting`'s
+// `mlua` — decode is pure computation and application reuses `Bus::poke_wram`, so this is not
+// `target_arch`-gated, only feature-gated.
+#[cfg(feature = "cheats")]
+pub mod cheats;
 pub mod config;
 pub mod debug_snapshot;
 pub mod emu;

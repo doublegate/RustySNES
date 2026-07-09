@@ -54,6 +54,11 @@ hd-pack = []
 # `dep:` keeps the optional dependency out of the wasm32 dependency graph even if this feature
 # were ever selected there, on top of the `target.'cfg(...)'` gate below already doing so).
 scripting = ["dep:rustysnes-script"]
+# `v0.8.0 "Instrumentation"`, T-81-003: Game Genie / Pro Action Replay cheat-code support (the
+# decode logic lives unconditionally in `rustysnes-core::cheat`, same as the `movie` module —
+# this flag gates only the frontend's cheat list + UI + per-frame application). No optional
+# dependency and no `target_arch` gate — decode is pure computation, unlike `scripting`'s `mlua`.
+cheats = []
 retroachievements = []
 
 [lints]
