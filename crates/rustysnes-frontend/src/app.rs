@@ -46,6 +46,15 @@ use crate::ui_shell::{MenuAction, ShellInfo, ShellState};
 #[cfg(feature = "emu-thread")]
 use crate::emu_thread::{EmuThread, SharedInput};
 
+// Lua scripting + TAS movies (`v0.8.0`, T-81-002) — native-only (`mlua`'s vendored Lua VM needs a
+// C compiler + `std`).
+#[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+use rustysnes_core::cart::Region as CartRegion;
+#[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+use rustysnes_core::movie::{Movie, MoviePlayer, MovieRecorder};
+#[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+use rustysnes_script::ScriptEngine;
+
 /// The typed winit user-event, used by both native and `wasm32` (native simply never sends one).
 ///
 /// On `wasm32` the wgpu init is async and the ROM arrives via the browser file picker, so
@@ -99,6 +108,28 @@ struct Active {
     rewind: crate::rewind::RewindBuffer,
     /// A single quick-save-state slot (`MenuAction::SaveState`/`LoadState`).
     quick_save: Option<Vec<u8>>,
+    /// The loaded Lua script, if any (`v0.8.0`, T-81-002). `None` until `MenuAction::LoadScript`.
+    #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+    script: Option<ScriptEngine>,
+    /// TAS movie record/playback state (`v0.8.0`, T-81-002).
+    #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+    movie: MovieState,
+}
+
+/// TAS movie record/playback state (`v0.8.0`, T-81-002) — mutually exclusive with itself (you
+/// can't record and play back at once), independent of whether a Lua script is also loaded.
+#[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+#[derive(Default)]
+enum MovieState {
+    /// Neither recording nor playing.
+    #[default]
+    Idle,
+    /// Recording; the recorder accumulates one [`rustysnes_core::movie::FrameInput`] per real
+    /// frame via [`MovieRecorder::capture`].
+    Recording(MovieRecorder),
+    /// Replaying a loaded movie; each real frame consumes one recorded input via
+    /// [`MoviePlayer::next_frame`].
+    Playing(MoviePlayer),
 }
 
 /// The app: holds the config + the deferred ROM path until `resumed()` builds `Active`.
@@ -417,6 +448,10 @@ impl App {
                 self.config.rewind.interval_frames,
             ),
             quick_save: None,
+            #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+            script: None,
+            #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+            movie: MovieState::default(),
         });
     }
 
@@ -437,6 +472,59 @@ impl App {
         // A new cart invalidates every prior snapshot, same as the native `MenuAction::OpenRom`.
         active.rewind.clear();
         active.quick_save = None;
+    }
+
+    /// Set `emu`'s controller input for the emulated frame about to run: live keyboard/gamepad
+    /// input (`pad1`) normally, or a TAS movie's recorded/replayed input when one is active
+    /// (`v0.8.0`, T-81-002) — recording observes `pad1` without changing it; playback overrides
+    /// it entirely with the movie's own P1/P2. A finished playback returns to
+    /// [`MovieState::Idle`] and falls back to live input for this same call, not the next one.
+    ///
+    /// Takes `movie`/`status` as separate `&mut` parameters (not `active: &mut Active`) so this
+    /// can be called while a `MutexGuard` borrowed from `active.core` (`emu`) is still live —
+    /// passing the whole `Active` struct into a function call (unlike a direct field projection
+    /// like `active.rewind.record(..)`) defeats the borrow checker's disjoint-field analysis.
+    #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+    fn apply_frame_input(
+        movie: &mut MovieState,
+        pad1: Buttons,
+        status: &mut String,
+        emu: &mut EmuCore,
+    ) {
+        match movie {
+            MovieState::Playing(player) => {
+                if let Some(f) = player.next_frame() {
+                    emu.set_pad(0, Buttons(f.p1));
+                    emu.set_pad(1, Buttons(f.p2));
+                    return;
+                }
+                *movie = MovieState::Idle;
+                *status = "Movie playback finished".into();
+            }
+            MovieState::Recording(rec) => rec.capture(pad1.0, 0),
+            MovieState::Idle => {}
+        }
+        // Outside `Playing`, P2 is not live-driven by this frontend (single-player input) — reset
+        // it explicitly rather than leaving it at whatever a just-finished movie last set it to.
+        emu.set_pad(0, pad1);
+        emu.set_pad(1, Buttons(0));
+    }
+
+    /// Run the loaded Lua script's per-frame callback, if any (`v0.8.0`, T-81-002). Writes are
+    /// gated whenever a movie is recording or playing — a script must never perturb a
+    /// deterministic run it doesn't own. A script that errors (a bug, or the runaway-loop
+    /// instruction-budget guard tripping) is unloaded rather than left to error every frame. See
+    /// [`Self::apply_frame_input`]'s doc for why this takes separate fields, not `&mut Active`.
+    #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+    fn pump_script(script_slot: &mut Option<ScriptEngine>, movie: &MovieState, emu: &mut EmuCore) {
+        let Some(script) = script_slot.as_mut() else {
+            return;
+        };
+        script.set_writes_locked(!matches!(movie, MovieState::Idle));
+        if let Err(e) = script.on_frame(&mut emu.system_mut().bus) {
+            eprintln!("rustysnes: script error, unloading: {e}");
+            *script_slot = None;
+        }
     }
 
     /// Late-latch a key event into the P1 pad + the lock-free input latch.
@@ -491,9 +579,25 @@ impl App {
                 Vec::new()
             } else {
                 let frames = active.pacer.tick();
-                emu.set_pad(0, active.pad1);
                 let mut samples = Vec::new();
                 for _ in 0..frames {
+                    // Sets `emu`'s pad(s) for THIS emulated frame: live input (the pre-existing
+                    // behavior, unchanged when `scripting` is off or no movie is active), or a
+                    // movie's recorded/replayed input (`v0.8.0`, T-81-002) when one is active —
+                    // moved inside the loop (was once before it) so a catch-up burst of several
+                    // emulated frames in one real tick each gets its OWN movie frame, not the
+                    // same one repeated. Byte-identical to the prior single-call-before-the-loop
+                    // behavior when idle/off, since `active.pad1` doesn't change mid-tick either
+                    // way.
+                    #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+                    Self::apply_frame_input(
+                        &mut active.movie,
+                        active.pad1,
+                        &mut active.shell.status,
+                        &mut emu,
+                    );
+                    #[cfg(not(all(feature = "scripting", not(target_arch = "wasm32"))))]
+                    emu.set_pad(0, active.pad1);
                     // Run-ahead (config-driven, off by default): peeks `run_ahead.frames` frames
                     // ahead for the PRESENTED video, while `emu`'s own persisted state (and audio
                     // — the continuous stream) only ever advances by exactly one real frame, same
@@ -508,6 +612,8 @@ impl App {
                     }
                     samples.extend_from_slice(emu.audio());
                     active.rewind.record(&emu);
+                    #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+                    Self::pump_script(&mut active.script, &active.movie, &mut emu);
                 }
                 samples
             };
@@ -761,6 +867,114 @@ impl App {
                         "Rewind: disabled (config.rewind.capacity == 0)".into()
                     };
                 }
+                #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+                MenuAction::LoadScript => {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("Lua script", &["lua"])
+                        .pick_file()
+                    {
+                        active.shell.status = match std::fs::read_to_string(&path) {
+                            Ok(src) => match ScriptEngine::new().and_then(|mut engine| {
+                                engine.load(&src)?;
+                                Ok(engine)
+                            }) {
+                                Ok(engine) => {
+                                    active.script = Some(engine);
+                                    "Script loaded".into()
+                                }
+                                Err(e) => format!("Script load failed: {e}"),
+                            },
+                            Err(e) => format!("Script read failed: {e}"),
+                        };
+                    }
+                }
+                #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+                MenuAction::StartMovieRecording => {
+                    let mut emu = active.core.lock().unwrap_or_else(PoisonError::into_inner);
+                    active.shell.status = if emu.rom_loaded() {
+                        let region = emu
+                            .system_mut()
+                            .bus
+                            .cart
+                            .as_ref()
+                            .map_or(CartRegion::Ntsc, |c| c.header.region);
+                        let rom = emu.rom().to_vec();
+                        let recorder =
+                            MovieRecorder::from_current_state(region, &rom, emu.system_mut());
+                        drop(emu);
+                        active.movie = MovieState::Recording(recorder);
+                        "Movie recording started".into()
+                    } else {
+                        "Start recording: no ROM loaded".into()
+                    };
+                }
+                #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+                MenuAction::StopMovieRecording => {
+                    let recorded = match core::mem::take(&mut active.movie) {
+                        MovieState::Recording(rec) => Some(rec.finish()),
+                        other => {
+                            active.movie = other;
+                            None
+                        }
+                    };
+                    active.shell.status = match recorded {
+                        Some(movie) => {
+                            let frame_count = movie.frames.len();
+                            let dest = rfd::FileDialog::new()
+                                .add_filter("RustySNES movie", &["rsnesmov"])
+                                .set_file_name("movie.rsnesmov")
+                                .save_file();
+                            dest.map_or_else(
+                                || "Movie recording stopped (not saved)".into(),
+                                |path| match std::fs::write(&path, movie.serialize()) {
+                                    Ok(()) => format!("Movie saved ({frame_count} frames)"),
+                                    Err(e) => format!("Movie save failed: {e}"),
+                                },
+                            )
+                        }
+                        None => "Stop recording: not currently recording".into(),
+                    };
+                }
+                #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+                MenuAction::LoadAndPlayMovie => {
+                    active.shell.status = 'load_movie: {
+                        let Some(path) = rfd::FileDialog::new()
+                            .add_filter("RustySNES movie", &["rsnesmov"])
+                            .pick_file()
+                        else {
+                            break 'load_movie "Load movie: cancelled".into();
+                        };
+                        let bytes = match std::fs::read(&path) {
+                            Ok(b) => b,
+                            Err(e) => break 'load_movie format!("Movie read failed: {e}"),
+                        };
+                        let movie: Movie = match Movie::deserialize(&bytes) {
+                            Ok(m) => m,
+                            Err(e) => break 'load_movie format!("Movie load failed: {e}"),
+                        };
+                        let mut emu = active.core.lock().unwrap_or_else(PoisonError::into_inner);
+                        if let Err(e) = movie.verify_rom(emu.rom()) {
+                            break 'load_movie format!("Movie load failed: {e}");
+                        }
+                        if let Err(e) = movie.seek_to_start(emu.system_mut()) {
+                            break 'load_movie format!("Movie load failed: {e}");
+                        }
+                        drop(emu);
+                        active.movie = MovieState::Playing(MoviePlayer::new(movie));
+                        active.rewind.clear();
+                        active.quick_save = None;
+                        "Movie playback started".into()
+                    };
+                }
+                #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+                MenuAction::StopMoviePlayback => {
+                    active.shell.status = if matches!(active.movie, MovieState::Playing(_)) {
+                        active.movie = MovieState::Idle;
+                        "Movie playback stopped".into()
+                    } else {
+                        "Stop playback: not currently playing".into()
+                    };
+                }
             }
         }
         // Persist any Settings-window edits to config (best-effort).
@@ -822,4 +1036,41 @@ fn try_install_firmware(emu: &mut EmuCore, rom_path: &Path) -> bool {
         }
     }
     false
+}
+
+#[cfg(all(test, feature = "scripting", not(target_arch = "wasm32")))]
+mod frame_input_tests {
+    use rustysnes_core::movie::{FrameInput, Movie, MoviePlayer, StartPoint};
+
+    use super::{App, Buttons, CartRegion, EmuCore, MovieState};
+    use crate::config::Region;
+
+    fn one_frame_movie(p2: u16) -> Movie {
+        Movie {
+            seed: 0,
+            region: CartRegion::Ntsc,
+            rom_sha256: [0; 32],
+            start: StartPoint::PowerOn,
+            frames: vec![FrameInput { p1: 0, p2 }],
+        }
+    }
+
+    #[test]
+    fn p2_resets_to_zero_once_movie_playback_finishes() {
+        let mut movie_state = MovieState::Playing(MoviePlayer::new(one_frame_movie(0x8080)));
+        let mut status = String::new();
+        let mut emu = EmuCore::new(0, Region::Ntsc);
+
+        // First call consumes the movie's only frame — P2 should reflect it.
+        App::apply_frame_input(&mut movie_state, Buttons(0), &mut status, &mut emu);
+        emu.run_frame();
+        assert_eq!(emu.system_mut().bus.joypad(1), 0x8080);
+
+        // Second call: playback is finished — must fall back to live input, not leave P2 stuck
+        // at the movie's last value.
+        App::apply_frame_input(&mut movie_state, Buttons(0), &mut status, &mut emu);
+        emu.run_frame();
+        assert_eq!(emu.system_mut().bus.joypad(1), 0);
+        assert!(matches!(movie_state, MovieState::Idle));
+    }
 }

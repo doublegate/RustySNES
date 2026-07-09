@@ -56,10 +56,20 @@ architectural work needed.
 
 **Acceptance criteria:**
 
-- [ ] Lua scripts can read/write emulated memory and hook a per-frame callback.
-- [ ] TAS movies record a deterministic input log; replaying a recorded movie against the same
-      ROM + save-state-at-frame-0 produces a bit-identical framebuffer/audio trace.
-- [ ] With `scripting` off, the build is byte-identical (CI gate).
+- [x] Lua scripts can read/write emulated memory and hook a per-frame callback — `ScriptEngine`
+      (`rustysnes-script`, `mlua` 0.12 vendored Lua 5.4, sandboxed), `emu.read`/`emu.write`
+      (WRAM, via `Lua::scope`-bound closures) and `emu.onFrame(fn)`; verified by 5 unit tests
+      including a runaway-loop instruction-budget interruption and a sandbox-escape rejection
+      test (`io.open`/`os.execute`/`require('os')` all fail).
+- [x] TAS movies record a deterministic input log; replaying a recorded movie against the same
+      ROM + save-state-at-frame-0 produces a bit-identical framebuffer/audio trace — a new
+      `rustysnes_core::movie` module (`Movie`/`MovieRecorder`/`MoviePlayer`), verified by
+      `movie_determinism.rs`: 40 frames of varying synthetic input recorded against the
+      committed `cputest-basic.sfc` ROM, round-tripped through the real on-disk byte format,
+      replayed against a fresh `System`, framebuffer + audio hashes byte-identical frame-for-frame.
+- [x] With `scripting` off, the build is byte-identical (CI gate) — `rustysnes-script` is an
+      optional native-only dependency (`dep:rustysnes-script`), compiled out entirely with the
+      flag off; full default-feature workspace build/test/clippy/fmt verified unaffected.
 
 **Dependencies:** T-31-004 (determinism exercised), `v0.2.0`'s save-state envelope
 **Reference:** `docs/architecture.md` (determinism-contract fact citing "TAS replay" as a
@@ -232,10 +242,10 @@ source); `../RustyNES/crates/rustynes-frontend/src/app.rs`'s `ApplicationHandler
 ## Sprint review checklist
 
 - [ ] All tickets checked off or explicitly deferred (with reason). T-81-001 (PR A landed, PR B +
-      T-81-001b deferred), T-81-005, T-81-006 done; T-81-002/T-81-003/T-81-004 remain.
+      T-81-001b deferred), T-81-002, T-81-005, T-81-006 done; T-81-003/T-81-004 remain.
 - [ ] Every instrumentation feature is off by default + byte-identical when off — verified for
-      `debug-hooks` (T-81-001); `scripting`/`cheats` don't exist yet (T-81-002/T-81-003); the
-      formal CI gate covering all three together is T-81-004, not yet landed.
+      `debug-hooks` (T-81-001) and `scripting` (T-81-002); `cheats` doesn't exist yet (T-81-003);
+      the formal CI gate covering all of them together is T-81-004, not yet landed.
 - [x] The live wasm demo actually renders and is playable, verified by a real headless-browser
       check, not just an HTTP status check — the default `wasm-winit` build (T-81-006), via a
       full-page screenshot showing the egui shell + a real emulated framebuffer, not just pixel

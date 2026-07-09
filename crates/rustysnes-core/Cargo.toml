@@ -16,6 +16,12 @@ rustysnes-ppu = { path = "../rustysnes-ppu", version = "0.7.0", default-features
 rustysnes-apu = { path = "../rustysnes-apu", version = "0.7.0", default-features = false }
 rustysnes-cart = { path = "../rustysnes-cart", version = "0.7.0", default-features = false }
 rustysnes-savestate = { path = "../rustysnes-savestate", version = "0.7.0" }
+thiserror = { version = "2", default-features = false }
+# ROM-identity hashing for TAS movies (`movie.rs`) — already resolved transitively (via `zip` in
+# the frontend), so this promotes an existing dependency to direct rather than adding a new one
+# to the dependency tree. `default-features = false` keeps it `no_std`-clean for the thumbv7em
+# gate (no heap allocation needed for a fixed-size hash).
+sha2 = { version = "0.10", default-features = false }
 
 [dev-dependencies]
 criterion = "0.7"

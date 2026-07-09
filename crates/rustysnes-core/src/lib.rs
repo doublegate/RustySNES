@@ -8,6 +8,7 @@ extern crate alloc;
 pub mod bus;
 pub mod dma;
 pub mod dma_bus;
+pub mod movie;
 pub mod sa1_bus;
 pub mod scheduler;
 

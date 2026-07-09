@@ -208,6 +208,22 @@ impl EmuCore {
         self.system.bus.cart.as_ref().map(|c| c.board.name())
     }
 
+    /// The raw ROM byte image currently loaded (empty if none) — for TAS movie recording's
+    /// ROM-identity hash (`rustysnes_core::movie::hash_rom`/`Movie::verify_rom`), which needs the
+    /// exact bytes rather than `Cart`'s parsed/header-stripped internal representation.
+    #[must_use]
+    pub fn rom(&self) -> &[u8] {
+        &self.rom
+    }
+
+    /// Direct mutable access to the deterministic core, for TAS movie record/playback
+    /// (`rustysnes_core::movie`) and Lua scripting (`rustysnes_script::ScriptEngine`) — both need
+    /// genuine read/write reach into the running `System`/`Bus`, unlike the debugger overlay's
+    /// read-only [`Self::debug_snapshot`] copy.
+    pub const fn system_mut(&mut self) -> &mut System {
+        &mut self.system
+    }
+
     /// Latch the controller state for a player (`0` = P1, `1` = P2). Late-latched by the window
     /// handler each frame; applied to the Bus at the top of [`Self::run_frame`].
     pub fn set_pad(&mut self, player: usize, buttons: Buttons) {

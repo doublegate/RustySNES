@@ -283,6 +283,14 @@ impl Bus {
         }
     }
 
+    /// The latched controller state for a player (`0` = P1, `1` = P2) — the read side of
+    /// [`Self::set_joypad`], for TAS movie recording (`crate::movie::MovieRecorder`) and the
+    /// debugger overlay.
+    #[must_use]
+    pub fn joypad(&self, player: usize) -> u16 {
+        self.joypad.get(player).copied().unwrap_or(0)
+    }
+
     /// Non-intrusive read of WRAM for the test harness + debugger (does NOT advance the clock,
     /// touch open bus, or trip register side effects). I/O registers and the cart region return
     /// `0` — this is for inspecting RAM-resident test-result variables, not for emulation.
@@ -294,6 +302,22 @@ impl Bus {
             0x7E..=0x7F => self.wram[(addr24 & 0x1_FFFF) as usize],
             0x00..=0x3F | 0x80..=0xBF if addr < 0x2000 => self.wram[(addr & 0x1FFF) as usize],
             _ => 0,
+        }
+    }
+
+    /// Non-intrusive write of WRAM (the write counterpart to [`Self::peek_wram`], same
+    /// addressing, same "no clock/open-bus/register side effects" contract) — for `rustysnes-
+    /// script`'s Lua `emu.write` and a future cheat-code engine (T-81-003). A write to an address
+    /// outside WRAM's mirrors is silently ignored (matching `peek_wram`'s `_ => 0` read side)
+    /// rather than erroring, since a script/cheat address is arbitrary user input, not a bug to
+    /// surface loudly.
+    pub fn poke_wram(&mut self, addr24: u32, val: u8) {
+        let bank = (addr24 >> 16) & 0xFF;
+        let addr = (addr24 & 0xFFFF) as u16;
+        match bank {
+            0x7E..=0x7F => self.wram[(addr24 & 0x1_FFFF) as usize] = val,
+            0x00..=0x3F | 0x80..=0xBF if addr < 0x2000 => self.wram[(addr & 0x1FFF) as usize] = val,
+            _ => {}
         }
     }
 

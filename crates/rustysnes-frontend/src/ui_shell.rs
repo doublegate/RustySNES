@@ -42,6 +42,22 @@ pub enum MenuAction {
     OpenSettings,
     /// Quit the application.
     Quit,
+    /// Load a Lua script from disk and start running it (`scripting` feature, T-81-002; native
+    /// only — `mlua`'s vendored Lua VM needs a C compiler + `std`).
+    #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+    LoadScript,
+    /// Start TAS movie recording from the current live state.
+    #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+    StartMovieRecording,
+    /// Stop TAS movie recording and save the result to disk.
+    #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+    StopMovieRecording,
+    /// Load a `.rsnesmov` file and start playing it back.
+    #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+    LoadAndPlayMovie,
+    /// Stop TAS movie playback.
+    #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+    StopMoviePlayback,
 }
 
 /// Which debugger panel is selected in the overlay (SNES chip set).
@@ -195,8 +211,33 @@ impl ShellState {
                 });
 
                 ui.menu_button("Tools", |ui| {
+                    #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
+                    {
+                        if ui.button("Load Script…").clicked() {
+                            actions.push(MenuAction::LoadScript);
+                            ui.close();
+                        }
+                        ui.separator();
+                        if ui.button("Start Movie Recording").clicked() {
+                            actions.push(MenuAction::StartMovieRecording);
+                            ui.close();
+                        }
+                        if ui.button("Stop Movie Recording (save)").clicked() {
+                            actions.push(MenuAction::StopMovieRecording);
+                            ui.close();
+                        }
+                        if ui.button("Load && Play Movie…").clicked() {
+                            actions.push(MenuAction::LoadAndPlayMovie);
+                            ui.close();
+                        }
+                        if ui.button("Stop Movie Playback").clicked() {
+                            actions.push(MenuAction::StopMoviePlayback);
+                            ui.close();
+                        }
+                    }
+                    #[cfg(not(all(feature = "scripting", not(target_arch = "wasm32"))))]
+                    ui.label("(rebuild natively with --features scripting)");
                     // TODO(impl-phase): NSF/SPC player, cheat editor, ROM-DB editor, TAStudio.
-                    ui.label("(tools — TODO)");
                 });
 
                 ui.menu_button("View", |ui| {

@@ -1,10 +1,24 @@
 [package]
 name = "rustysnes-script"
+description = "RustySNES: sandboxed Lua 5.4 scripting (memory read/write + a per-frame callback)"
 version = "0.7.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
+
+[dependencies]
+rustysnes-core = { path = "../rustysnes-core", version = "0.7.0" }
+thiserror = "2"
+# Vendored (bundled C source, no system Lua dependency) so the build is reproducible across
+# platforms; `lua54` pins the Lua version. Deliberately NOT the `send` feature: that requires
+# every `create_function`/`set_hook` closure to be `Send`, which forces `Arc<Mutex<..>>` for all
+# internal shared state (`frame_cbs`/`log`/instruction counters) instead of plain `Rc<RefCell<..>>`
+# — real lock overhead this crate has no use for. `ScriptEngine` lives on `rustysnes-frontend`'s
+# single winit/main thread only (the `emu-thread` feature that would move `Active` across threads
+# is off by default and not yet functional — `rustysnes-cart::Board` isn't `Send` yet), so nothing
+# here needs to cross threads.
+mlua = { version = "0.12", features = ["lua54", "vendored"] }
 
 [lints]
 workspace = true
