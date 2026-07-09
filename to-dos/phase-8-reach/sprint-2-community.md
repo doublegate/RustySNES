@@ -36,17 +36,20 @@ window, delta/incremental snapshots become necessary — a real design change be
 
 **Description:** implement GGPO-style rollback netplay in `rustysnes-netplay` (UDP native +
 WebRTC browser, 2+ players), orchestrated by the frontend against the deterministic core
-(snapshot / restore / re-simulate). Behind a default-off feature. Keep the netplay drive loop
-independent of `emu_thread.rs`'s single-player pacer — a netplay session uses its own
-rollback-aware loop, never the generic `emu-thread` path, avoiding a control-model conflict with
-`v1.0.0`'s dedicated-thread work.
+(snapshot / restore / re-simulate). Behind a new `netplay` feature flag — unlike
+`retroachievements`/`scripting`, no existing scaffold for this flag exists in
+`crates/rustysnes-frontend/Cargo.toml` yet, so this ticket adds it; flag any obsolete/unused
+netplay code skeletons found elsewhere in the codebase for removal rather than leaving them to
+silently contradict this. Keep the netplay drive loop independent of `emu_thread.rs`'s
+single-player pacer — a netplay session uses its own rollback-aware loop, never the generic
+`emu-thread` path, avoiding a control-model conflict with `v1.0.0`'s dedicated-thread work.
 
 **Acceptance criteria:**
 
 - [ ] Rollback re-simulation is bit-identical (relies on `docs/adr/0004`).
 - [ ] Native (UDP) + browser (WebRTC) transports work.
 - [ ] Netplay sessions use their own drive loop, verified independent of `emu-thread`.
-- [ ] With the feature off, the build is byte-identical (CI gate).
+- [ ] With `netplay` off, the build is byte-identical (CI gate).
 
 **Dependencies:** T-82-001 (go/no-go on the save-state design); T-51-003; T-31-004 (determinism
 exercised)
@@ -64,7 +67,7 @@ exercised)
 
 - [ ] RA auth + achievement processing work native (opt-in).
 - [ ] The User-Agent leads with `RustySNES/` (a regression test guards it).
-- [ ] With the feature off, the build is byte-identical; clippy runs the RA feature combo.
+- [ ] With `retroachievements` off, the build is byte-identical; clippy runs the RA feature combo.
 
 **Dependencies:** T-51-001
 **Reference:** `docs/frontend.md`; the RustyNES RA User-Agent convention
@@ -80,7 +83,7 @@ T-81-004) to cover netplay and RetroAchievements; run clippy per explicit featur
 
 **Acceptance criteria:**
 
-- [ ] The byte-identical gate passes with all reach features off (Sprint 1 + Sprint 2 combined).
+- [ ] The byte-identical gate passes with all Phase 8 features off (Sprint 1 + Sprint 2 combined).
 - [ ] clippy runs each feature combo explicitly (the mutually-exclusive-backend trap avoided).
 - [ ] The gate is wired into the standard CI run, ready for `v1.0.0`'s final re-verification.
 
@@ -93,5 +96,5 @@ T-81-004) to cover netplay and RetroAchievements; run clippy per explicit featur
 ## Sprint review checklist
 
 - [ ] All tickets checked off or explicitly deferred (with reason).
-- [ ] Every reach feature is off by default + byte-identical when off.
+- [ ] Every Phase 8 feature is off by default + byte-identical when off.
 - [ ] CHANGELOG.md updated.

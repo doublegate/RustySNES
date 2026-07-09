@@ -23,9 +23,10 @@ TAS, scripting, a debugger, cheats) deferred to named post-1.0 minors — itself
 correction away from an even earlier draft that had folded that breadth into the 1.0 gate. This
 update reverses course a second time, per explicit direction: RustyNES's own v1.0.0 front-loaded
 nearly all of that breadth rather than deferring it, and matching that bar means RustySNES's
-`v0.7.0`→`v1.0.0` span needs to do the same. `to-dos/ROADMAP.md` and `to-dos/phase-8-reach/
-overview.md` are being rewritten in the same change so all three planning documents, plus
-`CHANGELOG.md` and `docs/STATUS.md`, agree on one consistent story rather than three.
+`v0.7.0`→`v1.0.0` span needs to do the same. `to-dos/ROADMAP.md` and
+`to-dos/phase-8-reach/overview.md` are being rewritten in the same change so all three planning
+documents, plus `CHANGELOG.md` and `docs/STATUS.md`, agree on one consistent story rather than
+three.
 
 ## Versioning rule
 
@@ -347,10 +348,11 @@ established discipline:
 - **Mid-scanline/HDMA-driven register timing + the Super FX/GSU regression** — a fix is
   designed, prototyped, and SA-1-verified-correct, but blocked on an unexplained regression
   across all 24 GSU golden tests (`docs/ppu.md` §Mid-scanline/HDMA-driven register timing).
-  Resume from the stashed reconstruction on `investigate/gsu-mid-scanline-interaction`
-  (`git stash list` → "GSU investigation fix reconstruction"); next step is the access-level
-  trace of GSU VRAM/CGRAM writes that doc's "What a future investigation needs" section calls
-  for.
+  Resume design work on the `investigate/gsu-mid-scanline-interaction` branch (the fix's
+  mechanism is fully described in `docs/ppu.md` §The prototype fix, reproducible from that
+  write-up alone if the branch's own local state isn't available); next step is the
+  access-level trace of GSU VRAM/CGRAM writes that doc's "What a future investigation needs"
+  section calls for.
 - **Open-bus-via-HDMA-latch** — an independent prototype for this fix hit the **identical**
   all-24-GSU-goldens failure signature as the item above (`docs/scheduler.md` §Open bus via
   DMA/HDMA). Two independent fixes hitting the same unexplained failure shape is a real signal

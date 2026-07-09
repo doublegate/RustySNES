@@ -24,10 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gated validation — none of it gates a numbered rung), `v0.8.0 "Instrumentation"` (debugger
   overlay, Lua scripting + TAS movie API, cheat-code support), `v0.9.0 "Community"` (rollback
   netplay, RetroAchievements), then `v1.0.0` (desktop UX shell maturity, a new frame-time
-  performance-regression CI gate, the `README.md` rewrite, the production cut). `to-dos/
-  VERSION-PLAN.md`, `to-dos/ROADMAP.md`, and `to-dos/phase-8-reach/overview.md` (plus its sprint
-  files, renumbered: Sprint 1 = Instrumentation/`v0.8.0`, Sprint 2 = Community/`v0.9.0`, replacing
-  the old netplay+RA-only Sprint 1) are rewritten together so all three planning documents agree.
+  performance-regression CI gate, the `README.md` rewrite, the production cut).
+  `to-dos/VERSION-PLAN.md`, `to-dos/ROADMAP.md`, and `to-dos/phase-8-reach/overview.md` (plus its
+  sprint files, renumbered: Sprint 1 = Instrumentation/`v0.8.0`, Sprint 2 = Community/`v0.9.0`,
+  replacing the old netplay+RA-only Sprint 1) are rewritten together so all three planning
+  documents agree.
 
 ### Fixed
 
