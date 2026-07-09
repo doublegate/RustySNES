@@ -849,11 +849,10 @@ impl Ppu {
             }
 
             if hires {
-                let below_screen_color = if bp.opaque {
-                    self.layer_color(&bp)
-                } else {
-                    self.cgram[0]
-                };
+                // `layer_color` already falls back to `cgram[0]` for a non-opaque pixel (the
+                // same fallback ares' `below()` priority-resolution applies when nothing wrote
+                // this column on the subscreen), so no separate opacity check is needed here.
+                let below_screen_color = self.layer_color(&bp);
                 let mut below_out = if prev_above_enable {
                     below_screen_color
                 } else {

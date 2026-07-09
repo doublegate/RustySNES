@@ -66,6 +66,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`pages.yml`: fixed the live `/api/` rustdoc landing page 404 (found live, not in CI).**
+  `v0.6.0`'s CHANGELOG entry claimed "the co-deployed rustdoc site (`/api/`) is reachable too" —
+  true for any specific crate's page (`/api/rustysnes_core/index.html` returns `200`), but `/api/`
+  itself 404'd: `cargo doc --workspace` writes one directory per crate and no top-level
+  `index.html`, so the bare `/api/` path had nothing to serve. CI never caught this because
+  `pages.yml` only asserts the build/deploy steps succeed, not that the resulting site's URLs
+  actually resolve. Fixed by generating a redirect `_site/api/index.html` pointing at
+  `rustysnes_core/index.html`, mirroring RustyNES's own already-working pattern
+  (`../RustyNES/.github/workflows/web.yml`).
+
 - **`release-auto.yml`: fixed a real shell-injection-style bug found on its first live run.**
   Step outputs containing a literal `"` (e.g. a CHANGELOG header like
   `## [0.6.0] "Shippable" - 2026-07-08`) were interpolated directly into `run:` script text —
