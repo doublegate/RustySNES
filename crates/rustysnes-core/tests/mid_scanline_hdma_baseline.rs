@@ -151,29 +151,29 @@ fn mid_scanline_hdma_transition_is_one_line_early_current_known_bug() {
     );
 
     // Sanity: exactly one transition (no HDMA-table or register-write bugs of this test's own
-    // making producing a noisier, ambiguous pattern) -- every row is one of exactly two colors.
+    // making producing a noisier, ambiguous pattern) -- every row up to and including
+    // `last_white` is white, and every row after it is black.
     let framebuffer = sys.bus.framebuffer();
     for row in 0..VISIBLE_LINES {
         let px = framebuffer[row * SCREEN_WIDTH];
-        assert!(
-            px == 0x7FFF || px == 0x0000,
-            "row {row} was {px:#06x}, expected either white ($7FFF) or black ($0000) -- the \
-             probe ROM's HDMA table or CGRAM setup is not behaving as this test assumes"
+        let expected = if row <= last_white { 0x7FFF } else { 0x0000 };
+        assert_eq!(
+            px, expected,
+            "row {row} was {px:#06x}, expected {expected:#06x} -- the probe ROM's HDMA table or \
+             CGRAM setup is not behaving as this test assumes"
         );
     }
 }
 
 /// Determinism sanity: re-running the exact same probe from a fresh `System` produces the exact
-/// same transition (this is a pure function of the deterministic core, `docs/adr/0004` — no
-/// wall-clock, no OS RNG anywhere on this path).
+/// same composited framebuffer (this is a pure function of the deterministic core,
+/// `docs/adr/0004` — no wall-clock, no OS RNG anywhere on this path). Compares the full
+/// framebuffer rather than just the derived transition point for a stronger guarantee.
 #[test]
 fn mid_scanline_hdma_probe_is_deterministic_across_fresh_runs() {
     let mut a = booted_system();
     a.run_frame();
     let mut b = booted_system();
     b.run_frame();
-    assert_eq!(
-        find_transition(a.bus.framebuffer()),
-        find_transition(b.bus.framebuffer())
-    );
+    assert_eq!(a.bus.framebuffer(), b.bus.framebuffer());
 }
