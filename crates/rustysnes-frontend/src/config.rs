@@ -156,17 +156,27 @@ pub struct Config {
 
 impl Config {
     /// The on-disk config path (`<platform-config-dir>/RustySNES/config.toml`), or `None` if no
-    /// config dir is resolvable. Native-only.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// config dir is resolvable — always `None` on `wasm32` (no filesystem; `load`/`save` below
+    /// degrade to "always the default" / "always a no-op" as a result, not specially cased).
+    // The wasm32 body is trivially `const`-eligible; the native body (a `directories` crate call)
+    // is not, so the same function can't uniformly satisfy the lint across targets.
+    #[allow(clippy::missing_const_for_fn)]
     #[must_use]
     pub fn path() -> Option<std::path::PathBuf> {
-        directories::ProjectDirs::from("io.github", "doublegate", "RustySNES")
-            .map(|d| d.config_dir().join("config.toml"))
+        #[cfg(target_arch = "wasm32")]
+        {
+            None
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            directories::ProjectDirs::from("io.github", "doublegate", "RustySNES")
+                .map(|d| d.config_dir().join("config.toml"))
+        }
     }
 
     /// Load the config from disk, falling back to defaults on any error (a missing or corrupt
-    /// file should never block launch). Native-only.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// file should never block launch) — always the default on `wasm32` (`path()` returns `None`
+    /// there).
     #[must_use]
     pub fn load() -> Self {
         let Some(path) = Self::path() else {
@@ -178,11 +188,11 @@ impl Config {
         )
     }
 
-    /// Persist the config to disk (best-effort; creates the parent dir). Native-only.
+    /// Persist the config to disk (best-effort; creates the parent dir) — always a no-op on
+    /// `wasm32` (`path()` returns `None` there).
     ///
     /// # Errors
     /// Returns an [`std::io::Error`] if the directory cannot be created or the file written.
-    #[cfg(not(target_arch = "wasm32"))]
     pub fn save(&self) -> std::io::Result<()> {
         let Some(path) = Self::path() else {
             return Ok(());

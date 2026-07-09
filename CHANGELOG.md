@@ -11,6 +11,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The live wasm demo now runs the full native shell — `wasm-winit` unification (T-81-006).**
+  `app.rs`'s `ApplicationHandler` is now ONE implementation shared by native and `wasm32` (a new
+  `wasm_winit.rs` entry point, ported from RustyNES's own, not invented), with internal
+  `#[cfg(target_arch = "wasm32")]` branches for the genuinely-async wgpu init (`Gfx::new_async`
+  delivered back via a new `AppEvent::GfxReady` through an `EventLoopProxy`, since
+  `pollster::block_on` cannot block on `wasm32` — native drives the same core synchronously),
+  browser ROM loading (`AppEvent::RomLoaded` from the page's `<input id="rom-input">`, replacing
+  `rfd`'s native file dialog), and audio (`wasm_audio` instead of `cpal`/`AudioOutput`). The
+  window attaches to the existing `<canvas id="snes-canvas">` rather than a detached one
+  (`WindowAttributesExtWebSys::with_canvas`). `Gfx` now probes `navigator.gpu`'s mere presence to
+  pick `wgpu::Backends::BROWSER_WEBGPU` or `::GL` and commits to exactly one before ever touching
+  the canvas — a `<canvas>` can only bind one context type for its lifetime, and a WebGPU
+  `create_surface` call poisons it for a subsequent GL attempt regardless of whether
+  `request_adapter` later succeeds, so a sequential try-then-fallback on the same element can
+  never actually reach its own fallback. The WebGL2 (`Backend::Gl`) path also needed its own
+  color-space fix: unlike WebGPU/native, its surface can't present to a real sRGB default
+  framebuffer, so wgpu-hal adds an extra encode at present time that (combined with GL's own
+  automatic sRGB write) breaks the sRGB round-trip and washes out the palette — fixed by keeping
+  the GL backend entirely in the UNORM domain (non-sRGB surface + framebuffer texture), matching
+  `wasm-canvas`'s byte-exact output. `wasm-winit` is now the crate's default wasm feature
+  (`wasm-canvas`, T-81-005, remains independently selectable and fully functional — re-verified
+  end-to-end with no regression after this change). **Verified with a real headless-browser
+  load** (Playwright/Chromium): the WebGL2 fallback path renders correctly — a full-page
+  screenshot after loading a real committed test ROM shows the egui menu bar, the status bar
+  (`LoROM | Ntsc | 60.0 fps | ROM loaded`), and the actual emulated framebuffer, not a blank
+  canvas (`getImageData`-based pixel counting, T-81-005's method, reads back empty on a
+  WebGL/WebGPU canvas whose drawing buffer isn't preserved across presents —
+  `page.screenshot()`, reading the browser's own compositor output, is what actually proved
+  this). **Honest gap:** this sandbox's headless Chromium exposes `navigator.gpu` but returns
+  "no compatible wgpu adapter" for a real WebGPU request despite several software-Vulkan
+  launch-flag attempts — the WebGPU path shares the same `Gfx::new_async` core the verified GL
+  path uses and its backend-selection/color-space reasoning is grounded in real prior hardware
+  testing, but a live screenshot specifically on WebGPU is not claimed here; real-browser
+  verification with actual WebGPU support is still owed as a follow-up.
+
 - **Debugger overlay: live CPU/PPU/APU/Cart state viewers — `v0.8.0 "Instrumentation"`,
   T-81-001 (PR A of 2).** `ui_shell.rs`'s debugger window (menu entry, panel selector) has
   existed since the frontend's first cut but every panel was a literal `"TODO(impl-phase)"`

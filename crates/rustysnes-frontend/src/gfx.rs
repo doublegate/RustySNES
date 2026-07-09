@@ -112,11 +112,13 @@ pub struct Gfx {
 }
 
 impl Gfx {
-    /// Initialize wgpu against `window`. Blocks on adapter/device acquisition via `pollster`
-    /// on native (the wasm path uses the async constructor — TODO when `wasm.rs` is filled).
+    /// Initialize wgpu against `window`. Blocks on adapter/device acquisition via `pollster`.
+    /// Native only — `wasm32`'s wgpu init is genuinely async (`pollster::block_on` cannot block
+    /// on wasm32); the `wasm-winit` frontend (`app.rs`) calls [`Self::new_async`] directly instead.
     ///
     /// # Errors
     /// Returns a [`GfxError`] if no compatible adapter is found or device request fails.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new(window: Arc<Window>, present_pref: &str) -> Result<Self, GfxError> {
         pollster::block_on(Self::new_async(window, present_pref))
     }
@@ -130,18 +132,27 @@ impl Gfx {
     #[allow(clippy::too_many_lines)]
     pub async fn new_async(window: Arc<Window>, present_pref: &str) -> Result<Self, GfxError> {
         let size = window.inner_size();
-        let instance = wgpu::Instance::default();
-        let surface = instance
-            .create_surface(window)
-            .map_err(|e| GfxError::Surface(e.to_string()))?;
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::LowPower,
-                force_fallback_adapter: false,
-                compatible_surface: Some(&surface),
-            })
-            .await
-            .map_err(|e| GfxError::Adapter(e.to_string()))?;
+        // `instance` itself isn't needed past adapter/surface/device creation — `Gfx` doesn't
+        // retain it as a field, matching the pre-`wasm32` code's shape.
+        #[cfg(target_arch = "wasm32")]
+        let (_instance, surface, adapter) =
+            Self::create_instance_surface_adapter_wasm(window).await?;
+        #[cfg(not(target_arch = "wasm32"))]
+        let (_instance, surface, adapter) = {
+            let instance = wgpu::Instance::default();
+            let surface = instance
+                .create_surface(window)
+                .map_err(|e| GfxError::Surface(e.to_string()))?;
+            let adapter = instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::LowPower,
+                    force_fallback_adapter: false,
+                    compatible_surface: Some(&surface),
+                })
+                .await
+                .map_err(|e| GfxError::Adapter(e.to_string()))?;
+            (instance, surface, adapter)
+        };
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("rustysnes-device"),
@@ -155,12 +166,44 @@ impl Gfx {
             .map_err(|e| GfxError::Device(e.to_string()))?;
 
         let caps = surface.get_capabilities(&adapter);
-        let format = caps
-            .formats
-            .iter()
-            .copied()
-            .find(wgpu::TextureFormat::is_srgb)
-            .unwrap_or(caps.formats[0]);
+        // Color-space handling differs by backend. On native (Vulkan/Metal/DX12) we render
+        // through an sRGB surface and store the framebuffer in an sRGB texture: the sampler's
+        // sRGB->linear decode and the surface's linear->sRGB encode round-trip to identity, so
+        // the SNES palette bytes reach the screen untouched.
+        //
+        // On the WebGL2 backend (wgpu `Backend::Gl`, the GitHub Pages fallback when WebGPU is
+        // absent) that round-trip is NOT identity: wgpu-hal's GL surface cannot present to a real
+        // sRGB default framebuffer, so when the surface format `is_srgb()` it renders into an
+        // intermediate sRGB texture and runs an EXTRA explicit linear-to-sRGB encode at present
+        // time. Combined with GL's automatic sRGB framebuffer encoding on that intermediate
+        // write, the encode count no longer matches the decode count and the palette comes out
+        // wrong (washed out / too dark) — a real bug RustyNES's own wasm-winit path hit and fixed
+        // (`ref-proj` equivalent research, confirmed by reading its `gfx.rs` directly), not a
+        // hypothetical. Fix: on the GL backend, keep EVERYTHING in the UNORM domain (non-sRGB
+        // surface + non-sRGB framebuffer texture); with the plain pass-through blit shader here
+        // (no manual color math) that performs zero color conversion anywhere, matching the
+        // wasm-canvas path's byte-exact output.
+        let is_gl_backend = adapter.get_info().backend == wgpu::Backend::Gl;
+        let format = if is_gl_backend {
+            caps.formats
+                .iter()
+                .copied()
+                .find(|f| !f.is_srgb())
+                .unwrap_or(caps.formats[0])
+        } else {
+            caps.formats
+                .iter()
+                .copied()
+                .find(wgpu::TextureFormat::is_srgb)
+                .unwrap_or(caps.formats[0])
+        };
+        // The framebuffer texture's sRGB-ness MUST match the surface's so the sample-decode /
+        // write-encode pair round-trips to identity (sRGB pair on native, UNORM pair on WebGL2).
+        let framebuffer_format = if format.is_srgb() {
+            wgpu::TextureFormat::Rgba8UnormSrgb
+        } else {
+            wgpu::TextureFormat::Rgba8Unorm
+        };
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
@@ -185,7 +228,7 @@ impl Gfx {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: framebuffer_format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -304,6 +347,61 @@ impl Gfx {
             fb_h: SNES_H_NTSC,
             present_modes: caps.present_modes,
         })
+    }
+
+    /// `wasm32`-only: pick WebGPU or WebGL2 (`Backend::Gl`) BEFORE ever touching the canvas, and
+    /// commit to exactly one.
+    ///
+    /// Two real, hardware-confirmed constraints rule out a "try WebGPU, fall back to GL"
+    /// sequential attempt on the SAME canvas (both found by direct testing in a real headless
+    /// browser, not assumed):
+    /// 1. A single `Instance` requesting `Backends::BROWSER_WEBGPU | Backends::GL` together does
+    ///    NOT behave as an in-instance fallback the way multiple NATIVE backends do (Vulkan |
+    ///    Metal | DX12 genuinely do fall back within one `wgpu-core` instance) — wgpu's `wasm32`
+    ///    target picks exactly ONE top-level implementation per `Instance` based on which bit is
+    ///    set (the pure-JS `webgpu` feature's direct `navigator.gpu` passthrough, entirely
+    ///    separate Rust code from the `webgl` feature's `wgpu-core`/`wgpu-hal` `Gles` backend).
+    /// 2. A `<canvas>` element can only bind ONE context type for its entire lifetime —
+    ///    `Instance::create_surface` on a `BROWSER_WEBGPU`-backed instance calls
+    ///    `canvas.getContext("webgpu")` immediately (regardless of whether `request_adapter`
+    ///    later succeeds), which permanently poisons the canvas: a SUBSEQUENT `Backends::GL`
+    ///    attempt on the same element fails with `"canvas.getContext() returned null; webgl2 not
+    ///    available or canvas already in use"`, even on a build that renders correctly when GL is
+    ///    the ONLY backend ever requested. So the two-attempt loop this function replaced could
+    ///    never actually reach its own fallback.
+    ///
+    /// The fix: probe `navigator.gpu`'s mere PRESENCE (not a real context/adapter attempt) to
+    /// decide the backend, then touch the canvas exactly once with that single choice. This means
+    /// a browser that advertises `navigator.gpu` but then fails a real WebGPU adapter request for
+    /// some other reason (disabled by flag, blocklisted) surfaces a hard error rather than falling
+    /// back to GL — a real, documented limitation, not silently pretended away.
+    ///
+    /// # Errors
+    /// Returns a [`GfxError`] if the chosen backend produces no working adapter.
+    #[cfg(target_arch = "wasm32")]
+    async fn create_instance_surface_adapter_wasm(
+        window: Arc<Window>,
+    ) -> Result<(wgpu::Instance, wgpu::Surface<'static>, wgpu::Adapter), GfxError> {
+        let backends = if wasm_navigator_has_gpu() {
+            wgpu::Backends::BROWSER_WEBGPU
+        } else {
+            wgpu::Backends::GL
+        };
+        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
+        desc.backends = backends;
+        let instance = wgpu::Instance::new(desc);
+        let surface = instance
+            .create_surface(window)
+            .map_err(|e| GfxError::Surface(e.to_string()))?;
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
+                force_fallback_adapter: false,
+                compatible_surface: Some(&surface),
+            })
+            .await
+            .map_err(|e| GfxError::Adapter(e.to_string()))?;
+        Ok((instance, surface, adapter))
     }
 
     /// Re-apply a present-mode preference to the live surface (the Settings → Video toggle).
@@ -469,6 +567,19 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     return textureSample(tex, samp, in.uv);
 }
 ";
+
+/// Whether `navigator.gpu` exists (a browser advertises SOME WebGPU support) — a cheap presence
+/// check via `js_sys::Reflect`, not a real context/adapter attempt, so it never touches a canvas.
+/// See [`Gfx::create_instance_surface_adapter_wasm`] for why this decides the backend up front
+/// instead of trying WebGPU and falling back to GL on failure.
+#[cfg(target_arch = "wasm32")]
+fn wasm_navigator_has_gpu() -> bool {
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
+    js_sys::Reflect::get(&window.navigator(), &wasm_bindgen::JsValue::from_str("gpu"))
+        .is_ok_and(|v| !v.is_undefined() && !v.is_null())
+}
 
 /// wgpu initialization failures.
 #[derive(Debug, thiserror::Error)]

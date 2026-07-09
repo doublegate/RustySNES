@@ -183,16 +183,43 @@ stage 1 (T-81-005) deliberately avoids needing it so a working demo ships sooner
 
 **Acceptance criteria:**
 
-- [ ] The same `App`/egui UI (menu bar, Settings, debugger panels once T-81-001 lands) renders
-      in the browser via wgpu, not just the stage-1 canvas blit.
-- [ ] `app.rs`/`audio.rs` compile and run for both native and `wasm32` targets from the same
+- [x] The same `App`/egui UI (menu bar, Settings, debugger panels — T-81-001 landed first)
+      renders in the browser via wgpu, not just the stage-1 canvas blit. `app.rs` is ONE
+      `ApplicationHandler<AppEvent>` impl shared by native and `wasm32`, with internal
+      `#[cfg(target_arch = "wasm32")]` branches for the genuinely-async `Gfx::new_async` init
+      (delivered back via a new `AppEvent::GfxReady` through an `EventLoopProxy` — native drives
+      the same core synchronously via `pollster::block_on`), browser ROM loading
+      (`AppEvent::RomLoaded`, replacing `rfd`'s native file dialog), and audio (`wasm_audio`
+      instead of `cpal`/`AudioOutput`) — not two parallel copies of the shell.
+- [x] `app.rs`/`gfx.rs` compile and run for both native and `wasm32` targets from the same
       source, matching RustyNES's own "`ApplicationHandler` impl serves both native and wasm32"
-      pattern.
-- [ ] Verified with the same real headless-browser check as T-81-005, re-run against the
-      winit/wgpu path.
-- [ ] With `wasm-canvas` (not `wasm-winit`) selected instead, the stage-1 MVP still builds and
-      works — the two paths stay independently functional, matching the manifest's existing
-      "exactly one is compiled" comment.
+      pattern. `audio.rs` itself stays native-only (the cpal device glue has no wasm32
+      equivalent to share — its console-agnostic core was already extracted to `audio_core.rs`
+      in T-81-005 and is what `wasm_audio.rs` actually reuses).
+- [x] Verified with a real headless-browser check (Playwright/Chromium, actually run): the
+      WebGL2 fallback path (`wgpu::Backends::GL`, chosen when `navigator.gpu` probes absent)
+      renders correctly end-to-end — a full-page screenshot of the live demo (after loading
+      `tests/roms/undisbeliever/inidisp_brightness_delay.sfc`) shows the real egui menu bar, the
+      status bar reading `LoROM | Ntsc | 60.0 fps | ROM loaded`, and the actual emulated
+      framebuffer, not a blank canvas. (`getImageData`-based pixel counting — the method
+      T-81-005 used — reads back empty on a WebGL/WebGPU canvas whose drawing buffer isn't
+      preserved across presents; `page.screenshot()`, which reads the browser's own compositor
+      output, is the reliable method for these canvas types and is what actually proved this.)
+      **Honest gap:** the WebGPU path itself (`wgpu::Backends::BROWSER_WEBGPU`) could not be
+      screenshotted in this sandbox — headless Chromium here exposes `navigator.gpu` but returns
+      "no compatible wgpu adapter" for a real request, and several software-Vulkan launch-flag
+      combinations didn't produce a working adapter. The WebGPU path shares the same
+      `Gfx::new_async` core the verified GL path uses and its backend-selection/color-space
+      handling is grounded in real prior hardware testing (documented in `gfx.rs`'s own doc
+      comments), but a live screenshot specifically on WebGPU is not claimed here — real-browser
+      verification (a machine with actual WebGPU support) is still owed as a follow-up.
+- [x] With `wasm-canvas` (not `wasm-winit`) selected instead
+      (`--no-default-features --features wasm-canvas`), the stage-1 MVP still builds and works —
+      re-verified end-to-end after this change (real trunk build, real headless-browser load,
+      same non-zero-pixel-data check T-81-005 used) with no regression. The two paths stay
+      independently functional, matching the manifest's existing "exactly one is compiled"
+      comment; `wasm-winit` is now the default (`Cargo.toml`), since a real `wasm_winit.rs`
+      module exists for it to select.
 
 **Dependencies:** T-81-005 (ships the interim working demo first); `Board: Send` is NOT required
 here (that's `v1.0.0`'s native `emu-thread` prerequisite, a separate, unrelated flag)
@@ -204,8 +231,13 @@ source); `../RustyNES/crates/rustynes-frontend/src/app.rs`'s `ApplicationHandler
 
 ## Sprint review checklist
 
-- [ ] All tickets checked off or explicitly deferred (with reason).
-- [ ] Every instrumentation feature is off by default + byte-identical when off.
-- [ ] The live wasm demo actually renders and is playable, verified by a real headless-browser
-      check, not just an HTTP status check.
+- [ ] All tickets checked off or explicitly deferred (with reason). T-81-001 (PR A landed, PR B +
+      T-81-001b deferred), T-81-005, T-81-006 done; T-81-002/T-81-003/T-81-004 remain.
+- [ ] Every instrumentation feature is off by default + byte-identical when off — verified for
+      `debug-hooks` (T-81-001); `scripting`/`cheats` don't exist yet (T-81-002/T-81-003); the
+      formal CI gate covering all three together is T-81-004, not yet landed.
+- [x] The live wasm demo actually renders and is playable, verified by a real headless-browser
+      check, not just an HTTP status check — the default `wasm-winit` build (T-81-006), via a
+      full-page screenshot showing the egui shell + a real emulated framebuffer, not just pixel
+      counts.
 - [ ] CHANGELOG.md updated.
