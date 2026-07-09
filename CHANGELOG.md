@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Investigated (not landed)
+
+- **Mid-scanline/HDMA-driven register timing: a fix is designed, prototyped, and verified
+  correct for the CPU/HDMA-driven case — but NOT landed, blocked by a second regression the same
+  change causes in Super FX/GSU rendering.** The confirmed off-by-one-line compositor bug
+  (`docs/ppu.md` §Mid-scanline/HDMA-driven register timing) has a prototype fix: `rustysnes-ppu`
+  would composite each line at a new `RENDER_DOT` constant (`= 276`, one dot before that line's
+  own per-line HDMA run) instead of at dot 340 (`end_of_scanline`), matching real hardware's
+  per-pixel timing. Prototyping and running the full `--features test-roms` suite confirmed this
+  mechanism is correct for CPU/HDMA-driven register changes: all 29 `undisbeliever` goldens held,
+  and the one golden it legitimately changes (SA-1's `SD F-1 Grand Prix`) was independently
+  confirmed a real accuracy improvement, not blindly accepted — diffing pre-/post-prototype
+  framebuffers row-by-row found 232/237 differing rows matching the fix's predicted "shifted one
+  line later" signature with zero unexplained outliers. **But the same prototype broke all 24
+  Super FX/GSU golden tests** with a diff pattern that does *not* fit that mechanism (a color bar
+  shifted 4 rows in the opposite direction on one ROM; 7 genuine outliers on another) — the
+  identical failure signature an earlier, unrelated investigation this cycle
+  (open-bus-via-HDMA-latch) also hit and correctly did not land. Working hypothesis (not
+  confirmed): the GSU coprocessor's host-synced VRAM writes are sampled at a different point in
+  their own progress once the render trigger moves earlier in the master-clock tick — needs an
+  access-level trace to confirm. Reverted; full mechanism, both verifications, and what a future
+  investigation needs are documented in `docs/ppu.md` for whoever picks this up next.
+
 ### Added
 
 - **Automated release-cutting (`release-auto.yml`) — `v0.6.0` "Shippable" work, pulled
