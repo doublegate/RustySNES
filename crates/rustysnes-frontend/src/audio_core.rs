@@ -237,7 +237,8 @@ mod tests {
     #[test]
     fn process_and_process_into_agree() {
         // `process` (into an AudioRing) and `process_into` (into a Vec) share the same
-        // interpolation core — they must emit byte-identical sample sequences for the same input.
+        // interpolation core — they must emit matching sample sequences (within float epsilon,
+        // asserted below) for the same input, not merely similar ones.
         let input: Vec<(i16, i16)> = (0..64)
             .map(|i| (i * 100 - 3000, -(i * 50) + 1500))
             .collect();

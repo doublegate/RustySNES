@@ -111,31 +111,49 @@ fn install_rom_loader(document: &Document) -> Result<(), JsValue> {
     Ok(())
 }
 
+/// A `FileReader` paired with the `onload` `Closure` wired to it.
+type RomReaderState = (FileReader, Closure<dyn FnMut(ProgressEvent)>);
+
+thread_local! {
+    /// A single [`RomReaderState`], built once and reused for every ROM load. `load_rom_file` can
+    /// be called many times in one session (the user picking several ROMs in turn); building +
+    /// `forget()`-ing a fresh `Closure` each time would leak one closure per load for the page's
+    /// lifetime.
+    static ROM_READER: RefCell<Option<RomReaderState>> = const { RefCell::new(None) };
+}
+
 /// Read `file`'s bytes asynchronously and hand them to [`EmuCore::load_rom`].
 fn load_rom_file(file: &web_sys::File) {
-    let Ok(reader) = FileReader::new() else {
-        return;
-    };
-    let cb_reader = reader.clone();
-    let onload: Closure<dyn FnMut(ProgressEvent)> = Closure::new(move |_event: ProgressEvent| {
-        let Ok(result) = cb_reader.result() else {
-            return;
-        };
-        let bytes = js_sys::Uint8Array::new(&result).to_vec();
-        EMU.with(|emu| {
-            let mut emu = emu.borrow_mut();
-            match emu.core.load_rom(&bytes) {
-                Ok(()) => web_sys::console::log_1(&"RustySNES: ROM loaded".into()),
-                Err(e) => {
-                    web_sys::console::log_1(&format!("RustySNES: ROM load failed: {e:?}").into());
-                }
-            }
-        });
+    ROM_READER.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        if slot.is_none() {
+            let Ok(reader) = FileReader::new() else {
+                return;
+            };
+            let cb_reader = reader.clone();
+            let onload: Closure<dyn FnMut(ProgressEvent)> =
+                Closure::new(move |_event: ProgressEvent| {
+                    let Ok(result) = cb_reader.result() else {
+                        return;
+                    };
+                    let bytes = js_sys::Uint8Array::new(&result).to_vec();
+                    EMU.with(|emu| {
+                        let mut emu = emu.borrow_mut();
+                        match emu.core.load_rom(&bytes) {
+                            Ok(()) => web_sys::console::log_1(&"RustySNES: ROM loaded".into()),
+                            Err(e) => web_sys::console::log_1(
+                                &format!("RustySNES: ROM load failed: {e:?}").into(),
+                            ),
+                        }
+                    });
+                });
+            reader.set_onload(Some(onload.as_ref().unchecked_ref()));
+            *slot = Some((reader, onload));
+        }
+        if let Some((reader, _onload)) = slot.as_ref() {
+            let _ = reader.read_as_array_buffer(file);
+        }
     });
-    reader.set_onload(Some(onload.as_ref().unchecked_ref()));
-    onload.forget(); // outlives this fn; the reader owns the callback until it fires
-
-    let _ = reader.read_as_array_buffer(file);
 }
 
 /// Wire `keydown`/`keyup` on `document`, translating `KeyboardEvent.code` through the shared

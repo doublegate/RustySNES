@@ -103,10 +103,13 @@ enum Sink {
     /// background; samples pushed in this state are silently dropped.
     Pending,
     /// The primary path: resampled f32 pairs cross via `port.postMessage`; `occupancy` is
-    /// refreshed by the worklet's periodic `[occupancy, capacity]` report.
+    /// refreshed by the worklet's periodic `[occupancy, capacity]` report. `scratch` is reused
+    /// every [`push_samples`] call (cleared, not reallocated) so a ~60 Hz hot path doesn't
+    /// allocate a fresh `Vec` every emulated frame.
     Worklet {
         node: AudioWorkletNode,
         occupancy: Rc<Cell<(usize, usize)>>,
+        scratch: Vec<f32>,
     },
     /// The fallback path: `onaudioprocess` drains `ring` directly on the main thread.
     ScriptProcessor {
@@ -169,7 +172,12 @@ async fn attach_worklet(ctx: &AudioContext) -> Option<()> {
     let worklet = ctx.audio_worklet().ok()?;
     let url = worklet_blob_url().ok()?;
     let promise = worklet.add_module(&url).ok()?;
-    JsFuture::from(promise).await.ok()?;
+    // Revoke the object URL as soon as the module load settles (success or failure) — the module
+    // itself is now loaded into the worklet realm, so the URL serves no further purpose and
+    // holding onto it just leaks browser-side blob-registry memory for the page's lifetime.
+    let load_result = JsFuture::from(promise).await;
+    let _ = Url::revoke_object_url(&url);
+    load_result.ok()?;
 
     let node = AudioWorkletNode::new(ctx, WORKLET_NAME).ok()?;
     let port = node.port().ok()?;
@@ -188,7 +196,11 @@ async fn attach_worklet(ctx: &AudioContext) -> Option<()> {
 
     STATE.with(|s| {
         if let Some(state) = s.borrow_mut().as_mut() {
-            state.sink = Sink::Worklet { node, occupancy };
+            state.sink = Sink::Worklet {
+                node,
+                occupancy,
+                scratch: Vec::new(),
+            };
         }
     });
     Some(())
@@ -216,8 +228,14 @@ fn attach_script_processor(ctx: &AudioContext) {
 
     let ring = Rc::new(AudioRing::new(SCRIPT_PROCESSOR_RING_POW2));
     let cb_ring = Rc::clone(&ring);
+    // Owned by the closure, reused every callback (cleared, not reallocated) — `onaudioprocess`
+    // fires ~15 times/sec at the 2048-frame buffer size, a real hot path worth not allocating on.
+    let mut left_buf: Vec<f32> = Vec::new();
+    let mut right_buf: Vec<f32> = Vec::new();
     let closure: Closure<dyn FnMut(AudioProcessingEvent)> =
-        Closure::new(move |event: AudioProcessingEvent| drain_into_output(&cb_ring, &event));
+        Closure::new(move |event: AudioProcessingEvent| {
+            drain_into_output(&cb_ring, &event, &mut left_buf, &mut right_buf);
+        });
     node.set_onaudioprocess(Some(closure.as_ref().unchecked_ref()));
     closure.forget(); // outlives this fn; the node (kept in `AudioState`) owns the callback
 
@@ -233,20 +251,28 @@ fn attach_script_processor(ctx: &AudioContext) {
 }
 
 /// `onaudioprocess`: fill `event`'s output buffer's two channels by draining `ring`, one L/R pair
-/// per output frame (underrun -> silence, same as the native cpal callback).
-fn drain_into_output(ring: &AudioRing, event: &AudioProcessingEvent) {
+/// per output frame (underrun -> silence, same as the native cpal callback). `left`/`right` are
+/// scratch buffers owned by the caller's closure and reused across calls.
+fn drain_into_output(
+    ring: &AudioRing,
+    event: &AudioProcessingEvent,
+    left: &mut Vec<f32>,
+    right: &mut Vec<f32>,
+) {
     let Ok(output) = event.output_buffer() else {
         return;
     };
     let len = output.length() as usize;
-    let mut left = vec![0f32; len];
-    let mut right = vec![0f32; len];
+    left.clear();
+    right.clear();
+    left.resize(len, 0.0);
+    right.resize(len, 0.0);
     for i in 0..len {
         left[i] = ring.pop();
         right[i] = ring.pop();
     }
-    let _ = output.copy_to_channel(&left, 0);
-    let _ = output.copy_to_channel(&right, 1);
+    let _ = output.copy_to_channel(left, 0);
+    let _ = output.copy_to_channel(right, 1);
 }
 
 /// Resample `samples` (32 kHz `i16` stereo, one emulated frame's worth of the S-DSP's native
@@ -260,22 +286,32 @@ pub fn push_samples(samples: &[(i16, i16)]) {
         let Some(state) = state.as_mut() else {
             return;
         };
-        match &state.sink {
+        // Split into disjoint field borrows: `resampler` and `sink` are mutated independently
+        // below, and `sink`'s own `scratch` buffer needs `resampler.process_into`'s output while
+        // `sink` itself stays borrowed for `node`/`occupancy`.
+        let AudioState {
+            sink, resampler, ..
+        } = state;
+        match sink {
             Sink::Pending => {}
-            Sink::Worklet { node, occupancy } => {
+            Sink::Worklet {
+                node,
+                occupancy,
+                scratch,
+            } => {
                 let (occ, cap) = occupancy.get();
                 let drc = drc_ratio(occ, cap / 2, cap);
-                let mut buf = Vec::new();
-                state.resampler.process_into(samples, drc, &mut buf);
+                scratch.clear();
+                resampler.process_into(samples, drc, scratch);
                 if let Ok(port) = node.port() {
-                    let arr = Float32Array::from(buf.as_slice());
+                    let arr = Float32Array::from(scratch.as_slice());
                     let _ = port.post_message(&arr);
                 }
             }
             Sink::ScriptProcessor { ring, .. } => {
                 let capacity = ring.capacity();
                 let drc = drc_ratio(ring.occupancy(), capacity / 2, capacity);
-                state.resampler.process(samples, drc, ring);
+                resampler.process(samples, drc, ring);
             }
         }
     });
