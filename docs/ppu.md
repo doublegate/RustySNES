@@ -273,6 +273,31 @@ verification infrastructure to prove it's actually correct.
    of register state for any ROM that already uses HDMA-driven per-line effects, and each such
    shift needs confirming as "now correct" rather than blindly re-baselined.
 
+### Regression-baseline groundwork (landed)
+
+Item 1 above is now partially in place:
+`crates/rustysnes-core/tests/mid_scanline_hdma_baseline.rs` is a minimal, self-authored
+hand-assembled 65C816 program (mirroring the pattern already used for rewind/run-ahead's
+synthetic per-frame signal tests) that drives `$2100` (`INIDISP`, master brightness) via HDMA
+mode 0, alternating full-brightness (backdrop renders white) and force-off (backdrop renders
+black) at a single transition partway through the frame. No BG/OBJ layer is ever enabled, so
+every pixel falls through to the backdrop color (`Ppu::layer_color`'s `!p.opaque` path) — this
+isolates the exact compositor-vs-HDMA dot-timing bug with no tilemap/tileset setup at all, at the
+cost of not being the specific "Air Strike Patrol BG3 scroll" scenario (a scroll-register variant
+remains open future work if a title-accurate reproduction is ever wanted).
+
+The test **locks in the current (confirmed-buggy) transition position** — `(last-white row 99,
+first-black row 100)`, i.e. `V=100`/`V=101` — derived and empirically confirmed exactly as this
+section's mechanism analysis predicts (`row = V - 1`; the write meant for `V+1` lands on `V`
+itself). It does **not** assert correct hardware behavior; a second test confirms the reproduction
+is deterministic across fresh runs. When the real fix (item 2 above) lands, this specific
+assertion is expected to flip to `(100, 101)` — a deliberate, reviewed Golden-Vector update
+(cross-checked against the full `--features test-roms` suite per item 3), not an accidental diff.
+This gives the eventual fix a concrete, already-passing-on-the-buggy-baseline acceptance test to
+flip, closing most of the "no dedicated committed test ROM" gap this section originally flagged
+as blocking — item 2 (the cross-crate scheduler/PPU timing-communication design) remains the real
+outstanding work.
+
 ## Hi-res (Modes 5/6) color-math precision — researched, deferred (v0.5.0)
 
 **Status: researched; blocked entirely on 512-px hi-res output not existing yet (a real feature

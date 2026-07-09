@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mid-scanline/HDMA-driven register timing: regression-baseline test landed — `v0.6.0`
+  "Shippable" work, pulled forward.** `crates/rustysnes-core/tests/mid_scanline_hdma_baseline.rs`
+  is a minimal, self-authored hand-assembled 65C816 reproduction (HDMA drives `$2100` master
+  brightness; no BG/OBJ setup needed since a disabled-layers screen renders pure backdrop color,
+  isolating the exact compositor-vs-HDMA dot-timing bug) that locks in the confirmed-buggy
+  transition position (last-white row 99, first-black row 100 — exactly matching the off-by-one
+  the mechanism analysis predicts) as a numeric acceptance test. This closes most of the "no
+  dedicated test ROM" gap `docs/ppu.md` flagged as blocking a fix; the cross-crate scheduler/PPU
+  timing-communication design remains the real outstanding work. No production code changed;
+  full workspace + `--features test-roms` suites verified unaffected (zero regressions).
+
 - **Mid-scanline/HDMA-driven register timing + hi-res color-math precision: researched — `v0.5.0`
   "Fidelity" work.** Confirmed a genuine, previously-undocumented off-by-one-line compositor bug
   against ares' per-pixel reference model (`ppu/main.cpp`'s active-pixel rendering runs strictly

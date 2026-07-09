@@ -168,8 +168,14 @@ AccuracyCoin-equivalent). See `to-dos/phase-6-accuracy-to-100/`.
   state at dot 340, after line `V`'s own HDMA already ran) applies it to line `V` itself. This
   un-defers (confirms as real, not yet fixes) Phase 2's flagged "mid-line raster deferred" gap.
   Not fixed this pass — the fix touches the hottest code path in the engine (every frame, all 29
-  goldens) with no dedicated test ROM yet to verify against; full mechanism, why it's deferred,
-  and what a fix needs in `docs/ppu.md` §Mid-scanline/HDMA-driven register timing. **Researched,
+  goldens); **regression-baseline groundwork now landed** —
+  `crates/rustysnes-core/tests/mid_scanline_hdma_baseline.rs` is a minimal, self-authored
+  hand-assembled reproduction (HDMA-driven `$2100` brightness, no BG/OBJ setup needed) that locks
+  in the current confirmed-buggy transition position as a numeric acceptance test the eventual
+  fix flips deliberately — closing most of the "no dedicated test ROM" gap; the cross-crate
+  scheduler/PPU timing-communication design remains the real outstanding work. Full mechanism,
+  the baseline test, and what the fix still needs in `docs/ppu.md` §Mid-scanline/HDMA-driven
+  register timing. **Researched,
   deferred (blocked on a larger feature, not a precision nuance):** hi-res color-math precision
   (Bishoujo Janshi Suchie-Pai / Marvelous+SA-1) — confirmed against ares' `DAC::run()` that hi-res
   is a dual-half-pixel output trick (alternating `above`/`below` compositor results at 2× the
