@@ -28,11 +28,17 @@ record; this file frames the phase line.
   push) **dashboard + triage complete, fixes carried forward** (see the Phase 6 section below —
   the accuracy-pass-rate dashboard is done and every named hardware-gotcha item is triaged with
   evidence, but the confirmed mid-line-raster fix and the accuracy-percentage push itself remain
-  open). Phase 8 (netplay/RetroAchievements/scripting — all three crates are still 1-line stubs)
-  has not started, but as of this update is **in scope for the `v0.8.0`/`v0.9.0` rungs gating
+  open). Phase 8 Sprint 1 (`v0.8.0 "Instrumentation"`) is **complete**: the debugger overlay
+  (T-81-001, live-state panels landed; disassembler/breakpoints and read/write watchpoints
+  deferred to follow-ups, T-81-001b), sandboxed Lua scripting + TAS movie record/playback
+  (T-81-002, `rustysnes-script` + `rustysnes_core::movie`), Game Genie/Pro Action Replay
+  cheat codes (T-81-003, `rustysnes_core::cheat` + a `Bus::read24` intercept), the extended
+  byte-identical-with-flags-off CI gate (T-81-004), and the full wasm frontend (T-81-005
+  `wasm-canvas`, T-81-006 `wasm-winit` unification) have all landed. Sprint 2
+  (`v0.9.0 "Community"`: netplay, RetroAchievements) is **in scope for the `v0.9.0` rung gating
   `v1.0.0`**, not deferred post-1.0 (see "Milestones beyond the phases" below — this reverses the
-  prior post-1.0 framing, matching what RustyNES actually shipped in its own v1.0.0). See
-  `docs/STATUS.md` for the authoritative per-subsystem table this line summarizes.
+  prior post-1.0 framing, matching what RustyNES actually shipped in its own v1.0.0), but has not
+  started. See `docs/STATUS.md` for the authoritative per-subsystem table this line summarizes.
 - **Release:** `v0.1.0 "Foundation"`, `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"` (rewind,
   run-ahead, PAL auto-detect, ExLoROM), `v0.4.0 "Completion"` (SPC7110 addressing fix, ST018,
   standalone S-RTC), `v0.5.0 "Fidelity"` (the accuracy-pass-rate dashboard + the full named
@@ -150,7 +156,7 @@ complete); the PAL/ExLoROM golden-boot proof remains opportunistic (`v0.3.x`, no
 real ROM ever surfaces.
 → [overview](phase-7-breadth/overview.md)
 
-### Phase 8 — Instrumentation + Community (additive, off-by-default) 🚧 not started (all three reach crates are still 1-line stubs)
+### Phase 8 — Instrumentation + Community (additive, off-by-default) 🚧 Sprint 1 complete, Sprint 2 not started
 
 **Goal:** debugger overlay, Lua scripting + TAS movies, cheat-code support, rollback netplay,
 and RetroAchievements — each behind a default-off feature, each byte-identical with the feature
@@ -160,6 +166,11 @@ exact breadth into its own v1.0.0 rather than deferring it, and matching that ba
 lands before the production cut, not after it. A shader ecosystem/Libretro core remain
 post-`v1.0.0` Reach — RustyNES doesn't have HD texture packs either, so `hd-pack` stays
 deliberately out of the parity target.
+**Status:** Sprint 1 (`v0.8.0 "Instrumentation"`) is done — the debugger overlay, `rustysnes-
+script` (Lua scripting + TAS movies), `rustysnes_core::cheat` (Game Genie/Pro Action Replay),
+the extended byte-identical-with-flags-off CI gate, and the full wasm frontend all landed
+(T-81-001 through T-81-006). Sprint 2 (`v0.9.0 "Community"`: netplay, RetroAchievements) has not
+started; `rustysnes-netplay`/`rustysnes-cheevos` are still 1-line stubs.
 **Exit:** features ship; shipped/native/no_std/wasm byte-identical with every new flag off
 (the byte-identical-with-all-flags-off CI gate, added starting `v0.8.0` and re-verified through
 `v0.9.0`/`v1.0.0`).

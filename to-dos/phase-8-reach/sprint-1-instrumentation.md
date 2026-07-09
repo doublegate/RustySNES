@@ -120,9 +120,19 @@ feature combo (never `--all-features`).
 
 **Acceptance criteria:**
 
-- [ ] The byte-identical gate passes with all three flags off.
-- [ ] clippy runs each new feature combo explicitly.
-- [ ] The gate is wired into the standard CI run, ready to extend again in Sprint 2.
+- [x] The byte-identical gate passes with all three flags off — an explicit
+      `cargo clippy --workspace --all-targets --no-default-features --features wasm-winit,
+      help-tui -- -D warnings` step in `lint` (named, not left implicit in `default`), plus the
+      existing `full-test`'s default-feature `cargo test --workspace` at every release tag.
+- [x] clippy runs each new feature combo explicitly — `debug-hooks`, `scripting`, `cheats`
+      individually and combined (`debug-hooks,scripting,cheats`), all in `.github/workflows/
+      ci.yml`'s `lint` job (never `--all-features`); `full-test` additionally runs
+      `cargo test -p rustysnes-frontend --features debug-hooks,scripting,cheats` (Linux only —
+      `scripting`'s vendored `mlua`/Lua 5.4 C build on macOS/Windows is its own question, out of
+      this ticket's scope) for exhaustive behavioral coverage ahead of a tagged release.
+- [x] The gate is wired into the standard CI run, ready to extend again in Sprint 2 — lives in
+      `lint` (runs on every PR/push to `main`), the natural place to add `netplay`/
+      `retroachievements` combos for T-82-004.
 
 **Dependencies:** T-81-001; T-81-002; T-81-003
 **Reference:** `docs/testing-strategy.md`; `docs/STATUS.md` §version-policy
@@ -253,13 +263,15 @@ source); `../RustyNES/crates/rustynes-frontend/src/app.rs`'s `ApplicationHandler
 
 ## Sprint review checklist
 
-- [ ] All tickets checked off or explicitly deferred (with reason). T-81-001 (PR A landed, PR B +
-      T-81-001b deferred), T-81-002, T-81-003, T-81-005, T-81-006 done; T-81-004 remains.
-- [ ] Every instrumentation feature is off by default + byte-identical when off — verified
-      individually for `debug-hooks` (T-81-001), `scripting` (T-81-002), and `cheats` (T-81-003);
-      the formal CI gate covering all of them together is T-81-004, not yet landed.
+- [x] All tickets checked off or explicitly deferred (with reason). T-81-001 (PR A landed, PR B +
+      T-81-001b deferred), T-81-002, T-81-003, T-81-004, T-81-005, T-81-006 all done — Sprint 1
+      complete.
+- [x] Every instrumentation feature is off by default + byte-identical when off — verified
+      individually for `debug-hooks` (T-81-001), `scripting` (T-81-002), and `cheats`
+      (T-81-003); the formal CI gate covering all of them together (individually + combined,
+      wired into `lint`/`full-test`) landed in T-81-004.
 - [x] The live wasm demo actually renders and is playable, verified by a real headless-browser
       check, not just an HTTP status check — the default `wasm-winit` build (T-81-006), via a
       full-page screenshot showing the egui shell + a real emulated framebuffer, not just pixel
       counts.
-- [ ] CHANGELOG.md updated.
+- [x] CHANGELOG.md updated.
