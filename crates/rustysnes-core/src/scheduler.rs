@@ -22,7 +22,18 @@ use crate::sa1_bus::Sa1Bus;
 /// time a section's on-disk layout changes in a way an older reader can't skip past; the reader
 /// (this crate's [`System::load_state`]) rejects any `found > FORMAT_VERSION` rather than
 /// silently misinterpreting a newer layout.
-const FORMAT_VERSION: u16 = 1;
+///
+/// `2` (`v0.7.0 "Resolution"`): `rustysnes-ppu`'s `PPU0` section grew — the framebuffer's backing
+/// storage is now always allocated at hi-res capacity (512×239, up from 256×239) to support true
+/// hi-res (Modes 5/6) output, and a new `frame_hires` bool was added — a real byte-layout change
+/// to an existing section (`docs/ppu.md` §Hi-res (Modes 5/6) color-math precision). Note this
+/// bump only guards against loading a *newer*-than-supported blob (`load_state` rejects `found >
+/// FORMAT_VERSION`); it does not add graceful old-format loading — a genuinely older blob loaded
+/// by this code fails with a real parse/truncation error (proven by
+/// `crates/rustysnes-test-harness/tests/save_state_backward_compat.rs`'s `tests/golden/
+/// savestate-v1-gilyon.bin` fixture), not silent misinterpretation. See
+/// `docs/adr/0006-save-state-format.md`'s bump log for the full record.
+const FORMAT_VERSION: u16 = 2;
 /// The save-state envelope's leading magic bytes — identifies the blob as a RustySNES save-state
 /// before anything else is trusted.
 const MAGIC: &[u8; 4] = b"RSNS";

@@ -48,9 +48,22 @@ jobs:
         run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
       - name: Assemble site
         run: |
+          set -euo pipefail
           mkdir -p _site/api
           cp -r crates/rustysnes-frontend/web/dist/. _site/
           cp -r target/doc/. _site/api/
+          # rustdoc emits no root index for a multi-crate workspace (`cargo doc --workspace`
+          # writes one directory per crate, no top-level index.html) — without this, /api/
+          # itself 404s even though e.g. /api/rustysnes_core/index.html works fine. Redirect to
+          # the main library facade so /api/ lands somewhere useful, mirroring RustyNES's
+          # pattern (`../RustyNES/.github/workflows/web.yml`).
+          cat > _site/api/index.html <<'HTML'
+          <!doctype html>
+          <meta charset="utf-8">
+          <meta http-equiv="refresh" content="0; url=rustysnes_core/index.html">
+          <title>RustySNES API documentation</title>
+          <a href="rustysnes_core/index.html">RustySNES API documentation</a>
+          HTML
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

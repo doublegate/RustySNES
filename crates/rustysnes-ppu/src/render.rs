@@ -141,11 +141,18 @@ impl Ppu {
         if row >= crate::SCREEN_HEIGHT {
             return;
         }
-        let base = row * SCREEN_WIDTH;
+        // Latch this frame's output width once, at its first visible line, and hold it for every
+        // remaining line — so the framebuffer's row stride stays consistent across one frame even
+        // if `BGMODE`/`SETINI` change mid-frame (`docs/ppu.md` §Hi-res (Modes 5/6) color-math
+        // precision; see the `frame_hires` field doc for the full rationale).
+        if row == 0 {
+            self.frame_hires = self.is_hires();
+        }
+        let base = row * self.visible_width();
 
         // Force-blank: the line is black.
         if self.io.display_disable {
-            for x in 0..SCREEN_WIDTH {
+            for x in 0..self.visible_width() {
                 self.framebuffer[base + x] = 0;
             }
             return;
@@ -772,9 +779,28 @@ impl Ppu {
     }
 
     /// Color-math + DAC: pick the main/sub colors, apply add/sub/half + windows, write the row.
+    ///
+    /// In hi-res (`self.frame_hires`) each input column `x` emits *two* output columns, mirroring
+    /// ares' `PPU::DAC::run()`/`above()`/`below()` (`ref-proj/ares/ares/sfc/ppu/dac.cpp`): the
+    /// "odd" column is always today's normal main-screen color-math result (`aboveColor` below,
+    /// unchanged from the non-hires path — this is why the non-hires path stays byte-identical).
+    /// The "even" column (`belowColor`) is the *subscreen's own* color, color-math'd with the
+    /// operand roles swapped — but gated by the color-math state from the *previous* column's
+    /// `aboveColor` pass, not this column's own (a genuine one-pixel-clock-delayed hardware
+    /// pipeline stage, not a translation artifact — see `docs/ppu.md` §Hi-res (Modes 5/6)
+    /// color-math precision for the full derivation). `prev_*` below carries that delayed state;
+    /// it starts at the documented power-on/scanline-start boundary (ares `DAC::scanline()`):
+    /// no color math enabled, raw color = backdrop — which is exactly why the first hires column
+    /// of every scanline is transparent on real hardware.
     fn compose_dac(&mut self, row: usize, above: &[Pixel], below: &[Pixel]) {
-        let base = row * SCREEN_WIDTH;
+        let base = row * self.visible_width();
         let brightness = u32::from(self.io.display_brightness);
+        let hires = self.frame_hires;
+
+        let mut prev_above_enable = false;
+        let mut prev_below_enable = false;
+        let mut prev_above_raw = self.cgram[0];
+        let mut prev_below_opaque = false;
 
         for x in 0..SCREEN_WIDTH {
             let ap = above[x];
@@ -794,10 +820,12 @@ impl Ppu {
             let col_win = self.color_window(x);
             let math_allowed = self.math_region_allowed(col_win, false);
             let main_force_black = !self.math_region_allowed(col_win, true);
+            let above_enable = !main_force_black;
+            let below_enable = math_layer && math_allowed;
 
             let mut out = if main_force_black { 0 } else { main_color };
 
-            if math_layer && math_allowed {
+            if below_enable {
                 // SNES color-math addend selection (ares `DAC::above`): the subscreen is the
                 // addend ONLY when "add subscreen" is enabled AND the subscreen pixel is opaque
                 // (a real layer wrote it). When the subscreen pixel is the backdrop (transparent),
@@ -811,9 +839,8 @@ impl Ppu {
                 };
                 // Halving applies only when the main pixel is not forced black and (for the
                 // subscreen addend) the subscreen is opaque — matching ares' `colorHalve` gate.
-                let halve = self.io.color_halve
-                    && !main_force_black
-                    && (!self.io.add_subscreen || bp.opaque);
+                let halve =
+                    self.io.color_halve && above_enable && (!self.io.add_subscreen || bp.opaque);
                 out = if self.io.color_subtract {
                     color_sub(out, addend, halve)
                 } else {
@@ -821,7 +848,47 @@ impl Ppu {
                 };
             }
 
-            self.framebuffer[base + x] = apply_brightness(out, brightness);
+            if hires {
+                // `layer_color` already falls back to `cgram[0]` for a non-opaque pixel (the
+                // same fallback ares' `below()` priority-resolution applies when nothing wrote
+                // this column on the subscreen), so no separate opacity check is needed here.
+                let below_screen_color = self.layer_color(&bp);
+                let mut below_out = if prev_above_enable {
+                    below_screen_color
+                } else {
+                    0
+                };
+                if prev_below_enable {
+                    // The one-column-delayed mirror of `above()`'s addend/halve selection: the
+                    // "blend mode" and halve gates ares recomputes each column from that column's
+                    // OWN below-opacity, then that recomputed value is what the NEXT column's
+                    // below-pass actually consumes (`math.blendMode`/`math.colorHalve`, dac.cpp
+                    // lines 124-129) — hence `prev_below_opaque`, not this column's `bp.opaque`.
+                    let prev_blend_mode = self.io.add_subscreen && prev_below_opaque;
+                    let addend = if prev_blend_mode {
+                        prev_above_raw
+                    } else {
+                        self.io.fixed_color
+                    };
+                    let halve = self.io.color_halve
+                        && prev_above_enable
+                        && (!self.io.add_subscreen || prev_below_opaque);
+                    below_out = if self.io.color_subtract {
+                        color_sub(below_out, addend, halve)
+                    } else {
+                        color_add(below_out, addend, halve)
+                    };
+                }
+                self.framebuffer[base + 2 * x] = apply_brightness(below_out, brightness);
+                self.framebuffer[base + 2 * x + 1] = apply_brightness(out, brightness);
+            } else {
+                self.framebuffer[base + x] = apply_brightness(out, brightness);
+            }
+
+            prev_above_enable = above_enable;
+            prev_below_enable = below_enable;
+            prev_above_raw = main_color;
+            prev_below_opaque = bp.opaque;
         }
     }
 
@@ -1252,5 +1319,107 @@ mod tests {
             run_frame(p);
         }
         assert_eq!(a.framebuffer(), b.framebuffer());
+    }
+
+    // --- Hi-res (Modes 5/6) DAC: the one-pixel-clock-delayed below-color pass ---
+    // (`docs/ppu.md` §Hi-res (Modes 5/6) color-math precision). `compose_dac` and `Pixel` are
+    // called/constructed directly here rather than through full BG/tilemap register setup: the
+    // mechanism under test is entirely in the DAC's column-to-column state threading, which a
+    // hand-built `Pixel` row isolates far more precisely than an incidental tile pattern would.
+    use super::Pixel;
+
+    /// An opaque BG1 pixel with the given palette index (color-math layer 0).
+    const fn bg1_pixel(palette: u8) -> Pixel {
+        Pixel {
+            palette,
+            priority: 1,
+            layer: 0,
+            palette_group: 0,
+            opaque: true,
+        }
+    }
+
+    /// The default (backdrop) pixel: transparent, CGRAM 0.
+    const fn backdrop_pixel() -> Pixel {
+        Pixel {
+            palette: 0,
+            priority: 0,
+            layer: 5,
+            palette_group: 0,
+            opaque: false,
+        }
+    }
+
+    #[test]
+    fn hires_first_column_of_scanline_is_always_transparent() {
+        let mut p = Ppu::new();
+        p.write_reg(0x2100, 0x0f); // display on, full brightness
+        cgram_set(&mut p, 1, 0x7fff); // BG1 palette 1 = bright white
+        p.write_reg(0x2131, 0x01); // CGADSUB: BG1 color-math enabled
+        p.frame_hires = true;
+
+        // Every column strongly opaque + math-enabled on both screens — if the x=0 boundary
+        // condition were wrong, this is exactly the input that would make it obviously non-zero.
+        let above = [bg1_pixel(1); SCREEN_WIDTH];
+        let below = [bg1_pixel(1); SCREEN_WIDTH];
+        p.compose_dac(0, &above, &below);
+
+        let fb = p.framebuffer();
+        assert_eq!(
+            fb[0], 0,
+            "the first hires pixel of every scanline is documented as transparent on real \
+             hardware (ares DAC::scanline()'s power-on/scanline-start boundary) — this must hold \
+             regardless of how strongly the column-0 pixel data would otherwise composite"
+        );
+        assert_ne!(
+            fb[1], 0,
+            "the odd/above column at the same PPU pixel clock is the normal, unaffected \
+             main-screen composite — it must NOT inherit the below-column's transparency"
+        );
+    }
+
+    #[test]
+    fn hires_below_color_depends_on_previous_column_not_its_own() {
+        let mut p = Ppu::new();
+        p.write_reg(0x2100, 0x0f);
+        cgram_set(&mut p, 1, 0x7fff); // BG1 color = white
+        cgram_set(&mut p, 0, 0x0400); // backdrop (CGRAM 0) = a mid blue, so column 1's
+        // below-screen color (backdrop, since column 1 is never BG1-opaque here) is nonzero —
+        // otherwise an add-of-zero would mask the enable-gate difference this test isolates.
+        p.write_reg(0x2131, 0x01); // BG1 color-math enabled
+        p.io.fixed_color = 0x0010; // COLDATA: nonzero, so the "was color-math applied" gate
+        // (gated on column 0's, not column 1's, state) actually changes column 1's output.
+        p.frame_hires = true;
+
+        // Column 1 is held IDENTICAL across both runs (backdrop only); only column 0 changes
+        // (opaque math-enabled BG1 vs. plain backdrop). If column 1's belowColor is computed
+        // from column 0's state (the documented one-pixel-clock delay), it must differ between
+        // the two runs despite column 1's own pixel data never changing.
+        let below_col0_backdrop = [backdrop_pixel(); SCREEN_WIDTH];
+        let above_col0_backdrop = below_col0_backdrop;
+
+        let mut above_col0_bg1 = above_col0_backdrop;
+        above_col0_bg1[0] = bg1_pixel(1);
+        let below_col0_bg1 = above_col0_bg1;
+
+        p.compose_dac(0, &above_col0_backdrop, &below_col0_backdrop);
+        let fb_backdrop = p.framebuffer().to_vec();
+
+        p.compose_dac(0, &above_col0_bg1, &below_col0_bg1);
+        let fb_bg1 = p.framebuffer().to_vec();
+
+        // Column 1's own input pixels are backdrop in BOTH runs — only column 0 differs.
+        assert_ne!(
+            fb_backdrop[2], fb_bg1[2],
+            "column 1's belowColor (the even/hires output column) must depend on column 0's \
+             above-pass state, not column 1's own (unchanged-between-runs) pixel data"
+        );
+        // Column 1's aboveColor (the odd column, today's ordinary composited path) must be
+        // identical in both runs — it never reads any other column's state.
+        assert_eq!(
+            fb_backdrop[3], fb_bg1[3],
+            "column 1's aboveColor must be unaffected by column 0's state — only the hires \
+             below-pass has the one-column delay"
+        );
     }
 }

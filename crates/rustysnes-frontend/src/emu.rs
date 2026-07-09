@@ -220,10 +220,15 @@ impl EmuCore {
         }
     }
 
-    /// Decode the PPU's 256×(224|239) BGR555 framebuffer into the RGBA8 present buffer.
+    /// Decode the PPU's (256|512)×(224|239) BGR555 framebuffer into the RGBA8 present buffer.
+    /// Width tracks [`rustysnes_ppu::Ppu::visible_width`] — 512-wide for a hi-res (Modes 5/6)
+    /// frame, 256-wide otherwise (`docs/ppu.md` §Hi-res (Modes 5/6) color-math precision).
     fn render_framebuffer(&mut self) {
         let h = u32::from(self.system.bus.ppu.visible_height()).min(crate::gfx::SNES_H_PAL);
-        let w = SNES_W;
+        // `visible_width()` is always SCREEN_WIDTH (256) or MAX_SCREEN_WIDTH (512) — never near
+        // u32::MAX, so this narrowing cast can't actually truncate.
+        #[allow(clippy::cast_possible_truncation)]
+        let w = self.system.bus.ppu.visible_width() as u32;
         self.fb_dims = (w, h);
         let count = (w * h) as usize;
         let src = self.system.bus.framebuffer();

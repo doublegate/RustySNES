@@ -49,9 +49,32 @@ and diffing the deterministic output against a fork that kept running uninterrup
   changes (a board adds/removes/reorders a field, a new coprocessor needs a new section kind).
   `load_state()` rejects a save whose major format version it doesn't recognize with a typed
   error (never silently truncates/zero-fills — the same honesty-gate posture `docs/adr/0003`
-  already applies to coprocessor accuracy). A minor/patch-level format bump (e.g. a new optional
-  trailing section) stays backward-loadable; state produced by an older RustySNES load into a
-  newer one, but not the reverse, matching ordinary semver expectations for a public format.
+  already applies to coprocessor accuracy).
+  **Correction (`v0.7.0`, the format's first real bump — see "Bump log" below): the
+  "minor bumps stay backward-loadable" claim this paragraph originally made was aspirational, not
+  actually implemented, and has been removed.** `load_state()` only ever checks `found >
+  FORMAT_VERSION` (rejects strictly-newer blobs); it does not special-case `found <
+  FORMAT_VERSION` at all — it always parses using the CURRENT code's section layout, regardless of
+  what version number an older blob declares. In practice this means a section byte-layout change
+  (the only thing `FORMAT_VERSION` is meant to track) makes an older blob fail to load — cleanly,
+  as a real `SaveStateError` (`Truncated`/`UnexpectedTag`, since sections are length-prefixed and
+  the mismatch surfaces locally), never a silent misread — but NOT gracefully in the sense of
+  actually restoring old state. Real per-version section migration (skip/adapt an older section's
+  bytes into the current in-memory shape) is a genuinely bigger feature, not implemented, and not
+  planned unless a concrete need for it emerges. The bump's actual, verified job today is
+  narrower than originally claimed: it's a required signal (so the version number itself changes
+  whenever a layout does, catching a developer who forgets to bump it) plus a guarantee that the
+  failure mode is loud, not silent corruption — proven by
+  `crates/rustysnes-test-harness/tests/save_state_backward_compat.rs`.
+
+### Bump log
+
+- **`1` → `2` (`v0.7.0 "Resolution"`):** the `Ppu`'s `PPU0` section grew — the framebuffer's
+  backing storage is now always allocated at hi-res capacity (512×239 words, up from 256×239) to
+  support true hi-res (Modes 5/6) output, and a new `frame_hires` bool was added
+  (`docs/ppu.md` §Hi-res (Modes 5/6) color-math precision). `tests/golden/savestate-v1-gilyon.bin`
+  is the real `FORMAT_VERSION = 1` fixture (captured from the pre-bump code against the committed
+  gilyon `cputest-basic.sfc`) the regression test above loads to prove the mismatch fails loudly.
 - **The round-trip determinism test is the spec**: save → run N frames on a cloned/forked
   system → load the save into the original → run the same N frames → assert byte-identical
   framebuffer + audio output between the two. This extends `docs/adr/0004`'s existing

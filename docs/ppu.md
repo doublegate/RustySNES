@@ -180,9 +180,11 @@ The crate is a working dual-chip model. Public API the scheduler/bus call:
   limits (reverse-order fetch → low index survives → STAT77 bits 6/7), color math (add/sub/half,
   per-layer enable, fixed-color/subscreen addend, direct color), windows (W1/W2 OR/AND/XOR/XNOR
   + per-layer enable + the CGWSEL color-math regions), and INIDISP master brightness all work.
-  Not yet wired to dot resolution: hi-res Modes 5/6 render at 256-wide (the 512-px doubling is
-  deferred), offset-per-tile (Modes 2/4/6), pseudo-hires, and interlace field doubling — the
-  per-line compositor is the simplification point for those, landing with HDMA/raster work.
+  Hi-res Modes 5/6 (and pseudo-hires, `SETINI` bit 3) render true 512-px dual-column output
+  (`v0.7.0 "Resolution"` — see §Hi-res (Modes 5/6) color-math precision below for the mechanism
+  and verification status). Still not wired to dot resolution: offset-per-tile (Modes 2/4/6) and
+  interlace field doubling — the per-line compositor is the simplification point for those,
+  landing with HDMA/raster work.
 
 ## Open questions
 
@@ -347,36 +349,90 @@ update, cross-checked against the *full* `--features test-roms` suite including 
 goldens this time, not just the 29 `undisbeliever` ones. A second test confirms the reproduction
 stays deterministic across fresh runs.
 
-## Hi-res (Modes 5/6) color-math precision — researched, deferred (v0.5.0)
+## Hi-res (Modes 5/6) color-math precision — implemented (v0.7.0 "Resolution")
 
-**Status: researched; blocked entirely on 512-px hi-res output not existing yet (a real feature
-gap, not a precision nuance to layer on top of an existing feature) — see "Implementation status"
-above ("hi-res Modes 5/6 render at 256-wide, the 512-px doubling is deferred").**
-
-Real hardware's hi-res color-math trick (the mechanism Bishoujo Janshi Suchie-Pai / Marvelous+SA-1
-rely on for pseudo-transparency/anti-aliasing) is confirmed against ares' DAC (`ref-proj/ares/
-ares/sfc/ppu/dac.cpp`, `DAC::run()`): in hi-res, **each PPU pixel clock emits two real output
-columns** by alternating between two *different* compositor results, not by computing 512
-independently-color-math'd columns —
+**Status: implemented.** True 512-px hi-res output (Modes 5/6, or pseudo-hires `SETINI` $2133
+bit 3) is now real: `Ppu::compose_dac` emits two output columns per PPU pixel clock in hi-res,
+mirroring ares' `PPU::DAC::run()`/`above()`/`below()` (`ref-proj/ares/ares/sfc/ppu/dac.cpp`) —
 
 ```
 *line++ = hires ? belowColor : aboveColor;  // the "even" 512-wide column
 *line++ = aboveColor;                        // the "odd" 512-wide column (always the normal path)
 ```
 
-`aboveColor` is the normal (256-wide) main-screen-composited-with-color-math pixel; `belowColor`
-is the *sub*-screen pixel blended a second time against the fixed/subscreen color (`DAC::below`,
-`dac.cpp:43-80`) — i.e. hi-res mode doesn't add new *spatial* detail, it doubles the horizontal
-rate and interleaves "with color math" and "as if reading one pixel earlier, blended differently"
-outputs to fake a smoother 512-wide gradient. This is architecturally a real feature (dual-output
-DAC stage), not a numeric-precision tweak to the existing color-math formula.
+`aboveColor` is exactly the pre-existing (256-wide) main-screen-composited-with-color-math pixel
+— unchanged code, unchanged for every non-hires frame. `belowColor` is the *sub*-screen pixel
+color-math'd a second time with the operand roles swapped — i.e. hi-res mode doesn't add new
+*spatial* detail, it doubles the horizontal rate and interleaves "with color math" and "as if
+reading one pixel earlier, blended differently" outputs to fake a smoother 512-wide gradient.
 
-Since `rustysnes-ppu` doesn't yet emit 512-wide output at all (Modes 5/6 currently render at the
-normal 256-wide resolution, per "Implementation status" above), there is no existing hi-res output
-path to add color-math precision *to* — the color-math mechanism described here can only be
-modeled once genuine dual-half-pixel hi-res output is built. That's a real feature addition (a new
-`DAC`-equivalent output stage emitting two columns per pixel clock, alternating `above`/`below`
-compositor results), not a small targeted fix, and is explicitly out of scope for this pass per
-the same regression-risk discipline as the mid-scanline item above. Tracked as: build 512-wide
-hi-res output first (a separate, larger v0.5.0/v0.6.0-scope item), then revisit hi-res color-math
-precision once that foundation exists.
+### The one-pixel-clock-delayed pipeline (the real complexity here)
+
+`belowColor` for column `x` is gated by, and blends against, state ares computes during the
+**previous** pixel clock's `above()` pass — not column `x`'s own state. Concretely (`x-1`'s
+values, threaded across the row in `compose_dac`):
+
+- the gate ("does the hires pass apply color math at all") = column `x-1`'s winning above-layer's
+  per-layer color-math-enable bit AND the "below" color-window mask (ares `math.below.colorEnable`
+  — exactly `Ppu::compose_dac`'s existing `math_layer && math_allowed` locals, read one column
+  late);
+- the blend operand standing in for "the main screen's own color" = column `x-1`'s **raw**
+  above-layer color (`layer_color(above[x-1])`, pre-color-math — ares `math.above.color`), also
+  one column late;
+- the "blend mode"/halve gates (ares `math.blendMode`/`math.colorHalve`) are likewise recomputed
+  each column from *that* column's own subscreen opacity, then consumed one column later — so
+  `prev_below_opaque` (column `x-1`'s own `below[x-1].opaque`), not column `x`'s, drives them;
+- at column 0, ares' `DAC::scanline()` init sets every one of these to their "no color math, raw
+  color = backdrop" default — the documented hardware fact that **the first hires pixel of every
+  scanline is transparent**. `compose_dac` seeds its `prev_*` locals to this same boundary before
+  the loop starts, so column 0 falls out of the general formula rather than needing a special case.
+
+This is a genuine one-pixel-clock hardware pipeline stage, not a translation artifact — verified
+by reading `dac.cpp` directly rather than paraphrasing a summary, precisely because getting a
+subtlety like this wrong produces a plausible-but-wrong implementation (the exact failure mode
+external-oracle verification exists to catch).
+
+### Framebuffer geometry: per-frame, not per-scanline
+
+The framebuffer's row stride (256 or 512) is latched once, at each frame's first visible
+scanline (`Ppu::frame_hires`, set from the live `Ppu::is_hires()` at `row == 0`), and held for
+every remaining line of that frame — a **deliberate, documented per-frame-not-per-scanline
+simplification**. `compose_dac` consults only this cached `frame_hires` value, never a live
+per-scanline `is_hires()` re-check, so every line of a frame writes the same column geometry (one
+column when `frame_hires` is false, two when true) for the frame's entire duration, with no
+per-scanline fallback logic at all. Real hardware's hi-res-ness is technically a per-scanline DAC
+property (`BGMODE`/`SETINI` could theoretically change mid-frame via HDMA), but modeling that
+would be a materially bigger feature with no known motivating commercial title, mirroring this
+project's existing posture on the (separately tracked, still-open) mid-scanline/HDMA-driven
+register timing gap. A title that changes `BGMODE`/`SETINI` mid-frame gets the *first* visible
+line's hi-res-ness applied uniformly across the whole frame, not a per-line-accurate mix — a
+narrow, explicitly out-of-scope edge case, not a memory-safety concern.
+
+### Verification
+
+- **Mechanism**: derived directly from `ref-proj/ares/ares/sfc/ppu/dac.cpp`'s primary source (not
+  a summary), including the one-pixel-clock-delay pipeline above.
+- **Unit tests** (`crates/rustysnes-ppu/src/render.rs`, hand-constructed `Pixel` rows, bypassing
+  full BG/tilemap setup to isolate the DAC mechanism precisely):
+  `hires_first_column_of_scanline_is_always_transparent` (the column-0 boundary condition holds
+  even when column 0's own pixel data would otherwise composite strongly) and
+  `hires_below_color_depends_on_previous_column_not_its_own` (column 1's `belowColor` changes when
+  *only* column 0's state changes, with column 1's own input held fixed across both runs; column
+  1's `aboveColor` does not change — isolating the delay to exactly the below/even-column path).
+- **Non-regression**: the full `--features test-roms` suite — every `undisbeliever` golden, every
+  `*_oncart` suite including `sa1_oncart` — passes unchanged, since none of those ROMs enter
+  hi-res mode; the non-hires code path is untouched.
+- **Real-title validation: not achieved, honestly tracked as open.** Marvelous — Mouhitotsu no
+  Takarajima (SA-1, `docs/STATUS.md`'s named hi-res-motivating title) was run for 1200 frames
+  (20 s) from power-on and never entered hi-res (`Ppu::is_hires()` stayed `false` throughout) —
+  either its hi-res content needs input/progress this headless run never provides, or the "relies
+  on hi-res" claim in this doc's earlier draft was inferred rather than confirmed against this
+  specific ROM. Bishoujo Janshi Suchie-Pai (the other named title) has no dump in the local
+  corpus at all. An external-oracle screenshot comparison against `ares` (installed in this
+  environment) was also attempted and abandoned — no working GUI display was available to drive
+  it (Xvfb + `xdotool` window automation did not produce a usable window in this sandbox). Neither
+  gap blocks landing: the mechanism is verified against primary source plus isolated unit tests,
+  and zero currently-passing goldens regress. `tests/golden/sa1-framebuffer.tsv` is **not**
+  re-blessed by this change (Marvelous's hash is unaffected, confirmed by `sa1_oncart` passing
+  unchanged). Real-title hi-res validation remains genuinely open for whoever next has a working
+  GUI environment or a confirmed hi-res-reaching save state for either named title.

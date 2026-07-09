@@ -68,8 +68,16 @@ pub const MASTER_CLOCKS_PER_DOT: u32 = 4;
 /// Dots per scanline (the RustySNES convention: 341 dots of nominally 4 master clocks).
 pub const DOTS_PER_LINE: u16 = 341;
 
-/// Visible width of one rendered scanline, in pixels.
+/// Visible width of one rendered scanline in normal (non-hires) resolution, in pixels.
+///
+/// This is also the per-pixel-clock compositing width: one PPU pixel clock produces one
+/// `above`/`below` layer-pixel pair regardless of resolution — only the DAC output stage doubles
+/// for hi-res (`docs/ppu.md` §Hi-res (Modes 5/6) color-math precision).
 pub const SCREEN_WIDTH: usize = 256;
+
+/// Output width of one rendered scanline in hi-res (Modes 5/6, or pseudo-hires `SETINI` bit 3),
+/// in pixels — the DAC emits two output columns per pixel clock in this mode.
+pub const MAX_SCREEN_WIDTH: usize = 512;
 
 /// Maximum visible height (overscan). Standard frames fill the first 224 rows.
 pub const SCREEN_HEIGHT: usize = 239;
@@ -82,8 +90,17 @@ const ACTIVE_DOT_START: u16 = 22;
 /// (ares `hcounter(10) == (HTIME+1)<<2` ⇒ fire at dot `HTIME + 3.5`; see `check_hv_irq`).
 const HIRQ_TRIGGER_DELAY: u16 = 4;
 
-/// Total framebuffer length, in 15-bit BGR pixels.
+/// Framebuffer length at normal (non-hires) resolution, in 15-bit BGR pixels.
+///
+/// This is the length [`Ppu::framebuffer`] returns for every frame that never enters hi-res —
+/// i.e. every currently shipping ROM/golden-vector, which stays byte-identical to before this
+/// const's hi-res sibling was added.
 pub const FRAMEBUFFER_LEN: usize = SCREEN_WIDTH * SCREEN_HEIGHT;
+
+/// The framebuffer's fixed backing-array allocation size — always hi-res-capacity, so a
+/// mode change mid-run never needs a reallocation. [`Ppu::framebuffer`] returns a
+/// resolution-sized *slice* of this backing storage, not the whole array.
+const MAX_FRAMEBUFFER_LEN: usize = MAX_SCREEN_WIDTH * SCREEN_HEIGHT;
 
 /// Video region — fixes the line count and the NTSC/PAL status bit. Data, not behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -612,9 +629,17 @@ pub struct Ppu {
     frame_ready: bool,
     /// Monotonic completed-frame counter (determinism diagnostics / save-states).
     frame_count: u64,
+    /// Whether the *current* frame's output is hi-res (512-wide) — latched from [`Ppu::is_hires`]
+    /// at the first visible scanline of each frame (row 0) and held for the rest of that frame,
+    /// so the framebuffer's row stride stays consistent across every line of one frame even if
+    /// `BGMODE`/`SETINI` change mid-frame (`docs/ppu.md` §Hi-res (Modes 5/6) color-math
+    /// precision — a documented, deliberate per-frame-not-per-scanline simplification).
+    frame_hires: bool,
 
-    /// The composited 256×239 15-bit BGR framebuffer.
-    framebuffer: Box<[u16; FRAMEBUFFER_LEN]>,
+    /// The composited 15-bit BGR framebuffer: [`FRAMEBUFFER_LEN`] (256×239) words for a normal
+    /// frame, [`MAX_FRAMEBUFFER_LEN`] (512×239) for a hi-res one. Backing storage is always
+    /// allocated at hi-res capacity; [`Ppu::framebuffer`] returns the resolution-sized slice.
+    framebuffer: Box<[u16; MAX_FRAMEBUFFER_LEN]>,
 }
 
 impl core::fmt::Debug for Ppu {
@@ -669,7 +694,8 @@ impl Ppu {
             irq_v: 0,
             frame_ready: false,
             frame_count: 0,
-            framebuffer: Box::new([0u16; FRAMEBUFFER_LEN]),
+            frame_hires: false,
+            framebuffer: Box::new([0u16; MAX_FRAMEBUFFER_LEN]),
         }
     }
 
@@ -688,6 +714,35 @@ impl Ppu {
     #[must_use]
     pub const fn visible_height(&self) -> u16 {
         if self.io.overscan { 239 } else { 224 }
+    }
+
+    /// Whether the PPU is *currently configured* for hi-res output: `BGMODE` 5/6, or pseudo-hires
+    /// (`SETINI` $2133 bit 3) in any mode — matching ares' `hires = pseudoHires || bgMode==5 ||
+    /// bgMode==6` (`ref-proj/ares/ares/sfc/ppu/dac.cpp`). This is the live per-scanline register
+    /// state; [`Ppu::frame_hires`] is the value latched from this at the start of the frame that's
+    /// actually being composited into the framebuffer right now.
+    #[must_use]
+    pub const fn is_hires(&self) -> bool {
+        self.io.pseudo_hires || self.io.bg_mode == 5 || self.io.bg_mode == 6
+    }
+
+    /// Whether the framebuffer *currently being composited* is hi-res (512-wide) — the value
+    /// [`Ppu::framebuffer`]'s length/stride is based on for this frame. See the `frame_hires`
+    /// field doc for why this is latched once per frame rather than read live per scanline.
+    #[must_use]
+    pub const fn frame_hires(&self) -> bool {
+        self.frame_hires
+    }
+
+    /// The output framebuffer's width for the frame currently being composited: [`SCREEN_WIDTH`]
+    /// normally, [`MAX_SCREEN_WIDTH`] when [`Ppu::frame_hires`] is set.
+    #[must_use]
+    pub const fn visible_width(&self) -> usize {
+        if self.frame_hires {
+            MAX_SCREEN_WIDTH
+        } else {
+            SCREEN_WIDTH
+        }
     }
 
     /// First `VBlank` scanline for the current overscan setting (225 or 240).
@@ -842,17 +897,20 @@ impl Ppu {
         self.frame_count
     }
 
-    /// The composited framebuffer: `SCREEN_WIDTH * SCREEN_HEIGHT` 15-bit BGR pixels, row-major.
-    /// Only the first [`Ppu::visible_height`] rows are written each frame.
+    /// The composited framebuffer: `visible_width() * SCREEN_HEIGHT` 15-bit BGR pixels, row-major
+    /// at the current frame's stride ([`SCREEN_WIDTH`] normally, [`MAX_SCREEN_WIDTH`] for a
+    /// hi-res frame — see [`Ppu::frame_hires`]). Only the first [`Ppu::visible_height`] rows are
+    /// written each frame. A non-hires frame's length here is exactly [`FRAMEBUFFER_LEN`],
+    /// unchanged from before hi-res output existed.
     #[must_use]
     pub fn framebuffer(&self) -> &[u16] {
-        &self.framebuffer[..]
+        &self.framebuffer[..self.visible_width() * SCREEN_HEIGHT]
     }
 
     /// Borrow the framebuffer and clear the `frame_ready` flag (one-shot presentation).
     pub fn take_frame(&mut self) -> &[u16] {
         self.frame_ready = false;
-        &self.framebuffer[..]
+        &self.framebuffer[..self.visible_width() * SCREEN_HEIGHT]
     }
 
     // --- Storage accessors (for tests / save-state plumbing) ---
@@ -910,6 +968,7 @@ impl Ppu {
             s.write_u16(self.irq_v);
             s.write_bool(self.frame_ready);
             s.write_u64(self.frame_count);
+            s.write_bool(self.frame_hires);
             for &word in self.framebuffer.iter() {
                 s.write_u16(word);
             }
@@ -958,6 +1017,7 @@ impl Ppu {
         self.irq_v = s.read_u16()?;
         self.frame_ready = s.read_bool()?;
         self.frame_count = s.read_u64()?;
+        self.frame_hires = s.read_bool()?;
         for word in self.framebuffer.iter_mut() {
             *word = s.read_u16()? & 0x7FFF;
         }
