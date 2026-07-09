@@ -1,8 +1,10 @@
 //! `rustysnes` — the RustySNES frontend binary (native).
 //!
-//! A thin shim over `lib.rs`, which owns the module tree. The wasm32 entry point lives at
-//! `lib.rs::wasm::start` (gated `#[cfg(target_arch = "wasm32")]`); when cargo builds this bin
-//! for the wasm32 target we compile an empty `main` instead — the real entry is `wasm::start`.
+//! A thin shim over `lib.rs`, which owns the module tree. The wasm32 entry point is one of
+//! `wasm_winit::start` (default, `wasm-winit` feature) or `wasm::start` (`wasm-canvas` feature)
+//! — exactly one is compiled per the active feature; when cargo builds this bin for the wasm32
+//! target we compile an empty `main` instead, since the real entry is whichever of those two
+//! `#[wasm_bindgen(start)]` functions is active.
 //!
 //! The native path uses a clap 4 CLI (`cli.rs`): `rustysnes <ROM>` loads + runs; `rustysnes`
 //! with no ROM opens the menu shell; `rustysnes help [<topic>]` + `completions <shell>` are
