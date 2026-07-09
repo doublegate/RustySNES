@@ -168,12 +168,16 @@ AccuracyCoin-equivalent). See `to-dos/phase-6-accuracy-to-100/`.
   (reading live register state at dot 340, after line `V`'s own HDMA already ran) applies it to
   line `V` itself. A prototype fix (`rustysnes-ppu` gains a public `RENDER_DOT` constant, `= 276`,
   the PPU's own video-timing fact that `rustysnes-core`'s `HDMA_RUN_DOT` is defined equal to;
-  `Ppu::tick_dot` composites each line at `RENDER_DOT` instead of dot 340, one dot before that
-  line's own HDMA run — no DMA/HDMA knowledge leaked into the PPU crate) is independently
-  verified CORRECT for the CPU/HDMA-driven case: SA-1's `SD F-1 Grand Prix` golden hash change was
-  confirmed a real accuracy improvement by diffing pre-/post-fix framebuffers row-by-row —
-  232/237 differing rows matched the fix's predicted "shifted one line later" signature with zero
-  unexplained outliers. **But the same change breaks all 24 Super FX/GSU golden tests** with a
+  `Ppu::tick_dot` composites each line at `RENDER_DOT` instead of dot 340 — the same dot number
+  HDMA's own per-line run fires at, but sequenced strictly before it within that master-clock
+  tick's execution order, since the HDMA-service check runs after the PPU-dot call returns — no
+  DMA/HDMA knowledge leaked into the PPU crate) is independently verified CORRECT for the
+  CPU/HDMA-driven case: SA-1's `SD F-1 Grand Prix` golden hash change was confirmed a real
+  accuracy improvement by diffing pre-/post-fix framebuffers row-by-row — 159/239 rows differed,
+  and testing those against the fix's predicted "shifted one line later" signature matched
+  232/237 checkable rows (97.9%; 237 = 239 minus the 2 boundary rows a one-line-shift comparison
+  can't reach) with zero unexplained outliers. **But the same change breaks all 24 Super FX/GSU
+  golden tests** with a
   diff pattern that does NOT fit that same mechanism (a color bar shifted 4 rows in the *opposite*
   direction on one ROM; 7 genuine outliers on another) — the identical failure signature the
   sibling open-bus-via-HDMA-latch investigation (above) also hit and correctly did not land.

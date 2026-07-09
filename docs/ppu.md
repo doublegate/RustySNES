@@ -265,9 +265,11 @@ was independently confirmed as a real accuracy improvement, not blindly re-bless
 pre-prototype and post-prototype framebuffers and diffing them row-by-row found 159/239 rows
 differ, and testing the specific hypothesis "does `fixed[row]` match `buggy[row-1]`" (the exact
 signature this change's mechanism predicts — content that used to render one line early now
-renders one line later) matched 232/237 candidate rows (97.9%), with **zero** rows differing in
-any other pattern (every single differing row fully explained by a clean, uniform one-line-later
-shift — no unexplained artifacts). `SD F-1 Grand Prix` is a racing game, consistent with a
+renders one line later) matched 232/237 candidate rows (97.9%) — "candidate rows" here means the
+239-row frame's checkable rows (239 minus the 2 boundary rows a row-1 lookup can't reach), not the
+159 rows found to differ above — with **zero** rows differing in any other pattern (every single
+differing row fully explained by a clean, uniform one-line-later shift — no unexplained
+artifacts). `SD F-1 Grand Prix` is a racing game, consistent with a
 per-line HDMA-driven road/gradient color effect (it drives `$2100`-adjacent CGRAM/brightness-class
 registers per scanline) that was rendering one line early before this change and would render on
 the hardware-correct line after it. This half of the change is real and correct — it just cannot

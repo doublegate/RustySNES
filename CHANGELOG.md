@@ -15,14 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   correct for the CPU/HDMA-driven case — but NOT landed, blocked by a second regression the same
   change causes in Super FX/GSU rendering.** The confirmed off-by-one-line compositor bug
   (`docs/ppu.md` §Mid-scanline/HDMA-driven register timing) has a prototype fix: `rustysnes-ppu`
-  would composite each line at a new `RENDER_DOT` constant (`= 276`, one dot before that line's
-  own per-line HDMA run) instead of at dot 340 (`end_of_scanline`), matching real hardware's
-  per-pixel timing. Prototyping and running the full `--features test-roms` suite confirmed this
-  mechanism is correct for CPU/HDMA-driven register changes: all 29 `undisbeliever` goldens held,
-  and the one golden it legitimately changes (SA-1's `SD F-1 Grand Prix`) was independently
-  confirmed a real accuracy improvement, not blindly accepted — diffing pre-/post-prototype
-  framebuffers row-by-row found 232/237 differing rows matching the fix's predicted "shifted one
-  line later" signature with zero unexplained outliers. **But the same prototype broke all 24
+  would composite each line at a new `RENDER_DOT` constant (`= 276` — the same dot number HDMA's
+  own per-line run fires at, but sequenced strictly before it within that master-clock tick's
+  execution order) instead of at dot 340 (`end_of_scanline`), matching real hardware's per-pixel
+  timing. Prototyping and running the full `--features test-roms` suite confirmed this mechanism
+  is correct for CPU/HDMA-driven register changes: all 29 `undisbeliever` goldens held, and the
+  one golden it legitimately changes (SA-1's `SD F-1 Grand Prix`) was independently confirmed a
+  real accuracy improvement, not blindly accepted — diffing pre-/post-prototype framebuffers
+  row-by-row found 159/239 rows differed, and testing those against the fix's predicted "shifted
+  one line later" signature matched 232/237 checkable rows (97.9%; 237 = 239 minus the 2 boundary
+  rows a one-line-shift comparison can't reach) with zero unexplained outliers. **But the same
+  prototype broke all 24
   Super FX/GSU golden tests** with a diff pattern that does *not* fit that mechanism (a color bar
   shifted 4 rows in the opposite direction on one ROM; 7 genuine outliers on another) — the
   identical failure signature an earlier, unrelated investigation this cycle
