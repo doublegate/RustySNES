@@ -12,6 +12,10 @@ use rustysnes_core::cart::Cart;
 use rustysnes_core::cart::header::Coprocessor;
 
 use crate::config::Region;
+use crate::debug_snapshot::{
+    ApuSnapshot, CartSnapshot, DebugSnapshot, GsuSnapshot, PpuSnapshot, VRAM_WINDOW_LEN,
+    VoiceSnapshot,
+};
 use crate::gfx::{MAX_H, MAX_W, SNES_W, bgr555_to_rgba8};
 use crate::input::Buttons;
 
@@ -51,6 +55,10 @@ pub struct EmuCore {
     rom: Vec<u8>,
     /// The coprocessor firmware dump installed for this cart (if any), retained for Power-Cycle.
     firmware: Vec<u8>,
+    /// The debugger overlay's VRAM viewer scroll position (word address). Only meaningful when
+    /// the debugger is open; `debug_snapshot` reads it regardless (cheap, and keeps this struct
+    /// free of `debug-hooks`-conditional fields).
+    debug_vram_scroll: u16,
 }
 
 impl EmuCore {
@@ -67,6 +75,7 @@ impl EmuCore {
             rom_loaded: false,
             rom: Vec::new(),
             firmware: Vec::new(),
+            debug_vram_scroll: 0,
         }
     }
 
@@ -265,6 +274,90 @@ impl EmuCore {
         self.region
     }
 
+    /// Copy out a [`DebugSnapshot`] of the current CPU/PPU/APU/Cart state, for the debugger
+    /// overlay. Read-only — never mutates anything. The caller must not hold this (or any
+    /// borrow of `self`) while an egui pass runs (`ui_shell.rs`'s non-negotiable rule); copy it
+    /// out under the same brief lock `ShellInfo` already uses, then drop the lock.
+    ///
+    /// # Panics
+    /// Never in practice: every index below is bounded by a fixed, small array length
+    /// (`VRAM_WINDOW_LEN` = 1024, CGRAM = 256, OAM = 544, DSP voices = 8), so the `u8`/`u16`
+    /// narrowing conversions from `usize` can never actually truncate.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn debug_snapshot(&self) -> DebugSnapshot {
+        let ppu = &self.system.bus.ppu;
+        let vram_window_start = self.debug_vram_scroll;
+        let mut vram_window = [0u16; VRAM_WINDOW_LEN];
+        for (i, word) in vram_window.iter_mut().enumerate() {
+            *word = ppu.vram_word(vram_window_start.wrapping_add(i as u16));
+        }
+        let mut cgram = [0u16; 256];
+        for (i, word) in cgram.iter_mut().enumerate() {
+            *word = ppu.cgram_word(i as u8);
+        }
+        let mut oam = [0u8; 544];
+        for (i, byte) in oam.iter_mut().enumerate() {
+            *byte = ppu.oam_byte(i as u16);
+        }
+
+        let apu = &self.system.bus.apu;
+        let voices = core::array::from_fn(|v| {
+            let base = (v as u8) << 4;
+            VoiceSnapshot {
+                vol: (
+                    apu.dsp_read(base).cast_signed(),
+                    apu.dsp_read(base | 0x01).cast_signed(),
+                ),
+                pitch: u16::from(apu.dsp_read(base | 0x02))
+                    | (u16::from(apu.dsp_read(base | 0x03)) << 8),
+                srcn: apu.dsp_read(base | 0x04),
+                adsr: (apu.dsp_read(base | 0x05), apu.dsp_read(base | 0x06)),
+                gain: apu.dsp_read(base | 0x07),
+                envx: apu.dsp_read(base | 0x08),
+                outx: apu.dsp_read(base | 0x09),
+            }
+        });
+
+        let board = self.system.bus.cart.as_ref().map(|c| &c.board);
+        let cart = CartSnapshot {
+            board_name: board.as_ref().map(|b| b.name()),
+            sa1: self.system.sa1_regs(),
+            gsu: board
+                .as_ref()
+                .and_then(|b| b.debug_gsu_state())
+                .map(|(r, sfr, pbr)| GsuSnapshot { r, sfr, pbr }),
+        };
+
+        DebugSnapshot {
+            cpu: self.system.cpu.regs,
+            ppu: PpuSnapshot {
+                bg_mode: ppu.bg_mode(),
+                display_brightness: ppu.display_brightness(),
+                is_hires: ppu.is_hires(),
+                scanline: ppu.scanline(),
+                dot: ppu.dot(),
+                in_vblank: ppu.in_vblank(),
+                in_hblank: ppu.in_hblank(),
+                cgram,
+                vram_window,
+                vram_window_start,
+                oam,
+            },
+            apu: ApuSnapshot {
+                smp_pc: apu.smp_pc(),
+                smp_stopped: apu.smp_stopped(),
+                voices,
+            },
+            cart,
+        }
+    }
+
+    /// Scroll the debugger's VRAM viewer window (word address, wraps at 64Ki words).
+    pub const fn set_debug_vram_scroll(&mut self, word_addr: u16) {
+        self.debug_vram_scroll = word_addr;
+    }
+
     /// Snapshot the full deterministic core state (`rustysnes_core::System::save_state`,
     /// `docs/adr/0006`) for rewind/run-ahead/quick-save. Frontend-only state (the decoded RGBA8
     /// framebuffer, the retained ROM/firmware bytes for Power-Cycle, latched pads) is NOT part of
@@ -400,6 +493,26 @@ mod tests {
     fn run_frame_does_not_panic_without_rom() {
         let mut core = EmuCore::new(0, Region::Ntsc);
         core.run_frame();
+    }
+
+    #[test]
+    fn debug_snapshot_of_blank_core_has_no_cart() {
+        let core = EmuCore::new(0, Region::Ntsc);
+        let snap = core.debug_snapshot();
+        assert_eq!(snap.cart.board_name, None);
+        assert_eq!(snap.cart.sa1, None);
+        assert!(snap.cart.gsu.is_none());
+        // Power-on 65C816 state (`rustysnes_cpu::Regs::new`): emulation mode, S parked at $01FF.
+        assert!(snap.cpu.emulation);
+        assert_eq!(snap.cpu.s, 0x01FF);
+    }
+
+    #[test]
+    fn debug_snapshot_vram_scroll_moves_the_window() {
+        let mut core = EmuCore::new(0, Region::Ntsc);
+        assert_eq!(core.debug_snapshot().ppu.vram_window_start, 0);
+        core.set_debug_vram_scroll(0x1234);
+        assert_eq!(core.debug_snapshot().ppu.vram_window_start, 0x1234);
     }
 
     fn zip_containing(name: &str, bytes: &[u8]) -> Vec<u8> {

@@ -412,6 +412,28 @@ impl Gsu {
         self.dreg = 0;
     }
 
+    // --- Debug-only read accessors (no side effects, unlike `read_register`'s memory-mapped
+    // window which can have read-clear/latch behavior on some addresses). For the debugger
+    // overlay's Cart panel (`docs/frontend.md` §Debugger overlay). ------------------------------
+
+    /// The R0-R15 general-purpose register file (R15 is also the program counter).
+    #[must_use]
+    pub const fn registers(&self) -> [u16; 16] {
+        self.r
+    }
+
+    /// The status flag register (SFR).
+    #[must_use]
+    pub const fn sfr(&self) -> u16 {
+        self.sfr
+    }
+
+    /// The program bank register.
+    #[must_use]
+    pub const fn pbr(&self) -> u8 {
+        self.pbr
+    }
+
     // --- The host-sync driver. -------------------------------------------------------------
 
     /// Drain one bus-access clock checkpoint (ares `SuperFX::step`/`Thread::synchronize`
