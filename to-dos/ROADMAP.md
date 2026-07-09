@@ -37,19 +37,21 @@ record; this file frames the phase line.
   run-ahead, PAL auto-detect, ExLoROM), `v0.4.0 "Completion"` (SPC7110 addressing fix, ST018,
   standalone S-RTC), `v0.5.0 "Fidelity"` (the accuracy-pass-rate dashboard + the full named
   hardware-gotcha regression list — every item fixed, correctly reclassified as an intentional
-  non-goal, or honestly researched-and-deferred with a mechanism write-up), and `v0.6.0
-  "Shippable"` (release engineering + doc parity — `security.yml`, checksummed release assets,
-  automated release-cutting via `release-auto.yml`, the `lint` job's `cargo doc` gate, the
-  documentation index, benchmarks, audit trail, and ADR backfill) are all tagged and released on
-  GitHub, establishing the real release cadence `to-dos/VERSION-PLAN.md` defines — read it
-  alongside this file; it maps the phases above onto a concrete, named `v0.x.0` → `v1.0.0` ladder
-  with release-cut criteria per rung. Two `v0.5.0`-era deferrals surfaced genuine findings still
-  being worked: a real off-by-one-line HDMA/compositor timing bug (a fix has been designed,
-  implemented, and verified pixel-exact against the pre-fix baseline — a clean, 100%-explained
-  one-line-later shift — but landing it requires deliberately re-blessing one SA-1 golden hash
-  it legitimately changes, gated on explicit review before committing), and a confirmed
-  regression that correctly stopped an unverified open-bus fix from landing. `v1.0.0`'s own gate
-  (`to-dos/VERSION-PLAN.md`'s v1.0.0 section) is next.
+  non-goal, or honestly researched-and-deferred with a mechanism write-up), `v0.6.0 "Shippable"`
+  (release engineering + doc parity — `security.yml`, checksummed release assets, automated
+  release-cutting via `release-auto.yml`, the `lint` job's `cargo doc` gate, the documentation
+  index, benchmarks, audit trail, and ADR backfill), and `v0.7.0 "Resolution"` (true 512-px
+  hi-res Modes 5/6 output, a genuine one-pixel-clock-delayed DAC pipeline verified against ares'
+  primary source; the save-state `FORMAT_VERSION`'s first real bump, closing the `v1.0.0` gate's
+  backward-compat-fixture item early) are all tagged and released on GitHub, establishing the
+  real release cadence `to-dos/VERSION-PLAN.md` defines — read it alongside this file; it maps
+  the phases above onto a concrete, named `v0.x.0` → `v1.0.0` ladder with release-cut criteria
+  per rung, rewritten with `v0.7.0` to front-load Phase 8 breadth into the `v1.0.0` gate rather
+  than deferring it post-1.0 (matching what RustyNES actually shipped in its own v1.0.0 — see
+  `to-dos/VERSION-PLAN.md`'s "Second reversal"). The mid-scanline/HDMA-driven register timing fix
+  and the open-bus-via-HDMA-latch investigation remain open, carried forward as an ongoing,
+  opportunistic `v0.x.y`-patch cluster rather than gating a numbered rung (`to-dos/VERSION-PLAN.md`).
+  `v0.8.0 "Instrumentation"` (debugger, scripting/TAS, cheats) is next.
 
 ## The phase spine
 

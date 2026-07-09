@@ -325,7 +325,7 @@ isn't about emulation accuracy.
 - `to-dos/ROADMAP.md` and this file updated to reflect the ladder's actual progress at every
   release, not left stale (the mistake this rewrite is fixing).
 
-### v0.7.0 "Resolution" — true hi-res output
+### v0.7.0 "Resolution" — true hi-res output — **RELEASED 2026-07-09**
 
 The one item from `v0.5.0`'s carried-forward PPU gap list that's genuinely bounded, with no
 external unknowns (no ROM sourcing, no open-ended root-causing): full 512-px hi-res (Modes 5/6)

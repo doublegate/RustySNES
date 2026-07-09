@@ -15,11 +15,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wasm demo page.** Found live by the user comparing against RustyNES's Pages deployment (which
   has `<a href="api/">API documentation</a>` in its own footer) — RustySNES's demo page had no
   path to the API docs at all short of manually typing `/api/` into the URL bar. Added a small
-  footer mirroring RustyNES's own pattern (a GitHub repo link + an API docs link).
+  footer mirroring RustyNES's own pattern (a GitHub repo link + an API docs link), opening in a
+  new tab so navigating to it doesn't kill the running wasm instance's emulation state.
+
+## [0.7.0] "Resolution" - 2026-07-09
+
+Implements true 512-px hi-res (Modes 5/6) output, the one bounded item left on `v0.5.0`'s
+carried-forward PPU residual list, and rewrites the `v0.7.0`→`v1.0.0` release ladder to
+front-load breadth into the `v1.0.0` gate rather than deferring it post-1.0, matching what
+RustyNES actually shipped in its own v1.0.0. Also fixes a live `/api/` 404 on the Pages
+deployment and a real shell-injection-style bug in `release-auto.yml` found on its first live
+run. See `to-dos/VERSION-PLAN.md` for the full ladder this release opens.
+
+**Oracle/golden suites: all held, no regressions.** The full workspace test suite (including
+`--features test-roms`) is green; no currently-passing golden ROM enters hi-res mode, so the
+non-hires compositor path is untouched and byte-identical to before.
+
+This release's substantive work landed across PRs #44 and #45, each independently reviewed by
+Gemini + Copilot (including two AI-reviewer suggestions investigated and rejected with
+primary-source citations against ares' `dac.cpp` — see PR #45's review threads), human-reviewed,
+and adjudicated before merge; this release-closeout PR (#46) is the final bookkeeping step,
+matching the same convention every prior release-closeout PR (`v0.5.0`'s #35, `v0.6.0`'s #40) has
+used.
 
 ### Added
 
-- **True 512-px hi-res (Modes 5/6) output — `v0.7.0 "Resolution"`.** `rustysnes-ppu`'s DAC now
+- **True 512-px hi-res (Modes 5/6) output.** `rustysnes-ppu`'s DAC now
   emits two output columns per PPU pixel clock in hi-res, mirroring ares' `PPU::DAC::run()`/
   `above()`/`below()` (`ref-proj/ares/ares/sfc/ppu/dac.cpp`, read as primary source, not
   paraphrased from an earlier research summary that had undersold the real complexity here): the
