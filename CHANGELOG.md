@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The `v0.7.0`→`v1.0.0` release ladder is rewritten to front-load breadth into the 1.0 gate,
+  matching what RustyNES actually shipped in its own v1.0.0.** The `v0.1.0`-`v0.6.0` ladder
+  treated `v1.0.0` as an accuracy + stability gate with Phase 8 (netplay, RetroAchievements, TAS,
+  scripting, a debugger, cheats) deferred to named post-1.0 minors — a deliberate correction away
+  from an even earlier draft that had folded that breadth into 1.0. This reverses course a second
+  time: RustyNES front-loaded nearly all of that breadth into its own v1.0.0 rather than
+  deferring it, so matching that bar means it lands before RustySNES's production cut too, not
+  after. New ladder: `v0.7.0 "Resolution"` (true 512-px hi-res Modes 5/6 output, the one bounded
+  item left on the accuracy-debt list), an ongoing opportunistic `v0.x.y`-patch cluster for the
+  rest of that list (mid-scanline/GSU, open-bus-via-HDMA-latch, SPC7110, DRAM refresh, ROM-dump-
+  gated validation — none of it gates a numbered rung), `v0.8.0 "Instrumentation"` (debugger
+  overlay, Lua scripting + TAS movie API, cheat-code support), `v0.9.0 "Community"` (rollback
+  netplay, RetroAchievements), then `v1.0.0` (desktop UX shell maturity, a new frame-time
+  performance-regression CI gate, the `README.md` rewrite, the production cut).
+  `to-dos/VERSION-PLAN.md`, `to-dos/ROADMAP.md`, and `to-dos/phase-8-reach/overview.md` (plus its
+  sprint files, renumbered: Sprint 1 = Instrumentation/`v0.8.0`, Sprint 2 = Community/`v0.9.0`,
+  replacing the old netplay+RA-only Sprint 1) are rewritten together so all three planning
+  documents agree.
+
 ### Fixed
 
 - **`release-auto.yml`: fixed a real shell-injection-style bug found on its first live run.**

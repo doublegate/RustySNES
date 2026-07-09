@@ -1,44 +1,61 @@
-# Phase 8 — Reach (additive, off-by-default)
+# Phase 8 — Instrumentation + Community (additive, off-by-default)
 
 ## Goal
 
-Add the reach features — rollback netplay, RetroAchievements, TAS movies + a piano-roll editor,
-Lua scripting, and a shader / filter ecosystem — each **behind a default-off feature flag** and
-each **proven byte-identical with the feature off**, so the shipped / native / `no_std` / wasm
-builds stay byte-identical and the accuracy number is unaffected. This is the v1.0.0-completing
-phase.
+Add the breadth features RustyNES shipped in its own v1.0.0 rather than deferring —
+a debugger overlay, Lua scripting + a TAS movie/replay API, cheat-code support, rollback
+netplay, and RetroAchievements — each **behind a default-off feature flag** and each **proven
+byte-identical with the feature off**, so the shipped / native / `no_std` / wasm builds stay
+byte-identical and the accuracy number is unaffected. **This phase gates `v1.0.0`** (reversed
+from an earlier post-1.0 framing — see "Second reversal" in `to-dos/VERSION-PLAN.md`'s intro):
+RustyNES front-loaded this exact breadth into its own v1.0.0, and matching that bar means Phase
+8 lands before the production cut, not after it. A shader/filter ecosystem and a Libretro core
+stay genuinely post-`v1.0.0` Reach — polish items with no accuracy-adjacency, matching how
+RustyNES itself treated them.
 
 ## Exit criteria
 
-- [ ] Rollback netplay (frontend-orchestrated against the deterministic core, native + browser).
+- [ ] Debugger overlay (65C816/PPU/APU/Cart panels, including SA-1/Super FX coprocessor state
+      when active) filling in `ui_shell.rs`'s already-wired `"TODO(impl-phase)"` panels.
+- [ ] Lua scripting / TAS API (`rustysnes-script`'s full stated scope: scripting + movie
+      record/playback together, per its own `docs/STATUS.md` description).
+- [ ] Cheat-code support (Game Genie / Pro Action Replay SNES format), a new `cheats` flag.
+- [ ] Rollback netplay (frontend-orchestrated against the deterministic core, native + browser),
+      preceded by a `System::save_state()`/`load_state()` cost benchmark to confirm the existing
+      full-snapshot design is fast enough for a real rollback window.
 - [ ] RetroAchievements (opt-in, native FFI, the `RustySNES/<ver> rcheevos/<ver>` User-Agent
       pattern).
-- [ ] TAS movie record / play + a piano-roll editor; deterministic replay.
-- [ ] Lua scripting / TAS API.
-- [ ] A composable shader / filter ecosystem.
 - [ ] Every feature off by default; with all off, builds are byte-identical (a CI gate proves
-      it).
-- [ ] All sprints complete; v1.0.0 cut prerequisites met.
+      it, re-verified after each sprint below).
+- [ ] All sprints complete; `v1.0.0` cut prerequisites met (`to-dos/VERSION-PLAN.md`'s v1.0.0
+      gate).
 
 ## Scope
 
 In-scope:
 
-- The five reach feature families, each default-off and byte-identical-when-off.
-- The v1.0.0 cut: README / CHANGELOG / docs / STATUS in sync; release matrix + Pages green.
+- The five breadth feature families above, each default-off and byte-identical-when-off.
+- The `Board: Send` fix `emu-thread` needs (a prerequisite for `v1.0.0`'s dedicated emulation
+  thread, tracked here since it's discovered/fixed alongside this phase's instrumentation work).
 
-Out-of-scope:
+Out-of-scope (post-`v1.0.0` Reach, `to-dos/VERSION-PLAN.md`):
 
-- The fractional-timebase refactor (`docs/adr/0002`) — strictly beyond v1.0.
+- A composable shader/filter ecosystem (CRT/HQ2x) and a Libretro core.
+- HD texture packs (the `hd-pack` flag exists in the manifest already, but RustyNES itself
+  doesn't have this feature, so it sits outside the parity target).
+- The fractional-timebase refactor (`docs/adr/0002`) — strictly beyond `v1.0.0`.
 
 ## Sprints
 
-- [Sprint 1 — Netplay + RetroAchievements](sprint-1-netplay-ra.md) — the determinism-dependent
-  reach features first.
-- Sprint 2 — TAS movies + piano-roll + Lua.
-  **Status:** stub — refine when Sprint 1 is ~complete.
-- Sprint 3 — Shaders + the v1.0.0 cut.
-  **Status:** stub.
+- [Sprint 1 — Instrumentation](sprint-1-instrumentation.md) — debugger, scripting/TAS, cheats.
+  Maps to `v0.8.0 "Instrumentation"`.
+- [Sprint 2 — Community](sprint-2-community.md) — rollback netplay, RetroAchievements. Maps to
+  `v0.9.0 "Community"`.
+
+The desktop UX shell maturity pass (thumbnail save-state manager, themes, input rebinding, the
+Performance panel, wiring `emu-thread`) and the production cut itself are tracked directly under
+`v1.0.0` in `to-dos/VERSION-PLAN.md`, not as a Phase 8 sprint — that work is UX/release polish,
+not a reach *feature*.
 
 ## Dependencies
 
@@ -52,10 +69,26 @@ Phase 5 (the frontend + the exercised determinism contract); Phases 1–4 featur
   RustyNES `--all-features` trap — use explicit combos, never `--all-features`).
 - **Netplay determinism** — any hidden non-determinism breaks rollback. Mitigate: the
   determinism contract (`docs/adr/0004`) is the precondition.
+- **Netplay save-state cost, unmeasured** — `RewindBuffer` was designed for ~10 Hz capture;
+  rollback netplay calls save/restore far more often, and nothing currently benchmarks
+  `System::save_state()`/`load_state()` cost. If full-snapshot cost is too high for a real
+  rollback window, delta/incremental snapshots become necessary — a real design change beyond
+  `docs/adr/0006`'s "future memory optimization, not correctness requirement" framing (a call
+  made for rewind's occasional-capture case, not netplay's every-frame one). Benchmark before
+  committing to the existing design; write a new ADR if it triggers a redesign.
+- **`emu-thread` vs. netplay control-model conflict** — `emu_thread.rs`'s pacing model is
+  single-player-only by its own doc comment; netplay's rollback drive loop is a different,
+  frontend-orchestrated resimulation model. Mitigate by keeping the two mutually exclusive by
+  session type (a netplay session uses its own rollback-aware loop, never the generic
+  `emu-thread` pacer) rather than trying to unify them.
 
 ## Reference docs
 
 - [docs/frontend.md](../../docs/frontend.md) — the determinism boundary the reach features rest
   on.
 - [docs/adr/0004](../../docs/adr/0004-determinism-contract.md) — the rollback/replay precondition.
+- [docs/adr/0006](../../docs/adr/0006-save-state-format.md) — the save-state envelope netplay's
+  rollback and TAS's replay both build on.
 - [docs/STATUS.md](../../docs/STATUS.md) — version policy + the v1.0.0 cut record.
+- [to-dos/VERSION-PLAN.md](../VERSION-PLAN.md) — the full `v0.7.0`→`v1.0.0` ladder this phase's
+  sprints map onto.

@@ -29,8 +29,10 @@ record; this file frames the phase line.
   the accuracy-pass-rate dashboard is done and every named hardware-gotcha item is triaged with
   evidence, but the confirmed mid-line-raster fix and the accuracy-percentage push itself remain
   open). Phase 8 (netplay/RetroAchievements/scripting — all three crates are still 1-line stubs)
-  has not started. See `docs/STATUS.md` for the authoritative per-subsystem table this line
-  summarizes.
+  has not started, but as of this update is **in scope for the `v0.8.0`/`v0.9.0` rungs gating
+  `v1.0.0`**, not deferred post-1.0 (see "Milestones beyond the phases" below — this reverses the
+  prior post-1.0 framing, matching what RustyNES actually shipped in its own v1.0.0). See
+  `docs/STATUS.md` for the authoritative per-subsystem table this line summarizes.
 - **Release:** `v0.1.0 "Foundation"`, `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"` (rewind,
   run-ahead, PAL auto-detect, ExLoROM), `v0.4.0 "Completion"` (SPC7110 addressing fix, ST018,
   standalone S-RTC), `v0.5.0 "Fidelity"` (the accuracy-pass-rate dashboard + the full named
@@ -123,8 +125,10 @@ signature the sibling open-bus-via-HDMA-latch investigation also hit and correct
 verifications, and what a future investigation needs).
 **Exit:** accuracy battery at target; residuals documented + deferred, not point-fixed
 (`docs/adr/0002`). **Not yet met** — see Status above.
-**Release mapping:** `v0.5.0` (`to-dos/VERSION-PLAN.md`), triage complete; the confirmed fixes
-carry into `v0.6.0`+.
+**Release mapping:** `v0.5.0` (`to-dos/VERSION-PLAN.md`), triage complete; the one bounded
+residual (true hi-res Modes 5/6 output) closes in `v0.7.0 "Resolution"`; the rest (mid-scanline/
+GSU, open-bus-via-HDMA-latch, SPC7110, DRAM refresh, ROM-dump-gated validation) carries forward
+as an ongoing, opportunistic `v0.x.y`-patch cluster, not a gating rung.
 → [overview](phase-6-accuracy-to-100/overview.md)
 
 ### Phase 7 — Breadth 🚧 mostly complete
@@ -144,32 +148,49 @@ complete); the PAL/ExLoROM golden-boot proof remains opportunistic (`v0.3.x`, no
 real ROM ever surfaces.
 → [overview](phase-7-breadth/overview.md)
 
-### Phase 8 — Reach (additive, off-by-default) 🚧 not started (all three crates are 1-line stubs)
+### Phase 8 — Instrumentation + Community (additive, off-by-default) 🚧 not started (all three reach crates are still 1-line stubs)
 
-**Goal:** rollback netplay, RetroAchievements, TAS movies, Lua scripting, a shader ecosystem —
-each behind a default-off feature, each byte-identical with the feature off.
-**Exit:** features ship; shipped/native/no_std/wasm byte-identical.
-**Release mapping:** entirely post-`v1.0.0` — see `to-dos/VERSION-PLAN.md`'s `v1.1.0`+ ladder.
-This phase does not gate `v1.0.0` (see "Milestones" below).
+**Goal:** debugger overlay, Lua scripting + TAS movies, cheat-code support, rollback netplay,
+and RetroAchievements — each behind a default-off feature, each byte-identical with the feature
+off. **As of this update, this phase gates `v1.0.0`** (reversed from the earlier post-1.0
+framing — see "Second reversal" in `to-dos/VERSION-PLAN.md`'s intro): RustyNES front-loaded this
+exact breadth into its own v1.0.0 rather than deferring it, and matching that bar means Phase 8
+lands before the production cut, not after it. A shader ecosystem/Libretro core remain
+post-`v1.0.0` Reach — RustyNES doesn't have HD texture packs either, so `hd-pack` stays
+deliberately out of the parity target.
+**Exit:** features ship; shipped/native/no_std/wasm byte-identical with every new flag off
+(the byte-identical-with-all-flags-off CI gate, added starting `v0.8.0` and re-verified through
+`v0.9.0`/`v1.0.0`).
+**Release mapping:** `v0.8.0 "Instrumentation"` (debugger, scripting/TAS, cheats) then
+`v0.9.0 "Community"` (netplay, RetroAchievements) — see `to-dos/VERSION-PLAN.md` for the full
+per-item breakdown, including the `Board: Send`/`emu-thread` prerequisite and the netplay
+save-state-cost pre-work.
 → [overview](phase-8-reach/overview.md)
 
 ## Milestones beyond the phases
 
-- **v1.0.0 — production cut.** Deliberately **not** gated on Phase 8 (feature breadth) —
-  gated on: the accuracy battery holding its Phase-6 target with no regressions, a **stable**
-  save-state/core API (Phase 5), and a genuinely shippable multi-platform app (the release
-  matrix + wasm/Pages, both exercised end-to-end for the first time in `v0.6.0`). README /
-  CHANGELOG / docs / STATUS in sync. See `to-dos/VERSION-PLAN.md` for the full rationale (it
-  mirrors how RustyNES gated its own v1.0.0 — accuracy + API stability + shippability, not
-  mapper/feature count).
-- **Post-v1.0 — Phase 8 ships as named, themed minors** (`v1.1.0` scripting/debugger,
-  `v1.2.0` netplay, `v1.3.0` RetroAchievements, `v1.4.0` TAS movies, `v1.5.0`+ shaders/cheats/
-  Libretro) — see `to-dos/VERSION-PLAN.md`.
-- **Beyond that — the fractional-timebase refactor (`docs/adr/0002`).** *Only if* the hard-tier
-  residuals warrant it: the one-clock + every-cycle-bus-access collapse (a fractional master
-  clock with a φ1/φ2 split). **The one release expected to break byte-identity / save-state
-  compatibility.** Do NOT conflate it with "the master clock already exists (the Phase-0
-  scheduler)" — the RustyNES versioning trap.
+- **v0.7.0 "Resolution".** True 512-px hi-res (Modes 5/6) output — the one bounded item left on
+  Phase 6's residual list; the rest of that list (mid-scanline/GSU, open-bus-via-HDMA-latch,
+  SPC7110, DRAM refresh, ST018/S-RTC/PAL/ExLoROM real-ROM validation) stays an ongoing,
+  opportunistic `v0.x.y`-patch cluster, not a gating rung — see `to-dos/VERSION-PLAN.md`.
+- **v0.8.0 "Instrumentation" / v0.9.0 "Community" — Phase 8, gating `v1.0.0`.** See the Phase 8
+  section above.
+- **v1.0.0 — production cut.** Gated on: the accuracy battery holding its Phase-6 target with no
+  regressions; a **stable, backward-compat-fixture-proven** save-state/core API (Phase 5); the
+  full Phase 8 breadth landed and byte-identical with flags off; a genuinely shippable
+  multi-platform app (the release matrix + wasm/Pages, both exercised end-to-end since `v0.6.0`)
+  plus a new frame-time performance-regression CI gate; a desktop UX shell at RustyNES's
+  maturity bar (thumbnail save-state manager, input rebinding, themes, speed presets, a
+  Performance panel, the dedicated `emu-thread`); the README rewrite; README / CHANGELOG / docs /
+  STATUS in sync. See `to-dos/VERSION-PLAN.md` for the full rationale and per-item detail.
+- **Beyond that — Reach (deferred):** a Libretro core, a shader/filter pipeline (CRT/HQ2x), HD
+  texture packs (`hd-pack`), and any future mobile/Android target (no appetite assumed by
+  default) — see `to-dos/VERSION-PLAN.md`'s "Post-v1.0 — Reach".
+- **Further beyond — the fractional-timebase refactor (`docs/adr/0002`).** *Only if* the
+  hard-tier residuals warrant it: the one-clock + every-cycle-bus-access collapse (a fractional
+  master clock with a φ1/φ2 split). **The one release expected to break byte-identity /
+  save-state compatibility.** Do NOT conflate it with "the master clock already exists (the
+  Phase-0 scheduler)" — the RustyNES versioning trap.
 
 ## Cross-phase dependencies
 
