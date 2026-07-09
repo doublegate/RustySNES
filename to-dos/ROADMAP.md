@@ -112,12 +112,15 @@ Phase-2 mid-line-raster gap here.
 every named hardware-gotcha item has been triaged with evidence — fixed (a real HDMA dot-phase
 doc/code drift), correctly reclassified as an intentional non-goal (`$4203`/`$4206`, the
 "DMA/HDMA-collision crash quirk"), or honestly researched-and-deferred (DRAM refresh,
-open-bus-via-HDMA-latch, mid-scanline/HDMA-driven register timing, hi-res color-math precision).
-The Phase-2 mid-line-raster gap is now **confirmed real** (a genuine off-by-one-line compositor
-bug, not fixed — `docs/ppu.md` §Mid-scanline/HDMA-driven register timing), which is real progress
-(the ambiguity is gone) but not yet the "un-defer" this phase's goal describes; that fix, plus
-whatever the ≥90% target needs after these fixes land, is real remaining work carried into
-`v0.6.0`+, not silently claimed done.
+open-bus-via-HDMA-latch, hi-res color-math precision). The Phase-2 mid-line-raster gap is
+**confirmed real, a fix is designed and prototyped, but NOT landed**: the prototype
+(`rustysnes-ppu` compositing each line at the hardware-correct `RENDER_DOT` instead of the
+line's end) is independently verified correct for the CPU/HDMA-driven case (SA-1's
+`SD F-1 Grand Prix` golden change, pixel-verified as a real improvement), but the same change
+breaks all 24 Super FX/GSU golden tests for reasons not yet understood — the identical failure
+signature the sibling open-bus-via-HDMA-latch investigation also hit and correctly did not land
+(`docs/ppu.md` §Mid-scanline/HDMA-driven register timing has the full mechanism, both
+verifications, and what a future investigation needs).
 **Exit:** accuracy battery at target; residuals documented + deferred, not point-fixed
 (`docs/adr/0002`). **Not yet met** — see Status above.
 **Release mapping:** `v0.5.0` (`to-dos/VERSION-PLAN.md`), triage complete; the confirmed fixes

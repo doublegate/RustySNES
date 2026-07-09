@@ -159,23 +159,34 @@ AccuracyCoin-equivalent). See `to-dos/phase-6-accuracy-to-100/`.
   Super FX/GSU games' GP-DMA ROM→GSU-RAM transfers interact with the change. Not landed; see
   `docs/scheduler.md` §Open bus via DMA/HDMA for the full mechanism and what a future
   investigation needs (an access-level trace, mirroring `docs/audit/spc7110-boot-crash-2026-07-08.md`'s
-  approach for the SPC7110 gap). **Researched, confirmed, deferred:** true mid-scanline/mid-dot
-  writes (the "Air Strike Patrol BG3 scroll" case) — confirmed against ares' per-pixel reference
-  model (`ppu/main.cpp`'s `cycleRenderPixel()` only runs for hcounter `[56, 1078]`, strictly
-  *before* HDMA's per-line run at hcounter 1104) that RustySNES's end-of-line compositor has a
-  genuine, systemic off-by-one-line bug: an HDMA-driven per-line register write during line `V`
-  is meant to take effect starting line `V+1`, but the current compositor (reading live register
-  state at dot 340, after line `V`'s own HDMA already ran) applies it to line `V` itself. This
-  un-defers (confirms as real, not yet fixes) Phase 2's flagged "mid-line raster deferred" gap.
-  Not fixed this pass — the fix touches the hottest code path in the engine (every frame, all 29
-  goldens); **regression-baseline groundwork now landed** —
-  `crates/rustysnes-core/tests/mid_scanline_hdma_baseline.rs` is a minimal, self-authored
-  hand-assembled reproduction (HDMA-driven `$2100` brightness, no BG/OBJ setup needed) that locks
-  in the current confirmed-buggy transition position as a numeric acceptance test the eventual
-  fix flips deliberately — closing most of the "no dedicated test ROM" gap; the cross-crate
-  scheduler/PPU timing-communication design remains the real outstanding work. Full mechanism,
-  the baseline test, and what the fix still needs in `docs/ppu.md` §Mid-scanline/HDMA-driven
-  register timing. **Researched,
+  approach for the SPC7110 gap). **Designed, prototyped, SA-1-verified, BLOCKED (not landed):**
+  true mid-scanline/mid-dot writes (the "Air Strike Patrol BG3 scroll" case) — confirmed against
+  ares' per-pixel reference model (`ppu/main.cpp`'s `cycleRenderPixel()` only runs for hcounter
+  `[56, 1078]`, strictly *before* HDMA's per-line run at hcounter 1104) that RustySNES's
+  end-of-line compositor has a genuine, systemic off-by-one-line bug: an HDMA-driven per-line
+  register write during line `V` is meant to take effect starting line `V+1`, but the compositor
+  (reading live register state at dot 340, after line `V`'s own HDMA already ran) applies it to
+  line `V` itself. A prototype fix (`rustysnes-ppu` gains a public `RENDER_DOT` constant, `= 276`,
+  the PPU's own video-timing fact that `rustysnes-core`'s `HDMA_RUN_DOT` is defined equal to;
+  `Ppu::tick_dot` composites each line at `RENDER_DOT` instead of dot 340 — the same dot number
+  HDMA's own per-line run fires at, but sequenced strictly before it within that master-clock
+  tick's execution order, since the HDMA-service check runs after the PPU-dot call returns — no
+  DMA/HDMA knowledge leaked into the PPU crate) is independently verified CORRECT for the
+  CPU/HDMA-driven case: SA-1's `SD F-1 Grand Prix` golden hash change was confirmed a real
+  accuracy improvement by diffing pre-/post-fix framebuffers row-by-row — 159/239 rows differed,
+  and testing those against the fix's predicted "shifted one line later" signature matched
+  232/237 checkable rows (97.9%; 237 = 239 minus the 2 boundary rows a one-line-shift comparison
+  can't reach) with zero unexplained outliers. **But the same change breaks all 24 Super FX/GSU
+  golden tests** with a
+  diff pattern that does NOT fit that same mechanism (a color bar shifted 4 rows in the *opposite*
+  direction on one ROM; 7 genuine outliers on another) — the identical failure signature the
+  sibling open-bus-via-HDMA-latch investigation (above) also hit and correctly did not land.
+  Working hypothesis: the GSU coprocessor's host-synced VRAM writes (`Board::coprocessor_tick`,
+  stepped from the same `advance_master` loop the PPU dot-tick runs from) are sampled at a
+  different point in their own progress once the render trigger moves from dot 340 to dot 276 —
+  not confirmed, needs an access-level trace. Not landed; full mechanism, both verifications, and
+  what a future investigation needs in `docs/ppu.md` §Mid-scanline/HDMA-driven register timing.
+  **Researched,
   deferred (blocked on a larger feature, not a precision nuance):** hi-res color-math precision
   (Bishoujo Janshi Suchie-Pai / Marvelous+SA-1) — confirmed against ares' `DAC::run()` that hi-res
   is a dual-half-pixel output trick (alternating `above`/`below` compositor results at 2× the
