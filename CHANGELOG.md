@@ -22,10 +22,12 @@ run. See `to-dos/VERSION-PLAN.md` for the full ladder this release opens.
 `--features test-roms`) is green; no currently-passing golden ROM enters hi-res mode, so the
 non-hires compositor path is untouched and byte-identical to before.
 
-This release landed across PRs #44 and #45, each independently reviewed by Gemini + Copilot
-(including two AI-reviewer suggestions investigated and rejected with primary-source citations
-against ares' `dac.cpp` — see PR #45's review threads), human-reviewed, and adjudicated before
-merge.
+This release's substantive work landed across PRs #44 and #45, each independently reviewed by
+Gemini + Copilot (including two AI-reviewer suggestions investigated and rejected with
+primary-source citations against ares' `dac.cpp` — see PR #45's review threads), human-reviewed,
+and adjudicated before merge; this release-closeout PR (#46) is the final bookkeeping step,
+matching the same convention every prior release-closeout PR (`v0.5.0`'s #35, `v0.6.0`'s #40) has
+used.
 
 ### Added
 
