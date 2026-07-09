@@ -166,8 +166,8 @@ exact breadth into its own v1.0.0 rather than deferring it, and matching that ba
 lands before the production cut, not after it. A shader ecosystem/Libretro core remain
 post-`v1.0.0` Reach — RustyNES doesn't have HD texture packs either, so `hd-pack` stays
 deliberately out of the parity target.
-**Status:** Sprint 1 (`v0.8.0 "Instrumentation"`) is done — the debugger overlay, `rustysnes-
-script` (Lua scripting + TAS movies), `rustysnes_core::cheat` (Game Genie/Pro Action Replay),
+**Status:** Sprint 1 (`v0.8.0 "Instrumentation"`) is done — the debugger overlay,
+`rustysnes-script` (Lua scripting + TAS movies), `rustysnes_core::cheat` (Game Genie/Pro Action Replay),
 the extended byte-identical-with-flags-off CI gate, and the full wasm frontend all landed
 (T-81-001 through T-81-006). Sprint 2 (`v0.9.0 "Community"`: netplay, RetroAchievements) has not
 started; `rustysnes-netplay`/`rustysnes-cheevos` are still 1-line stubs.

@@ -121,12 +121,12 @@ feature combo (never `--all-features`).
 **Acceptance criteria:**
 
 - [x] The byte-identical gate passes with all three flags off — an explicit
-      `cargo clippy --workspace --all-targets --no-default-features --features wasm-winit,
-      help-tui -- -D warnings` step in `lint` (named, not left implicit in `default`), plus the
+      `cargo clippy --workspace --all-targets --no-default-features --features wasm-winit,help-tui -- -D warnings`
+      step in `lint` (named, not left implicit in `default`), plus the
       existing `full-test`'s default-feature `cargo test --workspace` at every release tag.
 - [x] clippy runs each new feature combo explicitly — `debug-hooks`, `scripting`, `cheats`
-      individually and combined (`debug-hooks,scripting,cheats`), all in `.github/workflows/
-      ci.yml`'s `lint` job (never `--all-features`); `full-test` additionally runs
+      individually and combined (`debug-hooks,scripting,cheats`), all in
+      `.github/workflows/ci.yml`'s `lint` job (never `--all-features`); `full-test` additionally runs
       `cargo test -p rustysnes-frontend --features debug-hooks,scripting,cheats` (Linux only —
       `scripting`'s vendored `mlua`/Lua 5.4 C build on macOS/Windows is its own question, out of
       this ticket's scope) for exhaustive behavioral coverage ahead of a tagged release.
