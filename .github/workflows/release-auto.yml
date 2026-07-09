@@ -1,0 +1,182 @@
+name: Auto Release
+
+# Publishes an annotated git tag + GitHub Release automatically once a version's CHANGELOG
+# section has been closed out and merged to `main`, and CI has gone green on that commit. Mirrors
+# RustyNES's automated-release pattern (`release-auto.yml`) adapted to RustySNES's own
+# conventions rather than copied wholesale:
+#
+#   - RustySNES's crate `Cargo.toml` versions stay pinned at 0.1.0 (nothing here is published to
+#     crates.io; versioning lives entirely in the git tag), so this can't key off a Cargo.toml
+#     version bump the way RustyNES does. Instead the trigger signal is CHANGELOG.md's own
+#     structure: an EMPTY `## [Unreleased]` section immediately followed by a real
+#     `## [X.Y.Z] "Name" - date` heading means that version was just closed out (the
+#     release-closeout PR ceremony this project already uses — e.g. PR #31 for v0.4.0, PR #35 for
+#     v0.5.0) and is ready to tag. A non-empty `[Unreleased]` means there's nothing to release yet.
+#   - Release notes ARE the CHANGELOG section itself (`docs/adr/0007`'s tag-body-is-the-
+#     release-note convention) -- no separate maintainer-authored notes file to keep in sync;
+#     every PR this project lands already writes its CHANGELOG entry at release-note quality.
+#   - Creates a real ANNOTATED tag (`git tag -a vX.Y.Z -F <notes>`), not just the lightweight tag
+#     `gh release create` would imply on its own, preserving the same annotated-tag convention
+#     every prior release (v0.1.0-v0.4.0, hand-cut) used -- `git show vX.Y.Z` keeps working
+#     identically for a bot-cut release as for a hand-cut one.
+#
+# Flow: PR merged to main (CHANGELOG `[Unreleased]` -> `[X.Y.Z]`, the release-closeout PR) -> CI
+# runs on main and goes green -> this workflow fires (workflow_run: CI completed/success on
+# main) -> if no `vX.Y.Z` tag exists yet for the closed-out version, it creates the tag +
+# GitHub Release, then invokes release.yml (workflow_call, since a bot-pushed tag doesn't trigger
+# `on: push: tags`) to build + attach the platform binaries + checksums.
+#
+# Idempotent: if the version's tag already exists, this is a clean no-op on every `main` build.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare release (notes + tag)
+    # Only act when CI actually SUCCEEDED on a push to main (not PRs / forks).
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.decide.outputs.should_release }}
+      tag: ${{ steps.decide.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Build the release from the exact commit CI went green on. Full history so the
+          # annotated-tag creation and the `git ls-remote` existence check both have what they
+          # need (a shallow clone's tag/ref visibility isn't reliable here).
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Decide whether a closed-out version needs releasing
+        id: decide
+        shell: bash
+        run: |
+          set -euo pipefail
+          # ANY non-blank content under [Unreleased] (not just a "- " bullet -- a stray heading
+          # like a bare "### Added" with no bullets under it yet is still content, not an
+          # all-clear to release) means the next version hasn't been closed out yet -- nothing
+          # to release. Exit status of the awk itself carries the answer.
+          if awk '
+            /^## \[Unreleased\]/ { f=1; next }
+            f && /^## \[/ { exit }
+            f && NF { found=1 }
+            END { exit !found }
+          ' CHANGELOG.md; then
+            echo "[Unreleased] still has content -- no version to release yet."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          header="$(awk '/^## \[Unreleased\]/{f=1; next} f && /^## \[/{print; exit}' CHANGELOG.md)"
+          version="$(printf '%s' "$header" | sed -nE 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/p')"
+          if [ -z "$version" ]; then
+            echo "No closed-out '## [X.Y.Z]' section found after [Unreleased] -- nothing to release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          tag="v${version}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "header=${header}" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "Tag ${tag} already exists -- nothing to release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Version ${version} has no ${tag} tag yet -- will release."
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve release title + notes from the CHANGELOG section
+        if: steps.decide.outputs.should_release == 'true'
+        id: notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.decide.outputs.version }}"
+          header="${{ steps.decide.outputs.header }}"
+          body_file="$(mktemp)"
+
+          # The full "## [X.Y.Z] ..." section body, up to (not including) the next "## [" heading.
+          awk -v ver="$version" '
+            $0 ~ ("^## \\[" ver "\\]") { f=1; next }
+            f && /^## \[/ { exit }
+            f { print }
+          ' CHANGELOG.md > "$body_file"
+
+          # Trim leading/trailing blank lines: drop leading blanks, reverse, drop what are now
+          # the leading blanks (the original trailing ones), reverse back. `tac` is coreutils,
+          # present on the ubuntu runner.
+          trimmed="$(mktemp)"
+          awk 'NF{p=1} p' "$body_file" | tac | awk 'NF{p=1} p' | tac > "$trimmed"
+          mv "$trimmed" "$body_file"
+
+          if [ ! -s "$body_file" ]; then
+            echo "::error::CHANGELOG section for ${version} is empty -- nothing to put in the tag/release."
+            exit 1
+          fi
+
+          # Title matches every prior hand-cut release's exact format, e.g. `v0.4.0 "Completion"`
+          # (name="" e.g. `## [0.4.0] "Completion" - 2026-07-08` -> quoted theme -> `v0.4.0 "Completion"`).
+          name="$(printf '%s' "$header" | sed -nE 's/^## \[[0-9]+\.[0-9]+\.[0-9]+\][[:space:]]*("[^"]*").*/\1/p')"
+          if [ -n "$name" ]; then
+            title="v${version} ${name}"
+          else
+            title="v${version}"
+          fi
+
+          echo "body_file=${body_file}" >> "$GITHUB_OUTPUT"
+          echo "title=${title}" >> "$GITHUB_OUTPUT"
+          echo "Resolved title: ${title}"
+
+      - name: Create the annotated tag + push it
+        if: steps.decide.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.decide.outputs.tag }}" \
+            -F "${{ steps.notes.outputs.body_file }}" \
+            "${{ github.event.workflow_run.head_sha }}"
+          git push origin "${{ steps.decide.outputs.tag }}"
+
+      - name: Create the GitHub Release
+        if: steps.decide.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "${{ steps.decide.outputs.tag }}" \
+            --title "${{ steps.notes.outputs.title }}" \
+            --notes-file "${{ steps.notes.outputs.body_file }}" \
+            --latest
+
+  build:
+    name: Build + attach artifacts
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    permissions:
+      contents: write
+    # Reuse the Release build matrix; it attaches the platform binaries + checksums to the
+    # release created above and never overwrites the body.
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}

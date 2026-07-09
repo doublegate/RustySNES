@@ -273,9 +273,21 @@ isn't about emulation accuracy.
       (real-time headroom is fine at ~5.1×, but the target itself isn't met yet — an honest
       baseline, not a claim of hitting it).
       Establishes the number every future optimization pass is measured against.
-- New docs still needed: a `docs/audit/` directory for dense investigation write-ups (RustyNES's
-  pattern for campaigns like the SPC7110 boot-crash trace this project still owes, `docs/cart.md`
-  §SPC7110).
+- [x] `docs/audit/` — a decision-rationale / open-investigation directory (RustyNES's pattern),
+      seeded with the full SPC7110 boot-crash trail (`docs/audit/spc7110-boot-crash-2026-07-08.md`).
+- [x] Automated release-cutting (`.github/workflows/release-auto.yml`): mirrors RustyNES's
+      `release-auto.yml` pattern (fires on the `CI` workflow completing successfully on `main`,
+      invokes `release.yml` via `workflow_call` since a bot-pushed tag doesn't trigger
+      `on: push: tags`) adapted to this project's own conventions rather than copied — since
+      RustySNES's crate `Cargo.toml` versions stay pinned at `0.1.0` (nothing here publishes to
+      crates.io), the trigger signal is `CHANGELOG.md`'s own structure (an empty `[Unreleased]`
+      immediately followed by a real `## [X.Y.Z] "Name" - date` heading means that version was
+      just closed out and is ready to tag) rather than a Cargo.toml version bump, and it creates
+      a real ANNOTATED tag (`git tag -a -F <notes>`) sourced directly from the CHANGELOG section
+      (`docs/adr/0007`'s tag-body-is-the-release-note convention), not a separate
+      maintainer-authored notes file. Idempotent (a no-op once the version's tag already exists).
+      Directly closes the recurring manual-release-ceremony bottleneck this ladder's own v0.5.0
+      cut ran into.
 - [x] ADR backfill for cross-cutting decisions made along this ladder. Save-state format was
       already covered (`docs/adr/0006`); the three real gaps are now filled: `docs/adr/0007`
       (the versioning/release-process adoption itself — this document + the tag-body-is-the-

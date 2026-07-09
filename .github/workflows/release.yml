@@ -10,6 +10,15 @@ on:
       tag:
         description: "Existing tag to build and attach artifacts to (e.g. v0.2.0)"
         required: true
+  # Invoked directly by release-auto.yml right after it creates a tag: a tag pushed by the
+  # built-in GITHUB_TOKEN does NOT trigger `on: push: tags` (GitHub's recursion guard), so
+  # release-auto.yml calls this workflow rather than relying on that push to fire it.
+  workflow_call:
+    inputs:
+      tag:
+        description: "Existing tag to build and attach artifacts to (e.g. v0.5.0)"
+        required: true
+        type: string
 # A tag is normally pushed once, but this guards a mistaken re-push (delete+recreate the same
 # tag) from queuing a redundant duplicate build behind the one already running. Manual dispatches
 # for different tags get independent groups (keyed on the resolved tag, not the ref) so backfilling
