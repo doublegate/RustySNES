@@ -240,8 +240,13 @@ isn't about emulation accuracy.
       creates a minimal release first if the agent-authored `gh release create` ceremony step
       hasn't run yet). Landed retroactively on `v0.1.0`/`v0.2.0`/`v0.3.0` (backfilled after the
       fact, since none of the first three tags had attached artifacts) ahead of this rung, since
-      it was a real user-facing gap, not deferred work. wasm→Pages deploy (`pages.yml`) was
-      already exercised on every `main` push since `v0.1.0`.
+      it was a real user-facing gap, not deferred work. wasm→Pages deploy (`pages.yml`) has been
+      exercised on every `main` push since `v0.1.0`; verified live (not just "CI job green") at
+      `https://doublegate.github.io/RustySNES/` — the trunk-built `index.html`, wasm-bindgen JS
+      loader, and `.wasm` binary all return `200` with correct content-types, and the co-deployed
+      rustdoc site (`/api/`) is reachable too. Both halves of `v1.0.0`'s gate item 3 ("native
+      binaries + a wasm demo") are now confirmed genuinely live, not merely assumed from a
+      passing workflow run.
 - [x] Checksummed assets (SHA-256): `release.yml` gained a `Checksum` step (portable across the
       three runner shells — tries `sha256sum`, falls back to `shasum -a 256`, since neither tool
       alone is guaranteed present on every one of Linux/macOS/Windows) that emits a detached
