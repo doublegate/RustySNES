@@ -25,6 +25,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   VERSION-PLAN.md`'s `v0.8.0` section, `to-dos/phase-8-reach/overview.md`, and
   `sprint-1-instrumentation.md` (two new tickets, T-81-005/T-81-006) updated accordingly.
 
+### Added
+
+- **Debugger overlay live state viewers (T-81-001, PR A of 2).** `ui_shell.rs`'s debugger window
+  now shows real 65C816/PPU/APU/Cart state instead of `"TODO(impl-phase)"` placeholders, gated
+  behind the existing `debug-hooks` flag: a new `DebugSnapshot` (`debug_snapshot.rs`) is copied
+  out under the same brief emu lock `ShellInfo` already uses. The Cart panel includes SA-1
+  second-CPU register state (`System::sa1_regs`) and Super FX/GSU register-file state
+  (`Board::debug_gsu_state`) from day one, resolving `docs/frontend.md`'s previously-open
+  question. Disassembly + PC breakpoints/step controls (PR B) and read/write watchpoints
+  (T-81-001b, needs a new core-crate `debug-hooks` feature + a `Bus`-level hook) are tracked as
+  explicit follow-ups, not bundled into this PR. With `debug-hooks` off the Debug menu entry
+  itself is feature-gated, so `debugger_open` can never become `true` and the build stays
+  byte-identical.
+
+### Fixed
+
+- **`crates/rustysnes-frontend/web/index.html`: added the missing link to `/api/` on the live
+  wasm demo page.** Found live by the user comparing against RustyNES's Pages deployment (which
+  has `<a href="api/">API documentation</a>` in its own footer) — RustySNES's demo page had no
+  path to the API docs at all short of manually typing `/api/` into the URL bar. Added a small
+  footer mirroring RustyNES's own pattern (a GitHub repo link + an API docs link), opening in a
+  new tab so navigating to it doesn't kill the running wasm instance's emulation state.
+
 ## [0.7.0] "Resolution" - 2026-07-09
 
 Implements true 512-px hi-res (Modes 5/6) output, the one bounded item left on `v0.5.0`'s
