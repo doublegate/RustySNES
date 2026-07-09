@@ -66,12 +66,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # A bullet line ("- ") under [Unreleased] means the next version hasn't been closed
-          # out yet -- nothing to release. Exit status of the awk itself carries the answer.
+          # ANY non-blank content under [Unreleased] (not just a "- " bullet -- a stray heading
+          # like a bare "### Added" with no bullets under it yet is still content, not an
+          # all-clear to release) means the next version hasn't been closed out yet -- nothing
+          # to release. Exit status of the awk itself carries the answer.
           if awk '
             /^## \[Unreleased\]/ { f=1; next }
             f && /^## \[/ { exit }
-            f && /^- / { found=1 }
+            f && NF { found=1 }
             END { exit !found }
           ' CHANGELOG.md; then
             echo "[Unreleased] still has content -- no version to release yet."
