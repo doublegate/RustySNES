@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **True 512-px hi-res (Modes 5/6) output — `v0.7.0 "Resolution"`.** `rustysnes-ppu`'s DAC now
+  emits two output columns per PPU pixel clock in hi-res, mirroring ares' `PPU::DAC::run()`/
+  `above()`/`below()` (`ref-proj/ares/ares/sfc/ppu/dac.cpp`, read as primary source, not
+  paraphrased from an earlier research summary that had undersold the real complexity here): the
+  "odd" column is exactly today's unchanged main-screen color-math result; the "even" column is
+  the subscreen's own color, math'd with the operand roles swapped, gated by state from the
+  **previous** pixel clock's above-pass — a genuine one-pixel-clock-delayed hardware pipeline
+  stage (verified precisely enough to know column 0 of every scanline is transparent by
+  construction, matching the documented hardware fact, not a coincidence). The non-hires path is
+  byte-for-byte the pre-existing code, unchanged; a frame's output width is latched once at its
+  first visible scanline rather than re-checked per line, a deliberate, documented
+  simplification. Bumped the save-state `FORMAT_VERSION` `1`→`2` (the framebuffer's backing
+  storage growing to hi-res capacity is a real byte-layout change) — its first real bump, closing
+  the `v1.0.0` gate's previously-flagged backward-compat-fixture gap early: a committed real
+  `FORMAT_VERSION=1` blob (`tests/golden/savestate-v1-gilyon.bin`) plus a regression test proving
+  the version mismatch fails loudly (a real `SaveStateError`, not silent corruption), not a
+  synthetic one. Also corrected an overclaim in `docs/adr/0006-save-state-format.md`'s
+  versioning-policy paragraph (that minor format bumps stay backward-loadable — not actually
+  implemented; `load_state()` only ever rejects strictly-newer versions). Wired
+  `crates/rustysnes-frontend/src/emu.rs` to query the PPU's actual active width instead of a
+  hardcoded 256; the wgpu texture/present pipeline needed no changes (already allocated at hi-res
+  capacity with a live UV sub-rect scale). Two new unit tests hand-construct synthetic scanlines
+  to isolate the one-column-delay mechanism precisely, independent of full BG/tilemap setup. The
+  full `--features test-roms` suite passes unchanged (no currently-passing golden ROM enters
+  hi-res mode). **Real-title validation not achieved, honestly tracked as open, not claimed:**
+  neither locally-available named hi-res-motivating title confirms the mechanism against actual
+  game content — Marvelous — Mouhitotsu no Takarajima (SA-1) never entered hi-res in a
+  1200-frame headless run, and Bishoujo Janshi Suchie-Pai has no local dump; an `ares`
+  reference-screenshot comparison was attempted and abandoned (no working GUI display in this
+  environment). `tests/golden/sa1-framebuffer.tsv` is not re-blessed — Marvelous's hash is
+  unaffected by this change.
+
 ### Changed
 
 - **The `v0.7.0`→`v1.0.0` release ladder is rewritten to front-load breadth into the 1.0 gate,

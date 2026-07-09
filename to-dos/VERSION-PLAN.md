@@ -329,13 +329,47 @@ isn't about emulation accuracy.
 
 The one item from `v0.5.0`'s carried-forward PPU gap list that's genuinely bounded, with no
 external unknowns (no ROM sourcing, no open-ended root-causing): full 512-px hi-res (Modes 5/6)
-output. Confirmed against ares' `DAC::run()` that hi-res is a dual-half-pixel
-alternating-compositor-result trick (`above`/`below` at 2× the pixel rate), not a numeric-
-precision tweak — the mechanism is already researched (`docs/ppu.md` §Hi-res color-math
-precision); this rung implements the 512-wide output itself, closing the real feature gap that
-was blocking the Bishoujo Janshi Suchie-Pai / Marvelous+SA-1 residual. Kept as its own minor
-rather than folded into the accuracy-debt cluster below, matching this project's
-one-theme-per-`v0.x.0` convention every prior rung has held to.
+output. Kept as its own minor rather than folded into the accuracy-debt cluster below, matching
+this project's one-theme-per-`v0.x.0` convention every prior rung has held to.
+
+- [x] **Mechanism, verified against `ref-proj/ares/ares/sfc/ppu/dac.cpp`'s primary source (not a
+      paraphrase):** hi-res is a dual-column DAC output stage, not a numeric-precision tweak —
+      each PPU pixel clock emits an "odd" column (today's unchanged main-screen color-math
+      result) and an "even" column (the subscreen's own color, math'd with the operand roles
+      swapped). The even column is gated by, and blends against, state from the **previous**
+      pixel clock's above-pass — a genuine one-pixel-clock-delayed hardware pipeline stage, found
+      by reading the primary source directly rather than trusting the earlier research summary
+      that scoped this as a simple parallel extension. Full derivation in `docs/ppu.md` §Hi-res
+      (Modes 5/6) color-math precision.
+- [x] **Implementation:** `crates/rustysnes-ppu/src/lib.rs` (`MAX_SCREEN_WIDTH`, an
+      always-hi-res-capacity backing framebuffer with a resolution-sized `framebuffer()` slice,
+      `is_hires()`/`frame_hires()`/`visible_width()`) + `render.rs` (`compose_dac`'s new
+      below-color pass, threading the one-column-delayed state). The non-hires path is
+      byte-for-byte the pre-existing code, unchanged — a hi-res frame's output width is latched
+      once per frame (at row 0) rather than re-checked per scanline, a deliberate, documented
+      simplification (`docs/ppu.md`).
+- [x] **Save-state `FORMAT_VERSION` 1→2** — the framebuffer's backing storage growing to hi-res
+      capacity is a real byte-layout change to the `PPU0` section. The `v1.0.0` gate's
+      previously-flagged backward-compat-fixture gap (a committed old-format blob + a regression
+      test proving the mismatch fails loudly, not silently) closes here, ahead of schedule:
+      `tests/golden/savestate-v1-gilyon.bin` (real `FORMAT_VERSION=1` output, captured from the
+      pre-bump code) + `crates/rustysnes-test-harness/tests/save_state_backward_compat.rs`.
+      `docs/adr/0006-save-state-format.md` also corrected an overclaim its versioning-policy
+      paragraph had made (that minor bumps stay backward-loadable — not actually implemented).
+- [x] **Frontend:** `crates/rustysnes-frontend/src/emu.rs`'s `render_framebuffer()` now queries
+      `visible_width()` instead of a hardcoded 256; the wgpu texture/present pipeline needed no
+      changes (`gfx.rs` already allocated at hi-res capacity with a live UV sub-rect scale).
+- [x] **Verification:** two new unit tests hand-construct `Pixel` rows to isolate the mechanism
+      precisely (the column-0 transparency boundary; the one-column delay itself, proven by
+      varying only column 0's state and observing column 1's below-output change while its
+      above-output and its own input stay fixed). The full `--features test-roms` suite —
+      including `sa1_oncart` — passes unchanged, since no currently-passing golden ROM enters
+      hi-res mode. **Real-title validation not achieved, honestly tracked as open:** Marvelous —
+      Mouhitotsu no Takarajima (SA-1, the named local hi-res-motivating title) never entered
+      hi-res in a 1200-frame headless run; Bishoujo Janshi Suchie-Pai (the other named title) has
+      no local dump; an `ares` reference-screenshot comparison was attempted and abandoned — no
+      working GUI display was available in this environment to drive it. `tests/golden/
+      sa1-framebuffer.tsv` is **not** re-blessed (Marvelous's hash is unaffected).
 
 ### Ongoing, opportunistic — the carried-forward accuracy-debt cluster (v0.x.y patches, not a gating rung)
 

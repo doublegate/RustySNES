@@ -3,16 +3,24 @@
 This file is authoritative for per-suite pass counts, the board / coprocessor matrix, and
 version policy. Everything else defers to it.
 
-**Current release:** `v0.6.0 "Shippable"` (`v0.1.0 "Foundation"`, `v0.2.0 "Persistence"`,
-`v0.3.0 "Continuum"`, `v0.4.0 "Completion"`, and `v0.5.0 "Fidelity"` precede it; see
-`to-dos/VERSION-PLAN.md` for the full ladder). `v0.5.0` closed out the accuracy-pass-rate
-dashboard (see "Accuracy dashboard" below) and the full named hardware-gotcha regression list —
-every item fixed, correctly reclassified as an intentional non-goal, or honestly
-researched-and-deferred with a full mechanism write-up. `v0.6.0` closes out release engineering
-and doc parity — `security.yml`, checksummed release assets, automated release-cutting
-(`release-auto.yml`), the `lint` job's `cargo doc` gate, `docs/DOCUMENTATION_INDEX.md`,
-`docs/benchmarks.md`, `docs/audit/`, and 9 total ADRs (`to-dos/VERSION-PLAN.md`'s v0.6.0 section
-has the per-item detail).
+**Current release:** `v0.7.0 "Resolution"` (`v0.1.0 "Foundation"`, `v0.2.0 "Persistence"`,
+`v0.3.0 "Continuum"`, `v0.4.0 "Completion"`, `v0.5.0 "Fidelity"`, and `v0.6.0 "Shippable"`
+precede it; see `to-dos/VERSION-PLAN.md` for the full breadth-inclusive `v0.7.0`→`v1.0.0` ladder).
+`v0.5.0` closed out the accuracy-pass-rate dashboard (see "Accuracy dashboard" below) and the
+full named hardware-gotcha regression list — every item fixed, correctly reclassified as an
+intentional non-goal, or honestly researched-and-deferred with a full mechanism write-up. `v0.6.0`
+closed out release engineering and doc parity — `security.yml`, checksummed release assets,
+automated release-cutting (`release-auto.yml`), the `lint` job's `cargo doc` gate,
+`docs/DOCUMENTATION_INDEX.md`, `docs/benchmarks.md`, `docs/audit/`, and 9 total ADRs
+(`to-dos/VERSION-PLAN.md`'s v0.6.0 section has the per-item detail). `v0.7.0` implements true
+512-px hi-res (Modes 5/6) output — `docs/ppu.md` §Hi-res (Modes 5/6) color-math precision has the
+full mechanism (a genuine one-pixel-clock-delayed DAC pipeline, verified against ares' primary
+source) and honest verification status (unit-test-proven, non-regression-proven; real-title
+validation against Marvelous/SA-1 attempted and not achieved — the title never entered hi-res in
+a 1200-frame headless run, and no working GUI environment was available to drive an `ares`
+reference-screenshot comparison, both honestly tracked as open, not claimed done). The save-state
+`FORMAT_VERSION` bumped `1`→`2` for this — its first real bump — closing the `v1.0.0` gate's
+backward-compat-fixture gap early (`docs/adr/0006-save-state-format.md`'s bump log).
 **Phases 1 (CPU + golden oracle)
 and 2 (scheduler + video) are functionally complete** — the 65C816 passes the
 SingleStepTests/65816 oracle to 0-diff (state + cycles), and the machine **boots and runs real
@@ -59,17 +67,22 @@ tracked here, always current, reaffirmed every release:
 **Named residuals, tracked not hidden:** the 65816 `e1.e` divergence (`docs/adr/0002`); DSP-3 and
 ST011 have no board wired (no verified board/window entry to pin against, `necdsp_variant.rs`);
 SPC7110's post-`RTI` WRAM-population gap (`docs/cart.md` §SPC7110); PAL and ExLoROM both lack
-golden-ROM-boot proof (no ROM in the local corpus for either). `v0.5.0 "Fidelity"` is where the
-next layer — a named hardware-gotcha regression suite (DRAM refresh, HDMA mid-scanline placement,
-the DMA/HDMA-collision crash quirk, open-bus-via-HDMA-latch, true mid-dot writes, hi-res
-color-math precision, the `$4203` double-write edge case) — gets added to this table.
+golden-ROM-boot proof (no ROM in the local corpus for either); hi-res (Modes 5/6) output is
+implemented and unit-verified (`v0.7.0`) but has no real-title validation — neither named
+motivating commercial title (Bishoujo Janshi Suchie-Pai: no local dump; Marvelous/SA-1: dumped
+but never observed entering hi-res in a 1200-frame headless run) has confirmed the mechanism
+against actual hi-res game content, `docs/ppu.md` §Hi-res (Modes 5/6) color-math precision.
+`v0.5.0 "Fidelity"` is where the next layer — a named hardware-gotcha regression suite (DRAM
+refresh, HDMA mid-scanline placement, the DMA/HDMA-collision crash quirk, open-bus-via-HDMA-latch,
+true mid-dot writes, hi-res color-math precision, the `$4203` double-write edge case) — gets
+added to this table; hi-res color-math precision itself closed in `v0.7.0 "Resolution"`.
 
 ## Subsystem progress
 
 | Crate | Chip | State |
 |---|---|---|
 | `rustysnes-cpu` | WDC 65C816 (5A22) | **Phase 1 complete — 65816 oracle 0-diff (state+cycles), all 256 opcodes × modes, native+emulation, REP/SEP/XCE** |
-| `rustysnes-ppu` | PPU1 (5C77) + PPU2 (5C78) | **Phase 2 — BG 0-7 + Mode 7 + 128-sprite OAM + color math + windows + dot/HV timeline; per-scanline compositor (mid-line raster/hi-res deferred; a fix for the mid-line HDMA-driven case is designed + SA-1-verified but NOT landed — blocked on an unexplained Super FX/GSU regression the same change causes, `docs/ppu.md` §Mid-scanline/HDMA-driven register timing). Color fixes (ares pixel-diff vs SMW): color-math subscreen-backdrop addend = the COLDATA fixed color (blue-sky/black-bg fix), and the BG tilemap palette-group offset folded into the CGRAM index (washed multi-palette art fix); undisbeliever golden stays 29/29** |
+| `rustysnes-ppu` | PPU1 (5C77) + PPU2 (5C78) | **Phase 2 — BG 0-7 + Mode 7 + 128-sprite OAM + color math + windows + dot/HV timeline; per-scanline compositor (mid-line raster deferred; a fix for the mid-line HDMA-driven case is designed + SA-1-verified but NOT landed — blocked on an unexplained Super FX/GSU regression the same change causes, `docs/ppu.md` §Mid-scanline/HDMA-driven register timing). True 512-px hi-res (Modes 5/6, pseudo-hires) output landed `v0.7.0` — a genuine one-pixel-clock-delayed dual-column DAC pass mirroring ares' `PPU::DAC`, unit-verified + non-regression-verified, real-title validation still open (`docs/ppu.md` §Hi-res (Modes 5/6) color-math precision). Color fixes (ares pixel-diff vs SMW): color-math subscreen-backdrop addend = the COLDATA fixed color (blue-sky/black-bg fix), and the BG tilemap palette-group offset folded into the CGRAM index (washed multi-palette art fix); undisbeliever golden stays 29/29** |
 | `rustysnes-apu` | SPC700 (S-SMP) + S-DSP + ARAM | **Phase 3 — SPC700 oracle 0-diff; S-DSP behavioral; integrated into the machine: the 4 `$2140-$2143` ports route through the real `Apu`, the integer-accumulator async resync clocks the SMP in **cycle-exact sub-instruction lockstep** (`68_352/715_909`, ADR 0004), SMP base-clock + timer + DSP rates ares-correct; blargg `spc_*` boot+upload+run bit-deterministically; the **timer-phase fix** (timebase/timers clocked before the write side effect, ares/Mesen2-correct) + the **DSP GAIN mode-7 threshold fix** (unsigned `hidden_env >= 0x600`, blargg/ares-correct) drive **all four `spc_*` (`spc_smp`/`spc_timer`/`spc_mem_access_times`/`spc_dsp6`) to literal `PASSED TESTS`** (asserted)** |
 | `rustysnes-cart` | LoROM/HiROM/ExHiROM + coprocessors | **Phase 2 base map modes + Phase 4 coprocessors: chipset-byte detection, the shared µPD77C25/µPD96050 LLE engine + DSP-1 board (real DSP-1 games with user-supplied firmware), and the Super FX/GSU — full Argonaut RISC core (`coproc::gsu`) + `SuperFxBoard` (`coproc::superfx`), host-synced on the Go flag, boots the Krom GSU suite (`superfx_oncart`). SA-1 next** |
 | `rustysnes-core` | Bus + master-clock scheduler + DMA/HDMA | **Phase 2 — master-clock lockstep (6/8/12 access map), full memory decode, CPU regs + mul/div, GP-DMA + HDMA, NMI/HV-IRQ** |

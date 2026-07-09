@@ -3387,6 +3387,7 @@ dependencies = [
  "rustysnes-apu",
  "rustysnes-core",
  "rustysnes-cpu",
+ "rustysnes-savestate",
  "serde_json",
 ]
 
