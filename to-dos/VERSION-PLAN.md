@@ -236,9 +236,13 @@ isn't about emulation accuracy.
       `wayland-scanner`'s compile-time proc-macro parsing trusted vendored XML, never runtime
       input) — suppressed in `deny.toml` + `.cargo/audit.toml` with the full rationale, after
       explicit user review and approval. RustySNES now has 4 workflows (`ci.yml`, `pages.yml`,
-      `release.yml`, `security.yml`) against RustyNES's 8 — the dedicated `lint`-job-with-rustdoc
-      extension (`ci.yml`'s existing `lint` job runs fmt+clippy but not `cargo doc`) and the
-      mobile/PGO workflows (no mobile target here) remain open, lower-priority gaps.
+      `release.yml`, `security.yml`) against RustyNES's 8 — the mobile/PGO workflows (no mobile
+      target here) are the remaining, deliberately-not-mirrored gap.
+- [x] The dedicated `lint`-job-with-rustdoc extension: `ci.yml`'s `lint` job (every PR/push to
+      `main`) now runs `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` alongside
+      fmt+clippy — cheap locally (~4s), so it belongs on every PR rather than being reserved for
+      the tag-only `full-test` job, and catches broken intra-doc links / rustdoc-specific
+      warnings clippy's own lints don't cover.
 - [x] `docs/DOCUMENTATION_INDEX.md` — the full documentation map (subsystem specs, ADRs, testing
       strategy, external references), linked from the README, matching RustyNES's own index.
 - [x] `docs/benchmarks.md` + a real Criterion benchmark

@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`ci.yml`'s `lint` job now gates on `cargo doc` too — `v0.6.0` "Shippable" work, pulled
+  forward.** The doc-warnings build was previously reserved for the tag-only `full-test` job, so
+  a broken intra-doc link or rustdoc-specific warning (neither caught by clippy's own lints)
+  could sit unnoticed on `main` between releases. `RUSTDOCFLAGS="-D warnings" cargo doc --workspace
+  --no-deps` is cheap locally (~4s), so it now runs on every PR/push alongside fmt+clippy.
+
 - **Mid-scanline/HDMA-driven register timing + hi-res color-math precision: researched — `v0.5.0`
   "Fidelity" work.** Confirmed a genuine, previously-undocumented off-by-one-line compositor bug
   against ares' per-pixel reference model (`ppu/main.cpp`'s active-pixel rendering runs strictly
