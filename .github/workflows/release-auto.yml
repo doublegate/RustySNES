@@ -104,11 +104,19 @@ jobs:
       - name: Resolve release title + notes from the CHANGELOG section
         if: steps.decide.outputs.should_release == 'true'
         id: notes
+        env:
+          # Routed through env: rather than interpolated directly into the script (GitHub Actions
+          # substitutes step outputs as raw text BEFORE the shell parses the script -- a header
+          # containing a literal `"` (e.g. `## [0.6.0] "Shippable" - ...`) would otherwise close
+          # the surrounding `header="..."` string early and corrupt the value silently, not error
+          # loudly; env: values are passed as real argv/environment data, immune to this).
+          VERSION: ${{ steps.decide.outputs.version }}
+          HEADER: ${{ steps.decide.outputs.header }}
         shell: bash
         run: |
           set -euo pipefail
-          version="${{ steps.decide.outputs.version }}"
-          header="${{ steps.decide.outputs.header }}"
+          version="$VERSION"
+          header="$HEADER"
           body_file="$(mktemp)"
 
           # The full "## [X.Y.Z] ..." section body, up to (not including) the next "## [" heading.
@@ -147,26 +155,33 @@ jobs:
         if: steps.decide.outputs.should_release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.decide.outputs.tag }}
+          BODY_FILE: ${{ steps.notes.outputs.body_file }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "${{ steps.decide.outputs.tag }}" \
-            -F "${{ steps.notes.outputs.body_file }}" \
-            "${{ github.event.workflow_run.head_sha }}"
-          git push origin "${{ steps.decide.outputs.tag }}"
+          git tag -a "$TAG" -F "$BODY_FILE" "$HEAD_SHA"
+          git push origin "$TAG"
 
       - name: Create the GitHub Release
         if: steps.decide.outputs.should_release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          # Same rationale as the "Resolve release title" step: TITLE routinely contains a
+          # literal `"` (e.g. `v0.6.0 "Shippable"`), which would corrupt a direct
+          # `--title "${{ steps.notes.outputs.title }}"` interpolation the same way `header` did.
+          TAG: ${{ steps.decide.outputs.tag }}
+          TITLE: ${{ steps.notes.outputs.title }}
+          BODY_FILE: ${{ steps.notes.outputs.body_file }}
         shell: bash
         run: |
           set -euo pipefail
-          gh release create "${{ steps.decide.outputs.tag }}" \
-            --title "${{ steps.notes.outputs.title }}" \
-            --notes-file "${{ steps.notes.outputs.body_file }}" \
+          gh release create "$TAG" \
+            --title "$TITLE" \
+            --notes-file "$BODY_FILE" \
             --latest
 
   build:
