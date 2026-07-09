@@ -240,7 +240,7 @@ AccuracyCoin-equivalent). See `to-dos/phase-6-accuracy-to-100/`.
 - Anything needing the fractional-timebase refactor (`docs/adr/0002`) is explicitly deferred
   and documented in the residual ledger, never point-fixed (that ADR's own rule).
 
-### v0.6.0 "Shippable" — release engineering + doc parity
+### v0.6.0 "Shippable" — release engineering + doc parity — **RELEASED 2026-07-08**
 
 **Goal:** bring CI and docs up to RustyNES's depth — the part of "match RustyNES's level" that
 isn't about emulation accuracy.
@@ -322,6 +322,20 @@ not RustySNES's earlier v0.9.0-skeleton draft which conflated breadth with 1.0):
 1. The accuracy battery holds its v0.5.0-established target with zero regressions.
 2. The save-state/core API (v0.2.0) is **stable** — the contract every post-1.0 Reach feature
    below relies on not breaking.
+   **Checked (v0.6.0-era):** `FORMAT_VERSION` (`rustysnes_core::scheduler`) has stayed at `1`
+   since `v0.2.0` even though `v0.4.0` added two new coprocessor board types (ST018, S-RTC) —
+   real evidence `docs/adr/0006-save-state-format.md`'s per-board-opaque-section design holds
+   up in practice, not just on paper: a new coprocessor extends the format without needing a
+   version bump. **Real gap found, not yet closed:** no committed old-format save-state
+   fixture + regression test proves actual backward-compatibility — only same-version
+   round-trip determinism is tested
+   (`crates/rustysnes-test-harness/tests/save_state_determinism.rs`). A byte-layout change to
+   any section that forgets to bump `FORMAT_VERSION` would go uncaught today. Add a committed
+   `FORMAT_VERSION=1` fixture blob (generated from a permissive/non-commercial ROM, such as
+   the committed gilyon test ROM) + a loadability regression test (the same Golden-Vector
+   pattern this project already uses for framebuffer hashes) before this gate item is checked
+   off — a small, well-scoped, non-risky addition (a new fixture + test, no production code
+   changes).
 3. A genuinely shippable multi-platform app: native binaries + a wasm demo, both produced by
    the now-proven `v0.6.0` release pipeline.
 4. Green CI including the `no_std` gate and the wasm build.

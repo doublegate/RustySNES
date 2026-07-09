@@ -33,16 +33,21 @@ record; this file frames the phase line.
   summarizes.
 - **Release:** `v0.1.0 "Foundation"`, `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"` (rewind,
   run-ahead, PAL auto-detect, ExLoROM), `v0.4.0 "Completion"` (SPC7110 addressing fix, ST018,
-  standalone S-RTC), and `v0.5.0 "Fidelity"` (the accuracy-pass-rate dashboard + the full named
+  standalone S-RTC), `v0.5.0 "Fidelity"` (the accuracy-pass-rate dashboard + the full named
   hardware-gotcha regression list — every item fixed, correctly reclassified as an intentional
-  non-goal, or honestly researched-and-deferred with a mechanism write-up; two deferrals surfaced
-  genuine findings for `v0.6.0`+: a real off-by-one-line HDMA/compositor timing bug, and a
-  confirmed regression that correctly stopped an unverified open-bus fix from landing) are all
-  tagged and released on GitHub, establishing the real release cadence `to-dos/VERSION-PLAN.md`
-  defines — read it alongside this file; it maps the phases above onto a concrete, named
-  `v0.x.0` → `v1.0.0` ladder with release-cut criteria per rung. `v0.6.0 "Shippable"` (release
-  engineering + doc parity — several of its items already landed inside `v0.5.0`, pulled forward
-  as low-risk wins) is next.
+  non-goal, or honestly researched-and-deferred with a mechanism write-up), and `v0.6.0
+  "Shippable"` (release engineering + doc parity — `security.yml`, checksummed release assets,
+  automated release-cutting via `release-auto.yml`, the `lint` job's `cargo doc` gate, the
+  documentation index, benchmarks, audit trail, and ADR backfill) are all tagged and released on
+  GitHub, establishing the real release cadence `to-dos/VERSION-PLAN.md` defines — read it
+  alongside this file; it maps the phases above onto a concrete, named `v0.x.0` → `v1.0.0` ladder
+  with release-cut criteria per rung. Two `v0.5.0`-era deferrals surfaced genuine findings still
+  being worked: a real off-by-one-line HDMA/compositor timing bug (a fix has been designed,
+  implemented, and verified pixel-exact against the pre-fix baseline — a clean, 100%-explained
+  one-line-later shift — but landing it requires deliberately re-blessing one SA-1 golden hash
+  it legitimately changes, gated on explicit review before committing), and a confirmed
+  regression that correctly stopped an unverified open-bus fix from landing. `v1.0.0`'s own gate
+  (`to-dos/VERSION-PLAN.md`'s v1.0.0 section) is next.
 
 ## The phase spine
 

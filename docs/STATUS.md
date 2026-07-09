@@ -3,12 +3,16 @@
 This file is authoritative for per-suite pass counts, the board / coprocessor matrix, and
 version policy. Everything else defers to it.
 
-**Current release:** `v0.5.0 "Fidelity"` (`v0.1.0 "Foundation"`, `v0.2.0 "Persistence"`,
-`v0.3.0 "Continuum"`, and `v0.4.0 "Completion"` precede it; see `to-dos/VERSION-PLAN.md` for the
-full ladder). `v0.5.0` closes out the accuracy-pass-rate dashboard (see "Accuracy dashboard"
-below) and works the full named hardware-gotcha regression list — every item fixed, correctly
-reclassified as an intentional non-goal, or honestly researched-and-deferred with a full
-mechanism write-up (`to-dos/VERSION-PLAN.md`'s v0.5.0 section has the per-item detail).
+**Current release:** `v0.6.0 "Shippable"` (`v0.1.0 "Foundation"`, `v0.2.0 "Persistence"`,
+`v0.3.0 "Continuum"`, `v0.4.0 "Completion"`, and `v0.5.0 "Fidelity"` precede it; see
+`to-dos/VERSION-PLAN.md` for the full ladder). `v0.5.0` closed out the accuracy-pass-rate
+dashboard (see "Accuracy dashboard" below) and the full named hardware-gotcha regression list —
+every item fixed, correctly reclassified as an intentional non-goal, or honestly
+researched-and-deferred with a full mechanism write-up. `v0.6.0` closes out release engineering
+and doc parity — `security.yml`, checksummed release assets, automated release-cutting
+(`release-auto.yml`), the `lint` job's `cargo doc` gate, `docs/DOCUMENTATION_INDEX.md`,
+`docs/benchmarks.md`, `docs/audit/`, and 9 total ADRs (`to-dos/VERSION-PLAN.md`'s v0.6.0 section
+has the per-item detail).
 **Phases 1 (CPU + golden oracle)
 and 2 (scheduler + video) are functionally complete** — the 65C816 passes the
 SingleStepTests/65816 oracle to 0-diff (state + cycles), and the machine **boots and runs real
