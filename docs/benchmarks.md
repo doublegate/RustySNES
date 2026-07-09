@@ -50,6 +50,53 @@ byte loops) haven't been individually measured yet. This benchmark establishes t
 number the next optimization pass is measured against; per `docs/performance.md`'s own rule
 ("never optimize without a Criterion baseline"), that baseline is now this document.
 
+## `v0.9.0` pre-work — save-state cost (netplay rollback go/no-go, T-82-001)
+
+**The question this answers:** rollback netplay (T-82-002) calls `System::save_state()`/
+`load_state()` far more often than `RewindBuffer`'s ~10 Hz design point (`docs/adr/0006` frames
+delta/incremental snapshots as "future memory optimization, not correctness requirement" — this
+is the measurement that either confirms that framing holds for rollback's higher call rate, or
+forces reopening it before T-82-002 starts).
+
+| Board tier | ROM | `save_state()` | `load_state()` |
+|---|---|---|---|
+| No coprocessor | `undisbeliever/inidisp_hammer_0f00.sfc` (committed) | **107.87 µs** [107.54, 108.25] µs, 95% CI | **292.07 µs** [290.66, 293.45] µs, 95% CI |
+| Curated (Super FX) | `Super Mario World 2: Yoshi's Island` (commercial, gitignored) | **107.73 µs** [107.21, 108.29] µs | **297.08 µs** [295.43, 298.97] µs |
+| BestEffort (CX4) | `Mega Man X2` (commercial, gitignored) | **109.15 µs** [108.46, 109.89] µs | **295.53 µs** [294.21, 296.96] µs |
+
+**Go/no-go call: GO — the existing full-snapshot design (`docs/adr/0006`) is fast enough for a
+real rollback window; no delta/incremental redesign is needed before T-82-002 proceeds.**
+
+**Reasoning:** all three board tiers cluster tightly (~108 µs save, ~295 µs load) regardless of
+which coprocessor is active — save-state cost is dominated by the fixed-size buffers every board
+carries (128 KiB WRAM, VRAM, CGRAM, OAM, 64 KiB ARAM), not coprocessor-specific state, so this
+result generalizes to boards not directly measured here. Both numbers are small next to a single
+frame's own execution cost (**3.27 ms**, the `v0.4.0` baseline above): a `save_state()` every
+real frame (the naive worst case — snapshot-every-predicted-frame) costs **~0.65%** of the 16.64
+ms NTSC frame budget, negligible overhead even at that call rate. A rollback event itself (rare —
+only on misprediction) costs one `load_state()` (~0.3 ms) plus re-simulating the rolled-back
+frames forward (`headless_frame`'s own ~3.27 ms/frame, ~5.1× headroom under real-time already
+established) — the resimulation dominates cost, not the snapshot mechanism, so it is that
+existing per-frame number (not save/load) that bounds how many frames a rollback window can
+absorb within one real frame's budget. Save/load overhead itself is not the bottleneck.
+
+### Reproduction
+
+```bash
+cargo bench -p rustysnes-core --bench save_state_cost
+```
+
+- **Benchmark:** `crates/rustysnes-core/benches/save_state_cost.rs` (Criterion 0.7, `harness =
+  false`). The Curated/BestEffort tiers self-skip (print a message, register no bench) when
+  their commercial ROM is absent — `tests/roms/external/commercial/` is gitignored
+  (`docs/adr/0003`), present on this measuring machine, absent on a fresh clone/CI.
+- **Workload:** 16 warm-up frames past each ROM's own boot sequence (matching
+  `headless_frame.rs`), then Criterion's standard 100-sample steady-state collection of
+  `save_state()` alone, then `load_state()` of that same blob.
+- **Machine/toolchain:** same as the `v0.4.0` baseline above.
+- **Captured:** 2026-07-09, on `v0.8.0 "Instrumentation"` (immediately after Sprint 1 landed),
+  ahead of `v0.9.0 "Community"` Sprint 2 starting.
+
 ## Future measurements
 
 Add a new dated section above this one for each future benchmark run that's worth recording

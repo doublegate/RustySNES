@@ -19,12 +19,13 @@ window, delta/incremental snapshots become necessary — a real design change be
 
 **Acceptance criteria:**
 
-- [ ] A new Criterion benchmark measures `save_state()`/`load_state()` cost across a
-      no-coprocessor, a Curated (Super FX/SA-1), and a BestEffort sample.
-- [ ] The result is recorded in `docs/benchmarks.md`.
-- [ ] A go/no-go call on the full-snapshot design is made explicitly: either it's fast enough
-      for the target rollback window, or a new ADR is opened describing the delta/incremental
-      redesign needed before T-82-002 proceeds.
+- [x] A new Criterion benchmark measures `save_state()`/`load_state()` cost across a
+      no-coprocessor, a Curated (Super FX/SA-1), and a BestEffort sample —
+      `crates/rustysnes-core/benches/save_state_cost.rs`.
+- [x] The result is recorded in `docs/benchmarks.md` (§`v0.9.0` pre-work — save-state cost).
+- [x] A go/no-go call on the full-snapshot design is made explicitly: **GO** — all three tiers
+      cluster tightly (~108 µs save, ~295 µs load), both negligible next to a single frame's own
+      ~3.27 ms execution cost; no delta/incremental redesign needed before T-82-002 proceeds.
 
 **Dependencies:** `v0.2.0`'s save-state envelope; `docs/adr/0006`
 **Reference:** `docs/benchmarks.md`; `docs/adr/0006-save-state-format.md`

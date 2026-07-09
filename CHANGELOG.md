@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Netplay save-state cost benchmark + rollback go/no-go call — `v0.9.0 "Community"`,
+  T-82-001.** A new Criterion benchmark (`crates/rustysnes-core/benches/save_state_cost.rs`)
+  measures `System::save_state()`/`load_state()` cost across three board tiers (no-coprocessor,
+  Curated Super FX, BestEffort CX4) — pre-work before T-82-002's rollback netplay, which calls
+  save/restore far more often than `RewindBuffer`'s ~10 Hz design point. Result: **GO** — all
+  three tiers cluster tightly (~108 µs save, ~295 µs load) regardless of which coprocessor is
+  active (cost is dominated by the fixed-size WRAM/VRAM/CGRAM/OAM/ARAM buffers every board
+  carries, not coprocessor state), and both numbers are negligible next to a single frame's own
+  ~3.27 ms execution cost (the `v0.4.0` baseline) — the existing full-snapshot design
+  (`docs/adr/0006`) is fast enough for a real rollback window; no delta/incremental redesign is
+  needed before T-82-002 proceeds. The Curated/BestEffort benchmarks self-skip when their
+  commercial ROM is absent (gitignored corpus, `docs/adr/0003`), matching
+  `commercial_screenshots.rs`'s own convention. Full write-up in `docs/benchmarks.md`.
+
 - **The byte-identical-with-flags-off CI gate, extended for Sprint 1's three new flags —
   `v0.8.0 "Instrumentation"`, T-81-004.** `.github/workflows/ci.yml`'s `lint` job (runs on
   every PR/push to `main`) now clippys `debug-hooks`, `scripting`, and `cheats` individually
