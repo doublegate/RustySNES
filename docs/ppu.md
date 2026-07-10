@@ -265,9 +265,10 @@ one-directional, `docs/architecture.md`), so the PPU-owned constant is the singl
 `Ppu::tick_dot` calls `render_scanline` at `self.h == RENDER_DOT` (inside the main per-dot loop),
 not inside `end_of_scanline` (which used to run it at dot 340/`DOTS_PER_LINE` wraparound).
 `Bus::advance_master` services line `V`'s own HDMA run at this same dot, gated to fire on the
-exact sub-tick that advanced the PPU's dot counter to 276 (`dot_ticked`/`pre_tick_dot`, see "What
-actually unblocked this" above) — the same sub-tick `Ppu::tick_dot`'s own render call fires on,
-and strictly *before* it returns to `advance_master`. So line `V` is composited using register
+exact sub-tick whose *pre-tick* dot value is 276 — i.e. the sub-tick that advances the counter
+*from* 276 to 277 (`dot_ticked`/`pre_tick_dot`, see "What actually unblocked this" above) — the
+same sub-tick `Ppu::tick_dot`'s own render call fires on, and strictly *before* it returns to
+`advance_master`. So line `V` is composited using register
 state as it stood strictly *before* that line's own HDMA write — matching ares' per-pixel timing
 exactly, without giving the PPU crate any direct knowledge of DMA/HDMA.
 

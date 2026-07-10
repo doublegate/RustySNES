@@ -347,11 +347,12 @@ DMA/HDMA) plus the `System` run loop (`scheduler.rs`):
   not the scanline boundary), matching ares `sfc/cpu/timing.cpp`; this dot-accurate phase is what
   latches a mid-line `$420C` write on the correct scanline (§DMA/HDMA bus-steal above), proven by
   the committed `hdmaen_latch_test`/`hdmaen_latch_test_2` goldens. **Sub-tick precision, `v0.9.0`:**
-  the run-check must observe the exact master-clock sub-tick that advanced the PPU's dot counter
-  to 276, not merely "the dot currently reads 276" (`self.ppu.dot()` read *after*
-  `tick_ppu_dot()` had already incremented it matched the dot a whole 4-master-clock window too
-  early) — see `docs/ppu.md` §Mid-scanline/HDMA-driven register timing for the fix and the goldens
-  it required re-blessing (`hdmaen_latch_test`/`hdmaen_latch_test_2` among them).
+  the run-check must observe the exact master-clock sub-tick whose *pre-tick* dot value is 276
+  (the sub-tick that advances the counter *from* 276 to 277), not merely "the dot currently reads
+  276" (`self.ppu.dot()` read *after* `tick_ppu_dot()` had already incremented it matched the dot
+  a whole 4-master-clock window early) — see `docs/ppu.md` §Mid-scanline/HDMA-driven register
+  timing for the fix and the goldens it required re-blessing (`hdmaen_latch_test`/
+  `hdmaen_latch_test_2` among them).
 - **NMI / IRQ:** the RDNMI (`$4210`) VBlank flag sets at VBlank **regardless** of the NMITIMEN
   enable (so VBlank-poll loops like gilyon's work); the NMI *interrupt* and the H/V-IRQ comparator
   (pushed to the PPU each dot) fire only when enabled.
