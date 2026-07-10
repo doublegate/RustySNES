@@ -13,6 +13,12 @@
 //! that contradicts an already-run prediction, restore the checkpoint and re-simulate forward
 //! with the now-corrected input history — this is what makes the two peers' final state
 //! bit-identical to a hypothetical zero-latency run, proven by `tests/determinism.rs`.
+//!
+//! Every field read out of an incoming [`NetMessage`] is untrusted network input: a `frame`
+//! index is bounds-checked against [`MAX_TRUSTED_FRAME_AHEAD`] before it's ever used to grow
+//! `history` (an unbounded value would otherwise let a hostile or corrupted peer force an
+//! arbitrarily large allocation), and nothing from the remote is acted on before its `Sync`
+//! handshake (ROM hash + protocol version) has been verified.
 
 use std::collections::VecDeque;
 
@@ -25,6 +31,21 @@ use crate::transport::Transport;
 /// multitap emulation exists, so rollback netplay is scoped to this many players.
 pub const MAX_PLAYERS: usize = 2;
 
+/// The furthest ahead of `current_frame` a remote-reported frame index (`Input`/`Checksum`) is
+/// ever trusted to be. A real peer's own `current_frame` tracks within network latency +
+/// `max_rollback_frames` of ours; ~10,000 frames (~166 s at 60 fps) is a generous margin that
+/// still bounds `history`'s growth to a trivial allocation regardless of what a hostile or
+/// corrupted peer sends (an unbounded `frame` value would otherwise let a single message force
+/// an arbitrarily large `Vec::resize`).
+const MAX_TRUSTED_FRAME_AHEAD: u32 = 10_000;
+
+/// The maximum number of not-yet-matched remote checksums to retain. A well-behaved peer sends
+/// one every `checksum_interval` frames, which this never approaches; the cap exists so a
+/// hostile or corrupted peer flooding `Checksum` messages can't grow this queue without bound —
+/// the oldest unmatched entry is dropped to make room, matching the "trust nothing from the
+/// network without a bound" posture the frame check above already applies.
+const MAX_PENDING_REMOTE_CHECKSUMS: usize = 256;
+
 /// A session's tuning knobs.
 #[derive(Debug, Clone)]
 pub struct SessionConfig {
@@ -32,7 +53,10 @@ pub struct SessionConfig {
     pub local_player: u8,
     /// How many frames of input-buffering delay to add before an input takes effect — trades
     /// perceived input latency for fewer rollbacks (GGPO's own "input delay" knob). `0` disables
-    /// it (input applies the instant it's read).
+    /// it (input applies the instant it's read). Implemented by [`RollbackSession::add_local_input`]
+    /// queuing the local player's input `input_delay` frames ahead of `current_frame`; the same
+    /// rollback/resimulation machinery that corrects a remote misprediction also corrects a local
+    /// one, so no separate code path is needed.
     pub input_delay: u32,
     /// The maximum number of unconfirmed frames the local simulation may run ahead of the last
     /// confirmed frame before stalling — bounds how much resimulation a late misprediction can
@@ -109,9 +133,9 @@ pub enum AdvanceOutcome {
         /// The frame number just produced.
         frame: u32,
     },
-    /// No new frame was produced this call — the session is too far ahead of the last confirmed
-    /// frame (`SessionConfig::max_rollback_frames`) and is waiting for the remote peer to catch
-    /// up before running further.
+    /// No new frame was produced this call — either the remote peer's handshake hasn't arrived
+    /// yet, or the session is too far ahead of the last confirmed frame
+    /// (`SessionConfig::max_rollback_frames`) and is waiting for the remote peer to catch up.
     Stalled,
 }
 
@@ -154,8 +178,17 @@ impl<T: Transport> RollbackSession<T> {
     /// Start a new session. `rom_hash` is this peer's loaded ROM's SHA-256 — sent to the remote
     /// peer during [`Self::send_handshake`] and compared against theirs before any input is
     /// trusted.
+    ///
+    /// # Panics
+    /// Panics if `config.local_player as usize >= MAX_PLAYERS` — a programmer/config error
+    /// (this value comes from the frontend's own local configuration, never the network), caught
+    /// here with a clear message rather than surfacing later as an opaque index-out-of-bounds.
     #[must_use]
     pub const fn new(config: SessionConfig, transport: T, rom_hash: [u8; 32]) -> Self {
+        assert!(
+            (config.local_player as usize) < MAX_PLAYERS,
+            "SessionConfig::local_player must be < MAX_PLAYERS"
+        );
         Self {
             config,
             transport,
@@ -194,10 +227,20 @@ impl<T: Transport> RollbackSession<T> {
         }
     }
 
+    /// Whether a remote-reported frame index is within [`MAX_TRUSTED_FRAME_AHEAD`] of
+    /// `current_frame` — the bound that keeps an untrusted `Input`/`Checksum` message from
+    /// forcing an unbounded `history` allocation.
+    const fn frame_is_trustworthy(&self, frame: u32) -> bool {
+        frame <= self.current_frame.saturating_add(MAX_TRUSTED_FRAME_AHEAD)
+    }
+
     /// Record the local player's input for the upcoming frame (queued for the next
-    /// [`Self::advance`] call to consume).
+    /// [`Self::advance`] call to consume). Applied `input_delay` frames ahead of `current_frame`
+    /// (see [`SessionConfig::input_delay`]); the frames in between are filled by the same
+    /// last-known-value prediction [`Self::predict_remotes`] already uses for the remote player,
+    /// and corrected the same way (via [`Self::resync`]) once this call's value lands.
     pub fn add_local_input(&mut self, input: u16) {
-        let frame = self.current_frame;
+        let frame = self.current_frame.saturating_add(self.config.input_delay);
         self.ensure_frame(frame);
         let lp = self.config.local_player as usize;
         self.history[frame as usize].players[lp] = PlayerInput {
@@ -237,6 +280,12 @@ impl<T: Transport> RollbackSession<T> {
                     frame,
                     input,
                 } => {
+                    // Nothing from the remote is trusted before its `Sync` has verified the ROM
+                    // hash + protocol version, and an out-of-bound frame index is dropped rather
+                    // than used to grow `history` (see `frame_is_trustworthy`'s doc).
+                    if !self.handshaken || !self.frame_is_trustworthy(frame) {
+                        continue;
+                    }
                     let remote_player = usize::from(player);
                     if remote_player >= MAX_PLAYERS {
                         continue;
@@ -244,14 +293,23 @@ impl<T: Transport> RollbackSession<T> {
                     self.ensure_frame(frame);
                     let entry = &self.history[frame as usize];
                     let slot = entry.players[remote_player];
-                    let was_predicted_differently = slot.confirmed && slot.input != input;
+                    // A predicted-but-not-yet-confirmed slot always has `confirmed == false` (see
+                    // `predict_remotes`, which only ever writes `.input`), so gating this on
+                    // `slot.confirmed` — as an earlier draft did — meant it was NEVER true for a
+                    // genuine misprediction, silently disabling misprediction detection (caught by
+                    // review, not by the determinism tests: `resync` still ran on every
+                    // `confirmation_advanced`, which is why the tests passed anyway — but the
+                    // `AdvanceOutcome::rolled_back` flag this drives was always wrong). The correct
+                    // signal is simply "did the value actually change from what was already
+                    // simulated", independent of the slot's prior confirmed state.
+                    let value_changed = slot.input != input;
                     let already_simulated_this_frame =
                         entry.simulated && frame < self.current_frame;
                     self.history[frame as usize].players[remote_player] = PlayerInput {
                         input,
                         confirmed: true,
                     };
-                    if was_predicted_differently && already_simulated_this_frame {
+                    if value_changed && already_simulated_this_frame {
                         earliest_mispredict = Some(match earliest_mispredict {
                             Some(e) if e <= frame => e,
                             _ => frame,
@@ -259,6 +317,9 @@ impl<T: Transport> RollbackSession<T> {
                     }
                 }
                 NetMessage::InputAck { frame } => {
+                    if !self.handshaken {
+                        continue;
+                    }
                     self.remote_ack_frame =
                         Some(self.remote_ack_frame.map_or(frame, |f| f.max(frame)));
                 }
@@ -272,6 +333,12 @@ impl<T: Transport> RollbackSession<T> {
                     hash,
                     fb_hash,
                 } => {
+                    if !self.handshaken || !self.frame_is_trustworthy(frame) {
+                        continue;
+                    }
+                    if self.pending_remote_checksums.len() >= MAX_PENDING_REMOTE_CHECKSUMS {
+                        self.pending_remote_checksums.pop_front();
+                    }
                     self.pending_remote_checksums
                         .push_back((frame, hash, fb_hash));
                 }
@@ -322,17 +389,23 @@ impl<T: Transport> RollbackSession<T> {
     /// Fill in a prediction for any not-yet-confirmed player slot at `frame` — repeat that
     /// player's last known input (classic GGPO prediction: "probably still holding the same
     /// buttons").
+    ///
+    /// `frame` is always `self.current_frame`, called in strictly increasing order (once per
+    /// non-stalled [`Self::advance`]), so every earlier frame has already gone through either
+    /// this same prediction or a real confirmation by the time we get here — `history[frame -
+    /// 1]` therefore already holds the correct last-known value by induction, an O(1) read
+    /// replacing what an earlier draft computed via an O(frame) backward scan on every call
+    /// (an O(n^2) cost over a long session for an unconfirmed/AFK player). `frame == 0` has no
+    /// prior frame and predicts the neutral `0` input, matching that scan's own base case.
     fn predict_remotes(&mut self, frame: u32) {
         self.ensure_frame(frame);
         for player in 0..MAX_PLAYERS {
             if self.history[frame as usize].players[player].confirmed {
                 continue;
             }
-            let last_known = (0..frame)
-                .rev()
-                .map(|f| self.history[f as usize].players[player])
-                .find(|p| p.confirmed || p.input != 0)
-                .map_or(0, |p| p.input);
+            let last_known = frame
+                .checked_sub(1)
+                .map_or(0, |prev| self.history[prev as usize].players[player].input);
             self.history[frame as usize].players[player].input = last_known;
         }
     }
@@ -343,7 +416,7 @@ impl<T: Transport> RollbackSession<T> {
     /// UDP or [`crate::transport::MemoryTransport`]'s synthetic packet loss).
     fn resend_unacked_local_inputs(&mut self) {
         let lp = self.config.local_player as usize;
-        let start = self.remote_ack_frame.map_or(0, |f| f + 1);
+        let start = self.remote_ack_frame.map_or(0, |f| f.saturating_add(1));
         // `history.len()` is bounded by `ensure_frame`, which never grows it past a real frame
         // count driven by `u32` frame numbers, so this never actually truncates.
         #[allow(clippy::cast_possible_truncation)]
@@ -373,7 +446,9 @@ impl<T: Transport> RollbackSession<T> {
     /// guaranteed never to change again for that frame. Advances the checkpoint to `frame + 1`
     /// (bounding future resimulation distance instead of always replaying from the session's
     /// very first frame) and, at `checksum_interval` boundaries, emits a checksum computed from
-    /// this same settled state.
+    /// this same settled state — one `sys.save_state()` call, reused for both the checkpoint and
+    /// the checksum hash (an earlier draft called it twice, once for each, needlessly doubling a
+    /// non-trivial serialization cost on every checksum-interval frame).
     ///
     /// This settled-only timing is load-bearing: computing/sending a checksum from "live"
     /// state — which may still hold a prediction the peer hasn't corrected yet — races the
@@ -383,21 +458,20 @@ impl<T: Transport> RollbackSession<T> {
         if self.last_confirmed_frame != Some(frame) {
             return;
         }
-        self.checkpoint = Some((frame + 1, sys.save_state()));
-        if self.config.checksum_interval == 0
-            || !frame.is_multiple_of(self.config.checksum_interval)
+        let blob = sys.save_state();
+        if self.config.checksum_interval != 0 && frame.is_multiple_of(self.config.checksum_interval)
         {
-            return;
+            let fb_hash = hash_u16_slice(sys.bus.framebuffer());
+            let hash = hash_bytes(&blob);
+            self.pending_local_checksums
+                .push_back((frame, hash, fb_hash));
+            self.transport.send(&NetMessage::Checksum {
+                frame,
+                hash,
+                fb_hash,
+            });
         }
-        let fb_hash = hash_u16_slice(sys.bus.framebuffer());
-        let hash = hash_bytes(&sys.save_state());
-        self.pending_local_checksums
-            .push_back((frame, hash, fb_hash));
-        self.transport.send(&NetMessage::Checksum {
-            frame,
-            hash,
-            fb_hash,
-        });
+        self.checkpoint = Some((frame + 1, blob));
     }
 
     /// Compare every locally-computed checksum against a matching remote report (matched by
@@ -440,6 +514,14 @@ impl<T: Transport> RollbackSession<T> {
     /// or a save-state error during rollback.
     pub fn advance(&mut self, sys: &mut System) -> Result<AdvanceOutcome, NetplayError> {
         let earliest_mispredict = self.ingest()?;
+
+        if !self.handshaken {
+            // Nothing from an unverified peer (wrong ROM, wrong protocol version) may ever
+            // influence a simulated or presented frame — wait for `Sync` to land and match
+            // before running anything. A slow-to-arrive `Sync` costs a few stalled `advance()`
+            // calls, not correctness.
+            return Ok(AdvanceOutcome::Stalled);
+        }
 
         let confirmed_before = self.last_confirmed_frame;
         self.recompute_confirmed();

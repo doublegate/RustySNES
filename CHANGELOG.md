@@ -60,6 +60,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - With `netplay` off, the crate's frontend wiring compiles out entirely (`rustysnes-netplay`
     itself stays an always-compiled workspace member, same precedent as `rustysnes-script`); full
     default-feature workspace build/test/clippy/fmt/doc verified unaffected.
+  - **Hardening from review, before merge**: an untrusted `Input`/`Checksum` message's `frame`
+    index is now bounds-checked before it can grow `history` (an unbounded value could otherwise
+    force an arbitrarily large allocation); the pending-remote-checksum queue is capped rather
+    than growing without bound; nothing from the remote peer is acted on before its `Sync`
+    handshake has verified the ROM hash + protocol version (`ingest`/`advance` both gate on it);
+    a misprediction-detection condition that referenced a predicted slot's `confirmed` flag —
+    always `false` for a genuine prediction, so it never actually fired — was corrected (the
+    underlying resimulation was already correct via the `confirmation_advanced` path, proven by
+    the passing determinism tests either way; only the public `AdvanceOutcome::rolled_back` flag
+    was misreporting); `settle_if_confirmed`'s duplicate `sys.save_state()` call was collapsed to
+    one (reused for both the checkpoint and the checksum hash); `SessionConfig::input_delay` —
+    documented but never read — is now wired into `add_local_input`, proven against a
+    delay-aware reference test; and `predict_remotes`'s O(frame) backward scan was replaced with
+    an O(1) read (frames are predicted in strictly increasing order, so the previous frame's
+    slot already holds the correct last-known value by induction).
 
 - **Netplay save-state cost benchmark + rollback go/no-go call — `v0.9.0 "Community"`,
   T-82-001.** A new Criterion benchmark (`crates/rustysnes-core/benches/save_state_cost.rs`)

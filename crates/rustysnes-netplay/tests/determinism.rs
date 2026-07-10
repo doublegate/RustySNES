@@ -157,6 +157,22 @@ fn reference_run(rom: &[u8]) -> Vec<u64> {
     fb
 }
 
+/// Like [`reference_run`], but each player's input takes effect `delay` frames later than
+/// requested (neutral `0` for the frames before it first applies) — the same shift
+/// `SessionConfig::input_delay` produces via `RollbackSession::add_local_input`.
+fn delayed_reference_run(rom: &[u8], delay: u32) -> Vec<u64> {
+    let mut sys = fresh_system(rom);
+    let mut fb = Vec::new();
+    for frame in 0..FRAME_COUNT {
+        let (p1, p2) = frame.checked_sub(delay).map_or((0, 0), input_for_frame);
+        sys.bus.set_joypad(0, p1);
+        sys.bus.set_joypad(1, p2);
+        sys.run_frame();
+        fb.push(hash_fb(sys.bus.framebuffer()));
+    }
+    fb
+}
+
 #[test]
 fn rollback_matches_reference_under_ideal_conditions() {
     let rom = rom_bytes();
@@ -234,4 +250,62 @@ fn rom_hash_mismatch_is_rejected_before_any_frame_runs() {
         saw_mismatch,
         "a genuine ROM-hash mismatch must be rejected, not silently ignored"
     );
+}
+
+/// `SessionConfig::input_delay` (previously documented but never read — caught in review)
+/// queues each player's own input `input_delay` frames ahead of when it's requested; the frames
+/// in between are filled by the same last-known-value prediction the remote player already
+/// gets, corrected by the same rollback machinery once the delayed value lands. Proves this
+/// against a delay-aware reference under ideal conditions.
+#[test]
+fn input_delay_matches_a_delay_aware_reference() {
+    const DELAY: u32 = 2;
+    let rom = rom_bytes();
+    let reference = delayed_reference_run(&rom, DELAY);
+    let hash = fnv_rom_hash(&rom);
+    let mut sys_a = fresh_system(&rom);
+    let mut sys_b = fresh_system(&rom);
+    let (transport_a, transport_b) = MemoryTransport::ideal_pair();
+    let mut session_a = RollbackSession::new(
+        SessionConfig {
+            local_player: 0,
+            input_delay: DELAY,
+            ..SessionConfig::default()
+        },
+        transport_a,
+        hash,
+    );
+    let mut session_b = RollbackSession::new(
+        SessionConfig {
+            local_player: 1,
+            input_delay: DELAY,
+            ..SessionConfig::default()
+        },
+        transport_b,
+        hash,
+    );
+    session_a.send_handshake();
+    session_b.send_handshake();
+
+    let mut fb_a = Vec::new();
+    for frame in 0..FRAME_COUNT {
+        let (p1, p2) = input_for_frame(frame);
+        session_a.add_local_input(p1);
+        session_b.add_local_input(p2);
+        drive_both_to_frame(
+            &mut session_a,
+            &mut sys_a,
+            &mut session_b,
+            &mut sys_b,
+            frame,
+        );
+        fb_a.push(hash_fb(sys_a.bus.framebuffer()));
+    }
+
+    for (i, (a, r)) in fb_a.iter().zip(reference.iter()).enumerate() {
+        assert_eq!(
+            a, r,
+            "input_delay session diverged from the delay-aware reference at frame {i}"
+        );
+    }
 }
