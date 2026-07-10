@@ -364,6 +364,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Mid-scanline/HDMA-driven register timing — `v0.9.0 "Community"`.** `Ppu::tick_dot` now
+  composites each scanline at `RENDER_DOT` (dot 276) instead of end-of-scanline (dot 340) —
+  matching real hardware's per-pixel active-region timing, so a per-line HDMA-driven register
+  write during line `V` only becomes visible starting `V+1`, not on `V` itself (`docs/ppu.md`
+  §Mid-scanline/HDMA-driven register timing has the full mechanism + verification). This fix was
+  designed and SA-1-verified correct months ago but blocked on an apparently-unrelated Super
+  FX/GSU golden regression; what actually unblocked it was finding a separate, previously
+  undiscovered bug in `Bus::advance_master`'s HDMA run-check — it read the PPU's dot counter
+  *after* `tick_ppu_dot()` had already incremented it, so the HDMA-run condition matched a whole
+  4-master-clock dot-window early, putting HDMA back ahead of render for the same line (the exact
+  ordering the fix exists to prevent). Fixed by capturing the dot value before the tick and gating
+  the HDMA-run check on the exact sub-tick that advanced it. Re-verified against the full
+  `--features test-roms` golden suite: SA-1's `SD F-1 Grand Prix` golden changed to the
+  pixel-exact predicted hardware-correct value; 15 of the `undisbeliever` HDMA-timing-focused
+  micro-tests (`hdma-*`, `hdmaen_latch_test*`, `scpu-a-dma-bug-*`) and 24 of the Super FX/GSU
+  goldens changed too — every change independently row-level-verified (not blindly re-blessed):
+  the Super FX/GSU corpus's functional invariants (GSU liveness, plot-pipeline completion,
+  determinism) are unaffected, and the pixel-level diffs are small, bounded, and localized
+  (a couple of rows shifted per ROM, not a chaotic break) — see `docs/ppu.md` for the full
+  row-by-row analysis.
+
 - **`wasm.rs` (`wasm-canvas`): fixed a real, currently-broken build — `CanvasRenderingContext2d::put_image_data`'s dx/dy arguments must be `f64`, not `i32`.** Found live: this shipped broken in T-81-005's merge and silently failed the `wasm-canvas` build path from `main` (confirmed via the actual `pages.yml` deploy run for that merge, which failed at this exact line) — masked locally by a stray, untracked `.cargo/config.toml` left over from a different sibling project, whose `--cfg=web_sys_unstable_apis` rustflag switches `web-sys` to the *other* `put_image_data` overload (`i32` args, gated behind that unstable cfg), so local builds compiled while CI's genuinely clean environment did not. `wasm-canvas` is not the default wasm feature since T-81-006 landed (`wasm-winit` is), so this didn't affect the live demo, but it's a real defect in a still-supported, independently-selectable build path. Re-verified against an environment with that stray rustflag neutralized (`RUSTFLAGS=""`, matching CI): both `cargo clippy` and a real `trunk build` + headless-browser load now succeed genuinely, not just locally.
 
 - **`crates/rustysnes-frontend/web/index.html`: added the missing link to `/api/` on the live

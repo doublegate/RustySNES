@@ -17,12 +17,13 @@
 //! clocks** per line; the scheduler advances the PPU one dot at a time via [`Ppu::tick_dot`].
 //! H runs 0..=339 (340 wraps to a new line), V runs 0..=261 (NTSC) / 0..=311 (PAL). Active
 //! output is dots 22..=277 on lines 1..=224 (1..=239 overscan); `VBlank` asserts at V=225
-//! (V=240 overscan). The renderer is per-scanline (it composites a whole visible line at the
-//! line's end), which is far simpler than a per-dot renderer and bit-identical to one *only when
-//! no register a line's rendering reads changes mid-line* — a per-line HDMA-driven register
-//! write (e.g. a raster scroll split) currently lands one scanline too early against real
-//! hardware, a confirmed, documented, not-yet-fixed gap (`docs/ppu.md` §Mid-scanline/HDMA-driven
-//! register timing).
+//! (V=240 overscan). The renderer is per-scanline (it composites a whole visible line at
+//! [`RENDER_DOT`], one dot before that line's own per-line HDMA run can observe/mutate the
+//! registers the composite reads), which is far simpler than a per-dot renderer and
+//! bit-identical to one for every currently-modeled case, including a per-line HDMA-driven
+//! register write (e.g. a raster scroll split) — which only becomes visible starting the
+//! following line, matching real hardware (`docs/ppu.md` §Mid-scanline/HDMA-driven register
+//! timing, landed `v0.9.0`).
 //!
 //! # Rendering note (clean-room)
 //!
@@ -67,6 +68,22 @@ pub const MASTER_CLOCKS_PER_DOT: u32 = 4;
 
 /// Dots per scanline (the RustySNES convention: 341 dots of nominally 4 master clocks).
 pub const DOTS_PER_LINE: u16 = 341;
+
+/// The dot at which a visible scanline's composited output becomes final for that line.
+///
+/// The SNES hardware fact behind this: a line's own per-line HDMA transfer (`rustysnes-core`'s
+/// `HDMA_RUN_DOT`) fires at hcounter 1104 = dot 276, strictly *after* real hardware's per-pixel
+/// active-region output for that same line has already completed (ares' `cycleRenderPixel()`
+/// only runs for hcounter `[56, 1078]` — dot ~269.5 — `ref-proj/ares/ares/sfc/ppu/main.cpp`).
+/// [`Ppu::tick_dot`] composites the finishing line here, one dot before this line's own HDMA run
+/// can observe/mutate the registers that composite reads, so an HDMA-driven per-line register
+/// write during line `V` is only ever visible starting line `V+1` — matching real hardware. This
+/// is the single source of truth `rustysnes-core::bus`'s `HDMA_RUN_DOT` is defined equal to
+/// (PPU-owned since it is fundamentally a video-timing fact, not a DMA-specific one); a `#[test]`
+/// in `rustysnes-core` (which depends on this crate, not the reverse) asserts the two never
+/// drift apart. See `docs/ppu.md` §Mid-scanline/HDMA-driven register timing for the full
+/// mechanism and regression history.
+pub const RENDER_DOT: u16 = 276;
 
 /// Visible width of one rendered scanline in normal (non-hires) resolution, in pixels.
 ///
@@ -752,9 +769,11 @@ impl Ppu {
     }
 
     /// Advance the PPU by exactly one dot, the scheduler's video quantum. Composites a full
-    /// visible scanline when that line completes; raises NMI at `VBlank` start and the HV-IRQ
-    /// when the programmed H/V is hit; calls [`VideoBus::notify_scanline`] at each line start
-    /// and [`VideoBus::notify_vblank`] when `VBlank` begins. Hot path: allocation-free.
+    /// visible scanline at [`RENDER_DOT`] (one dot before that line's own per-line HDMA run can
+    /// observe/mutate the registers the composite reads — see `docs/ppu.md` §Mid-scanline/
+    /// HDMA-driven register timing); raises NMI at `VBlank` start and the HV-IRQ when the
+    /// programmed H/V is hit; calls [`VideoBus::notify_scanline`] at each line start and
+    /// [`VideoBus::notify_vblank`] when `VBlank` begins. Hot path: allocation-free.
     pub fn tick_dot(&mut self, bus: &mut impl VideoBus) {
         // HBlank region: dots 274..=340 (active output ends near dot 274).
         self.hblank = self.h >= 274 || self.h < ACTIVE_DOT_START;
@@ -762,21 +781,27 @@ impl Ppu {
         // HV-IRQ comparator (level): fire when the enabled H and/or V positions match.
         self.check_hv_irq();
 
+        // Composite the line that's finishing (V is the line number 1..=visible) using register
+        // state as it stood just BEFORE this line's own HDMA run, not after (`docs/ppu.md`'s
+        // confirmed off-by-one-line fix). `advance_master` services this line's HDMA at this
+        // same dot, strictly AFTER this render call within the same master-clock tick (the HDMA
+        // check runs after `tick_ppu_dot` returns) -- see `docs/scheduler.md` §DMA/HDMA bus-steal.
+        if self.h == RENDER_DOT && self.v >= 1 && self.v <= self.visible_height() {
+            self.render_scanline(bus);
+        }
+
         self.h += 1;
         if self.h >= DOTS_PER_LINE {
-            // End of a scanline: composite the line we just finished (if visible), then advance V.
+            // End of a scanline: advance V and fire frame/VBlank events. Rendering already
+            // happened above at RENDER_DOT, not here.
             self.h = 0;
             self.end_of_scanline(bus);
         }
     }
 
-    /// At the end of a scanline: render it if visible, advance V, and fire frame/VBlank events.
+    /// At the end of a scanline: advance V, and fire frame/VBlank events. Rendering happens
+    /// earlier, at [`RENDER_DOT`] within [`Ppu::tick_dot`] -- see that method's doc.
     fn end_of_scanline(&mut self, bus: &mut impl VideoBus) {
-        // Render the line that just ended (V is the line number 1..=visible).
-        if self.v >= 1 && self.v <= self.visible_height() {
-            self.render_scanline(bus);
-        }
-
         self.v += 1;
         let lines = self.region.lines_per_frame();
         if self.v >= lines {

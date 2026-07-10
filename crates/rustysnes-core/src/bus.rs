@@ -49,7 +49,10 @@ const MASTER_PER_DOT: u32 = 4;
 /// 1104 (`sfc/cpu/timing.cpp`) divided by [`MASTER_PER_DOT`]. Running the table at this exact dot
 /// (rather than the scanline boundary) latches a mid-line `$420C` write on the hardware-correct
 /// scanline, which is what makes the `hdmaen_latch_test` show a banded HDMAEN-vs-latch crossing.
-const HDMA_RUN_DOT: u16 = 276;
+/// Defined equal to `rustysnes_ppu::RENDER_DOT` (PPU-owned single source of truth, since this is
+/// fundamentally a video-timing fact) — `hdma_run_dot_matches_ppu_render_dot` below asserts the
+/// two never drift apart.
+const HDMA_RUN_DOT: u16 = rustysnes_ppu::RENDER_DOT;
 /// SPC700 fractional-clock numerator (master ticks → SMP **base** clocks).
 ///
 /// The unit the APU advances per [`rustysnes_apu::Apu::advance_smp_cycle`] call is one SMP *base*
@@ -360,10 +363,23 @@ impl Bus {
         for _ in 0..n {
             self.clock.master = self.clock.master.wrapping_add(1);
             self.clock.dot_accum += 1;
-            if self.clock.dot_accum >= MASTER_PER_DOT {
+            // Captured BEFORE `tick_ppu_dot()` (if it fires this sub-tick) increments the PPU's
+            // dot counter — this is the exact dot value [`Ppu::tick_dot`]'s own render-vs-HDMA
+            // ordering decision used internally (it composites the finishing line using the
+            // pre-increment `h`, then increments). Reading `self.ppu.dot()` fresh AFTER the call
+            // instead (an earlier draft did this) observes the POST-increment value, so the HDMA
+            // run-check below would fire a whole dot-window early — on the FIRST of the four
+            // master-clock sub-ticks where the dot reads [`HDMA_RUN_DOT`], not the LAST (the one
+            // coincident with the render call) — silently putting HDMA back ahead of render for
+            // the same line, exactly the ordering this fix exists to prevent.
+            let pre_tick_dot = self.ppu.dot();
+            let dot_ticked = if self.clock.dot_accum >= MASTER_PER_DOT {
                 self.clock.dot_accum -= MASTER_PER_DOT;
                 self.tick_ppu_dot();
-            }
+                true
+            } else {
+                false
+            };
             // HDMA, clock-driven so both its per-frame init (V=0) and per-line transfers stay
             // scanline-accurate even while the master clock is being advanced *inside* a GP-DMA —
             // hardware re-initializes HDMA at V=0 and interleaves a transfer at the start of every
@@ -379,7 +395,8 @@ impl Bus {
                 // *setup* at V=0 (`service_hdma_line(0, …)` resets the tables + reloads), and a
                 // per-visible-line *run* at hcounter 1104 = [`HDMA_RUN_DOT`]. Running the transfer at
                 // that exact dot — not at the scanline boundary — latches a mid-line HDMAEN write on
-                // the hardware-correct scanline (the `hdmaen_latch_test` crossing).
+                // the hardware-correct scanline (the `hdmaen_latch_test` crossing). `dot_ticked` gates
+                // this to the one sub-tick that actually advanced the dot (see `pre_tick_dot`'s doc).
                 if v == 0 {
                     if !self.hdma_setup_done {
                         self.hdma_setup_done = true;
@@ -387,7 +404,11 @@ impl Bus {
                     }
                 } else {
                     self.hdma_setup_done = false;
-                    if v <= vh && self.ppu.dot() == HDMA_RUN_DOT && self.last_hdma_line != v {
+                    if v <= vh
+                        && dot_ticked
+                        && pre_tick_dot == HDMA_RUN_DOT
+                        && self.last_hdma_line != v
+                    {
                         self.last_hdma_line = v;
                         self.service_hdma(v, vh);
                     }
@@ -885,6 +906,15 @@ impl core::fmt::Debug for Bus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `HDMA_RUN_DOT` is now literally `= rustysnes_ppu::RENDER_DOT`, so this can never actually
+    /// fail post-refactor -- kept as a named regression lock so a future edit that reintroduces a
+    /// separate literal (e.g. during a merge) fails loudly instead of silently drifting the two
+    /// dot values apart again (`docs/ppu.md` §Mid-scanline/HDMA-driven register timing).
+    #[test]
+    fn hdma_run_dot_matches_ppu_render_dot() {
+        assert_eq!(HDMA_RUN_DOT, rustysnes_ppu::RENDER_DOT);
+    }
 
     #[test]
     fn default_bus_has_no_cart_and_reads_open() {

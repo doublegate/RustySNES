@@ -1,9 +1,7 @@
-//! Regression baseline for the confirmed off-by-one-line HDMA/compositor timing bug
-//! (`docs/ppu.md` §"Mid-scanline/HDMA-driven register timing — researched, confirmed, deferred
-//! (v0.5.0)"). This test does **not** assert correct hardware behavior — it locks in RustySNES's
-//! current (confirmed-buggy) output for a minimal, self-authored reproduction, so any *unrelated*
-//! regression to this exact scenario is still caught, and so the eventual fix has a concrete,
-//! numeric target to flip.
+//! Regression lock for the fixed off-by-one-line HDMA/compositor timing bug (`docs/ppu.md`
+//! §"Mid-scanline/HDMA-driven register timing"). This test asserts CORRECT hardware behavior —
+//! a per-line HDMA-driven register write during line `V` only becomes visible starting `V+1`,
+//! matching real hardware — for a minimal, self-authored reproduction.
 //!
 //! The reproduction drives `$2100` (`INIDISP`, master brightness) with HDMA mode 0 (1 byte, 1
 //! register), alternating between full brightness (`$0F`, backdrop renders white) and force-off
@@ -120,21 +118,15 @@ fn find_transition(framebuffer: &[u16]) -> (usize, usize) {
     )
 }
 
-/// Locks in the CURRENT (confirmed-buggy) transition position: RustySNES's end-of-line
-/// compositor reads `$2100` at dot 340, AFTER that same line's own HDMA run at dot 276 has
-/// already written the *next* phase's value — so the transition lands one scanline EARLIER than
-/// real hardware. `docs/ppu.md`'s analysis derives the two candidate positions precisely:
+/// Locks in the CORRECT transition position: `Ppu::tick_dot` composites the finishing line at
+/// [`rustysnes_ppu::RENDER_DOT`] (one dot before that line's own HDMA run can mutate the
+/// registers the composite reads), so a per-line HDMA-driven write during line `V` is only ever
+/// visible starting `V+1` — matching real hardware:
 ///
-/// - **Real hardware** (not what this asserts): last-white row 100 (`V=101`), first-black row
-///   101 (`V=102`) — line `V`'s own HDMA write only takes effect starting `V+1`.
-/// - **RustySNES today** (what this asserts): last-white row 99 (`V=100`), first-black row 100
-///   (`V=101`) — the write meant for `V+1` visibly lands on `V` itself.
-///
-/// When the real fix lands (`docs/ppu.md`'s "What a future investigation/fix needs"), this
-/// specific assertion is EXPECTED to change to `(100, 101)` — that flip, confirmed deliberately
-/// and reviewed (a Golden-Vector update, not an accidental diff), is the fix's acceptance test.
+/// - Last-white row 100 (`V=101`), first-black row 101 (`V=102`) — line `V`'s own HDMA write
+///   only takes effect starting `V+1`.
 #[test]
-fn mid_scanline_hdma_transition_is_one_line_early_current_known_bug() {
+fn mid_scanline_hdma_transition_matches_hardware() {
     let mut sys = booted_system();
     sys.run_frame();
 
@@ -142,12 +134,10 @@ fn mid_scanline_hdma_transition_is_one_line_early_current_known_bug() {
 
     assert_eq!(
         (last_white, first_black),
-        (99, 100),
-        "current (buggy) transition position changed -- if this is an intentional fix for the \
-         off-by-one-line bug (docs/ppu.md §Mid-scanline/HDMA-driven register timing) landing at \
-         exactly (100, 101), update this assertion deliberately and cross-check against the full \
-         `--features test-roms` golden suite before committing; any other value is a real, \
-         unrelated regression"
+        (100, 101),
+        "mid-scanline HDMA-driven register-timing transition regressed (docs/ppu.md \
+         §Mid-scanline/HDMA-driven register timing) -- a per-line HDMA write during line V must \
+         only become visible starting V+1, matching real hardware"
     );
 
     // Sanity: exactly one transition (no HDMA-table or register-write bugs of this test's own
