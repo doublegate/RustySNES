@@ -191,11 +191,11 @@ The crate is a working dual-chip model. Public API the scheduler/bus call:
 - Exact long-dot placement within the 1364-clock line under interlace transitions — resolve
   against the test ROMs (`ref-docs/2026-06-24-ppu.md` "Note on a flagged discrepancy").
 - ~~Mid-scanline raster effects (HDMA palette/scroll splits) need the scheduler to drive register
-  writes at the exact dot.~~ **Resolved, `v0.9.0`:** see "Mid-scanline/HDMA-driven register
+  writes at the exact dot.~~ **Resolved, `v0.8.0`:** see "Mid-scanline/HDMA-driven register
   timing" below — landed, with the Super FX/GSU golden updates it required independently
   verified (not blindly re-blessed).
 
-## Mid-scanline/HDMA-driven register timing — landed (v0.9.0)
+## Mid-scanline/HDMA-driven register timing — landed (v0.8.0)
 
 **Status: landed.** The off-by-one-line compositor bug confirmed in `v0.5.0` is fixed:
 `Ppu::tick_dot` composites each scanline at [`rustysnes_ppu::RENDER_DOT`] (dot 276) instead of

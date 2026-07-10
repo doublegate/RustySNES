@@ -1,4 +1,4 @@
-//! Native rollback netplay integration (`v0.9.0 "Community"`, T-82-002).
+//! Native rollback netplay integration (`v0.8.0 "Community"`, T-82-002).
 //!
 //! Wraps a [`rustysnes_netplay::RollbackSession`] over a real [`UdpTransport`], driving the
 //! `System` directly (`RollbackSession::advance` operates on `rustysnes_core::System`, not this
@@ -11,7 +11,7 @@
 //! **Native (UDP) only for this pass.** `rustysnes_netplay::webrtc::WebRtcTransport` is itself
 //! complete and wasm32-clippy-verified against the real `web_sys` API, but the browser-side SDP
 //! offer/answer/ICE negotiation UI is genuinely separate scope (async signaling glue), honestly
-//! deferred rather than half-wired — see `v0.9.0`'s CHANGELOG entry.
+//! deferred rather than half-wired — see `v0.8.0`'s CHANGELOG entry.
 
 use std::net::SocketAddr;
 

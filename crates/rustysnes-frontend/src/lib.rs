@@ -38,7 +38,7 @@ pub mod audio_core;
 // `target_arch`-gated, only feature-gated.
 #[cfg(feature = "cheats")]
 pub mod cheats;
-// Native RetroAchievements integration (`v0.9.0` T-82-003). Native-only: the vendored `rcheevos`
+// Native RetroAchievements integration (`v0.8.0` T-82-003). Native-only: the vendored `rcheevos`
 // C library needs a C toolchain + `std` (`cheevos.rs`'s own module doc has the detail).
 #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
 pub mod cheevos;
@@ -47,13 +47,18 @@ pub mod debug_snapshot;
 pub mod emu;
 pub mod gfx;
 pub mod input;
-// Native rollback netplay (`v0.9.0` T-82-002). Native-only: browser WebRTC signaling UI is a
+// Native rollback netplay (`v0.8.0` T-82-002). Native-only: browser WebRTC signaling UI is a
 // separate, deferred scope (`netplay.rs`'s own module doc has the detail).
 #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
 pub mod netplay;
 pub(crate) mod pacing;
 pub mod rewind;
 pub mod ui_shell;
+// Read/write watchpoint sync (`v0.8.0` T-81-001b). Needs the `rustysnes-core` side of the gate
+// (`Cargo.toml`'s `debug-hooks = ["rustysnes-core/debug-hooks"]`), so this module only exists
+// when both are on.
+#[cfg(feature = "debug-hooks")]
+pub mod watchpoints;
 
 // The always-on egui App shell + the run loop — shared by native and `wasm-winit` (T-81-006);
 // internal `#[cfg(target_arch = "wasm32")]` branches handle the split (async wgpu init, browser

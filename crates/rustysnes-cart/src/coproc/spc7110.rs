@@ -19,16 +19,17 @@
 //! combined `.sfc` dump concatenates PROM then DROM. There is no header field or generic formula
 //! that recovers the split for every SPC7110 title (this project has exactly one SPC7110 ROM to
 //! validate against, mirroring the single-title validation basis already used for CX4/DSP-4/ST010/
-//! OBC1): [`select`] uses the split that matches Far East of Eden Zero's known physical cartridge
-//! (1 MiB PROM + the remainder as DROM) when the ROM is at least 2 MiB, else treats the whole
-//! image as DROM (the "no PROM" SPC7110 layout used by titles like Momotarou Dentetsu VII).
+//! OBC1): [`select`] uses Far East of Eden Zero's known real physical chip sizes (1 MiB PROM + 4
+//! MiB DROM, per ares' own board database — see `select`'s own doc for the discrepancy this fixed
+//! against this project's staged dump), else treats the whole image as DROM (the "no PROM"
+//! SPC7110 layout used by titles like Momotarou Dentetsu VII).
 //!
 //! Bus window (bank:addr):
 //!
 //! | Region | Target |
 //! |---|---|
 //! | `$00-3F,$80-BF:$4800-$483F`, whole bank `$50`, whole bank `$58` | registers (DCU/data-port/ALU/memory-control) |
-//! | `$00-3F,$80-BF:$8000-FFFF`, `$40-$7D`/`$C0-FF:$0000-FFFF` | PROM (if present) or DROM, banked via `$4830-$4833` + `$4834`; `$40-$7D` mirrors `$C0-FF` (standard HiROM fold — confirmed against Far East of Eden Zero's real boot code, which does execute from this range) |
+//! | `$00-3F,$80-BF:$8000-FFFF`, `$C0-FF:$0000-FFFF` | PROM (if present) or DROM, banked via `$4830-$4833` + `$4834`. `$40-$7D` is genuinely UNMAPPED on this board (`MappedAddr::Open`) — ares' real board database (`board: SHVC-LDH3C-01`, the exact board this title uses) maps the `mcu` ROM window only at these two ranges, NOT `$40-$7D`; an earlier session's claim that boot code executes from `$40-$7D` was never checked against this database, and a watchpoint+disassembler trace found the opposite (code jumping there decodes as incoherent garbage) |
 //! | `$00-3F,$80-BF:$6000-$7FFF` | battery SRAM (folds to banks `00-07`), gated on `$4830` bit 7 |
 
 // Chip-name jargon (SPC7110, DCU, MCU, ...) is not Rust code; the register file is naturally dense
@@ -74,6 +75,20 @@ pub struct Spc7110Board {
     dcu_offset: u32,
     dcu_tile: [u8; 32],
     decompressor: Decompressor,
+    /// Set by a `$4806` write, consumed on the next [`Board::coprocessor_tick`] call — ares'
+    /// SPC7110 runs as its own cothread (`Thread::create(21'477'272, ...)`, the master-clock
+    /// rate) whose `main()` defers `dcuBeginTransfer()` by exactly this one tick (`sfc/
+    /// coprocessor/spc7110/spc7110.cpp`/`dcu.cpp`), not a synchronous same-write completion. Not
+    /// persisted in `save_state`/`load_state`: it is `true` for at most one master-clock tick
+    /// (cleared on the very next `coprocessor_tick`, called every master clock from
+    /// `Bus::advance_master`), and a save-state can only be taken at a real frame/user-action
+    /// boundary, many master clocks after any register write — so it is always `false` at any
+    /// boundary a save-state could actually observe.
+    dcu_pending: bool,
+    /// Same deferral, for a `$4825` write (`aluMultiply`) — see `dcu_pending`'s doc.
+    mul_pending: bool,
+    /// Same deferral, for a `$4827` write (`aluDivide`) — see `dcu_pending`'s doc.
+    div_pending: bool,
 
     // data port unit
     r4810: u8,
@@ -150,6 +165,9 @@ impl Spc7110Board {
             dcu_offset: 0,
             dcu_tile: [0; 32],
             decompressor: Decompressor::new(),
+            dcu_pending: false,
+            mul_pending: false,
+            div_pending: false,
             r4810: 0,
             r4811: 0,
             r4812: 0,
@@ -553,7 +571,9 @@ impl Spc7110Board {
             0x4806 => {
                 self.r4806 = data;
                 self.r480c &= 0x7f;
-                self.dcu_begin_transfer();
+                // Deferred to the next `coprocessor_tick` — see `dcu_pending`'s doc for why a
+                // same-write synchronous `dcu_begin_transfer()` call here is the wrong timing.
+                self.dcu_pending = true;
             }
             0x4807 => self.r4807 = data,
             0x4809 => self.r4809 = data,
@@ -590,13 +610,15 @@ impl Spc7110Board {
             0x4825 => {
                 self.r4825 = data;
                 self.r482f |= 0x81;
-                self.alu_multiply();
+                // Deferred to the next `coprocessor_tick` — see `dcu_pending`'s doc.
+                self.mul_pending = true;
             }
             0x4826 => self.r4826 = data,
             0x4827 => {
                 self.r4827 = data;
                 self.r482f |= 0x80;
-                self.alu_divide();
+                // Deferred to the next `coprocessor_tick` — see `dcu_pending`'s doc.
+                self.div_pending = true;
             }
             0x482e => self.r482e = data & 0x01,
             0x4830 => self.r4830 = data & 0x87,
@@ -785,6 +807,26 @@ impl Board for Spc7110Board {
         Coprocessor::Spc7110
     }
 
+    /// Ares' `SPC7110::main()`, called once per master clock (`Bus::advance_master`, matching the
+    /// SPC7110's own real cothread rate — `Thread::create(21'477'272, ...)`, exactly the master
+    /// clock frequency): consume a pending DCU-begin/multiply/divide trigger from the register
+    /// write that armed it one tick ago. See `dcu_pending`'s doc for why this one-tick deferral
+    /// (not a same-write synchronous completion) is the hardware-accurate timing.
+    fn coprocessor_tick(&mut self) {
+        if self.dcu_pending {
+            self.dcu_pending = false;
+            self.dcu_begin_transfer();
+        }
+        if self.mul_pending {
+            self.mul_pending = false;
+            self.alu_multiply();
+        }
+        if self.div_pending {
+            self.div_pending = false;
+            self.alu_divide();
+        }
+    }
+
     fn map(&self, addr24: u32) -> MappedAddr {
         let a = addr24 & 0xff_ffff;
         let bank = (a >> 16) & 0xff;
@@ -803,7 +845,15 @@ impl Board for Spc7110Board {
                 return MappedAddr::Rom(a);
             }
         }
-        if matches!(bank, 0x40..=0x7d | 0xc0..=0xff) {
+        // `v0.8.0`: NOT `0x40..=0x7d` — ares' real board database
+        // (`mia/Database/Super Famicom Boards.bml`, `board: SHVC-LDH3C-01`, the exact board Far
+        // East of Eden Zero uses) maps the `mcu` ROM window ONLY at `00-3f,80-bf:8000-ffff` and
+        // `c0-ff:0000-ffff` — `40-7d` is genuinely unmapped on this board, not a `c0-ff` mirror.
+        // An earlier session's claim that boot code "does execute" from `40-7d` was never
+        // actually checked against this database; a watchpoint+disassembler trace
+        // (`docs/audit/spc7110-boot-crash-2026-07-08.md`) found the opposite — code that jumps
+        // there decodes as incoherent garbage, consistent with reading unmapped/open-bus space.
+        if matches!(bank, 0xc0..=0xff) {
             return MappedAddr::Rom(a);
         }
         MappedAddr::Open
@@ -835,7 +885,9 @@ impl Board for Spc7110Board {
                 return self.mcurom_read(Self::mcurom_linear(bank, off));
             }
         }
-        if matches!(bank, 0x40..=0x7d | 0xc0..=0xff) {
+        // See `map`'s doc a few lines up: `40-7d` is genuinely unmapped on the real
+        // `SHVC-LDH3C-01` board, not a `c0-ff` mirror.
+        if matches!(bank, 0xc0..=0xff) {
             return self.mcurom_read(Self::mcurom_linear(bank, off));
         }
         0
@@ -893,17 +945,30 @@ impl Board for Spc7110Board {
 
 /// Build a [`Spc7110Board`] for a cart detected as SPC7110 (`board::select`).
 ///
-/// Splits `rom` into PROM + DROM using Far East of Eden Zero's known physical geometry (see the
-/// module doc); other SPC7110 titles' exact split is not derivable from a raw dump without an
-/// external database.
+/// Splits `rom` into PROM + DROM using Far East of Eden Zero's known physical geometry: 1 MiB
+/// PROM + 4 MiB DROM — the real, physical chip sizes per ares' own board database
+/// (`mia/Database/Super Famicom.bml`, `board: SHVC-LDH3C-01`: `memory type=ROM content=Program
+/// size=0x100000` + `memory type=ROM content=Data size=0x400000`), not "however many bytes
+/// happen to be left in the file after the first `PROM_SIZE`" as an earlier version of this
+/// function assumed. That assumption was silently wrong for this project's own staged dump: it
+/// is 7 MiB (`0x700000`), 2 MiB (`0x200000`) larger than the real 5 MiB (`0x500000`) of physical
+/// ROM content, so treating "everything past 1 MiB" as DROM fed `Spc7110Board::datarom_read`'s
+/// `bus_mirror` fold a 6 MiB length instead of the real 4 MiB — silently wrong-sized mirroring
+/// for any register-selected DROM offset in the (nonexistent) upper 2 MiB. Any bytes in `rom`
+/// past `PROM_SIZE + DROM_SIZE` (padding/junk some dump tools append) are dropped. Other SPC7110
+/// titles' exact split is not derivable from a raw dump without this same kind of external
+/// database lookup — this project has exactly one SPC7110 ROM to validate against
+/// (`docs/rom-test-corpus.md`).
 #[must_use]
 pub fn select(_map_mode: MapMode, rom: Box<[u8]>, sram_size: usize) -> Spc7110Board {
     const PROM_SIZE: usize = 0x10_0000;
+    const DROM_SIZE: usize = 0x40_0000;
     if rom.len() > PROM_SIZE {
-        let (prom, drom) = rom.split_at(PROM_SIZE);
+        let (prom, rest) = rom.split_at(PROM_SIZE);
+        let drom_len = rest.len().min(DROM_SIZE);
         Spc7110Board::new(
             prom.to_vec().into_boxed_slice(),
-            drom.to_vec().into_boxed_slice(),
+            rest[..drom_len].to_vec().into_boxed_slice(),
             sram_size,
         )
     } else {
@@ -948,7 +1013,19 @@ mod tests {
         b.write24(0x00_4820, 5); // multiplicand low
         b.write24(0x00_4821, 0);
         b.write24(0x00_4824, 3); // multiplier low
-        b.write24(0x00_4825, 0); // triggers the multiply
+        b.write24(0x00_4825, 0); // arms the multiply (deferred one master-clock tick, see
+        // `dcu_pending`'s doc)
+        assert_ne!(
+            b.read24(0x00_482f) & 0x80,
+            0,
+            "the busy bit must be set immediately on the triggering write, before the tick"
+        );
+        b.coprocessor_tick();
+        assert_eq!(
+            b.read24(0x00_482f) & 0x80,
+            0,
+            "the busy bit clears once the deferred multiply actually runs"
+        );
         assert_eq!(b.read24(0x00_4828), 15);
         assert_eq!(b.read24(0x00_4829), 0);
     }
@@ -961,9 +1038,37 @@ mod tests {
         b.write24(0x00_4822, 0);
         b.write24(0x00_4823, 0);
         b.write24(0x00_4826, 3);
-        b.write24(0x00_4827, 0); // triggers the divide
+        b.write24(0x00_4827, 0); // arms the divide (deferred one master-clock tick)
+        b.coprocessor_tick();
         assert_eq!(b.read24(0x00_4828), 3); // quotient
         assert_eq!(b.read24(0x00_482c), 1); // remainder
+    }
+
+    /// `v0.8.0`, T-81-001b's sibling fix: a DCU-begin trigger (`$4806`) is likewise deferred one
+    /// master-clock tick, matching ares' `SPC7110::main()`'s `dcuPending` handling exactly — the
+    /// synchronous same-write completion an earlier draft had is the root cause narrowed (not yet
+    /// fixed) in `docs/audit/spc7110-boot-crash-2026-07-08.md`.
+    #[test]
+    fn dcu_begin_transfer_is_deferred_one_tick() {
+        let mut b = board();
+        // Program a trivial 1-byte DCU table entry (mode 0, address 0) so `dcu_begin_transfer`
+        // has something well-defined to decode, then arm it via `$4806`.
+        b.write24(0x00_4801, 0);
+        b.write24(0x00_4802, 0);
+        b.write24(0x00_4803, 0);
+        b.write24(0x00_4804, 0); // loads mode=drom[0], address=drom[1..4] (all zero in a fresh board)
+        b.write24(0x00_4806, 0); // arms the DCU transfer
+        assert_eq!(
+            b.read24(0x00_480c) & 0x80,
+            0,
+            "the ready bit must be clear immediately after the triggering write, before the tick"
+        );
+        b.coprocessor_tick();
+        assert_ne!(
+            b.read24(0x00_480c) & 0x80,
+            0,
+            "the ready bit sets once the deferred transfer actually runs"
+        );
     }
 
     #[test]

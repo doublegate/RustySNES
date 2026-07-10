@@ -346,7 +346,7 @@ DMA/HDMA) plus the `System` run loop (`scheduler.rs`):
   its per-visible-line run at the hardware-correct **dot 276** (`HDMA_RUN_DOT`, hcounter 1104 —
   not the scanline boundary), matching ares `sfc/cpu/timing.cpp`; this dot-accurate phase is what
   latches a mid-line `$420C` write on the correct scanline (§DMA/HDMA bus-steal above), proven by
-  the committed `hdmaen_latch_test`/`hdmaen_latch_test_2` goldens. **Sub-tick precision, `v0.9.0`:**
+  the committed `hdmaen_latch_test`/`hdmaen_latch_test_2` goldens. **Sub-tick precision, `v0.8.0`:**
   the run-check must observe the exact master-clock sub-tick whose *pre-tick* dot value is 276
   (the sub-tick that advances the counter *from* 276 to 277), not merely "the dot currently reads
   276" (`self.ppu.dot()` read *after* `tick_ppu_dot()` had already incremented it matched the dot

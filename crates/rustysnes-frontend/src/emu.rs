@@ -14,7 +14,7 @@ use rustysnes_core::cart::header::Coprocessor;
 use crate::config::Region;
 use crate::debug_snapshot::{
     ApuSnapshot, CartSnapshot, DebugSnapshot, GsuSnapshot, PpuSnapshot, VRAM_WINDOW_LEN,
-    VoiceSnapshot,
+    VoiceSnapshot, WatchHit,
 };
 use crate::gfx::{MAX_H, MAX_W, SNES_W, bgr555_to_rgba8};
 use crate::input::Buttons;
@@ -243,7 +243,7 @@ impl EmuCore {
 
     /// Decode the PPU framebuffer + drain the S-DSP audio from the `System`'s CURRENT state,
     /// without advancing it — the second half of [`Self::run_frame`], split out for netplay
-    /// (`v0.9.0`, T-82-002): `rustysnes_netplay::RollbackSession::advance` drives
+    /// (`v0.8.0`, T-82-002): `rustysnes_netplay::RollbackSession::advance` drives
     /// `System::run_frame` directly (it operates on the core crate, not this frontend type), so
     /// the frontend calls this afterward to pick up the result. A rollback's internal
     /// re-simulation passes (`RollbackSession`'s own `apply_and_run`) run several frames per
@@ -316,7 +316,7 @@ impl EmuCore {
     /// narrowing conversions from `usize` can never actually truncate.
     #[must_use]
     #[allow(clippy::cast_possible_truncation)]
-    pub fn debug_snapshot(&self) -> DebugSnapshot {
+    pub fn debug_snapshot(&mut self) -> DebugSnapshot {
         let ppu = &self.system.bus.ppu;
         let vram_window_start = self.debug_vram_scroll;
         let mut vram_window = [0u16; VRAM_WINDOW_LEN];
@@ -381,7 +381,34 @@ impl EmuCore {
                 voices,
             },
             cart,
+            watchpoint_hits: self.take_watchpoint_hits(),
         }
+    }
+
+    /// Drain the watchpoint hits recorded since the last call (`v0.8.0` T-81-001b), translated
+    /// into the frontend's own decoupled [`WatchHit`] shape (see that type's doc for why). Always
+    /// empty when the `debug-hooks` feature is off.
+    #[cfg(feature = "debug-hooks")]
+    fn take_watchpoint_hits(&mut self) -> Vec<WatchHit> {
+        self.system
+            .bus
+            .take_watchpoint_hits()
+            .into_iter()
+            .map(|h| WatchHit {
+                address: h.address,
+                value: h.value,
+                is_write: h.is_write,
+                pbr_pc: h.pbr_pc,
+            })
+            .collect()
+    }
+
+    // `&self` is unavoidably unused in this feature-off stub — matches `watchpoint_hits`'s own
+    // "always compiles, practically dead when the feature is off" posture (`debug_snapshot.rs`).
+    #[cfg(not(feature = "debug-hooks"))]
+    #[allow(clippy::unused_self)]
+    const fn take_watchpoint_hits(&self) -> Vec<WatchHit> {
+        Vec::new()
     }
 
     /// Scroll the debugger's VRAM viewer window (word address, wraps at 64Ki words).
@@ -528,7 +555,7 @@ mod tests {
 
     #[test]
     fn debug_snapshot_of_blank_core_has_no_cart() {
-        let core = EmuCore::new(0, Region::Ntsc);
+        let mut core = EmuCore::new(0, Region::Ntsc);
         let snap = core.debug_snapshot();
         assert_eq!(snap.cart.board_name, None);
         assert_eq!(snap.cart.sa1, None);

@@ -220,6 +220,15 @@ pub struct Bus {
     /// [`CpuBus::read24`]. Empty (the default, and the only state possible unless a frontend
     /// explicitly calls [`Self::set_cheats`]) costs exactly one `is_empty()` branch per read.
     cheats: alloc::vec::Vec<crate::cheat::CheatPatch>,
+    /// 65C816 read/write watchpoints (`v0.8.0`, T-81-001b) — compiled out entirely when
+    /// `debug-hooks` is off. See [`crate::watchpoint`]'s module doc.
+    #[cfg(feature = "debug-hooks")]
+    watchpoints: crate::watchpoint::WatchpointState,
+    /// The CPU's `PBR:PC` at the moment of its current access, set by [`Self::set_debug_pc`]
+    /// (the scheduler calls it before each [`rustysnes_cpu::Cpu::step`]) — feeds
+    /// [`crate::watchpoint::WatchpointHit::pbr_pc`]. `debug-hooks`-only, same as `watchpoints`.
+    #[cfg(feature = "debug-hooks")]
+    debug_pc: u32,
 }
 
 impl Default for Bus {
@@ -259,6 +268,10 @@ impl Bus {
             in_hdma: false,
             hdma_setup_done: false,
             cheats: alloc::vec::Vec::new(),
+            #[cfg(feature = "debug-hooks")]
+            watchpoints: crate::watchpoint::WatchpointState::default(),
+            #[cfg(feature = "debug-hooks")]
+            debug_pc: 0,
         }
     }
 
@@ -341,6 +354,28 @@ impl Bus {
     pub fn set_cheats(&mut self, patches: &[crate::cheat::CheatPatch]) {
         self.cheats.clear();
         self.cheats.extend_from_slice(patches);
+    }
+
+    /// Install the currently-armed read/write watchpoints (`v0.8.0`, T-81-001b), replacing any
+    /// previously installed set. See [`crate::watchpoint::WatchpointState::set_watchpoints`].
+    #[cfg(feature = "debug-hooks")]
+    pub fn set_watchpoints(&mut self, points: &[crate::watchpoint::Watchpoint]) {
+        self.watchpoints.set_watchpoints(points);
+    }
+
+    /// Drain every watchpoint hit recorded since the last call.
+    #[cfg(feature = "debug-hooks")]
+    pub fn take_watchpoint_hits(&mut self) -> alloc::vec::Vec<crate::watchpoint::WatchpointHit> {
+        self.watchpoints.take_hits()
+    }
+
+    /// Record the CPU's current `PBR:PC` (24-bit, `$bank:offset`) so a watchpoint hit during the
+    /// access this instruction is about to make can attribute itself to the right instruction.
+    /// The scheduler calls this once before each [`rustysnes_cpu::Cpu::step`]
+    /// ([`crate::scheduler::System::run_frame`]/[`crate::scheduler::System::step_instruction`]).
+    #[cfg(feature = "debug-hooks")]
+    pub const fn set_debug_pc(&mut self, pbr_pc: u32) {
+        self.debug_pc = pbr_pc;
     }
 
     /// Whether the PPU has a finished frame ready to present.
@@ -653,9 +688,10 @@ impl Bus {
     }
 
     fn cart_read_raw(&mut self, addr24: u32) -> u8 {
+        let open_bus = self.open_bus;
         self.cart
             .as_mut()
-            .map_or(self.open_bus, |c| c.read24(addr24))
+            .map_or(open_bus, |c| c.read24(addr24, open_bus))
     }
 
     fn cart_write_raw(&mut self, addr24: u32, val: u8) {
@@ -793,7 +829,8 @@ struct CartView<'a> {
 
 impl VideoBus for CartView<'_> {
     fn cart_read(&mut self, addr24: u32) -> u8 {
-        self.cart.as_mut().map_or(self.open, |c| c.read24(addr24))
+        let open = self.open;
+        self.cart.as_mut().map_or(open, |c| c.read24(addr24, open))
     }
 }
 
@@ -862,11 +899,17 @@ impl CpuBus for Bus {
             val = patch.value;
         }
         self.open_bus = val;
+        // `v0.8.0`, T-81-001b: logs the value actually observed (post-cheat-intercept), matching
+        // what the CPU itself sees. Compiled out entirely when `debug-hooks` is off.
+        #[cfg(feature = "debug-hooks")]
+        self.watchpoints.check(addr24, val, false, self.debug_pc);
         val
     }
 
     fn write24(&mut self, addr24: u32, val: u8) {
         self.open_bus = val;
+        #[cfg(feature = "debug-hooks")]
+        self.watchpoints.check(addr24, val, true, self.debug_pc);
         self.decode_write(addr24, val);
     }
 

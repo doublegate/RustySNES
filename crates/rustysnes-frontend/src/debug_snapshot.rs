@@ -21,6 +21,55 @@ pub struct DebugSnapshot {
     pub apu: ApuSnapshot,
     /// The loaded cart's board + any coprocessor state.
     pub cart: CartSnapshot,
+    /// Read/write watchpoint hits recorded since the debugger last polled (`v0.8.0` T-81-001b).
+    /// Always empty when the `debug-hooks` feature is off (or no watchpoints are armed) — kept as
+    /// a plain, unconditional field (not `#[cfg]`-gated) so `DebugSnapshot` itself stays a single
+    /// always-compiled shape, matching this whole struct's existing "practically dead but
+    /// harmless to compile" posture when the debugger overlay is unreachable.
+    pub watchpoint_hits: Vec<WatchHit>,
+}
+
+/// A recorded watchpoint hit.
+///
+/// Decoupled from `rustysnes_core::watchpoint::WatchpointHit` (which only exists when
+/// `rustysnes-core`'s own `debug-hooks` feature is on) so [`DebugSnapshot`] doesn't need
+/// conditional compilation for this field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WatchHit {
+    /// The 24-bit CPU-bus address (`$bank:offset`) that was accessed.
+    pub address: u32,
+    /// The byte value read or written.
+    pub value: u8,
+    /// `true` if this hit was a write, `false` if a read.
+    pub is_write: bool,
+    /// The CPU's `PBR:PC` at the moment of the access.
+    pub pbr_pc: u32,
+}
+
+/// One watchpoint the user has armed (`v0.8.0` T-81-001b).
+///
+/// The frontend's own copy of what's currently installed into the `Bus`, kept here (not
+/// `rustysnes_core::watchpoint::Watchpoint` directly) for the same reason `WatchHit` exists: this
+/// list lives in `Active`, which is not itself `debug-hooks`-gated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WatchpointEntry {
+    /// The 24-bit CPU-bus address (`$bank:offset`) to watch.
+    pub address: u32,
+    /// Which access kind(s) trigger it.
+    pub kind: WatchpointKind,
+}
+
+/// Mirrors `rustysnes_core::watchpoint::WatchKind` without depending on it directly (see
+/// [`WatchpointEntry`]'s doc for why).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WatchpointKind {
+    /// Fire only on a CPU read of the watched address.
+    Read,
+    /// Fire only on a CPU write to the watched address.
+    Write,
+    /// Fire on either a read or a write.
+    #[default]
+    ReadWrite,
 }
 
 /// PPU state for the debugger's PPU panel.

@@ -29,13 +29,17 @@ record; this file frames the phase line.
   the accuracy-pass-rate dashboard is done and every named hardware-gotcha item is triaged with
   evidence, but the confirmed mid-line-raster fix and the accuracy-percentage push itself remain
   open). Phase 8 Sprint 1 (`v0.8.0 "Instrumentation"`) is **complete**: the debugger overlay
-  (T-81-001, live-state panels landed; disassembler/breakpoints and read/write watchpoints
-  deferred to follow-ups, T-81-001b), sandboxed Lua scripting + TAS movie record/playback
+  (T-81-001, live-state panels landed; a 65C816 disassembler + PC breakpoints/step controls
+  remain an open follow-up despite an earlier sprint-doc checkbox claiming otherwise — no such
+  code exists yet, corrected here rather than left stale; read/write watchpoints deferred to a
+  follow-up, T-81-001b, which landed post-Sprint-2 in `v0.8.0` — a new `debug-hooks` feature on
+  `rustysnes-core` itself + a `Bus`-level hook + the debugger's Watch panel), sandboxed Lua
+  scripting + TAS movie record/playback
   (T-81-002, `rustysnes-script` + `rustysnes_core::movie`), Game Genie/Pro Action Replay
   cheat codes (T-81-003, `rustysnes_core::cheat` + a `Bus::read24` intercept), the extended
   byte-identical-with-flags-off CI gate (T-81-004), and the full wasm frontend (T-81-005
   `wasm-canvas`, T-81-006 `wasm-winit` unification) have all landed. Sprint 2
-  (`v0.9.0 "Community"`: netplay, RetroAchievements) is **in scope for the `v0.9.0` rung gating
+  (`v0.8.0 "Community"`: netplay, RetroAchievements) is **in scope for the `v0.8.0` rung gating
   `v1.0.0`**, not deferred post-1.0 (see "Milestones beyond the phases" below — this reverses the
   prior post-1.0 framing, matching what RustyNES actually shipped in its own v1.0.0), but has not
   started. See `docs/STATUS.md` for the authoritative per-subsystem table this line summarizes.
@@ -169,13 +173,13 @@ deliberately out of the parity target.
 **Status:** Sprint 1 (`v0.8.0 "Instrumentation"`) is done — the debugger overlay,
 `rustysnes-script` (Lua scripting + TAS movies), `rustysnes_core::cheat` (Game Genie/Pro Action Replay),
 the extended byte-identical-with-flags-off CI gate, and the full wasm frontend all landed
-(T-81-001 through T-81-006). Sprint 2 (`v0.9.0 "Community"`: netplay, RetroAchievements) has not
+(T-81-001 through T-81-006). Sprint 2 (`v0.8.0 "Community"`: netplay, RetroAchievements) has not
 started; `rustysnes-netplay`/`rustysnes-cheevos` are still 1-line stubs.
 **Exit:** features ship; shipped/native/no_std/wasm byte-identical with every new flag off
 (the byte-identical-with-all-flags-off CI gate, added starting `v0.8.0` and re-verified through
-`v0.9.0`/`v1.0.0`).
+`v0.8.0`/`v1.0.0`).
 **Release mapping:** `v0.8.0 "Instrumentation"` (debugger, scripting/TAS, cheats) then
-`v0.9.0 "Community"` (netplay, RetroAchievements) — see `to-dos/VERSION-PLAN.md` for the full
+`v0.8.0 "Community"` (netplay, RetroAchievements) — see `to-dos/VERSION-PLAN.md` for the full
 per-item breakdown, including the `Board: Send`/`emu-thread` prerequisite and the netplay
 save-state-cost pre-work.
 → [overview](phase-8-reach/overview.md)
@@ -186,7 +190,7 @@ save-state-cost pre-work.
   Phase 6's residual list; the rest of that list (mid-scanline/GSU, open-bus-via-HDMA-latch,
   SPC7110, DRAM refresh, ST018/S-RTC/PAL/ExLoROM real-ROM validation) stays an ongoing,
   opportunistic `v0.x.y`-patch cluster, not a gating rung — see `to-dos/VERSION-PLAN.md`.
-- **v0.8.0 "Instrumentation" / v0.9.0 "Community" — Phase 8, gating `v1.0.0`.** See the Phase 8
+- **v0.8.0 "Instrumentation" / v0.8.0 "Community" — Phase 8, gating `v1.0.0`.** See the Phase 8
   section above.
 - **v1.0.0 — production cut.** Gated on: the accuracy battery holding its Phase-6 target with no
   regressions; a **stable, backward-compat-fixture-proven** save-state/core API (Phase 5); the

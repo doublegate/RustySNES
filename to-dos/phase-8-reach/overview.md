@@ -68,7 +68,7 @@ Out-of-scope (post-`v1.0.0` Reach, `to-dos/VERSION-PLAN.md`):
 - [Sprint 1 — Instrumentation](sprint-1-instrumentation.md) — debugger, scripting/TAS, cheats,
   the real wasm frontend (two stages). Maps to `v0.8.0 "Instrumentation"`.
 - [Sprint 2 — Community](sprint-2-community.md) — rollback netplay, RetroAchievements. Maps to
-  `v0.9.0 "Community"`.
+  `v0.8.0 "Community"`.
 
 The desktop UX shell maturity pass (thumbnail save-state manager, themes, input rebinding, the
 Performance panel, wiring `emu-thread`) and the production cut itself are tracked directly under

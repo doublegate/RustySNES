@@ -2,7 +2,7 @@
 
 This document is the release-cut map: it takes `to-dos/ROADMAP.md`'s phase spine and sequences
 it into concrete, named, tagged releases — matching the depth and process RustyNES used to reach
-its own v1.0.0. It replaces an earlier version of this document that described a v0.2.0-v0.9.0
+its own v1.0.0. It replaces an earlier version of this document that described a v0.2.0-v0.8.0
 skeleton whose scope had, in practice, already shipped inside the still-untagged `v0.1.0` before
 any of those tags were ever cut — see "Why this document was rewritten" below.
 
@@ -13,7 +13,7 @@ nothing. Every subsystem that exists today — the 65C816 CPU (0-diff oracle), t
 SPC700+S-DSP audio (0-diff), eight validated coprocessors (DSP-1, DSP-2, DSP-4, ST010, Super FX,
 SA-1, CX4, OBC1, S-DD1), and a playable native+wasm frontend — has accumulated inside one
 perpetual `CHANGELOG.md` `[Unreleased]` section. The earlier draft of this plan assumed a linear
-v0.2.0 (audio) → v0.3.0 (NEC DSP) → ... → v0.9.0 (Reach) progression; reality moved faster than
+v0.2.0 (audio) → v0.3.0 (NEC DSP) → ... → v0.8.0 (Reach) progression; reality moved faster than
 that draft and diverged from its ordering, so the plan is reset here against what's actually
 built (`docs/STATUS.md` is the ground truth this ladder is checked against at every rung).
 
@@ -462,14 +462,14 @@ can switch them on without restructuring the manifest").
   native equivalents exist, not as a wasm-specific prerequisite): `wasm_idb.rs` (IndexedDB
   save-state persistence — native save-states already work, can defer), `wasm_save_states.rs`,
   `wasm_touch.rs` (mobile touch overlay), `wasm_lobby.rs`/`wasm_netplay.rs` (netplay lobby UI —
-  belongs with `v0.9.0`'s netplay work instead), `wasm_script.rs`/`wasm_cheevos.rs` (wire once
-  this rung's own native scripting/`v0.9.0`'s cheevos land), `wasm_share.rs` (settings
+  belongs with `v0.8.0`'s netplay work instead), `wasm_script.rs`/`wasm_cheevos.rs` (wire once
+  this rung's own native scripting/`v0.8.0`'s cheevos land), `wasm_share.rs` (settings
   share-links).
 - **Recurring gate, starting here:** a byte-identical-with-all-flags-off CI check (every new
-  flag landed on this ladder must leave the default build unchanged) — re-verify after `v0.9.0`
+  flag landed on this ladder must leave the default build unchanged) — re-verify after `v0.8.0`
   and `v1.0.0` too. Use explicit feature combos in CI, never `--all-features`.
 
-### v0.9.0 "Community" — netplay, RetroAchievements
+### v0.8.0 "Community" — netplay, RetroAchievements
 
 Both wire pre-existing stub crates against a named integration pattern; both are "connect
 RustySNES to other players or an external service."

@@ -1,4 +1,4 @@
-//! `rustysnes-netplay` — GGPO-style rollback netplay (`v0.9.0 "Community"`, T-82-002).
+//! `rustysnes-netplay` — GGPO-style rollback netplay (`v0.8.0 "Community"`, T-82-002).
 //!
 //! Ported from RustyNES's `rustynes-netplay::session::RollbackSession` (the rollback loop's
 //! shape is carried over faithfully — see `session.rs`'s module doc for the exact scope this

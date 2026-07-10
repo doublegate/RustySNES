@@ -1,4 +1,4 @@
-//! Native `RetroAchievements` integration (`v0.9.0 "Community"`, T-82-003).
+//! Native `RetroAchievements` integration (`v0.8.0 "Community"`, T-82-003).
 //!
 //! Wraps [`rustysnes_cheevos::RaClient`] with frontend-owned login/session state, a per-frame
 //! [`CheevosState::do_frame`] hook (reads WRAM through [`rustysnes_core::Bus::peek_wram`], never

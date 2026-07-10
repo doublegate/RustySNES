@@ -18,7 +18,7 @@
 #[cfg(feature = "cheats")]
 use crate::cheats::CheatEntry;
 use crate::config::{Config, Region};
-use crate::debug_snapshot::DebugSnapshot;
+use crate::debug_snapshot::{DebugSnapshot, WatchpointEntry, WatchpointKind};
 
 /// An action requested from the egui pass, dispatched by `App::dispatch_menu_action` AFTER the
 /// pass returns (so it never runs while the emu lock is held inside the egui closure).
@@ -65,14 +65,14 @@ pub enum MenuAction {
     /// Stop TAS movie playback.
     #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
     StopMoviePlayback,
-    /// Bind/connect a native UDP netplay session (`v0.9.0` T-82-002) using the Netplay window's
+    /// Bind/connect a native UDP netplay session (`v0.8.0` T-82-002) using the Netplay window's
     /// current local-address/peer-address/player-slot fields.
     #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
     ConnectNetplay,
     /// End the active netplay session and fall back to single-player.
     #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
     DisconnectNetplay,
-    /// Begin an asynchronous `RetroAchievements` login (`v0.9.0` T-82-003) using the
+    /// Begin an asynchronous `RetroAchievements` login (`v0.8.0` T-82-003) using the
     /// `RetroAchievements` window's current username/password fields.
     #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
     LoginCheevos,
@@ -93,6 +93,8 @@ pub enum DebugPanel {
     Apu,
     /// The cart memory map + any on-cart coprocessor (DSP-1..4 / Super FX / SA-1 / S-DD1 / …).
     Cart,
+    /// Read/write watchpoints (`v0.8.0` T-81-001b): the armed list + the recorded hit log.
+    Watch,
 }
 
 /// The egui shell's own persistent UI state (what's open, which tab/panel). Separate from the
@@ -120,7 +122,7 @@ pub struct ShellState {
     /// The Cheats window's last parse-error message, if the most recent "Add" attempt failed.
     #[cfg(feature = "cheats")]
     pub cheat_code_error: Option<String>,
-    /// Whether the Netplay window is visible (`v0.9.0` T-82-002).
+    /// Whether the Netplay window is visible (`v0.8.0` T-82-002).
     #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
     pub netplay_open: bool,
     /// The Netplay window's "local address" text-entry buffer (`host:port` to bind).
@@ -135,7 +137,7 @@ pub struct ShellState {
     /// The Netplay window's last connection-attempt error message, if any.
     #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
     pub netplay_error: Option<String>,
-    /// Whether the `RetroAchievements` window is visible (`v0.9.0` T-82-003).
+    /// Whether the `RetroAchievements` window is visible (`v0.8.0` T-82-003).
     #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
     pub cheevos_open: bool,
     /// The `RetroAchievements` window's username text-entry buffer.
@@ -144,6 +146,13 @@ pub struct ShellState {
     /// The `RetroAchievements` window's password text-entry buffer.
     #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
     pub cheevos_password: String,
+    /// The Watch panel's "add a watchpoint" address text-entry buffer (hex, `$bank:offset` or
+    /// bare offset — `v0.8.0` T-81-001b).
+    pub watch_addr_input: String,
+    /// The Watch panel's "add a watchpoint" kind picker.
+    pub watch_kind_input: WatchpointKind,
+    /// The Watch panel's last address-parse error, if the most recent "Add" attempt failed.
+    pub watch_addr_error: Option<String>,
 }
 
 /// Read-only `RetroAchievements` session state the shell needs to render the login window,
@@ -193,6 +202,7 @@ impl ShellState {
         info: &ShellInfo,
         cfg: &mut Config,
         debug: Option<&DebugSnapshot>,
+        watchpoints: &mut Vec<WatchpointEntry>,
         #[cfg(feature = "cheats")] cheats: &mut Vec<CheatEntry>,
         #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))] netplay_connected: bool,
         #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
@@ -393,7 +403,7 @@ impl ShellState {
             self.render_settings(&ctx, cfg);
         }
         if self.debugger_open {
-            self.render_debugger(&ctx, debug);
+            self.render_debugger(&ctx, debug, watchpoints);
         }
         #[cfg(feature = "cheats")]
         if self.cheats_open {
@@ -457,7 +467,12 @@ impl ShellState {
     /// is `None` only when the debugger opens before the app's next lock-scope has built a
     /// snapshot yet — every panel handles that by showing "no data yet" rather than assuming
     /// the app has already supplied one.
-    fn render_debugger(&mut self, ctx: &egui::Context, debug: Option<&DebugSnapshot>) {
+    fn render_debugger(
+        &mut self,
+        ctx: &egui::Context,
+        debug: Option<&DebugSnapshot>,
+        watchpoints: &mut Vec<WatchpointEntry>,
+    ) {
         let mut open = self.debugger_open;
         egui::Window::new("Debugger")
             .open(&mut open)
@@ -468,8 +483,13 @@ impl ShellState {
                     ui.selectable_value(&mut self.panel, DebugPanel::Ppu, "PPU1+2");
                     ui.selectable_value(&mut self.panel, DebugPanel::Apu, "SPC700+DSP");
                     ui.selectable_value(&mut self.panel, DebugPanel::Cart, "Cart");
+                    ui.selectable_value(&mut self.panel, DebugPanel::Watch, "Watch");
                 });
                 ui.separator();
+                if self.panel == DebugPanel::Watch {
+                    self.render_watch_panel(ui, debug, watchpoints);
+                    return;
+                }
                 let Some(debug) = debug else {
                     // `debug` tracks `debugger_open`, not ROM state (a snapshot builds fine for a
                     // blank core) — don't claim a ROM-load reason that may not be why it's `None`.
@@ -481,9 +501,94 @@ impl ShellState {
                     DebugPanel::Ppu => render_ppu_panel(ui, debug),
                     DebugPanel::Apu => render_apu_panel(ui, debug),
                     DebugPanel::Cart => render_cart_panel(ui, debug),
+                    DebugPanel::Watch => unreachable!("handled above"),
                 }
             });
         self.debugger_open = open;
+    }
+
+    /// The Watch panel (`v0.8.0` T-81-001b): an "add a watchpoint" address entry (hex, e.g.
+    /// `7E0848`) + kind picker, the armed list with remove buttons, and the hit log recorded
+    /// since the debugger last polled (`debug.watchpoint_hits` — empty when no snapshot is
+    /// available, same "no data yet" framing the other panels use). Mutates `watchpoints`
+    /// directly, same pattern `render_cheats` already uses for its list.
+    fn render_watch_panel(
+        &mut self,
+        ui: &mut egui::Ui,
+        debug: Option<&DebugSnapshot>,
+        watchpoints: &mut Vec<WatchpointEntry>,
+    ) {
+        ui.horizontal(|ui| {
+            ui.label("Address ($):");
+            ui.add(egui::TextEdit::singleline(&mut self.watch_addr_input).desired_width(80.0));
+            ui.radio_value(&mut self.watch_kind_input, WatchpointKind::Read, "R");
+            ui.radio_value(&mut self.watch_kind_input, WatchpointKind::Write, "W");
+            ui.radio_value(&mut self.watch_kind_input, WatchpointKind::ReadWrite, "RW");
+            if ui.button("Add").clicked() {
+                let trimmed = self.watch_addr_input.trim().trim_start_matches('$');
+                match u32::from_str_radix(trimmed, 16) {
+                    Ok(address) if address <= 0x00FF_FFFF => {
+                        watchpoints.push(WatchpointEntry {
+                            address,
+                            kind: self.watch_kind_input,
+                        });
+                        self.watch_addr_input.clear();
+                        self.watch_addr_error = None;
+                    }
+                    Ok(_) => {
+                        self.watch_addr_error =
+                            Some("address must fit the 24-bit CPU bus ($000000-$FFFFFF)".into());
+                    }
+                    Err(e) => self.watch_addr_error = Some(e.to_string()),
+                }
+            }
+        });
+        if let Some(err) = &self.watch_addr_error {
+            ui.colored_label(egui::Color32::RED, err);
+        }
+        ui.separator();
+        let mut remove = None;
+        egui::Grid::new("watchpoint_list")
+            .num_columns(3)
+            .show(ui, |ui| {
+                for (i, w) in watchpoints.iter().enumerate() {
+                    ui.push_id(i, |ui| {
+                        ui.label(format!("${:06X}", w.address));
+                        ui.label(match w.kind {
+                            WatchpointKind::Read => "R",
+                            WatchpointKind::Write => "W",
+                            WatchpointKind::ReadWrite => "RW",
+                        });
+                        if ui.button("Remove").clicked() {
+                            remove = Some(i);
+                        }
+                    });
+                    ui.end_row();
+                }
+            });
+        if let Some(i) = remove {
+            watchpoints.remove(i);
+        }
+        ui.separator();
+        ui.label("Hits since last poll:");
+        egui::ScrollArea::vertical()
+            .max_height(150.0)
+            .show(ui, |ui| match debug {
+                Some(debug) if !debug.watchpoint_hits.is_empty() => {
+                    for h in &debug.watchpoint_hits {
+                        ui.label(format!(
+                            "pc={:06X} {} ${:06X} = {:02X}",
+                            h.pbr_pc,
+                            if h.is_write { "W" } else { "R" },
+                            h.address,
+                            h.value
+                        ));
+                    }
+                }
+                _ => {
+                    ui.label("(none)");
+                }
+            });
     }
 
     /// The Cheats window (`v0.8.0` T-81-003): an "add a code" text entry (Game Genie `XXXX-XXXX`
@@ -543,7 +648,7 @@ impl ShellState {
         self.cheats_open = open;
     }
 
-    /// The Netplay window (`v0.9.0` T-82-002): local/peer `host:port` text entry, a P1/P2 slot
+    /// The Netplay window (`v0.8.0` T-82-002): local/peer `host:port` text entry, a P1/P2 slot
     /// picker, and a Connect/Disconnect button. Doesn't perform the actual socket I/O itself
     /// (that needs the currently-loaded ROM's bytes under the emu lock, and this function NEVER
     /// touches the emu lock) — it only edits the text-entry fields directly and pushes
@@ -597,7 +702,7 @@ impl ShellState {
         self.netplay_open = open;
     }
 
-    /// The `RetroAchievements` window (`v0.9.0` T-82-003): username/password entry + a Log
+    /// The `RetroAchievements` window (`v0.8.0` T-82-003): username/password entry + a Log
     /// in/Log out button. Doesn't touch `RaClient` itself (that needs the frontend-owned
     /// `CheevosState`, and this function NEVER touches the emu lock or any other app state) — it
     /// only edits the text-entry fields directly and pushes

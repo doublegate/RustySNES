@@ -23,6 +23,7 @@ extern crate alloc;
 
 pub mod addr;
 pub mod bus;
+pub mod disasm;
 pub mod exec;
 pub mod regs;
 

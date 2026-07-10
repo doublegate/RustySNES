@@ -65,7 +65,22 @@ impl Cart {
     }
 
     /// Read a byte at a 24-bit CPU address `(bank << 16) | addr` via the active board.
-    pub fn read24(&mut self, addr24: u32) -> u8 {
+    ///
+    /// `open_bus` is the caller's current open-bus latch (the CPU's MDR — the last value
+    /// actually driven on the data bus), echoed back verbatim when the board's own
+    /// [`MappedAddr::Open`] decode says this address is genuinely unmapped. Ported from ares'
+    /// `Bus::read(address, data)` (`sfc/memory/inline.hpp`), which threads the same fallback
+    /// value through for exactly this reason: [`Board::read24`]'s own default (and every
+    /// coprocessor board's override) has no access to the shared bus latch and would otherwise
+    /// have to invent a placeholder value — every board here returns a bare `0` for that case,
+    /// which is wrong for real open bus (a `0` opcode fetch is `BRK`, so a wild jump into
+    /// unmapped cart space reliably BRK-storms in this emulator even on titles where real
+    /// hardware's open bus echoes back a harmless, non-zero value). See
+    /// `docs/audit/spc7110-boot-crash-2026-07-08.md` for the investigation that found this.
+    pub fn read24(&mut self, addr24: u32, open_bus: u8) -> u8 {
+        if matches!(self.board.map(addr24), MappedAddr::Open) {
+            return open_bus;
+        }
         self.board.read24(addr24)
     }
 
@@ -161,15 +176,15 @@ mod tests {
         assert_eq!(cart.header.map_mode, MapMode::LoRom);
         assert_eq!(cart.header.sram_size, 0x2000);
         // ROM offset 0x1234 lives at bank $00:$9234 ($8000 + 0x1234).
-        assert_eq!(cart.read24(0x00_9234), 0x5A);
+        assert_eq!(cart.read24(0x00_9234, 0x00), 0x5A);
         // SRAM round-trip.
         cart.write24(0x70_0010, 0x77);
-        assert_eq!(cart.read24(0x70_0010), 0x77);
+        assert_eq!(cart.read24(0x70_0010, 0x00), 0x77);
         assert_eq!(cart.save_sram()[0x10], 0x77);
         // load_sram restores.
         let mut snap = vec![0u8; 0x2000];
         snap[0x10] = 0xEE;
         cart.load_sram(&snap);
-        assert_eq!(cart.read24(0x70_0010), 0xEE);
+        assert_eq!(cart.read24(0x70_0010, 0x00), 0xEE);
     }
 }

@@ -188,15 +188,29 @@ debug views, and the coprocessor status panel.
 
 ## Debugger overlay (`v0.8.0 "Instrumentation"`, T-81-001)
 
-`ui_shell.rs`'s debugger window's 4 panels (65C816 / PPU1+2 / SPC700+S-DSP / Cart) render a
+`ui_shell.rs`'s debugger window's 5 panels (65C816 / PPU1+2 / SPC700+S-DSP / Cart / Watch) render a
 `DebugSnapshot` the app copies out under the same brief lock `ShellInfo` already uses — CPU
 registers/flags, key PPU registers + the dot/scanline timeline + a scrollable VRAM window + full
 CGRAM, SPC700 PC/halt state + all 8 S-DSP voices' key registers, and the active board name.
 Gated behind the `debug-hooks` feature (default off) at the menu-entry level: without it,
 `debugger_open` can never become `true`, so the app never builds a snapshot and the default
-build's emulation output is unaffected. Disassembly + breakpoints/step controls, and read/write
-watchpoints (needing a new `debug-hooks` feature on `rustysnes-core` itself + a `Bus`-level
-hook), are follow-up tickets (T-81-006, T-81-001b) — not yet landed.
+build's emulation output is unaffected. Disassembly + breakpoints/step controls are a follow-up
+ticket (T-81-006) — not yet landed.
+
+**Watch panel (`v0.8.0 "Community"`, T-81-001b):** 65C816 read/write watchpoints. Needed a new
+`debug-hooks` feature on `rustysnes-core` itself (previously the flag only existed as this
+frontend's own UI gate) plus a `Bus`-level hook: `rustysnes_core::watchpoint::WatchpointState`,
+checked in `CpuBus::read24`/`write24` (an `is_empty()` fast path keeps the hot path free when
+nothing is armed), recording up to 256 hits per poll (a ring, oldest dropped first). The frontend
+mirrors the existing `cheats` feature's architecture exactly: `watchpoints.rs`'s `sync` installs
+the armed `WatchpointEntry` list into the `Bus` once per real frame (`app.rs`'s drive loop, same
+cadence cheats already use), and `EmuCore::debug_snapshot` drains recorded hits into
+`DebugSnapshot::watchpoint_hits` each poll. The Watch panel itself is a hex address entry + R/W/RW
+kind picker + Add button, the armed list with per-row Remove buttons, and a scrollable hit log
+(`pc`/`R`or`W`/address/value per hit). `WatchpointEntry`/`WatchHit`/`WatchpointKind`
+(`debug_snapshot.rs`) are deliberately NOT `rustysnes_core::watchpoint`'s own types reused
+directly — `DebugSnapshot` itself stays unconditionally compiled (see that struct's own doc), so
+its fields can't depend on a type that only exists when core's `debug-hooks` is on.
 
 ## Scripting + TAS movies (`v0.8.0 "Instrumentation"`, T-81-002)
 
@@ -216,7 +230,7 @@ perturb a run it doesn't own. `rustysnes-script` is an optional native-only depe
 (`dep:rustysnes-script`, gated out of the wasm32 dependency graph entirely); with `scripting`
 off, none of this compiles in and the default build is unaffected.
 
-## Rollback netplay (`v0.9.0 "Community"`, T-82-002)
+## Rollback netplay (`v0.8.0 "Community"`, T-82-002)
 
 A Tools → Netplay… window (native/UDP only, `#[cfg(all(feature = "netplay", not(target_arch =
 "wasm32")))]`) takes a local `host:port`, a peer `host:port`, and a P1/P2 slot, and dispatches
@@ -240,7 +254,7 @@ default build is unaffected. The crate's `WebRtcTransport` (wasm32) is itself co
 clippy-verified against the real `web_sys` API, but frontend SDP-negotiation UI to actually use
 it in-browser is a separate, not-yet-landed scope.
 
-## RetroAchievements (`v0.9.0 "Community"`, T-82-003)
+## RetroAchievements (`v0.8.0 "Community"`, T-82-003)
 
 A Tools → RetroAchievements… window (native-only, `#[cfg(all(feature = "retroachievements",
 not(target_arch = "wasm32")))]`) takes a username/password and dispatches

@@ -4,7 +4,7 @@
 **Sprint goal:** rollback netplay and RetroAchievements ship behind default-off feature flags,
 each byte-identical with the feature off, resting on the exercised determinism contract.
 **Estimated duration:** 2 weeks
-**Release mapping:** `v0.9.0 "Community"` (`to-dos/VERSION-PLAN.md`)
+**Release mapping:** `v0.8.0 "Community"` (`to-dos/VERSION-PLAN.md`)
 
 ## Tickets
 
@@ -22,7 +22,7 @@ window, delta/incremental snapshots become necessary — a real design change be
 - [x] A new Criterion benchmark measures `save_state()`/`load_state()` cost across a
       no-coprocessor, a Curated (Super FX/SA-1), and a BestEffort sample —
       `crates/rustysnes-core/benches/save_state_cost.rs`.
-- [x] The result is recorded in `docs/benchmarks.md` (§`v0.9.0` pre-work — save-state cost).
+- [x] The result is recorded in `docs/benchmarks.md` (§`v0.8.0` pre-work — save-state cost).
 - [x] A go/no-go call on the full-snapshot design is made explicitly: **GO** — all three tiers
       cluster tightly (~108 µs save, ~295 µs load), both negligible next to a single frame's own
       ~3.27 ms execution cost; no delta/incremental redesign needed before T-82-002 proceeds.

@@ -60,11 +60,15 @@ use rustysnes_script::ScriptEngine;
 #[cfg(feature = "cheats")]
 use crate::cheats::CheatEntry;
 
-// Rollback netplay (`v0.9.0`, T-82-002) — native-only (`netplay.rs`'s own module doc has why).
+// Read/write watchpoints (`v0.8.0`, T-81-001b). `WatchpointEntry` is always compiled (see
+// `debug_snapshot.rs`'s doc), unlike `CheatEntry` above.
+use crate::debug_snapshot::WatchpointEntry;
+
+// Rollback netplay (`v0.8.0`, T-82-002) — native-only (`netplay.rs`'s own module doc has why).
 #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
 use crate::netplay::NetplayState;
 
-// RetroAchievements (`v0.9.0`, T-82-003) — native-only (`cheevos.rs`'s own module doc has why).
+// RetroAchievements (`v0.8.0`, T-82-003) — native-only (`cheevos.rs`'s own module doc has why).
 #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
 use crate::cheevos::CheevosState;
 
@@ -130,11 +134,17 @@ struct Active {
     /// The in-session cheat-code list (`v0.8.0`, T-81-003). Empty until `Cheats…` adds entries.
     #[cfg(feature = "cheats")]
     cheats: Vec<CheatEntry>,
-    /// Native rollback netplay connection state (`v0.9.0`, T-82-002). `Idle` until
+    /// The debugger's armed read/write watchpoint list (`v0.8.0`, T-81-001b). Empty until the
+    /// debugger overlay's Watch panel adds entries. Not feature-gated (unlike `cheats` above) —
+    /// [`WatchpointEntry`] is one of `debug_snapshot.rs`'s always-compiled types (see that
+    /// module's doc), so this field stays a plain, unconditional `Vec` too; only the actual
+    /// `Bus::set_watchpoints` sync call below is `debug-hooks`-gated.
+    watchpoints: Vec<WatchpointEntry>,
+    /// Native rollback netplay connection state (`v0.8.0`, T-82-002). `Idle` until
     /// `MenuAction::ConnectNetplay`.
     #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
     netplay: NetplayState,
-    /// Native `RetroAchievements` session state (`v0.9.0`, T-82-003). No `rc_client` exists until
+    /// Native `RetroAchievements` session state (`v0.8.0`, T-82-003). No `rc_client` exists until
     /// the first `MenuAction::LoginCheevos`.
     #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
     cheevos: CheevosState,
@@ -482,6 +492,7 @@ impl App {
             movie: MovieState::default(),
             #[cfg(feature = "cheats")]
             cheats: Vec::new(),
+            watchpoints: Vec::new(),
             #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
             netplay: NetplayState::default(),
             #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
@@ -615,7 +626,7 @@ impl App {
                 let frames = active.pacer.tick();
                 let mut samples = Vec::new();
                 for _ in 0..frames {
-                    // Netplay (`v0.9.0`, T-82-002) is its OWN drive loop, deliberately never the
+                    // Netplay (`v0.8.0`, T-82-002) is its OWN drive loop, deliberately never the
                     // single-player path below it: a `RollbackSession` owns pad application,
                     // frame production, AND presentation (`NetplayState::drive`) — running it
                     // alongside movie/cheat/rewind/run-ahead machinery designed for a single,
@@ -655,6 +666,10 @@ impl App {
                     // ROM, not WRAM, so a poke-based model would silently do nothing for them).
                     #[cfg(feature = "cheats")]
                     crate::cheats::sync(&active.cheats, &mut emu.system_mut().bus);
+                    // Read/write watchpoints (`v0.8.0`, T-81-001b) — same "just re-sync
+                    // unconditionally, once per real frame" pattern as cheats above.
+                    #[cfg(feature = "debug-hooks")]
+                    crate::watchpoints::sync(&active.watchpoints, &mut emu.system_mut().bus);
                     // Run-ahead (config-driven, off by default): peeks `run_ahead.frames` frames
                     // ahead for the PRESENTED video, while `emu`'s own persisted state (and audio
                     // — the continuous stream) only ever advances by exactly one real frame, same
@@ -671,7 +686,7 @@ impl App {
                     active.rewind.record(&emu);
                     #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
                     Self::pump_script(&mut active.script, &active.movie, &mut emu);
-                    // RetroAchievements (`v0.9.0`, T-82-003): one rc_client frame per emulated
+                    // RetroAchievements (`v0.8.0`, T-82-003): one rc_client frame per emulated
                     // frame, reading WRAM through the same `Bus::peek_wram` the debugger/scripting
                     // already use. Scope cut, honestly noted: not wired into the netplay `drive`
                     // path above (a `RollbackSession`-driven `System` and achievement tracking
@@ -777,6 +792,7 @@ impl App {
                 &info,
                 config,
                 debug.as_ref(),
+                &mut active.watchpoints,
                 #[cfg(feature = "cheats")]
                 &mut active.cheats,
                 #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]

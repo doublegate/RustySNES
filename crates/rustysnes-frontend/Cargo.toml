@@ -1,7 +1,7 @@
 [package]
 name = "rustysnes-frontend"
 description = "RustySNES: cross-platform SNES emulator binary (winit + wgpu + cpal + egui)"
-version = "0.7.0"
+version = "0.8.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -45,10 +45,13 @@ wasm-canvas = []
 emu-thread = []
 help-tui = ["dep:ratatui"]
 
-# Off-by-default forward placeholders, mirroring the RustyNES feature surface so
-# the chip-implementation phase can switch them on without restructuring the
-# manifest. They wire no extra code yet (the panels/hooks are TODO stubs).
-debug-hooks = []
+# The debugger overlay (live CPU/PPU/APU/Cart state viewers, `docs/frontend.md` §Debugger
+# overlay). `v0.8.0` T-81-001b adds read/write watchpoints on top, which also needs the
+# `rustysnes-core` side of the gate (the Bus-level hook lives there, not just this crate's UI).
+debug-hooks = ["rustysnes-core/debug-hooks"]
+# Off-by-default forward placeholder, mirroring the RustyNES feature surface so the
+# chip-implementation phase can switch it on without restructuring the manifest. Wires no extra
+# code yet (the HD-pack asset-replacement hooks are a TODO stub).
 hd-pack = []
 # `v0.8.0 "Instrumentation"`, T-81-002: sandboxed Lua scripting (`rustysnes-script`, native-only —
 # `dep:` keeps the optional dependency out of the wasm32 dependency graph even if this feature
@@ -59,7 +62,7 @@ scripting = ["dep:rustysnes-script"]
 # this flag gates only the frontend's cheat list + UI + per-frame application). No optional
 # dependency and no `target_arch` gate — decode is pure computation, unlike `scripting`'s `mlua`.
 cheats = []
-# `v0.9.0 "Community"`, T-82-002: GGPO-style rollback netplay (`rustysnes-netplay`). The frontend
+# `v0.8.0 "Community"`, T-82-002: GGPO-style rollback netplay (`rustysnes-netplay`). The frontend
 # wiring here is native-only (UDP, a real socket-based peer connection entered by address) — the
 # crate's `WebRtcTransport` is itself complete and wasm32-clippy-verified against the real
 # `web_sys` API, but the browser-side SDP-negotiation UI (async offer/answer/ICE exchange) is a
@@ -67,7 +70,7 @@ cheats = []
 # keeps the optional dependency out of the wasm32 dependency graph, on top of the
 # `target.'cfg(...)'` gate below already doing so.
 netplay = ["dep:rustysnes-netplay"]
-# `v0.9.0 "Community"`, T-82-003: RetroAchievements (`rustysnes-cheevos`, the vendored `rcheevos`
+# `v0.8.0 "Community"`, T-82-003: RetroAchievements (`rustysnes-cheevos`, the vendored `rcheevos`
 # `rc_client` FFI bridge). Native-only — `rcheevos` needs a C toolchain and `std`, and the wasm
 # builds have no supported HTTP worker thread for the RA server calls. `dep:` keeps the optional
 # dependency out of the wasm32 dependency graph, on top of the `target.'cfg(...)'` gate below.
@@ -77,8 +80,8 @@ retroachievements = ["dep:rustysnes-cheevos"]
 workspace = true
 
 [dependencies]
-rustysnes-core = { path = "../rustysnes-core", version = "0.7.0" }
-rustysnes-savestate = { path = "../rustysnes-savestate", version = "0.7.0" }
+rustysnes-core = { path = "../rustysnes-core", version = "0.8.0" }
+rustysnes-savestate = { path = "../rustysnes-savestate", version = "0.8.0" }
 
 # winit + wgpu + cpal + egui shell. Versions tracked to the latest published,
 # mutually-compatible tier (2026-06): egui/egui-wgpu/egui-winit 0.35, wgpu 29
@@ -123,9 +126,9 @@ clap = { version = "4", features = ["derive", "color", "cargo"] }
 clap_complete = "4"
 anstyle = "1"
 ratatui = { version = "0.30", optional = true }
-rustysnes-script = { path = "../rustysnes-script", version = "0.7.0", optional = true }
-rustysnes-netplay = { path = "../rustysnes-netplay", version = "0.7.0", optional = true }
-rustysnes-cheevos = { path = "../rustysnes-cheevos", version = "0.7.0", optional = true }
+rustysnes-script = { path = "../rustysnes-script", version = "0.8.0", optional = true }
+rustysnes-netplay = { path = "../rustysnes-netplay", version = "0.8.0", optional = true }
+rustysnes-cheevos = { path = "../rustysnes-cheevos", version = "0.8.0", optional = true }
 
 # wasm32 target deps. The chip stack is `no_std + alloc`, so the browser build
 # only needs the wasm-bindgen + web-sys bridge here.

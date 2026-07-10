@@ -288,14 +288,39 @@ as open bus, the game wedges on its first DSP poll — it is never silently degr
   real `Bus::mirror` algorithm (`spc7110::bus_mirror`) and applied it to every PROM/DROM lookup;
   the wild-PC excursion this caused moved from ~20-30 frames into boot (BRK-storming into
   unmapped low banks, per the original diagnostic) to ~90+ frames, and it now self-recovers via a
-  BRK/RTI oscillation instead of a permanent crash. **Still open:** the CPU eventually executes an
-  `RTI` (traced to `$CD:D2B3`, genuine PROM-resident code, not decompression garbage) that pops a
-  return frame pointing into WRAM (`$20:0848`, mirror of `$7E:0848`) which is confirmed **entirely
-  zeroed** — the game expects real code to already be resident there (very likely written via a
-  DCU-driven decompress-to-WRAM step that either hasn't run yet or is itself still buggy) and
-  there isn't any. Full root-causing this needs a proper instruction-level disassembler + symbol
-  trace against the DCU/data-port write sequence, which is out of this session's scope — tracked
-  as future SPC7110 work, not silently claimed fixed (`docs/adr/0003`).
+  BRK/RTI oscillation instead of a permanent crash. **`v0.8.0`:** ported ares' SPC7110 cothread
+  timing exactly — the DCU-begin-transfer (`$4806`)/multiply (`$4825`)/divide (`$4827`) triggers
+  are deferred one master-clock tick (`dcu_pending`/`mul_pending`/`div_pending`, consumed in a new
+  `coprocessor_tick` override), not completed synchronously within the register write — a real,
+  independently-verified accuracy fix (9/9 unit tests), but watchpoint-based tracing
+  (`T-81-001b`) confirmed it does **not** fix the boot gap: those triggers are never written at
+  all during this boot's crash path. **Still open, substantially narrowed:** the same watchpoint
+  trace shows `$7E0800-08FF` (containing the crashing `RTI`'s `$0848` target) is written exactly
+  once at reset and never again across 60 real seconds of boot; no SPC7110 register is ever
+  touched again either; and holding Start the whole time changes nothing. A new
+  `rustysnes_cpu::disasm` disassembler + branch trace then found the `$00:F416`/`$20:20xx`
+  framing was itself incomplete: the CPU actually spends most of its time in a real, coherent
+  VRAM-upload loop in bank `$4F` (`STA $2118`/`$2116`), not stalled — until it hits a literal
+  `JSL $4FFB80` (confirmed present in the raw dump, not a read artifact). Bank `$4F` is in
+  `$40-$7D`, which two more real bugs (found by cross-checking `ref-proj/ares`'s own board
+  database, `board: SHVC-LDH3C-01`, the exact board this title uses) turned out to mishandle:
+  **(1)** `$40-$7D` should be unmapped (`MappedAddr::Open`), not a `$C0-FF` mirror — an earlier
+  session's claim otherwise was never checked against this database; fixed in `read24`/`map`.
+  **(2)** the DROM buffer was 2 MiB oversized — the committed dump is 7 MiB but the real physical
+  chips total 5 MiB (1 MiB PROM + 4 MiB DROM per the same database), so `select` was treating 2
+  MiB of trailing dump padding as real DROM and feeding `bus_mirror` the wrong fold length; fixed
+  by slicing exactly `PROM_SIZE + DROM_SIZE`. Both fixes are independently verified. A fourth,
+  systemic bug found alongside these: the cart layer's open-bus fallback returned a hardcoded `0`
+  for `MappedAddr::Open` instead of echoing the Bus's real open-bus latch (ares' `Bus::read(address,
+  data)` pattern) — fixed via `Cart::read24` now taking the caller's open-bus byte as a parameter
+  (`rustysnes-cart/src/lib.rs`), benefiting every board, not just SPC7110. With this fix, the `JSL
+  $4FFB80` dead end now lands on a stable, harmless open-bus spin loop (`AND $3D3D,X` echoing the
+  last-latched byte forever) instead of a deterministic `BRK` — a more honestly-modeled failure,
+  but still not a fix: **the real question is now precisely located, not closed:** a shipped
+  commercial title cannot legitimately execute a jump into unmapped space on real hardware, so this
+  emulation must diverge from real hardware *earlier* than this `JSL` — tracked as future SPC7110
+  work, not silently claimed fixed (`docs/adr/0003`; full trail in
+  `docs/audit/spc7110-boot-crash-2026-07-08.md`).
 - **S-RTC** (`BestEffort`, **implemented** — `coproc::sharprtc`): a standalone Sharp S-RTC
   real-time clock (Daikaijuu Monogatari II, an ExHiROM title; ares board
   `EXHIROM-RAM-SHARPRTC`). A DIFFERENT chip/protocol from SPC7110's paired Epson RTC-4513 despite

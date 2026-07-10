@@ -27,8 +27,11 @@ engine and deserves its own focused review.
 
 **Acceptance criteria:**
 
-- [x] 65C816 panel: register/flag view (PR A). Breakpoints (PC), step/step-over/step-into: PR B.
-      Read/write watchpoints: T-81-001b (not this ticket).
+- [x] 65C816 panel: register/flag view (PR A).
+- [ ] 65C816 panel: disassembly + breakpoints (PC), step/step-over/step-into ("PR B" above) — this
+      box was checked prematurely; no such code ever landed (`ui_shell.rs`'s CPU panel doc still
+      says "a follow-up" as of `v0.8.0`). Corrected here rather than left stale; genuinely open.
+      Read/write watchpoints: **landed**, `v0.8.0` T-81-001b (not this ticket).
 - [x] PPU panel: VRAM (scrollable window) / CGRAM viewer, current scanline/dot, register state
       (PR A). OAM viewer not yet landed — small follow-up, same shape as the VRAM/CGRAM viewers.
 - [x] APU panel: SPC700 PC/halt state, DSP voice state (PR A).

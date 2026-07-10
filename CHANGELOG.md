@@ -7,12 +7,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **RustySNES integrates a cycle-accurate emulation engine.** Modeled after its predecessor `RustyNES`, this emulator is built on a master-clock-precise, lockstep-scheduled core targeting the Mesen2/ares accuracy bar. The entries below document the engine-internal milestones as this core is built and hardened.
 
-## [Unreleased]
+## [0.8.0] "Community" - 2026-07-10
+
+Sprint 2 of Phase 8 Reach: GGPO-style rollback netplay, native RetroAchievements support, and the
+extended byte-identical-with-flags-off CI gate, alongside a follow-up debugger pass (65C816
+read/write watchpoints, a minimal disassembler) and a continued SPC7110 boot investigation that
+found and fixed four real bugs — including a systemic cart-layer open-bus fix that benefits every
+board — plus a new per-mapper/coprocessor ROM test-corpus inventory doc. `v0.9.0` was never used;
+this release picks up directly from `v0.7.0`.
+
+**Oracle/golden suites: all held, no regressions.** The full workspace test suite (including
+`--features test-roms`) is green; SPC7110 still does not reach a bootable screen (tracked
+honestly, not claimed fixed — `docs/adr/0003`).
 
 ### Added
 
+- **65C816 read/write watchpoints — `v0.8.0`, T-81-001b.** A new `debug-hooks` feature on
+  `rustysnes-core` itself (previously the flag only existed as a frontend UI gate) adds
+  `rustysnes_core::watchpoint`: an armed address list checked in `CpuBus::read24`/`write24` (an
+  `is_empty()` fast path keeps the accuracy-critical Bus read/write path free when nothing is
+  armed), recording up to 256 hits (a ring, oldest dropped first) per poll. Mirrors the existing
+  `cheats` feature's architecture exactly (`Bus::set_watchpoints`/`take_watchpoint_hits`, synced
+  once per real frame). The frontend's debugger overlay gained a Watch panel (address + R/W/RW
+  entry, an armed list with remove buttons, and a scrollable hit log) — `debug-hooks` on the
+  frontend crate now also forwards to `rustysnes-core/debug-hooks`. Never part of save-state (host
+  debug tooling, not emulated state — `docs/adr/0004`).
+
+- **A minimal 65C816 disassembler — `rustysnes_cpu::disasm`, `v0.8.0`.** Decode-only, not wired
+  into execution: `disassemble_one` takes a byte-peek closure and returns a human-readable
+  `"MNEMONIC operand"` string plus instruction length, covering the full standard 256-opcode WDC
+  65C816 map (11 unit tests, including a full-opcode-table decode sweep). Built for the frontend's
+  debugger overlay and for ad hoc instruction-level tracing (used immediately below).
+
+- **Three real SPC7110 addressing/timing bugs found and fixed, and the boot-completion gap
+  substantially narrowed and precisely relocated — `v0.8.0`.** Reading `ref-proj/ares`'s
+  `sfc/coprocessor/spc7110/` directly confirmed real hardware's SPC7110 runs as its own cothread
+  at the master-clock rate, deferring a `$4806` DCU-begin-transfer / `$4825` multiply / `$4827`
+  divide trigger by one tick rather than completing it synchronously within the register write.
+  Ported faithfully (`Spc7110Board::coprocessor_tick`, unit-tested including a new deferral-proof
+  test) — a real, independently-verified accuracy fix. Using the new watchpoint hook to trace the
+  one committed SPC7110 title's boot (Far East of Eden Zero) confirmed this fix does **not** close
+  the previously-tracked boot-completion gap: those triggers are never actually written during
+  this boot's crash path. The new disassembler then found the earlier "stall loop" framing was
+  itself incomplete — the CPU spends most of its time in a real, coherent VRAM-upload loop (bank
+  `$4F`) — until it hits a literal jump into a bank that, per `ref-proj/ares`'s own board database
+  (`board: SHVC-LDH3C-01`, the exact board this title uses), should be entirely unmapped. Fixed
+  two more real bugs found this way: the `$40-$7D` range was wrongly treated as a `$C0-FF` mirror
+  (an earlier session's claim, never actually checked against the database); and the DROM buffer
+  was 2 MiB oversized (the committed 7 MiB dump vs. the real 5 MiB of physical chip content),
+  corrupting the `bus_mirror` fold length for any high DROM offset. All three fixes independently
+  verified against ares' authoritative source, 9/9 `spc7110` unit tests plus the full workspace
+  suite green — but none of them close the gap: with the mapping now correct, the game's own PROM
+  code still jumps into that (now-correctly-unmapped) space, meaning real hardware must diverge
+  from this emulation even earlier, in a stretch of boot code not yet traced. Full trail and next
+  steps in `docs/audit/spc7110-boot-crash-2026-07-08.md`; `docs/cart.md`/`docs/STATUS.md`'s
+  SPC7110 entries updated to match — still not claimed boot-validated (`docs/adr/0003`).
+
+- **A real, systemic open-bus bug found and fixed — `rustysnes-cart`, `v0.8.0`.** Continuing the
+  SPC7110 investigation past the `JSL $4FFB80` dead end (rather than stopping at it) exposed that
+  the cart layer's open-bus fallback was itself wrong, independent of any board-specific logic:
+  `Board::read24`'s `MappedAddr::Open` case (and every board's own override, SPC7110's included)
+  returned a hardcoded `0` instead of the real bus open-bus latch. Checking ares' actual bus-read
+  plumbing (`sfc/cpu/memory.cpp`, `sfc/memory/inline.hpp`) confirms real hardware's open bus
+  echoes back the CPU's own MDR (the last byte actually driven on the data bus) — a `0` fetch is
+  `BRK`, so this emulator's cart-space open bus reliably BRK-storms on any wild jump into unmapped
+  cart space, where real hardware often keeps running (harmlessly or not). Fixed: `Cart::read24`
+  (`crates/rustysnes-cart/src/lib.rs`) now takes the caller's open-bus byte as a parameter and
+  echoes it back for a genuinely `MappedAddr::Open` address, exactly mirroring ares'
+  `Bus::read(address, data)` — both of `rustysnes-core`'s call sites (`Bus::cart_read_raw`,
+  `CartView::cart_read`) now thread their own `open_bus` field through. Benefits every board, not
+  only SPC7110: re-tracing Far East of Eden Zero's `JSL $4FFB80` dead end with this fix in place
+  now shows a stable, harmless open-bus spin loop instead of the previous BRK/RTI oscillation —
+  more honestly modeled, though it still doesn't close the boot gap (full trail in
+  `docs/audit/spc7110-boot-crash-2026-07-08.md`). **Two golden vectors re-blessed as an intentional
+  consequence** (`docs/adr/0003`'s honesty gate: update a golden only on a reviewed, understood
+  behavior change, never silently): `tests/golden/sa1-framebuffer.tsv` (SD F-1 Grand Prix's sampled
+  frame now matches the same "SA-1 not yet live" hash most other titles already shared) and
+  `tests/golden/superfx-framebuffer.tsv` (24 of the Krom `FillPoly`/`PlotLine`/`PlotPixel` draw-
+  primitive ROMs, whose setup code touches cart open bus). Both suites' non-hash assertions
+  (detection, liveness, substantial-bitmap-plotted) held throughout — only the informational
+  determinism-drift hash moved, and only for titles/ROMs that actually exercise open bus.
+
+- **`docs/rom-test-corpus.md` — a per-mapper/coprocessor/test-category ROM inventory.** Catalogs,
+  for every mapper (LoROM/HiROM/ExHiROM) and coprocessor (DSP-1..4, Super FX, SA-1, S-DD1, OBC1,
+  CX4, ST010/ST011/ST018, S-RTC, SPC7110), the best available test ROM and its concrete
+  availability: committed corpus, gitignored external corpus, present in the local Dropbox ROM
+  collection, or genuinely unavailable — including PAL and hi-res-specific golden-boot gaps that
+  stay honestly open for lack of a suitable dump anywhere on this machine.
+
 - **The byte-identical-with-flags-off CI gate, extended for Sprint 2's two new flags —
-  `v0.9.0 "Community"`, T-82-004.** `.github/workflows/ci.yml`'s `lint` job now clippys
+  `v0.8.0 "Community"`, T-82-004.** `.github/workflows/ci.yml`'s `lint` job now clippys
   `netplay` and `retroachievements` individually (alongside Sprint 1's `debug-hooks`/
   `scripting`/`cheats`) and combined (`debug-hooks,scripting,cheats,netplay,retroachievements`)
   — still never `--all-features`, since `wasm-winit`/`wasm-canvas` stay mutually exclusive. The
@@ -24,7 +108,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cc`, real cross-platform build surface `lint` never exercises, the same category `scripting`'s
   vendored `mlua` already established the Linux-only scoping for.
 
-- **GGPO-style rollback netplay — `v0.9.0 "Community"`, T-82-002.** A new `rustysnes-netplay`
+- **GGPO-style rollback netplay — `v0.8.0 "Community"`, T-82-002.** A new `rustysnes-netplay`
   crate implements two-player rollback netcode, ported from RustyNES's own proven
   `rustynes-netplay::session::RollbackSession` shape (the N-player mesh/Roster/spectator/NAT-
   traversal breadth RustyNES also carries is deliberately NOT ported — out of this ticket's
@@ -89,7 +173,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     an O(1) read (frames are predicted in strictly increasing order, so the previous frame's
     slot already holds the correct last-known value by induction).
 
-- **RetroAchievements (opt-in, native FFI) — `v0.9.0 "Community"`, T-82-003.** A new
+- **RetroAchievements (opt-in, native FFI) — `v0.8.0 "Community"`, T-82-003.** A new
   `rustysnes-cheevos` crate wraps the vendored `rcheevos` `rc_client` C API (MIT-licensed,
   vendored verbatim from RustyNES's own `rustynes-cheevos/vendor/rcheevos` copy — confirmed
   byte-identical via `diff -rq`, matching `rustysnes-script`'s already-established
@@ -138,7 +222,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     graph (`dep:rustysnes-cheevos`) and every wiring site is feature-gated; full default-feature
     workspace build/test/clippy/fmt/doc verified unaffected.
 
-- **Netplay save-state cost benchmark + rollback go/no-go call — `v0.9.0 "Community"`,
+- **Netplay save-state cost benchmark + rollback go/no-go call — `v0.8.0 "Community"`,
   T-82-001.** A new Criterion benchmark (`crates/rustysnes-core/benches/save_state_cost.rs`)
   measures `System::save_state()`/`load_state()` cost across three board tiers (no-coprocessor,
   Curated Super FX, BestEffort CX4) — pre-work before T-82-002's rollback netplay, which calls
@@ -364,7 +448,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Mid-scanline/HDMA-driven register timing — `v0.9.0 "Community"`.** `Ppu::tick_dot` now
+- **Mid-scanline/HDMA-driven register timing — `v0.8.0 "Community"`.** `Ppu::tick_dot` now
   composites each scanline at `RENDER_DOT` (dot 276) instead of end-of-scanline (dot 340) —
   matching real hardware's per-pixel active-region timing, so a per-line HDMA-driven register
   write during line `V` only becomes visible starting `V+1`, not on `V` itself (`docs/ppu.md`
@@ -461,11 +545,11 @@ used.
   item left on the accuracy-debt list), an ongoing opportunistic `v0.x.y`-patch cluster for the
   rest of that list (mid-scanline/GSU, open-bus-via-HDMA-latch, SPC7110, DRAM refresh, ROM-dump-
   gated validation — none of it gates a numbered rung), `v0.8.0 "Instrumentation"` (debugger
-  overlay, Lua scripting + TAS movie API, cheat-code support), `v0.9.0 "Community"` (rollback
+  overlay, Lua scripting + TAS movie API, cheat-code support), `v0.8.0 "Community"` (rollback
   netplay, RetroAchievements), then `v1.0.0` (desktop UX shell maturity, a new frame-time
   performance-regression CI gate, the `README.md` rewrite, the production cut).
   `to-dos/VERSION-PLAN.md`, `to-dos/ROADMAP.md`, and `to-dos/phase-8-reach/overview.md` (plus its
-  sprint files, renumbered: Sprint 1 = Instrumentation/`v0.8.0`, Sprint 2 = Community/`v0.9.0`,
+  sprint files, renumbered: Sprint 1 = Instrumentation/`v0.8.0`, Sprint 2 = Community/`v0.8.0`,
   replacing the old netplay+RA-only Sprint 1) are rewritten together so all three planning
   documents agree.
 

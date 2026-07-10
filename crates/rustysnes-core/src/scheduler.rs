@@ -183,6 +183,9 @@ impl System {
         // framebuffer DMA spans the frame boundary. The scheduler no longer sequences HDMA.
 
         while self.bus.ppu.frame_count() == start_frame && steps < MAX_STEPS_PER_FRAME {
+            #[cfg(feature = "debug-hooks")]
+            self.bus
+                .set_debug_pc((u32::from(self.cpu.regs.pbr) << 16) | u32::from(self.cpu.regs.pc));
             self.cpu.step(&mut self.bus);
             steps += 1;
 
@@ -226,6 +229,9 @@ impl System {
         if !self.booted {
             self.reset();
         }
+        #[cfg(feature = "debug-hooks")]
+        self.bus
+            .set_debug_pc((u32::from(self.cpu.regs.pbr) << 16) | u32::from(self.cpu.regs.pc));
         self.cpu.step(&mut self.bus);
         if self.sa1_cpu.is_some() {
             self.run_sa1();

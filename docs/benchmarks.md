@@ -50,7 +50,7 @@ byte loops) haven't been individually measured yet. This benchmark establishes t
 number the next optimization pass is measured against; per `docs/performance.md`'s own rule
 ("never optimize without a Criterion baseline"), that baseline is now this document.
 
-## `v0.9.0` pre-work — save-state cost (netplay rollback go/no-go, T-82-001)
+## `v0.8.0` pre-work — save-state cost (netplay rollback go/no-go, T-82-001)
 
 **The question this answers:** rollback netplay (T-82-002) calls `System::save_state()`/
 `load_state()` far more often than `RewindBuffer`'s ~10 Hz design point (`docs/adr/0006` frames
@@ -95,7 +95,7 @@ cargo bench -p rustysnes-core --bench save_state_cost
   `save_state()` alone, then `load_state()` of that same blob.
 - **Machine/toolchain:** same as the `v0.4.0` baseline above.
 - **Captured:** 2026-07-09, on `v0.8.0 "Instrumentation"` (immediately after Sprint 1 landed),
-  ahead of `v0.9.0 "Community"` Sprint 2 starting.
+  ahead of `v0.8.0 "Community"` Sprint 2 starting.
 
 ## Future measurements
 

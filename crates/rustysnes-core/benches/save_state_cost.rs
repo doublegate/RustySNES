@@ -1,4 +1,4 @@
-//! `System::save_state()`/`load_state()` cost across three board tiers (`v0.9.0 "Community"`,
+//! `System::save_state()`/`load_state()` cost across three board tiers (`v0.8.0 "Community"`,
 //! T-82-001 — pre-work for rollback netplay, which calls save/restore far more often than
 //! `RewindBuffer`'s ~10 Hz design point). Results feed `docs/benchmarks.md`.
 //!

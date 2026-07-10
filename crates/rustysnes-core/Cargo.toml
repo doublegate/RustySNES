@@ -1,6 +1,6 @@
 [package]
 name = "rustysnes-core"
-version = "0.7.0"
+version = "0.8.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -9,13 +9,17 @@ authors.workspace = true
 [features]
 default = ["std"]
 std = []
+# `v0.8.0`, T-81-001b: 65C816 read/write memory watchpoints (`watchpoint.rs`). Off by default so
+# a shipped build carries zero extra code on the accuracy-critical `Bus::read24`/`write24` path —
+# see that module's own doc for the discipline this matches (`cheat.rs`'s read intercept).
+debug-hooks = []
 
 [dependencies]
-rustysnes-cpu = { path = "../rustysnes-cpu", version = "0.7.0", default-features = false }
-rustysnes-ppu = { path = "../rustysnes-ppu", version = "0.7.0", default-features = false }
-rustysnes-apu = { path = "../rustysnes-apu", version = "0.7.0", default-features = false }
-rustysnes-cart = { path = "../rustysnes-cart", version = "0.7.0", default-features = false }
-rustysnes-savestate = { path = "../rustysnes-savestate", version = "0.7.0" }
+rustysnes-cpu = { path = "../rustysnes-cpu", version = "0.8.0", default-features = false }
+rustysnes-ppu = { path = "../rustysnes-ppu", version = "0.8.0", default-features = false }
+rustysnes-apu = { path = "../rustysnes-apu", version = "0.8.0", default-features = false }
+rustysnes-cart = { path = "../rustysnes-cart", version = "0.8.0", default-features = false }
+rustysnes-savestate = { path = "../rustysnes-savestate", version = "0.8.0" }
 thiserror = { version = "2", default-features = false }
 # ROM-identity hashing for TAS movies (`movie.rs`) — already resolved transitively (via `zip` in
 # the frontend), so this promotes an existing dependency to direct rather than adding a new one

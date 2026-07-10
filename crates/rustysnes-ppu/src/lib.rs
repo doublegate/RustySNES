@@ -23,7 +23,7 @@
 //! bit-identical to one for every currently-modeled case, including a per-line HDMA-driven
 //! register write (e.g. a raster scroll split) — which only becomes visible starting the
 //! following line, matching real hardware (`docs/ppu.md` §Mid-scanline/HDMA-driven register
-//! timing, landed `v0.9.0`).
+//! timing, landed `v0.8.0`).
 //!
 //! # Rendering note (clean-room)
 //!

@@ -1,4 +1,4 @@
-//! `RollbackSession` — GGPO-style rollback netplay (`v0.9.0 "Community"`, T-82-002).
+//! `RollbackSession` — GGPO-style rollback netplay (`v0.8.0 "Community"`, T-82-002).
 //!
 //! Ported from RustyNES's `rustynes-netplay::session::RollbackSession` (the core rollback
 //! loop's shape is carried over faithfully; the N-player mesh/Roster/spectator/NAT-traversal
