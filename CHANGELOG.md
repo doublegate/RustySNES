@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **RustySNES integrates a cycle-accurate emulation engine.** Modeled after its predecessor `RustyNES`, this emulator is built on a master-clock-precise, lockstep-scheduled core targeting the Mesen2/ares accuracy bar. The entries below document the engine-internal milestones as this core is built and hardened.
 
-## [Unreleased]
+## [0.9.0] "Threshold" - 2026-07-10
+
+Closes out Phase 7's last open exit criterion (niche peripherals) and Phase 8's one remaining
+ticket half (T-81-001 PR B), and resolves the previously carried-forward SPC7110 boot
+investigation — the last loose ends before the `v1.0.0` production push
+(`to-dos/VERSION-PLAN.md`'s `v1.0.0` gate is next: `Board: Send` + desktop UX shell maturity are
+what remain there). `v0.9.0` had never been used before this — earlier drafts once mislabeled a
+different rung with it before it was corrected to `v0.8.0` — so this genuinely picks up right
+after `v0.8.0 "Community"`.
+
+**Oracle/golden suites: all held, no regressions.** The full workspace test suite (including
+`--features test-roms`, 17 suites) is green; no golden hash changed.
 
 ### Added
 

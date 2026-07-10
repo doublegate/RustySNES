@@ -22,7 +22,7 @@ not a build fork. BestEffort boards never back the oracle (`docs/adr/0003`).
       accuracy-debt cluster.
 - [x] RTC chips read frozen / seeded time (`docs/adr/0004`); chip-ROM-dump boards carry the
       honesty caveat.
-- [x] **Core implemented, `v0.8.0`.** Niche peripherals (multitap, mouse, Super Scope) — the real
+- [x] **Core implemented, `v0.9.0`.** Niche peripherals (multitap, mouse, Super Scope) — the real
       2-bit-per-clock (`data1`/`data2`) serial-shift-register protocol, ported from ares'
       `sfc/controller/{mouse,super-scope,super-multitap}` (`rustysnes_core::controller`), not a
       stub. `Bus::set_port_device`/`set_mouse`/`set_superscope`/`set_multitap_pad`; save-stated as
@@ -57,7 +57,7 @@ Out-of-scope:
   — DSP-2/3/4 + ST010/011 + the simpler ASICs. **Complete** (see the sprint doc).
 - Sprint 2 — SPC7110 / S-DD1 / CX4 / ST018: **complete** (landed across `v0.4.0`-`v0.8.0`, never
   run as a separate formal sprint — see `docs/STATUS.md`'s coprocessor matrix). **Peripherals
-  (multitap/mouse/Super Scope): core complete, `v0.8.0`** — frontend host-input capture is a
+  (multitap/mouse/Super Scope): core complete, `v0.9.0`** — frontend host-input capture is a
   separate, tracked follow-up (`docs/frontend.md` §Peripherals), not part of this phase's own
   exit criteria.
 

@@ -140,7 +140,7 @@ struct Active {
     /// module's doc), so this field stays a plain, unconditional `Vec` too; only the actual
     /// `Bus::set_watchpoints` sync call below is `debug-hooks`-gated.
     watchpoints: Vec<WatchpointEntry>,
-    /// The debugger's armed PC-breakpoint list (`v0.8.0`, T-81-001 PR B). Empty until the
+    /// The debugger's armed PC-breakpoint list (`v0.9.0`, T-81-001 PR B). Empty until the
     /// debugger overlay's 65C816 panel adds entries — same always-compiled, unconditional-`Vec`
     /// posture as `watchpoints` above.
     breakpoints: Vec<u32>,
@@ -675,7 +675,7 @@ impl App {
                     // unconditionally, once per real frame" pattern as cheats above.
                     #[cfg(feature = "debug-hooks")]
                     crate::watchpoints::sync(&active.watchpoints, &mut emu.system_mut().bus);
-                    // Controller port 2 peripheral selection (`v0.8.0`, Phase 7 niche
+                    // Controller port 2 peripheral selection (`v0.9.0`, Phase 7 niche
                     // peripherals) — same "just re-sync unconditionally, once per real frame"
                     // pattern as cheats/watchpoints above; cheap (one enum-tag write) when
                     // unchanged. Host-input capture for the non-Gamepad devices (a real mouse
@@ -684,7 +684,7 @@ impl App {
                     // protocol correctly but doesn't yet feed it live host input
                     // (`docs/frontend.md` §Peripherals).
                     emu.set_port_device(1, config.port2_peripheral.to_core());
-                    // PC breakpoints (`v0.8.0`, T-81-001 PR B) — same re-sync pattern as above;
+                    // PC breakpoints (`v0.9.0`, T-81-001 PR B) — same re-sync pattern as above;
                     // a no-op branch in `EmuCore::run_frame` when the list is empty.
                     emu.set_breakpoints(&active.breakpoints);
                     // Run-ahead (config-driven, off by default): peeks `run_ahead.frames` frames

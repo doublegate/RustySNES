@@ -26,7 +26,7 @@ shape (`wasm-canvas` MVP, then `wasm-winit` unification) — see Sprint 1 below.
       when active) filling in `ui_shell.rs`'s already-wired `"TODO(impl-phase)"` panels for
       register/VRAM/CGRAM/APU/Cart state (T-81-001 PR A) plus read/write watchpoints (T-81-001b,
       `v0.8.0`) plus the 65C816 disassembly view + PC breakpoints/step-controls (T-81-001 PR B,
-      `v0.8.0`) — all landed. `to-dos/phase-8-reach/sprint-1-instrumentation.md` has the full
+      `v0.9.0`) — all landed. `to-dos/phase-8-reach/sprint-1-instrumentation.md` has the full
       per-ticket detail.
 - [x] Lua scripting / TAS API (`rustysnes-script`'s full stated scope: scripting + movie
       record/playback together, per its own `docs/STATUS.md` description).

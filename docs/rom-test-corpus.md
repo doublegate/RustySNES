@@ -109,7 +109,7 @@ they block real work:
     commercial cartridge is known to require this exact unofficial layout. Likely stays
     permanently formula-verified-only.
 5. **SPC7110's primary title, genuine dump** (Tengai Makyou Zero, sha256 `69d06a3f3a4f3ba7695
-   41fe94e92b42142e423e9f0924eab97865b2d826ec82d`) — **re-classified, `v0.8.0`: this is now the
+   41fe94e92b42142e423e9f0924eab97865b2d826ec82d`) — **re-classified, `v0.9.0`: this is now the
    highest-priority ROM gap in this whole table, not a lower-priority one.** The copy already in
    the corpus is the English fan-translation, not the original cartridge (confirmed by SHA256
    mismatch, a checksum-size inconsistency, and a public forum thread on the patch's own memory

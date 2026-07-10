@@ -34,7 +34,7 @@ use crate::sa1_bus::Sa1Bus;
 /// savestate-v1-gilyon.bin` fixture), not silent misinterpretation. See
 /// `docs/adr/0006-save-state-format.md`'s bump log for the full record.
 ///
-/// `3` (`v0.8.0`, Phase 7 niche peripherals): `crate::bus`'s `BUS0` section grew — a new WRIO
+/// `3` (`v0.9.0`, Phase 7 niche peripherals): `crate::bus`'s `BUS0` section grew — a new WRIO
 /// (`$4201`/`$4213`) `pio` byte plus each controller port's [`crate::controller::PortState`]
 /// (device selection + Mouse/Super Scope/Super Multitap runtime state). Same guarantee as the `2`
 /// bump above: a `FORMAT_VERSION < 3` blob fails loudly (a `BUS0` section-length mismatch), not

@@ -1,5 +1,5 @@
 //! SNES controller-port peripherals beyond the standard gamepad: Mouse, Super Scope, and Super
-//! Multitap (`v0.8.0`, Phase 7's "niche peripherals" exit criterion).
+//! Multitap (`v0.9.0`, Phase 7's "niche peripherals" exit criterion).
 //!
 //! Ported from ares' `sfc/controller/{mouse,super-scope,super-multitap}` — real hardware's
 //! 2-bit-per-clock (`data1`/`data2`) serial-shift-register protocol per controller port, selected

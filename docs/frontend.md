@@ -79,7 +79,7 @@ startup, so the toggle had no effect.
 - Late-latched input (sampled as close to the frame as possible) for responsiveness without
   breaking determinism.
 
-### Peripherals (Mouse / Super Scope / Super Multitap) — `v0.8.0`
+### Peripherals (Mouse / Super Scope / Super Multitap) — `v0.9.0`
 
 The core (`rustysnes_core::controller`) implements the real 2-bit-per-clock (`data1`/`data2`)
 serial-shift-register protocol for all three, ported from ares' `sfc/controller/
@@ -219,7 +219,7 @@ Gated behind the `debug-hooks` feature (default off) at the menu-entry level: wi
 `debugger_open` can never become `true`, so the app never builds a snapshot and the default
 build's emulation output is unaffected.
 
-**Disassembly + PC breakpoints + step controls (`v0.8.0`, T-81-001 PR B):** the 65C816 panel's
+**Disassembly + PC breakpoints + step controls (`v0.9.0`, T-81-001 PR B):** the 65C816 panel's
 `docs/frontend.md`-tracked follow-up, now landed. Entirely frontend-side (`emu.rs`) — no new
 `rustysnes-core` API beyond one addition, [`Bus::peek`](#bus-peek), needed because the debugger's
 own disassembly reads must never perturb the open-bus latch or trip watchpoints the way the live

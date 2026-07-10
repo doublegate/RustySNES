@@ -75,7 +75,7 @@ and diffing the deterministic output against a fork that kept running uninterrup
   (`docs/ppu.md` §Hi-res (Modes 5/6) color-math precision). `tests/golden/savestate-v1-gilyon.bin`
   is the real `FORMAT_VERSION = 1` fixture (captured from the pre-bump code against the committed
   gilyon `cputest-basic.sfc`) the regression test above loads to prove the mismatch fails loudly.
-- **`2` → `3` (`v0.8.0`, Phase 7 niche peripherals):** `crate::bus`'s `BUS0` section grew — a new
+- **`2` → `3` (`v0.9.0`, Phase 7 niche peripherals):** `crate::bus`'s `BUS0` section grew — a new
   WRIO (`$4201`/`$4213`) `pio` byte plus each controller port's `crate::controller::PortState`
   (which peripheral is attached — Mouse/Super Scope/Super Multitap — plus that device's own
   runtime shift-register/latch state, saved for the same reason `Bus::joypad` already was: it's

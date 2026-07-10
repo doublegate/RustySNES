@@ -519,6 +519,45 @@ see `CHANGELOG.md`'s `[0.8.0]` entry for the full release note.
   `rc_client_do_frame()` called every frame including fast-forwarded ones.
 - **Recurring gate:** re-verify the byte-identical-with-flags-off CI check.
 
+### v0.9.0 "Threshold" — closing the last Phase 7/8 residuals — **RELEASED 2026-07-10**
+
+Not an originally-planned rung on this ladder — it emerged from finishing the carried-forward
+items still open after `v0.8.0`: Phase 7's one remaining exit criterion, Phase 8's one remaining
+ticket half, and the SPC7110 investigation's resolution. Named for what it is: the last loose
+ends closed out before the `v1.0.0` production cut below.
+
+- **Niche peripherals (multitap, mouse, Super Scope)** — Phase 7's final exit criterion, closed.
+  `rustysnes_core::controller`: a real 2-bit-per-clock (`data1`/`data2`) serial-shift-register
+  protocol per controller port, ported from ares' `sfc/controller/{mouse,super-scope,
+  super-multitap}`, not a stub. `Bus::set_port_device` selects the peripheral (default:
+  `Gamepad`, byte-identical to every prior release); `Bus::set_mouse`/`set_superscope`/
+  `set_multitap_pad` feed host input once per frame. New WRIO (`$4201`/`$4213`) IOBIT register
+  plumbing (previously unimplemented) and `Ppu::latch_hv_counters` (the Super Scope beam-latch
+  mechanism). Save-stated as real hardware state — `FORMAT_VERSION` 2→3 (`docs/adr/0006`). The
+  frontend gained a Settings → Input control to select port 2's peripheral; live host-input
+  capture (a real mouse pointer, extra gamepads) is a tracked frontend follow-up, not yet wired.
+- **T-81-001 PR B: 65C816 disassembly view + PC breakpoints + step/step-over/step-into** — Phase
+  8's last open ticket half, closed. Entirely frontend-side (`emu.rs`), built on T-81-001b's
+  existing `rustysnes_cpu::disasm` engine. `EmuCore::set_breakpoints` (re-synced every frame like
+  cheats/watchpoints) is checked once per instruction boundary via the existing
+  `System::step_instruction()` — a real behavior change to `run_frame` only when at least one
+  breakpoint is armed (empty list = the exact prior fast path). One new `rustysnes-core` API,
+  `Bus::peek` — a genuinely side-effect-free read (unlike `CpuBus::read24`, never touches the
+  open-bus latch or trips watchpoints), needed because the debugger's own reads must not perturb
+  the emulated hardware state they're inspecting.
+- **SPC7110 boot-crash gap resolved (was never an emulation bug)** — the local test ROM turned
+  out to be the English fan-translation, not the original cartridge: a SHA256 mismatch against
+  `ref-proj/ares`'s own database, a checksum-size inconsistency, and a public forum thread on the
+  patch's own non-standard memory map all confirm this independently. The patch adds a 1 MiB
+  "Expansion ROM" at banks `$40-$4F` — precisely the bank the previously-traced derailing `JSL`
+  targets — that exists only in the patch, never on real hardware. Every prior addressing/timing
+  fix (`v0.4.0`-`v0.8.0`) stands as a genuine accuracy improvement; only the ROM being tested
+  against was the wrong artifact. Now a ROM-sourcing gap (`docs/rom-test-corpus.md`), not an open
+  bug — full evidence chain in `docs/audit/spc7110-boot-crash-2026-07-08.md`.
+- **24 new unit tests**; full `--features test-roms` suite (17 suites) re-verified unchanged;
+  fmt/clippy clean across all feature combinations; `no_std` and doc-build gates clean.
+- See `CHANGELOG.md`'s `[0.9.0]` entry for the full release note.
+
 ### v1.0.0 — desktop UX shell maturity, performance engineering, production cut
 
 - **Fix `Board: Send` first.** `cargo check -p rustysnes-frontend --features emu-thread` fails

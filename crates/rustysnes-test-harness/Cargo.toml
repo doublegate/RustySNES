@@ -1,6 +1,6 @@
 [package]
 name = "rustysnes-test-harness"
-version = "0.8.0"
+version = "0.9.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -12,14 +12,14 @@ test-roms = []          # compiles the committed CC0/public-domain suites + inte
 commercial-roms = []    # the local-dump oracle (ROMs gitignored; commit only screenshots/.snap)
 
 [dependencies]
-rustysnes-core = { path = "../rustysnes-core", version = "0.8.0" }
+rustysnes-core = { path = "../rustysnes-core", version = "0.9.0" }
 
 [dev-dependencies]
 insta = "1"
 serde_json = "1"
-rustysnes-cpu = { path = "../rustysnes-cpu", version = "0.8.0" }
-rustysnes-apu = { path = "../rustysnes-apu", version = "0.8.0" }
-rustysnes-savestate = { path = "../rustysnes-savestate", version = "0.8.0" }
+rustysnes-cpu = { path = "../rustysnes-cpu", version = "0.9.0" }
+rustysnes-apu = { path = "../rustysnes-apu", version = "0.9.0" }
+rustysnes-savestate = { path = "../rustysnes-savestate", version = "0.9.0" }
 
 [lints]
 workspace = true

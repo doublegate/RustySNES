@@ -203,7 +203,7 @@ pub struct Bus {
     /// Controller shift latches (`$4016/$4017`) + the auto-read result (`$4218-$421F`).
     joypad: [u16; 2],
     joypad_strobe: bool,
-    /// Per-port peripheral state (`v0.8.0`, Phase 7 niche peripherals) — Mouse/Super Scope/Super
+    /// Per-port peripheral state (`v0.9.0`, Phase 7 niche peripherals) — Mouse/Super Scope/Super
     /// Multitap. Idle (and touching nothing on `$4016`/`$4017`'s `data1` bit) unless a port's
     /// [`crate::controller::PortDevice`] is explicitly switched away from the default `Gamepad`
     /// via [`Self::set_port_device`], in which case `joypad[port]`'s own bit is bypassed instead
@@ -339,7 +339,7 @@ impl Bus {
     }
 
     /// The peripheral currently connected to controller port `port` — for the debugger overlay
-    /// and the frontend's own input-routing (`v0.8.0`).
+    /// and the frontend's own input-routing (`v0.9.0`).
     #[must_use]
     pub fn port_device(&self, port: usize) -> PortDevice {
         self.ports
@@ -423,7 +423,7 @@ impl Bus {
     }
 
     /// Non-intrusive read of an arbitrary 24-bit CPU address, for the debugger overlay's
-    /// disassembly view (`v0.8.0`, T-81-001 PR B). Unlike [`CpuBus::read24`], this does NOT touch
+    /// disassembly view (`v0.9.0`, T-81-001 PR B). Unlike [`CpuBus::read24`], this does NOT touch
     /// the open-bus latch, does NOT check watchpoints, and does NOT trigger any I/O register's own
     /// read side effect (VRAM/CGRAM auto-increment, NMI-flag-clear-on-read, the H/V-counter
     /// latch, …) — genuinely just peeking. Real 65C816 code only ever executes from WRAM or cart
@@ -551,7 +551,7 @@ impl Bus {
                     }
                 }
             }
-            // Super Scope beam-position auto-latch (`v0.8.0`) — gated to the one sub-tick that
+            // Super Scope beam-position auto-latch (`v0.9.0`) — gated to the one sub-tick that
             // actually advanced the dot, same granularity `dot_ticked` already gives the HDMA
             // check above; a no-op unless port 2 has a Super Scope attached (`Self`'s own doc).
             if dot_ticked {
@@ -778,7 +778,7 @@ impl Bus {
         self.pio = val;
     }
 
-    /// Per-master-clock Super Scope beam-detection check (`v0.8.0`) — a no-op, one cheap branch,
+    /// Per-master-clock Super Scope beam-detection check (`v0.9.0`) — a no-op, one cheap branch,
     /// unless port 2 actually has a Super Scope attached (real hardware: only port 2's IOBIT pin
     /// reaches the PPU latch, `Self::set_pio`). Mirrors ares' `SuperScope::main()`: strobe the
     /// IOBIT pin low-then-high the instant the beam crosses the target dot on the target

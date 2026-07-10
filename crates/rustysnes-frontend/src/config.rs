@@ -25,7 +25,7 @@ pub enum PacingMode {
     Wallclock,
 }
 
-/// Which peripheral is connected to controller port 2 (`v0.8.0`, Phase 7 niche peripherals).
+/// Which peripheral is connected to controller port 2 (`v0.9.0`, Phase 7 niche peripherals).
 ///
 /// Port 1 is always a standard [`PeripheralKind::Gamepad`] — matching real hardware convention
 /// (mice/light guns/multitaps are documented as port-2-only devices in practice; ares' own Super
@@ -181,7 +181,7 @@ pub struct Config {
     pub p1: KeyBindings,
     /// Player 2 keyboard binds (the second-pad default is a TODO; empty = unbound).
     pub p2: KeyBindings,
-    /// Which peripheral occupies controller port 2 (`v0.8.0`). Host-input capture (a real mouse
+    /// Which peripheral occupies controller port 2 (`v0.9.0`). Host-input capture (a real mouse
     /// pointer driving Super Scope aim / SNES Mouse deltas, extra gamepads for Multitap sub-pads)
     /// is a follow-up frontend task — selecting a non-`Gamepad` device here wires the core's
     /// protocol correctly (`rustysnes_core::controller`) but this frontend does not yet feed it

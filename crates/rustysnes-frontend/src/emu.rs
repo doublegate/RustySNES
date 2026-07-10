@@ -20,7 +20,7 @@ use crate::debug_snapshot::{
 use crate::gfx::{MAX_H, MAX_W, SNES_W, bgr555_to_rgba8};
 use crate::input::Buttons;
 
-/// How many instructions the debugger's disassembly view shows per snapshot (`v0.8.0`,
+/// How many instructions the debugger's disassembly view shows per snapshot (`v0.9.0`,
 /// T-81-001 PR B) — enough for a useful window around PC without a real per-frame cost (each is
 /// one `disassemble_one` call, a handful of bus peeks).
 const DISASSEMBLY_WINDOW_LEN: usize = 24;
@@ -71,7 +71,7 @@ pub struct EmuCore {
     /// the debugger is open; `debug_snapshot` reads it regardless (cheap, and keeps this struct
     /// free of `debug-hooks`-conditional fields).
     debug_vram_scroll: u16,
-    /// Armed 65C816 PC breakpoints (`v0.8.0`, T-81-001 PR B) — 24-bit `pbr:pc` addresses. Checked
+    /// Armed 65C816 PC breakpoints (`v0.9.0`, T-81-001 PR B) — 24-bit `pbr:pc` addresses. Checked
     /// once per instruction (not per bus access, unlike read/write watchpoints — a PC breakpoint
     /// is an instruction-boundary concept), so this costs nothing on the fast path when empty and
     /// `Vec::contains`'s linear scan otherwise (this list is normally a handful of entries, never
@@ -256,7 +256,7 @@ impl EmuCore {
         }
     }
 
-    /// Select which peripheral is attached to controller port `port` (`v0.8.0`, Phase 7 niche
+    /// Select which peripheral is attached to controller port `port` (`v0.9.0`, Phase 7 niche
     /// peripherals). A host/session choice re-applied whenever the frontend's config changes —
     /// not carried by save-states any differently than [`Self::set_pad`]'s own live pad state is
     /// (`rustysnes_core::controller::PortState`'s own doc has the full rationale).
@@ -327,7 +327,7 @@ impl EmuCore {
         ((self.system.cpu.regs.pbr as u32) << 16) | (self.system.cpu.regs.pc as u32)
     }
 
-    /// Install the debugger's armed PC-breakpoint list (`v0.8.0`, T-81-001 PR B), replacing any
+    /// Install the debugger's armed PC-breakpoint list (`v0.9.0`, T-81-001 PR B), replacing any
     /// previously installed set — same "always replace, re-synced once per frame" convention as
     /// [`Self::set_pad`]/cheats/watchpoints.
     pub fn set_breakpoints(&mut self, addrs: &[u32]) {

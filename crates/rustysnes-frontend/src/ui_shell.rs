@@ -79,7 +79,7 @@ pub enum MenuAction {
     /// Log out of the current `RetroAchievements` session.
     #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
     LogoutCheevos,
-    /// Resume from a debugger pause/breakpoint (`v0.8.0`, T-81-001 PR B).
+    /// Resume from a debugger pause/breakpoint (`v0.9.0`, T-81-001 PR B).
     DebuggerContinue,
     /// Pause execution for the debugger without waiting for a breakpoint.
     DebuggerPause,
@@ -161,7 +161,7 @@ pub struct ShellState {
     pub watch_kind_input: WatchpointKind,
     /// The Watch panel's last address-parse error, if the most recent "Add" attempt failed.
     pub watch_addr_error: Option<String>,
-    /// The 65C816 panel's "add a breakpoint" address text-entry buffer (`v0.8.0`, T-81-001 PR B).
+    /// The 65C816 panel's "add a breakpoint" address text-entry buffer (`v0.9.0`, T-81-001 PR B).
     pub bp_addr_input: String,
     /// The 65C816 panel's last breakpoint address-parse error, if the most recent "Add" attempt
     /// failed.
@@ -802,7 +802,7 @@ impl ShellState {
 }
 
 /// 65C816 registers + processor-status flags, PC breakpoints, step controls, and a disassembly
-/// window around the current PC (`v0.8.0`, T-81-001 PR B — the disassembly/breakpoints/stepping
+/// window around the current PC (`v0.9.0`, T-81-001 PR B — the disassembly/breakpoints/stepping
 /// half of the ticket; PR A landed the live-state register view alone).
 // One straight-line immediate-mode egui pass (registers + step controls + breakpoint list +
 // disassembly view); same "reads more clearly as a unit" reasoning as `ShellState::render`'s own
