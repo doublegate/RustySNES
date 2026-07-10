@@ -126,7 +126,7 @@ T-81-004) to cover netplay and RetroAchievements; run clippy per explicit featur
 - [x] The byte-identical gate passes with all Phase 8 features off (Sprint 1 + Sprint 2 combined).
       `.github/workflows/ci.yml`'s `lint` job's explicit `--no-default-features --features
       wasm-winit,help-tui` guard is unchanged in shape (still the named flags-off regression
-      lock T-81-004 established) and passes with all six Phase 8 flags (`debug-hooks`,
+      lock T-81-004 established) and passes with all five Phase 8 flags (`debug-hooks`,
       `scripting`, `cheats`, `netplay`, `retroachievements`) compiled out.
 - [x] clippy runs each feature combo explicitly (the mutually-exclusive-backend trap avoided).
       `lint` now runs `netplay` and `retroachievements` individually (matching the existing
@@ -135,7 +135,7 @@ T-81-004) to cover netplay and RetroAchievements; run clippy per explicit featur
       `--all-features`, since `wasm-winit`/`wasm-canvas` stay mutually exclusive.
 - [x] The gate is wired into the standard CI run, ready for `v1.0.0`'s final re-verification.
       `full-test`'s Linux-only combined-feature behavioral run (ahead of every tagged release)
-      is extended to the same six-flag combo, covering `retroachievements`' real cross-platform
+      is extended to the same five-flag combo, covering `retroachievements`' real cross-platform
       build surface (`cc`-compiled vendored `rcheevos`, same category as `scripting`'s `mlua`)
       alongside the others.
 
@@ -151,5 +151,5 @@ T-81-004) to cover netplay and RetroAchievements; run clippy per explicit featur
       landed (PRs #56, #57, #58, and this CI-gate change).
 - [x] Every Phase 8 feature is off by default + byte-identical when off. Verified by the
       flags-off clippy guard (`--no-default-features --features wasm-winit,help-tui`) covering
-      all six Sprint 1 + Sprint 2 flags combined.
+      all five Sprint 1 + Sprint 2 flags combined.
 - [x] CHANGELOG.md updated.

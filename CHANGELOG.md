@@ -18,9 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   — still never `--all-features`, since `wasm-winit`/`wasm-canvas` stay mutually exclusive. The
   existing `--no-default-features --features wasm-winit,help-tui` flags-off guard needed no
   change (its value is exactly that it stays a fixed, named regression lock regardless of how
-  many optional flags accumulate around it) and passes with all six Phase 8 flags compiled out.
+  many optional flags accumulate around it) and passes with all five Phase 8 flags compiled out.
   `full-test`'s Linux-only combined-feature behavioral run (ahead of every tagged release) is
-  extended to the same six-flag combo — `retroachievements` vendors and compiles `rcheevos` via
+  extended to the same five-flag combo — `retroachievements` vendors and compiles `rcheevos` via
   `cc`, real cross-platform build surface `lint` never exercises, the same category `scripting`'s
   vendored `mlua` already established the Linux-only scoping for.
 
