@@ -15,7 +15,7 @@
 //! bit-identical to a hypothetical zero-latency run, proven by `tests/determinism.rs`.
 //!
 //! Every field read out of an incoming [`NetMessage`] is untrusted network input: a `frame`
-//! index is bounds-checked against [`MAX_TRUSTED_FRAME_AHEAD`] before it's ever used to grow
+//! index is bounds-checked against `MAX_TRUSTED_FRAME_AHEAD` before it's ever used to grow
 //! `history` (an unbounded value would otherwise let a hostile or corrupted peer force an
 //! arbitrarily large allocation), and nothing from the remote is acted on before its `Sync`
 //! handshake (ROM hash + protocol version) has been verified.
@@ -227,7 +227,7 @@ impl<T: Transport> RollbackSession<T> {
         }
     }
 
-    /// Whether a remote-reported frame index is within [`MAX_TRUSTED_FRAME_AHEAD`] of
+    /// Whether a remote-reported frame index is within `MAX_TRUSTED_FRAME_AHEAD` of
     /// `current_frame` — the bound that keeps an untrusted `Input`/`Checksum` message from
     /// forcing an unbounded `history` allocation.
     const fn frame_is_trustworthy(&self, frame: u32) -> bool {
@@ -237,8 +237,8 @@ impl<T: Transport> RollbackSession<T> {
     /// Record the local player's input for the upcoming frame (queued for the next
     /// [`Self::advance`] call to consume). Applied `input_delay` frames ahead of `current_frame`
     /// (see [`SessionConfig::input_delay`]); the frames in between are filled by the same
-    /// last-known-value prediction [`Self::predict_remotes`] already uses for the remote player,
-    /// and corrected the same way (via [`Self::resync`]) once this call's value lands.
+    /// last-known-value prediction `predict_remotes` already uses for the remote player,
+    /// and corrected the same way (via `resync`) once this call's value lands.
     pub fn add_local_input(&mut self, input: u16) {
         let frame = self.current_frame.saturating_add(self.config.input_delay);
         self.ensure_frame(frame);
