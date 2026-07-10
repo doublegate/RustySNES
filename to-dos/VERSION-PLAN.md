@@ -379,30 +379,54 @@ Land each independently as a patch release whenever its investigation actually c
 re-running the full `--features test-roms` suite before landing anything, per this project's
 established discipline:
 
-- **Mid-scanline/HDMA-driven register timing + the Super FX/GSU regression** — a fix is
-  designed, prototyped, and SA-1-verified-correct, but blocked on an unexplained regression
-  across all 24 GSU golden tests (`docs/ppu.md` §Mid-scanline/HDMA-driven register timing).
-  Resume design work on the `investigate/gsu-mid-scanline-interaction` branch (the fix's
-  mechanism is fully described in `docs/ppu.md` §The prototype fix, reproducible from that
-  write-up alone if the branch's own local state isn't available); next step is the
-  access-level trace of GSU VRAM/CGRAM writes that doc's "What a future investigation needs"
-  section calls for.
-- **Open-bus-via-HDMA-latch** — an independent prototype for this fix hit the **identical**
-  all-24-GSU-goldens failure signature as the item above (`docs/scheduler.md` §Open bus via
-  DMA/HDMA). Two independent fixes hitting the same unexplained failure shape is a real signal
-  this area of the master-clock tick sequence is fragile in a way not yet understood — treat
-  both investigations as linked, not coincidental; a resolution to one may unlock the other.
-- **SPC7110 boot gap** — needs a real 65C816 disassembler as prerequisite tooling before the
-  crash-point trace can proceed (`docs/audit/spc7110-boot-crash-2026-07-08.md`'s own "suggested
-  next steps"); building that disassembler is useful debugging infra beyond this one bug.
+- ~~**Mid-scanline/HDMA-driven register timing + the Super FX/GSU regression**~~ **Landed,
+  `v0.8.0`.** The blocking regression was root-caused to a SEPARATE bug (`Bus::advance_master`
+  reading `self.ppu.dot()` after it had already been incremented, not the render-timing fix
+  itself) — see `docs/ppu.md` §Mid-scanline/HDMA-driven register timing for the full mechanism,
+  the SA-1 golden re-bless, and the row-level-verified 24-hash Super FX/GSU golden re-bless.
+- **Open-bus-via-HDMA-latch** — still open; NOT resolved by the mid-scanline fix above (a
+  different bug, confirmed by re-testing the original open-bus-via-DMA prototype against the
+  now-fixed tree — it still hits the identical all-24-GSU-goldens regression). `docs/scheduler.md`
+  §Open bus via DMA/HDMA has the full mechanism (the Speedy Gonzales stage 6-1 "Holy Grail" case)
+  and what a future investigation needs: an access-level trace of GSU VRAM/CGRAM writes correlated
+  against the failing DMA transfers, the same technique the SPC7110 item below now has tooling for.
+- ~~**SPC7110 boot gap**~~ **Resolved, `v0.8.0` — was a ROM-identity issue, not an emulation bug.**
+  The real 65C816 disassembler this item's own prerequisite called for landed (`rustysnes_cpu::
+  disasm`, alongside T-81-001b's watchpoints); using it, the investigation found and fixed three
+  more real bugs (bank `$40-$7D` wrongly mirrored, the DROM buffer 2 MiB oversized, a systemic
+  cart-layer open-bus fallback bug) and confirmed the crash-point trace was itself framing the
+  problem wrong (the CPU is mid-VRAM-upload-loop, not stalled). A full instruction trace then
+  showed the path to the derailing `JSL $4FFB80` is one unconditional call chain with no branch
+  and no SPC7110 register touched anywhere upstream — ruling out a wrong-branch bug and raising
+  the real question: is this the right ROM? It is not. Three independent checks (a SHA256
+  mismatch against `ref-proj/ares`'s database entry for this exact board; a header checksum that
+  only validates against the file's non-standard 7 MiB size, not the real cartridge's 5 MiB; a
+  public nesdev.org thread documenting this exact fan-translation's own memory map) confirm the
+  local dump is the English translation patch, which adds a 1 MiB "Expansion ROM" at banks
+  `$40-$4F` — precisely the bank the `JSL` targets — that exists only in the patch, never on real
+  hardware. Full evidence chain: `docs/audit/spc7110-boot-crash-2026-07-08.md`. **Now a
+  ROM-sourcing gap** (a genuine original-cartridge dump, sha256 `69d06a3f3a4f3ba769541fe94e92b421
+  42e423e9f0924eab97865b2d826ec82d`, would very likely let it boot cleanly — none of the fixes
+  above are fan-translation-specific), tracked in `docs/rom-test-corpus.md` alongside the other
+  ROM-sourcing-blocked items below, not carried forward here as an open bug.
 - **DRAM refresh (40 clocks/scanline)** — researched, not yet implemented; a real architectural
-  timing tension needs resolving empirically before landing, not a simple port.
+  timing tension needs resolving empirically before landing, not a simple port. See
+  `docs/scheduler.md` §DRAM refresh for the exact empirical test to run before implementing.
 - **ST018 / S-RTC / PAL / ExLoROM real-ROM validation** — currently unit-test-only or
-  formula-level only, blocked purely on sourcing a commercial dump for each. Keep the
+  formula-level only, blocked purely on sourcing a commercial dump for each. `docs/rom-test-corpus.md`
+  (added `v0.8.0`) is now the single source of truth for which ROM would close each gap and
+  whether it's in the local corpus, the Dropbox ROMs locations, or unavailable entirely. Keep the
   opportunistic posture already established across four prior releases; don't gate a rung on
   finding ROMs that may never become available.
 
 ### v0.8.0 "Instrumentation" — debugger, scripting/TAS, cheats, the real wasm frontend
+
+**Shipped together with "Community" below as one tag, `v0.8.0 "Community"` — RELEASED
+2026-07-10.** Both sprints' scope, plus the mid-scanline/HDMA-driven register timing fix and a
+continued SPC7110 investigation, landed and released as a single `v0.8.0` (`v0.9.0` was never
+used anywhere on GitHub, so this picks up directly from `v0.7.0`; see `CHANGELOG.md`). This
+section is kept as the original per-sprint planning record; the "Community" header below carries
+the actual release note.
 
 One coherent theme: tooling that inspects and manipulates emulator state, all sharing the same
 memory-watch/introspection substrate — plus the wasm frontend build, folded in here per explicit
@@ -469,10 +493,12 @@ can switch them on without restructuring the manifest").
   flag landed on this ladder must leave the default build unchanged) — re-verify after `v0.8.0`
   and `v1.0.0` too. Use explicit feature combos in CI, never `--all-features`.
 
-### v0.8.0 "Community" — netplay, RetroAchievements
+### v0.8.0 "Community" — netplay, RetroAchievements — **RELEASED 2026-07-10**
 
 Both wire pre-existing stub crates against a named integration pattern; both are "connect
-RustySNES to other players or an external service."
+RustySNES to other players or an external service." Released as one tag together with
+"Instrumentation" above, plus the mid-scanline/HDMA fix and a continued SPC7110 investigation —
+see `CHANGELOG.md`'s `[0.8.0]` entry for the full release note.
 
 - **Rollback netplay** — wires the `rustysnes-netplay` stub crate. **Pre-work required before
   committing to the existing full-snapshot save-state design:** benchmark

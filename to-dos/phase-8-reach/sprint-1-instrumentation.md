@@ -28,9 +28,21 @@ engine and deserves its own focused review.
 **Acceptance criteria:**
 
 - [x] 65C816 panel: register/flag view (PR A).
-- [ ] 65C816 panel: disassembly + breakpoints (PC), step/step-over/step-into ("PR B" above) — this
-      box was checked prematurely; no such code ever landed (`ui_shell.rs`'s CPU panel doc still
-      says "a follow-up" as of `v0.8.0`). Corrected here rather than left stale; genuinely open.
+- [x] 65C816 panel: disassembly + breakpoints (PC), step/step-over/step-into ("PR B" above) —
+      **landed, `v0.8.0`.** Entirely frontend-side (`emu.rs`): `EmuCore::disassembly_window` walks
+      `rustysnes_cpu::disasm::disassemble_one` forward from PC (tracking `REP`/`SEP` so the `M`/`X`
+      widths used for later instructions stay correct); `EmuCore::set_breakpoints` (re-synced
+      every frame, same pattern as cheats/watchpoints) is checked once per instruction boundary
+      via `System::step_instruction()`, only changing `run_frame`'s behavior when at least one
+      breakpoint is armed (empty list = the exact prior fast path, so the default build is
+      untouched — full `--features test-roms` suite re-verified unchanged). Step Into/Step Over
+      only act while paused; Step Over runs a `JSR`/`JSL` to completion via the disassembler's own
+      mnemonic check, bounded so a non-returning subroutine can't hang the debugger. One new
+      `rustysnes-core` API: `Bus::peek` — a genuinely side-effect-free read (unlike `CpuBus::
+      read24`, never touches open-bus or watchpoints), needed because the debugger's own reads
+      must not perturb the emulated hardware state they're just inspecting. `docs/frontend.md`
+      §Debugger overlay has the full detail; 10 new unit tests (2 in `bus.rs` for `peek`, 8 in
+      `emu.rs`) cover the breakpoint/step/disassembly machinery directly.
       Read/write watchpoints: **landed**, `v0.8.0` T-81-001b (not this ticket).
 - [x] PPU panel: VRAM (scrollable window) / CGRAM viewer, current scanline/dot, register state
       (PR A). OAM viewer not yet landed — small follow-up, same shape as the VRAM/CGRAM viewers.
@@ -266,9 +278,10 @@ source); `../RustyNES/crates/rustynes-frontend/src/app.rs`'s `ApplicationHandler
 
 ## Sprint review checklist
 
-- [x] All tickets checked off or explicitly deferred (with reason). T-81-001 (PR A landed, PR B +
-      T-81-001b deferred), T-81-002, T-81-003, T-81-004, T-81-005, T-81-006 all done — Sprint 1
-      complete.
+- [x] All tickets checked off. T-81-001 (PR A and PR B both landed — PR B's disassembler/
+      breakpoints/step-controls, `v0.8.0`, corrected from an earlier premature checkmark and now
+      genuinely done), T-81-001b (watchpoints + `rustysnes_cpu::disasm`, **landed** `v0.8.0`),
+      T-81-002, T-81-003, T-81-004, T-81-005, T-81-006 all done — Sprint 1 fully complete.
 - [x] Every instrumentation feature is off by default + byte-identical when off — verified
       individually for `debug-hooks` (T-81-001), `scripting` (T-81-002), and `cheats`
       (T-81-003); the formal CI gate covering all of them together (individually + combined,

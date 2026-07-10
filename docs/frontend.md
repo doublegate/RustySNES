@@ -78,8 +78,31 @@ startup, so the toggle had no effect.
 - USB gamepads auto-bind to P1; keyboard fallback for P1/P2.
 - Late-latched input (sampled as close to the frame as possible) for responsiveness without
   breaking determinism.
-- SNES peripherals (multitap / mouse / Super Scope) are frontend-side feeds into the core's
-  controller ports; niche ones are stubbed initially (`ref-docs/research-report.md` "Scope").
+
+### Peripherals (Mouse / Super Scope / Super Multitap) — `v0.8.0`
+
+The core (`rustysnes_core::controller`) implements the real 2-bit-per-clock (`data1`/`data2`)
+serial-shift-register protocol for all three, ported from ares' `sfc/controller/
+{mouse,super-scope,super-multitap}` — not stubs. `Bus::set_port_device` selects which peripheral
+occupies a port (default: `Gamepad`, byte-identical to every prior release); `Bus::set_mouse`/
+`set_superscope`/`set_multitap_pad` feed host input once per frame, the same "always replace,
+re-synced once per frame" convention `set_joypad` already uses. Save-stated as real hardware
+state (`FORMAT_VERSION` 2→3, `docs/adr/0006`), not host debug tooling.
+
+**What this frontend wires today:** a Settings → Input control (`ui_shell.rs`) selects controller
+port 2's peripheral via `config.port2_peripheral`, re-synced to the Bus every frame
+(`app.rs`, alongside the cheats/watchpoints sync). **What it does NOT yet wire: live host-input
+capture.** No code path currently feeds `set_mouse`/`set_superscope`/`set_multitap_pad` from a
+real OS mouse pointer, a Super Scope crosshair overlay, or extra `gilrs` gamepads for Multitap
+sub-pads 2-4 — selecting a non-`Gamepad` device correctly changes what the emulated hardware
+reports (verifiable via `rustysnes-script`/the test harness calling the `EmuCore`/`Bus` methods
+directly), but the default GUI session won't yet feel it move. This is a real, open follow-up
+frontend task, not a silently-incomplete claim: closing it needs (a) a `WindowEvent::CursorMoved`/
+`MouseInput` capture path (or reading `egui::Context`'s own pointer state, already available every
+frame since `egui_state.on_window_event` runs unconditionally) mapped from window pixels through
+the present path's letterbox/integer-scale transform (`gfx.rs`) to SNES `0..256`/`0..240` pixel
+space, and (b) binding `gilrs` device indices 1-3 to Multitap sub-pads 1-3 (index 0 already has a
+natural home in the existing P1 gamepad auto-bind).
 
 ## Save-states, rewind, run-ahead
 
@@ -194,8 +217,34 @@ registers/flags, key PPU registers + the dot/scanline timeline + a scrollable VR
 CGRAM, SPC700 PC/halt state + all 8 S-DSP voices' key registers, and the active board name.
 Gated behind the `debug-hooks` feature (default off) at the menu-entry level: without it,
 `debugger_open` can never become `true`, so the app never builds a snapshot and the default
-build's emulation output is unaffected. Disassembly + breakpoints/step controls are a follow-up
-ticket (T-81-006) — not yet landed.
+build's emulation output is unaffected.
+
+**Disassembly + PC breakpoints + step controls (`v0.8.0`, T-81-001 PR B):** the 65C816 panel's
+`docs/frontend.md`-tracked follow-up, now landed. Entirely frontend-side (`emu.rs`) — no new
+`rustysnes-core` API beyond one addition, [`Bus::peek`](#bus-peek), needed because the debugger's
+own disassembly reads must never perturb the open-bus latch or trip watchpoints the way the live
+`CpuBus::read24` a real CPU access uses would. `EmuCore::disassembly_window` walks
+`rustysnes_cpu::disasm::disassemble_one` forward from PC (a linear byte-walk, not flow-tracing,
+tracking `REP`/`SEP` along the way so the `M`/`X` widths used for later instructions' operand
+lengths stay correct across a width change — the one thing that matters for decoding a
+straight-line stream correctly). PC breakpoints (`EmuCore::set_breakpoints`, re-synced every
+frame like cheats/watchpoints) are checked once per instruction boundary via
+`System::step_instruction()` — a real behavior change to `EmuCore::run_frame` only when at least
+one breakpoint is armed (an empty list takes the exact prior `System::run_frame()` fast path, so
+the default build's determinism/output is untouched). Step Into (`EmuCore::step_into`) and Step
+Over (`EmuCore::step_over` — runs a `JSR`/`JSL` to completion via the disassembler's own mnemonic
+check, bounded by `MAX_STEP_OVER_INSTRUCTIONS` so an infinite/self-modifying subroutine can't hang
+the debugger) both only act while `EmuCore::is_paused()`.
+
+### `Bus::peek`
+
+A new, genuinely side-effect-free read added to `rustysnes-core` specifically for this: unlike
+`CpuBus::read24`, it never touches the open-bus latch, never checks watchpoints, and never
+triggers an I/O register's own read side effect (VRAM auto-increment, NMI-flag-clear, the H/V
+latch, …). Real 65C816 code only ever executes from WRAM or cart ROM/RAM space, so it only
+special-cases those two regions (mirroring `Bus::peek_wram`'s existing "not for register space"
+posture); any other address returns `0` rather than reaching into a register's live side effects,
+which is fine since real code never lives there anyway.
 
 **Watch panel (`v0.8.0 "Community"`, T-81-001b):** 65C816 read/write watchpoints. Needed a new
 `debug-hooks` feature on `rustysnes-core` itself (previously the flag only existed as this

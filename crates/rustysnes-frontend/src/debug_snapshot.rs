@@ -21,6 +21,13 @@ pub struct DebugSnapshot {
     pub apu: ApuSnapshot,
     /// The loaded cart's board + any coprocessor state.
     pub cart: CartSnapshot,
+    /// A disassembly window starting at the current PC (`v0.8.0`, T-81-001 PR B) — `(24-bit
+    /// address, decoded text)` pairs, computed via `EmuCore::disassembly_window`'s non-intrusive
+    /// `Bus::peek` (never the live, side-effecting `CpuBus::read24` — a debugger peek must not
+    /// perturb the open-bus latch or trip watchpoints).
+    pub disassembly: Vec<(u32, String)>,
+    /// Whether the debugger has execution paused (a breakpoint fired, or the user paused/stepped).
+    pub paused: bool,
     /// Read/write watchpoint hits recorded since the debugger last polled (`v0.8.0` T-81-001b).
     /// Always empty when the `debug-hooks` feature is off (or no watchpoints are armed) — kept as
     /// a plain, unconditional field (not `#[cfg]`-gated) so `DebugSnapshot` itself stays a single

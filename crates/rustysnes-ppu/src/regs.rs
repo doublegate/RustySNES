@@ -338,9 +338,7 @@ impl Ppu {
             }
             // SLHV — latch H/V counters (gated by the CPU's I/O-enable in HW; we latch always).
             0x2137 => {
-                self.io.latch_h = self.h;
-                self.io.latch_v = self.v;
-                self.io.counter_latched = true;
+                self.latch_hv_counters();
                 self.io.ppu1_mdr
             }
             // OAMDATAREAD

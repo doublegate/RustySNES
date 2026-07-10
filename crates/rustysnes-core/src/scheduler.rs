@@ -33,7 +33,13 @@ use crate::sa1_bus::Sa1Bus;
 /// `crates/rustysnes-test-harness/tests/save_state_backward_compat.rs`'s `tests/golden/
 /// savestate-v1-gilyon.bin` fixture), not silent misinterpretation. See
 /// `docs/adr/0006-save-state-format.md`'s bump log for the full record.
-const FORMAT_VERSION: u16 = 2;
+///
+/// `3` (`v0.8.0`, Phase 7 niche peripherals): `crate::bus`'s `BUS0` section grew — a new WRIO
+/// (`$4201`/`$4213`) `pio` byte plus each controller port's [`crate::controller::PortState`]
+/// (device selection + Mouse/Super Scope/Super Multitap runtime state). Same guarantee as the `2`
+/// bump above: a `FORMAT_VERSION < 3` blob fails loudly (a `BUS0` section-length mismatch), not
+/// silently.
+const FORMAT_VERSION: u16 = 3;
 /// The save-state envelope's leading magic bytes — identifies the blob as a RustySNES save-state
 /// before anything else is trusted.
 const MAGIC: &[u8; 4] = b"RSNS";

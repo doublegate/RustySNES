@@ -269,8 +269,8 @@ as open bus, the game wedges on its first DSP poll — it is never silently degr
   constant table (`cx4.rom`) needs external supply. Validated against real Mega Man X2 / X3.
 - **OBC1** (`BestEffort`, **implemented** — `coproc::obc1`): dedicated 8 KiB RAM behind a
   reprogrammable cursor register. Validated against real Metal Combat: Falcon's Revenge.
-- **SPC7110** (`BestEffort`, **implemented, boot-crash root cause partially fixed, still not
-  booting to real content** — `coproc::spc7110`): a decompression unit (Hudson adaptive binary
+- **SPC7110** (`BestEffort`, **implemented; the local ROM dump used to test it turned out to be a
+  fan-translation, not the original cartridge — see below** — `coproc::spc7110`): a decompression unit (Hudson adaptive binary
   range coder over 1/2/4bpp planes), data-port unit, ALU, and memory-control unit (four
   independently-bankable 1 MiB data-ROM windows). Paired with the RTC-4513 above on its one
   commercial title, Far East of Eden Zero. Cartridge geometry note: unlike every other
@@ -316,11 +316,20 @@ as open bus, the game wedges on its first DSP poll — it is never silently degr
   (`rustysnes-cart/src/lib.rs`), benefiting every board, not just SPC7110. With this fix, the `JSL
   $4FFB80` dead end now lands on a stable, harmless open-bus spin loop (`AND $3D3D,X` echoing the
   last-latched byte forever) instead of a deterministic `BRK` — a more honestly-modeled failure,
-  but still not a fix: **the real question is now precisely located, not closed:** a shipped
-  commercial title cannot legitimately execute a jump into unmapped space on real hardware, so this
-  emulation must diverge from real hardware *earlier* than this `JSL` — tracked as future SPC7110
-  work, not silently claimed fixed (`docs/adr/0003`; full trail in
-  `docs/audit/spc7110-boot-crash-2026-07-08.md`).
+  but still not a fix on its own — until a follow-up session asked the question the "shipped
+  commercial title cannot legitimately jump into unmapped space" observation was pointing at:
+  **is this actually the commercial title's ROM?** It is not. Three independent checks (a SHA256
+  mismatch against `ref-proj/ares`'s own database entry for this exact board; a header checksum
+  that only self-validates against this file's non-standard 7 MiB size, not the real cartridge's
+  5 MiB; and a public forum thread documenting this exact fan-translation's memory map) confirm
+  the local dump is the English fan-translation, which adds a 1 MiB "Expansion ROM" region mapped
+  at CPU banks `$40-$4F` that exists only in the patch, never on real hardware — precisely the
+  bank (`$4F`) this `JSL` targets. RustySNES's mapping of `$40-$7D` as unmapped is correct for the
+  real cartridge; it simply doesn't (and was never meant to) implement a fan-patch-only memory
+  region. **This is a ROM-sourcing gap, not an open emulation bug** — full evidence chain in
+  `docs/audit/spc7110-boot-crash-2026-07-08.md`, which every fix above (root cause #1, the DCU/ALU
+  timing, the `$40-$7D` mapping, the DROM-size fix, and the systemic open-bus fix) remains a real,
+  independently-verified accuracy improvement regardless of this finding.
 - **S-RTC** (`BestEffort`, **implemented** — `coproc::sharprtc`): a standalone Sharp S-RTC
   real-time clock (Daikaijuu Monogatari II, an ExHiROM title; ares board
   `EXHIROM-RAM-SHARPRTC`). A DIFFERENT chip/protocol from SPC7110's paired Epson RTC-4513 despite

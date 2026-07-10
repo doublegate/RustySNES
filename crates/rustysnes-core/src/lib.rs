@@ -7,6 +7,7 @@ extern crate alloc;
 
 pub mod bus;
 pub mod cheat;
+pub mod controller;
 pub mod dma;
 pub mod dma_bus;
 pub mod movie;

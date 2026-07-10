@@ -9,40 +9,51 @@ record; this file frames the phase line.
 
 - **Current phase:** Phases 0–3 **complete** (CPU oracle 0-diff, scheduler + video, audio
   0-diff). Phase 4 (Core/Curated coprocessors: DSP-1, Super FX, SA-1) **complete**. Phase 7
-  (BestEffort coprocessors) **mostly complete**: DSP-2/DSP-4/ST010/S-DD1/CX4/OBC1/standalone
-  S-RTC implemented + validated (S-RTC unit-tested only, no commercial dump available); SPC7110
-  implemented with a confirmed, fixed addressing bug that materially improved but did not fully
-  resolve its boot crash (`docs/cart.md` §SPC7110); ST018 is now implemented (unit-tested only,
-  no commercial dump available); PAL region auto-detection
-  is implemented and
-  validated end-to-end (`Bus::sync_region_from_cart`; no golden-ROM-boot proof yet — no PAL ROM
-  in the local corpus); ExLoROM is implemented (decode formula sourced from bsnes's own runtime
-  board database; no golden-ROM-boot proof — no ExLoROM ROM in the local corpus). Phase 5
-  (frontend) **partially complete**: the
+  (BestEffort coprocessors) **complete except niche peripherals**: DSP-2/DSP-4/ST010/S-DD1/CX4/
+  OBC1/standalone S-RTC implemented + validated (S-RTC unit-tested only, no commercial dump
+  available; DSP-3/ST011 explicitly deferred — no verified board/window entry, not a ROM-sourcing
+  gap); SPC7110 implemented with multiple confirmed, fixed addressing/open-bus bugs through
+  `v0.8.0` that materially improved but did not fully resolve its boot crash (`docs/cart.md`
+  §SPC7110, `docs/audit/spc7110-boot-crash-2026-07-08.md`); ST018 is now implemented (unit-tested
+  only, no commercial dump available); PAL region auto-detection is implemented and validated
+  end-to-end (`Bus::sync_region_from_cart`; no golden-ROM-boot proof yet — no PAL ROM in the local
+  corpus, see `docs/rom-test-corpus.md`); ExLoROM is implemented (decode formula sourced from
+  bsnes's own runtime board database; no golden-ROM-boot proof — no ExLoROM ROM in the local
+  corpus). **Niche peripherals (multitap, mouse, Super Scope) core is now complete** — the real
+  serial-shift-register protocol, ported from ares (`rustysnes_core::controller`), replacing what
+  was Phase 7's one open exit criterion; frontend host-input capture (a real mouse pointer, extra
+  gamepads) remains a separate, tracked follow-up outside Phase 7's own scope
+  (`docs/frontend.md` §Peripherals). Phase 5 (frontend)
+  **partially complete**: the
   native+wasm shell is playable (video/audio/input/ROM-load wired), save-states are **fully
   implemented** (`v0.2.0 "Persistence"`, `docs/adr/0006` — every subsystem round-trips its exact
   state through one versioned envelope, proven by a round-trip determinism test), and rewind +
   run-ahead (`v0.3.0 "Continuum"`, `crate::rewind` — a bounded ring buffer of full snapshots +
   N-frame peek-and-discard, both config-driven and off by default) are now **fully implemented**
-  — the frontend orchestration Phase 8 (netplay, TAS movies) will build on. Phase 6 (accuracy
+  — the frontend orchestration Phase 8 (netplay, TAS movies) built on this. Phase 6 (accuracy
   push) **dashboard + triage complete, fixes carried forward** (see the Phase 6 section below —
   the accuracy-pass-rate dashboard is done and every named hardware-gotcha item is triaged with
-  evidence, but the confirmed mid-line-raster fix and the accuracy-percentage push itself remain
-  open). Phase 8 Sprint 1 (`v0.8.0 "Instrumentation"`) is **complete**: the debugger overlay
-  (T-81-001, live-state panels landed; a 65C816 disassembler + PC breakpoints/step controls
-  remain an open follow-up despite an earlier sprint-doc checkbox claiming otherwise — no such
-  code exists yet, corrected here rather than left stale; read/write watchpoints deferred to a
-  follow-up, T-81-001b, which landed post-Sprint-2 in `v0.8.0` — a new `debug-hooks` feature on
-  `rustysnes-core` itself + a `Bus`-level hook + the debugger's Watch panel), sandboxed Lua
-  scripting + TAS movie record/playback
-  (T-81-002, `rustysnes-script` + `rustysnes_core::movie`), Game Genie/Pro Action Replay
-  cheat codes (T-81-003, `rustysnes_core::cheat` + a `Bus::read24` intercept), the extended
+  evidence; the mid-line-raster fix has since landed in `v0.8.0`, see below — the
+  accuracy-percentage push itself remains open). **Phase 8 is complete except one residual**: Sprint 1
+  (`v0.8.0 "Instrumentation"`) landed the debugger overlay (T-81-001, live-state panels; a 65C816
+  disassembler + PC breakpoints/step controls remain an open follow-up despite an earlier
+  sprint-doc checkbox claiming otherwise — no such code exists yet, corrected here rather than
+  left stale; read/write watchpoints landed as T-81-001b — a new `debug-hooks` feature on
+  `rustysnes-core` itself + a `Bus`-level hook + the debugger's Watch panel, plus a new
+  `rustysnes_cpu::disasm` decode-only disassembler), sandboxed Lua scripting + TAS movie
+  record/playback (T-81-002, `rustysnes-script` + `rustysnes_core::movie`), Game Genie/Pro Action
+  Replay cheat codes (T-81-003, `rustysnes_core::cheat` + a `Bus::read24` intercept), the extended
   byte-identical-with-flags-off CI gate (T-81-004), and the full wasm frontend (T-81-005
-  `wasm-canvas`, T-81-006 `wasm-winit` unification) have all landed. Sprint 2
-  (`v0.8.0 "Community"`: netplay, RetroAchievements) is **in scope for the `v0.8.0` rung gating
-  `v1.0.0`**, not deferred post-1.0 (see "Milestones beyond the phases" below — this reverses the
-  prior post-1.0 framing, matching what RustyNES actually shipped in its own v1.0.0), but has not
-  started. See `docs/STATUS.md` for the authoritative per-subsystem table this line summarizes.
+  `wasm-canvas`, T-81-006 `wasm-winit` unification). Sprint 2 (`v0.8.0 "Community"`) has also
+  **landed**: the netplay save-state cost benchmark (T-82-001, GO on the full-snapshot design),
+  GGPO-style rollback netplay (T-82-002, native UDP + wasm32-clippy-verified WebRTC transports,
+  its own drive loop independent of `emu-thread`), RetroAchievements native FFI (T-82-003,
+  `RustySNES/<ver> rcheevos/<ver>` User-Agent), and the byte-identical CI gate extended again
+  (T-82-004). **Phase 8 is now fully complete, no residuals**: T-81-001's PR B (the 65C816
+  disassembly view + PC breakpoints/step-controls in the debugger UI, built on the existing
+  `rustysnes_cpu::disasm` engine from T-81-001b plus a new non-intrusive `Bus::peek` read) landed
+  in a follow-up session. See `docs/STATUS.md` for the authoritative per-subsystem table this
+  line summarizes.
 - **Release:** `v0.1.0 "Foundation"`, `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"` (rewind,
   run-ahead, PAL auto-detect, ExLoROM), `v0.4.0 "Completion"` (SPC7110 addressing fix, ST018,
   standalone S-RTC), `v0.5.0 "Fidelity"` (the accuracy-pass-rate dashboard + the full named
@@ -50,18 +61,25 @@ record; this file frames the phase line.
   non-goal, or honestly researched-and-deferred with a mechanism write-up), `v0.6.0 "Shippable"`
   (release engineering + doc parity — `security.yml`, checksummed release assets, automated
   release-cutting via `release-auto.yml`, the `lint` job's `cargo doc` gate, the documentation
-  index, benchmarks, audit trail, and ADR backfill), and `v0.7.0 "Resolution"` (true 512-px
+  index, benchmarks, audit trail, and ADR backfill), `v0.7.0 "Resolution"` (true 512-px
   hi-res Modes 5/6 output, a genuine one-pixel-clock-delayed DAC pipeline verified against ares'
   primary source; the save-state `FORMAT_VERSION`'s first real bump, closing the `v1.0.0` gate's
-  backward-compat-fixture item early) are all tagged and released on GitHub, establishing the
+  backward-compat-fixture item early), and `v0.8.0 "Community"` (Phase 8 Sprints 1+2 in full:
+  debugger overlay + watchpoints/disassembler, Lua scripting/TAS, cheat codes, the real wasm
+  frontend, rollback netplay, RetroAchievements — plus, alongside this work, the
+  mid-scanline/HDMA-driven register timing fix landing and an SPC7110 open-bus bug fix that
+  benefits every board) are all tagged and released on GitHub, establishing the
   real release cadence `to-dos/VERSION-PLAN.md` defines — read it alongside this file; it maps
   the phases above onto a concrete, named `v0.x.0` → `v1.0.0` ladder with release-cut criteria
   per rung, rewritten with `v0.7.0` to front-load Phase 8 breadth into the `v1.0.0` gate rather
   than deferring it post-1.0 (matching what RustyNES actually shipped in its own v1.0.0 — see
-  `to-dos/VERSION-PLAN.md`'s "Second reversal"). The mid-scanline/HDMA-driven register timing fix
-  and the open-bus-via-HDMA-latch investigation remain open, carried forward as an ongoing,
-  opportunistic `v0.x.y`-patch cluster rather than gating a numbered rung (`to-dos/VERSION-PLAN.md`).
-  `v0.8.0 "Instrumentation"` (debugger, scripting/TAS, cheats) is next.
+  `to-dos/VERSION-PLAN.md`'s "Second reversal"). The open-bus-via-HDMA-latch investigation
+  remains open (a genuinely separate bug from the now-landed mid-scanline fix — re-confirmed by
+  re-testing its own prototype against the fixed tree), carried forward as an ongoing,
+  opportunistic `v0.x.y`-patch cluster alongside the SPC7110 boot gap, DRAM refresh, and
+  ROM-sourcing-blocked real-title validation items, rather than gating a numbered rung
+  (`to-dos/VERSION-PLAN.md`). `v1.0.0` (desktop UX shell maturity, `Board: Send`/`emu-thread`,
+  performance engineering, production cut) is next.
 
 ## The phase spine
 
@@ -143,54 +161,78 @@ GSU, open-bus-via-HDMA-latch, SPC7110, DRAM refresh, ROM-dump-gated validation) 
 as an ongoing, opportunistic `v0.x.y`-patch cluster, not a gating rung.
 → [overview](phase-6-accuracy-to-100/overview.md)
 
-### Phase 7 — Breadth 🚧 mostly complete
+### Phase 7 — Breadth 🚧 complete (core); frontend host-input capture for peripherals remains
 
 **Goal:** the remaining BestEffort coprocessors + niche peripherals; region timing as data.
 **Exit:** the full coprocessor / board matrix in `docs/STATUS.md`.
 **Status:** DSP-2/DSP-4/ST010/S-DD1/CX4/OBC1/standalone S-RTC done + validated (S-RTC unit-tested
-only — no commercial dump available); SPC7110 implemented, a confirmed addressing bug fixed
-(materially improved, still not booting to real content — `docs/cart.md` §SPC7110); ST018 is
-now implemented (unit-tested only, no commercial dump available); PAL region auto-detection and ExLoROM are both implemented (each with a documented,
-honest validation gap — no PAL ROM and no ExLoROM ROM exist in the local corpus, so neither has
-golden-framebuffer proof).
+only — no commercial dump available; DSP-3/ST011 explicitly deferred, no verified board/window
+entry — a named residual, not a ROM-sourcing gap); SPC7110 implemented, multiple confirmed
+addressing/open-bus bugs fixed through `v0.8.0` — **the remaining boot gap turned out to be a ROM
+identity issue, not an emulation bug**: the local test dump is an English fan-translation, not the
+original cartridge (a SHA256 mismatch against `ref-proj/ares`'s database, a checksum-size
+inconsistency, and a public forum thread on the patch's own non-standard memory map all confirm
+this independently — `docs/audit/spc7110-boot-crash-2026-07-08.md`), so this is now a
+ROM-sourcing gap (`docs/rom-test-corpus.md`), not an open bug; ST018 is now implemented
+(unit-tested only, no commercial dump available); PAL region auto-detection and ExLoROM are both
+implemented (each with a documented, honest validation gap — no PAL ROM and no ExLoROM ROM exist
+in the local corpus, so neither has golden-framebuffer proof; `docs/rom-test-corpus.md` tracks
+exactly what would close this). **Niche peripherals (multitap, mouse, Super Scope) core is now
+complete, `v0.8.0`** — the real serial-shift-register protocol, ported from ares
+(`rustysnes_core::controller`); frontend host-input capture (a real mouse pointer, extra
+gamepads) remains a separate, tracked follow-up (`docs/frontend.md` §Peripherals), not part of
+this phase's own exit criteria.
 **Release mapping:** the done work shipped inside `v0.1.0`; PAL auto-detect and ExLoROM landed
 inside `v0.3.0 "Continuum"` alongside rewind/run-ahead (all four line items complete); standalone
-S-RTC, the SPC7110 addressing fix, and ST018 all land inside `v0.4.0 "Completion"` (now
-complete); the PAL/ExLoROM golden-boot proof remains opportunistic (`v0.3.x`, not gating) if a
-real ROM ever surfaces.
+S-RTC, the SPC7110 addressing fix, and ST018 all land inside `v0.4.0 "Completion"`; the SPC7110
+open-bus fix, the DSP-3/ST011 residual note, the SPC7110 ROM-identity finding, and the niche
+peripherals core all land inside `v0.8.0 "Community"`; the PAL/ExLoROM golden-boot proof and
+a genuine original-cartridge SPC7110 dump remain opportunistic if a real ROM ever surfaces.
 → [overview](phase-7-breadth/overview.md)
 
-### Phase 8 — Instrumentation + Community (additive, off-by-default) 🚧 Sprint 1 complete, Sprint 2 not started
+### Phase 8 — Instrumentation + Community (additive, off-by-default) 🚧 complete except one residual
 
 **Goal:** debugger overlay, Lua scripting + TAS movies, cheat-code support, rollback netplay,
 and RetroAchievements — each behind a default-off feature, each byte-identical with the feature
-off. **As of this update, this phase gates `v1.0.0`** (reversed from the earlier post-1.0
+off. **This phase gates `v1.0.0`** (reversed from the earlier post-1.0
 framing — see "Second reversal" in `to-dos/VERSION-PLAN.md`'s intro): RustyNES front-loaded this
 exact breadth into its own v1.0.0 rather than deferring it, and matching that bar means Phase 8
 lands before the production cut, not after it. A shader ecosystem/Libretro core remain
 post-`v1.0.0` Reach — RustyNES doesn't have HD texture packs either, so `hd-pack` stays
 deliberately out of the parity target.
-**Status:** Sprint 1 (`v0.8.0 "Instrumentation"`) is done — the debugger overlay,
+**Status:** Both sprints are done, released together as one tag, `v0.8.0 "Community"`. Sprint 1
+landed the debugger overlay,
 `rustysnes-script` (Lua scripting + TAS movies), `rustysnes_core::cheat` (Game Genie/Pro Action Replay),
-the extended byte-identical-with-flags-off CI gate, and the full wasm frontend all landed
-(T-81-001 through T-81-006). Sprint 2 (`v0.8.0 "Community"`: netplay, RetroAchievements) has not
-started; `rustysnes-netplay`/`rustysnes-cheevos` are still 1-line stubs.
+the extended byte-identical-with-flags-off CI gate, the full wasm frontend (T-81-001 through
+T-81-006), and, as a follow-up, read/write watchpoints + a `rustysnes_cpu::disasm` disassembler
+(T-81-001b). Sprint 2 landed rollback netplay (T-82-002, native UDP + WebRTC transports) and
+native RetroAchievements FFI (T-82-003), preceded by the netplay save-state-cost benchmark
+(T-82-001, GO) and the byte-identical CI gate extended again (T-82-004).
+**Follow-up session, also `v0.8.0`:** T-81-001's PR B landed — the 65C816 disassembly view + PC
+breakpoints/step-controls, wired into the debugger UI panel on top of T-81-001b's disassembler
+engine, plus a new non-intrusive `Bus::peek` read (the debugger's own peeks must never perturb
+the open-bus latch or trip watchpoints the way a live CPU access would). No open items remain
+anywhere in Phase 8.
 **Exit:** features ship; shipped/native/no_std/wasm byte-identical with every new flag off
 (the byte-identical-with-all-flags-off CI gate, added starting `v0.8.0` and re-verified through
 `v0.8.0`/`v1.0.0`).
-**Release mapping:** `v0.8.0 "Instrumentation"` (debugger, scripting/TAS, cheats) then
-`v0.8.0 "Community"` (netplay, RetroAchievements) — see `to-dos/VERSION-PLAN.md` for the full
-per-item breakdown, including the `Board: Send`/`emu-thread` prerequisite and the netplay
-save-state-cost pre-work.
+**Release mapping:** `v0.8.0 "Community"` (both sprints — debugger/watchpoints/disassembler,
+scripting/TAS, cheats, the real wasm frontend, netplay, RetroAchievements — plus the
+mid-scanline/HDMA fix and a continued SPC7110 investigation landed alongside) — see
+`to-dos/VERSION-PLAN.md` and `CHANGELOG.md`'s `[0.8.0]` entry for the full per-item breakdown,
+including the `Board: Send`/`emu-thread` prerequisite (still open, tracked under `v1.0.0`) and
+the netplay save-state-cost pre-work.
 → [overview](phase-8-reach/overview.md)
 
 ## Milestones beyond the phases
 
-- **v0.7.0 "Resolution".** True 512-px hi-res (Modes 5/6) output — the one bounded item left on
-  Phase 6's residual list; the rest of that list (mid-scanline/GSU, open-bus-via-HDMA-latch,
-  SPC7110, DRAM refresh, ST018/S-RTC/PAL/ExLoROM real-ROM validation) stays an ongoing,
-  opportunistic `v0.x.y`-patch cluster, not a gating rung — see `to-dos/VERSION-PLAN.md`.
-- **v0.8.0 "Instrumentation" / v0.8.0 "Community" — Phase 8, gating `v1.0.0`.** See the Phase 8
+- **v0.7.0 "Resolution" — RELEASED 2026-07-09.** True 512-px hi-res (Modes 5/6) output — the one
+  bounded item left on Phase 6's residual list; the rest of that list (SPC7110, DRAM refresh,
+  ST018/S-RTC/PAL/ExLoROM real-ROM validation) stays an ongoing, opportunistic `v0.x.y`-patch
+  cluster, not a gating rung — see `to-dos/VERSION-PLAN.md`. The mid-scanline/GSU and
+  open-bus-via-HDMA-latch items were also on this list at the time; the former has since landed
+  in `v0.8.0`, the latter remains open.
+- **v0.8.0 "Community" — RELEASED 2026-07-10 — Phase 8, gating `v1.0.0`.** See the Phase 8
   section above.
 - **v1.0.0 — production cut.** Gated on: the accuracy battery holding its Phase-6 target with no
   regressions; a **stable, backward-compat-fixture-proven** save-state/core API (Phase 5); the

@@ -79,6 +79,14 @@ pub enum MenuAction {
     /// Log out of the current `RetroAchievements` session.
     #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
     LogoutCheevos,
+    /// Resume from a debugger pause/breakpoint (`v0.8.0`, T-81-001 PR B).
+    DebuggerContinue,
+    /// Pause execution for the debugger without waiting for a breakpoint.
+    DebuggerPause,
+    /// Single-step exactly one CPU instruction.
+    DebuggerStepInto,
+    /// Step over the current instruction (runs a `JSR`/`JSL` to completion instead of into it).
+    DebuggerStepOver,
 }
 
 /// Which debugger panel is selected in the overlay (SNES chip set).
@@ -153,6 +161,11 @@ pub struct ShellState {
     pub watch_kind_input: WatchpointKind,
     /// The Watch panel's last address-parse error, if the most recent "Add" attempt failed.
     pub watch_addr_error: Option<String>,
+    /// The 65C816 panel's "add a breakpoint" address text-entry buffer (`v0.8.0`, T-81-001 PR B).
+    pub bp_addr_input: String,
+    /// The 65C816 panel's last breakpoint address-parse error, if the most recent "Add" attempt
+    /// failed.
+    pub bp_addr_error: Option<String>,
 }
 
 /// Read-only `RetroAchievements` session state the shell needs to render the login window,
@@ -203,6 +216,7 @@ impl ShellState {
         cfg: &mut Config,
         debug: Option<&DebugSnapshot>,
         watchpoints: &mut Vec<WatchpointEntry>,
+        breakpoints: &mut Vec<u32>,
         #[cfg(feature = "cheats")] cheats: &mut Vec<CheatEntry>,
         #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))] netplay_connected: bool,
         #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
@@ -403,7 +417,7 @@ impl ShellState {
             self.render_settings(&ctx, cfg);
         }
         if self.debugger_open {
-            self.render_debugger(&ctx, debug, watchpoints);
+            self.render_debugger(&ctx, debug, watchpoints, breakpoints, &mut actions);
         }
         #[cfg(feature = "cheats")]
         if self.cheats_open {
@@ -452,6 +466,25 @@ impl ShellState {
                     2 => {
                         // TODO(impl-phase): the SNES key-rebind grid (12 buttons * 2 players).
                         ui.label("Input rebinding — TODO (defaults in input.rs).");
+                        ui.separator();
+                        ui.label("Controller port 2 peripheral:");
+                        ui.horizontal(|ui| {
+                            for (kind, name) in [
+                                (crate::config::PeripheralKind::Gamepad, "Gamepad"),
+                                (crate::config::PeripheralKind::Mouse, "Mouse"),
+                                (crate::config::PeripheralKind::SuperScope, "Super Scope"),
+                                (crate::config::PeripheralKind::Multitap, "Multitap"),
+                            ] {
+                                ui.radio_value(&mut cfg.port2_peripheral, kind, name);
+                            }
+                        });
+                        if cfg.port2_peripheral != crate::config::PeripheralKind::Gamepad {
+                            ui.label(
+                                "Wires the emulated hardware correctly; live host-input capture \
+                                 (mouse pointer, extra gamepads) is not yet built — see \
+                                 docs/frontend.md §Peripherals.",
+                            );
+                        }
                     }
                     _ => {
                         ui.label("Region:");
@@ -472,6 +505,8 @@ impl ShellState {
         ctx: &egui::Context,
         debug: Option<&DebugSnapshot>,
         watchpoints: &mut Vec<WatchpointEntry>,
+        breakpoints: &mut Vec<u32>,
+        actions: &mut Vec<MenuAction>,
     ) {
         let mut open = self.debugger_open;
         egui::Window::new("Debugger")
@@ -497,7 +532,14 @@ impl ShellState {
                     return;
                 };
                 match self.panel {
-                    DebugPanel::Cpu => render_cpu_panel(ui, debug),
+                    DebugPanel::Cpu => render_cpu_panel(
+                        ui,
+                        debug,
+                        breakpoints,
+                        &mut self.bp_addr_input,
+                        &mut self.bp_addr_error,
+                        actions,
+                    ),
                     DebugPanel::Ppu => render_ppu_panel(ui, debug),
                     DebugPanel::Apu => render_apu_panel(ui, debug),
                     DebugPanel::Cart => render_cart_panel(ui, debug),
@@ -759,9 +801,21 @@ impl ShellState {
     }
 }
 
-/// 65C816 registers + processor-status flags. Disassembly + breakpoints/stepping are a
-/// follow-up (T-81-006) — this panel is the live-state half of the ticket.
-fn render_cpu_panel(ui: &mut egui::Ui, debug: &DebugSnapshot) {
+/// 65C816 registers + processor-status flags, PC breakpoints, step controls, and a disassembly
+/// window around the current PC (`v0.8.0`, T-81-001 PR B — the disassembly/breakpoints/stepping
+/// half of the ticket; PR A landed the live-state register view alone).
+// One straight-line immediate-mode egui pass (registers + step controls + breakpoint list +
+// disassembly view); same "reads more clearly as a unit" reasoning as `ShellState::render`'s own
+// `too_many_lines` allow.
+#[allow(clippy::too_many_lines)]
+fn render_cpu_panel(
+    ui: &mut egui::Ui,
+    debug: &DebugSnapshot,
+    breakpoints: &mut Vec<u32>,
+    bp_addr_input: &mut String,
+    bp_addr_error: &mut Option<String>,
+    actions: &mut Vec<MenuAction>,
+) {
     let r = &debug.cpu;
     egui::Grid::new("cpu_regs").num_columns(2).show(ui, |ui| {
         ui.label("A");
@@ -795,6 +849,80 @@ fn render_cpu_panel(ui: &mut egui::Ui, debug: &DebugSnapshot) {
         ui.label(if r.emulation { "1" } else { "0" });
         ui.end_row();
     });
+
+    ui.separator();
+    ui.horizontal(|ui| {
+        if debug.paused {
+            if ui.button("Continue").clicked() {
+                actions.push(MenuAction::DebuggerContinue);
+            }
+            if ui.button("Step Into").clicked() {
+                actions.push(MenuAction::DebuggerStepInto);
+            }
+            if ui.button("Step Over").clicked() {
+                actions.push(MenuAction::DebuggerStepOver);
+            }
+        } else if ui.button("Pause").clicked() {
+            actions.push(MenuAction::DebuggerPause);
+        }
+    });
+
+    ui.separator();
+    ui.label("Breakpoints (PC):");
+    ui.horizontal(|ui| {
+        ui.label("Address ($bank:offset):");
+        ui.add(egui::TextEdit::singleline(bp_addr_input).desired_width(80.0));
+        if ui.button("Add").clicked() {
+            let trimmed = bp_addr_input.trim().trim_start_matches('$');
+            match u32::from_str_radix(trimmed, 16) {
+                Ok(address) if address <= 0x00FF_FFFF => {
+                    if !breakpoints.contains(&address) {
+                        breakpoints.push(address);
+                    }
+                    bp_addr_input.clear();
+                    *bp_addr_error = None;
+                }
+                Ok(_) => {
+                    *bp_addr_error =
+                        Some("address must fit the 24-bit CPU bus ($000000-$FFFFFF)".into());
+                }
+                Err(e) => *bp_addr_error = Some(e.to_string()),
+            }
+        }
+    });
+    if let Some(err) = bp_addr_error {
+        ui.colored_label(egui::Color32::RED, err);
+    }
+    let mut remove = None;
+    egui::Grid::new("breakpoint_list")
+        .num_columns(2)
+        .show(ui, |ui| {
+            for (i, addr) in breakpoints.iter().enumerate() {
+                ui.push_id(i, |ui| {
+                    ui.label(format!("${addr:06X}"));
+                    if ui.button("Remove").clicked() {
+                        remove = Some(i);
+                    }
+                });
+                ui.end_row();
+            }
+        });
+    if let Some(i) = remove {
+        breakpoints.remove(i);
+    }
+
+    ui.separator();
+    ui.label("Disassembly:");
+    egui::ScrollArea::vertical()
+        .max_height(220.0)
+        .show(ui, |ui| {
+            let pbr_pc = (u32::from(r.pbr) << 16) | u32::from(r.pc);
+            for (addr, text) in &debug.disassembly {
+                let marker = if *addr == pbr_pc { ">" } else { " " };
+                let bp_marker = if breakpoints.contains(addr) { "*" } else { " " };
+                ui.monospace(format!("{marker}{bp_marker}{addr:06X}  {text}"));
+            }
+        });
 }
 
 /// Format a row of 16-bit words as space-separated 4-hex-digit groups, for the VRAM/CGRAM hex

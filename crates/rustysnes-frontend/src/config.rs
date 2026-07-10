@@ -25,6 +25,39 @@ pub enum PacingMode {
     Wallclock,
 }
 
+/// Which peripheral is connected to controller port 2 (`v0.8.0`, Phase 7 niche peripherals).
+///
+/// Port 1 is always a standard [`PeripheralKind::Gamepad`] — matching real hardware convention
+/// (mice/light guns/multitaps are documented as port-2-only devices in practice; ares' own Super
+/// Scope note: "no commercial game ever utilizes a Super Scope in port 1") and this project's
+/// existing P1-is-the-primary-live-input-source posture (`app.rs`'s `apply_frame_input`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PeripheralKind {
+    /// The standard SNES pad.
+    #[default]
+    Gamepad,
+    /// SNES Mouse.
+    Mouse,
+    /// Super Scope light gun.
+    SuperScope,
+    /// Super Multitap (4 sub-pads).
+    Multitap,
+}
+
+impl PeripheralKind {
+    /// The matching [`rustysnes_core::controller::PortDevice`] this config value selects.
+    #[must_use]
+    pub const fn to_core(self) -> rustysnes_core::controller::PortDevice {
+        match self {
+            Self::Gamepad => rustysnes_core::controller::PortDevice::Gamepad,
+            Self::Mouse => rustysnes_core::controller::PortDevice::Mouse,
+            Self::SuperScope => rustysnes_core::controller::PortDevice::SuperScope,
+            Self::Multitap => rustysnes_core::controller::PortDevice::Multitap,
+        }
+    }
+}
+
 /// The console region (timing + active-scanline count).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
@@ -148,6 +181,12 @@ pub struct Config {
     pub p1: KeyBindings,
     /// Player 2 keyboard binds (the second-pad default is a TODO; empty = unbound).
     pub p2: KeyBindings,
+    /// Which peripheral occupies controller port 2 (`v0.8.0`). Host-input capture (a real mouse
+    /// pointer driving Super Scope aim / SNES Mouse deltas, extra gamepads for Multitap sub-pads)
+    /// is a follow-up frontend task — selecting a non-`Gamepad` device here wires the core's
+    /// protocol correctly (`rustysnes_core::controller`) but this frontend does not yet feed it
+    /// live host input (`docs/frontend.md` §Peripherals).
+    pub port2_peripheral: PeripheralKind,
     /// Rewind (`v0.3.0 "Continuum"`).
     pub rewind: RewindConfig,
     /// Run-ahead (`v0.3.0 "Continuum"`).

@@ -140,6 +140,10 @@ struct Active {
     /// module's doc), so this field stays a plain, unconditional `Vec` too; only the actual
     /// `Bus::set_watchpoints` sync call below is `debug-hooks`-gated.
     watchpoints: Vec<WatchpointEntry>,
+    /// The debugger's armed PC-breakpoint list (`v0.8.0`, T-81-001 PR B). Empty until the
+    /// debugger overlay's 65C816 panel adds entries — same always-compiled, unconditional-`Vec`
+    /// posture as `watchpoints` above.
+    breakpoints: Vec<u32>,
     /// Native rollback netplay connection state (`v0.8.0`, T-82-002). `Idle` until
     /// `MenuAction::ConnectNetplay`.
     #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
@@ -493,6 +497,7 @@ impl App {
             #[cfg(feature = "cheats")]
             cheats: Vec::new(),
             watchpoints: Vec::new(),
+            breakpoints: Vec::new(),
             #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
             netplay: NetplayState::default(),
             #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
@@ -670,6 +675,18 @@ impl App {
                     // unconditionally, once per real frame" pattern as cheats above.
                     #[cfg(feature = "debug-hooks")]
                     crate::watchpoints::sync(&active.watchpoints, &mut emu.system_mut().bus);
+                    // Controller port 2 peripheral selection (`v0.8.0`, Phase 7 niche
+                    // peripherals) — same "just re-sync unconditionally, once per real frame"
+                    // pattern as cheats/watchpoints above; cheap (one enum-tag write) when
+                    // unchanged. Host-input capture for the non-Gamepad devices (a real mouse
+                    // pointer driving Super Scope aim / Mouse deltas, extra gamepads for
+                    // Multitap sub-pads) is a follow-up frontend task — this wires the CORE's
+                    // protocol correctly but doesn't yet feed it live host input
+                    // (`docs/frontend.md` §Peripherals).
+                    emu.set_port_device(1, config.port2_peripheral.to_core());
+                    // PC breakpoints (`v0.8.0`, T-81-001 PR B) — same re-sync pattern as above;
+                    // a no-op branch in `EmuCore::run_frame` when the list is empty.
+                    emu.set_breakpoints(&active.breakpoints);
                     // Run-ahead (config-driven, off by default): peeks `run_ahead.frames` frames
                     // ahead for the PRESENTED video, while `emu`'s own persisted state (and audio
                     // — the continuous stream) only ever advances by exactly one real frame, same
@@ -793,6 +810,7 @@ impl App {
                 config,
                 debug.as_ref(),
                 &mut active.watchpoints,
+                &mut active.breakpoints,
                 #[cfg(feature = "cheats")]
                 &mut active.cheats,
                 #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
@@ -921,6 +939,34 @@ impl App {
                 }
                 MenuAction::ToggleDebugger => {
                     active.shell.debugger_open = !active.shell.debugger_open;
+                }
+                MenuAction::DebuggerContinue => {
+                    active
+                        .core
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .resume();
+                }
+                MenuAction::DebuggerPause => {
+                    active
+                        .core
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .pause();
+                }
+                MenuAction::DebuggerStepInto => {
+                    active
+                        .core
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .step_into();
+                }
+                MenuAction::DebuggerStepOver => {
+                    active
+                        .core
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .step_over();
                 }
                 MenuAction::OpenSettings => active.shell.settings_open = true,
                 MenuAction::Quit => event_loop.exit(),

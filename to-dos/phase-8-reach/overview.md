@@ -22,25 +22,31 @@ shape (`wasm-canvas` MVP, then `wasm-winit` unification) — see Sprint 1 below.
 
 ## Exit criteria
 
-- [ ] Debugger overlay (65C816/PPU/APU/Cart panels, including SA-1/Super FX coprocessor state
-      when active) filling in `ui_shell.rs`'s already-wired `"TODO(impl-phase)"` panels.
-- [ ] Lua scripting / TAS API (`rustysnes-script`'s full stated scope: scripting + movie
+- [x] Debugger overlay (65C816/PPU/APU/Cart panels, including SA-1/Super FX coprocessor state
+      when active) filling in `ui_shell.rs`'s already-wired `"TODO(impl-phase)"` panels for
+      register/VRAM/CGRAM/APU/Cart state (T-81-001 PR A) plus read/write watchpoints (T-81-001b,
+      `v0.8.0`) plus the 65C816 disassembly view + PC breakpoints/step-controls (T-81-001 PR B,
+      `v0.8.0`) — all landed. `to-dos/phase-8-reach/sprint-1-instrumentation.md` has the full
+      per-ticket detail.
+- [x] Lua scripting / TAS API (`rustysnes-script`'s full stated scope: scripting + movie
       record/playback together, per its own `docs/STATUS.md` description).
-- [ ] Cheat-code support (Game Genie / Pro Action Replay SNES format), a new `cheats` flag.
-- [ ] Rollback netplay (frontend-orchestrated against the deterministic core, native + browser),
+- [x] Cheat-code support (Game Genie / Pro Action Replay SNES format), a new `cheats` flag.
+- [x] Rollback netplay (frontend-orchestrated against the deterministic core, native + browser),
       preceded by a `System::save_state()`/`load_state()` cost benchmark to confirm the existing
       full-snapshot design is fast enough for a real rollback window.
-- [ ] RetroAchievements (opt-in, native FFI, the `RustySNES/<ver> rcheevos/<ver>` User-Agent
+- [x] RetroAchievements (opt-in, native FFI, the `RustySNES/<ver> rcheevos/<ver>` User-Agent
       pattern).
-- [ ] The real wasm frontend: a `wasm-canvas` MVP (canvas-2D blit, `requestAnimationFrame`,
+- [x] The real wasm frontend: a `wasm-canvas` MVP (canvas-2D blit, `requestAnimationFrame`,
       keyboard, ROM load) landed first for a fast working demo, then `wasm-winit` unification
       (the same `App` native uses, via `EventLoopExtWebSys::spawn_app`) — both ported from
       RustyNES's proven shape, verified by a real headless-browser render check, not just an
       HTTP status check.
-- [ ] Every feature off by default; with all off, builds are byte-identical (a CI gate proves
+- [x] Every feature off by default; with all off, builds are byte-identical (a CI gate proves
       it, re-verified after each sprint below).
-- [ ] All sprints complete; `v1.0.0` cut prerequisites met (`to-dos/VERSION-PLAN.md`'s v1.0.0
-      gate).
+- [x] All sprints complete — no residuals remain in Phase 8 itself. `v1.0.0` cut prerequisites
+      otherwise met (`to-dos/VERSION-PLAN.md`'s v1.0.0 gate) — see that ladder's own `Board: Send`
+      item, which is tracked there, not here, since it's discovered-alongside-Phase-8 but gates
+      `emu-thread` under `v1.0.0` specifically.
 
 ## Scope
 

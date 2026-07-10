@@ -66,7 +66,7 @@ available anywhere on this machine, needs sourcing.
 | ST011 | — (no board wired) | Hayazashi Nidan Morita Shougi | ❌ not in the corpus, not in Dropbox (Japan-only release, confirmed) | `tests/roms/external/firmware/st011.rom` firmware **is** present, but there's no cart to pair it with — the firmware alone can't prove a board implementation boots real content. `docs/STATUS.md` lists ST011 among the boards with no verified board/window entry. |
 | ST018 | — (no board wired) | Hayazashi Nidan Morita Shougi 2 | ❌ not in the corpus, not in Dropbox (Japan-only release, confirmed) | Same situation as ST011: `tests/roms/external/firmware/st018.rom` is present but unpaired. Per the earlier `st018-armv3-scoping` investigation (see project memory), the port source (Mesen2's `ArmV3Cpu`) is scoped but implementation hasn't started — this ROM gap doesn't block that scoping work, only the eventual golden-boot proof. |
 | S-RTC | — (no board wired) | Daikaijuu Monogatari II | ❌ not in the corpus, not in Dropbox (Japan-only release, confirmed) | `docs/STATUS.md`: "S-RTC ... [has] no board wired (no verified board/window entry)." This is the *only* commercial S-RTC title — no substitute exists. |
-| SPC7110 | BestEffort | Tengai Makyou Zero (Far East of Eden Zero); Momotarou Dentetsu Happy (secondary title) | ✅ Tengai Makyou Zero: `HiRom/SPC7110/Tengai Makyou Zero.sfc` (in use, boots but doesn't reach a playable screen — see `docs/audit/spc7110-boot-crash-2026-07-08.md`) · ❌ Momotarou Dentetsu Happy: not in the corpus, not in Dropbox | Only one of the two known SPC7110 titles is available. A second independent title would help distinguish "bug specific to this ROM's WRAM-population sequence" from "bug in the SPC7110 board generally," but isn't available to test that hypothesis. |
+| SPC7110 | BestEffort | Tengai Makyou Zero (Far East of Eden Zero), **genuine original-cartridge dump specifically** (sha256 `69d06a3f3a4f3ba769541fe94e92b42142e423e9f0924eab97865b2d826ec82d`, 5 MiB); Momotarou Dentetsu Happy (secondary title) | ❌ Tengai Makyou Zero: `HiRom/SPC7110/Tengai Makyou Zero.sfc` **is present but is the English fan-translation ROM hack, not the original cartridge** (confirmed by SHA256 mismatch + a public forum thread on the patch's memory map — `docs/audit/spc7110-boot-crash-2026-07-08.md`); the patch adds a "Expansion ROM" region no real cartridge has, which is what the boot-crash investigation was actually hitting · ❌ Momotarou Dentetsu Happy: not in the corpus, not in Dropbox | This is now the single highest-value ROM gap in this table: a genuine original-cartridge dump would very likely let SPC7110 boot cleanly (every fix landed through `v0.8.0` — the `bus_mirror` addressing, DCU/ALU trigger timing, `$40-$7D` mapping, DROM sizing, and the systemic open-bus fix — is independently verified and none is fan-translation-specific), moving it from "unit-test only" to real-title-validated alongside DSP-2/DSP-4/ST010/S-DD1/CX4/OBC1. |
 
 ## Real-title validation gaps (board works on synthetic/unit tests, but no commercial title has confirmed it)
 
@@ -108,6 +108,13 @@ they block real work:
 4. **ExLoROM** — not really a missing-ROM problem; per `docs/cart.md`'s own research, no verified
     commercial cartridge is known to require this exact unofficial layout. Likely stays
     permanently formula-verified-only.
-5. **SPC7110's second title** (Momotarou Dentetsu Happy) — lower priority since the primary title
-   (Tengai Makyou Zero) is already available and the current blocker is a WRAM-population bug in
-   that title, not a missing-corpus problem.
+5. **SPC7110's primary title, genuine dump** (Tengai Makyou Zero, sha256 `69d06a3f3a4f3ba7695
+   41fe94e92b42142e423e9f0924eab97865b2d826ec82d`) — **re-classified, `v0.8.0`: this is now the
+   highest-priority ROM gap in this whole table, not a lower-priority one.** The copy already in
+   the corpus is the English fan-translation, not the original cartridge (confirmed by SHA256
+   mismatch, a checksum-size inconsistency, and a public forum thread on the patch's own memory
+   map — `docs/audit/spc7110-boot-crash-2026-07-08.md`); the previously-tracked "boot crash" was
+   the emulator correctly declining to support the patch's non-standard `$40-$4F` "Expansion ROM"
+   region, not a bug against real hardware. **SPC7110's second title** (Momotarou Dentetsu Happy)
+   remains lower priority — a genuine dump of the primary title is very likely sufficient to close
+   the boot gap on its own.

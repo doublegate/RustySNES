@@ -10,6 +10,7 @@
 use rustysnes_core::System;
 use rustysnes_core::cart::Cart;
 use rustysnes_core::cart::header::Coprocessor;
+use rustysnes_core::cpu::disasm::disassemble_one;
 
 use crate::config::Region;
 use crate::debug_snapshot::{
@@ -18,6 +19,17 @@ use crate::debug_snapshot::{
 };
 use crate::gfx::{MAX_H, MAX_W, SNES_W, bgr555_to_rgba8};
 use crate::input::Buttons;
+
+/// How many instructions the debugger's disassembly view shows per snapshot (`v0.8.0`,
+/// T-81-001 PR B) — enough for a useful window around PC without a real per-frame cost (each is
+/// one `disassemble_one` call, a handful of bus peeks).
+const DISASSEMBLY_WINDOW_LEN: usize = 24;
+
+/// A CPU instruction budget for [`EmuCore::step_over`]'s "run until the call returns" loop — high
+/// enough to cover any real subroutine, low enough that a runaway/self-modifying-code edge case
+/// can't hang the debugger (mirrors `rustysnes-core::scheduler`'s own `MAX_STEPS_PER_FRAME`
+/// safety-cap posture).
+const MAX_STEP_OVER_INSTRUCTIONS: u32 = 1_000_000;
 
 /// Coprocessor firmware dumps the frontend will try, in order, for a cart that carries a
 /// chip-ROM-dump coprocessor. The matching dump (when the user has supplied it) is the only one
@@ -59,6 +71,16 @@ pub struct EmuCore {
     /// the debugger is open; `debug_snapshot` reads it regardless (cheap, and keeps this struct
     /// free of `debug-hooks`-conditional fields).
     debug_vram_scroll: u16,
+    /// Armed 65C816 PC breakpoints (`v0.8.0`, T-81-001 PR B) — 24-bit `pbr:pc` addresses. Checked
+    /// once per instruction (not per bus access, unlike read/write watchpoints — a PC breakpoint
+    /// is an instruction-boundary concept), so this costs nothing on the fast path when empty and
+    /// `Vec::contains`'s linear scan otherwise (this list is normally a handful of entries, never
+    /// a hot-loop concern).
+    breakpoints: Vec<u32>,
+    /// Whether the debugger has paused execution (a breakpoint fired, or the user clicked Pause).
+    /// While `true`, [`Self::run_frame`] does not advance the `System` at all — the debugger's
+    /// Step Into / Step Over buttons single-step it instead.
+    paused: bool,
 }
 
 impl EmuCore {
@@ -76,6 +98,8 @@ impl EmuCore {
             rom: Vec::new(),
             firmware: Vec::new(),
             debug_vram_scroll: 0,
+            breakpoints: Vec::new(),
+            paused: false,
         }
     }
 
@@ -232,13 +256,190 @@ impl EmuCore {
         }
     }
 
+    /// Select which peripheral is attached to controller port `port` (`v0.8.0`, Phase 7 niche
+    /// peripherals). A host/session choice re-applied whenever the frontend's config changes —
+    /// not carried by save-states any differently than [`Self::set_pad`]'s own live pad state is
+    /// (`rustysnes_core::controller::PortState`'s own doc has the full rationale).
+    pub fn set_port_device(&mut self, port: usize, device: rustysnes_core::controller::PortDevice) {
+        self.system.bus.set_port_device(port, device);
+    }
+
+    /// Feed one frame's worth of SNES Mouse input for port `port` — see
+    /// [`rustysnes_core::Bus::set_mouse`].
+    pub fn set_mouse(&mut self, port: usize, dx: i32, dy: i32, left: bool, right: bool) {
+        self.system.bus.set_mouse(port, dx, dy, left, right);
+    }
+
+    /// Feed one frame's worth of Super Scope input for port `port` — see
+    /// [`rustysnes_core::Bus::set_superscope`].
+    pub fn set_superscope(&mut self, port: usize, x: i32, y: i32, buttons: u8) {
+        self.system.bus.set_superscope(port, x, y, buttons);
+    }
+
+    /// Feed one frame's worth of input for Super Multitap sub-pad `sub_index` of port `port` —
+    /// see [`rustysnes_core::Bus::set_multitap_pad`].
+    pub fn set_multitap_pad(&mut self, port: usize, sub_index: usize, buttons: u16) {
+        self.system.bus.set_multitap_pad(port, sub_index, buttons);
+    }
+
     /// Advance one full video frame: feed the latched pads to the Bus, run the scheduler to the
-    /// next frame boundary, then decode the PPU framebuffer + drain the S-DSP audio.
+    /// next frame boundary, then decode the PPU framebuffer + drain the S-DSP audio. A no-op
+    /// (beyond re-presenting the already-current frame) while [`Self::is_paused`] — the debugger
+    /// owns advancing the `System` in that state, via [`Self::step_into`]/[`Self::step_over`].
     pub fn run_frame(&mut self) {
         self.system.bus.set_joypad(0, self.pads[0].0);
         self.system.bus.set_joypad(1, self.pads[1].0);
-        self.system.run_frame();
+        if !self.paused {
+            if self.breakpoints.is_empty() {
+                self.system.run_frame();
+            } else {
+                self.run_frame_checking_breakpoints();
+            }
+        }
         self.present_current_frame();
+    }
+
+    /// [`Self::run_frame`]'s slow path: steps one instruction at a time (mirroring
+    /// `System::run_frame`'s own loop exactly — same frame-boundary condition, same SA-1
+    /// catch-up), stopping early and setting [`Self::paused`] the instant the CPU's `pbr:pc`
+    /// matches an armed breakpoint. Only reached when at least one breakpoint is armed, so the
+    /// default (no breakpoints) path above is completely unaffected.
+    fn run_frame_checking_breakpoints(&mut self) {
+        if self.system.bus.cart.is_none() {
+            return; // matches `System::run_frame`'s own early return.
+        }
+        let start_frame = self.system.bus.ppu.frame_count();
+        let mut steps = 0u32;
+        while self.system.bus.ppu.frame_count() == start_frame && steps < MAX_STEP_OVER_INSTRUCTIONS
+        {
+            self.system.step_instruction();
+            steps += 1;
+            if self.breakpoints.contains(&self.pbr_pc()) {
+                self.paused = true;
+                return;
+            }
+        }
+    }
+
+    /// The CPU's current `pbr:pc` as one 24-bit address (`$bank:offset`).
+    #[must_use]
+    pub const fn pbr_pc(&self) -> u32 {
+        ((self.system.cpu.regs.pbr as u32) << 16) | (self.system.cpu.regs.pc as u32)
+    }
+
+    /// Install the debugger's armed PC-breakpoint list (`v0.8.0`, T-81-001 PR B), replacing any
+    /// previously installed set — same "always replace, re-synced once per frame" convention as
+    /// [`Self::set_pad`]/cheats/watchpoints.
+    pub fn set_breakpoints(&mut self, addrs: &[u32]) {
+        self.breakpoints.clear();
+        self.breakpoints.extend_from_slice(addrs);
+    }
+
+    /// Whether the debugger currently has execution paused (a breakpoint fired, or the user
+    /// clicked Pause/Step).
+    #[must_use]
+    pub const fn is_paused(&self) -> bool {
+        self.paused
+    }
+
+    /// Enter the paused state without waiting for a breakpoint (the debugger's Pause button).
+    pub const fn pause(&mut self) {
+        self.paused = true;
+    }
+
+    /// Leave the paused state — [`Self::run_frame`] resumes driving the `System` normally (still
+    /// breakpoint-checked, if any remain armed).
+    pub const fn resume(&mut self) {
+        self.paused = false;
+    }
+
+    /// Single-step exactly one CPU instruction, then refresh the framebuffer/audio/debug view —
+    /// the debugger's Step Into. A no-op (does not advance the `System`) unless already paused,
+    /// so a stray click can't accidentally desync a running frame.
+    pub fn step_into(&mut self) {
+        if !self.paused || self.system.bus.cart.is_none() {
+            return;
+        }
+        self.system.step_instruction();
+        self.present_current_frame();
+    }
+
+    /// Step over the instruction at the current PC — a plain [`Self::step_into`] unless it's a
+    /// subroutine call (`JSR`/`JSL`), in which case this runs (breakpoint-checked, same as
+    /// `Self::run_frame_checking_breakpoints`) until control returns to the instruction right
+    /// after the call, bounded by `MAX_STEP_OVER_INSTRUCTIONS` so a subroutine that never
+    /// returns (or self-modifying code) can't hang the debugger — it simply stops there, still
+    /// paused, same as hitting the instruction budget mid-subroutine.
+    pub fn step_over(&mut self) {
+        if !self.paused || self.system.bus.cart.is_none() {
+            return;
+        }
+        let start_pbr = self.system.cpu.regs.pbr;
+        let start_pc = self.system.cpu.regs.pc;
+        let (text, len) = disassemble_one(
+            |addr| self.system.bus.peek(addr),
+            start_pbr,
+            start_pc,
+            self.system.cpu.regs.m8(),
+            self.system.cpu.regs.x8(),
+        );
+        if !(text.starts_with("JSR") || text.starts_with("JSL")) {
+            self.step_into();
+            return;
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let return_pc = start_pc.wrapping_add(len as u16);
+        let mut steps = 0u32;
+        while steps < MAX_STEP_OVER_INSTRUCTIONS {
+            self.system.step_instruction();
+            steps += 1;
+            if self.system.cpu.regs.pbr == start_pbr && self.system.cpu.regs.pc == return_pc {
+                break;
+            }
+            if self.breakpoints.contains(&self.pbr_pc()) {
+                break; // stay paused on a breakpoint hit mid-subroutine, same as a full run.
+            }
+        }
+        self.present_current_frame();
+    }
+
+    /// Disassemble [`DISASSEMBLY_WINDOW_LEN`] instructions starting at the current PC, for the
+    /// debugger's 65C816 panel — a linear byte-walk (not flow-tracing), tracking `REP`/`SEP`
+    /// (`$C2`/`$E2`) along the way so the `M`/`X` widths used for each subsequent instruction's
+    /// operand length stay correct across a width change, the one thing that actually matters for
+    /// decoding a straight-line instruction stream correctly (an unconditional jump target
+    /// wouldn't be reached by this simple walk regardless, same limitation any linear disassembler
+    /// has).
+    fn disassembly_window(&mut self) -> Vec<(u32, String)> {
+        let mut out = Vec::with_capacity(DISASSEMBLY_WINDOW_LEN);
+        let pbr = self.system.cpu.regs.pbr;
+        let mut pc = self.system.cpu.regs.pc;
+        let mut m8 = self.system.cpu.regs.m8();
+        let mut x8 = self.system.cpu.regs.x8();
+        for _ in 0..DISASSEMBLY_WINDOW_LEN {
+            let addr = (u32::from(pbr) << 16) | u32::from(pc);
+            let opcode = self.system.bus.peek(addr);
+            let (text, len) = disassemble_one(|a| self.system.bus.peek(a), pbr, pc, m8, x8);
+            if len == 2 && (opcode == 0xC2 || opcode == 0xE2) {
+                let operand = self.system.bus.peek(addr.wrapping_add(1));
+                let (m_bit, x_bit) = (operand & 0x20 != 0, operand & 0x10 != 0);
+                if opcode == 0xC2 {
+                    // REP: clear bits -> WIDER (8-bit becomes false).
+                    m8 &= !m_bit;
+                    x8 &= !x_bit;
+                } else {
+                    // SEP: set bits -> NARROWER (8-bit becomes true).
+                    m8 |= m_bit;
+                    x8 |= x_bit;
+                }
+            }
+            out.push((addr, text));
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                pc = pc.wrapping_add(len as u16);
+            }
+        }
+        out
     }
 
     /// Decode the PPU framebuffer + drain the S-DSP audio from the `System`'s CURRENT state,
@@ -381,6 +582,8 @@ impl EmuCore {
                 voices,
             },
             cart,
+            disassembly: self.disassembly_window(),
+            paused: self.paused,
             watchpoint_hits: self.take_watchpoint_hits(),
         }
     }
@@ -640,17 +843,115 @@ mod tests {
 
     #[test]
     fn zip_wrapped_rom_loads_end_to_end() {
-        // A minimal-but-valid LoROM header at $7FC0 so `Cart::from_rom` accepts it — mirrors
-        // the header layout `rustysnes-cart::header` scores (title + map-mode + checksum bytes
-        // are permissive; only the size/offset need to line up for LoROM detection to win).
+        let zipped = zip_containing("test.sfc", &minimal_lorom());
+        let mut core = EmuCore::new(0, Region::Ntsc);
+        core.load_rom(&zipped).expect("zip-wrapped ROM should load");
+        assert!(core.rom_loaded());
+    }
+
+    /// A minimal-but-valid, all-zero-body LoROM image with just enough of a header at $7FC0 for
+    /// `Cart::from_rom` to accept it (mirrors `rustysnes-cart::header`'s permissive scoring —
+    /// only the size/map-mode bytes need to line up). An all-zero body means every instruction
+    /// fetch decodes to `BRK` ($00), and the reset vector ($00FFFC/D, file offset `0x7FFC`,
+    /// itself zero) starts the CPU at `PC=$0000` — a real, deterministic, endlessly-looping
+    /// BRK-storm, useful for exercising the debugger's breakpoint/step machinery without needing
+    /// a real commercial or test ROM.
+    fn minimal_lorom() -> Vec<u8> {
         let mut rom = vec![0u8; 0x8000];
         rom[0x7FC0..0x7FC0 + 21].copy_from_slice(b"TEST ROM             ");
         rom[0x7FD5] = 0x20; // LoROM
         rom[0x7FD6] = 0x00; // no coprocessor
         rom[0x7FD7] = 0x08; // ROM size (2^8 KiB = 256 KiB, permissive)
-        let zipped = zip_containing("test.sfc", &rom);
+        rom
+    }
+
+    fn minimal_lorom_core() -> EmuCore {
         let mut core = EmuCore::new(0, Region::Ntsc);
-        core.load_rom(&zipped).expect("zip-wrapped ROM should load");
-        assert!(core.rom_loaded());
+        core.load_rom(&minimal_lorom())
+            .expect("minimal LoROM should load");
+        core
+    }
+
+    #[test]
+    fn breakpoint_pauses_at_the_armed_pc() {
+        let mut core = minimal_lorom_core();
+        core.set_breakpoints(&[0x00_0000]);
+        core.run_frame();
+        assert!(
+            core.is_paused(),
+            "the all-zero ROM's BRK-storm sits at PC=0, so an armed breakpoint there must fire"
+        );
+        assert_eq!(core.pbr_pc(), 0x00_0000);
+    }
+
+    #[test]
+    fn no_breakpoints_never_pauses() {
+        let mut core = minimal_lorom_core();
+        core.run_frame();
+        assert!(!core.is_paused());
+    }
+
+    #[test]
+    fn step_into_is_a_no_op_unless_paused() {
+        let mut core = minimal_lorom_core();
+        core.run_frame();
+        let cycles_before = core.system_mut().cpu.cycles;
+        core.step_into();
+        assert_eq!(
+            core.system_mut().cpu.cycles,
+            cycles_before,
+            "step_into must not advance the System while not paused"
+        );
+        core.pause();
+        core.step_into();
+        assert!(
+            core.system_mut().cpu.cycles > cycles_before,
+            "step_into should advance exactly one instruction once paused"
+        );
+    }
+
+    #[test]
+    fn resume_lets_run_frame_advance_again() {
+        let mut core = minimal_lorom_core();
+        core.pause();
+        core.run_frame();
+        let cycles_paused = core.system_mut().cpu.cycles;
+        core.resume();
+        core.run_frame();
+        assert!(
+            core.system_mut().cpu.cycles > cycles_paused,
+            "run_frame should advance the System again once resumed"
+        );
+    }
+
+    #[test]
+    fn breakpoints_sync_replaces_the_previous_set() {
+        let mut core = minimal_lorom_core();
+        core.set_breakpoints(&[0x00_0000]);
+        core.set_breakpoints(&[]); // replace with an empty set
+        core.run_frame();
+        assert!(
+            !core.is_paused(),
+            "clearing the breakpoint list should stop it from firing"
+        );
+    }
+
+    #[test]
+    fn disassembly_window_starts_at_pc_and_is_full_length() {
+        let mut core = minimal_lorom_core();
+        core.run_frame();
+        let snap = core.debug_snapshot();
+        assert_eq!(snap.disassembly.len(), DISASSEMBLY_WINDOW_LEN);
+        assert_eq!(snap.disassembly[0].0, core.pbr_pc());
+        // An all-zero ROM decodes entirely as BRK (Immediate8 mode: opcode + one signature byte).
+        assert!(snap.disassembly.iter().all(|(_, text)| text == "BRK #$00"));
+    }
+
+    #[test]
+    fn debug_snapshot_reports_paused_state() {
+        let mut core = minimal_lorom_core();
+        assert!(!core.debug_snapshot().paused);
+        core.pause();
+        assert!(core.debug_snapshot().paused);
     }
 }

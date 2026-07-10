@@ -38,6 +38,7 @@ use rustysnes_cpu::Bus as CpuBus;
 use rustysnes_ppu::{Ppu, Region as PpuRegion, VideoBus};
 use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
 
+use crate::controller::{PortDevice, PortState};
 use crate::dma::Dma;
 use crate::dma_bus::DmaBus;
 
@@ -202,6 +203,17 @@ pub struct Bus {
     /// Controller shift latches (`$4016/$4017`) + the auto-read result (`$4218-$421F`).
     joypad: [u16; 2],
     joypad_strobe: bool,
+    /// Per-port peripheral state (`v0.8.0`, Phase 7 niche peripherals) — Mouse/Super Scope/Super
+    /// Multitap. Idle (and touching nothing on `$4016`/`$4017`'s `data1` bit) unless a port's
+    /// [`crate::controller::PortDevice`] is explicitly switched away from the default `Gamepad`
+    /// via [`Self::set_port_device`], in which case `joypad[port]`'s own bit is bypassed instead
+    /// of merged — see [`Self::port_clock`].
+    ports: [PortState; 2],
+    /// WRIO ($4201 write / $4213 read) — the programmable I/O port. Bit6 is controller port 1's
+    /// IOBIT pin, bit7 port 2's (only port 2's is wired to the PPU H/V-counter latch on real
+    /// hardware — a Super Scope's own beam-detection strobe). Reset value `0xFF` (ares
+    /// `cpu.hpp`'s `n8 pio = 0xff`).
+    pio: u8,
     /// Open-bus latch: the last value driven on the data bus.
     #[allow(clippy::struct_field_names)] // "open_bus" is the hardware name for the latch.
     open_bus: u8,
@@ -262,6 +274,8 @@ impl Bus {
             wram_addr: 0,
             joypad: [0; 2],
             joypad_strobe: false,
+            ports: [PortState::default(), PortState::default()],
+            pio: 0xFF,
             open_bus: 0,
             muldiv: MulDiv::default(),
             last_hdma_line: u16::MAX,
@@ -312,6 +326,71 @@ impl Bus {
         self.joypad.get(player).copied().unwrap_or(0)
     }
 
+    /// Select which peripheral is connected to controller port `port` (`0` = port 1, `1` = port
+    /// 2). Defaults to [`PortDevice::Gamepad`] on both ports (this project's original,
+    /// unchanged behavior) until a frontend explicitly calls this — a host/session configuration
+    /// choice, not emulated state (matching [`Self::set_cheats`]/`Self::set_watchpoints`'s own
+    /// "re-established by the frontend, not carried in a save-state" posture — a real SNES has no
+    /// memory of what was plugged in across a power cycle either).
+    pub fn set_port_device(&mut self, port: usize, device: PortDevice) {
+        if let Some(p) = self.ports.get_mut(port) {
+            p.device = device;
+        }
+    }
+
+    /// The peripheral currently connected to controller port `port` — for the debugger overlay
+    /// and the frontend's own input-routing (`v0.8.0`).
+    #[must_use]
+    pub fn port_device(&self, port: usize) -> PortDevice {
+        self.ports
+            .get(port)
+            .map_or(PortDevice::Gamepad, |p| p.device)
+    }
+
+    /// Feed one frame's worth of SNES Mouse input for port `port` (only meaningful when that
+    /// port's device is [`PortDevice::Mouse`]). `dx`/`dy` are raw, unscaled host deltas since the
+    /// last call — the SNES Mouse's own speed multiplier and 127-unit clamp are applied
+    /// internally at the hardware-accurate point (latch time), matching real hardware. Same
+    /// "always replace, re-synced once per frame" convention as [`Self::set_joypad`].
+    pub fn set_mouse(&mut self, port: usize, dx: i32, dy: i32, left: bool, right: bool) {
+        if let Some(p) = self.ports.get_mut(port) {
+            p.mouse.set_input(dx, dy, left, right);
+        }
+    }
+
+    /// Feed one frame's worth of Super Scope input for port `port` (only meaningful when that
+    /// port's device is [`PortDevice::SuperScope`]). `x`/`y` are absolute screen coordinates in
+    /// SNES pixel space (`0..256`, `0..240`-ish; a small negative/over-max margin is allowed and
+    /// means "aimed off-screen", matching real hardware). `buttons` is a bitmask over
+    /// [`crate::controller::scope`]'s `TRIGGER`/`CURSOR`/`TURBO`/`PAUSE` bits — the LIVE physical
+    /// switch/button state; this project reproduces real hardware's own edge-detection internally
+    /// (`crate::controller::SuperScopeState`), so the frontend should pass the raw host state,
+    /// not a pre-toggled value. (A packed bitmask rather than one bool per button, matching
+    /// [`Self::set_joypad`]'s own convention.)
+    pub fn set_superscope(&mut self, port: usize, x: i32, y: i32, buttons: u8) {
+        if let Some(p) = self.ports.get_mut(port) {
+            p.super_scope.set_input(x, y, buttons);
+        }
+    }
+
+    /// Feed one frame's worth of input for Super Multitap sub-pad `sub_index` (`0..=3`) of port
+    /// `port` (only meaningful when that port's device is [`PortDevice::Multitap`]) — same 12-bit
+    /// `BYsSUDLR....` format and per-frame convention as [`Self::set_joypad`].
+    pub fn set_multitap_pad(&mut self, port: usize, sub_index: usize, buttons: u16) {
+        if let Some(p) = self.ports.get_mut(port) {
+            p.multitap.set_pad(sub_index, buttons);
+        }
+    }
+
+    /// The current input state of Super Multitap sub-pad `sub_index` of port `port` — the read
+    /// side of [`Self::set_multitap_pad`], for the debugger overlay and TAS movie recording.
+    #[must_use]
+    pub fn multitap_pad(&self, port: usize, sub_index: usize) -> u16 {
+        self.ports
+            .get(port)
+            .map_or(0, |p| p.multitap.pad(sub_index))
+    }
+
     /// Non-intrusive read of WRAM for the test harness + debugger (does NOT advance the clock,
     /// touch open bus, or trip register side effects). I/O registers and the cart region return
     /// `0` — this is for inspecting RAM-resident test-result variables, not for emulation.
@@ -340,6 +419,29 @@ impl Bus {
             0x7E..=0x7F => self.wram[(addr24 & 0x1_FFFF) as usize] = val,
             0x00..=0x3F | 0x80..=0xBF if addr < 0x2000 => self.wram[(addr & 0x1FFF) as usize] = val,
             _ => {}
+        }
+    }
+
+    /// Non-intrusive read of an arbitrary 24-bit CPU address, for the debugger overlay's
+    /// disassembly view (`v0.8.0`, T-81-001 PR B). Unlike [`CpuBus::read24`], this does NOT touch
+    /// the open-bus latch, does NOT check watchpoints, and does NOT trigger any I/O register's own
+    /// read side effect (VRAM/CGRAM auto-increment, NMI-flag-clear-on-read, the H/V-counter
+    /// latch, …) — genuinely just peeking. Real 65C816 code only ever executes from WRAM or cart
+    /// ROM/RAM space, so (mirroring [`Self::peek_wram`]'s own "not for register space" posture)
+    /// this only special-cases those two regions; any other address returns `0` rather than
+    /// reaching into a register's live side effects, which is fine since real code never lives
+    /// there anyway. The cart-space branch still calls into the board (some coprocessors gate
+    /// their own ROM/RAM reads on internal state), but passes a neutral `0` open-bus fallback
+    /// rather than the Bus's real, live latch — this peek must never read *or* write that shared
+    /// state.
+    pub fn peek(&mut self, addr24: u32) -> u8 {
+        let bank = (addr24 >> 16) & 0xFF;
+        let addr = (addr24 & 0xFFFF) as u16;
+        match bank {
+            0x7E..=0x7F => self.wram[(addr24 & 0x1_FFFF) as usize],
+            0x00..=0x3F | 0x80..=0xBF if addr < 0x2000 => self.wram[(addr & 0x1FFF) as usize],
+            0x00..=0x3F | 0x80..=0xBF if addr < 0x8000 => 0, // I/O register space; not real code.
+            _ => self.cart.as_mut().map_or(0, |c| c.read24(addr24, 0)),
         }
     }
 
@@ -449,6 +551,12 @@ impl Bus {
                     }
                 }
             }
+            // Super Scope beam-position auto-latch (`v0.8.0`) — gated to the one sub-tick that
+            // actually advanced the dot, same granularity `dot_ticked` already gives the HDMA
+            // check above; a no-op unless port 2 has a Super Scope attached (`Self`'s own doc).
+            if dot_ticked {
+                self.check_superscope_beam();
+            }
             self.clock.spc_accum += SPC_NUM;
             while self.clock.spc_accum >= SPC_DEN {
                 self.clock.spc_accum -= SPC_DEN;
@@ -554,14 +662,16 @@ impl Bus {
     fn read_cpu_reg(&mut self, addr: u16) -> u8 {
         match addr {
             0x4016 => {
-                let bit = ((self.joypad[0] & 0x8000) >> 15) as u8;
-                self.joypad[0] = (self.joypad[0] << 1) | 1;
-                (self.open_bus & 0xFC) | bit
+                let (d1, d2) = self.port_clock(0);
+                (self.open_bus & 0xFC) | (d2 << 1) | d1
             }
             0x4017 => {
-                let bit = ((self.joypad[1] & 0x8000) >> 15) as u8;
-                self.joypad[1] = (self.joypad[1] << 1) | 1;
-                (self.open_bus & 0xE0) | 0x1C | bit
+                let (d1, d2) = self.port_clock(1);
+                (self.open_bus & 0xE0) | 0x1C | (d2 << 1) | d1
+            }
+            0x4213 => {
+                // RDIO — WRIO ($4201) read back verbatim (ares `cpu.io.pio`).
+                self.pio
             }
             0x4210 => {
                 // RDNMI: bit7 = VBlank-occurred flag (read clears), bits0-3 = CPU version (2).
@@ -598,7 +708,16 @@ impl Bus {
 
     fn write_cpu_reg(&mut self, addr: u16, val: u8) {
         match addr {
-            0x4016 => self.joypad_strobe = val & 1 != 0,
+            0x4016 => {
+                // The one physical strobe line is wired to BOTH controller ports simultaneously
+                // (`rustysnes_core::controller`'s module doc) — `Gamepad` ignores it exactly as
+                // before (no functional change to the default path); the other peripherals latch.
+                let strobe = val & 1 != 0;
+                self.joypad_strobe = strobe;
+                self.ports[0].latch(strobe);
+                self.ports[1].latch(strobe);
+            }
+            0x4201 => self.set_pio(val),
             0x4200 => self.clock.nmitimen = val,
             0x4202 => self.muldiv.mpya = val,
             0x4203 => self.muldiv.rdmpy = u16::from(self.muldiv.mpya) * u16::from(val),
@@ -623,6 +742,58 @@ impl Bus {
             0x420C => self.dma.hdma_enable = val,
             0x420D => self.clock.fast_rom = val & 1 != 0,
             _ => {}
+        }
+    }
+
+    /// One `$4016`/`$4017` clock for controller port `port` — `(data1, data2)`. `Gamepad` (the
+    /// default) is untouched, using [`Bus::joypad`]'s own original single-bit model exactly as
+    /// before this module existed; every other [`PortDevice`] dispatches to
+    /// [`crate::controller::PortState::clock`].
+    fn port_clock(&mut self, port: usize) -> (u8, u8) {
+        if self.ports[port].device == PortDevice::Gamepad {
+            let bit = ((self.joypad[port] & 0x8000) >> 15) as u8;
+            self.joypad[port] = (self.joypad[port] << 1) | 1;
+            return (bit, 0);
+        }
+        let iobit = self.iobit_pin(port);
+        let vh = self.ppu.visible_height();
+        self.ports[port].clock(iobit, vh)
+    }
+
+    /// The IOBIT pin's current level for controller port `port` — WRIO ($4201/$4213) bit 6 for
+    /// port 1, bit 7 for port 2 (ares `Controller::iobit()`).
+    const fn iobit_pin(&self, port: usize) -> bool {
+        self.pio & (0x40 << port) != 0
+    }
+
+    /// WRIO ($4201) write — the falling edge of bit 7 (controller port 2's IOBIT pin) latches the
+    /// PPU's H/V dot counters, the exact mechanism a Super Scope's light sensor drives when it
+    /// "sees" the CRT beam (ares `cpu/io.cpp`: `if(io.pio.bit(7) && !data.bit(7))
+    /// ppu.latchCounters();`). Bit 6 (port 1) has no such wiring on real hardware — a Super Scope
+    /// in port 1 simply never gets an auto-latch, matching `SuperScopeState`'s own doc.
+    const fn set_pio(&mut self, val: u8) {
+        if self.pio & 0x80 != 0 && val & 0x80 == 0 {
+            self.ppu.latch_hv_counters();
+        }
+        self.pio = val;
+    }
+
+    /// Per-master-clock Super Scope beam-detection check (`v0.8.0`) — a no-op, one cheap branch,
+    /// unless port 2 actually has a Super Scope attached (real hardware: only port 2's IOBIT pin
+    /// reaches the PPU latch, `Self::set_pio`). Mirrors ares' `SuperScope::main()`: strobe the
+    /// IOBIT pin low-then-high the instant the beam crosses the target dot on the target
+    /// scanline, latching the H/V counters exactly as a real light sensor would.
+    fn check_superscope_beam(&mut self) {
+        if self.ports[1].device != PortDevice::SuperScope {
+            return;
+        }
+        let vh = self.ppu.visible_height();
+        let Some((target_v, target_dot)) = self.ports[1].super_scope.beam_target(vh) else {
+            return;
+        };
+        if self.ppu.scanline() == target_v && self.ppu.dot() == target_dot {
+            self.set_pio(self.pio & !0x80);
+            self.set_pio(self.pio | 0x80);
         }
     }
 
@@ -750,6 +921,9 @@ impl Bus {
             s.write_u16(self.last_hdma_line);
             s.write_bool(self.in_hdma);
             s.write_bool(self.hdma_setup_done);
+            s.write_u8(self.pio);
+            self.ports[0].save_state(s);
+            self.ports[1].save_state(s);
         });
         match &self.cart {
             Some(cart) => {
@@ -787,6 +961,9 @@ impl Bus {
         self.last_hdma_line = s.read_u16()?;
         self.in_hdma = s.read_bool()?;
         self.hdma_setup_done = s.read_bool()?;
+        self.pio = s.read_u8()?;
+        self.ports[0] = crate::controller::PortState::load_state(&mut s)?;
+        self.ports[1] = crate::controller::PortState::load_state(&mut s)?;
         if s.remaining() != 0 {
             return Err(SaveStateError::Invalid(alloc::format!(
                 "BUS0 section has {} trailing byte(s)",
@@ -974,6 +1151,101 @@ mod tests {
         // Low mirror in bank 0 aliases the same WRAM.
         <Bus as CpuBus>::write24(&mut bus, 0x00_0042, 0x99);
         assert_eq!(<Bus as CpuBus>::read24(&mut bus, 0x7E_0042), 0x99);
+    }
+
+    #[test]
+    fn peek_reads_wram_without_side_effects() {
+        let mut bus = Bus::default();
+        <Bus as CpuBus>::write24(&mut bus, 0x7E_1234, 0xAB);
+        // A real CPU read first, so open_bus is a known, distinct value.
+        assert_eq!(<Bus as CpuBus>::read24(&mut bus, 0x7E_1234), 0xAB);
+        let open_bus_before = bus.open_bus;
+        // `peek` must return the same byte `read24` would, but never touch `open_bus`.
+        assert_eq!(bus.peek(0x7E_1234), 0xAB);
+        assert_eq!(
+            bus.open_bus, open_bus_before,
+            "peek must not perturb open_bus"
+        );
+    }
+
+    #[test]
+    fn peek_of_io_register_space_is_zero_not_the_live_register() {
+        let mut bus = Bus::default();
+        <Bus as CpuBus>::write24(&mut bus, 0x00_4202, 0x10);
+        <Bus as CpuBus>::write24(&mut bus, 0x00_4203, 0x10);
+        // $4216 (RDMPY) genuinely holds 0x0100 now via `read24`, but `peek` never reaches
+        // register space at all (real code never executes from it) — this documents that
+        // limitation rather than silently returning a wrong "peek" of live register state.
+        assert_eq!(<Bus as CpuBus>::read24(&mut bus, 0x00_4216), 0x00);
+        assert_eq!(bus.peek(0x00_4216), 0);
+    }
+
+    #[test]
+    fn wrio_rdio_round_trips_and_defaults_to_all_ones() {
+        let mut bus = Bus::default();
+        assert_eq!(<Bus as CpuBus>::read24(&mut bus, 0x00_4213), 0xFF);
+        <Bus as CpuBus>::write24(&mut bus, 0x00_4201, 0x55);
+        assert_eq!(<Bus as CpuBus>::read24(&mut bus, 0x00_4213), 0x55);
+    }
+
+    #[test]
+    fn wrio_bit7_falling_edge_latches_hv_counters() {
+        let mut bus = Bus::default();
+        // Advance a few dots so the latch has a known, non-zero dot value to observe.
+        for _ in 0..40 {
+            bus.advance_master(1);
+        }
+        let dot_before = bus.ppu.dot();
+        // Bit 7 starts high (power-on default 0xFF); a write clearing it is the falling edge that
+        // should latch the H/V counters (ares `cpu/io.cpp`'s `if(io.pio.bit(7) && !data.bit(7))`).
+        <Bus as CpuBus>::write24(&mut bus, 0x00_4201, 0x00);
+        let ophct_lo = <Bus as CpuBus>::read24(&mut bus, 0x00_213C);
+        #[allow(clippy::cast_possible_truncation)]
+        let expected = (dot_before & 0xFF) as u8;
+        assert_eq!(
+            ophct_lo, expected,
+            "WRIO bit7 falling edge should latch OPHCT"
+        );
+    }
+
+    #[test]
+    fn wrio_bit6_falling_edge_does_not_latch() {
+        let mut bus = Bus::default();
+        for _ in 0..40 {
+            bus.advance_master(1);
+        }
+        // Port 1's IOBIT (bit 6) has no real-hardware wiring to the PPU latch — only bit 7 does.
+        <Bus as CpuBus>::write24(&mut bus, 0x00_4201, 0xBF); // clear bit 6, leave bit 7 set
+        assert_eq!(<Bus as CpuBus>::read24(&mut bus, 0x00_213C), 0);
+    }
+
+    #[test]
+    fn superscope_beam_latch_fires_at_target_position() {
+        let mut bus = Bus::default();
+        bus.set_port_device(1, crate::controller::PortDevice::SuperScope);
+        bus.set_superscope(1, 10, 5, 0);
+        let target_dot = 10 + 24;
+        for _ in 0..2_000_000 {
+            if bus.ppu.scanline() == 5 && bus.ppu.dot() == target_dot {
+                break;
+            }
+            bus.advance_master(1);
+        }
+        assert_eq!(
+            bus.ppu.scanline(),
+            5,
+            "should have reached the target scanline"
+        );
+        assert_eq!(
+            bus.ppu.dot(),
+            target_dot,
+            "should have reached the target dot"
+        );
+        let ophct_lo = <Bus as CpuBus>::read24(&mut bus, 0x00_213C);
+        assert_eq!(
+            ophct_lo, target_dot as u8,
+            "the beam crossing the target should have auto-latched OPHCT to it"
+        );
     }
 
     #[test]

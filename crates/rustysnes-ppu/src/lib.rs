@@ -910,6 +910,19 @@ impl Ppu {
         self.v
     }
 
+    /// Latch the current H/V dot counters into `OPHCT`/`OPVCT` ($213C/$213D) right now — the same
+    /// effect a CPU read of `SLHV` ($2137) has (`regs.rs`'s `0x2137` arm calls this too, so there
+    /// is one implementation of the latch itself). Real hardware also drives this from the WRIO
+    /// ($4201) I/O port's bit7 falling edge (the controller-port-2 IOBIT pin, wired straight to
+    /// this latch — a Super Scope's light sensor toggles it to record the CRT beam position when
+    /// it "sees" it, `rustysnes_core::controller`); exposed as `pub` so the Bus (which owns WRIO,
+    /// not the PPU) can trigger the identical latch from that path without duplicating it.
+    pub const fn latch_hv_counters(&mut self) {
+        self.io.latch_h = self.h;
+        self.io.latch_v = self.v;
+        self.io.counter_latched = true;
+    }
+
     /// Whether a finished frame is available. Cleared by [`Ppu::take_frame`].
     #[must_use]
     pub const fn frame_ready(&self) -> bool {
