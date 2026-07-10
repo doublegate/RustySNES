@@ -86,9 +86,28 @@ exercised)
 
 **Acceptance criteria:**
 
-- [ ] RA auth + achievement processing work native (opt-in).
-- [ ] The User-Agent leads with `RustySNES/` (a regression test guards it).
-- [ ] With `retroachievements` off, the build is byte-identical; clippy runs the RA feature combo.
+- [x] RA auth + achievement processing work native (opt-in). `rustysnes-cheevos` wraps the
+      vendored `rcheevos` `rc_client` C API (MIT, vendored verbatim from RustyNES's own copy,
+      diff-confirmed identical) via hand-written `extern "C"` FFI pinned by an ABI-guard test
+      (`rc_cheevos_sizeof_*` vs `size_of`); `RaClient::do_frame`/`idle`/`reset` drive achievement
+      logic against SNES WRAM only (`ra_addr_to_snes`, RA flat `0x000000..0x01FFFF` ->
+      `$7E0000..$7FFFFF`, verified against the real `RetroAchievements/RASnes9x`
+      `RA_InstallMemoryBank` source, not guessed); cartridge SRAM is an honest, documented scope
+      cut for this pass. Frontend: `crates/rustysnes-frontend/src/cheevos.rs`'s `CheevosState`
+      (async password login via a shared `Rc<RefCell<...>>` completion slot, polled once per
+      frame) + a Tools -> RetroAchievements... login window + a per-emulated-frame `do_frame`
+      hook + unlock-toast status-bar messages. Not wired: leaderboards/rich-presence UI surfaces
+      (the `RaClient` API exists; no frontend panel consumes it yet) and netplay interaction
+      (deliberately out of scope this pass — see the code comment at the `do_frame` call site).
+- [x] The User-Agent leads with `RustySNES/` (a regression test guards it).
+      `ra_user_agent_identifies_rustysnes_with_versions` in `rustysnes-cheevos/src/http.rs`
+      asserts the leading `RustySNES/<version>` token plus a non-empty `rcheevos/<version>`
+      clause (parsed from the vendored `rc_version.h` at build time).
+- [x] With `retroachievements` off, the build is byte-identical; clippy runs the RA feature combo.
+      `rustysnes-cheevos` is native-only (`#![cfg(not(target_arch = "wasm32"))]`) and every
+      frontend wiring site is `#[cfg(all(feature = "retroachievements", not(target_arch =
+      "wasm32")))]`-gated; `cargo clippy -p rustysnes-frontend --features retroachievements` and
+      the full-combo run (`debug-hooks,scripting,cheats,netplay,retroachievements`) are both clean.
 
 **Dependencies:** T-51-001
 **Reference:** `docs/frontend.md`; the RustyNES RA User-Agent convention

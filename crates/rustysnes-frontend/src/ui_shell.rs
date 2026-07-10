@@ -72,6 +72,13 @@ pub enum MenuAction {
     /// End the active netplay session and fall back to single-player.
     #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
     DisconnectNetplay,
+    /// Begin an asynchronous `RetroAchievements` login (`v0.9.0` T-82-003) using the
+    /// `RetroAchievements` window's current username/password fields.
+    #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+    LoginCheevos,
+    /// Log out of the current `RetroAchievements` session.
+    #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+    LogoutCheevos,
 }
 
 /// Which debugger panel is selected in the overlay (SNES chip set).
@@ -128,6 +135,29 @@ pub struct ShellState {
     /// The Netplay window's last connection-attempt error message, if any.
     #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
     pub netplay_error: Option<String>,
+    /// Whether the `RetroAchievements` window is visible (`v0.9.0` T-82-003).
+    #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+    pub cheevos_open: bool,
+    /// The `RetroAchievements` window's username text-entry buffer.
+    #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+    pub cheevos_username: String,
+    /// The `RetroAchievements` window's password text-entry buffer.
+    #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+    pub cheevos_password: String,
+}
+
+/// Read-only `RetroAchievements` session state the shell needs to render the login window,
+/// copied out (never behind the emu lock — `CheevosState` isn't emu state) by the app each frame.
+#[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+pub struct CheevosStatus<'a> {
+    /// Whether a user is currently logged in.
+    pub logged_in: bool,
+    /// Whether a login attempt is currently in flight.
+    pub pending: bool,
+    /// The logged-in user's display name, if any.
+    pub display_name: Option<&'a str>,
+    /// The most recent login failure message, if any.
+    pub error: Option<&'a str>,
 }
 
 /// Read-only facts the shell needs to render the status bar + window title without taking the
@@ -153,7 +183,10 @@ impl ShellState {
     /// into which the top/bottom panels are nested with `Panel::show`.
     // One straight-line immediate-mode egui pass (menu bar + status bar + windows); the line
     // count is inherent to the panel layout and reads more clearly as a unit than split apart.
-    #[allow(clippy::too_many_lines)]
+    // The argument count only crosses the lint's threshold when every optional window feature
+    // (cheats/netplay/retroachievements) is compiled in at once — each parameter is independently
+    // feature-gated read-only shell input, not a sign this call needs restructuring.
+    #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         root_ui: &mut egui::Ui,
@@ -162,6 +195,8 @@ impl ShellState {
         debug: Option<&DebugSnapshot>,
         #[cfg(feature = "cheats")] cheats: &mut Vec<CheatEntry>,
         #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))] netplay_connected: bool,
+        #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+        cheevos: &CheevosStatus<'_>,
     ) -> Vec<MenuAction> {
         let mut actions = Vec::new();
         let ctx = root_ui.ctx().clone();
@@ -297,6 +332,16 @@ impl ShellState {
                     }
                     #[cfg(not(all(feature = "netplay", not(target_arch = "wasm32"))))]
                     ui.label("(rebuild natively with --features netplay)");
+                    #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+                    {
+                        ui.separator();
+                        if ui.button("RetroAchievements…").clicked() {
+                            self.cheevos_open = true;
+                            ui.close();
+                        }
+                    }
+                    #[cfg(not(all(feature = "retroachievements", not(target_arch = "wasm32"))))]
+                    ui.label("(rebuild natively with --features retroachievements)");
                     // TODO(impl-phase): NSF/SPC player, ROM-DB editor, TAStudio.
                 });
 
@@ -357,6 +402,10 @@ impl ShellState {
         #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
         if self.netplay_open {
             self.render_netplay(&ctx, netplay_connected, &mut actions);
+        }
+        #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+        if self.cheevos_open {
+            self.render_cheevos(&ctx, cheevos, &mut actions);
         }
 
         actions
@@ -546,6 +595,62 @@ impl ShellState {
                 }
             });
         self.netplay_open = open;
+    }
+
+    /// The `RetroAchievements` window (`v0.9.0` T-82-003): username/password entry + a Log
+    /// in/Log out button. Doesn't touch `RaClient` itself (that needs the frontend-owned
+    /// `CheevosState`, and this function NEVER touches the emu lock or any other app state) — it
+    /// only edits the text-entry fields directly and pushes
+    /// [`MenuAction::LoginCheevos`]/[`MenuAction::LogoutCheevos`] for `App::dispatch_actions` to
+    /// act on afterward, same as every other I/O-performing menu action.
+    #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+    fn render_cheevos(
+        &mut self,
+        ctx: &egui::Context,
+        status: &CheevosStatus<'_>,
+        actions: &mut Vec<MenuAction>,
+    ) {
+        let mut open = self.cheevos_open;
+        egui::Window::new("RetroAchievements")
+            .open(&mut open)
+            .resizable(true)
+            .show(ctx, |ui| {
+                if status.logged_in {
+                    ui.label(format!(
+                        "Logged in as {}",
+                        status.display_name.unwrap_or("?")
+                    ));
+                    if ui.button("Log out").clicked() {
+                        actions.push(MenuAction::LogoutCheevos);
+                    }
+                } else {
+                    ui.add_enabled_ui(!status.pending, |ui| {
+                        egui::Grid::new("cheevos_fields")
+                            .num_columns(2)
+                            .show(ui, |ui| {
+                                ui.label("Username");
+                                ui.text_edit_singleline(&mut self.cheevos_username);
+                                ui.end_row();
+                                ui.label("Password");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.cheevos_password)
+                                        .password(true),
+                                );
+                                ui.end_row();
+                            });
+                    });
+                    ui.separator();
+                    if status.pending {
+                        ui.label("Logging in…");
+                    } else if ui.button("Log in").clicked() {
+                        actions.push(MenuAction::LoginCheevos);
+                    }
+                    if let Some(err) = status.error {
+                        ui.colored_label(egui::Color32::RED, err);
+                    }
+                }
+            });
+        self.cheevos_open = open;
     }
 }
 

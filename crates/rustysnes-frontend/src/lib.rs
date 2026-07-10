@@ -38,6 +38,10 @@ pub mod audio_core;
 // `target_arch`-gated, only feature-gated.
 #[cfg(feature = "cheats")]
 pub mod cheats;
+// Native RetroAchievements integration (`v0.9.0` T-82-003). Native-only: the vendored `rcheevos`
+// C library needs a C toolchain + `std` (`cheevos.rs`'s own module doc has the detail).
+#[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+pub mod cheevos;
 pub mod config;
 pub mod debug_snapshot;
 pub mod emu;

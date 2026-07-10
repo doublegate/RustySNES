@@ -76,6 +76,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     an O(1) read (frames are predicted in strictly increasing order, so the previous frame's
     slot already holds the correct last-known value by induction).
 
+- **RetroAchievements (opt-in, native FFI) — `v0.9.0 "Community"`, T-82-003.** A new
+  `rustysnes-cheevos` crate wraps the vendored `rcheevos` `rc_client` C API (MIT-licensed,
+  vendored verbatim from RustyNES's own `rustynes-cheevos/vendor/rcheevos` copy — confirmed
+  byte-identical via `diff -rq`, matching `rustysnes-script`'s already-established
+  vendoring-under-`docs/adr/0003` precedent), native-only (`#![cfg(not(target_arch =
+  "wasm32"))]`; the vendored C library needs a C toolchain + `std`, and this pass has no
+  browser-side HTTP worker model for RA server calls).
+  - **The FFI boundary**: hand-written `extern "C"` declarations (not bindgen output) transcribed
+    from the vendored headers, with every `#[repr(C)]` struct's layout pinned against the ACTUAL
+    C `sizeof` via a `static_asserts.c` translation unit's `rc_cheevos_sizeof_*()` accessors (not
+    numbers hardcoded from one build host) — a future vendor bump that changes a struct layout
+    fails loudly at build time, on every platform, not just the one it was written on.
+  - **Callback bridging**: `rc_client`'s three C callbacks (read-memory, server-call,
+    event-handler) are bridged to safe Rust via thread-local raw pointers installed by RAII
+    guards for exactly the duration of one `rc_client_*` call (`ReadGuard`/`TransportGuard`);
+    async completions (login/load-game) bridge through a boxed `FnOnce` passed as the C API's
+    opaque `callback_userdata`. HTTP itself runs on a dedicated worker thread owning a `ureq`
+    agent — the `server_call` trampoline only enqueues a job and returns immediately, never
+    blocking the emulator thread; `RaClient::poll_http_completions` drains finished exchanges
+    and invokes rcheevos' completion callbacks back on the calling (render) thread.
+  - **SNES memory mapping, verified not guessed**: `ra_addr_to_snes` maps RA's flat address space
+    to the SNES CPU bus by reading the ACTUAL `RetroAchievements/RASnes9x` integration source
+    (`win32/RetroAchievements.cpp`'s `RA_InstallMemoryBank(0, ByteReader, ByteWriter, 0x20000)`,
+    whose `ByteReader` returns `Memory.RAM[nOffs % 0x20000]`) rather than assuming a mapping:
+    RA flat `0x000000..0x01FFFF` (128 KiB) identity-maps to WRAM `$7E0000..$7FFFFF`. Cartridge
+    SRAM (RASnes9x's bank 1) is an honest, documented scope cut — most SNES achievement sets
+    target WRAM; a follow-up can add the SRAM bank once a set that needs it surfaces.
+  - **User-Agent identification**: `RA_USER_AGENT` leads with `RustySNES/<crate version>` (the
+    token RA allowlists a client by) followed by a canonical `rcheevos/<version>` clause parsed
+    from the vendored `rc_version.h` at build time (`build.rs`'s `emit_rcheevos_version`) — a
+    regression test (`ra_user_agent_identifies_rustysnes_with_versions`) guards both the leading
+    name and the version clauses' presence.
+  - **Frontend integration**: a new `retroachievements` feature (native-only) adds a Tools →
+    RetroAchievements… login window (username/password, a Log in/Log out button) and a
+    `CheevosState` (`crates/rustysnes-frontend/src/cheevos.rs`) that creates the `rc_client`
+    lazily on first login attempt, bridges the async login completion through a shared
+    `Rc<RefCell<Option<Result<...>>>>` slot (the completion closure must be `'static` and so
+    can't hold `&mut CheevosState` directly), and drives one `rc_client` frame per emulated frame
+    (`CheevosState::do_frame`, reading WRAM through the same `Bus::peek_wram` the
+    debugger/scripting integrations already use — read-only, no new mutation path).
+    Achievement-unlock events surface as status-bar toast messages. **Honest scope notes**: not
+    wired into the netplay `drive` path (a `RollbackSession`-driven `System` and achievement
+    tracking interacting — e.g. resimulation re-triggering rc_client frames — is a separate,
+    deferred concern); no leaderboard/rich-presence UI panel yet (the `RaClient` API already
+    exposes both).
+  - With `retroachievements` off, `rustysnes-cheevos` never enters the frontend's dependency
+    graph (`dep:rustysnes-cheevos`) and every wiring site is feature-gated; full default-feature
+    workspace build/test/clippy/fmt/doc verified unaffected.
+
 - **Netplay save-state cost benchmark + rollback go/no-go call — `v0.9.0 "Community"`,
   T-82-001.** A new Criterion benchmark (`crates/rustysnes-core/benches/save_state_cost.rs`)
   measures `System::save_state()`/`load_state()` cost across three board tiers (no-coprocessor,
