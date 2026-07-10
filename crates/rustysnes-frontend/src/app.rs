@@ -60,6 +60,10 @@ use rustysnes_script::ScriptEngine;
 #[cfg(feature = "cheats")]
 use crate::cheats::CheatEntry;
 
+// Rollback netplay (`v0.9.0`, T-82-002) — native-only (`netplay.rs`'s own module doc has why).
+#[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+use crate::netplay::NetplayState;
+
 /// The typed winit user-event, used by both native and `wasm32` (native simply never sends one).
 ///
 /// On `wasm32` the wgpu init is async and the ROM arrives via the browser file picker, so
@@ -122,6 +126,10 @@ struct Active {
     /// The in-session cheat-code list (`v0.8.0`, T-81-003). Empty until `Cheats…` adds entries.
     #[cfg(feature = "cheats")]
     cheats: Vec<CheatEntry>,
+    /// Native rollback netplay connection state (`v0.9.0`, T-82-002). `Idle` until
+    /// `MenuAction::ConnectNetplay`.
+    #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+    netplay: NetplayState,
 }
 
 /// TAS movie record/playback state (`v0.8.0`, T-81-002) — mutually exclusive with itself (you
@@ -447,6 +455,10 @@ impl App {
             resampler,
             shell: ShellState {
                 status: initial_status,
+                #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+                netplay_local_addr: "0.0.0.0:7777".into(),
+                #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+                netplay_peer_addr: "127.0.0.1:7777".into(),
                 ..ShellState::default()
             },
             pacer: Pacer::new(self.config.region.frame_rate()),
@@ -462,6 +474,8 @@ impl App {
             movie: MovieState::default(),
             #[cfg(feature = "cheats")]
             cheats: Vec::new(),
+            #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+            netplay: NetplayState::default(),
         });
     }
 
@@ -591,6 +605,23 @@ impl App {
                 let frames = active.pacer.tick();
                 let mut samples = Vec::new();
                 for _ in 0..frames {
+                    // Netplay (`v0.9.0`, T-82-002) is its OWN drive loop, deliberately never the
+                    // single-player path below it: a `RollbackSession` owns pad application,
+                    // frame production, AND presentation (`NetplayState::drive`) — running it
+                    // alongside movie/cheat/rewind/run-ahead machinery designed for a single,
+                    // locally-authoritative `System` would race or double-drive the same state
+                    // a remote peer is also authoritative over.
+                    #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+                    if active.netplay.is_connected() {
+                        let local_input = active.pad1.sanitize_dpad().0;
+                        if let Err(e) = active.netplay.drive(local_input, &mut emu) {
+                            eprintln!("rustysnes: netplay error, disconnecting: {e}");
+                            active.netplay = NetplayState::Idle;
+                            active.shell.status = format!("Netplay error: {e}");
+                        }
+                        samples.extend_from_slice(emu.audio());
+                        continue;
+                    }
                     // Sets `emu`'s pad(s) for THIS emulated frame: live input (the pre-existing
                     // behavior, unchanged when `scripting` is off or no movie is active), or a
                     // movie's recorded/replayed input (`v0.8.0`, T-81-002) when one is active —
@@ -716,6 +747,8 @@ impl App {
                 debug.as_ref(),
                 #[cfg(feature = "cheats")]
                 &mut active.cheats,
+                #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+                active.netplay.is_connected(),
             );
         });
         active
@@ -997,6 +1030,61 @@ impl App {
                     } else {
                         "Stop playback: not currently playing".into()
                     };
+                }
+                #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+                MenuAction::ConnectNetplay => {
+                    active.shell.netplay_error = None;
+                    active.shell.status = 'connect: {
+                        let local_addr: std::net::SocketAddr =
+                            match active.shell.netplay_local_addr.trim().parse() {
+                                Ok(a) => a,
+                                Err(e) => {
+                                    let msg = format!("Bad local address: {e}");
+                                    active.shell.netplay_error = Some(msg.clone());
+                                    break 'connect msg;
+                                }
+                            };
+                        let peer_addr: std::net::SocketAddr =
+                            match active.shell.netplay_peer_addr.trim().parse() {
+                                Ok(a) => a,
+                                Err(e) => {
+                                    let msg = format!("Bad peer address: {e}");
+                                    active.shell.netplay_error = Some(msg.clone());
+                                    break 'connect msg;
+                                }
+                            };
+                        let emu = active.core.lock().unwrap_or_else(PoisonError::into_inner);
+                        if !emu.rom_loaded() {
+                            let msg = "Connect: no ROM loaded".to_string();
+                            active.shell.netplay_error = Some(msg.clone());
+                            break 'connect msg;
+                        }
+                        let rom = emu.rom().to_vec();
+                        drop(emu);
+                        match crate::netplay::start(
+                            local_addr,
+                            peer_addr,
+                            active.shell.netplay_local_player,
+                            &rom,
+                        ) {
+                            Ok(session) => {
+                                active.netplay = NetplayState::Connected(session);
+                                active.rewind.clear();
+                                active.quick_save = None;
+                                "Netplay connected".into()
+                            }
+                            Err(e) => {
+                                let msg = format!("Netplay connect failed: {e}");
+                                active.shell.netplay_error = Some(msg.clone());
+                                msg
+                            }
+                        }
+                    };
+                }
+                #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+                MenuAction::DisconnectNetplay => {
+                    active.netplay = NetplayState::Idle;
+                    active.shell.status = "Netplay disconnected".into();
                 }
             }
         }

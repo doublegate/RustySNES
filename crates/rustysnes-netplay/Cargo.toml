@@ -1,10 +1,29 @@
 [package]
 name = "rustysnes-netplay"
+description = "RustySNES: GGPO-style rollback netplay (UDP native, WebRTC browser)"
 version = "0.7.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+rustysnes-core = { path = "../rustysnes-core", version = "0.7.0" }
+rustysnes-savestate = { path = "../rustysnes-savestate", version = "0.7.0" }
+thiserror = "2"
+
+# wasm32 target deps: the browser WebRTC transport (`RtcPeerConnection`/`RtcDataChannel`).
+# Native builds never see these — no C toolchain, no vendored library, unlike `rustysnes-script`.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.126"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "RtcPeerConnection", "RtcDataChannel", "RtcDataChannelInit", "RtcDataChannelType",
+    "RtcDataChannelState", "RtcConfiguration", "RtcSessionDescriptionInit", "RtcSdpType",
+    "RtcPeerConnectionIceEvent", "RtcIceCandidate", "RtcIceCandidateInit", "MessageEvent",
+    "BinaryType",
+] }
 
 [lints]
 workspace = true

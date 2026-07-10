@@ -43,6 +43,10 @@ pub mod debug_snapshot;
 pub mod emu;
 pub mod gfx;
 pub mod input;
+// Native rollback netplay (`v0.9.0` T-82-002). Native-only: browser WebRTC signaling UI is a
+// separate, deferred scope (`netplay.rs`'s own module doc has the detail).
+#[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+pub mod netplay;
 pub(crate) mod pacing;
 pub mod rewind;
 pub mod ui_shell;

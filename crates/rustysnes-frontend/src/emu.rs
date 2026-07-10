@@ -238,6 +238,21 @@ impl EmuCore {
         self.system.bus.set_joypad(0, self.pads[0].0);
         self.system.bus.set_joypad(1, self.pads[1].0);
         self.system.run_frame();
+        self.present_current_frame();
+    }
+
+    /// Decode the PPU framebuffer + drain the S-DSP audio from the `System`'s CURRENT state,
+    /// without advancing it — the second half of [`Self::run_frame`], split out for netplay
+    /// (`v0.9.0`, T-82-002): `rustysnes_netplay::RollbackSession::advance` drives
+    /// `System::run_frame` directly (it operates on the core crate, not this frontend type), so
+    /// the frontend calls this afterward to pick up the result. A rollback's internal
+    /// re-simulation passes (`RollbackSession`'s own `apply_and_run`) run several frames per
+    /// `advance()` call without presenting each one — only the settled result matters
+    /// user-visibly. **Known limitation, shared with rollback netplay generally, not specific to
+    /// this implementation:** video always reflects the corrected state cleanly, but audio
+    /// already sent to a real output device during a since-corrected misprediction can't be
+    /// "unplayed" — a rollback event may audibly glitch, same as GGPO-family netcode elsewhere.
+    pub fn present_current_frame(&mut self) {
         self.audio.clear();
         if self.rom_loaded {
             self.system.bus.apu.drain_audio(&mut self.audio);
