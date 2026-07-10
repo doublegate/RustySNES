@@ -54,15 +54,16 @@ jobs:
       # true flags-off build/lint as its own explicit, protected CI step, independent of
       # whatever `default` becomes.
       - run: cargo clippy --workspace --all-targets --no-default-features --features wasm-winit,help-tui -- -D warnings
-      # Per-feature-combo clippy (`v0.8.0` T-81-004) — each of this sprint's three new
-      # `rustysnes-frontend` flags individually, then combined; NEVER `--all-features` (the
+      # Per-feature-combo clippy (`v0.8.0` T-81-004, extended `v0.9.0` T-82-004) — each Phase 8
+      # `rustysnes-frontend` flag individually, then combined; NEVER `--all-features` (the
       # workspace-wide rule — `wasm-winit`/`wasm-canvas` are mutually exclusive, so an
-      # all-features build doesn't even make sense). Extend this list again in Sprint 2 alongside
-      # `netplay`/`retroachievements` (T-82-004).
+      # all-features build doesn't even make sense).
       - run: cargo clippy -p rustysnes-frontend --all-targets --features debug-hooks -- -D warnings
       - run: cargo clippy -p rustysnes-frontend --all-targets --features scripting -- -D warnings
       - run: cargo clippy -p rustysnes-frontend --all-targets --features cheats -- -D warnings
-      - run: cargo clippy -p rustysnes-frontend --all-targets --features debug-hooks,scripting,cheats -- -D warnings
+      - run: cargo clippy -p rustysnes-frontend --all-targets --features netplay -- -D warnings
+      - run: cargo clippy -p rustysnes-frontend --all-targets --features retroachievements -- -D warnings
+      - run: cargo clippy -p rustysnes-frontend --all-targets --features debug-hooks,scripting,cheats,netplay,retroachievements -- -D warnings
       # Cheap locally (~4s) so it belongs on every PR, not just tag pushes -- catches broken
       # intra-doc links and rustdoc-specific warnings clippy's own lints don't cover.
       - run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
@@ -100,13 +101,14 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: cargo test --workspace --features test-roms
-      # Exhaustive behavioral coverage (not just clippy) of this sprint's three flags together,
-      # ahead of a tagged release (`v0.8.0` T-81-004). Linux-only, matching `lint`'s per-combo
-      # clippy: `scripting` vendors and compiles Lua 5.4 via `mlua`'s C source, which is real
+      # Exhaustive behavioral coverage (not just clippy) of every Phase 8 flag together, ahead of
+      # a tagged release (`v0.8.0` T-81-004, extended `v0.9.0` T-82-004). Linux-only, matching
+      # `lint`'s per-combo clippy: `scripting` vendors and compiles Lua 5.4 via `mlua`'s C source,
+      # and `retroachievements` vendors and compiles `rcheevos` via `cc` -- both real
       # cross-platform build surface `lint` never exercises (Linux only, host target) — verifying
       # that specifically on macOS/Windows here too is out of this ticket's scope (it's a genuine
       # question of its own, not "is the byte-identical-off gate wired up").
-      - run: cargo test -p rustysnes-frontend --features debug-hooks,scripting,cheats
+      - run: cargo test -p rustysnes-frontend --features debug-hooks,scripting,cheats,netplay,retroachievements
         if: runner.os == 'Linux'
       - run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
         if: runner.os == 'Linux'

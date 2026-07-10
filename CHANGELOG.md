@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The byte-identical-with-flags-off CI gate, extended for Sprint 2's two new flags —
+  `v0.9.0 "Community"`, T-82-004.** `.github/workflows/ci.yml`'s `lint` job now clippys
+  `netplay` and `retroachievements` individually (alongside Sprint 1's `debug-hooks`/
+  `scripting`/`cheats`) and combined (`debug-hooks,scripting,cheats,netplay,retroachievements`)
+  — still never `--all-features`, since `wasm-winit`/`wasm-canvas` stay mutually exclusive. The
+  existing `--no-default-features --features wasm-winit,help-tui` flags-off guard needed no
+  change (its value is exactly that it stays a fixed, named regression lock regardless of how
+  many optional flags accumulate around it) and passes with all six Phase 8 flags compiled out.
+  `full-test`'s Linux-only combined-feature behavioral run (ahead of every tagged release) is
+  extended to the same six-flag combo — `retroachievements` vendors and compiles `rcheevos` via
+  `cc`, real cross-platform build surface `lint` never exercises, the same category `scripting`'s
+  vendored `mlua` already established the Linux-only scoping for.
+
 - **GGPO-style rollback netplay — `v0.9.0 "Community"`, T-82-002.** A new `rustysnes-netplay`
   crate implements two-player rollback netcode, ported from RustyNES's own proven
   `rustynes-netplay::session::RollbackSession` shape (the N-player mesh/Roster/spectator/NAT-
