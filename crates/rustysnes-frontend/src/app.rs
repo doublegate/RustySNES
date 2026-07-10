@@ -64,6 +64,10 @@ use crate::cheats::CheatEntry;
 #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
 use crate::netplay::NetplayState;
 
+// RetroAchievements (`v0.9.0`, T-82-003) — native-only (`cheevos.rs`'s own module doc has why).
+#[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+use crate::cheevos::CheevosState;
+
 /// The typed winit user-event, used by both native and `wasm32` (native simply never sends one).
 ///
 /// On `wasm32` the wgpu init is async and the ROM arrives via the browser file picker, so
@@ -130,6 +134,10 @@ struct Active {
     /// `MenuAction::ConnectNetplay`.
     #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
     netplay: NetplayState,
+    /// Native `RetroAchievements` session state (`v0.9.0`, T-82-003). No `rc_client` exists until
+    /// the first `MenuAction::LoginCheevos`.
+    #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+    cheevos: CheevosState,
 }
 
 /// TAS movie record/playback state (`v0.8.0`, T-81-002) — mutually exclusive with itself (you
@@ -476,6 +484,8 @@ impl App {
             cheats: Vec::new(),
             #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
             netplay: NetplayState::default(),
+            #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+            cheevos: CheevosState::default(),
         });
     }
 
@@ -661,6 +671,14 @@ impl App {
                     active.rewind.record(&emu);
                     #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
                     Self::pump_script(&mut active.script, &active.movie, &mut emu);
+                    // RetroAchievements (`v0.9.0`, T-82-003): one rc_client frame per emulated
+                    // frame, reading WRAM through the same `Bus::peek_wram` the debugger/scripting
+                    // already use. Scope cut, honestly noted: not wired into the netplay `drive`
+                    // path above (a `RollbackSession`-driven `System` and achievement tracking
+                    // interacting — e.g. resimulation re-triggering rc_client frames — is a
+                    // separate, deferred concern).
+                    #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+                    active.cheevos.do_frame(emu.system_mut());
                 }
                 samples
             };
@@ -695,6 +713,13 @@ impl App {
             drop(emu); // release the brief lock BEFORE the wgpu upload + egui pass
             (fb, dims, info, audio_samples, debug)
         };
+
+        // Drain RetroAchievements HTTP completions/events (outside the emu lock — `CheevosState`
+        // isn't emu state). Surfaces any newly-unlocked achievement in the status bar.
+        #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+        for toast in active.cheevos.poll() {
+            active.shell.status = toast;
+        }
 
         // --- Push the frame's audio through the resampler into the ring (outside the lock). ---
         #[cfg(not(target_arch = "wasm32"))]
@@ -737,6 +762,13 @@ impl App {
         active.gfx.blit(&mut encoder, &view);
 
         // --- (4) Run the always-on egui shell pass. The shell NEVER touches the emu lock. ---
+        #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+        let cheevos_status = crate::ui_shell::CheevosStatus {
+            logged_in: active.cheevos.is_logged_in(),
+            pending: active.cheevos.login_pending(),
+            display_name: active.cheevos.display_name(),
+            error: active.cheevos.login_error(),
+        };
         let raw_input = active.egui_state.take_egui_input(&active.window);
         let mut actions = Vec::new();
         let full_output = active.egui_ctx.run_ui(raw_input, |ui| {
@@ -749,6 +781,8 @@ impl App {
                 &mut active.cheats,
                 #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
                 active.netplay.is_connected(),
+                #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+                &cheevos_status,
             );
         });
         active
@@ -1085,6 +1119,20 @@ impl App {
                 MenuAction::DisconnectNetplay => {
                     active.netplay = NetplayState::Idle;
                     active.shell.status = "Netplay disconnected".into();
+                }
+                #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+                MenuAction::LoginCheevos => {
+                    active.cheevos.login(
+                        &active.shell.cheevos_username.clone(),
+                        &active.shell.cheevos_password.clone(),
+                    );
+                    // Don't linger a plaintext password in memory longer than the call needs it.
+                    active.shell.cheevos_password.clear();
+                }
+                #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+                MenuAction::LogoutCheevos => {
+                    active.cheevos.logout();
+                    active.shell.status = "RetroAchievements: logged out".into();
                 }
             }
         }

@@ -67,7 +67,11 @@ cheats = []
 # keeps the optional dependency out of the wasm32 dependency graph, on top of the
 # `target.'cfg(...)'` gate below already doing so.
 netplay = ["dep:rustysnes-netplay"]
-retroachievements = []
+# `v0.9.0 "Community"`, T-82-003: RetroAchievements (`rustysnes-cheevos`, the vendored `rcheevos`
+# `rc_client` FFI bridge). Native-only — `rcheevos` needs a C toolchain and `std`, and the wasm
+# builds have no supported HTTP worker thread for the RA server calls. `dep:` keeps the optional
+# dependency out of the wasm32 dependency graph, on top of the `target.'cfg(...)'` gate below.
+retroachievements = ["dep:rustysnes-cheevos"]
 
 [lints]
 workspace = true
@@ -121,6 +125,7 @@ anstyle = "1"
 ratatui = { version = "0.30", optional = true }
 rustysnes-script = { path = "../rustysnes-script", version = "0.7.0", optional = true }
 rustysnes-netplay = { path = "../rustysnes-netplay", version = "0.7.0", optional = true }
+rustysnes-cheevos = { path = "../rustysnes-cheevos", version = "0.7.0", optional = true }
 
 # wasm32 target deps. The chip stack is `no_std + alloc`, so the browser build
 # only needs the wasm-bindgen + web-sys bridge here.

@@ -240,6 +240,36 @@ default build is unaffected. The crate's `WebRtcTransport` (wasm32) is itself co
 clippy-verified against the real `web_sys` API, but frontend SDP-negotiation UI to actually use
 it in-browser is a separate, not-yet-landed scope.
 
+## RetroAchievements (`v0.9.0 "Community"`, T-82-003)
+
+A Tools → RetroAchievements… window (native-only, `#[cfg(all(feature = "retroachievements",
+not(target_arch = "wasm32")))]`) takes a username/password and dispatches
+`MenuAction::LoginCheevos`; `App::dispatch_actions` clears the password field from `ShellState`
+immediately after handing it to `CheevosState::login` (don't linger a plaintext credential in
+memory longer than the call needs it). `CheevosState`
+(`crates/rustysnes-frontend/src/cheevos.rs`) owns a `rustysnes_cheevos::RaClient`, created lazily
+on first login attempt — nothing allocates or spawns the crate's HTTP worker thread until a user
+actually opens the window and logs in. Login is asynchronous: the `rc_client` completion fires
+from inside `RaClient::poll_http_completions` on whatever thread calls it (here, the render
+thread), and since the completion closure must be `'static` it can't hold `&mut CheevosState`
+directly — it writes into a shared `Rc<RefCell<Option<Result<...>>>>` slot instead, which
+`CheevosState::poll` (called once per real frame, same cadence as `NetplayState::drive`) drains
+on the main thread to update `user`/`login_error`.
+
+`CheevosState::do_frame` runs once per emulated frame (inside `Active::render`'s per-frame
+catch-up loop, right after `EmuCore::run_frame`), reading WRAM through `Bus::peek_wram` — the
+same non-intrusive accessor the debugger overlay and Lua scripting integrations already use, no
+new mutation path. `RaClient::take_events`' `AchievementTriggered` events surface as status-bar
+toast messages via `CheevosState::poll`'s return value. **Honest scope notes**: not wired into
+the netplay `drive` path (a `RollbackSession`-driven `System` and achievement tracking
+interacting — e.g. resimulation re-triggering `rc_client` frames — is a separate, deferred
+concern, noted at the `do_frame` call site); no leaderboard/rich-presence UI panel yet (`RaClient`
+already exposes `leaderboard_list`/`rich_presence`, just not consumed by any window). SRAM-backed
+achievement sets aren't supported — `rustysnes_cheevos::ra_addr_to_snes` only maps the SNES's 128
+KiB WRAM (`docs/adr/0003`-style honest scope cut, documented in the crate itself). With
+`retroachievements` off, `rustysnes-cheevos` never enters the frontend's dependency graph
+(`dep:rustysnes-cheevos`) and the default build is unaffected.
+
 ## Open questions
 
 - ~~Whether the second-CPU (SA-1 / Super FX) state warrants its own debugger panel from day one
