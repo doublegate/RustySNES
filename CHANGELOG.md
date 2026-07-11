@@ -28,11 +28,11 @@ clean.
   (`hdtag::hash_tile`, hashed into a fixed stack buffer — no heap allocation on the rendering hot
   path) and records it per composited pixel into a write-only `Ppu::tile_tags()` side-buffer,
   populated only when `Ppu::set_hd_pack_tagging(true)` is on; leaving it at its default `false`
-  is proven byte-identical to every prior release (`hd_pack_tagging_toggle_does_not_alter_
-  framebuffer_output`), and the whole mechanism compiles out entirely — not just
-  runtime-disabled — when the `hd-pack` feature is off. The frontend owns everything
-  pack-specific: a versioned `pack.toml` manifest + PNG loader (`crate::hd_pack`, pure-Rust `png`
-  decode, path-traversal-safe, duplicate-hash-rejecting), a pure CPU compositor
+  is proven byte-identical to every prior release
+  (`hd_pack_tagging_toggle_does_not_alter_framebuffer_output`), and the whole mechanism compiles
+  out entirely — not just runtime-disabled — when the `hd-pack` feature is off. The frontend owns
+  everything pack-specific: a versioned `pack.toml` manifest + PNG loader (`crate::hd_pack`,
+  pure-Rust `png` decode, path-traversal-safe, duplicate-hash-rejecting), a pure CPU compositor
   (`crate::hd_compositor::composite`, fully unit-testable without a GPU adapter), a Settings →
   Video pack selector (dynamic `ComboBox`, populated per-ROM via the same SHA-256 identity
   save-states already use), and `config.video.hd_pack_name` persistence with automatic
@@ -47,7 +47,7 @@ clean.
   yet). See `docs/ppu.md` §HD texture pack `TileTag` recording hook, `docs/frontend.md` §HD
   texture packs, and `docs/adr/0010`.
 
-**Process note:** all four feature PRs (#66, #67, #68) went through the full branch → CI →
+**Process note:** all three feature PRs (#66, #67, #68) went through the full branch → CI →
 automated bot review → fix → reply → resolve → green → squash-merge ceremony. Real findings
 addressed along the way: a heap allocation on the PPU rendering hot path, a path-traversal
 vulnerability in the pack loader, a memory-pre-allocation DoS vector sized off an untrusted PNG
