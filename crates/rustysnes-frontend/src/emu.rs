@@ -63,6 +63,12 @@ pub struct EmuCore {
     /// guarantee (`docs/ppu.md`).
     #[cfg(feature = "hd-pack")]
     hd_pack: Option<crate::hd_pack::HdPack>,
+    /// The loaded ROM's SHA-256, cached at load time rather than recomputed on every
+    /// [`Self::available_hd_packs`]/[`Self::set_hd_pack`] call — `available_hd_packs` runs once
+    /// per frame while Settings is open, and re-hashing a multi-megabyte ROM that often would be
+    /// a real, avoidable cost (found in PR #67 review).
+    #[cfg(feature = "hd-pack")]
+    rom_sha256: Option<[u8; 32]>,
 }
 
 /// Translate the frontend's own [`Region`] (config/pacing concerns: `frame_rate`, serde) to the
@@ -93,25 +99,31 @@ impl EmuCore {
             paused: false,
             #[cfg(feature = "hd-pack")]
             hd_pack: None,
+            #[cfg(feature = "hd-pack")]
+            rom_sha256: None,
         }
     }
 
     /// Load a raw ROM image — see [`facade::EmuCore::load_rom`].
     ///
-    /// Clears any active HD texture pack (`v1.3.0`, `hd-pack` feature) — a pack is keyed to the
-    /// ROM it was discovered under, so it never carries over to a newly-loaded, different ROM
-    /// (the freshly (re)constructed `System` this creates also already has `Ppu::
-    /// set_hd_pack_tagging` at its `false` default, so no explicit toggle is needed here).
+    /// On success, clears any active HD texture pack (`v1.3.0`, `hd-pack` feature) — a pack is
+    /// keyed to the ROM it was discovered under, so it never carries over to a newly-loaded,
+    /// different ROM (the freshly (re)constructed `System` this creates also already has `Ppu::
+    /// set_hd_pack_tagging` at its `false` default, so no explicit toggle is needed here). On
+    /// failure, [`facade::EmuCore::load_rom`] leaves the previously-running `System` completely
+    /// untouched, so the previously-active pack (if any) must stay active too — clearing it on a
+    /// failed load attempt would silently drop it out from under a still-running ROM.
     ///
     /// # Errors
     /// See [`facade::EmuCore::load_rom`].
     pub fn load_rom(&mut self, rom: &[u8]) -> Result<(), EmuError> {
-        let result = self.inner.load_rom(rom);
+        self.inner.load_rom(rom)?;
         #[cfg(feature = "hd-pack")]
         {
             self.hd_pack = None;
+            self.rom_sha256 = Some(rustysnes_core::movie::hash_rom(self.inner.rom()));
         }
-        result
+        Ok(())
     }
 
     /// The coprocessor firmware dumps this cart will accept — see
@@ -173,6 +185,7 @@ impl EmuCore {
         #[cfg(feature = "hd-pack")]
         {
             self.hd_pack = None;
+            self.rom_sha256 = None;
         }
     }
 
@@ -196,14 +209,16 @@ impl EmuCore {
 
     /// Every HD texture pack name available for the currently-loaded ROM (`v1.3.0`, `hd-pack`
     /// feature) — the candidate list for a Settings pack-selector UI. Empty if no ROM is loaded
-    /// or no data directory is resolvable (always the case on `wasm32`).
+    /// or no data directory is resolvable (always the case on `wasm32`). Uses the ROM hash
+    /// [`Self::load_rom`] already cached rather than re-hashing the ROM on every call (this is
+    /// called once per frame while Settings is open).
     #[cfg(feature = "hd-pack")]
     #[must_use]
     pub fn available_hd_packs(&self) -> Vec<String> {
-        if !self.rom_loaded() {
+        let Some(rom_sha256) = self.rom_sha256 else {
             return Vec::new();
-        }
-        crate::hd_pack::discover_packs(&rustysnes_core::movie::hash_rom(self.rom()))
+        };
+        crate::hd_pack::discover_packs(&rom_sha256)
     }
 
     /// The active HD texture pack's manifest name, if one is loaded.
@@ -234,12 +249,11 @@ impl EmuCore {
             self.inner.system_mut().bus.ppu.set_hd_pack_tagging(false);
             return Ok(());
         };
-        if !self.rom_loaded() {
+        let Some(rom_sha256) = self.rom_sha256 else {
             return Err(crate::hd_pack::HdPackError::Io(std::io::Error::other(
                 "no ROM loaded",
             )));
-        }
-        let rom_sha256 = rustysnes_core::movie::hash_rom(self.rom());
+        };
         match crate::hd_pack::load_pack(&rom_sha256, name) {
             Ok(pack) => {
                 self.hd_pack = Some(pack);
@@ -753,6 +767,41 @@ mod tests {
         core.load_rom(&minimal_lorom())
             .expect("reloading the same ROM also succeeds");
         assert_eq!(core.hd_pack_name(), None);
+    }
+
+    #[cfg(feature = "hd-pack")]
+    #[test]
+    fn load_rom_success_caches_the_rom_hash() {
+        let mut core = EmuCore::new(0, Region::Ntsc);
+        assert_eq!(core.rom_sha256, None);
+        let rom = minimal_lorom();
+        core.load_rom(&rom).expect("minimal ROM loads");
+        assert_eq!(core.rom_sha256, Some(rustysnes_core::movie::hash_rom(&rom)));
+    }
+
+    #[cfg(feature = "hd-pack")]
+    #[test]
+    fn a_failed_load_rom_does_not_clear_the_active_pack_or_cached_hash() {
+        // A pack can't become genuinely active without touching the real data dir (see the
+        // module doc above), so this reaches into the private fields directly (same-module
+        // test) to simulate one being active, then confirms a load failure -- which
+        // `facade::EmuCore::load_rom` documents as leaving the previously-running `System`
+        // completely untouched -- doesn't clear it out from under that still-running ROM.
+        let mut core = EmuCore::new(0, Region::Ntsc);
+        core.load_rom(&minimal_lorom()).expect("minimal ROM loads");
+        core.hd_pack = Some(crate::hd_pack::HdPack::default());
+        let sha_before = core.rom_sha256;
+
+        assert!(core.load_rom(&[]).is_err(), "an empty ROM must be rejected");
+
+        assert!(
+            core.hd_pack.is_some(),
+            "a failed load must not clear the active pack"
+        );
+        assert_eq!(
+            core.rom_sha256, sha_before,
+            "a failed load must not clear the cached ROM hash"
+        );
     }
 
     fn zip_containing(name: &str, bytes: &[u8]) -> Vec<u8> {

@@ -642,6 +642,14 @@ impl ShellState {
                                     "(load a ROM first)"
                                 });
                             } else {
+                                // A clone, not `.as_deref()`, is required here: the closure below
+                                // mutates `cfg.video.hd_pack_name` itself, and `current` (used
+                                // both before and after that mutation within the same closure
+                                // invocation) can't remain a live borrow of it across that write
+                                // -- confirmed by trying the borrowed form, which fails to
+                                // compile (E0502). The clone is one small `String` per
+                                // Settings-window-open frame (already gated the same way
+                                // `available_hd_packs`'s own I/O is), not a hot-path cost.
                                 let current = cfg.video.hd_pack_name.clone();
                                 egui::ComboBox::from_id_salt("hd_pack_selector")
                                     .selected_text(current.as_deref().unwrap_or("(none)"))

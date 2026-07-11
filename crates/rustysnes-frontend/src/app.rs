@@ -539,9 +539,9 @@ impl App {
         // as `MenuAction::OpenRom`'s File-menu path does.
         #[cfg(all(not(target_arch = "wasm32"), feature = "hd-pack"))]
         if emu.rom_loaded()
-            && let Some(name) = self.config.video.hd_pack_name.clone()
+            && let Some(name) = self.config.video.hd_pack_name.as_deref()
         {
-            let _ = emu.set_hd_pack(Some(&name));
+            let _ = emu.set_hd_pack(Some(name));
         }
         #[cfg(target_arch = "wasm32")]
         let initial_status = String::new();
@@ -1249,8 +1249,8 @@ impl App {
                             // none was ever configured) just leaves tagging off, same as never
                             // having selected one.
                             #[cfg(feature = "hd-pack")]
-                            if let Some(name) = config.video.hd_pack_name.clone() {
-                                let _ = emu.set_hd_pack(Some(&name));
+                            if let Some(name) = config.video.hd_pack_name.as_deref() {
+                                let _ = emu.set_hd_pack(Some(name));
                             }
                         }
                         // A new cart invalidates every prior snapshot (rewind ring +
