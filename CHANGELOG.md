@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **RustySNES integrates a cycle-accurate emulation engine.** Modeled after its predecessor `RustyNES`, this emulator is built on a master-clock-precise, lockstep-scheduled core targeting the Mesen2/ares accuracy bar. The entries below document the engine-internal milestones as this core is built and hardened.
 
+## [Unreleased]
+
 ## [1.2.0] "Phosphor" - 2026-07-11
 
 ### Changed
