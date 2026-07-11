@@ -102,16 +102,44 @@ Per `ref-docs/research-report.md` §5 and `ref-docs/2026-06-24-ppu.md` §5:
   mid-line `$420C` write on the hardware-correct scanline — the banded HDMAEN-vs-latch crossing
   of undisbeliever's `hdmaen_latch_test` (see §H/V-IRQ for the write-timing half of that race).
 
-### Open bus via DMA/HDMA (the "Speedy Gonzales stage 6-1" case) — researched, prototyped, regressed, deferred
+### Open bus via DMA/HDMA (the "Speedy Gonzales stage 6-1" case) — FIXED
 
-**Status (`v1.1.0` update): mechanism confirmed against two independent primary sources. One real,
-independent bug was found and landed along the way (`SuperFxBoard::map`'s Game-Pak-RAM-ownership
-gap, below) with zero regressions. The DMA-open-bus-update prototype itself still causes a full
-regression against `superfx_oncart`'s golden framebuffer hashes, but this pass narrowed the cause
-considerably: it is now a confirmed CPU-control-flow divergence (not a data-corruption artifact),
-localized to a specific access-trace window, with several plausible mechanisms ruled out by direct
-instrumentation. Still not landed — see "What was ruled out this pass" and "Where this leaves the
-next investigator" below.**
+**Status (post-`v1.3.0`): landed.** Cross-checking the exact divergence (below) directly against
+ares' AND bsnes' `CPU::Channel::readA`/`readB`/`writeA`/`writeB` (`ref-proj/ares/ares/sfc/cpu/
+dma.cpp`, `ref-proj/bsnes/bsnes/sfc/cpu/dma.cpp` — the two files are logically identical, only
+differing in template/type-alias style) shows the real rule is **DMA/HDMA reads update the
+open-bus latch; DMA/HDMA writes never do** — a third combination distinct from both previously-
+tried prototypes ("update on all four A/B read/write methods" and "update on the B-bus side
+only"), and for a straight-copy DMA channel (this investigation's exact failing case) it happens
+to predict the identical accumulated value either of those two already did, since a straight
+copy's read-value always equals its write-value. This is strong, direct, independent confirmation
+that the "regression" was actually a correction: **`DmaBus for Bus`'s `read_a`/`read_b` now update
+`open_bus`; `write_a`/`write_b` do not.** `read_a`'s A-bus "forbidden range" branch (CPU/DMA-I/O-
+register-shadowed addresses) also now matches ares/bsnes exactly — it sets `open_bus` to a hard
+`0` (not "leave it unchanged", the prior behavior) — though this branch has zero coverage in the
+current corpus either way (confirmed by the earlier investigation pass), so this piece is
+unverified-by-test, only by direct source citation.
+
+**The independent-oracle citation, precisely.** `CPU::Channel::readA`: `cpu.r.mdr = validA(address)
+? bus.read(address, cpu.r.mdr) : (n8)0x00;` — reads always update `mdr` (this project's
+`open_bus`), on both the mapped and forbidden-range paths. `writeA`/`writeB`: `bus.write(...)`
+only, `mdr` is never touched. `Bus::read`'s own default (unmapped) reader —
+`reader[0] = [](n24, n8 data) -> n8 { return data; };` — is the open-bus echo mechanism itself: an
+unmapped read returns exactly the fallback byte it was handed, i.e. whatever was last legitimately
+read/written onto the bus. This is the same "any device driving the bus updates what a later
+unmapped read observes" principle the SNESdev wiki / mgba blog describe at the mechanism level,
+now confirmed at the exact-value level for DMA specifically.
+
+**Regression gate.** `cargo test --workspace` (zero regressions, unaffected — this only touches
+`DmaBus for Bus`, exercised solely by DMA/HDMA-driven accesses) and the full `--features
+test-roms` battery (28 tests, 17 suites): 27 of 28 unaffected; `superfx_boots_live_and_deterministic`
+re-blessed (`BLESS_SUPERFX=1`) — all 24 golden hashes changed (expected: every Krom GSU ROM shares
+the same boot/fade library routine, `tests/roms/external/krom/LIB/SNES_GSU.INC`, that exercises
+this exact overrun), while every OTHER assertion in that same test — cart/coprocessor detection,
+GSU liveness (`accesses > 0`), the FillPoly plot-bitmap threshold, and cross-run determinism — is
+unaffected and still passes, both before and after re-blessing. `cargo clippy --workspace
+--all-targets`, `cargo fmt --all --check`, the `no_std` gate, and `RUSTDOCFLAGS="-D warnings"
+cargo doc --workspace --no-deps` all clean.
 
 **A real, independent fix landed along the way: `SuperFxBoard::map`'s RAM-ownership gap.**
 `SuperFxBoard::map(addr24)`'s `Region::Ram` arm unconditionally returned `MappedAddr::Sram`, even
@@ -182,42 +210,82 @@ diagnostic discipline):
   CPU/DMA-I/O-register-shadowed addresses) — zero hits across the full 58-ROM Krom GSU corpus.
   Not the mechanism.
 
-**What was confirmed real, but not yet fully isolated.** A broader unconditional DMA-access trace
-(every `read_a`/`write_a`/`read_b`/`write_b` call, not just watchpoint-matched addresses) confirmed
-these ROMs DO drive substantial GP-DMA traffic through the GSU's own address windows — 221,184
-reads from the Game Pak RAM banks (`$70/$71`) and an equal count via the RAM low window (`$6000-
-$7FFF`) over 30 frames of the smallest failing ROM, plus 20,736 DMA-driven reads of the GSU
-register window (`$3000-$32FF`) — all reads, zero writes, consistent with a "DMA the GSU's
-finished plot bitmap out to VRAM" idiom running well after the GSU has already released ownership
-(explaining why the RAM-ownership fix above doesn't engage here). A finer trace comparing every
-`cart_read_raw` call where the returned byte equals the current `open_bus` (a coarse but real
-signal, noisy with false positives from legitimately-zero ROM bytes) found a genuine, reproducible
-**control-flow divergence, not a data-corruption artifact**: at a specific point early in
-`GSU2BPP256x128PlotPixel.sfc`'s boot sequence, the unmodified tree's CPU keeps fetching from
-steadily incrementing addresses (`$00813F` → `$008153` → `$008170` → `$008173`, each with a
-distinct real byte value), while the prototype-patched tree gets stuck re-reading the identical
-address (`$008167`) repeatedly — the classic signature of a spin-wait loop whose exit condition is
-never satisfied. This means **something upstream of that point already diverged the CPU's
-control flow** — most likely a conditional branch whose predicate byte differs between the two
-runs — but the exact first diverging read was not isolated before this pass's investigation budget
-was spent; the coarse `val == open_bus` heuristic is too imprecise (dominated by incidental
-zero-byte matches) to pinpoint it directly.
+**The exact divergence, isolated this pass.** A per-instruction trace (PC + every byte each
+instruction's bus accesses — CPU and DMA/HDMA alike — read or wrote, tagged with a monotonic
+instruction index) comparing the unmodified tree against the DMA-open-bus prototype step-by-step
+from reset — exactly the finer, `docs/audit/spc7110-boot-crash-2026-07-08.md`-style tool the prior
+pass's own "concrete next step" called for, built as temporary `Bus`-internal instrumentation
+(a runtime trace-log + a runtime prototype toggle so both code paths run in the same test binary,
+deleted again before this update landed, per this project's "build it, use it, delete it"
+discipline) — found the first byte-for-byte divergence at **CPU instruction #5873** of
+`GSU2BPP256x128PlotPixel.sfc`'s boot, reproducibly, in well under a second once compiled:
 
-**What would need to be true before landing this, and the concrete next step.** The same
-instrumented investigation this needs is exactly what
-`docs/audit/spc7110-boot-crash-2026-07-08.md` did for the SPC7110 gap, one level finer: a
-per-instruction trace (PC + the byte each instruction fetches/reads, not just a coarse
-value-equality heuristic) comparing the unmodified and prototype-patched runs step-by-step from
-reset, bisecting to the exact first instruction whose observed byte differs — a binary search over
-instruction count is the efficient way to find this, mirroring this project's "measured, not
-hypothesized" discipline. Until that exact divergence point is found and the fix (which may not be
-the naive "always update `open_bus` during DMA" — it may need to be conditional on something about
-GSU-driven vs. plain-cartridge DMA transfers) is derived from it, this stays a documented
-non-landing rather than a forced-through change, per this project's own regression-risk discipline
-(mirrors the DRAM-refresh treatment below). The prototype diff is not committed or applied on any
-branch; whoever resumes this should re-derive it from this section's description (the four
-`DmaBus for Bus` methods each gain one `self.open_bus = <value>;` line, mirroring
-`CpuBus::read24`/`write24`) rather than assume it survives anywhere.
+- The diverging instruction is `STA $420B` at `$7E:8254` (opcode `$8D`), which sets `MDMAEN = $03`
+  — arming GP-DMA channels 0 and 1. Both trees fetch and execute this identically; the divergence
+  is not in CPU control flow at all, it is *inside the DMA burst this one instruction triggers*
+  (146,215 total bus accesses charged to this single instruction, since our scheduler — correctly,
+  matching real hardware's channel-0-then-channel-1 sequential GP-DMA servicing — runs each
+  enabled channel to completion before starting the next).
+- Channel 0 (source bank `$70`, Game Pak RAM → dest `$2118`/`$2119`, VMDATAL/VMDATAH) transfers the
+  GSU's plotted bitmap into VRAM; this half is byte-identical between the two trees (real cart data
+  is unaffected by the open-bus latch's internal bookkeeping).
+- Channel 1 is a fixed-target-DMA screen-fade idiom: source = an incrementing WRAM buffer (bank
+  `$00`, starting near `$1FFD`), dest = a *fixed* `$2100` (`INIDISP` — display brightness/forced
+  blank), i.e. this channel deliberately drives a gradient table into INIDISP once per transferred
+  byte for a fade effect. **The WRAM gradient table is shorter than the configured transfer count**:
+  at access index 92976 within the burst, channel 1's source address crosses from `$00:1FFF` (the
+  last real WRAM low-mirror byte) into `$00:2000` — a genuinely unmapped address in real hardware's
+  own memory map (not `$2100-$213F` PPU registers, not `$2140-$217F` APU ports, not the cart's ROM/
+  RAM window at all) — and keeps incrementing through it for the rest of the transfer. This overrun
+  past the buffer's real content, reading open bus for the remainder of the fade, is very likely
+  intentional/tolerated in the source ROM (`INIDISP` only meaningfully uses 5 bits, so garbage tail
+  bytes barely perturb the fade visually) rather than a bug in this project's own DMA channel/count
+  decode — the two trees agree on every real byte transferred both before and after this point;
+  only the *open-bus-fallback* byte at `$00:2000` (and everything after it, once contaminated)
+  differs.
+- The unmodified tree returns `$03` there (`Cart::read24`'s generic open-bus fallback echoing
+  whatever `open_bus` was before this whole GP-DMA burst started — the `STA`'s own operand/value,
+  stale for the burst's entire duration). The prototype returns `$00` — the value the fallback
+  echoes back is whatever `open_bus` was most recently set to *by an earlier byte in this same
+  burst* (channel 1's own prior WRAM→`$2100` transfers), which is exactly the documented mechanism
+  working as intended. This is what corrupts (relative to the currently-blessed goldens) the tail
+  of the fade sequence and, through it, VRAM/framebuffer content — explaining why all 24
+  `superfx_oncart` goldens move together: every ROM in the Krom GSU corpus shares this same
+  boot/fade library routine (`tests/roms/external/krom/LIB/SNES_GSU.INC`), so all 24 hit the
+  identical pattern.
+
+**A second candidate fix was tried this pass and also fails, for a structural reason.** Since the
+real Speedy-Gonzales fix byuu/Near describes is specifically about *HDMA writes* re-latching the
+bus (`S9xSetPPU`, a register-write path), a narrower prototype was tried: update `open_bus` only on
+the B-bus side (`read_b`/`write_b`), leaving A-bus DMA reads/writes (`read_a`/`write_a`, which cover
+WRAM and cart-space DMA transfers) untouched. **This reproduces the identical divergence at the
+identical instruction/access index.** The reason: channel 1's own fixed-target writes to `$2100`
+(the B-bus side) already update `open_bus` on every transferred byte *before* the burst reaches the
+`$00:2000` overrun — so by the time a later A-bus read in the *same* burst hits the open-bus
+fallback, the latch has already been contaminated by this burst's own prior B-bus writes, with or
+without the A-bus side also updating it. There is no way to scope the fix by bus direction alone;
+any policy that makes *any* DMA-driven byte within this burst update `open_bus` changes what the
+burst's own later open-bus read observes, because the write and the read that observes it are both
+inside the one continuous transfer the CPU triggered.
+
+**What actually broke the tie between the two failed shapes and the fix.** Both previously-tried
+shapes (full DMA-bus update, B-bus-only update) update `open_bus` on some write path, which this
+investigation's own trace already showed is unnecessary for this specific channel (a straight
+copy makes read-value and write-value identical, so the *numeric outcome* was never the problem —
+both already matched what real hardware would show at this exact access). The missing piece
+was independent confirmation, not a different formula: reading ares'/bsnes' actual `dma.cpp`
+directly (rather than reasoning from the mechanism-level SNESdev wiki / mgba blog sources alone)
+supplied the specific-value oracle this investigation lacked, converging on "reads update, writes
+don't" as the precisely-scoped, hardware-matching rule — which was implemented, verified
+regression-clean, and the 24 dependent goldens re-blessed with this citation trail as their
+justification (`docs/adr/0003`'s honesty-gate posture: a golden change is fine once cross-checked
+against an independent reference, never blessed blind).
+
+(b), the byte-level GP-DMA channel-arbitration-order question, was not separately re-verified this
+pass — it turned out not to matter for resolving *this* divergence, since the fix's correctness
+follows from the per-transfer read/write open-bus rule alone, independent of channel ordering. It
+remains a standing, lower-priority question if a *future* two-simultaneous-channel timing
+discrepancy is ever found.
 
 This precise, content-dependent cycle theft is the second reason (after the variable CPU
 cycle) the scheduler must be master-clock resolution.

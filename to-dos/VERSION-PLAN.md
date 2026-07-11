@@ -797,6 +797,20 @@ gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
   coordinates + trigger/cursor/turbo/pause, and Multitap's four sub-pads via libretro ports
   `[1, 4]`, also bsnes' own precedent). Closes the one gap `v1.2.0`'s own libretro core landing
   left open. See `docs/libretro.md`.
+- **Open-bus-via-DMA-latch (the "Speedy Gonzales stage 6-1" case) — FIXED.** Two prior
+  investigation passes (`v1.1.0` and an earlier pass this cluster) isolated the exact divergence
+  but couldn't determine which of two candidate fixes (if either) matched real hardware, since
+  neither had an independent oracle for the specific accumulated value. Cross-checking directly
+  against ares' AND bsnes' `CPU::Channel::readA`/`readB`/`writeA`/`writeB` (`ref-proj/ares/ares/
+  sfc/cpu/dma.cpp`, `ref-proj/bsnes/bsnes/sfc/cpu/dma.cpp` — logically identical) established the
+  precise rule: DMA/HDMA reads update `open_bus`, writes never do. `DmaBus for Bus`'s `read_a`/
+  `read_b` now update `open_bus`; `write_a`/`write_b` do not; `read_a`'s forbidden-range branch
+  also now sets `open_bus` to a hard `0` matching ares/bsnes exactly. `superfx_boots_live_and_
+  deterministic`'s 24 golden hashes were re-blessed with this citation trail as justification —
+  every other assertion in that test (coprocessor detection, GSU liveness, the FillPoly plot
+  threshold, cross-run determinism) is unaffected. Full workspace suite + the full
+  `--features test-roms` battery (28 tests, 17 suites) both green. See `docs/scheduler.md` §Open
+  bus via DMA/HDMA for the complete investigation and fix.
 
 ## Post-v1.0 — Reach (deferred)
 

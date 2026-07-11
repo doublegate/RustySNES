@@ -299,14 +299,16 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   and HD texture packs — the three items originally deferred here — all shipped in `v1.2.0`/
   `v1.3.0` above (see `to-dos/VERSION-PLAN.md`'s "Post-v1.0 — Reach"). The post-`v1.3.0` patch
   cluster has also closed out the fullscreen-crash-on-wide-monitors bug, RustyNES-parity Window
-  Size presets, and `rustysnes-libretro`'s peripheral negotiation (Mouse/Super Scope/Multitap via
-  `RETRO_DEVICE_SUBCLASS`) — see `to-dos/VERSION-PLAN.md`'s "Post-v1.3.0" section. What's still
-  genuinely open: the open-bus-via-DMA-latch bug, the SPC7110/PAL/ExLoROM/ST018/S-RTC
-  real-ROM-validation gaps (all ROM-sourcing-blocked, tracked in `docs/rom-test-corpus.md`), full
-  `emu-thread` parity (cheats/watchpoints/breakpoints/run-ahead/rewind/movies/scripting/
-  netplay-pause/RetroAchievements), and any future mobile/Android target (no appetite assumed by
-  default). None of these currently gate a numbered rung — they're an ongoing, opportunistic
-  `v1.x.y`-patch cluster.
+  Size presets, `rustysnes-libretro`'s peripheral negotiation (Mouse/Super Scope/Multitap via
+  `RETRO_DEVICE_SUBCLASS`), and **the open-bus-via-DMA-latch bug** (cross-checked directly
+  against ares'/bsnes' `CPU::Channel::readA`/`readB`/`writeA`/`writeB` — DMA/HDMA reads update
+  `open_bus`, writes never do — `superfx_oncart`'s 24 goldens re-blessed with that citation as
+  justification) — see `to-dos/VERSION-PLAN.md`'s "Post-v1.3.0" section. What's still genuinely
+  open: the SPC7110/PAL/ExLoROM/ST018/S-RTC real-ROM-validation gaps (all ROM-sourcing-blocked,
+  tracked in `docs/rom-test-corpus.md`), full `emu-thread` parity (cheats/watchpoints/breakpoints/
+  run-ahead/rewind/movies/scripting/netplay-pause/RetroAchievements), and any future mobile/
+  Android target (no appetite assumed by default). None of these currently gate a numbered rung —
+  they're an ongoing, opportunistic `v1.x.y`-patch cluster.
 - **Further beyond — the fractional-timebase refactor (`docs/adr/0002`).** Assessed in `v1.1.0`
   and found **not currently warranted** — every named accuracy residual is answerable within the
   existing whole-master-clock-tick model (`docs/audit/fractional-timebase-go-no-go-2026-07-11.md`).
