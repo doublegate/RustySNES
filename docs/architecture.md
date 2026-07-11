@@ -44,9 +44,9 @@ rustysnes-ppu   (PPU1+PPU2 — VRAM/CGRAM/OAM only)
 rustysnes-apu   (SPC700 + S-DSP + ARAM — independent)
 rustysnes-cart  (memory map + coprocessor families — independent)
         \         |         /        /
-         rustysnes-core   (ties them together, re-exports public types)
+         rustysnes-core   (ties them together, re-exports public types + the `facade` embedding API)
                  |
-   rustysnes-{frontend, netplay, cheevos, script, test-harness}
+   rustysnes-{frontend, netplay, cheevos, script, test-harness, libretro}
 ```
 
 No chip crate depends on another. `rustysnes-core` is the only crate that knows all four.
@@ -103,12 +103,14 @@ gilyon / undisbeliever ROMs, blargg's `spc_*` for audio, and the 240p Suite for 
 | `rustysnes-cheevos` | RetroAchievements (opt-in, native FFI). |
 | `rustysnes-script` | Lua scripting / TAS API. |
 | `rustysnes-test-harness` | Golden-log differ, `run_until_complete`, JSON-oracle runner, screenshot baseline. |
+| `rustysnes-libretro` | A libretro core (`v1.2.0`) — a thin C-ABI wrapper over `rustysnes-core::facade::EmuCore`, loadable by RetroArch. See `docs/libretro.md`. |
 
 The chip stack is `#![no_std]` + `extern crate alloc;`; `rustysnes-core` is conditionally so
 (`#![cfg_attr(not(feature = "std"), no_std)]`, `v1.2.0`) — its default `std` feature enables the
 `facade` module, and disabling it (the `thumbv7em` no_std CI gate) restores unconditional
 `no_std`, proving the facade compiles out entirely rather than merely going unused. Only
-`rustysnes-frontend` and `rustysnes-cheevos` (FFI) carry `unsafe` (each with a `// SAFETY:`
+`rustysnes-frontend`, `rustysnes-cheevos`, and `rustysnes-libretro` (all FFI) carry `unsafe`
+(each with a `// SAFETY:`
 comment).
 
 ## Architectural alternatives (rejected)

@@ -18,8 +18,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (breakpoints, single-step, VRAM viewer scroll) on top of the relocated facade. Zero behavior
   change: every pure-facade method is a one-line delegation, verified by the unchanged frontend
   test suite, the full ROM-oracle battery, and the `no_std` CI job (the acid test that the new
-  `#[cfg(feature = "std")]` gate actually removes the facade from the `thumbv7em` build). See
+  `#[cfg(feature = "std")]` gate actually removes the facade from the `thumbv7em` build). Also
+  fixes a determinism-seed-discarding bug found in review: `load_rom`/`power_cycle`/`close_rom`
+  rebuilt `System::new(0)` on every call, silently ignoring the caller's seed. See
   `docs/architecture.md` §3/§6 and `docs/frontend.md`.
+
+### Added
+
+- **`rustysnes-libretro`: a libretro core.** A thin C-ABI wrapper over
+  `rustysnes_core::facade::EmuCore`, loadable by RetroArch or any other libretro-compatible
+  frontend — region-aware NTSC/PAL geometry+timing, the S-DSP's real 32 kHz output rate,
+  coprocessor firmware auto-resolution from the frontend's system directory, Game Genie/Pro
+  Action Replay cheat support, and raw WRAM/VRAM/SRAM memory-map pointers for RetroArch's own
+  SRAM autosave and RetroAchievements/cheat tooling. Peripheral negotiation (Mouse/Super
+  Scope/Multitap via `RETRO_DEVICE_SUBCLASS`) is a documented follow-up, not yet wired. New
+  additive `Bus::wram`/`wram_mut`, `Ppu::vram`/`vram_mut`, `Cart::sram_mut` accessors support it.
+  See `docs/libretro.md`.
 
 ## [1.1.0] "Latchkey" - 2026-07-11
 

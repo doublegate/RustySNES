@@ -422,6 +422,21 @@ impl Bus {
         }
     }
 
+    /// The full 128 KiB WRAM as a flat byte slice (linear address `0..0x1_FFFF`, the same mapping
+    /// [`Self::peek_wram`]'s `0x7E..=0x7F` bank arm uses) — for a host embedder that needs a raw
+    /// memory-map pointer (e.g. a libretro core's `RETRO_MEMORY_SYSTEM_RAM`).
+    #[must_use]
+    pub fn wram(&self) -> &[u8] {
+        &*self.wram
+    }
+
+    /// The mutable counterpart to [`Self::wram`] — same host-embedder use case (a libretro
+    /// frontend's memory-map API hands this pointer to RetroAchievements/cheat tooling that
+    /// writes through it directly).
+    pub fn wram_mut(&mut self) -> &mut [u8] {
+        &mut *self.wram
+    }
+
     /// Non-intrusive read of an arbitrary 24-bit CPU address, for the debugger overlay's
     /// disassembly view (`v0.9.0`, T-81-001 PR B). Unlike [`CpuBus::read24`], this does NOT touch
     /// the open-bus latch, does NOT check watchpoints, and does NOT trigger any I/O register's own
@@ -1185,6 +1200,16 @@ mod tests {
         // Low mirror in bank 0 aliases the same WRAM.
         <Bus as CpuBus>::write24(&mut bus, 0x00_0042, 0x99);
         assert_eq!(<Bus as CpuBus>::read24(&mut bus, 0x7E_0042), 0x99);
+    }
+
+    #[test]
+    fn wram_and_wram_mut_expose_the_same_flat_128kib() {
+        let mut bus = Bus::default();
+        assert_eq!(bus.wram().len(), 0x2_0000);
+        <Bus as CpuBus>::write24(&mut bus, 0x7E_1234, 0xAB);
+        assert_eq!(bus.wram()[0x1234], 0xAB);
+        bus.wram_mut()[0x5678] = 0xCD;
+        assert_eq!(<Bus as CpuBus>::read24(&mut bus, 0x7E_5678), 0xCD);
     }
 
     #[test]

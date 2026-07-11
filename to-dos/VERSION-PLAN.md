@@ -676,6 +676,33 @@ gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
   pre-existing broken intra-doc links from `v1.0.1`'s per-voice-mute work along the way), and both
   wasm32 frontends all green with zero regressions.
 
+### v1.2.0 — Libretro core + CRT/HQ2x shader pipeline (in progress)
+
+- **`EmuCore` facade relocation — DONE.** The pure emulation-core facade (`load_rom`/`reset`/
+  `power_cycle`/`run_frame`/`present_current_frame`/`framebuffer`/`audio`/`save_state`/
+  `load_state`/the `set_*` peripheral feeds) moved from `rustysnes-frontend::emu` into a new,
+  `std`-only `rustysnes_core::facade` module — a libretro core or any other headless embedder
+  depends on `rustysnes-core` alone. `rustysnes-frontend::emu::EmuCore` is now a thin wrapper
+  keeping only the debugger-only fields. Zero behavior change; also fixed a determinism-seed-
+  discarding bug found in review (`load_rom`/`power_cycle`/`close_rom` rebuilt `System::new(0)`
+  instead of preserving the constructor's seed). See `docs/architecture.md` §3/§6.
+- **`rustysnes-libretro` — DONE.** A libretro core wrapping the relocated facade: region-aware
+  NTSC/PAL geometry+timing (corrected via `RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO` on the first
+  `on_run` after a ROM loads, once the cart header's region byte is known), the S-DSP's real
+  32 kHz sample rate, coprocessor firmware auto-resolution from the frontend's system directory,
+  Game Genie/Pro Action Replay cheat support (`on_cheat_set`/`on_cheat_reset`), and raw WRAM/
+  VRAM/SRAM memory-map pointers (`get_memory_data`/`get_memory_size`) for RetroArch's own SRAM
+  autosave and RetroAchievements/cheat tooling. New additive `Bus::wram`/`wram_mut`,
+  `Ppu::vram`/`vram_mut`, `Cart::sram_mut` accessors support it. Peripheral negotiation (Mouse/
+  Super Scope/Multitap via `RETRO_DEVICE_SUBCLASS`) is a documented follow-up, not yet wired. See
+  `docs/libretro.md`.
+- **CRT/HQ2x shader pipeline — not started.**
+- **Regression gate (facade + libretro so far):** full workspace suite, the full clippy matrix
+  (default / flags-off / `full`), the `--features test-roms` accuracy/oracle battery, the
+  `no_std` build, the doc-warnings gate, and both wasm32 frontends all green with zero
+  regressions; the new `rustysnes-libretro` crate itself builds/links clean as both `cdylib` and
+  `staticlib`, with every required libretro C-ABI symbol confirmed exported.
+
 ## Post-v1.0 — Reach (deferred)
 
 - **Libretro core**, a **shader/filter pipeline** (CRT/HQ2x), **HD texture packs** (wires the

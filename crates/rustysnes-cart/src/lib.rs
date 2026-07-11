@@ -103,6 +103,13 @@ impl Cart {
         dst[..n].copy_from_slice(&data[..n]);
     }
 
+    /// The mutable counterpart to [`Self::save_sram`] — for a host embedder that needs a raw
+    /// memory-map pointer (e.g. a libretro core's `RETRO_MEMORY_SAVE_RAM`, which some frontends
+    /// write through directly rather than only calling [`Self::load_sram`]).
+    pub fn sram_mut(&mut self) -> &mut [u8] {
+        self.board.sram_mut()
+    }
+
     /// Advance any on-cart coprocessor by one of its clock units. Default boards no-op.
     pub fn coprocessor_tick(&mut self) {
         self.board.coprocessor_tick();
@@ -186,5 +193,8 @@ mod tests {
         snap[0x10] = 0xEE;
         cart.load_sram(&snap);
         assert_eq!(cart.read24(0x70_0010, 0x00), 0xEE);
+        // sram_mut() is the same backing storage save_sram()/load_sram() operate on.
+        cart.sram_mut()[0x20] = 0x11;
+        assert_eq!(cart.read24(0x70_0020, 0x00), 0x11);
     }
 }

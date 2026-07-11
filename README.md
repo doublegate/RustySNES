@@ -332,6 +332,7 @@ that). The reproducible record (methodology, all benches, and save-state cost) i
 | [Project status matrix](docs/STATUS.md) | Per-suite pass count, coprocessor coverage, feature flags, version policy — the single source of truth |
 | [Architecture](docs/architecture.md) | System design and the load-bearing decisions |
 | [Frontend](docs/frontend.md) | The desktop/wasm shell, save states, pacing, the debugger overlay, scripting, netplay, RetroAchievements |
+| [Libretro core](docs/libretro.md) | `rustysnes-libretro`, a RetroArch-loadable core — build steps, manual verification, known scope cuts |
 | [CHANGELOG.md](CHANGELOG.md) | Version history and release notes |
 | [Roadmap](to-dos/ROADMAP.md) | The forward roadmap — the phase spine |
 | [Version plan](to-dos/VERSION-PLAN.md) | The named, versioned release ladder to `v1.0.0` and beyond |
@@ -359,9 +360,9 @@ API docs (rustdoc) at
 
 ## Current Release
 
-RustySNES's current release is **v1.0.1 "Aftertouch"**. See
+RustySNES's current release is **v1.1.0 "Latchkey"**. See
 [`docs/STATUS.md`](docs/STATUS.md) for the full release history
-(`v0.1.0` through `v1.0.1`) and per-release detail.
+(`v0.1.0` through `v1.1.0`) and per-release detail.
 
 - **Download:** the [GitHub Releases](https://github.com/doublegate/RustySNES/releases) page —
   desktop binaries for Linux, macOS (aarch64), and Windows.
@@ -374,16 +375,20 @@ RustySNES's current release is **v1.0.1 "Aftertouch"**. See
 explicitly deferred out of that cut: per-channel (per-voice) audio mutes and global keyboard
 hotkeys — both landed (see the Desktop UX + Audio sections above, `CHANGELOG.md`).
 
-**`v1.1.0`** (in progress) is a research + accuracy pass: a real, independent bug fix
+**`v1.1.0`** was a research + accuracy pass: a real, independent bug fix
 (`SuperFxBoard::map`'s Game-Pak-RAM-ownership open-bus gap), `emu-thread`'s two biggest gaps
 closed (real audio output + a proper pause/ROM-loaded/speed lifecycle — still not full parity
 with the synchronous drive), and three accuracy investigations (open-bus-via-DMA-latch, DRAM
 refresh timing, and a fractional-timebase-refactor go/no-go assessment) — see `CHANGELOG.md` and
 `to-dos/VERSION-PLAN.md`'s `v1.1.0` section for the full breakdown, including what's still open.
 
+**`v1.2.0`** (in progress) relocates the pure `EmuCore` embedding facade into
+`rustysnes-core::facade` and lands a real **Libretro core** (`rustysnes-libretro`, loadable by
+RetroArch — region-aware NTSC/PAL, cheats, coprocessor firmware auto-resolution, raw memory-map
+pointers; see `docs/libretro.md`); a **CRT/HQ2x shader pipeline** is next.
+
 **Still deferred:** HD texture packs (the `hd-pack` flag exists in the manifest as a forward
-placeholder; the loader itself is a TODO stub), a Libretro core, and a CRT/HQ2x shader pipeline —
-all planned for the `v1.2.0`/`v1.3.0` follow-up arc.
+placeholder; the loader itself is a TODO stub) — planned for `v1.3.0`.
 
 The full roadmap lives in [`to-dos/ROADMAP.md`](to-dos/ROADMAP.md) (the phase spine) and
 [`to-dos/VERSION-PLAN.md`](to-dos/VERSION-PLAN.md) (the named release ladder).
