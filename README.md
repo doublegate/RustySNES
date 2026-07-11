@@ -370,12 +370,20 @@ RustySNES's current release is **v1.0.1 "Aftertouch"**. See
 
 ## Roadmap
 
-**`v1.0.0`** — the production cut — shipped 2026-07-10. **`v1.0.1`** follows up on the two items
+**`v1.0.0`** — the production cut — shipped 2026-07-10. **`v1.0.1`** followed up on the two items
 explicitly deferred out of that cut: per-channel (per-voice) audio mutes and global keyboard
-hotkeys — both now landed (see the Desktop UX + Audio sections above, `CHANGELOG.md`).
+hotkeys — both landed (see the Desktop UX + Audio sections above, `CHANGELOG.md`).
+
+**`v1.1.0`** (in progress) is a research + accuracy pass: a real, independent bug fix
+(`SuperFxBoard::map`'s Game-Pak-RAM-ownership open-bus gap), `emu-thread`'s two biggest gaps
+closed (real audio output + a proper pause/ROM-loaded/speed lifecycle — still not full parity
+with the synchronous drive), and three accuracy investigations (open-bus-via-DMA-latch, DRAM
+refresh timing, and a fractional-timebase-refactor go/no-go assessment) — see `CHANGELOG.md` and
+`to-dos/VERSION-PLAN.md`'s `v1.1.0` section for the full breakdown, including what's still open.
 
 **Still deferred:** HD texture packs (the `hd-pack` flag exists in the manifest as a forward
-placeholder; the loader itself is a TODO stub).
+placeholder; the loader itself is a TODO stub), a Libretro core, and a CRT/HQ2x shader pipeline —
+all planned for the `v1.2.0`/`v1.3.0` follow-up arc.
 
 The full roadmap lives in [`to-dos/ROADMAP.md`](to-dos/ROADMAP.md) (the phase spine) and
 [`to-dos/VERSION-PLAN.md`](to-dos/VERSION-PLAN.md) (the named release ladder).

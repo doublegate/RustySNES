@@ -70,6 +70,8 @@ pub mod app;
 pub mod audio;
 #[cfg(all(not(target_arch = "wasm32"), feature = "emu-thread"))]
 pub mod emu_thread;
+#[cfg(all(not(target_arch = "wasm32"), feature = "emu-thread"))]
+pub mod present_buffer;
 
 // Native CLI (clap 4) + the structured help-topic registry + the ratatui help TUI.
 // Native-only: a browser tab has no terminal.

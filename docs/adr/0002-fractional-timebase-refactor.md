@@ -41,3 +41,13 @@ trap. The forward path is Phase 0 → v1.0.0 → (only if residuals warrant) thi
   one-time, well-signposted cost.
 - (−) Risk of premature optimization: do **not** start the refactor until the v1.0 accuracy
   battery shows residuals that only sub-cycle resolution can close.
+
+## Status update — 2026-07-11 (`v1.1.0`)
+
+Assessed this gate explicitly against every residual named in `docs/STATUS.md`'s accuracy
+dashboard: **the gate is not met.** Zero currently-named residuals require sub-cycle resolution to
+close — each is a ROM-sourcing gap, a coprocessor-board scope gap, or a bug/validation question
+answerable within the existing whole-master-clock-tick model. Full classification and reasoning:
+`docs/audit/fractional-timebase-go-no-go-2026-07-11.md`. Decision and Consequences above are
+unchanged; re-run that assessment if a future residual specifically implicates sub-cycle bus-phase
+timing.

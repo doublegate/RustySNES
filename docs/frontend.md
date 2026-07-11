@@ -30,10 +30,19 @@ build; the `playable_smoke` test is the headless AV proof.
   loop in `App::render`), still behind an `Arc<Mutex<EmuCore>>` handle. The default-OFF
   `emu-thread` feature moves single-player frame production onto a **dedicated thread**
   (`emu_thread.rs`) instead, communicating via that same `Arc<Mutex<EmuCore>>` + a lock-free
-  `SharedInput`; it compiles/tests/lints clean as of `v1.0.0` but isn't yet feature-complete (no
-  audio output, and none of cheats/watchpoints/breakpoints/scripting/movies/rewind/run-ahead/
-  RetroAchievements are ported into its loop — see `crates/rustysnes-frontend/Cargo.toml`'s
-  `emu-thread` feature comment), so it stays opt-in rather than default until that parity lands.
+  `SharedInput` + an `EmuControl` lifecycle block + a `PresentBuffer` lock-free framebuffer
+  handoff. `v1.1.0` closed the two biggest gaps: the thread now has real audio output
+  (`crate::audio::AudioProducer`, pushed once per produced frame) and a proper pause/ROM-loaded
+  lifecycle (`EmuControl`, driving a thread-owned `Pacer` that tracks live speed-preset changes)
+  instead of an independent, uncontrollable pacing loop. Still not full parity: none of
+  cheats/watchpoints/breakpoints/port2-peripheral/run-ahead/rewind/TAS-movies/Lua-scripting/
+  netplay-aware-pause/RetroAchievements are ported into its loop yet — each needs a genuinely new
+  shared-mutable-state design (those lists/buffers are currently plain `Active` fields the UI
+  edits directly), not a mechanical port; see `crates/rustysnes-frontend/Cargo.toml`'s
+  `emu-thread` feature comment and `emu_thread.rs`'s own module doc for the exact remaining list.
+  Verified with a real headless launch (`xvfb-run`, a staged commercial ROM, no panics over
+  several seconds of runtime) in addition to the unit suite. Stays opt-in rather than default
+  until that remaining parity work lands.
 
 ## Theme (`v1.0.0`)
 
@@ -128,10 +137,10 @@ chosen multiplier, which live-reconfigures the fixed-timestep accumulator's targ
 resetting it (no burst/no stall on the change, same posture as `Gfx::set_present_mode`). The
 audio resampler's DRC ratio is multiplied by `speed` too, so alt-speed audio pitch-shifts
 (more/fewer source samples per real second) instead of over/underrunning the ring — the emulated
-core itself never sees a speed concept; only the frontend's pacing + resampling scale. **Known
-gap:** the `emu-thread` build paces itself independently (its own `frame_dur`) and doesn't consult
-`Pacer` at all, so speed presets are currently a no-op there until that thread gains a matching
-hook (tracked alongside `emu-thread`'s other documented gaps above).
+core itself never sees a speed concept; only the frontend's pacing + resampling scale. The
+`emu-thread` build (`v1.1.0`) now honors speed presets too: `render`'s per-present sync pushes
+`Active::speed` into `EmuControl`, and the thread's own `Pacer` instance (which drives its cadence)
+picks it up on the next loop iteration — no longer the no-op it was before that port.
 
 ### Performance panel (`v1.0.0`)
 

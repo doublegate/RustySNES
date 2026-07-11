@@ -185,7 +185,20 @@ impl Board for SuperFxBoard {
         match Self::classify(addr24) {
             Region::Register(_) => MappedAddr::Coprocessor,
             Region::Rom(off) => MappedAddr::Rom(off & self.rom_mask),
-            Region::Ram(off) => MappedAddr::Sram(off & self.ram_mask),
+            // `v1.1.0`: a CPU read while the GSU owns Game Pak RAM is genuinely open bus (see
+            // this module's own "Bus arbitration" doc above) — classifying it as `Open` here
+            // (rather than `Sram`) lets `Cart::read24`'s existing generic open-bus fallback
+            // thread the real last-driven bus byte through, the same fix the SPC7110
+            // investigation applied generically (`docs/audit/spc7110-boot-crash-2026-07-08.md`).
+            // Writes are unaffected: `Cart::write24` never consults `map()`, so `write24`'s own
+            // Ram arm (which posts unconditionally, even while the GSU owns RAM) is untouched.
+            Region::Ram(off) => {
+                if self.gsu.owns_ram() {
+                    MappedAddr::Open
+                } else {
+                    MappedAddr::Sram(off & self.ram_mask)
+                }
+            }
             Region::Open => MappedAddr::Open,
         }
     }
@@ -207,7 +220,12 @@ impl Board for SuperFxBoard {
             }
             Region::Ram(off) => {
                 if self.gsu.owns_ram() {
-                    return 0; // open bus while the GSU owns the RAM
+                    // Genuinely reachable only via a direct `Board::read24` call bypassing
+                    // `Cart::read24`'s `map()`-based open-bus fallback (e.g. this module's own
+                    // unit tests) — `map()` now classifies this case as `MappedAddr::Open`, so
+                    // the normal Cart-mediated path never reaches this arm; kept as a sane
+                    // standalone default for direct callers.
+                    return 0;
                 }
                 self.ram
                     .get((off & self.ram_mask) as usize)

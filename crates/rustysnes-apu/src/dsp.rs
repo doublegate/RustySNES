@@ -568,11 +568,12 @@ impl Dsp {
     }
 
     /// Set the 8 per-voice mute toggles (`v1.0.1`) — a frontend/debug convenience, not real S-DSP
-    /// hardware state (see [`Self::voice_mute`]'s own doc). A muted voice's contribution to both
-    /// the main mix and the echo send is dropped entirely in [`Self::voice_output`], as if the
-    /// voice were silent — its envelope/BRR-decode/pitch state keeps running unaffected (KON/KOFF/
-    /// ENDX timing is unperturbed), so un-muting mid-note resumes exactly where the voice already
-    /// was, matching what a listener expects from a mute toggle.
+    /// hardware state (see the private `voice_mute` field's own doc). A muted voice's
+    /// contribution to both the main mix and the echo send is dropped entirely in the private
+    /// `voice_output` method, as if the voice were silent — its envelope/BRR-decode/pitch state
+    /// keeps running unaffected (KON/KOFF/ENDX timing is unperturbed), so un-muting mid-note
+    /// resumes exactly where the voice already was, matching what a listener expects from a mute
+    /// toggle.
     pub const fn set_voice_mutes(&mut self, mutes: [bool; 8]) {
         self.voice_mute = mutes;
     }

@@ -23,6 +23,69 @@ pub struct AudioOutput {
 }
 
 impl AudioOutput {
+    /// Build a `Send` producer half (`v1.1.0`, `emu-thread` feature parity) sharing this output's
+    /// ring, with its own independent [`Resampler`] instance (resampler state — `frac`/`last` —
+    /// must not be shared across producers; there is only ever one real producer at a time, but
+    /// giving the thread its own instance avoids any doubt).
+    #[must_use]
+    pub fn make_producer(&self, volume: f32) -> AudioProducer {
+        AudioProducer {
+            ring: Arc::clone(&self.ring),
+            resampler: Resampler::new(self.sample_rate, volume),
+        }
+    }
+}
+
+/// `v1.1.0` — the `Send` producer half of an [`AudioOutput`], for the emulation thread to own.
+///
+/// Bundles exactly what the synchronous present path already does inline (a [`Resampler`] +
+/// the shared [`AudioRing`]) into one type the emu thread can push through once per produced
+/// frame, closing the emu-thread build's "no audio output" gap — see `crate::emu_thread`'s module
+/// doc. `AudioRing`'s only interior mutability is atomics, and `Resampler` is plain `f32`/`f64`
+/// state, so this is `Send` with no unsafe of its own.
+pub struct AudioProducer {
+    ring: Arc<AudioRing>,
+    resampler: Resampler,
+}
+
+impl AudioProducer {
+    /// Update the master volume (from the Settings slider, re-synced each produced frame the same
+    /// way the synchronous path already re-syncs it every present).
+    pub const fn set_volume(&mut self, volume: f32) {
+        self.resampler.set_volume(volume);
+    }
+
+    /// Resample `samples` (32 kHz `i16` stereo from `EmuCore::audio()`) into the ring, applying
+    /// the same dynamic-rate-control + `speed`-multiplier math the synchronous present path uses
+    /// (`app.rs`'s render loop) so alt-speed audio pitch-shifts identically either way.
+    pub fn push(&mut self, samples: &[(i16, i16)], speed: f32) {
+        if samples.is_empty() {
+            return;
+        }
+        let cap = self.ring.capacity();
+        if cap == 0 {
+            return; // device not ready yet — matches health_pct's own guard.
+        }
+        let ratio = drc_ratio(self.ring.occupancy(), cap / 2, cap) * f64::from(speed);
+        self.resampler.process(samples, ratio, &self.ring);
+    }
+
+    /// The audio ring's occupancy as a percentage of its capacity (the Performance panel's
+    /// "audio health" gauge) — mirrors the synchronous path's own computation exactly.
+    #[must_use]
+    pub fn health_pct(&self) -> f32 {
+        let cap = self.ring.capacity();
+        if cap == 0 {
+            return 0.0;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        {
+            (self.ring.occupancy() as f32 / cap as f32) * 100.0
+        }
+    }
+}
+
+impl AudioOutput {
     /// Open the default output device and start a stereo f32 stream draining `ring`. Returns an
     /// [`AudioError`] if no device/config is available.
     ///

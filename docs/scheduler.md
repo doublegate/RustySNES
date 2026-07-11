@@ -104,9 +104,37 @@ Per `ref-docs/research-report.md` §5 and `ref-docs/2026-06-24-ppu.md` §5:
 
 ### Open bus via DMA/HDMA (the "Speedy Gonzales stage 6-1" case) — researched, prototyped, regressed, deferred
 
-**Status: researched and mechanism-confirmed against two independent primary sources; a
-prototype implementation reproduces the documented fix but causes a full regression against
-`superfx_oncart`'s golden framebuffer hashes for a reason not yet root-caused. Not landed.**
+**Status (`v1.1.0` update): mechanism confirmed against two independent primary sources. One real,
+independent bug was found and landed along the way (`SuperFxBoard::map`'s Game-Pak-RAM-ownership
+gap, below) with zero regressions. The DMA-open-bus-update prototype itself still causes a full
+regression against `superfx_oncart`'s golden framebuffer hashes, but this pass narrowed the cause
+considerably: it is now a confirmed CPU-control-flow divergence (not a data-corruption artifact),
+localized to a specific access-trace window, with several plausible mechanisms ruled out by direct
+instrumentation. Still not landed — see "What was ruled out this pass" and "Where this leaves the
+next investigator" below.**
+
+**A real, independent fix landed along the way: `SuperFxBoard::map`'s RAM-ownership gap.**
+`SuperFxBoard::map(addr24)`'s `Region::Ram` arm unconditionally returned `MappedAddr::Sram`, even
+while the GSU owned Game Pak RAM (`gsu.owns_ram() == true`) — so `Cart::read24`'s generic
+open-bus fallback (the same mechanism the SPC7110 investigation added,
+`docs/audit/spc7110-boot-crash-2026-07-08.md`) never triggered for this case, and
+`SuperFxBoard::read24`'s own hardcoded `return 0;` always won regardless of the bus's actual
+last-driven byte — wrong for real open bus the same way every other bare-`0` fallback in this
+codebase was wrong before the SPC7110 fix. **Fix:** `map()` now returns `MappedAddr::Open` for
+`Region::Ram` specifically when `gsu.owns_ram()` is true, letting the existing generic fallback
+thread the real `open_bus` value through; `SuperFxBoard::read24`'s own hardcoded-0 arm is
+unreachable through the normal `Cart::read24`-mediated path now (kept only as a sane standalone
+default for direct `Board::read24` callers, e.g. this module's own unit tests). Verified
+independently: **zero regressions** across the full `--features test-roms` battery (all 27
+suites, including `superfx_oncart` itself) with this fix alone, before the DMA-open-bus prototype
+is applied on top. Writes are unaffected (`Cart::write24` never consults `map()`, so
+`write24`'s own Ram arm — which posts unconditionally, even while the GSU owns RAM — is
+untouched).
+
+**Also landed this pass, prerequisite tooling:** the `debug-hooks` watchpoint hook
+(`Bus::note_bus_access`) now fires on `DmaBus`'s A-bus/B-bus accesses too, not just
+`CpuBus::read24`/`write24` — DMA/HDMA-driven accesses were previously completely invisible to the
+watchpoint tooling, which is exactly the instrumentation the investigation below needed.
 
 The open-bus latch (`Bus::open_bus`, the MDR) is a physical property of the SNES's shared data
 bus, not a CPU-only concept: **any** device that drives a byte onto the bus updates what a later
@@ -133,26 +161,63 @@ registers, ares `validA` — deliberately left untouched since nothing is actual
 bus there) passed the full base workspace suite (`cargo test --workspace`, zero regressions) but
 broke every one of `superfx_boots_live_and_deterministic`'s 24 golden hashes
 (`crates/rustysnes-test-harness/tests/superfx_oncart.rs`) — confirmed to be caused by this exact
-change (the same test passes cleanly on the unmodified tree). The breadth of the mismatch (all 24
-sub-cases, not one edge case) points at something systemic in how Super FX/GSU games' GP-DMA
-transfers (very likely the common pattern of DMA-copying a compressed level/graphics image from
-cart ROM into GSU RAM before the GSU renders it) interact with this change, not a narrow timing
-coincidence — but the exact mechanism has not been traced. Candidates for a future investigation:
-whether the GSU's own host-synced `Board::coprocessor_tick` (driven from the same
-`Bus::advance_master` loop, `docs/cart.md` §Super FX) depends, directly or indirectly, on
-`open_bus` staying CPU-only during a DMA transfer; or a subtler ordering issue between when a GSU
-board's `read24`/`write24` hook runs during a DMA transfer versus when a real CPU access would
-normally run it.
+change (the same test passes cleanly on the unmodified tree). This still reproduces byte-for-byte
+identically **after** the `SuperFxBoard::map` RAM-ownership fix above (the two are not the same
+bug — fixing the RAM-ownership gap has zero measurable effect on this regression's output hashes).
 
-**What would need to be true before landing this:** the same instrumented investigation this
-needs is exactly what `docs/audit/spc7110-boot-crash-2026-07-08.md` is doing for the SPC7110 gap
-— an instruction/access-level trace correlated against the Super FX board's own read/write hook
-calls during the failing DMA transfers, to see exactly which byte diverges and why. Until that
-trace exists, this stays a documented non-landing rather than a forced-through change, per this
-project's own regression-risk discipline (mirrors the DRAM-refresh treatment above). The prototype
-diff is not committed or applied on any branch; whoever resumes this should re-derive it from this
-section's description (the four `DmaBus for Bus` methods each gain one `self.open_bus = <value>;`
-line, mirroring `CpuBus::read24`/`write24`) rather than assume it survives anywhere.
+**What was ruled out this pass** (each via direct instrumentation, not inference — a temporary
+`Bus::note_bus_access`-adjacent trace + a runtime toggle field let both the unmodified and
+prototype-patched code paths run in the same test binary and be diffed instruction-for-instruction;
+the instrumentation itself was not landed, per this project's "build it, use it, delete it"
+diagnostic discipline):
+- **The `$4016`/`$4017` joypad-read open-bus blend** (`read_cpu_reg`'s `(self.open_bus & mask) |
+  ...` arms) — only 1 total access across a 30-frame run of the smallest failing ROM
+  (`GSU2BPP256x128PlotPixel.sfc`), no divergence at that single access. Not the mechanism.
+- **The generic open-bus-fallback arms** in `b_read`/`read_cpu_reg` (`_ => self.open_bus`) — zero
+  hits across the same 30-frame run. Not the mechanism.
+- **`CartView`/`VideoBus::cart_read`** (the PPU's cart-mediated read hook, which also threads
+  `open_bus` through) — confirmed dead code: `cart_read` has no call site anywhere in
+  `rustysnes-ppu`'s actual rendering path (`render.rs`) today. Not the mechanism.
+- **The A-bus "forbidden range" short-circuit** in `read_a` (`return self.open_bus` for
+  CPU/DMA-I/O-register-shadowed addresses) — zero hits across the full 58-ROM Krom GSU corpus.
+  Not the mechanism.
+
+**What was confirmed real, but not yet fully isolated.** A broader unconditional DMA-access trace
+(every `read_a`/`write_a`/`read_b`/`write_b` call, not just watchpoint-matched addresses) confirmed
+these ROMs DO drive substantial GP-DMA traffic through the GSU's own address windows — 221,184
+reads from the Game Pak RAM banks (`$70/$71`) and an equal count via the RAM low window (`$6000-
+$7FFF`) over 30 frames of the smallest failing ROM, plus 20,736 DMA-driven reads of the GSU
+register window (`$3000-$32FF`) — all reads, zero writes, consistent with a "DMA the GSU's
+finished plot bitmap out to VRAM" idiom running well after the GSU has already released ownership
+(explaining why the RAM-ownership fix above doesn't engage here). A finer trace comparing every
+`cart_read_raw` call where the returned byte equals the current `open_bus` (a coarse but real
+signal, noisy with false positives from legitimately-zero ROM bytes) found a genuine, reproducible
+**control-flow divergence, not a data-corruption artifact**: at a specific point early in
+`GSU2BPP256x128PlotPixel.sfc`'s boot sequence, the unmodified tree's CPU keeps fetching from
+steadily incrementing addresses (`$00813F` → `$008153` → `$008170` → `$008173`, each with a
+distinct real byte value), while the prototype-patched tree gets stuck re-reading the identical
+address (`$008167`) repeatedly — the classic signature of a spin-wait loop whose exit condition is
+never satisfied. This means **something upstream of that point already diverged the CPU's
+control flow** — most likely a conditional branch whose predicate byte differs between the two
+runs — but the exact first diverging read was not isolated before this pass's investigation budget
+was spent; the coarse `val == open_bus` heuristic is too imprecise (dominated by incidental
+zero-byte matches) to pinpoint it directly.
+
+**What would need to be true before landing this, and the concrete next step.** The same
+instrumented investigation this needs is exactly what
+`docs/audit/spc7110-boot-crash-2026-07-08.md` did for the SPC7110 gap, one level finer: a
+per-instruction trace (PC + the byte each instruction fetches/reads, not just a coarse
+value-equality heuristic) comparing the unmodified and prototype-patched runs step-by-step from
+reset, bisecting to the exact first instruction whose observed byte differs — a binary search over
+instruction count is the efficient way to find this, mirroring this project's "measured, not
+hypothesized" discipline. Until that exact divergence point is found and the fix (which may not be
+the naive "always update `open_bus` during DMA" — it may need to be conditional on something about
+GSU-driven vs. plain-cartridge DMA transfers) is derived from it, this stays a documented
+non-landing rather than a forced-through change, per this project's own regression-risk discipline
+(mirrors the DRAM-refresh treatment below). The prototype diff is not committed or applied on any
+branch; whoever resumes this should re-derive it from this section's description (the four
+`DmaBus for Bus` methods each gain one `self.open_bus = <value>;` line, mirroring
+`CpuBus::read24`/`write24`) rather than assume it survives anywhere.
 
 This precise, content-dependent cycle theft is the second reason (after the variable CPU
 cycle) the scheduler must be master-clock resolution.
@@ -338,8 +403,11 @@ DMA/HDMA) plus the `System` run loop (`scheduler.rs`):
 - **The clock is CPU-driven.** Each `CpuBus::read24`/`write24` stashes the region access speed
   (`Bus::access_speed`, the ares `CPU::wait` map above), and the following `on_cpu_cycle` advances
   the master clock by it — internal CPU cycles default to 6. `advance_master` steps the PPU dot
-  clock (4 master/dot) and the SPC accumulator in-line, so it is true lockstep. A booted NTSC
-  frame measures ≈357,374 master clocks (spec ≈357,368).
+  clock (4 master/dot) and the SPC accumulator in-line, so it is true lockstep. A steady-state
+  booted NTSC frame measures 357,368 master clocks on average (spec 357,368 exactly), within
+  ±20-40 clocks of natural instruction-boundary quantization noise per individual frame — measured
+  across 500 frames × 3 unrelated ROMs, `v1.1.0`; see §DRAM refresh for the full methodology and
+  why this rules out an additive refresh stall.
 - **DMA/HDMA** is `dma.rs` (clean-room from ares `dma.cpp`): GP-DMA halts the CPU and charges
   `8`/byte; HDMA runs per visible scanline with the per-mode lengths `{1,2,2,4,4,4,2,4}`, indirect
   pointers, and the line counter. `Bus::advance_master` fires HDMA's per-frame setup at V=0 and
@@ -360,48 +428,78 @@ DMA/HDMA) plus the `System` run loop (`scheduler.rs`):
   stall (researched, not yet implemented — see §DRAM refresh above) and the PAL-frame
   master-clock cycle-check.
 
-### DRAM refresh — implementation notes (`v0.5.0` hardware-gotcha item, not yet started)
+### DRAM refresh — empirically measured, NOT implemented (`v1.1.0` conclusion: adding it would regress)
+
+**Status: the mechanism is well-understood (ares' model, below), but this pass's empirical
+measurement — which the original `v0.5.0` note explicitly required *before* implementing the
+stall — shows there is no gap for a 40-clocks/scanline stall to fill. Implementing it as
+literally described would introduce a genuine, large, wrong regression against the
+now-confirmed-correct current baseline. Deliberately not implemented.**
 
 ares' model (`sfc/cpu/timing.cpp`/`cpu.hpp`): `CPU::step` checks `hcounter() >=
 dramRefreshPosition` on every tick; the first time it trips each scanline it runs 5 iterations of
-`step(6)` (refresh active) + `step(2)` (refresh inactive) + `aluEdge()` — 40 clocks total, matching
-this doc's own "40 master clocks" figure. `dramRefreshPosition` is recomputed at the start of each
-scanline as `530 + 8 - dmaCounter()` (`io.version == 2`, the revision essentially every commercial
-cart uses; `dmaCounter()` is `counter.cpu & 7`, a phase-alignment term averaging out where in the
-CPU's own 8-clock DMA-divider cycle the scanline happened to start).
+`step(6)` (refresh active) + `step(2)` (refresh inactive) + `aluEdge()` — 40 clocks total.
+`dramRefreshPosition` is recomputed at the start of each scanline as `530 + 8 - dmaCounter()`
+(`io.version == 2`, the revision essentially every commercial cart uses; `dmaCounter()` is
+`counter.cpu & 7`, a phase-alignment term averaging out where in the CPU's own 8-clock DMA-divider
+cycle the scanline happened to start).
 
-**The real complication for this project's architecture, not present in ares': the master clock
-here is CPU-driven** (`Bus::advance_master` only advances because a `CpuBus` access charged it
-some cost — see "The clock is CPU-driven" above), whereas real hardware's PPU dot/scanline timing
-is generated by an **independent, fixed-rate** clock: a booted frame is *always* exactly 357,368
-(NTSC) master clocks long regardless of what the CPU does, because the video timing generator
-doesn't care about CPU state. Refresh doesn't add clocks to the frame in real hardware — it's the
-CPU losing 40 clocks *out of* the frame's fixed budget to a stall, exactly like a slow ROM access.
-GP-DMA already gets this right by construction (its own `advance_master` calls for the transfer's
-`8`/byte cost make the CPU's own progress "spend" more of the fixed budget), so the DMA precedent
-suggests refresh should integrate the same way: charge `advance_master(40)` transparently inside
-the tick loop the same way HDMA already is, mirroring ares' position check.
+**The architectural complication, not present in ares': the master clock here is CPU-driven**
+(`Bus::advance_master` only advances because a `CpuBus` access charged it some cost — see "The
+clock is CPU-driven" above), whereas real hardware's PPU dot/scanline timing is generated by an
+**independent, fixed-rate** clock: a booted frame is *always* exactly 357,368 (NTSC) master clocks
+long regardless of what the CPU does. On real hardware, DRAM refresh doesn't add clocks to the
+frame — it's the CPU losing 40 clocks *out of* the frame's already-fixed budget to a stall, exactly
+like a slow ROM access. The naive port of this (charge an unconditional `advance_master(40)` once
+per scanline, mirroring how HDMA already charges its own per-line cost) assumed the current
+CPU-driven total *undershoots* 357,368 by roughly that much, and that adding the stall would close
+the gap.
 
-**What's still unverified before implementing this for real:** whether the observed "≈357,374 vs
-spec ≈357,368" gap this document already reports (measured on a booted frame *without* refresh
-modeled) is evidence the CPU-driven model does NOT actually reproduce the fixed-total invariant
-exactly (i.e., it's currently only approximately right through happening-to-have-correct-enough
-wait-state costs, not because the architecture enforces the total) — in which case adding
-~40×262≈10,480 refresh clocks on top could overshoot spec by a wide, clearly-wrong margin, which
-would be a real, diagnostic sign of a deeper modeling gap, not just "the residual refresh clocks
-finally added." This needs to be checked **empirically**, not assumed: implement the stall (new
-`Clock` fields — a per-scanline "already refreshed" flag reset at each scanline transition, the
-computed `dram_refresh_position`; both need a `docs/adr/0006` save-state format version bump since
-`Clock::save_state`/`load_state` change shape), then re-run the exact master-clock-per-frame
-measurement this document already cites and see where the new total lands, **before** touching
-anything else. Given the real regression risk to the golden-framebuffer suite (any change to when
-`advance_master` fires shifts exactly when PPU dot boundaries land relative to CPU instruction
-execution, which is precisely the kind of thing `hdmaen_latch_test`/undisbeliever's other
-timing-sensitive ROMs are built to catch), run the **full**
-`cargo test --workspace --features test-roms` battery — not just `cargo test --workspace` —
-before considering this done, and treat
-any golden-hash change as a real finding to investigate (re-bless only if the new value is
-independently confirmed hardware-correct), never a nuisance to silence.
+**The empirical measurement (this pass) shows the opposite: there is no gap to close.** A
+throwaway diagnostic (`cargo test`-only, not committed) ran `System::run_frame()` for 500
+steady-state frames (past the first, DMA-heavy boot frame) across three independent, unrelated
+test ROMs (`tests/roms/gilyon/cputest/cputest-basic.sfc`, `cputest-full.sfc`, and
+`tests/roms/gilyon/spctest/spctest.sfc`), recording `Clock::master`'s per-frame delta against the
+357,368-clock NTSC spec:
+
+| ROM | avg gap (clocks/frame) | min | max |
+|---|---|---|---|
+| `cputest-basic.sfc` | −0.056 | −36 | +26 |
+| `cputest-full.sfc` | −0.056 | −24 | +22 |
+| `spctest.sfc` | +0.004 | −40 | +32 |
+
+The average gap across all three is **within a fraction of a single clock of exactly zero** — the
+current CPU-driven model already reproduces the fixed 357,368-clock NTSC frame length to within
+natural instruction-boundary quantization noise (±20-40 clocks, the size of whichever single
+instruction happens to straddle the frame/VBlank boundary at the moment `run_frame()`'s internal
+check fires — expected and benign, not a timing bug, and it averages to ~0 over many frames exactly
+as quantization noise should). This directly contradicts the `≈357,374` figure this document
+previously cited as the working assumption — that number was very likely a single-frame (or very
+small sample) measurement that happened to land on the high side of this same ±20-40 clock noise
+band, not a persistent bias.
+
+**Conclusion: implementing the naive 40-clocks/scanline stall now would be wrong.** Charging an
+additional, unconditional `advance_master(40)` once per scanline on top of a model that already
+averages to the correct 357,368-clock total would inflate every frame by ~40×262≈10,480 clocks —
+a large, obviously-wrong overshoot against the now-empirically-confirmed-correct baseline, not a
+missing-clocks fix. This means one of two things is true, and distinguishing them is real future
+work, not assumed here: either (a) the existing per-opcode/per-access cost table (`Bus::access_speed`,
+ported from ares' own `CPU::wait` map) already implicitly absorbs DRAM refresh's real-hardware
+effect through however its costs were originally calibrated, and no further change is needed at
+all; or (b) refresh really does need to be modeled explicitly, but only by *reallocating* an
+equivalent ~40 clocks/scanline out of the existing cost table (finding and trimming ~0.15
+clocks/access somewhere across the ~262 accesses/scanline a typical frame makes) rather than
+*adding* a new stall on top — a materially harder, more invasive change than the original
+"just add a stall" plan assumed, and not undertaken in this pass given the empirical result
+removes the urgency (the current model is already correct at the whole-frame-length level).
+
+**For whoever revisits this:** re-run this same measurement methodology (steady-state
+`run_frame()` deltas averaged over hundreds of frames, multiple unrelated ROMs, outlier-filtered
+to exclude boot-frame DMA spikes) before ever re-attempting the stall — it is cheap, decisive, and
+this pass's result should be treated as the current baseline to compare against, not re-derived
+from scratch. If a future change to the per-opcode cost model (e.g. closing the CPU oracle's one
+remaining `e1.e` residual, `docs/STATUS.md`) shifts this average measurably away from zero, that
+would be the actual evidence needed to justify option (b) above.
 
 ## Open questions
 

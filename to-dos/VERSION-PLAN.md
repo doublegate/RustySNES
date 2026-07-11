@@ -633,6 +633,49 @@ gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
   (default / flags-off / `full` / `emu-thread` / `debug-hooks`), the `--features test-roms`
   27-suite accuracy/oracle battery, and the `no_std` build all green with zero regressions.
 
+### v1.1.0 — Reach-phase accuracy research + emu-thread's biggest gaps
+
+- **`SuperFxBoard::map`'s Game-Pak-RAM-ownership open-bus gap — FIXED.** A CPU/DMA read of Game
+  Pak RAM while the GSU owned the RAM bus always returned a hardcoded `0` instead of the real
+  last-driven bus byte, since `map()` classified that case as `Sram` rather than `Open`, bypassing
+  `Cart::read24`'s generic open-bus fallback entirely. Zero regressions across the full
+  `--features test-roms` battery with this fix alone. See `docs/scheduler.md` §Open bus via
+  DMA/HDMA.
+- **`emu-thread`'s two biggest gaps — DONE.** Real audio output (a thread-owned `AudioProducer`,
+  pushed once per produced frame) and a proper pause/ROM-loaded/speed lifecycle (`EmuControl`
+  driving a thread-owned `Pacer`) plus a `PresentBuffer` lock-free framebuffer handoff. Verified
+  via the unit suite plus a real headless `xvfb-run` launch against a staged commercial ROM.
+  **Not done:** cheats/watchpoints/breakpoints/port2-peripheral/voice-mutes sync, run-ahead,
+  rewind recording, TAS movies, Lua scripting, netplay-aware pause, RetroAchievements — each needs
+  a new shared-mutable-state design rather than a mechanical port; `emu_thread.rs`'s own module
+  doc tracks the exact remaining list. `emu-thread`+`scripting`'s documented `-D warnings`
+  dead-code conflict is unresolved (unchanged from `v1.0.0`).
+- **Open-bus-via-DMA-latch — investigated, still open.** The naive DMA-open-bus-update fix still
+  breaks all 24 Super FX/GSU golden hashes even after the `SuperFxBoard::map` fix above (confirmed
+  a genuinely separate mechanism). Ruled out the `$4016`/`$4017` joypad-read blend, the generic
+  CPU-side open-bus-fallback arms, and `VideoBus::cart_read` (dead code, never called). Confirmed
+  a real, reproducible CPU-control-flow divergence exists but didn't isolate the exact first
+  diverging instruction. See `docs/scheduler.md` §Open bus via DMA/HDMA for the full trail.
+- **DRAM refresh — empirically measured, NOT implemented.** 500 steady-state frames × 3 unrelated
+  ROMs show the current CPU-driven model already reproduces the correct 357,368-clock NTSC frame
+  length (average gap within a fraction of a clock of zero) — the originally-planned additive
+  40-clocks/scanline stall would have inflated every frame by ~10,480 clocks, a clear regression
+  against this now-confirmed-correct baseline. See `docs/scheduler.md` §DRAM refresh.
+- **Fractional-timebase refactor go/no-go — assessed: not warranted.** Every currently-named
+  accuracy residual is a ROM-sourcing gap, a coprocessor-board scope gap, or a bug/validation
+  question answerable within the existing whole-master-clock-tick model — none require sub-cycle
+  resolution. See `docs/audit/fractional-timebase-go-no-go-2026-07-11.md` and `docs/adr/0002`'s
+  status addendum.
+- **ROM-sourcing research** — documented concrete legitimate leads (No-Intro/Archive.org verified
+  dumps, homebrew SA-1 test-ROM repos) for every currently-open ROM-sourcing gap, without staging
+  any actual ROM. See `docs/rom-test-corpus.md`.
+- **Regression gate:** full workspace suite (default + `emu-thread` + `debug-hooks` +
+  `emu-thread,debug-hooks`), the full clippy matrix (default / flags-off / `full` / `emu-thread` /
+  `debug-hooks` / `emu-thread,debug-hooks`), the `--features test-roms` 27-suite accuracy/oracle
+  battery, the `no_std` build, the `RUSTDOCFLAGS="-D warnings" cargo doc` gate (fixed two
+  pre-existing broken intra-doc links from `v1.0.1`'s per-voice-mute work along the way), and both
+  wasm32 frontends all green with zero regressions.
+
 ## Post-v1.0 — Reach (deferred)
 
 - **Libretro core**, a **shader/filter pipeline** (CRT/HQ2x), **HD texture packs** (wires the

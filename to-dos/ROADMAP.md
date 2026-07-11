@@ -30,7 +30,14 @@ record; this file frames the phase line.
   first-run welcome modal. **`v1.0.1` closes both items deferred out of `v1.0.0`**: per-channel
   (per-voice) audio mutes (Settings → Audio, gating `Dsp::voice_output`) and global keyboard
   hotkeys (a fixed table, previously menu-bar-only) — see `docs/frontend.md` §Global hotkeys and
-  `docs/apu.md` §Per-voice mute. Save-states are **fully
+  `docs/apu.md` §Per-voice mute. **`v1.1.0`** closes `emu-thread`'s two biggest documented gaps —
+  real audio output (a thread-owned `AudioProducer`) and a proper pause/ROM-loaded/speed lifecycle
+  (`EmuControl`) plus a `PresentBuffer` lock-free framebuffer handoff — while leaving the rest of
+  full parity (cheats/watchpoints/breakpoints/run-ahead/rewind/movies/scripting/netplay-pause/
+  RetroAchievements) as a documented follow-up; also fixes a real, independent
+  `SuperFxBoard::map` open-bus bug and investigates (without landing code for) the harder
+  open-bus-via-DMA-latch bug, DRAM refresh timing, and the fractional-timebase refactor's own
+  go/no-go gate — see `to-dos/VERSION-PLAN.md`'s `v1.1.0` section for the full breakdown. Save-states are **fully
   implemented** (`v0.2.0 "Persistence"`, `docs/adr/0006` — every subsystem round-trips its exact
   state through one versioned envelope, proven by a round-trip determinism test), and rewind +
   run-ahead (`v0.3.0 "Continuum"`, `crate::rewind` — a bounded ring buffer of full snapshots +

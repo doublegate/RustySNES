@@ -1,6 +1,6 @@
 [package]
 name = "rustysnes-cart"
-version = "1.0.1"
+version = "1.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -13,7 +13,7 @@ std = []
 [dependencies]
 bitflags = "2"
 thiserror = { version = "2", default-features = false }
-rustysnes-savestate = { path = "../rustysnes-savestate", version = "1.0.1" }
+rustysnes-savestate = { path = "../rustysnes-savestate", version = "1.1.0" }
 
 [lints]
 workspace = true
