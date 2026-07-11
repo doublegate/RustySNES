@@ -445,3 +445,79 @@ narrow, explicitly out-of-scope edge case, not a memory-safety concern.
   re-blessed by this change (Marvelous's hash is unaffected, confirmed by `sa1_oncart` passing
   unchanged). Real-title hi-res validation remains genuinely open for whoever next has a working
   GUI environment or a confirmed hi-res-reaching save state for either named title.
+
+## HD texture pack `TileTag` recording hook (`v1.3.0`, `hd-pack` feature)
+
+**Status: the PPU-side hook, plus the frontend's `pack.toml` loader and a pure CPU compositor,
+are implemented.** Wiring the compositor into the live wgpu present path and a Settings UI pack
+selector are still outstanding — see "Not yet done" below and `crate::hd_pack`/
+`crate::hd_compositor` in `rustysnes-frontend` for what already exists there.
+
+Per the planned HD texture pack ADR (`to-dos/ROADMAP.md`; not yet written — tracked as a
+follow-up task) and Mesen2's own NES HD Pack system, the direct architectural precedent, this
+crate's only HD-texture-pack responsibility is to compute a **tile-identity hash** per composited
+pixel — it never loads a pack, matches a hash, or composites a replacement texture (that stays
+entirely frontend-side, preserving the `docs/adr/0004` determinism boundary: the core itself
+never becomes pack-aware).
+
+`Ppu::set_hd_pack_tagging(bool)` (off by default) gates a write-only side-buffer,
+`Ppu::tile_tags()`, sized and indexed exactly like `Ppu::framebuffer()`. Each entry is a
+`hdtag::TileTag { hash, hflip, vflip }`, where `hash` is `hdtag::hash_tile`'s output for the
+8×8 tile that produced this specific output pixel's color, or `0` for the backdrop / when tagging
+is off. `hash_tile` itself hashes into a fixed 642-byte stack buffer (`2 + 64*2 + 256*2`, the
+statically-bounded maximum tile-word + palette size), never a heap `Vec` — it runs once per
+tagged pixel on the rendering hot path, so it has to stay allocation-free like the rest of that
+path. Populated by three small companion helpers in `render_bg`/`render_mode7`/`render_objects`,
+each reusing address/bpp/palette values already resolved by that path's normal fetch (no parallel
+address recomputation) to build the `tile_words`/`palette` slices `hash_tile` hashes:
+
+- **BG**: `fetch_bg_pixel` already computes `tile_base` (the resolved 8×8 sub-tile's raw
+  pre-flip VRAM word address — correct even for 16×16 tiles, since flip only changes which
+  quadrant/pixel is selected, never the raw bytes at that address) and now also returns it plus
+  `hflip`/`vflip`; `render_bg` derives the palette's CGRAM base (`pal_base + group_off`) from
+  values it already has.
+- **OBJ**: computed once per 8-pixel column (not per pixel) in `render_objects`'s `tx` loop,
+  from the already-tile-aligned `tile_addr` and `pal_base = 128 + (palette << 4)`.
+- **Mode 7**: `tile_base = (tile << 6) & 0x7fff` (the 64-word 8bpp block), palette is the full
+  256-entry CGRAM (Mode 7 pixels index it directly, with no per-BG sub-palette group). Mode 7 has
+  no per-tile flip bit (`m7_hflip`/`m7_vflip` mirror the whole affine transform, not one tile), so
+  its tag is always `hflip: false, vflip: false`.
+
+`compose_dac` writes whichever pixel's tag is actually **displayed** at each `tile_tags` index —
+matching exactly which pixel's *color* it writes to `framebuffer` at that same index. In
+non-hires output that's always the above-pixel's tag (one output column per pixel clock). In
+hi-res output there are genuinely two distinct visible columns per pixel clock (the DAC's
+"above"/"below" pass — see "Hi-res (Modes 5/6) color-math precision" above), so the even/left
+column gets the below-pixel's tag and the odd/right column gets the above-pixel's tag, mirroring
+the identical pairing `framebuffer[base + 2*x]`/`framebuffer[base + 2*x + 1]` already use. This is
+not "recording the sub-screen's blend operand" — each hi-res column is its own real displayed
+pixel with its own real source tile.
+
+### Byte-identical-when-off
+
+`Pixel` gained one new field, `#[cfg(feature = "hd-pack")] tag: hdtag::TileTag`, and `Ppu` gained
+two: `hd_pack_tagging: bool` and `tile_tags: Box<[hdtag::TileTag]>` — all three compiled out
+entirely (not just runtime-inert) when the `hd-pack` feature is off, so a non-`hd-pack` build's
+compositor is byte-for-byte the pre-`v1.3.0` code. With the feature **on** but `hd_pack_tagging`
+left at its default `false`, the same guarantee holds at the value level:
+`hd_pack_tagging_toggle_does_not_alter_framebuffer_output` (`crates/rustysnes-ppu/src/render.rs`)
+renders one scene twice — tagging off and on — and asserts `framebuffer()` is identical either
+way. `hd_pack_tagging_off_leaves_tile_tags_untouched` confirms the side-buffer itself stays
+all-default when tagging was never enabled; `turning_tagging_off_clears_stale_tags_from_a_prior_frame`
+confirms that turning tagging off after a tagged frame clears every entry back to
+`TileTag::default` rather than leaving stale tags an unwary caller could misread (`Ppu::
+set_hd_pack_tagging(false)` fills `tile_tags` back to all-default as part of the toggle itself);
+and `hd_pack_tagging_records_the_documented_hash_for_a_known_bg_tile` independently recomputes a
+known tile's hash from raw VRAM/CGRAM bytes to prove the recorded value is the documented recipe.
+
+Neither `hd_pack_tagging` nor `tile_tags` is part of `save_state`/`load_state` — the same
+host/frontend-convenience carve-out already established for cheats, watchpoints, per-voice mutes,
+and the port-2 peripheral selection.
+
+### Not yet done
+
+The frontend now has a `pack.toml` loader (`crate::hd_pack::HdPack::load`, PNG decode, per-ROM
+discovery) and a pure CPU compositor (`crate::hd_compositor::composite`) — see `docs/frontend.md`.
+Still outstanding: invoking the compositor from the live wgpu present path in place of the plain
+framebuffer texture upload, a Settings UI pack selector, and persisting the selected pack name in
+config. See `to-dos/ROADMAP.md`.

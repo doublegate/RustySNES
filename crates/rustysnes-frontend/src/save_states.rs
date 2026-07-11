@@ -60,7 +60,10 @@ pub fn base_dir() -> Option<PathBuf> {
     }
 }
 
-fn hex(hash: &[u8; 32]) -> String {
+/// Hex-encode a 32-byte hash (lowercase, no separators) — the shared ROM-hash-to-directory-name
+/// convention every per-ROM-keyed disk feature uses (save-state slots here, HD texture packs in
+/// `crate::hd_pack`).
+pub(crate) fn hex(hash: &[u8; 32]) -> String {
     use std::fmt::Write as _;
     hash.iter().fold(String::with_capacity(64), |mut s, b| {
         let _ = write!(s, "{b:02x}");

@@ -15,6 +15,11 @@ std = ["dep:zip"]
 # a shipped build carries zero extra code on the accuracy-critical `Bus::read24`/`write24` path —
 # see that module's own doc for the discipline this matches (`cheat.rs`'s read intercept).
 debug-hooks = []
+# `v1.3.0`: propagates down to `rustysnes-ppu/hd-pack` (the `TileTag` recording hook). This crate
+# has no HD-pack code of its own -- `Bus::ppu` and `System::bus` are both already `pub`, so the
+# frontend reaches `Ppu::set_hd_pack_tagging`/`Ppu::tile_tags` directly via
+# `EmuCore::system_mut().bus.ppu` once this feature enables them to exist at all.
+hd-pack = ["rustysnes-ppu/hd-pack"]
 
 [dependencies]
 rustysnes-cpu = { path = "../rustysnes-cpu", version = "1.2.0", default-features = false }

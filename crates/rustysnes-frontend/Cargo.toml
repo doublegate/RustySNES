@@ -59,10 +59,13 @@ help-tui = ["dep:ratatui"]
 # overlay). `v0.8.0` T-81-001b adds read/write watchpoints on top, which also needs the
 # `rustysnes-core` side of the gate (the Bus-level hook lives there, not just this crate's UI).
 debug-hooks = ["rustysnes-core/debug-hooks"]
-# Off-by-default forward placeholder, mirroring the RustyNES feature surface so the
-# chip-implementation phase can switch it on without restructuring the manifest. Wires no extra
-# code yet (the HD-pack asset-replacement hooks are a TODO stub).
-hd-pack = []
+# `v1.3.0`: HD texture pack support -- the `pack.toml` manifest schema (`hd_pack.rs`), the pack
+# loader + PNG decode + per-ROM discovery (`hd_pack.rs`), and the pure compositor function
+# (`hd_compositor.rs`). Propagates to `rustysnes-core/hd-pack` (which propagates in turn to
+# `rustysnes-ppu/hd-pack`) so `EmuCore::system_mut().bus.ppu`'s tagging hook actually exists.
+# Wiring the compositor into the live wgpu present path + the Settings UI pack selector are a
+# follow-up (`gfx.rs`/`ui_shell.rs` are unchanged so far).
+hd-pack = ["dep:png", "rustysnes-core/hd-pack"]
 # `v0.8.0 "Instrumentation"`, T-81-002: sandboxed Lua scripting (`rustysnes-script`, native-only —
 # `dep:` keeps the optional dependency out of the wasm32 dependency graph even if this feature
 # were ever selected there, on top of the `target.'cfg(...)'` gate below already doing so).
@@ -120,6 +123,11 @@ egui-winit = { version = "0.35", default-features = false, features = ["links", 
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 toml = "1.1"
+
+# HD texture pack tile image decode (`v1.3.0`, `hd-pack` feature) -- pure-Rust PNG decoder, no
+# system libpng dependency, so this stays cross-platform (and wasm32-buildable, though the
+# feature has no filesystem discovery path there yet -- `hd_pack.rs`'s own module doc has detail).
+png = { version = "0.18", optional = true }
 
 # Already transitive deps of wgpu; direct here is free.
 pollster = "0.4"

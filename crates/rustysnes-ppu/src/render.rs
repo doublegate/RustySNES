@@ -13,13 +13,18 @@
 //! state machine. `too_many_lines` fires on the per-scanline / per-sprite/mode-7 loops, which
 //! are clearer kept whole than split mid-pixel; `many_single_char_names` fires on the Mode-7
 //! matrix (`a`/`b`/`c`/`d` are the hardware register names); `match_same_arms` fires on the BG
-//! priority tables where several modes deliberately share an identical layout; and the small
-//! `Copy` structs (`Pixel`, `WindowLayer`) are passed by ref by helpers for call-site clarity.
+//! priority tables where several modes deliberately share an identical layout; the small
+//! `Copy` structs (`Pixel`, `WindowLayer`) are passed by ref by helpers for call-site clarity;
+//! and `needless_update` fires on every `..Pixel::default()` when the `hd-pack` feature is off
+//! (its only non-default field, `tag`, vanishes, making the spread a literal no-op) -- kept
+//! anyway so every `Pixel` literal compiles unchanged across both feature states, rather than
+//! forking each construction site into two copies.
 #![allow(
     clippy::too_many_lines,
     clippy::many_single_char_names,
     clippy::match_same_arms,
-    clippy::trivially_copy_pass_by_ref
+    clippy::trivially_copy_pass_by_ref,
+    clippy::needless_update
 )]
 
 use crate::{Object, Ppu, SCREEN_WIDTH, VideoBus};
@@ -35,6 +40,11 @@ struct Pixel {
     palette_group: u8,
     /// True if this pixel actually came from a non-transparent source.
     opaque: bool,
+    /// This pixel's HD-pack tile-identity tag (`v1.3.0`, `hd-pack` feature) -- stays
+    /// [`crate::hdtag::TileTag::default`] (hash `0`) unless `Ppu::hd_pack_tagging` was on when
+    /// this pixel was fetched. See `Ppu::tile_tags`'s field doc for the full mechanism.
+    #[cfg(feature = "hd-pack")]
+    tag: crate::hdtag::TileTag,
 }
 
 /// Priority tables per BG mode. Indexed `[mode][layer]` where layer 0..=3 are bg1..4 and 4 is
@@ -135,6 +145,43 @@ impl Ppu {
         }
     }
 
+    /// Compute the [`crate::hdtag::TileTag`] for a tile whose raw pre-flip VRAM words start at
+    /// `tile_base` (word address; `bpp` gives the word count: `bpp * 4` for BG/OBJ, or a fixed 64
+    /// for Mode 7's 8bpp block) and whose resolved `2^bpp`-color palette starts at CGRAM index
+    /// `pal_base`. `hflip`/`vflip` are stored alongside the hash (excluded from it by design --
+    /// see `hdtag`'s module doc) so the frontend compositor can mirror the replacement source
+    /// rect. Only called from the three render paths when `self.hd_pack_tagging` is on -- every
+    /// address/bpp/palette-base input here is already resolved by the caller, so this adds one
+    /// small VRAM+CGRAM copy (bounded: at most 64 words / 256 colors) and one hash, never more.
+    #[cfg(feature = "hd-pack")]
+    fn tile_tag(
+        &self,
+        class: crate::hdtag::TileClass,
+        bpp: u8,
+        tile_base: u16,
+        pal_base: u8,
+        hflip: bool,
+        vflip: bool,
+    ) -> crate::hdtag::TileTag {
+        let word_count = if matches!(class, crate::hdtag::TileClass::Mode7) {
+            64
+        } else {
+            usize::from(bpp) * 4
+        };
+        let mut words = [0u16; 64];
+        for (i, w) in words.iter_mut().take(word_count).enumerate() {
+            *w = self.vram[(tile_base.wrapping_add(i as u16) & 0x7fff) as usize];
+        }
+        let color_count = 1usize << bpp;
+        let mut palette = [0u16; 256];
+        for (i, c) in palette.iter_mut().take(color_count).enumerate() {
+            *c = self.cgram[(usize::from(pal_base) + i) & 0xff];
+        }
+        let hash =
+            crate::hdtag::hash_tile(class, bpp, &words[..word_count], &palette[..color_count]);
+        crate::hdtag::TileTag { hash, hflip, vflip }
+    }
+
     /// Composite the current scanline (`self.v`, 1..=visible) into the framebuffer.
     pub(crate) fn render_scanline(&mut self, bus: &mut impl VideoBus) {
         let row = (self.v - 1) as usize;
@@ -171,6 +218,7 @@ impl Ppu {
                 layer: 5,
                 palette_group: 0,
                 opaque: false,
+                ..Pixel::default()
             };
             below[x] = above[x];
         }
@@ -273,7 +321,7 @@ impl Ppu {
                 }
             }
 
-            let (palette_idx, group, priority_hi) = self.fetch_bg_pixel(
+            let (palette_idx, group, priority_hi, tile_base, hflip, vflip) = self.fetch_bg_pixel(
                 world_x,
                 world_y,
                 tile_w,
@@ -286,6 +334,10 @@ impl Ppu {
             if palette_idx == 0 {
                 continue;
             }
+            // Only the `hd-pack` tile-tagging hook below consumes these; keep them from
+            // triggering an unused-variable warning when that feature is compiled out.
+            #[cfg(not(feature = "hd-pack"))]
+            let _ = (tile_base, hflip, vflip);
 
             // BG palette index: Mode 0 gives each BG its own 32-color region; every other mode
             // shares the 256-entry CGRAM. The tilemap's 3-bit palette group selects a sub-palette
@@ -303,13 +355,27 @@ impl Ppu {
             let prio = pr.bg[bg][usize::from(priority_hi)];
 
             let xi = x as usize;
-            let pixel = Pixel {
+            #[allow(unused_mut)]
+            let mut pixel = Pixel {
                 palette: final_pal,
                 priority: prio,
                 layer: bg as u8,
                 palette_group: group,
                 opaque: true,
+                ..Pixel::default()
             };
+            #[cfg(feature = "hd-pack")]
+            if self.hd_pack_tagging {
+                let group_base = ((pal_base + group_off) & 0xff) as u8;
+                pixel.tag = self.tile_tag(
+                    crate::hdtag::TileClass::Bg,
+                    bpp,
+                    tile_base,
+                    group_base,
+                    hflip,
+                    vflip,
+                );
+            }
             if main && !self.windowed_out(bg, xi, true) && prio > above[xi].priority {
                 above[xi] = pixel;
             }
@@ -344,7 +410,11 @@ impl Ppu {
         self.vram[addr as usize]
     }
 
-    /// Fetch one BG pixel: returns (palette index within the BG palette, palette group, hi-prio).
+    /// Fetch one BG pixel: returns (palette index within the BG palette, palette group, hi-prio,
+    /// the resolved 8×8 sub-tile's raw pre-flip VRAM word address, hflip, vflip). The last three
+    /// are only consumed by the `hd-pack` feature's tile-tagging hook, but are cheap enough
+    /// (already-computed locals) to always return rather than threading a second feature-gated
+    /// fetch path through this hot function.
     #[allow(clippy::too_many_arguments)]
     fn fetch_bg_pixel(
         &self,
@@ -356,7 +426,7 @@ impl Ppu {
         screen_addr: u16,
         char_addr: u16,
         bpp: u8,
-    ) -> (u8, u8, u8) {
+    ) -> (u8, u8, u8, u16, bool, bool) {
         // Map size in pixels: base 256 (32 tiles * 8px), doubled per screen-size bit, and again
         // for 16x16 tiles (each quadrant stays 32 tiles wide => 512px when tiles are 16px).
         let big_h = u32::from(screen_size & 1 != 0);
@@ -423,7 +493,7 @@ impl Ppu {
         let tile_base = (char_addr.wrapping_add(character.wrapping_mul(tile_words))) & 0x7fff;
 
         let color = self.read_planar(tile_base, fine_x, fine_y, bpp);
-        (color, palette_group, priority_hi)
+        (color, palette_group, priority_hi, tile_base, hflip, vflip)
     }
 
     /// Decode the `bpp`-bit color at (`fine_x`, `fine_y`) from a tile at `tile_base` (word addr).
@@ -527,19 +597,38 @@ impl Ppu {
 
             let xi = screen_x as usize;
 
+            // Only the `hd-pack` tile-tagging hook below consumes this; keep it from triggering
+            // an unused-variable warning when that feature is compiled out.
+            #[cfg(not(feature = "hd-pack"))]
+            let _ = tile;
+
             // BG1 (or BG2 with EXTBG high-bit priority).
             if extbg {
                 let prio_hi = (palette >> 7) & 1;
                 palette &= 0x7f;
                 if palette != 0 {
                     let prio = pr.bg[1][usize::from(prio_hi)];
-                    let pixel = Pixel {
+                    #[allow(unused_mut)]
+                    let mut pixel = Pixel {
                         palette,
                         priority: prio,
                         layer: 1,
                         palette_group: 0,
                         opaque: true,
+                        ..Pixel::default()
                     };
+                    #[cfg(feature = "hd-pack")]
+                    if self.hd_pack_tagging {
+                        let tile_base = (tile << 6) & 0x7fff;
+                        pixel.tag = self.tile_tag(
+                            crate::hdtag::TileClass::Mode7,
+                            8,
+                            tile_base,
+                            0,
+                            false,
+                            false,
+                        );
+                    }
                     if main2 && !self.windowed_out(1, xi, true) && prio > above[xi].priority {
                         above[xi] = pixel;
                     }
@@ -549,13 +638,27 @@ impl Ppu {
                 }
             } else if palette != 0 {
                 let prio = pr.bg[0][0];
-                let pixel = Pixel {
+                #[allow(unused_mut)]
+                let mut pixel = Pixel {
                     palette,
                     priority: prio,
                     layer: 0,
                     palette_group: 0,
                     opaque: true,
+                    ..Pixel::default()
                 };
+                #[cfg(feature = "hd-pack")]
+                if self.hd_pack_tagging {
+                    let tile_base = (tile << 6) & 0x7fff;
+                    pixel.tag = self.tile_tag(
+                        crate::hdtag::TileClass::Mode7,
+                        8,
+                        tile_base,
+                        0,
+                        false,
+                        false,
+                    );
+                }
                 if main1 && !self.windowed_out(0, xi, true) && prio > above[xi].priority {
                     above[xi] = pixel;
                 }
@@ -721,6 +824,21 @@ impl Ppu {
                 let tile_addr = (base.wrapping_add(char_idx << 4)) & 0xfff0;
                 let plane01 = (tile_addr | (fine_y as u16)) & 0x7fff;
 
+                // Computed once per 8-pixel column (not per pixel) -- `tile_addr` is already this
+                // specific 8x8 sub-tile's raw pre-flip VRAM base, so every pixel in this column
+                // shares one tag.
+                #[cfg(feature = "hd-pack")]
+                let obj_tag = self.hd_pack_tagging.then(|| {
+                    self.tile_tag(
+                        crate::hdtag::TileClass::Obj,
+                        4,
+                        tile_addr,
+                        (pal_base & 0xff) as u8,
+                        obj.hflip,
+                        obj.vflip,
+                    )
+                });
+
                 for col in 0..8u32 {
                     let screen_x = sx + col;
                     if screen_x >= SCREEN_WIDTH as u32 {
@@ -739,13 +857,19 @@ impl Ppu {
                     }
                     let pal = (pal_base + u16::from(color)) as u8;
                     let xi = screen_x as usize;
-                    let pixel = Pixel {
+                    #[allow(unused_mut)]
+                    let mut pixel = Pixel {
                         palette: pal,
                         priority: prio,
                         layer: 4,
                         palette_group: 0,
                         opaque: true,
+                        ..Pixel::default()
                     };
+                    #[cfg(feature = "hd-pack")]
+                    if let Some(tag) = obj_tag {
+                        pixel.tag = tag;
+                    }
                     // We paint high-index sprites first, so a `>=` test lets a lower-index
                     // sprite at the same priority win the tie (it is painted later).
                     if main && !self.windowed_out(4, xi, true) && prio >= above[xi].priority {
@@ -881,8 +1005,17 @@ impl Ppu {
                 }
                 self.framebuffer[base + 2 * x] = apply_brightness(below_out, brightness);
                 self.framebuffer[base + 2 * x + 1] = apply_brightness(out, brightness);
+                #[cfg(feature = "hd-pack")]
+                if self.hd_pack_tagging {
+                    self.tile_tags[base + 2 * x] = bp.tag;
+                    self.tile_tags[base + 2 * x + 1] = ap.tag;
+                }
             } else {
                 self.framebuffer[base + x] = apply_brightness(out, brightness);
+                #[cfg(feature = "hd-pack")]
+                if self.hd_pack_tagging {
+                    self.tile_tags[base + x] = ap.tag;
+                }
             }
 
             prev_above_enable = above_enable;
@@ -1154,6 +1287,105 @@ mod tests {
         assert_eq!(fb[1], 0x0000);
     }
 
+    /// Builds the exact `mode0_bg_renders_one_tile` scene on a fresh [`Ppu`], applying `setup`
+    /// to it beforehand (used to flip `hd_pack_tagging` on/off before the frame renders).
+    #[cfg(feature = "hd-pack")]
+    fn render_mode0_one_tile_scene(setup: impl FnOnce(&mut Ppu)) -> Ppu {
+        let mut p = Ppu::new();
+        setup(&mut p);
+        p.write_reg(0x2100, 0x80);
+        p.write_reg(0x2105, 0x00);
+        p.write_reg(0x2107, 0x00);
+        p.write_reg(0x210b, 0x01);
+        cgram_set(&mut p, 1, 0x001f);
+        vram_set(&mut p, 0x0000, 0x0000);
+        vram_set(&mut p, 0x1000, 0x0080);
+        p.write_reg(0x2100, 0x0f);
+        p.write_reg(0x212c, 0x01);
+        run_frame(&mut p);
+        p
+    }
+
+    #[cfg(feature = "hd-pack")]
+    #[test]
+    fn hd_pack_tagging_toggle_does_not_alter_framebuffer_output() {
+        let off = render_mode0_one_tile_scene(|_| {});
+        let on = render_mode0_one_tile_scene(|p| p.set_hd_pack_tagging(true));
+        assert_eq!(
+            off.framebuffer(),
+            on.framebuffer(),
+            "toggling hd_pack_tagging must never change the composited framebuffer"
+        );
+    }
+
+    #[cfg(feature = "hd-pack")]
+    #[test]
+    fn hd_pack_tagging_off_leaves_tile_tags_untouched() {
+        let p = render_mode0_one_tile_scene(|_| {});
+        assert!(
+            p.tile_tags()
+                .iter()
+                .all(|t| *t == crate::hdtag::TileTag::default()),
+            "tile_tags must stay all-default when hd_pack_tagging was never enabled"
+        );
+    }
+
+    #[cfg(feature = "hd-pack")]
+    #[test]
+    fn turning_tagging_off_clears_stale_tags_from_a_prior_frame() {
+        let mut p = Ppu::new();
+        p.set_hd_pack_tagging(true);
+        p.write_reg(0x2100, 0x80);
+        p.write_reg(0x2105, 0x00);
+        p.write_reg(0x2107, 0x00);
+        p.write_reg(0x210b, 0x01);
+        cgram_set(&mut p, 1, 0x001f);
+        vram_set(&mut p, 0x0000, 0x0000);
+        vram_set(&mut p, 0x1000, 0x0080);
+        p.write_reg(0x2100, 0x0f);
+        p.write_reg(0x212c, 0x01);
+        run_frame(&mut p);
+        assert_ne!(
+            p.tile_tags()[0].hash,
+            0,
+            "sanity: tagging-on frame actually recorded a tag"
+        );
+
+        p.set_hd_pack_tagging(false);
+        assert!(
+            p.tile_tags()
+                .iter()
+                .all(|t| *t == crate::hdtag::TileTag::default()),
+            "turning tagging off must clear stale tags from the last tagged frame, not just stop \
+             updating them"
+        );
+    }
+
+    #[cfg(feature = "hd-pack")]
+    #[test]
+    fn hd_pack_tagging_records_the_documented_hash_for_a_known_bg_tile() {
+        let p = render_mode0_one_tile_scene(|p| p.set_hd_pack_tagging(true));
+
+        let tag0 = p.tile_tags()[0];
+        assert_ne!(
+            tag0.hash, 0,
+            "tile 0's opaque pixel must record a nonzero tile hash"
+        );
+        assert!(!tag0.hflip);
+        assert!(!tag0.vflip);
+
+        // Independently recompute the same hash from the raw tile 0 words (2bpp => 8 words) and
+        // BG1's mode-0 palette region (colors 0..=3, since bg index 0 and palette group 0) to
+        // prove the recorded value is the documented recipe, not just "some function".
+        let words: alloc::vec::Vec<u16> = (0..8).map(|i| p.vram_word(0x1000 + i)).collect();
+        let palette: alloc::vec::Vec<u16> = (0..4).map(|i| p.cgram_word(i)).collect();
+        let expected = crate::hdtag::hash_tile(crate::hdtag::TileClass::Bg, 2, &words, &palette);
+        assert_eq!(tag0.hash, expected);
+
+        // The backdrop pixel (column 1, per `mode0_bg_renders_one_tile`) was never tagged.
+        assert_eq!(p.tile_tags()[1], crate::hdtag::TileTag::default());
+    }
+
     #[test]
     fn one_sprite_renders_at_oam_coordinate() {
         let mut p = Ppu::new();
@@ -1329,24 +1561,28 @@ mod tests {
     use super::Pixel;
 
     /// An opaque BG1 pixel with the given palette index (color-math layer 0).
-    const fn bg1_pixel(palette: u8) -> Pixel {
+    // Not `const fn`: `..Pixel::default()` needs `Default::default()`, which isn't `const` --
+    // fine, both helpers are test-only and never used in a const context.
+    fn bg1_pixel(palette: u8) -> Pixel {
         Pixel {
             palette,
             priority: 1,
             layer: 0,
             palette_group: 0,
             opaque: true,
+            ..Pixel::default()
         }
     }
 
     /// The default (backdrop) pixel: transparent, CGRAM 0.
-    const fn backdrop_pixel() -> Pixel {
+    fn backdrop_pixel() -> Pixel {
         Pixel {
             palette: 0,
             priority: 0,
             layer: 5,
             palette_group: 0,
             opaque: false,
+            ..Pixel::default()
         }
     }
 

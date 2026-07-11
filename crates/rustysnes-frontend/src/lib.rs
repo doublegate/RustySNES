@@ -46,6 +46,14 @@ pub mod config;
 pub mod debug_snapshot;
 pub mod emu;
 pub mod gfx;
+// HD texture pack manifest + loader (`v1.3.0` T-PS, `hd-pack` feature) -- schema, `pack.toml`
+// parse, PNG decode, and per-ROM pack discovery (`hd_pack.rs`'s own module doc has the detail).
+#[cfg(feature = "hd-pack")]
+pub mod hd_pack;
+// The pure CPU-side compositor that applies a loaded `HdPack` to one frame (`hd_compositor.rs`'s
+// own module doc has the detail). Wiring it into the live wgpu present path is a follow-up.
+#[cfg(feature = "hd-pack")]
+pub mod hd_compositor;
 pub mod input;
 // Native rollback netplay (`v0.8.0` T-82-002). Native-only: browser WebRTC signaling UI is a
 // separate, deferred scope (`netplay.rs`'s own module doc has the detail).
