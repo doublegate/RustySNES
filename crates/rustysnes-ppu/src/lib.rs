@@ -972,6 +972,19 @@ impl Ppu {
         self.vram[(addr & 0x7fff) as usize]
     }
 
+    /// The full 64 KiB VRAM as a flat word slice (32Ki x `u16`, native word addressing) — for a
+    /// host embedder that needs a raw memory-map pointer (e.g. a libretro core's
+    /// `RETRO_MEMORY_VIDEO_RAM`).
+    #[must_use]
+    pub fn vram(&self) -> &[u16] {
+        &*self.vram
+    }
+
+    /// The mutable counterpart to [`Self::vram`] — same host-embedder use case.
+    pub fn vram_mut(&mut self) -> &mut [u16] {
+        &mut *self.vram
+    }
+
     /// Read a CGRAM entry directly (test/diagnostic).
     #[must_use]
     pub const fn cgram_word(&self, index: u8) -> u16 {
@@ -1251,5 +1264,19 @@ mod tests {
         p.write_reg(0x2119, 0x12);
         let q = p.clone();
         assert_eq!(q.vram_word(0), 0x1234);
+    }
+
+    #[test]
+    fn vram_and_vram_mut_expose_the_same_flat_64kib() {
+        let mut p = Ppu::new();
+        assert_eq!(p.vram().len(), 0x8000);
+        p.write_reg(0x2115, 0x80);
+        p.write_reg(0x2116, 0x00);
+        p.write_reg(0x2117, 0x00);
+        p.write_reg(0x2118, 0x34);
+        p.write_reg(0x2119, 0x12);
+        assert_eq!(p.vram()[0], 0x1234);
+        p.vram_mut()[1] = 0xABCD;
+        assert_eq!(p.vram_word(1), 0xABCD);
     }
 }
