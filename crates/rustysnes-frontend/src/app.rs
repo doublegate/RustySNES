@@ -39,6 +39,8 @@ use crate::audio::{AudioOutput, AudioRing, Resampler, drc_ratio};
 use crate::config::Config;
 use crate::emu::EmuCore;
 use crate::gfx::Gfx;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::gfx::{SNES_H_NTSC, SNES_W};
 use crate::input::{Button, Buttons};
 use crate::pacing::Pacer;
 use crate::ui_shell::{MenuAction, ShellInfo, ShellState};
@@ -76,11 +78,32 @@ use crate::cheevos::CheevosState;
 
 /// The fixed upscale factor `crate::hd_compositor::composite` applies when an HD texture pack is
 /// active (`v1.3.0`). `2` keeps the composited output's worst case (a hi-res frame, 512×448 native
-/// → 1024×896) comfortably under [`crate::gfx`]'s `MAX_TEXTURE_DIM` (2048) backstop regardless of
-/// region. Not yet user-configurable — a fixed v1 scope choice (`docs/adr/0010`), not a
-/// technical ceiling: `Gfx::ensure_texture_capacity` grows to fit whatever scale is requested.
+/// → 1024×896) comfortably under this device's actual granted `max_texture_dimension_2d`
+/// regardless of region (`Gfx::ensure_texture_capacity`'s own backstop, which now tracks the real
+/// device limit rather than a hardcoded constant — see that method's doc). Not yet
+/// user-configurable — a fixed v1 scope choice (`docs/adr/0010`), not a technical ceiling:
+/// `Gfx::ensure_texture_capacity` grows to fit whatever scale is requested.
 #[cfg(all(not(feature = "emu-thread"), feature = "hd-pack"))]
 const HD_PACK_SCALE: u32 = 2;
+
+/// The window's initial/default scale — `INITIAL_SCALE`x the SNES native resolution (`v1.3.0`,
+/// RustyNES parity: that sibling project also defaults to 3x/300%). Native only; `wasm32`'s
+/// canvas size is controlled by the page, not this constant.
+#[cfg(not(target_arch = "wasm32"))]
+const INITIAL_SCALE: u32 = 3;
+
+/// A floor on the requested window width (`v1.3.0`, View → Window Size), padding past the raw
+/// `SNES_W * scale` so the egui menu bar (File / Emulation / Tools / View / Debug / Help) never
+/// gets clipped at `1x`. Native only.
+#[cfg(not(target_arch = "wasm32"))]
+const MIN_CHROME_WIDTH: f64 = 560.0;
+
+/// Extra window height (`v1.3.0`, View → Window Size) added past the raw `SNES_H_NTSC * scale`
+/// for the egui menu bar + status bar, which are drawn as a fixed-size overlay on top of the
+/// (letterboxed) game image rather than reserving their own space in the framebuffer. Native
+/// only.
+#[cfg(not(target_arch = "wasm32"))]
+const CHROME_HEIGHT: f64 = 56.0;
 
 /// The typed winit user-event, used by both native and `wasm32`.
 ///
@@ -482,9 +505,16 @@ impl App {
     /// layout apply. Per the winit 0.30 web platform docs this is
     /// `WindowAttributesExtWebSys::with_canvas`.
     fn create_window(event_loop: &ActiveEventLoop) -> Result<Arc<Window>, String> {
+        // Native defaults to `INITIAL_SCALE`x (RustyNES parity, `v1.3.0`); the wasm32 canvas is
+        // sized by the page's own CSS (`web/index.html`), so the `LogicalSize` passed there is a
+        // fallback only, kept at a fixed 2x for parity with that page's `512x448` canvas rule.
+        #[cfg(not(target_arch = "wasm32"))]
+        let (init_w, init_h) = Self::chrome_padded_size(INITIAL_SCALE);
+        #[cfg(target_arch = "wasm32")]
+        let (init_w, init_h) = (512.0, 448.0);
         let attrs = Window::default_attributes()
             .with_title("RustySNES")
-            .with_inner_size(winit::dpi::LogicalSize::new(512.0, 448.0));
+            .with_inner_size(winit::dpi::LogicalSize::new(init_w, init_h));
         #[cfg(target_arch = "wasm32")]
         let attrs = {
             use wasm_bindgen::JsCast as _;
@@ -502,6 +532,43 @@ impl App {
             .create_window(attrs)
             .map(Arc::new)
             .map_err(|e| e.to_string())
+    }
+
+    /// Compute a chrome-padded `(width, height)` logical size for `scale`x the SNES native
+    /// resolution (`v1.3.0`, View → Window Size / `create_window`'s default; RustyNES parity):
+    /// floors width at `MIN_CHROME_WIDTH` and always adds `CHROME_HEIGHT`, so the egui menu bar
+    /// has room even at `1x`.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn chrome_padded_size(scale: u32) -> (f64, f64) {
+        let w = (f64::from(SNES_W) * f64::from(scale)).max(MIN_CHROME_WIDTH);
+        let h = f64::from(SNES_H_NTSC).mul_add(f64::from(scale), CHROME_HEIGHT);
+        (w, h)
+    }
+
+    /// Apply a View → Window Size selection (`v1.3.0`, RustyNES parity). Exits fullscreen first
+    /// (synchronously, updating `applied_fullscreen` in lockstep, rather than leaving the
+    /// resize to race the next frame's fullscreen change-guard in `render`) so the resize below
+    /// actually takes effect against a normal window rather than a fullscreen one. Clamps `scale`
+    /// to `1..=4` and requests the chrome-padded inner size: `request_inner_size` may grant the
+    /// resize synchronously (`Some`, in which case no separate `Resized` event will follow, so
+    /// `Gfx::resize` is called directly here) or asynchronously (`None`, in which case the
+    /// existing `WindowEvent::Resized` handler in `window_event` picks it up when it fires).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn set_window_scale(active: &mut Active, scale: u32) {
+        let scale = scale.clamp(1, 4);
+        if active.shell.fullscreen {
+            active.shell.fullscreen = false;
+            active.window.set_fullscreen(None);
+            active.applied_fullscreen = false;
+        }
+        let (w, h) = Self::chrome_padded_size(scale);
+        if let Some(granted) = active
+            .window
+            .request_inner_size(winit::dpi::LogicalSize::new(w, h))
+        {
+            active.gfx.resize(granted.width, granted.height);
+        }
+        active.shell.status = format!("Window size: {scale}x ({}%)", scale * 100);
     }
 
     /// Shared post-`Gfx`-init setup, called by `resumed` on native and by
@@ -1334,6 +1401,16 @@ impl App {
                     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     let pct = (speed * 100.0).round() as u32;
                     active.shell.status = format!("Speed: {pct}%");
+                }
+                MenuAction::SetWindowScale(scale) => {
+                    // Native only (View → Window Size); the wasm32 canvas is sized by the page's
+                    // own CSS, so this menu entry doesn't exist there (`ui_shell.rs`) but the
+                    // variant itself stays unconditional to keep this match exhaustive on both
+                    // targets.
+                    #[cfg(not(target_arch = "wasm32"))]
+                    Self::set_window_scale(active, scale);
+                    #[cfg(target_arch = "wasm32")]
+                    let _ = scale;
                 }
                 MenuAction::DismissWelcome => {
                     config.first_run_seen = true;

@@ -186,7 +186,8 @@ authoritative reference if a binding above ever looks stale:
                Rewind, Save States... (10-slot thumbnail manager), Region,
                Speed (25%-300% presets)
   Tools ...... Cheats / Netplay / RetroAchievements windows (feature-gated)
-  View ....... Integer scale, Performance panel, Fullscreen
+  View ....... Integer scale, Performance panel, Fullscreen,
+               Window Size (1x-4x, native only)
   Debug ...... Debugger overlay (feature-gated: debug-hooks)"
         }
         "gamepad" => {

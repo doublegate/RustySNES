@@ -57,6 +57,10 @@ pub enum MenuAction {
     /// session-only, never persisted to `config.toml`, always launches at `1.0`x — the
     /// determinism-safe default).
     SetSpeed(f32),
+    /// Resize the window to `scale`x the SNES native resolution (`v1.3.0`, View → Window Size;
+    /// RustyNES parity) — `1..=4`. Native only; a no-op on `wasm32` (the canvas size is
+    /// controlled by the page). Transient, same posture as [`Self::SetSpeed`] — no config field.
+    SetWindowScale(u32),
     /// Toggle the debugger overlay visibility.
     ToggleDebugger,
     /// Open the Settings window.
@@ -489,6 +493,23 @@ impl ShellState {
                     ui.menu_button("Post-filter", |ui| {
                         for filter in crate::config::PostFilter::all() {
                             ui.radio_value(&mut cfg.video.filter, filter, filter.display_name());
+                        }
+                    });
+                    // Window Size (`v1.3.0`, RustyNES parity) -- native only, a real OS window
+                    // resize; meaningless on `wasm32` (the canvas size is controlled by the page,
+                    // not the app).
+                    #[cfg(not(target_arch = "wasm32"))]
+                    ui.menu_button("Window Size", |ui| {
+                        for (label, scale) in [
+                            ("1x (100%)", 1u32),
+                            ("2x (200%)", 2),
+                            ("3x (300%)", 3),
+                            ("4x (400%)", 4),
+                        ] {
+                            if ui.button(label).clicked() {
+                                actions.push(MenuAction::SetWindowScale(scale));
+                                ui.close();
+                            }
                         }
                     });
                     // TODO(impl-phase): overscan.

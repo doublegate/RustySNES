@@ -34,13 +34,6 @@ pub use rustysnes_core::facade::{
 /// The SNES display aspect ratio (4:3) the blit letterboxes the framebuffer into.
 const TARGET_ASPECT: f32 = 4.0 / 3.0;
 
-/// A backstop cap on [`Gfx::upload`]'s `w`/`h` and [`Gfx::ensure_texture_capacity`]'s growth,
-/// matching this device's requested `wgpu::Limits::downlevel_webgl2_defaults()`
-/// `max_texture_dimension_2d` (2048) — well above any real HD texture pack scale factor this
-/// project currently produces (`v1.3.0`'s fixed 2x upscale tops out at 1024×896 for a hi-res
-/// frame), so this only ever rejects a genuinely pathological input, never real use.
-const MAX_TEXTURE_DIM: u32 = 2048;
-
 /// Resolve the configured present-mode string against the surface's supported modes.
 ///
 /// Recognized (case-insensitive): `"fifo"` (vsync; safe default), `"mailbox"` (triple-buffered,
@@ -91,6 +84,12 @@ pub struct Gfx {
     texture_w: u32,
     /// See [`Self::texture_w`].
     texture_h: u32,
+    /// This device's actual granted `max_texture_dimension_2d` (queried once, right after
+    /// `request_device`) — the real backstop [`Self::upload`]/[`Self::ensure_texture_capacity`]
+    /// clamp to, replacing a former hardcoded `2048` constant that was wrong on native (native
+    /// requests `downlevel_defaults()` floored by the adapter's own limits, not the
+    /// WebGL2-conservative preset — see [`Self::new_async`]'s device-limits comment).
+    max_texture_dim: u32,
     /// The bind group binding `texture` + the nearest sampler + the blit uniform.
     bind_group: wgpu::BindGroup,
     /// The fullscreen-triangle blit pipeline.
@@ -173,17 +172,31 @@ impl Gfx {
                 .map_err(|e| GfxError::Adapter(e.to_string()))?;
             (instance, surface, adapter)
         };
+        // Native gets `downlevel_defaults()` (a much higher `max_texture_dimension_2d` ceiling —
+        // effectively adapter-driven); only the wasm32/WebGL2 backend needs the conservative
+        // `downlevel_webgl2_defaults()` floor. Both branches call `.using_resolution(adapter.
+        // limits())` to raise every limit up to whatever the adapter actually reports where that's
+        // higher than the base preset -- without it, a fixed 2048 `max_texture_dimension_2d` on
+        // EVERY platform (including native desktops with GPUs supporting 8192/16384) rejected any
+        // `Surface::configure` wider/taller than 2048, crashing fullscreen on e.g. a 3440x1440
+        // ultrawide monitor. Ported from RustyNES's own `gfx.rs` (the same fix, same reasoning).
+        #[cfg(target_arch = "wasm32")]
+        let required_limits =
+            wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits());
+        #[cfg(not(target_arch = "wasm32"))]
+        let required_limits = wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits());
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("rustysnes-device"),
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
+                required_limits,
                 memory_hints: wgpu::MemoryHints::Performance,
                 trace: wgpu::Trace::Off,
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
             })
             .await
             .map_err(|e| GfxError::Device(e.to_string()))?;
+        let max_texture_dim = device.limits().max_texture_dimension_2d;
 
         let caps = surface.get_capabilities(&adapter);
         // Color-space handling differs by backend. On native (Vulkan/Metal/DX12) we render
@@ -224,11 +237,14 @@ impl Gfx {
         } else {
             wgpu::TextureFormat::Rgba8Unorm
         };
+        // Clamped to `max_texture_dim` for the same reason `Gfx::resize` clamps -- an initial
+        // window size beyond the device's real `max_texture_dimension_2d` would otherwise panic
+        // `Surface::configure` before `Gfx` even finishes constructing.
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
-            width: size.width.max(1),
-            height: size.height.max(1),
+            width: size.width.max(1).min(max_texture_dim),
+            height: size.height.max(1).min(max_texture_dim),
             present_mode: select_present_mode(present_pref, &caps.present_modes),
             desired_maximum_frame_latency: 2,
             alpha_mode: caps.alpha_modes[0],
@@ -339,6 +355,7 @@ impl Gfx {
             framebuffer_format,
             texture_w: MAX_W,
             texture_h: MAX_H,
+            max_texture_dim,
             bind_group,
             pipeline,
             uniform_buf,
@@ -433,10 +450,10 @@ impl Gfx {
             return;
         }
         // Enforced here, not just by `Self::upload`'s own pre-check -- this function's own doc
-        // promises the `MAX_TEXTURE_DIM` cap, so it must hold regardless of what a future caller
+        // promises the `max_texture_dim` cap, so it must hold regardless of what a future caller
         // passes in, not only for the one caller that happens to check first today.
-        let new_w = w.max(self.texture_w).min(MAX_TEXTURE_DIM);
-        let new_h = h.max(self.texture_h).min(MAX_TEXTURE_DIM);
+        let new_w = w.max(self.texture_w).min(self.max_texture_dim);
+        let new_h = h.max(self.texture_h).min(self.max_texture_dim);
         self.texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("rustysnes-framebuffer"),
             size: wgpu::Extent3d {
@@ -620,12 +637,20 @@ impl Gfx {
     }
 
     /// Re-negotiate the surface on a window resize.
+    ///
+    /// Clamped to `self.max_texture_dim` — this device's actual granted
+    /// `max_texture_dimension_2d` — as a defensive backstop: `Surface::configure` panics on a
+    /// validation error (not a recoverable `Result`) if asked for a size beyond it, which is
+    /// exactly what a fullscreen request on a monitor wider/taller than the limit used to hit
+    /// before `Self::new_async` started requesting `downlevel_defaults().using_resolution(...)`
+    /// on native. On any GPU with a real texture-dimension ceiling this clamp only crops the
+    /// window slightly rather than crashing the process.
     pub fn resize(&mut self, w: u32, h: u32) {
         if w == 0 || h == 0 {
             return;
         }
-        self.config.width = w;
-        self.config.height = h;
+        self.config.width = w.min(self.max_texture_dim);
+        self.config.height = h.min(self.max_texture_dim);
         self.surface.configure(&self.device, &self.config);
     }
 
@@ -634,11 +659,11 @@ impl Gfx {
     /// RustyNES ROM-close fix: never feed wgpu an empty/short source). Grows the streaming
     /// texture first if needed (`v1.3.0`, an HD texture pack's composited output can exceed the
     /// plain [`MAX_W`]/[`MAX_H`] hi-res worst case — see `Self::ensure_texture_capacity`);
-    /// `w`/`h` are still capped to `MAX_TEXTURE_DIM` (this device's actual downlevel-WebGL2
+    /// `w`/`h` are still capped to `self.max_texture_dim` (this device's actual granted
     /// `max_texture_dimension_2d`), well above any real HD-pack scale factor this project
     /// currently produces, as a backstop against a pathological input.
     pub fn upload(&mut self, rgba: &[u8], w: u32, h: u32) {
-        if w == 0 || h == 0 || w > MAX_TEXTURE_DIM || h > MAX_TEXTURE_DIM {
+        if w == 0 || h == 0 || w > self.max_texture_dim || h > self.max_texture_dim {
             return;
         }
         if rgba.len() < (w as usize) * (h as usize) * 4 {

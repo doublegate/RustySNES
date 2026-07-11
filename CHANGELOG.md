@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Window Size presets** (native only) — View → Window Size offers 1x/2x/3x/4x (100%-400%) of
+  the SNES native resolution, matching RustyNES; the app now launches at 3x by default instead of
+  a fixed 512x448 window.
+
+### Fixed
+
+- **Fullscreen crash on monitors wider/taller than 2048px** — `Gfx` requested
+  `wgpu::Limits::downlevel_webgl2_defaults()` unconditionally on every target, capping
+  `max_texture_dimension_2d` at 2048 even on native GPUs that support far more. Fullscreening on
+  e.g. a 3440x1368 ultrawide made `Surface::configure` receive an out-of-range request and
+  panic/abort (`wgpu::Surface::configure` has no recoverable error path here). Native now requests
+  `downlevel_defaults()` and both targets call `.using_resolution(adapter.limits())`, raising the
+  floor preset to match the real adapter; the granted limit is tracked at runtime and enforced
+  everywhere the old hardcoded 2048 constant was.
+
 ## [1.3.0] "Palimpsest" - 2026-07-11
 
 **Oracle/golden suites: all held, no regressions.** The full workspace test suite (455 tests,
