@@ -998,11 +998,17 @@ impl Ppu {
     /// Off by default. Toggling this never changes [`Ppu::framebuffer`]'s bytes for the same
     /// input — only whether [`Ppu::tile_tags`] gets populated alongside it (see
     /// `hd_pack_tagging_toggle_does_not_alter_framebuffer_output` in this module's tests for the
-    /// regression proof). A host/frontend convenience switch, never part of
-    /// `save_state`/`load_state`.
+    /// regression proof). Turning tagging OFF also clears every entry back to
+    /// [`hdtag::TileTag::default`] — without this, a caller could otherwise observe stale tags
+    /// from the last frame tagging was on, contradicting [`Ppu::tile_tags`]'s own "every entry is
+    /// default unless tagging was on while that pixel was rendered" guarantee. A host/frontend
+    /// convenience switch, never part of `save_state`/`load_state`.
     #[cfg(feature = "hd-pack")]
-    pub const fn set_hd_pack_tagging(&mut self, enabled: bool) {
+    pub fn set_hd_pack_tagging(&mut self, enabled: bool) {
         self.hd_pack_tagging = enabled;
+        if !enabled {
+            self.tile_tags.fill(hdtag::TileTag::default());
+        }
     }
 
     /// Whether [`hdtag::TileTag`] recording is currently enabled.

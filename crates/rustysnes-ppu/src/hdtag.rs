@@ -28,8 +28,6 @@
 //! different entries) — matching Mesen2's own `HdTileKey` precedent exactly, trading storage for
 //! zero recoloring math in the render hot path.
 
-use alloc::vec::Vec;
-
 /// Which PPU render path produced a tile.
 ///
 /// Included in the hash (not just its own bookkeeping field) because the SAME
@@ -82,22 +80,32 @@ pub struct TileTag {
 /// malformed external data).
 #[must_use]
 pub fn hash_tile(class: TileClass, bpp: u8, tile_words: &[u16], palette: &[u16]) -> u64 {
-    let mut buf = Vec::with_capacity(2 + tile_words.len() * 2 + palette.len() * 2);
-    buf.push(class as u8);
-    buf.push(bpp);
-    for &w in tile_words {
-        buf.extend_from_slice(&w.to_le_bytes());
+    // Fixed-size stack buffer -- this is called on the rendering hot path (once per composited
+    // pixel when tagging is on), and every legitimate input is statically bounded (at most 64
+    // words for a Mode 7 block, at most 256 colors for bpp=8), so a `Vec` heap allocation here
+    // would violate this project's allocation-free-hot-path rule. Lengths are clamped, not
+    // trusted verbatim -- a caller exceeding the documented maximum is a caller bug (per this
+    // function's own doc above), so it's silently truncated rather than panicking.
+    let mut buf = [0u8; 2 + 64 * 2 + 256 * 2];
+    buf[0] = class as u8;
+    buf[1] = bpp;
+    let mut len = 2;
+    for &w in &tile_words[..tile_words.len().min(64)] {
+        buf[len..len + 2].copy_from_slice(&w.to_le_bytes());
+        len += 2;
     }
-    for &c in palette {
-        buf.extend_from_slice(&c.to_le_bytes());
+    for &c in &palette[..palette.len().min(256)] {
+        buf[len..len + 2].copy_from_slice(&c.to_le_bytes());
+        len += 2;
     }
-    xxhash_rust::xxh3::xxh3_64(&buf)
+    xxhash_rust::xxh3::xxh3_64(&buf[..len])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use alloc::vec;
+    use alloc::vec::Vec;
 
     #[test]
     fn same_input_hashes_identically() {

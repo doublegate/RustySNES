@@ -1332,6 +1332,37 @@ mod tests {
 
     #[cfg(feature = "hd-pack")]
     #[test]
+    fn turning_tagging_off_clears_stale_tags_from_a_prior_frame() {
+        let mut p = Ppu::new();
+        p.set_hd_pack_tagging(true);
+        p.write_reg(0x2100, 0x80);
+        p.write_reg(0x2105, 0x00);
+        p.write_reg(0x2107, 0x00);
+        p.write_reg(0x210b, 0x01);
+        cgram_set(&mut p, 1, 0x001f);
+        vram_set(&mut p, 0x0000, 0x0000);
+        vram_set(&mut p, 0x1000, 0x0080);
+        p.write_reg(0x2100, 0x0f);
+        p.write_reg(0x212c, 0x01);
+        run_frame(&mut p);
+        assert_ne!(
+            p.tile_tags()[0].hash,
+            0,
+            "sanity: tagging-on frame actually recorded a tag"
+        );
+
+        p.set_hd_pack_tagging(false);
+        assert!(
+            p.tile_tags()
+                .iter()
+                .all(|t| *t == crate::hdtag::TileTag::default()),
+            "turning tagging off must clear stale tags from the last tagged frame, not just stop \
+             updating them"
+        );
+    }
+
+    #[cfg(feature = "hd-pack")]
+    #[test]
     fn hd_pack_tagging_records_the_documented_hash_for_a_known_bg_tile() {
         let p = render_mode0_one_tile_scene(|p| p.set_hd_pack_tagging(true));
 

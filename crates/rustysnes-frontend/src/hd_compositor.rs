@@ -2,13 +2,16 @@
 //!
 //! Takes the native framebuffer (already BGR555 → RGBA8 decoded, `crate::gfx::bgr555_to_rgba8`)
 //! plus the PPU's per-pixel [`rustysnes_core::ppu::hdtag::TileTag`] side-buffer and a loaded
-//! [`crate::hd_pack::HdPack`], and produces an upscaled RGBA8 buffer: every 8×8 output cell whose
-//! sampled tag hash matches a pack entry is replaced by that entry's decoded image (mirrored per
-//! the tag's `hflip`/`vflip` — both tile orientations share one pack entry, see `hdtag`'s module
-//! doc); every other cell is nearest-neighbor-upscaled from its native low-res color instead —
-//! the standard per-tile graceful fallback that lets "some tiles replaced, others native" work in
-//! one frame. Wiring this into the live wgpu present path (`gfx.rs`) is a follow-up; these
-//! functions are deliberately pure (no wgpu/`EmuCore` dependency) so they're testable standalone.
+//! [`crate::hd_pack::HdPack`], and produces an upscaled RGBA8 buffer at a fixed `(fb_w * scale,
+//! fb_h * scale)` output resolution: every 8×8 output cell whose sampled tag hash matches a pack
+//! entry is resampled from that entry's own decoded image into its `scale`-sized output region
+//! (mirrored per the tag's `hflip`/`vflip` — both tile orientations share one pack entry, see
+//! `hdtag`'s module doc), so a replacement image at any source resolution still fills exactly
+//! one output cell; every other cell is nearest-neighbor-upscaled from its native low-res color
+//! instead — the standard per-tile graceful fallback that lets "some tiles replaced, others
+//! native" work in one frame. Wiring this into the live wgpu present path (`gfx.rs`) is a
+//! follow-up; these functions are deliberately pure (no wgpu/`EmuCore` dependency) so they're
+//! testable standalone.
 
 use std::collections::HashMap;
 
@@ -21,10 +24,10 @@ use crate::hd_pack::DecodedTile;
 /// `fb_rgba` (`fb_w * fb_h * 4` RGBA8 bytes) and `tags` (`fb_w * fb_h` entries, indexed
 /// identically to `fb_rgba` — i.e. exactly [`rustysnes_core::ppu::Ppu::framebuffer`]/
 /// [`rustysnes_core::ppu::Ppu::tile_tags`]'s own pairing) combine with `pack`'s decoded tiles
-/// into an `(fb_w * scale, fb_h * scale)` output. `scale` only controls the *fallback*
-/// nearest-neighbor path's upscale factor — a hash-matched cell is drawn at its own replacement
-/// image's native resolution instead, so packs mixing tile resolutions are fine. Returns
-/// `(out_w, out_h, out_rgba)`.
+/// into a fixed `(fb_w * scale, fb_h * scale)` output — `scale` sets every cell's output size,
+/// whether it ends up nearest-upscaled native color or a resampled pack replacement; a
+/// replacement image's own resolution only affects how it's resampled to fit that fixed cell
+/// size, so packs mixing tile resolutions are fine. Returns `(out_w, out_h, out_rgba)`.
 ///
 /// Each 8×8 output cell is sampled once, at its top-left source pixel — real content never tags
 /// a single tile's interior with two different hashes, so this is exact, not an approximation.
@@ -118,7 +121,19 @@ fn blit_native_upscale(
 
 /// Resample `tile`'s own decoded image onto the `(dst_w, dst_h)` output region at `(ox0, oy0)`,
 /// mirroring the source rect per `hflip`/`vflip`.
-#[allow(clippy::too_many_arguments)]
+// `similar_names`: `tile_w64`/`tile_h64` is the clearest short pairing for "the u64-widened
+// tile.width/height" -- matches this project's existing precedent of allowing the lint where a
+// short, consistent naming scheme reads better than an artificially-diverged one (e.g.
+// `rustysnes-ppu`'s Mode-7 `a`/`b`/`c`/`d` matrix). `cast_possible_truncation`: every value cast
+// back to `u32`/`usize` here is mathematically bounded by `tile.width`/`tile.height` (both
+// already `u32`) or a small multiple of one, per the reasoning below -- the `u64` widening exists
+// solely to keep the intermediate multiply from overflowing, not to hold a value that could
+// itself exceed `u32::MAX`/`usize::MAX` on any real image.
+#[allow(
+    clippy::too_many_arguments,
+    clippy::similar_names,
+    clippy::cast_possible_truncation
+)]
 fn blit_replacement(
     out: &mut [u8],
     out_w: u32,
@@ -133,21 +148,26 @@ fn blit_replacement(
     if tile.width == 0 || tile.height == 0 || dst_w == 0 || dst_h == 0 {
         return;
     }
+    // `tile.width`/`tile.height` come from a decoded PNG's own declared dimensions -- a
+    // pack-supplied image could in principle declare dimensions large enough that a plain `u32`
+    // `y * tile.height` (etc.) overflows, so every source-coordinate computation here goes
+    // through `u64` and is cast back down only for the final bounds-checked slice index.
+    let (tile_w64, tile_h64) = (u64::from(tile.width), u64::from(tile.height));
     for y in 0..dst_h {
-        let unflipped_y = y * tile.height / dst_h;
+        let unflipped_y = (u64::from(y) * tile_h64 / u64::from(dst_h)) as u32;
         let sy = if vflip {
             tile.height - 1 - unflipped_y
         } else {
             unflipped_y
         };
         for x in 0..dst_w {
-            let unflipped_x = x * tile.width / dst_w;
+            let unflipped_x = (u64::from(x) * tile_w64 / u64::from(dst_w)) as u32;
             let sx = if hflip {
                 tile.width - 1 - unflipped_x
             } else {
                 unflipped_x
             };
-            let src = ((sy * tile.width + sx) as usize) * 4;
+            let src = ((u64::from(sy) * tile_w64 + u64::from(sx)) * 4) as usize;
             let Some(px) = tile.rgba.get(src..src + 4) else {
                 continue;
             };

@@ -1,11 +1,12 @@
 //! HD texture pack manifest types (`v1.3.0`, `hd-pack` feature).
 //!
 //! This module owns only the manifest **schema** — a TOML `pack.toml` deserializes into
-//! [`HdPackManifest`], keyed per tile by the hex tile-identity hash `rustysnes_ppu::hdtag::hash_tile`
-//! computes core-side. There is no direct crate dependency on `rustysnes-ppu` here (the
-//! one-directional crate-graph rule — the frontend depends on `rustysnes-core` only); the
-//! [`TileClass`] enum in this module mirrors the core's `rustysnes_ppu::hdtag::TileClass`
-//! discriminants by convention, not by shared type.
+//! [`HdPackManifest`], keyed per tile by the hex tile-identity hash
+//! `rustysnes_core::ppu::hdtag::hash_tile` computes core-side. There is no direct crate
+//! dependency on `rustysnes-ppu` here (the one-directional crate-graph rule — the frontend
+//! depends on `rustysnes-core` only, reaching the PPU's hashing module through its existing `ppu`
+//! re-export); the [`TileClass`] enum in this module mirrors
+//! `rustysnes_core::ppu::hdtag::TileClass`'s discriminants by convention, not by shared type.
 //!
 //! Directory convention (mirrors `save_states.rs`'s per-ROM-hash layout):
 //! `<data_dir>/hd-packs/<rom_sha256_hex>/<pack-name>/pack.toml` + `tiles/*.png`. [`HdPack::load`]
@@ -30,10 +31,10 @@ pub const FORMAT_VERSION: u32 = 1;
 
 /// Which PPU render path a tile entry targets.
 ///
-/// Mirrors `rustysnes_ppu::hdtag::TileClass`'s three variants (`Bg` = 0, `Obj` = 1, `Mode7` = 2)
-/// — the same tile can only ever have been produced by one of these three paths, so a manifest
-/// entry must say which to disambiguate a hash collision across paths (the same reasoning as the
-/// core-side hash's own class discriminant).
+/// Mirrors `rustysnes_core::ppu::hdtag::TileClass`'s three variants (`Bg` = 0, `Obj` = 1,
+/// `Mode7` = 2) — the same tile can only ever have been produced by one of these three paths, so
+/// a manifest entry must say which to disambiguate a hash collision across paths (the same
+/// reasoning as the core-side hash's own class discriminant).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TileClass {
@@ -49,21 +50,23 @@ pub enum TileClass {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TileEntry {
     /// The tile-identity hash, hex-encoded (e.g. `"3a7493ef1d8af377"`), matching
-    /// `rustysnes_ppu::hdtag::hash_tile`'s `u64` output formatted as lowercase hex with no `0x`
-    /// prefix — the same convention `save_states.rs::hex` uses for ROM hashes.
+    /// `rustysnes_core::ppu::hdtag::hash_tile`'s `u64` output — conventionally written as
+    /// lowercase hex with no `0x` prefix (the same convention `save_states.rs::hex` uses for ROM
+    /// hashes), but [`TileEntry::hash_value`] parses either case.
     pub hash: String,
     /// Which render path produced this tile.
     pub class: TileClass,
-    /// Bits per pixel of the source tile (2/4/8), included for the loader's own sanity check
-    /// against the replacement image's declared size — not itself part of matching (the hash
-    /// already folds bpp in).
+    /// Bits per pixel of the source tile (2/4/8) — informational metadata carried alongside the
+    /// hash (which already folds `bpp` into its own input, so this field plays no role in
+    /// matching); not currently validated by the loader against the replacement image's own
+    /// declared size.
     pub bpp: u8,
     /// The replacement image path, relative to the pack directory (e.g. `"tiles/0042.png"`).
     pub image: String,
 }
 
 impl TileEntry {
-    /// Parse [`TileEntry::hash`] as a `u64`, or `None` if it isn't valid lowercase hex.
+    /// Parse [`TileEntry::hash`] as a `u64`, or `None` if it isn't valid hex (either case).
     #[must_use]
     pub fn hash_value(&self) -> Option<u64> {
         u64::from_str_radix(&self.hash, 16).ok()
@@ -128,8 +131,12 @@ pub enum HdPackError {
     Png(png::DecodingError),
     /// The manifest's `format_version` isn't [`FORMAT_VERSION`].
     UnsupportedVersion(u32),
-    /// A [`TileEntry::hash`] isn't valid lowercase hex.
+    /// A [`TileEntry::hash`] isn't valid hex.
     InvalidHash(String),
+    /// Two tile entries in the same manifest declared the same [`TileEntry::hash_value`] —
+    /// almost certainly a manifest authoring mistake (the second entry would otherwise silently
+    /// win, making pack behavior depend on entry order), so this is rejected outright.
+    DuplicateHash(String),
 }
 
 impl fmt::Display for HdPackError {
@@ -143,6 +150,7 @@ impl fmt::Display for HdPackError {
                 "unsupported pack format_version {v} (expected {FORMAT_VERSION})"
             ),
             Self::InvalidHash(h) => write!(f, "tile entry has an invalid hash {h:?}"),
+            Self::DuplicateHash(h) => write!(f, "duplicate tile entry hash {h:?}"),
         }
     }
 }
@@ -184,10 +192,36 @@ impl HdPack {
             let hash = entry
                 .hash_value()
                 .ok_or_else(|| HdPackError::InvalidHash(entry.hash.clone()))?;
-            tiles.insert(hash, decode_png(&dir.join(&entry.image))?);
+            if tiles.contains_key(&hash) {
+                return Err(HdPackError::DuplicateHash(entry.hash.clone()));
+            }
+            let image_path = resolve_tile_image_path(dir, &entry.image)?;
+            tiles.insert(hash, decode_png(&image_path)?);
         }
         Ok(Self { manifest, tiles })
     }
+}
+
+/// Join `dir` with `image` (a manifest-declared, therefore untrusted, relative path), rejecting
+/// any component that could escape `dir` (`..`, an absolute root, or a Windows drive prefix) --
+/// a malicious or malformed `pack.toml` must not be able to make the loader read/decode a file
+/// outside the pack's own directory.
+fn resolve_tile_image_path(dir: &Path, image: &str) -> Result<PathBuf, HdPackError> {
+    use std::path::Component;
+    let image_path = Path::new(image);
+    let escapes = image_path.components().any(|c| {
+        matches!(
+            c,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    });
+    if escapes {
+        return Err(HdPackError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("tile image path {image:?} escapes the pack directory"),
+        )));
+    }
+    Ok(dir.join(image_path))
 }
 
 /// Decode `path` as a PNG, normalizing to RGBA8 regardless of source color type/bit depth.
@@ -220,7 +254,10 @@ fn decode_png(path: &Path) -> Result<DecodedTile, HdPackError> {
 /// Expand a decoded PNG frame's raw bytes to RGBA8, given its (post-transformation) color type.
 fn rgba8_from_frame(bytes: &[u8], color_type: png::ColorType, width: u32, height: u32) -> Vec<u8> {
     let pixel_count = (width as usize) * (height as usize);
-    let mut out = Vec::with_capacity(pixel_count * 4);
+    // Grown organically rather than `Vec::with_capacity(pixel_count * 4)` -- `width`/`height`
+    // come straight from the PNG header (untrusted input), and a huge declared size shouldn't
+    // force a huge up-front allocation before any real pixel data has actually been read.
+    let mut out = Vec::new();
     match color_type {
         png::ColorType::Grayscale => {
             for &g in bytes.iter().take(pixel_count) {
@@ -371,6 +408,15 @@ mod tests {
     }
 
     #[test]
+    fn hash_value_accepts_uppercase_hex_too() {
+        let upper = TileEntry {
+            hash: "3A7493EF1D8AF377".into(),
+            ..sample_manifest().tiles[0].clone()
+        };
+        assert_eq!(upper.hash_value(), Some(0x3a74_93ef_1d8a_f377_u64));
+    }
+
+    #[test]
     fn tile_class_serializes_lowercase() {
         // `toml::to_string` requires a top-level table, so a bare enum can't round-trip alone --
         // exercise the `#[serde(rename_all = "lowercase")]` attribute through a real manifest
@@ -482,6 +528,38 @@ mod tests {
     fn load_missing_manifest_is_an_io_error() {
         let dir = TempDir::new("load-missing");
         let err = HdPack::load(&dir.0).expect_err("must fail without a pack.toml");
+        assert!(matches!(err, HdPackError::Io(_)));
+    }
+
+    #[test]
+    fn load_rejects_duplicate_tile_hashes() {
+        let dir = TempDir::new("load-dup-hash");
+        std::fs::write(
+            dir.0.join("pack.toml"),
+            "format_version = 1\nname = \"Dup\"\n\n\
+             [[tiles]]\nhash = \"00000000000000ab\"\nclass = \"bg\"\nbpp = 2\nimage = \"a.png\"\n\n\
+             [[tiles]]\nhash = \"00000000000000ab\"\nclass = \"obj\"\nbpp = 4\nimage = \"b.png\"\n",
+        )
+        .unwrap();
+        write_test_png(&dir.0.join("a.png"));
+        write_test_png(&dir.0.join("b.png"));
+
+        let err = HdPack::load(&dir.0).expect_err("must reject the duplicate hash");
+        assert!(matches!(err, HdPackError::DuplicateHash(_)));
+    }
+
+    #[test]
+    fn load_rejects_a_tile_image_path_that_escapes_the_pack_directory() {
+        let dir = TempDir::new("load-path-traversal");
+        std::fs::write(
+            dir.0.join("pack.toml"),
+            "format_version = 1\nname = \"Evil\"\n\n\
+             [[tiles]]\nhash = \"00000000000000ab\"\nclass = \"bg\"\nbpp = 2\n\
+             image = \"../../../../etc/passwd\"\n",
+        )
+        .unwrap();
+
+        let err = HdPack::load(&dir.0).expect_err("must reject the escaping path");
         assert!(matches!(err, HdPackError::Io(_)));
     }
 
