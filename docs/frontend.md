@@ -119,10 +119,9 @@ Video (a radio row + per-filter strength sliders) or the View → Post-filter su
 
 ## HD texture packs (`v1.3.0`, `hd-pack` feature)
 
-**Status: loader, compositor, `EmuCore` pack management, and the Settings pack selector are all
-implemented; not yet wired into the live wgpu present path (follow-up work — see `docs/adr/0010`).**
-See `docs/ppu.md`'s own "HD texture pack `TileTag` recording hook" section for the core-side half
-of this feature (the write-only per-pixel tile-identity side-buffer).
+**Status: fully implemented and wired into the live present path.** See `docs/ppu.md`'s own "HD
+texture pack `TileTag` recording hook" section for the core-side half of this feature (the
+write-only per-pixel tile-identity side-buffer).
 
 - **Feature propagation**: `rustysnes-frontend/hd-pack` → `rustysnes-core/hd-pack` →
   `rustysnes-ppu/hd-pack`. The frontend never depends on `rustysnes-ppu` directly (the
@@ -158,11 +157,25 @@ of this feature (the write-only per-pixel tile-identity side-buffer).
   `available_hd_packs()`, dispatching `MenuAction::SetHdPack` on selection. `VideoConfig` gains
   `hd_pack_name: Option<String>` (default `None`, additive); the configured pack is re-selected
   automatically after loading a ROM (both the CLI-argument path and File → Open ROM).
-- **Not yet done**: invoking `hd_compositor::composite` from the live wgpu present path
-  (`gfx.rs`) in place of the plain framebuffer texture upload — selecting a pack today correctly
-  enables PPU-side tagging and persists the choice, but the frame actually presented on screen is
-  still the unmodified native framebuffer until that wiring lands (see `docs/adr/0010` and
-  `to-dos/ROADMAP.md`).
+- **Final integration** (`v1.3.0`): `app.rs`'s present path now calls `hd_compositor::composite`
+  (still under the brief `emu` lock — pure CPU work, no wgpu touched there) whenever a pack is
+  active, replacing the plain framebuffer with the composited RGBA8 buffer before
+  `Gfx::upload`, at a fixed `HD_PACK_SCALE = 2` upscale (`docs/adr/0010`'s documented v1 scope
+  choice — not yet user-configurable). `Gfx`'s streaming texture, previously a fixed `MAX_W ×
+  MAX_H` allocation, now grows via `Gfx::ensure_texture_capacity` to fit whatever the composited
+  output needs (a hi-res frame at 2x tops out at 1024×896, comfortably under the 2048
+  downlevel-WebGL2 `max_texture_dimension_2d` backstop); `Gfx::blit`/`Gfx::present`'s UV math
+  divides by the texture's *current* actual size, not the `MAX_W`/`MAX_H` constants, so this
+  stays correct after a grow. When no pack is active the texture never grows past its original
+  `MAX_W × MAX_H` allocation and this is pixel-identical to before — verified both by the
+  existing test suite and a real headless (`xvfb-run`) launch with no pack configured. Verified
+  separately via headless launches with a real generated pack (both at the default 2x scale, and
+  with scale temporarily forced to 3x specifically to exercise the texture-growth path) — all
+  ran clean with no panics or wgpu validation errors.
+- **Not yet done**: a user-configurable upscale factor (fixed at 2x for now) and `emu-thread`-
+  build compositing (that build's framebuffer arrives via a lock-free `PresentBuffer` handoff
+  outside the locked block this wiring reads `Ppu::tile_tags` from, with no equivalent `TileTag`
+  channel built yet) — both honestly tracked scope cuts, see `docs/adr/0010`.
 
 ## Global hotkeys (`v1.0.1`)
 

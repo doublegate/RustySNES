@@ -34,6 +34,13 @@ pub use rustysnes_core::facade::{
 /// The SNES display aspect ratio (4:3) the blit letterboxes the framebuffer into.
 const TARGET_ASPECT: f32 = 4.0 / 3.0;
 
+/// A backstop cap on [`Gfx::upload`]'s `w`/`h` and [`Gfx::ensure_texture_capacity`]'s growth,
+/// matching this device's requested `wgpu::Limits::downlevel_webgl2_defaults()`
+/// `max_texture_dimension_2d` (2048) — well above any real HD texture pack scale factor this
+/// project currently produces (`v1.3.0`'s fixed 2x upscale tops out at 1024×896 for a hi-res
+/// frame), so this only ever rejects a genuinely pathological input, never real use.
+const MAX_TEXTURE_DIM: u32 = 2048;
+
 /// Resolve the configured present-mode string against the surface's supported modes.
 ///
 /// Recognized (case-insensitive): `"fifo"` (vsync; safe default), `"mailbox"` (triple-buffered,
@@ -67,8 +74,23 @@ pub struct Gfx {
     pub surface: wgpu::Surface<'static>,
     /// The negotiated surface configuration (format + size + present mode).
     pub config: wgpu::SurfaceConfiguration,
-    /// The streaming framebuffer texture (sized to the hi-res worst case).
+    /// The streaming framebuffer texture. Initially sized to the hi-res worst case
+    /// ([`MAX_W`]/[`MAX_H`]); [`Self::ensure_texture_capacity`] grows it (rare — only when an
+    /// HD texture pack's composited output, `v1.3.0`, exceeds that) but never shrinks it.
     texture: wgpu::Texture,
+    /// The nearest-neighbor sampler bound to every bind group below — stored (not a one-off
+    /// local) so [`Self::ensure_texture_capacity`] can rebuild bind groups against a new texture
+    /// view without recreating the sampler too.
+    sampler: wgpu::Sampler,
+    /// [`Self::texture`]'s pixel format — stored so a capacity-growing resize can recreate an
+    /// identically-formatted texture.
+    framebuffer_format: wgpu::TextureFormat,
+    /// [`Self::texture`]'s current actual allocated size — starts at `(MAX_W, MAX_H)`, may grow
+    /// via [`Self::ensure_texture_capacity`]. The UV math in [`Self::blit`]/[`Self::present`]
+    /// divides by this, not the [`MAX_W`]/[`MAX_H`] constants, so it stays correct after a grow.
+    texture_w: u32,
+    /// See [`Self::texture_w`].
+    texture_h: u32,
     /// The bind group binding `texture` + the nearest sampler + the blit uniform.
     bind_group: wgpu::BindGroup,
     /// The fullscreen-triangle blit pipeline.
@@ -253,55 +275,14 @@ impl Gfx {
             label: Some("rustysnes-blit"),
             source: wgpu::ShaderSource::Wgsl(BLIT_WGSL.into()),
         });
-        let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("rustysnes-blit-bgl"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("rustysnes-blit-bg"),
-            layout: &bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: uniform_buf.as_entire_binding(),
-                },
-            ],
-        });
+        let (bgl, bind_group) = Self::build_bind_group(
+            &device,
+            &view,
+            &sampler,
+            &uniform_buf,
+            wgpu::ShaderStages::VERTEX,
+            "rustysnes-blit-bg",
+        );
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("rustysnes-blit-pl"),
             bind_group_layouts: &[Some(&bgl)],
@@ -354,6 +335,10 @@ impl Gfx {
             surface,
             config,
             texture,
+            sampler,
+            framebuffer_format,
+            texture_w: MAX_W,
+            texture_h: MAX_H,
             bind_group,
             pipeline,
             uniform_buf,
@@ -365,26 +350,21 @@ impl Gfx {
         })
     }
 
-    /// Build one [`FilterPipeline`] (`v1.2.0`) — same bind-group-layout shape for both
-    /// [`Self::crt`]/[`Self::hqx`] (texture + sampler + a 32-byte uniform, twice the plain blit's
-    /// 16-byte one to also carry the filter's own `params`), differing only in `shader_src`.
-    fn build_filter_pipeline(
+    /// Build a texture+sampler+uniform bind group of the shape every pass here uses (binding 0 =
+    /// texture, 1 = sampler, 2 = uniform buffer), differing only in the uniform binding's shader
+    /// visibility (the plain blit only reads it in the vertex stage; both filter passes also read
+    /// their own `params` half in the fragment stage). Shared by [`Self::new_async`]'s initial
+    /// blit bind group, [`Self::build_filter_pipeline`]'s crt/hqx bind groups, and
+    /// [`Self::ensure_texture_capacity`]'s resize path, so the three bind-group shapes can never
+    /// drift out of sync with each other.
+    fn build_bind_group(
         device: &wgpu::Device,
-        format: wgpu::TextureFormat,
         view: &wgpu::TextureView,
         sampler: &wgpu::Sampler,
-        shader_src: &str,
-        label: &'static str,
-    ) -> FilterPipeline {
-        let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(label),
-            contents: bytemuck::cast_slice(&[0.0f32; 8]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some(label),
-            source: wgpu::ShaderSource::Wgsl(shader_src.into()),
-        });
+        uniform_buf: &wgpu::Buffer,
+        uniform_visibility: wgpu::ShaderStages,
+        label: &str,
+    ) -> (wgpu::BindGroupLayout, wgpu::BindGroup) {
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some(label),
             entries: &[
@@ -406,7 +386,7 @@ impl Gfx {
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    visibility: uniform_visibility,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -434,6 +414,102 @@ impl Gfx {
                 },
             ],
         });
+        (bgl, bind_group)
+    }
+
+    /// Grow the streaming texture (+ every bind group referencing it) to fit at least `(w, h)`,
+    /// or do nothing if it already does (the fast path — two comparisons — taken on every upload
+    /// as long as `w`/`h` stay within [`MAX_W`]/[`MAX_H`], i.e. always when no HD texture pack is
+    /// active, `v1.3.0`).
+    ///
+    /// Only the texture/view/bind-groups are rebuilt, not the pipelines/shaders — a bind group's
+    /// compatibility with a pipeline is structural (matching layouts), not tied to the specific
+    /// `BindGroupLayout` object that built it, so a freshly created layout of the same shape
+    /// works against the original pipelines unchanged. This only ever grows, never shrinks, so a
+    /// pack needing a smaller texture than one already allocated doesn't force a reallocation
+    /// back down.
+    fn ensure_texture_capacity(&mut self, w: u32, h: u32) {
+        if w <= self.texture_w && h <= self.texture_h {
+            return;
+        }
+        // Enforced here, not just by `Self::upload`'s own pre-check -- this function's own doc
+        // promises the `MAX_TEXTURE_DIM` cap, so it must hold regardless of what a future caller
+        // passes in, not only for the one caller that happens to check first today.
+        let new_w = w.max(self.texture_w).min(MAX_TEXTURE_DIM);
+        let new_h = h.max(self.texture_h).min(MAX_TEXTURE_DIM);
+        self.texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("rustysnes-framebuffer"),
+            size: wgpu::Extent3d {
+                width: new_w,
+                height: new_h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.framebuffer_format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = self
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        (_, self.bind_group) = Self::build_bind_group(
+            &self.device,
+            &view,
+            &self.sampler,
+            &self.uniform_buf,
+            wgpu::ShaderStages::VERTEX,
+            "rustysnes-blit-bg",
+        );
+        (_, self.crt.bind_group) = Self::build_bind_group(
+            &self.device,
+            &view,
+            &self.sampler,
+            &self.crt.uniform_buf,
+            wgpu::ShaderStages::VERTEX_FRAGMENT,
+            "rustysnes-crt",
+        );
+        (_, self.hqx.bind_group) = Self::build_bind_group(
+            &self.device,
+            &view,
+            &self.sampler,
+            &self.hqx.uniform_buf,
+            wgpu::ShaderStages::VERTEX_FRAGMENT,
+            "rustysnes-hqx",
+        );
+        self.texture_w = new_w;
+        self.texture_h = new_h;
+    }
+
+    /// Build one [`FilterPipeline`] (`v1.2.0`) — same bind-group-layout shape for both
+    /// [`Self::crt`]/[`Self::hqx`] (texture + sampler + a 32-byte uniform, twice the plain blit's
+    /// 16-byte one to also carry the filter's own `params`), differing only in `shader_src`.
+    fn build_filter_pipeline(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        view: &wgpu::TextureView,
+        sampler: &wgpu::Sampler,
+        shader_src: &str,
+        label: &'static str,
+    ) -> FilterPipeline {
+        let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(label),
+            contents: bytemuck::cast_slice(&[0.0f32; 8]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(label),
+            source: wgpu::ShaderSource::Wgsl(shader_src.into()),
+        });
+        let (bgl, bind_group) = Self::build_bind_group(
+            device,
+            view,
+            sampler,
+            &uniform_buf,
+            wgpu::ShaderStages::VERTEX_FRAGMENT,
+            label,
+        );
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some(label),
             bind_group_layouts: &[Some(&bgl)],
@@ -555,14 +631,20 @@ impl Gfx {
 
     /// Upload an RGBA8 framebuffer (`w*h*4` bytes) into the streaming texture's top-left
     /// sub-rect and record the active mode dims. A length mismatch is skipped (mirrors the
-    /// RustyNES ROM-close fix: never feed wgpu an empty/short source).
+    /// RustyNES ROM-close fix: never feed wgpu an empty/short source). Grows the streaming
+    /// texture first if needed (`v1.3.0`, an HD texture pack's composited output can exceed the
+    /// plain [`MAX_W`]/[`MAX_H`] hi-res worst case — see `Self::ensure_texture_capacity`);
+    /// `w`/`h` are still capped to `MAX_TEXTURE_DIM` (this device's actual downlevel-WebGL2
+    /// `max_texture_dimension_2d`), well above any real HD-pack scale factor this project
+    /// currently produces, as a backstop against a pathological input.
     pub fn upload(&mut self, rgba: &[u8], w: u32, h: u32) {
-        if w == 0 || h == 0 || w > MAX_W || h > MAX_H {
+        if w == 0 || h == 0 || w > MAX_TEXTURE_DIM || h > MAX_TEXTURE_DIM {
             return;
         }
         if rgba.len() < (w as usize) * (h as usize) * 4 {
             return;
         }
+        self.ensure_texture_capacity(w, h);
         self.fb_w = w;
         self.fb_h = h;
         self.queue.write_texture(
@@ -624,9 +706,11 @@ impl Gfx {
     // UV + letterbox ratios; the precision loss is irrelevant for these layout fractions.
     #[allow(clippy::cast_precision_loss)]
     pub fn blit(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
-        // (a) UV scale: the live sub-rect within the MAX_W × MAX_H texture.
-        let uv_x = self.fb_w as f32 / MAX_W as f32;
-        let uv_y = self.fb_h as f32 / MAX_H as f32;
+        // (a) UV scale: the live sub-rect within the streaming texture's current actual capacity
+        // (`self.texture_w`/`texture_h` — not the `MAX_W`/`MAX_H` constants, which only describe
+        // the texture's initial size; see `Self::ensure_texture_capacity`).
+        let uv_x = self.fb_w as f32 / self.texture_w as f32;
+        let uv_y = self.fb_h as f32 / self.texture_h as f32;
         // (b) Letterbox: fit the 4:3 SNES display aspect inside the surface.
         let (pos_x, pos_y) = self.letterbox_scale();
         self.queue.write_buffer(
@@ -685,8 +769,8 @@ impl Gfx {
                 ],
             ),
         };
-        let uv_x = self.fb_w as f32 / MAX_W as f32;
-        let uv_y = self.fb_h as f32 / MAX_H as f32;
+        let uv_x = self.fb_w as f32 / self.texture_w as f32;
+        let uv_y = self.fb_h as f32 / self.texture_h as f32;
         let (pos_x, pos_y) = self.letterbox_scale();
         // One `write_buffer` call over the whole 32-byte uniform instead of two separate ones —
         // fewer queue-submission round trips in this per-frame hot path.

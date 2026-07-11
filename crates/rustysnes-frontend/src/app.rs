@@ -74,6 +74,14 @@ use crate::netplay::NetplayState;
 #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
 use crate::cheevos::CheevosState;
 
+/// The fixed upscale factor `crate::hd_compositor::composite` applies when an HD texture pack is
+/// active (`v1.3.0`). `2` keeps the composited output's worst case (a hi-res frame, 512×448 native
+/// → 1024×896) comfortably under [`crate::gfx`]'s `MAX_TEXTURE_DIM` (2048) backstop regardless of
+/// region. Not yet user-configurable — a fixed v1 scope choice (`docs/adr/0010`), not a
+/// technical ceiling: `Gfx::ensure_texture_capacity` grows to fit whatever scale is requested.
+#[cfg(all(not(feature = "emu-thread"), feature = "hd-pack"))]
+const HD_PACK_SCALE: u32 = 2;
+
 /// The typed winit user-event, used by both native and `wasm32`.
 ///
 /// On `wasm32` the wgpu init is async and the ROM arrives via the browser file picker, so
@@ -979,6 +987,27 @@ impl App {
             #[cfg(not(feature = "emu-thread"))]
             let (fb, dims) =
                 run_ahead_frame.unwrap_or_else(|| (emu.framebuffer().to_vec(), emu.fb_dims()));
+            // Composite the HD texture pack (`v1.3.0`), if one is active, while `emu` is still
+            // locked -- pure CPU work, no wgpu touched here, so this doesn't hold the lock any
+            // longer than the plain framebuffer copy above already did. Not wired for the
+            // `emu-thread` build: that build's framebuffer arrives via the lock-free
+            // `PresentBuffer` handoff below, outside this locked block, with no equivalent
+            // `TileTag` handoff yet -- a documented scope cut (`docs/frontend.md`), not silently
+            // dropped.
+            #[cfg(all(not(feature = "emu-thread"), feature = "hd-pack"))]
+            let (fb, dims) = if let Some((tags, tiles)) = emu.hd_pack_composite_inputs() {
+                let (out_w, out_h, out) = crate::hd_compositor::composite(
+                    &fb,
+                    dims.0,
+                    dims.1,
+                    &tags,
+                    tiles,
+                    HD_PACK_SCALE,
+                );
+                (out, (out_w, out_h))
+            } else {
+                (fb, dims)
+            };
             // `v1.1.0`: `dims` is cheap to read under the still-held `emu` lock; the actual
             // framebuffer BYTES come from the lock-free `PresentBuffer` handoff instead of
             // `emu.framebuffer()` — copied only AFTER `emu` is dropped below (see the `drop(emu)`

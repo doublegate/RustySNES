@@ -2,10 +2,9 @@
 
 ## Status
 
-Accepted (`v1.3.0`). The PPU-side hook, the frontend loader, and the pure CPU compositor are
-implemented; wiring the compositor into the live wgpu present path and persisting/auto-selecting
-a pack are landed at the Settings-UI/config level, but the actual texture swap in `gfx.rs` is not
-yet wired (tracked in `to-dos/ROADMAP.md`, not a gap this ADR pretends is closed).
+Accepted (`v1.3.0`). The PPU-side hook, the frontend loader, the pure CPU compositor, the
+Settings-UI/config pack selection, and (final integration) the live wgpu present-path wiring are
+all implemented — a selected pack's replacements are actually visible on screen.
 
 ## Context
 
@@ -93,7 +92,17 @@ precedent to follow verbatim:
   even when the great majority are untagged/native. This is an accepted, documented tradeoff for
   correctness-first delivery, not an oversight — see decision 3's atlas note for the known
   escape hatch.
-- (−) **The compositor is not yet wired into the live wgpu present path as of `v1.3.0`.** Settings
-  lets a user select and persist a pack, and PPU-side tagging turns on correctly, but the frame
-  actually presented on screen is still the unmodified native framebuffer until that wiring lands
-  — tracked explicitly in `to-dos/ROADMAP.md`, not silently implied as done.
+- (+) **The compositor is wired into the live wgpu present path.** `Gfx`'s streaming texture,
+  previously a fixed `MAX_W × MAX_H` allocation, now grows on demand
+  (`Gfx::ensure_texture_capacity`) to fit whatever the composited output needs, and its UV math
+  divides by the texture's actual current size rather than the `MAX_W`/`MAX_H` constants — a
+  pure generalization that leaves the no-pack-active path byte-identical (the texture never grows
+  past its original allocation when nothing composites a larger buffer into it). The upscale
+  factor is fixed at 2x (`HD_PACK_SCALE` in `app.rs`) rather than user-configurable — a scoped v1
+  choice, not a technical ceiling; a pack author wanting less resampling loss on higher-resolution
+  source images would need a future config knob, not an architecture change.
+- (−) **`emu-thread` + `hd-pack` together don't composite.** The `emu-thread` build's framebuffer
+  arrives via a lock-free `PresentBuffer` handoff outside the locked block the compositor reads
+  `Ppu::tile_tags` from; that build silently falls back to the plain native framebuffer when a
+  pack is selected. Building an equivalent `TileTag` handoff channel is a separate, deferred
+  scope (`docs/frontend.md`).

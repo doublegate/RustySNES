@@ -228,6 +228,30 @@ impl EmuCore {
         self.hd_pack.as_ref().map(|p| p.manifest.name.as_str())
     }
 
+    /// The inputs `crate::hd_compositor::composite` needs — a fresh copy of the PPU's per-pixel
+    /// `TileTag`s plus the active pack's decoded tiles — or `None` when no pack is active.
+    ///
+    /// A single accessor (rather than separate `tile_tags()`/`tiles()` methods a caller would
+    /// otherwise call one after the other) because the two halves need different borrow kinds
+    /// from `self` at different times: the tags come from a transient `&mut` reach through
+    /// `system_mut()` (immediately collected into an owned `Vec`, so that borrow ends before this
+    /// returns), while the tiles are a genuine `&self`-lifetime borrow of the pack's own map. Doing
+    /// that sequencing once here means a caller never needs to check "is a pack active" twice or
+    /// reach for an `.expect()` after already having confirmed it.
+    #[cfg(feature = "hd-pack")]
+    #[must_use]
+    pub fn hd_pack_composite_inputs(
+        &mut self,
+    ) -> Option<(
+        Vec<rustysnes_core::ppu::hdtag::TileTag>,
+        &std::collections::HashMap<u64, crate::hd_pack::DecodedTile>,
+    )> {
+        self.hd_pack.as_ref()?;
+        let tags = self.inner.system_mut().bus.ppu.tile_tags().to_vec();
+        let tiles = &self.hd_pack.as_ref()?.tiles;
+        Some((tags, tiles))
+    }
+
     /// Select (or clear, with `None`) the active HD texture pack for the current ROM.
     ///
     /// Loads `pack_name` from `<data_dir>/hd-packs/<rom_sha256_hex>/<pack_name>/`, enables
