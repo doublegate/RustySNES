@@ -231,6 +231,7 @@ fn run_loop(
         let idle =
             !control.has_rom.load(Ordering::Acquire) || control.user_paused.load(Ordering::Acquire);
         if idle {
+            pacer.idle(); // avoid a catch-up burst when resuming (Pacer::idle's own purpose).
             std::thread::park_timeout(IDLE_PARK);
             continue;
         }
@@ -317,8 +318,15 @@ fn elevate_thread_priority() {
     if rr {
         eprintln!("rustysnes: emu thread elevated to SCHED_RR priority 5.");
     } else {
-        // SAFETY: see above — `setpriority` on the calling thread.
-        let niced = unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, -10) == 0 };
+        // SAFETY: see above — `setpriority` on the calling thread, addressed by TID (not `0`,
+        // which would target the whole process's nice value under `PRIO_PROCESS`).
+        let niced = unsafe {
+            // A real TID is always a small positive value (Linux caps `pid_max` far below
+            // `u32::MAX`), so this cast never truncates or flips sign in practice.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let tid = libc::syscall(libc::SYS_gettid) as libc::id_t;
+            libc::setpriority(libc::PRIO_PROCESS, tid, -10) == 0
+        };
         if niced {
             eprintln!("rustysnes: emu thread niced to -10 (no RT rtprio limit).");
         } else {
@@ -331,7 +339,7 @@ fn elevate_thread_priority() {
     // SAFETY: `prctl(PR_SET_TIMERSLACK, ...)` sets this thread's timer slack (always permitted
     // for one's own thread); extra args are ignored.
     unsafe {
-        libc::prctl(libc::PR_SET_TIMERSLACK, 1_000_u64, 0, 0, 0);
+        libc::prctl(libc::PR_SET_TIMERSLACK, 1_000 as libc::c_ulong, 0, 0, 0);
     }
 }
 

@@ -63,6 +63,9 @@ impl AudioProducer {
             return;
         }
         let cap = self.ring.capacity();
+        if cap == 0 {
+            return; // device not ready yet — matches health_pct's own guard.
+        }
         let ratio = drc_ratio(self.ring.occupancy(), cap / 2, cap) * f64::from(speed);
         self.resampler.process(samples, ratio, &self.ring);
     }

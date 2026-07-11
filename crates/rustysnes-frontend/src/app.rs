@@ -120,6 +120,12 @@ struct Active {
     /// simply re-presents the last frame rather than flashing black).
     #[cfg(feature = "emu-thread")]
     present_staging: Vec<u8>,
+    /// Scratch buffer the present path copies `present_staging` into once the `emu` mutex has
+    /// been released (`v1.1.0` fix, reviewed): reused every frame via `clear()` +
+    /// `extend_from_slice()`, which only reallocates if the framebuffer's resolution grows
+    /// (e.g. an SNES hi-res mode switch), unlike `Vec::clone`'s always-fresh allocation.
+    #[cfg(feature = "emu-thread")]
+    fb_scratch: Vec<u8>,
     /// The current frame's accumulated P1 button state (when not threaded, stepped inline).
     pad1: Buttons,
     /// The cpal output stream + its lock-free ring (the producer pushes resampled audio here).
@@ -594,6 +600,8 @@ impl App {
             present,
             #[cfg(feature = "emu-thread")]
             present_staging: Vec::new(),
+            #[cfg(feature = "emu-thread")]
+            fb_scratch: Vec::new(),
             pad1: Buttons::default(),
             #[cfg(not(target_arch = "wasm32"))]
             audio,
@@ -963,19 +971,14 @@ impl App {
             #[cfg(not(feature = "emu-thread"))]
             let (fb, dims) =
                 run_ahead_frame.unwrap_or_else(|| (emu.framebuffer().to_vec(), emu.fb_dims()));
-            // `v1.1.0`: read the framebuffer from the lock-free handoff the emu thread publishes
-            // into, NOT `emu.framebuffer()` — that's the whole point of `PresentBuffer` (the
-            // present path never blocks on the emu mutex for the — potentially hi-res, up to
-            // ~896 KiB — framebuffer copy). `dims` still comes from the cheap, already-brief
-            // `emu` lock this block holds. `take_into` returning `false` (nothing new published
-            // yet, e.g. paused or the very first present before any frame exists) simply keeps
-            // whatever `present_staging` already held — a black frame until the first publish.
+            // `v1.1.0`: `dims` is cheap to read under the still-held `emu` lock; the actual
+            // framebuffer BYTES come from the lock-free `PresentBuffer` handoff instead of
+            // `emu.framebuffer()` — copied only AFTER `emu` is dropped below (see the `drop(emu)`
+            // site), so the present path never blocks the emu thread's next `run_frame()` on this
+            // — potentially hi-res, up to ~896 KiB — copy. A prior revision ran `take_into` + the
+            // buffer copy while `emu` was still locked, serializing the two threads for nothing.
             #[cfg(feature = "emu-thread")]
             let dims = emu.fb_dims();
-            #[cfg(feature = "emu-thread")]
-            active.present.take_into(&mut active.present_staging);
-            #[cfg(feature = "emu-thread")]
-            let fb = active.present_staging.clone();
             // `v1.0.0` Performance panel: the audio ring's occupancy as a percentage of its
             // capacity (a rough "audio health" gauge — persistently near 0% or 100% means the
             // producer/consumer are drifting apart). `None` on `wasm32` (no `active.audio` there
@@ -1018,7 +1021,22 @@ impl App {
                     })
                 })
                 .flatten();
-            drop(emu); // release the brief lock BEFORE the wgpu upload + egui pass
+            drop(emu); // release the brief lock BEFORE the wgpu upload, egui pass, AND (for the
+            // emu-thread build) the PresentBuffer copy below.
+            // `take_into` returning `false` (nothing new published yet, e.g. paused or the very
+            // first present before any frame exists) simply keeps whatever `present_staging`
+            // already held — a black frame until the first publish. `fb_scratch` reuses its
+            // prior allocation via `clear()` + `extend_from_slice()` (steady-state zero
+            // allocations after the framebuffer resolution first stabilizes) rather than
+            // `Vec::clone`'s always-fresh heap allocation.
+            #[cfg(feature = "emu-thread")]
+            let fb = {
+                active.present.take_into(&mut active.present_staging);
+                let mut scratch = std::mem::take(&mut active.fb_scratch);
+                scratch.clear();
+                scratch.extend_from_slice(&active.present_staging);
+                scratch
+            };
             (fb, dims, info, audio_samples, debug, save_slots)
         };
 
@@ -1054,6 +1072,12 @@ impl App {
         }
 
         active.gfx.upload(&fb, fb_dims.0, fb_dims.1);
+        // Hand `fb`'s allocation back to `fb_scratch` so next present's copy reuses its capacity
+        // instead of allocating fresh (see the `fb_scratch` field doc + the copy site above).
+        #[cfg(feature = "emu-thread")]
+        {
+            active.fb_scratch = fb;
+        }
 
         // --- (2) Acquire the surface. ---
         let Some(frame) = active.gfx.acquire() else {
