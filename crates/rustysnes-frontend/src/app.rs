@@ -44,7 +44,9 @@ use crate::pacing::Pacer;
 use crate::ui_shell::{MenuAction, ShellInfo, ShellState};
 
 #[cfg(feature = "emu-thread")]
-use crate::emu_thread::{EmuThread, SharedInput};
+use crate::emu_thread::{EmuControl, EmuThread, SharedInput};
+#[cfg(feature = "emu-thread")]
+use crate::present_buffer::PresentBuffer;
 
 // Lua scripting + TAS movies (`v0.8.0`, T-81-002) — native-only (`mlua`'s vendored Lua VM needs a
 // C compiler + `std`).
@@ -72,17 +74,24 @@ use crate::netplay::NetplayState;
 #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
 use crate::cheevos::CheevosState;
 
-/// The typed winit user-event, used by both native and `wasm32` (native simply never sends one).
+/// The typed winit user-event, used by both native and `wasm32`.
 ///
 /// On `wasm32` the wgpu init is async and the ROM arrives via the browser file picker, so
 /// neither can be produced synchronously inside `ApplicationHandler::resumed`. Instead they're
 /// delivered back into the event loop as user events via an `EventLoopProxy` (RustyNES's own
-/// `AppEvent`, ported).
+/// `AppEvent`, ported). `EmuFrame` (`v1.1.0`) is native-only (`emu-thread` feature): the emu
+/// thread pings the winit thread after every produced frame so it can do per-frame housekeeping
+/// (`RetroAchievements` polling once that lands, `docs/frontend.md` §emu-thread) and request a
+/// redraw — `about_to_wait` already requests one every idle tick, so today this is only the
+/// redraw request, but the hook exists for the housekeeping this port's "Known remaining gaps"
+/// still needs.
 pub enum AppEvent {
     /// The async `Gfx::new_async` future resolved (`wasm32`).
     GfxReady(Box<Gfx>),
     /// The browser file picker delivered ROM bytes (`wasm32`).
     RomLoaded(Vec<u8>),
+    /// The emu thread published a new frame (`v1.1.0`, native `emu-thread` only).
+    EmuFrame,
 }
 
 /// The live application state, constructed in `resumed()` (the winit 0.30 idiom — a window
@@ -98,9 +107,19 @@ struct Active {
     /// The lock-free input latch the window handler writes and the emu thread reads.
     #[cfg(feature = "emu-thread")]
     input: Arc<SharedInput>,
-    /// The running emulation thread (joined on drop).
+    /// The running emulation thread (joined on drop; `.control()` re-synced from the shell/config
+    /// state each present, `v1.1.0`).
     #[cfg(feature = "emu-thread")]
-    _emu_thread: EmuThread,
+    emu_thread: EmuThread,
+    /// The lock-free framebuffer handoff the emu thread publishes into each produced frame, so
+    /// the present path never blocks on the emu mutex to copy it (`v1.1.0`).
+    #[cfg(feature = "emu-thread")]
+    present: Arc<crate::present_buffer::PresentBuffer>,
+    /// The present-staging buffer `present.take_into` copies the latest published frame into —
+    /// reused across presents; unchanged when nothing new was published (so a slow emu thread
+    /// simply re-presents the last frame rather than flashing black).
+    #[cfg(feature = "emu-thread")]
+    present_staging: Vec<u8>,
     /// The current frame's accumulated P1 button state (when not threaded, stepped inline).
     pad1: Buttons,
     /// The cpal output stream + its lock-free ring (the producer pushes resampled audio here).
@@ -196,9 +215,11 @@ pub struct App {
     #[cfg(not(target_arch = "wasm32"))]
     pending_rom: Option<PathBuf>,
     active: Option<Active>,
-    /// The proxy used to deliver [`AppEvent`]s back into this event loop. Only ever `Some` on
-    /// `wasm32` (native builds `Gfx` synchronously and never needs one).
-    #[cfg(target_arch = "wasm32")]
+    /// The proxy used to deliver [`AppEvent`]s back into this event loop. Always `Some` on
+    /// `wasm32` (native builds `Gfx` synchronously and only needs one for `emu-thread`'s
+    /// [`AppEvent::EmuFrame`] ping, `v1.1.0`) — created in [`Self::run`] before `run_app`, since
+    /// `EventLoop::create_proxy` needs the built (not yet active) event loop.
+    #[cfg(any(target_arch = "wasm32", feature = "emu-thread"))]
     proxy: Option<winit::event_loop::EventLoopProxy<AppEvent>>,
     /// The window `resumed()` created, held here between kicking off the async `Gfx::new_async`
     /// future and that future's `AppEvent::GfxReady` delivering the result — `Gfx::new_async`
@@ -222,6 +243,8 @@ impl App {
             config,
             pending_rom: rom,
             active: None,
+            #[cfg(feature = "emu-thread")]
+            proxy: None,
         }
     }
 
@@ -249,6 +272,10 @@ impl App {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn run(mut self) -> Result<(), winit::error::EventLoopError> {
         let event_loop = EventLoop::<AppEvent>::with_user_event().build()?;
+        #[cfg(feature = "emu-thread")]
+        {
+            self.proxy = Some(event_loop.create_proxy());
+        }
         event_loop.run_app(&mut self)
     }
 
@@ -329,10 +356,13 @@ impl ApplicationHandler<AppEvent> for App {
         }
     }
 
-    /// `wasm32` — the async `Gfx` + browser ROM bytes arrive here (native never sends one).
-    #[cfg(target_arch = "wasm32")]
+    /// `wasm32` — the async `Gfx` + browser ROM bytes arrive here (native never sends either).
+    /// `EmuFrame` (`v1.1.0`) arrives on native only (`emu-thread`): request a redraw so the
+    /// present path picks up the frame the emu thread just published — unconditional across
+    /// targets since the variant always exists (only its senders differ per platform/feature).
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AppEvent) {
         match event {
+            #[cfg(target_arch = "wasm32")]
             AppEvent::GfxReady(gfx) => {
                 let window = self
                     .pending_window
@@ -343,6 +373,7 @@ impl ApplicationHandler<AppEvent> for App {
                     self.load_rom_bytes_wasm(&bytes);
                 }
             }
+            #[cfg(target_arch = "wasm32")]
             AppEvent::RomLoaded(bytes) => {
                 if self.active.is_some() {
                     self.load_rom_bytes_wasm(&bytes);
@@ -350,6 +381,15 @@ impl ApplicationHandler<AppEvent> for App {
                     // `Active` doesn't exist yet (the async `Gfx::new_async` hasn't resolved) —
                     // stash it; `GfxReady` above consumes it as soon as `Active` is built.
                     self.pending_rom_bytes = Some(bytes);
+                }
+            }
+            // Native never constructs either variant (they're wasm32-only in practice); this
+            // arm only exists so the match stays exhaustive on that target.
+            #[cfg(not(target_arch = "wasm32"))]
+            AppEvent::GfxReady(_) | AppEvent::RomLoaded(_) => {}
+            AppEvent::EmuFrame => {
+                if let Some(active) = self.active.as_ref() {
+                    active.window.request_redraw();
                 }
             }
         }
@@ -454,6 +494,10 @@ impl App {
     /// `user_event(AppEvent::GfxReady)` on `wasm32`: builds the egui integration, powers on the
     /// emulator, opens native audio (a no-op on `wasm32`, which uses [`crate::wasm_audio`]
     /// instead, driven per-frame from `render`), and constructs `Active`.
+    // One straight-line construction sequence (egui + emulator + audio + `emu-thread`'s
+    // control/present/producer + the `Active` literal); the length is inherent to how much
+    // state one session needs to stand up once, not a sign this needs splitting.
+    #[allow(clippy::too_many_lines)]
     fn on_gfx_ready(&mut self, gfx: Gfx, window: Arc<Window>) {
         let egui_ctx = egui::Context::default();
         // Apply the configured theme immediately (`v1.0.0`) rather than leaving egui's own
@@ -497,21 +541,42 @@ impl App {
         let dst_rate = audio.as_ref().map_or(48_000, |a| a.sample_rate);
         #[cfg(not(target_arch = "wasm32"))]
         let resampler = Resampler::new(dst_rate, self.config.audio.volume);
-        // `Arc<Mutex<EmuCore>>` is the right shape for the (default-off) dedicated emulation
-        // thread + the present path. It is not yet `Send + Sync` only because
-        // `rustysnes-cart`'s `Board` trait is not `Send` (the RustyNES `Mapper: Send` rule the
-        // cart phase will land); once it is, the `emu-thread` default returns and this allow
-        // goes away. TODO(impl-phase).
-        #[allow(clippy::arc_with_non_send_sync)]
+        // `EmuCore: Send` (via `rustysnes-cart::Board: Send`, `v1.0.0`) — the emu-thread build
+        // is not the reason this is `Arc<Mutex<_>>` rather than a bare owned value; it's the
+        // shape both the (default-off) dedicated emulation thread AND the present path need to
+        // share it either way.
         let core = Arc::new(Mutex::new(emu));
 
         #[cfg(feature = "emu-thread")]
+        let rom_loaded_at_spawn = core
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .rom_loaded();
+        #[cfg(feature = "emu-thread")]
         let input = Arc::new(SharedInput::default());
+        #[cfg(feature = "emu-thread")]
+        let control = EmuControl::new(self.config.region.frame_rate());
+        #[cfg(feature = "emu-thread")]
+        control.set_has_rom(rom_loaded_at_spawn);
+        #[cfg(feature = "emu-thread")]
+        let present = PresentBuffer::new();
+        #[cfg(feature = "emu-thread")]
+        let audio_producer = audio
+            .as_ref()
+            .map(|a| a.make_producer(self.config.audio.volume));
+        #[cfg(feature = "emu-thread")]
+        let proxy = self
+            .proxy
+            .clone()
+            .expect("proxy created in App::run before on_gfx_ready");
         #[cfg(feature = "emu-thread")]
         let emu_thread = EmuThread::spawn(
             Arc::clone(&core),
             Arc::clone(&input),
-            self.config.region.frame_rate(),
+            audio_producer,
+            proxy,
+            Arc::clone(&control),
+            Arc::clone(&present),
         );
 
         self.active = Some(Active {
@@ -524,7 +589,11 @@ impl App {
             #[cfg(feature = "emu-thread")]
             input,
             #[cfg(feature = "emu-thread")]
-            _emu_thread: emu_thread,
+            emu_thread,
+            #[cfg(feature = "emu-thread")]
+            present,
+            #[cfg(feature = "emu-thread")]
+            present_staging: Vec::new(),
             pad1: Buttons::default(),
             #[cfg(not(target_arch = "wasm32"))]
             audio,
@@ -867,8 +936,14 @@ impl App {
                 }
                 samples
             };
-            // Threaded build: the emu thread owns frame production; audio-from-thread is a TODO.
-            // Still advance the FPS meter's wall clock so the status bar reads the present rate.
+            // Threaded build (`v1.1.0`): the emu thread owns frame production AND audio (via its
+            // own `AudioProducer`, pushed directly into the ring — see `emu_thread.rs`'s
+            // `drive_one`), so this present never produces samples of its own; `audio_samples`
+            // stays empty here and the resampler-push step below is naturally a no-op. Still
+            // advance the FPS meter's wall clock so the status bar reads the present rate, and
+            // re-sync the thread's lifecycle control from the current shell/config state — the
+            // same "just re-sync unconditionally once per frame" pattern cheats/watchpoints/etc.
+            // already use on the synchronous path above.
             #[cfg(feature = "emu-thread")]
             let audio_samples: Vec<(i16, i16)> = {
                 if paused {
@@ -876,6 +951,10 @@ impl App {
                 } else {
                     active.pacer.note_present();
                 }
+                let control = active.emu_thread.control();
+                control.set_has_rom(emu.rom_loaded());
+                control.set_user_paused(paused);
+                control.set_speed(active.speed);
                 Vec::new()
             };
             // Run-ahead presents the deepest peeked frame, not `emu`'s own (1-real-frame-behind)
@@ -884,8 +963,19 @@ impl App {
             #[cfg(not(feature = "emu-thread"))]
             let (fb, dims) =
                 run_ahead_frame.unwrap_or_else(|| (emu.framebuffer().to_vec(), emu.fb_dims()));
+            // `v1.1.0`: read the framebuffer from the lock-free handoff the emu thread publishes
+            // into, NOT `emu.framebuffer()` — that's the whole point of `PresentBuffer` (the
+            // present path never blocks on the emu mutex for the — potentially hi-res, up to
+            // ~896 KiB — framebuffer copy). `dims` still comes from the cheap, already-brief
+            // `emu` lock this block holds. `take_into` returning `false` (nothing new published
+            // yet, e.g. paused or the very first present before any frame exists) simply keeps
+            // whatever `present_staging` already held — a black frame until the first publish.
             #[cfg(feature = "emu-thread")]
-            let (fb, dims) = (emu.framebuffer().to_vec(), emu.fb_dims());
+            let dims = emu.fb_dims();
+            #[cfg(feature = "emu-thread")]
+            active.present.take_into(&mut active.present_staging);
+            #[cfg(feature = "emu-thread")]
+            let fb = active.present_staging.clone();
             // `v1.0.0` Performance panel: the audio ring's occupancy as a percentage of its
             // capacity (a rough "audio health" gauge — persistently near 0% or 100% means the
             // producer/consumer are drifting apart). `None` on `wasm32` (no `active.audio` there
@@ -1123,11 +1213,10 @@ impl App {
                 MenuAction::SetSpeed(speed) => {
                     active.speed = speed;
                     // Takes effect immediately on the synchronous drive path (the `Pacer`'s
-                    // period feeds `render`'s fixed-timestep loop directly). The default-off,
-                    // not-yet-feature-complete `emu-thread` build paces itself independently
-                    // (`emu_thread.rs`'s own `frame_dur`) and doesn't consult `Pacer` for cadence
-                    // at all, so speed presets are a no-op there until that thread gains its own
-                    // matching hook — a known gap, not a silent claim of support.
+                    // period feeds `render`'s fixed-timestep loop directly). The `emu-thread`
+                    // build (`v1.1.0`) picks it up on the next present too, via `render`'s own
+                    // per-present `EmuControl::set_speed` re-sync (`emu_thread.rs`'s thread-owned
+                    // `Pacer` consults it every loop iteration) — no longer a no-op there.
                     active
                         .pacer
                         .set_rate(config.region.frame_rate() * f64::from(speed));

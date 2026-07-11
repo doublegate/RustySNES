@@ -90,6 +90,22 @@ already fully staged:
 | General PPU/HDMA/Mode 7/interlace homebrew | `tests/roms/external/krom/PPU/`, `BANK/`, `CPUTest/`, `INPUT/`, `MSU/`, `Compress/`, `Translate/` | Broad homebrew coverage for bank-crossing, mosaic, windows, Mode 7, interlace, HDMA variants, MSU-1 audio/video, LZ77 decompression, and ROM-hacking-adjacent translate-table tooling. |
 | 240p test suite | `tests/roms/external/240p/SNES-source/` | Display-timing/geometry reference (source form, not a prebuilt ROM). |
 
+## Legitimate sourcing leads (`v1.1.0` research pass — leads only, nothing staged)
+
+For each `❌` gap above, concrete legitimate leads a developer could manually pursue outside this
+repo (never add the resulting ROM to `tests/roms/external/commercial/` if it's not already
+permissively licensed — this table is a research pointer, not an instruction to acquire anything on
+this project's behalf):
+
+| Gap | Leads |
+|---|---|
+| SPC7110 genuine dump (sha256 `69d06a3f...ec82d`) | The nesdev.org fan-translation thread already cited in `docs/audit/spc7110-boot-crash-2026-07-08.md` documents the patch's non-standard memory map precisely enough to positively rule out a mismatched candidate. A No-Intro-style verified-dump database entry (e.g. via [No-Intro.org](https://no-intro.org/)'s published DAT files, or the [No-Intro ROM set index on Archive.org](https://archive.org/details/no-intro_romset_collection)) lists the canonical hash for cross-referencing a candidate dump's sha256 before use — verify independently against the target hash above, never trust a filename/label alone. |
+| DSP-3 (SD Gundam GX), S-RTC (Daikaijuu Monogatari II), ST011/ST018 (both Hayazashi Nidan Morita Shougi titles) | **Not homebrew-substitutable** — each chip's internal firmware/algorithm (shogi/chess AI, RTC hardware) can only be exercised by its one sole commercial title. Checked [absindx/SNES-TestRoms](https://github.com/absindx/SNES-TestRoms) and [ARM9/snesdev](https://github.com/ARM9/snesdev): both cover SA-1/DSP-1/Super FX test patterns but neither has anything for DSP-3/S-RTC/ST01x. The only legitimate path remains a verified-good-dump database entry (No-Intro/Archive.org) for each specific Japan-exclusive title — a standing sourcing gap, not a near-term unblock. |
+| PAL (any region-tagged title) | Any No-Intro-tagged `(Europe)` SNES set entry works — the 262→312-line/50 Hz path is region-generic, not title-specific, so a well-known PAL title (e.g. *Super Mario World (Europe)*) is sufficient once a properly region-tagged dump is available. |
+| ExLoROM | Reconfirmed this pass — no commercial or homebrew ROM is known to use it; the ares/bsnes board database agrees. Likely permanently formula-verified-only, not a real sourcing gap. |
+| ExHiROM (Tales of Phantasia, Dai Kaijuu Monogatari II) | Same No-Intro/Archive.org path as the Japan-exclusive coprocessor titles above — no homebrew substitute exists for this mapper mode either, since it's purely an address-decode formula (easiest to verify via `board.rs` unit tests plus one real dump for corroboration). |
+| SA-1 (already well-covered, supplementary corroboration only) | [absindx/SNES-TestRoms](https://github.com/absindx/SNES-TestRoms) (`SA1RamProtectionTest` and siblings) and [VitorVilela7/SnesSpeedTest](https://github.com/VitorVilela7/SnesSpeedTest) are free, permissively-distributed homebrew SA-1 timing/RAM-protection test ROMs beyond the 18 commercial carts already staged — directly relevant corroboration for `v1.1.0`'s open-bus-via-HDMA-latch and DRAM-refresh timing work (both touch `advance_master`, which SA-1's board also exercises heavily). Worth adding as supplementary Core-tier coverage in a future pass, not a blocker for either timing item. |
+
 ## Summary of genuinely unfillable gaps
 
 Every currently-documented "no ROM" gap in this project traces to a **Japan-exclusive or

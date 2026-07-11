@@ -157,8 +157,9 @@ pub struct AudioConfig {
     /// Whether audio output is enabled at all.
     pub enabled: bool,
     /// Per-voice (S-DSP channel 0-7) mute toggles (`v1.0.1`). A frontend/debug convenience, not
-    /// real hardware state — see [`rustysnes_apu::dsp::Dsp::set_voice_mutes`]'s doc. All `false`
-    /// (unmuted) by default, byte-identical to every prior release.
+    /// real hardware state — see `rustysnes_apu::dsp::Dsp::set_voice_mutes`'s doc (`docs/apu.md`
+    /// §Per-voice mute has the full mechanism). All `false` (unmuted) by default, byte-identical
+    /// to every prior release.
     pub voice_mutes: [bool; 8],
 }
 

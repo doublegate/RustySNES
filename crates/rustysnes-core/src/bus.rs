@@ -487,6 +487,18 @@ impl Bus {
         self.debug_pc = pbr_pc;
     }
 
+    /// Check a bus access against the armed watchpoint list, tagged with the CPU's `PBR:PC` at
+    /// the moment of the access. Shared by [`CpuBus::read24`]/[`write24`](CpuBus::write24) *and*
+    /// [`DmaBus`]'s A-bus/B-bus methods (`v1.1.0`) — DMA/HDMA-driven accesses were previously
+    /// invisible to watchpoints entirely, which blocked tracing the open-bus-via-DMA-latch
+    /// investigation (`docs/scheduler.md` §Open bus via DMA/HDMA); `debug_pc` still reflects the
+    /// CPU instruction that initiated the transfer, since nothing updates it mid-DMA.
+    #[cfg(feature = "debug-hooks")]
+    fn note_bus_access(&mut self, addr24: u32, value: u8, is_write: bool) {
+        let pc = self.debug_pc;
+        self.watchpoints.check(addr24, value, is_write, pc);
+    }
+
     /// Whether the PPU has a finished frame ready to present.
     #[must_use]
     pub const fn frame_ready(&self) -> bool {
@@ -1029,7 +1041,15 @@ impl DmaBus for Bus {
         {
             return self.open_bus;
         }
-        self.decode_read(addr)
+        let val = self.decode_read(addr);
+        // `v1.1.0`: DMA-driven accesses were previously invisible to watchpoints entirely,
+        // which blocked tracing the open-bus-via-DMA-latch investigation. Tracing-only for
+        // now — `self.open_bus` itself is deliberately NOT updated here yet (see
+        // `docs/scheduler.md` §Open bus via DMA/HDMA for why a naive update still breaks every
+        // Super FX/GSU golden hash even after the `SuperFxBoard::map` RAM-ownership fix above).
+        #[cfg(feature = "debug-hooks")]
+        self.note_bus_access(addr, val, false);
+        val
     }
     fn write_a(&mut self, addr: u32, val: u8) {
         let bank = (addr >> 16) & 0xFF;
@@ -1039,12 +1059,19 @@ impl DmaBus for Bus {
         {
             return;
         }
+        #[cfg(feature = "debug-hooks")]
+        self.note_bus_access(addr, val, true);
         self.decode_write(addr, val);
     }
     fn read_b(&mut self, addr: u8) -> u8 {
-        self.b_read(addr)
+        let val = self.b_read(addr);
+        #[cfg(feature = "debug-hooks")]
+        self.note_bus_access(0x00_2100 | u32::from(addr), val, false);
+        val
     }
     fn write_b(&mut self, addr: u8, val: u8) {
+        #[cfg(feature = "debug-hooks")]
+        self.note_bus_access(0x00_2100 | u32::from(addr), val, true);
         self.b_write(addr, val);
     }
     fn step(&mut self, clocks: u32) {
@@ -1086,14 +1113,14 @@ impl CpuBus for Bus {
         // `v0.8.0`, T-81-001b: logs the value actually observed (post-cheat-intercept), matching
         // what the CPU itself sees. Compiled out entirely when `debug-hooks` is off.
         #[cfg(feature = "debug-hooks")]
-        self.watchpoints.check(addr24, val, false, self.debug_pc);
+        self.note_bus_access(addr24, val, false);
         val
     }
 
     fn write24(&mut self, addr24: u32, val: u8) {
         self.open_bus = val;
         #[cfg(feature = "debug-hooks")]
-        self.watchpoints.check(addr24, val, true, self.debug_pc);
+        self.note_bus_access(addr24, val, true);
         self.decode_write(addr24, val);
     }
 

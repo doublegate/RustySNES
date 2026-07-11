@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **RustySNES integrates a cycle-accurate emulation engine.** Modeled after its predecessor `RustyNES`, this emulator is built on a master-clock-precise, lockstep-scheduled core targeting the Mesen2/ares accuracy bar. The entries below document the engine-internal milestones as this core is built and hardened.
 
+## [1.1.0] "Latchkey" - 2026-07-11
+
+### Fixed
+
+- **`SuperFxBoard::map`'s Game-Pak-RAM-ownership open-bus gap** — a CPU/DMA read of Game Pak RAM
+  while the GSU owned the RAM bus always returned a hardcoded `0`, bypassing `Cart::read24`'s
+  generic open-bus fallback (the same mechanism the SPC7110 investigation added) entirely, since
+  `map()` classified this case as `Sram` rather than `Open`. Now correctly threads the real
+  last-driven bus byte through. Verified independently: zero regressions across the full
+  `--features test-roms` battery (all 27 suites) with this fix alone. Writes are unaffected
+  (`Cart::write24` never consults `map()`). See `docs/scheduler.md` §Open bus via DMA/HDMA.
+
+### Added
+
+- **`emu-thread` (opt-in feature): real audio output + a proper pause/ROM-loaded/speed
+  lifecycle.** The dedicated emulation thread now has its own `AudioProducer` (pushed once per
+  produced frame, closing the "silent thread" gap) and an `EmuControl` lifecycle block (a
+  thread-owned `Pacer` that tracks live speed-preset changes, plus a pause/ROM-loaded idle gate)
+  instead of an independent, uncontrollable pacing loop — and a lock-free `PresentBuffer`
+  triple-buffer handoff so the present path never blocks on the emu mutex for the framebuffer
+  copy. Native builds now also carry an `EventLoopProxy<AppEvent>` (previously wasm32-only) so the
+  thread can ping the winit loop (`AppEvent::EmuFrame`) after every produced frame. Still not full
+  parity with the synchronous drive: cheats/watchpoints/breakpoints/port2-peripheral/voice-mutes
+  sync, run-ahead, rewind recording, TAS movies, Lua scripting, netplay-aware pause, and
+  RetroAchievements are not yet ported into the thread's loop — each needs a new
+  shared-mutable-state design rather than a mechanical port, and stays a documented follow-up
+  (`crates/rustysnes-frontend/src/emu_thread.rs`'s own module doc has the exact list). Verified
+  via the unit suite plus a real headless `xvfb-run` launch against a staged commercial ROM (no
+  panics over several seconds of runtime).
+
+### Investigated (research, no code landed)
+
+- **Open-bus-via-DMA-latch** (the "Speedy Gonzales stage 6-1" mechanism) — the naive fix (update
+  `Bus::open_bus` on every DMA-driven access) still breaks all 24 Super FX/GSU golden hashes even
+  after the `SuperFxBoard::map` fix above. Substantially narrowed this pass: ruled out the
+  `$4016`/`$4017` joypad-read open-bus blend, the generic CPU-side open-bus-fallback arms, and
+  `VideoBus::cart_read` (confirmed dead code, never actually called) as the mechanism. Confirmed a
+  real, reproducible CPU-control-flow divergence (a spin-loop signature) exists, but the exact
+  first diverging instruction wasn't isolated before this pass's budget was spent. Still
+  documented-not-landed; see `docs/scheduler.md` §Open bus via DMA/HDMA for the full trail.
+- **DRAM refresh (40 clocks/scanline)** — empirically measured (500 steady-state frames × 3
+  unrelated ROMs): the current CPU-driven master-clock model already reproduces the correct
+  357,368-clock NTSC frame length to within natural instruction-boundary quantization noise
+  (average gap within a fraction of a clock of zero). Implementing the originally-planned
+  additive stall would inflate every frame by ~10,480 clocks — a large, clearly-wrong regression
+  against this now-confirmed-correct baseline. Concluded NOT to implement it as originally
+  planned; see `docs/scheduler.md` §DRAM refresh for the full methodology and the two open
+  hypotheses for what a correct future implementation would need.
+- **Fractional-timebase refactor go/no-go** (`docs/adr/0002`) — assessed the refactor's own gate
+  ("residuals that only sub-cycle resolution can close") against every currently-named accuracy
+  residual. None qualify — each is a ROM-sourcing gap, a coprocessor-board scope gap, or a
+  bug/validation question answerable within the existing whole-master-clock-tick model.
+  Recommendation: do not start the refactor. See
+  `docs/audit/fractional-timebase-go-no-go-2026-07-11.md`.
+
 ## [1.0.1] "Aftertouch" - 2026-07-11
 
 **Versioning note:** both items below are additive and off-by-default/opt-in in effect (existing

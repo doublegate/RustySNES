@@ -16,7 +16,14 @@ from its siblings:
 ## Contents
 
 - **`spc7110-boot-crash-2026-07-08.md`** — the SPC7110 coprocessor's boot-crash investigation:
-  the `v0.4.0`-landed `bus_mirror` addressing fix (root cause #1, confirmed and fixed) and the
-  still-open gap (root cause #2, narrowed but not fixed) that keeps Far East of Eden Zero from
-  booting to real content. See `docs/cart.md`'s SPC7110 entry for the current summary; this file
-  is the full trail behind it.
+  the `v0.4.0`-landed `bus_mirror` addressing fix (root cause #1, confirmed and fixed) and root
+  cause #2 (the boot-blocking one) — **closed as of the audit file's own conclusion**: the local
+  Far East of Eden Zero dump is an English fan-translation ROM hack (confirmed by SHA256 mismatch
+  against the genuine cartridge dump), not a RustySNES bug; a correctly-sourced original-cartridge
+  dump is the remaining, purely ROM-sourcing, gap (`docs/rom-test-corpus.md`). See `docs/cart.md`'s
+  SPC7110 entry for the current summary; this file is the full trail behind it.
+- **`fractional-timebase-go-no-go-2026-07-11.md`** — `v1.1.0`'s evidence-based assessment of
+  whether `docs/adr/0002`'s fractional-timebase refactor is warranted yet. Conclusion: **no** —
+  every currently-documented accuracy residual is either a ROM-sourcing/validation gap or, in the
+  one case that looked timing-adjacent (the CPU oracle's `e1.e` divergence), an inter-reference
+  disagreement rather than a proven bug — none require sub-cycle resolution to close.
