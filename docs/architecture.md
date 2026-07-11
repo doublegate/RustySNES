@@ -97,15 +97,19 @@ gilyon / undisbeliever ROMs, blargg's `spc_*` for audio, and the 240p Suite for 
 | `rustysnes-ppu` | PPU1 (5C77) sprites / Mode-7-multiply + PPU2 (5C78) CGRAM / output / counters. |
 | `rustysnes-apu` | SPC700 (S-SMP) + S-DSP + 64 KiB ARAM; the async domain + BRR + 8 voices. |
 | `rustysnes-cart` | LoROM/HiROM/ExHiROM map + header detect + the coprocessor families. |
-| `rustysnes-core` | `Bus`, the master-clock scheduler, DMA/HDMA, multiply / divide units, joypad auto-read; re-exports chip types. |
+| `rustysnes-core` | `Bus`, the master-clock scheduler, DMA/HDMA, multiply / divide units, joypad auto-read; re-exports chip types. Also the `EmuCore` embedding facade (`facade` module, `std`-only, `v1.2.0`) — load/step/framebuffer/audio/save-state, for any headless embedder (a libretro core, `rustysnes-frontend`'s own thin wrapper). |
 | `rustysnes-frontend` | The egui shell, audio ring, pacing, gamepads, save-states, rewind, wasm. |
 | `rustysnes-netplay` | Rollback netplay (frontend-orchestrated; deterministic core required). |
 | `rustysnes-cheevos` | RetroAchievements (opt-in, native FFI). |
 | `rustysnes-script` | Lua scripting / TAS API. |
 | `rustysnes-test-harness` | Golden-log differ, `run_until_complete`, JSON-oracle runner, screenshot baseline. |
 
-The chip stack is `#![no_std]` + `extern crate alloc;`; only `rustysnes-frontend` and
-`rustysnes-cheevos` (FFI) carry `unsafe` (each with a `// SAFETY:` comment).
+The chip stack is `#![no_std]` + `extern crate alloc;`; `rustysnes-core` is conditionally so
+(`#![cfg_attr(not(feature = "std"), no_std)]`, `v1.2.0`) — its default `std` feature enables the
+`facade` module, and disabling it (the `thumbv7em` no_std CI gate) restores unconditional
+`no_std`, proving the facade compiles out entirely rather than merely going unused. Only
+`rustysnes-frontend` and `rustysnes-cheevos` (FFI) carry `unsafe` (each with a `// SAFETY:`
+comment).
 
 ## Architectural alternatives (rejected)
 

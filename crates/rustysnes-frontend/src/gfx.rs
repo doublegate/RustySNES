@@ -22,42 +22,16 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt as _;
 use winit::window::Window;
 
-/// SNES native width (constant across the NTSC/PAL active-region heights and the lo-res mode).
-pub const SNES_W: u32 = 256;
-/// SNES NTSC active-region height (224 visible scanlines).
-pub const SNES_H_NTSC: u32 = 224;
-/// SNES PAL active-region height (239 visible scanlines).
-pub const SNES_H_PAL: u32 = 239;
-/// SNES hi-res / pseudo-hi-res width (mode 5/6 + interlace double the base dims).
-pub const SNES_W_HIRES: u32 = 512;
-/// SNES hi-res / interlace height (448 = 224 active * 2 fields).
-pub const SNES_H_HIRES: u32 = 448;
-
-/// The maximum framebuffer the texture is sized for (hi-res worst case), so a mode change
-/// never needs a texture realloc. Sub-modes upload into the top-left sub-rect.
-pub const MAX_W: u32 = SNES_W_HIRES;
-/// The maximum framebuffer height the texture is sized for (see [`MAX_W`]).
-pub const MAX_H: u32 = SNES_H_HIRES;
+// `v1.2.0`: the SNES video geometry constants + the BGR555->RGBA8 decode moved to
+// `rustysnes_core::facade` (relocated alongside `EmuCore` — a libretro core or any other headless
+// embedder needs them too, not just this wgpu-based frontend). Re-exported here so every existing
+// `crate::gfx::SNES_W`/`MAX_W`/`bgr555_to_rgba8` call site in this crate keeps working unchanged.
+pub use rustysnes_core::facade::{
+    MAX_H, MAX_W, SNES_H_HIRES, SNES_H_NTSC, SNES_H_PAL, SNES_W, SNES_W_HIRES, bgr555_to_rgba8,
+};
 
 /// The SNES display aspect ratio (4:3) the blit letterboxes the framebuffer into.
 const TARGET_ASPECT: f32 = 4.0 / 3.0;
-
-/// Expand a 15-bit SNES **BGR555** color word (`0bbbbbgggggrrrrr`) to a packed little-endian
-/// RGBA8 (`0xAABBGGRR`) value suitable for an RGBA8 framebuffer / wgpu texture upload.
-///
-/// The 5-bit channels are left-justified to 8 bits (`c << 3 | c >> 2`), matching how Mesen2 /
-/// bsnes expand CGRAM. Alpha is forced opaque.
-#[must_use]
-pub const fn bgr555_to_rgba8(bgr555: u16) -> u32 {
-    let r5 = (bgr555 & 0x1F) as u32;
-    let g5 = ((bgr555 >> 5) & 0x1F) as u32;
-    let b5 = ((bgr555 >> 10) & 0x1F) as u32;
-    let r8 = (r5 << 3) | (r5 >> 2);
-    let g8 = (g5 << 3) | (g5 >> 2);
-    let b8 = (b5 << 3) | (b5 >> 2);
-    // Pack as 0xAABBGGRR (little-endian RGBA8 byte order: R,G,B,A).
-    0xFF00_0000 | (b8 << 16) | (g8 << 8) | r8
-}
 
 /// Resolve the configured present-mode string against the surface's supported modes.
 ///
