@@ -103,6 +103,10 @@ struct FilterPipeline {
     /// [`Gfx::blit`] uses), bytes `16..32` = the filter's own `params` (meaning is
     /// filter-specific — see [`CRT_WGSL`]/[`HQX_WGSL`]'s own doc for the layout each expects).
     uniform_buf: wgpu::Buffer,
+    /// This filter's own render-pass label (distinct from the plain blit's), so a GPU
+    /// capture/profiler shows which pass actually ran instead of a stale `"rustysnes-blit-pass"`
+    /// label on every filter pass too.
+    label: &'static str,
 }
 
 impl Gfx {
@@ -370,7 +374,7 @@ impl Gfx {
         view: &wgpu::TextureView,
         sampler: &wgpu::Sampler,
         shader_src: &str,
-        label: &str,
+        label: &'static str,
     ) -> FilterPipeline {
         let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(label),
@@ -464,6 +468,7 @@ impl Gfx {
             pipeline,
             bind_group,
             uniform_buf,
+            label,
         }
     }
 
@@ -630,7 +635,7 @@ impl Gfx {
             bytemuck::cast_slice(&[uv_x, uv_y, pos_x, pos_y]),
         );
 
-        let mut pass = Self::begin_pass(encoder, target);
+        let mut pass = Self::begin_pass(encoder, target, "rustysnes-blit-pass");
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
         pass.draw(0..3, 0..1);
@@ -652,29 +657,49 @@ impl Gfx {
         hqx_strength: f32,
     ) {
         use crate::config::PostFilter;
+        // Clamp every user-facing strength knob to its documented `0.0..=1.0` range here (not
+        // just in-shader, where only `Hqx`'s `edge_bias` was clamped) — a hand-edited
+        // `config.toml` (or a future UI bug) must not be able to push `crt_scanline`/`crt_mask`
+        // outside the range the shader's brightness-compensation math assumes.
         let (fp, params) = match filter {
             PostFilter::None => {
                 self.blit(encoder, target);
                 return;
             }
-            PostFilter::Crt => (&self.crt, [crt_scanline, crt_mask, self.fb_h as f32, 0.0]),
+            PostFilter::Crt => (
+                &self.crt,
+                [
+                    crt_scanline.clamp(0.0, 1.0),
+                    crt_mask.clamp(0.0, 1.0),
+                    self.fb_h as f32,
+                    0.0,
+                ],
+            ),
             PostFilter::Hqx => (
                 &self.hqx,
-                [self.fb_w as f32, self.fb_h as f32, hqx_strength, 0.0],
+                [
+                    self.fb_w as f32,
+                    self.fb_h as f32,
+                    hqx_strength.clamp(0.0, 1.0),
+                    0.0,
+                ],
             ),
         };
         let uv_x = self.fb_w as f32 / MAX_W as f32;
         let uv_y = self.fb_h as f32 / MAX_H as f32;
         let (pos_x, pos_y) = self.letterbox_scale();
-        self.queue.write_buffer(
-            &fp.uniform_buf,
-            0,
-            bytemuck::cast_slice(&[uv_x, uv_y, pos_x, pos_y]),
-        );
+        // One `write_buffer` call over the whole 32-byte uniform instead of two separate ones —
+        // fewer queue-submission round trips in this per-frame hot path.
+        let mut uniforms = [0.0f32; 8];
+        uniforms[0] = uv_x;
+        uniforms[1] = uv_y;
+        uniforms[2] = pos_x;
+        uniforms[3] = pos_y;
+        uniforms[4..8].copy_from_slice(&params);
         self.queue
-            .write_buffer(&fp.uniform_buf, 16, bytemuck::cast_slice(&params));
+            .write_buffer(&fp.uniform_buf, 0, bytemuck::cast_slice(&uniforms));
 
-        let mut pass = Self::begin_pass(encoder, target);
+        let mut pass = Self::begin_pass(encoder, target, fp.label);
         pass.set_pipeline(&fp.pipeline);
         pass.set_bind_group(0, &fp.bind_group, &[]);
         pass.draw(0..3, 0..1);
@@ -698,13 +723,15 @@ impl Gfx {
 
     /// Shared render-pass setup (clear to black, single color attachment) — the only difference
     /// between [`Self::blit`] and [`Self::present`]'s filter passes is which pipeline/bind group
-    /// gets bound afterward.
+    /// gets bound afterward, plus `label` (so a GPU capture/profiler names the pass that actually
+    /// ran instead of a stale `"rustysnes-blit-pass"` label even when a post-filter is active).
     fn begin_pass<'e>(
         encoder: &'e mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
+        label: &str,
     ) -> wgpu::RenderPass<'e> {
         encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("rustysnes-blit-pass"),
+            label: Some(label),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: target,
                 depth_slice: None,

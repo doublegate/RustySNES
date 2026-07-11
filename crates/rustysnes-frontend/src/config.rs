@@ -129,7 +129,11 @@ impl Region {
 #[serde(rename_all = "lowercase")]
 pub enum PostFilter {
     /// No post-filter — the plain nearest-sample blit, pixel-identical to a filter-less build
-    /// (default; existing `config.toml` files round-trip unchanged).
+    /// (default; a `config.toml` predating this field deserializes to this value via
+    /// `#[serde(default)]`, so existing setups behave exactly as before. Note this is a BEHAVIOR
+    /// guarantee, not a textual one — `Config::save` re-serializes the whole struct, so an old
+    /// config gains this field's TOML text the next time settings are saved, same as any other
+    /// added field).
     #[default]
     None,
     /// Scanlines + an RGB aperture-grille mask, approximating a CRT's phosphor structure.
