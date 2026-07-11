@@ -16,11 +16,18 @@
 //!   `RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO` on the first `on_run` after a ROM loads.
 //! - **Audio**: `EmuCore::audio()` already produces 32 kHz signed 16-bit stereo pairs — no format
 //!   conversion needed, just interleaving into libretro's batch API.
-//! - **Input**: only the standard 12-button pad is wired for P1/P2 (`RETRO_DEVICE_JOYPAD`).
-//!   Mouse / Super Scope / Multitap (already supported core-side via
-//!   `EmuCore::set_mouse`/`set_superscope`/`set_multitap_pad`) are NOT yet exposed through
-//!   `RETRO_DEVICE_SUBCLASS` device negotiation — a documented follow-up, not a silent gap (see
-//!   `docs/libretro.md`).
+//! - **Input**: the standard 12-button pad is wired for P1/P2 (`RETRO_DEVICE_JOYPAD`), plus
+//!   Mouse / Super Scope / Super Multitap peripheral negotiation via `RETRO_DEVICE_SUBCLASS`
+//!   (`RETRO_ENVIRONMENT_SET_CONTROLLER_INFO` + `Core::on_set_controller_port_device`), mirroring
+//!   bsnes's own libretro core's device menu (`ref-proj/bsnes/bsnes/target-libretro/libretro.cpp`)
+//!   — Mouse and Super Multitap are only offered on port 2 (index `1`), matching real SNES
+//!   hardware (a Super Scope's beam-latch and the multitap's sub-pad addressing are both
+//!   port-2-only, `docs/scheduler.md`/`rustysnes_core::controller`'s own docs). Super Multitap's
+//!   four sub-pads poll libretro ports `[1, 4]` (bsnes' own precedent: sub-pad `N` reads from
+//!   libretro port `1 + N`, i.e. RetroArch's Player 2-5), each still the standard 12-button pad.
+//!   Super Scope reads `RETRO_DEVICE_LIGHTGUN`'s absolute screen coordinates + trigger/cursor/
+//!   turbo/pause, converting libretro's `[-0x8000, 0x7fff]` screen-space range into the pixel
+//!   coordinates `EmuCore::set_superscope` expects.
 //! - **Firmware**: coprocessor firmware dumps (DSP-1..4, CX4) are auto-resolved from the
 //!   frontend's system directory (`RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY`), mirroring
 //!   `rustysnes-frontend`'s own `firmware_candidates`/`install_firmware` policy.
@@ -65,6 +72,162 @@ const FPS_NTSC: f64 = 60.098_8;
 /// PAL frame rate (50.007 Hz) — matches `rustysnes-frontend::FRAME_RATE_PAL`.
 const FPS_PAL: f64 = 50.006_98;
 
+/// `libretro.h`'s `RETRO_DEVICE_TYPE_SHIFT` — bindgen doesn't expose the function-like
+/// `RETRO_DEVICE_SUBCLASS` macro, so [`retro_device_subclass`] replicates it by hand.
+const RETRO_DEVICE_TYPE_SHIFT: u32 = 8;
+
+/// Mirrors `libretro.h`'s `#define RETRO_DEVICE_SUBCLASS(base, id) (((id + 1) <<
+/// RETRO_DEVICE_TYPE_SHIFT) | base)` exactly — a function-like macro bindgen can't expose as a
+/// Rust item.
+const fn retro_device_subclass(base: u32, id: u32) -> u32 {
+    ((id + 1) << RETRO_DEVICE_TYPE_SHIFT) | base
+}
+
+/// Super Multitap's device code (`RETRO_DEVICE_JOYPAD` subclass 0) — matches bsnes's own
+/// `RETRO_DEVICE_JOYPAD_MULTITAP` (`ref-proj/bsnes/bsnes/target-libretro/libretro.cpp`).
+const RETRO_DEVICE_JOYPAD_MULTITAP: u32 = retro_device_subclass(RETRO_DEVICE_JOYPAD, 0);
+/// Super Scope's device code (`RETRO_DEVICE_LIGHTGUN` subclass 0) — matches bsnes's own
+/// `RETRO_DEVICE_LIGHTGUN_SUPER_SCOPE`.
+const RETRO_DEVICE_LIGHTGUN_SUPER_SCOPE: u32 = retro_device_subclass(RETRO_DEVICE_LIGHTGUN, 0);
+
+/// Map a raw libretro device code (as passed to [`Core::on_set_controller_port_device`] and
+/// stored in [`RustySnesLibretro::device_per_port`]) to the core's own peripheral enum. Anything
+/// unrecognized (including plain `RETRO_DEVICE_JOYPAD`/`RETRO_DEVICE_NONE`) falls back to
+/// `Gamepad` — the safe default every port already starts at.
+const fn map_libretro_device(device: u32) -> rustysnes_core::controller::PortDevice {
+    use rustysnes_core::controller::PortDevice;
+    if device == RETRO_DEVICE_MOUSE {
+        PortDevice::Mouse
+    } else if device == RETRO_DEVICE_JOYPAD_MULTITAP {
+        PortDevice::Multitap
+    } else if device == RETRO_DEVICE_LIGHTGUN_SUPER_SCOPE {
+        PortDevice::SuperScope
+    } else {
+        PortDevice::Gamepad
+    }
+}
+
+/// Convert a libretro lightgun/pointer absolute screen coordinate (`[-0x8000, 0x7fff]`, zero =
+/// center) into a pixel offset in `[0, dimension)`, the space `EmuCore::set_superscope` expects.
+/// Widened to `i64` for the intermediate product purely for clarity, not because `i32` would
+/// overflow here (`dimension` never exceeds a few hundred).
+fn lightgun_screen_to_pixel(raw: i16, dimension: u32) -> i32 {
+    #[allow(clippy::cast_possible_truncation)]
+    let pixel = (i64::from(raw) + 0x8000) * i64::from(dimension) / 0x1_0000;
+    pixel as i32
+}
+
+/// Poll one controller port's input for the peripheral `device` (a raw libretro device code,
+/// mapped via [`map_libretro_device`]) and feed it to `core` — split out of `on_run` purely to
+/// keep that function under the workspace's `too_many_lines` clippy budget, not because this
+/// logic is reused elsewhere.
+fn poll_port_input(ctx: &RunContext<'_>, core: &mut EmuCore, port: usize, device: u32) {
+    match map_libretro_device(device) {
+        rustysnes_core::controller::PortDevice::Mouse => {
+            let x =
+                ctx.get_input_state(port as u32, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X);
+            let y =
+                ctx.get_input_state(port as u32, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_Y);
+            let left = ctx.get_input_state(
+                port as u32,
+                RETRO_DEVICE_MOUSE,
+                0,
+                RETRO_DEVICE_ID_MOUSE_LEFT,
+            ) != 0;
+            let right = ctx.get_input_state(
+                port as u32,
+                RETRO_DEVICE_MOUSE,
+                0,
+                RETRO_DEVICE_ID_MOUSE_RIGHT,
+            ) != 0;
+            core.set_mouse(port, i32::from(x), i32::from(y), left, right);
+        }
+        rustysnes_core::controller::PortDevice::SuperScope => {
+            let offscreen = ctx.get_input_state(
+                port as u32,
+                RETRO_DEVICE_LIGHTGUN,
+                0,
+                RETRO_DEVICE_ID_LIGHTGUN_IS_OFFSCREEN,
+            ) != 0;
+            let (fb_w, fb_h) = core.fb_dims();
+            let (x, y) = if offscreen {
+                // Matches `SuperScopeState::set_input`'s own `-16` fringe convention (one step
+                // further out to stay unambiguously off-screen after its `-16..=dimension+16`
+                // clamp).
+                (-20, -20)
+            } else {
+                let raw_x = ctx.get_input_state(
+                    port as u32,
+                    RETRO_DEVICE_LIGHTGUN,
+                    0,
+                    RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X,
+                );
+                let raw_y = ctx.get_input_state(
+                    port as u32,
+                    RETRO_DEVICE_LIGHTGUN,
+                    0,
+                    RETRO_DEVICE_ID_LIGHTGUN_SCREEN_Y,
+                );
+                (
+                    lightgun_screen_to_pixel(raw_x, fb_w),
+                    lightgun_screen_to_pixel(raw_y, fb_h),
+                )
+            };
+            let mut buttons = 0u8;
+            if ctx.get_input_state(
+                port as u32,
+                RETRO_DEVICE_LIGHTGUN,
+                0,
+                RETRO_DEVICE_ID_LIGHTGUN_TRIGGER,
+            ) != 0
+            {
+                buttons |= rustysnes_core::controller::scope::TRIGGER;
+            }
+            if ctx.get_input_state(
+                port as u32,
+                RETRO_DEVICE_LIGHTGUN,
+                0,
+                RETRO_DEVICE_ID_LIGHTGUN_AUX_A,
+            ) != 0
+            {
+                buttons |= rustysnes_core::controller::scope::CURSOR;
+            }
+            if ctx.get_input_state(
+                port as u32,
+                RETRO_DEVICE_LIGHTGUN,
+                0,
+                RETRO_DEVICE_ID_LIGHTGUN_AUX_B,
+            ) != 0
+            {
+                buttons |= rustysnes_core::controller::scope::TURBO;
+            }
+            if ctx.get_input_state(
+                port as u32,
+                RETRO_DEVICE_LIGHTGUN,
+                0,
+                RETRO_DEVICE_ID_LIGHTGUN_START,
+            ) != 0
+            {
+                buttons |= rustysnes_core::controller::scope::PAUSE;
+            }
+            core.set_superscope(port, x, y, buttons);
+        }
+        rustysnes_core::controller::PortDevice::Multitap => {
+            // bsnes's own precedent (`ref-proj/bsnes/bsnes/target-libretro/program.cpp`): sub-pad
+            // `N` polls libretro port `port + N` (RetroArch's Player 2-5 when the multitap sits on
+            // SNES port 2), each still the standard 12-button pad.
+            for sub in 0..4usize {
+                let jp = ctx.get_joypad_state((port + sub) as u32, 0);
+                core.set_multitap_pad(port, sub, joypad_state_to_snes_bits(jp));
+            }
+        }
+        rustysnes_core::controller::PortDevice::Gamepad => {
+            let jp = ctx.get_joypad_state(port as u32, 0);
+            core.set_pad(port, joypad_state_to_snes_bits(jp));
+        }
+    }
+}
+
 /// The central libretro core structure for RustySNES.
 pub struct RustySnesLibretro {
     /// The relocated pure facade. `None` until `on_load_game` (power-on with no ROM has no
@@ -90,6 +253,13 @@ pub struct RustySnesLibretro {
     /// a flat `Vec<CheatPatch>` and pushed to `Bus::set_cheats` on every change, mirroring
     /// `rustysnes-frontend::cheats::sync`'s "always replace the whole active set" convention.
     cheats: BTreeMap<std::os::raw::c_uint, CheatPatch>,
+    /// The raw libretro device code last selected for each of the two SNES controller ports
+    /// (`Core::on_set_controller_port_device`), defaulting to `RETRO_DEVICE_JOYPAD`. Stored
+    /// separately from the core's own `PortDevice` (rather than just calling
+    /// `EmuCore::set_port_device` and forgetting it) because a frontend may select a device
+    /// BEFORE `on_load_game` creates `self.core` — re-applied from here once the core exists
+    /// (`on_load_game`), and consulted every `on_run` to decide which libretro input API to poll.
+    device_per_port: [u32; 2],
 }
 
 impl Default for RustySnesLibretro {
@@ -102,6 +272,7 @@ impl Default for RustySnesLibretro {
             serialize_buffer: Vec::new(),
             pending_av_info: false,
             cheats: BTreeMap::new(),
+            device_per_port: [RETRO_DEVICE_JOYPAD, RETRO_DEVICE_JOYPAD],
         }
     }
 }
@@ -235,6 +406,65 @@ impl Core for RustySnesLibretro {
                 { 1, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R, "R" }
             );
             rust_libretro::environment::set_input_descriptors(cb, &descriptors);
+
+            // Peripheral negotiation (`RETRO_ENVIRONMENT_SET_CONTROLLER_INFO`) — mirrors bsnes's
+            // own libretro core's device menu exactly (`ref-proj/bsnes/bsnes/target-libretro/
+            // libretro.cpp`): Mouse/Super Multitap/Super Scope are only offered on port 2 (index
+            // `1`), matching real SNES hardware wiring. `rust_libretro` has no `controller_info!`
+            // helper macro (unlike `input_descriptors!`), so this builds the raw
+            // `retro_controller_info` array by hand.
+            let port0_types = [
+                retro_controller_description {
+                    desc: rust_libretro::c_char_ptr!("SNES Joypad"),
+                    id: RETRO_DEVICE_JOYPAD,
+                },
+                retro_controller_description {
+                    desc: rust_libretro::c_char_ptr!("SNES Mouse"),
+                    id: RETRO_DEVICE_MOUSE,
+                },
+            ];
+            let port1_types = [
+                retro_controller_description {
+                    desc: rust_libretro::c_char_ptr!("SNES Joypad"),
+                    id: RETRO_DEVICE_JOYPAD,
+                },
+                retro_controller_description {
+                    desc: rust_libretro::c_char_ptr!("SNES Mouse"),
+                    id: RETRO_DEVICE_MOUSE,
+                },
+                retro_controller_description {
+                    desc: rust_libretro::c_char_ptr!("Super Multitap"),
+                    id: RETRO_DEVICE_JOYPAD_MULTITAP,
+                },
+                retro_controller_description {
+                    desc: rust_libretro::c_char_ptr!("Super Scope"),
+                    id: RETRO_DEVICE_LIGHTGUN_SUPER_SCOPE,
+                },
+            ];
+            let controller_info = [
+                retro_controller_info {
+                    types: port0_types.as_ptr(),
+                    num_types: port0_types.len() as std::os::raw::c_uint,
+                },
+                retro_controller_info {
+                    types: port1_types.as_ptr(),
+                    num_types: port1_types.len() as std::os::raw::c_uint,
+                },
+            ];
+            rust_libretro::environment::set_controller_info(cb, &controller_info);
+        }
+    }
+
+    fn on_set_controller_port_device(&mut self, port: u32, device: u32, _ctx: &mut GenericContext) {
+        let Ok(idx) = usize::try_from(port) else {
+            return;
+        };
+        if idx >= self.device_per_port.len() {
+            return; // RustySNES only has two physical controller ports.
+        }
+        self.device_per_port[idx] = device;
+        if let Some(core) = self.core.as_mut() {
+            core.set_port_device(idx, map_libretro_device(device));
         }
     }
 
@@ -325,6 +555,14 @@ impl Core for RustySnesLibretro {
         // instead of copying it again into a second buffer only to read its length.
         self.serialize_size = core.save_state().len();
 
+        // Re-apply any peripheral already selected via `on_set_controller_port_device` — a
+        // frontend commonly sets the controller port device BEFORE `retro_load_game` (from saved
+        // per-game settings), which would otherwise be silently lost since `self.core` didn't
+        // exist yet to receive it.
+        for (idx, &device) in self.device_per_port.iter().enumerate() {
+            core.set_port_device(idx, map_libretro_device(device));
+        }
+
         self.core = Some(core);
         self.pending_av_info = true;
         self.cheats.clear();
@@ -338,8 +576,7 @@ impl Core for RustySnesLibretro {
 
         ctx.poll_input();
         for port in 0..2usize {
-            let jp = ctx.get_joypad_state(port as u32, 0);
-            core.set_pad(port, joypad_state_to_snes_bits(jp));
+            poll_port_input(ctx, core, port, self.device_per_port[port]);
         }
 
         core.run_frame();
@@ -515,4 +752,5 @@ retro_core!(RustySnesLibretro {
     serialize_buffer: Vec::new(),
     pending_av_info: false,
     cheats: BTreeMap::new(),
+    device_per_port: [RETRO_DEVICE_JOYPAD, RETRO_DEVICE_JOYPAD],
 });

@@ -297,12 +297,14 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   compositor, Settings UI + config, and the compositor wired into the live wgpu present path.
 - **Beyond that — Reach, now closed out.** The Libretro core, the CRT/HQx shader/filter pipeline,
   and HD texture packs — the three items originally deferred here — all shipped in `v1.2.0`/
-  `v1.3.0` above (see `to-dos/VERSION-PLAN.md`'s "Post-v1.0 — Reach"). What's still genuinely
-  open: the open-bus-via-DMA-latch bug, the SPC7110/PAL/ExLoROM/ST018/S-RTC real-ROM-validation
-  gaps (all ROM-sourcing-blocked, tracked in `docs/rom-test-corpus.md`), full `emu-thread` parity
-  (cheats/watchpoints/breakpoints/run-ahead/rewind/movies/scripting/netplay-pause/
-  RetroAchievements), libretro peripheral negotiation (Mouse/Super Scope/Multitap via
-  `RETRO_DEVICE_SUBCLASS`), and any future mobile/Android target (no appetite assumed by
+  `v1.3.0` above (see `to-dos/VERSION-PLAN.md`'s "Post-v1.0 — Reach"). The post-`v1.3.0` patch
+  cluster has also closed out the fullscreen-crash-on-wide-monitors bug, RustyNES-parity Window
+  Size presets, and `rustysnes-libretro`'s peripheral negotiation (Mouse/Super Scope/Multitap via
+  `RETRO_DEVICE_SUBCLASS`) — see `to-dos/VERSION-PLAN.md`'s "Post-v1.3.0" section. What's still
+  genuinely open: the open-bus-via-DMA-latch bug, the SPC7110/PAL/ExLoROM/ST018/S-RTC
+  real-ROM-validation gaps (all ROM-sourcing-blocked, tracked in `docs/rom-test-corpus.md`), full
+  `emu-thread` parity (cheats/watchpoints/breakpoints/run-ahead/rewind/movies/scripting/
+  netplay-pause/RetroAchievements), and any future mobile/Android target (no appetite assumed by
   default). None of these currently gate a numbered rung — they're an ongoing, opportunistic
   `v1.x.y`-patch cluster.
 - **Further beyond — the fractional-timebase refactor (`docs/adr/0002`).** Assessed in `v1.1.0`
