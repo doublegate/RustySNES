@@ -46,6 +46,37 @@ change (the same guard `applied_present_mode` already uses for the Settings → 
 toggle), applied once explicitly at `egui::Context` construction time so the configured theme is
 live from the very first frame, not just after the user opens Settings.
 
+## Global hotkeys (`v1.0.1`)
+
+Every system/emulation action used to be menu-bar-only (`rustysnes help hotkeys` said so
+explicitly). `app::window_event`'s `KeyboardInput` arm now checks a fixed, non-rebindable hotkey
+table (`App::hotkey_menu_action` + `App::dispatch_hotkey`) **before** falling through to
+`Self::latch_key` (P1 gameplay input), on the key-down edge only and never on OS auto-repeat:
+
+| Key | Action |
+|---|---|
+| `Escape` | Quit |
+| `F1` | Save State (quick slot) |
+| `F2` | Reset |
+| `F3` | Power Cycle |
+| `F4` | Load State (quick slot) |
+| `F5` | Rewind |
+| `F9` | Toggle the Save States... window |
+| `F11` | Toggle Fullscreen |
+| `F12` | Open ROM |
+| `Space` | Pause/Resume |
+| `` ` `` (Backquote) | Toggle Debugger overlay (feature-gated: `debug-hooks`, mirrors the Debug menu's own gating exactly — no second way to open a surface the default build never vets) |
+
+Hotkeys are suppressed while an egui widget has keyboard focus (`egui::Context::egui_wants_keyboard_input`)
+— e.g. typing in a Settings text field — so `Space`/`` ` `` don't double as both a typed character
+and a hotkey. `F9`/`F11` have no existing `MenuAction` variant (the mouse-driven UI flips the
+`ShellState` field directly), so the hotkey path does the same rather than inventing an action
+variant with no other caller; everything else dispatches through the existing `MenuAction`/
+`App::dispatch_actions` pipeline, called directly from `window_event` rather than only from the
+render/egui pass. `hotkey_menu_action` is a pure, unit-tested mapping (`app::hotkey_tests`),
+independent of any live winit/wgpu context. The key-map deliberately avoids every default P1
+binding (Arrows/X/Z/S/A/Q/W/RShift/Enter).
+
 ## The determinism boundary
 
 Rate control (the dynamic-rate-control resampler) and run-ahead (snapshot/restore
@@ -60,6 +91,12 @@ Netplay rollback is likewise frontend-orchestrated against the deterministic cor
 - A display-sync pacing matrix targeting 60.0988 Hz (NTSC) / 50.0070 Hz (PAL).
 - The optional non-deterministic "hardware-accurate audio" SPC-drift toggle (`docs/apu.md`
   §determinism-caveat) is a frontend setting, off by default, outside the deterministic path.
+- **Per-voice mute** (`v1.0.1`) — Settings → Audio has 8 checkboxes (`config.audio.voice_mutes`),
+  re-synced once per real frame (`Bus::set_voice_mutes`, the same "just re-sync unconditionally"
+  pattern cheats/watchpoints/breakpoints already use). A frontend/debug convenience with no real
+  hardware register behind it — see `docs/apu.md` §Per-voice mute for the exact mix-time-only gate
+  and why it's excluded from save-states. All unmuted by default, byte-identical to every prior
+  release.
 
 ### Fixed-timestep wall-clock pacing (synchronous drive)
 

@@ -27,8 +27,10 @@ record; this file frames the phase line.
   **desktop UX shell now at RustyNES's maturity bar (`v1.0.0`)**: the
   native+wasm shell is playable (video/audio/input/ROM-load wired), plus a thumbnail Save States
   manager, input rebinding, themes, speed presets, a Performance panel, fullscreen, and a
-  first-run welcome modal — per-channel audio mutes remain a tracked follow-up (needs its own
-  S-DSP per-voice model research). Save-states are **fully
+  first-run welcome modal. **`v1.0.1` closes both items deferred out of `v1.0.0`**: per-channel
+  (per-voice) audio mutes (Settings → Audio, gating `Dsp::voice_output`) and global keyboard
+  hotkeys (a fixed table, previously menu-bar-only) — see `docs/frontend.md` §Global hotkeys and
+  `docs/apu.md` §Per-voice mute. Save-states are **fully
   implemented** (`v0.2.0 "Persistence"`, `docs/adr/0006` — every subsystem round-trips its exact
   state through one versioned envelope, proven by a round-trip determinism test), and rewind +
   run-ahead (`v0.3.0 "Continuum"`, `crate::rewind` — a bounded ring buffer of full snapshots +

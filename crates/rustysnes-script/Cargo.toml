@@ -1,14 +1,14 @@
 [package]
 name = "rustysnes-script"
 description = "RustySNES: sandboxed Lua 5.4 scripting (memory read/write + a per-frame callback)"
-version = "1.0.0"
+version = "1.0.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [dependencies]
-rustysnes-core = { path = "../rustysnes-core", version = "1.0.0" }
+rustysnes-core = { path = "../rustysnes-core", version = "1.0.1" }
 thiserror = "2"
 # Vendored (bundled C source, no system Lua dependency) so the build is reproducible across
 # platforms; `lua54` pins the Lua version. Deliberately NOT the `send` feature: that requires

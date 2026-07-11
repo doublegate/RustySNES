@@ -384,7 +384,24 @@ impl ApplicationHandler<AppEvent> for App {
                         }
                     }
                 } else {
-                    Self::latch_key(active, &self.config, &key_event);
+                    // `v1.0.1` global hotkeys — fixed, not rebindable, checked before gameplay
+                    // latching. Only on the key-DOWN edge, and never on OS auto-repeat (holding a
+                    // hotkey must not spam Reset/Quit/etc. every ~30ms) — see
+                    // `Self::hotkey_menu_action`. Suppressed while an egui widget (e.g. a Settings
+                    // text field) has keyboard focus, so e.g. typing a space doesn't also toggle
+                    // pause.
+                    let handled_as_hotkey = if key_event.state.is_pressed()
+                        && !key_event.repeat
+                        && !active.egui_ctx.egui_wants_keyboard_input()
+                        && let winit::keyboard::PhysicalKey::Code(code) = key_event.physical_key
+                    {
+                        Self::dispatch_hotkey(active, &mut self.config, event_loop, code)
+                    } else {
+                        false
+                    };
+                    if !handled_as_hotkey {
+                        Self::latch_key(active, &self.config, &key_event);
+                    }
                 }
             }
             WindowEvent::RedrawRequested => {
@@ -644,6 +661,66 @@ impl App {
         config.p1.rebind(format!("{code:?}"), button);
     }
 
+    /// Pure global-hotkey key→action mapping (`v1.0.1`) for the hotkeys that already have a
+    /// corresponding [`MenuAction`] — split out from [`Self::dispatch_hotkey`] specifically so it
+    /// can be unit-tested without a live `Active`/`ActiveEventLoop`. Fixed, not (yet) rebindable.
+    /// None of these physical keys collide with the default P1 gameplay binds (arrows/X/Z/S/A/Q/
+    /// W/RShift/Enter), but a user COULD rebind a gameplay button onto one of them via the Input
+    /// tab; a hotkey always wins that conflict, a deliberate, predictable choice rather than
+    /// trying to arbitrate it.
+    ///
+    /// `rustysnes help hotkeys` documents this exact table — keep the two in sync.
+    const fn hotkey_menu_action(code: winit::keyboard::KeyCode) -> Option<MenuAction> {
+        use winit::keyboard::KeyCode;
+        Some(match code {
+            KeyCode::Escape => MenuAction::Quit,
+            KeyCode::F1 => MenuAction::SaveState,
+            KeyCode::F4 => MenuAction::LoadState,
+            KeyCode::F2 => MenuAction::Reset,
+            KeyCode::F3 => MenuAction::PowerCycle,
+            KeyCode::F5 => MenuAction::Rewind,
+            KeyCode::F12 => MenuAction::OpenRom,
+            KeyCode::Space => MenuAction::TogglePause,
+            // Mirrors the Debug menu's own gating exactly (`debugger_open` must never become
+            // `true` without `debug-hooks` — see `ui_shell.rs`'s module doc) rather than
+            // introducing a second, hotkey-only way to reach a UI surface the default build
+            // never vets.
+            #[cfg(feature = "debug-hooks")]
+            KeyCode::Backquote => MenuAction::ToggleDebugger,
+            _ => return None,
+        })
+    }
+
+    /// Dispatch a global hotkey (`v1.0.1`). Returns `true` if `code` was recognized (the caller
+    /// must NOT also latch it as gameplay input), `false` otherwise. F9/F11 have no existing
+    /// `MenuAction` (the mouse-driven UI flips the `ShellState` field directly — a checkbox / a
+    /// menu button setting `= true`), so the hotkey does the same rather than inventing an action
+    /// variant with no other caller; everything else goes through [`Self::hotkey_menu_action`].
+    fn dispatch_hotkey(
+        active: &mut Active,
+        config: &mut Config,
+        event_loop: &ActiveEventLoop,
+        code: winit::keyboard::KeyCode,
+    ) -> bool {
+        match code {
+            winit::keyboard::KeyCode::F9 => {
+                active.shell.save_states_open = !active.shell.save_states_open;
+                true
+            }
+            winit::keyboard::KeyCode::F11 => {
+                active.shell.fullscreen = !active.shell.fullscreen;
+                true
+            }
+            _ => {
+                let Some(action) = Self::hotkey_menu_action(code) else {
+                    return false;
+                };
+                Self::dispatch_actions(active, config, event_loop, vec![action]);
+                true
+            }
+        }
+    }
+
     /// One render: copy the framebuffer under a brief lock, blit, run the egui shell, present.
     /// Returns the menu actions to dispatch AFTER this pass (never dispatched mid-egui).
     // One straight-line present pass (lock-copy → audio push → blit → egui → submit); the length
@@ -757,6 +834,9 @@ impl App {
                     // PC breakpoints (`v0.9.0`, T-81-001 PR B) — same re-sync pattern as above;
                     // a no-op branch in `EmuCore::run_frame` when the list is empty.
                     emu.set_breakpoints(&active.breakpoints);
+                    // Per-voice audio mutes (`v1.0.1`) — same re-sync pattern as above; all-false
+                    // (unmuted) is the default, byte-identical to every prior release.
+                    emu.set_voice_mutes(config.audio.voice_mutes);
                     // Run-ahead (config-driven, off by default): peeks `run_ahead.frames` frames
                     // ahead for the PRESENTED video, while `emu`'s own persisted state (and audio
                     // — the continuous stream) only ever advances by exactly one real frame, same
@@ -1476,5 +1556,91 @@ mod frame_input_tests {
         emu.run_frame();
         assert_eq!(emu.system_mut().bus.joypad(1), 0);
         assert!(matches!(movie_state, MovieState::Idle));
+    }
+}
+
+#[cfg(test)]
+mod hotkey_tests {
+    use super::*;
+
+    #[test]
+    fn known_hotkeys_map_to_expected_actions() {
+        use winit::keyboard::KeyCode;
+        assert_eq!(
+            App::hotkey_menu_action(KeyCode::Escape),
+            Some(MenuAction::Quit)
+        );
+        assert_eq!(
+            App::hotkey_menu_action(KeyCode::F1),
+            Some(MenuAction::SaveState)
+        );
+        assert_eq!(
+            App::hotkey_menu_action(KeyCode::F2),
+            Some(MenuAction::Reset)
+        );
+        assert_eq!(
+            App::hotkey_menu_action(KeyCode::F3),
+            Some(MenuAction::PowerCycle)
+        );
+        assert_eq!(
+            App::hotkey_menu_action(KeyCode::F4),
+            Some(MenuAction::LoadState)
+        );
+        assert_eq!(
+            App::hotkey_menu_action(KeyCode::F5),
+            Some(MenuAction::Rewind)
+        );
+        assert_eq!(
+            App::hotkey_menu_action(KeyCode::F12),
+            Some(MenuAction::OpenRom)
+        );
+        assert_eq!(
+            App::hotkey_menu_action(KeyCode::Space),
+            Some(MenuAction::TogglePause)
+        );
+    }
+
+    #[test]
+    fn unmapped_keys_are_not_hotkeys() {
+        use winit::keyboard::KeyCode;
+        // A representative sample of default P1 gameplay keys + a few arbitrary others — none of
+        // these should ever be claimed by the hotkey table.
+        for code in [
+            KeyCode::ArrowUp,
+            KeyCode::KeyX,
+            KeyCode::KeyZ,
+            KeyCode::KeyS,
+            KeyCode::KeyA,
+            KeyCode::KeyQ,
+            KeyCode::KeyW,
+            KeyCode::ShiftRight,
+            KeyCode::Enter,
+            KeyCode::KeyM,
+            KeyCode::Digit1,
+        ] {
+            assert_eq!(
+                App::hotkey_menu_action(code),
+                None,
+                "{code:?} must not be a hotkey"
+            );
+        }
+    }
+
+    #[cfg(feature = "debug-hooks")]
+    #[test]
+    fn backquote_toggles_debugger_only_when_debug_hooks_is_enabled() {
+        assert_eq!(
+            App::hotkey_menu_action(winit::keyboard::KeyCode::Backquote),
+            Some(MenuAction::ToggleDebugger)
+        );
+    }
+
+    #[cfg(not(feature = "debug-hooks"))]
+    #[test]
+    fn backquote_is_not_a_hotkey_without_debug_hooks() {
+        assert_eq!(
+            App::hotkey_menu_action(winit::keyboard::KeyCode::Backquote),
+            None
+        );
     }
 }

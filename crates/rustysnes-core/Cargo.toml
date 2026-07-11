@@ -1,6 +1,6 @@
 [package]
 name = "rustysnes-core"
-version = "1.0.0"
+version = "1.0.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -15,11 +15,11 @@ std = []
 debug-hooks = []
 
 [dependencies]
-rustysnes-cpu = { path = "../rustysnes-cpu", version = "1.0.0", default-features = false }
-rustysnes-ppu = { path = "../rustysnes-ppu", version = "1.0.0", default-features = false }
-rustysnes-apu = { path = "../rustysnes-apu", version = "1.0.0", default-features = false }
-rustysnes-cart = { path = "../rustysnes-cart", version = "1.0.0", default-features = false }
-rustysnes-savestate = { path = "../rustysnes-savestate", version = "1.0.0" }
+rustysnes-cpu = { path = "../rustysnes-cpu", version = "1.0.1", default-features = false }
+rustysnes-ppu = { path = "../rustysnes-ppu", version = "1.0.1", default-features = false }
+rustysnes-apu = { path = "../rustysnes-apu", version = "1.0.1", default-features = false }
+rustysnes-cart = { path = "../rustysnes-cart", version = "1.0.1", default-features = false }
+rustysnes-savestate = { path = "../rustysnes-savestate", version = "1.0.1" }
 thiserror = { version = "2", default-features = false }
 # ROM-identity hashing for TAS movies (`movie.rs`) — already resolved transitively (via `zip` in
 # the frontend), so this promotes an existing dependency to direct rather than adding a new one

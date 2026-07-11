@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **RustySNES integrates a cycle-accurate emulation engine.** Modeled after its predecessor `RustyNES`, this emulator is built on a master-clock-precise, lockstep-scheduled core targeting the Mesen2/ares accuracy bar. The entries below document the engine-internal milestones as this core is built and hardened.
 
+## [1.0.1] "Aftertouch" - 2026-07-11
+
+**Versioning note:** both items below are additive and off-by-default/opt-in in effect (existing
+behavior is unchanged unless the user mutes a voice or presses a hotkey), which this project's own
+SemVer convention (`master-core` module 10: "ship additive, off-by-default changes as MINOR") would
+normally ship as `v1.1.0`. This release ships as **`v1.0.1`** instead, per explicit user instruction
+overriding that convention for this cut specifically.
+
+### Added
+
+- **Per-voice audio mute** (Settings → Audio, 8 checkboxes, `config.audio.voice_mutes`) — a
+  frontend/debug convenience with **no real S-DSP hardware register behind it** (real hardware
+  only has the whole-mix `FLG.6` mute bit); gates `Dsp::voice_output`, the single point strictly
+  downstream of BRR decode/envelope/pitch computation, so muting cannot perturb any
+  ROM-observable register (`OUTX`/`ENVX`/`ENDX`) or envelope timing. Re-synced once per real frame
+  (`Bus::set_voice_mutes`), excluded from save-states (same "frontend convenience state, re-synced
+  unconditionally, not part of the deterministic core" pattern as cheats/watchpoints/breakpoints).
+  All unmuted by default — byte-identical to every prior release. See `docs/apu.md` §Per-voice mute.
+- **Global keyboard hotkeys** — every system/emulation action used to be menu-bar-only
+  (`rustysnes help hotkeys` said so explicitly; this is now corrected). A fixed, non-rebindable
+  hotkey table now works anywhere the window has focus: `Escape`=Quit, `F1`=Save State, `F2`=Reset,
+  `F3`=Power Cycle, `F4`=Load State, `F5`=Rewind, `F9`=Save States… window, `F11`=Fullscreen,
+  `F12`=Open ROM, `Space`=Pause/Resume, `` ` ``=Toggle Debugger overlay (feature-gated:
+  `debug-hooks`, mirrors the Debug menu's own gating — no second way to reach a surface the
+  default build never vets). Checked on the key-down edge only, never on OS auto-repeat, and
+  suppressed while an egui widget (e.g. a Settings text field) has keyboard focus. The key-map
+  avoids every default P1 gameplay binding. See `docs/frontend.md` §Global hotkeys.
+
 ## [1.0.0] "Zenith" - 2026-07-10
 
 The production cut: `Board: Send` (unblocking the dedicated `emu-thread` feature to

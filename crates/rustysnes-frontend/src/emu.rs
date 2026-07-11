@@ -270,6 +270,12 @@ impl EmuCore {
         self.system.bus.set_mouse(port, dx, dy, left, right);
     }
 
+    /// Set the 8 per-voice audio mute toggles (`v1.0.1`) — see
+    /// [`rustysnes_core::Bus::set_voice_mutes`]'s doc.
+    pub const fn set_voice_mutes(&mut self, mutes: [bool; 8]) {
+        self.system.bus.set_voice_mutes(mutes);
+    }
+
     /// Feed one frame's worth of Super Scope input for port `port` — see
     /// [`rustysnes_core::Bus::set_superscope`].
     pub fn set_superscope(&mut self, port: usize, x: i32, y: i32, buttons: u8) {

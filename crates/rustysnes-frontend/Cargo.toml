@@ -1,7 +1,7 @@
 [package]
 name = "rustysnes-frontend"
 description = "RustySNES: cross-platform SNES emulator binary (winit + wgpu + cpal + egui)"
-version = "1.0.0"
+version = "1.0.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -100,8 +100,8 @@ full = ["debug-hooks", "scripting", "cheats", "netplay", "retroachievements", "h
 workspace = true
 
 [dependencies]
-rustysnes-core = { path = "../rustysnes-core", version = "1.0.0" }
-rustysnes-savestate = { path = "../rustysnes-savestate", version = "1.0.0" }
+rustysnes-core = { path = "../rustysnes-core", version = "1.0.1" }
+rustysnes-savestate = { path = "../rustysnes-savestate", version = "1.0.1" }
 
 # winit + wgpu + cpal + egui shell. Versions tracked to the latest published,
 # mutually-compatible tier (2026-06): egui/egui-wgpu/egui-winit 0.35, wgpu 29
@@ -146,9 +146,9 @@ clap = { version = "4", features = ["derive", "color", "cargo"] }
 clap_complete = "4"
 anstyle = "1"
 ratatui = { version = "0.30", optional = true }
-rustysnes-script = { path = "../rustysnes-script", version = "1.0.0", optional = true }
-rustysnes-netplay = { path = "../rustysnes-netplay", version = "1.0.0", optional = true }
-rustysnes-cheevos = { path = "../rustysnes-cheevos", version = "1.0.0", optional = true }
+rustysnes-script = { path = "../rustysnes-script", version = "1.0.1", optional = true }
+rustysnes-netplay = { path = "../rustysnes-netplay", version = "1.0.1", optional = true }
+rustysnes-cheevos = { path = "../rustysnes-cheevos", version = "1.0.1", optional = true }
 
 # wasm32 target deps. The chip stack is `no_std + alloc`, so the browser build
 # only needs the wasm-bindgen + web-sys bridge here.

@@ -43,8 +43,9 @@ Examples:
 Keyboard (P1, rebindable in Settings -> Input):
   Arrows D-pad   X=A  Z=B  S=X  A=Y   Q=L  W=R   RShift=Select  Enter=Start
 
-There are no global keyboard hotkeys yet (Reset/Power-Cycle/Pause/Save-States/Speed/Fullscreen
-all live in the menu bar) -- see `rustysnes help hotkeys`.
+Global hotkeys (v1.0.1): Esc=Quit  F1=Save  F2=Reset  F3=Power-Cycle  F4=Load
+F5=Rewind  F9=Save States  F11=Fullscreen  F12=Open ROM  Space=Pause -- see
+`rustysnes help hotkeys`.
 
 See `rustysnes help <topic>` for: controls, hotkeys, gamepad, features, coprocessors, config,
 scripting, netplay, about.";
@@ -161,9 +162,24 @@ Run `rustysnes help hotkeys` for system/emulation controls, or
 System & emulation controls
 ============================
 
-RustySNES does not have dedicated global keyboard hotkeys yet (no F-key
-bindings for Reset / Power-Cycle / Save-State / Fullscreen). Every system and
-emulation action lives in the menu bar instead:
+Global keyboard hotkeys (v1.0.1) work anywhere the window has focus, and are
+suppressed while a text field (e.g. Settings) has keyboard focus so typing
+never triggers them:
+
+  Escape ....... Quit
+  F1 ........... Save State (quick slot)
+  F2 ........... Reset
+  F3 ........... Power Cycle
+  F4 ........... Load State (quick slot)
+  F5 ........... Rewind
+  F9 ........... Save States... (10-slot thumbnail manager)
+  F11 .......... Toggle Fullscreen
+  F12 .......... Open ROM
+  Space ........ Pause/Resume
+  ` (Backquote)  Toggle Debugger overlay (feature-gated: debug-hooks)
+
+Every action above is also reachable from the menu bar, which remains the
+authoritative reference if a binding above ever looks stale:
 
   File ....... Open ROM, Close ROM, Settings, Quit
   Emulation .. Pause/Resume, Reset, Power Cycle, Save/Load State (quick slot),
@@ -171,10 +187,7 @@ emulation action lives in the menu bar instead:
                Speed (25%-300% presets)
   Tools ...... Cheats / Netplay / RetroAchievements windows (feature-gated)
   View ....... Integer scale, Performance panel, Fullscreen
-  Debug ...... Debugger overlay (feature-gated: debug-hooks)
-
-This is a known, tracked gap (not a silent omission) -- see the project's
-`to-dos/` for the follow-up ticket."
+  Debug ...... Debugger overlay (feature-gated: debug-hooks)"
         }
         "gamepad" => {
             "\

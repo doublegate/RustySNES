@@ -537,6 +537,12 @@ impl Apu {
         self.dsp.read(address)
     }
 
+    /// Set the 8 per-voice mute toggles (`v1.0.1`) — see [`dsp::Dsp::set_voice_mutes`]'s doc for
+    /// why this is a frontend/debug convenience, not real hardware state.
+    pub const fn set_voice_mutes(&mut self, mutes: [bool; 8]) {
+        self.dsp.set_voice_mutes(mutes);
+    }
+
     /// Borrow ARAM (read-only) — for save-states / debug.
     #[must_use]
     pub fn aram(&self) -> &[u8; ARAM_SIZE] {

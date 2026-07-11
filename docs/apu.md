@@ -91,6 +91,21 @@ cycle-correct value). `Dsp::run_sample` is retained as the batched `32 × tick` 
 and one-at-a-time drives are bit-identical (sample stream + ARAM) on real BRR/echo content, which is
 what protects the already-passing per-sample output path.
 
+### Per-voice mute (`v1.0.1`, frontend/debug convenience — not real hardware)
+
+Real S-DSP hardware has no per-voice mute register (only the whole-mix `FLG.6` bit,
+`MainVol::mute`). `Dsp::set_voice_mutes([bool; 8])` is an additive, frontend-only knob: a muted
+voice's contribution to both the main mix and the echo send is dropped entirely inside
+`voice_output` (an early `return` before either accumulator is touched). Everything upstream —
+BRR decode, the Gaussian interpolation buffer, ADSR/GAIN envelope timing, OUTX/ENVX/ENDX register
+content — is completely unaffected, so muting is purely cosmetic: it changes what reaches the
+speaker, never anything a ROM can observe via register reads, and un-muting mid-note resumes
+exactly where the voice already was. Deliberately NOT part of `save_state`/`load_state` (like
+cheats/watchpoints elsewhere in this codebase, it is host UI state, not emulated hardware state);
+re-synced from the frontend once per real frame (`Bus::set_voice_mutes`, wired from
+`config.audio.voice_mutes` via Settings → Audio's 8 checkboxes). All-`false` (unmuted) is the
+default, byte-identical to every prior release.
+
 #### blargg status (honest) — all four literal PASSes
 
 The **timer-phase** fix closed the SPC700 timer suite: `RecordingSmpBus::write` now advances the SMP

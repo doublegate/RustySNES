@@ -471,6 +471,13 @@ impl Bus {
         self.watchpoints.take_hits()
     }
 
+    /// Set the 8 per-voice audio mute toggles (`v1.0.1`). See
+    /// [`rustysnes_apu::dsp::Dsp::set_voice_mutes`]'s doc for why this is a frontend/debug
+    /// convenience re-synced once per real frame, not real S-DSP hardware state.
+    pub const fn set_voice_mutes(&mut self, mutes: [bool; 8]) {
+        self.apu.set_voice_mutes(mutes);
+    }
+
     /// Record the CPU's current `PBR:PC` (24-bit, `$bank:offset`) so a watchpoint hit during the
     /// access this instruction is about to make can attribute itself to the right instruction.
     /// The scheduler calls this once before each [`rustysnes_cpu::Cpu::step`]

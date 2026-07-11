@@ -575,6 +575,13 @@ impl ShellState {
                     1 => {
                         ui.checkbox(&mut cfg.audio.enabled, "Audio enabled");
                         ui.add(egui::Slider::new(&mut cfg.audio.volume, 0.0..=1.0).text("Volume"));
+                        ui.separator();
+                        ui.label("Per-voice mute (S-DSP channels 0-7):");
+                        ui.horizontal(|ui| {
+                            for (i, muted) in cfg.audio.voice_mutes.iter_mut().enumerate() {
+                                ui.checkbox(muted, format!("V{i}"));
+                            }
+                        });
                     }
                     2 => {
                         ui.label("P1 key bindings:");

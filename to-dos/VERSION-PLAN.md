@@ -570,7 +570,8 @@ ends closed out before the `v1.0.0` production cut below.
 - **Desktop UX shell maturity — DONE** (the thumbnail save-state manager, key-rebind grid,
   themes, fullscreen, speed presets, welcome modal, and Performance panel with a frame-time
   sparkline all landed; `docs/frontend.md` documents each). Per-channel audio mutes did not land
-  — needs its own S-DSP per-voice model research, scoped separately rather than rushed.
+  — needed its own S-DSP per-voice model research, scoped separately rather than rushed; landed
+  in `v1.0.1` below, alongside global keyboard hotkeys.
 - **New frame-time performance-regression CI gate — DONE** (`.github/workflows/ci.yml`'s `bench`
   job + `scripts/bench_regression_check.sh`, mirroring RustyNES's own pattern; see
   `docs/performance.md`/`docs/benchmarks.md`).
@@ -604,6 +605,33 @@ backward-compat-fixture-proven (item above); a genuinely shippable multi-platfor
 full breadth pass (debugger, scripting/TAS, cheats, netplay, RetroAchievements) landed and
 byte-identical-with-flags-off; green CI including `no_std` + wasm + the new perf-regression
 gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
+
+### v1.0.1 — the two items deferred out of v1.0.0
+
+- **Per-voice (per-channel) audio mute — DONE.** Settings → Audio grew 8 checkboxes
+  (`config.audio.voice_mutes`), re-synced once per real frame via `Bus::set_voice_mutes` (the
+  same "frontend/debug convenience state, re-synced unconditionally, excluded from save-states"
+  pattern already used for cheats/watchpoints/breakpoints/port2_peripheral). Real S-DSP hardware
+  has no per-voice mute register (only the whole-mix `FLG.6` bit) — this gates `Dsp::voice_output`,
+  the point strictly downstream of BRR decode/envelope/pitch computation, so it cannot perturb any
+  ROM-observable register (`OUTX`/`ENVX`/`ENDX`) or envelope timing. All unmuted by default —
+  byte-identical to every prior release. See `docs/apu.md` §Per-voice mute.
+- **Global keyboard hotkeys — DONE.** Every system/emulation action was menu-bar-only
+  (`rustysnes help hotkeys` said so explicitly, now corrected). A fixed, non-rebindable table now
+  works window-wide: `Escape`=Quit, `F1`=Save State, `F2`=Reset, `F3`=Power Cycle, `F4`=Load State,
+  `F5`=Rewind, `F9`=Save States… window, `F11`=Fullscreen, `F12`=Open ROM, `Space`=Pause/Resume,
+  `` ` ``=Toggle Debugger overlay (feature-gated: `debug-hooks`, mirroring the Debug menu's own
+  gating — no second way to reach a surface the default build never vets). Key-down edge only,
+  never on OS auto-repeat, suppressed while an egui widget has keyboard focus (so e.g. `Space`
+  doesn't also insert a character into a Settings text field). The key-map avoids every default
+  P1 gameplay binding. See `docs/frontend.md` §Global hotkeys.
+- **Versioning note:** both items are additive/off-by-default in effect, which this project's own
+  convention ("ship additive changes as MINOR") would normally cut as `v1.1.0`. Shipped as
+  `v1.0.1` instead per explicit project-owner instruction overriding that convention for this one
+  release — see `CHANGELOG.md`.
+- **Regression gate:** full workspace suite (default + `debug-hooks`), the full clippy matrix
+  (default / flags-off / `full` / `emu-thread` / `debug-hooks`), the `--features test-roms`
+  27-suite accuracy/oracle battery, and the `no_std` build all green with zero regressions.
 
 ## Post-v1.0 — Reach (deferred)
 

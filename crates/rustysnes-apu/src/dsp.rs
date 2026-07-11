@@ -231,6 +231,13 @@ pub struct Dsp {
     /// This records the samples the synthesis already produced — it never feeds back into the DSP,
     /// so the deterministic audio contract is unaffected (callers that never drain simply ignore it).
     out: Vec<(i16, i16)>,
+    /// Per-voice mute toggle (`v1.0.1`, a frontend/debug convenience — real S-DSP hardware has no
+    /// per-voice mute register, only the whole-mix `MainVol::mute` FLG bit). Re-synced from the
+    /// frontend once per real frame (`Bus::set_voice_mutes`), the same "just re-sync
+    /// unconditionally" convention cheats/watchpoints already use. Deliberately NOT part of
+    /// `save_state`/`load_state` — like cheats/watchpoints, this is host UI state, not emulated
+    /// hardware state, so a save-state round-trip must not perturb or reset it.
+    voice_mute: [bool; 8],
 }
 
 impl core::fmt::Debug for Dsp {
@@ -527,6 +534,7 @@ impl Dsp {
             phase: 0,
             last_sample: (0, 0),
             out: Vec::new(),
+            voice_mute: [false; 8],
         };
         for (n, v) in dsp.voice.iter_mut().enumerate() {
             v.index = (n as u8) << 4;
@@ -557,6 +565,16 @@ impl Dsp {
     #[must_use]
     pub const fn muted(&self) -> bool {
         self.mainvol.mute
+    }
+
+    /// Set the 8 per-voice mute toggles (`v1.0.1`) — a frontend/debug convenience, not real S-DSP
+    /// hardware state (see [`Self::voice_mute`]'s own doc). A muted voice's contribution to both
+    /// the main mix and the echo send is dropped entirely in [`Self::voice_output`], as if the
+    /// voice were silent — its envelope/BRR-decode/pitch state keeps running unaffected (KON/KOFF/
+    /// ENDX timing is unperturbed), so un-muting mid-note resumes exactly where the voice already
+    /// was, matching what a listener expects from a mute toggle.
+    pub const fn set_voice_mutes(&mut self, mutes: [bool; 8]) {
+        self.voice_mute = mutes;
     }
 
     /// Write a DSP register, decoding it into the live voice/echo/global state (ares `write`).
@@ -1052,6 +1070,14 @@ impl Dsp {
     }
 
     fn voice_output(&mut self, vi: usize, channel: usize) {
+        // `v1.0.1` per-voice mute: drop this voice's contribution to BOTH the main mix and the
+        // echo send, as if it were silent. Everything upstream of this point (OUTX/ENDX/ENVX
+        // register content, envelope/BRR/pitch state) is untouched, so a mute is purely
+        // cosmetic — it changes what reaches the speaker, never anything a ROM can observe via
+        // register reads, and un-muting mid-note resumes exactly where the voice already was.
+        if self.voice_mute[vi] {
+            return;
+        }
         let amp = (i32::from(self.latch.output) * i32::from(self.voice[vi].volume[channel])) >> 7;
         self.mainvol.output[channel] = sclamp16(self.mainvol.output[channel] + amp);
         if self.voice[vi]._echo {
@@ -1647,6 +1673,72 @@ mod tests {
             &aram_b[..],
             "run_sample vs tick×32 ARAM diverged"
         );
+    }
+
+    #[test]
+    fn voice_mutes_default_to_unmuted() {
+        assert_eq!(Dsp::new().voice_mute, [false; 8]);
+    }
+
+    /// Exercises [`Dsp::voice_output`] directly (rather than through a full BRR/KON note — real
+    /// hardware has several samples of pipeline latency before a freshly key-on'd voice's BRR
+    /// address resolves, which is a real, correct, but orthogonal timing detail this test has no
+    /// need to reproduce): with a known nonzero per-voice sample latched, an unmuted voice adds
+    /// its contribution to both the main mix and the echo send; muting it drops both entirely.
+    #[test]
+    fn voice_output_gate_skips_mix_and_echo_when_muted() {
+        let mut dsp = Dsp::new();
+        dsp.latch.output = 1000;
+        dsp.voice[0].volume = [100, 100];
+        dsp.voice[0]._echo = true;
+
+        dsp.voice_output(0, 0);
+        assert_ne!(
+            dsp.mainvol.output[0], 0,
+            "unmuted voice must reach the main mix"
+        );
+        assert_ne!(
+            dsp.echo.output[0], 0,
+            "unmuted voice must reach the echo send"
+        );
+
+        dsp.mainvol.output[0] = 0;
+        dsp.echo.output[0] = 0;
+        dsp.set_voice_mutes([true, false, false, false, false, false, false, false]);
+        dsp.voice_output(0, 0);
+        assert_eq!(
+            dsp.mainvol.output[0], 0,
+            "muted voice must not reach the main mix"
+        );
+        assert_eq!(
+            dsp.echo.output[0], 0,
+            "muted voice must not reach the echo send"
+        );
+    }
+
+    /// `voice_output` is the ONLY thing a mute gates — it never touches envelope/BRR-decode/pitch
+    /// state, so muting can't perturb ENVX/OUTX/ENDX or anything else a ROM can read back. Proven
+    /// directly from the code shape (the early `return` in `voice_output` precedes every write in
+    /// the function), reinforced here by confirming a muted call leaves every OTHER voice/latch
+    /// field it could plausibly have touched bit-for-bit unchanged.
+    #[test]
+    fn muting_touches_only_the_mix_not_voice_or_latch_state() {
+        let mut dsp = Dsp::new();
+        dsp.latch.output = 1000;
+        dsp.voice[0].volume = [100, 100];
+        dsp.voice[0]._echo = true;
+        dsp.voice[0].envx = 42;
+        dsp.voice[0].envelope = 777;
+        let before = dsp.voice[0];
+
+        dsp.set_voice_mutes([true, false, false, false, false, false, false, false]);
+        dsp.voice_output(0, 0);
+
+        assert_eq!(dsp.voice[0].envx, before.envx);
+        assert_eq!(dsp.voice[0].envelope, before.envelope);
+        assert_eq!(dsp.voice[0].volume, before.volume);
+        assert_eq!(dsp.mainvol.output[0], 0);
+        assert_eq!(dsp.echo.output[0], 0);
     }
 
     #[test]

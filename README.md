@@ -27,7 +27,7 @@ control, alongside 11 cartridge coprocessors, save states with a thumbnail multi
 rewind, run-ahead, a Lua scripting/TAS engine, Game Genie/Pro Action Replay cheats, GGPO-style
 rollback netplay, RetroAchievements, and a live in-browser WebAssembly build. See
 [`to-dos/VERSION-PLAN.md`](to-dos/VERSION-PLAN.md) for the named, versioned release ladder from
-where the project stands today (`v0.9.0`) to `v1.0.0` and beyond.
+`v1.0.0` "Zenith" (the production cut) onward.
 
 ---
 
@@ -213,8 +213,10 @@ trunk build --release --no-default-features --features wasm-canvas
 
 The desktop frontend frames the SNES image with an always-on **menu bar** (top) and **status
 bar** (bottom); the egui debugger is a separate overlay (behind the `debug-hooks` feature).
-Everything is reachable from the menu bar — there are no global keyboard hotkeys yet (a known,
-tracked gap; see `rustysnes help hotkeys`).
+Everything is reachable from the menu bar, and also from **global keyboard hotkeys** (`v1.0.1`):
+`Escape`=Quit, `F1`=Save State, `F2`=Reset, `F3`=Power Cycle, `F4`=Load State, `F5`=Rewind,
+`F9`=Save States… window, `F11`=Fullscreen, `F12`=Open ROM, `Space`=Pause/Resume, `` ` ``=Toggle
+Debugger overlay (feature-gated: `debug-hooks`) — see `rustysnes help hotkeys`.
 
 - **Menu bar** — File (Open ROM, Close ROM, Settings, Quit), Emulation (Pause/Resume, Reset, Power
   Cycle, Save/Load State (quick slot), Rewind, **Save States…** (10-slot thumbnail manager),
@@ -222,8 +224,10 @@ tracked gap; see `rustysnes help hotkeys`).
   feature-gated), View (Integer scale, **Performance panel**, **Fullscreen**), Debug (the debugger
   overlay, feature-gated).
 - **Settings window** — a tabbed Video / Audio / Input / System dialog: present-mode radio,
-  volume slider, a per-button **key-rebind grid** (click "Rebind", press the new key — Esc
-  cancels), controller port 2 peripheral selection, region, and **light/dark/system theme**.
+  volume slider, **8 per-voice mute checkboxes** (`v1.0.1`, a frontend/debug convenience — real
+  S-DSP hardware has no per-voice mute register), a per-button **key-rebind grid** (click "Rebind",
+  press the new key — Esc cancels), controller port 2 peripheral selection, region, and
+  **light/dark/system theme**.
 - **Performance panel** — FPS, current speed, frame time, audio-ring health, and a rolling
   ~2-second frame-time sparkline — pure diagnostics, no controls.
 - **First-run welcome modal** — a brief orientation shown once, the very first launch.
@@ -355,9 +359,9 @@ API docs (rustdoc) at
 
 ## Current Release
 
-RustySNES's current release is **v0.9.0 "Threshold"**. See
+RustySNES's current release is **v1.0.1 "Aftertouch"**. See
 [`docs/STATUS.md`](docs/STATUS.md) for the full release history
-(`v0.1.0` through `v0.9.0`) and per-release detail.
+(`v0.1.0` through `v1.0.1`) and per-release detail.
 
 - **Download:** the [GitHub Releases](https://github.com/doublegate/RustySNES/releases) page —
   desktop binaries for Linux, macOS (aarch64), and Windows.
@@ -366,15 +370,12 @@ RustySNES's current release is **v0.9.0 "Threshold"**. See
 
 ## Roadmap
 
-The path to **`v1.0.0`** — the production cut — closes out:
+**`v1.0.0`** — the production cut — shipped 2026-07-10. **`v1.0.1`** follows up on the two items
+explicitly deferred out of that cut: per-channel (per-voice) audio mutes and global keyboard
+hotkeys — both now landed (see the Desktop UX + Audio sections above, `CHANGELOG.md`).
 
-- Save-state `FORMAT_VERSION` backward-compat fixture + regression test.
-- A final accuracy-battery + release-matrix + wasm-Pages re-verification pass.
-- Doc sync (`docs/STATUS.md` + `to-dos/ROADMAP.md` + this README) and the release ceremony.
-
-**Explicitly deferred, not part of the `v1.0.0` bar:** per-channel audio mutes (needs its own
-S-DSP per-voice model research) and HD texture packs (the `hd-pack` flag exists in the manifest
-as a forward placeholder; the loader itself is a TODO stub).
+**Still deferred:** HD texture packs (the `hd-pack` flag exists in the manifest as a forward
+placeholder; the loader itself is a TODO stub).
 
 The full roadmap lives in [`to-dos/ROADMAP.md`](to-dos/ROADMAP.md) (the phase spine) and
 [`to-dos/VERSION-PLAN.md`](to-dos/VERSION-PLAN.md) (the named release ladder).

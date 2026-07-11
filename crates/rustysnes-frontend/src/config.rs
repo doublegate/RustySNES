@@ -156,6 +156,10 @@ pub struct AudioConfig {
     pub volume: f32,
     /// Whether audio output is enabled at all.
     pub enabled: bool,
+    /// Per-voice (S-DSP channel 0-7) mute toggles (`v1.0.1`). A frontend/debug convenience, not
+    /// real hardware state — see [`rustysnes_apu::dsp::Dsp::set_voice_mutes`]'s doc. All `false`
+    /// (unmuted) by default, byte-identical to every prior release.
+    pub voice_mutes: [bool; 8],
 }
 
 impl Default for AudioConfig {
@@ -164,6 +168,7 @@ impl Default for AudioConfig {
             sample_rate: 48_000,
             volume: 0.8,
             enabled: true,
+            voice_mutes: [false; 8],
         }
     }
 }
@@ -317,5 +322,23 @@ mod tests {
             let back: Config = toml::from_str(&s).expect("deserialize");
             assert_eq!(back.theme, theme);
         }
+    }
+
+    #[test]
+    fn voice_mutes_default_to_unmuted_and_round_trip() {
+        assert_eq!(Config::default().audio.voice_mutes, [false; 8]);
+        let mut audio = AudioConfig::default();
+        audio.voice_mutes[2] = true;
+        audio.voice_mutes[7] = true;
+        let cfg = Config {
+            audio,
+            ..Config::default()
+        };
+        let s = toml::to_string_pretty(&cfg).expect("serialize");
+        let back: Config = toml::from_str(&s).expect("deserialize");
+        assert_eq!(
+            back.audio.voice_mutes,
+            [false, false, true, false, false, false, false, true]
+        );
     }
 }
