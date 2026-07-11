@@ -166,6 +166,15 @@ impl KeyBindings {
             .find(|(name, _)| name == key_name)
             .map(|(_, b)| *b)
     }
+
+    /// Rebind `button` to `key_name` (the Settings → Input rebind grid). Removes any prior bind
+    /// for the same physical key (so one key never drives two buttons) and any prior bind for
+    /// `button` (so each button keeps exactly one key) before adding the new pair.
+    pub fn rebind(&mut self, key_name: String, button: Button) {
+        self.binds
+            .retain(|(name, b)| *name != key_name && *b != button);
+        self.binds.push((key_name, button));
+    }
 }
 
 /// Map an Xbox-style gamepad button name to a SNES button (auto-bind to P1).
@@ -231,5 +240,24 @@ mod tests {
         }
         assert_eq!(kb.button_for("KeyZ"), Some(Button::B));
         assert_eq!(kb.button_for("Nonexistent"), None);
+    }
+
+    #[test]
+    fn rebind_replaces_prior_key_and_prior_button_binds() {
+        let mut kb = KeyBindings::default();
+        // KeyX was A's default; rebind A to KeyP instead.
+        kb.rebind("KeyP".into(), Button::A);
+        assert_eq!(kb.button_for("KeyP"), Some(Button::A));
+        assert_eq!(kb.button_for("KeyX"), None, "the old A bind must be gone");
+        assert_eq!(kb.binds.iter().filter(|(_, b)| *b == Button::A).count(), 1);
+
+        // Stealing a key already bound to another button (KeyZ was B's default) must clear that
+        // button's old bind rather than leaving two buttons pointing at the same key.
+        kb.rebind("KeyZ".into(), Button::Start);
+        assert_eq!(kb.button_for("KeyZ"), Some(Button::Start));
+        assert!(
+            kb.binds.iter().all(|(_, b)| *b != Button::B),
+            "B must be left unbound, not still claiming KeyZ"
+        );
     }
 }

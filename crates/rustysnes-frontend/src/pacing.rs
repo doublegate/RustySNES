@@ -51,6 +51,15 @@ impl Pacer {
         }
     }
 
+    /// Live-reconfigure the target rate (`v1.0.0` speed presets: `region.frame_rate() *
+    /// speed_multiplier`) without resetting the accumulator/FPS-window state — same
+    /// "reconfigure the live X" posture as `Gfx::set_present_mode`. A change takes effect on the
+    /// very next `tick`/`advance`; no rebase is needed since the accumulator only ever holds a
+    /// fraction of one period's worth of unconsumed real time.
+    pub fn set_rate(&mut self, rate: f64) {
+        self.period = 1.0 / rate.max(1e-6);
+    }
+
     /// Advance the wall clock and return how many emulated frames to run this present (0..=cap).
     #[cfg_attr(feature = "emu-thread", allow(dead_code))]
     pub fn tick(&mut self) -> u32 {
@@ -177,5 +186,18 @@ mod tests {
             "fps meter read {}, expected ~60",
             pacer.fps
         );
+    }
+
+    /// `set_rate` (`v1.0.0` speed presets) changes the emulated-frame cadence on the very next
+    /// `advance` call, without needing to rebuild the `Pacer` (and losing its FPS/accumulator
+    /// state) the way a fresh `Pacer::new` would.
+    #[test]
+    fn set_rate_changes_cadence_immediately() {
+        let mut pacer = Pacer::new(FRAME_RATE_NTSC);
+        pacer.set_rate(FRAME_RATE_NTSC * 2.0);
+        let dt = 1.0 / 60.0; // one present at the ORIGINAL rate's period
+        let frames = pacer.advance(dt);
+        // At double rate, one 1/60s tick earns ~2 emulated frames, not ~1.
+        assert_eq!(frames, 2);
     }
 }

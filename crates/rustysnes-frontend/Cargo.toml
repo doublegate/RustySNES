@@ -1,7 +1,7 @@
 [package]
 name = "rustysnes-frontend"
 description = "RustySNES: cross-platform SNES emulator binary (winit + wgpu + cpal + egui)"
-version = "0.9.0"
+version = "1.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -32,13 +32,20 @@ path = "src/main.rs"
 # `emu-thread` runs single-player frame production off the winit thread (native
 # only; inert on wasm). `help-tui` adds the ratatui terminal help browser.
 #
-# NOTE: `emu-thread` is OFF in the v0.1 default because it requires `EmuCore:
-# Send`, which in turn needs `rustysnes-cart`'s `Board` trait to be `Send` (the
-# RustyNES `Mapper: Send` rule). The cart crate's `Board` is not yet `Send`
-# (a one-word change owned by the cart/core phase). Until then the synchronous
-# in-`render` drive (the `not(feature = "emu-thread")` path in `app.rs`) is the
-# default. Flip `Board: Send` + re-add `emu-thread` here to enable the dedicated
-# emulation thread. TODO(impl-phase).
+# `emu-thread` is still OFF in `default` as of `v1.0.0`, but for a different reason than before:
+# `rustysnes-cart::Board` is now `Send` (the RustyNES `Mapper: Send` rule), so `EmuCore: Send`
+# holds and the feature genuinely compiles/tests/lints clean for the first time. What's NOT yet
+# true is feature PARITY with the synchronous in-`render` drive: `emu_thread.rs`'s loop only
+# latches pad input and calls `run_frame` — unlike RustyNES's own mature `emu_thread.rs` (which
+# moves audio production, run-ahead, fast-forward, and pause/frame-advance into the thread too),
+# this port has no audio output yet (`render`'s threaded branch has its own "audio-from-thread is
+# a TODO" comment) and none of `app.rs`'s per-real-frame side machinery (cheats, watchpoints,
+# breakpoints, port2 peripheral live input, run-ahead, rewind recording, TAS movie apply/record,
+# Lua script pump, RetroAchievements) is ported into the thread's loop — it is all still gated
+# `not(feature = "emu-thread")`. Promoting this to `default` before that parity work lands would
+# silently drop those features for anyone building the default binary. Opt in explicitly
+# (`--features emu-thread`) for the reduced-input-latency benefit on vanilla single-player play
+# with no other opt-in feature enabled; the full parity port is tracked as v1.0.0-follow-up scope.
 default = ["wasm-winit", "help-tui"]
 wasm-winit = []
 wasm-canvas = []
@@ -76,12 +83,25 @@ netplay = ["dep:rustysnes-netplay"]
 # dependency out of the wasm32 dependency graph, on top of the `target.'cfg(...)'` gate below.
 retroachievements = ["dep:rustysnes-cheevos"]
 
+# `v1.0.0` — the "cargo --full equivalent" (ported from RustyNES's own `full` feature +
+# `cargo full-build`/`full-run` aliases in `.cargo/config.toml`). Aggregates every NATIVE opt-in
+# feature into one flag; purely additive on top of `default` — cargo merges `--features full`
+# with this crate's own `default` set automatically, so this list does NOT re-list `wasm-winit`/
+# `help-tui` (both already default). `wasm-canvas` is excluded (mutually exclusive with the
+# default `wasm-winit`, and wasm-only anyway — `full` targets a native binary). `emu-thread` is
+# ALSO excluded: it is not yet feature-complete (see its own comment above — no audio output, and
+# combining it with `scripting` specifically fails today with `-D warnings` dead-code errors,
+# since `scripting`'s synchronous-path-only helpers become unreachable once `emu-thread`'s
+# separate loop takes over frame production) — including it here would make `full` simply not
+# compile, the opposite of "maximal working build".
+full = ["debug-hooks", "scripting", "cheats", "netplay", "retroachievements", "hd-pack"]
+
 [lints]
 workspace = true
 
 [dependencies]
-rustysnes-core = { path = "../rustysnes-core", version = "0.9.0" }
-rustysnes-savestate = { path = "../rustysnes-savestate", version = "0.9.0" }
+rustysnes-core = { path = "../rustysnes-core", version = "1.0.0" }
+rustysnes-savestate = { path = "../rustysnes-savestate", version = "1.0.0" }
 
 # winit + wgpu + cpal + egui shell. Versions tracked to the latest published,
 # mutually-compatible tier (2026-06): egui/egui-wgpu/egui-winit 0.35, wgpu 29
@@ -126,9 +146,9 @@ clap = { version = "4", features = ["derive", "color", "cargo"] }
 clap_complete = "4"
 anstyle = "1"
 ratatui = { version = "0.30", optional = true }
-rustysnes-script = { path = "../rustysnes-script", version = "0.9.0", optional = true }
-rustysnes-netplay = { path = "../rustysnes-netplay", version = "0.9.0", optional = true }
-rustysnes-cheevos = { path = "../rustysnes-cheevos", version = "0.9.0", optional = true }
+rustysnes-script = { path = "../rustysnes-script", version = "1.0.0", optional = true }
+rustysnes-netplay = { path = "../rustysnes-netplay", version = "1.0.0", optional = true }
+rustysnes-cheevos = { path = "../rustysnes-cheevos", version = "1.0.0", optional = true }
 
 # wasm32 target deps. The chip stack is `no_std + alloc`, so the browser build
 # only needs the wasm-bindgen + web-sys bridge here.

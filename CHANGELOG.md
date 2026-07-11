@@ -7,6 +7,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **RustySNES integrates a cycle-accurate emulation engine.** Modeled after its predecessor `RustyNES`, this emulator is built on a master-clock-precise, lockstep-scheduled core targeting the Mesen2/ares accuracy bar. The entries below document the engine-internal milestones as this core is built and hardened.
 
+## [1.0.0] "Zenith" - 2026-07-10
+
+The production cut: `Board: Send` (unblocking the dedicated `emu-thread` feature to
+compile/test/lint for the first time), the five desktop-UX-shell-maturity items, a CI frame-time
+performance-regression gate, a `cargo full-build`/`full-run` alias pair, an enhanced native CLI,
+a full README rewrite, and a GitHub Pages demo-page polish pass. `docs/frontend.md` documents
+every item below in depth.
+
+**Oracle/golden suites: all held, no regressions.** The full workspace test suite (including
+`--features test-roms`, 27 suites — the 65C816 per-opcode oracle, SPC700 oracle, gilyon on-cart
+CPU, undisbeliever PPU/DMA/HDMA golden framebuffers, blargg `spc_*`, DSP-1/Super FX/SA-1
+commercial-ROM validation, save-state determinism across all three board tiers, and the
+save-state `FORMAT_VERSION` backward-compat fixture) is green; no golden hash changed. `no_std`
+and both wasm32 frontends (`wasm-winit`, `wasm-canvas`) build clean; a real `trunk build` produced
+a genuine ~7.4 MB wasm bundle (not an empty stub), confirming the Pages demo deploy will succeed.
+
+### Added
+
+- **`Board: Send`** — `rustysnes_cart::Board` now requires `Send` (the RustyNES `Mapper: Send`
+  rule), the one change needed to make `Arc<Mutex<EmuCore>>: Send` for the `emu-thread` closure.
+  Every existing board/coprocessor implementation compiled clean with no further changes needed.
+  `emu-thread` now compiles, tests, and lints clean for the first time, but stays off-by-default:
+  its loop has no audio output yet and doesn't drive cheats/watchpoints/breakpoints/scripting/
+  movies/rewind/run-ahead/RetroAchievements (a real feature-parity gap vs. RustyNES's own mature
+  `emu_thread.rs`, documented rather than silently promoted to default).
+- **Input rebind grid** (`ui_shell.rs`, `input.rs`) — Settings → Input now has a working per-button
+  P1 key-rebind grid; clicking "Rebind" arms a capture that intercepts the next physical key press
+  (via `App::window_event`) instead of latching it as gameplay input. Persists to `config.toml`.
+- **Thumbnail Save States manager** (`save_states.rs`) — a new disk-backed, 10-slot,
+  thumbnail-previewed Save States window (Emulation → Save States…), additive alongside the
+  existing RAM-only quick-save slot. Slots are keyed per-ROM by SHA-256
+  (`rustysnes_core::movie::hash_rom`) under the platform data directory; each slot file wraps an
+  UNMODIFIED `EmuCore::save_state()` blob in a small frontend-only header carrying a
+  nearest-neighbor-downsampled thumbnail — no `rustysnes-savestate` `FORMAT_VERSION` bump needed.
+- **Themes** (`config.rs`, `ui_shell.rs`) — Light/Dark/System, applied via `egui::Visuals`, live in
+  Settings → System; a change-guard (`Active::applied_theme`) re-themes only on an actual change.
+- **Speed presets** (`ui_shell.rs`, `pacing.rs`) — 25%/50%/75%/100%/150%/200%/300% presets in a new
+  Emulation → Speed submenu, live-reconfiguring `Pacer`'s target rate (`Pacer::set_rate`) and
+  scaling the audio resampler's DRC ratio so alt-speed audio pitch-shifts instead of over/
+  underrunning the ring. Transient session state, never persisted — always launches at 100%.
+- **Performance panel** (`ui_shell.rs`) — View → Performance panel: FPS, speed, frame time, audio
+  ring health, and a rolling ~2-second frame-time sparkline (hand-drawn via `Painter::line`, no
+  new dependency).
+- **Fullscreen toggle** and **first-run welcome modal** (`ui_shell.rs`, `app.rs`, `config.rs`) —
+  View → Fullscreen (borderless, the same change-guard pattern as theme/present-mode); a one-time
+  orientation window shown on the very first launch (`config.first_run_seen`).
+- **Frame-time performance-regression CI gate** — `.github/workflows/ci.yml`'s `bench` job +
+  `scripts/bench_regression_check.sh`, ported from RustyNES's own pattern: runs
+  `headless_frame_steady_state` on release-tag pushes, asserting the steady-state mean stays under
+  an absolute 10 ms/frame ceiling (deliberately non-flaky — an absolute ceiling, not a tight
+  %-regression check, since shared CI runners are too noisy for the latter).
+- **`cargo full-build` / `cargo full-run`** (`.cargo/config.toml`, ported from RustyNES) — one
+  command builds/runs the maximal native binary via a new `full` feature aggregating every native
+  opt-in flag (`debug-hooks`, `scripting`, `cheats`, `netplay`, `retroachievements`, `hd-pack`);
+  `emu-thread` is deliberately excluded (not yet feature-complete, and combining it with
+  `scripting` specifically fails to compile under `-D warnings` today).
+- **Enhanced native CLI** (`cli.rs`) — expanded from 4 to 9 help topics (`controls`, `hotkeys`,
+  `gamepad`, `features`, `coprocessors`, `config`, `scripting`, `netplay`, `about`), replacing
+  stale v0.1.0-scaffold-era text with accurate `v0.9.0`-era content; added `long_about` and a
+  richer `--help` footer.
+- **README.md rewrite** to match RustyNES's structural depth (Overview, Why, Feature highlights,
+  Crates & Architecture, Quick Start, Desktop UX, Default Controls, Compatibility and Accuracy,
+  Performance, Platform Support, Documentation, Current Release, Roadmap, Contributing, License,
+  Acknowledgments) — accurately describing RustySNES's own `v0.9.0`/`v1.0.0`-in-progress state,
+  not copied from RustyNES's own far more mature `v2.0.4` content.
+- **Hosted demo page polish** (`crates/rustysnes-frontend/web/index.html`) — a visible title, a
+  keyboard-controls + feature-parity hint (including an honest disclosure that the Save States
+  manager has no filesystem to persist to in the browser), an inline-SVG favicon, and
+  `theme-color`/description meta tags. Deliberately not ported from RustyNES's own page: the
+  touch-controls overlay, PWA manifest/service worker, browser-Lua panel, and `?settings=`
+  share-link — none of those features exist in RustySNES.
+
+### Known gaps, tracked not hidden
+
+- Per-channel audio mutes did not land in this pass — needs its own scoped follow-up (S-DSP
+  per-voice model research) rather than being rushed to hit this list. (The save-state
+  `FORMAT_VERSION` backward-compat fixture + regression test, once thought still open, turned out
+  to already be landed — `tests/golden/savestate-v1-gilyon.bin` +
+  `tests/save_state_backward_compat.rs`, from `v0.7.0 "Resolution"`.)
+- RustySNES does not yet have global keyboard hotkeys (Reset/Power-Cycle/Pause/Save-States/Speed/
+  Fullscreen are all menu-bar-only today) — `rustysnes help hotkeys` states this plainly.
+
 ## [0.9.0] "Threshold" - 2026-07-10
 
 Closes out Phase 7's last open exit criterion (niche peripherals) and Phase 8's one remaining

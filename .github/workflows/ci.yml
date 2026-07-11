@@ -50,8 +50,8 @@ jobs:
       # Explicit flags-off byte-identical gate (`v0.8.0` T-81-004): `default` is currently
       # exactly `["wasm-winit", "help-tui"]`, so this is redundant with the line above TODAY —
       # its value is as a named regression guard. If a future change ever folds `debug-hooks`/
-      # `scripting`/`cheats` into `default` without updating this line too, this still locks a
-      # true flags-off build/lint as its own explicit, protected CI step, independent of
+      # `scripting`/`cheats`/`emu-thread` into `default` without updating this line too, this still
+      # locks a true flags-off build/lint as its own explicit, protected CI step, independent of
       # whatever `default` becomes.
       - run: cargo clippy --workspace --all-targets --no-default-features --features wasm-winit,help-tui -- -D warnings
       # Per-feature-combo clippy (`v0.8.0` T-81-004, extended `v0.9.0` T-82-004) — each Phase 8
@@ -63,7 +63,10 @@ jobs:
       - run: cargo clippy -p rustysnes-frontend --all-targets --features cheats -- -D warnings
       - run: cargo clippy -p rustysnes-frontend --all-targets --features netplay -- -D warnings
       - run: cargo clippy -p rustysnes-frontend --all-targets --features retroachievements -- -D warnings
-      - run: cargo clippy -p rustysnes-frontend --all-targets --features debug-hooks,scripting,cheats,netplay,retroachievements -- -D warnings
+      # `full` (`v1.0.0`, `cargo full-build`/`full-run`) IS this same combo (plus the no-op
+      # `hd-pack` placeholder) — testing it directly instead of re-listing the flags keeps this
+      # step and `full`'s own Cargo.toml definition from silently drifting apart.
+      - run: cargo clippy -p rustysnes-frontend --all-targets --features full -- -D warnings
       # Cheap locally (~4s) so it belongs on every PR, not just tag pushes -- catches broken
       # intra-doc links and rustdoc-specific warnings clippy's own lints don't cover.
       - run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
@@ -108,7 +111,7 @@ jobs:
       # cross-platform build surface `lint` never exercises (Linux only, host target) — verifying
       # that specifically on macOS/Windows here too is out of this ticket's scope (it's a genuine
       # question of its own, not "is the byte-identical-off gate wired up").
-      - run: cargo test -p rustysnes-frontend --features debug-hooks,scripting,cheats,netplay,retroachievements
+      - run: cargo test -p rustysnes-frontend --features full
         if: runner.os == 'Linux'
       - run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
         if: runner.os == 'Linux'
@@ -127,3 +130,23 @@ jobs:
           targets: thumbv7em-none-eabihf
       - uses: Swatinem/rust-cache@v2
       - run: cargo build -p rustysnes-core --target thumbv7em-none-eabihf --no-default-features
+
+  # Release-tag pushes ONLY (`v1.0.0`): a release-mode Criterion build + run is too costly for
+  # every PR push, and the frame-time gate is an absolute ceiling that only needs to hold at
+  # release, not on every iteration — see `lint` above for the same rationale applied to
+  # `full-test`/`no_std`. Ported from RustyNES's own `bench` job
+  # (`scripts/bench_regression_check.sh` + `docs/performance.md`).
+  bench:
+    name: frame-time regression gate
+    if: startsWith(github.ref, 'refs/tags/v')
+    env:
+      CARGO_NET_RETRY: "10"
+      CARGO_HTTP_MULTIPLEXING: "false"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.96
+      - uses: Swatinem/rust-cache@v2
+      # The `rustysnes-core` `headless_frame` bench is chip-stack-only (no wgpu/winit/egui), so
+      # no Linux frontend system deps are needed here (unlike `lint`/`full-test`).
+      - run: ./scripts/bench_regression_check.sh

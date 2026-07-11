@@ -45,6 +45,40 @@ pub enum PeripheralKind {
     Multitap,
 }
 
+/// egui visual theme for the desktop UX shell (menu bar, status bar, windows) — `v1.0.0` desktop
+/// UX shell maturity.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AppTheme {
+    /// Light visuals.
+    Light,
+    /// Dark visuals (default).
+    #[default]
+    Dark,
+    /// Follow the OS theme when the windowing system reports one (falls back to
+    /// [`AppTheme::Dark`] when unknown — `egui::Context::system_theme`).
+    System,
+}
+
+impl AppTheme {
+    /// Human-readable label for the Settings radio row.
+    #[must_use]
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::Light => "Light",
+            Self::Dark => "Dark",
+            Self::System => "System",
+        }
+    }
+
+    /// All themes in display order — the single source of truth the Settings radio row iterates,
+    /// so it can never drift out of sync with the enum.
+    #[must_use]
+    pub const fn all() -> [Self; 3] {
+        [Self::Light, Self::Dark, Self::System]
+    }
+}
+
 impl PeripheralKind {
     /// The matching [`rustysnes_core::controller::PortDevice`] this config value selects.
     #[must_use]
@@ -191,6 +225,11 @@ pub struct Config {
     pub rewind: RewindConfig,
     /// Run-ahead (`v0.3.0 "Continuum"`).
     pub run_ahead: RunAheadConfig,
+    /// The desktop UX shell's egui visual theme (`v1.0.0`).
+    pub theme: AppTheme,
+    /// Whether the first-run welcome modal has already been dismissed (`v1.0.0`). `false` (the
+    /// default) shows it once on the very next launch; dismissing it flips this and saves.
+    pub first_run_seen: bool,
 }
 
 impl Config {
@@ -264,5 +303,19 @@ mod tests {
         assert!((Region::Ntsc.frame_rate() - 60.0988).abs() < 1e-3);
         assert_eq!(Region::Ntsc.active_height(), 224);
         assert_eq!(Region::Pal.active_height(), 239);
+    }
+
+    #[test]
+    fn theme_default_is_dark_and_round_trips() {
+        assert_eq!(Config::default().theme, AppTheme::Dark);
+        for theme in AppTheme::all() {
+            let cfg = Config {
+                theme,
+                ..Config::default()
+            };
+            let s = toml::to_string_pretty(&cfg).expect("serialize");
+            let back: Config = toml::from_str(&s).expect("deserialize");
+            assert_eq!(back.theme, theme);
+        }
     }
 }

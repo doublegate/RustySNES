@@ -45,7 +45,14 @@ Per `ref-docs/research-report.md` §§1–5, the per-cycle cost is dominated by:
   per-dot emission, the SPC700 resync) are not yet split out.
 - `perf record` on a headless replay of a known ROM for the integration hot path — not yet run;
   `docs/benchmarks.md`'s current baseline is Criterion wall-clock only, no flamegraph yet.
-- A perf-capture regression gate in CI once the core is real (mirrors the RustyNES pattern).
+- **Landed (`v1.0.0`):** a frame-time regression gate in CI (`.github/workflows/ci.yml`'s `bench`
+  job, `scripts/bench_regression_check.sh`), mirroring the RustyNES pattern — runs
+  `headless_frame` on release-tag pushes and asserts the steady-state mean stays under an
+  absolute 10 ms/frame ceiling (~60% of the 16.64 ms NTSC deadline, ~3x the measured `v0.4.0`
+  baseline). An absolute ceiling, not a tight %-regression check, deliberately — shared CI
+  runners vary by tens of percent run-to-run, so a percentage gate would flake; use local
+  Criterion `--save-baseline`/`--baseline` comparisons (the script's own header comment) for a
+  tighter before/after read.
 
 ## Open questions
 

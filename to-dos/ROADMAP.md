@@ -24,8 +24,11 @@ record; this file frames the phase line.
   closing what was Phase 7's one open exit criterion; frontend host-input capture (a real mouse
   pointer, extra gamepads) remains a separate, tracked follow-up outside Phase 7's own scope
   (`docs/frontend.md` §Peripherals). Phase 5 (frontend)
-  **partially complete**: the
-  native+wasm shell is playable (video/audio/input/ROM-load wired), save-states are **fully
+  **desktop UX shell now at RustyNES's maturity bar (`v1.0.0`)**: the
+  native+wasm shell is playable (video/audio/input/ROM-load wired), plus a thumbnail Save States
+  manager, input rebinding, themes, speed presets, a Performance panel, fullscreen, and a
+  first-run welcome modal — per-channel audio mutes remain a tracked follow-up (needs its own
+  S-DSP per-voice model research). Save-states are **fully
   implemented** (`v0.2.0 "Persistence"`, `docs/adr/0006` — every subsystem round-trips its exact
   state through one versioned envelope, proven by a round-trip determinism test), and rewind +
   run-ahead (`v0.3.0 "Continuum"`, `crate::rewind` — a bounded ring buffer of full snapshots +
@@ -69,7 +72,10 @@ record; this file frames the phase line.
   mid-scanline/HDMA-driven register timing fix landing and an SPC7110 open-bus bug fix that
   benefits every board), and `v0.9.0 "Threshold"` (Phase 7's niche peripherals + Phase 8's
   T-81-001 PR B, closing both phases out completely, plus the SPC7110 boot-crash gap resolved as
-  a ROM-identity issue) are all tagged and released on GitHub, establishing the
+  a ROM-identity issue), and `v1.0.0 "Zenith"` (the production cut: `Board: Send`, the desktop UX
+  shell at RustyNES's maturity bar, a frame-time performance-regression CI gate, an enhanced
+  native CLI + `cargo full-build`, the README rewrite, and a GitHub Pages polish pass) are all
+  tagged and released on GitHub, establishing the
   real release cadence `to-dos/VERSION-PLAN.md` defines — read it alongside this file; it maps
   the phases above onto a concrete, named `v0.x.0` → `v1.0.0` ladder with release-cut criteria
   per rung, rewritten with `v0.7.0` to front-load Phase 8 breadth into the `v1.0.0` gate rather
@@ -240,14 +246,16 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   Phase 7's last exit criterion (niche peripherals) and Phase 8's last ticket half (T-81-001 PR
   B), and resolves the SPC7110 investigation as a ROM-sourcing gap rather than an open bug. The
   last loose ends before the `v1.0.0` production cut.
-- **v1.0.0 — production cut.** Gated on: the accuracy battery holding its Phase-6 target with no
-  regressions; a **stable, backward-compat-fixture-proven** save-state/core API (Phase 5); the
-  full Phase 8 breadth landed and byte-identical with flags off; a genuinely shippable
-  multi-platform app (the release matrix + wasm/Pages, both exercised end-to-end since `v0.6.0`)
-  plus a new frame-time performance-regression CI gate; a desktop UX shell at RustyNES's
-  maturity bar (thumbnail save-state manager, input rebinding, themes, speed presets, a
-  Performance panel, the dedicated `emu-thread`); the README rewrite; README / CHANGELOG / docs /
-  STATUS in sync. See `to-dos/VERSION-PLAN.md` for the full rationale and per-item detail.
+- **v1.0.0 "Zenith" — RELEASED 2026-07-10 — the production cut.** `Board: Send` (unblocking
+  `emu-thread` to compile/test/lint clean, though it stays off-by-default pending full feature
+  parity — a real, documented gap, not silently promoted); the desktop UX shell at RustyNES's
+  maturity bar (thumbnail Save States manager, input rebinding, themes, speed presets, a
+  Performance panel with a frame-time sparkline, fullscreen, a first-run welcome modal); a new
+  frame-time performance-regression CI gate; the save-state backward-compat fixture (found
+  already landed, from `v0.7.0`); an enhanced native CLI + `cargo full-build`/`full-run`; the
+  README rewrite; a GitHub Pages demo-page polish pass; README / CHANGELOG / docs / STATUS in
+  sync. The full accuracy battery (27 oracle/golden suites), `no_std`, and both wasm32 frontends
+  re-verified with zero regressions. See `to-dos/VERSION-PLAN.md` for the full per-item detail.
 - **Beyond that — Reach (deferred):** a Libretro core, a shader/filter pipeline (CRT/HQ2x), HD
   texture packs (`hd-pack`), and any future mobile/Android target (no appetite assumed by
   default) — see `to-dos/VERSION-PLAN.md`'s "Post-v1.0 — Reach".

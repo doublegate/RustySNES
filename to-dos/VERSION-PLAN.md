@@ -560,22 +560,35 @@ ends closed out before the `v1.0.0` production cut below.
 
 ### v1.0.0 — desktop UX shell maturity, performance engineering, production cut
 
-- **Fix `Board: Send` first.** `cargo check -p rustysnes-frontend --features emu-thread` fails
-  today — `dyn Board` isn't `Send`, breaking `Arc<Mutex<EmuCore>>: Send` for the thread closure.
-  No interior non-`Send` state exists in `rustysnes-cart`'s coprocessor code, so this really is
-  the "one-word change" the Cargo.toml comment already diagnoses — verify it stays that simple,
-  then wire the dedicated emulation thread behind `emu-thread`.
-- **Desktop UX shell maturity** — the shell (menu bar, status bar, 4-tab Settings) already
-  exists; this rung finishes it to RustyNES's bar: a thumbnail save-state manager (multi-slot,
-  replacing today's single quick-save slot), the Settings Input tab's key-rebind grid (currently
-  a literal `"TODO"` in source), light/dark/system themes, fullscreen, speed presets (25–300%),
-  per-channel audio mutes, a first-run welcome modal, and a Performance panel with histograms.
-- **New frame-time performance-regression CI gate** — RustyNES has one, RustySNES doesn't yet.
-- **Save-state `FORMAT_VERSION` backward-compat fixture + regression test** — the real, small,
-  still-open gap flagged above (v1.0.0 gate item 2, `v0.6.0`-era): only same-version round-trip
-  is tested today, not actual old-format loadability. Lands here.
-- **README.md rewrite** to RustyNES's README depth (structure/length/technical detail) — lands
-  here, once the feature set it needs to document is actually complete.
+- **Fix `Board: Send` first — DONE.** `dyn Board` is now `Send` (one-word change, confirmed —
+  every existing board/coprocessor implementation compiled clean with no further changes). The
+  dedicated emulation thread (`emu-thread`) compiles/tests/lints clean for the first time, but
+  stays off-by-default: its loop has no audio output and doesn't yet drive cheats/watchpoints/
+  breakpoints/scripting/movies/rewind/run-ahead/RetroAchievements (a real feature-parity gap vs.
+  RustyNES's own mature `emu_thread.rs`, documented in `crates/rustysnes-frontend/Cargo.toml`'s
+  `emu-thread` comment and `docs/frontend.md` — not silently claimed as done).
+- **Desktop UX shell maturity — DONE** (the thumbnail save-state manager, key-rebind grid,
+  themes, fullscreen, speed presets, welcome modal, and Performance panel with a frame-time
+  sparkline all landed; `docs/frontend.md` documents each). Per-channel audio mutes did not land
+  — needs its own S-DSP per-voice model research, scoped separately rather than rushed.
+- **New frame-time performance-regression CI gate — DONE** (`.github/workflows/ci.yml`'s `bench`
+  job + `scripts/bench_regression_check.sh`, mirroring RustyNES's own pattern; see
+  `docs/performance.md`/`docs/benchmarks.md`).
+- **Save-state `FORMAT_VERSION` backward-compat fixture + regression test — ALREADY DONE.**
+  Turned out to have landed earlier than this rung, in `v0.7.0 "Resolution"`'s `FORMAT_VERSION`
+  1→2 bump: `tests/golden/savestate-v1-gilyon.bin` (a genuine pre-`v0.7.0` blob, not hand-crafted)
+  alongside `tests/save_state_backward_compat.rs` (asserts an old-format blob fails loudly with a
+  real `SaveStateError`, never a panic or silent corruption). This bullet had been carried forward
+  as still-open by mistake; verified landed and green during the `v1.0.0` re-verification pass.
+- **README.md rewrite — DONE**, to RustyNES's structural depth (Overview, Why, Feature
+  highlights, Crates & Architecture, Quick Start, Desktop UX, Compatibility and Accuracy,
+  Performance, Platform Support, Documentation, Current Release, Roadmap, Contributing, License,
+  Acknowledgments) — describing RustySNES's own actual `v0.9.0`/`v1.0.0`-in-progress state, not
+  RustyNES's own far more mature `v2.0.4` content.
+- **Enhanced native CLI + `cargo full-build`/`full-run` — DONE.** `cli.rs` grew from 4 to 9 help
+  topics (accurate content, no stale scaffold-era claims); `full` (`crates/rustysnes-frontend/
+  Cargo.toml`) aggregates every native opt-in feature except the not-yet-complete `emu-thread`;
+  `.cargo/config.toml` adds the `full-build`/`full-run` aliases, ported from RustyNES.
 - **Explicitly deferred, not part of the parity bar:** Super Scope / multitap / mouse
   peripherals (no RustyNES analogue — NES has nothing comparable, so parity doesn't require
   modeling these; `docs/frontend.md` already notes them as stubbed) and HD texture packs (the

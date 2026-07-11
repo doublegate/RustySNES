@@ -39,7 +39,7 @@ use crate::audio::{AudioOutput, AudioRing, Resampler, drc_ratio};
 use crate::config::Config;
 use crate::emu::EmuCore;
 use crate::gfx::Gfx;
-use crate::input::Buttons;
+use crate::input::{Button, Buttons};
 use crate::pacing::Pacer;
 use crate::ui_shell::{MenuAction, ShellInfo, ShellState};
 
@@ -117,9 +117,27 @@ struct Active {
     /// Wall-clock fixed-timestep pacer + FPS meter (drives the synchronous emulation cadence
     /// independent of the display refresh).
     pacer: Pacer,
+    /// The current emulation-speed multiplier (`v1.0.0`; `1.0` = normal). Transient session
+    /// state, like `pad1` — never persisted to `config.toml`, always starts at `1.0` (the
+    /// determinism-safe default). Scales both `pacer`'s target rate (`MenuAction::SetSpeed`) and
+    /// the audio resampler's DRC ratio (so alt-speed audio pitch-shifts instead of over/underrunning
+    /// the ring).
+    speed: f32,
+    /// The wall-clock time spent producing this present's emulated frame(s) (`v1.0.0`, the
+    /// Performance panel), or `None` when nothing was measured this present — always `None` on
+    /// the `emu-thread` build (frame production happens on a different thread, outside this
+    /// timing scope; a known `emu-thread` gap, same posture as speed presets above).
+    last_frame_time_ms: Option<f32>,
     /// The present-mode string currently applied to the surface; compared against the live config
     /// each present so a Settings → Video toggle reconfigures the wgpu surface.
     applied_present_mode: String,
+    /// The egui [`crate::config::AppTheme`] currently applied to `egui_ctx`; compared against the
+    /// live config each frame (`v1.0.0`) so a Settings → System theme change re-themes the shell,
+    /// same change-guard pattern as `applied_present_mode` above.
+    applied_theme: crate::config::AppTheme,
+    /// Whether borderless fullscreen is currently applied to `window`; compared against
+    /// `shell.fullscreen` each frame (`v1.0.0`), same change-guard pattern as the two above.
+    applied_fullscreen: bool,
     /// The rewind ring buffer (`config.rewind`-driven; a zero-capacity buffer is a permanent
     /// no-op, so this is always constructed, never `Option`-wrapped).
     rewind: crate::rewind::RewindBuffer,
@@ -352,7 +370,22 @@ impl ApplicationHandler<AppEvent> for App {
             WindowEvent::KeyboardInput {
                 event: key_event, ..
             } => {
-                Self::latch_key(active, &self.config, &key_event);
+                if let Some(button) = active.shell.awaiting_bind {
+                    // Only act on the key-DOWN edge; the matching release (of whatever key was
+                    // just captured) falls through to `latch_key` below on the next call, same as
+                    // any other key release.
+                    if key_event.state.is_pressed() {
+                        active.shell.awaiting_bind = None;
+                        if let winit::keyboard::PhysicalKey::Code(code) = key_event.physical_key {
+                            // Esc cancels the rebind rather than binding itself to `button`.
+                            if code != winit::keyboard::KeyCode::Escape {
+                                Self::rebind_key(&mut self.config, button, code);
+                            }
+                        }
+                    }
+                } else {
+                    Self::latch_key(active, &self.config, &key_event);
+                }
             }
             WindowEvent::RedrawRequested => {
                 let actions = Self::render(active, &mut self.config);
@@ -406,6 +439,11 @@ impl App {
     /// instead, driven per-frame from `render`), and constructs `Active`.
     fn on_gfx_ready(&mut self, gfx: Gfx, window: Arc<Window>) {
         let egui_ctx = egui::Context::default();
+        // Apply the configured theme immediately (`v1.0.0`) rather than leaving egui's own
+        // built-in dark default in place until the first `render()` change-check happens to
+        // notice a mismatch — `Active::applied_theme` below is initialized to this SAME value,
+        // so `render()`'s guard correctly stays a no-op until the user changes it in Settings.
+        crate::ui_shell::apply_theme(&egui_ctx, self.config.theme);
         let egui_state = egui_winit::State::new(
             egui_ctx.clone(),
             egui_ctx.viewport_id(),
@@ -481,10 +519,15 @@ impl App {
                 netplay_local_addr: "0.0.0.0:7777".into(),
                 #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
                 netplay_peer_addr: "127.0.0.1:7777".into(),
+                welcome_open: !self.config.first_run_seen,
                 ..ShellState::default()
             },
             pacer: Pacer::new(self.config.region.frame_rate()),
+            speed: 1.0,
+            last_frame_time_ms: None,
             applied_present_mode: self.config.video.present_mode.clone(),
+            applied_theme: self.config.theme,
+            applied_fullscreen: false,
             rewind: crate::rewind::RewindBuffer::new(
                 self.config.rewind.capacity,
                 self.config.rewind.interval_frames,
@@ -595,6 +638,12 @@ impl App {
         }
     }
 
+    /// Apply a Settings → Input tab rebind capture to P1's table (`config.p1`, the only table
+    /// `latch_key` actually consults — P2 keyboard binding isn't wired into gameplay input yet).
+    fn rebind_key(config: &mut Config, button: Button, code: winit::keyboard::KeyCode) {
+        config.p1.rebind(format!("{code:?}"), button);
+    }
+
     /// One render: copy the framebuffer under a brief lock, blit, run the egui shell, present.
     /// Returns the menu actions to dispatch AFTER this pass (never dispatched mid-egui).
     // One straight-line present pass (lock-copy → audio push → blit → egui → submit); the length
@@ -612,9 +661,25 @@ impl App {
             eprintln!("rustysnes: present mode applied -> {applied:?}");
         }
 
+        // --- (0b) Apply a pending Settings → System theme change (`v1.0.0`). ---
+        if config.theme != active.applied_theme {
+            crate::ui_shell::apply_theme(&active.egui_ctx, config.theme);
+            active.applied_theme = config.theme;
+        }
+
+        // --- (0c) Apply a pending View → Fullscreen toggle (`v1.0.0`). ---
+        if active.shell.fullscreen != active.applied_fullscreen {
+            let mode = active
+                .shell
+                .fullscreen
+                .then_some(winit::window::Fullscreen::Borderless(None));
+            active.window.set_fullscreen(mode);
+            active.applied_fullscreen = active.shell.fullscreen;
+        }
+
         let paused = active.shell.paused;
         // --- (1) Copy framebuffer + audio + read-only info under a BRIEF lock, then drop it. ---
-        let (fb, fb_dims, info, audio_samples, debug) = {
+        let (fb, fb_dims, info, audio_samples, debug, save_slots) = {
             // `mut` is only needed on the synchronous drive path (run_frame/set_pad); the threaded
             // build only reads through the guard here.
             #[cfg_attr(feature = "emu-thread", allow(unused_mut))]
@@ -626,10 +691,15 @@ impl App {
             #[cfg(not(feature = "emu-thread"))]
             let audio_samples = if paused {
                 active.pacer.idle();
+                active.last_frame_time_ms = None;
                 Vec::new()
             } else {
                 let frames = active.pacer.tick();
                 let mut samples = Vec::new();
+                // `v1.0.0` Performance panel: time the frame-production loop below. Only
+                // overwritten when at least one frame actually ran this present, so an idle
+                // present (0 frames earned this tick) doesn't flicker the reading to ~0.
+                let produce_t0 = web_time::Instant::now();
                 for _ in 0..frames {
                     // Netplay (`v0.8.0`, T-82-002) is its OWN drive loop, deliberately never the
                     // single-player path below it: a `RollbackSession` owns pad application,
@@ -712,6 +782,9 @@ impl App {
                     #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
                     active.cheevos.do_frame(emu.system_mut());
                 }
+                if frames > 0 {
+                    active.last_frame_time_ms = Some(produce_t0.elapsed().as_secs_f32() * 1000.0);
+                }
                 samples
             };
             // Threaded build: the emu thread owns frame production; audio-from-thread is a TODO.
@@ -733,17 +806,50 @@ impl App {
                 run_ahead_frame.unwrap_or_else(|| (emu.framebuffer().to_vec(), emu.fb_dims()));
             #[cfg(feature = "emu-thread")]
             let (fb, dims) = (emu.framebuffer().to_vec(), emu.fb_dims());
+            // `v1.0.0` Performance panel: the audio ring's occupancy as a percentage of its
+            // capacity (a rough "audio health" gauge — persistently near 0% or 100% means the
+            // producer/consumer are drifting apart). `None` on `wasm32` (no `active.audio` there
+            // — see `crate::wasm_audio` instead) or when no audio device opened.
+            #[cfg(not(target_arch = "wasm32"))]
+            let audio_health_pct = active.audio.as_ref().map(|a| {
+                let cap = a.ring.capacity();
+                #[allow(clippy::cast_precision_loss)]
+                if cap == 0 {
+                    0.0
+                } else {
+                    (a.ring.occupancy() as f32 / cap as f32) * 100.0
+                }
+            });
+            #[cfg(target_arch = "wasm32")]
+            let audio_health_pct: Option<f32> = None;
             let info = ShellInfo {
                 cart_name: emu.cart_name().map(str::to_string),
                 region: emu.region(),
                 fps: active.pacer.fps,
                 rom_loaded: emu.rom_loaded(),
+                speed: active.speed,
+                frame_time_ms: active.last_frame_time_ms,
+                audio_health_pct,
             };
             // Only build the debugger snapshot when the window is actually open — a real,
             // avoidable per-frame cost otherwise (`docs/frontend.md` §Debugger overlay).
             let debug = active.shell.debugger_open.then(|| emu.debug_snapshot());
+            // Same guard for the Save States slot grid (`v1.0.0`, `save_states.rs`): only read
+            // the per-ROM slot directory from disk while the manager window is actually open.
+            let save_slots = active
+                .shell
+                .save_states_open
+                .then(|| {
+                    emu.rom_loaded().then(|| {
+                        let hash = rustysnes_core::movie::hash_rom(emu.rom());
+                        (0..crate::save_states::NUM_SLOTS)
+                            .map(|slot| crate::save_states::slot_meta(&hash, slot))
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .flatten();
             drop(emu); // release the brief lock BEFORE the wgpu upload + egui pass
-            (fb, dims, info, audio_samples, debug)
+            (fb, dims, info, audio_samples, debug, save_slots)
         };
 
         // Drain RetroAchievements HTTP completions/events (outside the emu lock — `CheevosState`
@@ -762,7 +868,11 @@ impl App {
         {
             active.resampler.set_volume(config.audio.volume);
             let cap = audio.ring.capacity();
-            let ratio = drc_ratio(audio.ring.occupancy(), cap / 2, cap);
+            // Fold the speed multiplier into the DRC ratio (`v1.0.0` speed presets): at 2x speed
+            // there are ~2x as many source samples per real second, so the resampler must consume
+            // them ~2x as fast to avoid ring overrun — the side effect is exactly the expected
+            // pitch-shifted "fast forward" sound, matching RustyNES's own speed-preset design.
+            let ratio = drc_ratio(audio.ring.occupancy(), cap / 2, cap) * f64::from(active.speed);
             active.resampler.process(&audio_samples, ratio, &audio.ring);
         }
         // `wasm32`: `crate::wasm_audio` owns its own resampler/DRC servo (built for the
@@ -811,6 +921,7 @@ impl App {
                 debug.as_ref(),
                 &mut active.watchpoints,
                 &mut active.breakpoints,
+                save_slots.as_deref(),
                 #[cfg(feature = "cheats")]
                 &mut active.cheats,
                 #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
@@ -929,6 +1040,25 @@ impl App {
                     let _ = config.save();
                     active.shell.status = format!("Region: {region:?} (restart to apply)");
                 }
+                MenuAction::SetSpeed(speed) => {
+                    active.speed = speed;
+                    // Takes effect immediately on the synchronous drive path (the `Pacer`'s
+                    // period feeds `render`'s fixed-timestep loop directly). The default-off,
+                    // not-yet-feature-complete `emu-thread` build paces itself independently
+                    // (`emu_thread.rs`'s own `frame_dur`) and doesn't consult `Pacer` for cadence
+                    // at all, so speed presets are a no-op there until that thread gains its own
+                    // matching hook — a known gap, not a silent claim of support.
+                    active
+                        .pacer
+                        .set_rate(config.region.frame_rate() * f64::from(speed));
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let pct = (speed * 100.0).round() as u32;
+                    active.shell.status = format!("Speed: {pct}%");
+                }
+                MenuAction::DismissWelcome => {
+                    config.first_run_seen = true;
+                    let _ = config.save();
+                }
                 MenuAction::TogglePause => {
                     active.shell.paused = !active.shell.paused;
                     active.shell.status = if active.shell.paused {
@@ -1007,6 +1137,59 @@ impl App {
                         Some(Ok(())) => "Save state loaded".into(),
                         Some(Err(e)) => format!("Save state load failed: {e}"),
                         None => "Load state: no save state yet".into(),
+                    };
+                }
+                MenuAction::SaveStateSlot(slot) => {
+                    let saved = {
+                        let emu = active.core.lock().unwrap_or_else(PoisonError::into_inner);
+                        emu.rom_loaded().then(|| {
+                            let hash = rustysnes_core::movie::hash_rom(emu.rom());
+                            let (fb_w, fb_h) = emu.fb_dims();
+                            let thumb = crate::save_states::nearest_resize(
+                                emu.framebuffer(),
+                                fb_w,
+                                fb_h,
+                                crate::save_states::THUMB_W,
+                                crate::save_states::THUMB_H,
+                            );
+                            (hash, thumb, emu.save_state())
+                        })
+                    };
+                    active.shell.status = match saved {
+                        #[allow(clippy::cast_possible_truncation)]
+                        Some((hash, thumb, state)) => match crate::save_states::save_to_slot(
+                            &hash,
+                            slot,
+                            crate::save_states::THUMB_W as u16,
+                            crate::save_states::THUMB_H as u16,
+                            &thumb,
+                            &state,
+                        ) {
+                            Ok(()) => format!("Saved to slot {slot}"),
+                            Err(e) => format!("Save to slot {slot} failed: {e}"),
+                        },
+                        None => "Save States: no ROM loaded".into(),
+                    };
+                }
+                MenuAction::LoadStateSlot(slot) => {
+                    let hash = {
+                        let emu = active.core.lock().unwrap_or_else(PoisonError::into_inner);
+                        emu.rom_loaded()
+                            .then(|| rustysnes_core::movie::hash_rom(emu.rom()))
+                    };
+                    active.shell.status = match hash {
+                        Some(hash) => match crate::save_states::load_from_slot(&hash, slot) {
+                            Ok(state) => {
+                                let mut emu =
+                                    active.core.lock().unwrap_or_else(PoisonError::into_inner);
+                                match emu.load_state(&state) {
+                                    Ok(()) => format!("Loaded slot {slot}"),
+                                    Err(e) => format!("Load slot {slot} failed: {e}"),
+                                }
+                            }
+                            Err(e) => format!("Load slot {slot} failed: {e}"),
+                        },
+                        None => "Save States: no ROM loaded".into(),
                     };
                 }
                 MenuAction::Rewind => {

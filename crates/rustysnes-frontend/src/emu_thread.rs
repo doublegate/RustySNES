@@ -36,6 +36,11 @@ impl EmuThread {
     /// Spawn the emulation thread, producing frames at `frame_rate` Hz. `core` is the shared
     /// emulator (locked briefly per frame to step + by the present path to read the
     /// framebuffer); `input` is the lock-free latch.
+    ///
+    /// # Panics
+    /// Panics only if the OS refuses to spawn a new thread (`std::thread::Builder::spawn`
+    /// failing) — an environment-level resource exhaustion this project has no graceful
+    /// fallback for, matching every other `expect`-on-thread-spawn in this codebase.
     #[must_use]
     pub fn spawn(core: Arc<Mutex<EmuCore>>, input: Arc<SharedInput>, frame_rate: f64) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
@@ -49,7 +54,11 @@ impl EmuThread {
             .spawn(move || {
                 let mut next = Instant::now();
                 while !stop_thread.load(Ordering::Relaxed) {
+                    // Only the low 16 bits are ever stored (`SharedInput`'s own doc) — the
+                    // window handler packs a `Buttons` word, never a full `u32`.
+                    #[allow(clippy::cast_possible_truncation)]
                     let p1 = input.p1.load(Ordering::Acquire) as u16;
+                    #[allow(clippy::cast_possible_truncation)]
                     let p2 = input.p2.load(Ordering::Acquire) as u16;
                     {
                         // Brief lock: latch input + step exactly one frame, then drop.

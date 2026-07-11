@@ -26,9 +26,25 @@ build; the `playable_smoke` test is the headless AV proof.
 - **Never hold the emu lock inside the egui closure.** Menu interactions return a `MenuAction`
   that the app dispatches *after* the egui pass; the hidden render branch copies the
   framebuffer under a brief lock, drops it, then renders / presents.
-- On native, the emulator runs on a **dedicated thread** (communicating via an
-  `Arc<Mutex<EmuCore>>` handle + a lock-free `SharedInput`); the winit thread only does UI +
-  present.
+- By default, the emulator runs synchronously inline in the winit render pass (a fixed-timestep
+  loop in `App::render`), still behind an `Arc<Mutex<EmuCore>>` handle. The default-OFF
+  `emu-thread` feature moves single-player frame production onto a **dedicated thread**
+  (`emu_thread.rs`) instead, communicating via that same `Arc<Mutex<EmuCore>>` + a lock-free
+  `SharedInput`; it compiles/tests/lints clean as of `v1.0.0` but isn't yet feature-complete (no
+  audio output, and none of cheats/watchpoints/breakpoints/scripting/movies/rewind/run-ahead/
+  RetroAchievements are ported into its loop — see `crates/rustysnes-frontend/Cargo.toml`'s
+  `emu-thread` feature comment), so it stays opt-in rather than default until that parity lands.
+
+## Theme (`v1.0.0`)
+
+`config.theme` (`crate::config::AppTheme`: `Light` / `Dark` (default) / `System`) selects the
+egui `Visuals` for the whole shell (menu bar, status bar, all windows), set via Settings → System.
+`ui_shell::apply_theme` performs the actual `ctx.set_visuals` call; `System` reads
+`egui::Context::system_theme()` and falls back to `Dark` when the windowing system reports none.
+`Active::applied_theme` tracks what's currently live so `App::render` only re-themes on an actual
+change (the same guard `applied_present_mode` already uses for the Settings → Video present-mode
+toggle), applied once explicitly at `egui::Context` construction time so the configured theme is
+live from the very first frame, not just after the user opens Settings.
 
 ## The determinism boundary
 
@@ -65,6 +81,46 @@ across 30/60/75/144/240 Hz present rates.
 (In the `emu-thread` build the meter counts presents instead, since frames are produced off the
 winit thread.)
 
+### Speed presets (`v1.0.0`)
+
+Emulation → Speed offers `[25%, 50%, 75%, 100%, 150%, 200%, 300%]` (`ui_shell::SPEED_PRESETS`,
+matching RustyNES's own 7-tier array). Selecting one sets `Active::speed` (transient session
+state — never persisted to `config.toml`; the app always launches at `1.0`x, the
+determinism-safe default) and calls `Pacer::set_rate` with `region.frame_rate()` scaled by the
+chosen multiplier, which live-reconfigures the fixed-timestep accumulator's target period without
+resetting it (no burst/no stall on the change, same posture as `Gfx::set_present_mode`). The
+audio resampler's DRC ratio is multiplied by `speed` too, so alt-speed audio pitch-shifts
+(more/fewer source samples per real second) instead of over/underrunning the ring — the emulated
+core itself never sees a speed concept; only the frontend's pacing + resampling scale. **Known
+gap:** the `emu-thread` build paces itself independently (its own `frame_dur`) and doesn't consult
+`Pacer` at all, so speed presets are currently a no-op there until that thread gains a matching
+hook (tracked alongside `emu-thread`'s other documented gaps above).
+
+### Performance panel (`v1.0.0`)
+
+View → Performance panel opens a small read-only diagnostic window: FPS, the current speed
+preset, frame time (`Active::last_frame_time_ms` — wall-clock time spent in the frame-production
+loop this present; `None`/"n/a" while paused or on the `emu-thread` build, where production
+happens on a different thread outside this timing scope), and audio ring health (occupancy as a
+percentage of capacity; `None`/"n/a" on `wasm32` or with no audio device). Unlike Settings/Save
+States, this window has no controls — it only reads `ShellInfo`'s fields the app already builds
+each present. It also plots a rolling ~2s frame-time sparkline (`ShellState::frame_time_history`,
+capped at 120 samples) via a handful of `Painter::line` segments — no `egui_plot` dependency for
+something this small.
+
+### Fullscreen (`v1.0.0`)
+
+View → Fullscreen toggles borderless fullscreen (`winit::window::Fullscreen::Borderless(None)`),
+applied via the same "compare live state to `Active::applied_*` each frame, apply on mismatch"
+pattern as the present-mode/theme toggles above.
+
+### First-run welcome modal (`v1.0.0`)
+
+A brief orientation window shown once, the very first time the app launches with
+`config.first_run_seen == false`. Its "Get Started" button is the only way to dismiss it
+(`MenuAction::DismissWelcome`, which sets `first_run_seen = true` and saves the config so it
+never reappears) — there's no title-bar close button.
+
 ### Present-mode application
 
 The Settings → Video present-mode radio writes `config.video.present_mode`; the present path
@@ -78,6 +134,19 @@ startup, so the toggle had no effect.
 - USB gamepads auto-bind to P1; keyboard fallback for P1/P2.
 - Late-latched input (sampled as close to the frame as possible) for responsiveness without
   breaking determinism.
+
+### Key rebinding (`v1.0.0`)
+
+Settings → Input renders a 12-row grid (one per `input::Button::ALL`, `ui_shell.rs`) showing each
+SNES button's currently-bound key (`config.p1`) next to a "Rebind" button. Clicking it arms
+`ShellState::awaiting_bind`; the very next physical key press is intercepted by
+`App::window_event`'s `KeyboardInput` arm (`app.rs`) instead of being latched as gameplay input,
+and applied via `KeyBindings::rebind` (`input.rs`), which clears any prior bind on the same key or
+the same button first so the table never gets a duplicate. Esc cancels the capture instead of
+binding itself. Only P1 is exposed: `config.p2` exists and round-trips through `config.toml`, but
+no keyboard-driven gameplay path consults it yet (P2 today is only ever driven by TAS movie
+playback or netplay) — a rebind UI for a table nothing reads would be misleading, so it's left for
+whenever P2 local keyboard play is wired.
 
 ### Peripherals (Mouse / Super Scope / Super Multitap) — `v0.9.0`
 
@@ -111,7 +180,19 @@ natural home in the existing P1 gamepad auto-bind).
   versioned envelope via `System::save_state`/`load_state`. `EmuCore::save_state`/`load_state`
   (`emu.rs`) wrap it for the frontend, additionally re-rendering the framebuffer and clearing the
   audio FIFO on load (a state load jumps time discontinuously). Emulation → Save State / Load
-  State drives a single quick-save slot held in `Active::quick_save`.
+  State drives a single quick-save slot held in `Active::quick_save` (RAM-only; lost on exit).
+- **Save States manager** (`v1.0.0`, `save_states.rs`) is a separate, disk-backed,
+  thumbnail-previewed 10-slot picker (Emulation → Save States…), additive on top of the RAM-only
+  quick-save slot above, not a replacement for it. Slots live at
+  `<platform-data-dir>/saves/<rom_sha256_hex>/slotN.rsst`, keyed by the same
+  `rustysnes_core::movie::hash_rom` SHA-256 identity movies already use. Each slot file wraps an
+  UNMODIFIED `EmuCore::save_state()` blob in a small frontend-only header carrying a
+  nearest-neighbor-downsampled `128x112` RGBA8 thumbnail of the framebuffer at save time — this is
+  a frontend-only addition, not a `rustysnes-savestate` `FORMAT_VERSION` bump (currently `3`,
+  `docs/adr/0006`), unlike RustyNES's own approach of embedding the thumbnail inside the core
+  blob itself. The manager window rebuilds its slot grid (thumbnail + "saved Ns ago") from disk
+  once per frame while open, the same "only pay the cost while the overlay needing it is visible"
+  convention the debugger snapshot already uses.
 - **Rewind** (`v0.3.0 "Continuum"`, `crate::rewind::RewindBuffer`) is a bounded ring buffer of
   FULL save-state snapshots, recorded every `config.rewind.interval_frames` real frames (default
   6, i.e. ~10 Hz) up to `config.rewind.capacity` entries, oldest evicted first. This is simpler
@@ -184,6 +265,10 @@ internal `#[cfg(target_arch = "wasm32")]` branches, not two parallel copies:
   exactly like a native `MenuAction::OpenRom` would.
 - **Config persistence.** `Config::path()` returns `None` on `wasm32` (no filesystem) — `load`/
   `save` degrade to "always the default" / "always a no-op" rather than being separately gated.
+  The `v1.0.0` Save States manager (`save_states.rs`) hits the same wall: `base_dir()` also
+  returns `None` on `wasm32`, so the menu entry is present but every save/load reports a
+  "no writable data directory" status — a real, disclosed browser-vs-native gap (`index.html`'s
+  own hint paragraph says so), not a silent no-op.
 
 **Verified with a real headless-browser load** (Playwright/Chromium): the WebGL2 fallback path
 renders correctly end-to-end — confirmed via a full-page screenshot showing the egui menu bar,
@@ -202,6 +287,40 @@ sharing the same `pacing::Pacer`/`wasm_audio`/`audio_core` modules `wasm-winit` 
 via `--features wasm-canvas --no-default-features`; still fully functional and covered by CI —
 "exactly one wasm frontend is compiled" per both modules' own docs, and the manifest keeps both
 working rather than deleting the MVP once the full shell landed.
+
+### The hosted demo page (`v1.0.0`)
+
+`crates/rustysnes-frontend/web/index.html` (deployed by `.github/workflows/pages.yml`) got a
+polish pass: a visible `<h1>RustySNES` title, a keyboard-controls + feature-parity hint paragraph
+(matching the real `input::KeyBindings` defaults, and disclosing the Save States browser gap
+above rather than staying silent about it), an inline-SVG favicon (no logo asset exists yet,
+unlike RustyNES's `assets/RustyNES_Icon/` set, so this avoids either shipping no favicon at all
+or a new binary asset to keep in sync), and a `theme-color`/description meta pair. Deliberately
+NOT ported: RustyNES's touch-controls overlay, PWA manifest/service worker, browser-Lua panel,
+and `?settings=` share-link — none of those features exist in RustySNES today (no touch input
+handling, no wasm Lua backend, no config-to-URL serialization), so faking their UI would be the
+same "claims support that doesn't exist" anti-pattern this project avoids everywhere else.
+
+## The `full` build (`v1.0.0`)
+
+`cargo full-build` / `cargo full-run <rom>` (aliases in `.cargo/config.toml`) build/run the most
+fully-featured NATIVE binary in one command, activating `rustysnes-frontend`'s `full` feature —
+ported from RustyNES's own identical convention. `full` aggregates every native opt-in feature
+(`debug-hooks`, `scripting`, `cheats`, `netplay`, `retroachievements`, `hd-pack`) on top of
+`default` (cargo merges the two automatically, so `full` doesn't re-list `wasm-winit`/`help-tui`).
+Purely additive: the plain `cargo build`/`cargo run` default is unchanged.
+
+`emu-thread` is deliberately excluded from `full` — it isn't feature-complete yet (see its own
+Cargo.toml comment), and combining it with `scripting` specifically fails to compile under
+`-D warnings` today (the synchronous-path-only input/movie/script helpers become genuinely
+unreachable dead code once `emu-thread`'s separate loop takes over frame production). Including
+it in `full` would make the "maximal build" simply not build.
+
+`full-run`'s alias ends in `--`, so every trailing argument (the ROM path) forwards to the
+emulator binary rather than being consumed by Cargo itself; `full-build` takes no binary args, so
+it has no trailing `--`. CI tests `--features full` directly (`.github/workflows/ci.yml`'s `lint`
+and `full-test` jobs) rather than re-listing the flag combo, so the tested combo and `full`'s own
+definition can never silently drift apart.
 
 ## Reuse posture
 

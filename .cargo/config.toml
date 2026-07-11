@@ -1,0 +1,10 @@
+# `v1.0.0` — the "cargo --full equivalent" (ported from RustyNES's own `full-build`/`full-run`
+# aliases). One command builds/runs the most fully-featured NATIVE binary by activating the
+# frontend's `full` feature (the maximal native feature set; see
+# `crates/rustysnes-frontend/Cargo.toml`). `cargo full-run path/to/rom.sfc` forwards every
+# trailing arg (the ROM path, and any flag whose leading dash would otherwise be eaten by `cargo
+# run`) to the emulator binary, not to Cargo, since the alias ends in `--`. `full-build` takes no
+# binary args, so it has no trailing `--`. Neither name collides with a built-in cargo subcommand.
+[alias]
+full-run = "run --release -p rustysnes-frontend --features full --"
+full-build = "build --release -p rustysnes-frontend --features full"

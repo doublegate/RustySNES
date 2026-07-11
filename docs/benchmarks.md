@@ -30,7 +30,10 @@ cargo bench -p rustysnes-core --bench headless_frame
 ```
 
 - **Benchmark:** `crates/rustysnes-core/benches/headless_frame.rs` (Criterion 0.7, `harness =
-  false`).
+  false`). This is also the CI frame-time regression gate (`v1.0.0`,
+  `.github/workflows/ci.yml`'s `bench` job on release-tag pushes,
+  `scripts/bench_regression_check.sh`) — an absolute 10 ms/frame ceiling, not a tight
+  %-regression check (shared runners are too noisy for that; see `docs/performance.md`).
 - **Workload:** `tests/roms/undisbeliever/inidisp_hammer_0f00.sfc` (Zlib-licensed, committed —
   chosen for having no coprocessor/DMA-heavy content, so the measurement isolates the base
   CPU+PPU+scheduler cost rather than a specific board's own overhead). 16 warm-up frames past the

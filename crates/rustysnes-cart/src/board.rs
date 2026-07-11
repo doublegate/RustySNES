@@ -44,7 +44,7 @@ pub type Coprocessor = CoproId;
 /// the CPU/PPU/scheduler call them unconditionally, and only coprocessor boards override
 /// them. Keep every board-specific quirk INSIDE its `impl Board` — never special-case a
 /// board from the bus or the PPU.
-pub trait Board {
+pub trait Board: Send {
     /// Human-readable board name (for the debugger + logs), e.g. `"LoROM"`, `"HiROM+DSP-1"`.
     fn name(&self) -> &'static str;
 

@@ -3,19 +3,28 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RustySNES</title>
+    <title>RustySNES — cycle-accurate SNES emulator in your browser</title>
+    <meta name="description" content="RustySNES: a cycle-accurate Super Nintendo / Super Famicom emulator, running live in your browser via WebAssembly." />
+    <meta name="theme-color" content="#7c5cff" />
+    <!-- No dedicated logo asset yet (unlike RustyNES's assets/RustyNES_Icon/ set) — a small
+         inline SVG favicon (no extra HTTP request, no binary asset to keep in sync) instead of
+         shipping no favicon at all. -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%23101014'/><text x='50' y='68' font-size='58' font-family='ui-monospace,monospace' font-weight='700' fill='%237c5cff' text-anchor='middle'>S</text></svg>" />
     <style>
         html, body { margin: 0; height: 100%; background: #101014; color: #e0e0e0;
             font-family: system-ui, sans-serif; }
-        body { display: flex; flex-direction: column; }
+        body { display: flex; flex-direction: column; align-items: center; padding: 1rem 0; }
+        h1 { font-size: 1.25rem; margin: 0 0 0.75rem; text-align: center; }
+        h1 span { opacity: 0.5; font-weight: 400; }
         #app { flex: 1; display: flex; flex-direction: column; align-items: center;
             justify-content: center; gap: 0.75rem; }
         canvas { image-rendering: pixelated; background: #000; border: 2px solid #333;
-            width: 512px; height: 448px; }
+            width: 512px; height: 448px; max-width: 96vw; }
         #rom-input { color: #e0e0e0; font-size: 0.9rem; }
-        .hint { text-align: center; margin: 0; padding: 0.75rem 0; font-size: 0.85rem;
-            color: #8a8a94; }
-        .hint a { color: #8a8a94; }
+        .hint { text-align: center; margin: 0; padding: 0.5rem 1rem; font-size: 0.85rem;
+            color: #8a8a94; max-width: 560px; }
+        .hint a { color: #a89bff; }
+        .hint code { color: #cfcfd6; }
     </style>
     <!-- `data-target-name="rustysnes_frontend"` selects the crate's `[lib]` target
          (crate-type = ["cdylib", "rlib"]), NOT the `[[bin]]` (the package produces both, so
@@ -30,16 +39,31 @@
          lib as a cdylib means every `#[wasm_bindgen]`-annotated item (the start function
          included) is unconditionally exported regardless of reachability — the behavior `[lib]`'s
          own Cargo.toml doc comment always assumed but the trunk directive never actually invoked.
-         The `wasm-canvas` feature (the v0.8.0 MVP; T-81-005) is the crate's default wasm feature
-         for now — see Cargo.toml's `[features]` comment for why. -->
+         `wasm-winit` (T-81-006) is this crate's default wasm feature — the full winit + wgpu +
+         egui shell, identical to the native binary's menu bar / Settings / Save States manager —
+         see Cargo.toml's `[features]` comment. `wasm-canvas` (the earlier v0.8.0 MVP; T-81-005)
+         remains a lighter, independently-functional canvas-2D fallback, selected explicitly via
+         `--no-default-features --features wasm-canvas`; this deployed demo does not use it. -->
     <link data-trunk rel="rust" href="../Cargo.toml" data-target-name="rustysnes_frontend" />
 </head>
 <body>
+    <h1>RustySNES <span>— wasm32 (wgpu + egui)</span></h1>
     <div id="app">
         <noscript>RustySNES needs JavaScript + WebAssembly.</noscript>
         <canvas id="snes-canvas" width="256" height="224"></canvas>
         <input type="file" id="rom-input" accept=".sfc,.smc,.fig,.swc,.zip" />
     </div>
+    <p class="hint">
+        Keyboard: arrows = D-pad, <code>X</code>/<code>Z</code> = A/B,
+        <code>S</code>/<code>A</code> = X/Y, <code>Q</code>/<code>W</code> = L/R,
+        <code>Enter</code> = Start, <code>Right Shift</code> = Select. Select a
+        <code>.sfc</code> / <code>.smc</code> ROM above to begin — audio starts on
+        the same click (browser autoplay policy). This is the same menu-bar shell
+        the native binary uses, including Settings… (theme, key rebinding, speed
+        presets). One browser-specific gap: the Save States manager has no
+        filesystem to write to here, so slots don't persist — use the native
+        build for that.
+    </p>
     <p class="hint">
         <a href="https://github.com/doublegate/RustySNES" target="_blank" rel="noopener noreferrer">github.com/doublegate/RustySNES</a>
         &nbsp;·&nbsp;

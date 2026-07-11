@@ -53,6 +53,7 @@ pub mod input;
 pub mod netplay;
 pub(crate) mod pacing;
 pub mod rewind;
+pub mod save_states;
 pub mod ui_shell;
 // Read/write watchpoint sync (`v0.8.0` T-81-001b). Needs the `rustysnes-core` side of the gate
 // (`Cargo.toml`'s `debug-hooks = ["rustysnes-core/debug-hooks"]`), so this module only exists

@@ -19,10 +19,15 @@
 use crate::cheats::CheatEntry;
 use crate::config::{Config, Region};
 use crate::debug_snapshot::{DebugSnapshot, WatchpointEntry, WatchpointKind};
+use crate::input::Button;
+use crate::save_states::SlotMeta;
 
 /// An action requested from the egui pass, dispatched by `App::dispatch_menu_action` AFTER the
 /// pass returns (so it never runs while the emu lock is held inside the egui closure).
-#[derive(Debug, Clone, PartialEq, Eq)]
+// `Eq` dropped (kept only `PartialEq`) when `SetSpeed(f32)` was added (`v1.0.0`) — `f32` has no
+// `Eq` impl (NaN), and nothing in this crate relies on `MenuAction: Eq` (no `HashSet`/`HashMap`
+// keying), only `==` comparisons, which `PartialEq` alone already supports.
+#[derive(Debug, Clone, PartialEq)]
 pub enum MenuAction {
     /// Open the file picker to load a ROM.
     OpenRom,
@@ -41,8 +46,17 @@ pub enum MenuAction {
     /// Step back by one recorded rewind snapshot (`config.rewind`; a no-op when disabled or the
     /// buffer is empty).
     Rewind,
+    /// Save a thumbnail-previewed save state to slot `u8` (`v1.0.0`, `save_states.rs`; disk-backed
+    /// and per-ROM, distinct from the RAM-only single [`Self::SaveState`] quick-save slot above).
+    SaveStateSlot(u8),
+    /// Load a thumbnail-previewed save state from slot `u8`.
+    LoadStateSlot(u8),
     /// Switch the console region (NTSC/PAL).
     SetRegion(Region),
+    /// Set the emulation-speed multiplier (`v1.0.0`; one of [`SPEED_PRESETS`], transient —
+    /// session-only, never persisted to `config.toml`, always launches at `1.0`x — the
+    /// determinism-safe default).
+    SetSpeed(f32),
     /// Toggle the debugger overlay visibility.
     ToggleDebugger,
     /// Open the Settings window.
@@ -87,6 +101,9 @@ pub enum MenuAction {
     DebuggerStepInto,
     /// Step over the current instruction (runs a `JSR`/`JSL` to completion instead of into it).
     DebuggerStepOver,
+    /// Dismiss the first-run welcome modal (`v1.0.0`) — persists `config.first_run_seen` so it
+    /// never reappears.
+    DismissWelcome,
 }
 
 /// Which debugger panel is selected in the overlay (SNES chip set).
@@ -166,7 +183,33 @@ pub struct ShellState {
     /// The 65C816 panel's last breakpoint address-parse error, if the most recent "Add" attempt
     /// failed.
     pub bp_addr_error: Option<String>,
+    /// The Input tab's rebind-in-progress marker: the P1 button awaiting its next physical key,
+    /// or `None` when idle. Set by the tab's own "Rebind" button; consumed by
+    /// `App::window_event`'s key handler, which intercepts the very next key press instead of
+    /// latching it as gameplay input.
+    pub awaiting_bind: Option<Button>,
+    /// Whether the Save States manager window is visible (`v1.0.0`, `save_states.rs`).
+    pub save_states_open: bool,
+    /// Whether the Performance panel is visible (`v1.0.0`).
+    pub performance_open: bool,
+    /// Whether borderless fullscreen is requested (`v1.0.0`). Compared against
+    /// `Active::applied_fullscreen` each frame, same change-guard pattern as
+    /// `applied_present_mode`/`applied_theme` — toggling this checkbox alone doesn't touch the
+    /// OS window; `App::render` does that once it notices the mismatch.
+    pub fullscreen: bool,
+    /// Whether the first-run welcome modal is showing (`v1.0.0`). Starts `true` only when
+    /// `Config::first_run_seen` was `false` at launch; dismissing it flips `first_run_seen` to
+    /// `true` and persists the config so it never reappears.
+    pub welcome_open: bool,
+    /// Rolling frame-time history for the Performance panel's sparkline (`v1.0.0`), capped at
+    /// `FRAME_TIME_HISTORY_LEN` samples (~2s at 60 fps). Pushed once per present whenever the
+    /// panel is open, regardless of whether a real measurement exists that present (a paused
+    /// present pushes `0.0`, same "no gap in the timeline" convention a real frame-time HUD uses).
+    pub frame_time_history: std::collections::VecDeque<f32>,
 }
+
+/// `ShellState::frame_time_history`'s cap.
+const FRAME_TIME_HISTORY_LEN: usize = 120;
 
 /// Read-only `RetroAchievements` session state the shell needs to render the login window,
 /// copied out (never behind the emu lock — `CheevosState` isn't emu state) by the app each frame.
@@ -194,6 +237,38 @@ pub struct ShellInfo {
     pub fps: f32,
     /// Whether a ROM is loaded.
     pub rom_loaded: bool,
+    /// The current emulation-speed multiplier (`v1.0.0`; `1.0` = normal speed).
+    pub speed: f32,
+    /// Wall-clock time spent producing this present's emulated frame(s), in milliseconds
+    /// (`v1.0.0`, the Performance panel). `None` when nothing was measured this present (paused,
+    /// or the `emu-thread` build — see `Active::last_frame_time_ms`'s doc).
+    pub frame_time_ms: Option<f32>,
+    /// The audio ring's occupancy as a percentage of its capacity (`v1.0.0`, the Performance
+    /// panel). `None` on `wasm32` or when no audio device opened.
+    pub audio_health_pct: Option<f32>,
+}
+
+/// The emulation-speed presets surfaced in the Emulation → Speed submenu (`v1.0.0`).
+///
+/// `1.0` (100%) is the determinism-safe default the app always launches at — speed is transient
+/// session state (`Active::speed`), never persisted to `config.toml`.
+pub const SPEED_PRESETS: [f32; 7] = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0];
+
+/// Apply the configured [`crate::config::AppTheme`] to the egui context (`v1.0.0`).
+///
+/// Called by `App::render` only when the theme actually changed (tracked via
+/// `Active::applied_theme`, mirroring the present-mode change-guard already used for
+/// `config.video.present_mode`), not every frame.
+pub fn apply_theme(ctx: &egui::Context, theme: crate::config::AppTheme) {
+    use crate::config::AppTheme;
+    match theme {
+        AppTheme::Light => ctx.set_visuals(egui::Visuals::light()),
+        AppTheme::Dark => ctx.set_visuals(egui::Visuals::dark()),
+        AppTheme::System => match ctx.system_theme() {
+            Some(egui::Theme::Light) => ctx.set_visuals(egui::Visuals::light()),
+            _ => ctx.set_visuals(egui::Visuals::dark()),
+        },
+    }
 }
 
 impl ShellState {
@@ -217,6 +292,7 @@ impl ShellState {
         debug: Option<&DebugSnapshot>,
         watchpoints: &mut Vec<WatchpointEntry>,
         breakpoints: &mut Vec<u32>,
+        save_slots: Option<&[SlotMeta]>,
         #[cfg(feature = "cheats")] cheats: &mut Vec<CheatEntry>,
         #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))] netplay_connected: bool,
         #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
@@ -296,6 +372,13 @@ impl ShellState {
                         actions.push(MenuAction::Rewind);
                         ui.close();
                     }
+                    if ui
+                        .add_enabled(info.rom_loaded, egui::Button::new("Save States…"))
+                        .clicked()
+                    {
+                        self.save_states_open = true;
+                        ui.close();
+                    }
                     ui.separator();
                     ui.menu_button("Region", |ui| {
                         if ui.radio(info.region == Region::Ntsc, "NTSC").clicked() {
@@ -305,6 +388,25 @@ impl ShellState {
                         if ui.radio(info.region == Region::Pal, "PAL").clicked() {
                             actions.push(MenuAction::SetRegion(Region::Pal));
                             ui.close();
+                        }
+                    });
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let speed_pct = (info.speed * 100.0).round() as u32;
+                    ui.menu_button(format!("Speed: {speed_pct}%"), |ui| {
+                        for preset in SPEED_PRESETS {
+                            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                            let pct = (preset * 100.0).round() as u32;
+                            // Exact float equality is intentional: `info.speed` is only ever set
+                            // from a literal `SPEED_PRESETS` entry (`MenuAction::SetSpeed`'s only
+                            // caller passes one straight through, no arithmetic drift), so this
+                            // just asks "is this the currently-selected preset", not an
+                            // approximate/computed comparison.
+                            #[allow(clippy::float_cmp)]
+                            let selected = info.speed == preset;
+                            if ui.radio(selected, format!("{pct}%")).clicked() {
+                                actions.push(MenuAction::SetSpeed(preset));
+                                ui.close();
+                            }
                         }
                     });
                 });
@@ -371,7 +473,9 @@ impl ShellState {
 
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut cfg.video.integer_scale, "Integer scale");
-                    // TODO(impl-phase): fullscreen toggle, shader/filter picklist, overscan.
+                    ui.checkbox(&mut self.performance_open, "Performance panel");
+                    ui.checkbox(&mut self.fullscreen, "Fullscreen");
+                    // TODO(impl-phase): shader/filter picklist, overscan.
                 });
 
                 ui.menu_button("Debug", |ui| {
@@ -388,7 +492,7 @@ impl ShellState {
 
                 ui.menu_button("Help", |ui| {
                     // TODO(impl-phase): in-app Documentation pane (the RustyNES Help → Docs).
-                    ui.label("RustySNES v0.1.0 (scaffold)");
+                    ui.label(concat!("RustySNES v", env!("CARGO_PKG_VERSION")));
                 });
             });
         });
@@ -412,12 +516,21 @@ impl ShellState {
             });
         });
 
+        if self.welcome_open {
+            self.render_welcome(&ctx, &mut actions);
+        }
         // The Settings + debugger windows float above the panels (rendered on the same ctx).
         if self.settings_open {
             self.render_settings(&ctx, cfg);
         }
         if self.debugger_open {
             self.render_debugger(&ctx, debug, watchpoints, breakpoints, &mut actions);
+        }
+        if self.save_states_open {
+            self.render_save_states(&ctx, save_slots, &mut actions);
+        }
+        if self.performance_open {
+            self.render_performance(&ctx, info);
         }
         #[cfg(feature = "cheats")]
         if self.cheats_open {
@@ -464,8 +577,35 @@ impl ShellState {
                         ui.add(egui::Slider::new(&mut cfg.audio.volume, 0.0..=1.0).text("Volume"));
                     }
                     2 => {
-                        // TODO(impl-phase): the SNES key-rebind grid (12 buttons * 2 players).
-                        ui.label("Input rebinding — TODO (defaults in input.rs).");
+                        ui.label("P1 key bindings:");
+                        egui::Grid::new("p1_rebind_grid")
+                            .num_columns(3)
+                            .striped(true)
+                            .show(ui, |ui| {
+                                for button in Button::ALL {
+                                    ui.label(format!("{button:?}"));
+                                    let bound = cfg
+                                        .p1
+                                        .binds
+                                        .iter()
+                                        .find(|(_, b)| *b == button)
+                                        .map_or("(unbound)", |(name, _)| name.as_str());
+                                    ui.label(bound);
+                                    let listening = self.awaiting_bind == Some(button);
+                                    let label = if listening {
+                                        "Press a key…"
+                                    } else {
+                                        "Rebind"
+                                    };
+                                    if ui.button(label).clicked() && !listening {
+                                        self.awaiting_bind = Some(button);
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+                        if self.awaiting_bind.is_some() {
+                            ui.label("Waiting for a key press — Esc cancels.");
+                        }
                         ui.separator();
                         ui.label("Controller port 2 peripheral:");
                         ui.horizontal(|ui| {
@@ -490,10 +630,195 @@ impl ShellState {
                         ui.label("Region:");
                         ui.radio_value(&mut cfg.region, Region::Ntsc, "NTSC");
                         ui.radio_value(&mut cfg.region, Region::Pal, "PAL");
+                        ui.separator();
+                        ui.label("Theme:");
+                        ui.horizontal(|ui| {
+                            for theme in crate::config::AppTheme::all() {
+                                ui.radio_value(&mut cfg.theme, theme, theme.display_name());
+                            }
+                        });
                     }
                 }
             });
         self.settings_open = open;
+    }
+
+    /// The Save States manager: a [`crate::save_states::NUM_SLOTS`]-slot thumbnail grid
+    /// (`v1.0.0`, disk-backed per-ROM, `save_states.rs`). `slots` is `None` until the app has
+    /// built it (only while this window is open and a ROM is loaded — the app rebuilds it once
+    /// per frame from disk while open, same "only build when the overlay needing it is visible"
+    /// pattern the debugger snapshot already uses above), rendered as a "load a ROM" message in
+    /// that case. A texture is (re-)allocated per occupied thumbnail EVERY frame this window is
+    /// open rather than cached across frames — simple and correct; the thumbnails are small
+    /// (`THUMB_W x THUMB_H`, at most [`crate::save_states::NUM_SLOTS`] of them) and this window
+    /// is only open when a user actively summons it, not during normal gameplay.
+    fn render_save_states(
+        &mut self,
+        ctx: &egui::Context,
+        slots: Option<&[SlotMeta]>,
+        actions: &mut Vec<MenuAction>,
+    ) {
+        let mut open = self.save_states_open;
+        egui::Window::new("Save States")
+            .open(&mut open)
+            .resizable(true)
+            .show(ctx, |ui| {
+                let Some(slots) = slots else {
+                    ui.label("Save States: load a ROM first.");
+                    return;
+                };
+                egui::Grid::new("save_states_grid")
+                    .num_columns(4)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for (i, meta) in slots.iter().enumerate() {
+                            #[allow(clippy::cast_possible_truncation)]
+                            let slot = i as u8;
+                            ui.label(format!("Slot {slot}"));
+                            if let Some((w, h, rgba)) = &meta.thumbnail {
+                                let image = egui::ColorImage::from_rgba_unmultiplied(
+                                    [usize::from(*w), usize::from(*h)],
+                                    rgba,
+                                );
+                                let texture = ctx.load_texture(
+                                    format!("save_slot_{slot}"),
+                                    image,
+                                    egui::TextureOptions::NEAREST,
+                                );
+                                ui.image((texture.id(), texture.size_vec2()));
+                            } else {
+                                ui.label("(empty)");
+                            }
+                            if let Some(age) = meta.modified.and_then(|m| m.elapsed().ok()) {
+                                ui.label(format!("{}s ago", age.as_secs()));
+                            } else {
+                                ui.label(String::new());
+                            }
+                            ui.horizontal(|ui| {
+                                if ui.button("Save").clicked() {
+                                    actions.push(MenuAction::SaveStateSlot(slot));
+                                }
+                                if ui
+                                    .add_enabled(meta.occupied(), egui::Button::new("Load"))
+                                    .clicked()
+                                {
+                                    actions.push(MenuAction::LoadStateSlot(slot));
+                                }
+                            });
+                            ui.end_row();
+                        }
+                    });
+            });
+        self.save_states_open = open;
+    }
+
+    /// The Performance panel (`v1.0.0`): a read-only diagnostic view of `info`'s live
+    /// frame-timing/audio-health fields, plus a rolling frame-time sparkline
+    /// (`frame_time_history`). No controls — this is purely informational, unlike
+    /// Settings/Save States.
+    fn render_performance(&mut self, ctx: &egui::Context, info: &ShellInfo) {
+        self.frame_time_history
+            .push_back(info.frame_time_ms.unwrap_or(0.0));
+        if self.frame_time_history.len() > FRAME_TIME_HISTORY_LEN {
+            self.frame_time_history.pop_front();
+        }
+
+        let mut open = self.performance_open;
+        egui::Window::new("Performance")
+            .open(&mut open)
+            .resizable(false)
+            .show(ctx, |ui| {
+                egui::Grid::new("performance_grid")
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        ui.label("FPS:");
+                        ui.label(format!("{:.1}", info.fps));
+                        ui.end_row();
+
+                        ui.label("Speed:");
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                        let pct = (info.speed * 100.0).round() as u32;
+                        ui.label(format!("{pct}%"));
+                        ui.end_row();
+
+                        ui.label("Frame time:");
+                        ui.label(
+                            info.frame_time_ms
+                                .map_or_else(|| "n/a".to_string(), |ms| format!("{ms:.2} ms")),
+                        );
+                        ui.end_row();
+
+                        ui.label("Audio ring:");
+                        ui.label(
+                            info.audio_health_pct
+                                .map_or_else(|| "n/a".to_string(), |pct| format!("{pct:.0}%")),
+                        );
+                        ui.end_row();
+                    });
+                ui.separator();
+                ui.label("Frame time history (last ~2s):");
+                Self::draw_frame_time_sparkline(ui, &self.frame_time_history);
+            });
+        self.performance_open = open;
+    }
+
+    /// Draw `history` as a simple line sparkline in a fixed-size box, scaled to its own max
+    /// (never below `1.0` ms, so a silent/all-zero history — paused, or `emu-thread` — draws a
+    /// flat line at the bottom rather than dividing by ~0). No `egui_plot` dependency: a
+    /// sparkline is exactly `Painter::line` over a handful of points, not worth a new crate.
+    fn draw_frame_time_sparkline(ui: &mut egui::Ui, history: &std::collections::VecDeque<f32>) {
+        let desired_size = egui::vec2(ui.available_width().min(240.0), 40.0);
+        let (rect, _response) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
+        let painter = ui.painter();
+        painter.rect_filled(rect, 2.0, ui.visuals().extreme_bg_color);
+        if history.len() < 2 {
+            return;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let max = history.iter().copied().fold(1.0_f32, f32::max);
+        #[allow(clippy::cast_precision_loss)]
+        let last_idx = (history.len() - 1) as f32;
+        let points: Vec<egui::Pos2> = history
+            .iter()
+            .enumerate()
+            .map(|(i, &ms)| {
+                #[allow(clippy::cast_precision_loss)]
+                let t = i as f32 / last_idx;
+                let x = rect.left() + t * rect.width();
+                let y = (ms / max)
+                    .clamp(0.0, 1.0)
+                    .mul_add(-rect.height(), rect.bottom());
+                egui::pos2(x, y)
+            })
+            .collect();
+        painter.add(egui::Shape::line(
+            points,
+            egui::Stroke::new(1.5, ui.visuals().selection.bg_fill),
+        ));
+    }
+
+    /// The first-run welcome modal (`v1.0.0`) — a brief orientation shown once on the very first
+    /// launch (`Active::welcome_open` starts `true` only when `config.first_run_seen` was
+    /// `false`). No title-bar close button (`.collapsible(false)`, no `.open()`): the only way
+    /// out is the explicit "Get Started" button, which pushes [`MenuAction::DismissWelcome`] for
+    /// the app to persist — this window never re-derives its own visibility from `self` alone.
+    fn render_welcome(&mut self, ctx: &egui::Context, actions: &mut Vec<MenuAction>) {
+        egui::Window::new("Welcome to RustySNES")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                ui.label("A cycle-accurate Super Nintendo / Super Famicom emulator.");
+                ui.separator();
+                ui.label("File → Open ROM… to start playing.");
+                ui.label("Emulation → Save States… for the thumbnail-previewed save-slot grid.");
+                ui.label("Settings… for input rebinding, theme, and region.");
+                ui.separator();
+                if ui.button("Get Started").clicked() {
+                    self.welcome_open = false;
+                    actions.push(MenuAction::DismissWelcome);
+                }
+            });
     }
 
     /// The debugger overlay: a panel selector + the SNES chip-panel live state viewers. `debug`
