@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **RustySNES integrates a cycle-accurate emulation engine.** Modeled after its predecessor `RustyNES`, this emulator is built on a master-clock-precise, lockstep-scheduled core targeting the Mesen2/ares accuracy bar. The entries below document the engine-internal milestones as this core is built and hardened.
 
+## [Unreleased]
+
+### Changed
+
+- **Relocated the `EmuCore` embedding facade from `rustysnes-frontend` into `rustysnes-core`**
+  (a new `facade` module, `std`-only) — a libretro core or any other headless embedder can now
+  depend on `rustysnes-core` alone instead of the winit/wgpu/cpal/egui-heavy frontend crate.
+  `rustysnes-frontend::emu::EmuCore` is now a thin wrapper adding only the debugger-only fields
+  (breakpoints, single-step, VRAM viewer scroll) on top of the relocated facade. Zero behavior
+  change: every pure-facade method is a one-line delegation, verified by the unchanged frontend
+  test suite, the full ROM-oracle battery, and the `no_std` CI job (the acid test that the new
+  `#[cfg(feature = "std")]` gate actually removes the facade from the `thumbv7em` build). See
+  `docs/architecture.md` §3/§6 and `docs/frontend.md`.
+
 ## [1.1.0] "Latchkey" - 2026-07-11
 
 ### Fixed

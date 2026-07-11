@@ -44,6 +44,18 @@ build; the `playable_smoke` test is the headless AV proof.
   several seconds of runtime) in addition to the unit suite. Stays opt-in rather than default
   until that remaining parity work lands.
 
+**`EmuCore` split (`v1.2.0`).** The pure facade half of `EmuCore` — `new`/`load_rom`/firmware
+resolution/SRAM/reset/power-cycle/the `set_*` peripheral feeds/`run_frame`/`present_current_frame`/
+`framebuffer`/`audio`/`save_state`/`load_state` — relocated to
+`rustysnes_core::facade::EmuCore` (a libretro core or any other headless embedder needs exactly
+this surface without pulling in winit/wgpu/cpal/egui). `rustysnes-frontend::emu::EmuCore` is now a
+thin wrapper (`inner: rustysnes_core::facade::EmuCore`) that adds only the debugger-only fields
+(VRAM viewer scroll, `breakpoints`, `paused`) and the methods built on top of them
+(`step_into`/`step_over`/`debug_snapshot`/breakpoint-aware `run_frame`). Every pure-facade method
+is a one-line delegation — zero behavior change, verified by the unchanged frontend test suite
+plus the `no_std` CI job (the acid test that the new `#[cfg(feature = "std")]` gate on the facade
+module actually vanishes it from the `thumbv7em` build).
+
 ## Theme (`v1.0.0`)
 
 `config.theme` (`crate::config::AppTheme`: `Light` / `Dark` (default) / `System`) selects the
@@ -224,8 +236,10 @@ natural home in the existing P1 gamepad auto-bind).
 - **Save-states** (`v0.2.0 "Persistence"`, `docs/adr/0006`) serialize the deterministic core
   state (including the SPC relative-time accumulator and the seeded power-on phase) into one
   versioned envelope via `System::save_state`/`load_state`. `EmuCore::save_state`/`load_state`
-  (`emu.rs`) wrap it for the frontend, additionally re-rendering the framebuffer and clearing the
-  audio FIFO on load (a state load jumps time discontinuously). Emulation → Save State / Load
+  wrap it, additionally re-rendering the framebuffer and clearing the
+  audio FIFO on load (a state load jumps time discontinuously) — since `v1.2.0` this wrapping
+  lives in `rustysnes_core::facade::EmuCore` (see the note below), with `rustysnes-frontend::emu`
+  delegating straight through. Emulation → Save State / Load
   State drives a single quick-save slot held in `Active::quick_save` (RAM-only; lost on exit).
 - **Save States manager** (`v1.0.0`, `save_states.rs`) is a separate, disk-backed,
   thumbnail-previewed 10-slot picker (Emulation → Save States…), additive on top of the RAM-only
