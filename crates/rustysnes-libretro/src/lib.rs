@@ -251,7 +251,14 @@ impl Core for RustySnesLibretro {
         // fetched directly through the raw environment callback.
         let ext_info = unsafe {
             let generic_ctx: GenericContext = (&*ctx).into();
-            let cb = generic_ctx.environment_callback().unwrap();
+            // A `None` callback here would mean the frontend never called `retro_set_environment`
+            // before `retro_load_game` — a libretro spec violation, but external/untrusted input
+            // to this crate nonetheless; fail gracefully via the caller's `Result` rather than
+            // panicking (`rust-libretro`'s own examples `.unwrap()` here, but this project's own
+            // convention is to never panic on data an external frontend controls).
+            let Some(cb) = *generic_ctx.environment_callback() else {
+                return Err("frontend provided no environment callback (spec violation)".into());
+            };
             let mut ptr: *const RetroGameInfoExt = std::ptr::null();
             // SAFETY: `cb` is a valid function pointer supplied by the libretro frontend via the
             // environment context. If the callback returns true, the spec guarantees `ptr` is set
@@ -279,11 +286,12 @@ impl Core for RustySnesLibretro {
         // references a valid, contiguous byte slice of exactly `size` bytes, owned by the
         // frontend for the duration of this call.
         let rom_bytes =
-            unsafe { std::slice::from_raw_parts(ext_info.data.cast::<u8>(), ext_info.size) }
-                .to_vec();
+            unsafe { std::slice::from_raw_parts(ext_info.data.cast::<u8>(), ext_info.size) };
 
         let mut core = EmuCore::new(0, Region::Ntsc);
-        core.load_rom(&rom_bytes)
+        // `load_rom` already copies the ROM into its own retained storage (for Power-Cycle) —
+        // passing the borrowed slice directly avoids a redundant extra full-ROM copy here.
+        core.load_rom(rom_bytes)
             .map_err(|e| format!("failed to load ROM: {e}"))?;
 
         // Auto-resolve coprocessor firmware (DSP-1..4/CX4) from the frontend's system directory —
@@ -313,9 +321,9 @@ impl Core for RustySnesLibretro {
             }
         }
 
-        let mut tmp = Vec::new();
-        tmp.extend_from_slice(&core.save_state());
-        self.serialize_size = tmp.len();
+        // `save_state()` already returns a freshly allocated `Vec` — just measure it directly
+        // instead of copying it again into a second buffer only to read its length.
+        self.serialize_size = core.save_state().len();
 
         self.core = Some(core);
         self.pending_av_info = true;
@@ -479,8 +487,11 @@ impl Core for RustySnesLibretro {
         let Some(core) = self.core.as_ref() else {
             return false;
         };
-        self.serialize_buffer.clear();
-        self.serialize_buffer.extend_from_slice(&core.save_state());
+        // `save_state()` already allocates a fresh `Vec` internally, so there is no capacity to
+        // reuse by copying into `serialize_buffer` via `extend_from_slice` — assign it directly
+        // instead of paying for a second full-snapshot copy (RetroArch's own rewind feature can
+        // call this once per frame, making the extra copy a genuine hot-path cost).
+        self.serialize_buffer = core.save_state();
         if slice.len() >= self.serialize_buffer.len() {
             slice[..self.serialize_buffer.len()].copy_from_slice(&self.serialize_buffer);
             true

@@ -15,6 +15,10 @@ crate-type = ["cdylib", "staticlib"]
 workspace = true
 
 [dependencies]
+# Not referenced directly in this crate's own source, but required: `rust_libretro::
+# input_descriptors!` expands to code referencing `libc::c_char` in the CALLING crate's scope
+# (confirmed via the macro's definition in `rust-libretro`'s own `macros.rs`), so this must stay a
+# direct dependency here even though `grep`-ing this crate's `src/` alone won't show a use of it.
 libc = "0.2"
 rust-libretro = "0.3.2"
 
