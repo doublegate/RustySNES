@@ -163,15 +163,31 @@ write-only per-pixel tile-identity side-buffer).
   `Gfx::upload`, at a fixed `HD_PACK_SCALE = 2` upscale (`docs/adr/0010`'s documented v1 scope
   choice — not yet user-configurable). `Gfx`'s streaming texture, previously a fixed `MAX_W ×
   MAX_H` allocation, now grows via `Gfx::ensure_texture_capacity` to fit whatever the composited
-  output needs (a hi-res frame at 2x tops out at 1024×896, comfortably under the 2048
-  downlevel-WebGL2 `max_texture_dimension_2d` backstop); `Gfx::blit`/`Gfx::present`'s UV math
-  divides by the texture's *current* actual size, not the `MAX_W`/`MAX_H` constants, so this
-  stays correct after a grow. When no pack is active the texture never grows past its original
-  `MAX_W × MAX_H` allocation and this is pixel-identical to before — verified both by the
-  existing test suite and a real headless (`xvfb-run`) launch with no pack configured. Verified
-  separately via headless launches with a real generated pack (both at the default 2x scale, and
-  with scale temporarily forced to 3x specifically to exercise the texture-growth path) — all
-  ran clean with no panics or wgpu validation errors.
+  output needs (a hi-res frame at 2x tops out at 1024×896, comfortably under this device's actual
+  granted `max_texture_dimension_2d` — see "Device texture limits" below); `Gfx::blit`/
+  `Gfx::present`'s UV math divides by the texture's *current* actual size, not the `MAX_W`/`MAX_H`
+  constants, so this stays correct after a grow. When no pack is active the texture never grows
+  past its original `MAX_W × MAX_H` allocation and this is pixel-identical to before — verified
+  both by the existing test suite and a real headless (`xvfb-run`) launch with no pack configured.
+  Verified separately via headless launches with a real generated pack (both at the default 2x
+  scale, and with scale temporarily forced to 3x specifically to exercise the texture-growth
+  path) — all ran clean with no panics or wgpu validation errors.
+
+### Device texture limits (post-`v1.3.0` fix)
+
+`Gfx::new_async` used to request `wgpu::Limits::downlevel_webgl2_defaults()` unconditionally on
+every target, which hard-caps `max_texture_dimension_2d` at 2048 even on native desktop GPUs that
+support far more. Fullscreening on a monitor wider or taller than 2048px (e.g. an ultrawide at
+3440×1368) made `Surface::configure` receive an out-of-range request and panic/abort the process
+— `wgpu::Surface::configure` has no recoverable error path for this. Fixed by splitting the
+requested limits by target: `wasm32` keeps `downlevel_webgl2_defaults()` (WebGL2's real ceiling),
+native uses `downlevel_defaults()`, and both now call `.using_resolution(adapter.limits())`, which
+raises the floor preset up to whatever the real adapter reports where that's higher. `Gfx` stores
+the actual granted limit as `max_texture_dim` (`device.limits().max_texture_dimension_2d`) and
+uses it everywhere the old hardcoded `MAX_TEXTURE_DIM` constant used to be checked
+(`ensure_texture_capacity`, `upload`, and a new defensive clamp in `resize` and the initial
+`SurfaceConfiguration`) — so the real backstop is now "whatever this device actually supports,"
+not a fixed 2048 that was only ever correct for the WebGL2 downlevel case.
 - **Not yet done**: a user-configurable upscale factor (fixed at 2x for now) and `emu-thread`-
   build compositing (that build's framebuffer arrives via a lock-free `PresentBuffer` handoff
   outside the locked block this wiring reads `Ppu::tile_tags` from, with no equivalent `TileTag`
@@ -281,6 +297,32 @@ something this small.
 View → Fullscreen toggles borderless fullscreen (`winit::window::Fullscreen::Borderless(None)`),
 applied via the same "compare live state to `Active::applied_*` each frame, apply on mismatch"
 pattern as the present-mode/theme toggles above.
+
+### Window size presets (post-`v1.3.0`, RustyNES parity)
+
+Native only (`#[cfg(not(target_arch = "wasm32"))]`; the wasm32 canvas is sized by the page's own
+CSS, not this feature) — View → Window Size offers 1x/2x/3x/4x (100%-400%) of the SNES native
+resolution, dispatching `MenuAction::SetWindowScale(u32)`. `App::create_window` uses `3x`
+(`INITIAL_SCALE`) as the launch default, matching RustyNES's own default. `App::set_window_scale`
+exits fullscreen first (so the resize takes effect against a normal window), clamps the requested
+scale to `1..=4`, and computes a chrome-padded `LogicalSize` via `App::chrome_padded_size` before
+calling `window.request_inner_size`. That call may grant the resize synchronously (`Some`, no
+separate `Resized` event follows, so `Gfx::resize` is called directly) or asynchronously (`None`,
+handled by the existing `WindowEvent::Resized` handler). Transient, session-only — no
+`config.toml` field, same posture as `MenuAction::SetSpeed`.
+
+`chrome_padded_size` derives width from the scaled height via `Gfx`'s own `TARGET_ASPECT` (4:3),
+not `SNES_W * scale` directly (floored at `MIN_CHROME_WIDTH`; height is `region.active_height() *
+scale + CHROME_HEIGHT`, padding for the egui menu bar so the emulated image area lands near the
+requested multiple even at `1x`). The SNES's native pixel ratio (256:224 ≈ 1.14:1) is narrower
+than the 4:3 aspect `Gfx::blit` letterboxes every frame into, so a width derived directly from
+`SNES_W` would make the window narrower than the content it's meant to hold — `Gfx`'s own
+letterbox math would then scale the image back down to fit, silently defeating the requested
+integer scale (caught in review before merge: a requested `3x` would have rendered at only
+`~2.57x` vertically). Height uses `config.region.active_height()` (224 NTSC / 239 PAL, the same
+per-region height `Config::Region` already exposes) rather than hardcoding NTSC's 224 — a PAL
+session's "3x" preset would otherwise under-represent PAL's own native resolution (also caught in
+review).
 
 ### First-run welcome modal (`v1.0.0`)
 
