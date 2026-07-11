@@ -43,8 +43,15 @@ record; this file frames the phase line.
   (region-aware NTSC/PAL, cheats, coprocessor firmware auto-resolution, raw memory-map pointers —
   `docs/libretro.md`), and a CRT/HQx presentation post-filter pipeline (scanlines + aperture mask,
   an HQ2x-style edge-directed blend approximation, the default no-filter path kept byte-for-byte
-  identical to the pre-filter direct blit — `docs/frontend.md` §Presentation post-filters). Only
-  the final regression gate + release ceremony remain. Save-states are **fully
+  identical to the pre-filter direct blit — `docs/frontend.md` §Presentation post-filters).
+  **`v1.3.0` "Palimpsest"** lands HD texture packs (`hd-pack` feature, off by default): a
+  palette-inclusive, allocation-free XXH3-64 tile-identity hash + a write-only `Ppu::tile_tags()`
+  side-buffer in `rustysnes-ppu` (proven byte-identical to every prior release when off), a
+  frontend `pack.toml` loader + pure-Rust PNG decoder (`crate::hd_pack`), a pure CPU compositor
+  fully unit-testable without a GPU adapter (`crate::hd_compositor`), a Settings → Video pack
+  selector with `config.toml` persistence, and the compositor wired into the live wgpu present
+  path (`Gfx`'s streaming texture now grows on demand to fit a composited frame, the no-pack path
+  staying pixel-identical to before) — see `docs/adr/0010`. Save-states are **fully
   implemented** (`v0.2.0 "Persistence"`, `docs/adr/0006` — every subsystem round-trips its exact
   state through one versioned envelope, proven by a round-trip determinism test), and rewind +
   run-ahead (`v0.3.0 "Continuum"`, `crate::rewind` — a bounded ring buffer of full snapshots +

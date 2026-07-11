@@ -9,6 +9,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] "Palimpsest" - 2026-07-11
+
+**Oracle/golden suites: all held, no regressions.** The full workspace test suite (455 tests,
+44 suites) plus the full `--features test-roms` ROM-oracle battery (28 tests, 17 suites via
+`-p rustysnes-test-harness --release`) are green; no golden hash changed. fmt/clippy clean
+across every feature combination this feature touches (default, `hd-pack`, `full`,
+`emu-thread,hd-pack`, plus the pre-existing `debug-hooks`/`scripting`/`cheats`/`netplay`/
+`retroachievements` lanes); `no_std` build clean; both wasm32 frontends (`wasm-winit` default,
+`wasm-canvas`) build clean via real `trunk build --release` runs; `rustysnes-libretro` builds
+clean.
+
+### Added
+
+- **HD texture packs** (`hd-pack` feature, off by default) — replace individual 8×8 tiles with
+  higher-resolution PNG art while the accuracy-critical core stays completely pack-agnostic
+  (`docs/adr/0010`). `rustysnes-ppu` computes a palette-inclusive XXH3-64 tile-identity hash
+  (`hdtag::hash_tile`, hashed into a fixed stack buffer — no heap allocation on the rendering hot
+  path) and records it per composited pixel into a write-only `Ppu::tile_tags()` side-buffer,
+  populated only when `Ppu::set_hd_pack_tagging(true)` is on; leaving it at its default `false`
+  is proven byte-identical to every prior release
+  (`hd_pack_tagging_toggle_does_not_alter_framebuffer_output`), and the whole mechanism compiles
+  out entirely — not just runtime-disabled — when the `hd-pack` feature is off. The frontend owns
+  everything pack-specific: a versioned `pack.toml` manifest + PNG loader (`crate::hd_pack`,
+  pure-Rust `png` decode, path-traversal-safe, duplicate-hash-rejecting), a pure CPU compositor
+  (`crate::hd_compositor::composite`, fully unit-testable without a GPU adapter), a Settings →
+  Video pack selector (dynamic `ComboBox`, populated per-ROM via the same SHA-256 identity
+  save-states already use), and `config.video.hd_pack_name` persistence with automatic
+  re-selection on ROM load. The compositor is wired into the live wgpu present path: `Gfx`'s
+  previously fixed `MAX_W × MAX_H` streaming texture now grows on demand
+  (`Gfx::ensure_texture_capacity`, capped at this device's actual downlevel-WebGL2
+  `max_texture_dimension_2d`) to fit the composited output at a fixed 2× upscale, with the
+  no-pack-active path staying pixel-identical to before (the texture never grows past its
+  original allocation unless a pack is actually active). Not yet built, honestly tracked:
+  a user-configurable upscale factor (fixed at 2× for now) and `emu-thread`-build compositing
+  (that build's framebuffer arrives via a lock-free handoff with no equivalent `TileTag` channel
+  yet). See `docs/ppu.md` §HD texture pack `TileTag` recording hook, `docs/frontend.md` §HD
+  texture packs, and `docs/adr/0010`.
+
+**Process note:** all three feature PRs (#66, #67, #68) went through the full branch → CI →
+automated bot review → fix → reply → resolve → green → squash-merge ceremony. Real findings
+addressed along the way: a heap allocation on the PPU rendering hot path, a path-traversal
+vulnerability in the pack loader, a memory-pre-allocation DoS vector sized off an untrusted PNG
+header, an integer-overflow risk in the compositor's coordinate math, a stale-tile-tags bug when
+tagging was toggled off mid-session, an active-pack-cleared-on-a-failed-ROM-load bug, a
+redundant per-frame ROM re-hash, and a texture-capacity cap that was enforced by the caller but
+not the function itself. Two Gemini suggestions were investigated and found to not actually
+compile as proposed (a borrow-checker conflict in the Settings pack-selector closure) — verified
+by trying them, not just trusting the diff, and documented with the reasoning inline.
+
+**Files changed:** 15 files across 3 PRs — `crates/rustysnes-ppu/src/hdtag.rs` (new),
+`crates/rustysnes-ppu/src/{lib,render}.rs`, `crates/rustysnes-frontend/src/hd_pack.rs` (new),
+`crates/rustysnes-frontend/src/hd_compositor.rs` (new), `crates/rustysnes-frontend/src/{emu,
+gfx,app,config,ui_shell,cli,save_states}.rs`, `crates/rustysnes-core/Cargo.toml` (new `hd-pack`
+feature propagation), `docs/{ppu,frontend}.md`, `docs/adr/0010-hd-texture-pack-system.md` (new).
+
+**Testing evidence:** `cargo test --workspace` (455 tests, 44 suites), `cargo test -p
+rustysnes-test-harness --features test-roms --release` (28 tests, 17 suites, zero regressions),
+`cargo clippy --workspace --all-targets -- -D warnings` across every feature combination this
+work touches, `cargo fmt --all --check`, `RUSTDOCFLAGS="-D warnings" cargo doc --workspace
+--no-deps` (both default and `--features hd-pack`), the `no_std` gate, two real `trunk build
+--release` runs (`wasm-winit` default + `wasm-canvas`), and `cargo build -p rustysnes-libretro`.
+Manual verification: real headless (`xvfb-run`) launches of the native binary against a staged
+ROM — with no pack configured (unaffected path), with a real generated pack at the default 2×
+scale, and with the scale temporarily forced to 3× specifically to exercise the texture-growth
+path — all ran clean with no panics or wgpu validation errors.
+
 ## [1.2.0] "Phosphor" - 2026-07-11
 
 ### Changed

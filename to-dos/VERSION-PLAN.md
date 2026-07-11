@@ -723,14 +723,61 @@ gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
   all green with zero regressions; the `rustysnes-libretro` crate builds/links clean as both
   `cdylib` and `staticlib` with every required libretro C-ABI symbol confirmed exported.
 
+### v1.3.0 "Palimpsest" — HD texture packs — **RELEASED 2026-07-11**
+
+- **Tile-identity hashing + the `TileTag` recording hook — DONE.** `rustysnes-ppu::hdtag::
+  hash_tile` computes a palette-inclusive XXH3-64 hash (a 1-byte `TileClass` discriminant + bpp +
+  the tile's raw pre-flip VRAM words + its resolved `2^bpp`-color CGRAM palette) into a fixed
+  642-byte stack buffer — no heap allocation on the rendering hot path. `Ppu::set_hd_pack_tagging`
+  (off by default) gates a write-only `Ppu::tile_tags()` side-buffer, indexed exactly like
+  `Ppu::framebuffer()`, populated by three small companion helpers in `render_bg`/`render_mode7`/
+  `render_objects` reusing address/bpp/palette values already resolved by each path's normal
+  fetch. Proven byte-identical to every prior release both structurally (the whole mechanism is
+  `#[cfg(feature = "hd-pack")]`-gated out of existence, not just runtime-disabled) and at the
+  value level (`hd_pack_tagging_toggle_does_not_alter_framebuffer_output`); turning tagging off
+  also clears stale tags from the last tagged frame. Never part of `save_state`/`load_state` —
+  the same host/frontend-convenience carve-out as cheats/watchpoints/voice-mutes. See
+  `docs/ppu.md` §HD texture pack `TileTag` recording hook.
+- **Frontend loader + pure CPU compositor — DONE.** `crate::hd_pack`: a versioned `pack.toml`
+  TOML manifest, a PNG decoder (pure-Rust `png` crate, normalizes any source color type/bit
+  depth), path-traversal-safe image-path resolution, duplicate-tile-hash rejection, and per-ROM
+  discovery mirroring `save_states.rs`'s directory convention. `crate::hd_compositor::composite`:
+  a pure function (framebuffer + tags + pack tiles in, a new RGBA8 buffer out) with no wgpu/
+  `EmuCore` dependency, fully unit-testable without a GPU adapter — each 8×8 output cell is
+  sampled once and either replaced by its matching pack tile (mirrored per `hflip`/`vflip`) or
+  nearest-neighbor-upscaled from its native color.
+- **Settings UI + config + CLI docs + ADR 0010 — DONE.** `EmuCore` gained pack management
+  (`available_hd_packs`/`hd_pack_name`/`set_hd_pack`, with `load_rom`/`close_rom` clearing a
+  stale pack and `power_cycle` re-enabling tagging on the freshly reconstructed `Ppu`). Settings →
+  Video gained a dynamic pack `ComboBox`; `VideoConfig` gained `hd_pack_name: Option<String>`
+  (additive, default `None`), auto-reselected after loading a ROM. `docs/adr/0010` documents the
+  four load-bearing decisions (the hashing scheme, the write-only off-by-default `TileTag` hook,
+  the core-stays-pack-agnostic split, the versioned manifest) and the honest trade-offs.
+- **Final integration — DONE.** The compositor is wired into the live wgpu present path:
+  `Gfx`'s streaming texture, previously a fixed `MAX_W × MAX_H` allocation, now grows on demand
+  (`Gfx::ensure_texture_capacity`, capped at this device's actual downlevel-WebGL2
+  `max_texture_dimension_2d`) to fit the composited output at a fixed 2× upscale (not yet
+  user-configurable); `blit`/`present`'s UV math divides by the texture's current actual size
+  rather than the `MAX_W`/`MAX_H` constants, so it stays correct after a grow. The no-pack-active
+  path is unaffected — the texture never grows past its original allocation. Not wired for the
+  `emu-thread` build (its framebuffer arrives via a lock-free handoff with no equivalent `TileTag`
+  channel yet). Verified via real headless (`xvfb-run`) launches: no pack configured, a real
+  generated pack at the default 2× scale, and the same pack with scale temporarily forced to 3×
+  specifically to exercise the texture-growth path — all three ran clean with no panics or wgpu
+  validation errors.
+- **Regression gate:** full workspace suite (455 tests, 44 suites), the full clippy matrix
+  (default / `hd-pack` / `full` / `emu-thread,hd-pack` / the pre-existing `debug-hooks`/
+  `scripting`/`cheats`/`netplay`/`retroachievements` lanes), the `--features test-roms`
+  accuracy/oracle battery (28 tests, 17 suites), the `no_std` build, the doc-warnings gate, both
+  wasm32 frontends, and `rustysnes-libretro` all green with zero regressions.
+
 ## Post-v1.0 — Reach (deferred)
 
-- **Libretro core** and the **CRT/HQx shader/filter pipeline** landed in `v1.2.0` above. Still
-  deferred: **HD texture packs** (wires the already-scaffolded `hd-pack` flag, planned for
-  `v1.3.0`), the **fractional-timebase MAJOR refactor** (`docs/adr/0002`, only if hard residuals
-  from the accuracy-debt cluster above actually warrant it), and any future **mobile/Android**
-  target (no appetite assumed by default, unlike RustyNES's own Android build — don't inherit that
-  scope blindly).
+- **Libretro core**, the **CRT/HQx shader/filter pipeline**, and **HD texture packs** landed in
+  `v1.2.0`/`v1.3.0` above. Still deferred: the **fractional-timebase MAJOR refactor**
+  (`docs/adr/0002`, only if hard residuals from the accuracy-debt cluster above actually warrant
+  it), and any future **mobile/Android** target (no appetite assumed by default, unlike
+  RustyNES's own Android build — don't inherit that scope blindly).
 
 ## Standards adopted for every release from v0.1.0 onward
 
