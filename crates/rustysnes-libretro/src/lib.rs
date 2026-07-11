@@ -20,9 +20,10 @@
 //!   Mouse / Super Scope / Super Multitap peripheral negotiation via `RETRO_DEVICE_SUBCLASS`
 //!   (`RETRO_ENVIRONMENT_SET_CONTROLLER_INFO` + `Core::on_set_controller_port_device`), mirroring
 //!   bsnes's own libretro core's device menu (`ref-proj/bsnes/bsnes/target-libretro/libretro.cpp`)
-//!   — Mouse and Super Multitap are only offered on port 2 (index `1`), matching real SNES
-//!   hardware (a Super Scope's beam-latch and the multitap's sub-pad addressing are both
-//!   port-2-only, `docs/scheduler.md`/`rustysnes_core::controller`'s own docs). Super Multitap's
+//!   — Mouse is offered on both ports, while Super Multitap and Super Scope are only offered on
+//!   port 2 (index `1`), matching real SNES hardware (a Super Scope's beam-latch and the
+//!   multitap's sub-pad addressing are both port-2-only, `docs/scheduler.md`/
+//!   `rustysnes_core::controller`'s own docs). Super Multitap's
 //!   four sub-pads poll libretro ports `[1, 4]` (bsnes' own precedent: sub-pad `N` reads from
 //!   libretro port `1 + N`, i.e. RetroArch's Player 2-5), each still the standard 12-button pad.
 //!   Super Scope reads `RETRO_DEVICE_LIGHTGUN`'s absolute screen coordinates + trigger/cursor/
@@ -412,10 +413,10 @@ impl Core for RustySnesLibretro {
 
             // Peripheral negotiation (`RETRO_ENVIRONMENT_SET_CONTROLLER_INFO`) — mirrors bsnes's
             // own libretro core's device menu exactly (`ref-proj/bsnes/bsnes/target-libretro/
-            // libretro.cpp`): Mouse/Super Multitap/Super Scope are only offered on port 2 (index
-            // `1`), matching real SNES hardware wiring. `rust_libretro` has no `controller_info!`
-            // helper macro (unlike `input_descriptors!`), so this builds the raw
-            // `retro_controller_info` array by hand.
+            // libretro.cpp`): Mouse is offered on both ports; Super Multitap/Super Scope are only
+            // offered on port 2 (index `1`), matching real SNES hardware wiring. `rust_libretro`
+            // has no `controller_info!` helper macro (unlike `input_descriptors!`), so this builds
+            // the raw `retro_controller_info` array by hand.
             let port0_types = [
                 retro_controller_description {
                     desc: rust_libretro::c_char_ptr!("SNES Joypad"),
