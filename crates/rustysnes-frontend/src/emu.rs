@@ -162,7 +162,11 @@ impl EmuCore {
     /// (`rustysnes_core::movie`) and Lua scripting (`rustysnes_script::ScriptEngine`) — both need
     /// genuine read/write reach into the running `System`/`Bus`, unlike this type's own read-only
     /// [`Self::debug_snapshot`] copy.
-    pub const fn system_mut(&mut self) -> &mut System {
+    // Deliberately not `const fn` (PR #62 review): trivially const today, but fragile on a
+    // struct this size, and no longer possible anyway since `facade::EmuCore::system_mut` isn't
+    // `const` either (see that method's own comment).
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn system_mut(&mut self) -> &mut System {
         self.inner.system_mut()
     }
 
@@ -186,7 +190,9 @@ impl EmuCore {
 
     /// Set the 8 per-voice audio mute toggles (`v1.0.1`) — see
     /// [`facade::EmuCore::set_voice_mutes`].
-    pub const fn set_voice_mutes(&mut self, mutes: [bool; 8]) {
+    // Deliberately not `const fn` (PR #62 review) — same rationale as `Self::system_mut` above.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn set_voice_mutes(&mut self, mutes: [bool; 8]) {
         self.inner.set_voice_mutes(mutes);
     }
 

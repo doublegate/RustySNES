@@ -141,7 +141,11 @@ impl EmuCore {
             return Err(EmuError::Empty);
         }
         let cart = Cart::from_rom(&rom).map_err(|e| EmuError::Header(format!("{e:?}")))?;
-        let mut system = System::new(0);
+        // Preserve the determinism seed this `EmuCore` was constructed with — `System::seed`'s
+        // own doc: a different seed gives different power-on phase alignment, breaking
+        // bit-identical determinism (found by PR #62 review; a `System::new(0)` here would have
+        // silently discarded the caller's seed on every ROM load).
+        let mut system = System::new(self.system.seed());
         system.bus.cart = Some(cart);
         self.system = system;
         self.rom = rom.into_owned();
@@ -214,7 +218,8 @@ impl EmuCore {
             return;
         }
         if let Ok(cart) = Cart::from_rom(&self.rom) {
-            let mut system = System::new(0);
+            // Preserve the determinism seed (see `Self::load_rom`'s matching fix/comment).
+            let mut system = System::new(self.system.seed());
             system.bus.cart = Some(cart);
             if let Some(c) = system
                 .bus
@@ -231,7 +236,8 @@ impl EmuCore {
 
     /// Close the loaded ROM and present a clean blank frame.
     pub fn close_rom(&mut self) {
-        self.system = System::new(0);
+        // Preserve the determinism seed (see `Self::load_rom`'s matching fix/comment).
+        self.system = System::new(self.system.seed());
         self.rom.clear();
         self.firmware.clear();
         self.rom_loaded = false;
@@ -263,7 +269,11 @@ impl EmuCore {
     /// Direct mutable access to the deterministic core, for TAS movie record/playback
     /// ([`crate::movie`]), Lua scripting, or a debugger overlay — all need genuine read/write
     /// reach into the running [`System`]/`Bus`.
-    pub const fn system_mut(&mut self) -> &mut System {
+    // Deliberately not `const fn` (PR #62 review): trivially const today, but fragile on a
+    // struct this size — a future field that isn't const-constructible would silently force
+    // this to change, and clippy's `missing_const_for_fn` would just re-flag it if it regressed.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn system_mut(&mut self) -> &mut System {
         &mut self.system
     }
 
@@ -300,7 +310,9 @@ impl EmuCore {
     }
 
     /// Set the 8 per-voice audio mute toggles — see [`crate::bus::Bus::set_voice_mutes`]'s doc.
-    pub const fn set_voice_mutes(&mut self, mutes: [bool; 8]) {
+    // Deliberately not `const fn` (PR #62 review) — same rationale as `Self::system_mut` above.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn set_voice_mutes(&mut self, mutes: [bool; 8]) {
         self.system.bus.set_voice_mutes(mutes);
     }
 
@@ -625,5 +637,36 @@ mod tests {
         core.load_rom(&minimal_lorom())
             .expect("minimal LoROM should load");
         core
+    }
+
+    #[test]
+    fn load_rom_preserves_the_constructor_seed() {
+        let mut core = EmuCore::new(42, Region::Ntsc);
+        core.load_rom(&minimal_lorom())
+            .expect("minimal LoROM should load");
+        assert_eq!(
+            core.system_mut().seed(),
+            42,
+            "load_rom rebuilds System and must carry the original seed forward, \
+             not silently reset it to 0"
+        );
+    }
+
+    #[test]
+    fn power_cycle_preserves_the_constructor_seed() {
+        let mut core = EmuCore::new(7, Region::Ntsc);
+        core.load_rom(&minimal_lorom())
+            .expect("minimal LoROM should load");
+        core.power_cycle();
+        assert_eq!(core.system_mut().seed(), 7);
+    }
+
+    #[test]
+    fn close_rom_preserves_the_constructor_seed() {
+        let mut core = EmuCore::new(99, Region::Ntsc);
+        core.load_rom(&minimal_lorom())
+            .expect("minimal LoROM should load");
+        core.close_rom();
+        assert_eq!(core.system_mut().seed(), 99);
     }
 }
