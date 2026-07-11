@@ -228,6 +228,16 @@ impl EmuCore {
         self.hd_pack.as_ref().map(|p| p.manifest.name.as_str())
     }
 
+    /// The active HD texture pack's decoded tiles (keyed by tile-identity hash), for
+    /// `crate::hd_compositor::composite` — `None` when no pack is active.
+    #[cfg(feature = "hd-pack")]
+    #[must_use]
+    pub fn hd_pack_tiles(
+        &self,
+    ) -> Option<&std::collections::HashMap<u64, crate::hd_pack::DecodedTile>> {
+        self.hd_pack.as_ref().map(|p| &p.tiles)
+    }
+
     /// Select (or clear, with `None`) the active HD texture pack for the current ROM.
     ///
     /// Loads `pack_name` from `<data_dir>/hd-packs/<rom_sha256_hex>/<pack_name>/`, enables

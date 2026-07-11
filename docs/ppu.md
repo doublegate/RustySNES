@@ -448,10 +448,11 @@ narrow, explicitly out-of-scope edge case, not a memory-safety concern.
 
 ## HD texture pack `TileTag` recording hook (`v1.3.0`, `hd-pack` feature)
 
-**Status: the PPU-side hook, the frontend's `pack.toml` loader, a pure CPU compositor, and the
-Settings pack selector are all implemented.** Wiring the compositor into the live wgpu present
-path is the one piece still outstanding — see "Not yet done" below and `crate::hd_pack`/
-`crate::hd_compositor` in `rustysnes-frontend` for what already exists there.
+**Status: fully implemented and wired end-to-end** — the PPU-side hook, the frontend's
+`pack.toml` loader, the CPU compositor, the Settings pack selector, and (`v1.3.0` final
+integration) invoking the compositor from the live wgpu present path. See "Not yet done" below
+for the one honestly-tracked scope cut, and `crate::hd_pack`/`crate::hd_compositor` in
+`rustysnes-frontend` for the frontend half.
 
 Per `docs/adr/0010` and Mesen2's own NES HD Pack system, the direct architectural precedent, this
 crate's only HD-texture-pack responsibility is to compute a **tile-identity hash** per composited
@@ -517,8 +518,8 @@ and the port-2 peripheral selection.
 
 The frontend has a `pack.toml` loader (`crate::hd_pack::HdPack::load`, PNG decode, per-ROM
 discovery), a pure CPU compositor (`crate::hd_compositor::composite`), a Settings pack selector,
-and `config.video.hd_pack_name` persistence — see `docs/frontend.md`. The one piece still
-outstanding is invoking the compositor from the live wgpu present path in place of the plain
-framebuffer texture upload: selecting a pack today correctly enables PPU-side tagging, but the
-frame actually presented on screen is still the unmodified native framebuffer until that wiring
-lands. See `docs/adr/0010` and `to-dos/ROADMAP.md`.
+`config.video.hd_pack_name` persistence, and (`v1.3.0` final integration) the compositor wired
+into the live wgpu present path (`gfx.rs`'s streaming texture now grows to fit the composited
+output — see `docs/frontend.md`). Not built: user-configurable upscale factor (fixed at 2x,
+`docs/adr/0010`'s own documented v1 scope choice) and `emu-thread`-build compositing (that
+build's framebuffer arrives via a lock-free handoff with no equivalent `TileTag` channel yet).
