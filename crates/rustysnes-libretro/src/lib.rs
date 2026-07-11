@@ -109,11 +109,14 @@ const fn map_libretro_device(device: u32) -> rustysnes_core::controller::PortDev
 
 /// Convert a libretro lightgun/pointer absolute screen coordinate (`[-0x8000, 0x7fff]`, zero =
 /// center) into a pixel offset in `[0, dimension)`, the space `EmuCore::set_superscope` expects.
-/// Widened to `i64` for the intermediate product purely for clarity, not because `i32` would
-/// overflow here (`dimension` never exceeds a few hundred).
+/// Widened to `u64` for the intermediate product (review) — `raw + 0x8000` is always
+/// non-negative (`raw`'s range is `-0x8000..=0x7fff`), so the cast is exact; matches this
+/// project's own convention of widening coordinate math to avoid overflow
+/// (`crate::hd_compositor::blit_replacement`), even though `i64` already had no realistic
+/// overflow risk here (`dimension` never exceeds a few hundred).
 fn lightgun_screen_to_pixel(raw: i16, dimension: u32) -> i32 {
     #[allow(clippy::cast_possible_truncation)]
-    let pixel = (i64::from(raw) + 0x8000) * i64::from(dimension) / 0x1_0000;
+    let pixel = ((i64::from(raw) + 0x8000) as u64 * u64::from(dimension)) / 0x1_0000;
     pixel as i32
 }
 
