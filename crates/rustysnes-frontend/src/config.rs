@@ -181,6 +181,12 @@ pub struct VideoConfig {
     pub crt_mask: f32,
     /// [`PostFilter::Hqx`] edge-directed blend strength, `0.0..=1.0` (0 = plain bilinear).
     pub hqx_strength: f32,
+    /// The active HD texture pack's name for the current ROM (`v1.3.0`), or `None` (the default
+    /// — byte-identical config round-trip for every prior release). Present regardless of
+    /// whether this build has the `hd-pack` Cargo feature on, matching every other config field's
+    /// posture (`port2_peripheral`, `rewind`, …) — an inert value in a build that can't act on
+    /// it, not a compile-time-gated field.
+    pub hd_pack_name: Option<String>,
 }
 
 impl Default for VideoConfig {
@@ -193,6 +199,7 @@ impl Default for VideoConfig {
             crt_scanline: 0.3,
             crt_mask: 0.15,
             hqx_strength: 0.6,
+            hd_pack_name: None,
         }
     }
 }

@@ -244,7 +244,10 @@ Optional (cargo --features):
   cheats             Game Genie / Pro Action Replay codes
   netplay            GGPO-style rollback netplay (native UDP)
   retroachievements  RetroAchievements (vendored rcheevos)
-  hd-pack            Reserved for a future HD texture-pack loader (not wired)
+  hd-pack            HD texture packs -- PPU tile-identity tagging + a pack
+                     loader/compositor exist; Settings has a pack selector,
+                     but the compositor isn't yet wired into the live
+                     present path (docs/frontend.md, docs/ppu.md)
   emu-thread         A dedicated emulation thread (off by default -- not yet
                      feature-complete: no audio output, doesn't yet drive
                      cheats/watchpoints/scripting/movies/rewind/run-ahead)
@@ -293,6 +296,11 @@ Settings live in a TOML file under the platform config directory:
 Disk-backed save states (Emulation -> Save States...) live under the matching
 data directory (Linux: ~/.local/share/rustysnes/saves/<rom-sha256>/), keyed
 per-ROM so different games never collide.
+
+HD texture packs (`hd-pack` feature) use the same per-ROM keying convention:
+  <data-dir>/hd-packs/<rom-sha256>/<pack-name>/pack.toml + tiles/*.png
+Select an installed pack from Settings -> Video; `config.video.hd_pack_name`
+persists the choice.
 
 Most settings are editable in-app (the Settings window; changes that need a
 running session apply live -- present mode, theme, speed). A missing or

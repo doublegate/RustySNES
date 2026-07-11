@@ -448,13 +448,12 @@ narrow, explicitly out-of-scope edge case, not a memory-safety concern.
 
 ## HD texture pack `TileTag` recording hook (`v1.3.0`, `hd-pack` feature)
 
-**Status: the PPU-side hook, plus the frontend's `pack.toml` loader and a pure CPU compositor,
-are implemented.** Wiring the compositor into the live wgpu present path and a Settings UI pack
-selector are still outstanding — see "Not yet done" below and `crate::hd_pack`/
+**Status: the PPU-side hook, the frontend's `pack.toml` loader, a pure CPU compositor, and the
+Settings pack selector are all implemented.** Wiring the compositor into the live wgpu present
+path is the one piece still outstanding — see "Not yet done" below and `crate::hd_pack`/
 `crate::hd_compositor` in `rustysnes-frontend` for what already exists there.
 
-Per the planned HD texture pack ADR (`to-dos/ROADMAP.md`; not yet written — tracked as a
-follow-up task) and Mesen2's own NES HD Pack system, the direct architectural precedent, this
+Per `docs/adr/0010` and Mesen2's own NES HD Pack system, the direct architectural precedent, this
 crate's only HD-texture-pack responsibility is to compute a **tile-identity hash** per composited
 pixel — it never loads a pack, matches a hash, or composites a replacement texture (that stays
 entirely frontend-side, preserving the `docs/adr/0004` determinism boundary: the core itself
@@ -516,8 +515,10 @@ and the port-2 peripheral selection.
 
 ### Not yet done
 
-The frontend now has a `pack.toml` loader (`crate::hd_pack::HdPack::load`, PNG decode, per-ROM
-discovery) and a pure CPU compositor (`crate::hd_compositor::composite`) — see `docs/frontend.md`.
-Still outstanding: invoking the compositor from the live wgpu present path in place of the plain
-framebuffer texture upload, a Settings UI pack selector, and persisting the selected pack name in
-config. See `to-dos/ROADMAP.md`.
+The frontend has a `pack.toml` loader (`crate::hd_pack::HdPack::load`, PNG decode, per-ROM
+discovery), a pure CPU compositor (`crate::hd_compositor::composite`), a Settings pack selector,
+and `config.video.hd_pack_name` persistence — see `docs/frontend.md`. The one piece still
+outstanding is invoking the compositor from the live wgpu present path in place of the plain
+framebuffer texture upload: selecting a pack today correctly enables PPU-side tagging, but the
+frame actually presented on screen is still the unmodified native framebuffer until that wiring
+lands. See `docs/adr/0010` and `to-dos/ROADMAP.md`.

@@ -119,9 +119,10 @@ Video (a radio row + per-filter strength sliders) or the View → Post-filter su
 
 ## HD texture packs (`v1.3.0`, `hd-pack` feature)
 
-**Status: loader + compositor implemented; not yet wired into the live present path or Settings
-UI (follow-up work).** See `docs/ppu.md`'s own "HD texture pack `TileTag` recording hook" section
-for the core-side half of this feature (the write-only per-pixel tile-identity side-buffer).
+**Status: loader, compositor, `EmuCore` pack management, and the Settings pack selector are all
+implemented; not yet wired into the live wgpu present path (follow-up work — see `docs/adr/0010`).**
+See `docs/ppu.md`'s own "HD texture pack `TileTag` recording hook" section for the core-side half
+of this feature (the write-only per-pixel tile-identity side-buffer).
 
 - **Feature propagation**: `rustysnes-frontend/hd-pack` → `rustysnes-core/hd-pack` →
   `rustysnes-ppu/hd-pack`. The frontend never depends on `rustysnes-ppu` directly (the
@@ -145,10 +146,22 @@ for the core-side half of this feature (the write-only per-pixel tile-identity s
   that lets "some tiles replaced, others native" work within one frame. Deliberately has no
   wgpu/`EmuCore` dependency, so it is fully testable standalone (`cargo test -p rustysnes-frontend
   --features hd-pack hd_compositor`) without a live GPU adapter.
+- **`crate::emu::EmuCore` pack management** (`v1.3.0`): `available_hd_packs()` (discovery for the
+  current ROM, only computed while Settings is open — a real filesystem `read_dir` call),
+  `hd_pack_name()`, and `set_hd_pack(Option<&str>)` (loads/clears a pack and toggles
+  `Ppu::set_hd_pack_tagging` to match — either fully active or fully off, never half-applied on a
+  load failure). `load_rom`/`close_rom` clear any active pack (it's keyed to the ROM it was
+  discovered under); `power_cycle` re-enables tagging on the freshly (re)constructed `Ppu` if a
+  pack was active, since that reconstruction resets the tagging flag to its `false` default.
+- **Settings → Video** gains a pack `ComboBox` (dynamic, unlike the fixed-choice present-mode/
+  theme radios — the pack list depends on what's actually installed for this ROM) populated from
+  `available_hd_packs()`, dispatching `MenuAction::SetHdPack` on selection. `VideoConfig` gains
+  `hd_pack_name: Option<String>` (default `None`, additive); the configured pack is re-selected
+  automatically after loading a ROM (both the CLI-argument path and File → Open ROM).
 - **Not yet done**: invoking `hd_compositor::composite` from the live wgpu present path
-  (`gfx.rs`) in place of the plain framebuffer texture upload when a pack is active, the Settings
-  UI pack selector, `VideoConfig`'s persisted `hd_pack_name`, and `Ppu::set_hd_pack_tagging`
-  actually being flipped on when a pack is selected — tracked as follow-up work (see
+  (`gfx.rs`) in place of the plain framebuffer texture upload — selecting a pack today correctly
+  enables PPU-side tagging and persists the choice, but the frame actually presented on screen is
+  still the unmodified native framebuffer until that wiring lands (see `docs/adr/0010` and
   `to-dos/ROADMAP.md`).
 
 ## Global hotkeys (`v1.0.1`)

@@ -104,6 +104,10 @@ pub enum MenuAction {
     /// Dismiss the first-run welcome modal (`v1.0.0`) — persists `config.first_run_seen` so it
     /// never reappears.
     DismissWelcome,
+    /// Select (`Some(name)`) or clear (`None`) the active HD texture pack for the current ROM
+    /// (`v1.3.0`, `hd-pack` feature) — see `crate::emu::EmuCore::set_hd_pack`.
+    #[cfg(feature = "hd-pack")]
+    SetHdPack(Option<String>),
 }
 
 /// Which debugger panel is selected in the overlay (SNES chip set).
@@ -246,6 +250,13 @@ pub struct ShellInfo {
     /// The audio ring's occupancy as a percentage of its capacity (`v1.0.0`, the Performance
     /// panel). `None` on `wasm32` or when no audio device opened.
     pub audio_health_pct: Option<f32>,
+    /// HD texture pack names available for the current ROM (`v1.3.0`, `hd-pack` feature) — the
+    /// Settings pack-selector's candidate list. Empty when no ROM is loaded.
+    #[cfg(feature = "hd-pack")]
+    pub available_hd_packs: Vec<String>,
+    /// The currently active HD texture pack's name, if any.
+    #[cfg(feature = "hd-pack")]
+    pub active_hd_pack: Option<String>,
 }
 
 /// The emulation-speed presets surfaced in the Emulation → Speed submenu (`v1.0.0`).
@@ -526,7 +537,7 @@ impl ShellState {
         }
         // The Settings + debugger windows float above the panels (rendered on the same ctx).
         if self.settings_open {
-            self.render_settings(&ctx, cfg);
+            self.render_settings(&ctx, cfg, info, &mut actions);
         }
         if self.debugger_open {
             self.render_debugger(&ctx, debug, watchpoints, breakpoints, &mut actions);
@@ -560,7 +571,16 @@ impl ShellState {
     // unit than split across helpers, matching this file's existing precedent for similarly-large
     // straight-line UI functions.
     #[allow(clippy::too_many_lines)]
-    fn render_settings(&mut self, ctx: &egui::Context, cfg: &mut Config) {
+    fn render_settings(
+        &mut self,
+        ctx: &egui::Context,
+        cfg: &mut Config,
+        info: &ShellInfo,
+        actions: &mut Vec<MenuAction>,
+    ) {
+        // Only the `hd-pack` pack-selector block below reads these.
+        #[cfg(not(feature = "hd-pack"))]
+        let _ = (info, actions);
         let mut open = self.settings_open;
         egui::Window::new("Settings")
             .open(&mut open)
@@ -610,6 +630,63 @@ impl ShellState {
                                         .text("Edge blend strength"),
                                 );
                             }
+                        }
+                        #[cfg(feature = "hd-pack")]
+                        {
+                            ui.separator();
+                            ui.label("HD texture pack (`v1.3.0`):");
+                            if info.available_hd_packs.is_empty() {
+                                ui.label(if info.rom_loaded {
+                                    "(none found for this ROM)"
+                                } else {
+                                    "(load a ROM first)"
+                                });
+                            } else {
+                                // A clone, not `.as_deref()`, is required here: the closure below
+                                // mutates `cfg.video.hd_pack_name` itself, and `current` (used
+                                // both before and after that mutation within the same closure
+                                // invocation) can't remain a live borrow of it across that write
+                                // -- confirmed by trying the borrowed form, which fails to
+                                // compile (E0502). The clone is one small `String` per
+                                // Settings-window-open frame (already gated the same way
+                                // `available_hd_packs`'s own I/O is), not a hot-path cost.
+                                let current = cfg.video.hd_pack_name.clone();
+                                egui::ComboBox::from_id_salt("hd_pack_selector")
+                                    .selected_text(current.as_deref().unwrap_or("(none)"))
+                                    .show_ui(ui, |ui| {
+                                        if ui
+                                            .selectable_label(current.is_none(), "(none)")
+                                            .clicked()
+                                        {
+                                            cfg.video.hd_pack_name = None;
+                                            actions.push(MenuAction::SetHdPack(None));
+                                        }
+                                        for name in &info.available_hd_packs {
+                                            if ui
+                                                .selectable_label(
+                                                    current.as_deref() == Some(name.as_str()),
+                                                    name,
+                                                )
+                                                .clicked()
+                                            {
+                                                cfg.video.hd_pack_name = Some(name.clone());
+                                                actions.push(MenuAction::SetHdPack(Some(
+                                                    name.clone(),
+                                                )));
+                                            }
+                                        }
+                                    });
+                            }
+                            if let Some(active) = &info.active_hd_pack {
+                                ui.label(format!("Active: {active}"));
+                            } else if cfg.video.hd_pack_name.is_some() {
+                                ui.label("Selected pack failed to load — see logs.");
+                            }
+                            ui.label(
+                                "Compositing onto the live framebuffer is not yet wired in \
+                                 (docs/frontend.md §HD texture packs) — selecting a pack here \
+                                 enables PPU-side tagging only.",
+                            );
                         }
                     }
                     1 => {

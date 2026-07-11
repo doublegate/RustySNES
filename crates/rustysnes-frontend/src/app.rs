@@ -535,6 +535,14 @@ impl App {
             .pending_rom
             .take()
             .map_or_else(String::new, |path| load_rom_file(&mut emu, &path));
+        // Re-select the configured HD texture pack (`v1.3.0`) for a ROM passed on the CLI, same
+        // as `MenuAction::OpenRom`'s File-menu path does.
+        #[cfg(all(not(target_arch = "wasm32"), feature = "hd-pack"))]
+        if emu.rom_loaded()
+            && let Some(name) = self.config.video.hd_pack_name.as_deref()
+        {
+            let _ = emu.set_hd_pack(Some(name));
+        }
         #[cfg(target_arch = "wasm32")]
         let initial_status = String::new();
 
@@ -995,6 +1003,17 @@ impl App {
             });
             #[cfg(target_arch = "wasm32")]
             let audio_health_pct: Option<f32> = None;
+            // `available_hd_packs` walks a directory on disk (`discover_packs`) -- only pay that
+            // cost while the Settings window is actually open, mirroring the debug-snapshot/
+            // save-slots guards just below. `active_hd_pack` is a cheap field read, always taken.
+            #[cfg(feature = "hd-pack")]
+            let available_hd_packs = if active.shell.settings_open {
+                emu.available_hd_packs()
+            } else {
+                Vec::new()
+            };
+            #[cfg(feature = "hd-pack")]
+            let active_hd_pack = emu.hd_pack_name().map(str::to_string);
             let info = ShellInfo {
                 cart_name: emu.cart_name().map(str::to_string),
                 region: emu.region(),
@@ -1003,6 +1022,10 @@ impl App {
                 speed: active.speed,
                 frame_time_ms: active.last_frame_time_ms,
                 audio_health_pct,
+                #[cfg(feature = "hd-pack")]
+                available_hd_packs,
+                #[cfg(feature = "hd-pack")]
+                active_hd_pack,
             };
             // Only build the debugger snapshot when the window is actually open — a real,
             // avoidable per-frame cost otherwise (`docs/frontend.md` §Debugger overlay).
@@ -1220,6 +1243,15 @@ impl App {
                             let mut emu =
                                 active.core.lock().unwrap_or_else(PoisonError::into_inner);
                             active.shell.status = load_rom_file(&mut emu, &path);
+                            // Re-select the configured HD texture pack (`v1.3.0`) for the new
+                            // ROM, if any -- `load_rom` above already cleared the previous ROM's
+                            // pack; a load failure here (the new ROM has no matching pack, or
+                            // none was ever configured) just leaves tagging off, same as never
+                            // having selected one.
+                            #[cfg(feature = "hd-pack")]
+                            if let Some(name) = config.video.hd_pack_name.as_deref() {
+                                let _ = emu.set_hd_pack(Some(name));
+                            }
                         }
                         // A new cart invalidates every prior snapshot (rewind ring +
                         // quick-save) — restoring one now would apply a foreign ROM's state to
@@ -1237,6 +1269,23 @@ impl App {
                     active.shell.status = "ROM closed".into();
                     active.rewind.clear();
                     active.quick_save = None;
+                }
+                #[cfg(feature = "hd-pack")]
+                MenuAction::SetHdPack(name) => {
+                    let mut emu = active.core.lock().unwrap_or_else(PoisonError::into_inner);
+                    match emu.set_hd_pack(name.as_deref()) {
+                        Ok(()) => {
+                            active.shell.status = name.map_or_else(
+                                || "HD texture pack cleared".to_string(),
+                                |n| format!("HD texture pack: {n}"),
+                            );
+                        }
+                        Err(e) => {
+                            active.shell.status = format!("HD texture pack load failed: {e}");
+                        }
+                    }
+                    drop(emu);
+                    let _ = config.save();
                 }
                 MenuAction::SetRegion(region) => {
                     config.region = region;
