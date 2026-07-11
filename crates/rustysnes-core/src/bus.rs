@@ -1054,14 +1054,21 @@ impl DmaBus for Bus {
         if matches!(bank, 0x00..=0x3F | 0x80..=0xBF)
             && matches!(off, 0x2100..=0x21FF | 0x4000..=0x43FF)
         {
-            return self.open_bus;
+            // Matches ares/bsnes `CPU::Channel::readA` exactly: the invalid branch sets `mdr`
+            // (this project's `open_bus`) to a hard `0`, not "leave it unchanged" — see
+            // `docs/scheduler.md` §Open bus via DMA/HDMA for the full citation trail.
+            self.open_bus = 0;
+            return 0;
         }
         let val = self.decode_read(addr);
-        // `v1.1.0`: DMA-driven accesses were previously invisible to watchpoints entirely,
-        // which blocked tracing the open-bus-via-DMA-latch investigation. Tracing-only for
-        // now — `self.open_bus` itself is deliberately NOT updated here yet (see
-        // `docs/scheduler.md` §Open bus via DMA/HDMA for why a naive update still breaks every
-        // Super FX/GSU golden hash even after the `SuperFxBoard::map` RAM-ownership fix above).
+        // DMA/HDMA-driven A-bus reads update the open-bus latch exactly like a CPU read does —
+        // confirmed by direct citation of ares' AND bsnes' `CPU::Channel::readA`
+        // (`cpu.r.mdr = validA(address) ? bus.read(address, cpu.r.mdr) : 0;`) and their shared
+        // `Bus::read`'s default unmapped reader (`[](n24, n8 data) { return data; }` — the
+        // open-bus echo mechanism itself). DMA/HDMA *writes* deliberately do NOT update it (see
+        // `write_a`/`write_b` below) — ares' `writeA`/`writeB` never touch `mdr` either. See
+        // `docs/scheduler.md` §Open bus via DMA/HDMA for the full investigation this fix closes.
+        self.open_bus = val;
         #[cfg(feature = "debug-hooks")]
         self.note_bus_access(addr, val, false);
         val
@@ -1080,6 +1087,8 @@ impl DmaBus for Bus {
     }
     fn read_b(&mut self, addr: u8) -> u8 {
         let val = self.b_read(addr);
+        // See `read_a`'s doc above — DMA/HDMA B-bus reads update open_bus too.
+        self.open_bus = val;
         #[cfg(feature = "debug-hooks")]
         self.note_bus_access(0x00_2100 | u32::from(addr), val, false);
         val

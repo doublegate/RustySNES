@@ -65,6 +65,16 @@ recording hook, and `docs/frontend.md` §HD texture packs. Full workspace suite,
 `--features test-roms` accuracy/oracle battery, the full clippy matrix, `no_std`, the
 doc-warnings gate, both wasm32 frontends, and `rustysnes-libretro` are all green with zero
 regressions.
+**Post-`v1.3.0` patch cluster:** the fullscreen crash on monitors wider/taller than 2048px is
+fixed (`Gfx` now floors its requested wgpu limits against the real adapter), RustyNES-parity
+Window Size presets (1x-4x, default 3x) landed, `rustysnes-libretro` gained Mouse/Super Scope/
+Multitap peripheral negotiation, and the **open-bus-via-DMA-latch bug is FIXED**: cross-checking
+directly against ares' and bsnes' `CPU::Channel::readA`/`readB`/`writeA`/`writeB`
+(`ref-proj/ares/ares/sfc/cpu/dma.cpp`, `ref-proj/bsnes/bsnes/sfc/cpu/dma.cpp` — logically
+identical) established the precise rule (DMA/HDMA reads update `open_bus`, writes never do);
+`superfx_boots_live_and_deterministic`'s 24 golden hashes were re-blessed with this citation
+trail as justification — see `docs/scheduler.md` §Open bus via DMA/HDMA for the full
+investigation and fix.
 `v0.5.0` closed out the accuracy-pass-rate dashboard (see "Accuracy dashboard" below) and the
 full named hardware-gotcha regression list — every item fixed, correctly reclassified as an
 intentional non-goal, or honestly researched-and-deferred with a full mechanism write-up. `v0.6.0`

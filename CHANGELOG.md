@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Window Size presets** (native only) — View → Window Size offers 1x/2x/3x/4x (100%-400%) of
   the SNES native resolution, matching RustyNES; the app now launches at 3x by default instead of
   a fixed 512x448 window.
+- **Libretro peripheral negotiation** — `rustysnes-libretro` now offers Mouse (both ports) and
+  Super Multitap / Super Scope (port 2) via `RETRO_ENVIRONMENT_SET_CONTROLLER_INFO`, mirroring
+  bsnes's own libretro core's per-port device menu.
 
 ### Fixed
 
@@ -25,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `downlevel_defaults()` and both targets call `.using_resolution(adapter.limits())`, raising the
   floor preset to match the real adapter; the granted limit is tracked at runtime and enforced
   everywhere the old hardcoded 2048 constant was.
+- **Open bus during DMA/HDMA transfers** (the "Speedy Gonzales stage 6-1" mechanism) — DMA/HDMA
+  reads now update the open-bus latch, matching real hardware; writes deliberately do not, per a
+  direct cross-check against ares' and bsnes' own `CPU::Channel` DMA implementation.
+  `superfx_boots_live_and_deterministic`'s 24 golden hashes were re-blessed with that citation
+  trail as justification — see `docs/scheduler.md` §Open bus via DMA/HDMA.
 
 ## [1.3.0] "Palimpsest" - 2026-07-11
 
