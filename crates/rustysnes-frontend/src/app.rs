@@ -995,11 +995,7 @@ impl App {
             // `TileTag` handoff yet -- a documented scope cut (`docs/frontend.md`), not silently
             // dropped.
             #[cfg(all(not(feature = "emu-thread"), feature = "hd-pack"))]
-            let (fb, dims) = if emu.hd_pack_tiles().is_some() {
-                let tags = emu.system_mut().bus.ppu.tile_tags().to_vec();
-                let tiles = emu
-                    .hd_pack_tiles()
-                    .expect("checked Some via hd_pack_tiles().is_some() above");
+            let (fb, dims) = if let Some((tags, tiles)) = emu.hd_pack_composite_inputs() {
                 let (out_w, out_h, out) = crate::hd_compositor::composite(
                     &fb,
                     dims.0,

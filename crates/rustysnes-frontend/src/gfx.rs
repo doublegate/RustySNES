@@ -432,8 +432,11 @@ impl Gfx {
         if w <= self.texture_w && h <= self.texture_h {
             return;
         }
-        let new_w = w.max(self.texture_w);
-        let new_h = h.max(self.texture_h);
+        // Enforced here, not just by `Self::upload`'s own pre-check -- this function's own doc
+        // promises the `MAX_TEXTURE_DIM` cap, so it must hold regardless of what a future caller
+        // passes in, not only for the one caller that happens to check first today.
+        let new_w = w.max(self.texture_w).min(MAX_TEXTURE_DIM);
+        let new_h = h.max(self.texture_h).min(MAX_TEXTURE_DIM);
         self.texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("rustysnes-framebuffer"),
             size: wgpu::Extent3d {
