@@ -360,9 +360,9 @@ API docs (rustdoc) at
 
 ## Current Release
 
-RustySNES's current release is **v1.2.0 "Phosphor"**. See
+RustySNES's current release is **v1.3.0 "Palimpsest"**. See
 [`docs/STATUS.md`](docs/STATUS.md) for the full release history
-(`v0.1.0` through `v1.2.0`) and per-release detail.
+(`v0.1.0` through `v1.3.0`) and per-release detail.
 
 - **Download:** the [GitHub Releases](https://github.com/doublegate/RustySNES/releases) page —
   desktop binaries for Linux, macOS (aarch64), and Windows.
@@ -390,8 +390,12 @@ Video — scanlines + aperture mask, an HQ2x-style edge-directed blend; the defa
 stays byte-for-byte identical to the pre-filter direct blit; see `docs/frontend.md` §Presentation
 post-filters).
 
-**Still deferred:** HD texture packs (the `hd-pack` flag exists in the manifest as a forward
-placeholder; the loader itself is a TODO stub) — planned for `v1.3.0`.
+**`v1.3.0`** lands **HD texture packs** (`hd-pack` feature, off by default): a
+palette-inclusive, allocation-free tile-identity hash computed in `rustysnes-ppu`, a frontend
+`pack.toml` loader + pure-Rust PNG decoder, a pure CPU compositor, a Settings → Video pack
+selector with `config.toml` persistence, and the compositor wired into the live wgpu present path
+(a selected pack's replacement art is now actually visible on screen, at a fixed 2× upscale). See
+`docs/adr/0010` and `docs/frontend.md` §HD texture packs.
 
 The full roadmap lives in [`to-dos/ROADMAP.md`](to-dos/ROADMAP.md) (the phase spine) and
 [`to-dos/VERSION-PLAN.md`](to-dos/VERSION-PLAN.md) (the named release ladder).

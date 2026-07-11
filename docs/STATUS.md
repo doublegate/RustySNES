@@ -3,11 +3,11 @@
 This file is authoritative for per-suite pass counts, the board / coprocessor matrix, and
 version policy. Everything else defers to it.
 
-**Current release:** `v1.2.0 "Phosphor"` (`v0.1.0 "Foundation"`,
+**Current release:** `v1.3.0 "Palimpsest"` (`v0.1.0 "Foundation"`,
 `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"`, `v0.4.0 "Completion"`, `v0.5.0 "Fidelity"`,
 `v0.6.0 "Shippable"`, `v0.7.0 "Resolution"`, `v0.8.0 "Community"`, `v0.9.0 "Threshold"`,
-`v1.0.0 "Zenith"`, `v1.0.1 "Aftertouch"`, and `v1.1.0 "Latchkey"` precede it; see
-`to-dos/VERSION-PLAN.md` for the full ladder). `v1.0.0` closes the production-cut
+`v1.0.0 "Zenith"`, `v1.0.1 "Aftertouch"`, `v1.1.0 "Latchkey"`, and `v1.2.0 "Phosphor"` precede
+it; see `to-dos/VERSION-PLAN.md` for the full ladder). `v1.0.0` closes the production-cut
 gate: `Board: Send` (unblocking `emu-thread` to compile/test/lint clean for the first time, though
 it stays off-by-default pending full feature parity — see `docs/frontend.md`), the five
 desktop-UX-shell-maturity items (thumbnail Save States manager, key-rebind grid, themes, speed
@@ -48,6 +48,22 @@ aperture mask, an HQ2x-style edge-directed blend approximation, `PostFilter::Non
 byte-for-byte identical to the pre-filter direct blit — see `docs/frontend.md` §Presentation
 post-filters). Full workspace suite, the `--features test-roms` accuracy/oracle battery, the full
 clippy matrix, `no_std`, the doc-warnings gate, and both wasm32 frontends are all green with zero
+regressions.
+`v1.3.0` is the HD texture pack release (`hd-pack` feature, off by default). Landed: a
+palette-inclusive XXH3-64 tile-identity hash computed in `rustysnes-ppu` (allocation-free on the
+rendering hot path) and a write-only per-pixel `Ppu::tile_tags()` side-buffer, proven
+byte-identical to every prior release when the feature is off or tagging is left at its `false`
+default; a frontend `pack.toml` loader + pure-Rust PNG decoder (path-traversal-safe,
+duplicate-hash-rejecting — `crate::hd_pack`); a pure CPU compositor fully unit-testable without a
+GPU adapter (`crate::hd_compositor`); a Settings → Video pack selector with `config.toml`
+persistence and automatic re-selection on ROM load; and the compositor wired into the live wgpu
+present path (`Gfx`'s streaming texture now grows on demand to fit a composited frame, capped at
+this device's actual texture-dimension limit, with the no-pack-active path staying
+pixel-identical to before). Fixed at a 2× upscale for now (not yet user-configurable); not wired
+for the `emu-thread` build. See `docs/adr/0010`, `docs/ppu.md` §HD texture pack `TileTag`
+recording hook, and `docs/frontend.md` §HD texture packs. Full workspace suite, the
+`--features test-roms` accuracy/oracle battery, the full clippy matrix, `no_std`, the
+doc-warnings gate, both wasm32 frontends, and `rustysnes-libretro` are all green with zero
 regressions.
 `v0.5.0` closed out the accuracy-pass-rate dashboard (see "Accuracy dashboard" below) and the
 full named hardware-gotcha regression list — every item fixed, correctly reclassified as an
@@ -140,7 +156,7 @@ added to this table; hi-res color-math precision itself closed in `v0.7.0 "Resol
 | Crate | Chip | State |
 |---|---|---|
 | `rustysnes-cpu` | WDC 65C816 (5A22) | **Phase 1 complete — 65816 oracle 0-diff (state+cycles), all 256 opcodes × modes, native+emulation, REP/SEP/XCE** |
-| `rustysnes-ppu` | PPU1 (5C77) + PPU2 (5C78) | **Phase 2 — BG 0-7 + Mode 7 + 128-sprite OAM + color math + windows + dot/HV timeline; per-scanline compositor renders each line at `RENDER_DOT` (dot 276, one dot before that line's own HDMA run can mutate the registers the composite reads) — a per-line HDMA-driven register write only becomes visible starting the following line, matching real hardware, landed `v0.8.0` (`docs/ppu.md` §Mid-scanline/HDMA-driven register timing; SA-1's `SD F-1 Grand Prix` + 24 Super FX/GSU goldens updated, each independently row-level-verified, not blindly re-blessed). True 512-px hi-res (Modes 5/6, pseudo-hires) output landed `v0.7.0` — a genuine one-pixel-clock-delayed dual-column DAC pass mirroring ares' `PPU::DAC`, unit-verified + non-regression-verified, real-title validation still open (`docs/ppu.md` §Hi-res (Modes 5/6) color-math precision). Color fixes (ares pixel-diff vs SMW): color-math subscreen-backdrop addend = the COLDATA fixed color (blue-sky/black-bg fix), and the BG tilemap palette-group offset folded into the CGRAM index (washed multi-palette art fix); undisbeliever golden stays 29/29** |
+| `rustysnes-ppu` | PPU1 (5C77) + PPU2 (5C78) | **Phase 2 — BG 0-7 + Mode 7 + 128-sprite OAM + color math + windows + dot/HV timeline; per-scanline compositor renders each line at `RENDER_DOT` (dot 276, one dot before that line's own HDMA run can mutate the registers the composite reads) — a per-line HDMA-driven register write only becomes visible starting the following line, matching real hardware, landed `v0.8.0` (`docs/ppu.md` §Mid-scanline/HDMA-driven register timing; SA-1's `SD F-1 Grand Prix` + 24 Super FX/GSU goldens updated, each independently row-level-verified, not blindly re-blessed). True 512-px hi-res (Modes 5/6, pseudo-hires) output landed `v0.7.0` — a genuine one-pixel-clock-delayed dual-column DAC pass mirroring ares' `PPU::DAC`, unit-verified + non-regression-verified, real-title validation still open (`docs/ppu.md` §Hi-res (Modes 5/6) color-math precision). Color fixes (ares pixel-diff vs SMW): color-math subscreen-backdrop addend = the COLDATA fixed color (blue-sky/black-bg fix), and the BG tilemap palette-group offset folded into the CGRAM index (washed multi-palette art fix); undisbeliever golden stays 29/29. `v1.3.0`: `hd-pack` feature — `hdtag::hash_tile` (palette-inclusive XXH3-64, allocation-free) + a write-only per-pixel `Ppu::tile_tags()` side-buffer for HD texture pack tile identity, off by default and compiled out entirely when the feature is off; proven byte-identical to every prior release when tagging is left off (`docs/ppu.md` §HD texture pack `TileTag` recording hook)** |
 | `rustysnes-apu` | SPC700 (S-SMP) + S-DSP + ARAM | **Phase 3 — SPC700 oracle 0-diff; S-DSP behavioral; integrated into the machine: the 4 `$2140-$2143` ports route through the real `Apu`, the integer-accumulator async resync clocks the SMP in **cycle-exact sub-instruction lockstep** (`68_352/715_909`, ADR 0004), SMP base-clock + timer + DSP rates ares-correct; blargg `spc_*` boot+upload+run bit-deterministically; the **timer-phase fix** (timebase/timers clocked before the write side effect, ares/Mesen2-correct) + the **DSP GAIN mode-7 threshold fix** (unsigned `hidden_env >= 0x600`, blargg/ares-correct) drive **all four `spc_*` (`spc_smp`/`spc_timer`/`spc_mem_access_times`/`spc_dsp6`) to literal `PASSED TESTS`** (asserted)** |
 | `rustysnes-cart` | LoROM/HiROM/ExHiROM + coprocessors | **Phase 2 base map modes + Phase 4 coprocessors: chipset-byte detection, the shared µPD77C25/µPD96050 LLE engine + DSP-1 board (real DSP-1 games with user-supplied firmware), and the Super FX/GSU — full Argonaut RISC core (`coproc::gsu`) + `SuperFxBoard` (`coproc::superfx`), host-synced on the Go flag, boots the Krom GSU suite (`superfx_oncart`). SA-1 next** |
 | `rustysnes-core` | Bus + master-clock scheduler + DMA/HDMA | **Phase 2 — master-clock lockstep (6/8/12 access map), full memory decode, CPU regs + mul/div, GP-DMA + HDMA, NMI/HV-IRQ. `v0.9.0`: `rustysnes_core::controller` — Mouse/Super Scope/Super Multitap, the real 2-bit-per-clock (`data1`/`data2`) serial-shift-register protocol ported from ares' `sfc/controller/{mouse,super-scope,super-multitap}`, including WRIO (`$4201`/`$4213`) IOBIT plumbing and the Super Scope's PPU H/V-counter beam-latch (`Ppu::latch_hv_counters`); `Bus::set_port_device`/`set_mouse`/`set_superscope`/`set_multitap_pad`, save-stated (`FORMAT_VERSION` 2→3), 14 unit tests. `v1.2.0`: the pure `EmuCore` embedding facade relocated here from `rustysnes-frontend` (`facade` module, `std`-only, conditional `no_std` at the crate root) — load/step/framebuffer/audio/save-state, for any headless embedder; plus new `Bus::wram`/`wram_mut`/`Ppu::vram`/`vram_mut` raw memory-map accessors** |
