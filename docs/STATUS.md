@@ -40,10 +40,13 @@ warranted yet, `docs/audit/fractional-timebase-go-no-go-2026-07-11.md`).
 **In progress: `v1.2.0`** — Libretro core + CRT/HQ2x shader pipeline. Landed so far: the pure
 `EmuCore` embedding facade relocated from `rustysnes-frontend` into a new `std`-only
 `rustysnes_core::facade` module (zero behavior change, plus a determinism-seed-discarding bug
-found in review — see `docs/architecture.md` §3/§6), and `rustysnes-libretro`, a real libretro
+found in review — see `docs/architecture.md` §3/§6), `rustysnes-libretro`, a real libretro
 core wrapping that facade (region-aware NTSC/PAL geometry+timing, cheat support, coprocessor
-firmware auto-resolution, raw WRAM/VRAM/SRAM memory-map pointers — see `docs/libretro.md`). The
-CRT/HQ2x shader pipeline has not started yet.
+firmware auto-resolution, raw WRAM/VRAM/SRAM memory-map pointers — see `docs/libretro.md`), and
+the CRT/HQx presentation post-filter pipeline (Settings → Video / View → Post-filter — scanlines +
+aperture mask, an HQ2x-style edge-directed blend approximation, `PostFilter::None` kept
+byte-for-byte identical to the pre-filter direct blit — see `docs/frontend.md` §Presentation
+post-filters). Remaining before the release ceremony: the final regression gate + docs sync.
 `v0.5.0` closed out the accuracy-pass-rate dashboard (see "Accuracy dashboard" below) and the
 full named hardware-gotcha regression list — every item fixed, correctly reclassified as an
 intentional non-goal, or honestly researched-and-deferred with a full mechanism write-up. `v0.6.0`

@@ -475,7 +475,12 @@ impl ShellState {
                     ui.checkbox(&mut cfg.video.integer_scale, "Integer scale");
                     ui.checkbox(&mut self.performance_open, "Performance panel");
                     ui.checkbox(&mut self.fullscreen, "Fullscreen");
-                    // TODO(impl-phase): shader/filter picklist, overscan.
+                    ui.menu_button("Post-filter", |ui| {
+                        for filter in crate::config::PostFilter::all() {
+                            ui.radio_value(&mut cfg.video.filter, filter, filter.display_name());
+                        }
+                    });
+                    // TODO(impl-phase): overscan.
                 });
 
                 ui.menu_button("Debug", |ui| {
@@ -549,7 +554,12 @@ impl ShellState {
     }
 
     /// The tabbed Settings window (Video / Audio / Input / System). v0.1 wires the live config
-    /// fields; deep per-knob panels (NTSC, shader stack, per-game overrides) are TODO.
+    /// fields; `v1.2.0` added the CRT/HQx post-filter picker + per-filter strength sliders. Deep
+    /// per-knob panels (NTSC composite simulation, per-game overrides) are still TODO.
+    // Straight-line per-tab settings UI (one `match` arm per tab) reads more clearly as a single
+    // unit than split across helpers, matching this file's existing precedent for similarly-large
+    // straight-line UI functions.
+    #[allow(clippy::too_many_lines)]
     fn render_settings(&mut self, ctx: &egui::Context, cfg: &mut Config) {
         let mut open = self.settings_open;
         egui::Window::new("Settings")
@@ -571,6 +581,36 @@ impl ShellState {
                             }
                         }
                         ui.checkbox(&mut cfg.video.integer_scale, "Integer scale");
+                        ui.separator();
+                        ui.label("Post-filter (`v1.2.0`):");
+                        ui.horizontal(|ui| {
+                            for filter in crate::config::PostFilter::all() {
+                                ui.radio_value(
+                                    &mut cfg.video.filter,
+                                    filter,
+                                    filter.display_name(),
+                                );
+                            }
+                        });
+                        match cfg.video.filter {
+                            crate::config::PostFilter::None => {}
+                            crate::config::PostFilter::Crt => {
+                                ui.add(
+                                    egui::Slider::new(&mut cfg.video.crt_scanline, 0.0..=1.0)
+                                        .text("Scanlines"),
+                                );
+                                ui.add(
+                                    egui::Slider::new(&mut cfg.video.crt_mask, 0.0..=1.0)
+                                        .text("Aperture mask"),
+                                );
+                            }
+                            crate::config::PostFilter::Hqx => {
+                                ui.add(
+                                    egui::Slider::new(&mut cfg.video.hqx_strength, 0.0..=1.0)
+                                        .text("Edge blend strength"),
+                                );
+                            }
+                        }
                     }
                     1 => {
                         ui.checkbox(&mut cfg.audio.enabled, "Audio enabled");

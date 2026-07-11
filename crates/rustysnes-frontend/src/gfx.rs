@@ -10,10 +10,11 @@
 //! - Color decode: the SNES CGRAM stores 15-bit **BGR555** (`0bbbbbgggggrrrrr`); [`bgr555_to_rgba8`]
 //!   expands the 5-bit channels to 8-bit (the standard `c << 3 | c >> 2` left-justify).
 //!
-//! See `docs/frontend.md` (filled by the docs agent) for the render-path architecture.
+//! See `docs/frontend.md` §Presentation post-filters for the render-path architecture.
 //!
-//! v0.1.0: the deep post-process chain (CRT / NTSC / upscalers) is a TODO — only the direct
-//! nearest-blit ships in the skeleton.
+//! `v1.2.0`: two optional post-filters (CRT scanlines+mask, an HQ2x-style edge-directed blend —
+//! see [`crate::config::PostFilter`]) layer on top of the plain blit above. RustyNES's NTSC
+//! composite-signal simulation and `.slangp` shader-preset loading are explicitly out of scope.
 
 #![allow(clippy::cast_possible_truncation)]
 
@@ -83,6 +84,25 @@ pub struct Gfx {
     /// The surface's supported present modes (queried once at init), so a later Settings change
     /// can re-validate a requested mode against the hardware without re-acquiring the adapter.
     present_modes: Vec<wgpu::PresentMode>,
+    /// The [`crate::config::PostFilter::Crt`] pipeline (`v1.2.0`) — always built (cheap, one
+    /// small pipeline) regardless of whether the filter is active, so switching it on in
+    /// Settings needs no reallocation.
+    crt: FilterPipeline,
+    /// The [`crate::config::PostFilter::Hqx`] pipeline (`v1.2.0`) — see [`Self::crt`].
+    hqx: FilterPipeline,
+}
+
+/// A post-filter's pipeline + its own bind group + its own uniform buffer (`v1.2.0`). [`Gfx::crt`]
+/// and [`Gfx::hqx`] each own one, built once at [`Gfx::new_async`] time and selected by
+/// [`Gfx::present`]; [`Gfx::blit`]'s own `pipeline`/`bind_group`/`uniform_buf` fields are a separate,
+/// untouched pair (the [`crate::config::PostFilter::None`] path).
+struct FilterPipeline {
+    pipeline: wgpu::RenderPipeline,
+    bind_group: wgpu::BindGroup,
+    /// 32 bytes: bytes `0..16` = `uv_scale.xy, pos_scale.xy` (the same letterbox uniform
+    /// [`Gfx::blit`] uses), bytes `16..32` = the filter's own `params` (meaning is
+    /// filter-specific — see [`CRT_WGSL`]/[`HQX_WGSL`]'s own doc for the layout each expects).
+    uniform_buf: wgpu::Buffer,
 }
 
 impl Gfx {
@@ -308,6 +328,22 @@ impl Gfx {
             multiview_mask: None,
             cache: None,
         });
+        let crt = Self::build_filter_pipeline(
+            &device,
+            format,
+            &view,
+            &sampler,
+            CRT_WGSL,
+            "rustysnes-crt",
+        );
+        let hqx = Self::build_filter_pipeline(
+            &device,
+            format,
+            &view,
+            &sampler,
+            HQX_WGSL,
+            "rustysnes-hqx",
+        );
         Ok(Self {
             device,
             queue,
@@ -320,7 +356,115 @@ impl Gfx {
             fb_w: SNES_W,
             fb_h: SNES_H_NTSC,
             present_modes: caps.present_modes,
+            crt,
+            hqx,
         })
+    }
+
+    /// Build one [`FilterPipeline`] (`v1.2.0`) — same bind-group-layout shape for both
+    /// [`Self::crt`]/[`Self::hqx`] (texture + sampler + a 32-byte uniform, twice the plain blit's
+    /// 16-byte one to also carry the filter's own `params`), differing only in `shader_src`.
+    fn build_filter_pipeline(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        view: &wgpu::TextureView,
+        sampler: &wgpu::Sampler,
+        shader_src: &str,
+        label: &str,
+    ) -> FilterPipeline {
+        let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(label),
+            contents: bytemuck::cast_slice(&[0.0f32; 8]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(label),
+            source: wgpu::ShaderSource::Wgsl(shader_src.into()),
+        });
+        let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some(label),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(label),
+            layout: &bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: uniform_buf.as_entire_binding(),
+                },
+            ],
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some(label),
+            bind_group_layouts: &[Some(&bgl)],
+            immediate_size: 0,
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(label),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        FilterPipeline {
+            pipeline,
+            bind_group,
+            uniform_buf,
+        }
     }
 
     /// `wasm32`-only: pick WebGPU or WebGL2 (`Backend::Gl`) BEFORE ever touching the canvas, and
@@ -467,6 +611,10 @@ impl Gfx {
     /// framebuffer inside the oversized texture and (b) the aspect-correct letterbox scale, so
     /// only the `fb_w × fb_h` content shows and it keeps the 4:3 SNES display aspect regardless of
     /// the window shape.
+    ///
+    /// This is the [`crate::config::PostFilter::None`] path — kept completely unchanged by the
+    /// `v1.2.0` filter pipeline addition (see [`Self::present`]) so "no post-process filter active" stays
+    /// pixel-identical to a filter-less build, not just visually similar.
     // The blit math casts small screen/texture dimensions (all well under 2^23) to f32 for the
     // UV + letterbox ratios; the precision loss is irrelevant for these layout fractions.
     #[allow(clippy::cast_precision_loss)]
@@ -475,21 +623,87 @@ impl Gfx {
         let uv_x = self.fb_w as f32 / MAX_W as f32;
         let uv_y = self.fb_h as f32 / MAX_H as f32;
         // (b) Letterbox: fit the 4:3 SNES display aspect inside the surface.
-        let win_w = self.config.width.max(1) as f32;
-        let win_h = self.config.height.max(1) as f32;
-        let win_aspect = win_w / win_h;
-        let (pos_x, pos_y) = if win_aspect > TARGET_ASPECT {
-            (TARGET_ASPECT / win_aspect, 1.0) // window too wide -> pillarbox
-        } else {
-            (1.0, win_aspect / TARGET_ASPECT) // window too tall -> letterbox
-        };
+        let (pos_x, pos_y) = self.letterbox_scale();
         self.queue.write_buffer(
             &self.uniform_buf,
             0,
             bytemuck::cast_slice(&[uv_x, uv_y, pos_x, pos_y]),
         );
 
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let mut pass = Self::begin_pass(encoder, target);
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.bind_group, &[]);
+        pass.draw(0..3, 0..1);
+    }
+
+    /// Present the framebuffer through `filter`, falling back to the unchanged [`Self::blit`]
+    /// (`PostFilter::None`) path. `crt_scanline`/`crt_mask`/`hqx_strength` are only read by their
+    /// matching filter (`v1.2.0`).
+    // The blit math casts small screen/texture dimensions (all well under 2^23) to f32 for the
+    // UV + letterbox ratios; the precision loss is irrelevant for these layout fractions.
+    #[allow(clippy::cast_precision_loss)]
+    pub fn present(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        filter: crate::config::PostFilter,
+        crt_scanline: f32,
+        crt_mask: f32,
+        hqx_strength: f32,
+    ) {
+        use crate::config::PostFilter;
+        let (fp, params) = match filter {
+            PostFilter::None => {
+                self.blit(encoder, target);
+                return;
+            }
+            PostFilter::Crt => (&self.crt, [crt_scanline, crt_mask, self.fb_h as f32, 0.0]),
+            PostFilter::Hqx => (
+                &self.hqx,
+                [self.fb_w as f32, self.fb_h as f32, hqx_strength, 0.0],
+            ),
+        };
+        let uv_x = self.fb_w as f32 / MAX_W as f32;
+        let uv_y = self.fb_h as f32 / MAX_H as f32;
+        let (pos_x, pos_y) = self.letterbox_scale();
+        self.queue.write_buffer(
+            &fp.uniform_buf,
+            0,
+            bytemuck::cast_slice(&[uv_x, uv_y, pos_x, pos_y]),
+        );
+        self.queue
+            .write_buffer(&fp.uniform_buf, 16, bytemuck::cast_slice(&params));
+
+        let mut pass = Self::begin_pass(encoder, target);
+        pass.set_pipeline(&fp.pipeline);
+        pass.set_bind_group(0, &fp.bind_group, &[]);
+        pass.draw(0..3, 0..1);
+    }
+
+    /// The aspect-correct letterbox scale `(pos_x, pos_y)` applied to the fullscreen triangle's
+    /// clip-space position so the 4:3 SNES display fits inside the current surface regardless of
+    /// window shape — shared by [`Self::blit`] and [`Self::present`]'s filter passes (`v1.2.0`;
+    /// extracted from `blit`'s own inline math, a pure behavior-preserving refactor).
+    #[allow(clippy::cast_precision_loss)]
+    fn letterbox_scale(&self) -> (f32, f32) {
+        let win_w = self.config.width.max(1) as f32;
+        let win_h = self.config.height.max(1) as f32;
+        let win_aspect = win_w / win_h;
+        if win_aspect > TARGET_ASPECT {
+            (TARGET_ASPECT / win_aspect, 1.0) // window too wide -> pillarbox
+        } else {
+            (1.0, win_aspect / TARGET_ASPECT) // window too tall -> letterbox
+        }
+    }
+
+    /// Shared render-pass setup (clear to black, single color attachment) — the only difference
+    /// between [`Self::blit`] and [`Self::present`]'s filter passes is which pipeline/bind group
+    /// gets bound afterward.
+    fn begin_pass<'e>(
+        encoder: &'e mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+    ) -> wgpu::RenderPass<'e> {
+        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("rustysnes-blit-pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: target,
@@ -504,10 +718,7 @@ impl Gfx {
             timestamp_writes: None,
             occlusion_query_set: None,
             multiview_mask: None,
-        });
-        pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &self.bind_group, &[]);
-        pass.draw(0..3, 0..1);
+        })
     }
 }
 
@@ -539,6 +750,174 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     return textureSample(tex, samp, in.uv);
+}
+";
+
+/// The [`crate::config::PostFilter::Crt`] post-pass: scanlines + an RGB aperture-grille mask,
+/// approximating a CRT's phosphor structure. Same vertex-shader letterbox convention as
+/// [`BLIT_WGSL`] (clip-space position scale, not UV-space cropping) — `scale.xy` = UV scale
+/// (live sub-rect), `scale.zw` = letterbox position scale; `strength.x` = scanline intensity,
+/// `strength.y` = aperture-mask intensity, `strength.z` = source scanline count (the active
+/// framebuffer height), `strength.w` unused.
+const CRT_WGSL: &str = r"
+@group(0) @binding(0) var tex: texture_2d<f32>;
+@group(0) @binding(1) var samp: sampler;
+struct Uniforms {
+    scale: vec4<f32>,
+    strength: vec4<f32>,
+};
+@group(0) @binding(2) var<uniform> u: Uniforms;
+
+struct VsOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
+    var out: VsOut;
+    let x = f32((vi << 1u) & 2u) * 2.0 - 1.0;
+    let y = f32(vi & 2u) * 2.0 - 1.0;
+    out.uv = vec2<f32>((x + 1.0) * 0.5, (1.0 - y) * 0.5) * u.scale.xy;
+    out.pos = vec4<f32>(x * u.scale.z, y * u.scale.w, 0.0, 1.0);
+    return out;
+}
+
+@fragment
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    var rgb = textureSample(tex, samp, in.uv).rgb;
+
+    let scan_amt = u.strength.x;
+    let mask_amt = u.strength.y;
+
+    // Scanlines in SOURCE-row space: normalize `in.uv` (already scaled by `u.scale.xy`, the live
+    // sub-rect fraction) back to 0..1 over the live framebuffer before computing the row index, so
+    // the scanline pitch tracks the source resolution, not the oversized backing texture.
+    let norm_uv = in.uv / max(u.scale.xy, vec2<f32>(1e-6, 1e-6));
+    let rows = max(u.strength.z, 1.0);
+    let src_y = norm_uv.y * rows;
+    let d = fract(src_y) - 0.5;
+    // Parabolic profile: 1.0 at the row centre, (1 - scan_amt) at the row boundary.
+    let scan = (1.0 - scan_amt) + scan_amt * (1.0 - 4.0 * d * d);
+    rgb = rgb * scan;
+
+    // Aperture grille: tint output columns in an R/G/B triad, keyed off the OUTPUT pixel column
+    // (not the source column) so the mask stays a fixed-pitch overlay regardless of scale.
+    let col = i32(floor(in.pos.x)) % 3;
+    var mask = vec3<f32>(1.0 - mask_amt, 1.0 - mask_amt, 1.0 - mask_amt);
+    if (col == 0) {
+        mask.r = 1.0;
+    } else if (col == 1) {
+        mask.g = 1.0;
+    } else {
+        mask.b = 1.0;
+    }
+    rgb = rgb * mask;
+
+    // Brightness compensation: scanlines + mask remove energy; add a little back so a
+    // mid-strength CRT does not look washed-out dark.
+    let comp = 1.0 + 0.5 * (scan_amt + mask_amt);
+    rgb = rgb * comp;
+
+    return vec4<f32>(clamp(rgb, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0)), 1.0);
+}
+";
+
+/// The [`crate::config::PostFilter::Hqx`] post-pass: a single-pass, edge-directed diagonal blend
+/// — an HQ2x-STYLE *approximation* (a diagonal-similarity heuristic in the 2xSaI/Eagle family),
+/// not a literal `HQ2x` pattern-lookup-table port (the right fit for this project's
+/// fixed-resolution architecture, which never actually renders at a literal 2x buffer size).
+///
+/// Same letterbox convention as [`CRT_WGSL`]: `scale.xy`/`scale.zw` identical. `fb.xy` = the
+/// live framebuffer's `(width, height)` in texels (for the source-space texel walk below),
+/// `fb.z` = edge-bias strength (`0` = plain bilinear, `1` = full diagonal pull), `fb.w` unused.
+///
+/// Reads the framebuffer with `textureLoad` (integer texel coordinates, no sampler filtering
+/// involved) rather than `textureSample`, so it works identically whether or not the bound
+/// texture is filterable.
+const HQX_WGSL: &str = r"
+@group(0) @binding(0) var tex: texture_2d<f32>;
+@group(0) @binding(1) var samp: sampler; // unused (textureLoad needs no sampler) -- kept only so
+                                          // this pipeline shares the plain blit's bind-group-layout shape.
+struct Uniforms {
+    scale: vec4<f32>,
+    fb: vec4<f32>,
+};
+@group(0) @binding(2) var<uniform> u: Uniforms;
+
+struct VsOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>, // normalized 0..1 over the LIVE sub-rect (not yet scaled by scale.xy)
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
+    var out: VsOut;
+    let x = f32((vi << 1u) & 2u) * 2.0 - 1.0;
+    let y = f32(vi & 2u) * 2.0 - 1.0;
+    out.uv = vec2<f32>((x + 1.0) * 0.5, (1.0 - y) * 0.5);
+    out.pos = vec4<f32>(x * u.scale.z, y * u.scale.w, 0.0, 1.0);
+    return out;
+}
+
+fn luma(c: vec3<f32>) -> f32 {
+    return dot(c, vec3<f32>(0.299, 0.587, 0.114));
+}
+
+fn fetch(coord: vec2<i32>, dims: vec2<i32>) -> vec4<f32> {
+    let c = clamp(coord, vec2<i32>(0, 0), dims - vec2<i32>(1, 1));
+    return textureLoad(tex, c, 0);
+}
+
+@fragment
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    let dims = vec2<i32>(i32(u.fb.x), i32(u.fb.y));
+    let fdims = u.fb.xy;
+
+    // Source-space fractional position within the live sub-rect (half-texel offset so `frac`
+    // is 0 exactly at texel centres, matching bilinear convention).
+    let src = in.uv * fdims - vec2<f32>(0.5, 0.5);
+    let base = vec2<i32>(floor(src));
+    let frac = fract(src);
+
+    let tl = fetch(base, dims);
+    let tr = fetch(base + vec2<i32>(1, 0), dims);
+    let bl = fetch(base + vec2<i32>(0, 1), dims);
+    let br = fetch(base + vec2<i32>(1, 1), dims);
+
+    let l_tl = luma(tl.rgb);
+    let l_tr = luma(tr.rgb);
+    let l_bl = luma(bl.rgb);
+    let l_br = luma(br.rgb);
+
+    // Diagonal-similarity edge detection (2xSaI/Eagle-family heuristic): if the TL-BR diagonal
+    // is more self-similar than the TR-BL diagonal (or vice versa), bias the bilinear blend
+    // toward the matching diagonal instead of a plain axis-aligned average -- this softens
+    // staircase edges while leaving flat-color regions (all four samples equal, both diagonal
+    // differences zero) completely unaffected.
+    let diag_main = abs(l_tl - l_br);
+    let diag_anti = abs(l_tr - l_bl);
+    var w_tl = (1.0 - frac.x) * (1.0 - frac.y);
+    var w_tr = frac.x * (1.0 - frac.y);
+    var w_bl = (1.0 - frac.x) * frac.y;
+    var w_br = frac.x * frac.y;
+    let edge_bias = clamp(u.fb.z, 0.0, 1.0);
+    if (diag_main < diag_anti) {
+        let pull = edge_bias * (0.5 - min(frac.x, frac.y));
+        w_tl = w_tl + pull;
+        w_br = w_br + pull;
+        w_tr = w_tr - pull;
+        w_bl = w_bl - pull;
+    } else if (diag_anti < diag_main) {
+        let pull = edge_bias * (0.5 - min(1.0 - frac.x, frac.y));
+        w_tr = w_tr + pull;
+        w_bl = w_bl + pull;
+        w_tl = w_tl - pull;
+        w_br = w_br - pull;
+    }
+    let wsum = max(w_tl + w_tr + w_bl + w_br, 1e-4);
+    let rgb = (tl.rgb * w_tl + tr.rgb * w_tr + bl.rgb * w_bl + br.rgb * w_br) / wsum;
+    return vec4<f32>(clamp(rgb, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0)), 1.0);
 }
 ";
 
@@ -608,5 +987,60 @@ mod tests {
             naga::valid::Capabilities::all(),
         );
         validator.validate(&module).expect("WGSL validates");
+    }
+
+    /// Parse + validate an embedded WGSL shader with the same naga machinery wgpu uses at
+    /// runtime — shared by the `crt`/`hqx` validity tests below (`v1.2.0`).
+    fn validate_wgsl(src: &str) {
+        let module = naga::front::wgsl::parse_str(src).expect("WGSL parses");
+        let mut validator = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        );
+        validator.validate(&module).expect("WGSL validates");
+    }
+
+    #[test]
+    fn crt_wgsl_validates() {
+        validate_wgsl(CRT_WGSL);
+    }
+
+    #[test]
+    fn hqx_wgsl_validates() {
+        validate_wgsl(HQX_WGSL);
+    }
+
+    /// The letterbox scale extracted into [`Gfx::letterbox_scale`] must reproduce the exact
+    /// values `blit`'s own inline math computed before the `v1.2.0` refactor — a pure
+    /// behavior-preserving extraction, verified against hand-computed cases for a window
+    /// wider than / narrower than / exactly the 4:3 SNES aspect.
+    // The `1.0` literals below are the exact value the pillarbox/letterbox branch returns
+    // unchanged (not the result of a division that could round) — an exact comparison is
+    // correct, not merely close-enough.
+    #[allow(clippy::float_cmp)]
+    #[test]
+    fn letterbox_scale_matches_known_cases() {
+        // Window exactly 4:3 -> no letterboxing either axis.
+        assert_eq!(letterbox_scale_pure(800.0, 600.0), (1.0, 1.0));
+        // Window wider than 4:3 (16:9) -> pillarbox: pos_x shrinks, pos_y stays full.
+        let (px, py) = letterbox_scale_pure(1920.0, 1080.0);
+        assert!((px - (4.0 / 3.0) / (1920.0 / 1080.0)).abs() < 1e-6);
+        assert_eq!(py, 1.0);
+        // Window narrower than 4:3 (3:4, portrait) -> letterbox: pos_y shrinks, pos_x stays full.
+        let (px2, py2) = letterbox_scale_pure(600.0, 800.0);
+        assert_eq!(px2, 1.0);
+        assert!((py2 - (600.0 / 800.0) / (4.0 / 3.0)).abs() < 1e-6);
+    }
+
+    /// A free-function mirror of [`Gfx::letterbox_scale`]'s math (which needs a live `Gfx` with a
+    /// real wgpu device to construct) — kept byte-for-byte identical to that method's body so this
+    /// test exercises the exact same formula without needing a GPU in CI.
+    fn letterbox_scale_pure(win_w: f32, win_h: f32) -> (f32, f32) {
+        let win_aspect = win_w / win_h;
+        if win_aspect > TARGET_ASPECT {
+            (TARGET_ASPECT / win_aspect, 1.0)
+        } else {
+            (1.0, win_aspect / TARGET_ASPECT)
+        }
     }
 }

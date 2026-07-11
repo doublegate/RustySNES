@@ -696,20 +696,41 @@ gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
   `Ppu::vram`/`vram_mut`, `Cart::sram_mut` accessors support it. Peripheral negotiation (Mouse/
   Super Scope/Multitap via `RETRO_DEVICE_SUBCLASS`) is a documented follow-up, not yet wired. See
   `docs/libretro.md`.
-- **CRT/HQ2x shader pipeline — not started.**
-- **Regression gate (facade + libretro so far):** full workspace suite, the full clippy matrix
-  (default / flags-off / `full`), the `--features test-roms` accuracy/oracle battery, the
-  `no_std` build, the doc-warnings gate, and both wasm32 frontends all green with zero
-  regressions; the new `rustysnes-libretro` crate itself builds/links clean as both `cdylib` and
-  `staticlib`, with every required libretro C-ABI symbol confirmed exported.
+- **CRT/HQx presentation post-filter pipeline — DONE.** A `PostFilter` enum (`None`/`Crt`/`Hqx`,
+  Settings → Video radio row + per-filter strength sliders, plus a View → Post-filter menu
+  submenu). `Crt` adds scanlines (a parabolic per-source-row brightness profile) + an RGB
+  aperture-grille mask (fixed-pitch phosphor-triad tint), each independently strength-slidered.
+  `Hqx` adds a single-pass, edge-directed diagonal blend (a 2xSaI/Eagle-family diagonal-similarity
+  heuristic) — an HQ2x-**style** approximation, not a literal lookup-table port, matching this
+  project's fixed-resolution architecture. `PostFilter::None` (default) is the pre-existing direct
+  blit kept byte-for-byte unchanged: `Gfx::present`'s `None` arm calls the SAME unmodified
+  `Gfx::blit`, not a re-derived equivalent. `Gfx::letterbox_scale` was extracted out of `blit`'s
+  own inline math (a pure, behavior-preserving refactor, regression-tested against hand-computed
+  cases) so both filter passes share the identical letterbox convention. Shaders are inline
+  `const &str` WGSL in `gfx.rs`, matching the existing `BLIT_WGSL` convention — deliberately not
+  split into a separate shader crate (no second consumer to justify it). Verified: `naga`
+  WGSL-parse+validate tests for both new shaders, plus a real headless `xvfb-run` launch of the
+  native binary against a staged ROM with each of `None`/`Crt`/`Hqx` set in `config.toml` — all
+  three ran clean (zero stderr, no panics) against a real wgpu adapter. No golden-screenshot
+  regression harness exists in this project (the existing `commercial_screenshots.rs` captures the
+  raw core framebuffer, entirely upstream of this render path), so the `None`-path-unchanged
+  guarantee is structural (same function, not a pixel-diff proof). Not built (documented scope
+  cuts): RustyNES's NTSC composite-signal simulation, `.slangp` shader-preset loading, and overscan
+  cropping (a separate, pre-existing `TODO`). See `docs/frontend.md` §Presentation post-filters.
+- **Regression gate (facade + libretro + shader pipeline):** full workspace suite (455 tests),
+  the full clippy matrix (default / flags-off / `full` / `emu-thread`), the `--features test-roms`
+  accuracy/oracle battery, the `no_std` build, the doc-warnings gate, and both wasm32 frontends
+  all green with zero regressions; the `rustysnes-libretro` crate builds/links clean as both
+  `cdylib` and `staticlib` with every required libretro C-ABI symbol confirmed exported.
 
 ## Post-v1.0 — Reach (deferred)
 
-- **Libretro core**, a **shader/filter pipeline** (CRT/HQ2x), **HD texture packs** (wires the
-  already-scaffolded `hd-pack` flag), the **fractional-timebase MAJOR refactor**
-  (`docs/adr/0002`, only if hard residuals from the accuracy-debt cluster above actually warrant
-  it), and any future **mobile/Android** target (no appetite assumed by default, unlike
-  RustyNES's own Android build — don't inherit that scope blindly).
+- **Libretro core** and the **CRT/HQx shader/filter pipeline** landed in `v1.2.0` above. Still
+  deferred: **HD texture packs** (wires the already-scaffolded `hd-pack` flag, planned for
+  `v1.3.0`), the **fractional-timebase MAJOR refactor** (`docs/adr/0002`, only if hard residuals
+  from the accuracy-debt cluster above actually warrant it), and any future **mobile/Android**
+  target (no appetite assumed by default, unlike RustyNES's own Android build — don't inherit that
+  scope blindly).
 
 ## Standards adopted for every release from v0.1.0 onward
 

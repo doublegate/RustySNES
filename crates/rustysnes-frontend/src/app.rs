@@ -1094,8 +1094,17 @@ impl App {
                     label: Some("rustysnes-frame"),
                 });
 
-        // --- (3) Blit the framebuffer (clears then draws the fullscreen triangle). ---
-        active.gfx.blit(&mut encoder, &view);
+        // --- (3) Present the framebuffer (clears then draws the fullscreen triangle, through
+        // the active post-filter if any -- `v1.2.0`, `PostFilter::None` is byte-identical to the
+        // pre-filter-pipeline direct blit). ---
+        active.gfx.present(
+            &mut encoder,
+            &view,
+            config.video.filter,
+            config.video.crt_scanline,
+            config.video.crt_mask,
+            config.video.hqx_strength,
+        );
 
         // --- (4) Run the always-on egui shell pass. The shell NEVER touches the emu lock. ---
         #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]

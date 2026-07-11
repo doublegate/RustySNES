@@ -123,6 +123,41 @@ impl Region {
     }
 }
 
+/// A presentation post-filter (`v1.2.0`). Applied after the plain nearest-sample framebuffer
+/// blit, before the always-on egui shell pass — see `crate::gfx`'s module doc for the pipeline.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PostFilter {
+    /// No post-filter — the plain nearest-sample blit, pixel-identical to a filter-less build
+    /// (default; existing `config.toml` files round-trip unchanged).
+    #[default]
+    None,
+    /// Scanlines + an RGB aperture-grille mask, approximating a CRT's phosphor structure.
+    Crt,
+    /// A single-pass, edge-directed diagonal blend that softens staircase edges on flat-color
+    /// pixel art — an HQ2x-style *approximation* (not a literal `HQ2x` lookup-table port).
+    Hqx,
+}
+
+impl PostFilter {
+    /// Human-readable label for the Settings radio row.
+    #[must_use]
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::Crt => "CRT",
+            Self::Hqx => "HQx",
+        }
+    }
+
+    /// All filters in display order — the single source of truth the Settings radio row
+    /// iterates, so it can never drift out of sync with the enum.
+    #[must_use]
+    pub const fn all() -> [Self; 3] {
+        [Self::None, Self::Crt, Self::Hqx]
+    }
+}
+
 /// Video / windowing settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -133,6 +168,15 @@ pub struct VideoConfig {
     pub pacing: PacingMode,
     /// Integer-scale the framebuffer (true) or fit-to-window with aspect correction (false).
     pub integer_scale: bool,
+    /// The active presentation post-filter (`v1.2.0`, default `None` — byte-identical to every
+    /// prior release when unchanged).
+    pub filter: PostFilter,
+    /// [`PostFilter::Crt`] scanline intensity, `0.0..=1.0` (0 = no scanlines).
+    pub crt_scanline: f32,
+    /// [`PostFilter::Crt`] RGB aperture-mask intensity, `0.0..=1.0` (0 = no mask).
+    pub crt_mask: f32,
+    /// [`PostFilter::Hqx`] edge-directed blend strength, `0.0..=1.0` (0 = plain bilinear).
+    pub hqx_strength: f32,
 }
 
 impl Default for VideoConfig {
@@ -141,6 +185,10 @@ impl Default for VideoConfig {
             present_mode: "fifo".into(),
             pacing: PacingMode::default(),
             integer_scale: false,
+            filter: PostFilter::default(),
+            crt_scanline: 0.3,
+            crt_mask: 0.15,
+            hqx_strength: 0.6,
         }
     }
 }
