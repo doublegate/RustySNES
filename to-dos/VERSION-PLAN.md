@@ -811,6 +811,15 @@ gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
   threshold, cross-run determinism) is unaffected. Full workspace suite + the full
   `--features test-roms` battery (28 tests, 17 suites) both green. See `docs/scheduler.md` §Open
   bus via DMA/HDMA for the complete investigation and fix.
+- **`emu-thread` mechanical re-sync (cheats/watchpoints/breakpoints/port2-peripheral/
+  voice-mutes) — DONE.** These were previously synced only on the synchronous drive path,
+  silently never applied at all in the threaded build. Turned out to be a genuinely mechanical
+  port after all (contrary to `v1.1.0`'s own framing): `EmuCore` is the same `Arc<Mutex<...>>`
+  both the winit thread and the emu thread share, so re-syncing from `render`'s existing brief
+  lock — once per present, before the emu thread's next `run_frame()` — is sufficient; none of
+  this needs to run ON the emu thread itself. Still not ported: run-ahead/rewind/movies/
+  scripting/netplay-pause/RetroAchievements, which genuinely need per-produced-frame granularity
+  and a new shared-mutable-state design. See `emu_thread.rs`'s own module doc.
 
 ## Post-v1.0 — Reach (deferred)
 

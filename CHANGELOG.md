@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Libretro peripheral negotiation** — `rustysnes-libretro` now offers Mouse (both ports) and
   Super Multitap / Super Scope (port 2) via `RETRO_ENVIRONMENT_SET_CONTROLLER_INFO`, mirroring
   bsnes's own libretro core's per-port device menu.
+- **`emu-thread` mechanical re-sync** — cheats, watchpoints, breakpoints, port2-peripheral
+  selection, and per-voice audio mutes now apply in the threaded build too (previously only the
+  synchronous drive path saw these changes).
 
 ### Fixed
 

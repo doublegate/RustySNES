@@ -34,15 +34,20 @@ build; the `playable_smoke` test is the headless AV proof.
   handoff. `v1.1.0` closed the two biggest gaps: the thread now has real audio output
   (`crate::audio::AudioProducer`, pushed once per produced frame) and a proper pause/ROM-loaded
   lifecycle (`EmuControl`, driving a thread-owned `Pacer` that tracks live speed-preset changes)
-  instead of an independent, uncontrollable pacing loop. Still not full parity: none of
-  cheats/watchpoints/breakpoints/port2-peripheral/run-ahead/rewind/TAS-movies/Lua-scripting/
-  netplay-aware-pause/RetroAchievements are ported into its loop yet — each needs a genuinely new
-  shared-mutable-state design (those lists/buffers are currently plain `Active` fields the UI
-  edits directly), not a mechanical port; see `crates/rustysnes-frontend/Cargo.toml`'s
-  `emu-thread` feature comment and `emu_thread.rs`'s own module doc for the exact remaining list.
-  Verified with a real headless launch (`xvfb-run`, a staged commercial ROM, no panics over
-  several seconds of runtime) in addition to the unit suite. Stays opt-in rather than default
-  until that remaining parity work lands.
+  instead of an independent, uncontrollable pacing loop. Post-`v1.3.0`:
+  cheats/watchpoints/breakpoints/port2-peripheral/voice-mutes are ALSO now re-synced from the
+  threaded build — a genuinely mechanical port after all, since they only need to land in the
+  shared `Arc<Mutex<EmuCore>>` before the thread's next `run_frame()`, not run on the thread
+  itself, so `render`'s `emu-thread` block re-syncs them once per present under the same brief
+  lock it already holds for the control-block sync. Still not full parity: run-ahead/rewind/
+  TAS-movies/Lua-scripting/netplay-aware-pause/RetroAchievements are not ported into its loop
+  yet — each genuinely needs per-produced-frame granularity (not per-present) and a new
+  shared-mutable-state design (`Active::rewind`/`movie`/`script`/`cheevos` are plain
+  winit-thread-owned fields with no thread-safe handle today); see
+  `crates/rustysnes-frontend/Cargo.toml`'s `emu-thread` feature comment and `emu_thread.rs`'s own
+  module doc for the exact remaining list. Verified with a real headless launch (`xvfb-run`, a
+  staged commercial ROM, no panics over several seconds of runtime) in addition to the unit
+  suite. Stays opt-in rather than default until that remaining parity work lands.
 
 **`EmuCore` split (`v1.2.0`).** The pure facade half of `EmuCore` — `new`/`load_rom`/firmware
 resolution/SRAM/reset/power-cycle/the `set_*` peripheral feeds/`run_frame`/`present_current_frame`/

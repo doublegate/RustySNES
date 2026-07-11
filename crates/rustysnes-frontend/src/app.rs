@@ -931,9 +931,10 @@ impl App {
         let paused = active.shell.paused;
         // --- (1) Copy framebuffer + audio + read-only info under a BRIEF lock, then drop it. ---
         let (fb, fb_dims, info, audio_samples, debug, save_slots) = {
-            // `mut` is only needed on the synchronous drive path (run_frame/set_pad); the threaded
-            // build only reads through the guard here.
-            #[cfg_attr(feature = "emu-thread", allow(unused_mut))]
+            // `mut` is needed on both paths: the synchronous build drives run_frame/set_pad
+            // directly here, and the threaded build still needs it for the mechanical
+            // cheats/watchpoints/breakpoints/port2-peripheral/voice-mute re-syncs below (post-
+            // `v1.3.0` — see the `emu-thread` `audio_samples` block further down).
             let mut emu = active.core.lock().unwrap_or_else(PoisonError::into_inner);
             // When NOT threaded, run as many whole emulated frames as real elapsed time has earned
             // (fixed-timestep), so emulation tracks the region rate, not the display refresh.
@@ -1060,6 +1061,22 @@ impl App {
                 control.set_has_rom(emu.rom_loaded());
                 control.set_user_paused(paused);
                 control.set_speed(active.speed);
+                // Mechanical re-syncs (closed post-`v1.3.0`; previously only ran on the
+                // synchronous path above, so the threaded build silently never saw cheats/
+                // watchpoints/breakpoints/port2-peripheral/voice-mute changes at all). These only
+                // need to land in `emu` before the emu thread's NEXT `run_frame()` call, not on
+                // the emu thread itself — `emu` is the exact same `Arc<Mutex<EmuCore>>` the
+                // thread drives, so re-syncing here, once per present, under the SAME brief lock
+                // this block already holds, is sufficient (nothing here changes faster than once
+                // per present anyway — these are UI edits, gated behind Settings/Cheats/Debugger
+                // windows the user interacts with between presents, not per-frame data).
+                #[cfg(feature = "cheats")]
+                crate::cheats::sync(&active.cheats, &mut emu.system_mut().bus);
+                #[cfg(feature = "debug-hooks")]
+                crate::watchpoints::sync(&active.watchpoints, &mut emu.system_mut().bus);
+                emu.set_port_device(1, config.port2_peripheral.to_core());
+                emu.set_breakpoints(&active.breakpoints);
+                emu.set_voice_mutes(config.audio.voice_mutes);
                 Vec::new()
             };
             // Run-ahead presents the deepest peeked frame, not `emu`'s own (1-real-frame-behind)
