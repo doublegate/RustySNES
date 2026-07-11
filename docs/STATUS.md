@@ -68,13 +68,17 @@ regressions.
 **Post-`v1.3.0` patch cluster:** the fullscreen crash on monitors wider/taller than 2048px is
 fixed (`Gfx` now floors its requested wgpu limits against the real adapter), RustyNES-parity
 Window Size presets (1x-4x, default 3x) landed, `rustysnes-libretro` gained Mouse/Super Scope/
-Multitap peripheral negotiation, and the **open-bus-via-DMA-latch bug is FIXED**: cross-checking
-directly against ares' and bsnes' `CPU::Channel::readA`/`readB`/`writeA`/`writeB`
-(`ref-proj/ares/ares/sfc/cpu/dma.cpp`, `ref-proj/bsnes/bsnes/sfc/cpu/dma.cpp` — logically
-identical) established the precise rule (DMA/HDMA reads update `open_bus`, writes never do);
-`superfx_boots_live_and_deterministic`'s 24 golden hashes were re-blessed with this citation
-trail as justification — see `docs/scheduler.md` §Open bus via DMA/HDMA for the full
-investigation and fix.
+Multitap peripheral negotiation, the **open-bus-via-DMA-latch bug is FIXED** (cross-checking
+directly against ares' and bsnes' `CPU::Channel::readA`/`readB`/`writeA`/`writeB` — DMA/HDMA
+reads update `open_bus`, writes never do; `superfx_boots_live_and_deterministic`'s 24 golden
+hashes re-blessed with that citation trail as justification — see `docs/scheduler.md` §Open bus
+via DMA/HDMA), and `emu-thread`'s cheats/watchpoints/breakpoints/port2-peripheral/voice-mute
+re-sync is now mechanically ported: `EmuCore` is the same `Arc<Mutex<...>>` both the winit
+thread and the emu thread share, so re-syncing from `render`'s existing brief lock — once per
+present, before the emu thread's next `run_frame()` — is sufficient; none of it needs to run ON
+the emu thread itself. Still not ported: run-ahead/rewind/movies/scripting/netplay-pause/
+RetroAchievements, which genuinely need per-produced-frame granularity and a new
+shared-mutable-state design — see `emu_thread.rs`'s own module doc.
 `v0.5.0` closed out the accuracy-pass-rate dashboard (see "Accuracy dashboard" below) and the
 full named hardware-gotcha regression list — every item fixed, correctly reclassified as an
 intentional non-goal, or honestly researched-and-deferred with a full mechanism write-up. `v0.6.0`

@@ -16,14 +16,19 @@
 //!
 //! ## Known remaining gaps (honestly tracked, not silently claimed as done)
 //!
-//! This pass closes the audio-output gap and gives the thread a real pause/ROM-loaded lifecycle,
-//! but does NOT yet port: cheats/watchpoints/breakpoints/port2-peripheral/voice-mute re-sync,
-//! run-ahead, rewind recording, TAS movie apply/record, Lua script pump, netplay-aware pause, or
-//! `RetroAchievements` per-frame drive. Each of those needs a genuinely new shared-mutable-state
-//! design (the lists/buffers they touch are currently plain `Active` fields the UI edits
-//! directly) rather than a mechanical port, and is left as a scoped, documented follow-up rather
-//! than rushed. `crates/rustysnes-frontend/Cargo.toml`'s `emu-thread` feature comment tracks the
-//! exact same list.
+//! This pass closes the audio-output gap and gives the thread a real pause/ROM-loaded lifecycle.
+//! Post-`v1.3.0`: cheats/watchpoints/breakpoints/port2-peripheral/voice-mute re-sync are now ALSO
+//! ported (`app.rs`'s `render` — the `emu-thread` `audio_samples` block re-syncs each of these
+//! from the SAME `Arc<Mutex<EmuCore>>` handle the thread drives, once per present, under the
+//! brief lock that block already holds — a genuinely mechanical port after all, since none of
+//! this needs to run ON the emu thread itself, only land in `EmuCore` before its next
+//! `run_frame()`). Still NOT ported: run-ahead, rewind recording, TAS movie apply/record, Lua
+//! script pump, netplay-aware pause, or `RetroAchievements` per-frame drive. Each of THOSE
+//! genuinely needs per-produced-frame granularity (not per-present) and a new shared-mutable-
+//! state design (the buffers they touch — `Active::rewind`/`movie`/`script`/`cheevos` — are
+//! plain winit-thread-owned fields with no thread-safe handle today), so they stay a scoped,
+//! documented follow-up rather than rushed. `crates/rustysnes-frontend/Cargo.toml`'s `emu-thread`
+//! feature comment tracks the exact same reduced list.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
