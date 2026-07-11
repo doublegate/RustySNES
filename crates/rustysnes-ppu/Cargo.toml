@@ -9,11 +9,17 @@ authors.workspace = true
 [features]
 default = ["std"]
 std = []
+# HD texture pack tile-identity hashing + the `Ppu`-side `TileTag` recording hook (`v1.3.0`,
+# `hdtag` module + `Ppu::set_hd_pack_tagging`/`Ppu::tile_tags`) -- off by default, purely
+# additive, `no_std`-clean (xxhash-rust's `xxh3` needs no allocator beyond `alloc`, already a
+# crate dependency). Disabled entirely from the `no_std` CI build.
+hd-pack = ["dep:xxhash-rust"]
 
 [dependencies]
 bitflags = "2"
 rustysnes-cart = { path = "../rustysnes-cart", version = "1.2.0", default-features = false }
 rustysnes-savestate = { path = "../rustysnes-savestate", version = "1.2.0" }
+xxhash-rust = { version = "0.8", optional = true, features = ["xxh3"] }
 
 [lints]
 workspace = true

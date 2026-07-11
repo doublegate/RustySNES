@@ -57,6 +57,11 @@ use alloc::boxed::Box;
 use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
 
 pub mod bus;
+// HD texture pack tile-identity hashing + the `Ppu`-side `TileTag` recording hook (`v1.3.0`) --
+// off by default (`Ppu::set_hd_pack_tagging`), and compiled out entirely (not just runtime-inert)
+// when the `hd-pack` feature is off.
+#[cfg(feature = "hd-pack")]
+pub mod hdtag;
 mod regs;
 mod render;
 
@@ -657,6 +662,25 @@ pub struct Ppu {
     /// frame, [`MAX_FRAMEBUFFER_LEN`] (512×239) for a hi-res one. Backing storage is always
     /// allocated at hi-res capacity; [`Ppu::framebuffer`] returns the resolution-sized slice.
     framebuffer: Box<[u16; MAX_FRAMEBUFFER_LEN]>,
+
+    /// Whether [`render::render_scanline`](crate) records a [`hdtag::TileTag`] per composited
+    /// pixel into `tile_tags` this frame (`v1.3.0`, `hd-pack` feature). Off by default — a
+    /// host/frontend convenience switch, never part of `save_state`/`load_state` (the same carve-
+    /// out already established for cheats/watchpoints/voice-mutes/port2-peripheral).
+    #[cfg(feature = "hd-pack")]
+    hd_pack_tagging: bool,
+    /// Write-only tile-identity side-buffer paralleling [`Ppu::framebuffer`] pixel-for-pixel
+    /// (same indexing, same hi-res-capacity backing length — a boxed slice rather than a boxed
+    /// fixed-size array: building a ~2 MiB `[TileTag; MAX_FRAMEBUFFER_LEN]` array value before
+    /// moving it into a `Box` materializes it on the stack first in an unoptimized build, which
+    /// overflows the default thread stack; `alloc::vec!` fills the heap allocation in place,
+    /// one element at a time, with no such stack temporary). Only written when `hd_pack_tagging`
+    /// is set; when it is `false` (the default), every entry stays [`hdtag::TileTag::default`]
+    /// and `render_scanline`'s hot paths never touch it or the (feature-gated-out-entirely-when-
+    /// off) hashing helper — see `hd_pack_tagging_toggle_does_not_alter_framebuffer_output` for
+    /// the regression proof that toggling this never changes `framebuffer()`'s bytes.
+    #[cfg(feature = "hd-pack")]
+    tile_tags: Box<[hdtag::TileTag]>,
 }
 
 impl core::fmt::Debug for Ppu {
@@ -713,6 +737,11 @@ impl Ppu {
             frame_count: 0,
             frame_hires: false,
             framebuffer: Box::new([0u16; MAX_FRAMEBUFFER_LEN]),
+            #[cfg(feature = "hd-pack")]
+            hd_pack_tagging: false,
+            #[cfg(feature = "hd-pack")]
+            tile_tags: alloc::vec![hdtag::TileTag::default(); MAX_FRAMEBUFFER_LEN]
+                .into_boxed_slice(),
         }
     }
 
@@ -962,6 +991,34 @@ impl Ppu {
     pub fn take_frame(&mut self) -> &[u16] {
         self.frame_ready = false;
         &self.framebuffer[..self.visible_width() * SCREEN_HEIGHT]
+    }
+
+    /// Enable/disable per-pixel [`hdtag::TileTag`] recording (`v1.3.0`, `hd-pack` feature).
+    ///
+    /// Off by default. Toggling this never changes [`Ppu::framebuffer`]'s bytes for the same
+    /// input — only whether [`Ppu::tile_tags`] gets populated alongside it (see
+    /// `hd_pack_tagging_toggle_does_not_alter_framebuffer_output` in this module's tests for the
+    /// regression proof). A host/frontend convenience switch, never part of
+    /// `save_state`/`load_state`.
+    #[cfg(feature = "hd-pack")]
+    pub const fn set_hd_pack_tagging(&mut self, enabled: bool) {
+        self.hd_pack_tagging = enabled;
+    }
+
+    /// Whether [`hdtag::TileTag`] recording is currently enabled.
+    #[cfg(feature = "hd-pack")]
+    #[must_use]
+    pub const fn hd_pack_tagging(&self) -> bool {
+        self.hd_pack_tagging
+    }
+
+    /// The tile-identity side-buffer for the frame currently composited — same length/indexing
+    /// as [`Ppu::framebuffer`]. Every entry is [`hdtag::TileTag::default`] (hash `0`) unless
+    /// [`Ppu::set_hd_pack_tagging`] was on while that pixel was rendered.
+    #[cfg(feature = "hd-pack")]
+    #[must_use]
+    pub fn tile_tags(&self) -> &[hdtag::TileTag] {
+        &self.tile_tags[..self.visible_width() * SCREEN_HEIGHT]
     }
 
     // --- Storage accessors (for tests / save-state plumbing) ---

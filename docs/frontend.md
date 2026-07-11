@@ -117,6 +117,40 @@ Video (a radio row + per-filter strength sliders) or the View → Post-filter su
   "CRT/HQx" scope. Overscan cropping remains a separate, pre-existing `TODO(impl-phase)` in the
   View menu.
 
+## HD texture packs (`v1.3.0`, `hd-pack` feature)
+
+**Status: loader + compositor implemented; not yet wired into the live present path or Settings
+UI (follow-up work).** See `docs/ppu.md`'s own "HD texture pack `TileTag` recording hook" section
+for the core-side half of this feature (the write-only per-pixel tile-identity side-buffer).
+
+- **Feature propagation**: `rustysnes-frontend/hd-pack` → `rustysnes-core/hd-pack` →
+  `rustysnes-ppu/hd-pack`. The frontend never depends on `rustysnes-ppu` directly (the
+  one-directional crate-graph rule) — it reaches `Ppu::set_hd_pack_tagging`/`Ppu::tile_tags` via
+  `rustysnes_core::ppu` (an existing unconditional re-export) through
+  `EmuCore::system_mut().bus.ppu` (both `System::bus` and `Bus::ppu` are already `pub`).
+- **`crate::hd_pack`**: the manifest schema (`HdPackManifest`/`TileEntry`, TOML, keyed per tile by
+  the hex tile-identity hash), the loader (`HdPack::load` — parses `pack.toml`, decodes every
+  referenced PNG to RGBA8 via the pure-Rust `png` crate, normalizing any source color
+  type/bit-depth), and per-ROM discovery (`discover_packs`/`load_pack`, mirroring
+  `save_states.rs`'s `<data_dir>/hd-packs/<rom_sha256_hex>/<pack-name>/` directory convention —
+  same SHA-256 identity `rustysnes_core::movie::hash_rom` already provides). A malformed pack
+  (unsupported `format_version`, an invalid hex hash, an undecodable image) fails `HdPack::load`
+  entirely rather than partially applying — a pack is accepted whole or not at all.
+- **`crate::hd_compositor`**: a pure function, `composite(fb_rgba, fb_w, fb_h, tags, tiles,
+  scale)`, taking the already-BGR555→RGBA8-decoded native framebuffer plus the PPU's per-pixel
+  `TileTag` side-buffer and a loaded pack's decoded tiles. Each 8×8 output cell is sampled once
+  (its top-left source pixel); a hash match blits that tile's own replacement image (mirrored per
+  the tag's `hflip`/`vflip` — both orientations share one pack entry), a miss/backdrop
+  nearest-neighbor-upscales the native color instead — the standard per-tile graceful fallback
+  that lets "some tiles replaced, others native" work within one frame. Deliberately has no
+  wgpu/`EmuCore` dependency, so it is fully testable standalone (`cargo test -p rustysnes-frontend
+  --features hd-pack hd_compositor`) without a live GPU adapter.
+- **Not yet done**: invoking `hd_compositor::composite` from the live wgpu present path
+  (`gfx.rs`) in place of the plain framebuffer texture upload when a pack is active, the Settings
+  UI pack selector, `VideoConfig`'s persisted `hd_pack_name`, and `Ppu::set_hd_pack_tagging`
+  actually being flipped on when a pack is selected — tracked as follow-up work (see
+  `to-dos/ROADMAP.md`).
+
 ## Global hotkeys (`v1.0.1`)
 
 Every system/emulation action used to be menu-bar-only (`rustysnes help hotkeys` said so
