@@ -108,8 +108,12 @@ record; this file frames the phase line.
   re-testing its own prototype against the fixed tree), carried forward as an ongoing,
   opportunistic `v0.x.y`-patch cluster alongside the SPC7110 boot gap, DRAM refresh, and
   ROM-sourcing-blocked real-title validation items, rather than gating a numbered rung
-  (`to-dos/VERSION-PLAN.md`). `v1.0.0` (desktop UX shell maturity, `Board: Send`/`emu-thread`,
-  performance engineering, production cut) is next.
+  (`to-dos/VERSION-PLAN.md`). `v1.0.1 "Aftertouch"` (per-voice mutes + global hotkeys) followed
+  `v1.0.0`, closing the phase spine below out completely. The post-`v1.0` Reach arc that follows
+  is **also fully shipped**: `v1.1.0 "Latchkey"` (accuracy research + `emu-thread`'s biggest
+  gaps), `v1.2.0 "Phosphor"` (the `rustysnes-libretro` core + the CRT/HQ2x shader pipeline), and
+  `v1.3.0 "Palimpsest"` (HD texture packs) — see the "Milestones beyond the phases" section below
+  for what's actually still open.
 
 ## The phase spine
 
@@ -279,14 +283,35 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   README rewrite; a GitHub Pages demo-page polish pass; README / CHANGELOG / docs / STATUS in
   sync. The full accuracy battery (27 oracle/golden suites), `no_std`, and both wasm32 frontends
   re-verified with zero regressions. See `to-dos/VERSION-PLAN.md` for the full per-item detail.
-- **Beyond that — Reach (deferred):** a Libretro core, a shader/filter pipeline (CRT/HQ2x), HD
-  texture packs (`hd-pack`), and any future mobile/Android target (no appetite assumed by
-  default) — see `to-dos/VERSION-PLAN.md`'s "Post-v1.0 — Reach".
-- **Further beyond — the fractional-timebase refactor (`docs/adr/0002`).** *Only if* the
-  hard-tier residuals warrant it: the one-clock + every-cycle-bus-access collapse (a fractional
-  master clock with a φ1/φ2 split). **The one release expected to break byte-identity /
-  save-state compatibility.** Do NOT conflate it with "the master clock already exists (the
-  Phase-0 scheduler)" — the RustyNES versioning trap.
+- **v1.0.1 "Aftertouch" — RELEASED.** The two items explicitly deferred out of `v1.0.0`:
+  per-voice audio mutes (Settings → Audio) and global, non-rebindable keyboard hotkeys.
+- **v1.1.0 "Latchkey" — RELEASED.** Reach-phase research + accuracy pass: a real, independent
+  `SuperFxBoard::map` open-bus fix, `emu-thread`'s biggest gaps (real audio output +
+  pause/ROM-loaded/speed lifecycle + `PresentBuffer`), and three investigated-not-landed items
+  (open-bus-via-DMA-latch, DRAM refresh, the fractional-timebase go/no-go — see below).
+- **v1.2.0 "Phosphor" — RELEASED.** The `EmuCore` facade relocated into `rustysnes_core::facade`
+  (`std`-only), the `rustysnes-libretro` core crate, and the CRT/HQ2x presentation post-filter
+  pipeline.
+- **v1.3.0 "Palimpsest" — RELEASED.** HD texture packs (`hd-pack` feature, off by default): the
+  palette-inclusive `TileTag` hashing hook in `rustysnes-ppu`, the frontend loader + pure CPU
+  compositor, Settings UI + config, and the compositor wired into the live wgpu present path.
+- **Beyond that — Reach, now closed out.** The Libretro core, the CRT/HQx shader/filter pipeline,
+  and HD texture packs — the three items originally deferred here — all shipped in `v1.2.0`/
+  `v1.3.0` above (see `to-dos/VERSION-PLAN.md`'s "Post-v1.0 — Reach"). What's still genuinely
+  open: the open-bus-via-DMA-latch bug, the SPC7110/PAL/ExLoROM/ST018/S-RTC real-ROM-validation
+  gaps (all ROM-sourcing-blocked, tracked in `docs/rom-test-corpus.md`), full `emu-thread` parity
+  (cheats/watchpoints/breakpoints/run-ahead/rewind/movies/scripting/netplay-pause/
+  RetroAchievements), libretro peripheral negotiation (Mouse/Super Scope/Multitap via
+  `RETRO_DEVICE_SUBCLASS`), and any future mobile/Android target (no appetite assumed by
+  default). None of these currently gate a numbered rung — they're an ongoing, opportunistic
+  `v1.x.y`-patch cluster.
+- **Further beyond — the fractional-timebase refactor (`docs/adr/0002`).** Assessed in `v1.1.0`
+  and found **not currently warranted** — every named accuracy residual is answerable within the
+  existing whole-master-clock-tick model (`docs/audit/fractional-timebase-go-no-go-2026-07-11.md`).
+  Revisit only if a hard-tier residual surfaces that genuinely needs sub-cycle resolution: the
+  one-clock + every-cycle-bus-access collapse (a fractional master clock with a φ1/φ2 split).
+  **The one release expected to break byte-identity / save-state compatibility.** Do NOT conflate
+  it with "the master clock already exists (the Phase-0 scheduler)" — the RustyNES versioning trap.
 
 ## Cross-phase dependencies
 
@@ -298,10 +323,13 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
 - Phase 8 (netplay / TAS) depends on the determinism contract (`docs/adr/0004`) being
   exercised in Phase 5.
 
-## Open questions blocking planning
+## Open questions (historical — both since resolved)
 
-- **The 65816 JSON oracle ships no license** — secure permission, gitignore it, or
-  self-generate equivalent JSON. This blocks gating Phase 1's primary oracle in CI
-  (`docs/testing-strategy.md` §licensing; `ref-docs/research-report.md` "Open questions" #1).
-- Per-board SRAM / coprocessor bus windows have no canonical table — built incrementally in
-  Phase 4 from the cartridge database + ares board definitions.
+- ~~The 65816 JSON oracle ships no license~~ — **resolved** (`docs/adr/0005`): the test-harness
+  self-generates its own per-opcode JSON oracle (cycle-by-cycle bus-pin trace included),
+  bootstrap-validated against the upstream (unlicensed) set as a local cross-check, then
+  committed and gated in CI. Phase 1's CPU oracle is 0-diff (`docs/STATUS.md`).
+- ~~Per-board SRAM / coprocessor bus windows have no canonical table~~ — built out incrementally
+  through Phase 4/7 into a real per-model table (`docs/cart.md`); still genuinely
+  board-dependent (no single formula covers every mapper) but no longer an open planning
+  question — see `docs/cart.md`'s SRAM-window table.
