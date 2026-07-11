@@ -40,7 +40,7 @@ use crate::config::Config;
 use crate::emu::EmuCore;
 use crate::gfx::Gfx;
 #[cfg(not(target_arch = "wasm32"))]
-use crate::gfx::{SNES_H_NTSC, SNES_W};
+use crate::gfx::SNES_H_NTSC;
 use crate::input::{Button, Buttons};
 use crate::pacing::Pacer;
 use crate::ui_shell::{MenuAction, ShellInfo, ShellState};
@@ -92,9 +92,9 @@ const HD_PACK_SCALE: u32 = 2;
 #[cfg(not(target_arch = "wasm32"))]
 const INITIAL_SCALE: u32 = 3;
 
-/// A floor on the requested window width (`v1.3.0`, View → Window Size), padding past the raw
-/// `SNES_W * scale` so the egui menu bar (File / Emulation / Tools / View / Debug / Help) never
-/// gets clipped at `1x`. Native only.
+/// A floor on the requested window width (`v1.3.0`, View → Window Size), padding past the
+/// 4:3-derived width (see `App::chrome_padded_size`) so the egui menu bar (File / Emulation /
+/// Tools / View / Debug / Help) never gets clipped at `1x`. Native only.
 #[cfg(not(target_arch = "wasm32"))]
 const MIN_CHROME_WIDTH: f64 = 560.0;
 
@@ -537,11 +537,18 @@ impl App {
     /// Compute a chrome-padded `(width, height)` logical size for `scale`x the SNES native
     /// resolution (`v1.3.0`, View → Window Size / `create_window`'s default; RustyNES parity):
     /// floors width at `MIN_CHROME_WIDTH` and always adds `CHROME_HEIGHT`, so the egui menu bar
-    /// has room even at `1x`.
+    /// has room even at `1x`. Width is derived from the scaled height via `crate::gfx`'s own
+    /// `TARGET_ASPECT` (4:3) rather than `SNES_W * scale` directly — the SNES's native pixel
+    /// ratio (256:224 ≈ 1.14:1) is narrower than the 4:3 aspect `Gfx::blit` letterboxes into, so
+    /// a width naively derived from `SNES_W` would make the window narrower than the content it's
+    /// meant to hold, and `Gfx`'s own letterbox math would then scale the image back down to fit
+    /// — silently defeating the requested integer scale (a real bug caught in review: a requested
+    /// `3x` rendered at only `~2.57x` before this fix).
     #[cfg(not(target_arch = "wasm32"))]
     fn chrome_padded_size(scale: u32) -> (f64, f64) {
-        let w = (f64::from(SNES_W) * f64::from(scale)).max(MIN_CHROME_WIDTH);
-        let h = f64::from(SNES_H_NTSC).mul_add(f64::from(scale), CHROME_HEIGHT);
+        let active_h = f64::from(SNES_H_NTSC) * f64::from(scale);
+        let w = (active_h * (4.0 / 3.0)).max(MIN_CHROME_WIDTH);
+        let h = active_h + CHROME_HEIGHT;
         (w, h)
     }
 

@@ -305,12 +305,20 @@ CSS, not this feature) — View → Window Size offers 1x/2x/3x/4x (100%-400%) o
 resolution, dispatching `MenuAction::SetWindowScale(u32)`. `App::create_window` uses `3x`
 (`INITIAL_SCALE`) as the launch default, matching RustyNES's own default. `App::set_window_scale`
 exits fullscreen first (so the resize takes effect against a normal window), clamps the requested
-scale to `1..=4`, and computes a chrome-padded `LogicalSize` (`MIN_CHROME_WIDTH`/`CHROME_HEIGHT`,
-padding for the egui menu bar so the emulated image area lands near the requested multiple even at
-`1x`) before calling `window.request_inner_size`. That call may grant the resize synchronously
-(`Some`, no separate `Resized` event follows, so `Gfx::resize` is called directly) or
-asynchronously (`None`, handled by the existing `WindowEvent::Resized` handler). Transient,
-session-only — no `config.toml` field, same posture as `MenuAction::SetSpeed`.
+scale to `1..=4`, and computes a chrome-padded `LogicalSize` via `App::chrome_padded_size` before
+calling `window.request_inner_size`. That call may grant the resize synchronously (`Some`, no
+separate `Resized` event follows, so `Gfx::resize` is called directly) or asynchronously (`None`,
+handled by the existing `WindowEvent::Resized` handler). Transient, session-only — no
+`config.toml` field, same posture as `MenuAction::SetSpeed`.
+
+`chrome_padded_size` derives width from the scaled height via `Gfx`'s own `TARGET_ASPECT` (4:3),
+not `SNES_W * scale` directly (floored at `MIN_CHROME_WIDTH`; height is `SNES_H_NTSC * scale +
+CHROME_HEIGHT`, padding for the egui menu bar so the emulated image area lands near the requested
+multiple even at `1x`). The SNES's native pixel ratio (256:224 ≈ 1.14:1) is narrower than the 4:3
+aspect `Gfx::blit` letterboxes every frame into, so a width derived directly from `SNES_W` would
+make the window narrower than the content it's meant to hold — `Gfx`'s own letterbox math would
+then scale the image back down to fit, silently defeating the requested integer scale (caught in
+review before merge: a requested `3x` would have rendered at only `~2.57x` vertically).
 
 ### First-run welcome modal (`v1.0.0`)
 
