@@ -11,6 +11,7 @@ members = [
     "crates/rustysnes-cheevos",
     "crates/rustysnes-script",
     "crates/rustysnes-frontend",
+    "crates/rustysnes-libretro",
     "crates/rustysnes-test-harness",
 ]
 

@@ -67,6 +67,13 @@ jobs:
       # `hd-pack` placeholder) — testing it directly instead of re-listing the flags keeps this
       # step and `full`'s own Cargo.toml definition from silently drifting apart.
       - run: cargo clippy -p rustysnes-frontend --all-targets --features full -- -D warnings
+      # `rustysnes-libretro` (`v1.2.0`): already covered by the `--workspace` clippy line above (a
+      # regular workspace member, no non-default features to combo over), but clippy doesn't
+      # necessarily exercise the FFI-crate-specific bit that matters most for a `cdylib`/
+      # `staticlib`: does it actually LINK. A build-only step (not `cargo test` -- this crate has
+      # no tests of its own; its logic lives in and is tested by `rustysnes-core`) is cheap and
+      # catches a broken libretro C-ABI export/link before it reaches a release artifact.
+      - run: cargo build -p rustysnes-libretro
       # Cheap locally (~4s) so it belongs on every PR, not just tag pushes -- catches broken
       # intra-doc links and rustdoc-specific warnings clippy's own lints don't cover.
       - run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps

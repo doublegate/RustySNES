@@ -1,0 +1,23 @@
+[package]
+name = "rustysnes-libretro"
+description = "Cycle-accurate SNES emulator libretro core wrapper"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+libc = "0.2"
+rust-libretro = "0.3.2"
+
+[dependencies.rustysnes-core]
+path = "../rustysnes-core"
+default-features = true

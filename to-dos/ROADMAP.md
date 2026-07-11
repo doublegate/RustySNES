@@ -37,7 +37,11 @@ record; this file frames the phase line.
   RetroAchievements) as a documented follow-up; also fixes a real, independent
   `SuperFxBoard::map` open-bus bug and investigates (without landing code for) the harder
   open-bus-via-DMA-latch bug, DRAM refresh timing, and the fractional-timebase refactor's own
-  go/no-go gate — see `to-dos/VERSION-PLAN.md`'s `v1.1.0` section for the full breakdown. Save-states are **fully
+  go/no-go gate — see `to-dos/VERSION-PLAN.md`'s `v1.1.0` section for the full breakdown.
+  **`v1.2.0`** (in progress) relocates the pure `EmuCore` embedding facade into a new `std`-only
+  `rustysnes_core::facade` module and lands `rustysnes-libretro`, a real libretro core wrapping it
+  (region-aware NTSC/PAL, cheats, coprocessor firmware auto-resolution, raw memory-map pointers —
+  `docs/libretro.md`); a CRT/HQ2x shader pipeline is next. Save-states are **fully
   implemented** (`v0.2.0 "Persistence"`, `docs/adr/0006` — every subsystem round-trips its exact
   state through one versioned envelope, proven by a round-trip determinism test), and rewind +
   run-ahead (`v0.3.0 "Continuum"`, `crate::rewind` — a bounded ring buffer of full snapshots +
