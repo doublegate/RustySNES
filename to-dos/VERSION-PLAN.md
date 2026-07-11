@@ -694,8 +694,8 @@ gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
   VRAM/SRAM memory-map pointers (`get_memory_data`/`get_memory_size`) for RetroArch's own SRAM
   autosave and RetroAchievements/cheat tooling. New additive `Bus::wram`/`wram_mut`,
   `Ppu::vram`/`vram_mut`, `Cart::sram_mut` accessors support it. Peripheral negotiation (Mouse/
-  Super Scope/Multitap via `RETRO_DEVICE_SUBCLASS`) is a documented follow-up, not yet wired. See
-  `docs/libretro.md`.
+  Super Scope/Multitap via `RETRO_DEVICE_SUBCLASS`) was a documented follow-up at the time, not
+  yet wired — **landed in the post-`v1.3.0` patch cluster** (see below). See `docs/libretro.md`.
 - **CRT/HQx presentation post-filter pipeline — DONE.** A `PostFilter` enum (`None`/`Crt`/`Hqx`,
   Settings → Video radio row + per-filter strength sliders, plus a View → Post-filter menu
   submenu). `Crt` adds scanlines (a parabolic per-source-row brightness profile) + an RGB
@@ -770,6 +770,33 @@ gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
   `scripting`/`cheats`/`netplay`/`retroachievements` lanes), the `--features test-roms`
   accuracy/oracle battery (28 tests, 17 suites), the `no_std` build, the doc-warnings gate, both
   wasm32 frontends, and `rustysnes-libretro` all green with zero regressions.
+
+## Post-v1.3.0 — ongoing patch cluster (not a gating rung, per `to-dos/ROADMAP.md`)
+
+- **Fullscreen crash on monitors wider/taller than 2048px — FIXED.** `Gfx` requested
+  `wgpu::Limits::downlevel_webgl2_defaults()` unconditionally on every target, capping
+  `max_texture_dimension_2d` at 2048 even on native GPUs that support far more; fullscreening on a
+  wide monitor (e.g. 3440x1368) sent `Surface::configure` an out-of-range request, which
+  panics/aborts (no recoverable error path there). Native now requests `downlevel_defaults()` and
+  both targets call `.using_resolution(adapter.limits())`; the granted limit is tracked at
+  runtime (`Gfx::max_texture_dim`) and enforced everywhere the old hardcoded constant was.
+  Confirmed via a standalone wgpu diagnostic against the real adapter available in dev (an NVIDIA
+  RTX 3090, `max_texture_dimension_2d = 32768`): the old code only ever granted 2048 (matching the
+  exact reported crash numbers), the new code grants the full adapter limit.
+- **Window Size presets (1x-4x, RustyNES parity) — DONE.** Native-only View → Window Size menu,
+  `MenuAction::SetWindowScale`; the app now launches at 3x by default (`INITIAL_SCALE`), matching
+  RustyNES. `chrome_padded_size` derives width from the scaled height via `Gfx`'s own
+  `TARGET_ASPECT` (4:3) and `Config::Region::active_height()` rather than hardcoding `SNES_W`/
+  `SNES_H_NTSC` directly — two real bugs (a letterbox-squeeze aspect mismatch, a PAL-height
+  mismatch) caught by automated code review and fixed before merge.
+- **Libretro peripheral negotiation — DONE.** `rustysnes-libretro` now declares
+  `RETRO_ENVIRONMENT_SET_CONTROLLER_INFO` (Mouse + Super Multitap + Super Scope on port 2, Mouse
+  only on port 1 — mirroring bsnes's own libretro core's per-port device menu exactly,
+  `ref-proj/bsnes/bsnes/target-libretro/libretro.cpp`) and polls the matching libretro input API
+  per port each `on_run` (`RETRO_DEVICE_MOUSE`, `RETRO_DEVICE_LIGHTGUN`'s absolute screen
+  coordinates + trigger/cursor/turbo/pause, and Multitap's four sub-pads via libretro ports
+  `[1, 4]`, also bsnes' own precedent). Closes the one gap `v1.2.0`'s own libretro core landing
+  left open. See `docs/libretro.md`.
 
 ## Post-v1.0 — Reach (deferred)
 

@@ -55,16 +55,20 @@ crate:
      silently misbehaving.
 4. Try a Game Genie or Pro Action Replay code via RetroArch's Cheats menu — confirm it applies
    (`on_cheat_set`) and that disabling it / resetting cheats (`on_cheat_reset`) reverts cleanly.
+5. Peripheral negotiation (post-`v1.3.0`): in RetroArch's Quick Menu → Controls, change Port 2's
+   device to each of "SNES Mouse", "Super Multitap", and "Super Scope" in turn (Port 1 only offers
+   "SNES Joypad"/"SNES Mouse" — Mouse and Multitap/Super Scope selection mirrors bsnes's own
+   libretro core's per-port menu, `ref-proj/bsnes/bsnes/target-libretro/libretro.cpp`) — confirm:
+   - **SNES Mouse**: a title that supports it (e.g. Mario Paint) tracks pointer motion and
+     left/right clicks.
+   - **Super Multitap**: a 4-player title (e.g. Super Bomberman) responds to RetroArch Players 2-5
+     independently (sub-pad `N` polls libretro port `1 + N`, matching bsnes's own convention).
+   - **Super Scope**: a compatible title (e.g. Super Scope 6) tracks the pointer/lightgun device's
+     aim and trigger; moving off-screen should read as "not aiming" rather than aiming at a screen
+     edge (confirms the `RETRO_DEVICE_ID_LIGHTGUN_IS_OFFSCREEN` handling).
 
 ## Known scope cuts (documented, not silent gaps)
 
-- **Peripheral negotiation** (`RETRO_DEVICE_SUBCLASS`): only the standard 12-button joypad is
-  wired for P1/P2. `EmuCore::set_mouse`/`set_superscope`/`set_multitap_pad` already exist
-  core-side (the native frontend uses them), but this libretro core does not yet negotiate
-  `RETRO_DEVICE_MOUSE`/a Super Scope subclass/Multitap sub-ports via
-  `on_set_controller_port_device` + `RETRO_ENVIRONMENT_SET_CONTROLLER_INFO`. A real, open
-  follow-up — not attempted here to keep this ticket's scope to a correctly-working standard-pad
-  core first.
 - **No automated RetroArch smoke test in CI** — see "Manual RetroArch verification" above. CI
   instead: (a) the `lint` job's `cargo clippy -p rustysnes-libretro` (implicitly, via
   `--workspace`) plus an explicit `cargo build -p rustysnes-libretro` (proves the cdylib/staticlib
