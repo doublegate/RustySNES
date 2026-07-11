@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] "Phosphor" - 2026-07-11
+
 ### Changed
 
 - **Relocated the `EmuCore` embedding facade from `rustysnes-frontend` into `rustysnes-core`**

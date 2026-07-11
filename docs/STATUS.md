@@ -3,11 +3,11 @@
 This file is authoritative for per-suite pass counts, the board / coprocessor matrix, and
 version policy. Everything else defers to it.
 
-**Current release:** `v1.1.0 "Latchkey"` (`v0.1.0 "Foundation"`,
+**Current release:** `v1.2.0 "Phosphor"` (`v0.1.0 "Foundation"`,
 `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"`, `v0.4.0 "Completion"`, `v0.5.0 "Fidelity"`,
 `v0.6.0 "Shippable"`, `v0.7.0 "Resolution"`, `v0.8.0 "Community"`, `v0.9.0 "Threshold"`,
-`v1.0.0 "Zenith"`, and `v1.0.1 "Aftertouch"` precede it; see `to-dos/VERSION-PLAN.md` for the full
-ladder). `v1.0.0` closes the production-cut
+`v1.0.0 "Zenith"`, `v1.0.1 "Aftertouch"`, and `v1.1.0 "Latchkey"` precede it; see
+`to-dos/VERSION-PLAN.md` for the full ladder). `v1.0.0` closes the production-cut
 gate: `Board: Send` (unblocking `emu-thread` to compile/test/lint clean for the first time, though
 it stays off-by-default pending full feature parity — see `docs/frontend.md`), the five
 desktop-UX-shell-maturity items (thumbnail Save States manager, key-rebind grid, themes, speed
@@ -37,7 +37,7 @@ via DMA/HDMA), DRAM refresh (empirically measured to already be correct without 
 stall — implementing the originally-planned fix would have been a regression, `docs/scheduler.md`
 §DRAM refresh), and a fractional-timebase refactor go/no-go assessment (conclusion: not
 warranted yet, `docs/audit/fractional-timebase-go-no-go-2026-07-11.md`).
-**In progress: `v1.2.0`** — Libretro core + CRT/HQ2x shader pipeline. Landed so far: the pure
+`v1.2.0` is the Libretro-core + CRT/HQ2x-shader-pipeline release. Landed: the pure
 `EmuCore` embedding facade relocated from `rustysnes-frontend` into a new `std`-only
 `rustysnes_core::facade` module (zero behavior change, plus a determinism-seed-discarding bug
 found in review — see `docs/architecture.md` §3/§6), `rustysnes-libretro`, a real libretro
@@ -46,7 +46,9 @@ firmware auto-resolution, raw WRAM/VRAM/SRAM memory-map pointers — see `docs/l
 the CRT/HQx presentation post-filter pipeline (Settings → Video / View → Post-filter — scanlines +
 aperture mask, an HQ2x-style edge-directed blend approximation, `PostFilter::None` kept
 byte-for-byte identical to the pre-filter direct blit — see `docs/frontend.md` §Presentation
-post-filters). Remaining before the release ceremony: the final regression gate + docs sync.
+post-filters). Full workspace suite, the `--features test-roms` accuracy/oracle battery, the full
+clippy matrix, `no_std`, the doc-warnings gate, and both wasm32 frontends are all green with zero
+regressions.
 `v0.5.0` closed out the accuracy-pass-rate dashboard (see "Accuracy dashboard" below) and the
 full named hardware-gotcha regression list — every item fixed, correctly reclassified as an
 intentional non-goal, or honestly researched-and-deferred with a full mechanism write-up. `v0.6.0`

@@ -360,9 +360,9 @@ API docs (rustdoc) at
 
 ## Current Release
 
-RustySNES's current release is **v1.1.0 "Latchkey"**. See
+RustySNES's current release is **v1.2.0 "Phosphor"**. See
 [`docs/STATUS.md`](docs/STATUS.md) for the full release history
-(`v0.1.0` through `v1.1.0`) and per-release detail.
+(`v0.1.0` through `v1.2.0`) and per-release detail.
 
 - **Download:** the [GitHub Releases](https://github.com/doublegate/RustySNES/releases) page —
   desktop binaries for Linux, macOS (aarch64), and Windows.
@@ -382,7 +382,7 @@ with the synchronous drive), and three accuracy investigations (open-bus-via-DMA
 refresh timing, and a fractional-timebase-refactor go/no-go assessment) — see `CHANGELOG.md` and
 `to-dos/VERSION-PLAN.md`'s `v1.1.0` section for the full breakdown, including what's still open.
 
-**`v1.2.0`** (in progress) relocates the pure `EmuCore` embedding facade into
+**`v1.2.0`** relocates the pure `EmuCore` embedding facade into
 `rustysnes-core::facade`, lands a real **Libretro core** (`rustysnes-libretro`, loadable by
 RetroArch — region-aware NTSC/PAL, cheats, coprocessor firmware auto-resolution, raw memory-map
 pointers; see `docs/libretro.md`), and a **CRT/HQx presentation post-filter pipeline** (Settings →
