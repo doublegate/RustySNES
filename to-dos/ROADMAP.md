@@ -39,9 +39,12 @@ record; this file frames the phase line.
   open-bus-via-DMA-latch bug, DRAM refresh timing, and the fractional-timebase refactor's own
   go/no-go gate — see `to-dos/VERSION-PLAN.md`'s `v1.1.0` section for the full breakdown.
   **`v1.2.0`** (in progress) relocates the pure `EmuCore` embedding facade into a new `std`-only
-  `rustysnes_core::facade` module and lands `rustysnes-libretro`, a real libretro core wrapping it
+  `rustysnes_core::facade` module, lands `rustysnes-libretro`, a real libretro core wrapping it
   (region-aware NTSC/PAL, cheats, coprocessor firmware auto-resolution, raw memory-map pointers —
-  `docs/libretro.md`); a CRT/HQ2x shader pipeline is next. Save-states are **fully
+  `docs/libretro.md`), and a CRT/HQx presentation post-filter pipeline (scanlines + aperture mask,
+  an HQ2x-style edge-directed blend approximation, the default no-filter path kept byte-for-byte
+  identical to the pre-filter direct blit — `docs/frontend.md` §Presentation post-filters). Only
+  the final regression gate + release ceremony remain. Save-states are **fully
   implemented** (`v0.2.0 "Persistence"`, `docs/adr/0006` — every subsystem round-trips its exact
   state through one versioned envelope, proven by a round-trip determinism test), and rewind +
   run-ahead (`v0.3.0 "Continuum"`, `crate::rewind` — a bounded ring buffer of full snapshots +

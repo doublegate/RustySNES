@@ -34,6 +34,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Scope/Multitap via `RETRO_DEVICE_SUBCLASS`) is a documented follow-up, not yet wired. New
   additive `Bus::wram`/`wram_mut`, `Ppu::vram`/`vram_mut`, `Cart::sram_mut` accessors support it.
   See `docs/libretro.md`.
+- **CRT/HQx presentation post-filters** (Settings → Video / View → Post-filter). `PostFilter::Crt`
+  adds scanlines + an RGB aperture-grille mask (each with its own strength slider); `PostFilter::Hqx`
+  adds a single-pass, edge-directed diagonal blend (an HQ2x-style approximation, not a literal
+  lookup-table port) that softens staircase edges on flat-color pixel art. `PostFilter::None`
+  (default) is the pre-existing direct blit, kept byte-for-byte unchanged — `Gfx::present`'s `None`
+  arm calls the same unmodified `Gfx::blit` rather than a re-derived equivalent. Verified via
+  `naga` WGSL-validity tests for both new shaders plus a real headless `xvfb-run` launch of all
+  three filter states against a live wgpu adapter (zero errors, no panics). See
+  `docs/frontend.md` §Presentation post-filters.
 
 ## [1.1.0] "Latchkey" - 2026-07-11
 

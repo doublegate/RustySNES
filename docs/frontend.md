@@ -67,6 +67,56 @@ change (the same guard `applied_present_mode` already uses for the Settings → 
 toggle), applied once explicitly at `egui::Context` construction time so the configured theme is
 live from the very first frame, not just after the user opens Settings.
 
+## Presentation post-filters (`v1.2.0`)
+
+`config.video.filter` (`crate::config::PostFilter`: `None` (default) / `Crt` / `Hqx`) selects a
+post-process pass applied after the plain nearest-sample framebuffer blit, set via Settings →
+Video (a radio row + per-filter strength sliders) or the View → Post-filter submenu.
+
+- **`PostFilter::None`** is the pre-`v1.2.0` direct blit, kept byte-for-byte unchanged: `Gfx::blit`
+  itself was never modified by this addition, and `Gfx::present`'s `None` arm calls it directly
+  rather than routing through any new code path — "no post-process filter active" is pixel-
+  identical to a filter-less build by construction, not just by testing.
+- **`PostFilter::Crt`** — scanlines (a parabolic per-source-row brightness profile) + an RGB
+  aperture-grille mask (a fixed-pitch phosphor-triad tint keyed off the output pixel column), each
+  with its own `0.0..=1.0` strength slider (`config.video.crt_scanline`/`crt_mask`).
+  `crt_scanline`/`crt_mask` both default to a subtle preset (`0.3`/`0.15`) rather than `0.0`, since
+  a `Crt`-selecting user almost certainly wants a visible effect immediately — this is the one
+  config default in this feature that is NOT "byte-identical to off" (selecting the filter at all
+  is the deliberate opt-in; `PostFilter::None` remains the neutral default).
+- **`PostFilter::Hqx`** — a single-pass, edge-directed diagonal blend (a diagonal-similarity
+  heuristic in the 2xSaI/Eagle family: if the TL-BR texel diagonal is more self-similar than the
+  TR-BL diagonal, or vice versa, the bilinear blend weight is biased toward the matching diagonal),
+  softening staircase edges on flat-color pixel art. This is an HQ2x-**style** approximation, not a
+  literal HQ2x pattern-lookup-table port — the right fit for a fixed-resolution architecture that
+  never actually renders to a literal 2×-sized intermediate buffer. One strength slider
+  (`config.video.hqx_strength`, default `0.6`).
+- **Both filters share** the exact same clip-space letterbox convention `Gfx::blit`'s own vertex
+  shader uses (position-scale, not UV-space cropping) — `Gfx::letterbox_scale` was extracted out of
+  `blit`'s inline math specifically so `blit` and the two filter passes stay pixel-aligned, a pure,
+  behavior-preserving refactor (verified by `letterbox_scale_matches_known_cases`, a hand-computed
+  regression test for windows wider-than / narrower-than / exactly the 4:3 SNES aspect).
+- **Architecture**: `Gfx` builds both filter pipelines unconditionally at init (`Gfx::new_async`,
+  cheap — two small pipelines) so switching the Settings radio needs no pipeline
+  creation/reallocation; `Gfx::present` selects between `blit`/`crt`/`hqx` per frame based on the
+  live config. Both filter shaders (`CRT_WGSL`/`HQX_WGSL` in `gfx.rs`) are inline `const &str` WGSL,
+  matching the existing `BLIT_WGSL` convention — deliberately NOT split into a separate
+  `rustysnes-gfx-shaders` crate (that split only earns its keep with a second consumer, e.g. a
+  mobile target, which this project has no near-term plan for).
+- **Verified**: `naga` WGSL-parse+validate tests for both new shaders (same machinery `wgpu`
+  itself uses at runtime); a real headless `xvfb-run` launch of the native binary against a staged
+  ROM with each of `None`/`Crt`/`Hqx` set in `config.toml` in turn — all three ran clean (zero
+  stderr output, no panics) for the full run window against a real (llvmpipe/software) wgpu
+  adapter, confirming both new pipelines actually build and render, not just that their shaders
+  parse statically. No golden-screenshot regression harness exists in this project today (the
+  existing `commercial_screenshots.rs` captures the raw core framebuffer directly, entirely
+  upstream of this wgpu render path) — the `None`-path-unchanged guarantee here is a structural
+  one (the exact same `blit` function, not a re-derived equivalent), not a pixel-diff proof.
+- **Not built** (documented scope cuts, not silent gaps): RustyNES's NTSC composite-signal
+  simulation and `.slangp` RetroArch shader-preset loading — both explicitly out of this ticket's
+  "CRT/HQx" scope. Overscan cropping remains a separate, pre-existing `TODO(impl-phase)` in the
+  View menu.
+
 ## Global hotkeys (`v1.0.1`)
 
 Every system/emulation action used to be menu-bar-only (`rustysnes help hotkeys` said so

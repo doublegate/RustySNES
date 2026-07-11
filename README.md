@@ -383,9 +383,12 @@ refresh timing, and a fractional-timebase-refactor go/no-go assessment) — see 
 `to-dos/VERSION-PLAN.md`'s `v1.1.0` section for the full breakdown, including what's still open.
 
 **`v1.2.0`** (in progress) relocates the pure `EmuCore` embedding facade into
-`rustysnes-core::facade` and lands a real **Libretro core** (`rustysnes-libretro`, loadable by
+`rustysnes-core::facade`, lands a real **Libretro core** (`rustysnes-libretro`, loadable by
 RetroArch — region-aware NTSC/PAL, cheats, coprocessor firmware auto-resolution, raw memory-map
-pointers; see `docs/libretro.md`); a **CRT/HQ2x shader pipeline** is next.
+pointers; see `docs/libretro.md`), and a **CRT/HQx presentation post-filter pipeline** (Settings →
+Video — scanlines + aperture mask, an HQ2x-style edge-directed blend; the default no-filter path
+stays byte-for-byte identical to the pre-filter direct blit; see `docs/frontend.md` §Presentation
+post-filters).
 
 **Still deferred:** HD texture packs (the `hd-pack` flag exists in the manifest as a forward
 placeholder; the loader itself is a TODO stub) — planned for `v1.3.0`.
