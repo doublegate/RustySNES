@@ -676,7 +676,7 @@ gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
   pre-existing broken intra-doc links from `v1.0.1`'s per-voice-mute work along the way), and both
   wasm32 frontends all green with zero regressions.
 
-### v1.2.0 — Libretro core + CRT/HQ2x shader pipeline (in progress)
+### v1.2.0 "Phosphor" — Libretro core + CRT/HQ2x shader pipeline — **RELEASED 2026-07-11**
 
 - **`EmuCore` facade relocation — DONE.** The pure emulation-core facade (`load_rom`/`reset`/
   `power_cycle`/`run_frame`/`present_current_frame`/`framebuffer`/`audio`/`save_state`/

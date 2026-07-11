@@ -38,7 +38,7 @@ record; this file frames the phase line.
   `SuperFxBoard::map` open-bus bug and investigates (without landing code for) the harder
   open-bus-via-DMA-latch bug, DRAM refresh timing, and the fractional-timebase refactor's own
   go/no-go gate — see `to-dos/VERSION-PLAN.md`'s `v1.1.0` section for the full breakdown.
-  **`v1.2.0`** (in progress) relocates the pure `EmuCore` embedding facade into a new `std`-only
+  **`v1.2.0` "Phosphor"** relocates the pure `EmuCore` embedding facade into a new `std`-only
   `rustysnes_core::facade` module, lands `rustysnes-libretro`, a real libretro core wrapping it
   (region-aware NTSC/PAL, cheats, coprocessor firmware auto-resolution, raw memory-map pointers —
   `docs/libretro.md`), and a CRT/HQx presentation post-filter pipeline (scanlines + aperture mask,
