@@ -312,13 +312,17 @@ handled by the existing `WindowEvent::Resized` handler). Transient, session-only
 `config.toml` field, same posture as `MenuAction::SetSpeed`.
 
 `chrome_padded_size` derives width from the scaled height via `Gfx`'s own `TARGET_ASPECT` (4:3),
-not `SNES_W * scale` directly (floored at `MIN_CHROME_WIDTH`; height is `SNES_H_NTSC * scale +
-CHROME_HEIGHT`, padding for the egui menu bar so the emulated image area lands near the requested
-multiple even at `1x`). The SNES's native pixel ratio (256:224 ≈ 1.14:1) is narrower than the 4:3
-aspect `Gfx::blit` letterboxes every frame into, so a width derived directly from `SNES_W` would
-make the window narrower than the content it's meant to hold — `Gfx`'s own letterbox math would
-then scale the image back down to fit, silently defeating the requested integer scale (caught in
-review before merge: a requested `3x` would have rendered at only `~2.57x` vertically).
+not `SNES_W * scale` directly (floored at `MIN_CHROME_WIDTH`; height is `region.active_height() *
+scale + CHROME_HEIGHT`, padding for the egui menu bar so the emulated image area lands near the
+requested multiple even at `1x`). The SNES's native pixel ratio (256:224 ≈ 1.14:1) is narrower
+than the 4:3 aspect `Gfx::blit` letterboxes every frame into, so a width derived directly from
+`SNES_W` would make the window narrower than the content it's meant to hold — `Gfx`'s own
+letterbox math would then scale the image back down to fit, silently defeating the requested
+integer scale (caught in review before merge: a requested `3x` would have rendered at only
+`~2.57x` vertically). Height uses `config.region.active_height()` (224 NTSC / 239 PAL, the same
+per-region height `Config::Region` already exposes) rather than hardcoding NTSC's 224 — a PAL
+session's "3x" preset would otherwise under-represent PAL's own native resolution (also caught in
+review).
 
 ### First-run welcome modal (`v1.0.0`)
 

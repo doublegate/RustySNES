@@ -36,11 +36,9 @@ use winit::window::{Window, WindowId};
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::audio::{AudioOutput, AudioRing, Resampler, drc_ratio};
-use crate::config::Config;
+use crate::config::{Config, Region};
 use crate::emu::EmuCore;
 use crate::gfx::Gfx;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::gfx::SNES_H_NTSC;
 use crate::input::{Button, Buttons};
 use crate::pacing::Pacer;
 use crate::ui_shell::{MenuAction, ShellInfo, ShellState};
@@ -98,10 +96,10 @@ const INITIAL_SCALE: u32 = 3;
 #[cfg(not(target_arch = "wasm32"))]
 const MIN_CHROME_WIDTH: f64 = 560.0;
 
-/// Extra window height (`v1.3.0`, View → Window Size) added past the raw `SNES_H_NTSC * scale`
-/// for the egui menu bar + status bar, which are drawn as a fixed-size overlay on top of the
-/// (letterboxed) game image rather than reserving their own space in the framebuffer. Native
-/// only.
+/// Extra window height (`v1.3.0`, View → Window Size) added past the region's raw
+/// `active_height() * scale` (see `App::chrome_padded_size`) for the egui menu bar + status bar,
+/// which are drawn as a fixed-size overlay on top of the (letterboxed) game image rather than
+/// reserving their own space in the framebuffer. Native only.
 #[cfg(not(target_arch = "wasm32"))]
 const CHROME_HEIGHT: f64 = 56.0;
 
@@ -352,7 +350,7 @@ impl ApplicationHandler<AppEvent> for App {
         if self.pending_window.is_some() {
             return; // a Gfx::new_async from an earlier resumed() call is still in flight
         }
-        let window = match Self::create_window(event_loop) {
+        let window = match Self::create_window(event_loop, self.config.region) {
             Ok(w) => w,
             Err(e) => {
                 eprintln!("rustysnes: failed to create window: {e}");
@@ -504,12 +502,15 @@ impl App {
     /// safe) — rather than letting winit create a detached canvas, so the page's CSS sizing and
     /// layout apply. Per the winit 0.30 web platform docs this is
     /// `WindowAttributesExtWebSys::with_canvas`.
-    fn create_window(event_loop: &ActiveEventLoop) -> Result<Arc<Window>, String> {
+    fn create_window(event_loop: &ActiveEventLoop, region: Region) -> Result<Arc<Window>, String> {
         // Native defaults to `INITIAL_SCALE`x (RustyNES parity, `v1.3.0`); the wasm32 canvas is
-        // sized by the page's own CSS (`web/index.html`), so the `LogicalSize` passed there is a
-        // fallback only, kept at a fixed 2x for parity with that page's `512x448` canvas rule.
+        // sized by the page's own CSS (`web/index.html`), so `region` goes unused there (the
+        // `LogicalSize` passed below is a fallback only, kept at a fixed 2x for parity with that
+        // page's `512x448` canvas rule).
+        #[cfg(target_arch = "wasm32")]
+        let _ = region;
         #[cfg(not(target_arch = "wasm32"))]
-        let (init_w, init_h) = Self::chrome_padded_size(INITIAL_SCALE);
+        let (init_w, init_h) = Self::chrome_padded_size(INITIAL_SCALE, region);
         #[cfg(target_arch = "wasm32")]
         let (init_w, init_h) = (512.0, 448.0);
         let attrs = Window::default_attributes()
@@ -534,19 +535,22 @@ impl App {
             .map_err(|e| e.to_string())
     }
 
-    /// Compute a chrome-padded `(width, height)` logical size for `scale`x the SNES native
-    /// resolution (`v1.3.0`, View → Window Size / `create_window`'s default; RustyNES parity):
-    /// floors width at `MIN_CHROME_WIDTH` and always adds `CHROME_HEIGHT`, so the egui menu bar
-    /// has room even at `1x`. Width is derived from the scaled height via `crate::gfx`'s own
-    /// `TARGET_ASPECT` (4:3) rather than `SNES_W * scale` directly — the SNES's native pixel
-    /// ratio (256:224 ≈ 1.14:1) is narrower than the 4:3 aspect `Gfx::blit` letterboxes into, so
-    /// a width naively derived from `SNES_W` would make the window narrower than the content it's
-    /// meant to hold, and `Gfx`'s own letterbox math would then scale the image back down to fit
-    /// — silently defeating the requested integer scale (a real bug caught in review: a requested
-    /// `3x` rendered at only `~2.57x` before this fix).
+    /// Compute a chrome-padded `(width, height)` logical size for `scale`x `region`'s active
+    /// framebuffer height (`v1.3.0`, View → Window Size / `create_window`'s default; RustyNES
+    /// parity): floors width at `MIN_CHROME_WIDTH` and always adds `CHROME_HEIGHT`, so the egui
+    /// menu bar has room even at `1x`. Uses `region.active_height()` rather than hardcoding
+    /// NTSC's 224 — PAL's 239 active scanlines need a taller base or the "3x" preset would
+    /// under-represent PAL's own native resolution (caught in review). Width is derived from the
+    /// scaled height via `crate::gfx`'s own `TARGET_ASPECT` (4:3) rather than `SNES_W * scale`
+    /// directly — the SNES's native pixel ratio (256:224 ≈ 1.14:1) is narrower than the 4:3
+    /// aspect `Gfx::blit` letterboxes into, so a width naively derived from `SNES_W` would make
+    /// the window narrower than the content it's meant to hold, and `Gfx`'s own letterbox math
+    /// would then scale the image back down to fit — silently defeating the requested integer
+    /// scale (a real bug caught in review: a requested `3x` rendered at only `~2.57x` before this
+    /// fix).
     #[cfg(not(target_arch = "wasm32"))]
-    fn chrome_padded_size(scale: u32) -> (f64, f64) {
-        let active_h = f64::from(SNES_H_NTSC) * f64::from(scale);
+    fn chrome_padded_size(scale: u32, region: Region) -> (f64, f64) {
+        let active_h = f64::from(region.active_height()) * f64::from(scale);
         let w = (active_h * (4.0 / 3.0)).max(MIN_CHROME_WIDTH);
         let h = active_h + CHROME_HEIGHT;
         (w, h)
@@ -556,19 +560,22 @@ impl App {
     /// (synchronously, updating `applied_fullscreen` in lockstep, rather than leaving the
     /// resize to race the next frame's fullscreen change-guard in `render`) so the resize below
     /// actually takes effect against a normal window rather than a fullscreen one. Clamps `scale`
-    /// to `1..=4` and requests the chrome-padded inner size: `request_inner_size` may grant the
-    /// resize synchronously (`Some`, in which case no separate `Resized` event will follow, so
-    /// `Gfx::resize` is called directly here) or asynchronously (`None`, in which case the
-    /// existing `WindowEvent::Resized` handler in `window_event` picks it up when it fires).
+    /// to `1..=4` and requests the chrome-padded inner size (against the CONFIGURED region, same
+    /// as `create_window`'s launch default — the running `System`'s live region can differ
+    /// mid-session, but this preset is about the window's target size, not a live resync):
+    /// `request_inner_size` may grant the resize synchronously (`Some`, in which case no separate
+    /// `Resized` event will follow, so `Gfx::resize` is called directly here) or asynchronously
+    /// (`None`, in which case the existing `WindowEvent::Resized` handler in `window_event` picks
+    /// it up when it fires).
     #[cfg(not(target_arch = "wasm32"))]
-    fn set_window_scale(active: &mut Active, scale: u32) {
+    fn set_window_scale(active: &mut Active, region: Region, scale: u32) {
         let scale = scale.clamp(1, 4);
         if active.shell.fullscreen {
             active.shell.fullscreen = false;
             active.window.set_fullscreen(None);
             active.applied_fullscreen = false;
         }
-        let (w, h) = Self::chrome_padded_size(scale);
+        let (w, h) = Self::chrome_padded_size(scale, region);
         if let Some(granted) = active
             .window
             .request_inner_size(winit::dpi::LogicalSize::new(w, h))
@@ -1415,7 +1422,7 @@ impl App {
                     // variant itself stays unconditional to keep this match exhaustive on both
                     // targets.
                     #[cfg(not(target_arch = "wasm32"))]
-                    Self::set_window_scale(active, scale);
+                    Self::set_window_scale(active, config.region, scale);
                     #[cfg(target_arch = "wasm32")]
                     let _ = scale;
                 }
