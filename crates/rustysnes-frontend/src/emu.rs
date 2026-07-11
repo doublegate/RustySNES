@@ -154,7 +154,8 @@ impl EmuCore {
     /// The same ROM stays loaded, so an active HD texture pack (`v1.3.0`, `hd-pack` feature)
     /// stays active too — but `power_cycle` (re)constructs the underlying `System`/`Ppu` from
     /// scratch, whose tagging flag defaults back to `false`, so it's re-enabled here to match
-    /// [`Self::hd_pack_name`]'s still-`Some` state.
+    /// `Self::hd_pack_name`'s still-`Some` state (a plain code span, not an intra-doc link — that
+    /// method only exists under the `hd-pack` feature, but this doc is compiled unconditionally).
     pub fn power_cycle(&mut self) {
         self.inner.power_cycle();
         #[cfg(feature = "hd-pack")]
