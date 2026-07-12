@@ -45,7 +45,16 @@ self.addEventListener("fetch", (event) => {
             }
             return response;
           })
-          .catch(() => cached);
+          // A truly offline first visit has no cached response either — respondWith() requires
+          // resolving to an actual Response, never undefined, or the fetch handler throws.
+          .catch(
+            () =>
+              cached ||
+              new Response("Offline and not yet cached.", {
+                status: 503,
+                statusText: "Offline",
+              })
+          );
         return cached || network;
       })
     )

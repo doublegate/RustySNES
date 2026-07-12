@@ -58,7 +58,7 @@ permissions:
 # PR runs get their own group (never cancel a still-relevant size-budget check mid-flight).
 concurrency:
   group: pages-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'push' }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   build:
