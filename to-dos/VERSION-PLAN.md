@@ -936,7 +936,7 @@ squash-merge. `gemini-code-assist` hit its daily quota limit and did not review 
 not blocked on (quota resets are out of this project's control; the ceremony proceeds with
 whichever bots actually respond).
 
-### `v1.6.0 "Lighthouse"` — docs site, PWA, accuracy-ledger — **IN PROGRESS**
+### `v1.6.0 "Lighthouse"` — docs site, PWA, accuracy-ledger
 
 MkDocs handbook over the existing `docs/` tree; a combined `web.yml` replacing `pages.yml` (wasm
 demo at `/`, rustdoc at `/api/`, MkDocs at `/docs/`, a `<5MiB` gzip size-budget gate); a
@@ -955,7 +955,13 @@ a docs page and updates the ledger if a disposition changed.
       analog for the 3 unit-test-only coprocessor boards — no oracle-gated release scopes it yet).
 - [x] `docs/DOCUMENTATION_INDEX.md` refreshed (stale `v0.4.0` stamp, a dead `SALVAGE_MANIFEST.md`
       link, a stale ADR count) and cross-linked to the new ledger + lockstep checklist.
-- [ ] `chore(release): v1.6.0 "Lighthouse"` closeout PR.
+- [x] `chore(release): v1.6.0 "Lighthouse"` closeout PR.
+
+**Released 2026-07-11.** PR #78: two real bugs from `copilot-pull-request-reviewer` (inverted
+`web.yml` concurrency `cancel-in-progress` logic; a `sw.js` fetch handler that could resolve
+`respondWith()` to `undefined` on a truly offline first visit), each fixed in a follow-up commit
+and adjudicated inline. The `web.yml` `build demo + docs` job — the first real exercise of the
+MkDocs/trunk/size-budget pipeline — passed clean. `gemini-code-assist` remained quota-limited.
 
 ### `v1.7.0 "Telemetry"` / `v1.8.0 "Tracepoint"` — debugger foundation + depth
 
