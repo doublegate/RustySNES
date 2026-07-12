@@ -642,6 +642,12 @@ impl ShellState {
                                         .text("Edge blend strength"),
                                 );
                             }
+                            crate::config::PostFilter::Xbrz => {
+                                ui.add(
+                                    egui::Slider::new(&mut cfg.video.xbrz_strength, 0.0..=1.0)
+                                        .text("Corner blend strength"),
+                                );
+                            }
                         }
                         #[cfg(feature = "hd-pack")]
                         {

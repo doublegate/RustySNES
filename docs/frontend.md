@@ -90,11 +90,11 @@ change (the same guard `applied_present_mode` already uses for the Settings → 
 toggle), applied once explicitly at `egui::Context` construction time so the configured theme is
 live from the very first frame, not just after the user opens Settings.
 
-## Presentation post-filters (`v1.2.0`)
+## Presentation post-filters (`v1.2.0`; a third filter + a shader-source crate extraction in `v1.12.0 "Refraction"`)
 
-`config.video.filter` (`crate::config::PostFilter`: `None` (default) / `Crt` / `Hqx`) selects a
-post-process pass applied after the plain nearest-sample framebuffer blit, set via Settings →
-Video (a radio row + per-filter strength sliders) or the View → Post-filter submenu.
+`config.video.filter` (`crate::config::PostFilter`: `None` (default) / `Crt` / `Hqx` / `Xbrz`)
+selects a post-process pass applied after the plain nearest-sample framebuffer blit, set via
+Settings → Video (a radio row + per-filter strength sliders) or the View → Post-filter submenu.
 
 - **`PostFilter::None`** is the pre-`v1.2.0` direct blit, kept byte-for-byte unchanged: `Gfx::blit`
   itself was never modified by this addition, and `Gfx::present`'s `None` arm calls it directly
@@ -114,31 +114,50 @@ Video (a radio row + per-filter strength sliders) or the View → Post-filter su
   literal HQ2x pattern-lookup-table port — the right fit for a fixed-resolution architecture that
   never actually renders to a literal 2×-sized intermediate buffer. One strength slider
   (`config.video.hqx_strength`, default `0.6`).
-- **Both filters share** the exact same clip-space letterbox convention `Gfx::blit`'s own vertex
-  shader uses (position-scale, not UV-space cropping) — `Gfx::letterbox_scale` was extracted out of
-  `blit`'s inline math specifically so `blit` and the two filter passes stay pixel-aligned, a pure,
-  behavior-preserving refactor (verified by `letterbox_scale_matches_known_cases`, a hand-computed
-  regression test for windows wider-than / narrower-than / exactly the 4:3 SNES aspect).
-- **Architecture**: `Gfx` builds both filter pipelines unconditionally at init (`Gfx::new_async`,
-  cheap — two small pipelines) so switching the Settings radio needs no pipeline
-  creation/reallocation; `Gfx::present` selects between `blit`/`crt`/`hqx` per frame based on the
-  live config. Both filter shaders (`CRT_WGSL`/`HQX_WGSL` in `gfx.rs`) are inline `const &str` WGSL,
-  matching the existing `BLIT_WGSL` convention — deliberately NOT split into a separate
-  `rustysnes-gfx-shaders` crate (that split only earns its keep with a second consumer, e.g. a
-  mobile target, which this project has no near-term plan for).
-- **Verified**: `naga` WGSL-parse+validate tests for both new shaders (same machinery `wgpu`
-  itself uses at runtime); a real headless `xvfb-run` launch of the native binary against a staged
-  ROM with each of `None`/`Crt`/`Hqx` set in `config.toml` in turn — all three ran clean (zero
-  stderr output, no panics) for the full run window against a real (llvmpipe/software) wgpu
-  adapter, confirming both new pipelines actually build and render, not just that their shaders
-  parse statically. No golden-screenshot regression harness exists in this project today (the
-  existing `commercial_screenshots.rs` captures the raw core framebuffer directly, entirely
-  upstream of this wgpu render path) — the `None`-path-unchanged guarantee here is a structural
-  one (the exact same `blit` function, not a re-derived equivalent), not a pixel-diff proof.
-- **Not built** (documented scope cuts, not silent gaps): RustyNES's NTSC composite-signal
-  simulation and `.slangp` RetroArch shader-preset loading — both explicitly out of this ticket's
-  "CRT/HQx" scope. Overscan cropping remains a separate, pre-existing `TODO(impl-phase)` in the
-  View menu.
+- **`PostFilter::Xbrz`** (`v1.12.0`) — the same 2×2-corner blend `Hqx` does, but the edge-detection
+  decision is additionally gated by a wider 4×4-neighborhood read: one extra texel further out
+  along each candidate diagonal must also agree with the near corner's trend before the full
+  diagonal pull is committed, otherwise the pull strength is scaled down toward plain bilinear.
+  This is an xBRZ-**style** approximation of that algorithm's "look past the immediate corner
+  before rounding it" philosophy, distilled into one extra context sample per diagonal — not a
+  literal port of xBRZ's real multi-pass, 2×/3×/4×/5× rule-table algorithm. One strength slider
+  (`config.video.xbrz_strength`, default `0.6`).
+- **All three filters share** the exact same clip-space letterbox convention `Gfx::blit`'s own
+  vertex shader uses (position-scale, not UV-space cropping) — `Gfx::letterbox_scale` was
+  extracted out of `blit`'s inline math specifically so `blit` and the filter passes stay
+  pixel-aligned, a pure, behavior-preserving refactor (verified by
+  `letterbox_scale_matches_known_cases`, a hand-computed regression test for windows
+  wider-than / narrower-than / exactly the 4:3 SNES aspect).
+- **Architecture**: `Gfx` builds all three filter pipelines unconditionally at init
+  (`Gfx::new_async`, cheap — three small pipelines) so switching the Settings radio needs no
+  pipeline creation/reallocation; `Gfx::present` selects between `blit`/`crt`/`hqx`/`xbrz` per
+  frame based on the live config. `v1.12.0` moved the shader sources
+  (`BLIT_WGSL`/`CRT_WGSL`/`HQX_WGSL`, byte-identical; plus the new `XBRZ_WGSL`) out of `gfx.rs` and
+  into a new `rustysnes-gfx-shaders` crate — reversing this doc's own prior "no near-term second
+  consumer" call, now that Mobile Phase 1 (`v1.14.0 "Foundry"`) is a concrete, planned second
+  consumer that needs the shader strings without pulling in this crate's winit/egui/cpal
+  dependency graph.
+- **Verified**: `naga` WGSL-parse+validate tests for all four shaders (`blit_wgsl_validates`/
+  `crt_wgsl_validates`/`hqx_wgsl_validates`/`xbrz_wgsl_validates` in `gfx.rs`, same machinery
+  `wgpu` itself uses at runtime). `XBRZ_WGSL` was additionally exercised through a real (no-window)
+  wgpu render pipeline — adapter/device request, shader-module + pipeline creation, an actual draw
+  against a 4×4 source texture with a clean diagonal edge, and a GPU readback — on a real
+  discrete-GPU Vulkan adapter; the output showed a genuine blended gradient band along the
+  diagonal (not just uniform `0`/`255`), confirming the corner-blend logic actually executes and
+  behaves sensibly, not merely that the shader parses statically. This is a standalone, no-window
+  diagnostic (the project's own `wgpu-headless-repro-gotcha` note: the real winit-based
+  `rustysnes` binary hangs, not crashes, when launched headlessly under Xvfb in this environment,
+  so a real windowed `xvfb-run` smoke test — as `v1.2.0`'s original `Crt`/`Hqx` verification used —
+  was not repeated here) and was not added to the repo as a permanent test. No golden-screenshot
+  regression harness exists in this project today (the existing `commercial_screenshots.rs`
+  captures the raw core framebuffer directly, entirely upstream of this wgpu render path) — the
+  `None`-path-unchanged guarantee here is a structural one (the exact same `blit` function, not a
+  re-derived equivalent), not a pixel-diff proof. A real windowed run (all four filters, on a real
+  display) is still worth the maintainer confirming on their own machine before release.
+- **Not built** (documented scope cuts, not silent gaps — unrevisited from `v1.2.0`'s original
+  call, not a `v1.12.0` finding): RustyNES's NTSC composite-signal simulation and RetroArch
+  `.slangp`/`.cgp` shader-preset import both remain explicitly out of scope. Overscan cropping
+  remains a separate, pre-existing `TODO(impl-phase)` in the View menu.
 
 ## HD texture packs (`v1.3.0`, `hd-pack` feature)
 

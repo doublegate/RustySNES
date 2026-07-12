@@ -127,6 +127,10 @@ workspace = true
 [dependencies]
 rustysnes-core = { path = "../rustysnes-core", version = "1.4.0" }
 rustysnes-savestate = { path = "../rustysnes-savestate", version = "1.4.0" }
+# `v1.12.0 "Refraction"`: the presentation-shader WGSL sources, extracted out of this crate's own
+# `gfx.rs` so `rustysnes-mobile` (`v1.14.0`) can reuse them without depending on the whole wgpu/
+# winit/egui shell -- see `rustysnes-gfx-shaders`'s own module doc.
+rustysnes-gfx-shaders = { path = "../rustysnes-gfx-shaders", version = "1.4.0" }
 
 # winit + wgpu + cpal + egui shell. Versions tracked to the latest published,
 # mutually-compatible tier (2026-06): egui/egui-wgpu/egui-winit 0.35, wgpu 29

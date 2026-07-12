@@ -1,0 +1,14 @@
+[package]
+name = "rustysnes-gfx-shaders"
+description = "RustySNES: shared WGSL presentation-shader sources (blit + post-filters)"
+version = "1.11.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords = ["snes", "emulator", "wgpu", "shader"]
+categories = ["emulators", "games"]
+
+[lints]
+workspace = true

@@ -141,6 +141,10 @@ pub enum PostFilter {
     /// A single-pass, edge-directed diagonal blend that softens staircase edges on flat-color
     /// pixel art — an HQ2x-style *approximation* (not a literal `HQ2x` lookup-table port).
     Hqx,
+    /// A single-pass, context-aware corner-rounding blend (`v1.12.0 "Refraction"`) — an
+    /// xBRZ-style *approximation* (not a literal multi-pass xBRZ port); see
+    /// [`rustysnes_gfx_shaders::XBRZ_WGSL`]'s own doc for how it differs from [`Self::Hqx`].
+    Xbrz,
 }
 
 impl PostFilter {
@@ -151,14 +155,15 @@ impl PostFilter {
             Self::None => "None",
             Self::Crt => "CRT",
             Self::Hqx => "HQx",
+            Self::Xbrz => "xBRZ",
         }
     }
 
     /// All filters in display order — the single source of truth the Settings radio row
     /// iterates, so it can never drift out of sync with the enum.
     #[must_use]
-    pub const fn all() -> [Self; 3] {
-        [Self::None, Self::Crt, Self::Hqx]
+    pub const fn all() -> [Self; 4] {
+        [Self::None, Self::Crt, Self::Hqx, Self::Xbrz]
     }
 }
 
@@ -181,6 +186,9 @@ pub struct VideoConfig {
     pub crt_mask: f32,
     /// [`PostFilter::Hqx`] edge-directed blend strength, `0.0..=1.0` (0 = plain bilinear).
     pub hqx_strength: f32,
+    /// [`PostFilter::Xbrz`] context-gated corner-blend strength, `0.0..=1.0` (0 = plain
+    /// bilinear) — `v1.12.0 "Refraction"`.
+    pub xbrz_strength: f32,
     /// The active HD texture pack's name for the current ROM (`v1.3.0`), or `None` (the default
     /// — byte-identical config round-trip for every prior release). Present regardless of
     /// whether this build has the `hd-pack` Cargo feature on, matching every other config field's
@@ -199,6 +207,7 @@ impl Default for VideoConfig {
             crt_scanline: 0.3,
             crt_mask: 0.15,
             hqx_strength: 0.6,
+            xbrz_strength: 0.6,
             hd_pack_name: None,
         }
     }
