@@ -85,22 +85,23 @@ use crate::cheevos::CheevosState;
 const HD_PACK_SCALE: u32 = 2;
 
 /// The window's initial/default scale — `INITIAL_SCALE`x the SNES native resolution (`v1.3.0`,
-/// RustyNES parity: that sibling project also defaults to 3x/300%). Native only; `wasm32`'s
-/// canvas size is controlled by the page, not this constant.
-#[cfg(not(target_arch = "wasm32"))]
+/// RustyNES parity: that sibling project also defaults to 3x/300%). Also drives `wasm32`'s
+/// initial canvas size (`v1.7.0`) — winit's web backend resizes the attached canvas to match
+/// `create_window`'s requested inner size, so this applies there too, not just to native windows.
 const INITIAL_SCALE: u32 = 3;
 
 /// A floor on the requested window width (`v1.3.0`, View → Window Size), padding past the
 /// 4:3-derived width (see `App::chrome_padded_size`) so the egui menu bar (File / Emulation /
-/// Tools / View / Debug / Help) never gets clipped at `1x`. Native only.
-#[cfg(not(target_arch = "wasm32"))]
+/// Tools / View / Debug / Help) never gets clipped at `1x`. Used by both native and `wasm32`'s
+/// `create_window` (`v1.7.0`); `set_window_scale` (the runtime View → Window Size resize) stays
+/// native-only.
 const MIN_CHROME_WIDTH: f64 = 560.0;
 
 /// Extra window height (`v1.3.0`, View → Window Size) added past the region's raw
 /// `active_height() * scale` (see `App::chrome_padded_size`) for the egui menu bar + status bar,
 /// which are drawn as a fixed-size overlay on top of the (letterboxed) game image rather than
-/// reserving their own space in the framebuffer. Native only.
-#[cfg(not(target_arch = "wasm32"))]
+/// reserving their own space in the framebuffer. Used by both native and `wasm32`'s
+/// `create_window` (`v1.7.0`).
 const CHROME_HEIGHT: f64 = 56.0;
 
 /// The typed winit user-event, used by both native and `wasm32`.
@@ -508,20 +509,18 @@ impl App {
     /// Create the window: a normal OS window on native, or (on `wasm32`) an attachment to the
     /// EXISTING `<canvas id="snes-canvas">` from `index.html` — the same canvas the `wasm-canvas`
     /// MVP uses (only one wasm frontend is ever compiled at a time, so reusing the element id is
-    /// safe) — rather than letting winit create a detached canvas, so the page's CSS sizing and
-    /// layout apply. Per the winit 0.30 web platform docs this is
-    /// `WindowAttributesExtWebSys::with_canvas`.
+    /// safe) — rather than letting winit create a detached canvas. Per the winit 0.30 web
+    /// platform docs this is `WindowAttributesExtWebSys::with_canvas`.
     fn create_window(event_loop: &ActiveEventLoop, region: Region) -> Result<Arc<Window>, String> {
-        // Native defaults to `INITIAL_SCALE`x (RustyNES parity, `v1.3.0`); the wasm32 canvas is
-        // sized by the page's own CSS (`web/index.html`), so `region` goes unused there (the
-        // `LogicalSize` passed below is a fallback only, kept at a fixed 2x for parity with that
-        // page's `512x448` canvas rule).
-        #[cfg(target_arch = "wasm32")]
-        let _ = region;
-        #[cfg(not(target_arch = "wasm32"))]
+        // `with_inner_size` below is unconditional (native AND wasm32) — RustyNES parity,
+        // `v1.7.0`: winit's web backend actually resizes the attached canvas element to match the
+        // requested inner size, overriding whatever static CSS `web/index.html` declares (found
+        // live: the CSS's `512x448` 2x-scale rule was a dead letter, not a real fallback — a
+        // user comparing the two demos side by side noticed RustySNES's canvas rendering visibly
+        // smaller than RustyNES's, which requests `NES_W * INITIAL_SCALE` for wasm too). Matching
+        // that here means the wasm demo launches at the same `INITIAL_SCALE`x + chrome-padding
+        // size native does, not a separate, smaller, page-defined size.
         let (init_w, init_h) = Self::chrome_padded_size(INITIAL_SCALE, region);
-        #[cfg(target_arch = "wasm32")]
-        let (init_w, init_h) = (512.0, 448.0);
         let attrs = Window::default_attributes()
             .with_title("RustySNES")
             .with_inner_size(winit::dpi::LogicalSize::new(init_w, init_h));
@@ -556,8 +555,7 @@ impl App {
     /// the window narrower than the content it's meant to hold, and `Gfx`'s own letterbox math
     /// would then scale the image back down to fit — silently defeating the requested integer
     /// scale (a real bug caught in review: a requested `3x` rendered at only `~2.57x` before this
-    /// fix).
-    #[cfg(not(target_arch = "wasm32"))]
+    /// fix). Also used by `create_window` on `wasm32` (`v1.7.0`) — see that function's own doc.
     fn chrome_padded_size(scale: u32, region: Region) -> (f64, f64) {
         let active_h = f64::from(region.active_height()) * f64::from(scale);
         let w = (active_h * (4.0 / 3.0)).max(MIN_CHROME_WIDTH);
@@ -1483,10 +1481,12 @@ impl App {
                     active.shell.status = format!("Speed: {pct}%");
                 }
                 MenuAction::SetWindowScale(scale) => {
-                    // Native only (View → Window Size); the wasm32 canvas is sized by the page's
-                    // own CSS, so this menu entry doesn't exist there (`ui_shell.rs`) but the
-                    // variant itself stays unconditional to keep this match exhaustive on both
-                    // targets.
+                    // Native only (View → Window Size) — this menu entry doesn't exist on wasm32
+                    // (`ui_shell.rs`), only the INITIAL launch size matches native's
+                    // `chrome_padded_size` there (`v1.7.0`, `create_window`); a runtime resize
+                    // via `request_inner_size` has different (async-grant) web semantics not
+                    // scoped here. The variant itself stays unconditional to keep this match
+                    // exhaustive on both targets.
                     #[cfg(not(target_arch = "wasm32"))]
                     Self::set_window_scale(active, config.region, scale);
                     #[cfg(target_arch = "wasm32")]
