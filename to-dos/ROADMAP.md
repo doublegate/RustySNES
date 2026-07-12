@@ -347,9 +347,13 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   (`v1.14.0 "Foundry"`, **RELEASED 2026-07-12** — new `rustysnes-mobile` `UniFFI` crate over the
   same `EmuCore` facade the desktop frontend uses; verified for real with a genuine `cargo ndk`
   ARM64 cross-compile and inspected Kotlin/Swift binding output, not just claimed; the mobile/
-  Android+iOS "no appetite" default from `v1.0.0` is formally reversed, `docs/adr/0012`) — with
-  the rest of the mobile track — Android + iOS apps plus dormant monetization scaffolding
-  (`v1.15.0`-`v1.18.0`) — and a PGO/BOLT pipeline last (`v1.19.0`). Tracked in lockstep against
+  Android+iOS "no appetite" default from `v1.0.0` is formally reversed, `docs/adr/0012`), then a
+  real Android alpha (`v1.15.0 "Sideload"`, **RELEASED 2026-07-12** — new `rustysnes-android`
+  presentation-only `wgpu`-on-`Surface` crate plus a minimal Kotlin Compose shell, verified for
+  real on a live Android emulator including a background/foreground lifecycle exercise; touch UX
+  for Mouse/Super Scope/Multitap, save-state UI, and post-filter wiring honestly deferred to
+  `v1.15.1+`) — with the rest of the mobile track — an iOS app plus dormant monetization
+  scaffolding (`v1.16.0`-`v1.18.0`) — and a PGO/BOLT pipeline last (`v1.19.0`). Tracked in lockstep against
   RustyNES's own continuing development via `to-dos/LOCKSTEP-CHECKLIST.md`, not a frozen
   snapshot target. Full detail in `to-dos/VERSION-PLAN.md`'s "RustyNES-parity ladder" section.
 - **Flagged by the 2026-07-12 lockstep re-check — no rung assigned yet, maintainer go/no-go

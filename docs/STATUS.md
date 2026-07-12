@@ -3,12 +3,12 @@
 This file is authoritative for per-suite pass counts, the board / coprocessor matrix, and
 version policy. Everything else defers to it.
 
-**Current release:** `v1.14.0 "Foundry"` (`v0.1.0 "Foundation"`,
+**Current release:** `v1.15.0 "Sideload"` (`v0.1.0 "Foundation"`,
 `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"`, `v0.4.0 "Completion"`, `v0.5.0 "Fidelity"`,
 `v0.6.0 "Shippable"`, `v0.7.0 "Resolution"`, `v0.8.0 "Community"`, `v0.9.0 "Threshold"`,
 `v1.0.0 "Zenith"`, `v1.0.1 "Aftertouch"`, `v1.1.0 "Latchkey"`, `v1.2.0 "Phosphor"`,
 `v1.3.0 "Palimpsest"`, and `v1.4.0 "Convergence"` precede it; see `to-dos/VERSION-PLAN.md` for the
-full ladder). **`v1.5.0`-`v1.14.0`** are the opening rungs of the RustyNES-parity ladder — a CI
+full ladder). **`v1.5.0`-`v1.15.0`** are the opening rungs of the RustyNES-parity ladder — a CI
 safety net (`v1.5.0 "Bedrock"`), a MkDocs documentation site + PWA + accuracy ledger
 (`v1.6.0 "Lighthouse"`), the debugger extracted into its own module plus a hex Memory panel
 (`v1.7.0 "Telemetry"`, `v1.7.1` patch), a Memory Compare panel + in-app Docs panel
@@ -19,10 +19,15 @@ time (`v1.11.0 "Podium"`), adding a third presentation post-filter (`PostFilter:
 extracting the WGSL shader sources into a new `rustysnes-gfx-shaders` crate for reuse by the
 mobile bridge (`v1.12.0 "Refraction"`), adding two accessibility theme variants
 (`AppTheme::HighContrast`/`Colorblind`) while honestly re-scoping the other two originally-planned
-items (`v1.13.0 "Vantage"`), and — reversing `v1.0.0`'s "no mobile appetite" default — a new
+items (`v1.13.0 "Vantage"`), reversing `v1.0.0`'s "no mobile appetite" default with a new
 `rustysnes-mobile` `UniFFI` bridge crate over `EmuCore`, real-verified via a `cargo ndk` ARM64
 cross-compile and inspected Kotlin/Swift binding output, plus the `no_std` CI gate expanded to a
-per-crate matrix (`v1.14.0 "Foundry"`) — all frontend/tooling/CI work with **zero
+per-crate matrix (`v1.14.0 "Foundry"`), and a real Android alpha — a new `rustysnes-android`
+presentation-only `wgpu`-on-`Surface` crate plus a minimal Kotlin Compose shell, verified for real
+on a live Android emulator (a committed test ROM boots and its framebuffer visibly advances
+frame-to-frame, background/foreground lifecycle exercised, zero `logcat` errors) — all with the
+`Mouse`/`Super Scope`/`Multitap` touch UX, save-state UI, and post-filter wiring honestly deferred
+to `v1.15.1+` (`v1.15.0 "Sideload"`) — all frontend/tooling/CI work with **zero
 change** to the accuracy dashboard, per-suite pass counts, or coprocessor tier matrix below,
 which stayed byte-identical throughout; see `CHANGELOG.md` for full per-release detail. `v1.0.0`
 closes the production-cut

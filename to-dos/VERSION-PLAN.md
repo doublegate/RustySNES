@@ -1184,11 +1184,40 @@ toolchain, so Android-side work (`v1.15.0`) can be genuinely built/tested here g
 while iOS-side work (`v1.16.0`) will be written and Rust-side compile-checked but needs the
 project owner's own Mac for a real Xcode build/link/run — see `docs/mobile-readiness.md`.
 
-### `v1.15.0 "Sideload"` → `v1.18.0 "Dormant"` — the rest of the mobile track
+### `v1.15.0 "Sideload"` — Mobile Phase 2: Android alpha — **RELEASED 2026-07-12**
 
-`rustysnes-android` (JNI/NDK, Kotlin Compose shell, net-new Mouse/Super-Scope/Multitap touch UX
-with no RustyNES precedent), `rustysnes-ios` (Metal via wgpu, SwiftUI shell, TestFlight), then a
-hardening rung (mlua `send`-feature migration if scripting ships on mobile, direct-IP/LAN
+Delivered: new crate `rustysnes-android`, a presentation-only JNI/`wgpu`-on-`Surface` host (no
+emulation logic — the Kotlin shell drives `rustysnes-mobile`'s `MobileCore` directly and hands
+this crate exactly `(RGBA8 bytes, width, height)` per frame). New `android/` Gradle project: a
+minimal native Kotlin Compose shell (Storage-Access-Framework ROM picker, touch d-pad/face
+buttons for the standard SNES gamepad, `AudioTrack` playback), wired to the native crates via
+custom `cargoNdkBuild`/`copyCargoLibs*`/`uniffiBindgen` Gradle tasks. Verified for real, not just
+claimed: built, installed, and launched on a real Android emulator; a committed permissive test
+ROM (`tests/roms/gilyon/cputest/cputest-basic.sfc`) booted through the actual SAF picker and ran
+live (advancing framebuffer output across successive screenshots); the background/foreground
+lifecycle was exercised (`KEYCODE_HOME` then relaunch) and confirmed to pause/resume correctly
+with zero `logcat` errors throughout.
+
+Two real, on-device-only `wgpu` bugs were found and fixed this way — neither reproduces without an
+actual `Surface` and driver, so neither was catchable by `cargo ndk check`/clippy:
+`SurfaceTargetUnsafe::from_window()` hard-codes a missing display handle (switched to
+`from_display_and_window`), and the debug-build default `InstanceFlags` crashed the AVD's
+SwiftShader software Vulkan renderer outright (disabled explicitly). A follow-up PR-review pass
+then found and fixed a premature `ANativeWindow` release (a real use-after-free-adjacent bug), a
+per-frame allocation on the render hot path, a `u32` overflow ordering bug, an `AudioTrack`
+cross-thread visibility bug, main-thread ROM loading (an ANR risk), and the frame loop/audio not
+pausing while backgrounded — see `CHANGELOG.md`'s `v1.15.0` entry for the full detail on each.
+
+**Honestly scoped ("minimal real MVP now"), deferred to `v1.15.1+`**: Mouse-mode trackpad, Super
+Scope drag-reticle, and Multitap pass-and-play seat switcher (net-new SNES-specific touch UX with
+no RustyNES precedent); save-state UI; settings screen; `Crt`/`Hqx`/`Xbrz` post-filter wiring;
+frame-pacing/vsync-synced render loop (currently a fixed ~60 Hz sleep-paced coroutine);
+`.github/workflows/android.yml`; a checked-in `./gradlew` wrapper.
+
+### `v1.16.0 "Beacon"` → `v1.18.0 "Dormant"` — the rest of the mobile track
+
+`rustysnes-ios` (Metal via wgpu, SwiftUI shell reusing `v1.15.0`'s touch-UX design, TestFlight),
+then a hardening rung (mlua `send`-feature migration if scripting ships on mobile, direct-IP/LAN
 netplay, per-platform parity checklist), then `rustysnes-monetization` (dormant
 RevenueCat/AppLovin-style scaffold, never a dependency of the deterministic core, policy shape
 only — no committed pricing). A store-launch decision (Play + App Store submission, monetization
