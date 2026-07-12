@@ -145,6 +145,15 @@ mismatch without touching whatever state that one held).
 - Fixed a real, pre-existing gap: the Android `versionName` had been left at `1.15.0` through
   both the `v1.15.0` and `v1.16.0` releases (iOS's `MARKETING_VERSION` already got this right in
   `v1.16.0`). Both now correctly read `1.17.0`.
+- **Found and fixed a real, pre-existing, already-shipped Android crash** (present since
+  `v1.15.0`): a native `SIGSEGV` in `AudioTrack::write`, reproducible just by loading a ROM and
+  letting it run for ~10+ seconds — never caught before because no prior verification pass ran
+  the app that long. Root cause: per-frame `ShortArray` allocation/GC churn in the audio path
+  disrupting the native `AudioTrack` buffer's timing; fixed by reusing a persistent scratch
+  buffer. Re-verified stable through 45+ seconds of continuous run plus a full save/load-state
+  cycle. See `CHANGELOG.md`'s `[Unreleased]` entry for the full technical detail, including the
+  earlier `v1.15.0` PR review comment that flagged this same code as "perf-only" — this rung
+  found that disposition was wrong.
 
 ### Honestly re-scoped this rung (not silently dropped)
 

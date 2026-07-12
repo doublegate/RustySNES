@@ -85,7 +85,12 @@ final class EmulatorViewModel: ObservableObject {
         guard core.romLoaded() else { return }
         Task.detached(priority: .utility) { [core, saveStateURL] in
             do {
-                try core.saveState().write(to: saveStateURL)
+                // `.atomic` (found in review): a direct, non-atomic write left `save.state` at
+                // real risk of being left partially written (app killed mid-write, or a load
+                // racing a save) and then failing to load. `Data.write(to:options:)`'s `.atomic`
+                // option writes to a temporary file and renames it into place, so a reader only
+                // ever sees the previous complete state or the new complete state.
+                try core.saveState().write(to: saveStateURL, options: .atomic)
             } catch {
                 print("RustySNES: saveState failed: \(error)")
             }

@@ -31,6 +31,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   been left at `1.15.0` through both the `v1.15.0` and `v1.16.0` releases; fixed alongside iOS's
   `project.yml` `MARKETING_VERSION`, which already got this treatment correctly in `v1.16.0`.
 
+### Fixed
+
+- **A real, pre-existing, already-shipped Android crash**: a native `SIGSEGV` inside
+  `AudioTrack::write` → `AudioTrack::releaseBuffer` (null pointer dereference), reproducible
+  on the real AVD by simply loading a ROM and letting it run for ~10+ seconds — present since
+  `v1.15.0` and never caught before because prior verification passes never ran the app that
+  long. Root cause: the frame loop's own audio path allocated a fresh `ShortArray` every ~16ms
+  via `ShortArray(size) { audio[it] }` (converting `MobileCore.drainAudio()`'s boxed
+  `List<Short>` every frame), enough sustained allocation/GC pressure at 60 FPS to disrupt the
+  native `AudioTrack` buffer's timing and trigger the crash. Fixed by reusing a persistent,
+  only-ever-grown `ShortArray` scratch buffer across frames instead. Re-verified on the real AVD:
+  stable through 45+ seconds of continuous run plus a full save/load-state cycle, zero crashes.
+  (A prior `v1.15.0` PR review actually flagged this exact allocation pattern as a hot-path perf
+  nit and it was reasoned-rejected as "real but perf-only" — this rung found that disposition was
+  wrong: it's a real correctness/stability bug, not just a perf nit.)
+- `startFrameLoop` is now idempotent (a no-op if a loop is already active) rather than
+  unconditionally cancelling and restarting — found while investigating the crash above:
+  `attachSurface` calls it unconditionally whenever `surfaceCreated` fires with a ROM already
+  loaded, and `Job.cancel()` is cooperative (the old coroutine keeps running until its next
+  suspension point), so two coroutines could briefly write to the same `AudioTrack`
+  concurrently. This alone did not reproduce the crash above in isolation, but it's a real
+  latent hazard worth closing regardless.
+
 ### Honestly re-scoped (not silently dropped)
 
 `v1.17.0 "Parity"` was originally planned to also include RetroAchievements wiring into
