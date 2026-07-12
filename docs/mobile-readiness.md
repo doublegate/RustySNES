@@ -44,6 +44,14 @@ host — it owns no emulation state. The Kotlin shell (`android/`) drives `rusty
 in-process crate boundary. `BLIT_WGSL` only (unfiltered) for this MVP — the `Crt`/`Hqx`/`Xbrz`
 post-filters aren't wired here yet.
 
+**iOS (`v1.16.0 "Beacon"`)**: `crates/rustysnes-ios` is the same shape as `rustysnes-android`,
+adapted for the platform — a presentation-only `wgpu`-on-`CAMetalLayer` host with no emulation
+state, exposing a plain C-ABI FFI (`ios/RustySNES/Bridging-Header.h`) instead of JNI. The SwiftUI
+shell (`ios/`) drives `MobileCore` through UniFFI-generated Swift bindings and hands
+`rustysnes-ios` exactly `(RGBA8 framebuffer bytes, width, height)` per frame via
+`rustysnes_ios_present_frame`. `ios/project.yml` is an `XcodeGen` spec, not a hand-authored
+`.xcodeproj` — see "Verified so far (`v1.16.0`)" below for why.
+
 ## Verified so far (`v1.14.0`)
 
 - `cargo build`/`cargo test -p rustysnes-mobile` on the host: 7 unit tests covering ROM load
@@ -89,23 +97,49 @@ mismatch without touching whatever state that one held).
   handle error, and the SwiftShader-crashing default `InstanceFlags`. See `CHANGELOG.md`'s
   `[Unreleased]` entry for the technical detail on both.
 
+## Verified so far (`v1.16.0`)
+
+- `cargo build --release --target aarch64-apple-ios -p rustysnes-ios` and the same for
+  `aarch64-apple-ios-sim`: real cross-compiles, both succeeding in this Linux sandbox with no
+  Xcode/macOS SDK installed — confirmed possible because a `staticlib` target only needs the
+  downloaded `rust-std` component (no link against Apple's frameworks happens until Xcode's own
+  final link step, which this environment never reaches). Confirmed via `file` that the produced
+  `librustysnes_ios.a` contains a real `Mach-O 64-bit arm64 object`, not a stub.
+- `cargo clippy --target aarch64-apple-ios --all-targets -p rustysnes-ios -- -D warnings` and
+  `cargo fmt --check`: clean for both the device and simulator targets.
+- Unlike `rustysnes-android`, this crate ALSO type-checks, lints, and its one host-runnable test
+  (`blit_wgsl_validates`) passes cleanly against the plain Linux host target — `raw-window-handle`
+  and `wgpu`'s `UiKit`/Metal types are portable at the type level even off-Apple platforms, so
+  `cargo test -p rustysnes-ios` genuinely runs and passes here, and this crate needs no CI
+  workspace exclusion (`cargo test --workspace`/`cargo clippy --workspace` already cover it).
+- `oslog` (the natural `android_logger` analog) was tried and dropped: its build script shells
+  out to `xcrun` to locate the iOS SDK, which doesn't exist in this sandbox — confirmed by
+  actually hitting `failed to find tool "xcrun"`. No logger is installed by this crate yet.
+
 ## Not yet verified / explicitly deferred
 
 - **No Mouse/Super Scope/Multitap touch UX yet** — net-new SNES-specific UI with no RustyNES
-  desktop precedent to port; deferred to `v1.15.1+` under the "minimal real MVP now" scope chosen
-  for this rung (P1 standard gamepad only, in-app ROM picker, blit-only rendering, no save-state
-  UI or settings screen).
+  desktop precedent to port; deferred to `v1.15.1+`/`v1.16.1+` under the "minimal real MVP now"
+  scope chosen for the Android rung and reused as-is for iOS (P1 standard gamepad only, in-app ROM
+  picker, blit-only rendering, no save-state UI or settings screen).
 - **No `android.yml` CI workflow yet** — NDK cross-build, UniFFI Kotlin smoke test, 16KB ELF
   page-alignment check, dormant Play-flavor Gradle split — `v1.15.1+`.
 - **No checked-in `./gradlew` wrapper yet** — this environment used its locally cached Gradle
   8.11 distribution directly; a proper wrapper should still be generated/committed for
   reproducibility — `v1.15.1+`.
-- **No iOS build/link/run at all.** This development environment has no macOS/Xcode toolchain.
-  `v1.16.0 "Beacon"`'s `rustysnes-ios` crate and SwiftUI shell will be written and Rust-side
-  compile-checked wherever `cargo build --target aarch64-apple-ios` (or the simulator target)
-  succeeds without needing Xcode itself, but the real build/link/run/on-device or
-  on-simulator verification needs the project owner's own Mac — this will be flagged explicitly
-  at that point, not silently claimed as done.
+- **No Swift compiler has ever run over `ios/RustySNES/Sources`, and no on-device or simulator run
+  has happened.** This development environment has no macOS/Xcode toolchain at all — every
+  `.swift` file, `ios/project.yml` (an `XcodeGen` spec), and `scripts/build-ios-xcframework.sh`
+  were written and are believed correct from careful reading of Apple's documented APIs and the
+  now-proven Android architecture, but none of it has been compiled, linted, or run by anything.
+  `.github/workflows/ios.yml`'s `macos-latest` job (real `xcodegen generate` +
+  unsigned `xcodebuild` simulator build) is this code's first real verification, and may surface
+  genuine mistakes the way `rustysnes-android`'s on-device run surfaced real `wgpu` bugs
+  `cargo ndk check` alone couldn't catch — that CI run's outcome should be treated as the actual
+  verification signal, not this document's description of what was *intended*.
+- **No TestFlight upload, no App Store §4.7 self-audit, no real distribution signing** — the
+  `ios.yml` step exists but is an explicit no-op pending the project owner provisioning real
+  signing secrets.
 - **No store-submission readiness assessment yet** — that's the standing "Mobile Phase 6"
   go/no-go gate in `to-dos/ROADMAP.md`, deliberately not tied to a fixed version.
 

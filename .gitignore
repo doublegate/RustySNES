@@ -176,8 +176,11 @@ android/keystore.properties
 android/app/src/main/jniLibs/
 
 # --- iOS ---
-ios/RustySNESFFI.xcframework/
-ios/Generated/RustySNESCore.swift
+# `scripts/build-ios-xcframework.sh`'s real output paths (`v1.16.0 "Beacon"`) -- both are
+# regenerated from Rust/UniFFI source on every build, matching `android/`'s identical
+# never-commit-generated-bindings convention.
+ios/Frameworks/
+ios/RustySNES/Sources/Generated-RustysnesMobile.swift
 ios/RustySNES.xcodeproj/
 ios/build/
 *.ipa

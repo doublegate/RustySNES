@@ -8,6 +8,7 @@ members = [
     "crates/rustysnes-apu",
     "crates/rustysnes-cart",
     "crates/rustysnes-android",
+    "crates/rustysnes-ios",
     "crates/rustysnes-gfx-shaders",
     "crates/rustysnes-mobile",
     "crates/rustysnes-netplay",

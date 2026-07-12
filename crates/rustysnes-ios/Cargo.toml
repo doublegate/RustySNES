@@ -1,0 +1,50 @@
+[package]
+name = "rustysnes-ios"
+description = "RustySNES: iOS Metal presentation host (wgpu-on-CAMetalLayer, no emulation logic)"
+version = "1.15.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords = ["snes", "emulator", "ios", "metal", "wgpu"]
+categories = ["emulators", "games"]
+
+[lib]
+# `staticlib`, not `cdylib` -- unlike Android's JNI loader (which needs a standalone `.so`),
+# Xcode links a Rust `staticlib` (`.a`) directly into the app binary itself, then wraps it in an
+# `.xcframework` for the SwiftUI shell to consume. `rlib` is kept for workspace-graph consistency
+# with `rustysnes-mobile`/`rustysnes-android`'s identical shape.
+#
+# Confirmed by actually trying it in this Linux sandbox (no Xcode/macOS SDK available): a
+# `staticlib` target only needs `rustc`+the downloaded `rust-std` component for
+# `aarch64-apple-ios` to `cargo build --release` successfully -- it defers linking against
+# Metal.framework/UIKit.framework/Foundation.framework to Xcode's own final link step, which
+# happens later on the project owner's Mac. A `cdylib` would need those frameworks NOW (at
+# `cargo build` time) and does not build here.
+crate-type = ["staticlib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+# `rustysnes-mobile` owns the actual emulation core + its own UniFFI bridge (ROM load, run_frame,
+# input, save state); this crate is presentation-only -- it never touches `EmuCore` directly, only
+# the `(RGBA8 bytes, width, height)` the Swift side already reads via `MobileCore.framebuffer`/
+# `frameSize` and hands down through a plain C-ABI FFI call each frame (see `src/lib.rs`).
+# Depending on it here is for the shared `rustysnes-gfx-shaders` re-export convenience only.
+rustysnes-gfx-shaders = { path = "../rustysnes-gfx-shaders", version = "1.4.0" }
+raw-window-handle = "0.6"
+wgpu = "29"
+pollster = "0.4"
+bytemuck = "1"
+log = "0.4"
+# NOT `oslog` (Apple's unified-logging `log` backend, the natural analog of `android_logger`) --
+# its build script shells out to `xcrun` to locate the iOS SDK, which does not exist in this
+# Linux sandbox (confirmed by actually trying it: "failed to find tool \"xcrun\""), and unlike
+# the rest of this crate, that failure can't be worked around without a real Xcode install. No
+# logger is installed by this crate for now (the `log::*!` calls are inert until one is); wiring
+# `oslog` back in is a `v1.16.0`+ follow-up once real Xcode-based verification is possible.
+
+[dev-dependencies]
+naga = { version = "29", features = ["wgsl-in"] }
