@@ -129,12 +129,41 @@ mismatch without touching whatever state that one held).
   `int16ChannelData` correctness risk this sandbox can't verify at runtime. See `CHANGELOG.md`'s
   `v1.16.0` entry for the full detail.
 
+## Verified so far (`v1.17.0`)
+
+- **Save State / Load State on both shells** — a single slot, calling `MobileCore.saveState`/
+  `loadState` (already covered by that crate's own host-side round-trip/garbage-rejection unit
+  tests since `v1.14.0`). **Android**: rebuilt, reinstalled, and re-tested on the real AVD —
+  saved mid-run, let the emulator advance, tapped Load State, and confirmed via `adb run-as` that
+  a real, correctly-sized (~497KB) save-state blob was written to app-private storage and
+  `loadState` returned with no exception logged. The visual test-ROM counter converges to a fixed
+  terminal state too quickly after the load to serve as an unambiguous rewind indicator with this
+  specific ROM, so the file-existence + no-exception evidence, layered on the already-tested
+  Rust-level round-trip logic, is the real verification signal here. **iOS**: written and
+  compile-verified via `ios.yml`'s real macOS CI build; no on-device/simulator run, matching
+  `v1.16.0`'s standing disposition for this whole platform.
+- Fixed a real, pre-existing gap: the Android `versionName` had been left at `1.15.0` through
+  both the `v1.15.0` and `v1.16.0` releases (iOS's `MARKETING_VERSION` already got this right in
+  `v1.16.0`). Both now correctly read `1.17.0`.
+
+### Honestly re-scoped this rung (not silently dropped)
+
+RetroAchievements wiring, an `mlua` `send`-feature migration, and direct-IP/LAN netplay were all
+originally planned for this rung and were investigated, not silently skipped: `rustysnes-cheevos`'s
+`RaClient` is callback-based (async HTTP completions via `on_done` closures), which doesn't map
+onto UniFFI's synchronous call model without real bridging design work, and would also need
+cross-compiling `rcheevos`'s vendored C library for Android NDK ABIs and iOS device/simulator
+triples it doesn't currently target — genuine engineering, not a scoped addition. The `mlua`
+migration was explicitly gated on "Lua/TAS-on-mobile being greenlit," which hasn't happened.
+Netplay is a large, net-new UI surface neither shell has any precedent for. See `CHANGELOG.md`'s
+`[Unreleased]` entry for the full reasoning; all three remain on the roadmap for a later rung.
+
 ## Not yet verified / explicitly deferred
 
 - **No Mouse/Super Scope/Multitap touch UX yet** — net-new SNES-specific UI with no RustyNES
-  desktop precedent to port; deferred to `v1.15.1+`/`v1.16.1+` under the "minimal real MVP now"
-  scope chosen for the Android rung and reused as-is for iOS (P1 standard gamepad only, in-app ROM
-  picker, blit-only rendering, no save-state UI or settings screen).
+  desktop precedent to port; deferred under the "minimal real MVP now" scope chosen for the
+  Android rung and reused as-is for iOS (P1 standard gamepad only, in-app ROM picker, blit-only
+  rendering, no settings screen).
 - **No `android.yml` CI workflow yet** — NDK cross-build, UniFFI Kotlin smoke test, 16KB ELF
   page-alignment check, dormant Play-flavor Gradle split — `v1.15.1+`.
 - **No checked-in `./gradlew` wrapper yet** — this environment used its locally cached Gradle

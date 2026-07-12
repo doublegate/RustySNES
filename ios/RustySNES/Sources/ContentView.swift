@@ -32,6 +32,10 @@ struct ContentView: View {
             HStack {
                 Button("Open ROM") { isPickingRom = true }
                     .padding()
+                Button("Save State") { viewModel.saveState() }
+                    .padding()
+                Button("Load State") { viewModel.loadState() }
+                    .padding()
                 Spacer()
             }
             .background(Color(white: 0.98))

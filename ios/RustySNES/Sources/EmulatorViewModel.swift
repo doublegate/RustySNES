@@ -72,6 +72,40 @@ final class EmulatorViewModel: ObservableObject {
         }
     }
 
+    // Single save-state slot, persisted to the app's Documents directory -- the iOS analog of
+    // `MainActivity.kt`'s identical single-slot `saveStateFile` (`v1.17.0 "Parity"`). Multi-slot
+    // UI is `v1.17.1+` polish, matching the "minimal real MVP" scope this mobile track has
+    // followed since `v1.15.0`.
+    private var saveStateURL: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("save.state")
+    }
+
+    func saveState() {
+        guard core.romLoaded() else { return }
+        Task.detached(priority: .utility) { [core, saveStateURL] in
+            do {
+                try core.saveState().write(to: saveStateURL)
+            } catch {
+                print("RustySNES: saveState failed: \(error)")
+            }
+        }
+    }
+
+    func loadState() {
+        guard core.romLoaded() else { return }
+        Task.detached(priority: .utility) { [core, saveStateURL] in
+            guard let blob = try? Data(contentsOf: saveStateURL) else { return }
+            do {
+                try core.loadState(blob: blob)
+            } catch {
+                // A corrupt/foreign save blob must not crash the app -- same disposition as
+                // loadRom's identical bad-input handling.
+                print("RustySNES: loadState failed: \(error)")
+            }
+        }
+    }
+
     private func startFrameLoop() {
         frameLoopTask?.cancel()
         setUpAudioIfNeeded()

@@ -9,6 +9,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Save State / Load State on both mobile shells** (Mobile Phase 4, `v1.17.0 "Parity"`): a
+  single save-state slot on Android (`android/.../MainActivity.kt`, persisted to app-private
+  internal storage) and iOS (`ios/.../EmulatorViewModel.swift`, persisted to the app's Documents
+  directory), both calling `MobileCore.saveState`/`loadState` — already covered by
+  `rustysnes-mobile`'s own host-side round-trip/garbage-rejection unit tests since `v1.14.0`, not
+  new Rust logic. Multi-slot UI is `v1.17.1+` polish, matching how the mobile track's own
+  touch-UX/save-state UI were themselves deferred from `v1.15.0`.
+  **Verified for real on Android**: rebuilt, reinstalled, and re-tested on the real AVD — saved
+  mid-run, let the emulator advance further, tapped Load State, and confirmed via `adb run-as`
+  that a real, correctly-sized (~497KB) save-state blob was written to disk and `loadState`
+  returned with no exception logged (the visual test-ROM counter itself converges to a fixed
+  "Success" state too quickly after the load to serve as an unambiguous rewind indicator with
+  this specific ROM, so the file-existence + no-exception evidence is the actual verification
+  signal here, on top of the already-tested Rust-level round-trip logic). **iOS**: written and
+  compile-verified via `ios.yml`'s real macOS CI build; no on-device/simulator run, matching
+  `v1.16.0`'s own standing disposition for this whole platform.
+- Bumped the Android `versionName` (`android/app/build.gradle.kts`) to `1.17.0` — found to have
+  been left at `1.15.0` through both the `v1.15.0` and `v1.16.0` releases; fixed alongside iOS's
+  `project.yml` `MARKETING_VERSION`, which already got this treatment correctly in `v1.16.0`.
+
+### Honestly re-scoped (not silently dropped)
+
+`v1.17.0 "Parity"` was originally planned to also include RetroAchievements wiring into
+`rustysnes-mobile`, an `mlua` `send`-feature migration, and direct-IP/LAN netplay on both mobile
+shells (see `to-dos/VERSION-PLAN.md`'s prior entry for this rung). All three were investigated and
+found not to fit a discrete, honestly-verifiable change at this rung:
+
+- **RetroAchievements**: `rustysnes-cheevos`'s `RaClient` API is callback-based (`begin_login_*`/
+  `begin_load_game` take `on_done` closures for async HTTP completion), which doesn't map onto
+  UniFFI's synchronous call model without real bridging design work, and wiring it in would also
+  require cross-compiling `rcheevos`'s vendored C library for two additional native target sets
+  (Android NDK ABIs it doesn't yet target, and iOS device/simulator triples) — real, substantial
+  engineering, not a scoped addition. Deferred to a later mobile-track rung once that bridging
+  design exists.
+- **`mlua` `send`-feature migration**: the roadmap's own text gated this on "if Lua/TAS-on-mobile
+  is greenlit" — no such greenlight has been given; neither mobile shell has any scripting
+  surface to migrate for.
+- **Direct-IP/LAN netplay on both shells**: a large, net-new UI surface (room/IP entry, in-game
+  connection-state handling) on top of the background/foreground lifecycle work both shells
+  already carry — attempting it now would mean writing more untested-in-this-sandbox Swift/Kotlin
+  than this rung's own verification capacity could actually back up, especially on iOS where
+  nothing has ever been run, only built.
+
 ## [1.16.0] "Beacon" - 2026-07-12
 
 Twelfth release of the RustyNES-parity roadmap: Mobile Phase 3, the iOS alpha.

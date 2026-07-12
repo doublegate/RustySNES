@@ -45,8 +45,11 @@ import uniffi.rustysnes_mobile.MobileRegion
  * `v1.15.0 "Sideload"` -- the minimal, real Android alpha MVP: a [SurfaceView] rendered via
  * `rustysnes-android`'s wgpu pipeline, a Storage-Access-Framework ROM picker, [AudioTrack]
  * streaming playback of [MobileCore.drainAudio], and on-screen touch buttons for the standard
- * SNES gamepad (P1 only). See `docs/mobile-readiness.md` for what's deliberately deferred
- * (Mouse/Super Scope/Multitap touch UX, save-state UI, settings).
+ * SNES gamepad (P1 only). `v1.17.0 "Parity"` adds a single-slot Save State / Load State pair,
+ * persisted to app-private internal storage -- multi-slot UI is `v1.17.1+` polish, matching how
+ * the touch-UX/save-state UI were themselves deferred from `v1.15.0`. See
+ * `docs/mobile-readiness.md` for what's still deliberately deferred (Mouse/Super Scope/Multitap
+ * touch UX, settings).
  */
 class MainActivity : ComponentActivity() {
     private val core = MobileCore(MobileRegion.NTSC)
@@ -72,6 +75,8 @@ class MainActivity : ComponentActivity() {
                     EmulatorScreen(
                         core = core,
                         onOpenRom = { pickRom.launch(arrayOf("*/*")) },
+                        onSaveState = ::saveState,
+                        onLoadState = ::loadState,
                         onSurfaceReady = { holder -> attachSurface(holder) },
                         onSurfaceGone = {
                             NativeRenderer.nativeSurfaceDestroyed()
@@ -79,6 +84,43 @@ class MainActivity : ComponentActivity() {
                         },
                     )
                 }
+            }
+        }
+    }
+
+    // Single save-state slot, persisted to app-private internal storage (`filesDir`, no
+    // permissions needed) -- multi-slot UI is `v1.17.1+` polish, matching the "minimal real MVP"
+    // scope this mobile track has followed since `v1.15.0`. Both the serialize/deserialize
+    // (`core.saveState`/`loadState`) and the file I/O run off the main thread, for the same
+    // ANR-avoidance reason `loadRom` already does.
+    private val saveStateFile get() = java.io.File(filesDir, "save.state")
+
+    private fun saveState() {
+        if (!core.romLoaded()) return
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                saveStateFile.writeBytes(core.saveState())
+            } catch (e: java.io.IOException) {
+                android.util.Log.e("RustySNES", "saveState failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun loadState() {
+        if (!core.romLoaded() || !saveStateFile.exists()) return
+        lifecycleScope.launch(Dispatchers.IO) {
+            val blob = try {
+                saveStateFile.readBytes()
+            } catch (e: java.io.IOException) {
+                android.util.Log.e("RustySNES", "loadState read failed: ${e.message}")
+                return@launch
+            }
+            try {
+                core.loadState(blob)
+            } catch (e: uniffi.rustysnes_mobile.MobileException) {
+                // A corrupt/foreign save blob must not crash the app -- same disposition as
+                // loadRom's identical bad-input handling.
+                android.util.Log.e("RustySNES", "loadState failed: ${e.message}")
             }
         }
     }
@@ -233,6 +275,8 @@ private object SnesButton {
 private fun EmulatorScreen(
     core: MobileCore,
     onOpenRom: () -> Unit,
+    onSaveState: () -> Unit,
+    onLoadState: () -> Unit,
     onSurfaceReady: (SurfaceHolder) -> Unit,
     onSurfaceGone: () -> Unit,
 ) {
@@ -246,6 +290,12 @@ private fun EmulatorScreen(
     Column(modifier = Modifier.fillMaxSize()) {
         Row(modifier = Modifier.padding(8.dp)) {
             Button(onClick = onOpenRom) { Text("Open ROM") }
+            Button(onClick = onSaveState, modifier = Modifier.padding(start = 8.dp)) {
+                Text("Save State")
+            }
+            Button(onClick = onLoadState, modifier = Modifier.padding(start = 8.dp)) {
+                Text("Load State")
+            }
         }
         Box(modifier = Modifier.fillMaxSize()) {
             AndroidView(
