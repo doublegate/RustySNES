@@ -1043,11 +1043,23 @@ the on-screen render, flagged honestly rather than assumed.
   compile, `cargo test -p rustysnes-frontend` — 61 tests, all green) — this sandbox has the exact
   pinned `1.96` toolchain, so these run for real, not just left to CI.
 
-### `v1.9.0 "Marionette"` — Lua/TAS scripting depth + TAStudio
+### `v1.9.0 "Marionette"` — Lua scripting bus-widening
 
-Widens `rustysnes-script` (currently 339 lines, mlua-only, WRAM-only) to the full 24-bit bus, adds
-a wasm `piccolo` backend, and adds TAStudio-style piano-roll movie editing on top of the existing
-`rustysnes_core::movie` record/playback primitives (no new movie format).
+Widens `rustysnes-script`'s `emu.read` from `Bus::peek_wram` (WRAM-only) to `Bus::peek` (the full
+24-bit bus — WRAM, cart ROM/SRAM; I/O register space still reads back as `0`, matching the
+debugger's own Memory panel posture). `emu.write` stays deliberately scoped to WRAM only — a
+side-effect-free "poke" has no clean semantic for register space (a real PPU/APU/DMA register
+write has hardware side effects a silent poke can't model without either faking them or breaking
+the determinism contract), so widening reads and keeping writes WRAM-scoped is an asymmetric
+choice, not an oversight.
+
+**Deferred (honestly scoped, not silently dropped):** a wasm `piccolo` Lua backend (scripting is
+currently native-only, `mlua`) and TAStudio-style piano-roll movie editing on top of the existing
+`rustysnes_core::movie` record/playback primitives are both substantial standalone efforts — each
+comparable in size to a full rung of this ladder on its own — and are pushed to a later,
+explicitly-scoped release rather than folded into this one. `v1.11.0`'s RetroAchievements
+hardcore-mode gate still sequences after `v1.9.0` as planned: hardcore only needs to gate the
+*existing* movie record/playback primitives, not a TAStudio UI.
 
 ### `v1.10.0 "Atelier"` — HD-pack Builder GUI
 

@@ -41,12 +41,16 @@ pub enum ScriptError {
 
 /// A sandboxed Lua 5.4 engine bound to no emulator state until [`Self::on_frame`] is called.
 ///
-/// `emu.read(addr)` / `emu.write(addr, val)` reach [`Bus::peek_wram`]/[`Bus::poke_wram`] (WRAM
-/// only, not the full 24-bit bus — a script wants stable memory-watch semantics, not to trip PPU/
-/// APU/DMA register side effects by poking at arbitrary bus addresses). `emu.onFrame(fn)`
-/// registers a callback invoked once per [`Self::on_frame`] call. `print(...)` is redirected into
-/// an internal log ([`Self::drain_log`]) rather than stdout, so a hosting frontend can surface it
-/// in its own UI.
+/// `emu.read(addr)` reaches [`Bus::peek`] (`v1.9.0 "Marionette"` — the full 24-bit bus, WRAM/cart
+/// ROM/SRAM; I/O register space reads back as `0`, `Bus::peek`'s own documented behavior, same
+/// non-register-side-effect posture as the debugger's Memory panel). `emu.write(addr, val)`
+/// stays scoped to [`Bus::poke_wram`] (WRAM only) — unlike a read, a side-effect-free "poke"
+/// has no clean semantic for register space (a real PPU/APU/DMA register write has hardware
+/// side effects a silent poke can't model without either faking them or breaking the
+/// determinism contract), so widening reads and keeping writes WRAM-scoped is a deliberate,
+/// asymmetric choice, not an oversight. `emu.onFrame(fn)` registers a callback invoked once per
+/// [`Self::on_frame`] call. `print(...)` is redirected into an internal log
+/// ([`Self::drain_log`]) rather than stdout, so a hosting frontend can surface it in its own UI.
 pub struct ScriptEngine {
     lua: Lua,
     frame_cbs: Rc<RefCell<Vec<RegistryKey>>>,
@@ -205,7 +209,7 @@ impl ScriptEngine {
             let emu: Table = lua.globals().get("emu")?;
 
             let read =
-                scope.create_function(|_, addr: u32| Ok(bus_cell.borrow_mut().peek_wram(addr)))?;
+                scope.create_function(|_, addr: u32| Ok(bus_cell.borrow_mut().peek(addr)))?;
             emu.set("read", read)?;
 
             let write = scope.create_function(|_, (addr, val): (u32, u8)| {
@@ -257,6 +261,38 @@ mod tests {
         sys.bus.poke_wram(0x7E_0010, 41);
         engine.on_frame(&mut sys.bus).expect("frame runs");
         assert_eq!(sys.bus.peek_wram(0x7E_0010), 42);
+    }
+
+    /// `v1.9.0 "Marionette"`: `emu.read` now reaches [`Bus::peek`] (the full 24-bit bus), not
+    /// just [`Bus::poke_wram`]'s WRAM-only reach — this exercises addresses in every region
+    /// `Bus::peek` itself distinguishes (WRAM proper, the WRAM mirror, I/O register space, and
+    /// cart/ROM space with no cart loaded) and asserts none of them panic or error, matching
+    /// `Bus::peek`'s own documented "always returns a defined byte, never traps" contract. The
+    /// exact returned *value* for cart space with a real ROM loaded is `Bus::peek`'s own
+    /// responsibility to get right (covered by `rustysnes-core`'s test suite) — this test's job
+    /// is only that the wider address range is now reachable through the script API at all.
+    #[test]
+    fn read_reaches_the_full_24_bit_bus_not_just_wram() {
+        let mut engine = ScriptEngine::new().expect("engine builds");
+        engine
+            .load(
+                "emu.onFrame(function() \
+                   local wram = emu.read(0x7E0000) \
+                   local mirror = emu.read(0x000100) \
+                   local io_reg = emu.read(0x002140) \
+                   local cart = emu.read(0x808000) \
+                   print(wram, mirror, io_reg, cart) \
+                 end)",
+            )
+            .expect("script loads");
+        let mut sys = System::new(0);
+        engine
+            .on_frame(&mut sys.bus)
+            .expect("reading every bus region must not panic or error");
+        // No cart loaded: I/O register space and cart space both fall back to a defined `0`
+        // (Bus::peek's own documented behavior), same as before this widening for those two
+        // regions -- the new reachability is what this test proves, not a value change here.
+        assert_eq!(engine.drain_log(), vec!["0\t0\t0\t0"]);
     }
 
     #[test]
