@@ -1,0 +1,44 @@
+[package]
+name = "rustysnes-mobile"
+description = "RustySNES: UniFFI mobile bridge (Kotlin/Swift bindings over the emulation core)"
+version = "1.13.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords = ["snes", "emulator", "mobile", "uniffi", "android"]
+categories = ["emulators", "games"]
+
+[lib]
+# `cdylib` is what Android's JNI loader (`System.loadLibrary`) and iOS's `.xcframework` packaging
+# both need; `staticlib` covers iOS static linking; `rlib` keeps normal crate-graph testing/
+# `cargo test` on the host working without a mobile toolchain.
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[features]
+# Opt-in only (found in review, PR #99): the `uniffi-bindgen` binary (`src/bin/uniffi-bindgen.rs`)
+# needs `uniffi`'s `cli` feature (pulls in `askama`/`clap`/`goblin` -- host-only binding-generator
+# tooling, never invoked at runtime on a mobile device). Gating it behind this feature keeps every
+# real mobile build (Android/iOS `cargo ndk`/`cargo build --target aarch64-apple-ios`, and the
+# `cdylib`/`staticlib` artifacts those produce) off that dependency graph entirely -- only
+# `cargo run -p rustysnes-mobile --features bindgen --bin uniffi-bindgen -- ...` (host tooling)
+# pulls it in.
+bindgen = ["uniffi/cli"]
+
+[[bin]]
+name = "uniffi-bindgen"
+required-features = ["bindgen"]
+
+[lints]
+workspace = true
+
+[dependencies]
+# `default-features = true` (i.e. `std` on) -- `rustysnes_core::facade::EmuCore` is `std`-only
+# (needs `zip` archive extraction), matching `rustysnes-libretro`'s identical dependency shape.
+# Both Android's and iOS's Rust targets are `std`-supporting Tier 2/3 targets, not bare-metal, so
+# there is no `no_std` constraint here the way there is for the chip crates.
+rustysnes-core = { path = "../rustysnes-core", version = "1.4.0" }
+rustysnes-cart = { path = "../rustysnes-cart", version = "1.4.0" }
+uniffi = "0.29"
+thiserror = "2.0"

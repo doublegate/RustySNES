@@ -311,8 +311,10 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   and HD texture packs — the three items originally deferred here — all shipped in `v1.2.0`/
   `v1.3.0` above (see `to-dos/VERSION-PLAN.md`'s "Post-v1.0 — Reach"). What's still genuinely open:
   the SPC7110/PAL/ExLoROM/ST018/S-RTC real-ROM-validation gaps (all ROM-sourcing-blocked, tracked
-  in `docs/rom-test-corpus.md`) and any future mobile/Android target (no appetite assumed by
-  default). Movies/scripting/RetroAchievements/rewind-recording on `emu-thread` are reclassified
+  in `docs/rom-test-corpus.md`). The mobile/Android + iOS target — previously "no appetite
+  assumed by default" here — is now explicitly in scope as of `v1.14.0 "Foundry"`; see the
+  RustyNES-parity ladder entry below and `docs/adr/0012-mobile-platform-target.md`.
+  Movies/scripting/RetroAchievements/rewind-recording on `emu-thread` are reclassified
   as an intentional, permanent architecture boundary rather than a remaining gap — confirmed by
   directly reading RustyNES's own mature `emu_thread.rs`, which doesn't port any of these to its
   thread either. None of the still-open items currently gate a numbered rung — they're an ongoing,
@@ -341,9 +343,13 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   **RELEASED 2026-07-12** — `AppTheme::HighContrast`/`Colorblind`; the plan's other two items,
   a save-state migration fixture and a keyboard-nav audit, were investigated and found to already
   be a verified-non-issue and a manual-walkthrough task respectively, not code fixes — both
-  honestly re-scoped rather than force-fit), then a
-  full mobile track — Android + iOS apps plus dormant monetization scaffolding
-  (`v1.14.0`-`v1.18.0`) — and a PGO/BOLT pipeline last (`v1.19.0`). Tracked in lockstep against
+  honestly re-scoped rather than force-fit), then the mobile track's bridge foundations
+  (`v1.14.0 "Foundry"` — new `rustysnes-mobile` `UniFFI` crate over the same `EmuCore` facade the
+  desktop frontend uses; verified for real with a genuine `cargo ndk` ARM64 cross-compile and
+  inspected Kotlin/Swift binding output, not just claimed; the mobile/Android+iOS "no appetite"
+  default from `v1.0.0` is formally reversed, `docs/adr/0012`) — with
+  the rest of the mobile track — Android + iOS apps plus dormant monetization scaffolding
+  (`v1.15.0`-`v1.18.0`) — and a PGO/BOLT pipeline last (`v1.19.0`). Tracked in lockstep against
   RustyNES's own continuing development via `to-dos/LOCKSTEP-CHECKLIST.md`, not a frozen
   snapshot target. Full detail in `to-dos/VERSION-PLAN.md`'s "RustyNES-parity ladder" section.
 - **Flagged by the 2026-07-12 lockstep re-check — no rung assigned yet, maintainer go/no-go
