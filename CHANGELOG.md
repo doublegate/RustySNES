@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.0] "Sideload" - 2026-07-12
+
+Eleventh release of the RustyNES-parity roadmap: Mobile Phase 2, a real Android alpha.
+
 ### Added
 
 - **New crate `rustysnes-android`** (Mobile Phase 2, `v1.15.0 "Sideload"`): a presentation-only
@@ -44,6 +48,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   emission the software rasterizer can't handle, taking the whole emulator process down). Real
   hardware Vulkan drivers don't hit this path; disabled both flags explicitly since real devices
   ship a hardware driver, not a software one.
+- **A premature `ANativeWindow` release**: `Renderer` now keeps a cloned `NativeWindow` handle
+  alive for its own lifetime, fixing a real use-after-free-adjacent bug where the window's
+  refcount could be released while the `wgpu::Surface` built from it was still in use (found in
+  PR review).
+- **A per-frame allocation on the render hot path**: `nativePresentFrame` now copies into a
+  reused scratch buffer via `get_byte_array_region` instead of `convert_byte_array`, which
+  always allocated a fresh `Vec` every frame.
+- **A `u32` overflow ordering bug** in `Renderer::present`'s bounds check, and a genuine
+  `AudioTrack` cross-thread visibility bug (`@Volatile` was missing), both found in PR review.
+- **ROM loading off the main thread**: `MainActivity.loadRom` now runs on
+  `lifecycleScope.launch(Dispatchers.IO)` — previously ran synchronously on the UI thread, a
+  real ANR risk for larger ROMs.
+- **The frame loop and audio no longer keep running while backgrounded**: both now pause on
+  `onPause`/surface-destroyed and resume on `onResume`/surface-reattach if a ROM is loaded —
+  previously kept spinning (and could keep playing audio) after the surface became invalid.
 
 ### Deferred (honestly scoped, matching the "Minimal real MVP now" decision for this rung)
 
