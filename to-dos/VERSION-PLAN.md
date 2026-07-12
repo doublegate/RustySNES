@@ -918,7 +918,7 @@ Save-states, rewind, run-ahead, cheats, netplay, native RetroAchievements (login
 Libretro, CRT/HQx filters, and Mouse/Super Scope/Multitap peripherals are already at parity with
 RustyNES and are explicitly NOT rebuilt anywhere in this ladder.
 
-### `v1.5.0 "Bedrock"` — CI safety net — **IN PROGRESS**
+### `v1.5.0 "Bedrock"` — CI safety net — **RELEASED 2026-07-11**
 
 The highest-leverage fix, done first: PR-time CI never ran `cargo test` (`full-test`/`no_std`/
 `bench` were tag-only), relying entirely on `CONTRIBUTING.md`'s manual pre-push checklist as the
@@ -943,7 +943,7 @@ squash-merge. `gemini-code-assist` hit its daily quota limit and did not review 
 not blocked on (quota resets are out of this project's control; the ceremony proceeds with
 whichever bots actually respond).
 
-### `v1.6.0 "Lighthouse"` — docs site, PWA, accuracy-ledger
+### `v1.6.0 "Lighthouse"` — docs site, PWA, accuracy-ledger — **RELEASED 2026-07-11**
 
 MkDocs handbook over the existing `docs/` tree; a combined `web.yml` replacing `pages.yml` (wasm
 demo at `/`, rustdoc at `/api/`, MkDocs at `/docs/`, a `<5MiB` gzip size-budget gate); a
@@ -1043,7 +1043,7 @@ the on-screen render, flagged honestly rather than assumed.
   compile, `cargo test -p rustysnes-frontend` — 61 tests, all green) — this sandbox has the exact
   pinned `1.96` toolchain, so these run for real, not just left to CI.
 
-### `v1.9.0 "Marionette"` — Lua scripting bus-widening
+### `v1.9.0 "Marionette"` — Lua scripting bus-widening — **RELEASED 2026-07-12**
 
 Widens `rustysnes-script`'s `emu.read` from `Bus::peek_wram` (WRAM-only) to `Bus::peek` (the full
 24-bit bus — WRAM, cart ROM/SRAM; I/O register space still reads back as `0`, matching the
