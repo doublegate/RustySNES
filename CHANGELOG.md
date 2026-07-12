@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] "Podium" - 2026-07-12
+
+Seventh release of the RustyNES-parity roadmap: RetroAchievements never loaded a game.
+
 ### Fixed
 
 - **RetroAchievements never actually loaded a game.** No code path ever called

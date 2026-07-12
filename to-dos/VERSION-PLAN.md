@@ -1093,7 +1093,7 @@ run-ahead branch's existing pattern.
   rung, not blocking this one (run-ahead and HD-pack are each off by default; the narrow
   intersection of both enabled together is the only affected case).
 
-### `v1.11.0 "Podium"` — RetroAchievements: the game was never actually loaded
+### `v1.11.0 "Podium"` — RetroAchievements: the game was never actually loaded — **RELEASED 2026-07-12**
 
 Found during scoping, not in the original plan: **no code path ever called
 `RaClient::begin_load_game`.** Login worked, `CheevosState::do_frame` ran every emulated frame,

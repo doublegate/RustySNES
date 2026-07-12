@@ -328,9 +328,12 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   editing honestly deferred to a later, explicitly-scoped release), HD-pack `emu-thread` wiring
   (`v1.10.0 "Atelier"`, **RELEASED 2026-07-12** — the threaded build now composites an active
   HD-pack instead of silently rendering native art; the in-app Builder GUI itself and run-ahead
-  compositing both honestly deferred), RetroAchievements hardcore/leaderboard/rich-presence
-  (`v1.11.0`), a deeper shader/NTSC ladder (`v1.12.0`), accessibility/theming + save-state
-  polish (`v1.13.0`), then a
+  compositing both honestly deferred), RetroAchievements game-load fix (`v1.11.0 "Podium"`,
+  **RELEASED 2026-07-12** — no code path ever called `RaClient::begin_load_game`, so achievements
+  could never actually trigger despite login/`do_frame`/toast plumbing all being wired up; the
+  originally-planned hardcore mode/leaderboard/rich-presence UI was meaningless without this
+  prerequisite fix landing first, so it's deferred to a later rung instead), a deeper shader/NTSC
+  ladder (`v1.12.0`), accessibility/theming + save-state polish (`v1.13.0`), then a
   full mobile track — Android + iOS apps plus dormant monetization scaffolding
   (`v1.14.0`-`v1.18.0`) — and a PGO/BOLT pipeline last (`v1.19.0`). Tracked in lockstep against
   RustyNES's own continuing development via `to-dos/LOCKSTEP-CHECKLIST.md`, not a frozen
