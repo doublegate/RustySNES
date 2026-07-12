@@ -1120,12 +1120,22 @@ so the fix is observably verifiable end-to-end, not just type-checked.
   after the ROM-change wiring already ran once at startup). The common path (launch, log in, then
   open a ROM via the File menu) is unaffected. See `cheevos.rs`'s module doc.
 
-### `v1.12.0 "Refraction"` — shader/NTSC ladder depth
+### `v1.12.0 "Refraction"` — shader/NTSC ladder depth — **RELEASED 2026-07-12**
 
-New `rustysnes-gfx-shaders` crate (extracts `gfx.rs`'s inline WGSL byte-identically — later reused
-as-is by the mobile track, `v1.14.0`); xBRZ upscaling; `.slangp`/`.cgp` shader-preset import; one
-optional composite/RF post-pass, explicitly scoped as *not* a port of RustyNES's NES-specific
-dot-crawl ladder (SNES has no equivalent dot-clock-subsampling artifact to exploit).
+Delivered: a third `PostFilter::Xbrz` variant (a single-pass, context-aware corner-rounding
+blend — an xBRZ-*style* approximation of the algorithm's corner rule, gating `Hqx`'s 2x2 corner
+blend by a wider 4x4-neighborhood confidence check, not a literal multi-pass xBRZ port); the new
+`rustysnes-gfx-shaders` crate (extracts `gfx.rs`'s inline WGSL byte-identically, verified via a
+script diff against the pre-extraction source — later reused as-is by the mobile track,
+`v1.14.0`).
+
+**Deferred** (unrevisited from `v1.2.0`'s original scope call, not a new finding this release):
+RetroArch `.slangp`/`.cgp` shader-preset import, and the optional composite/RF post-pass
+explicitly scoped as *not* a port of RustyNES's NES-specific dot-crawl ladder (SNES has no
+equivalent dot-clock-subsampling artifact to exploit). A real xBRZ implementation (the literal
+multi-pass algorithm, not this release's single-pass GPU approximation) was considered and
+deferred — the single-pass shader approximation was judged the honestly-testable, right-sized
+scope for a presentation-only, non-accuracy-critical feature.
 
 ### `v1.13.0 "Vantage"` — accessibility/theming + save-state polish
 

@@ -332,8 +332,12 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   **RELEASED 2026-07-12** — no code path ever called `RaClient::begin_load_game`, so achievements
   could never actually trigger despite login/`do_frame`/toast plumbing all being wired up; the
   originally-planned hardcore mode/leaderboard/rich-presence UI was meaningless without this
-  prerequisite fix landing first, so it's deferred to a later rung instead), a deeper shader/NTSC
-  ladder (`v1.12.0`), accessibility/theming + save-state polish (`v1.13.0`), then a
+  prerequisite fix landing first, so it's deferred to a later rung instead), a third post-filter
+  plus a shader-crate extraction (`v1.12.0 "Refraction"`, **RELEASED 2026-07-12** —
+  `PostFilter::Xbrz`, an xBRZ-style context-gated corner blend, and the new `rustysnes-gfx-shaders`
+  crate housing `BLIT_WGSL`/`CRT_WGSL`/`HQX_WGSL`/`XBRZ_WGSL` for reuse by the mobile track;
+  `.slangp`/`.cgp` import and a composite/RF post-pass remain deferred, unrevisited from `v1.2.0`'s
+  original scope call), accessibility/theming + save-state polish (`v1.13.0`), then a
   full mobile track — Android + iOS apps plus dormant monetization scaffolding
   (`v1.14.0`-`v1.18.0`) — and a PGO/BOLT pipeline last (`v1.19.0`). Tracked in lockstep against
   RustyNES's own continuing development via `to-dos/LOCKSTEP-CHECKLIST.md`, not a frozen

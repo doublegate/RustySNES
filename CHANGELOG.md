@@ -9,15 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] "Refraction" - 2026-07-12
+
+Eighth release of the RustyNES-parity roadmap: a third post-filter, and a shader-source crate
+extraction that sets up the mobile track.
+
 ### Added
 
-- **A third presentation post-filter, `PostFilter::Xbrz`** (`v1.12.0 "Refraction"`): a
-  single-pass, context-aware corner-rounding blend — an xBRZ-style *approximation* of the
-  algorithm's corner rule (not a literal multi-pass xBRZ port). It blends the same 2x2 corner
-  `PostFilter::Hqx` does, but reads a wider 4x4 neighborhood and only commits to the full
-  diagonal pull when the outward context agrees the edge is a genuine corner, not isolated-pixel
-  noise. One strength slider (`config.video.xbrz_strength`, default `0.6`), selectable from
-  Settings → Video and the View → Post-filter submenu, same as `Crt`/`Hqx`.
+- **A third presentation post-filter, `PostFilter::Xbrz`**: a single-pass, context-aware
+  corner-rounding blend — an xBRZ-style *approximation* of the algorithm's corner rule (not a
+  literal multi-pass xBRZ port). It blends the same 2x2 corner `PostFilter::Hqx` does, but reads
+  a wider 4x4 neighborhood and only commits to the full diagonal pull when the outward context
+  agrees the edge is a genuine corner, not isolated-pixel noise. One strength slider
+  (`config.video.xbrz_strength`, default `0.6`), selectable from Settings → Video and the View →
+  Post-filter submenu, same as `Crt`/`Hqx`.
 - **New `rustysnes-gfx-shaders` crate**: the `BLIT_WGSL`/`CRT_WGSL`/`HQX_WGSL` shader sources
   moved out of `rustysnes-frontend::gfx`, byte-identical, alongside the new `XBRZ_WGSL` — so the
   planned `rustysnes-mobile` bridge (`v1.14.0 "Foundry"`) can reuse the exact shader strings
