@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] "Atelier" - 2026-07-12
+
+Sixth release of the RustyNES-parity roadmap: HD-pack `emu-thread` wiring.
+
 ### Fixed
 
 - **HD texture packs (`v1.3.0`) were never wired into the `emu-thread` build** —
