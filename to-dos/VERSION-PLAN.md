@@ -1137,12 +1137,24 @@ multi-pass algorithm, not this release's single-pass GPU approximation) was cons
 deferred — the single-pass shader approximation was judged the honestly-testable, right-sized
 scope for a presentation-only, non-accuracy-critical feature.
 
-### `v1.13.0 "Vantage"` — accessibility/theming + save-state polish
+### `v1.13.0 "Vantage"` — accessibility/theming + save-state polish — **RELEASED 2026-07-12**
 
-`HighContrast` + Okabe-Ito colorblind-safe themes; a keyboard-only-navigation audit across every UI
-surface added since `v1.7.0` (scheduled last among desktop rungs so the audit covers the final
-surface); a save-state versioned-migration regression fixture (the one real save-state gap found —
-the 10-slot/thumbnail UI itself is already at parity).
+Delivered: `AppTheme::HighContrast` (WCAG AA/AAA dark theme) + `AppTheme::Colorblind`
+(Okabe-Ito-accented dark theme), both additive and regression-tested against the stock dark
+theme.
+
+**Honestly re-scoped, not silently dropped**: the other two originally-planned items here were
+investigated and neither fit a discrete code change. The "save-state versioned-migration
+regression fixture... the one real save-state gap found" premise was stale —
+`System::load_state` was always designed to fail loudly on an older-format blob (never to
+migrate one), by deliberate choice recorded since the `FORMAT_VERSION` `2`/`3` bumps, and a
+regression fixture proving exactly that has existed since `v0.7.0`
+(`save_state_backward_compat.rs`). Closed as verified-non-issue; the 10-slot/thumbnail Save
+States manager itself is already at full parity. The keyboard-only-navigation audit was found to
+be a manual-walkthrough task, not a bug with a discrete fix (egui's own default Tab order is used
+everywhere; nothing custom, nothing known-broken, but nothing walked/confirmed either) —
+documented as an explicit open item in `docs/frontend.md`'s Theme section rather than converted
+into a hollow "audit passed" claim. See `docs/frontend.md` for the full explanation of both.
 
 **Decision-doc rung (small, precedes the mobile track):** reverses this document's own "Post-v1.0
 — Reach (deferred)" no-mobile-appetite line and `docs/frontend.md`'s no-gfx-shaders-crate
