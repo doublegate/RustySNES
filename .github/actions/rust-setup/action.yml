@@ -30,7 +30,11 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: dtolnay/rust-toolchain@master
+    # Pinned to the same `@1.96` ref this repo's workflows already used pre-`v1.5.0` (not
+    # `@master`, which floats the ACTION's own implementation and can change CI behavior out from
+    # under the pinned Rust toolchain input below without warning — caught in PR review). The
+    # `toolchain:` input still wins over whatever default this ref's snapshot implies.
+    - uses: dtolnay/rust-toolchain@1.96
       with:
         toolchain: ${{ inputs.toolchain }}
         components: ${{ inputs.components }}
@@ -41,7 +45,11 @@ runs:
     - name: Install Linux frontend system deps
       if: inputs.linux-frontend-deps == 'true' && runner.os == 'Linux'
       shell: bash
+      # Full union of CONTRIBUTING.md's documented Debian/Ubuntu list and every package the
+      # pre-`v1.5.0` per-job install steps actually used — `libxkbcommon-x11-dev` was missing here
+      # (present in CONTRIBUTING.md but not in the old inline steps this action replaces; caught in
+      # PR review) and is needed for X11 builds on Ubuntu runners.
       run: |
         sudo apt-get update
-        sudo apt-get install -y libxkbcommon-dev libwayland-dev libasound2-dev \
-          libudev-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+        sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+          libasound2-dev libudev-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
