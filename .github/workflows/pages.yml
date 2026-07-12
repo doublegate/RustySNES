@@ -22,16 +22,10 @@ jobs:
       - uses: actions/checkout@v7
       # Build the wasm demo (trunk) at / and the rustdoc at /api/, then deploy ONE artifact.
       # GOTCHA: keep crates/rustysnes-frontend/web/Trunk.toml's wasm-bindgen pin == Cargo.lock library version.
-      - uses: dtolnay/rust-toolchain@master
+      - uses: ./.github/actions/rust-setup
         with:
-          toolchain: 1.96
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - name: Install Linux frontend system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libwayland-dev libasound2-dev \
-            libudev-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+          linux-frontend-deps: "true"
       # Prebuilt binary download instead of `cargo install trunk --locked` (which compiled trunk
       # + its whole dependency tree from source on every single run — minutes of pure setup cost
       # for a tool whose own source never changes here).

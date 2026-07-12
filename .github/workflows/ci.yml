@@ -4,27 +4,85 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
+  schedule:
+    # Weekly drift net (v1.5.0 "Bedrock"): catches a regression in a dependency/toolchain/ROM-corpus
+    # change that landed without a matching code diff to trigger the push/pull_request triggers
+    # above. Offset from security.yml's own Monday-00:00-UTC cron to spread runner load.
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
 permissions:
   contents: read
 # Cancel a superseded run (a new push to the same PR/branch) instead of letting stale, already-
 # obsolete runs burn minutes to completion — the single biggest per-PR cost lever besides scoping
-# the full battery to tags (below).
+# the full battery to tags/main/schedule (below).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  # Fast gate: every PR event (opened/synchronize/...) and every push to `main`. Formatting +
-  # lint only (Linux) — the full test suite, the 3-OS matrix, the doc build, and the no_std build
-  # are reserved for release-tag pushes (`full-test` / `no_std` below) so PR/push CI stays quick.
-  # NOTE: a bare push to a feature branch with no open PR does NOT trigger this (the `push`
-  # trigger above is scoped to `branches: [main]` + tag pushes) — every commit on a PR branch
-  # still runs it via the `pull_request` `synchronize` event, so this is a non-issue in practice
-  # for this project's branch-then-PR workflow, but don't rely on push-to-feature-branch CI.
-  # The tradeoff: a broken PR is only caught by the full battery at the next tag, not on every
-  # merge — accepted deliberately to keep iteration fast; the human-run pre-merge verification
-  # gate (AGENTS.md) already covers the same ground per-PR before this even runs.
+  # v1.5.0 "Bedrock": detect doc-only changes so the expensive jobs below can skip cleanly on a
+  # pure-docs PR/push instead of burning minutes proving nothing changed. NOT a strict inversion of
+  # security.yml's paths-ignore list (caught in PR review) — this is a curated, narrower positive
+  # list of the specific paths that can affect a Rust build/lint/test/CI outcome, so it stays
+  # correct even if security.yml's own ignore list grows for unrelated (e.g. asset) reasons.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - "crates/**"
+              - "tests/**"
+              - "scripts/**"
+              - "Cargo.toml"
+              - "Cargo.lock"
+              - "rust-toolchain.toml"
+              - ".cargo/**"
+              - ".github/workflows/**"
+              - ".github/actions/**"
+
+  # v1.5.0 "Bedrock": one place that decides "light" (PR / feature-branch push: fast gate only) vs
+  # "full" (push to main, a release tag, the weekly cron, or a manual dispatch: the complete
+  # battery) — mirrors RustyNES's own `changes`/`setup` split. Always-scheduled/dispatched/tag/main
+  # runs are treated as "full" even on a doc-only diff (`always_full`), since a manual/scheduled
+  # run's whole point is a from-scratch verification, not an incremental one.
+  setup:
+    needs: changes
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+    steps:
+      - id: mode
+        run: |
+          always_full=false
+          if [[ "${{ github.event_name }}" == "schedule" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            always_full=true
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            always_full=true
+          elif [[ "${{ github.ref }}" == "refs/heads/main" && "${{ github.event_name }}" == "push" ]]; then
+            always_full=true
+          fi
+          if [[ "$always_full" == "true" ]]; then
+            echo "mode=full" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ needs.changes.outputs.code }}" == "true" ]]; then
+            echo "mode=light" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=skip" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Fast gate: every PR event and every push to `main` with code changes. Formatting + lint
+  # (Linux only) — the 3-OS matrix, the doc build's cross-platform legs, and the no_std/bench gates
+  # stay reserved for `full` mode (below) so PR iteration stays quick. The tradeoff (a broken PR is
+  # only caught by the FULL battery at merge-to-main/tag, not on every single push) is deliberate;
+  # `test-light` below closes the specific gap that tradeoff used to leave (PR-time `cargo test`
+  # never running at all, relying solely on CONTRIBUTING.md's manual pre-push checklist).
   lint:
-    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+    needs: setup
+    if: needs.setup.outputs.mode != 'skip'
     env:
       CARGO_NET_RETRY: "10"
       CARGO_HTTP_MULTIPLEXING: "false"
@@ -35,16 +93,10 @@ jobs:
       # command in this job) — installing the wasm32/thumbv7em cross targets bought nothing but
       # setup time on every single PR push. Only `no_std` (which actually cross-compiles) needs
       # thumbv7em-none-eabihf; nothing in ci.yml builds for wasm32 (that's `pages.yml`'s job).
-      - uses: dtolnay/rust-toolchain@1.96
+      - uses: ./.github/actions/rust-setup
         with:
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      # The egui/winit frontend links against X11/Wayland/ALSA on Linux (see CONTRIBUTING.md).
-      - name: Install Linux frontend system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libwayland-dev libasound2-dev \
-            libudev-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+          linux-frontend-deps: "true"
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       # Explicit flags-off byte-identical gate (`v0.8.0` T-81-004): `default` is currently
@@ -85,10 +137,32 @@ jobs:
       # intra-doc links and rustdoc-specific warnings clippy's own lints don't cover.
       - run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 
-  # Full gate: release-tag pushes ONLY (`v*`). The complete verification battery — the 3-OS
-  # matrix, both test invocations, and the doc-warnings gate.
+  # v1.5.0 "Bedrock": the actual gap this release closes. Previously `cargo test --workspace` ran
+  # ONLY on a tagged release (`full-test` below) — every PR/push-to-main merged on `lint`'s
+  # fmt+clippy alone, trusting CONTRIBUTING.md's manual pre-push "Quality gate" checklist to have
+  # been run by hand. This job makes that check programmatic without the cost of `full-test`'s 3-OS
+  # release-mode matrix: one fast, cached, debug-mode, Linux-only `cargo test` pass, every PR/push.
+  test-light:
+    needs: setup
+    if: needs.setup.outputs.mode != 'skip'
+    env:
+      CARGO_NET_RETRY: "10"
+      CARGO_HTTP_MULTIPLEXING: "false"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/rust-setup
+        with:
+          cache-key-suffix: test-light
+          linux-frontend-deps: "true"
+      - run: cargo test --workspace
+
+  # Full gate: release-tag pushes, a push to `main`, the weekly cron, or a manual dispatch — see
+  # `setup` above. The complete verification battery — the 3-OS matrix, both test invocations, and
+  # the doc-warnings gate.
   full-test:
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: setup
+    if: needs.setup.outputs.mode == 'full'
     env:
       CARGO_NET_RETRY: "10"
       CARGO_HTTP_MULTIPLEXING: "false"
@@ -100,18 +174,11 @@ jobs:
       - uses: actions/checkout@v7
       # Same rationale as `lint`: neither fmt nor clippy nor `cargo test` cross-compiles here, so
       # no extra targets are installed.
-      - uses: dtolnay/rust-toolchain@1.96
+      - uses: ./.github/actions/rust-setup
         with:
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: full-test-${{ matrix.os }}
-      - name: Install Linux frontend system deps
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libwayland-dev libasound2-dev \
-            libudev-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+          cache-key-suffix: full-test-${{ matrix.os }}
+          linux-frontend-deps: "true"
       # Formatting is platform-independent (pure source-text parsing) — one leg is enough.
       - run: cargo fmt --all --check
         if: runner.os == 'Linux'
@@ -136,37 +203,60 @@ jobs:
       - run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
         if: runner.os == 'Linux'
 
-  # Release-tag pushes ONLY — see `lint` above for why this doesn't run on every PR/push.
+  # Full-gate cadence only (see `setup` above) — cross-compiling the whole chip stack is cheap but
+  # doesn't need to happen on every single PR push.
   no_std:
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: setup
+    if: needs.setup.outputs.mode == 'full'
     env:
       CARGO_NET_RETRY: "10"
       CARGO_HTTP_MULTIPLEXING: "false"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.96
+      - uses: ./.github/actions/rust-setup
         with:
           targets: thumbv7em-none-eabihf
-      - uses: Swatinem/rust-cache@v2
+          cache-key-suffix: no_std
       - run: cargo build -p rustysnes-core --target thumbv7em-none-eabihf --no-default-features
 
-  # Release-tag pushes ONLY (`v1.0.0`): a release-mode Criterion build + run is too costly for
-  # every PR push, and the frame-time gate is an absolute ceiling that only needs to hold at
-  # release, not on every iteration — see `lint` above for the same rationale applied to
-  # `full-test`/`no_std`. Ported from RustyNES's own `bench` job
+  # Full-gate cadence only (`v1.0.0`): a release-mode Criterion build + run is too costly for every
+  # PR push, and the frame-time gate is an absolute ceiling that only needs to hold at
+  # release/main/cron cadence, not on every iteration. Ported from RustyNES's own `bench` job
   # (`scripts/bench_regression_check.sh` + `docs/performance.md`).
   bench:
     name: frame-time regression gate
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: setup
+    if: needs.setup.outputs.mode == 'full'
     env:
       CARGO_NET_RETRY: "10"
       CARGO_HTTP_MULTIPLEXING: "false"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.96
-      - uses: Swatinem/rust-cache@v2
       # The `rustysnes-core` `headless_frame` bench is chip-stack-only (no wgpu/winit/egui), so
       # no Linux frontend system deps are needed here (unlike `lint`/`full-test`).
+      - uses: ./.github/actions/rust-setup
+        with:
+          cache-key-suffix: bench
       - run: ./scripts/bench_regression_check.sh
+
+  # v1.5.0 "Bedrock": the one stable required-check name branch protection points at
+  # (`docs/adr/0011`). Individual jobs above are conditionally skipped depending on `setup`'s mode,
+  # which makes them unsuitable to require directly (a skipped required check blocks merging
+  # forever). This job succeeds iff every job it depends on either succeeded or was cleanly
+  # skipped, and fails if any of them failed or were cancelled.
+  ci-success:
+    if: always()
+    needs: [changes, setup, lint, test-light, full-test, no_std, bench]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all required jobs
+        run: |
+          echo '${{ toJSON(needs) }}'
+          for result in $(echo '${{ toJSON(needs.*.result) }}' | jq -r '.[]'); do
+            if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+              echo "::error::A required job did not succeed (result: $result)"
+              exit 1
+            fi
+          done
