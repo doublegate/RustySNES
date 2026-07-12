@@ -1,7 +1,7 @@
 [package]
 name = "rustysnes-netplay"
 description = "RustySNES: GGPO-style rollback netplay (UDP native, WebRTC browser)"
-version = "1.15.0"
+version = "1.16.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
