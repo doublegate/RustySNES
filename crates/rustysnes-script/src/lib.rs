@@ -263,36 +263,37 @@ mod tests {
         assert_eq!(sys.bus.peek_wram(0x7E_0010), 42);
     }
 
-    /// `v1.9.0 "Marionette"`: `emu.read` now reaches [`Bus::peek`] (the full 24-bit bus), not
-    /// just [`Bus::poke_wram`]'s WRAM-only reach — this exercises addresses in every region
-    /// `Bus::peek` itself distinguishes (WRAM proper, the WRAM mirror, I/O register space, and
-    /// cart/ROM space with no cart loaded) and asserts none of them panic or error, matching
-    /// `Bus::peek`'s own documented "always returns a defined byte, never traps" contract. The
-    /// exact returned *value* for cart space with a real ROM loaded is `Bus::peek`'s own
-    /// responsibility to get right (covered by `rustysnes-core`'s test suite) — this test's job
-    /// is only that the wider address range is now reachable through the script API at all.
+    /// `v1.9.0 "Marionette"`: `emu.read` now reaches [`Bus::peek`] (the full 24-bit bus,
+    /// including cart ROM) instead of [`Bus::peek_wram`] (WRAM-only). Installs a minimal
+    /// synthetic LoROM cart (same construction `rustysnes-cart`'s own
+    /// `load_lorom_and_sram_roundtrip` test uses) with a known non-zero byte at a cart-space
+    /// address, and asserts `emu.read` returns that real ROM byte. Under the pre-`v1.9.0`
+    /// `Bus::peek_wram`-only implementation this address falls outside WRAM and `peek_wram`
+    /// returns `0` regardless of cart state, so this test genuinely fails under the old
+    /// implementation rather than merely exercising the widened address range.
     #[test]
-    fn read_reaches_the_full_24_bit_bus_not_just_wram() {
+    fn read_reaches_cart_rom_space_not_just_wram() {
+        use rustysnes_core::cart::Cart;
+
+        let mut rom = vec![0u8; 0x1_0000];
+        let base = 0x7FC0;
+        rom[base + 0x15] = 0x20; // LoROM, slow
+        rom[base + 0x19] = 0x01; // North America / NTSC
+        let checksum: u16 = 0x4321;
+        rom[base + 0x1C..base + 0x1E].copy_from_slice(&(!checksum).to_le_bytes());
+        rom[base + 0x1E..base + 0x20].copy_from_slice(&checksum.to_le_bytes());
+        rom[0x1234] = 0x5A; // a distinctive ROM byte, at bank $00:$9234 ($8000 + 0x1234)
+
         let mut engine = ScriptEngine::new().expect("engine builds");
         engine
-            .load(
-                "emu.onFrame(function() \
-                   local wram = emu.read(0x7E0000) \
-                   local mirror = emu.read(0x000100) \
-                   local io_reg = emu.read(0x002140) \
-                   local cart = emu.read(0x808000) \
-                   print(wram, mirror, io_reg, cart) \
-                 end)",
-            )
+            .load("emu.onFrame(function() print(emu.read(0x009234)) end)")
             .expect("script loads");
         let mut sys = System::new(0);
+        sys.bus.cart = Some(Cart::from_rom(&rom).expect("valid synthetic lorom"));
         engine
             .on_frame(&mut sys.bus)
-            .expect("reading every bus region must not panic or error");
-        // No cart loaded: I/O register space and cart space both fall back to a defined `0`
-        // (Bus::peek's own documented behavior), same as before this widening for those two
-        // regions -- the new reachability is what this test proves, not a value change here.
-        assert_eq!(engine.drain_log(), vec!["0\t0\t0\t0"]);
+            .expect("reading cart-space must not panic or error");
+        assert_eq!(engine.drain_log(), vec!["90"]); // 0x5A decimal
     }
 
     #[test]
