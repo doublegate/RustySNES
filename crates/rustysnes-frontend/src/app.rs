@@ -1428,6 +1428,23 @@ impl App {
                             if let Some(name) = config.video.hd_pack_name.as_deref() {
                                 let _ = emu.set_hd_pack(Some(name));
                             }
+                            // `v1.11.0 "Podium"`: identify + load the new ROM's achievement set
+                            // (a no-op if nobody is logged in — see `CheevosState::load_game`'s
+                            // doc for why this call existing anywhere at all is the actual fix).
+                            // Found in review (#92): only touch RA when `load_rom_file` actually
+                            // replaced the running ROM -- `load_rom_file`'s one and only success
+                            // path returns a status starting with `"Loaded "`; every failure path
+                            // (a bad file, a rejected header) leaves the PREVIOUSLY-running ROM
+                            // untouched (`EmuCore::load_rom`'s own contract) and `emu.rom_loaded()`
+                            // would still read `true` for that still-running ROM, so gating on
+                            // `rom_loaded()` alone would wrongly unload-then-reload a game that
+                            // never actually changed, dropping achievement tracking for it during
+                            // the round trip.
+                            #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+                            if active.shell.status.starts_with("Loaded ") {
+                                active.cheevos.unload_game();
+                                active.cheevos.load_game(emu.rom());
+                            }
                         }
                         // A new cart invalidates every prior snapshot (rewind ring +
                         // quick-save) — restoring one now would apply a foreign ROM's state to
@@ -1445,6 +1462,8 @@ impl App {
                     active.shell.status = "ROM closed".into();
                     active.rewind.clear();
                     active.quick_save = None;
+                    #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+                    active.cheevos.unload_game();
                 }
                 #[cfg(feature = "hd-pack")]
                 MenuAction::SetHdPack(name) => {
