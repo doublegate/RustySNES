@@ -111,6 +111,13 @@ impl CheevosState {
         if self.user.is_none() {
             return;
         }
+        // Found in review (#92): re-allocate the slot itself (not just clear its contents)
+        // before starting a new load. A ROM swapped again before the previous load's completion
+        // fires would otherwise let that stale callback write into the SAME slot this new load
+        // is about to poll from, surfacing a toast for the wrong game. The stale callback still
+        // holds a clone of the OLD `Rc` and writes to it harmlessly; `self.game_load_result` now
+        // points to a fresh one, so `poll()` never looks at the stale write again.
+        self.game_load_result = Rc::new(RefCell::new(None));
         let slot = Rc::clone(&self.game_load_result);
         client.begin_load_game(rom, move |outcome| {
             *slot.borrow_mut() = Some(outcome);
@@ -124,6 +131,9 @@ impl CheevosState {
         if let Some(client) = &mut self.client {
             client.unload_game();
         }
+        // Found in review (#92): same stale-slot concern as `load_game` -- discard any in-flight
+        // load's eventual completion so it can't surface a toast for a game that was just closed.
+        self.game_load_result = Rc::new(RefCell::new(None));
     }
 
     /// Drain HTTP completions (resolving any in-flight login), and translate newly-fired
@@ -193,6 +203,62 @@ mod tests {
     fn unload_game_is_a_no_op_before_any_login_attempt() {
         let mut state = CheevosState::default();
         state.unload_game(); // must not panic
+    }
+
+    fn fake_user() -> RaUser {
+        RaUser {
+            display_name: "Tester".into(),
+            username: "tester".into(),
+            token: "tok".into(),
+            score: 0,
+            score_softcore: 0,
+        }
+    }
+
+    /// Found in review (#92): a stale in-flight `load_game` completion arriving after a second
+    /// `load_game`/`unload_game` call must not surface a toast for the wrong (already
+    /// superseded) game. Proven directly at the mechanism level (the slot is re-allocated, so a
+    /// write to the OLD `Rc` clone a stale callback would hold is never observed by `poll`)
+    /// rather than by racing `RaClient::begin_load_game`'s real async network call.
+    #[test]
+    fn load_game_reallocates_the_result_slot_to_discard_a_stale_in_flight_callback() {
+        let mut state = CheevosState {
+            client: Some(RaClient::new()),
+            user: Some(fake_user()),
+            ..CheevosState::default()
+        };
+        let stale_slot = Rc::clone(&state.game_load_result);
+        state.load_game(b"a second, superseding rom load");
+        assert!(
+            !Rc::ptr_eq(&stale_slot, &state.game_load_result),
+            "load_game must point game_load_result at a fresh Rc, not reuse the old one"
+        );
+        // Simulate the first load's completion arriving late, after the second load already ran.
+        *stale_slot.borrow_mut() = Some(Err("stale failure for the first ROM".to_string()));
+        let toasts = state.poll();
+        assert!(
+            toasts.iter().all(|t| !t.contains("stale failure")),
+            "a write to the discarded slot must not surface as a toast: {toasts:?}"
+        );
+    }
+
+    #[test]
+    fn unload_game_discards_a_stale_in_flight_load_result() {
+        let mut state = CheevosState {
+            client: Some(RaClient::new()),
+            ..CheevosState::default()
+        };
+        let stale_slot = Rc::clone(&state.game_load_result);
+        state.unload_game();
+        assert!(
+            !Rc::ptr_eq(&stale_slot, &state.game_load_result),
+            "unload_game must point game_load_result at a fresh Rc, not reuse the old one"
+        );
+        *stale_slot.borrow_mut() = Some(Err("stale failure after close".to_string()));
+        assert!(
+            state.poll().is_empty(),
+            "a write to the discarded slot must not surface as a toast after the ROM was closed"
+        );
     }
 
     #[test]
