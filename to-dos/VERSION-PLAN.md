@@ -1061,7 +1061,7 @@ explicitly-scoped release rather than folded into this one. `v1.11.0`'s RetroAch
 hardcore-mode gate still sequences after `v1.9.0` as planned: hardcore only needs to gate the
 *existing* movie record/playback primitives, not a TAStudio UI.
 
-### `v1.10.0 "Atelier"` — HD-pack `emu-thread` wiring
+### `v1.10.0 "Atelier"` — HD-pack `emu-thread` wiring — **RELEASED 2026-07-12**
 
 Wires HD-pack compositing into `emu_thread::drive_one` for the first time — the synchronous
 render path composited an active pack via `hd_compositor::composite` before its own `drop(emu)`

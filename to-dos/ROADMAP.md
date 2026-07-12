@@ -325,9 +325,12 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   scaffold; `v1.8.0`, **RELEASED 2026-07-12**, adds a Memory Compare panel + an in-app
   glossary), Lua scripting bus-widening (`v1.9.0 "Marionette"`, **RELEASED 2026-07-12** —
   `emu.read` now reaches the full 24-bit bus; the wasm `piccolo` backend and TAStudio piano-roll
-  editing honestly deferred to a later, explicitly-scoped release), an HD-pack builder
-  (`v1.10.0`), RetroAchievements hardcore/leaderboard/rich-presence (`v1.11.0`), a deeper
-  shader/NTSC ladder (`v1.12.0`), accessibility/theming + save-state polish (`v1.13.0`), then a
+  editing honestly deferred to a later, explicitly-scoped release), HD-pack `emu-thread` wiring
+  (`v1.10.0 "Atelier"`, **RELEASED 2026-07-12** — the threaded build now composites an active
+  HD-pack instead of silently rendering native art; the in-app Builder GUI itself and run-ahead
+  compositing both honestly deferred), RetroAchievements hardcore/leaderboard/rich-presence
+  (`v1.11.0`), a deeper shader/NTSC ladder (`v1.12.0`), accessibility/theming + save-state
+  polish (`v1.13.0`), then a
   full mobile track — Android + iOS apps plus dormant monetization scaffolding
   (`v1.14.0`-`v1.18.0`) — and a PGO/BOLT pipeline last (`v1.19.0`). Tracked in lockstep against
   RustyNES's own continuing development via `to-dos/LOCKSTEP-CHECKLIST.md`, not a frozen
