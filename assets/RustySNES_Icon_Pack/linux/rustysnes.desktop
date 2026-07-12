@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=RustySNES
+GenericName=SNES Emulator
+Comment=Cycle-accurate Super Nintendo Entertainment System emulator
+Exec=rustysnes %f
+Icon=rustysnes
+Terminal=false
+Categories=Game;Emulator;
+Keywords=SNES;SuperNintendo;Nintendo;emulator;retro;
+MimeType=application/x-snes-rom;

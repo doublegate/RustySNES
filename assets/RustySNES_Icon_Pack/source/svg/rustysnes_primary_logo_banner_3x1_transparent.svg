@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2172" height="724" viewBox="0 0 2172 724">
+  <defs>
+    <radialGradient id="bgGlow" cx="28%" cy="50%" r="85%">
+      <stop offset="0%" stop-color="#101638"/>
+      <stop offset="100%" stop-color="#04050f"/>
+    </radialGradient>
+    <linearGradient id="shellGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4a4a62"/>
+      <stop offset="50%" stop-color="#33334a"/>
+      <stop offset="100%" stop-color="#222235"/>
+    </linearGradient>
+    <linearGradient id="ribGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#57577a"/>
+      <stop offset="100%" stop-color="#3a3a54"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="glowText" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="9" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="glowTrace" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  
+
+  <!-- bold circuit-trace field spanning the right two-thirds -->
+  <g filter="url(#glowTrace)" stroke-linecap="round">
+    <g stroke="#22d3ee" stroke-width="9" fill="none" opacity="0.9">
+      <path d="M1220 70 H1480 L1540 10"/>
+      <path d="M1220 150 H1620"/>
+      <path d="M1300 560 H1460 L1520 620"/>
+      <path d="M1300 640 H1700"/>
+      <path d="M1220 700 H1400 L1460 660"/>
+      <path d="M1850 90 H2050"/>
+      <path d="M1850 660 H2050"/>
+      <path d="M2000 90 V200"/>
+      <path d="M2000 660 V550"/>
+    </g>
+    <g fill="#fb2ee0">
+      <rect x="1527" y="-3" width="26" height="26" transform="rotate(45 1540 10)"/>
+      <rect x="1507" y="607" width="26" height="26" transform="rotate(45 1520 620)"/>
+      <circle cx="1620" cy="150" r="11"/>
+      <circle cx="1700" cy="640" r="11"/>
+      <circle cx="2050" cy="90" r="11"/>
+      <circle cx="2050" cy="660" r="11"/>
+      <circle cx="2000" cy="200" r="11"/>
+      <circle cx="2000" cy="550" r="11"/>
+    </g>
+  </g>
+
+  <!-- cartridge mark, left -->
+  <g transform="translate(48,152) scale(0.42)">
+    <g filter="url(#glow)">
+      <rect x="137" y="310" width="980" height="640" rx="26" fill="url(#shellGrad)" stroke="#22d3ee" stroke-width="17"/>
+    </g>
+    <g fill="url(#ribGrad)">
+      <rect x="160" y="336" width="15" height="588" rx="7"/>
+      <rect x="184" y="336" width="15" height="588" rx="7"/>
+      <rect x="208" y="336" width="15" height="588" rx="7"/>
+      <rect x="232" y="336" width="15" height="588" rx="7"/>
+      <rect x="1079" y="336" width="15" height="588" rx="7"/>
+      <rect x="1055" y="336" width="15" height="588" rx="7"/>
+      <rect x="1031" y="336" width="15" height="588" rx="7"/>
+      <rect x="1007" y="336" width="15" height="588" rx="7"/>
+    </g>
+    <rect x="317" y="360" width="620" height="380" rx="14" fill="#0d0d18" stroke="#46466a" stroke-width="6"/>
+    <rect x="317" y="360" width="620" height="52" rx="14" fill="#c026d3"/>
+    <rect x="317" y="398" width="620" height="14" fill="#c026d3"/>
+    <g font-family="'Press Start 2P'" font-size="196" text-anchor="middle">
+      <text x="497" y="642" fill="#22d3ee">R</text>
+      <text x="700" y="702" fill="#fb2ee0">S</text>
+    </g>
+    <rect x="477" y="795" width="300" height="80" rx="16" fill="#0d0d18"/>
+    <circle cx="360" cy="880" r="22" fill="#14141f" stroke="#57577a" stroke-width="8"/>
+    <circle cx="894" cy="880" r="22" fill="#14141f" stroke="#57577a" stroke-width="8"/>
+  </g>
+
+  <!-- wordmark -->
+  <g font-family="'Press Start 2P'" filter="url(#glowText)">
+    <text x="700" y="370" font-size="120" fill="#e8ecff">Rusty<tspan fill="#22d3ee">SNES</tspan></text>
+  </g>
+  <text x="702" y="450" font-family="'Press Start 2P'" font-size="32" fill="#9aa0cf" letter-spacing="2">
+    PRECISE. PURE. POWERFUL.
+  </text>
+
+  <!-- underline accent -->
+  <rect x="702" y="480" width="640" height="8" fill="#fb2ee0"/>
+</svg>
