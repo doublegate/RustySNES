@@ -18,7 +18,7 @@
 #[cfg(feature = "cheats")]
 use crate::cheats::CheatEntry;
 use crate::config::{Config, Region};
-use crate::debug_snapshot::{DebugSnapshot, WatchpointEntry, WatchpointKind};
+use crate::debug_snapshot::{DebugSnapshot, MEMORY_WINDOW_LEN, WatchpointEntry, WatchpointKind};
 use crate::input::Button;
 use crate::save_states::SlotMeta;
 
@@ -202,6 +202,9 @@ pub struct ShellState {
     /// panel is open, regardless of whether a real measurement exists that present (a paused
     /// present pushes `0.0`, same "no gap in the timeline" convention a real frame-time HUD uses).
     pub frame_time_history: std::collections::VecDeque<f32>,
+    /// The Memory Compare panel's captured baseline (`debug.memory_window` bytes + the address it
+    /// started at), or `None` before the first "Capture baseline" click (`v1.8.0 "Tracepoint"`).
+    pub memcmp_baseline: Option<([u8; MEMORY_WINDOW_LEN], u32)>,
 }
 
 /// `ShellState::frame_time_history`'s cap.

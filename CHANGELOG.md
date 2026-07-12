@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Memory Compare panel** — captures a baseline snapshot of the Memory panel's current window
+  and diffs it against the live window on every frame, showing only the rows that changed
+  (`before -> after` hex). Flags a mismatch instead of a misleading diff if the window has
+  scrolled since the baseline was captured (no scroll control exists yet — same gap the Memory
+  panel itself carries).
+- **Docs panel** — an in-app SNES-terminology glossary (`docs/glossary.md`, embedded via
+  `include_str!`, ~3KB) for quick lookup mid-session, plus a link to the full `MkDocs` handbook
+  (`v1.6.0 "Lighthouse"`). Deliberately scoped to the glossary alone, not the full 10-50KB
+  subsystem-spec docs, to keep wasm size impact negligible (verified: +2KB gzip, still ~2.05 MiB
+  under the 5 MiB budget).
+
+### Deferred (honestly scoped, not silently dropped)
+
+- A call-stack view, an instruction/event trace buffer, and an inline 65816 assembler all need
+  new core-side instrumentation (tracking call/return events or recording a trace log as they
+  happen — not inferable from a point-in-time memory snapshot the way this rung's two panels are).
+  A larger cross-crate change than this rung's frontend-only scope; tracked as follow-up work.
+- A dedicated per-coprocessor-type register panel (DSP-2/4, S-DD1, CX4, OBC1, ST018, S-RTC beyond
+  the SA-1/GSU state the existing Cart panel already shows) needs new `Board`-trait debug-state
+  accessors — also deferred.
+
 ## [1.7.1] - 2026-07-12
 
 Patch release: a single user-reported bugfix, no new scope.
