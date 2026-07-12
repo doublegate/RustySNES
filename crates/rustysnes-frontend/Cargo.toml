@@ -1,7 +1,7 @@
 [package]
 name = "rustysnes-frontend"
 description = "RustySNES: cross-platform SNES emulator binary (winit + wgpu + cpal + egui)"
-version = "1.12.0"
+version = "1.13.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

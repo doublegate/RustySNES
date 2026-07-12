@@ -9,9 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0] "Vantage" - 2026-07-12
+
+Ninth release of the RustyNES-parity roadmap: two accessibility theme variants, plus an honest
+re-scoping of the other two originally-planned items.
+
 ### Added
 
-- **Two accessibility theme variants** (`v1.13.0 "Vantage"`): `AppTheme::HighContrast` (a
+- **Two accessibility theme variants**: `AppTheme::HighContrast` (a
   near-black/near-white theme pushing every foreground/background pair past WCAG 2.1 AA, most
   past AAA) and `AppTheme::Colorblind` (interactive accents drawn from the Okabe-Ito palette,
   mutually distinguishable under the most common red-green color-vision deficiencies), both

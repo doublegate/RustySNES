@@ -337,7 +337,11 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   `PostFilter::Xbrz`, an xBRZ-style context-gated corner blend, and the new `rustysnes-gfx-shaders`
   crate housing `BLIT_WGSL`/`CRT_WGSL`/`HQX_WGSL`/`XBRZ_WGSL` for reuse by the mobile track;
   `.slangp`/`.cgp` import and a composite/RF post-pass remain deferred, unrevisited from `v1.2.0`'s
-  original scope call), accessibility/theming + save-state polish (`v1.13.0`), then a
+  original scope call), two accessibility theme variants (`v1.13.0 "Vantage"`,
+  **RELEASED 2026-07-12** — `AppTheme::HighContrast`/`Colorblind`; the plan's other two items,
+  a save-state migration fixture and a keyboard-nav audit, were investigated and found to already
+  be a verified-non-issue and a manual-walkthrough task respectively, not code fixes — both
+  honestly re-scoped rather than force-fit), then a
   full mobile track — Android + iOS apps plus dormant monetization scaffolding
   (`v1.14.0`-`v1.18.0`) — and a PGO/BOLT pipeline last (`v1.19.0`). Tracked in lockstep against
   RustyNES's own continuing development via `to-dos/LOCKSTEP-CHECKLIST.md`, not a frozen
