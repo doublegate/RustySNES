@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Lua scripting: full-bus reads** — `rustysnes-script`'s `emu.read(addr)` now reaches
+  [`Bus::peek`] (the full 24-bit bus: WRAM, cart ROM/SRAM; I/O register space still reads back as
+  `0`, `Bus::peek`'s own documented behavior, matching the debugger's Memory panel), widened from
+  [`Bus::peek_wram`] (WRAM-only). `emu.write(addr, val)` stays scoped to
+  [`Bus::poke_wram`] (WRAM only) — a side-effect-free "poke" has no clean semantic for register
+  space (a real PPU/APU/DMA register write has hardware side effects a silent poke can't model
+  without either faking them or breaking the determinism contract), so widening reads while
+  keeping writes WRAM-scoped is a deliberate, asymmetric choice, not an oversight.
+
+### Deferred (honestly scoped, not silently dropped)
+
+- A wasm `piccolo` Lua backend (scripting is currently native-only, `mlua`) and TAStudio-style
+  piano-roll movie editing are both substantial standalone efforts, comparable in size to a full
+  release rung on their own — pushed to a later, explicitly-scoped release rather than folded into
+  this one. See `to-dos/VERSION-PLAN.md`'s `v1.9.0` section.
+
 ## [1.8.0] "Tracepoint" - 2026-07-12
 
 Fourth release of the RustyNES-parity roadmap: debugger depth II.

@@ -41,12 +41,16 @@ pub enum ScriptError {
 
 /// A sandboxed Lua 5.4 engine bound to no emulator state until [`Self::on_frame`] is called.
 ///
-/// `emu.read(addr)` / `emu.write(addr, val)` reach [`Bus::peek_wram`]/[`Bus::poke_wram`] (WRAM
-/// only, not the full 24-bit bus — a script wants stable memory-watch semantics, not to trip PPU/
-/// APU/DMA register side effects by poking at arbitrary bus addresses). `emu.onFrame(fn)`
-/// registers a callback invoked once per [`Self::on_frame`] call. `print(...)` is redirected into
-/// an internal log ([`Self::drain_log`]) rather than stdout, so a hosting frontend can surface it
-/// in its own UI.
+/// `emu.read(addr)` reaches [`Bus::peek`] (`v1.9.0 "Marionette"` — the full 24-bit bus, WRAM/cart
+/// ROM/SRAM; I/O register space reads back as `0`, `Bus::peek`'s own documented behavior, same
+/// non-register-side-effect posture as the debugger's Memory panel). `emu.write(addr, val)`
+/// stays scoped to [`Bus::poke_wram`] (WRAM only) — unlike a read, a side-effect-free "poke"
+/// has no clean semantic for register space (a real PPU/APU/DMA register write has hardware
+/// side effects a silent poke can't model without either faking them or breaking the
+/// determinism contract), so widening reads and keeping writes WRAM-scoped is a deliberate,
+/// asymmetric choice, not an oversight. `emu.onFrame(fn)` registers a callback invoked once per
+/// [`Self::on_frame`] call. `print(...)` is redirected into an internal log
+/// ([`Self::drain_log`]) rather than stdout, so a hosting frontend can surface it in its own UI.
 pub struct ScriptEngine {
     lua: Lua,
     frame_cbs: Rc<RefCell<Vec<RegistryKey>>>,
@@ -205,7 +209,7 @@ impl ScriptEngine {
             let emu: Table = lua.globals().get("emu")?;
 
             let read =
-                scope.create_function(|_, addr: u32| Ok(bus_cell.borrow_mut().peek_wram(addr)))?;
+                scope.create_function(|_, addr: u32| Ok(bus_cell.borrow_mut().peek(addr)))?;
             emu.set("read", read)?;
 
             let write = scope.create_function(|_, (addr, val): (u32, u8)| {
@@ -257,6 +261,39 @@ mod tests {
         sys.bus.poke_wram(0x7E_0010, 41);
         engine.on_frame(&mut sys.bus).expect("frame runs");
         assert_eq!(sys.bus.peek_wram(0x7E_0010), 42);
+    }
+
+    /// `v1.9.0 "Marionette"`: `emu.read` now reaches [`Bus::peek`] (the full 24-bit bus,
+    /// including cart ROM) instead of [`Bus::peek_wram`] (WRAM-only). Installs a minimal
+    /// synthetic LoROM cart (same construction `rustysnes-cart`'s own
+    /// `load_lorom_and_sram_roundtrip` test uses) with a known non-zero byte at a cart-space
+    /// address, and asserts `emu.read` returns that real ROM byte. Under the pre-`v1.9.0`
+    /// `Bus::peek_wram`-only implementation this address falls outside WRAM and `peek_wram`
+    /// returns `0` regardless of cart state, so this test genuinely fails under the old
+    /// implementation rather than merely exercising the widened address range.
+    #[test]
+    fn read_reaches_cart_rom_space_not_just_wram() {
+        use rustysnes_core::cart::Cart;
+
+        let mut rom = vec![0u8; 0x1_0000];
+        let base = 0x7FC0;
+        rom[base + 0x15] = 0x20; // LoROM, slow
+        rom[base + 0x19] = 0x01; // North America / NTSC
+        let checksum: u16 = 0x4321;
+        rom[base + 0x1C..base + 0x1E].copy_from_slice(&(!checksum).to_le_bytes());
+        rom[base + 0x1E..base + 0x20].copy_from_slice(&checksum.to_le_bytes());
+        rom[0x1234] = 0x5A; // a distinctive ROM byte, at bank $00:$9234 ($8000 + 0x1234)
+
+        let mut engine = ScriptEngine::new().expect("engine builds");
+        engine
+            .load("emu.onFrame(function() print(emu.read(0x009234)) end)")
+            .expect("script loads");
+        let mut sys = System::new(0);
+        sys.bus.cart = Some(Cart::from_rom(&rom).expect("valid synthetic lorom"));
+        engine
+            .on_frame(&mut sys.bus)
+            .expect("reading cart-space must not panic or error");
+        assert_eq!(engine.drain_log(), vec!["90"]); // 0x5A decimal
     }
 
     #[test]
