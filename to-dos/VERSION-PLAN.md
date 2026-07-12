@@ -1162,11 +1162,9 @@ into a hollow "audit passed" claim. See `docs/frontend.md` for the full explanat
 rationale; stands up `docs/mobile-readiness.md`; a new ADR records the mobile-platform-target
 decision, citing that `docs/adr/0002`'s gate is already closed favorably.
 
-### `v1.14.0 "Foundry"` — Mobile Phase 1: bridge foundations
+### `v1.14.0 "Foundry"` — Mobile Phase 1: bridge foundations — **RELEASED 2026-07-12**
 
-Implemented (this PR; the version bump + "RELEASED" marker land in the separate
-`chore(release)` closeout PR, matching every prior rung's two-PR pattern): new crate
-`rustysnes-mobile`, a `UniFFI` bridge over `rustysnes_core::facade::EmuCore`
+Delivered: new crate `rustysnes-mobile`, a `UniFFI` bridge over `rustysnes_core::facade::EmuCore`
 (the same `std`-only facade the desktop frontend and `rustysnes-libretro` already drive the
 emulator through — `Board: Send` since `v1.0.0` and the chip-stack crates' `#![no_std]`+`alloc`
 posture were both already proven, not new work here). MVP surface: ROM load/close, `run_frame`,

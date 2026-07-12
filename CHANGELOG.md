@@ -9,17 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.0] "Foundry" - 2026-07-12
+
+Tenth release of the RustyNES-parity roadmap: Mobile Phase 1, the UniFFI bridge foundations.
+
 ### Added
 
-- **New crate `rustysnes-mobile`** (`v1.14.0 "Foundry"`, Mobile Phase 1): a `UniFFI` bridge
+- **New crate `rustysnes-mobile`** (Mobile Phase 1): a `UniFFI` bridge
   generating Kotlin (Android) and Swift (iOS) bindings over `rustysnes_core::facade::EmuCore` —
   the same facade the desktop frontend and `rustysnes-libretro` already drive the emulator
   through. MVP surface: ROM load/close, `run_frame`, the peripheral setters (Gamepad/Mouse/Super
   Scope/Multitap), framebuffer + per-frame audio access, save/load state, reset/power-cycle.
-  Verified for
-  real: a genuine `cargo ndk` cross-compile to `arm64-v8a` produced an actual ARM64 `.so`
-  (confirmed via `file`), and `uniffi-bindgen` generated real, correctly-shaped Kotlin and Swift
-  bindings from the compiled library.
+  Verified for real: a genuine `cargo ndk` cross-compile to `arm64-v8a` produced an actual ARM64
+  `.so` (confirmed via `file`), and `uniffi-bindgen` generated real, correctly-shaped Kotlin and
+  Swift bindings from the compiled library.
 - **`no_std` CI gate expanded to a per-crate matrix**: `rustysnes-{cpu,ppu,apu,cart,core}` each
   now build standalone against `thumbv7em-none-eabihf --no-default-features`, replacing the prior
   single aggregate-only `rustysnes-core` build.

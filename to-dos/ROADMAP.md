@@ -344,10 +344,10 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   a save-state migration fixture and a keyboard-nav audit, were investigated and found to already
   be a verified-non-issue and a manual-walkthrough task respectively, not code fixes — both
   honestly re-scoped rather than force-fit), then the mobile track's bridge foundations
-  (`v1.14.0 "Foundry"` — new `rustysnes-mobile` `UniFFI` crate over the same `EmuCore` facade the
-  desktop frontend uses; verified for real with a genuine `cargo ndk` ARM64 cross-compile and
-  inspected Kotlin/Swift binding output, not just claimed; the mobile/Android+iOS "no appetite"
-  default from `v1.0.0` is formally reversed, `docs/adr/0012`) — with
+  (`v1.14.0 "Foundry"`, **RELEASED 2026-07-12** — new `rustysnes-mobile` `UniFFI` crate over the
+  same `EmuCore` facade the desktop frontend uses; verified for real with a genuine `cargo ndk`
+  ARM64 cross-compile and inspected Kotlin/Swift binding output, not just claimed; the mobile/
+  Android+iOS "no appetite" default from `v1.0.0` is formally reversed, `docs/adr/0012`) — with
   the rest of the mobile track — Android + iOS apps plus dormant monetization scaffolding
   (`v1.15.0`-`v1.18.0`) — and a PGO/BOLT pipeline last (`v1.19.0`). Tracked in lockstep against
   RustyNES's own continuing development via `to-dos/LOCKSTEP-CHECKLIST.md`, not a frozen
