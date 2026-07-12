@@ -2,14 +2,23 @@
 //!
 //! `v1.7.0 "Telemetry"`: extracted out of `ui_shell.rs` (previously 4 panels inline in that
 //! file) into this dedicated module — a pure structural move, zero behavior change — as the
-//! scaffold every later debugger-depth rung (`v1.8.0` onward) plugs new panels into. Follows
-//! `ui_shell.rs`'s own non-negotiable rule: these functions NEVER touch the emu lock; they only
-//! render the [`crate::debug_snapshot::DebugSnapshot`] the app copied out under the same brief
-//! lock `ShellInfo` already uses.
+//! scaffold every later debugger-depth rung plugs new panels into. Follows `ui_shell.rs`'s own
+//! non-negotiable rule: these functions NEVER touch the emu lock; they only render the
+//! [`crate::debug_snapshot::DebugSnapshot`] the app copied out under the same brief lock
+//! `ShellInfo` already uses.
+//!
+//! `v1.8.0 "Tracepoint"` added the Compare (memory-window diffing) and Docs (an embedded
+//! terminology glossary) panels — both pure-frontend additions needing no new core-side state.
+//! A call-stack view, an instruction/event trace buffer, and an inline 65816 assembler are
+//! explicitly deferred: each needs new core-side instrumentation (tracking call/return events or
+//! recording a trace log as they happen, not something inferable from a point-in-time memory
+//! snapshot), a larger cross-crate change than this rung's frontend-only scope.
 
 mod apu_panel;
 mod cart_panel;
 mod cpu_panel;
+mod doc_panel;
+mod memory_compare_panel;
 mod ppu_panel;
 mod watch_panel;
 
@@ -30,6 +39,10 @@ pub enum DebugPanel {
     Cart,
     /// Read/write watchpoints (`v0.8.0` T-81-001b) + a general memory hex viewer (`v1.7.0`).
     Watch,
+    /// Diff the Memory panel's live window against a captured baseline (`v1.8.0 "Tracepoint"`).
+    MemCompare,
+    /// An in-app SNES-terminology glossary (`v1.8.0 "Tracepoint"`) + a link to the full docs site.
+    Doc,
 }
 
 /// Format a row of 16-bit words as space-separated 4-hex-digit groups — shared by the PPU (VRAM/
@@ -80,11 +93,27 @@ impl ShellState {
                     ui.selectable_value(&mut self.panel, DebugPanel::Apu, "SPC700+DSP");
                     ui.selectable_value(&mut self.panel, DebugPanel::Cart, "Cart");
                     ui.selectable_value(&mut self.panel, DebugPanel::Watch, "Memory/Watch");
+                    ui.selectable_value(&mut self.panel, DebugPanel::MemCompare, "Compare");
+                    ui.selectable_value(&mut self.panel, DebugPanel::Doc, "Docs");
                 });
                 ui.separator();
-                if self.panel == DebugPanel::Watch {
-                    self.render_watch_panel(ui, debug, watchpoints);
-                    return;
+                // These three panels handle a `None` snapshot themselves (Watch/MemCompare show
+                // "no data yet"; Doc needs no snapshot at all), so they're dispatched before the
+                // early-return below rather than after it.
+                match self.panel {
+                    DebugPanel::Watch => {
+                        self.render_watch_panel(ui, debug, watchpoints);
+                        return;
+                    }
+                    DebugPanel::MemCompare => {
+                        self.render_memory_compare_panel(ui, debug);
+                        return;
+                    }
+                    DebugPanel::Doc => {
+                        doc_panel::render(ui);
+                        return;
+                    }
+                    DebugPanel::Cpu | DebugPanel::Ppu | DebugPanel::Apu | DebugPanel::Cart => {}
                 }
                 let Some(debug) = debug else {
                     // `debug` tracks `debugger_open`, not ROM state (a snapshot builds fine for a
@@ -104,7 +133,9 @@ impl ShellState {
                     DebugPanel::Ppu => ppu_panel::render(ui, debug),
                     DebugPanel::Apu => apu_panel::render(ui, debug),
                     DebugPanel::Cart => cart_panel::render(ui, debug),
-                    DebugPanel::Watch => unreachable!("handled above"),
+                    DebugPanel::Watch | DebugPanel::MemCompare | DebugPanel::Doc => {
+                        unreachable!("handled above")
+                    }
                 }
             });
         self.debugger_open = open;

@@ -1013,6 +1013,31 @@ check` on both native and `wasm32-unknown-unknown`, a real `trunk build --releas
 `rustysnes-frontend` test suite — no browser available in this environment to visually confirm
 the on-screen render, flagged honestly rather than assumed.
 
+#### `v1.8.0 "Tracepoint"` — **RELEASED 2026-07-12**
+
+- [x] `debugger/memory_compare_panel.rs` — captures a baseline of the Memory panel's live window,
+      diffs it against the current window every frame, shows only changed rows
+      (`before -> after`). Flags a start-address mismatch instead of a misleading diff if the
+      window scrolled since capture.
+- [x] `debugger/doc_panel.rs` — an in-app SNES-terminology glossary (`docs/glossary.md`, embedded
+      via `include_str!`) + a link to the `MkDocs` handbook. Deliberately scoped to the glossary
+      alone (~3KB) rather than the full subsystem-spec tree (10-50KB each) to keep wasm size
+      impact negligible — verified via a real `trunk build --release` + the size-budget script:
+      +2KB gzip, ~2.05 MiB of the 5 MiB budget still free.
+- [x] New `DebugPanel::MemCompare`/`DebugPanel::Doc` variants + panel-selector buttons wired into
+      `debugger/mod.rs`; new `ShellState::memcmp_baseline` field.
+- **Honestly scoped down from the original plan:** a call-stack view, an instruction/event trace
+  buffer, and an inline 65816 assembler are **not** included — all three need new core-side
+  instrumentation (tracking call/return events or recording a trace log as they happen, not
+  inferable from a point-in-time memory snapshot the way this rung's two panels are), a larger
+  cross-crate change than this rung's frontend-only scope. A dedicated per-coprocessor-type
+  register panel (beyond the SA-1/GSU state the existing Cart panel already shows) needs new
+  `Board`-trait debug-state accessors — also deferred. All tracked as open follow-ups.
+- **Regression gate:** full local quality gate run before pushing (`fmt`, `clippy` across the
+  default/`debug-hooks`/`full` feature lanes, the doc-warnings gate, `wasm32-unknown-unknown`
+  compile, `cargo test -p rustysnes-frontend` — 61 tests, all green) — this sandbox has the exact
+  pinned `1.96` toolchain, so these run for real, not just left to CI.
+
 ### `v1.9.0 "Marionette"` — Lua/TAS scripting depth + TAStudio
 
 Widens `rustysnes-script` (currently 339 lines, mlua-only, WRAM-only) to the full 24-bit bus, adds
