@@ -258,6 +258,16 @@ impl EmuCore {
         Some((tags, tiles))
     }
 
+    /// Test-only: mark an (empty, tile-replacement-free) HD pack active without touching the
+    /// real data dir — the same "reach into the private field directly" approach this module's
+    /// own `a_failed_load_rom_does_not_clear_the_active_pack_or_cached_hash` test uses, exposed
+    /// `pub(crate)` so `emu_thread`'s tests (a different module) can exercise the
+    /// `hd_pack_composite_inputs().is_some()` compositing path too (`v1.10.0 "Atelier"`).
+    #[cfg(all(test, feature = "hd-pack", feature = "emu-thread"))]
+    pub(crate) fn set_default_hd_pack_for_test(&mut self) {
+        self.hd_pack = Some(crate::hd_pack::HdPack::default());
+    }
+
     /// Select (or clear, with `None`) the active HD texture pack for the current ROM.
     ///
     /// Loads `pack_name` from `<data_dir>/hd-packs/<rom_sha256_hex>/<pack_name>/`, enables

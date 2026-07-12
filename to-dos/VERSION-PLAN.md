@@ -1061,10 +1061,37 @@ explicitly-scoped release rather than folded into this one. `v1.11.0`'s RetroAch
 hardcore-mode gate still sequences after `v1.9.0` as planned: hardcore only needs to gate the
 *existing* movie record/playback primitives, not a TAStudio UI.
 
-### `v1.10.0 "Atelier"` — HD-pack Builder GUI
+### `v1.10.0 "Atelier"` — HD-pack `emu-thread` wiring
 
-Turns HD-pack support from consumer-only into an in-app authoring tool using the existing `TileTag`
-hashing hook (`v1.3.0`); wires HD-pack consumption into `emu_thread.rs` for the first time.
+Wires HD-pack compositing into `emu_thread::drive_one` for the first time — the synchronous
+render path composited an active pack via `hd_compositor::composite` before its own `drop(emu)`
+since `v1.3.0`, but the threaded build had no equivalent step, so a threaded build with a pack
+selected silently rendered the native, uncomposited framebuffer. `drive_one`'s plain-frame
+(run-ahead-disabled) branch now composites before publishing to `PresentBuffer`; the common
+no-pack-active case stays allocation-free via a cheap `hd_pack_name()` pre-check. Found in review
+(#90): the lock is released before the `PresentBuffer` copy in this branch too, matching the
+run-ahead branch's existing pattern.
+
+**Deferred (honestly scoped, not silently dropped):**
+
+- Turning HD-pack support from consumer-only into an in-app **authoring tool** — browsing the
+  live `TileTag` stream, assigning replacement PNGs, writing `pack.toml` + assets — needs a new
+  core-side "reconstruct RGBA pixels for a given tile hash" API that doesn't exist yet (the
+  tile-identity hash doesn't reverse to a VRAM location). A genuinely separate, substantial piece
+  of work from the `emu-thread` wiring fix above; pushed to a later, explicitly-scoped release.
+- **Run-ahead + HD-pack combined is a known, tracked gap, not silently broken.** Found in review
+  (#90): `step_with_run_ahead`'s returned frame is a PEEKED frame (captured, then rolled back so
+  `emu`'s persisted state only advances by one real frame), but
+  `EmuCore::hd_pack_composite_inputs` reads `Ppu::tile_tags()` from `emu`'s CURRENT (post-rollback)
+  state — a different frame than the peeked bytes. `drive_one`'s run-ahead branch deliberately
+  skips compositing rather than apply replacement tiles keyed to the wrong frame (which would
+  silently corrupt the picture). **The same desync already exists, unfixed, in `app.rs`'s
+  synchronous render path** — pre-existing since run-ahead and HD-pack were first combined, not
+  introduced by this release and not touched by it either. A real fix needs
+  `step_with_run_ahead` itself to capture the peeked `TileTag` buffer alongside `fb` (before the
+  rollback), shared by both call sites — a follow-up for a later `v1.10.x` patch or a subsequent
+  rung, not blocking this one (run-ahead and HD-pack are each off by default; the narrow
+  intersection of both enabled together is the only affected case).
 
 ### `v1.11.0 "Podium"` — RetroAchievements hardcore/leaderboard/rich-presence
 

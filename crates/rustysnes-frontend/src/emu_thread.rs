@@ -368,6 +368,19 @@ fn drive_one(
         if let Some(a) = audio {
             a.push(emu.audio(), control.speed());
         }
+        // `v1.10.0 "Atelier"`: HD-pack compositing is deliberately NOT applied here (found in
+        // review, #90) -- `step_with_run_ahead`'s `fb` is the PEEKED frame (captured, then rolled
+        // back so `emu`'s persisted state only advances by one real frame), but
+        // `emu.hd_pack_composite_inputs()` reads `Ppu::tile_tags()` from `emu`'s CURRENT state,
+        // which is the POST-rollback real frame -- a different frame than `fb`. Compositing with
+        // mismatched `(fb, tags)` would apply replacement tiles keyed to the wrong frame's
+        // content, silently corrupting the picture rather than just showing the native art. This
+        // is a real, narrow-but-genuine gap: run-ahead and an active HD pack are each off by
+        // default, and `app.rs`'s synchronous render path has this exact same pre-existing
+        // desync (also unfixed, also out of this PR's scope) -- tracked as a follow-up in
+        // `to-dos/VERSION-PLAN.md` rather than rushed here. Fixing it for real needs
+        // `step_with_run_ahead` itself to capture the peeked `TileTag` buffer alongside `fb`
+        // (before the rollback), shared by both call sites.
         drop(emu); // release the lock before the lock-free PresentBuffer copy below.
         present.publish(&fb, dims);
     } else {
@@ -375,6 +388,50 @@ fn drive_one(
         if let Some(a) = audio {
             a.push(emu.audio(), control.speed());
         }
+        // `v1.10.0 "Atelier"`: HD-pack compositing (`v1.3.0`) was never wired into this thread --
+        // `app.rs`'s synchronous render path composited before its own `drop(emu)`, but this
+        // thread's `present.publish` call had no equivalent, so a threaded build silently
+        // rendered the native framebuffer even with a pack selected (`docs/frontend.md`'s
+        // documented scope cut, closed here). `hd_pack_name()` is a cheap `&self` pre-check
+        // (`self.hd_pack.as_ref()` on the already-loaded pack, no I/O) that keeps the common
+        // no-pack-active case exactly as fast as before -- the extra `framebuffer().to_vec()`
+        // copy only happens once a pack is actually active, where `hd_compositor::composite`'s
+        // own full-frame allocation already dominates that cost.
+        #[cfg(feature = "hd-pack")]
+        {
+            if emu.hd_pack_name().is_some() {
+                let dims = emu.fb_dims();
+                let fb = emu.framebuffer().to_vec();
+                // Composite (or fall back to the plain frame) while `fb`/`dims` are already
+                // owned, THEN release the lock before the lock-free `PresentBuffer` copy --
+                // mirroring the run-ahead branch's `drop(emu)` (found in review, #90; this
+                // branch used to hold the lock through `publish`, needlessly, since nothing
+                // published here still borrows from `emu` by this point).
+                let (out, out_dims) = match emu.hd_pack_composite_inputs() {
+                    Some((tags, tiles)) => {
+                        let (w, h, out) = crate::hd_compositor::composite(
+                            &fb,
+                            dims.0,
+                            dims.1,
+                            &tags,
+                            tiles,
+                            crate::app::HD_PACK_SCALE,
+                        );
+                        (out, (w, h))
+                    }
+                    // The pack was cleared between the check above and here -- unreachable in
+                    // practice (this thread is the only place that can observe `emu`'s HD-pack
+                    // state change mid-`drive_one`, and it never does), but publish the
+                    // native frame rather than drop it if it somehow happened.
+                    None => (fb, dims),
+                };
+                drop(emu);
+                present.publish(&out, out_dims);
+            } else {
+                present.publish(emu.framebuffer(), emu.fb_dims());
+            }
+        }
+        #[cfg(not(feature = "hd-pack"))]
         present.publish(emu.framebuffer(), emu.fb_dims());
     }
     true
@@ -495,5 +552,63 @@ mod tests {
         input.p2.store(0x5678, Ordering::Release);
         assert_eq!(input.p1.load(Ordering::Acquire), 0x1234);
         assert_eq!(input.p2.load(Ordering::Acquire), 0x5678);
+    }
+
+    #[cfg(feature = "hd-pack")]
+    fn minimal_lorom() -> Vec<u8> {
+        let mut rom = vec![0u8; 0x8000];
+        rom[0x7FC0..0x7FC0 + 21].copy_from_slice(b"TEST ROM             ");
+        rom[0x7FD5] = 0x20; // LoROM
+        rom[0x7FD6] = 0x00; // no coprocessor
+        rom[0x7FD7] = 0x08; // ROM size (2^8 KiB = 256 KiB, permissive)
+        rom
+    }
+
+    /// `v1.10.0 "Atelier"`: proves `drive_one` actually composites an active HD pack instead of
+    /// silently publishing the native frame — the exact gap this release closes. An active pack
+    /// (even the tile-replacement-free default) makes `hd_compositor::composite` upscale the
+    /// published frame by `crate::app::HD_PACK_SCALE` (2x); this asserts the published dims
+    /// reflect that scale-up rather than the SNES-native dims a no-pack `drive_one` call publishes.
+    #[cfg(feature = "hd-pack")]
+    #[test]
+    fn drive_one_composites_an_active_hd_pack_before_publishing() {
+        use crate::config::Region;
+        use crate::emu::EmuCore;
+
+        let present = PresentBuffer::new();
+        let control = EmuControl::new(60.0);
+        let input = SharedInput::default();
+
+        let mut core = EmuCore::new(0, Region::Ntsc);
+        core.load_rom(&minimal_lorom()).expect("minimal ROM loads");
+        let native_dims = core.fb_dims();
+        let shared = Arc::new(Mutex::new(core));
+
+        assert!(
+            drive_one(&shared, &input, None, &control, &present),
+            "drive_one must advance a frame with a loaded ROM and no pause/netplay claim"
+        );
+        let mut buf = Vec::new();
+        let dims_without_pack = present.take_into(&mut buf).expect("a frame was published");
+        assert_eq!(
+            dims_without_pack, native_dims,
+            "no pack active: published dims must be the plain native framebuffer size"
+        );
+
+        shared.lock().unwrap().set_default_hd_pack_for_test();
+
+        assert!(drive_one(&shared, &input, None, &control, &present));
+        let dims_with_pack = present
+            .take_into(&mut buf)
+            .expect("a second frame was published");
+        assert_eq!(
+            dims_with_pack,
+            (
+                native_dims.0 * crate::app::HD_PACK_SCALE,
+                native_dims.1 * crate::app::HD_PACK_SCALE
+            ),
+            "an active pack must scale the published frame by HD_PACK_SCALE, proving drive_one \
+             actually ran it through hd_compositor::composite instead of publishing the raw frame"
+        );
     }
 }
