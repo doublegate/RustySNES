@@ -105,9 +105,10 @@ enum growth in this project):
   deficiency.
 
 Both are regression-tested (`ui_shell::tests::high_contrast_visuals_diverges_from_stock_dark`,
-`...colorblind_visuals_diverges_from_stock_dark_and_uses_okabe_ito`, `...apply_theme_handles_
-every_variant`) rather than only visually spot-checked — a builder that forgot to override any
-`Visuals` field would otherwise silently ship a theme indistinguishable from `Dark`.
+`...colorblind_visuals_diverges_from_stock_dark_and_uses_okabe_ito`,
+`...apply_theme_handles_every_variant`) rather than only visually spot-checked — a builder that
+forgot to override any `Visuals` field would otherwise silently ship a theme indistinguishable
+from `Dark`.
 
 **Keyboard-only navigation — honestly scoped as a checklist, not a code change this release.**
 `v1.13.0`'s originally-planned "keyboard-only-navigation audit across every UI surface added
@@ -518,14 +519,16 @@ natural home in the existing P1 gamepad auto-bind).
 - **`FORMAT_VERSION` versioning is intentionally fail-loud, not migrating — `v1.13.0` correction,
   not new work.** `to-dos/VERSION-PLAN.md`'s original `v1.13.0` plan text asked for "a save-state
   versioned-migration regression fixture... the one real save-state gap found." Investigating it
-  found the premise itself was stale: `System::load_state` (`crates/rustysnes-core/src/
-  scheduler.rs`'s `FORMAT_VERSION` doc) only ever rejects a blob *newer* than it supports — it was
-  never designed to gracefully load an *older*-format blob, by deliberate choice recorded in that
-  doc comment since the `2` and `3` bumps. A regression fixture proving exactly this behavior
-  ALREADY exists (`crates/rustysnes-test-harness/tests/save_state_backward_compat.rs`'s
-  `old_format_version_blob_fails_loudly_not_silently`, against a genuine captured `FORMAT_VERSION
-  = 1` blob) and has existed since `v0.7.0`. So there was no gap to close: the "one real save-state
-  gap" was already both intentionally designed-around and already regression-tested before
+  found the premise itself was stale: `System::load_state`
+  (`crates/rustysnes-core/src/scheduler.rs`'s `FORMAT_VERSION` doc) only ever rejects a blob
+  *newer* than it supports — it was never designed to gracefully load an *older*-format blob, by
+  deliberate choice recorded in that doc comment since the `2` and `3` bumps. A regression fixture
+  proving exactly this behavior ALREADY exists
+  (`crates/rustysnes-test-harness/tests/save_state_backward_compat.rs`'s
+  `old_format_version_blob_fails_loudly_not_silently`, against a genuine captured
+  `FORMAT_VERSION = 1` blob) and has existed since `v0.7.0`. So there was no gap to close: the
+  "one real save-state gap" was already both intentionally designed-around and regression-tested
+  before
   `v1.13.0` started. Building an actual graceful-migration path (translating an old envelope's
   section layout forward) was considered and explicitly rejected — it would add real complexity to
   a determinism-critical serialization boundary for a feature nobody has asked for, in exchange for

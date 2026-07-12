@@ -49,9 +49,11 @@ pub enum PeripheralKind {
 /// UX shell maturity; `v1.13.0 "Vantage"` adds two accessibility-oriented variants.
 ///
 /// [`AppTheme::HighContrast`] and [`AppTheme::Colorblind`] are appended after the original three
-/// (not inserted between them), so an existing `config.toml` storing `"light"`/`"dark"`/
-/// `"system"` keeps deserializing to exactly the value it already named — this is purely
-/// additive, matching every other `PostFilter`/theme-shaped enum growth in this project.
+/// (not inserted between them) purely for readability — an existing `config.toml` storing
+/// `"light"`/`"dark"`/`"system"` was already safe to grow additively regardless of variant order,
+/// since `#[serde(rename_all = "lowercase")]` tags each variant by its STRING name, not its
+/// discriminant position; this matches every other `PostFilter`/theme-shaped enum growth in this
+/// project.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AppTheme {

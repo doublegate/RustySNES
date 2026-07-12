@@ -344,6 +344,11 @@ fn colorblind_visuals() -> egui::Visuals {
     v.selection.stroke = egui::Stroke::new(1.0, sky_blue);
     v.widgets.hovered.bg_stroke = egui::Stroke::new(1.5, orange);
     v.widgets.active.bg_fill = blue.gamma_multiply(0.7);
+    // `weak_bg_fill` (not just `bg_fill`) is what egui actually reads for many active widgets
+    // (active tabs, selected/active menu items) -- leaving it at the stock dark theme's default
+    // would let those specific active states silently fall back outside the colorblind-safe
+    // palette (found in review, PR #96).
+    v.widgets.active.weak_bg_fill = blue.gamma_multiply(0.4);
     v.widgets.active.bg_stroke = egui::Stroke::new(1.5, sky_blue);
     v
 }
