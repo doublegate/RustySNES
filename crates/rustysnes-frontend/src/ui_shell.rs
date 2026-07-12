@@ -274,7 +274,78 @@ pub fn apply_theme(ctx: &egui::Context, theme: crate::config::AppTheme) {
             Some(egui::Theme::Light) => ctx.set_visuals(egui::Visuals::light()),
             _ => ctx.set_visuals(egui::Visuals::dark()),
         },
+        AppTheme::HighContrast => ctx.set_visuals(high_contrast_visuals()),
+        AppTheme::Colorblind => ctx.set_visuals(colorblind_visuals()),
     }
+}
+
+/// [`crate::config::AppTheme::HighContrast`]'s [`egui::Visuals`] (`v1.13.0 "Vantage"`).
+///
+/// Starts from the stock dark theme, then pushes every foreground/background pair to the
+/// extremes: a near-black window/panel background, near-white body text, and a bright cyan
+/// selection accent, with thicker, fully-opaque widget strokes so focus and boundaries stay
+/// legible at a glance. Text-vs-background ratios clear WCAG 2.1 AA (4.5:1) — most clear AAA
+/// (7:1) — for normal-size text.
+fn high_contrast_visuals() -> egui::Visuals {
+    use egui::Color32;
+    let mut v = egui::Visuals::dark();
+    let black = Color32::from_rgb(8, 8, 8);
+    let white = Color32::from_rgb(250, 250, 250);
+    // Bright cyan reads strongly on near-black and stays distinguishable across every common
+    // color-vision deficiency, so it doubles as this theme's selection/hyperlink accent.
+    let accent = Color32::from_rgb(0, 224, 255);
+
+    v.dark_mode = true;
+    v.override_text_color = Some(white);
+    v.panel_fill = black;
+    v.window_fill = black;
+    v.extreme_bg_color = Color32::BLACK;
+    v.faint_bg_color = Color32::from_rgb(28, 28, 28);
+    v.window_stroke = egui::Stroke::new(1.5, white);
+    v.hyperlink_color = accent;
+    v.selection.bg_fill = accent.gamma_multiply(0.55);
+    v.selection.stroke = egui::Stroke::new(1.5, accent);
+
+    let stroke = |w: f32| egui::Stroke::new(w, white);
+    v.widgets.noninteractive.bg_fill = black;
+    v.widgets.noninteractive.weak_bg_fill = black;
+    v.widgets.noninteractive.fg_stroke = stroke(1.0);
+    v.widgets.inactive.bg_fill = Color32::from_rgb(40, 40, 40);
+    v.widgets.inactive.weak_bg_fill = Color32::from_rgb(40, 40, 40);
+    v.widgets.inactive.fg_stroke = stroke(1.5);
+    v.widgets.inactive.bg_stroke = stroke(1.0);
+    v.widgets.hovered.bg_fill = Color32::from_rgb(70, 70, 70);
+    v.widgets.hovered.weak_bg_fill = Color32::from_rgb(70, 70, 70);
+    v.widgets.hovered.fg_stroke = stroke(2.0);
+    v.widgets.hovered.bg_stroke = egui::Stroke::new(2.0, accent);
+    v.widgets.active.bg_fill = Color32::from_rgb(90, 90, 90);
+    v.widgets.active.weak_bg_fill = Color32::from_rgb(90, 90, 90);
+    v.widgets.active.fg_stroke = stroke(2.0);
+    v.widgets.active.bg_stroke = egui::Stroke::new(2.0, accent);
+    v
+}
+
+/// [`crate::config::AppTheme::Colorblind`]'s [`egui::Visuals`] (`v1.13.0 "Vantage"`).
+///
+/// The stock dark theme with its interactive accents (selection, hover, hyperlinks) swapped to
+/// the [Okabe-Ito palette](https://jfly.uni-koeln.de/color/) — a set chosen to stay mutually
+/// distinguishable under the most common (red-green) forms of color-vision deficiency. Selection
+/// and active states use Okabe-Ito blue, hover uses orange, and hyperlinks use sky blue, so the
+/// "what has focus / what is selected" cues never collapse into an ambiguous red-green pair.
+fn colorblind_visuals() -> egui::Visuals {
+    use egui::Color32;
+    let mut v = egui::Visuals::dark();
+    let blue = Color32::from_rgb(0, 114, 178); // selection / active
+    let sky_blue = Color32::from_rgb(86, 180, 233); // hyperlinks / active stroke
+    let orange = Color32::from_rgb(230, 159, 0); // hover
+
+    v.hyperlink_color = sky_blue;
+    v.selection.bg_fill = blue.gamma_multiply(0.55);
+    v.selection.stroke = egui::Stroke::new(1.0, sky_blue);
+    v.widgets.hovered.bg_stroke = egui::Stroke::new(1.5, orange);
+    v.widgets.active.bg_fill = blue.gamma_multiply(0.7);
+    v.widgets.active.bg_stroke = egui::Stroke::new(1.5, sky_blue);
+    v
 }
 
 impl ShellState {
@@ -1151,5 +1222,49 @@ mod tests {
         assert!(!s.debugger_open);
         assert!(!s.settings_open);
         assert_eq!(s.panel, DebugPanel::Cpu);
+    }
+
+    /// `v1.13.0 "Vantage"`: [`high_contrast_visuals`] must actually diverge from the stock dark
+    /// theme it starts from -- a builder that forgot to override any field would silently ship a
+    /// theme indistinguishable from `Dark`, defeating the whole point of the accessibility variant.
+    #[test]
+    fn high_contrast_visuals_diverges_from_stock_dark() {
+        let stock = egui::Visuals::dark();
+        let hc = high_contrast_visuals();
+        assert_ne!(hc.panel_fill, stock.panel_fill);
+        assert_ne!(hc.hyperlink_color, stock.hyperlink_color);
+        assert_ne!(hc.selection.bg_fill, stock.selection.bg_fill);
+        assert_eq!(
+            hc.override_text_color,
+            Some(egui::Color32::from_rgb(250, 250, 250))
+        );
+    }
+
+    /// Same guarantee as [`high_contrast_visuals_diverges_from_stock_dark`], for
+    /// [`colorblind_visuals`] -- and additionally pins the Okabe-Ito accent colors themselves, so
+    /// an accidental future edit swapping in a non-Okabe-Ito color silently regresses the
+    /// accessibility guarantee without any test noticing.
+    #[test]
+    fn colorblind_visuals_diverges_from_stock_dark_and_uses_okabe_ito() {
+        let stock = egui::Visuals::dark();
+        let cb = colorblind_visuals();
+        assert_ne!(cb.hyperlink_color, stock.hyperlink_color);
+        assert_ne!(cb.selection.bg_fill, stock.selection.bg_fill);
+        assert_eq!(cb.hyperlink_color, egui::Color32::from_rgb(86, 180, 233));
+        assert_eq!(
+            cb.widgets.hovered.bg_stroke.color,
+            egui::Color32::from_rgb(230, 159, 0)
+        );
+    }
+
+    /// `apply_theme` must dispatch every [`crate::config::AppTheme`] variant to a real
+    /// `set_visuals` call without panicking -- a `Context` with no window/surface is enough since
+    /// `set_visuals` only writes into the context's style state.
+    #[test]
+    fn apply_theme_handles_every_variant() {
+        let ctx = egui::Context::default();
+        for theme in crate::config::AppTheme::all() {
+            apply_theme(&ctx, theme);
+        }
     }
 }
