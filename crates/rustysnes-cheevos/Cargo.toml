@@ -1,7 +1,7 @@
 [package]
 name = "rustysnes-cheevos"
 description = "Native-only RetroAchievements (rcheevos) FFI wrapper for RustySNES"
-version = "1.7.0"
+version = "1.7.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
