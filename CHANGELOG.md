@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **CI safety net (`v1.5.0 "Bedrock"`)** — `cargo test --workspace` now runs on every PR/push to
+  `main` (new `test-light` job), not only on a tagged release. A new `changes`/`setup` job pair
+  computes a light-vs-full run mode per push (mirroring RustyNES's own pattern), and `full-test`/
+  `no_std`/`bench` now also run on every push to `main` (previously tag-only), plus a weekly
+  drift-net cron and manual dispatch. A new `ci-success` job is the one stable required-check name
+  for branch protection to point at. See `docs/adr/0011`.
+- A shared `.github/actions/rust-setup` composite action factors the pinned toolchain version and
+  cache-key convention out of `ci.yml`/`pages.yml` into one place.
+
 ## [1.4.0] "Convergence" - 2026-07-11
 
 ### Added

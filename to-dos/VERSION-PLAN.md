@@ -883,3 +883,130 @@ gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
   integration pattern — the sourcing in this document (test-ROM names, hardware gotchas, the
   `rcheevos` pattern) is a starting point to re-verify against current sources at
   implementation time, not a final citation.
+- **RustyNES-lockstep check:** run `to-dos/LOCKSTEP-CHECKLIST.md` once at the start of scoping
+  each release in the RustyNES-parity ladder below, so drift against RustyNES's own continuing
+  development gets caught and folded in (or explicitly deferred) before it accumulates, rather
+  than only at a periodic re-audit.
+
+## RustyNES-parity ladder (`v1.5.0` onward)
+
+A second, parallel ladder theme, distinct from the phase-spine ladder above: closing the gap
+between RustySNES and its sibling NES emulator RustyNES (`../RustyNES`, currently released
+`v2.1.5 "Fathom"`, `v2.1.6 "Expansion Audio"` in progress). Gap analysis, scope decisions
+(full mobile parity in scope; dormant monetization scaffolding in scope; lockstep tracking over a
+frozen snapshot), and full per-release detail live in the roadmap plan this section summarizes;
+this ladder is the durable, versioned record — update it at every release like every other rung
+in this document, not left to drift stale.
+
+Two premise corrections drive this ladder: (1) RustyNES is not "at v2.2.0" — that's an unscoped
+label for its ongoing post-`v2.1.5` arc, with its real next milestone (a joint Android/iOS store
+launch) targeting `v2.3.0`, already deferred twice; this ladder reaches RustyNES's *current*
+maturity bar, tracked in lockstep, not a fixed number. (2) The mobile track's biggest named risk —
+this project's own fractional-timebase refactor (`docs/adr/0002`) — is **already closed**: assessed
+"not warranted" at `v1.1.0` (`docs/audit/fractional-timebase-go-no-go-2026-07-11.md`), with five
+stable minors (`v1.0.0`–`v1.4.0`) since shipped with zero save-state-format churn. The mobile rungs
+below don't need to wait on this; it's a fact to cite, not a decision to make.
+
+Save-states, rewind, run-ahead, cheats, netplay, native RetroAchievements (login + unlock toasts),
+Libretro, CRT/HQx filters, and Mouse/Super Scope/Multitap peripherals are already at parity with
+RustyNES and are explicitly NOT rebuilt anywhere in this ladder.
+
+### `v1.5.0 "Bedrock"` — CI safety net — **IN PROGRESS**
+
+The highest-leverage fix, done first: PR-time CI never ran `cargo test` (`full-test`/`no_std`/
+`bench` were tag-only), relying entirely on `CONTRIBUTING.md`'s manual pre-push checklist as the
+correctness gate. See `docs/adr/0011`.
+
+- [x] `.github/actions/rust-setup` composite action; `ci.yml`/`pages.yml` migrated onto it.
+- [x] `ci.yml` restructured: a `changes` (`dorny/paths-filter`) + `setup` job computing a
+      light/full/skip mode per run; a new `test-light` job (`cargo test --workspace`, Linux-only,
+      debug, cached) runs on every PR/push with code changes; `full-test`/`no_std`/`bench` widened
+      from tag-only to `push to main OR tag OR weekly cron OR manual dispatch`.
+- [x] `ci-success` summary job — the one stable required-check name.
+- [x] `docs/adr/0011-branch-protection-and-ci-success-gate.md`.
+- [x] `CONTRIBUTING.md`'s Quality gate section notes which checks CI now also enforces.
+- [ ] Maintainer enables branch protection on `main` requiring `ci-success` (a one-time repo
+      setting, not a code change — done once this rung's PR has merged and the check has run at
+      least once).
+- [ ] `chore(release): v1.5.0 "Bedrock"` closeout PR.
+
+### `v1.6.0 "Lighthouse"` — docs site, PWA, accuracy-ledger
+
+MkDocs handbook over the existing `docs/` tree; a combined `web.yml` replacing `pages.yml` (wasm
+demo at `/`, rustdoc at `/api/`, MkDocs at `/docs/`, a `<5MiB` gzip size-budget gate); a
+`manifest.webmanifest`/`sw.js` PWA/offline pass for the wasm demo; `docs/accuracy-ledger.md`
+extracting `docs/STATUS.md`'s "Accuracy dashboard"/"Named residuals" content into RustyNES's
+per-item disposition format. Standing practice from here on: every future release-closeout PR adds
+a docs page and updates the ledger if a disposition changed.
+
+### `v1.7.0 "Telemetry"` / `v1.8.0 "Tracepoint"` — debugger foundation + depth
+
+Extracts the current 4-panel inline debugger (`ui_shell.rs`, `lib.rs`'s own doc comment: "the deep
+debugger panels are still TODO stubs") into a real `debugger/` module — hex-editor memory panel,
+RAM search, conditional (R/W/X) watchpoints, dedicated CPU/PPU/APU panels (`v1.7.0`), then
+callstack/step-controls, an inline 65816 assembler, a memory-compare panel, a SNES-specific
+coprocessor state panel (no NES analog), and an in-app doc browser (`v1.8.0`). Every later rung's
+new panels plug into this scaffold — sequenced first among the desktop feature rungs for that
+reason.
+
+### `v1.9.0 "Marionette"` — Lua/TAS scripting depth + TAStudio
+
+Widens `rustysnes-script` (currently 339 lines, mlua-only, WRAM-only) to the full 24-bit bus, adds
+a wasm `piccolo` backend, and adds TAStudio-style piano-roll movie editing on top of the existing
+`rustysnes_core::movie` record/playback primitives (no new movie format).
+
+### `v1.10.0 "Atelier"` — HD-pack Builder GUI
+
+Turns HD-pack support from consumer-only into an in-app authoring tool using the existing `TileTag`
+hashing hook (`v1.3.0`); wires HD-pack consumption into `emu_thread.rs` for the first time.
+
+### `v1.11.0 "Podium"` — RetroAchievements hardcore/leaderboard/rich-presence
+
+Splits a new `rustysnes-ra` session/UI crate out of `frontend/src/cheevos.rs`'s informal state
+(`rustysnes-cheevos` stays FFI-only); hardcore mode gates rewind/save-load/cheats/TAS (sequenced
+after `v1.9.0` for that reason); activates the already-vendored `rc_client` leaderboard/
+rich-presence calls.
+
+### `v1.12.0 "Refraction"` — shader/NTSC ladder depth
+
+New `rustysnes-gfx-shaders` crate (extracts `gfx.rs`'s inline WGSL byte-identically — later reused
+as-is by the mobile track, `v1.14.0`); xBRZ upscaling; `.slangp`/`.cgp` shader-preset import; one
+optional composite/RF post-pass, explicitly scoped as *not* a port of RustyNES's NES-specific
+dot-crawl ladder (SNES has no equivalent dot-clock-subsampling artifact to exploit).
+
+### `v1.13.0 "Vantage"` — accessibility/theming + save-state polish
+
+`HighContrast` + Okabe-Ito colorblind-safe themes; a keyboard-only-navigation audit across every UI
+surface added since `v1.7.0` (scheduled last among desktop rungs so the audit covers the final
+surface); a save-state versioned-migration regression fixture (the one real save-state gap found —
+the 10-slot/thumbnail UI itself is already at parity).
+
+**Decision-doc rung (small, precedes the mobile track):** reverses this document's own "Post-v1.0
+— Reach (deferred)" no-mobile-appetite line and `docs/frontend.md`'s no-gfx-shaders-crate
+rationale; stands up `docs/mobile-readiness.md`; a new ADR records the mobile-platform-target
+decision, citing that `docs/adr/0002`'s gate is already closed favorably.
+
+### `v1.14.0 "Foundry"` → `v1.18.0 "Dormant"` — the mobile track
+
+New crates `rustysnes-mobile` (UniFFI bridge — `Board: Send` since `v1.0.0`, the chip-stack crates
+already `#![no_std]`+alloc), `rustysnes-android` (JNI/NDK, Kotlin Compose shell, net-new
+Mouse/Super-Scope/Multitap touch UX with no RustyNES precedent), `rustysnes-ios` (Metal via wgpu,
+SwiftUI shell, TestFlight), then a hardening rung (mlua `send`-feature migration if scripting ships
+on mobile, direct-IP/LAN netplay, per-platform parity checklist), then `rustysnes-monetization`
+(dormant RevenueCat/AppLovin-style scaffold, never a dependency of the deterministic core, policy
+shape only — no committed pricing). A store-launch decision (Play + App Store submission,
+monetization activation) is an explicit maintainer go/no-go against `docs/mobile-readiness.md`, not
+a numbered rung — mirroring RustyNES's own still-pending, twice-deferred launch.
+
+### `v1.19.0 "Afterburner"` — PGO/BOLT pipeline
+
+Deliberately last: a promotion gate requiring both >3% Criterion speedup AND byte-identical
+`--features test-roms` re-run under the PGO profile (cites `docs/adr/0004`'s determinism
+contract), deferred until mobile-specific hot-path work has landed so the profile isn't
+invalidated mid-ladder. Optional Linux-only BOLT stage.
+
+**On version numbers:** RustySNES's own SemVer stays independent of RustyNES's — this ladder
+reaches RustyNES's current maturity bar at RustySNES's own `v1.19.0`, not a literal "`v2.2.0`."
+If the store-launch decision above is ever greenlit, that's the natural point to consider a
+`v2.0.0` MAJOR bump (a platform-scope-expanding, non-backward-compatible milestone, matching this
+document's own MAJOR-bump rule) — decided then, via the lockstep checklist, not pre-committed here.

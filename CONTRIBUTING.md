@@ -35,7 +35,9 @@ sudo pacman -S --needed libxkbcommon wayland alsa-lib systemd-libs
 
 ## Quality gate
 
-Before opening a PR, ensure every gate below is green:
+Before opening a PR, ensure every gate below is green. `fmt`/`clippy`/`cargo test --workspace`
+are also enforced by CI on every PR (`ci.yml`'s `lint`/`test-light` jobs, `v1.5.0 "Bedrock"`) —
+running them locally first is still the fast feedback loop, not a redundant step.
 
 - [ ] `cargo fmt --all --check` passes
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes

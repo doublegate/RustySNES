@@ -1,0 +1,47 @@
+name: rust-setup
+description: >
+  Shared Rust toolchain + cache + Linux frontend system-deps setup, factored out of ci.yml/
+  pages.yml so the pinned toolchain version lives in exactly one place (v1.5.0 "Bedrock").
+
+inputs:
+  toolchain:
+    description: Rust toolchain version to install.
+    required: false
+    default: "1.96"
+  components:
+    description: Space/comma-separated rustup components (e.g. "rustfmt, clippy").
+    required: false
+    default: ""
+  targets:
+    description: Space/comma-separated cross-compilation targets to install alongside the host.
+    required: false
+    default: ""
+  cache-key-suffix:
+    description: Extra Swatinem/rust-cache key segment to keep matrix legs from sharing one cache.
+    required: false
+    default: ""
+  linux-frontend-deps:
+    description: >
+      Set to "true" to install the X11/Wayland/ALSA dev packages the egui/winit frontend links
+      against on Linux (see CONTRIBUTING.md). No-op on non-Linux runners.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        components: ${{ inputs.components }}
+        targets: ${{ inputs.targets }}
+    - uses: Swatinem/rust-cache@v2
+      with:
+        key: ${{ inputs.cache-key-suffix }}
+    - name: Install Linux frontend system deps
+      if: inputs.linux-frontend-deps == 'true' && runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libxkbcommon-dev libwayland-dev libasound2-dev \
+          libudev-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
