@@ -1,7 +1,7 @@
 [package]
 name = "rustysnes-script"
 description = "RustySNES: sandboxed Lua 5.4 scripting (memory read/write + a per-frame callback)"
-version = "1.7.0"
+version = "1.7.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

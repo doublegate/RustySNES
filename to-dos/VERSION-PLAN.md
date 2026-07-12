@@ -998,6 +998,21 @@ scaffold — sequenced first among the desktop feature rungs for that reason.
   needs a new `rustysnes-core::watchpoint::WatchKind` variant + `Bus` hook, a cross-crate change
   out of this rung's scope). Both tracked as open follow-ups, not silently dropped.
 
+#### `v1.7.1` — **RELEASED 2026-07-12** (patch, no new scope)
+
+A user comparing the live RustySNES and RustyNES GitHub Pages demos side by side reported
+RustySNES's canvas rendering visibly smaller. Root cause: `App::create_window` special-cased
+`wasm32` to a hardcoded `512x448` size, assuming `web/index.html`'s CSS controlled the actual
+rendered size — it doesn't; winit's web backend resizes the attached `<canvas>` to match the
+requested inner size regardless. RustyNES's own `create_window` requests `NES_W * INITIAL_SCALE`
+unconditionally (confirmed by reading its source), which is why its own demo already rendered at
+3x. Fixed by having `wasm32` share the same `chrome_padded_size(INITIAL_SCALE, region)` call
+native uses; `web/index.html`'s CSS updated (`aspect-ratio` + `height: auto`, after a review
+finding that a fixed-height fallback would distort on narrow viewports). Verified via `cargo
+check` on both native and `wasm32-unknown-unknown`, a real `trunk build --release`, and the full
+`rustysnes-frontend` test suite — no browser available in this environment to visually confirm
+the on-screen render, flagged honestly rather than assumed.
+
 ### `v1.9.0 "Marionette"` — Lua/TAS scripting depth + TAStudio
 
 Widens `rustysnes-script` (currently 339 lines, mlua-only, WRAM-only) to the full 24-bit bus, adds

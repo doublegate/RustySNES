@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-07-12
+
+Patch release: a single user-reported bugfix, no new scope.
+
 ### Fixed
 
 - **The wasm demo's canvas rendered at a smaller, fixed 2x scale instead of the 3x
@@ -19,7 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unconditionally (native and wasm alike), which is why its own demo already rendered at 3x — a
   user comparing the two demos side by side noticed the size difference. `web/index.html`'s CSS
   updated to `896x728` (the new pre-JS fallback appearance, matching the actual chrome-padded 3x
-  size) so there's no flash of the old size before winit applies the real one.
+  size) so there's no flash of the old size before winit applies the real one. Found in review
+  (#82): the fallback CSS's fixed height paired with `max-width: 96vw` would have distorted the
+  canvas on narrow viewports — switched to `aspect-ratio` + `height: auto` instead.
 
 ## [1.7.0] "Telemetry" - 2026-07-12
 
