@@ -16,11 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `hd_compositor::composite` before its own `drop(emu)`, but the threaded build's
   `emu_thread::drive_one` had no equivalent step, so a threaded build with a pack
   selected silently rendered the native (uncomposited) framebuffer
-  (`docs/frontend.md`'s documented scope cut, closed here). `drive_one` now
-  composites in both the run-ahead and plain-frame branches before publishing to
+  (`docs/frontend.md`'s documented scope cut, closed here). `drive_one`'s
+  plain-frame (run-ahead-disabled) branch now composites before publishing to
   `PresentBuffer`; the common no-pack-active case stays exactly as fast as before
   (a cheap `hd_pack_name()` `&self` pre-check, no extra allocation) since the real
-  compositing cost only applies once a pack is actually selected.
+  compositing cost only applies once a pack is actually selected. Found in review
+  (#90): the lock is now released before the `PresentBuffer` copy in this branch
+  too, matching the run-ahead branch's existing `drop(emu)`-before-publish pattern.
 
 ### Deferred (honestly scoped, not silently dropped)
 
@@ -31,6 +33,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   authoring support is a genuinely separate, substantial piece of work from the
   `emu-thread` wiring fix above. Pushed to a later, explicitly-scoped release.
   See `to-dos/VERSION-PLAN.md`'s `v1.10.0` section.
+- **HD-pack compositing is deliberately NOT applied to `emu-thread`'s run-ahead
+  branch.** Found in review (#90): `step_with_run_ahead`'s returned frame is a
+  PEEKED frame (captured, then rolled back so `emu`'s persisted state only
+  advances by one real frame), but `EmuCore::hd_pack_composite_inputs` reads
+  `Ppu::tile_tags()` from `emu`'s CURRENT (post-rollback) state — a different
+  frame than the peeked bytes. Compositing with a mismatched `(fb, tags)` pair
+  would silently apply replacement tiles keyed to the wrong frame, corrupting
+  the picture rather than just showing native art, so this rung skips
+  compositing there instead. **The same desync already exists, unfixed, in
+  `app.rs`'s synchronous render path** (pre-existing since run-ahead and
+  HD-pack were first combined; not introduced by this release, not touched by
+  it either) — both are tracked together as a `v1.10.x`/later follow-up in
+  `to-dos/VERSION-PLAN.md`. Run-ahead and HD-pack are each off by default, so
+  this only affects the narrow case where a user has both features enabled
+  simultaneously.
 
 ## [1.9.0] "Marionette" - 2026-07-12
 

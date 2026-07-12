@@ -368,23 +368,19 @@ fn drive_one(
         if let Some(a) = audio {
             a.push(emu.audio(), control.speed());
         }
-        // `v1.10.0 "Atelier"`: composite an active HD texture pack here too -- see the `else`
-        // branch's comment below for why this build previously skipped it entirely.
-        #[cfg(feature = "hd-pack")]
-        let (fb, dims) = match emu.hd_pack_composite_inputs() {
-            Some((tags, tiles)) => {
-                let (w, h, out) = crate::hd_compositor::composite(
-                    &fb,
-                    dims.0,
-                    dims.1,
-                    &tags,
-                    tiles,
-                    crate::app::HD_PACK_SCALE,
-                );
-                (out, (w, h))
-            }
-            None => (fb, dims),
-        };
+        // `v1.10.0 "Atelier"`: HD-pack compositing is deliberately NOT applied here (found in
+        // review, #90) -- `step_with_run_ahead`'s `fb` is the PEEKED frame (captured, then rolled
+        // back so `emu`'s persisted state only advances by one real frame), but
+        // `emu.hd_pack_composite_inputs()` reads `Ppu::tile_tags()` from `emu`'s CURRENT state,
+        // which is the POST-rollback real frame -- a different frame than `fb`. Compositing with
+        // mismatched `(fb, tags)` would apply replacement tiles keyed to the wrong frame's
+        // content, silently corrupting the picture rather than just showing the native art. This
+        // is a real, narrow-but-genuine gap: run-ahead and an active HD pack are each off by
+        // default, and `app.rs`'s synchronous render path has this exact same pre-existing
+        // desync (also unfixed, also out of this PR's scope) -- tracked as a follow-up in
+        // `to-dos/VERSION-PLAN.md` rather than rushed here. Fixing it for real needs
+        // `step_with_run_ahead` itself to capture the peeked `TileTag` buffer alongside `fb`
+        // (before the rollback), shared by both call sites.
         drop(emu); // release the lock before the lock-free PresentBuffer copy below.
         present.publish(&fb, dims);
     } else {
@@ -406,23 +402,31 @@ fn drive_one(
             if emu.hd_pack_name().is_some() {
                 let dims = emu.fb_dims();
                 let fb = emu.framebuffer().to_vec();
-                if let Some((tags, tiles)) = emu.hd_pack_composite_inputs() {
-                    let (w, h, out) = crate::hd_compositor::composite(
-                        &fb,
-                        dims.0,
-                        dims.1,
-                        &tags,
-                        tiles,
-                        crate::app::HD_PACK_SCALE,
-                    );
-                    present.publish(&out, (w, h));
-                } else {
+                // Composite (or fall back to the plain frame) while `fb`/`dims` are already
+                // owned, THEN release the lock before the lock-free `PresentBuffer` copy --
+                // mirroring the run-ahead branch's `drop(emu)` (found in review, #90; this
+                // branch used to hold the lock through `publish`, needlessly, since nothing
+                // published here still borrows from `emu` by this point).
+                let (out, out_dims) = match emu.hd_pack_composite_inputs() {
+                    Some((tags, tiles)) => {
+                        let (w, h, out) = crate::hd_compositor::composite(
+                            &fb,
+                            dims.0,
+                            dims.1,
+                            &tags,
+                            tiles,
+                            crate::app::HD_PACK_SCALE,
+                        );
+                        (out, (w, h))
+                    }
                     // The pack was cleared between the check above and here -- unreachable in
                     // practice (this thread is the only place that can observe `emu`'s HD-pack
                     // state change mid-`drive_one`, and it never does), but publish the
                     // native frame rather than drop it if it somehow happened.
-                    present.publish(&fb, dims);
-                }
+                    None => (fb, dims),
+                };
+                drop(emu);
+                present.publish(&out, out_dims);
             } else {
                 present.publish(emu.framebuffer(), emu.fb_dims());
             }
