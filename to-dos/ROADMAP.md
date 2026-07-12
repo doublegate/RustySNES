@@ -318,15 +318,15 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   thread either. None of the still-open items currently gate a numbered rung — they're an ongoing,
   opportunistic `v1.x.y`-patch cluster.
 - **`v1.5.0 "Bedrock"` onward — the RustyNES-parity ladder — IN PROGRESS.** A second, parallel
-  ladder theme closing the gap between RustySNES and its sibling NES emulator RustyNES: CI safety
-  net (`v1.5.0`, **RELEASED 2026-07-11**), a docs site + accuracy-ledger (`v1.6.0`), a real debugger module
-  (`v1.7.0`-`v1.8.0`), Lua/TAS + TAStudio depth (`v1.9.0`), an HD-pack builder (`v1.10.0`),
-  RetroAchievements hardcore/leaderboard/rich-presence (`v1.11.0`), a deeper shader/NTSC ladder
-  (`v1.12.0`), accessibility/theming + save-state polish (`v1.13.0`), then a full mobile track —
-  Android + iOS apps plus dormant monetization scaffolding (`v1.14.0`-`v1.18.0`) — and a PGO/BOLT
-  pipeline last (`v1.19.0`). Tracked in lockstep against RustyNES's own continuing development via
-  `to-dos/LOCKSTEP-CHECKLIST.md`, not a frozen snapshot target. Full detail in
-  `to-dos/VERSION-PLAN.md`'s "RustyNES-parity ladder" section.
+  ladder theme closing the gap between RustySNES and its sibling NES emulator RustyNES: CI
+  safety net (`v1.5.0`, **RELEASED 2026-07-11**), a docs site + accuracy-ledger (`v1.6.0`), a
+  real debugger module (`v1.7.0`-`v1.8.0`), Lua/TAS + TAStudio depth (`v1.9.0`), an HD-pack
+  builder (`v1.10.0`), RetroAchievements hardcore/leaderboard/rich-presence (`v1.11.0`), a
+  deeper shader/NTSC ladder (`v1.12.0`), accessibility/theming + save-state polish (`v1.13.0`),
+  then a full mobile track — Android + iOS apps plus dormant monetization scaffolding
+  (`v1.14.0`-`v1.18.0`) — and a PGO/BOLT pipeline last (`v1.19.0`). Tracked in lockstep against
+  RustyNES's own continuing development via `to-dos/LOCKSTEP-CHECKLIST.md`, not a frozen
+  snapshot target. Full detail in `to-dos/VERSION-PLAN.md`'s "RustyNES-parity ladder" section.
 - **Further beyond — the fractional-timebase refactor (`docs/adr/0002`).** Assessed in `v1.1.0`
   and found **not currently warranted** — every named accuracy residual is answerable within the
   existing whole-master-clock-tick model (`docs/audit/fractional-timebase-go-no-go-2026-07-11.md`).
