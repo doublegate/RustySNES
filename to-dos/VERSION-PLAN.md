@@ -817,9 +817,32 @@ gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
   port after all (contrary to `v1.1.0`'s own framing): `EmuCore` is the same `Arc<Mutex<...>>`
   both the winit thread and the emu thread share, so re-syncing from `render`'s existing brief
   lock — once per present, before the emu thread's next `run_frame()` — is sufficient; none of
-  this needs to run ON the emu thread itself. Still not ported: run-ahead/rewind/movies/
-  scripting/netplay-pause/RetroAchievements, which genuinely need per-produced-frame granularity
-  and a new shared-mutable-state design. See `emu_thread.rs`'s own module doc.
+  this needs to run ON the emu thread itself. See `emu_thread.rs`'s own module doc.
+- **`emu-thread` run-ahead + netplay-aware pause — DONE.** Run-ahead: `drive_one` now calls
+  `crate::rewind::step_with_run_ahead` unconditionally instead of a plain `run_frame()`; its own
+  `frames == 0` branch is already the identical fast path, so this is a no-op until run-ahead is
+  configured. Netplay: `NetplayState::drive` was previously dead code under `emu-thread` (buried
+  inside a `#[cfg(not(feature = "emu-thread"))]` block) — netplay was silently completely
+  non-functional in threaded builds before this fix. It now runs once per present from the winit
+  thread (matching `NetplayState::drive`'s own "drive one real frame" contract), while a new
+  `EmuControl::netplay_paused` flag idles the emu thread; the flag is set by the winit thread and
+  re-checked by the emu thread under the same `EmuCore` mutex in `drive_one`, so there's no TOCTOU
+  race with the netplay rollback session claiming the `System`. `PresentBuffer` was extended to
+  carry `(width, height)` alongside its bytes (`publish`/`take_into` signatures changed) — this
+  was previously safe only because every published frame was exactly `emu.framebuffer()`'s current
+  dims; run-ahead's peeked frame can differ across a hi-res-mode-toggle-mid-peek edge case, so
+  dims must travel with the bytes through the same slot to avoid a bytes/dims size mismatch on the
+  GPU-upload path. Two previously-real CI gaps closed alongside this: `emu-thread` was never
+  actually clippy-gated at all (only referenced in a comment), and its own unit tests were
+  compile-checked via clippy but never executed — both now covered (`emu-thread` and
+  `emu-thread,netplay` clippy in `lint`; `emu-thread,netplay` tests in `full-test`). Movies/
+  scripting/RetroAchievements/rewind-recording remain unported — but reclassified as an
+  intentional, permanent architecture boundary (confirmed by directly reading RustyNES's own
+  mature 914-line `emu_thread.rs`, which doesn't port any of these to its thread either), not a
+  parity gap. A live headless launch exercising a real netplay session under `emu-thread` was NOT
+  re-verified this pass (this sandbox's headless GUI automation hangs regardless of feature combo
+  — a previously recorded limitation); flagged honestly rather than claimed. See `emu_thread.rs`'s
+  own module doc and `docs/frontend.md`.
 
 ## Post-v1.0 — Reach (deferred)
 

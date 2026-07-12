@@ -20,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`emu-thread` mechanical re-sync** — cheats, watchpoints, breakpoints, port2-peripheral
   selection, and per-voice audio mutes now apply in the threaded build too (previously only the
   synchronous drive path saw these changes).
+- **`emu-thread` run-ahead + netplay-aware pause** — run-ahead now runs on the emu thread via
+  `crate::rewind::step_with_run_ahead`; netplay now actually functions under `emu-thread` (its
+  `NetplayState::drive` call was previously dead code there, so netplay was silently
+  non-functional in threaded builds), pausing the emu thread TOCTOU-safely via a new
+  `EmuControl::netplay_paused` flag re-checked under the shared `EmuCore` lock. `PresentBuffer`
+  now carries the framebuffer's `(width, height)` alongside its bytes so a run-ahead-peeked frame
+  can never publish bytes for one resolution against dims from another. `emu-thread` is now
+  clippy- and test-gated in CI for the first time (previously referenced only in a comment).
+  Movies, Lua scripting, RetroAchievements, and rewind-recording remain intentionally unported to
+  `emu-thread` — confirmed via RustyNES's own reference implementation, which doesn't port these
+  to its thread either.
 
 ### Fixed
 

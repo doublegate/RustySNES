@@ -149,6 +149,15 @@ struct Active {
     /// simply re-presents the last frame rather than flashing black).
     #[cfg(feature = "emu-thread")]
     present_staging: Vec<u8>,
+    /// The `(width, height)` matching whatever bytes currently sit in `present_staging` — updated
+    /// only when `take_into` returns `Some` (post-`v1.3.0` run-ahead/netplay review fix). Reading
+    /// `emu.fb_dims()` as a `take_into`-returns-`None` fallback is unsound: `emu.fb_dims()` is the
+    /// CURRENT `EmuCore` state, which can have moved on to a new resolution (a hi-res-mode
+    /// toggle) since the last frame this thread actually consumed, leaving `present_staging`
+    /// holding stale bytes for the OLD resolution. This field is the one dims value guaranteed to
+    /// match `present_staging`'s actual contents at all times.
+    #[cfg(feature = "emu-thread")]
+    present_dims: (u32, u32),
     /// Scratch buffer the present path copies `present_staging` into once the `emu` mutex has
     /// been released (`v1.1.0` fix, reviewed): reused every frame via `clear()` +
     /// `extend_from_slice()`, which only reallocates if the framebuffer's resolution grows
@@ -697,6 +706,10 @@ impl App {
             present,
             #[cfg(feature = "emu-thread")]
             present_staging: Vec::new(),
+            // Matches `EmuCore::fb_dims()`'s own pre-ROM default (`crate::gfx::SNES_W`/
+            // `SNES_H_NTSC`) so the pre-first-publish "black frame" bootstrap case is unchanged.
+            #[cfg(feature = "emu-thread")]
+            present_dims: (crate::gfx::SNES_W, crate::gfx::SNES_H_NTSC),
             #[cfg(feature = "emu-thread")]
             fb_scratch: Vec::new(),
             pad1: Buttons::default(),
@@ -1061,6 +1074,7 @@ impl App {
                 control.set_has_rom(emu.rom_loaded());
                 control.set_user_paused(paused);
                 control.set_speed(active.speed);
+                control.set_run_ahead(config.run_ahead.frames);
                 // Mechanical re-syncs (closed post-`v1.3.0`; previously only ran on the
                 // synchronous path above, so the threaded build silently never saw cheats/
                 // watchpoints/breakpoints/port2-peripheral/voice-mute changes at all). These only
@@ -1077,7 +1091,34 @@ impl App {
                 emu.set_port_device(1, config.port2_peripheral.to_core());
                 emu.set_breakpoints(&active.breakpoints);
                 emu.set_voice_mutes(config.audio.voice_mutes);
-                Vec::new()
+
+                // Netplay-aware pause (post-`v1.3.0`): the emu thread must idle whenever a
+                // netplay session is connected (its `RollbackSession` is the sole authority over
+                // `emu` while active — matching the synchronous path's own bypass above), and
+                // `NetplayState::drive` — previously unreachable at all in `emu-thread` builds,
+                // since it lived inside the synchronous-only production loop — is driven here
+                // instead, once per present, from the winit thread (its own doc says "drive one
+                // real frame", matching a once-per-present cadence exactly).
+                #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+                let netplay_samples = {
+                    let connected = active.netplay.is_connected();
+                    control.set_netplay_paused(connected);
+                    if connected {
+                        let local_input = active.pad1.sanitize_dpad().0;
+                        if let Err(e) = active.netplay.drive(local_input, &mut emu) {
+                            eprintln!("rustysnes: netplay error, disconnecting: {e}");
+                            active.netplay = NetplayState::Idle;
+                            control.set_netplay_paused(false);
+                            active.shell.status = format!("Netplay error: {e}");
+                        }
+                        emu.audio().to_vec()
+                    } else {
+                        Vec::new()
+                    }
+                };
+                #[cfg(not(all(feature = "netplay", not(target_arch = "wasm32"))))]
+                let netplay_samples = Vec::new();
+                netplay_samples
             };
             // Run-ahead presents the deepest peeked frame, not `emu`'s own (1-real-frame-behind)
             // framebuffer; when it didn't run (paused, disabled, or the threaded build) fall back
@@ -1106,14 +1147,19 @@ impl App {
             } else {
                 (fb, dims)
             };
-            // `v1.1.0`: `dims` is cheap to read under the still-held `emu` lock; the actual
-            // framebuffer BYTES come from the lock-free `PresentBuffer` handoff instead of
-            // `emu.framebuffer()` — copied only AFTER `emu` is dropped below (see the `drop(emu)`
-            // site), so the present path never blocks the emu thread's next `run_frame()` on this
-            // — potentially hi-res, up to ~896 KiB — copy. A prior revision ran `take_into` + the
-            // buffer copy while `emu` was still locked, serializing the two threads for nothing.
+            // `v1.1.0`: `dims` starts as whatever `present_staging` actually holds right now
+            // (`active.present_dims`, tracked alongside it) rather than `emu.fb_dims()` — a
+            // review finding post-`v1.3.0` run-ahead: `emu.fb_dims()` is the CURRENT `EmuCore`
+            // state, which can have moved on to a new resolution (a hi-res-mode toggle) since the
+            // last frame this thread actually consumed from `PresentBuffer`, leaving
+            // `present_staging` stale for the OLD resolution — reading `emu.fb_dims()` here would
+            // then mismatch those stale bytes. The actual framebuffer BYTES (and, post-`v1.3.0`
+            // run-ahead, the AUTHORITATIVE dims for those exact bytes) come from the lock-free
+            // `PresentBuffer` handoff below, copied only AFTER `emu` is dropped (see the
+            // `drop(emu)` site), so the present path never blocks the emu thread's next
+            // `run_frame()` on this — potentially hi-res, up to ~896 KiB — copy.
             #[cfg(feature = "emu-thread")]
-            let dims = emu.fb_dims();
+            let mut dims = active.present_dims;
             // `v1.0.0` Performance panel: the audio ring's occupancy as a percentage of its
             // capacity (a rough "audio health" gauge — persistently near 0% or 100% means the
             // producer/consumer are drifting apart). `None` on `wasm32` (no `active.audio` there
@@ -1181,7 +1227,10 @@ impl App {
             // `Vec::clone`'s always-fresh heap allocation.
             #[cfg(feature = "emu-thread")]
             let fb = {
-                active.present.take_into(&mut active.present_staging);
+                if let Some(d) = active.present.take_into(&mut active.present_staging) {
+                    dims = d;
+                    active.present_dims = d;
+                }
                 let mut scratch = std::mem::take(&mut active.fb_scratch);
                 scratch.clear();
                 scratch.extend_from_slice(&active.present_staging);

@@ -76,9 +76,20 @@ via DMA/HDMA), and `emu-thread`'s cheats/watchpoints/breakpoints/port2-periphera
 re-sync is now mechanically ported: `EmuCore` is the same `Arc<Mutex<...>>` both the winit
 thread and the emu thread share, so re-syncing from `render`'s existing brief lock — once per
 present, before the emu thread's next `run_frame()` — is sufficient; none of it needs to run ON
-the emu thread itself. Still not ported: run-ahead/rewind/movies/scripting/netplay-pause/
-RetroAchievements, which genuinely need per-produced-frame granularity and a new
-shared-mutable-state design — see `emu_thread.rs`'s own module doc.
+the emu thread itself. Run-ahead and netplay-aware pause are now ported too:
+`crate::rewind::step_with_run_ahead` runs unconditionally inside `drive_one` (its own `frames ==
+0` branch is the plain-`run_frame()` fast path, so this is a no-op until run-ahead is configured),
+and `NetplayState::drive` — previously entirely unreachable under `emu-thread` (dead code inside a
+`#[cfg(not(feature = "emu-thread"))]` block, i.e. netplay was silently non-functional in threaded
+builds) — now runs once per present from the winit thread while `EmuControl::netplay_paused`
+idles the emu thread under the same `EmuCore` mutex (TOCTOU-safe: the flag is only trusted once
+re-checked under the lock in `drive_one`). `PresentBuffer` was extended to carry the framebuffer's
+`(width, height)` alongside its bytes (previously only safe because every published frame was
+exactly `emu.framebuffer()`'s current dims; run-ahead's peeked frame can differ across a
+hi-res-mode-toggle-mid-peek edge case). Movies/scripting/RetroAchievements/rewind-recording remain
+unported — but reclassified as an intentional, permanent architecture boundary (confirmed by
+directly reading RustyNES's own mature 914-line `emu_thread.rs`, which doesn't port any of these
+to its thread either), not a parity gap — see `emu_thread.rs`'s own module doc.
 `v0.5.0` closed out the accuracy-pass-rate dashboard (see "Accuracy dashboard" below) and the
 full named hardware-gotcha regression list — every item fixed, correctly reclassified as an
 intentional non-goal, or honestly researched-and-deferred with a full mechanism write-up. `v0.6.0`

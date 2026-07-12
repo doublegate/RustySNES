@@ -301,15 +301,18 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   cluster has also closed out the fullscreen-crash-on-wide-monitors bug, RustyNES-parity Window
   Size presets, `rustysnes-libretro`'s peripheral negotiation (Mouse/Super Scope/Multitap via
   `RETRO_DEVICE_SUBCLASS`), the open-bus-via-DMA-latch bug (cross-checked directly against
-  ares'/bsnes' own `CPU::Channel` DMA implementation), and `emu-thread`'s mechanical
-  cheats/watchpoints/breakpoints/port2-peripheral/voice-mute re-sync — see
-  `to-dos/VERSION-PLAN.md`'s "Post-v1.3.0" section. What's still genuinely open: the SPC7110/PAL/
-  ExLoROM/ST018/S-RTC real-ROM-validation gaps (all ROM-sourcing-blocked, tracked in
-  `docs/rom-test-corpus.md`), the rest of `emu-thread` parity (run-ahead/rewind/movies/scripting/
-  netplay-pause/RetroAchievements — each needs per-produced-frame granularity and a new
-  shared-mutable-state design, not a mechanical port), and any future mobile/Android target (no
-  appetite assumed by default). None of these currently gate a numbered rung — they're an
-  ongoing, opportunistic `v1.x.y`-patch cluster.
+  ares'/bsnes' own `CPU::Channel` DMA implementation), `emu-thread`'s mechanical
+  cheats/watchpoints/breakpoints/port2-peripheral/voice-mute re-sync, and `emu-thread`'s
+  run-ahead + netplay-aware pause (the latter fixing a real latent bug: `NetplayState::drive` was
+  previously dead code under `emu-thread`, so netplay was silently non-functional in threaded
+  builds) — see `to-dos/VERSION-PLAN.md`'s "Post-v1.3.0" section. What's still genuinely open: the
+  SPC7110/PAL/ExLoROM/ST018/S-RTC real-ROM-validation gaps (all ROM-sourcing-blocked, tracked in
+  `docs/rom-test-corpus.md`) and any future mobile/Android target (no appetite assumed by
+  default). Movies/scripting/RetroAchievements/rewind-recording on `emu-thread` are reclassified
+  as an intentional, permanent architecture boundary rather than a remaining gap — confirmed by
+  directly reading RustyNES's own mature `emu_thread.rs`, which doesn't port any of these to its
+  thread either. None of the still-open items currently gate a numbered rung — they're an ongoing,
+  opportunistic `v1.x.y`-patch cluster.
 - **Further beyond — the fractional-timebase refactor (`docs/adr/0002`).** Assessed in `v1.1.0`
   and found **not currently warranted** — every named accuracy residual is answerable within the
   existing whole-master-clock-tick model (`docs/audit/fractional-timebase-go-no-go-2026-07-11.md`).
