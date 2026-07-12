@@ -3810,6 +3810,19 @@ name = "rustysnes-gfx-shaders"
 version = "1.15.0"
 
 [[package]]
+name = "rustysnes-ios"
+version = "1.15.0"
+dependencies = [
+ "bytemuck",
+ "log",
+ "naga",
+ "pollster",
+ "raw-window-handle",
+ "rustysnes-gfx-shaders",
+ "wgpu",
+]
+
+[[package]]
 name = "rustysnes-libretro"
 version = "1.15.0"
 dependencies = [

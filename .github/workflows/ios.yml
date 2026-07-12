@@ -1,0 +1,100 @@
+name: iOS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/rustysnes-ios/**"
+      - "crates/rustysnes-mobile/**"
+      - "crates/rustysnes-gfx-shaders/**"
+      - "ios/**"
+      - "scripts/build-ios-xcframework.sh"
+      - ".github/workflows/ios.yml"
+  pull_request:
+    paths:
+      - "crates/rustysnes-ios/**"
+      - "crates/rustysnes-mobile/**"
+      - "crates/rustysnes-gfx-shaders/**"
+      - "ios/**"
+      - "scripts/build-ios-xcframework.sh"
+      - ".github/workflows/ios.yml"
+  schedule:
+    # `v1.16.0 "Beacon"`: a ~60-day refresh cron -- this is the ONLY place in the project that
+    # exercises a real macOS/Xcode toolchain (everything else in `crates/rustysnes-ios` and
+    # `ios/` was written and Rust-side compile-checked in a Linux sandbox with no Xcode; this
+    # workflow's macOS runner is this project's sole real verification of the Swift/Xcode side).
+    # Catches drift from Xcode/Swift toolchain updates on GitHub's runner image even when neither
+    # this crate nor `ios/` itself has changed recently.
+    - cron: "0 8 1 */2 *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    env:
+      CARGO_NET_RETRY: "10"
+      CARGO_HTTP_MULTIPLEXING: "false"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/rust-setup
+        with:
+          targets: aarch64-apple-ios aarch64-apple-ios-sim
+          cache-key-suffix: ios
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # The one step this project cannot run anywhere except a real macOS/Xcode machine --
+      # produces the .xcframework artifacts `ios/project.yml` links against, plus the
+      # UniFFI-generated Swift bindings source file.
+      - name: Build rustysnes-mobile + rustysnes-ios xcframeworks
+        run: ./scripts/build-ios-xcframework.sh
+
+      - name: Generate the Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      # No code signing -- a plain simulator build proves the Rust FFI surface, the bridging
+      # header, and every `.swift` file in `ios/RustySNES/Sources` actually compile against a
+      # real Swift compiler for the first time (none of that has ever been verified outside this
+      # job; see `crates/rustysnes-ios/src/lib.rs`'s module doc and `docs/mobile-readiness.md`).
+      - name: Build for the iOS Simulator
+        working-directory: ios
+        # No `| xcbeautify` (not preinstalled on the runner, and not worth adding a dependency to
+        # reformat output for) -- and deliberately no output-swallowing: this step must fail
+        # loudly on a real build error, since it's the one place any of this Swift/Xcode code is
+        # ever actually compiled.
+        run: |
+          xcodebuild build \
+            -project RustySNES.xcodeproj \
+            -scheme RustySNES \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO
+
+      # TestFlight upload is gated on distribution-signing secrets being configured at all --
+      # skipped (not failed) when they aren't, since this repo has never had them set up. Secret
+      # names are placeholders for the project owner to actually provision (App Store Connect API
+      # key + distribution certificate/profile) when a real TestFlight upload is wanted; until
+      # then this step is inert.
+      - name: Check for distribution-signing secrets
+        id: signing
+        run: |
+          if [ -n "${{ secrets.IOS_DIST_CERT_P12_BASE64 }}" ] && [ -n "${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Archive + upload to TestFlight
+        if: steps.signing.outputs.configured == 'true' && github.ref == 'refs/heads/main'
+        working-directory: ios
+        run: |
+          echo "Distribution signing is configured, but the archive/export/upload pipeline" \
+               "itself is not implemented yet -- v1.16.0 'Beacon' ships the build-and-verify" \
+               "path only. A real TestFlight upload is a v1.16.1+ follow-up once the project" \
+               "owner has provisioned real signing secrets to test it against."

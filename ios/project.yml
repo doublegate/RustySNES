@@ -1,0 +1,64 @@
+# XcodeGen project spec (https://github.com/yonaskolb/XcodeGen) -- generates the real
+# `RustySNES.xcodeproj` on whichever machine actually has Xcode (this development environment
+# does not). Chosen over hand-authoring a binary-ish `.xcodeproj` directly: a plain YAML spec is
+# something that can be written and reviewed correctly without Xcode, where a subtly-malformed
+# `.xcodeproj` would only reveal itself the first time someone opens it -- see
+# `.github/workflows/ios.yml`, which runs `xcodegen generate` + a real `xcodebuild` on a macOS
+# runner as this spec's actual verification.
+#
+# Run `scripts/build-ios-xcframework.sh` BEFORE `xcodegen generate` -- it produces the
+# `ios/Frameworks/*.xcframework` artifacts and the generated `Generated-RustysnesMobile.swift`
+# source file this spec references.
+name: RustySNES
+options:
+  bundleIdPrefix: com.doublegate
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+targets:
+  RustySNES:
+    type: application
+    platform: iOS
+    sources:
+      - path: RustySNES/Sources
+    info:
+      path: RustySNES/Resources/Info.plist
+      properties: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.doublegate.rustysnes
+        PRODUCT_NAME: RustySNES
+        MARKETING_VERSION: "1.15.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_OBJC_BRIDGING_HEADER: RustySNES/Bridging-Header.h
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        # Static xcframeworks (below) don't need Swift's runtime support libraries copied into
+        # the app bundle the way a dynamic-framework-only app would.
+        ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: false
+    dependencies:
+      # `embed: false` for both -- these wrap `staticlib` (`.a`) slices, not dynamic libraries;
+      # Xcode links them directly into the app binary rather than copying/code-signing them as
+      # separate embedded bundles (which is only meaningful for dynamic frameworks).
+      - framework: Frameworks/RustysnesMobileFFI.xcframework
+        embed: false
+      - framework: Frameworks/RustysnesIOS.xcframework
+        embed: false
+      - sdk: Metal.framework
+      - sdk: QuartzCore.framework
+      - sdk: AVFoundation.framework
+      - sdk: UIKit.framework
+    postCompileScripts: []
+
+schemes:
+  RustySNES:
+    build:
+      targets:
+        RustySNES: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    archive:
+      config: Release

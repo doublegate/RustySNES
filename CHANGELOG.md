@@ -9,6 +9,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **New crate `rustysnes-ios`** (Mobile Phase 3, `v1.16.0 "Beacon"`): a presentation-only
+  `wgpu`-on-`CAMetalLayer` host with no emulation logic of its own — the same shape
+  `rustysnes-android` (`v1.15.0`) already proved, just a plain C-ABI FFI surface (declared in
+  `ios/RustySNES/Bridging-Header.h`) instead of JNI, since Swift's C interop needs no JNI-style
+  boilerplate. Reuses `rustysnes-gfx-shaders::BLIT_WGSL` verbatim for the unfiltered blit pass.
+  **Verified for real**: `cargo build --release --target aarch64-apple-ios` (and
+  `aarch64-apple-ios-sim`) genuinely succeeds in this project's Linux development environment with
+  no Xcode/macOS SDK installed — a `staticlib` only needs the downloaded `rust-std` component for
+  the target, deferring the link against Apple's frameworks to Xcode's own final link step;
+  confirmed via `file` that the produced `librustysnes_ios.a` contains a real
+  `Mach-O 64-bit arm64 object`. `cargo clippy`/`cargo test` also pass cleanly against the plain
+  host target (unlike `rustysnes-android`, this crate needs no CI workspace exclusion).
+- **New `ios/` SwiftUI shell source**: mirrors `v1.15.0`'s Android Compose shell's exact MVP scope
+  and architecture — a file-picker ROM load, on-screen touch d-pad/face buttons for the standard
+  SNES gamepad (P1 only), `AVAudioEngine` playback of `rustysnes-mobile`'s `drainAudio`, and the
+  same background/foreground pause-resume lifecycle handling `rustysnes-android`'s PR review found
+  real bugs around (applied here from the start, not left to be rediscovered). Project structure
+  is an `XcodeGen` YAML spec (`ios/project.yml`), not a hand-authored `.xcodeproj` — a plain-text
+  spec can be written and reviewed correctly without Xcode, where a subtly-malformed binary
+  project file would only reveal itself the first time someone opened it.
+- **New `.github/workflows/ios.yml`**: builds the `.xcframework` artifacts
+  (`scripts/build-ios-xcframework.sh`) and the generated UniFFI Swift bindings, then a real,
+  unsigned `xcodebuild` simulator build on a `macos-latest` runner — this is the ONLY place in the
+  project that exercises a real Xcode/Swift toolchain, since this development environment has
+  none. A ~60-day refresh cron catches Xcode/Swift toolchain drift on GitHub's runner image even
+  when nothing in `crates/rustysnes-ios`/`ios/` itself has changed. TestFlight upload is
+  implemented as an explicit no-op, gated on distribution-signing secrets that don't exist yet
+  (skip, not fail).
+
+### Honestly unverified (unlike everything above, which is genuinely tested)
+
+- **No Swift compiler has ever run over `ios/RustySNES/Sources` before this PR's own CI.** Every
+  `.swift` file was hand-written against careful reading of Apple's documented APIs and the
+  now-proven Android architecture, but this development environment cannot compile, lint, or run
+  Swift at all — `.github/workflows/ios.yml`'s `macos-latest` job is this code's first-ever real
+  compiler pass, and it may well surface real mistakes the way `rustysnes-android`'s on-device run
+  surfaced real `wgpu` bugs `cargo ndk check` couldn't catch.
+- No on-device or simulator *run* (only a build) — no ROM has ever actually booted on this
+  platform.
+- No App Store §4.7 self-audit, no TestFlight upload, no real distribution signing.
+
 ## [1.15.0] "Sideload" - 2026-07-12
 
 Eleventh release of the RustyNES-parity roadmap: Mobile Phase 2, a real Android alpha.
