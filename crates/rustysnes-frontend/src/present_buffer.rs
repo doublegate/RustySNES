@@ -17,18 +17,25 @@
 //!
 //! This is a pure presentation-path optimization: it moves *where* the already-produced,
 //! deterministic framebuffer bytes are copied (off the emu lock, onto the handoff). It changes no
-//! emulated state, no audio, and no frame contents — the bytes published are exactly
-//! `EmuCore::framebuffer()`. The determinism contract (same seed + ROM + input => bit-identical
-//! FB + audio) is unaffected.
+//! emulated state or audio. The bytes published are exactly `EmuCore::framebuffer()` when
+//! run-ahead is off; with run-ahead on (post-`v1.3.0`), they're the deeper *peeked* frame
+//! `crate::rewind::step_with_run_ahead` produces instead — still a pure function of the same
+//! deterministic `System` state (peek-then-restore, never a second persisted branch), so the
+//! determinism contract (same seed + ROM + input => bit-identical FB + audio) is unaffected
+//! either way; only *which* already-deterministic frame gets presented changes.
 //!
 //! ## SPSC contract + synchronization
 //!
 //! Exactly ONE producer (the emu thread) and ONE consumer (the winit present path). The index
 //! word's three 2-bit fields (`back` / `ready` / `front`) are always a permutation of `{0,1,2}`,
 //! so the producer and consumer touch disjoint slots. A small dedicated `Mutex` guards the index
-//! word + the `has_new` flag + the slot bytes together so a publish and a take stay consistent
-//! without `unsafe`; that mutex is held only for the brief copy. A cheap `Relaxed` `has_new`
-//! pre-check lets the consumer early-out without taking the mutex when nothing is new.
+//! word + the `has_new` flag + the slot bytes AND dims together so a publish and a take stay
+//! consistent without `unsafe`; that mutex is held only for the brief copy. A cheap `Relaxed`
+//! `has_new` pre-check lets the consumer early-out without taking the mutex when nothing is new.
+//! Post-`v1.3.0`: each slot's `(width, height)` travels WITH its bytes (see [`Slots::dims`]) —
+//! run-ahead can publish a peeked frame whose dims differ from `EmuCore::fb_dims()`'s
+//! currently-persisted-state reading (a hi-res-mode-toggle-mid-peek edge case), so the consumer
+//! must never re-query dims separately from the bytes it's about to upload.
 //!
 //! ## SNES-specific adaptation
 //!
@@ -50,6 +57,13 @@ const FB_LEN: usize = 512 * 448 * 4;
 /// The three reusable byte buffers behind the handoff.
 struct Slots {
     bufs: [Vec<u8>; 3],
+    /// The `(width, height)` each `bufs` slot's bytes decode as — post-`v1.3.0` (run-ahead
+    /// support): a run-ahead-peeked frame's dims can differ from `EmuCore::fb_dims()`'s
+    /// currently-persisted-state reading in a hi-res-mode-toggle-mid-peek edge case, so dims
+    /// travel WITH the bytes through this same slot (one lock acquisition, always a consistent
+    /// pair) rather than the consumer re-querying `EmuCore::fb_dims()` separately, which could
+    /// observe a size that doesn't match the bytes it's about to upload.
+    dims: [(u32, u32); 3],
     /// `front | (ready << 2) | (back << 4)` slot ids; mutated only by the producer's `publish`
     /// and the consumer's `take_into` via a swap that keeps the three fields a permutation of
     /// `{0,1,2}`. Stored here (a plain `u8` under the `slots` mutex) rather than as an atomic on
@@ -85,6 +99,7 @@ impl PresentBuffer {
             generation: AtomicUsize::new(0),
             slots: Mutex::new(Slots {
                 bufs: [Vec::new(), Vec::new(), Vec::new()],
+                dims: [(0, 0), (0, 0), (0, 0)],
                 index: Self::INIT_INDEX,
             }),
         })
@@ -104,17 +119,18 @@ impl PresentBuffer {
         (front as u8) | ((ready as u8) << 2) | ((back as u8) << 4)
     }
 
-    /// Producer: copy `frame` into the back slot and publish it (swap back<->ready). The
-    /// consumer's `front` slot is never touched here, so a concurrent take only contends for the
-    /// brief copy window.
+    /// Producer: copy `frame` (and its `dims`) into the back slot and publish it (swap
+    /// back<->ready). The consumer's `front` slot is never touched here, so a concurrent take
+    /// only contends for the brief copy window.
     ///
-    /// `frame` is the deterministic `EmuCore::framebuffer()` bytes; the copy is the same RGBA8
-    /// memcpy that would otherwise run under the emu mutex.
+    /// `frame` is normally the deterministic `EmuCore::framebuffer()` bytes (with `dims` =
+    /// `EmuCore::fb_dims()`); post-`v1.3.0`, a run-ahead-peeked frame's own (bytes, dims) pair is
+    /// published instead when run-ahead is active, so the two always travel together.
     ///
     /// # Panics
     /// Panics only if the internal slots mutex is poisoned (a prior panic while the lock was
     /// held elsewhere) — not a condition this module's own code can trigger.
-    pub fn publish(&self, frame: &[u8]) {
+    pub fn publish(&self, frame: &[u8], dims: (u32, u32)) {
         let mut slots = self.slots.lock().expect("present buffer slots");
         let idx = slots.index;
         let back = Self::back(idx);
@@ -122,6 +138,7 @@ impl PresentBuffer {
             let buf = &mut slots.bufs[back];
             buf.clear();
             buf.extend_from_slice(frame);
+            slots.dims[back] = dims;
         }
         // Swap back -> ready (front unchanged) and arm `has_new` — all under the same slots
         // lock, so the index move, the slot write, and the fresh-flag stay consistent for the
@@ -135,21 +152,24 @@ impl PresentBuffer {
     }
 
     /// Consumer: if a new frame was published since the last call, swap it into the front slot
-    /// and copy it into `out` (the present-staging buffer the GPU uploads). Returns `true` when
-    /// `out` was refreshed with a new frame, `false` when there was nothing new (the caller keeps
-    /// the previously presented `out` — the display simply re-presents it).
+    /// and copy it into `out` (the present-staging buffer the GPU uploads). Returns the frame's
+    /// `(width, height)` when `out` was refreshed with a new frame, `None` when there was
+    /// nothing new (the caller keeps the previously presented `out` — the display simply
+    /// re-presents it). The returned dims are always the exact pair `publish` was called with
+    /// for these bytes (never a separately-queried `EmuCore::fb_dims()`, which could disagree
+    /// with a run-ahead-peeked frame's own dims — see the module doc).
     ///
     /// # Panics
     /// Panics only if the internal slots mutex is poisoned (a prior panic while the lock was
     /// held elsewhere) — not a condition this module's own code can trigger.
-    pub fn take_into(&self, out: &mut Vec<u8>) -> bool {
+    pub fn take_into(&self, out: &mut Vec<u8>) -> Option<(u32, u32)> {
         // Cheap pre-check off the lock; the authoritative check is under it.
         if !self.has_new.load(Ordering::Relaxed) {
-            return false;
+            return None;
         }
         let mut slots = self.slots.lock().expect("present buffer slots");
         if !self.has_new.swap(false, Ordering::Relaxed) {
-            return false;
+            return None;
         }
         let idx = slots.index;
         let front = Self::front(idx);
@@ -160,7 +180,7 @@ impl PresentBuffer {
         slots.index = Self::pack(ready, front, back);
         out.clear();
         out.extend_from_slice(&slots.bufs[ready]);
-        true
+        Some(slots.dims[ready])
     }
 
     /// True once at least one frame has been published (so the present path can distinguish
@@ -203,13 +223,13 @@ mod tests {
         let pb = PresentBuffer::new();
         assert!(!pb.has_published());
         let frame = vec![0xABu8; 16];
-        pb.publish(&frame);
+        pb.publish(&frame, (4, 4));
         assert!(pb.has_published());
         let mut out = Vec::new();
-        assert!(pb.take_into(&mut out));
+        assert_eq!(pb.take_into(&mut out), Some((4, 4)));
         assert_eq!(out, frame);
-        // No new frame -> take returns false and leaves `out` intact.
-        assert!(!pb.take_into(&mut out));
+        // No new frame -> take returns None and leaves `out` intact.
+        assert_eq!(pb.take_into(&mut out), None);
         assert_eq!(out, frame);
     }
 
@@ -217,13 +237,13 @@ mod tests {
     fn latest_publish_wins_when_producer_outruns_consumer() {
         let pb = PresentBuffer::new();
         for i in 0..5u8 {
-            pb.publish(&[i; 8]);
+            pb.publish(&[i; 8], (u32::from(i), u32::from(i)));
         }
         // The consumer only ever sees the freshest frame (older ones were overwritten in the
         // back slot before a take) — the intended "drop stale frames" behavior under wall-clock
         // pacing.
         let mut out = Vec::new();
-        assert!(pb.take_into(&mut out));
+        assert_eq!(pb.take_into(&mut out), Some((4, 4)));
         assert_eq!(out, vec![4u8; 8]);
     }
 
@@ -232,7 +252,7 @@ mod tests {
         let pb = PresentBuffer::new();
         let mut out = Vec::new();
         for i in 0..50u8 {
-            pb.publish(&[i; 4]);
+            pb.publish(&[i; 4], (1, 1));
             if i % 3 == 0 {
                 let _ = pb.take_into(&mut out);
             }
@@ -254,12 +274,12 @@ mod tests {
     #[test]
     fn reset_clears_published_state() {
         let pb = PresentBuffer::new();
-        pb.publish(&[1u8; 8]);
+        pb.publish(&[1u8; 8], (1, 1));
         assert!(pb.has_published());
         pb.reset();
         assert!(!pb.has_published());
         let mut out = Vec::new();
-        assert!(!pb.take_into(&mut out));
+        assert_eq!(pb.take_into(&mut out), None);
     }
 
     #[test]
@@ -277,7 +297,7 @@ mod tests {
         let h = thread::spawn(move || {
             for i in 0..10_000u32 {
                 #[allow(clippy::cast_possible_truncation)]
-                prod.publish(&[(i & 0xFF) as u8; 64]);
+                prod.publish(&[(i & 0xFF) as u8; 64], (64, 1));
             }
             done_p.store(true, Ordering::Release);
         });
@@ -288,7 +308,7 @@ mod tests {
         let mut out = Vec::new();
         let mut taken = 0u32;
         loop {
-            if pb.take_into(&mut out) {
+            if pb.take_into(&mut out).is_some() {
                 taken += 1;
                 // Every taken frame is a full 64-byte uniform buffer (no torn read across
                 // slots).
@@ -298,7 +318,7 @@ mod tests {
             } else if done.load(Ordering::Acquire) {
                 // Producer finished, so at most ONE final frame remains (the buffer only
                 // retains the latest publish). Take it once, count it, then stop.
-                if pb.take_into(&mut out) {
+                if pb.take_into(&mut out).is_some() {
                     taken += 1;
                     assert_eq!(out.len(), 64);
                     let v = out[0];

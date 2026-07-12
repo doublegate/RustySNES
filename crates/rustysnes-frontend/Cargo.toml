@@ -41,17 +41,30 @@ path = "src/main.rs"
 # now ported (a genuinely mechanical port after all — they only need to land in the shared
 # `Arc<Mutex<EmuCore>>` before the thread's next `run_frame()`, not run on the thread itself, so
 # `app.rs`'s `render` re-syncs them once per present under the same brief lock it already holds).
-# Still NOT full parity with the synchronous in-`render` drive: run-ahead, rewind recording, TAS
-# movie apply/record, Lua script pump, RetroAchievements, and netplay-aware pause are not ported
-# into the thread's loop yet — each genuinely needs per-produced-frame granularity (not
-# per-present) and a new shared-mutable-state design (`Active::rewind`/`movie`/`script`/`cheevos`
-# are plain winit-thread-owned fields with no thread-safe handle today), left as a scoped,
-# documented follow-up (`crates/rustysnes-frontend/src/emu_thread.rs`'s own module doc has the
-# exact reduced list). Promoting this to `default` before that parity work lands would silently
-# drop those remaining features for anyone building the default binary. Opt in explicitly
-# (`--features emu-thread`) for the reduced-input-latency benefit on vanilla single-player play
-# with sound (now including cheats/watchpoints/breakpoints/port2-peripheral/voice-mutes), with no
-# run-ahead/rewind/movies/scripting/netplay/RetroAchievements in use.
+# Run-ahead and netplay-aware pause are ALSO now ported: `crate::rewind::step_with_run_ahead` is
+# called unconditionally from the thread's `drive_one` (its own `frames == 0` no-op path matches
+# plain `run_frame()`), and `EmuControl::netplay_paused` (ported from RustyNES's own `EmuControl`
+# near-verbatim) idles the thread while a netplay session is connected, with `render`'s
+# `emu-thread` block now driving `NetplayState::drive` once per present too -- previously that
+# call was unreachable at all under `emu-thread` (it lived inside the synchronous-only production
+# loop), so netplay was silently non-functional there before this.
+#
+# Intentionally NOT ported, matching RustyNES's own mature `emu_thread.rs` precedent (confirmed by
+# reading it directly -- it keeps these three on its OWN winit thread too, not a gap this project
+# is behind on): TAS movie apply/record, Lua script pump, and RetroAchievements per-frame drive.
+# `mlua`'s Lua state isn't `Send` (a much larger redesign to run it off-thread for no benefit
+# RustyNES itself found worthwhile); movie record/playback and RetroAchievements' `rc_client`
+# cooldown/trigger tracking both need stable per-produced-frame cadence with no thread-safe handle
+# today (`Active::movie`/`script`/`cheevos` are plain winit-thread-owned fields). Rewind
+# *recording* is the same story (`Active::rewind` isn't `EmuCore`-owned the way RustyNES's own
+# rewind buffer is -- RustyNES doesn't port rewind recording to its thread either, only a
+# `rewind_held` fast-rewind-while-held bool, a different, simpler feature). See
+# `crates/rustysnes-frontend/src/emu_thread.rs`'s own module doc for the full detail. Promoting
+# this to `default` would silently drop those three intentionally-excluded features for anyone
+# building the default binary. Opt in explicitly (`--features emu-thread`) for the
+# reduced-input-latency benefit on single-player play with sound, cheats, watchpoints,
+# breakpoints, port2-peripheral, voice-mutes, run-ahead, and netplay, with no
+# movies/scripting/RetroAchievements/rewind-recording in use.
 default = ["wasm-winit", "help-tui"]
 wasm-winit = []
 wasm-canvas = []
@@ -98,11 +111,14 @@ retroachievements = ["dep:rustysnes-cheevos"]
 # with this crate's own `default` set automatically, so this list does NOT re-list `wasm-winit`/
 # `help-tui` (both already default). `wasm-canvas` is excluded (mutually exclusive with the
 # default `wasm-winit`, and wasm-only anyway — `full` targets a native binary). `emu-thread` is
-# ALSO excluded: it is not yet feature-complete (see its own comment above — no audio output, and
-# combining it with `scripting` specifically fails today with `-D warnings` dead-code errors,
-# since `scripting`'s synchronous-path-only helpers become unreachable once `emu-thread`'s
-# separate loop takes over frame production) — including it here would make `full` simply not
-# compile, the opposite of "maximal working build".
+# ALSO excluded: not because it lacks parity anymore (see its own comment above — audio, cheats/
+# watchpoints/breakpoints/port2-peripheral/voice-mutes, run-ahead, and netplay are all ported now)
+# but because combining it with `scripting` (also in this list) specifically fails today with
+# `-D warnings` dead-code errors, since `scripting`'s synchronous-path-only helpers become
+# unreachable once `emu-thread`'s separate loop takes over frame production — including
+# `emu-thread` here would make `full` simply not compile, the opposite of "maximal working
+# build". This is intentional and permanent (see `emu_thread.rs`'s own module doc: Lua
+# scripting is NOT planned to ever run on the emu thread), not a temporary gap.
 full = ["debug-hooks", "scripting", "cheats", "netplay", "retroachievements", "hd-pack"]
 
 [lints]

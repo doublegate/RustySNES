@@ -14,21 +14,43 @@
 //! (scaled by the live speed multiplier) and the present/audio paths absorb the slack (the
 //! determinism contract: the core emits the same AV regardless of pacing).
 //!
-//! ## Known remaining gaps (honestly tracked, not silently claimed as done)
+//! ## Parity status (honestly tracked, not silently claimed as done)
 //!
 //! This pass closes the audio-output gap and gives the thread a real pause/ROM-loaded lifecycle.
-//! Post-`v1.3.0`: cheats/watchpoints/breakpoints/port2-peripheral/voice-mute re-sync are now ALSO
-//! ported (`app.rs`'s `render` — the `emu-thread` `audio_samples` block re-syncs each of these
-//! from the SAME `Arc<Mutex<EmuCore>>` handle the thread drives, once per present, under the
-//! brief lock that block already holds — a genuinely mechanical port after all, since none of
-//! this needs to run ON the emu thread itself, only land in `EmuCore` before its next
-//! `run_frame()`). Still NOT ported: run-ahead, rewind recording, TAS movie apply/record, Lua
-//! script pump, netplay-aware pause, or `RetroAchievements` per-frame drive. Each of THOSE
-//! genuinely needs per-produced-frame granularity (not per-present) and a new shared-mutable-
-//! state design (the buffers they touch — `Active::rewind`/`movie`/`script`/`cheevos` — are
-//! plain winit-thread-owned fields with no thread-safe handle today), so they stay a scoped,
-//! documented follow-up rather than rushed. `crates/rustysnes-frontend/Cargo.toml`'s `emu-thread`
-//! feature comment tracks the exact same reduced list.
+//! Post-`v1.3.0`, three more items landed:
+//! - **cheats/watchpoints/breakpoints/port2-peripheral/voice-mute re-sync** (`app.rs`'s `render`
+//!   — the `emu-thread` `audio_samples` block re-syncs each of these from the SAME
+//!   `Arc<Mutex<EmuCore>>` handle the thread drives, once per present, under the brief lock that
+//!   block already holds — a genuinely mechanical port, since none of this needs to run ON the
+//!   emu thread itself, only land in `EmuCore` before its next `run_frame()`).
+//! - **Run-ahead** (`crate::rewind::step_with_run_ahead`, called unconditionally from
+//!   [`drive_one`] — `frames == 0` is its own no-op fast path, matching the synchronous path's
+//!   plain `run_frame()` exactly). The peeked `(bytes, dims)` pair travels through
+//!   [`crate::present_buffer::PresentBuffer`] together now (see that module's doc) rather than
+//!   the consumer re-querying `EmuCore::fb_dims()` separately, which could disagree with a
+//!   peeked frame's own dims across a hi-res-mode-toggle-mid-peek edge case.
+//! - **Netplay-aware pause** (`EmuControl::netplay_paused`, ported from RustyNES's own
+//!   `EmuControl` near-verbatim) — the emu thread idles while a netplay session is connected;
+//!   `render`'s `emu-thread` block now ALSO drives `NetplayState::drive` once per present
+//!   (previously that whole call was unreachable in `emu-thread` builds at all, since it lived
+//!   inside the synchronous-only production loop — netplay was silently non-functional under
+//!   `emu-thread` before this).
+//!
+//! **Intentionally NOT ported, matching RustyNES's own mature `emu_thread.rs` precedent**: TAS
+//! movie apply/record, Lua script pump, and `RetroAchievements` per-frame drive. This isn't a
+//! remaining gap to fill — RustyNES's own `emu_thread.rs` (the reference this module patterns
+//! itself after) deliberately keeps ALL THREE of these on the winit thread too (confirmed by
+//! reading it directly: zero mentions of movie/script/cheevos logic anywhere in that file). The
+//! reasons generalize: a Lua VM (`mlua`) is not `Send`, so it cannot be driven from a different
+//! thread than the one that created it without a much larger redesign; TAS movie
+//! record/playback and `RetroAchievements`' `rc_client` cooldown/trigger tracking both need
+//! stable per-produced-frame cadence that would require moving their state into a new
+//! thread-safe handle for no architectural benefit RustyNES itself found worthwhile. Rewind
+//! *recording* is the same story here (rewind's `RewindBuffer` is a plain `Active`-owned field,
+//! not `EmuCore`-owned the way RustyNES's own rewind buffer is) — RustyNES doesn't port rewind
+//! recording to its thread either (only a `rewind_held` fast-rewind-while-held bool travels
+//! through its `SharedInput`, a different, simpler feature). `crates/rustysnes-frontend/
+//! Cargo.toml`'s `emu-thread` feature comment tracks the exact same status.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -65,9 +87,9 @@ pub struct SharedInput {
 
 /// Lifecycle control shared between the winit thread (writer) and the emulation thread (reader).
 ///
-/// `v1.1.0`: WALLCLOCK-only (no `regime`/netplay-pause/fast-forward/frame-advance fields — none
-/// of those have an existing RustySNES UI hook to drive them yet; see the module doc's "Known
-/// remaining gaps").
+/// Post-`v1.3.0`: gained `netplay_paused` and `run_ahead_frames`, both ported from RustyNES's own
+/// mature `EmuControl` (`rustynes-frontend::emu_thread`) — see [`Self::set_netplay_paused`] and
+/// [`Self::set_run_ahead`]'s docs.
 #[derive(Debug)]
 pub struct EmuControl {
     /// Set on exit; the thread observes it and returns.
@@ -75,6 +97,12 @@ pub struct EmuControl {
     /// Set while the user paused emulation from the UX shell (Emulation -> Pause, or the `Space`
     /// hotkey). The thread idles while set.
     user_paused: AtomicBool,
+    /// Set while a netplay session is connected: the emu thread idles so the winit thread's own
+    /// `NetplayState::drive` (the sole authority over the shared `System` while a rollback
+    /// session is active) never races it for the same `EmuCore` lock. Distinct from
+    /// `user_paused` so the two pause sources don't collide — matches RustyNES's own
+    /// `EmuControl::netplay_paused` exactly (`rustynes-frontend::emu_thread`).
+    netplay_paused: AtomicBool,
     /// `true` once a ROM is loaded (the thread idles until then).
     has_rom: AtomicBool,
     /// Current speed multiplier (`f32::to_bits()`, `1.0` = normal) — re-synced unconditionally
@@ -86,20 +114,28 @@ pub struct EmuControl {
     /// doesn't change for a live session — `MenuAction::SetRegion`'s own status message says
     /// "restart to apply").
     base_frame_nanos: AtomicU64,
+    /// Run-ahead depth (`config.run_ahead.frames`, re-synced unconditionally once per present) —
+    /// `0` disables it. Read by `drive_one`, which calls `crate::rewind::step_with_run_ahead`
+    /// instead of the plain `EmuCore::run_frame` when non-zero, exactly mirroring the synchronous
+    /// path's own run-ahead branch.
+    run_ahead_frames: AtomicU32,
 }
 
 impl EmuControl {
-    /// Build the control block in the initial idle (no ROM, not paused) state.
+    /// Build the control block in the initial idle (no ROM, not paused, no netplay, no
+    /// run-ahead) state.
     #[must_use]
     pub fn new(frame_rate: f64) -> Arc<Self> {
         Arc::new(Self {
             stop: AtomicBool::new(false),
             user_paused: AtomicBool::new(false),
+            netplay_paused: AtomicBool::new(false),
             has_rom: AtomicBool::new(false),
             speed_bits: AtomicU32::new(1.0f32.to_bits()),
             base_frame_nanos: AtomicU64::new(dur_nanos(Duration::from_secs_f64(
                 1.0 / frame_rate.max(1.0),
             ))),
+            run_ahead_frames: AtomicU32::new(0),
         })
     }
 
@@ -123,6 +159,34 @@ impl EmuControl {
 
     fn speed(&self) -> f32 {
         f32::from_bits(self.speed_bits.load(Ordering::Acquire))
+    }
+
+    /// Pause (netplay connecting) or resume (netplay disconnected/errored) the emu thread.
+    /// Re-synced whenever `Active::netplay`'s connection state changes (mirrors RustyNES's own
+    /// `EmuControl::set_netplay_paused`).
+    pub fn set_netplay_paused(&self, on: bool) {
+        self.netplay_paused.store(on, Ordering::Release);
+    }
+
+    /// Whether the emu thread is currently idling for an active netplay session. Checked by
+    /// [`run_loop`]'s idle gate AND, separately, under the `EmuCore` lock inside
+    /// [`drive_one`] — the winit thread sets this flag then fences on that same lock, so once it
+    /// holds the lock it's guaranteed the emu thread has observed the flag and won't advance the
+    /// `System` out from under the rollback session (RustyNES's own documented TOCTOU-safety
+    /// argument, `rustynes-frontend::emu_thread`'s `drive_one`).
+    fn is_netplay_paused(&self) -> bool {
+        self.netplay_paused.load(Ordering::Acquire)
+    }
+
+    /// Update the run-ahead depth (`config.run_ahead.frames`'s effect, mirrored onto the
+    /// thread). Re-synced unconditionally once per present, same posture as [`Self::set_speed`].
+    /// `0` disables run-ahead.
+    pub fn set_run_ahead(&self, frames: u32) {
+        self.run_ahead_frames.store(frames, Ordering::Release);
+    }
+
+    fn run_ahead(&self) -> u32 {
+        self.run_ahead_frames.load(Ordering::Acquire)
     }
 
     fn frame_duration(&self) -> Duration {
@@ -233,8 +297,9 @@ fn run_loop(
         if control.stop.load(Ordering::Acquire) {
             return;
         }
-        let idle =
-            !control.has_rom.load(Ordering::Acquire) || control.user_paused.load(Ordering::Acquire);
+        let idle = !control.has_rom.load(Ordering::Acquire)
+            || control.user_paused.load(Ordering::Acquire)
+            || control.is_netplay_paused();
         if idle {
             pacer.idle(); // avoid a catch-up burst when resuming (Pacer::idle's own purpose).
             std::thread::park_timeout(IDLE_PARK);
@@ -258,9 +323,11 @@ fn run_loop(
     }
 }
 
-/// Latch input + produce exactly one frame + push its audio + publish its framebuffer. Returns
-/// `false` if it bailed because the user paused (or closed the ROM) between the loop-top check
-/// and acquiring the lock — the TOCTOU close, mirroring RustyNES's own `drive_one`.
+/// Latch input + produce exactly one frame (or a run-ahead-peeked one, see
+/// `crate::rewind::step_with_run_ahead`) + push its audio + publish its framebuffer. Returns
+/// `false` if it bailed because the user paused, netplay claimed the core, or the ROM closed
+/// between the loop-top check and acquiring the lock — the TOCTOU close, mirroring RustyNES's
+/// own `drive_one`.
 fn drive_one(
     core: &Arc<Mutex<EmuCore>>,
     input: &SharedInput,
@@ -276,16 +343,24 @@ fn drive_one(
         Ok(g) => g,
         Err(p) => p.into_inner(), // a poisoned lock shouldn't kill audio/UI
     };
-    if control.user_paused.load(Ordering::Acquire) || !emu.rom_loaded() {
+    // Re-check UNDER the lock: the winit thread sets `netplay_paused` (or `user_paused`) then
+    // fences on this same lock via its own next present's brief acquire, so once it holds the
+    // lock it's guaranteed we've already observed the flag and won't advance the `System` out
+    // from under a rollback session — mirrors RustyNES's own `drive_one` exactly.
+    if control.user_paused.load(Ordering::Acquire)
+        || control.is_netplay_paused()
+        || !emu.rom_loaded()
+    {
         return false;
     }
     emu.set_pad(0, crate::input::Buttons(p1));
     emu.set_pad(1, crate::input::Buttons(p2));
-    emu.run_frame();
+    let (fb, dims) = crate::rewind::step_with_run_ahead(&mut emu, control.run_ahead());
     if let Some(a) = audio {
         a.push(emu.audio(), control.speed());
     }
-    present.publish(emu.framebuffer());
+    drop(emu); // release the lock before the lock-free PresentBuffer copy below.
+    present.publish(&fb, dims);
     true
 }
 
@@ -376,6 +451,14 @@ mod tests {
         assert!(control.user_paused.load(Ordering::Relaxed));
         control.set_speed(2.0);
         assert!((control.speed() - 2.0).abs() < f32::EPSILON);
+        assert!(!control.is_netplay_paused());
+        control.set_netplay_paused(true);
+        assert!(control.is_netplay_paused());
+        control.set_netplay_paused(false);
+        assert!(!control.is_netplay_paused());
+        assert_eq!(control.run_ahead(), 0);
+        control.set_run_ahead(3);
+        assert_eq!(control.run_ahead(), 3);
     }
 
     #[test]

@@ -34,20 +34,38 @@ build; the `playable_smoke` test is the headless AV proof.
   handoff. `v1.1.0` closed the two biggest gaps: the thread now has real audio output
   (`crate::audio::AudioProducer`, pushed once per produced frame) and a proper pause/ROM-loaded
   lifecycle (`EmuControl`, driving a thread-owned `Pacer` that tracks live speed-preset changes)
-  instead of an independent, uncontrollable pacing loop. Post-`v1.3.0`:
-  cheats/watchpoints/breakpoints/port2-peripheral/voice-mutes are ALSO now re-synced from the
-  threaded build — a genuinely mechanical port after all, since they only need to land in the
-  shared `Arc<Mutex<EmuCore>>` before the thread's next `run_frame()`, not run on the thread
-  itself, so `render`'s `emu-thread` block re-syncs them once per present under the same brief
-  lock it already holds for the control-block sync. Still not full parity: run-ahead/rewind/
-  TAS-movies/Lua-scripting/netplay-aware-pause/RetroAchievements are not ported into its loop
-  yet — each genuinely needs per-produced-frame granularity (not per-present) and a new
-  shared-mutable-state design (`Active::rewind`/`movie`/`script`/`cheevos` are plain
-  winit-thread-owned fields with no thread-safe handle today); see
-  `crates/rustysnes-frontend/Cargo.toml`'s `emu-thread` feature comment and `emu_thread.rs`'s own
-  module doc for the exact remaining list. Verified with a real headless launch (`xvfb-run`, a
-  staged commercial ROM, no panics over several seconds of runtime) in addition to the unit
-  suite. Stays opt-in rather than default until that remaining parity work lands.
+  instead of an independent, uncontrollable pacing loop. Post-`v1.3.0`, three more items landed:
+  cheats/watchpoints/breakpoints/port2-peripheral/voice-mutes now re-sync from the threaded
+  build too (a genuinely mechanical port, since they only need to land in the shared
+  `Arc<Mutex<EmuCore>>` before the thread's next `run_frame()`, not run on the thread itself, so
+  `render`'s `emu-thread` block re-syncs them once per present under the same brief lock it
+  already holds for the control-block sync); **run-ahead** (`crate::rewind::step_with_run_ahead`
+  called unconditionally from `drive_one`, its own `frames == 0` case matching plain
+  `run_frame()` — the peeked `(bytes, dims)` pair now travels through `PresentBuffer` together,
+  since a peeked frame's dims can differ from `EmuCore::fb_dims()`'s current-state reading
+  across a hi-res-mode-toggle-mid-peek edge case); and **netplay-aware pause**
+  (`EmuControl::netplay_paused`, ported from RustyNES's own `EmuControl` near-verbatim — the emu
+  thread idles while a session is connected, and `NetplayState::drive` — previously unreachable
+  at all under `emu-thread`, since it lived inside the synchronous-only production loop — is now
+  driven once per present from `render`'s `emu-thread` block instead).
+  **Intentionally NOT ported, matching RustyNES's own mature `emu_thread.rs` precedent** (RustyNES
+  itself keeps all three of these on its own winit thread too, confirmed by reading it directly —
+  not a gap this project is behind on): TAS movie apply/record, Lua script pump, and
+  `RetroAchievements` per-frame drive. `mlua`'s Lua state isn't `Send`; movie record/playback and
+  `RetroAchievements`' `rc_client` cooldown tracking both need per-produced-frame cadence with no
+  thread-safe handle today (`Active::movie`/`script`/`cheevos` are plain winit-thread-owned
+  fields); rewind *recording* is the same story (`Active::rewind` isn't `EmuCore`-owned the way
+  RustyNES's own rewind buffer is — RustyNES doesn't port rewind recording to its thread either).
+  See `crates/rustysnes-frontend/Cargo.toml`'s `emu-thread` feature comment and `emu_thread.rs`'s
+  own module doc for the full detail. Post-`v1.3.0`'s netplay/run-ahead port is verified via the
+  unit suite (`emu-thread,netplay` is now a dedicated CI combo, both clippy- and test-gated,
+  closing a real prior gap where `emu-thread` was never actually gated in CI at all) and the full
+  clippy/fmt/doc matrix; a real headless launch specifically exercising a live netplay session
+  under `emu-thread` has NOT been re-verified this pass (this sandbox's headless GUI automation
+  is unreliable regardless of feature combo — see the project's own recorded finding) and is
+  flagged here as an honest verification gap, not silently claimed. Stays opt-in rather than
+  default (its one remaining incompatibility, `emu-thread`+`scripting`, is permanent — see
+  `full`'s own Cargo.toml comment).
 
 **`EmuCore` split (`v1.2.0`).** The pure facade half of `EmuCore` — `new`/`load_rom`/firmware
 resolution/SRAM/reset/power-cycle/the `set_*` peripheral feeds/`run_frame`/`present_current_frame`/

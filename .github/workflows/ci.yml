@@ -63,6 +63,13 @@ jobs:
       - run: cargo clippy -p rustysnes-frontend --all-targets --features cheats -- -D warnings
       - run: cargo clippy -p rustysnes-frontend --all-targets --features netplay -- -D warnings
       - run: cargo clippy -p rustysnes-frontend --all-targets --features retroachievements -- -D warnings
+      # `emu-thread` itself was never actually gated here despite being referenced in the comment
+      # above (found in review, post-`v1.3.0`) — added now, plus its one functionally meaningful
+      # combo: `netplay` (post-`v1.3.0`, `EmuControl::netplay_paused` + `NetplayState::drive` now
+      # runs under `emu-thread` too, previously silently unreachable there). `emu-thread,scripting`
+      # is NOT added — see `full`'s own comment below for why that combo doesn't compile.
+      - run: cargo clippy -p rustysnes-frontend --all-targets --features emu-thread -- -D warnings
+      - run: cargo clippy -p rustysnes-frontend --all-targets --features emu-thread,netplay -- -D warnings
       # `full` (`v1.0.0`, `cargo full-build`/`full-run`) IS this same combo (plus the no-op
       # `hd-pack` placeholder) — testing it directly instead of re-listing the flags keeps this
       # step and `full`'s own Cargo.toml definition from silently drifting apart.
@@ -119,6 +126,12 @@ jobs:
       # that specifically on macOS/Windows here too is out of this ticket's scope (it's a genuine
       # question of its own, not "is the byte-identical-off gate wired up").
       - run: cargo test -p rustysnes-frontend --features full
+        if: runner.os == 'Linux'
+      # `emu-thread` was clippy-checked in `lint` (compiled, never run) but its own unit tests
+      # (`EmuControl`/`PresentBuffer`, post-`v1.3.0`) never actually executed anywhere in CI until
+      # now (found in review). `netplay` is its one functionally meaningful combo (see `lint`'s
+      # own comment).
+      - run: cargo test -p rustysnes-frontend --features emu-thread,netplay
         if: runner.os == 'Linux'
       - run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
         if: runner.os == 'Linux'
