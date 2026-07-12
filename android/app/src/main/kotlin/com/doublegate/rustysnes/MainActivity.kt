@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -50,6 +51,12 @@ import uniffi.rustysnes_mobile.MobileRegion
 class MainActivity : ComponentActivity() {
     private val core = MobileCore(MobileRegion.NTSC)
     private var frameLoopJob: Job? = null
+
+    // @Volatile: written on the main thread (setUpAudioTrack/onDestroy/stopFrameLoop) but read
+    // and written from the frame loop's Dispatchers.Default background thread too -- without
+    // this, a write on one thread is not guaranteed to be visible to a read on the other (found
+    // in review).
+    @Volatile
     private var audioTrack: AudioTrack? = null
 
     private val pickRom =
@@ -66,30 +73,55 @@ class MainActivity : ComponentActivity() {
                         core = core,
                         onOpenRom = { pickRom.launch(arrayOf("*/*")) },
                         onSurfaceReady = { holder -> attachSurface(holder) },
-                        onSurfaceGone = { NativeRenderer.nativeSurfaceDestroyed() },
+                        onSurfaceGone = {
+                            NativeRenderer.nativeSurfaceDestroyed()
+                            stopFrameLoop()
+                        },
                     )
                 }
             }
         }
     }
 
+    // Reads the ROM file and calls into `core.loadRom` off the main thread -- both are I/O/CPU
+    // work that can stall the UI thread long enough to trigger an ANR for large ROM files (found
+    // in review). `lifecycleScope` (from `androidx.lifecycle:lifecycle-runtime-ktx`, already a
+    // dependency) ties this coroutine to the activity's own lifecycle so it's cancelled
+    // automatically if the activity is destroyed mid-load.
     private fun loadRom(uri: Uri) {
-        val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return
-        try {
-            core.loadRom(bytes)
-        } catch (e: uniffi.rustysnes_mobile.MobileException) {
-            // A bad/unrecognized ROM pick must not crash the app -- surfacing this properly (a
-            // toast/dialog) is deferred alongside the rest of the settings/error-UI polish this
-            // MVP intentionally skips; logging is the honest minimum for now.
-            android.util.Log.e("RustySNES", "loadRom failed: ${e.message}")
-            return
+        lifecycleScope.launch(Dispatchers.IO) {
+            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@launch
+            try {
+                core.loadRom(bytes)
+            } catch (e: uniffi.rustysnes_mobile.MobileException) {
+                // A bad/unrecognized ROM pick must not crash the app -- surfacing this properly (a
+                // toast/dialog) is deferred alongside the rest of the settings/error-UI polish this
+                // MVP intentionally skips; logging is the honest minimum for now.
+                android.util.Log.e("RustySNES", "loadRom failed: ${e.message}")
+                return@launch
+            }
+            startFrameLoop()
         }
-        startFrameLoop()
     }
 
     private fun attachSurface(holder: SurfaceHolder) {
         val frame = holder.surfaceFrame
         NativeRenderer.nativeSurfaceCreated(holder.surface, frame.width(), frame.height())
+        // Re-attaching after the surface was previously torn down (background/rotation) while a
+        // ROM was already loaded -- resume where `stopFrameLoop` paused, instead of requiring the
+        // user to re-open the ROM picker (found in review, paired with `stopFrameLoop` below).
+        if (core.romLoaded()) {
+            startFrameLoop()
+        }
+    }
+
+    // Paired with `attachSurface`'s resume above: stops burning CPU/battery (and, worse, playing
+    // audio) once the surface is gone and `nativePresentFrame` would be a silent no-op anyway
+    // (found in review).
+    private fun stopFrameLoop() {
+        frameLoopJob?.cancel()
+        frameLoopJob = null
+        audioTrack?.pause()
     }
 
     /// One background coroutine driving `run_frame` -> present -> audio at a fixed ~60 Hz pace --
@@ -98,6 +130,10 @@ class MainActivity : ComponentActivity() {
     private fun startFrameLoop() {
         frameLoopJob?.cancel()
         setUpAudioTrack()
+        // `setUpAudioTrack` is a no-op past the first call (an existing, possibly `stopFrameLoop`-
+        // paused, track is reused) -- `play()` un-pauses it either way; harmless to call again on
+        // an already-playing track.
+        audioTrack?.play()
         frameLoopJob = CoroutineScope(Dispatchers.Default).launch {
             while (true) {
                 core.runFrame()
@@ -147,8 +183,26 @@ class MainActivity : ComponentActivity() {
     // clearly without an inline magic-number comment.
     private fun AudioManagerSessionIdGenerate(): Int = 0
 
+    // A lifecycle-level safety net for `stopFrameLoop` above -- `SurfaceView`'s own
+    // `surfaceDestroyed` callback does not fire in every backgrounding path on every OEM skin
+    // (found in review); `onPause` always fires, so this is the more reliable stop point.
+    override fun onPause() {
+        super.onPause()
+        stopFrameLoop()
+    }
+
+    // Paired with `onPause` above: on a device/OEM skin where the `SurfaceView`'s surface
+    // survives backgrounding (so `attachSurface`'s own resume path in `surfaceCreated` never
+    // fires), this is the fallback that un-freezes the game on foreground return.
+    override fun onResume() {
+        super.onResume()
+        if (core.romLoaded() && frameLoopJob == null) {
+            startFrameLoop()
+        }
+    }
+
     override fun onDestroy() {
-        frameLoopJob?.cancel()
+        stopFrameLoop()
         audioTrack?.release()
         core.close()
         super.onDestroy()

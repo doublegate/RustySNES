@@ -64,6 +64,13 @@ impl HasDisplayHandle for AndroidWindowHandle {
 /// The live wgpu device + surface + blit pipeline, present only between
 /// [`nativeSurfaceCreated`] and [`nativeSurfaceDestroyed`].
 struct Renderer {
+    // Keeps the `ANativeWindow*` refcount alive for as long as `surface` (built from it) is in
+    // use -- `NativeWindow::clone` is a cheap `ANativeWindow_acquire`, not a deep copy (found in
+    // review: without this, the `AndroidWindowHandle` passed into `Self::new` -- and the
+    // `NativeWindow` it owns -- is dropped, calling `ANativeWindow_release`, at the end of the
+    // caller's scope, leaving `surface` referencing a window this crate no longer holds a
+    // reference to).
+    _window: ndk::native_window::NativeWindow,
     device: wgpu::Device,
     queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
@@ -230,6 +237,7 @@ impl Renderer {
         let _ = view; // rebuilt per-frame in `present` after `upload`; the initial view is unused.
 
         Some(Self {
+            _window: window.native_window.clone(),
             device,
             queue,
             surface,
@@ -321,10 +329,14 @@ impl Renderer {
     // precision-loss allowance for the same reason.
     #[allow(clippy::cast_precision_loss)]
     fn present(&self, rgba: &[u8], w: u32, h: u32) {
-        if w == 0 || h == 0 || rgba.len() < (w * h * 4) as usize {
+        // Bounds-check against the fixed texture size FIRST, before any arithmetic on `w`/`h` --
+        // `w * h * 4` can overflow `u32` for untrusted/extreme values on its own (found in
+        // review), so the multiplication below is only ever reached once both dimensions are
+        // already known to be within the small, fixed `texture_w`/`texture_h` cap.
+        if w == 0 || h == 0 || w > self.texture_w || h > self.texture_h {
             return;
         }
-        if w > self.texture_w || h > self.texture_h {
+        if rgba.len() < (w * h * 4) as usize {
             return;
         }
         self.queue.write_texture(
@@ -428,10 +440,17 @@ impl Renderer {
     }
 }
 
-// SAFETY: a `Renderer` is only ever touched from Android's single `SurfaceView` render thread
-// (Kotlin never calls two `native*` functions concurrently for the same view), so the `Mutex`
-// here exists only to satisfy `static` initialization, not for real cross-thread contention.
+// The Kotlin shell's `SurfaceHolder.Callback` (`nativeSurfaceCreated`/`Changed`/`Destroyed`)
+// fires on the UI thread, while the frame loop calling `nativePresentFrame` runs on
+// `Dispatchers.Default` (a background thread pool) -- real concurrent access across these four
+// functions is possible (a surface recreate racing a present is not a theoretical concern, found
+// in review), so this `Mutex` genuinely serializes cross-thread access; it is not merely present
+// to satisfy `static` initialization.
 static RENDERER: Mutex<Option<Renderer>> = Mutex::new(None);
+// Reused across `nativePresentFrame` calls so the hot per-frame path only allocates when the
+// framebuffer size actually changes (typically once, at ROM load), instead of on every single
+// frame -- `env.convert_byte_array` always allocates a fresh `Vec` (found in review).
+static FRAME_SCRATCH: Mutex<Vec<i8>> = Mutex::new(Vec::new());
 
 /// `SurfaceHolder.Callback.surfaceCreated` — builds a fresh wgpu device/surface from the
 /// `android.view.Surface` Kotlin hands over.
@@ -514,6 +533,13 @@ pub unsafe extern "system" fn Java_com_doublegate_rustysnes_NativeRenderer_nativ
 /// # Safety
 /// Called only from the JVM via JNI with a valid, non-null `rgba` byte array, per the standard
 /// JNI FFI contract for `extern "system"` entry points.
+// `bytes` (borrowed from `scratch`) is genuinely needed for the full duration of the
+// `RENDERER` lock + `r.present` call below, so `scratch`'s guard cannot be dropped any earlier
+// than it already is (the function's end) without either copying the data out (defeating the
+// point of reusing the buffer) or restructuring around raw pointers -- checked against clippy's
+// own canned fix, which does not apply here since it would drop `scratch` while `bytes` is
+// still live.
+#[allow(clippy::significant_drop_tightening)]
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn Java_com_doublegate_rustysnes_NativeRenderer_nativePresentFrame(
     env: JNIEnv,
@@ -524,20 +550,35 @@ pub unsafe extern "system" fn Java_com_doublegate_rustysnes_NativeRenderer_nativ
 ) {
     // SAFETY: `rgba` is a live, valid `byte[]` JNI reference for the duration of this call.
     let rgba_arr = unsafe { jni::objects::JByteArray::from_raw(rgba) };
-    let bytes: Vec<u8> = match env.convert_byte_array(&rgba_arr) {
-        Ok(v) => v,
-        Err(e) => {
-            log::error!("rustysnes-android: convert_byte_array failed: {e}");
+    let len = match env.get_array_length(&rgba_arr) {
+        Ok(n) if n >= 0 => n.cast_unsigned() as usize,
+        _ => {
+            log::error!("rustysnes-android: get_array_length failed or returned negative");
             return;
         }
     };
+    // Copies into a reused scratch buffer via `get_byte_array_region` instead of
+    // `convert_byte_array` (which always allocates a fresh `Vec` -- a steady per-frame
+    // allocation on this hot path, found in review). The buffer only reallocates when `len`
+    // actually changes (in practice, once at ROM load, not every frame).
+    let mut scratch = FRAME_SCRATCH
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if scratch.len() != len {
+        scratch.resize(len, 0);
+    }
+    if let Err(e) = env.get_byte_array_region(&rgba_arr, 0, &mut scratch) {
+        log::error!("rustysnes-android: get_byte_array_region failed: {e}");
+        return;
+    }
+    let bytes: &[u8] = bytemuck::cast_slice(&scratch);
     if let Some(r) = RENDERER
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .as_mut()
     {
         r.present(
-            &bytes,
+            bytes,
             width.max(0).cast_unsigned(),
             height.max(0).cast_unsigned(),
         );

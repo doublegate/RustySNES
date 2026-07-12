@@ -29,6 +29,14 @@ workspace = true
 # `rustysnes-gfx-shaders` re-export convenience only (see `gfx-shaders` below) -- there is no
 # `EmuCore` usage in this crate.
 rustysnes-gfx-shaders = { path = "../rustysnes-gfx-shaders", version = "1.4.0" }
+# Pinned to 0.21, NOT bumped to align with `rustysnes-frontend`'s transitive `jni 0.22.4` (an
+# earlier attempt at this, found in review): 0.22 is a breaking API change (`JNIEnv` split into
+# `Env`/`EnvUnowned`, `get_native_interface`/`get_array_length`/`get_byte_array_region` all
+# renamed or restructured) that touches every `Java_*` entry point in this file. Migrating it
+# under this bug-fix PR risked re-introducing a real, on-device-only regression in code already
+# verified working on a real device -- the two `jni` majors staying separate in `Cargo.lock` is a
+# minor dependency-duplication cost, not a functional bug; a deliberate 0.22 migration is better
+# scoped to its own follow-up.
 jni = "0.21"
 # `ndk` 0.9's `NativeWindow::from_surface` is the documented, standard way to turn a JNI-passed
 # `android.view.Surface` into an `ANativeWindow` wgpu can build a real rendering surface from.
