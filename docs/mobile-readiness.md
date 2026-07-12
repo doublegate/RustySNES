@@ -167,6 +167,37 @@ migration was explicitly gated on "Lua/TAS-on-mobile being greenlit," which hasn
 Netplay is a large, net-new UI surface neither shell has any precedent for. See `CHANGELOG.md`'s
 `[Unreleased]` entry for the full reasoning; all three remain on the roadmap for a later rung.
 
+## Verified so far (`v1.18.0`)
+
+- **`rustysnes-monetization`** (Mobile Phase 5): a new, standalone UniFFI crate — dormant
+  entitlement/ad-pacing policy scaffold, never a dependency of the deterministic core, every
+  concrete pricing/pacing number an explicit placeholder (unlike RustyNES's own already-committed
+  figure). Fully verified on host: `cargo test -p rustysnes-monetization` (5/5 passing),
+  `cargo clippy -p rustysnes-monetization --all-targets -- -D warnings` (clean),
+  `RUSTDOCFLAGS="-D warnings" cargo doc -p rustysnes-monetization --no-deps` (clean),
+  `cargo fmt --check -p rustysnes-monetization` (clean).
+- **Wired into both mobile shells as an inert dependency** — compiled in, called once at startup,
+  logged only, no real store SDK, no UI. **Android**: `build.gradle.kts`'s `cargoNdkBuild` task now
+  builds all three native crates and a second, separate `uniffiBindgenMonetization` task generates
+  this crate's own Kotlin bindings (its own UniFFI namespace, so it can't share `rustysnes-mobile`'s
+  generated-sources directory). Rebuilt via a real Gradle build against the locally cached Gradle
+  8.13 distribution (same no-`gradlew`-wrapper disposition already tracked below), installed on
+  the real AVD, launched, and confirmed via `logcat`:
+  `monetization scaffold (dormant): unlocked=true minIntervalSecs=300 sessionsBeforeFirstAd=3`;
+  the app process stayed alive afterward (no crash). **iOS**: `scripts/build-ios-xcframework.sh`
+  gained a third crate to build/package (`RustysnesMonetizationFFI.xcframework`, headers+modulemap
+  like `RustysnesMobileFFI.xcframework`, since the app calls its exported functions directly rather
+  than through the hand-written bridging header) and `ios/project.yml` gained it as a target
+  dependency. The Rust side's `staticlib`/`rlib` outputs for `aarch64-apple-ios` cross-compile for
+  real in this development environment (confirmed: identical to `rustysnes-ios`'s own already-
+  established precedent). The `cdylib` output the bindgen/xcframework packaging step needs does
+  NOT link here — confirmed this is a pre-existing sandbox limitation, not something this rung
+  introduced (an identical `cc: error: unrecognized command-line option '-target'` failure
+  reproduces for `rustysnes-mobile`'s own pre-existing `cdylib` build in isolation, with or without
+  `rustysnes-monetization` in the same invocation) — so the full xcframework/`xcodebuild` pipeline
+  is compile-verified via `ios.yml`'s real macOS CI build only, matching this platform's standing
+  "scaffolded-only" disposition since `v1.16.0`.
+
 ## Not yet verified / explicitly deferred
 
 - **No Mouse/Super Scope/Multitap touch UX yet** — net-new SNES-specific UI with no RustyNES

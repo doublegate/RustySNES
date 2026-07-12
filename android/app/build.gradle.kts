@@ -17,7 +17,7 @@ android {
         minSdk = 21
         targetSdk = 34
         versionCode = 1
-        versionName = "1.17.0"
+        versionName = "1.18.0"
     }
 
     buildTypes {
@@ -63,14 +63,14 @@ val cargoAbis = mapOf(
 tasks.register<Exec>("cargoNdkBuild") {
     val ndkHome = System.getenv("ANDROID_NDK_HOME")
         ?: throw GradleException(
-            "ANDROID_NDK_HOME must be set to build the native rustysnes-mobile/rustysnes-android libraries"
+            "ANDROID_NDK_HOME must be set to build the native rustysnes-mobile/rustysnes-android/rustysnes-monetization libraries"
         )
     environment("ANDROID_NDK_HOME", ndkHome)
     workingDir = rootProject.projectDir.parentFile
     val targetArgs = cargoAbis.keys.flatMap { listOf("-t", it) }
     commandLine(
         listOf("cargo", "ndk") + targetArgs +
-            listOf("build", "-p", "rustysnes-mobile", "-p", "rustysnes-android")
+            listOf("build", "-p", "rustysnes-mobile", "-p", "rustysnes-android", "-p", "rustysnes-monetization")
     )
 }
 
@@ -81,7 +81,7 @@ val copyCargoLibTasks = cargoAbis.map { (abi, triple) ->
     tasks.register<Copy>("copyCargoLibs${abi.replace("-", "")}") {
         dependsOn("cargoNdkBuild")
         from(rootProject.projectDir.parentFile.resolve("target/$triple/debug")) {
-            include("librustysnes_mobile.so", "librustysnes_android.so")
+            include("librustysnes_mobile.so", "librustysnes_android.so", "librustysnes_monetization.so")
         }
         into(project.projectDir.resolve("src/main/jniLibs/$abi"))
     }
@@ -106,10 +106,27 @@ tasks.register<Exec>("uniffiBindgen") {
     )
 }
 
+// Same shape as `uniffiBindgen` above, for `rustysnes-monetization`'s own separate UniFFI
+// library -- a distinct crate/`.so`/namespace, so it needs its own bindgen invocation and output
+// directory (`v1.18.0 "Dormant"`).
+tasks.register<Exec>("uniffiBindgenMonetization") {
+    dependsOn("cargoNdkBuild")
+    workingDir = rootProject.projectDir.parentFile
+    val soPath = rootProject.projectDir.parentFile
+        .resolve("target/x86_64-linux-android/debug/librustysnes_monetization.so")
+    val outDir = project.projectDir.resolve("build/generated/uniffi-monetization")
+    commandLine(
+        "cargo", "run", "-p", "rustysnes-monetization", "--features", "bindgen", "--bin", "uniffi-bindgen",
+        "--", "generate", "--library", soPath.absolutePath, "--language", "kotlin",
+        "--out-dir", outDir.absolutePath, "--no-format",
+    )
+}
+
 android.sourceSets.getByName("main").kotlin.srcDir("build/generated/uniffi/uniffi")
+android.sourceSets.getByName("main").kotlin.srcDir("build/generated/uniffi-monetization/uniffi")
 
 tasks.named("preBuild") {
-    dependsOn("copyCargoLibs", "uniffiBindgen")
+    dependsOn("copyCargoLibs", "uniffiBindgen", "uniffiBindgenMonetization")
 }
 
 dependencies {

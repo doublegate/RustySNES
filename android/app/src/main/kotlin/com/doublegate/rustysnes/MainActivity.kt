@@ -40,6 +40,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import uniffi.rustysnes_mobile.MobileCore
 import uniffi.rustysnes_mobile.MobileRegion
+import uniffi.rustysnes_monetization.checkEntitlement
+import uniffi.rustysnes_monetization.defaultAdPacingPolicy
 
 /**
  * `v1.15.0 "Sideload"` -- the minimal, real Android alpha MVP: a [SurfaceView] rendered via
@@ -74,6 +76,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        logMonetizationScaffold()
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -91,6 +94,21 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    // `v1.18.0 "Dormant"` -- an inert call into `rustysnes-monetization`: compiled in and invoked
+    // once at startup, logged only, never gating any UI or behavior. No real store SDK is wired
+    // up; both functions are dormant placeholders (see that crate's own module doc) pending the
+    // `docs/mobile-readiness.md` "Mobile Phase 6" store-launch decision.
+    private fun logMonetizationScaffold() {
+        val entitlement = checkEntitlement((System.currentTimeMillis() / 1000).toULong())
+        val pacing = defaultAdPacingPolicy()
+        android.util.Log.d(
+            "RustySNES",
+            "monetization scaffold (dormant): unlocked=${entitlement.unlocked} " +
+                "minIntervalSecs=${pacing.minIntervalSecs} " +
+                "sessionsBeforeFirstAd=${pacing.sessionsBeforeFirstAd}",
+        )
     }
 
     // Single save-state slot, persisted to app-private internal storage (`filesDir`, no

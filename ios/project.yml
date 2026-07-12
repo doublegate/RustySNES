@@ -29,7 +29,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.doublegate.rustysnes
         PRODUCT_NAME: RustySNES
-        MARKETING_VERSION: "1.17.0"
+        MARKETING_VERSION: "1.18.0"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_OBJC_BRIDGING_HEADER: RustySNES/Bridging-Header.h
         SWIFT_VERSION: "5.0"
@@ -44,6 +44,8 @@ targets:
       - framework: Frameworks/RustysnesMobileFFI.xcframework
         embed: false
       - framework: Frameworks/RustysnesIOS.xcframework
+        embed: false
+      - framework: Frameworks/RustysnesMonetizationFFI.xcframework
         embed: false
       - sdk: Metal.framework
       - sdk: QuartzCore.framework

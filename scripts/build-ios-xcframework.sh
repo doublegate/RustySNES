@@ -17,9 +17,9 @@ out_dir="$repo_root/ios/Frameworks"
 rm -rf "$out_dir"
 mkdir -p "$out_dir"
 
-echo "==> Building rustysnes-mobile + rustysnes-ios for aarch64-apple-ios (device)"
+echo "==> Building rustysnes-mobile + rustysnes-ios + rustysnes-monetization for aarch64-apple-ios (device)"
 cargo build --release --target aarch64-apple-ios \
-  -p rustysnes-mobile -p rustysnes-ios \
+  -p rustysnes-mobile -p rustysnes-ios -p rustysnes-monetization \
   --manifest-path "$repo_root/Cargo.toml"
 
 # Both simulator architectures, not just arm64-apple-ios-sim -- a `generic/platform=iOS
@@ -29,14 +29,14 @@ cargo build --release --target aarch64-apple-ios \
 # Found for real on a real (Apple Silicon) macOS CI runner: `xcodebuild` reported both
 # xcframeworks here "missing architecture(s) required by this target (x86_64)" when only
 # `aarch64-apple-ios-sim` had been built.
-echo "==> Building rustysnes-mobile + rustysnes-ios for aarch64-apple-ios-sim (simulator, Apple Silicon)"
+echo "==> Building rustysnes-mobile + rustysnes-ios + rustysnes-monetization for aarch64-apple-ios-sim (simulator, Apple Silicon)"
 cargo build --release --target aarch64-apple-ios-sim \
-  -p rustysnes-mobile -p rustysnes-ios \
+  -p rustysnes-mobile -p rustysnes-ios -p rustysnes-monetization \
   --manifest-path "$repo_root/Cargo.toml"
 
-echo "==> Building rustysnes-mobile + rustysnes-ios for x86_64-apple-ios (simulator, Intel)"
+echo "==> Building rustysnes-mobile + rustysnes-ios + rustysnes-monetization for x86_64-apple-ios (simulator, Intel)"
 cargo build --release --target x86_64-apple-ios \
-  -p rustysnes-mobile -p rustysnes-ios \
+  -p rustysnes-mobile -p rustysnes-ios -p rustysnes-monetization \
   --manifest-path "$repo_root/Cargo.toml"
 
 device_dir="$repo_root/target/aarch64-apple-ios/release"
@@ -49,7 +49,7 @@ sim_x86_64_dir="$repo_root/target/x86_64-apple-ios/release"
 # can itself be multi-arch).
 sim_universal_dir="$out_dir/sim-universal"
 mkdir -p "$sim_universal_dir"
-for crate in rustysnes_mobile rustysnes_ios; do
+for crate in rustysnes_mobile rustysnes_ios rustysnes_monetization; do
   lipo -create \
     "$sim_arm64_dir/lib${crate}.a" \
     "$sim_x86_64_dir/lib${crate}.a" \
@@ -83,6 +83,28 @@ xcodebuild -create-xcframework \
   -library "$device_dir/librustysnes_mobile.a" -headers "$mobile_headers" \
   -library "$sim_dir/librustysnes_mobile.a" -headers "$mobile_headers" \
   -output "$out_dir/RustysnesMobileFFI.xcframework"
+
+echo "==> Generating UniFFI Swift bindings for rustysnes-monetization"
+# Same shape as rustysnes-mobile's bindgen step above -- a distinct crate/dylib/namespace, so it
+# needs its own bindgen invocation (`v1.18.0 "Dormant"`).
+monetization_bindings_dir="$out_dir/generated-monetization"
+mkdir -p "$monetization_bindings_dir"
+cargo run -p rustysnes-monetization --features bindgen --bin uniffi-bindgen \
+  --manifest-path "$repo_root/Cargo.toml" -- \
+  generate --library "$device_dir/librustysnes_monetization.dylib" --language swift \
+  --out-dir "$monetization_bindings_dir" --no-format
+mv "$monetization_bindings_dir/rustysnes_monetization.swift" \
+  "$repo_root/ios/RustySNES/Sources/Generated-RustysnesMonetization.swift"
+
+echo "==> Packaging RustysnesMonetizationFFI.xcframework"
+monetization_headers="$monetization_bindings_dir/monetization-headers"
+mkdir -p "$monetization_headers"
+cp "$monetization_bindings_dir/rustysnes_monetizationFFI.h" "$monetization_headers/"
+cp "$monetization_bindings_dir/rustysnes_monetizationFFI.modulemap" "$monetization_headers/module.modulemap"
+xcodebuild -create-xcframework \
+  -library "$device_dir/librustysnes_monetization.a" -headers "$monetization_headers" \
+  -library "$sim_dir/librustysnes_monetization.a" -headers "$monetization_headers" \
+  -output "$out_dir/RustysnesMonetizationFFI.xcframework"
 
 echo "==> Packaging RustysnesIOS.xcframework"
 # Library-only (no -headers) -- rustysnes-ios's small, hand-declared FFI surface is exposed to
