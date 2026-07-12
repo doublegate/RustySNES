@@ -1240,14 +1240,36 @@ sidestep a real correctness risk this sandbox can't verify at runtime).
 ever actually booted on this platform. No TestFlight upload, no App Store §4.7 self-audit, no real
 distribution signing.
 
-### `v1.17.0 "Parity"` → `v1.18.0 "Dormant"` — the rest of the mobile track
+### `v1.17.0 "Parity"` — Mobile Phase 4: hardening — **RELEASED 2026-07-12**
 
-A hardening rung (mlua `send`-feature migration if scripting ships on mobile, direct-IP/LAN
-netplay, per-platform parity checklist), then `rustysnes-monetization` (dormant
-RevenueCat/AppLovin-style scaffold, never a dependency of the deterministic core, policy shape
-only — no committed pricing). A store-launch decision (Play + App Store submission, monetization
-activation) is an explicit maintainer go/no-go against `docs/mobile-readiness.md`, not a numbered
-rung — mirroring RustyNES's own still-pending, twice-deferred launch.
+Delivered: a single-slot Save State/Load State pair on both mobile shells, calling
+`MobileCore.saveState`/`loadState` (already covered by that crate's own host-side round-trip/
+garbage-rejection unit tests since `v1.14.0` — no new Rust logic). Verified for real on Android:
+rebuilt, reinstalled, and re-tested on the real AVD, confirming via `adb run-as` that a real,
+correctly-sized save-state blob round-trips to disk. iOS: written and compile-verified only via
+`ios.yml`'s real macOS CI build, matching `v1.16.0`'s standing disposition for that platform.
+
+While re-verifying the Android save-state UI for real, found and fixed a real, pre-existing,
+already-shipped native crash present since `v1.15.0`: a `SIGSEGV` in `AudioTrack::write`,
+reproducible just by loading a ROM and letting it run for ~10+ seconds — never caught before
+because no prior verification pass ran that long. Root cause: per-frame `ShortArray`
+allocation/GC churn in the audio path disrupting the native `AudioTrack` buffer's timing; fixed
+by reusing a persistent scratch buffer. Also closed a related latent race (`startFrameLoop` made
+idempotent). Re-verified stable through 45+ seconds of continuous run plus a full
+save/load-state cycle.
+
+**Honestly re-scoped, not silently dropped**: RetroAchievements wiring, an `mlua` `send`-feature
+migration, and direct-IP/LAN netplay were all investigated and found not to fit a discrete,
+honestly-verifiable change at this rung (see `CHANGELOG.md`'s `v1.17.0` entry for the full
+reasoning per item); all three remain on the roadmap for a later mobile-track rung.
+
+### `v1.18.0 "Dormant"` — the rest of the mobile track
+
+`rustysnes-monetization` (dormant RevenueCat/AppLovin-style scaffold, never a dependency of the
+deterministic core, policy shape only — no committed pricing). A store-launch decision (Play +
+App Store submission, monetization activation) is an explicit maintainer go/no-go against
+`docs/mobile-readiness.md`, not a numbered rung — mirroring RustyNES's own still-pending,
+twice-deferred launch.
 
 ### `v1.19.0 "Afterburner"` — PGO/BOLT pipeline
 

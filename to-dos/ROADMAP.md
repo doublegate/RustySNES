@@ -356,11 +356,14 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   `rustysnes-ios` crate mirroring `rustysnes-android`'s architecture, verified for real via
   genuine iOS-target cross-compiles plus a real, passing `xcodebuild` simulator build on a
   `macos-latest` CI runner — the project's only real Xcode/Swift toolchain; no on-device/
-  simulator run yet, only a build) — with the rest of the mobile track — a hardening rung plus
-  dormant monetization scaffolding (`v1.17.0`-`v1.18.0`) — and a PGO/BOLT pipeline last
-  (`v1.19.0`). Tracked in lockstep against RustyNES's own continuing development via
-  `to-dos/LOCKSTEP-CHECKLIST.md`, not a frozen snapshot target. Full detail in
-  `to-dos/VERSION-PLAN.md`'s "RustyNES-parity ladder" section.
+  simulator run yet, only a build), then a hardening rung (`v1.17.0 "Parity"`,
+  **RELEASED 2026-07-12** — Save State/Load State on both mobile shells, plus a real,
+  pre-existing, already-shipped Android `AudioTrack` crash found and fixed while re-verifying it
+  on-device; RetroAchievements/`mlua`/netplay honestly re-scoped to a later rung) — with dormant
+  monetization scaffolding (`v1.18.0`) — and a PGO/BOLT pipeline last (`v1.19.0`). Tracked in
+  lockstep against RustyNES's own continuing development via `to-dos/LOCKSTEP-CHECKLIST.md`, not
+  a frozen snapshot target. Full detail in `to-dos/VERSION-PLAN.md`'s "RustyNES-parity ladder"
+  section.
 - **Flagged by the 2026-07-12 lockstep re-check — no rung assigned yet, maintainer go/no-go
   needed.** RustyNES shipped two items since the roadmap's `v2.1.5` baseline that RustySNES's own
   ladder doesn't currently account for: (1) a **GIF/WAV screen+audio capture subsystem**
