@@ -17,10 +17,11 @@ RustySNES is a pure-Rust workspace.
 On Linux, the frontend crate pulls in the wgpu / winit / cpal system deps:
 
 ```bash
-# Debian / Ubuntu
-sudo apt-get install -y libxkbcommon-dev libwayland-dev libxkbcommon-x11-dev libasound2-dev libudev-dev
+# Debian / Ubuntu (matches .github/actions/rust-setup's linux-frontend-deps step exactly)
+sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+  libasound2-dev libudev-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
 # Arch / CachyOS
-sudo pacman -S --needed libxkbcommon wayland alsa-lib systemd-libs
+sudo pacman -S --needed libxkbcommon wayland alsa-lib systemd-libs libx11 libxcursor libxrandr libxi
 ```
 
 ## Workflow
