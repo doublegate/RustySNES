@@ -1013,7 +1013,7 @@ check` on both native and `wasm32-unknown-unknown`, a real `trunk build --releas
 `rustysnes-frontend` test suite — no browser available in this environment to visually confirm
 the on-screen render, flagged honestly rather than assumed.
 
-#### `v1.8.0 "Tracepoint"` — **RELEASED 2026-07-12**
+#### `v1.8.0 "Tracepoint"`
 
 - [x] `debugger/memory_compare_panel.rs` — captures a baseline of the Memory panel's live window,
       diffs it against the current window every frame, shows only changed rows
@@ -1033,6 +1033,11 @@ the on-screen render, flagged honestly rather than assumed.
   cross-crate change than this rung's frontend-only scope. A dedicated per-coprocessor-type
   register panel (beyond the SA-1/GSU state the existing Cart panel already shows) needs new
   `Board`-trait debug-state accessors — also deferred. All tracked as open follow-ups.
+- [ ] `chore(release): v1.8.0 "Tracepoint"` closeout PR (version bump + dated `CHANGELOG.md`
+      entry — caught in PR review: an earlier draft of this PR dated the `CHANGELOG.md` section
+      and marked this rung `RELEASED` before the version bump had actually happened, same
+      "everything lands in the release-closeout PR, not the feature PR" pattern every prior rung
+      in this ladder already follows).
 - **Regression gate:** full local quality gate run before pushing (`fmt`, `clippy` across the
   default/`debug-hooks`/`full` feature lanes, the doc-warnings gate, `wasm32-unknown-unknown`
   compile, `cargo test -p rustysnes-frontend` — 61 tests, all green) — this sandbox has the exact
