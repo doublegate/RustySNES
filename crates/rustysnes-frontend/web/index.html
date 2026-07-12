@@ -30,9 +30,11 @@
         /* v1.7.0: winit's web canvas backend resizes this element to match app.rs's
            create_window with_inner_size request (chrome-padded 3x = 896x728 for NTSC),
            overriding whatever this rule declares -- these numbers are only the pre-JS fallback
-           appearance (avoids a visible resize flash on load), not the authoritative size. */
+           appearance (avoids a visible resize flash on load), not the authoritative size.
+           aspect-ratio + height: auto (not a fixed height) so max-width's narrow-viewport
+           shrink scales proportionally instead of distorting/overflowing (caught in review). */
         canvas { image-rendering: pixelated; background: #000; border: 2px solid #333;
-            width: 896px; height: 728px; max-width: 96vw; }
+            width: 896px; aspect-ratio: 896 / 728; height: auto; max-width: 96vw; }
         #rom-input { color: #e0e0e0; font-size: 0.9rem; }
         .hint { text-align: center; margin: 0; padding: 0.5rem 1rem; font-size: 0.85rem;
             color: #8a8a94; max-width: 560px; }
