@@ -3,12 +3,12 @@
 This file is authoritative for per-suite pass counts, the board / coprocessor matrix, and
 version policy. Everything else defers to it.
 
-**Current release:** `v1.16.0 "Beacon"` (`v0.1.0 "Foundation"`,
+**Current release:** `v1.17.0 "Parity"` (`v0.1.0 "Foundation"`,
 `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"`, `v0.4.0 "Completion"`, `v0.5.0 "Fidelity"`,
 `v0.6.0 "Shippable"`, `v0.7.0 "Resolution"`, `v0.8.0 "Community"`, `v0.9.0 "Threshold"`,
 `v1.0.0 "Zenith"`, `v1.0.1 "Aftertouch"`, `v1.1.0 "Latchkey"`, `v1.2.0 "Phosphor"`,
 `v1.3.0 "Palimpsest"`, and `v1.4.0 "Convergence"` precede it; see `to-dos/VERSION-PLAN.md` for the
-full ladder). **`v1.5.0`-`v1.16.0`** are the opening rungs of the RustyNES-parity ladder — a CI
+full ladder). **`v1.5.0`-`v1.17.0`** are the opening rungs of the RustyNES-parity ladder — a CI
 safety net (`v1.5.0 "Bedrock"`), a MkDocs documentation site + PWA + accuracy ledger
 (`v1.6.0 "Lighthouse"`), the debugger extracted into its own module plus a hex Memory panel
 (`v1.7.0 "Telemetry"`, `v1.7.1` patch), a Memory Compare panel + in-app Docs panel
@@ -32,8 +32,14 @@ to `v1.15.1+` (`v1.15.0 "Sideload"`), and an iOS alpha — a new `rustysnes-ios`
 `aarch64-apple-ios-sim` cross-compiles in a Linux sandbox with no Xcode installed, plus a real,
 passing, unsigned `xcodebuild` simulator build on a `macos-latest` CI runner (the project's only
 real Xcode/Swift toolchain) after fixing four real CI-found build bugs and three real
-PR-review-found runtime/lifecycle bugs (`v1.16.0 "Beacon"`) — all frontend/tooling/CI work with
-**zero
+PR-review-found runtime/lifecycle bugs (`v1.16.0 "Beacon"`), and a hardening pass adding
+Save State/Load State to both mobile shells that, in the process of re-verifying it for real on
+the Android AVD, found and fixed a real, pre-existing, already-shipped native crash present
+since `v1.15.0` (per-frame allocation churn in the audio path disrupting `AudioTrack`'s native
+buffer timing after ~10+ seconds of continuous run — never caught before because no prior
+verification pass ran that long), with RetroAchievements wiring, an `mlua` migration, and
+netplay honestly re-scoped to a later rung (`v1.17.0 "Parity"`) — all frontend/tooling/CI work
+with **zero
 change** to the accuracy dashboard, per-suite pass counts, or coprocessor tier matrix below,
 which stayed byte-identical throughout; see `CHANGELOG.md` for full per-release detail. `v1.0.0`
 closes the production-cut

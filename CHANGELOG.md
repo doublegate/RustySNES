@@ -9,9 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.0] "Parity" - 2026-07-12
+
+Thirteenth release of the RustyNES-parity roadmap: Mobile Phase 4, hardening.
+
 ### Added
 
-- **Save State / Load State on both mobile shells** (Mobile Phase 4, `v1.17.0 "Parity"`): a
+- **Save State / Load State on both mobile shells** (Mobile Phase 4): a
   single save-state slot on Android (`android/.../MainActivity.kt`, persisted to app-private
   internal storage) and iOS (`ios/.../EmulatorViewModel.swift`, persisted to the app's Documents
   directory), both calling `MobileCore.saveState`/`loadState` — already covered by
