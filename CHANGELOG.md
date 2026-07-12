@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A third presentation post-filter, `PostFilter::Xbrz`** (`v1.12.0 "Refraction"`): a
+  single-pass, context-aware corner-rounding blend — an xBRZ-style *approximation* of the
+  algorithm's corner rule (not a literal multi-pass xBRZ port). It blends the same 2x2 corner
+  `PostFilter::Hqx` does, but reads a wider 4x4 neighborhood and only commits to the full
+  diagonal pull when the outward context agrees the edge is a genuine corner, not isolated-pixel
+  noise. One strength slider (`config.video.xbrz_strength`, default `0.6`), selectable from
+  Settings → Video and the View → Post-filter submenu, same as `Crt`/`Hqx`.
+- **New `rustysnes-gfx-shaders` crate**: the `BLIT_WGSL`/`CRT_WGSL`/`HQX_WGSL` shader sources
+  moved out of `rustysnes-frontend::gfx`, byte-identical, alongside the new `XBRZ_WGSL` — so the
+  planned `rustysnes-mobile` bridge (`v1.14.0 "Foundry"`) can reuse the exact shader strings
+  without depending on this crate's winit/egui/cpal shell. `#![no_std]`, verified against the
+  existing `thumbv7em-none-eabihf` no_std CI gate.
+
+### Deferred (honestly scoped, not silently dropped)
+
+- RetroArch `.slangp`/`.cgp` shader-preset import and a composite/RF post-pass approximating
+  SNES analog-out characteristics remain out of scope, unrevisited from `v1.2.0`'s original call
+  (not a new finding this release). See `to-dos/VERSION-PLAN.md`'s `v1.12.0` section.
+
 ## [1.11.0] "Podium" - 2026-07-12
 
 Seventh release of the RustyNES-parity roadmap: RetroAchievements never loaded a game.

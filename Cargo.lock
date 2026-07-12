@@ -3621,6 +3621,7 @@ dependencies = [
  "rfd",
  "rustysnes-cheevos",
  "rustysnes-core",
+ "rustysnes-gfx-shaders",
  "rustysnes-netplay",
  "rustysnes-savestate",
  "rustysnes-script",
@@ -3635,6 +3636,10 @@ dependencies = [
  "winit",
  "zip",
 ]
+
+[[package]]
+name = "rustysnes-gfx-shaders"
+version = "1.11.0"
 
 [[package]]
 name = "rustysnes-libretro"

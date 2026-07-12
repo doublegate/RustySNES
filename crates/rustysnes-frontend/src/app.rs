@@ -1303,6 +1303,7 @@ impl App {
             config.video.crt_scanline,
             config.video.crt_mask,
             config.video.hqx_strength,
+            config.video.xbrz_strength,
         );
 
         // --- (4) Run the always-on egui shell pass. The shell NEVER touches the emu lock. ---
