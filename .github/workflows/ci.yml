@@ -20,8 +20,10 @@ concurrency:
   cancel-in-progress: true
 jobs:
   # v1.5.0 "Bedrock": detect doc-only changes so the expensive jobs below can skip cleanly on a
-  # pure-docs PR/push instead of burning minutes proving nothing changed. Same exclusion set
-  # security.yml's own paths-ignore already uses, inverted into an inclusion filter.
+  # pure-docs PR/push instead of burning minutes proving nothing changed. NOT a strict inversion of
+  # security.yml's paths-ignore list (caught in PR review) — this is a curated, narrower positive
+  # list of the specific paths that can affect a Rust build/lint/test/CI outcome, so it stays
+  # correct even if security.yml's own ignore list grows for unrelated (e.g. asset) reasons.
   changes:
     runs-on: ubuntu-latest
     outputs:
