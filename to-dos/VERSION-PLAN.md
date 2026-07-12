@@ -887,6 +887,13 @@ gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
   each release in the RustyNES-parity ladder below, so drift against RustyNES's own continuing
   development gets caught and folded in (or explicitly deferred) before it accumulates, rather
   than only at a periodic re-audit.
+- **Version bump:** every `chore(release)` closeout PR bumps `[workspace.package] version` in the
+  root `Cargo.toml` *and* each crate's own pinned `version` field (every crate except
+  `rustysnes-libretro`, which uses `version.workspace = true`) to the release being cut, then
+  runs `cargo check --workspace` to regenerate `Cargo.lock`. This was true of every release back
+  to `v0.7.0` but wasn't written down here, so `v1.5.0`/`v1.6.0` missed it — `env!(
+  "CARGO_PKG_VERSION")` feeds the Help window and `--version`, so both under-reported the running
+  version (including on the live GitHub Pages demo) until caught and fixed in `v1.7.0`.
 
 ## RustyNES-parity ladder (`v1.5.0` onward)
 

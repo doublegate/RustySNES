@@ -9,14 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] "Telemetry" - 2026-07-12
+
+Third release of the RustyNES-parity roadmap.
+
 ### Added
 
-- **Debugger foundation (`v1.7.0 "Telemetry"`)** — the 4-panel debugger overlay (previously
-  inline in `ui_shell.rs`, ~600 lines) moved into a dedicated `debugger/` module (`mod.rs` +
-  `cpu_panel.rs`/`ppu_panel.rs`/`apu_panel.rs`/`cart_panel.rs`/`watch_panel.rs`) — a pure
-  structural extraction, zero behavior change, that later debugger-depth rungs (`v1.8.0` onward)
-  plug new panels into. `lib.rs`'s stale "the deep debugger panels are still TODO stubs" doc
-  comment corrected (the panels have existed since `v0.8.0`; this rung gives them a real module).
+- **Debugger foundation** — the 4-panel debugger overlay (previously inline in `ui_shell.rs`,
+  ~600 lines) moved into a dedicated `debugger/` module (`mod.rs` + `cpu_panel.rs`/`ppu_panel.rs`/
+  `apu_panel.rs`/`cart_panel.rs`/`watch_panel.rs`) — a pure structural extraction, zero behavior
+  change, that later debugger-depth rungs (`v1.8.0` onward) plug new panels into. `lib.rs`'s
+  stale "the deep debugger panels are still TODO stubs" doc comment corrected (the panels have
+  existed since `v0.8.0`; this rung gives them a real module).
 - **Memory panel** — the Watch panel (renamed "Memory/Watch" in the panel selector) gained a
   read-only hex dump of a 512-byte window of WRAM/cart space (`DebugSnapshot::memory_window`,
   read via the same non-intrusive `Bus::peek` the disassembler already uses; I/O register space
@@ -26,6 +30,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one to call), the same honestly-tracked gap the existing VRAM viewer already carries. Write
   support and a RAM-search tool are explicitly **not** included in this rung — deferred, not
   overclaimed.
+
+### Fixed
+
+- **The workspace version was stuck at `1.4.0`** since `v1.5.0` — `env!("CARGO_PKG_VERSION")`
+  feeds the egui Help window's version label and the CLI's `--version` output (including on the
+  deployed GitHub Pages wasm demo), so both silently under-reported the running version through
+  the `v1.5.0`/`v1.6.0` releases. Every prior `chore(release)` commit back to `v0.7.0` bumped
+  `[workspace.package] version` (and each crate's own pinned `version` field) as part of the
+  closeout — a step that isn't spelled out in `docs/adr/0007`'s decision list and got missed
+  starting at `v1.5.0`. Reported by a user testing the live demo; bumped to `1.7.0` across the
+  workspace and all 11 non-workspace-inherited crates, and this ceremony gap is now called out
+  explicitly in `to-dos/VERSION-PLAN.md`'s standing release checklist.
+- **Findings from review (#80)**: the memory panel's doc comment, panel label, and CHANGELOG
+  entry all overclaimed "full 24-bit CPU bus" without noting that `Bus::peek` returns `0` for
+  I/O register space — corrected in all three places.
 
 ## [1.6.0] "Lighthouse" - 2026-07-11
 
