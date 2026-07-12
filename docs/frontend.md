@@ -323,11 +323,18 @@ pattern as the present-mode/theme toggles above.
 
 ### Window size presets (post-`v1.3.0`, RustyNES parity)
 
-Native only (`#[cfg(not(target_arch = "wasm32"))]`; the wasm32 canvas is sized by the page's own
-CSS, not this feature) — View → Window Size offers 1x/2x/3x/4x (100%-400%) of the SNES native
-resolution, dispatching `MenuAction::SetWindowScale(u32)`. `App::create_window` uses `3x`
-(`INITIAL_SCALE`) as the launch default, matching RustyNES's own default. `App::set_window_scale`
-exits fullscreen first (so the resize takes effect against a normal window), clamps the requested
+The View → Window Size menu itself is native only (`#[cfg(not(target_arch = "wasm32"))]`) —
+offers 1x/2x/3x/4x (100%-400%) of the SNES native resolution, dispatching
+`MenuAction::SetWindowScale(u32)`. `App::create_window` uses `3x` (`INITIAL_SCALE`) as the launch
+default on **both** native and `wasm32` (`v1.7.0`) — winit's web backend resizes the attached
+`<canvas>` to match the requested inner size at creation, overriding `web/index.html`'s own CSS
+rule (found live: that CSS was a dead letter, not a real fallback — RustyNES's own
+`create_window` requests `NES_W * INITIAL_SCALE` unconditionally too, which is why its wasm demo
+already rendered at 3x while RustySNES's rendered at a smaller, page-declared 2x before this fix).
+Only the *runtime* resize (the View → Window Size menu, `App::set_window_scale`) stays native-only
+— `request_inner_size`'s async-grant semantics on web are a separate scope not covered here.
+`App::set_window_scale` exits fullscreen first (so the resize takes effect against a normal
+window), clamps the requested
 scale to `1..=4`, and computes a chrome-padded `LogicalSize` via `App::chrome_padded_size` before
 calling `window.request_inner_size`. That call may grant the resize synchronously (`Some`, no
 separate `Resized` event follows, so `Gfx::resize` is called directly) or asynchronously (`None`,

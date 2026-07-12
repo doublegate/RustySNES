@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The wasm demo's canvas rendered at a smaller, fixed 2x scale instead of the 3x
+  `INITIAL_SCALE` native launches at.** `App::create_window` special-cased `wasm32` to a hardcoded
+  `(512.0, 448.0)` `LogicalSize`, deferring to `web/index.html`'s own CSS (`512x448`) — but
+  winit's web backend actually resizes the attached `<canvas>` to match the requested inner size,
+  overriding that CSS regardless. RustyNES's own `create_window` requests `NES_W * INITIAL_SCALE`
+  unconditionally (native and wasm alike), which is why its own demo already rendered at 3x — a
+  user comparing the two demos side by side noticed the size difference. `web/index.html`'s CSS
+  updated to `896x728` (the new pre-JS fallback appearance, matching the actual chrome-padded 3x
+  size) so there's no flash of the old size before winit applies the real one.
+
 ## [1.7.0] "Telemetry" - 2026-07-12
 
 Third release of the RustyNES-parity roadmap.
