@@ -966,12 +966,30 @@ MkDocs/trunk/size-budget pipeline — passed clean. `gemini-code-assist` remaine
 ### `v1.7.0 "Telemetry"` / `v1.8.0 "Tracepoint"` — debugger foundation + depth
 
 Extracts the current 4-panel inline debugger (`ui_shell.rs`, `lib.rs`'s own doc comment: "the deep
-debugger panels are still TODO stubs") into a real `debugger/` module — hex-editor memory panel,
-RAM search, conditional (R/W/X) watchpoints, dedicated CPU/PPU/APU panels (`v1.7.0`), then
-callstack/step-controls, an inline 65816 assembler, a memory-compare panel, a SNES-specific
-coprocessor state panel (no NES analog), and an in-app doc browser (`v1.8.0`). Every later rung's
-new panels plug into this scaffold — sequenced first among the desktop feature rungs for that
-reason.
+debugger panels are still TODO stubs") into a real `debugger/` module — a memory panel, conditional
+(R/W/X) watchpoints, dedicated CPU/PPU/APU panels (`v1.7.0`), then callstack/step-controls, an
+inline 65816 assembler, a memory-compare panel, a SNES-specific coprocessor state panel (no NES
+analog), and an in-app doc browser (`v1.8.0`). Every later rung's new panels plug into this
+scaffold — sequenced first among the desktop feature rungs for that reason.
+
+#### `v1.7.0 "Telemetry"` — **RELEASED 2026-07-12**
+
+- [x] Extracted the debugger overlay out of `ui_shell.rs` into `crates/rustysnes-frontend/src/
+      debugger/{mod.rs,cpu_panel.rs,ppu_panel.rs,apu_panel.rs,cart_panel.rs,watch_panel.rs}` — a
+      pure structural move (`render_debugger`/`render_watch_panel` stay `impl ShellState` methods,
+      split across files via Rust's cross-file impl support; `render_cpu_panel` etc. became free
+      `fn render(...)` per submodule), zero behavior change, verified by the full local quality
+      gate (fmt, clippy across 4 feature lanes, the doc-warnings gate, `no_std`, and the full
+      workspace test suite — 61+ frontend tests, all green — run locally before pushing).
+- [x] `lib.rs`'s stale "the deep debugger panels are still TODO stubs" doc comment corrected.
+- [x] Memory panel: `DebugSnapshot::memory_window` (512 bytes, `MEMORY_WINDOW_LEN`), read via
+      `Bus::peek` in `EmuCore::debug_snapshot` (mirrors the existing VRAM-window pattern exactly);
+      a read-only hex dump added to the renamed "Memory/Watch" panel tab.
+- **Honestly scoped down from the original plan:** RAM search (multi-frame value narrowing) and
+  write-capable hex editing are **not** included — a real memory *viewer* landed, not a memory
+  *editor*. Conditional watchpoints remain R/W/RW as before (no execute/`X` watchpoints — that
+  needs a new `rustysnes-core::watchpoint::WatchKind` variant + `Bus` hook, a cross-crate change
+  out of this rung's scope). Both tracked as open follow-ups, not silently dropped.
 
 ### `v1.9.0 "Marionette"` — Lua/TAS scripting depth + TAStudio
 
