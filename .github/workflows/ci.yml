@@ -205,6 +205,14 @@ jobs:
 
   # Full-gate cadence only (see `setup` above) — cross-compiling the whole chip stack is cheap but
   # doesn't need to happen on every single PR push.
+  #
+  # `v1.14.0 "Foundry"`: expanded from a single `rustysnes-core --no-default-features` build into
+  # a per-crate matrix. The old single job only proved the no_std posture TRANSITIVELY (every
+  # chip crate is already `default-features = false` in `rustysnes-core`'s own `Cargo.toml`, and
+  # `#![no_std]` is unconditional -- not feature-gated -- in each chip crate's `lib.rs`), never as
+  # its own standalone build target. This matrix builds each chip crate directly, so a future
+  # accidental `std`-only dependency added to just one of them fails on ITS OWN row instead of
+  # only surfacing (if at all) through `rustysnes-core`'s aggregate build.
   no_std:
     needs: setup
     if: needs.setup.outputs.mode == 'full'
@@ -212,13 +220,21 @@ jobs:
       CARGO_NET_RETRY: "10"
       CARGO_HTTP_MULTIPLEXING: "false"
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        crate:
+          - rustysnes-cpu
+          - rustysnes-ppu
+          - rustysnes-apu
+          - rustysnes-cart
+          - rustysnes-core
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/rust-setup
         with:
           targets: thumbv7em-none-eabihf
-          cache-key-suffix: no_std
-      - run: cargo build -p rustysnes-core --target thumbv7em-none-eabihf --no-default-features
+          cache-key-suffix: no_std-${{ matrix.crate }}
+      - run: cargo build -p ${{ matrix.crate }} --target thumbv7em-none-eabihf --no-default-features
 
   # Full-gate cadence only (`v1.0.0`): a release-mode Criterion build + run is too costly for every
   # PR push, and the frame-time gate is an absolute ceiling that only needs to hold at

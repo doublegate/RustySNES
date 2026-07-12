@@ -868,8 +868,9 @@ gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
 - **Libretro core**, the **CRT/HQx shader/filter pipeline**, and **HD texture packs** landed in
   `v1.2.0`/`v1.3.0` above. Still deferred: the **fractional-timebase MAJOR refactor**
   (`docs/adr/0002`, only if hard residuals from the accuracy-debt cluster above actually warrant
-  it), and any future **mobile/Android** target (no appetite assumed by default, unlike
-  RustyNES's own Android build — don't inherit that scope blindly).
+  it). The **mobile/Android + iOS target** — previously "no appetite assumed by default" here —
+  is now explicitly IN SCOPE as of `v1.14.0 "Foundry"`; see `docs/adr/0012-mobile-platform-
+  target.md` for the reversal decision and `docs/mobile-readiness.md` for the living status page.
 
 ## Standards adopted for every release from v0.1.0 onward
 
@@ -1161,17 +1162,37 @@ into a hollow "audit passed" claim. See `docs/frontend.md` for the full explanat
 rationale; stands up `docs/mobile-readiness.md`; a new ADR records the mobile-platform-target
 decision, citing that `docs/adr/0002`'s gate is already closed favorably.
 
-### `v1.14.0 "Foundry"` → `v1.18.0 "Dormant"` — the mobile track
+### `v1.14.0 "Foundry"` — Mobile Phase 1: bridge foundations — **RELEASED 2026-07-12**
 
-New crates `rustysnes-mobile` (UniFFI bridge — `Board: Send` since `v1.0.0`, the chip-stack crates
-already `#![no_std]`+alloc), `rustysnes-android` (JNI/NDK, Kotlin Compose shell, net-new
-Mouse/Super-Scope/Multitap touch UX with no RustyNES precedent), `rustysnes-ios` (Metal via wgpu,
-SwiftUI shell, TestFlight), then a hardening rung (mlua `send`-feature migration if scripting ships
-on mobile, direct-IP/LAN netplay, per-platform parity checklist), then `rustysnes-monetization`
-(dormant RevenueCat/AppLovin-style scaffold, never a dependency of the deterministic core, policy
-shape only — no committed pricing). A store-launch decision (Play + App Store submission,
-monetization activation) is an explicit maintainer go/no-go against `docs/mobile-readiness.md`, not
-a numbered rung — mirroring RustyNES's own still-pending, twice-deferred launch.
+Delivered: new crate `rustysnes-mobile`, a `UniFFI` bridge over `rustysnes_core::facade::EmuCore`
+(the same `std`-only facade the desktop frontend and `rustysnes-libretro` already drive the
+emulator through — `Board: Send` since `v1.0.0` and the chip-stack crates' `#![no_std]`+`alloc`
+posture were both already proven, not new work here). MVP surface: ROM load/close, `run_frame`,
+the peripheral setters (Gamepad/Mouse/Super Scope/Multitap), framebuffer + audio drain, save/load
+state, reset/power-cycle — 7 host-side unit tests. Verified for real, not just claimed: a genuine
+`cargo ndk` cross-compile to `arm64-v8a` produced an actual ARM64 `.so` (confirmed via `file`),
+and `uniffi-bindgen` generated real, correctly-shaped Kotlin AND Swift bindings (inspected for
+correct method names/types/`throws`/`@Throws`) from the compiled library. The per-crate `no_std`
+CI matrix (`rustysnes-{cpu,ppu,apu,cart,core}` each building standalone, not only transitively
+through `rustysnes-core`) also landed here. New `docs/adr/0012-mobile-platform-target.md` +
+`docs/mobile-readiness.md` (the living status page); this document's own "Post-v1.0 — Reach"
+no-mobile-appetite line is reversed above.
+
+**Honestly scoped**: this development environment has a real Android SDK/NDK but no macOS/Xcode
+toolchain, so Android-side work (`v1.15.0`) can be genuinely built/tested here going forward,
+while iOS-side work (`v1.16.0`) will be written and Rust-side compile-checked but needs the
+project owner's own Mac for a real Xcode build/link/run — see `docs/mobile-readiness.md`.
+
+### `v1.15.0 "Sideload"` → `v1.18.0 "Dormant"` — the rest of the mobile track
+
+`rustysnes-android` (JNI/NDK, Kotlin Compose shell, net-new Mouse/Super-Scope/Multitap touch UX
+with no RustyNES precedent), `rustysnes-ios` (Metal via wgpu, SwiftUI shell, TestFlight), then a
+hardening rung (mlua `send`-feature migration if scripting ships on mobile, direct-IP/LAN
+netplay, per-platform parity checklist), then `rustysnes-monetization` (dormant
+RevenueCat/AppLovin-style scaffold, never a dependency of the deterministic core, policy shape
+only — no committed pricing). A store-launch decision (Play + App Store submission, monetization
+activation) is an explicit maintainer go/no-go against `docs/mobile-readiness.md`, not a numbered
+rung — mirroring RustyNES's own still-pending, twice-deferred launch.
 
 ### `v1.19.0 "Afterburner"` — PGO/BOLT pipeline
 

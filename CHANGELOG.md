@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **New crate `rustysnes-mobile`** (`v1.14.0 "Foundry"`, Mobile Phase 1): a `UniFFI` bridge
+  generating Kotlin (Android) and Swift (iOS) bindings over `rustysnes_core::facade::EmuCore` —
+  the same facade the desktop frontend and `rustysnes-libretro` already drive the emulator
+  through. MVP surface: ROM load/close, `run_frame`, the peripheral setters (Gamepad/Mouse/Super
+  Scope/Multitap), framebuffer + audio drain, save/load state, reset/power-cycle. Verified for
+  real: a genuine `cargo ndk` cross-compile to `arm64-v8a` produced an actual ARM64 `.so`
+  (confirmed via `file`), and `uniffi-bindgen` generated real, correctly-shaped Kotlin and Swift
+  bindings from the compiled library.
+- **`no_std` CI gate expanded to a per-crate matrix**: `rustysnes-{cpu,ppu,apu,cart,core}` each
+  now build standalone against `thumbv7em-none-eabihf --no-default-features`, replacing the prior
+  single aggregate-only `rustysnes-core` build.
+- **The mobile/Android+iOS "no appetite" default from `v1.0.0` is formally reversed** — new
+  `docs/adr/0012-mobile-platform-target.md` records the decision, new `docs/mobile-readiness.md`
+  is the living status page.
+
+### Deferred (honestly scoped, not silently dropped)
+
+- HD-pack consumption, cheats, rewind/run-ahead, netplay, `RetroAchievements`, and Lua/TAS
+  scripting are all out of `rustysnes-mobile`'s MVP surface — real, separate frontend concerns
+  layered on top of `EmuCore` in the desktop build too, not re-invented here.
+- No real Android app, emulator run, or touch UX yet — `v1.15.0 "Sideload"`'s scope.
+- No iOS build/link/run at all — this development environment has no macOS/Xcode toolchain.
+  `v1.16.0 "Beacon"`'s `rustysnes-ios` crate and SwiftUI shell will be written and Rust-side
+  compile-checked, but the real Xcode verification needs the project owner's own Mac.
+
 ## [1.13.0] "Vantage" - 2026-07-12
 
 Ninth release of the RustyNES-parity roadmap: two accessibility theme variants, plus an honest
