@@ -139,6 +139,10 @@ final class EmulatorViewModel: ObservableObject {
             guard let base = source.baseAddress else { return }
             channelData[0].update(from: base, count: samples.count)
         }
-        player.scheduleBuffer(buffer)
+        // `AVAudioPlayerNode.scheduleBuffer(_:)` has an `async` overload (in addition to the
+        // completion-handler one) -- `playAudio` already runs in an async context, so Swift's
+        // overload resolution picks that one, requiring `await` (a real compile error found by
+        // this PR's own CI, the first real Swift compiler pass over this file).
+        await player.scheduleBuffer(buffer)
     }
 }
