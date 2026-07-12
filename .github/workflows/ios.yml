@@ -50,13 +50,17 @@ jobs:
           # list --installed` afterward showed only the toolchain file's own targets, not these).
           # Kept here anyway for documentation/defensiveness; the targets that actually matter
           # for this job are added explicitly below.
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
           cache-key-suffix: ios
       # The real fix for the above: `rust-toolchain.toml` intentionally doesn't list Apple-only
       # targets (every other CI job doesn't need them), so this job adds them itself, once,
-      # against whichever toolchain the repo's override file already selected.
+      # against whichever toolchain the repo's override file already selected. All three: the
+      # device target, plus BOTH simulator architectures -- `scripts/build-ios-xcframework.sh`
+      # lipo's the two simulator builds into one universal library, since a `generic/platform=iOS
+      # Simulator` xcodebuild destination is architecture-unconstrained and expects x86_64
+      # alongside arm64 regardless of the runner's own CPU (found for real on this exact job).
       - name: Add the iOS targets
-        run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+        run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
       - name: Confirm the iOS targets actually installed
         run: rustup target list --installed
 

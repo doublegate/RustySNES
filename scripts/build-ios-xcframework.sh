@@ -22,13 +22,40 @@ cargo build --release --target aarch64-apple-ios \
   -p rustysnes-mobile -p rustysnes-ios \
   --manifest-path "$repo_root/Cargo.toml"
 
-echo "==> Building rustysnes-mobile + rustysnes-ios for aarch64-apple-ios-sim (simulator)"
+# Both simulator architectures, not just arm64-apple-ios-sim -- a `generic/platform=iOS
+# Simulator` xcodebuild destination (used by `ios.yml`'s CI build) is architecture-unconstrained
+# and expects the simulator slice to cover every arch Xcode's default `ARCHS` lists for the
+# Simulator SDK, which includes x86_64 alongside arm64 regardless of the host Mac's own CPU.
+# Found for real on a real (Apple Silicon) macOS CI runner: `xcodebuild` reported both
+# xcframeworks here "missing architecture(s) required by this target (x86_64)" when only
+# `aarch64-apple-ios-sim` had been built.
+echo "==> Building rustysnes-mobile + rustysnes-ios for aarch64-apple-ios-sim (simulator, Apple Silicon)"
 cargo build --release --target aarch64-apple-ios-sim \
   -p rustysnes-mobile -p rustysnes-ios \
   --manifest-path "$repo_root/Cargo.toml"
 
+echo "==> Building rustysnes-mobile + rustysnes-ios for x86_64-apple-ios (simulator, Intel)"
+cargo build --release --target x86_64-apple-ios \
+  -p rustysnes-mobile -p rustysnes-ios \
+  --manifest-path "$repo_root/Cargo.toml"
+
 device_dir="$repo_root/target/aarch64-apple-ios/release"
-sim_dir="$repo_root/target/aarch64-apple-ios-sim/release"
+sim_arm64_dir="$repo_root/target/aarch64-apple-ios-sim/release"
+sim_x86_64_dir="$repo_root/target/x86_64-apple-ios/release"
+
+# One universal (`lipo`-merged) simulator library per crate, combining both simulator
+# architectures into the single library `xcodebuild -create-xcframework` expects per
+# platform+environment slice (device and simulator are separate slices; each slice's own binary
+# can itself be multi-arch).
+sim_universal_dir="$out_dir/sim-universal"
+mkdir -p "$sim_universal_dir"
+for crate in rustysnes_mobile rustysnes_ios; do
+  lipo -create \
+    "$sim_arm64_dir/lib${crate}.a" \
+    "$sim_x86_64_dir/lib${crate}.a" \
+    -output "$sim_universal_dir/lib${crate}.a"
+done
+sim_dir="$sim_universal_dir"
 
 echo "==> Generating UniFFI Swift bindings for rustysnes-mobile"
 # `.dylib` (the `cdylib` crate-type output), not `.a` -- matches `android/app/build.gradle.kts`'s
