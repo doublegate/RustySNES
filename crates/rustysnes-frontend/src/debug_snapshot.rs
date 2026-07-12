@@ -34,11 +34,14 @@ pub struct DebugSnapshot {
     /// always-compiled shape, matching this whole struct's existing "practically dead but
     /// harmless to compile" posture when the debugger overlay is unreachable.
     pub watchpoint_hits: Vec<WatchHit>,
-    /// A [`MEMORY_WINDOW_LEN`]-byte window of the full 24-bit CPU bus starting at
+    /// A [`MEMORY_WINDOW_LEN`]-byte window of 24-bit-bus-addressed memory starting at
     /// `memory_window_start`, for the debugger's Memory panel (`v1.7.0`). Read via the same
     /// non-intrusive `Bus::peek` the CPU panel's disassembler already uses — never the live,
     /// side-effecting `CpuBus::read24`, so viewing memory can never itself trip a watchpoint or
-    /// perturb the open-bus latch.
+    /// perturb the open-bus latch. `Bus::peek` covers WRAM and cart ROM/SRAM; it intentionally
+    /// returns `0` for I/O register space ($2000-$7FFF in banks $00-3F/$80-BF) rather than a live
+    /// register read, so this window is a memory dump, not a live register viewer — caught in PR
+    /// review.
     pub memory_window: [u8; MEMORY_WINDOW_LEN],
     /// The 24-bit address `memory_window` starts at.
     pub memory_window_start: u32,

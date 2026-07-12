@@ -18,12 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plug new panels into. `lib.rs`'s stale "the deep debugger panels are still TODO stubs" doc
   comment corrected (the panels have existed since `v0.8.0`; this rung gives them a real module).
 - **Memory panel** — the Watch panel (renamed "Memory/Watch" in the panel selector) gained a
-  read-only hex dump of a 512-byte window of the full 24-bit CPU bus (`DebugSnapshot::
-  memory_window`, read via the same non-intrusive `Bus::peek` the disassembler already uses).
-  Fixed at `$7E0000` (WRAM bank 0) by default — no UI scroll control yet
-  (`EmuCore::set_debug_memory_scroll` exists for a future one to call), the same honestly-tracked
-  gap the existing VRAM viewer already carries. Write support and a RAM-search tool are explicitly
-  **not** included in this rung — deferred, not overclaimed.
+  read-only hex dump of a 512-byte window of WRAM/cart space (`DebugSnapshot::memory_window`,
+  read via the same non-intrusive `Bus::peek` the disassembler already uses; I/O register space
+  reads back as `00` rather than a live register value — `Bus::peek` intentionally doesn't model
+  registers, so this is a memory dump, not a register viewer). Fixed at `$7E0000` (WRAM bank 0)
+  by default — no UI scroll control yet (`EmuCore::set_debug_memory_scroll` exists for a future
+  one to call), the same honestly-tracked gap the existing VRAM viewer already carries. Write
+  support and a RAM-search tool are explicitly **not** included in this rung — deferred, not
+  overclaimed.
 
 ## [1.6.0] "Lighthouse" - 2026-07-11
 

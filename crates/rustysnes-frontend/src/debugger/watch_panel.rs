@@ -97,7 +97,7 @@ impl ShellState {
                 }
             });
         ui.separator();
-        ui.label("Memory (24-bit bus, read-only):");
+        ui.label("Memory (WRAM/cart, read-only — I/O registers read as 00):");
         match debug {
             Some(debug) => {
                 // Fixed at $7E0000 (WRAM bank 0) by default — no UI scroll control yet, same
