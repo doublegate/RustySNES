@@ -35,6 +35,15 @@ an attempt to run `egui` with touch input (`docs/adr/0012`'s decision). `rustysn
 (`v1.12.0`) exists specifically so this shell can reuse `BLIT_WGSL`/`CRT_WGSL`/`HQX_WGSL`/
 `XBRZ_WGSL` verbatim without pulling in `rustysnes-frontend`'s winit/egui/cpal dependency graph.
 
+**Android (`v1.15.0 "Sideload"`)**: `crates/rustysnes-android` is a presentation-only JNI/`wgpu`
+host — it owns no emulation state. The Kotlin shell (`android/`) drives `rustysnes-mobile`'s
+`MobileCore` directly through its own UniFFI bindings and hands `rustysnes-android` exactly
+`(RGBA8 framebuffer bytes, width, height)` once per frame via
+`Java_com_doublegate_rustysnes_NativeRenderer_nativePresentFrame`, mirroring
+`rustysnes-frontend`'s renderer/emulation-core separation across a JNI boundary instead of an
+in-process crate boundary. `BLIT_WGSL` only (unfiltered) for this MVP — the `Crt`/`Hqx`/`Xbrz`
+post-filters aren't wired here yet.
+
 ## Verified so far (`v1.14.0`)
 
 - `cargo build`/`cargo test -p rustysnes-mobile` on the host: 7 unit tests covering ROM load
@@ -53,22 +62,50 @@ an attempt to run `egui` with touch input (`docs/adr/0012`'s decision). `rustysn
 - Per-crate `no_std` CI matrix (`rustysnes-{cpu,ppu,apu,cart,core}` each build standalone against
   `thumbv7em-none-eabihf --no-default-features`), replacing the prior single aggregate-only job.
 
+## Verified so far (`v1.15.0`)
+
+A working `RustySNES_Test` AVD (Pixel 7 profile, `android-34/google_apis_playstore/x86_64`) was
+created fresh in this environment (the pre-existing `Pixel_8.avd` mentioned in the `v1.14.0`
+entry above was left untouched, not fixed — a new AVD sidestepped its stale device-definition
+mismatch without touching whatever state that one held).
+
+- `cargo ndk -t arm64-v8a -t x86_64 build/clippy -p rustysnes-android -p rustysnes-mobile`:
+  real cross-compiles for both ABIs, zero clippy warnings (`-D warnings`), `cargo fmt --check`
+  clean.
+- The full Gradle build (`:app:assembleDebug`, wired through `cargoNdkBuild` +
+  per-ABI `copyCargoLibs*` + `uniffiBindgen`) produces a real, installable debug APK.
+- **Installed and launched on the real AVD**: `adb install` succeeded, the app launched with no
+  crash, and a pulled screenshot confirmed the Compose UI (ROM picker button, d-pad, face
+  buttons) rendering correctly over a live `wgpu` `SurfaceView` — not a placeholder.
+- **A real ROM booted and ran**: pushed a committed permissive test ROM
+  (`tests/roms/gilyon/cputest/cputest-basic.sfc`) to the device, drove the Storage-Access-
+  Framework picker via `adb`/`uiautomator`, and confirmed via successive screenshots that the
+  framebuffer is live and advancing (`Test number: 0185` → `Test number: 0452`, "Success"
+  progressing) — genuine per-frame rendering through the fixed `wgpu` pipeline, not a static
+  image. Zero errors in `logcat` throughout.
+- Two real, on-device-only bugs were found and fixed this way (not caught by any host-side
+  `check`/`clippy`/unit test, since neither reproduces without an actual `Surface` and a real —
+  even software — Vulkan/GLES driver): the `SurfaceTargetUnsafe::from_window` missing-display-
+  handle error, and the SwiftShader-crashing default `InstanceFlags`. See `CHANGELOG.md`'s
+  `[Unreleased]` entry for the technical detail on both.
+
 ## Not yet verified / explicitly deferred
 
-- **No real Android app or emulator run yet.** `v1.15.0 "Sideload"` is where the actual Kotlin
-  Compose shell, JNI host, `SurfaceView`-backed `wgpu` surface, and AAudio sink land. An AVD
-  exists in this environment (`Pixel_8.avd`) but currently fails to load (`Google pixel_8 no
-  longer exists as a device` — a stale device-definition mismatch, not an emulator-infrastructure
-  problem); fixing that is a `v1.15.0` task, not blocking this rung.
+- **No Mouse/Super Scope/Multitap touch UX yet** — net-new SNES-specific UI with no RustyNES
+  desktop precedent to port; deferred to `v1.15.1+` under the "minimal real MVP now" scope chosen
+  for this rung (P1 standard gamepad only, in-app ROM picker, blit-only rendering, no save-state
+  UI or settings screen).
+- **No `android.yml` CI workflow yet** — NDK cross-build, UniFFI Kotlin smoke test, 16KB ELF
+  page-alignment check, dormant Play-flavor Gradle split — `v1.15.1+`.
+- **No checked-in `./gradlew` wrapper yet** — this environment used its locally cached Gradle
+  8.11 distribution directly; a proper wrapper should still be generated/committed for
+  reproducibility — `v1.15.1+`.
 - **No iOS build/link/run at all.** This development environment has no macOS/Xcode toolchain.
   `v1.16.0 "Beacon"`'s `rustysnes-ios` crate and SwiftUI shell will be written and Rust-side
   compile-checked wherever `cargo build --target aarch64-apple-ios` (or the simulator target)
   succeeds without needing Xcode itself, but the real build/link/run/on-device or
   on-simulator verification needs the project owner's own Mac — this will be flagged explicitly
   at that point, not silently claimed as done.
-- **No touch UX yet** — the Mouse-mode trackpad, Super Scope drag-reticle, and Multitap
-  pass-and-play seat switcher are net-new SNES-specific UI with no RustyNES desktop precedent to
-  port; `v1.15.0`'s own scope.
 - **No store-submission readiness assessment yet** — that's the standing "Mobile Phase 6"
   go/no-go gate in `to-dos/ROADMAP.md`, deliberately not tied to a fixed version.
 

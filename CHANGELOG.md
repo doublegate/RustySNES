@@ -9,6 +9,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **New crate `rustysnes-android`** (Mobile Phase 2, `v1.15.0 "Sideload"`): a presentation-only
+  JNI/`wgpu`-on-`Surface` host with no emulation logic of its own — receives
+  `(RGBA8 framebuffer bytes, width, height)` from the Kotlin shell once per frame and blits it via
+  `rustysnes-gfx-shaders::BLIT_WGSL` (the same unfiltered shader `rustysnes-frontend::gfx` uses;
+  the `Crt`/`Hqx`/`Xbrz` post-filters are a documented follow-up, not wired here yet). Explicit
+  Vulkan-first/GLES-fallback backend selection, matching `rustysnes-frontend`'s own non-ambiguous
+  wasm backend choice.
+- **New `android/` Gradle project**: a minimal native Kotlin Compose shell — a Storage-Access-
+  Framework ROM picker, on-screen touch d-pad/face buttons for the standard SNES gamepad (P1
+  only), and `AudioTrack`-streamed audio playback of `rustysnes-mobile`'s `drainAudio`. Wired via
+  custom Gradle tasks (`cargoNdkBuild`, per-ABI `copyCargoLibs*`, `uniffiBindgen`) that build both
+  native crates and regenerate the UniFFI Kotlin bindings on every build, so they can never drift
+  from the Rust source they're generated from.
+- **Verified for real, not just claimed**: built, installed, and launched on a real Android
+  emulator (API 34, x86_64) — the app displays with no crash, and loading a real test ROM through
+  the SAF picker shows the emulator actually running (live, advancing framebuffer output, not a
+  static frame) with zero errors in `logcat`.
+
+### Fixed
+
+- **A real wgpu-on-Android-Surface initialization bug**, found only by actually running the app
+  on-device (not caught by `cargo ndk check`/`clippy`, which don't exercise runtime surface
+  creation): `SurfaceTargetUnsafe::from_window()` in wgpu 29 unconditionally sets
+  `raw_display_handle: None` (it only requires `HasWindowHandle`), and `wgpu-core`'s
+  `create_surface` hard-errors whenever both the per-surface and the `InstanceDescriptor::display`
+  handles are `None`. Switched to `SurfaceTargetUnsafe::from_display_and_window`, which forwards
+  the marker-only `RawDisplayHandle::Android` value Android's `HasDisplayHandle` impl already
+  supplies.
+- **A real emulator-only crash**: `InstanceFlags::default()`'s debug-build `DEBUG`+`VALIDATION`
+  flags crashed the AVD's SwiftShader software Vulkan renderer outright (a SPIR-V debug-info
+  emission the software rasterizer can't handle, taking the whole emulator process down). Real
+  hardware Vulkan drivers don't hit this path; disabled both flags explicitly since real devices
+  ship a hardware driver, not a software one.
+
+### Deferred (honestly scoped, matching the "Minimal real MVP now" decision for this rung)
+
+- Mouse-mode trackpad, Super Scope drag-reticle, and Multitap pass-and-play seat switcher (net-new
+  SNES-specific touch UX with no RustyNES precedent) — `v1.15.1+`.
+- Save-state UI, settings screen, `Crt`/`Hqx`/`Xbrz` post-filter wiring, frame-pacing/vsync-synced
+  render loop (currently a fixed ~60 Hz sleep-paced coroutine) — `v1.15.1+`.
+- `.github/workflows/android.yml` (NDK cross-build CI, UniFFI Kotlin smoke test, 16KB ELF
+  page-alignment check, dormant Play-flavor Gradle split) — `v1.15.1+`.
+- A checked-in `./gradlew` wrapper (this environment used the locally cached Gradle 8.11
+  distribution directly) — `v1.15.1+`.
+
 ## [1.14.0] "Foundry" - 2026-07-12
 
 Tenth release of the RustyNES-parity roadmap: Mobile Phase 1, the UniFFI bridge foundations.

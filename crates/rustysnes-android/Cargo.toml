@@ -1,0 +1,44 @@
+[package]
+name = "rustysnes-android"
+description = "RustySNES: Android JNI presentation host (wgpu-on-Surface, no emulation logic)"
+version = "1.14.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords = ["snes", "emulator", "android", "jni", "wgpu"]
+categories = ["emulators", "games"]
+
+[lib]
+# Android's JNI loader needs `cdylib`. `rlib` is kept for workspace-graph consistency with
+# `rustysnes-mobile`'s identical shape, but -- unlike that crate -- this one does NOT check/build
+# on a plain host target: `ndk-sys` hard-gates itself to Android only (`compile_error!` on any
+# other target), so `cargo check -p rustysnes-android` always needs `cargo ndk -t <abi> check`
+# against a real Android target triple, confirmed by trying the plain host check first.
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+# `rustysnes-mobile` owns the actual emulation core + its own UniFFI bridge (ROM load, run_frame,
+# input, save state); this crate is presentation-only -- it never touches `EmuCore` directly, only
+# the `(RGBA8 bytes, width, height)` the Kotlin side already reads via `MobileCore::framebuffer`/
+# `frame_size` and hands down through JNI each frame. Depending on it here is for the shared
+# `rustysnes-gfx-shaders` re-export convenience only (see `gfx-shaders` below) -- there is no
+# `EmuCore` usage in this crate.
+rustysnes-gfx-shaders = { path = "../rustysnes-gfx-shaders", version = "1.4.0" }
+jni = "0.21"
+# `ndk` 0.9's `NativeWindow::from_surface` is the documented, standard way to turn a JNI-passed
+# `android.view.Surface` into an `ANativeWindow` wgpu can build a real rendering surface from.
+ndk = "0.9"
+raw-window-handle = "0.6"
+wgpu = "29"
+pollster = "0.4"
+bytemuck = "1"
+log = "0.4"
+android_logger = "0.15"
+
+[dev-dependencies]
+naga = { version = "29", features = ["wgsl-in"] }
