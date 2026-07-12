@@ -9,18 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] "Lighthouse" - 2026-07-11
+
+Second release of the RustyNES-parity roadmap.
+
 ### Added
 
-- **Documentation site + PWA + accuracy ledger (`v1.6.0 "Lighthouse"`)** — a Material for MkDocs
-  handbook (`mkdocs.yml`) is now published at `https://doublegate.github.io/RustySNES/docs/`,
-  alongside the wasm demo (`/`) and rustdoc (`/api/`), replacing `pages.yml` with a combined
-  `web.yml` that also enforces the existing `<5MiB` gzip wasm size budget
-  (`scripts/wasm_size_budget.sh`) on every PR. The wasm demo gained PWA/offline support
-  (`manifest.webmanifest`, a stale-while-revalidate `sw.js` service worker, a real `icon.svg`).
-  New `docs/accuracy-ledger.md` maps every known approximation/divergence to an explicit
-  disposition (Remediated / No-stricter-oracle-available / Deferred / Out-of-scope), the "why"
-  companion to `docs/STATUS.md`'s pass-count dashboard. `docs/DOCUMENTATION_INDEX.md` refreshed
-  (was still stamped `v0.4.0`, referenced a nonexistent `SALVAGE_MANIFEST.md`).
+- **Documentation site + PWA + accuracy ledger** — a Material for MkDocs handbook (`mkdocs.yml`)
+  is now published at `https://doublegate.github.io/RustySNES/docs/`, alongside the wasm demo
+  (`/`) and rustdoc (`/api/`), replacing `pages.yml` with a combined `web.yml` that also enforces
+  the existing `<5MiB` gzip wasm size budget (`scripts/wasm_size_budget.sh`) on every PR. The wasm
+  demo gained PWA/offline support (`manifest.webmanifest`, a stale-while-revalidate `sw.js`
+  service worker, a real `icon.svg`). New `docs/accuracy-ledger.md` maps every known
+  approximation/divergence to an explicit disposition (Remediated / No-stricter-oracle-available /
+  Deferred / Out-of-scope), the "why" companion to `docs/STATUS.md`'s pass-count dashboard.
+  `docs/DOCUMENTATION_INDEX.md` refreshed (was still stamped `v0.4.0`, referenced a nonexistent
+  `SALVAGE_MANIFEST.md`).
+
+### Fixed (caught in PR review, #78)
+
+- `web.yml`'s `cancel-in-progress` was inverted relative to its own comment — PR size-budget
+  checks could be cancelled mid-flight while stale `main` pushes weren't; corrected to cancel on
+  `push` only.
+- `sw.js`'s fetch handler could resolve `respondWith()` to `undefined` on a truly offline first
+  visit (network fails and nothing is cached yet); now falls back to a synthetic `503` response.
 
 ## [1.5.0] "Bedrock" - 2026-07-11
 
