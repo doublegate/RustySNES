@@ -109,6 +109,8 @@ artifacts/
 *.dat
 *.xml
 !assets/**/*.xml
+!android/app/src/main/AndroidManifest.xml
+!android/app/src/main/res/**/*.xml
 
 # --- Logs / debug / test output ---
 *.log

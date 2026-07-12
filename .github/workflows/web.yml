@@ -98,8 +98,10 @@ jobs:
       - name: Build the workspace API docs (rustdoc)
         # --no-deps keeps it to our own crates. No -D warnings here: the lint job in ci.yml
         # already gates rustdoc on every PR/push; the Pages build only needs the HTML and must
-        # not fail the deploy on a doc nit.
-        run: cargo doc --workspace --no-deps
+        # not fail the deploy on a doc nit. `--exclude rustysnes-android` (`v1.15.0 "Sideload"`):
+        # that crate's `ndk-sys` dependency hard-fails on every non-Android host target
+        # unconditionally (not feature-gated) -- its own docs aren't published here.
+        run: cargo doc --workspace --exclude rustysnes-android --no-deps
 
       - name: Set up Python for MkDocs
         uses: actions/setup-python@v5
