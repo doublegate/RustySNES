@@ -9,16 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] "Bedrock" - 2026-07-11
+
+First release of the RustyNES-parity roadmap: closes the gap between this project's own
+feature/UX/accuracy maturity and its sibling NES emulator RustyNES, tracked in lockstep rather
+than a frozen snapshot. This rung is CI safety net only — see `to-dos/VERSION-PLAN.md`'s
+"RustyNES-parity ladder" section for the full `v1.5.0`-`v1.19.0` plan.
+
 ### Added
 
-- **CI safety net (`v1.5.0 "Bedrock"`)** — `cargo test --workspace` now runs on every PR/push to
-  `main` (new `test-light` job), not only on a tagged release. A new `changes`/`setup` job pair
-  computes a light-vs-full run mode per push (mirroring RustyNES's own pattern), and `full-test`/
-  `no_std`/`bench` now also run on every push to `main` (previously tag-only), plus a weekly
-  drift-net cron and manual dispatch. A new `ci-success` job is the one stable required-check name
-  for branch protection to point at. See `docs/adr/0011`.
+- **CI safety net** — `cargo test --workspace` now runs on every PR/push to `main` (new
+  `test-light` job), not only on a tagged release. A new `changes`/`setup` job pair computes a
+  light-vs-full run mode per push (mirroring RustyNES's own pattern), and `full-test`/`no_std`/
+  `bench` now also run on every push to `main` (previously tag-only), plus a weekly drift-net cron
+  and manual dispatch. A new `ci-success` job is the one stable required-check name; branch
+  protection on `main` now requires it. See `docs/adr/0011`.
 - A shared `.github/actions/rust-setup` composite action factors the pinned toolchain version and
   cache-key convention out of `ci.yml`/`pages.yml` into one place.
+- `to-dos/LOCKSTEP-CHECKLIST.md` — the process for re-checking RustyNES's own continuing
+  development before scoping each subsequent rung in the parity ladder.
+
+### Fixed (caught in PR review, #76)
+
+- The `rust-setup` composite action pinned `dtolnay/rust-toolchain@master` (a floating ref);
+  changed to `@1.96`, matching what `ci.yml`'s jobs already used before this release.
+- The composite action's Linux frontend dependency list was missing `libxkbcommon-x11-dev`
+  (present in `CONTRIBUTING.md`'s documented list but never actually installed by the old inline
+  per-job steps this action replaces) — added, and `CONTRIBUTING.md` reconciled to match exactly.
 
 ## [1.4.0] "Convergence" - 2026-07-11
 

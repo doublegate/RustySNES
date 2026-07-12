@@ -319,7 +319,7 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   opportunistic `v1.x.y`-patch cluster.
 - **`v1.5.0 "Bedrock"` onward — the RustyNES-parity ladder — IN PROGRESS.** A second, parallel
   ladder theme closing the gap between RustySNES and its sibling NES emulator RustyNES: CI safety
-  net (`v1.5.0`, in progress), a docs site + accuracy-ledger (`v1.6.0`), a real debugger module
+  net (`v1.5.0`, **RELEASED 2026-07-11**), a docs site + accuracy-ledger (`v1.6.0`), a real debugger module
   (`v1.7.0`-`v1.8.0`), Lua/TAS + TAStudio depth (`v1.9.0`), an HD-pack builder (`v1.10.0`),
   RetroAchievements hardcore/leaderboard/rich-presence (`v1.11.0`), a deeper shader/NTSC ladder
   (`v1.12.0`), accessibility/theming + save-state polish (`v1.13.0`), then a full mobile track —
