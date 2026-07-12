@@ -23,9 +23,10 @@
 //!   `Arc<Mutex<EmuCore>>` handle the thread drives, once per present, under the brief lock that
 //!   block already holds — a genuinely mechanical port, since none of this needs to run ON the
 //!   emu thread itself, only land in `EmuCore` before its next `run_frame()`).
-//! - **Run-ahead** (`crate::rewind::step_with_run_ahead`, called unconditionally from
-//!   [`drive_one`] — `frames == 0` is its own no-op fast path, matching the synchronous path's
-//!   plain `run_frame()` exactly). The peeked `(bytes, dims)` pair travels through
+//! - **Run-ahead** ([`drive_one`] calls `crate::rewind::step_with_run_ahead` only when
+//!   `EmuControl::run_ahead()` is nonzero — same `frames > 0` branch the synchronous path takes,
+//!   so the common run-ahead-disabled case still publishes straight from the borrowed framebuffer
+//!   slice with no extra allocation). The peeked `(bytes, dims)` pair travels through
 //!   [`crate::present_buffer::PresentBuffer`] together now (see that module's doc) rather than
 //!   the consumer re-querying `EmuCore::fb_dims()` separately, which could disagree with a
 //!   peeked frame's own dims across a hi-res-mode-toggle-mid-peek edge case.
@@ -355,12 +356,27 @@ fn drive_one(
     }
     emu.set_pad(0, crate::input::Buttons(p1));
     emu.set_pad(1, crate::input::Buttons(p2));
-    let (fb, dims) = crate::rewind::step_with_run_ahead(&mut emu, control.run_ahead());
-    if let Some(a) = audio {
-        a.push(emu.audio(), control.speed());
+    // Same branch as the synchronous path (`app.rs`'s `config.run_ahead.frames > 0` check), for
+    // the same reason: `step_with_run_ahead`'s own `frames == 0` fast path still does an extra
+    // `framebuffer().to_vec()` allocation + copy beyond the plain `run_frame()` it replaces — a
+    // real per-frame cost regression in the common (run-ahead-disabled) case, found in review.
+    // Only pay that cost when run-ahead is actually configured; otherwise publish straight from
+    // the borrowed slice, exactly matching this function's pre-run-ahead behavior.
+    let run_ahead = control.run_ahead();
+    if run_ahead > 0 {
+        let (fb, dims) = crate::rewind::step_with_run_ahead(&mut emu, run_ahead);
+        if let Some(a) = audio {
+            a.push(emu.audio(), control.speed());
+        }
+        drop(emu); // release the lock before the lock-free PresentBuffer copy below.
+        present.publish(&fb, dims);
+    } else {
+        emu.run_frame();
+        if let Some(a) = audio {
+            a.push(emu.audio(), control.speed());
+        }
+        present.publish(emu.framebuffer(), emu.fb_dims());
     }
-    drop(emu); // release the lock before the lock-free PresentBuffer copy below.
-    present.publish(&fb, dims);
     true
 }
 
