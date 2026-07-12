@@ -9,13 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.0] "Beacon" - 2026-07-12
+
+Twelfth release of the RustyNES-parity roadmap: Mobile Phase 3, the iOS alpha.
+
 ### Added
 
-- **New crate `rustysnes-ios`** (Mobile Phase 3, `v1.16.0 "Beacon"`): a presentation-only
-  `wgpu`-on-`CAMetalLayer` host with no emulation logic of its own — the same shape
-  `rustysnes-android` (`v1.15.0`) already proved, just a plain C-ABI FFI surface (declared in
-  `ios/RustySNES/Bridging-Header.h`) instead of JNI, since Swift's C interop needs no JNI-style
-  boilerplate. Reuses `rustysnes-gfx-shaders::BLIT_WGSL` verbatim for the unfiltered blit pass.
+- **New crate `rustysnes-ios`** (Mobile Phase 3): a presentation-only `wgpu`-on-`CAMetalLayer`
+  host with no emulation logic of its own — the same shape `rustysnes-android` (`v1.15.0`) already
+  proved, just a plain C-ABI FFI surface (declared in `ios/RustySNES/Bridging-Header.h`) instead
+  of JNI, since Swift's C interop needs no JNI-style boilerplate. Reuses
+  `rustysnes-gfx-shaders::BLIT_WGSL` verbatim for the unfiltered blit pass.
   **Verified for real**: `cargo build --release --target aarch64-apple-ios` (and
   `aarch64-apple-ios-sim`) genuinely succeeds in this project's Linux development environment with
   no Xcode/macOS SDK installed — a `staticlib` only needs the downloaded `rust-std` component for
@@ -39,17 +43,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when nothing in `crates/rustysnes-ios`/`ios/` itself has changed. TestFlight upload is
   implemented as an explicit no-op, gated on distribution-signing secrets that don't exist yet
   (skip, not fail).
+- **The `ios.yml` build genuinely passes** on a real `macos-latest` runner, after fixing four real
+  bugs this Swift/Xcode code's first-ever real compiler pass and PR review actually found: a
+  missing `x86_64-apple-ios` simulator slice (the xcframeworks only had `arm64`, but a
+  `generic/platform=iOS Simulator` destination wants both, regardless of the runner's own CPU —
+  fixed via a `lipo`-merged universal simulator library), an `AVAudioPlayerNode.scheduleBuffer`
+  `async` overload missing its `await`, a real `DispatchQueue.main.async`-induced race between
+  `surfaceCreated` and `surfaceDestroyed` (fixed by calling `surfaceCreated` synchronously), and a
+  missing `AVAudioSession` category/activation (iOS produces no audible output without it, unlike
+  Android/desktop). Also switched the audio buffer format from interleaved to non-interleaved
+  Int16 to sidestep a real, plausible `int16ChannelData`-for-interleaved-formats correctness risk
+  a reviewer flagged that this sandbox has no way to verify at runtime.
 
 ### Honestly unverified (unlike everything above, which is genuinely tested)
 
-- **No Swift compiler has ever run over `ios/RustySNES/Sources` before this PR's own CI.** Every
-  `.swift` file was hand-written against careful reading of Apple's documented APIs and the
-  now-proven Android architecture, but this development environment cannot compile, lint, or run
-  Swift at all — `.github/workflows/ios.yml`'s `macos-latest` job is this code's first-ever real
-  compiler pass, and it may well surface real mistakes the way `rustysnes-android`'s on-device run
-  surfaced real `wgpu` bugs `cargo ndk check` couldn't catch.
-- No on-device or simulator *run* (only a build) — no ROM has ever actually booted on this
-  platform.
+- **No on-device or simulator *run* has happened** — only a build. `ios.yml`'s `xcodebuild build`
+  proves every `.swift` file compiles against a real Swift compiler and links against the real
+  `.xcframework` artifacts, but no ROM has ever actually booted on this platform.
 - No App Store §4.7 self-audit, no TestFlight upload, no real distribution signing.
 
 ## [1.15.0] "Sideload" - 2026-07-12

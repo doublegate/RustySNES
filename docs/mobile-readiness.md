@@ -115,6 +115,19 @@ mismatch without touching whatever state that one held).
 - `oslog` (the natural `android_logger` analog) was tried and dropped: its build script shells
   out to `xcrun` to locate the iOS SDK, which doesn't exist in this sandbox — confirmed by
   actually hitting `failed to find tool "xcrun"`. No logger is installed by this crate yet.
+- **`.github/workflows/ios.yml`'s real `macos-latest` build genuinely passes**, after 4 rounds of
+  real fixes driven entirely by that job's own output (not guessed): a missing executable bit on
+  `scripts/build-ios-xcframework.sh`; `dtolnay/rust-toolchain` silently ignoring its
+  `toolchain:`/`targets:` inputs whenever a `rust-toolchain.toml` is present (fixed via an explicit
+  `rustup target add` step); a missing `x86_64-apple-ios` simulator slice (`generic/platform=iOS
+  Simulator` wants both simulator architectures regardless of the runner's own CPU, fixed via a
+  `lipo`-merged universal simulator library); and one real Swift compile error
+  (`AVAudioPlayerNode.scheduleBuffer`'s `async` overload needing `await`). A follow-up PR-review
+  pass then found and fixed a real `DispatchQueue.main.async`-induced surface-lifecycle race, a
+  missing `AVAudioSession` activation (iOS is audibly silent without it), and switched the audio
+  buffer format from interleaved to non-interleaved Int16 to sidestep a real, plausible
+  `int16ChannelData` correctness risk this sandbox can't verify at runtime. See `CHANGELOG.md`'s
+  `v1.16.0` entry for the full detail.
 
 ## Not yet verified / explicitly deferred
 
@@ -127,16 +140,12 @@ mismatch without touching whatever state that one held).
 - **No checked-in `./gradlew` wrapper yet** — this environment used its locally cached Gradle
   8.11 distribution directly; a proper wrapper should still be generated/committed for
   reproducibility — `v1.15.1+`.
-- **No Swift compiler has ever run over `ios/RustySNES/Sources`, and no on-device or simulator run
-  has happened.** This development environment has no macOS/Xcode toolchain at all — every
-  `.swift` file, `ios/project.yml` (an `XcodeGen` spec), and `scripts/build-ios-xcframework.sh`
-  were written and are believed correct from careful reading of Apple's documented APIs and the
-  now-proven Android architecture, but none of it has been compiled, linted, or run by anything.
-  `.github/workflows/ios.yml`'s `macos-latest` job (real `xcodegen generate` +
-  unsigned `xcodebuild` simulator build) is this code's first real verification, and may surface
-  genuine mistakes the way `rustysnes-android`'s on-device run surfaced real `wgpu` bugs
-  `cargo ndk check` alone couldn't catch — that CI run's outcome should be treated as the actual
-  verification signal, not this document's description of what was *intended*.
+- **No on-device or simulator *run* has happened — only a build.** This development environment
+  has no macOS/Xcode toolchain at all, so nothing here can be run interactively; `.github/
+  workflows/ios.yml`'s `macos-latest` job (real `xcodegen generate` + unsigned `xcodebuild`
+  simulator build) is the only real verification this Swift/Xcode code has ever had, and it now
+  genuinely passes (see "Verified so far" above) — but a passing build proves the code compiles
+  and links, not that it behaves correctly at runtime (no ROM has ever actually booted here).
 - **No TestFlight upload, no App Store §4.7 self-audit, no real distribution signing** — the
   `ios.yml` step exists but is an explicit no-op pending the project owner provisioning real
   signing secrets.

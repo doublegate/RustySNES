@@ -1214,10 +1214,35 @@ no RustyNES precedent); save-state UI; settings screen; `Crt`/`Hqx`/`Xbrz` post-
 frame-pacing/vsync-synced render loop (currently a fixed ~60 Hz sleep-paced coroutine);
 `.github/workflows/android.yml`; a checked-in `./gradlew` wrapper.
 
-### `v1.16.0 "Beacon"` → `v1.18.0 "Dormant"` — the rest of the mobile track
+### `v1.16.0 "Beacon"` — Mobile Phase 3: iOS alpha — **RELEASED 2026-07-12**
 
-`rustysnes-ios` (Metal via wgpu, SwiftUI shell reusing `v1.15.0`'s touch-UX design, TestFlight),
-then a hardening rung (mlua `send`-feature migration if scripting ships on mobile, direct-IP/LAN
+Delivered: new crate `rustysnes-ios`, a presentation-only `wgpu`-on-`CAMetalLayer` host mirroring
+`rustysnes-android`'s (`v1.15.0`) architecture exactly, with a plain C-ABI FFI surface instead of
+JNI. New `ios/` SwiftUI shell reusing `v1.15.0`'s Android Compose shell's exact MVP scope and
+(now-hardened) lifecycle handling. `ios/project.yml` is an `XcodeGen` YAML spec, not a
+hand-authored `.xcodeproj`, avoiding a binary project file this environment could never verify.
+New `.github/workflows/ios.yml` builds the `.xcframework` artifacts and runs a real, unsigned
+`xcodebuild` simulator build on a `macos-latest` runner — the only place in the project with an
+actual Xcode/Swift toolchain.
+
+Verified for real, not just claimed: `cargo build --release --target aarch64-apple-ios` (and the
+simulator target) genuinely succeeds in this Linux sandbox with no Xcode/macOS SDK installed
+(confirmed via `file` that `librustysnes_ios.a` is a real `Mach-O 64-bit arm64 object`), and
+`ios.yml`'s real macOS build genuinely passes — after fixing four real bugs that job's own output
+found (a missing executable bit, `dtolnay/rust-toolchain` silently ignoring its inputs when a
+`rust-toolchain.toml` is present, a missing `x86_64-apple-ios` simulator slice, and a real Swift
+`async`/`await` compile error) and, in a follow-up PR-review pass, three more real runtime/
+lifecycle bugs (a `DispatchQueue.main.async`-induced surface-lifecycle race, a missing
+`AVAudioSession` activation, and a switch from interleaved to non-interleaved audio buffers to
+sidestep a real correctness risk this sandbox can't verify at runtime).
+
+**Honestly unverified**: no on-device or simulator *run* has happened (only a build) — no ROM has
+ever actually booted on this platform. No TestFlight upload, no App Store §4.7 self-audit, no real
+distribution signing.
+
+### `v1.17.0 "Parity"` → `v1.18.0 "Dormant"` — the rest of the mobile track
+
+A hardening rung (mlua `send`-feature migration if scripting ships on mobile, direct-IP/LAN
 netplay, per-platform parity checklist), then `rustysnes-monetization` (dormant
 RevenueCat/AppLovin-style scaffold, never a dependency of the deterministic core, policy shape
 only — no committed pricing). A store-launch decision (Play + App Store submission, monetization
