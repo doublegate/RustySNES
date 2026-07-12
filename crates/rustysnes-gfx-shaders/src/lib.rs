@@ -13,13 +13,15 @@
 //! neighbors as well as any future mobile target.
 //!
 //! Every shader here shares one calling convention, documented once instead of per-constant:
-//! binding 0 = the framebuffer texture, binding 1 = a sampler (the plain blit's vertex-stage-only
-//! uniform samples it; the post-filter passes bind it only to keep the bind-group layout shape
-//! identical, then sample via `textureLoad` instead), binding 2 = a `vec4<f32>` (or two, for the
-//! post-filters) uniform buffer carrying `uv_scale.xy`/`pos_scale.xy` (the live sub-rect + the
-//! aspect-correct letterbox scale — see `rustysnes_frontend::gfx::Gfx::letterbox_scale`) plus,
-//! for the post-filter shaders, a second `vec4<f32>` of filter-specific parameters documented on
-//! each constant below.
+//! binding 0 = the framebuffer texture, binding 1 = a sampler ([`BLIT_WGSL`]'s fragment stage
+//! samples it via `textureSample`; the post-filter shaders bind it only to keep the bind-group
+//! layout shape identical, then read the texture via `textureLoad` instead), binding 2 = a
+//! `vec4<f32>` (or two, for the post-filters) uniform buffer carrying the live sub-rect UV scale
+//! and the aspect-correct letterbox scale — `params.xy`/`params.zw` in [`BLIT_WGSL`],
+//! `scale.xy`/`scale.zw` in the post-filter shaders (see
+//! `rustysnes_frontend::gfx::Gfx::letterbox_scale` for where the letterbox half is computed)
+//! plus, for the post-filter shaders, a second `vec4<f32>` of filter-specific parameters
+//! documented on each constant below.
 #![no_std]
 #![warn(missing_docs)]
 
@@ -235,7 +237,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 /// hand-tuned rule table examining up to a 5-texel diagonal run per
 /// corner to decide sub-pixel corner geometry; this fixed-resolution fragment shader distills
 /// that "look past the immediate corner before rounding it" idea into ONE extra context sample
-/// per diagonal (an 4x4-neighborhood read, not just [`HQX_WGSL`]'s bare 2x2), gating the
+/// per diagonal (a 4x4-neighborhood read, not just [`HQX_WGSL`]'s bare 2x2), gating the
 /// diagonal-pull strength by how well the wider neighborhood actually supports treating the edge
 /// as a genuine corner rather than isolated-pixel noise. This is the meaningful difference from
 /// [`HQX_WGSL`] — both blend the same 2x2 corner, but this one only commits to the full pull when
