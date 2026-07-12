@@ -141,11 +141,12 @@ mismatch without touching whatever state that one held).
   8.11 distribution directly; a proper wrapper should still be generated/committed for
   reproducibility — `v1.15.1+`.
 - **No on-device or simulator *run* has happened — only a build.** This development environment
-  has no macOS/Xcode toolchain at all, so nothing here can be run interactively; `.github/
-  workflows/ios.yml`'s `macos-latest` job (real `xcodegen generate` + unsigned `xcodebuild`
-  simulator build) is the only real verification this Swift/Xcode code has ever had, and it now
-  genuinely passes (see "Verified so far" above) — but a passing build proves the code compiles
-  and links, not that it behaves correctly at runtime (no ROM has ever actually booted here).
+  has no macOS/Xcode toolchain at all, so nothing here can be run interactively;
+  `.github/workflows/ios.yml`'s `macos-latest` job (real `xcodegen generate` + unsigned
+  `xcodebuild` simulator build) is the only real verification this Swift/Xcode code has ever had,
+  and it now genuinely passes (see "Verified so far" above) — but a passing build proves the code
+  compiles and links, not that it behaves correctly at runtime (no ROM has ever actually booted
+  here).
 - **No TestFlight upload, no App Store §4.7 self-audit, no real distribution signing** — the
   `ios.yml` step exists but is an explicit no-op pending the project owner provisioning real
   signing secrets.

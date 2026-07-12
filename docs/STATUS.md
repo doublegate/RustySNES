@@ -31,8 +31,9 @@ to `v1.15.1+` (`v1.15.0 "Sideload"`), and an iOS alpha — a new `rustysnes-ios`
 `rustysnes-android`'s architecture, verified for real via genuine `aarch64-apple-ios`/
 `aarch64-apple-ios-sim` cross-compiles in a Linux sandbox with no Xcode installed, plus a real,
 passing, unsigned `xcodebuild` simulator build on a `macos-latest` CI runner (the project's only
-real Xcode/Swift toolchain) after fixing four real CI-found build bugs and three real PR-review-
-found runtime/lifecycle bugs (`v1.16.0 "Beacon"`) — all frontend/tooling/CI work with **zero
+real Xcode/Swift toolchain) after fixing four real CI-found build bugs and three real
+PR-review-found runtime/lifecycle bugs (`v1.16.0 "Beacon"`) — all frontend/tooling/CI work with
+**zero
 change** to the accuracy dashboard, per-suite pass counts, or coprocessor tier matrix below,
 which stayed byte-identical throughout; see `CHANGELOG.md` for full per-release detail. `v1.0.0`
 closes the production-cut
