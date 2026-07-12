@@ -15,6 +15,10 @@ module doc for the full rationale and threading model).
 **Surface (`v1.14.0`):** `MobileCore::new`, `load_rom`/`close_rom`/`rom_loaded`,
 `reset`/`power_cycle`, `run_frame`, `framebuffer`/`frame_size`, `drain_audio`, `set_pad`/
 `set_port_device`/`set_mouse`/`set_superscope`/`set_multitap_pad`, `save_state`/`load_state`.
+`drain_audio` is **non-destructive** — it returns the current frame's buffered samples, not a
+FIFO/pop-style drain; call it exactly once per `run_frame` (which clears and refills the buffer
+at its own start), mirroring `EmuCore::audio`'s own contract that every existing consumer
+(`rustysnes-frontend`'s synchronous and `emu-thread` render paths alike) already relies on.
 
 **Deliberately NOT in scope yet** (honest deferral, not silent gaps — every one of these is a
 real, separate concern layered on top of `EmuCore` in the desktop build too, not something this

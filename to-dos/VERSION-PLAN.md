@@ -1162,16 +1162,19 @@ into a hollow "audit passed" claim. See `docs/frontend.md` for the full explanat
 rationale; stands up `docs/mobile-readiness.md`; a new ADR records the mobile-platform-target
 decision, citing that `docs/adr/0002`'s gate is already closed favorably.
 
-### `v1.14.0 "Foundry"` — Mobile Phase 1: bridge foundations — **RELEASED 2026-07-12**
+### `v1.14.0 "Foundry"` — Mobile Phase 1: bridge foundations
 
-Delivered: new crate `rustysnes-mobile`, a `UniFFI` bridge over `rustysnes_core::facade::EmuCore`
+Implemented (this PR; the version bump + "RELEASED" marker land in the separate
+`chore(release)` closeout PR, matching every prior rung's two-PR pattern): new crate
+`rustysnes-mobile`, a `UniFFI` bridge over `rustysnes_core::facade::EmuCore`
 (the same `std`-only facade the desktop frontend and `rustysnes-libretro` already drive the
 emulator through — `Board: Send` since `v1.0.0` and the chip-stack crates' `#![no_std]`+`alloc`
 posture were both already proven, not new work here). MVP surface: ROM load/close, `run_frame`,
-the peripheral setters (Gamepad/Mouse/Super Scope/Multitap), framebuffer + audio drain, save/load
-state, reset/power-cycle — 7 host-side unit tests. Verified for real, not just claimed: a genuine
-`cargo ndk` cross-compile to `arm64-v8a` produced an actual ARM64 `.so` (confirmed via `file`),
-and `uniffi-bindgen` generated real, correctly-shaped Kotlin AND Swift bindings (inspected for
+the peripheral setters (Gamepad/Mouse/Super Scope/Multitap), framebuffer + per-frame audio
+access, save/load state, reset/power-cycle — 7 host-side unit tests. Verified for real, not just
+claimed: a genuine `cargo ndk` cross-compile to `arm64-v8a` produced an actual ARM64 `.so`
+(confirmed via `file`), and `uniffi-bindgen` generated real, correctly-shaped Kotlin AND Swift
+bindings (inspected for
 correct method names/types/`throws`/`@Throws`) from the compiled library. The per-crate `no_std`
 CI matrix (`rustysnes-{cpu,ppu,apu,cart,core}` each building standalone, not only transitively
 through `rustysnes-core`) also landed here. New `docs/adr/0012-mobile-platform-target.md` +

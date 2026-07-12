@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generating Kotlin (Android) and Swift (iOS) bindings over `rustysnes_core::facade::EmuCore` —
   the same facade the desktop frontend and `rustysnes-libretro` already drive the emulator
   through. MVP surface: ROM load/close, `run_frame`, the peripheral setters (Gamepad/Mouse/Super
-  Scope/Multitap), framebuffer + audio drain, save/load state, reset/power-cycle. Verified for
+  Scope/Multitap), framebuffer + per-frame audio access, save/load state, reset/power-cycle.
+  Verified for
   real: a genuine `cargo ndk` cross-compile to `arm64-v8a` produced an actual ARM64 `.so`
   (confirmed via `file`), and `uniffi-bindgen` generated real, correctly-shaped Kotlin and Swift
   bindings from the compiled library.

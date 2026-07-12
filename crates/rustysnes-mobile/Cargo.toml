@@ -16,6 +16,20 @@ categories = ["emulators", "games"]
 # `cargo test` on the host working without a mobile toolchain.
 crate-type = ["cdylib", "staticlib", "rlib"]
 
+[features]
+# Opt-in only (found in review, PR #99): the `uniffi-bindgen` binary (`src/bin/uniffi-bindgen.rs`)
+# needs `uniffi`'s `cli` feature (pulls in `askama`/`clap`/`goblin` -- host-only binding-generator
+# tooling, never invoked at runtime on a mobile device). Gating it behind this feature keeps every
+# real mobile build (Android/iOS `cargo ndk`/`cargo build --target aarch64-apple-ios`, and the
+# `cdylib`/`staticlib` artifacts those produce) off that dependency graph entirely -- only
+# `cargo run -p rustysnes-mobile --features bindgen --bin uniffi-bindgen -- ...` (host tooling)
+# pulls it in.
+bindgen = ["uniffi/cli"]
+
+[[bin]]
+name = "uniffi-bindgen"
+required-features = ["bindgen"]
+
 [lints]
 workspace = true
 
@@ -26,10 +40,5 @@ workspace = true
 # there is no `no_std` constraint here the way there is for the chip crates.
 rustysnes-core = { path = "../rustysnes-core", version = "1.4.0" }
 rustysnes-cart = { path = "../rustysnes-cart", version = "1.4.0" }
-# `cli` pulls in the `uniffi-bindgen` binding-generator machinery (`src/bin/uniffi-bindgen.rs`) --
-# matches upstream UniFFI's own recommended project layout (one crate, `cli` on unconditionally,
-# rather than a separate bindgen-only crate). This is host tooling, never invoked at runtime on a
-# mobile device; it does inflate the Android/iOS build's dependency graph slightly, a cost judged
-# acceptable for keeping binding generation co-located with the crate it generates bindings for.
-uniffi = { version = "0.29", features = ["cli"] }
+uniffi = "0.29"
 thiserror = "2.0"

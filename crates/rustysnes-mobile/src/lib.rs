@@ -218,17 +218,41 @@ impl MobileCore {
         FrameSize { width, height }
     }
 
-    /// Drain buffered audio as interleaved `[L, R, L, R, ...]` 16-bit PCM samples, ready for a
-    /// mobile audio callback (`AAudio`/`AVAudioEngine`) to consume directly.
+    /// The current frame's buffered audio as interleaved `[L, R, L, R, ...]` 16-bit PCM samples,
+    /// ready for a mobile audio callback (`AAudio`/`AVAudioEngine`) to consume directly.
+    ///
+    /// **Non-destructive, call exactly once per [`Self::run_frame`]** — this mirrors
+    /// [`EmuCore::audio`]'s own contract exactly (every existing consumer, `rustysnes-frontend`'s
+    /// synchronous render path and its `emu-thread` build alike, reads `audio()` the same way):
+    /// `run_frame` clears the buffer at its own start and refills it with exactly that frame's
+    /// samples, so this returns fresh data once per `run_frame` call but the SAME data if called
+    /// again before the next one (not a FIFO/pop-style drain despite the method's name, which is
+    /// kept only because "drain" reads more naturally as a mobile-callback verb than "audio").
+    ///
+    /// Returns a freshly allocated `Vec` rather than filling a caller-supplied buffer: a
+    /// `#[uniffi::export]` method cannot take a `&mut` parameter (only `&self`/`&`/owned --
+    /// `uniffi::export`'s generated FFI glue always lowers a `&mut T` into a plain `&T`, so a
+    /// `&mut Vec<i16>` out-parameter fails to type-check against this method's own body, found by
+    /// actually trying it). The capacity is pre-sized to the exact known sample count so `push`
+    /// never reallocates mid-loop, which is the real, UniFFI-compatible half of the perf win.
+    // The lock genuinely must stay held for the whole body -- `audio()` returns a slice borrowed
+    // from the guard, and every byte of it has to be copied out while that borrow is still valid.
+    // There's no earlier point to drop the guard at; the lint's usual "shrink the critical
+    // section" fix doesn't apply here.
+    #[allow(clippy::significant_drop_tightening)]
     #[must_use]
     pub fn drain_audio(&self) -> Vec<i16> {
-        self.0
+        let guard = self
+            .0
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .audio()
-            .iter()
-            .flat_map(|&pair| <[i16; 2]>::from(pair))
-            .collect()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let audio = guard.audio();
+        let mut out = Vec::with_capacity(audio.len() * 2);
+        for &(l, r) in audio {
+            out.push(l);
+            out.push(r);
+        }
+        out
     }
 
     /// Set player `player`'s (`0` or `1`) standard-gamepad button state (see
