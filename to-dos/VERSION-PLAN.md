@@ -925,10 +925,16 @@ correctness gate. See `docs/adr/0011`.
 - [x] `ci-success` summary job — the one stable required-check name.
 - [x] `docs/adr/0011-branch-protection-and-ci-success-gate.md`.
 - [x] `CONTRIBUTING.md`'s Quality gate section notes which checks CI now also enforces.
-- [ ] Maintainer enables branch protection on `main` requiring `ci-success` (a one-time repo
-      setting, not a code change — done once this rung's PR has merged and the check has run at
-      least once).
-- [ ] `chore(release): v1.5.0 "Bedrock"` closeout PR.
+- [x] Branch protection on `main` requiring `ci-success` — enabled after PR #76 merged and the
+      check ran green.
+- [x] `chore(release): v1.5.0 "Bedrock"` closeout PR.
+
+**Released 2026-07-11.** PR #76: three real findings from `copilot-pull-request-reviewer`
+(a floating `dtolnay/rust-toolchain@master` ref, a missing `libxkbcommon-x11-dev` package, an
+inaccurate comment), each fixed in its own follow-up commit and adjudicated inline before
+squash-merge. `gemini-code-assist` hit its daily quota limit and did not review this PR — noted,
+not blocked on (quota resets are out of this project's control; the ceremony proceeds with
+whichever bots actually respond).
 
 ### `v1.6.0 "Lighthouse"` — docs site, PWA, accuracy-ledger
 
