@@ -61,9 +61,12 @@ building toward the same modern-feature breadth as its sibling project
   unverified BestEffort board ever backs the accuracy oracle. Nothing is silently degraded, and
   every known gap (a coprocessor boot issue, an unwired peripheral, an incomplete opt-in feature)
   is documented in [`docs/accuracy-ledger.md`](docs/accuracy-ledger.md) rather than hidden.
-- **A CI safety net that actually gates merges** — `cargo test --workspace`, the full clippy
-  matrix, and a `no_std` build all run on every pull request (not just tagged releases), behind a
-  single required `ci-success` check (`docs/adr/0011`).
+- **A CI safety net that actually gates merges** — `cargo test --workspace` and the full clippy
+  matrix now run on every pull request that touches code (previously only on a tagged release),
+  behind a single required `ci-success` check; the `no_std` build, the 3-OS test matrix, and the
+  bench regression gate run on every push to `main`, every release tag, and a weekly cron
+  (`docs/adr/0011`). A pure-docs PR (like this one) skips the code-only jobs entirely rather than
+  spending CI minutes proving nothing changed.
 - **Safe, modular Rust** — the chip stack is `no_std + alloc` with a one-directional workspace
   graph, making each component independently testable, fuzzable, and benchmarkable.
 
@@ -74,7 +77,7 @@ building toward the same modern-feature breadth as its sibling project
 | Feature | Description |
 | --- | --- |
 | **Cycle-Accurate Core** | 65C816 + SPC700 both 0-diff vs. their SingleStepTests per-opcode oracles; a master-clock lockstep scheduler; dot-accurate PPU/HDMA/interrupts |
-| **11 Coprocessors** | DSP-1, Super FX/GSU, SA-1 (Core/Curated, oracle-gated); DSP-2, DSP-4, ST010, CX4, OBC1, S-DD1 (BestEffort, real-title validated); ST018, S-RTC (BestEffort, unit-tested); SPC7110 (implemented — the local dump is a ROM-sourcing gap, not an open bug) |
+| **11 Coprocessors** | DSP-1, Super FX/GSU, SA-1 (Core/Curated, oracle-gated); DSP-2/4, ST010, CX4, OBC1, S-DD1 (BestEffort, real-title validated); ST018, S-RTC (BestEffort, unit-tested); SPC7110 (implemented — the local dump is a ROM-sourcing gap, not an open bug) |
 | **Native Desktop Frontend** | `winit` + `wgpu` + `cpal` + `egui`; keyboard + gamepad input, drag-and-drop/zip-archived ROM loading, automatic coprocessor-firmware + `.srm` SRAM loading |
 | **WebAssembly Build** | The SAME `App`/egui shell as native (`wasm-winit`), deployed live at the hosted demo, plus a lighter canvas-2D fallback (`wasm-canvas`), a PWA/offline service worker, and a `<5 MiB` gzip size-budget CI gate |
 | **Save States** | A quick-save slot plus a disk-backed, thumbnail-previewed **10-slot manager**, keyed per-ROM by SHA-256, on a versioned deterministic snapshot envelope |
@@ -153,14 +156,18 @@ frames spanning every LoROM/HiROM × coprocessor combination in the local ROM co
 
 - **LoROM / HiROM / ExHiROM** memory-map decode with score-based header detection, plus an
   unofficial ExLoROM decode path (bsnes-sourced, no real-ROM validation yet).
-- **11 cartridge coprocessors**, each honestly tiered (Core / Curated / BestEffort —
+- **11 cartridge coprocessors** — one board/family per row of
+  [`docs/STATUS.md`](docs/STATUS.md)'s coprocessor tier matrix (DSP-2 and DSP-4 share one row and
+  one count, as do ST010 and ST011), each honestly tiered (Core / Curated / BestEffort —
   [`docs/adr/0003`](docs/adr/0003-accuracy-tiering-honesty-gate.md)):
   - **Core/Curated (oracle-gated):** DSP-1/1A/1B (a full µPD7725 LLE engine, shared by six DSP
     variants), Super FX / GSU-1/2 (a full Argonaut RISC core), SA-1 (a real second 65C816
     instantiated and stepped in lockstep with the main CPU).
-  - **BestEffort, real-title validated:** DSP-2, DSP-4, ST010 (the shared DSP LLE engine
-    retargeted per variant), S-DD1 (a Golomb-code decompressor streamed during DMA), CX4 (a
-    clean-room HG51B169 core), and OBC1.
+  - **BestEffort, real-title validated:** DSP-2/4 (the shared DSP LLE engine retargeted per
+    variant — validated against real Dungeon Master and Top Gear 3000 respectively), ST010 (the
+    same shared engine, validated against real F1 ROC II; ST011 shares the row but has no
+    confirmed real-title detection entry yet), S-DD1 (a Golomb-code decompressor streamed during
+    DMA), CX4 (a clean-room HG51B169 core), and OBC1.
   - **BestEffort, unit-tested:** ST018 (a full ARMv3 core), S-RTC — no commercial dump in the
     local corpus yet.
   - **SPC7110** is fully implemented (DCU/ALU/data-port + a paired Epson RTC-4513), but the one
@@ -633,8 +640,9 @@ git commit -m "feat(cart): implement <thing>"
 git push origin feat/my-feature
 ```
 
-The quality gates (`fmt`, `clippy`, `doc`, and the test suite) all run in CI on every PR
-(`v1.5.0`'s CI safety net) and must be green.
+The quality gates (`fmt`, `clippy`, `doc`, and the test suite) run in CI on every PR that touches
+code (`v1.5.0`'s CI safety net) and must be green; a pure-docs change skips them by design — see
+[`docs/adr/0011`](docs/adr/0011-branch-protection-and-ci-success-gate.md).
 
 ---
 
