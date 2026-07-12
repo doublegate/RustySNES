@@ -13,7 +13,10 @@ final class MetalBackedView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let scale = window?.screen.scale ?? UIScreen.main.scale
+        // `traitCollection.displayScale`, not `UIScreen.main`/`window?.screen` (deprecated since
+        // iOS 15/16 -- found in review) -- the modern, non-deprecated way to read the scale of
+        // whichever screen this view is currently on.
+        let scale = traitCollection.displayScale
         let pixelSize = CGSize(width: bounds.width * scale, height: bounds.height * scale)
         guard pixelSize != lastPixelSize, pixelSize.width > 0, pixelSize.height > 0 else { return }
         lastPixelSize = pixelSize
@@ -35,26 +38,18 @@ struct MetalHostView: UIViewRepresentable {
     func makeUIView(context: Context) -> MetalBackedView {
         let view = MetalBackedView()
         view.backgroundColor = .black
-        let scale = UIScreen.main.scale
-        view.contentScaleFactor = scale
-        // `bounds` is not yet meaningful on the same run-loop turn `makeUIView` returns (SwiftUI
-        // hasn't laid the view out yet) -- deferring to the next run-loop turn, after which
-        // `layoutSubviews` will also have fired at least once, matches how `layoutSubviews`
-        // itself measures pixel size (mirrors the pattern `MainActivity.kt`'s
-        // `SurfaceHolder.Callback.surfaceCreated` avoids needing, since Android hands the real
-        // size directly in that callback).
+        // SwiftUI's own environment value, not `UIScreen.main` (deprecated since iOS 15/16,
+        // found in review) -- `context.environment.displayScale` is available before the view
+        // has been laid out or added to a window, unlike `traitCollection`/`window?.screen`.
+        view.contentScaleFactor = context.environment.displayScale
+        // Called SYNCHRONOUSLY, not deferred via `DispatchQueue.main.async` (a real race found
+        // in review): an async defer could let `dismantleUIView`/`surfaceDestroyed` run first if
+        // the view is torn down before the block executes, leaving Rust holding a pointer to a
+        // deallocated view. `bounds` isn't meaningful yet at this point (SwiftUI hasn't laid the
+        // view out), so this passes a safe 1x1 placeholder; `layoutSubviews` sends the real size
+        // via `surfaceChanged` moments later, once it's known.
         let uiView = Unmanaged.passUnretained(view).toOpaque()
-        DispatchQueue.main.async {
-            let pixelSize = CGSize(
-                width: max(view.bounds.width * scale, 1),
-                height: max(view.bounds.height * scale, 1)
-            )
-            NativeRenderer.surfaceCreated(
-                uiView: uiView,
-                width: UInt32(pixelSize.width),
-                height: UInt32(pixelSize.height)
-            )
-        }
+        NativeRenderer.surfaceCreated(uiView: uiView, width: 1, height: 1)
         return view
     }
 

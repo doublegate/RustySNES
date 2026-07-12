@@ -96,16 +96,31 @@ final class EmulatorViewModel: ObservableObject {
 
     private func setUpAudioIfNeeded() {
         guard audioEngine == nil else { return }
-        // Interleaved Int16 stereo, matching `MobileCore.drainAudio()`'s own `[Int16]` layout
-        // (LRLRLR...) and the S-DSP's native output rate -- the same convention
-        // `rustysnes-android`'s `AudioTrack` setup and `rustysnes-frontend::audio`'s resampler
-        // target both already use.
+        // On iOS (unlike Android/desktop), an `AVAudioEngine` produces no audible output without
+        // first configuring and activating the shared `AVAudioSession` for playback -- found in
+        // review; this is a real runtime-behavior gap the build-only CI check can't catch (no
+        // on-device/simulator run has ever happened, only a compile).
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default)
+            try session.setActive(true)
+        } catch {
+            print("RustySNES: AVAudioSession setup failed: \(error)")
+            return
+        }
+        // NOT interleaved -- `AVAudioPCMBuffer.int16ChannelData` is documented to return the
+        // per-channel buffer pointers for a non-interleaved format; for an interleaved format
+        // its behavior is a real, plausible correctness risk this sandbox cannot verify at
+        // runtime (found in review, and not something a build-only CI check would catch either).
+        // Non-interleaved sidesteps the ambiguity entirely: each channel gets its own
+        // unambiguous buffer, filled by indexed writes below (matching `MobileCore.drainAudio()`'s
+        // `[Int16]` LRLRLR layout, just deinterleaved on the way in instead of on the way out).
         guard
             let format = AVAudioFormat(
                 commonFormat: .pcmFormatInt16,
                 sampleRate: 32_000,
                 channels: 2,
-                interleaved: true
+                interleaved: false
             )
         else {
             print("RustySNES: failed to construct the audio format")
@@ -135,9 +150,9 @@ final class EmulatorViewModel: ObservableObject {
         else { return }
         buffer.frameLength = frameCount
         guard let channelData = buffer.int16ChannelData else { return }
-        samples.withUnsafeBufferPointer { source in
-            guard let base = source.baseAddress else { return }
-            channelData[0].update(from: base, count: samples.count)
+        for i in 0..<Int(frameCount) {
+            channelData[0][i] = samples[i * 2]
+            channelData[1][i] = samples[i * 2 + 1]
         }
         // `AVAudioPlayerNode.scheduleBuffer(_:)` has an `async` overload (in addition to the
         // completion-handler one) -- `playAudio` already runs in an async context, so Swift's

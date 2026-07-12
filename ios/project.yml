@@ -29,7 +29,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.doublegate.rustysnes
         PRODUCT_NAME: RustySNES
-        MARKETING_VERSION: "1.15.0"
+        MARKETING_VERSION: "1.16.0"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_OBJC_BRIDGING_HEADER: RustySNES/Bridging-Header.h
         SWIFT_VERSION: "5.0"
