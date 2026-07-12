@@ -687,11 +687,27 @@ on the main thread to update `user`/`login_error`.
 catch-up loop, right after `EmuCore::run_frame`), reading WRAM through `Bus::peek_wram` — the
 same non-intrusive accessor the debugger overlay and Lua scripting integrations already use, no
 new mutation path. `RaClient::take_events`' `AchievementTriggered` events surface as status-bar
-toast messages via `CheevosState::poll`'s return value. **Honest scope notes**: not wired into
-the netplay `drive` path (a `RollbackSession`-driven `System` and achievement tracking
-interacting — e.g. resimulation re-triggering `rc_client` frames — is a separate, deferred
-concern, noted at the `do_frame` call site); no leaderboard/rich-presence UI panel yet (`RaClient`
-already exposes `leaderboard_list`/`rich_presence`, just not consumed by any window). SRAM-backed
+toast messages via `CheevosState::poll`'s return value.
+
+**`v1.11.0 "Podium"`: `CheevosState::load_game`/`unload_game`.** Before this release, no code
+path ever called `RaClient::begin_load_game` — every other piece (login, the per-frame `do_frame`
+hook, the unlock-toast plumbing) was wired up, but with no game ever identified/loaded into
+`rc_client`, there was no achievement set loaded to evaluate WRAM against, so achievements could
+never actually trigger. `load_game`/`unload_game` are now called from `app.rs`'s
+`MenuAction::OpenRom`/`CloseRom` handlers (`load_game` is a no-op unless a user is logged in); a
+`poll()`-drained toast ("game identified, achievement set loaded" / "game identification
+failed: …") makes the fix observably verifiable in the running app, not just type-checked. A ROM
+loaded via the CLI at startup, followed by a *later* login through the Tools window, is not
+retroactively announced (see `cheevos.rs`'s module doc for why and what a real fix needs) — the
+common launch-then-log-in-then-open-a-ROM path is unaffected.
+
+**Honest scope notes**: not wired into the netplay `drive` path (a `RollbackSession`-driven
+`System` and achievement tracking interacting — e.g. resimulation re-triggering `rc_client`
+frames — is a separate, deferred concern, noted at the `do_frame` call site); no hardcore-mode
+gating of rewind/save-load/cheats/TAS, and no leaderboard/rich-presence UI panel yet (`RaClient`
+already exposes `set_hardcore_enabled`/`leaderboard_list`/`rich_presence`, just not consumed by
+any window or gate — both real, substantial follow-ups that were meaningless before this
+release's game-load fix landed, `to-dos/VERSION-PLAN.md`'s `v1.11.0` section). SRAM-backed
 achievement sets aren't supported — `rustysnes_cheevos::ra_addr_to_snes` only maps the SNES's 128
 KiB WRAM (`docs/adr/0003`-style honest scope cut, documented in the crate itself). With
 `retroachievements` off, `rustysnes-cheevos` never enters the frontend's dependency graph

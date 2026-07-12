@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **RetroAchievements never actually loaded a game.** No code path ever called
+  `RaClient::begin_load_game` — login worked, `CheevosState::do_frame` ran every
+  emulated frame, and `AchievementTriggered` events were wired all the way to
+  status-bar toasts, but with no game ever identified/loaded into `rc_client`,
+  there was no achievement set to evaluate memory against, so achievements
+  could never actually trigger. `CheevosState::load_game`/`unload_game` now
+  wrap the missing calls, invoked from `app.rs`'s `MenuAction::OpenRom`/
+  `CloseRom` handlers (a no-op unless a user is logged in); a `poll()`-drained
+  toast surfaces success/failure so the fix is observably verifiable, not just
+  type-checked. This is the actual prerequisite bug blocking hardcore mode,
+  leaderboards, and rich presence from meaning anything — found while scoping
+  those features for this release.
+
+### Deferred (honestly scoped, not silently dropped)
+
+- Splitting a new `rustysnes-ra` session/UI crate out of `frontend/src/cheevos.rs`'s
+  informal state, hardcore mode gating rewind/save-load/cheats/TAS, and
+  leaderboard/rich-presence UI are all real, substantial features that were
+  meaningless without the game-load fix above landing first. Pushed to a
+  later, explicitly-scoped release. See `to-dos/VERSION-PLAN.md`'s `v1.11.0`
+  section.
+- A ROM loaded via the CLI at startup, followed by a *later* login through the
+  Tools window, is not retroactively announced to `rc_client` — the common
+  path (launch, log in, then open a ROM via the File menu) is unaffected. See
+  `cheevos.rs`'s module doc.
+
 ## [1.10.0] "Atelier" - 2026-07-12
 
 Sixth release of the RustyNES-parity roadmap: HD-pack `emu-thread` wiring.

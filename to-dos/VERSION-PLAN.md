@@ -1093,12 +1093,32 @@ run-ahead branch's existing pattern.
   rung, not blocking this one (run-ahead and HD-pack are each off by default; the narrow
   intersection of both enabled together is the only affected case).
 
-### `v1.11.0 "Podium"` — RetroAchievements hardcore/leaderboard/rich-presence
+### `v1.11.0 "Podium"` — RetroAchievements: the game was never actually loaded
 
-Splits a new `rustysnes-ra` session/UI crate out of `frontend/src/cheevos.rs`'s informal state
-(`rustysnes-cheevos` stays FFI-only); hardcore mode gates rewind/save-load/cheats/TAS (sequenced
-after `v1.9.0` for that reason); activates the already-vendored `rc_client` leaderboard/
-rich-presence calls.
+Found during scoping, not in the original plan: **no code path ever called
+`RaClient::begin_load_game`.** Login worked, `CheevosState::do_frame` ran every emulated frame,
+and `AchievementTriggered` events were wired all the way to status-bar toasts — but with no game
+ever identified/loaded into `rc_client`, there was no achievement set loaded to evaluate
+memory against, so achievements could never actually trigger. This is the actual prerequisite
+bug blocking hardcore mode, leaderboards, and rich presence from meaning anything at all, so
+fixing it is this rung's real deliverable: `CheevosState::load_game`/`unload_game` now wrap
+`RaClient::begin_load_game`/`unload_game`, called from `app.rs`'s `MenuAction::OpenRom`/`CloseRom`
+handlers (a no-op unless a user is logged in). A `poll()`-drained toast surfaces success/failure
+so the fix is observably verifiable end-to-end, not just type-checked.
+
+**Deferred (honestly scoped, not silently dropped):**
+
+- Splitting a new `rustysnes-ra` session/UI crate out of `frontend/src/cheevos.rs`'s informal
+  state (`rustysnes-cheevos` stays FFI-only) — a pure refactor with no functional value on its
+  own; folding it into a later rung that actually needs the crate boundary (e.g. a leaderboard
+  panel) avoids churn now.
+- Hardcore mode gating rewind/save-load/cheats/TAS, and surfacing leaderboards/rich-presence in a
+  Tools window — both real, substantial UI/gating features that are meaningless without a loaded
+  game in the first place (this rung's fix). Pushed to a later, explicitly-scoped release.
+- A known scope note on the fix itself: a ROM loaded via the CLI at startup, followed by a *later*
+  login through the Tools window, is not retroactively announced to `rc_client` (login happens
+  after the ROM-change wiring already ran once at startup). The common path (launch, log in, then
+  open a ROM via the File menu) is unaffected. See `cheevos.rs`'s module doc.
 
 ### `v1.12.0 "Refraction"` — shader/NTSC ladder depth
 

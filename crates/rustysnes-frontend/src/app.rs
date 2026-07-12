@@ -1416,6 +1416,15 @@ impl App {
                             .add_filter("SNES ROM", &["sfc", "smc", "fig", "swc"])
                             .pick_file()
                         {
+                            // `v1.11.0 "Podium"`: unload any already-loaded game from `rc_client`
+                            // BEFORE the swap below, so it never evaluates a stale achievement
+                            // set against the incoming cart's different memory layout. A no-op
+                            // if nothing was loaded (first ROM this session, or RA unused).
+                            #[cfg(all(
+                                feature = "retroachievements",
+                                not(target_arch = "wasm32")
+                            ))]
+                            active.cheevos.unload_game();
                             let mut emu =
                                 active.core.lock().unwrap_or_else(PoisonError::into_inner);
                             active.shell.status = load_rom_file(&mut emu, &path);
@@ -1427,6 +1436,13 @@ impl App {
                             #[cfg(feature = "hd-pack")]
                             if let Some(name) = config.video.hd_pack_name.as_deref() {
                                 let _ = emu.set_hd_pack(Some(name));
+                            }
+                            // `v1.11.0 "Podium"`: identify + load the new ROM's achievement set
+                            // (a no-op if nobody is logged in — see `CheevosState::load_game`'s
+                            // doc for why this call existing anywhere at all is the actual fix).
+                            #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+                            if emu.rom_loaded() {
+                                active.cheevos.load_game(emu.rom());
                             }
                         }
                         // A new cart invalidates every prior snapshot (rewind ring +
@@ -1445,6 +1461,8 @@ impl App {
                     active.shell.status = "ROM closed".into();
                     active.rewind.clear();
                     active.quick_save = None;
+                    #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
+                    active.cheevos.unload_game();
                 }
                 #[cfg(feature = "hd-pack")]
                 MenuAction::SetHdPack(name) => {
