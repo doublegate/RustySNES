@@ -3,11 +3,11 @@
 This file is authoritative for per-suite pass counts, the board / coprocessor matrix, and
 version policy. Everything else defers to it.
 
-**Current release:** `v1.3.0 "Palimpsest"` (`v0.1.0 "Foundation"`,
+**Current release:** `v1.4.0 "Convergence"` (`v0.1.0 "Foundation"`,
 `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"`, `v0.4.0 "Completion"`, `v0.5.0 "Fidelity"`,
 `v0.6.0 "Shippable"`, `v0.7.0 "Resolution"`, `v0.8.0 "Community"`, `v0.9.0 "Threshold"`,
-`v1.0.0 "Zenith"`, `v1.0.1 "Aftertouch"`, `v1.1.0 "Latchkey"`, and `v1.2.0 "Phosphor"` precede
-it; see `to-dos/VERSION-PLAN.md` for the full ladder). `v1.0.0` closes the production-cut
+`v1.0.0 "Zenith"`, `v1.0.1 "Aftertouch"`, `v1.1.0 "Latchkey"`, `v1.2.0 "Phosphor"`, and
+`v1.3.0 "Palimpsest"` precede it; see `to-dos/VERSION-PLAN.md` for the full ladder). `v1.0.0` closes the production-cut
 gate: `Board: Send` (unblocking `emu-thread` to compile/test/lint clean for the first time, though
 it stays off-by-default pending full feature parity — see `docs/frontend.md`), the five
 desktop-UX-shell-maturity items (thumbnail Save States manager, key-rebind grid, themes, speed
@@ -65,31 +65,43 @@ recording hook, and `docs/frontend.md` §HD texture packs. Full workspace suite,
 `--features test-roms` accuracy/oracle battery, the full clippy matrix, `no_std`, the
 doc-warnings gate, both wasm32 frontends, and `rustysnes-libretro` are all green with zero
 regressions.
-**Post-`v1.3.0` patch cluster:** the fullscreen crash on monitors wider/taller than 2048px is
-fixed (`Gfx` now floors its requested wgpu limits against the real adapter), RustyNES-parity
-Window Size presets (1x-4x, default 3x) landed, `rustysnes-libretro` gained Mouse/Super Scope/
-Multitap peripheral negotiation, the **open-bus-via-DMA-latch bug is FIXED** (cross-checking
-directly against ares' and bsnes' `CPU::Channel::readA`/`readB`/`writeA`/`writeB` — DMA/HDMA
-reads update `open_bus`, writes never do; `superfx_boots_live_and_deterministic`'s 24 golden
-hashes re-blessed with that citation trail as justification — see `docs/scheduler.md` §Open bus
-via DMA/HDMA), and `emu-thread`'s cheats/watchpoints/breakpoints/port2-peripheral/voice-mute
-re-sync is now mechanically ported: `EmuCore` is the same `Arc<Mutex<...>>` both the winit
-thread and the emu thread share, so re-syncing from `render`'s existing brief lock — once per
-present, before the emu thread's next `run_frame()` — is sufficient; none of it needs to run ON
-the emu thread itself. Run-ahead and netplay-aware pause are now ported too:
-`crate::rewind::step_with_run_ahead` runs unconditionally inside `drive_one` (its own `frames ==
-0` branch is the plain-`run_frame()` fast path, so this is a no-op until run-ahead is configured),
-and `NetplayState::drive` — previously entirely unreachable under `emu-thread` (dead code inside a
-`#[cfg(not(feature = "emu-thread"))]` block, i.e. netplay was silently non-functional in threaded
-builds) — now runs once per present from the winit thread while `EmuControl::netplay_paused`
-idles the emu thread under the same `EmuCore` mutex (TOCTOU-safe: the flag is only trusted once
-re-checked under the lock in `drive_one`). `PresentBuffer` was extended to carry the framebuffer's
-`(width, height)` alongside its bytes (previously only safe because every published frame was
-exactly `emu.framebuffer()`'s current dims; run-ahead's peeked frame can differ across a
-hi-res-mode-toggle-mid-peek edge case). Movies/scripting/RetroAchievements/rewind-recording remain
-unported — but reclassified as an intentional, permanent architecture boundary (confirmed by
-directly reading RustyNES's own mature 914-line `emu_thread.rs`, which doesn't port any of these
-to its thread either), not a parity gap — see `emu_thread.rs`'s own module doc.
+`v1.4.0` is the emu-thread-parity + accuracy-bugfix release, closing out the post-`v1.3.0`
+patch cluster. The fullscreen crash on monitors wider/taller than 2048px is fixed (`Gfx` now
+floors its requested wgpu limits against the real adapter), RustyNES-parity Window Size presets
+(1x-4x, default 3x) landed, `rustysnes-libretro` gained Mouse/Super Scope/Multitap peripheral
+negotiation, and the **open-bus-via-DMA-latch bug is FIXED** (cross-checking directly against
+ares' and bsnes' `CPU::Channel::readA`/`readB`/`writeA`/`writeB` — DMA/HDMA reads update
+`open_bus`, writes never do; `superfx_boots_live_and_deterministic`'s 24 golden hashes re-blessed
+with that citation trail as justification — see `docs/scheduler.md` §Open bus via DMA/HDMA).
+`emu-thread`'s cheats/watchpoints/breakpoints/port2-peripheral/voice-mute re-sync is now
+mechanically ported: `EmuCore` is the same `Arc<Mutex<...>>` both the winit thread and the emu
+thread share, so re-syncing from `render`'s existing brief lock — once per present, before the
+emu thread's next `run_frame()` — is sufficient; none of it needs to run ON the emu thread
+itself. Run-ahead and netplay-aware pause are now ported too: `drive_one` takes the same
+`run_ahead > 0` branch the synchronous path already does, calling
+`crate::rewind::step_with_run_ahead` only when run-ahead is actually configured and otherwise
+publishing straight from the borrowed framebuffer slice with zero extra allocation (a real
+per-frame cost regression caught in review before merge — the helper's own `frames == 0` fast
+path still does an avoidable `to_vec()` copy). `NetplayState::drive` — previously entirely
+unreachable under `emu-thread` (dead code inside a `#[cfg(not(feature = "emu-thread"))]` block,
+i.e. netplay was silently non-functional in threaded builds) — now runs once per present from the
+winit thread while `EmuControl::netplay_paused` idles the emu thread under the same `EmuCore`
+mutex (TOCTOU-safe: the flag is only trusted once re-checked under the lock in `drive_one`).
+`PresentBuffer` was extended to carry the framebuffer's `(width, height)` alongside its bytes
+(previously only safe because every published frame was exactly `emu.framebuffer()`'s current
+dims; run-ahead's peeked frame can differ across a hi-res-mode-toggle-mid-peek edge case); a
+second review finding caught that the consumer's own `dims` fallback (used when nothing new has
+been published yet) still read the live, possibly-moved-on `emu.fb_dims()` instead of the dims
+that actually match whatever bytes are sitting in `present_staging` — fixed via a tracked
+`Active::present_dims` field, updated only when a new frame is actually taken. Movies/scripting/
+RetroAchievements/rewind-recording remain unported — but reclassified as an intentional, permanent
+architecture boundary (confirmed by directly reading RustyNES's own mature 914-line
+`emu_thread.rs`, which doesn't port any of these to its thread either), not a parity gap — see
+`emu_thread.rs`'s own module doc. Full workspace suite, the `--features test-roms` accuracy/oracle
+battery, the full clippy matrix (including two new CI gates: `emu-thread` was never actually
+clippy-gated before this release, and its own unit tests were never actually executed in CI),
+`no_std`, the doc-warnings gate, both wasm32 frontends, and `rustysnes-libretro` are all green
+with zero regressions.
 `v0.5.0` closed out the accuracy-pass-rate dashboard (see "Accuracy dashboard" below) and the
 full named hardware-gotcha regression list — every item fixed, correctly reclassified as an
 intentional non-goal, or honestly researched-and-deferred with a full mechanism write-up. `v0.6.0`

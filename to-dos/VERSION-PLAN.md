@@ -771,7 +771,7 @@ gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
   accuracy/oracle battery (28 tests, 17 suites), the `no_std` build, the doc-warnings gate, both
   wasm32 frontends, and `rustysnes-libretro` all green with zero regressions.
 
-## Post-v1.3.0 — ongoing patch cluster (not a gating rung, per `to-dos/ROADMAP.md`)
+### v1.4.0 "Convergence" — closing the post-v1.3.0 patch cluster — **RELEASED 2026-07-11**
 
 - **Fullscreen crash on monitors wider/taller than 2048px — FIXED.** `Gfx` requested
   `wgpu::Limits::downlevel_webgl2_defaults()` unconditionally on every target, capping
@@ -818,13 +818,18 @@ gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
   both the winit thread and the emu thread share, so re-syncing from `render`'s existing brief
   lock — once per present, before the emu thread's next `run_frame()` — is sufficient; none of
   this needs to run ON the emu thread itself. See `emu_thread.rs`'s own module doc.
-- **`emu-thread` run-ahead + netplay-aware pause — DONE.** Run-ahead: `drive_one` now calls
-  `crate::rewind::step_with_run_ahead` unconditionally instead of a plain `run_frame()`; its own
-  `frames == 0` branch is already the identical fast path, so this is a no-op until run-ahead is
-  configured. Netplay: `NetplayState::drive` was previously dead code under `emu-thread` (buried
-  inside a `#[cfg(not(feature = "emu-thread"))]` block) — netplay was silently completely
-  non-functional in threaded builds before this fix. It now runs once per present from the winit
-  thread (matching `NetplayState::drive`'s own "drive one real frame" contract), while a new
+- **`emu-thread` run-ahead + netplay-aware pause — DONE.** Run-ahead: `drive_one` takes the same
+  `run_ahead > 0` branch the synchronous path (`app.rs`) already does — `crate::rewind::
+  step_with_run_ahead` is only called when run-ahead is actually configured; otherwise it
+  publishes straight from the borrowed framebuffer slice, exactly matching this function's
+  pre-run-ahead behavior with zero extra allocation. (An earlier revision called the helper
+  unconditionally; Copilot's PR review caught that its own `frames == 0` fast path still does an
+  avoidable `framebuffer().to_vec()` copy beyond the plain `run_frame()` it replaced — a real
+  per-frame cost regression in the common disabled case, fixed before merge.) Netplay:
+  `NetplayState::drive` was previously dead code under `emu-thread` (buried inside a
+  `#[cfg(not(feature = "emu-thread"))]` block) — netplay was silently completely non-functional in
+  threaded builds before this fix. It now runs once per present from the winit thread (matching
+  `NetplayState::drive`'s own "drive one real frame" contract), while a new
   `EmuControl::netplay_paused` flag idles the emu thread; the flag is set by the winit thread and
   re-checked by the emu thread under the same `EmuCore` mutex in `drive_one`, so there's no TOCTOU
   race with the netplay rollback session claiming the `System`. `PresentBuffer` was extended to
@@ -832,8 +837,13 @@ gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
   was previously safe only because every published frame was exactly `emu.framebuffer()`'s current
   dims; run-ahead's peeked frame can differ across a hi-res-mode-toggle-mid-peek edge case, so
   dims must travel with the bytes through the same slot to avoid a bytes/dims size mismatch on the
-  GPU-upload path. Two previously-real CI gaps closed alongside this: `emu-thread` was never
-  actually clippy-gated at all (only referenced in a comment), and its own unit tests were
+  GPU-upload path. A second review finding (Gemini) caught a related gap: the present path's own
+  `dims` fallback (used when `take_into` returns nothing new) still read the live `emu.fb_dims()`,
+  which can have moved on to a new resolution since the last frame actually taken from
+  `PresentBuffer` — mismatching the OLD-resolution bytes still sitting in `present_staging`. Fixed
+  via a tracked `Active::present_dims` field, updated only when `take_into` returns `Some`, used as
+  the sole fallback instead. Two previously-real CI gaps closed alongside this: `emu-thread` was
+  never actually clippy-gated at all (only referenced in a comment), and its own unit tests were
   compile-checked via clippy but never executed — both now covered (`emu-thread` and
   `emu-thread,netplay` clippy in `lint`; `emu-thread,netplay` tests in `full-test`). Movies/
   scripting/RetroAchievements/rewind-recording remain unported — but reclassified as an
@@ -843,6 +853,15 @@ gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
   re-verified this pass (this sandbox's headless GUI automation hangs regardless of feature combo
   — a previously recorded limitation); flagged honestly rather than claimed. See `emu_thread.rs`'s
   own module doc and `docs/frontend.md`.
+- **Full pre-release gate — GREEN.** `cargo fmt --all --check`; `cargo clippy --workspace
+  --all-targets -- -D warnings`; per-feature clippy across debug-hooks/scripting/cheats/netplay/
+  retroachievements/emu-thread/`emu-thread,netplay`/full/hd-pack; `cargo test --workspace`; the
+  full `--features test-roms` ROM-oracle battery (28 tests, 17 suites, zero regressions);
+  `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps`; the `no_std` build; both wasm32
+  frontends (`wasm-winit` via a real `trunk build --release`, `wasm-canvas` via `cargo check
+  --target wasm32-unknown-unknown`); `rustysnes-libretro`; `cargo deny check`; and `cargo audit`
+  (zero advisories). The frame-time bench gate was not re-run this pass (unaffected by this
+  cluster's frontend-only changes).
 
 ## Post-v1.0 — Reach (deferred)
 
