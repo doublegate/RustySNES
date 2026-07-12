@@ -80,9 +80,11 @@ use crate::cheevos::CheevosState;
 /// regardless of region (`Gfx::ensure_texture_capacity`'s own backstop, which now tracks the real
 /// device limit rather than a hardcoded constant — see that method's doc). Not yet
 /// user-configurable — a fixed v1 scope choice (`docs/adr/0010`), not a technical ceiling:
-/// `Gfx::ensure_texture_capacity` grows to fit whatever scale is requested.
-#[cfg(all(not(feature = "emu-thread"), feature = "hd-pack"))]
-const HD_PACK_SCALE: u32 = 2;
+/// `Gfx::ensure_texture_capacity` grows to fit whatever scale is requested. `pub(crate)` (not
+/// `emu-thread`-excluded) since `v1.10.0 "Atelier"`: `emu_thread::drive_one` composites too, using
+/// the same fixed scale, so both build configurations produce identically-scaled output.
+#[cfg(feature = "hd-pack")]
+pub(crate) const HD_PACK_SCALE: u32 = 2;
 
 /// The window's initial/default scale — `INITIAL_SCALE`x the SNES native resolution (`v1.3.0`,
 /// RustyNES parity: that sibling project also defaults to 3x/300%). Also drives `wasm32`'s

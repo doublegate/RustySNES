@@ -1061,10 +1061,21 @@ explicitly-scoped release rather than folded into this one. `v1.11.0`'s RetroAch
 hardcore-mode gate still sequences after `v1.9.0` as planned: hardcore only needs to gate the
 *existing* movie record/playback primitives, not a TAStudio UI.
 
-### `v1.10.0 "Atelier"` — HD-pack Builder GUI
+### `v1.10.0 "Atelier"` — HD-pack `emu-thread` wiring
 
-Turns HD-pack support from consumer-only into an in-app authoring tool using the existing `TileTag`
-hashing hook (`v1.3.0`); wires HD-pack consumption into `emu_thread.rs` for the first time.
+Wires HD-pack compositing into `emu_thread::drive_one` for the first time — the synchronous
+render path composited an active pack via `hd_compositor::composite` before its own `drop(emu)`
+since `v1.3.0`, but the threaded build had no equivalent step, so a threaded build with a pack
+selected silently rendered the native, uncomposited framebuffer. Both `drive_one` branches
+(run-ahead and plain) now composite before publishing to `PresentBuffer`; the common no-pack-active
+case stays allocation-free via a cheap `hd_pack_name()` pre-check.
+
+**Deferred (honestly scoped, not silently dropped):** turning HD-pack support from consumer-only
+into an in-app **authoring tool** — browsing the live `TileTag` stream, assigning replacement
+PNGs, writing `pack.toml` + assets — needs a new core-side "reconstruct RGBA pixels for a given
+tile hash" API that doesn't exist yet (the tile-identity hash doesn't reverse to a VRAM location).
+That's a genuinely separate, substantial piece of work from the `emu-thread` wiring fix above;
+pushed to a later, explicitly-scoped release rather than folded into this one.
 
 ### `v1.11.0 "Podium"` — RetroAchievements hardcore/leaderboard/rich-presence
 

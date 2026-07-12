@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **HD texture packs (`v1.3.0`) were never wired into the `emu-thread` build** —
+  `app.rs`'s synchronous render path composited an active pack via
+  `hd_compositor::composite` before its own `drop(emu)`, but the threaded build's
+  `emu_thread::drive_one` had no equivalent step, so a threaded build with a pack
+  selected silently rendered the native (uncomposited) framebuffer
+  (`docs/frontend.md`'s documented scope cut, closed here). `drive_one` now
+  composites in both the run-ahead and plain-frame branches before publishing to
+  `PresentBuffer`; the common no-pack-active case stays exactly as fast as before
+  (a cheap `hd_pack_name()` `&self` pre-check, no extra allocation) since the real
+  compositing cost only applies once a pack is actually selected.
+
+### Deferred (honestly scoped, not silently dropped)
+
+- The in-app HD-pack **Builder GUI** (browsing the live `TileTag` stream,
+  assigning replacement PNGs, writing `pack.toml` + assets) needs a new
+  core-side "reconstruct RGBA pixels for a given tile hash" API that doesn't
+  exist yet — the tile-identity hash doesn't reverse to a VRAM location, so
+  authoring support is a genuinely separate, substantial piece of work from the
+  `emu-thread` wiring fix above. Pushed to a later, explicitly-scoped release.
+  See `to-dos/VERSION-PLAN.md`'s `v1.10.0` section.
+
 ## [1.9.0] "Marionette" - 2026-07-12
 
 Fifth release of the RustyNES-parity roadmap: Lua scripting bus-widening.

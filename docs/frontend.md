@@ -211,10 +211,12 @@ uses it everywhere the old hardcoded `MAX_TEXTURE_DIM` constant used to be check
 (`ensure_texture_capacity`, `upload`, and a new defensive clamp in `resize` and the initial
 `SurfaceConfiguration`) — so the real backstop is now "whatever this device actually supports,"
 not a fixed 2048 that was only ever correct for the WebGL2 downlevel case.
-- **Not yet done**: a user-configurable upscale factor (fixed at 2x for now) and `emu-thread`-
-  build compositing (that build's framebuffer arrives via a lock-free `PresentBuffer` handoff
-  outside the locked block this wiring reads `Ppu::tile_tags` from, with no equivalent `TileTag`
-  channel built yet) — both honestly tracked scope cuts, see `docs/adr/0010`.
+- **Not yet done**: a user-configurable upscale factor (fixed at 2x for now) — an honestly
+  tracked scope cut, see `docs/adr/0010`. `emu-thread`-build compositing landed in
+  `v1.10.0 "Atelier"`: `emu_thread::drive_one` now composites an active pack into its own
+  `PresentBuffer` publish (both the run-ahead and plain-frame branches), reusing
+  `EmuCore::hd_pack_composite_inputs` the same way `app.rs`'s synchronous path already did —
+  previously a threaded build with a pack selected silently rendered the native framebuffer.
 
 ## Global hotkeys (`v1.0.1`)
 
