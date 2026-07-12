@@ -111,9 +111,10 @@ record; this file frames the phase line.
   (`to-dos/VERSION-PLAN.md`). `v1.0.1 "Aftertouch"` (per-voice mutes + global hotkeys) followed
   `v1.0.0`, closing the phase spine below out completely. The post-`v1.0` Reach arc that follows
   is **also fully shipped**: `v1.1.0 "Latchkey"` (accuracy research + `emu-thread`'s biggest
-  gaps), `v1.2.0 "Phosphor"` (the `rustysnes-libretro` core + the CRT/HQ2x shader pipeline), and
-  `v1.3.0 "Palimpsest"` (HD texture packs) — see the "Milestones beyond the phases" section below
-  for what's actually still open.
+  gaps), `v1.2.0 "Phosphor"` (the `rustysnes-libretro` core + the CRT/HQ2x shader pipeline),
+  `v1.3.0 "Palimpsest"` (HD texture packs), and `v1.4.0 "Convergence"` (closing out the
+  post-`v1.3.0` patch cluster: the open-bus-via-DMA-latch bug and the rest of `emu-thread`
+  parity) — see the "Milestones beyond the phases" section below for what's actually still open.
 
 ## The phase spine
 
@@ -295,19 +296,22 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
 - **v1.3.0 "Palimpsest" — RELEASED.** HD texture packs (`hd-pack` feature, off by default): the
   palette-inclusive `TileTag` hashing hook in `rustysnes-ppu`, the frontend loader + pure CPU
   compositor, Settings UI + config, and the compositor wired into the live wgpu present path.
+- **v1.4.0 "Convergence" — RELEASED.** Closed out the post-`v1.3.0` patch cluster: the
+  fullscreen-crash-on-wide-monitors bug, RustyNES-parity Window Size presets, `rustysnes-libretro`'s
+  peripheral negotiation (Mouse/Super Scope/Multitap via `RETRO_DEVICE_SUBCLASS`), the
+  open-bus-via-DMA-latch bug (cross-checked directly against ares'/bsnes' own `CPU::Channel` DMA
+  implementation), `emu-thread`'s mechanical cheats/watchpoints/breakpoints/port2-peripheral/
+  voice-mute re-sync, and `emu-thread`'s run-ahead + netplay-aware pause (the latter fixing a real
+  latent bug: `NetplayState::drive` was previously dead code under `emu-thread`, so netplay was
+  silently non-functional in threaded builds). See `to-dos/VERSION-PLAN.md`'s `v1.4.0` section for
+  the full per-item detail, including two bot-review-caught fixes (a stale-dims-vs-bytes
+  correctness bug, a run-ahead-helper per-frame allocation regression) and two CI gaps closed
+  (`emu-thread` was never actually clippy-gated, its own unit tests were never actually executed).
 - **Beyond that — Reach, now closed out.** The Libretro core, the CRT/HQx shader/filter pipeline,
   and HD texture packs — the three items originally deferred here — all shipped in `v1.2.0`/
-  `v1.3.0` above (see `to-dos/VERSION-PLAN.md`'s "Post-v1.0 — Reach"). The post-`v1.3.0` patch
-  cluster has also closed out the fullscreen-crash-on-wide-monitors bug, RustyNES-parity Window
-  Size presets, `rustysnes-libretro`'s peripheral negotiation (Mouse/Super Scope/Multitap via
-  `RETRO_DEVICE_SUBCLASS`), the open-bus-via-DMA-latch bug (cross-checked directly against
-  ares'/bsnes' own `CPU::Channel` DMA implementation), `emu-thread`'s mechanical
-  cheats/watchpoints/breakpoints/port2-peripheral/voice-mute re-sync, and `emu-thread`'s
-  run-ahead + netplay-aware pause (the latter fixing a real latent bug: `NetplayState::drive` was
-  previously dead code under `emu-thread`, so netplay was silently non-functional in threaded
-  builds) — see `to-dos/VERSION-PLAN.md`'s "Post-v1.3.0" section. What's still genuinely open: the
-  SPC7110/PAL/ExLoROM/ST018/S-RTC real-ROM-validation gaps (all ROM-sourcing-blocked, tracked in
-  `docs/rom-test-corpus.md`) and any future mobile/Android target (no appetite assumed by
+  `v1.3.0` above (see `to-dos/VERSION-PLAN.md`'s "Post-v1.0 — Reach"). What's still genuinely open:
+  the SPC7110/PAL/ExLoROM/ST018/S-RTC real-ROM-validation gaps (all ROM-sourcing-blocked, tracked
+  in `docs/rom-test-corpus.md`) and any future mobile/Android target (no appetite assumed by
   default). Movies/scripting/RetroAchievements/rewind-recording on `emu-thread` are reclassified
   as an intentional, permanent architecture boundary rather than a remaining gap — confirmed by
   directly reading RustyNES's own mature `emu_thread.rs`, which doesn't port any of these to its

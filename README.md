@@ -360,9 +360,9 @@ API docs (rustdoc) at
 
 ## Current Release
 
-RustySNES's current release is **v1.3.0 "Palimpsest"**. See
+RustySNES's current release is **v1.4.0 "Convergence"**. See
 [`docs/STATUS.md`](docs/STATUS.md) for the full release history
-(`v0.1.0` through `v1.3.0`) and per-release detail.
+(`v0.1.0` through `v1.4.0`) and per-release detail.
 
 - **Download:** the [GitHub Releases](https://github.com/doublegate/RustySNES/releases) page —
   desktop binaries for Linux, macOS (aarch64), and Windows.
@@ -396,6 +396,16 @@ palette-inclusive, allocation-free tile-identity hash computed in `rustysnes-ppu
 selector with `config.toml` persistence, and the compositor wired into the live wgpu present path
 (a selected pack's replacement art is now actually visible on screen, at a fixed 2× upscale). See
 `docs/adr/0010` and `docs/frontend.md` §HD texture packs.
+
+**`v1.4.0 "Convergence"`** closes out the post-`v1.3.0` patch cluster: the fullscreen crash on
+monitors wider/taller than 2048px, RustyNES-parity Window Size presets, `rustysnes-libretro`
+peripheral negotiation (Mouse/Super Scope/Multitap), the open-bus-via-DMA-latch accuracy bug
+(cross-checked against ares'/bsnes' own DMA implementation), and the rest of `emu-thread`'s
+feature parity — mechanical cheats/watchpoints/breakpoints/port2-peripheral/voice-mute re-sync,
+run-ahead, and netplay-aware pause (fixing a real latent bug where netplay was silently
+non-functional under `emu-thread`). Movies, Lua scripting, RetroAchievements, and
+rewind-recording remain intentionally unported to `emu-thread`, matching RustyNES's own reference
+implementation.
 
 The full roadmap lives in [`to-dos/ROADMAP.md`](to-dos/ROADMAP.md) (the phase spine) and
 [`to-dos/VERSION-PLAN.md`](to-dos/VERSION-PLAN.md) (the named release ladder).

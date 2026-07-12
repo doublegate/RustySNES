@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] "Convergence" - 2026-07-11
+
 ### Added
 
 - **Window Size presets** (native only) — View → Window Size offers 1x/2x/3x/4x (100%-400%) of
@@ -21,16 +23,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   selection, and per-voice audio mutes now apply in the threaded build too (previously only the
   synchronous drive path saw these changes).
 - **`emu-thread` run-ahead + netplay-aware pause** — run-ahead now runs on the emu thread via
-  `crate::rewind::step_with_run_ahead`; netplay now actually functions under `emu-thread` (its
+  `crate::rewind::step_with_run_ahead`, only when actually configured (matching the synchronous
+  path's own `run_ahead > 0` branch, avoiding an avoidable per-frame allocation in the common
+  disabled case — caught in PR review); netplay now actually functions under `emu-thread` (its
   `NetplayState::drive` call was previously dead code there, so netplay was silently
   non-functional in threaded builds), pausing the emu thread TOCTOU-safely via a new
   `EmuControl::netplay_paused` flag re-checked under the shared `EmuCore` lock. `PresentBuffer`
-  now carries the framebuffer's `(width, height)` alongside its bytes so a run-ahead-peeked frame
-  can never publish bytes for one resolution against dims from another. `emu-thread` is now
-  clippy- and test-gated in CI for the first time (previously referenced only in a comment).
-  Movies, Lua scripting, RetroAchievements, and rewind-recording remain intentionally unported to
-  `emu-thread` — confirmed via RustyNES's own reference implementation, which doesn't port these
-  to its thread either.
+  now carries the framebuffer's `(width, height)` alongside its bytes, and the present path tracks
+  the dims that actually match its staging buffer (`Active::present_dims`) rather than the emu's
+  live (possibly-moved-on) resolution, so a run-ahead-peeked frame can never publish bytes for one
+  resolution against dims from another (also caught in review). `emu-thread` is now clippy- and
+  test-gated in CI for the first time (previously referenced only in a comment). Movies, Lua
+  scripting, RetroAchievements, and rewind-recording remain intentionally unported to `emu-thread`
+  — confirmed via RustyNES's own reference implementation, which doesn't port these to its thread
+  either.
 
 ### Fixed
 
