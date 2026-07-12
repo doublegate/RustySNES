@@ -525,7 +525,8 @@ working rather than deleting the MVP once the full shell landed.
 
 ### The hosted demo page (`v1.0.0`)
 
-`crates/rustysnes-frontend/web/index.html` (deployed by `.github/workflows/pages.yml`) got a
+`crates/rustysnes-frontend/web/index.html` (deployed by `.github/workflows/web.yml` since
+`v1.6.0 "Lighthouse"`, `pages.yml` before that) got a
 polish pass: a visible `<h1>RustySNES` title, a keyboard-controls + feature-parity hint paragraph
 (matching the real `input::KeyBindings` defaults, and disclosing the Save States browser gap
 above rather than staying silent about it), an inline-SVG favicon (no logo asset exists yet,

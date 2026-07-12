@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Documentation site + PWA + accuracy ledger (`v1.6.0 "Lighthouse"`)** — a Material for MkDocs
+  handbook (`mkdocs.yml`) is now published at `https://doublegate.github.io/RustySNES/docs/`,
+  alongside the wasm demo (`/`) and rustdoc (`/api/`), replacing `pages.yml` with a combined
+  `web.yml` that also enforces the existing `<5MiB` gzip wasm size budget
+  (`scripts/wasm_size_budget.sh`) on every PR. The wasm demo gained PWA/offline support
+  (`manifest.webmanifest`, a stale-while-revalidate `sw.js` service worker, a real `icon.svg`).
+  New `docs/accuracy-ledger.md` maps every known approximation/divergence to an explicit
+  disposition (Remediated / No-stricter-oracle-available / Deferred / Out-of-scope), the "why"
+  companion to `docs/STATUS.md`'s pass-count dashboard. `docs/DOCUMENTATION_INDEX.md` refreshed
+  (was still stamped `v0.4.0`, referenced a nonexistent `SALVAGE_MANIFEST.md`).
+
 ## [1.5.0] "Bedrock" - 2026-07-11
 
 First release of the RustyNES-parity roadmap: closes the gap between this project's own

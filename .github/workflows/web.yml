@@ -1,0 +1,161 @@
+name: Deploy Pages (demo + docs)
+
+# Builds the wasm32 frontend with trunk, the workspace rustdoc, AND the Material for MkDocs
+# documentation handbook, then publishes ALL THREE to GitHub Pages in a single deployment
+# (https://doublegate.github.io/RustySNES/), replacing the old wasm-demo-and-rustdoc-only
+# pages.yml (`v1.6.0 "Lighthouse"`):
+#
+#   /        the playable wasm demo (the full winit + wgpu + egui build)
+#   /api/    the workspace API documentation (rustdoc)
+#   /docs/   the Material for MkDocs handbook (subsystem specs + accuracy ledger + user guide)
+#
+# GitHub Pages allows only one deployment source per repo, so the demo, the rustdoc, and the
+# MkDocs handbook are assembled into one artifact and deployed together (the Pages source must be
+# "GitHub Actions", not a branch).
+#
+# Two jobs: `build` produces + size-gates the demo, builds the rustdoc + the MkDocs handbook,
+# assembles the combined `_site/`, and uploads it as a Pages artifact; `deploy` publishes it. The
+# build also runs on pull requests (deploy does NOT) so the size budget gates PRs without
+# publishing a preview.
+#
+# trunk auto-downloads the wasm-bindgen CLI + wasm-opt versions pinned in
+# crates/rustysnes-frontend/web/Trunk.toml.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "scripts/wasm_size_budget.sh"
+      - ".github/workflows/web.yml"
+      - ".github/actions/rust-setup/**"
+      - "docs/**"
+      - "mkdocs.yml"
+  pull_request:
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "scripts/wasm_size_budget.sh"
+      - ".github/workflows/web.yml"
+      - ".github/actions/rust-setup/**"
+      - "docs/**"
+      - "mkdocs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only the latest main push's deploy matters — a superseded run doing a wasted rebuild+deploy of
+# an already-stale commit is pure cost with no benefit (deploy-pages itself also serializes on the
+# `github-pages` environment, so a cancelled stale run couldn't have raced a newer deploy anyway).
+# PR runs get their own group (never cancel a still-relevant size-budget check mid-flight).
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
+jobs:
+  build:
+    name: build demo + docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # GOTCHA: keep crates/rustysnes-frontend/web/Trunk.toml's wasm-bindgen pin == Cargo.lock
+      # library version. `linux-frontend-deps: "true"` because the rustdoc build below compiles
+      # the whole workspace (incl. rustysnes-frontend) for the host, which needs the native
+      # winit/wgpu/cpal system libraries — the wasm build itself routes through web-sys and
+      # wouldn't need them, but the doc build in this same job does.
+      - uses: ./.github/actions/rust-setup
+        with:
+          targets: wasm32-unknown-unknown
+          linux-frontend-deps: "true"
+          cache-key-suffix: web-pages
+
+      # Prebuilt binary download instead of `cargo install trunk --locked` (which compiled trunk
+      # + its whole dependency tree from source on every single run — minutes of pure setup cost
+      # for a tool whose own source never changes here).
+      - name: Install trunk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+
+      - name: Build the wasm demo (release) for GitHub Pages
+        # No RUSTFLAGS override: `-C target-feature=-reference-types` broke wasm-bindgen's
+        # externref table generation once the demo linked in real `Closure`-based code — see
+        # `web/index.html`'s `data-target-name` comment.
+        run: trunk build --release --public-url /RustySNES/
+        working-directory: crates/rustysnes-frontend/web
+
+      - name: Enforce wasm size budget (< 5 MiB gzip)
+        run: ./scripts/wasm_size_budget.sh crates/rustysnes-frontend/web/dist 5242880
+
+      - name: Build the workspace API docs (rustdoc)
+        # --no-deps keeps it to our own crates. No -D warnings here: the lint job in ci.yml
+        # already gates rustdoc on every PR/push; the Pages build only needs the HTML and must
+        # not fail the deploy on a doc nit.
+        run: cargo doc --workspace --no-deps
+
+      - name: Set up Python for MkDocs
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Material for MkDocs
+        run: pip install "mkdocs-material==9.*"
+
+      - name: Build the MkDocs documentation handbook
+        # NOT --strict: several source specs (STATUS.md, frontend.md, cart.md) carry legitimate
+        # relative cross-links into sibling repo trees (../to-dos/**, ../ref-proj/**) that are
+        # outside docs_dir and therefore unresolvable as in-site links. Those are pre-existing
+        # links this project does not rewrite (the docs are the source-of-truth spec), so
+        # --strict would abort the deploy on links that render fine. The build itself is clean.
+        run: mkdocs build --site-dir mkdocs-site
+
+      - name: Assemble the Pages site (demo at /, rustdoc at /api/, handbook at /docs/)
+        run: |
+          set -euo pipefail
+          rm -rf _site
+          mkdir -p _site/api _site/docs
+          cp -r crates/rustysnes-frontend/web/dist/. _site/
+          cp -r target/doc/. _site/api/
+          cp -r mkdocs-site/. _site/docs/
+          # rustdoc emits no root index for a multi-crate workspace (`cargo doc --workspace`
+          # writes one directory per crate, no top-level index.html) — without this, /api/
+          # itself 404s even though e.g. /api/rustysnes_core/index.html works fine.
+          cat > _site/api/index.html <<'HTML'
+          <!doctype html>
+          <meta charset="utf-8">
+          <meta http-equiv="refresh" content="0; url=rustysnes_core/index.html">
+          <title>RustySNES API documentation</title>
+          <a href="rustysnes_core/index.html">RustySNES API documentation</a>
+          HTML
+
+      - name: Configure Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact (demo + docs)
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: deploy to GitHub Pages
+    # Only publish from main / manual dispatch — PRs build + size-gate but never deploy.
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
