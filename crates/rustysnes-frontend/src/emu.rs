@@ -20,8 +20,8 @@ use rustysnes_core::scheduler::System;
 
 use crate::config::Region;
 use crate::debug_snapshot::{
-    ApuSnapshot, CartSnapshot, DebugSnapshot, GsuSnapshot, PpuSnapshot, VRAM_WINDOW_LEN,
-    VoiceSnapshot, WatchHit,
+    ApuSnapshot, CartSnapshot, DebugSnapshot, GsuSnapshot, MEMORY_WINDOW_LEN, PpuSnapshot,
+    VRAM_WINDOW_LEN, VoiceSnapshot, WatchHit,
 };
 use crate::input::Buttons;
 
@@ -46,6 +46,11 @@ pub struct EmuCore {
     /// the debugger is open; `debug_snapshot` reads it regardless (cheap, and keeps this struct
     /// free of `debug-hooks`-conditional fields).
     debug_vram_scroll: u16,
+    /// The debugger overlay's Memory panel scroll position (24-bit CPU-bus byte address,
+    /// `v1.7.0`). Defaults to `$7E0000` (the start of WRAM bank 0) — the single most useful
+    /// starting point for a general-purpose memory viewer, same "cheap, unconditional" posture
+    /// as `debug_vram_scroll` above.
+    debug_memory_scroll: u32,
     /// Armed 65C816 PC breakpoints (`v0.9.0`, T-81-001 PR B) — 24-bit `pbr:pc` addresses. Checked
     /// once per instruction (not per bus access, unlike read/write watchpoints — a PC breakpoint
     /// is an instruction-boundary concept), so this costs nothing on the fast path when empty and
@@ -95,6 +100,7 @@ impl EmuCore {
         Self {
             inner: facade::EmuCore::new(seed, to_core_region(region)),
             debug_vram_scroll: 0,
+            debug_memory_scroll: 0x7E_0000,
             breakpoints: Vec::new(),
             paused: false,
             #[cfg(feature = "hd-pack")]
@@ -550,13 +556,22 @@ impl EmuCore {
     ///
     /// # Panics
     /// Never in practice: every index below is bounded by a fixed, small array length
-    /// (`VRAM_WINDOW_LEN` = 1024, CGRAM = 256, OAM = 544, DSP voices = 8), so the `u8`/`u16`
-    /// narrowing conversions from `usize` can never actually truncate.
+    /// (`VRAM_WINDOW_LEN` = 1024, `MEMORY_WINDOW_LEN` = 512, CGRAM = 256, OAM = 544, DSP
+    /// voices = 8), so the `u8`/`u16`/`u32` narrowing conversions from `usize` can never
+    /// actually truncate.
     #[must_use]
     #[allow(clippy::cast_possible_truncation)]
     pub fn debug_snapshot(&mut self) -> DebugSnapshot {
         let vram_window_start = self.debug_vram_scroll;
+        let memory_window_start = self.debug_memory_scroll;
         let system = self.inner.system_mut();
+        // Built first, before any immutable sub-borrow of `system.bus` below, since `Bus::peek`
+        // needs `&mut`.
+        let mut memory_window = [0u8; MEMORY_WINDOW_LEN];
+        for (i, byte) in memory_window.iter_mut().enumerate() {
+            let addr = memory_window_start.wrapping_add(i as u32) & 0x00FF_FFFF;
+            *byte = system.bus.peek(addr);
+        }
         let ppu = &system.bus.ppu;
         let mut vram_window = [0u16; VRAM_WINDOW_LEN];
         for (i, word) in vram_window.iter_mut().enumerate() {
@@ -627,6 +642,8 @@ impl EmuCore {
             disassembly: self.disassembly_window(),
             paused: self.paused,
             watchpoint_hits: self.take_watchpoint_hits(),
+            memory_window,
+            memory_window_start,
         }
     }
 
@@ -660,6 +677,14 @@ impl EmuCore {
     /// Scroll the debugger's VRAM viewer window (word address, wraps at 64Ki words).
     pub const fn set_debug_vram_scroll(&mut self, word_addr: u16) {
         self.debug_vram_scroll = word_addr;
+    }
+
+    /// Scroll the debugger's Memory panel window (24-bit CPU-bus byte address, `v1.7.0`). Masked
+    /// to 24 bits (matching every other CPU-bus address in this crate) rather than wrapping at a
+    /// `u32` boundary, so a caller passing a raw `u32` can never end up pointing past the real
+    /// 24-bit bus.
+    pub const fn set_debug_memory_scroll(&mut self, addr24: u32) {
+        self.debug_memory_scroll = addr24 & 0x00FF_FFFF;
     }
 
     /// Snapshot the full deterministic core state — see [`facade::EmuCore::save_state`].

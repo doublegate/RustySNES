@@ -13,7 +13,11 @@
 //! Phase 5 status: PLAYABLE on native. The chip stack is complete, so the present path decodes
 //! the real PPU framebuffer, the S-DSP audio drives the cpal stream, and keyboard/gamepad input
 //! reaches the controllers. Save-states, rewind, and run-ahead (`rewind` module) are implemented
-//! and config-driven (off by default). The deep debugger panels are still TODO stubs.
+//! and config-driven (off by default). The debugger overlay (`debugger` module, `v1.7.0
+//! "Telemetry"` onward) has live-state panels for the CPU/PPU/APU/Cart plus a memory viewer and
+//! read/write watchpoints; deeper tooling (a callstack view, an inline assembler, a coprocessor
+//! panel) is still being built out incrementally — see `to-dos/VERSION-PLAN.md`'s
+//! "RustyNES-parity ladder".
 //!
 //! `v0.8.0 "Instrumentation"`: the `wasm32` build is PLAYABLE too. `wasm-winit` (T-81-006,
 //! default) routes the browser through the SAME `App`/`ApplicationHandler`/`Gfx`/egui shell
@@ -44,6 +48,10 @@ pub mod cheats;
 pub mod cheevos;
 pub mod config;
 pub mod debug_snapshot;
+// The debugger overlay's panels (`v1.7.0 "Telemetry"`, extracted out of `ui_shell.rs`). Compiled
+// unconditionally, matching `ui_shell.rs` itself — only the Debug menu entry that makes the
+// overlay reachable is gated behind the `debug-hooks` feature (see that module's own doc).
+pub mod debugger;
 pub mod emu;
 pub mod gfx;
 // HD texture pack manifest + loader (`v1.3.0` T-PS, `hd-pack` feature) -- schema, `pack.toml`

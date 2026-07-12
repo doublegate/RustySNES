@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Debugger foundation (`v1.7.0 "Telemetry"`)** — the 4-panel debugger overlay (previously
+  inline in `ui_shell.rs`, ~600 lines) moved into a dedicated `debugger/` module (`mod.rs` +
+  `cpu_panel.rs`/`ppu_panel.rs`/`apu_panel.rs`/`cart_panel.rs`/`watch_panel.rs`) — a pure
+  structural extraction, zero behavior change, that later debugger-depth rungs (`v1.8.0` onward)
+  plug new panels into. `lib.rs`'s stale "the deep debugger panels are still TODO stubs" doc
+  comment corrected (the panels have existed since `v0.8.0`; this rung gives them a real module).
+- **Memory panel** — the Watch panel (renamed "Memory/Watch" in the panel selector) gained a
+  read-only hex dump of a 512-byte window of WRAM/cart space (`DebugSnapshot::memory_window`,
+  read via the same non-intrusive `Bus::peek` the disassembler already uses; I/O register space
+  reads back as `00` rather than a live register value — `Bus::peek` intentionally doesn't model
+  registers, so this is a memory dump, not a register viewer). Fixed at `$7E0000` (WRAM bank 0)
+  by default — no UI scroll control yet (`EmuCore::set_debug_memory_scroll` exists for a future
+  one to call), the same honestly-tracked gap the existing VRAM viewer already carries. Write
+  support and a RAM-search tool are explicitly **not** included in this rung — deferred, not
+  overclaimed.
+
 ## [1.6.0] "Lighthouse" - 2026-07-11
 
 Second release of the RustyNES-parity roadmap.
