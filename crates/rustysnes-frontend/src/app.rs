@@ -1416,15 +1416,6 @@ impl App {
                             .add_filter("SNES ROM", &["sfc", "smc", "fig", "swc"])
                             .pick_file()
                         {
-                            // `v1.11.0 "Podium"`: unload any already-loaded game from `rc_client`
-                            // BEFORE the swap below, so it never evaluates a stale achievement
-                            // set against the incoming cart's different memory layout. A no-op
-                            // if nothing was loaded (first ROM this session, or RA unused).
-                            #[cfg(all(
-                                feature = "retroachievements",
-                                not(target_arch = "wasm32")
-                            ))]
-                            active.cheevos.unload_game();
                             let mut emu =
                                 active.core.lock().unwrap_or_else(PoisonError::into_inner);
                             active.shell.status = load_rom_file(&mut emu, &path);
@@ -1440,8 +1431,18 @@ impl App {
                             // `v1.11.0 "Podium"`: identify + load the new ROM's achievement set
                             // (a no-op if nobody is logged in — see `CheevosState::load_game`'s
                             // doc for why this call existing anywhere at all is the actual fix).
+                            // Found in review (#92): only touch RA when `load_rom_file` actually
+                            // replaced the running ROM -- `load_rom_file`'s one and only success
+                            // path returns a status starting with `"Loaded "`; every failure path
+                            // (a bad file, a rejected header) leaves the PREVIOUSLY-running ROM
+                            // untouched (`EmuCore::load_rom`'s own contract) and `emu.rom_loaded()`
+                            // would still read `true` for that still-running ROM, so gating on
+                            // `rom_loaded()` alone would wrongly unload-then-reload a game that
+                            // never actually changed, dropping achievement tracking for it during
+                            // the round trip.
                             #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
-                            if emu.rom_loaded() {
+                            if active.shell.status.starts_with("Loaded ") {
+                                active.cheevos.unload_game();
                                 active.cheevos.load_game(emu.rom());
                             }
                         }

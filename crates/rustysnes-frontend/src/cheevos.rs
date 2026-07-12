@@ -15,14 +15,15 @@
 //! slot's contents and updates `user`/`login_error` from the main thread.
 //!
 //! [`Self::load_game`]/[`Self::unload_game`] (`v1.11.0 "Podium"`) are called from `app.rs`'s
-//! `MenuAction::OpenRom`/`CloseRom` handlers — the two points a ROM's identity actually changes.
-//! **Known scope note**: a ROM loaded via the CLI at startup, followed by a *later* login through
-//! the Tools window, is not retroactively announced to `rc_client` (login happens after `Active`
-//! — and this ROM-change wiring — already ran once at startup). The common path (launch, log in,
-//! then open a ROM via the File menu) is unaffected; re-opening the same ROM after logging in
-//! works around the CLI case too. Not silently dropped — the fix needs [`Self::poll`] to also
-//! reach the currently-loaded ROM's bytes on a successful login, which needs an `EmuCore`
-//! reference threaded through a path that doesn't have one today; deferred to a follow-up.
+//! `MenuAction::OpenRom`/`CloseRom` handlers. **Known scope note**: a ROM can also be loaded at
+//! startup via the CLI (`App::on_gfx_ready`, before `Active` — and this wiring — exist yet), and
+//! that path is NOT wired to announce the ROM to `rc_client`; neither is a *later* login through
+//! the Tools window retroactively announcing whatever ROM happens to already be running. The
+//! common path (launch, log in, then open a ROM via the File menu) is unaffected; re-opening the
+//! same ROM after logging in works around both gaps. Not silently dropped — closing them needs
+//! [`Self::poll`] (the login-success path) and `App::on_gfx_ready` (the CLI-load path) to each
+//! reach the loaded ROM's bytes, which needs an `EmuCore` reference threaded through paths that
+//! don't have one today; deferred to a follow-up.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -102,8 +103,9 @@ impl CheevosState {
     /// every frame, but with no game ever identified/loaded into `rc_client`, there was no
     /// achievement set loaded to evaluate against, so achievements could never actually trigger
     /// despite every other piece (login, the per-frame hook, the unlock-toast plumbing) being
-    /// wired up. Call once per successful ROM load (`app.rs`'s `MenuAction::OpenRom` / the CLI
-    /// startup path); see [`Self::unload_game`] for the matching close.
+    /// wired up. Call once per successful ROM load (`app.rs`'s `MenuAction::OpenRom` — the CLI
+    /// startup path does NOT call this yet, see this module's own doc comment); see
+    /// [`Self::unload_game`] for the matching close.
     pub fn load_game(&mut self, rom: &[u8]) {
         let Some(client) = &mut self.client else {
             return;
