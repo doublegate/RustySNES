@@ -10,6 +10,15 @@
          inline SVG favicon (no extra HTTP request, no binary asset to keep in sync) instead of
          shipping no favicon at all. -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%23101014'/><text x='50' y='68' font-size='58' font-family='ui-monospace,monospace' font-weight='700' fill='%237c5cff' text-anchor='middle'>S</text></svg>" />
+    <!-- PWA/offline (`v1.6.0 "Lighthouse"`): a real icon.svg (the manifest spec doesn't reliably
+         support data-URI icons across installers) + the web manifest + the service-worker
+         registration below. `data-trunk rel="copy-file"` copies both static assets into `dist/`
+         unmodified so trunk doesn't need to understand their content. -->
+    <link rel="apple-touch-icon" href="icon.svg" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link data-trunk rel="copy-file" href="icon.svg" />
+    <link data-trunk rel="copy-file" href="manifest.webmanifest" />
+    <link data-trunk rel="copy-file" href="sw.js" />
     <style>
         html, body { margin: 0; height: 100%; background: #101014; color: #e0e0e0;
             font-family: system-ui, sans-serif; }
@@ -69,5 +78,17 @@
         &nbsp;·&nbsp;
         <a href="api/" target="_blank" rel="noopener noreferrer">API documentation</a>
     </p>
+    <script>
+        // Register after the initial paint so the service worker never delays first load;
+        // offline/repeat-visit support only, not a requirement for the first visit to work.
+        if ("serviceWorker" in navigator) {
+            window.addEventListener("load", () => {
+                navigator.serviceWorker.register("sw.js").catch(() => {
+                    // Best-effort: an install failure (e.g. served over plain HTTP locally)
+                    // should never break the demo itself.
+                });
+            });
+        }
+    </script>
 </body>
 </html>

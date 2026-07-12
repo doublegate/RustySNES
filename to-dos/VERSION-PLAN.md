@@ -936,7 +936,7 @@ squash-merge. `gemini-code-assist` hit its daily quota limit and did not review 
 not blocked on (quota resets are out of this project's control; the ceremony proceeds with
 whichever bots actually respond).
 
-### `v1.6.0 "Lighthouse"` — docs site, PWA, accuracy-ledger
+### `v1.6.0 "Lighthouse"` — docs site, PWA, accuracy-ledger — **IN PROGRESS**
 
 MkDocs handbook over the existing `docs/` tree; a combined `web.yml` replacing `pages.yml` (wasm
 demo at `/`, rustdoc at `/api/`, MkDocs at `/docs/`, a `<5MiB` gzip size-budget gate); a
@@ -944,6 +944,18 @@ demo at `/`, rustdoc at `/api/`, MkDocs at `/docs/`, a `<5MiB` gzip size-budget 
 extracting `docs/STATUS.md`'s "Accuracy dashboard"/"Named residuals" content into RustyNES's
 per-item disposition format. Standing practice from here on: every future release-closeout PR adds
 a docs page and updates the ledger if a disposition changed.
+
+- [x] `mkdocs.yml` (Material for MkDocs) over the existing `docs/` tree, curated nav.
+- [x] `.github/workflows/web.yml` replacing `pages.yml` — demo at `/`, rustdoc at `/api/`, MkDocs
+      at `/docs/`, `scripts/wasm_size_budget.sh` (`<5MiB` gzip) gating both PR and push.
+- [x] `manifest.webmanifest` + `icon.svg` + a stale-while-revalidate `sw.js` service worker for
+      the wasm demo, wired into `index.html`.
+- [x] `docs/accuracy-ledger.md` — every known residual mapped to a disposition; one item honestly
+      flagged as **not yet implemented** rather than overclaimed (a SNES-appropriate Holy-Mapperel
+      analog for the 3 unit-test-only coprocessor boards — no oracle-gated release scopes it yet).
+- [x] `docs/DOCUMENTATION_INDEX.md` refreshed (stale `v0.4.0` stamp, a dead `SALVAGE_MANIFEST.md`
+      link, a stale ADR count) and cross-linked to the new ledger + lockstep checklist.
+- [ ] `chore(release): v1.6.0 "Lighthouse"` closeout PR.
 
 ### `v1.7.0 "Telemetry"` / `v1.8.0 "Tracepoint"` — debugger foundation + depth
 

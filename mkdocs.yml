@@ -1,0 +1,106 @@
+# Material for MkDocs configuration for the RustySNES documentation site.
+#
+# This builds the /docs/ section of the combined GitHub Pages deployment at
+# https://doublegate.github.io/RustySNES/ (the site root is the playable wasm demo; /api/ is the
+# workspace rustdoc; /docs/ — built here — is this Material-themed handbook of the subsystem
+# specs, ADRs, and audit trail). `v1.6.0 "Lighthouse"`.
+#
+# The nav is CURATED: subsystem specs, ADRs, and audit reports that are genuinely useful reading
+# are linked; nothing here is duplicated content — `docs_dir` is the repo's existing `docs/` tree,
+# so the pages ARE the source-of-truth specs.
+site_name: RustySNES
+site_url: https://doublegate.github.io/RustySNES/docs/
+site_description: >-
+  Documentation for RustySNES — a cycle-accurate Super Nintendo / Super Famicom emulator written
+  in pure Rust, built to a Mesen2 / ares / higan accuracy bar.
+site_author: DoubleGate
+
+repo_url: https://github.com/doublegate/RustySNES
+repo_name: doublegate/RustySNES
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+
+# GitHub project Pages serve this repo under /RustySNES/, and this handbook is mounted at
+# /RustySNES/docs/. The site_url above carries that subpath, so Material emits correctly-prefixed
+# canonical and sitemap URLs.
+
+theme:
+  name: material
+  language: en
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tracking
+    - navigation.indexes
+    - toc.follow
+    - search.highlight
+    - search.suggest
+    - search.share
+    - content.code.copy
+    - content.action.edit
+    - content.tooltips
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: deep purple
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: deep purple
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+# Internal audit logs, per-phase ticket breakdowns, and other engineering-only material stay out
+# of the nav (still reachable by direct link/search) so the handbook stays a curated reading path
+# rather than a mirror of the whole `docs/` tree.
+not_in_nav: |
+  adr/
+  audit/
+
+nav:
+  - Home: DOCUMENTATION_INDEX.md
+  - Status & Accuracy:
+      - Dashboard: STATUS.md
+      - Accuracy Ledger: accuracy-ledger.md
+      - Testing Strategy: testing-strategy.md
+      - Compatibility: compatibility.md
+      - ROM Test Corpus: rom-test-corpus.md
+      - Benchmarks: benchmarks.md
+      - Performance: performance.md
+  - Subsystems:
+      - Architecture: architecture.md
+      - CPU (65C816): cpu.md
+      - PPU: ppu.md
+      - APU: apu.md
+      - Scheduler: scheduler.md
+      - Cartridge / Coprocessors: cart.md
+      - Cartridge Format: cartridge-format.md
+      - ST018 ARMv3 Notes: st018-arm-notes.md
+      - Frontend: frontend.md
+      - Libretro Core: libretro.md
+  - Reference:
+      - Glossary: glossary.md

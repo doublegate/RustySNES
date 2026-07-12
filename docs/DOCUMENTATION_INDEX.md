@@ -1,10 +1,12 @@
 # RustySNES Documentation Index
 
-**RustySNES version:** `v0.4.0 "Completion"`
+**RustySNES version:** `v1.5.0 "Bedrock"`
 
 This index maps the `docs/` tree for RustySNES — the cycle-accurate SNES/Super Famicom emulator.
 The single source of truth for accuracy pass counts, the coprocessor/board matrix, and version
-policy is [`STATUS.md`](STATUS.md).
+policy is [`STATUS.md`](STATUS.md). This page also serves as the home page of the Material for
+MkDocs handbook (`mkdocs.yml`, `v1.6.0 "Lighthouse"`) published at
+`https://doublegate.github.io/RustySNES/docs/`.
 
 ---
 
@@ -30,12 +32,14 @@ The core "spec" docs — kept in sync with the code in the same PR as a change (
 | Document | Topic |
 |----------|-------|
 | [STATUS.md](STATUS.md) | **Single source of truth** — the accuracy dashboard, per-suite pass counts, coprocessor/board matrix, version policy |
+| [accuracy-ledger.md](accuracy-ledger.md) | Every known approximation/divergence mapped to an explicit disposition (Remediated / No-stricter-oracle-available / Deferred / Out-of-scope) — the "why" companion to STATUS.md's pass-count dashboard (`v1.6.0`) |
 | [testing-strategy.md](testing-strategy.md) | The testing layers; test ROMs and golden framebuffers as the spec |
+| [rom-test-corpus.md](rom-test-corpus.md) | Which commercial/homebrew ROM would close each currently-open validation gap, and where (or whether) it's sourceable |
 | [performance.md](performance.md) | Performance targets and rules |
 | [benchmarks.md](benchmarks.md) | The reproducible benchmark record — actual measured numbers |
 | [compatibility.md](compatibility.md) | ROM-format + coprocessor + per-game compatibility status |
+| [libretro.md](libretro.md) | The `rustysnes-libretro` core — region-aware AV info, cheats, peripheral negotiation, firmware auto-resolution |
 | [glossary.md](glossary.md) | SNES hardware + emulation terminology |
-| [SALVAGE_MANIFEST.md](SALVAGE_MANIFEST.md) | What was salvaged from prior exploratory work vs. built fresh |
 
 ---
 
@@ -43,8 +47,8 @@ The core "spec" docs — kept in sync with the code in the same PR as a change (
 
 | Directory | Contents |
 |-----------|----------|
-| [adr/](adr/) | Architecture Decision Records (Michael Nygard format), `0001`–`0009` — the master-clock scheduler, the fractional-timebase-refactor deferral, the accuracy-tiering honesty gate, the determinism contract, the 65816 opcode-oracle license, the save-state format, the versioning/release-process adoption, ExLoROM's decode-formula sourcing, and ST018's detection + catch-up architecture. |
-| [audit/](audit/) | Decision-rationale / open-investigation audit reports — longer-form than an ADR, for capturing *why* an investigation is where it is (root-cause trail, ruled-out hypotheses). Currently: the SPC7110 boot-crash investigation. |
+| [adr/](adr/) | Architecture Decision Records (Michael Nygard format), `0001`–`0011` — the master-clock scheduler, the fractional-timebase-refactor deferral, the accuracy-tiering honesty gate, the determinism contract, the 65816 opcode-oracle license, the save-state format, the versioning/release-process adoption, ExLoROM's decode-formula sourcing, ST018's detection + catch-up architecture, the HD texture pack system, and CI branch-protection/`ci-success`. |
+| [audit/](audit/) | Decision-rationale / open-investigation audit reports — longer-form than an ADR, for capturing *why* an investigation is where it is (root-cause trail, ruled-out hypotheses). Currently: the SPC7110 boot-crash investigation, and the fractional-timebase refactor go/no-go. |
 
 ## Related, outside `docs/`
 
@@ -52,8 +56,9 @@ The core "spec" docs — kept in sync with the code in the same PR as a change (
 |----------|----------|
 | [`../ref-docs/`](../ref-docs/) | Immutable primary research (never rewritten in place — corrections land as new dated supplemental files): the master research report, and per-subsystem PPU/APU/coprocessor research notes. |
 | [`../ref-proj/`](../ref-proj/) | Gitignored study clones of reference emulators (ares, bsnes, Mesen2) — read for hardware behavior and board/timing data, never copied wholesale. |
-| [`../to-dos/ROADMAP.md`](../to-dos/ROADMAP.md) | The phase spine (Phase 0 foundation → Phase 8 Reach) — the planning entry point. |
-| [`../to-dos/VERSION-PLAN.md`](../to-dos/VERSION-PLAN.md) | The concrete `v0.x.0` → `v1.0.0` release ladder, mapping the phase spine onto named, tagged releases. |
+| [`../to-dos/ROADMAP.md`](../to-dos/ROADMAP.md) | The phase spine (Phase 0 foundation → Phase 8 Reach, all complete) plus the ongoing RustyNES-parity ladder (`v1.5.0` onward) — the planning entry point. |
+| [`../to-dos/VERSION-PLAN.md`](../to-dos/VERSION-PLAN.md) | The concrete `v0.x.0` → `v1.4.0` release ladder that reached production, and the `v1.5.0`-`v1.19.0` RustyNES-parity ladder now in progress. |
+| [`../to-dos/LOCKSTEP-CHECKLIST.md`](../to-dos/LOCKSTEP-CHECKLIST.md) | The process for re-checking RustyNES's own continuing development before scoping each rung of the parity ladder. |
 | [`../to-dos/phase-*/`](../to-dos) | Per-phase ticket breakdowns and sprint notes. |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | Release history — the annotated git tag body for each release is sourced from this file's dated sections. |
 

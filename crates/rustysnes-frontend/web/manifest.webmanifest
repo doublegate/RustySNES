@@ -1,0 +1,19 @@
+{
+  "name": "RustySNES",
+  "short_name": "RustySNES",
+  "description": "A cycle-accurate Super Nintendo / Super Famicom emulator, running live in your browser via WebAssembly.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#101014",
+  "theme_color": "#7c5cff",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
