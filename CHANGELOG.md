@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] "Tracepoint" - 2026-07-12
+
+Fourth release of the RustyNES-parity roadmap: debugger depth II.
+
 ### Added
 
 - **Memory Compare panel** — captures a baseline snapshot of the Memory panel's current window
