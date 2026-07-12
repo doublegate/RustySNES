@@ -79,16 +79,53 @@ is a one-line delegation — zero behavior change, verified by the unchanged fro
 plus the `no_std` CI job (the acid test that the new `#[cfg(feature = "std")]` gate on the facade
 module actually vanishes it from the `thumbv7em` build).
 
-## Theme (`v1.0.0`)
+## Theme (`v1.0.0`; two accessibility variants in `v1.13.0 "Vantage"`)
 
-`config.theme` (`crate::config::AppTheme`: `Light` / `Dark` (default) / `System`) selects the
-egui `Visuals` for the whole shell (menu bar, status bar, all windows), set via Settings → System.
-`ui_shell::apply_theme` performs the actual `ctx.set_visuals` call; `System` reads
-`egui::Context::system_theme()` and falls back to `Dark` when the windowing system reports none.
-`Active::applied_theme` tracks what's currently live so `App::render` only re-themes on an actual
-change (the same guard `applied_present_mode` already uses for the Settings → Video present-mode
-toggle), applied once explicitly at `egui::Context` construction time so the configured theme is
-live from the very first frame, not just after the user opens Settings.
+`config.theme` (`crate::config::AppTheme`: `Light` / `Dark` (default) / `System` / `HighContrast`
+/ `Colorblind`) selects the egui `Visuals` for the whole shell (menu bar, status bar, all
+windows), set via Settings → System. `ui_shell::apply_theme` performs the actual
+`ctx.set_visuals` call; `System` reads `egui::Context::system_theme()` and falls back to `Dark`
+when the windowing system reports none. `Active::applied_theme` tracks what's currently live so
+`App::render` only re-themes on an actual change (the same guard `applied_present_mode` already
+uses for the Settings → Video present-mode toggle), applied once explicitly at `egui::Context`
+construction time so the configured theme is live from the very first frame, not just after the
+user opens Settings.
+
+`v1.13.0` adds two accessibility-oriented variants, both additive (appended after the original
+three so an existing `config.toml` keeps deserializing unchanged, matching every prior additive
+enum growth in this project):
+
+- **`AppTheme::HighContrast`** (`ui_shell::high_contrast_visuals`) — starts from the stock dark
+  theme and pushes every foreground/background pair to the extremes (near-black backgrounds,
+  near-white text, a bright cyan selection accent, thicker opaque widget strokes), clearing WCAG
+  2.1 AA (4.5:1) — most clear AAA (7:1) — for normal-size text.
+- **`AppTheme::Colorblind`** (`ui_shell::colorblind_visuals`) — the stock dark theme with its
+  interactive accents (selection, hover, hyperlinks) swapped to the Okabe-Ito palette, chosen to
+  stay mutually distinguishable under the most common (red-green) forms of color-vision
+  deficiency.
+
+Both are regression-tested (`ui_shell::tests::high_contrast_visuals_diverges_from_stock_dark`,
+`...colorblind_visuals_diverges_from_stock_dark_and_uses_okabe_ito`,
+`...apply_theme_handles_every_variant`) rather than only visually spot-checked — a builder that
+forgot to override any `Visuals` field would otherwise silently ship a theme indistinguishable
+from `Dark`.
+
+**Keyboard-only navigation — honestly scoped as a checklist, not a code change this release.**
+`v1.13.0`'s originally-planned "keyboard-only-navigation audit across every UI surface added
+since `v1.7.0`" was investigated and found to be a poor fit for a single crisp code change: this
+project has no custom focus/tab-order management anywhere in `ui_shell.rs` — every panel and
+window relies entirely on egui's own default `Tab`/`Shift+Tab` traversal, which is neither
+broken nor specifically hardened here. What actually exists today: the global hotkey table
+(`app.rs`'s `KeyboardInput` handler) is correctly suppressed while an egui widget holds keyboard
+focus (`egui::Context::egui_wants_keyboard_input`, see "Global hotkeys" below), so typing in a
+text field never double-fires a hotkey — but no one has walked every window/panel added across
+`v1.7.0`-`v1.12.0` (the debugger's CPU/PPU/APU/coprocessor/trace/memory-compare/docs panels, the
+Settings tabs, the HD-pack pack selector, the RetroAchievements/netplay/cheats windows) confirming
+egui's default Tab order visits every interactive control in a sane sequence, or that no widget
+is keyboard-unreachable. **Deferred, not silently dropped**: this is real accessibility work worth
+doing, but it is a manual-walkthrough audit task, not a bug with a discrete fix — tracking it here
+as an explicit open item rather than converting it into a hollow "audit passed" claim with no
+teeth.
 
 ## Presentation post-filters (`v1.2.0`; a third filter + a shader-source crate extraction in `v1.12.0 "Refraction"`)
 
@@ -479,6 +516,26 @@ natural home in the existing P1 gamepad auto-bind).
   by `rewind.rs`'s tests, which hand-assemble a tiny 65C816 program (NMI-driven WRAM counter →
   CGRAM backdrop write) to get a real, observable per-frame state signal rather than asserting
   against a synthetic fingerprint.
+- **`FORMAT_VERSION` versioning is intentionally fail-loud, not migrating — `v1.13.0` correction,
+  not new work.** `to-dos/VERSION-PLAN.md`'s original `v1.13.0` plan text asked for "a save-state
+  versioned-migration regression fixture... the one real save-state gap found." Investigating it
+  found the premise itself was stale: `System::load_state`
+  (`crates/rustysnes-core/src/scheduler.rs`'s `FORMAT_VERSION` doc) only ever rejects a blob
+  *newer* than it supports — it was never designed to gracefully load an *older*-format blob, by
+  deliberate choice recorded in that doc comment since the `2` and `3` bumps. A regression fixture
+  proving exactly this behavior ALREADY exists
+  (`crates/rustysnes-test-harness/tests/save_state_backward_compat.rs`'s
+  `old_format_version_blob_fails_loudly_not_silently`, against a genuine captured
+  `FORMAT_VERSION = 1` blob) and has existed since `v0.7.0`. So there was no gap to close: the
+  "one real save-state gap" was already both intentionally designed-around and regression-tested
+  before
+  `v1.13.0` started. Building an actual graceful-migration path (translating an old envelope's
+  section layout forward) was considered and explicitly rejected — it would add real complexity to
+  a determinism-critical serialization boundary for a feature nobody has asked for, in exchange for
+  a save-format promise ("your old save always loads") this project has never made. The 10-slot/
+  thumbnail Save States manager above is already at full parity with RustyNES's own UI; this was
+  the only outstanding save-state item, and it's now closed as verified-non-issue rather than
+  carried forward as a phantom TODO.
 
 ## wasm
 

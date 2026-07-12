@@ -46,7 +46,14 @@ pub enum PeripheralKind {
 }
 
 /// egui visual theme for the desktop UX shell (menu bar, status bar, windows) — `v1.0.0` desktop
-/// UX shell maturity.
+/// UX shell maturity; `v1.13.0 "Vantage"` adds two accessibility-oriented variants.
+///
+/// [`AppTheme::HighContrast`] and [`AppTheme::Colorblind`] are appended after the original three
+/// (not inserted between them) purely for readability — an existing `config.toml` storing
+/// `"light"`/`"dark"`/`"system"` was already safe to grow additively regardless of variant order,
+/// since `#[serde(rename_all = "lowercase")]` tags each variant by its STRING name, not its
+/// discriminant position; this matches every other `PostFilter`/theme-shaped enum growth in this
+/// project.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AppTheme {
@@ -58,6 +65,15 @@ pub enum AppTheme {
     /// Follow the OS theme when the windowing system reports one (falls back to
     /// [`AppTheme::Dark`] when unknown — `egui::Context::system_theme`).
     System,
+    /// High-contrast dark theme for low-vision accessibility: near-black backgrounds, near-white
+    /// text, and a bright cyan selection accent, with every foreground/background pair pushed
+    /// past the WCAG 2.1 AA (4.5:1) contrast ratio — most clear AAA (7:1) — for normal-size text.
+    #[serde(rename = "high-contrast")]
+    HighContrast,
+    /// Colorblind-safe dark theme whose interactive accents (selection, hover, hyperlinks) are
+    /// drawn from the Okabe-Ito palette, chosen to stay mutually distinguishable under the most
+    /// common (red-green) forms of color-vision deficiency.
+    Colorblind,
 }
 
 impl AppTheme {
@@ -68,14 +84,22 @@ impl AppTheme {
             Self::Light => "Light",
             Self::Dark => "Dark",
             Self::System => "System",
+            Self::HighContrast => "High Contrast",
+            Self::Colorblind => "Colorblind-Safe",
         }
     }
 
     /// All themes in display order — the single source of truth the Settings radio row iterates,
     /// so it can never drift out of sync with the enum.
     #[must_use]
-    pub const fn all() -> [Self; 3] {
-        [Self::Light, Self::Dark, Self::System]
+    pub const fn all() -> [Self; 5] {
+        [
+            Self::Light,
+            Self::Dark,
+            Self::System,
+            Self::HighContrast,
+            Self::Colorblind,
+        ]
     }
 }
 

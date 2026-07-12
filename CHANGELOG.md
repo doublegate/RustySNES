@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Two accessibility theme variants** (`v1.13.0 "Vantage"`): `AppTheme::HighContrast` (a
+  near-black/near-white theme pushing every foreground/background pair past WCAG 2.1 AA, most
+  past AAA) and `AppTheme::Colorblind` (interactive accents drawn from the Okabe-Ito palette,
+  mutually distinguishable under the most common red-green color-vision deficiencies), both
+  additive after the original `Light`/`Dark`/`System` trio and both regression-tested against the
+  stock dark theme so a builder that forgot to override a `Visuals` field can't silently ship an
+  indistinguishable theme.
+
+### Deferred (honestly scoped, not silently dropped)
+
+- A keyboard-only-navigation audit across every UI surface added since `v1.7.0` was investigated
+  and found to be a manual-walkthrough task, not a discrete code fix (egui's own default Tab
+  order is used everywhere; nothing here is broken, but nothing has been walked and confirmed
+  either) — tracked as an open item in `docs/frontend.md`'s Theme section rather than converted
+  into a hollow "audit passed" claim.
+
+### Corrected (a stale plan premise, not new work)
+
+- `to-dos/VERSION-PLAN.md`'s `v1.13.0` entry described "a save-state versioned-migration
+  regression fixture" as "the one real save-state gap found." Investigating it found the premise
+  was stale: `System::load_state` was always designed to fail loudly on an older-format blob, by
+  deliberate choice recorded since the `FORMAT_VERSION` `2`/`3` bumps — never to gracefully
+  migrate one — and a regression fixture proving exactly that behavior
+  (`save_state_backward_compat.rs`'s `old_format_version_blob_fails_loudly_not_silently`) has
+  existed since `v0.7.0`. No code changed here; this closes the item as verified-non-issue. See
+  `docs/frontend.md`'s "Save-states, rewind, run-ahead" section for the full explanation.
+
 ## [1.12.0] "Refraction" - 2026-07-12
 
 Eighth release of the RustyNES-parity roadmap: a third post-filter, and a shader-source crate
