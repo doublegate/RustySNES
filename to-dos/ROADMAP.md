@@ -342,6 +342,17 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   (`v1.14.0`-`v1.18.0`) — and a PGO/BOLT pipeline last (`v1.19.0`). Tracked in lockstep against
   RustyNES's own continuing development via `to-dos/LOCKSTEP-CHECKLIST.md`, not a frozen
   snapshot target. Full detail in `to-dos/VERSION-PLAN.md`'s "RustyNES-parity ladder" section.
+- **Flagged by the 2026-07-12 lockstep re-check — no rung assigned yet, maintainer go/no-go
+  needed.** RustyNES shipped two items since the roadmap's `v2.1.5` baseline that RustySNES's own
+  ladder doesn't currently account for: (1) a **GIF/WAV screen+audio capture subsystem**
+  (RustyNES `v2.1.9`) — a genuinely new feature category, not incremental growth of anything
+  already planned; and (2) **CRT shader-preset depth** — RustyNES ported 3 marquee libretro-slang
+  presets (CRT-Royale, guest-advanced, Sony Megatron) against RustySNES's own single
+  scanline+aperture-mask `Crt` filter (plus the new `Xbrz` filter, `v1.12.0`). Neither is urgent
+  (RustySNES's existing presentation pipeline is fully functional), so neither is silently folded
+  into an already-scoped rung — see `to-dos/LOCKSTEP-CHECKLIST.md`'s 2026-07-12 log row for the
+  full disposition, including two other RustyNES additions (a SIMD blitter/wasm-size pass, a
+  browser RA + Vs. DualSystem libretro pairing) judged small-catch-up or correctly out of scope.
 - **Further beyond — the fractional-timebase refactor (`docs/adr/0002`).** Assessed in `v1.1.0`
   and found **not currently warranted** — every named accuracy residual is answerable within the
   existing whole-master-clock-tick model (`docs/audit/fractional-timebase-go-no-go-2026-07-11.md`).
