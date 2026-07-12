@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1254 1254">
+  <defs>
+    <radialGradient id="bgGlow" cx="50%" cy="46%" r="65%">
+      <stop offset="0%" stop-color="#0d1230"/>
+      <stop offset="100%" stop-color="#04050f"/>
+    </radialGradient>
+    <linearGradient id="shellGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4a4a62"/>
+      <stop offset="50%" stop-color="#33334a"/>
+      <stop offset="100%" stop-color="#222235"/>
+    </linearGradient>
+    <linearGradient id="ribGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#57577a"/>
+      <stop offset="100%" stop-color="#3a3a54"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="glowTrace" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="7" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1254" height="1254" fill="url(#bgGlow)"/>
+
+  <!-- bold, minimal circuit stubs -->
+  <g filter="url(#glowTrace)">
+    <g stroke="#22d3ee" stroke-width="18" fill="none" stroke-linecap="round">
+      <path d="M137 500 H30"/>
+      <path d="M137 760 H30"/>
+      <path d="M1117 500 H1224"/>
+      <path d="M1117 760 H1224"/>
+    </g>
+    <g fill="#fb2ee0">
+      <circle cx="20" cy="500" r="20"/>
+      <circle cx="20" cy="760" r="20"/>
+      <circle cx="1234" cy="500" r="20"/>
+      <circle cx="1234" cy="760" r="20"/>
+    </g>
+  </g>
+
+  <!-- SNES cartridge -->
+  <g filter="url(#glow)">
+    <rect x="137" y="310" width="980" height="640" rx="26" fill="url(#shellGrad)" stroke="#22d3ee" stroke-width="16"/>
+  </g>
+
+  <g fill="url(#ribGrad)">
+    <rect x="164" y="336" width="22" height="588" rx="10"/>
+    <rect x="196" y="336" width="22" height="588" rx="10"/>
+    <rect x="1036" y="336" width="22" height="588" rx="10"/>
+    <rect x="1068" y="336" width="22" height="588" rx="10"/>
+  </g>
+
+  <!-- label window -->
+  <rect x="317" y="360" width="620" height="380" rx="14" fill="#0d0d18"/>
+  <rect x="317" y="360" width="620" height="52" rx="14" fill="#c026d3"/>
+  <rect x="317" y="398" width="620" height="14" fill="#c026d3"/>
+
+  <!-- RS monogram -->
+  <g font-family="'Press Start 2P'" font-size="196" text-anchor="middle">
+    <text x="497" y="642" fill="#22d3ee">R</text>
+    <text x="700" y="702" fill="#fb2ee0">S</text>
+  </g>
+
+  <!-- grip notch + rivets -->
+  <rect x="477" y="795" width="300" height="80" rx="16" fill="#0d0d18"/>
+  <circle cx="360" cy="880" r="22" fill="#14141f" stroke="#57577a" stroke-width="7"/>
+  <circle cx="894" cy="880" r="22" fill="#14141f" stroke="#57577a" stroke-width="7"/>
+</svg>

@@ -3,7 +3,9 @@
 
 # RustySNES
 
-**A cycle-accurate Super Nintendo / Super Famicom emulator in Rust.**
+<img src="images/RustySNES_Logo-Icon.png" alt="RustySNES Logo Icon" width="150">
+
+> **Precise. Pure. Powerful.**
 
 </div>
 

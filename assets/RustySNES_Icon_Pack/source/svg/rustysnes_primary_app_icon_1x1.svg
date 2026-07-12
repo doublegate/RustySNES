@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1254 1254">
+  <defs>
+    <radialGradient id="bgGlow" cx="50%" cy="46%" r="65%">
+      <stop offset="0%" stop-color="#0d1230"/>
+      <stop offset="100%" stop-color="#04050f"/>
+    </radialGradient>
+    <linearGradient id="shellGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4a4a62"/>
+      <stop offset="50%" stop-color="#33334a"/>
+      <stop offset="100%" stop-color="#222235"/>
+    </linearGradient>
+    <linearGradient id="ribGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#57577a"/>
+      <stop offset="100%" stop-color="#3a3a54"/>
+    </linearGradient>
+    <linearGradient id="labelGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#191927"/>
+      <stop offset="100%" stop-color="#0d0d18"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="11" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="glowSoft" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="glowTrace" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="7" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1254" height="1254" fill="url(#bgGlow)"/>
+
+  <!-- bold circuit traces: left -->
+  <g filter="url(#glowTrace)">
+    <g stroke="#22d3ee" stroke-width="12" fill="none" stroke-linecap="round">
+      <path d="M137 420 H60 L60 340"/>
+      <path d="M137 520 H20"/>
+      <path d="M137 640 H80 L80 720 L40 760"/>
+      <path d="M137 830 H60 L60 900"/>
+    </g>
+    <g fill="#22d3ee">
+      <circle cx="20" cy="520" r="12"/>
+    </g>
+    <g fill="#fb2ee0">
+      <rect x="47" y="327" width="26" height="26" transform="rotate(45 60 340)"/>
+      <rect x="27" y="747" width="26" height="26" transform="rotate(45 40 760)"/>
+      <rect x="47" y="887" width="26" height="26" transform="rotate(45 60 900)"/>
+    </g>
+  </g>
+
+  <!-- bold circuit traces: right (mirrored) -->
+  <g filter="url(#glowTrace)">
+    <g stroke="#22d3ee" stroke-width="12" fill="none" stroke-linecap="round">
+      <path d="M1117 420 H1194 L1194 340"/>
+      <path d="M1117 520 H1234"/>
+      <path d="M1117 640 H1174 L1174 720 L1214 760"/>
+      <path d="M1117 830 H1194 L1194 900"/>
+    </g>
+    <g fill="#22d3ee">
+      <circle cx="1234" cy="520" r="12"/>
+    </g>
+    <g fill="#fb2ee0">
+      <rect x="1181" y="327" width="26" height="26" transform="rotate(45 1194 340)"/>
+      <rect x="1201" y="747" width="26" height="26" transform="rotate(45 1214 760)"/>
+      <rect x="1181" y="887" width="26" height="26" transform="rotate(45 1194 900)"/>
+    </g>
+  </g>
+
+  <!-- ===== SNES cartridge (landscape, gray shell + side rib fins) ===== -->
+  <g filter="url(#glow)">
+    <rect x="137" y="310" width="980" height="640" rx="26" fill="url(#shellGrad)" stroke="#22d3ee" stroke-width="8"/>
+  </g>
+
+  <!-- left rib-fin zone -->
+  <g fill="url(#ribGrad)" stroke="#15152488" stroke-width="2">
+    <rect x="160" y="336" width="15" height="588" rx="7"/>
+    <rect x="184" y="336" width="15" height="588" rx="7"/>
+    <rect x="208" y="336" width="15" height="588" rx="7"/>
+    <rect x="232" y="336" width="15" height="588" rx="7"/>
+  </g>
+  <!-- right rib-fin zone (mirrored) -->
+  <g fill="url(#ribGrad)" stroke="#15152488" stroke-width="2">
+    <rect x="1079" y="336" width="15" height="588" rx="7"/>
+    <rect x="1055" y="336" width="15" height="588" rx="7"/>
+    <rect x="1031" y="336" width="15" height="588" rx="7"/>
+    <rect x="1007" y="336" width="15" height="588" rx="7"/>
+  </g>
+
+  <!-- label window -->
+  <rect x="317" y="360" width="620" height="380" rx="14" fill="url(#labelGrad)" stroke="#46466a" stroke-width="5"/>
+  <!-- label top accent bar (echoes the classic Nintendo-published purple header strip) -->
+  <rect x="317" y="360" width="620" height="46" rx="14" fill="#c026d3"/>
+  <rect x="317" y="392" width="620" height="14" fill="#c026d3"/>
+
+  <!-- RS monogram -->
+  <g font-family="'Press Start 2P'" font-size="192" text-anchor="middle">
+    <text x="497" y="640" fill="#22d3ee" filter="url(#glowSoft)">R</text>
+    <text x="700" y="700" fill="#fb2ee0" filter="url(#glowSoft)">S</text>
+  </g>
+
+  <!-- lower shell + grip notch + rivets -->
+  <path d="M 497 795
+           L 757 795
+           Q 777 795 777 815
+           L 777 850
+           Q 777 875 752 875
+           L 502 875
+           Q 477 875 477 850
+           L 477 815
+           Q 477 795 497 795 Z"
+        fill="#191927" stroke="#0d0d18" stroke-width="4"/>
+  <circle cx="360" cy="880" r="20" fill="#14141f" stroke="#4a4a62" stroke-width="5"/>
+  <circle cx="894" cy="880" r="20" fill="#14141f" stroke="#4a4a62" stroke-width="5"/>
+</svg>
