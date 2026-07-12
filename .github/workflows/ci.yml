@@ -98,14 +98,19 @@ jobs:
           components: rustfmt, clippy
           linux-frontend-deps: "true"
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      # `--exclude rustysnes-android` (`v1.15.0 "Sideload"`): that crate's `ndk-sys` dependency
+      # hard-fails (`compile_error!`) on every non-Android target, unconditionally -- it's not
+      # feature-gated, so no `--features`/`--no-default-features` combination avoids it. Its own
+      # cross-compiled CI coverage is `android.yml`'s job (a later rung), not this host-target
+      # workspace gate.
+      - run: cargo clippy --workspace --exclude rustysnes-android --all-targets -- -D warnings
       # Explicit flags-off byte-identical gate (`v0.8.0` T-81-004): `default` is currently
       # exactly `["wasm-winit", "help-tui"]`, so this is redundant with the line above TODAY —
       # its value is as a named regression guard. If a future change ever folds `debug-hooks`/
       # `scripting`/`cheats`/`emu-thread` into `default` without updating this line too, this still
       # locks a true flags-off build/lint as its own explicit, protected CI step, independent of
       # whatever `default` becomes.
-      - run: cargo clippy --workspace --all-targets --no-default-features --features wasm-winit,help-tui -- -D warnings
+      - run: cargo clippy --workspace --exclude rustysnes-android --all-targets --no-default-features --features wasm-winit,help-tui -- -D warnings
       # Per-feature-combo clippy (`v0.8.0` T-81-004, extended `v0.9.0` T-82-004) — each Phase 8
       # `rustysnes-frontend` flag individually, then combined; NEVER `--all-features` (the
       # workspace-wide rule — `wasm-winit`/`wasm-canvas` are mutually exclusive, so an
@@ -135,7 +140,9 @@ jobs:
       - run: cargo build -p rustysnes-libretro
       # Cheap locally (~4s) so it belongs on every PR, not just tag pushes -- catches broken
       # intra-doc links and rustdoc-specific warnings clippy's own lints don't cover.
-      - run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+      # `--exclude rustysnes-android`: see the clippy step above -- `cargo doc` still compiles the
+      # crate, so it hits the same `ndk-sys` host-target failure.
+      - run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --exclude rustysnes-android --no-deps
 
   # v1.5.0 "Bedrock": the actual gap this release closes. Previously `cargo test --workspace` ran
   # ONLY on a tagged release (`full-test` below) — every PR/push-to-main merged on `lint`'s
@@ -155,7 +162,8 @@ jobs:
         with:
           cache-key-suffix: test-light
           linux-frontend-deps: "true"
-      - run: cargo test --workspace
+      # `--exclude rustysnes-android`: see `lint`'s own clippy step comment above.
+      - run: cargo test --workspace --exclude rustysnes-android
 
   # Full gate: release-tag pushes, a push to `main`, the weekly cron, or a manual dispatch — see
   # `setup` above. The complete verification battery — the 3-OS matrix, both test invocations, and
@@ -182,9 +190,10 @@ jobs:
       # Formatting is platform-independent (pure source-text parsing) — one leg is enough.
       - run: cargo fmt --all --check
         if: runner.os == 'Linux'
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
-      - run: cargo test --workspace --features test-roms
+      # `--exclude rustysnes-android`: see `lint`'s own clippy step comment above.
+      - run: cargo clippy --workspace --exclude rustysnes-android --all-targets -- -D warnings
+      - run: cargo test --workspace --exclude rustysnes-android
+      - run: cargo test --workspace --exclude rustysnes-android --features test-roms
       # Exhaustive behavioral coverage (not just clippy) of every Phase 8 flag together, ahead of
       # a tagged release (`v0.8.0` T-81-004, extended `v0.9.0` T-82-004). Linux-only, matching
       # `lint`'s per-combo clippy: `scripting` vendors and compiles Lua 5.4 via `mlua`'s C source,
@@ -200,7 +209,7 @@ jobs:
       # own comment).
       - run: cargo test -p rustysnes-frontend --features emu-thread,netplay
         if: runner.os == 'Linux'
-      - run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+      - run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --exclude rustysnes-android --no-deps
         if: runner.os == 'Linux'
 
   # Full-gate cadence only (see `setup` above) — cross-compiling the whole chip stack is cheap but
