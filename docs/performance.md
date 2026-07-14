@@ -53,6 +53,24 @@ Per `ref-docs/research-report.md` §§1–5, the per-cycle cost is dominated by:
   runners vary by tens of percent run-to-run, so a percentage gate would flake; use local
   Criterion `--save-baseline`/`--baseline` comparisons (the script's own header comment) for a
   tighter before/after read.
+- **Landed (`v1.19.0 "Afterburner"`):** an optional PGO/BOLT pipeline for the shipping `rustysnes`
+  binary — `scripts/pgo/run.sh` (instrument → train against the committed permissive ROM corpus
+  via `crates/rustysnes-test-harness/src/bin/pgo_trainer.rs` → optimized rebuild) plus
+  `.github/workflows/pgo.yml` (`workflow_dispatch` + release-tag push; **never on the PR gate** —
+  an instrument+train+rebuild cycle is far too slow for that). Promotion requires **both**: a
+  measured `> 3%` `headless_frame_steady_state` Criterion speedup over the plain release build on
+  the same runner, **and** a byte-identical re-run of the full `--features test-roms` oracle under
+  the PGO-merged profile (cites `docs/adr/0004`'s determinism contract — PGO changes inlining/code
+  layout, never proves correctness by assertion). An optional Linux-only BOLT post-link stage
+  chains onto an already-promoted PGO binary, best-effort (skips cleanly if `llvm-bolt` is
+  unavailable on the runner). Verified for real in this development environment: the full
+  instrument → train (60 frames × the 5-ROM committed corpus) → optimized-rebuild pipeline
+  produces a genuine, running `rustysnes` binary, and `cargo pgo optimize test -- --workspace
+  --release --features test-roms` (scoped to `rustysnes-test-harness` locally) passes cleanly
+  under the PGO-merged profile — but the A/B speedup on that short local run did **not** clear the
+  `>3%` bar (a `headless_frame_steady_state` mean of ~3.65 ms either way), so promotion is
+  correctly gated off locally; whether CI's real `3600`-frame training run clears the bar on a
+  release tag is left to `pgo.yml`'s own gate to decide honestly, not asserted here.
 
 ## Open questions
 
