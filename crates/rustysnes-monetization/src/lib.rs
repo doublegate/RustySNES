@@ -26,7 +26,7 @@
 
 uniffi::setup_scaffolding!();
 
-/// Whether the user currently has the paid unlock, and why.
+/// Whether the user currently has the paid unlock.
 #[derive(uniffi::Record, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Entitlement {
     /// `true` if paid features should be unlocked.

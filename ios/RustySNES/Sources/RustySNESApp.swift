@@ -27,7 +27,10 @@ struct RustySNESApp: App {
 /// `docs/mobile-readiness.md` "Mobile Phase 6" store-launch decision. Mirrors
 /// `MainActivity.kt`'s `logMonetizationScaffold` exactly.
 private func logMonetizationScaffold() {
-    let nowUnixSecs = UInt64(Date().timeIntervalSince1970)
+    // `max(0.0, ...)` (found in review): a negative `timeIntervalSince1970` (device clock set
+    // before 1970) would otherwise trap on the `UInt64` cast, crashing the app at startup over a
+    // log-only scaffold call.
+    let nowUnixSecs = UInt64(max(0.0, Date().timeIntervalSince1970))
     let entitlement = checkEntitlement(nowUnixSecs: nowUnixSecs)
     let pacing = defaultAdPacingPolicy()
     print(
