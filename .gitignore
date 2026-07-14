@@ -181,6 +181,7 @@ android/app/src/main/jniLibs/
 # never-commit-generated-bindings convention.
 ios/Frameworks/
 ios/RustySNES/Sources/Generated-RustysnesMobile.swift
+ios/RustySNES/Sources/Generated-RustysnesMonetization.swift
 ios/RustySNES.xcodeproj/
 ios/build/
 *.ipa

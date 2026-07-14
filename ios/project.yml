@@ -29,7 +29,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.doublegate.rustysnes
         PRODUCT_NAME: RustySNES
-        MARKETING_VERSION: "1.17.0"
+        MARKETING_VERSION: "1.18.0"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_OBJC_BRIDGING_HEADER: RustySNES/Bridging-Header.h
         SWIFT_VERSION: "5.0"
@@ -41,7 +41,14 @@ targets:
       # `embed: false` for both -- these wrap `staticlib` (`.a`) slices, not dynamic libraries;
       # Xcode links them directly into the app binary rather than copying/code-signing them as
       # separate embedded bundles (which is only meaningful for dynamic frameworks).
-      - framework: Frameworks/RustysnesMobileFFI.xcframework
+      #
+      # `RustysnesFFI.xcframework` combines rustysnes-mobile + rustysnes-monetization (`v1.18.0
+      # "Dormant"`) -- found on a real macOS CI run: xcodebuild copies every "library"+`-headers`
+      # xcframework's headers into one directory shared across the whole target, and two separate
+      # per-crate xcframeworks each contributing a same-named `module.modulemap` there is a real
+      # "Multiple commands produce" build failure, not a hypothetical one. See
+      # `scripts/build-ios-xcframework.sh`'s own comment for the full story.
+      - framework: Frameworks/RustysnesFFI.xcframework
         embed: false
       - framework: Frameworks/RustysnesIOS.xcframework
         embed: false

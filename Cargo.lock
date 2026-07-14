@@ -3842,6 +3842,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustysnes-monetization"
+version = "1.17.0"
+dependencies = [
+ "uniffi",
+]
+
+[[package]]
 name = "rustysnes-netplay"
 version = "1.17.0"
 dependencies = [

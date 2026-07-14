@@ -11,6 +11,7 @@ members = [
     "crates/rustysnes-ios",
     "crates/rustysnes-gfx-shaders",
     "crates/rustysnes-mobile",
+    "crates/rustysnes-monetization",
     "crates/rustysnes-netplay",
     "crates/rustysnes-cheevos",
     "crates/rustysnes-script",

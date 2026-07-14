@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`rustysnes-monetization`** (Mobile Phase 5): a new, standalone UniFFI crate providing a
+  dormant entitlement/ad-pacing policy scaffold — `check_entitlement`, `default_ad_pacing_policy`,
+  `should_show_ad`. **Never a dependency of the deterministic core** (no `rustysnes-core`/`-cpu`/
+  `-ppu`/`-apu`/`-cart` dependency in either direction) and, unlike RustyNES's own already-shipped
+  module, every concrete pricing/pacing number here is an explicit placeholder default, not a
+  committed figure — the real store-launch decision stays with `docs/mobile-readiness.md`'s
+  standing "Mobile Phase 6" gate. Pure functions only, host-injected `now_unix_secs` timestamps
+  (matching `docs/adr/0004`'s determinism-discipline convention), 5 unit tests covering the
+  ad-pacing session/interval/clock-rollback logic.
+- **Wired into both mobile shells as an inert dependency**: compiled in, called once at startup,
+  logged only, no real store SDK calls, no paywall/UI shown. **Verified for real on Android**:
+  rebuilt via a real Gradle build (native `.so` cross-compiled for both ABIs via `cargo ndk`, a
+  second, separate `uniffiBindgen`-style task generating this crate's own Kotlin bindings
+  alongside `rustysnes-mobile`'s existing ones), installed on the real AVD, launched, and confirmed
+  via `logcat`: `monetization scaffold (dormant): unlocked=true minIntervalSecs=300
+  sessionsBeforeFirstAd=3`, with the app remaining alive with no crash afterward. **iOS**:
+  `scripts/build-ios-xcframework.sh` gained a third crate to build/package, merged with
+  `rustysnes-mobile` into one combined `RustysnesFFI.xcframework` (a real macOS CI run caught two
+  separate per-crate xcframeworks colliding: `xcodebuild` copies every "library"+`-headers`
+  xcframework's headers into one directory shared across the whole target, and two xcframeworks
+  each contributing a same-named `module.modulemap` there is a genuine "Multiple commands
+  produce" build failure — fixed by `libtool -static`-merging both crates' `.a`s and combining
+  their modulemaps into one umbrella module); `ios/project.yml`'s dependency list updated to
+  match. The Rust side's `staticlib`/`rlib` outputs cross-compile for real in this development
+  environment (matching `rustysnes-ios`'s own precedent), but the `cdylib` output the
+  bindgen step needs only links with a real Apple toolchain, so the full pipeline is
+  compile-verified via `ios.yml`'s real macOS CI build only, matching this platform's standing
+  "scaffolded-only" disposition since `v1.16.0`.
+
 ## [1.17.0] "Parity" - 2026-07-12
 
 Thirteenth release of the RustyNES-parity roadmap: Mobile Phase 4, hardening.
