@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.0] "Dormant" - 2026-07-14
+
+Fourteenth release of the RustyNES-parity roadmap: Mobile Phase 5, monetization scaffolding.
+
 ### Added
 
 - **`rustysnes-monetization`** (Mobile Phase 5): a new, standalone UniFFI crate providing a

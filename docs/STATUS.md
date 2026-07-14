@@ -3,12 +3,12 @@
 This file is authoritative for per-suite pass counts, the board / coprocessor matrix, and
 version policy. Everything else defers to it.
 
-**Current release:** `v1.17.0 "Parity"` (`v0.1.0 "Foundation"`,
+**Current release:** `v1.18.0 "Dormant"` (`v0.1.0 "Foundation"`,
 `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"`, `v0.4.0 "Completion"`, `v0.5.0 "Fidelity"`,
 `v0.6.0 "Shippable"`, `v0.7.0 "Resolution"`, `v0.8.0 "Community"`, `v0.9.0 "Threshold"`,
 `v1.0.0 "Zenith"`, `v1.0.1 "Aftertouch"`, `v1.1.0 "Latchkey"`, `v1.2.0 "Phosphor"`,
 `v1.3.0 "Palimpsest"`, and `v1.4.0 "Convergence"` precede it; see `to-dos/VERSION-PLAN.md` for the
-full ladder). **`v1.5.0`-`v1.17.0`** are the opening rungs of the RustyNES-parity ladder — a CI
+full ladder). **`v1.5.0`-`v1.18.0`** are the opening rungs of the RustyNES-parity ladder — a CI
 safety net (`v1.5.0 "Bedrock"`), a MkDocs documentation site + PWA + accuracy ledger
 (`v1.6.0 "Lighthouse"`), the debugger extracted into its own module plus a hex Memory panel
 (`v1.7.0 "Telemetry"`, `v1.7.1` patch), a Memory Compare panel + in-app Docs panel
@@ -38,7 +38,13 @@ the Android AVD, found and fixed a real, pre-existing, already-shipped native cr
 since `v1.15.0` (per-frame allocation churn in the audio path disrupting `AudioTrack`'s native
 buffer timing after ~10+ seconds of continuous run — never caught before because no prior
 verification pass ran that long), with RetroAchievements wiring, an `mlua` migration, and
-netplay honestly re-scoped to a later rung (`v1.17.0 "Parity"`) — all frontend/tooling/CI work
+netplay honestly re-scoped to a later rung (`v1.17.0 "Parity"`), and dormant monetization
+scaffolding — a new, standalone `rustysnes-monetization` `UniFFI` crate (never a dependency of
+the deterministic core, every pricing/pacing figure an explicit placeholder pending the
+standing "Mobile Phase 6" store-launch gate) wired into both mobile shells as an inert,
+log-only startup call, real-verified on the Android AVD via `logcat` and compile-verified for
+iOS via a real macOS CI build after fixing a genuine `xcodebuild` xcframework-modulemap
+collision found on that same CI run (`v1.18.0 "Dormant"`) — all frontend/tooling/CI work
 with **zero
 change** to the accuracy dashboard, per-suite pass counts, or coprocessor tier matrix below,
 which stayed byte-identical throughout; see `CHANGELOG.md` for full per-release detail. `v1.0.0`

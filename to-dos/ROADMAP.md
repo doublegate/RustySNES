@@ -359,8 +359,13 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   simulator run yet, only a build), then a hardening rung (`v1.17.0 "Parity"`,
   **RELEASED 2026-07-12** — Save State/Load State on both mobile shells, plus a real,
   pre-existing, already-shipped Android `AudioTrack` crash found and fixed while re-verifying it
-  on-device; RetroAchievements/`mlua`/netplay honestly re-scoped to a later rung) — with dormant
-  monetization scaffolding (`v1.18.0`) — and a PGO/BOLT pipeline last (`v1.19.0`). Tracked in
+  on-device; RetroAchievements/`mlua`/netplay honestly re-scoped to a later rung), then dormant
+  monetization scaffolding (`v1.18.0 "Dormant"`, **RELEASED 2026-07-14** — new, standalone
+  `rustysnes-monetization` UniFFI crate, never a dependency of the deterministic core, every
+  pricing/pacing figure an explicit placeholder; wired into both mobile shells as an inert,
+  log-only startup call, verified for real on the Android AVD via `logcat` and compile-verified
+  for iOS via a real macOS CI build, which caught and fixed a genuine `xcodebuild`
+  xcframework-modulemap collision) — and a PGO/BOLT pipeline last (`v1.19.0`). Tracked in
   lockstep against RustyNES's own continuing development via `to-dos/LOCKSTEP-CHECKLIST.md`, not
   a frozen snapshot target. Full detail in `to-dos/VERSION-PLAN.md`'s "RustyNES-parity ladder"
   section.
