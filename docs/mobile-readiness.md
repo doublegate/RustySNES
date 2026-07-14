@@ -185,10 +185,15 @@ Netplay is a large, net-new UI surface neither shell has any precedent for. See 
   the real AVD, launched, and confirmed via `logcat`:
   `monetization scaffold (dormant): unlocked=true minIntervalSecs=300 sessionsBeforeFirstAd=3`;
   the app process stayed alive afterward (no crash). **iOS**: `scripts/build-ios-xcframework.sh`
-  gained a third crate to build/package (`RustysnesMonetizationFFI.xcframework`, headers+modulemap
-  like `RustysnesMobileFFI.xcframework`, since the app calls its exported functions directly rather
-  than through the hand-written bridging header) and `ios/project.yml` gained it as a target
-  dependency. The Rust side's `staticlib`/`rlib` outputs for `aarch64-apple-ios` cross-compile for
+  gained a third crate to build/package, merged with `rustysnes-mobile` into one combined
+  `RustysnesFFI.xcframework` rather than two separate per-crate ones — a real macOS CI run caught
+  a genuine `xcodebuild` "Multiple commands produce '.../include/module.modulemap'" failure: a
+  "library"+`-headers` xcframework has its headers copied into one directory shared across every
+  such xcframework linked into the target, so two xcframeworks each contributing a same-named
+  `module.modulemap` collided. Fixed by `libtool -static`-merging both crates' `.a`s per platform
+  slice and combining their modulemaps into one umbrella module before packaging a single
+  xcframework; `ios/project.yml`'s dependency list updated to match. The Rust side's
+  `staticlib`/`rlib` outputs for `aarch64-apple-ios` cross-compile for
   real in this development environment (confirmed: identical to `rustysnes-ios`'s own already-
   established precedent). The `cdylib` output the bindgen/xcframework packaging step needs does
   NOT link here — confirmed this is a pre-existing sandbox limitation, not something this rung

@@ -74,16 +74,6 @@ cargo run -p rustysnes-mobile --features bindgen --bin uniffi-bindgen \
 # xcframework.
 mv "$bindings_dir/rustysnes_mobile.swift" "$repo_root/ios/RustySNES/Sources/Generated-RustysnesMobile.swift"
 
-echo "==> Packaging RustysnesMobileFFI.xcframework"
-mobile_headers="$bindings_dir/mobile-headers"
-mkdir -p "$mobile_headers"
-cp "$bindings_dir/rustysnes_mobileFFI.h" "$mobile_headers/"
-cp "$bindings_dir/rustysnes_mobileFFI.modulemap" "$mobile_headers/module.modulemap"
-xcodebuild -create-xcframework \
-  -library "$device_dir/librustysnes_mobile.a" -headers "$mobile_headers" \
-  -library "$sim_dir/librustysnes_mobile.a" -headers "$mobile_headers" \
-  -output "$out_dir/RustysnesMobileFFI.xcframework"
-
 echo "==> Generating UniFFI Swift bindings for rustysnes-monetization"
 # Same shape as rustysnes-mobile's bindgen step above -- a distinct crate/dylib/namespace, so it
 # needs its own bindgen invocation (`v1.18.0 "Dormant"`).
@@ -96,15 +86,38 @@ cargo run -p rustysnes-monetization --features bindgen --bin uniffi-bindgen \
 mv "$monetization_bindings_dir/rustysnes_monetization.swift" \
   "$repo_root/ios/RustySNES/Sources/Generated-RustysnesMonetization.swift"
 
-echo "==> Packaging RustysnesMonetizationFFI.xcframework"
-monetization_headers="$monetization_bindings_dir/monetization-headers"
-mkdir -p "$monetization_headers"
-cp "$monetization_bindings_dir/rustysnes_monetizationFFI.h" "$monetization_headers/"
-cp "$monetization_bindings_dir/rustysnes_monetizationFFI.modulemap" "$monetization_headers/module.modulemap"
+# `rustysnes-mobile` and `rustysnes-monetization` are packaged into ONE combined
+# `RustysnesFFI.xcframework`, not two separate ones -- found on a real macOS CI run: a
+# "library"+`-headers` xcframework (as opposed to a `.framework` bundle) has its headers copied by
+# `xcodebuild` into one directory shared across every such xcframework linked into the target
+# (`$(BUILT_PRODUCTS_DIR)/include/`), and BOTH crates' UniFFI-generated modulemap gets renamed to
+# the same literal filename Clang requires for auto-discovery (`module.modulemap`) -- two
+# xcframeworks each contributing a same-named file to that one shared directory is a genuine
+# "Multiple commands produce '.../include/module.modulemap'" `xcodebuild` failure, not a
+# hypothetical one. Merging both crates' static libraries (via `libtool -static`) and headers
+# (one combined `module.modulemap` declaring both crates' modules) into a single xcframework
+# avoids the collision entirely -- matching the same umbrella-module pattern other multi-crate
+# UniFFI Swift/Xcode integrations use.
+echo "==> Packaging combined RustysnesFFI.xcframework (rustysnes-mobile + rustysnes-monetization)"
+ffi_headers="$out_dir/ffi-headers"
+mkdir -p "$ffi_headers"
+cp "$bindings_dir/rustysnes_mobileFFI.h" "$ffi_headers/"
+cp "$monetization_bindings_dir/rustysnes_monetizationFFI.h" "$ffi_headers/"
+cat "$bindings_dir/rustysnes_mobileFFI.modulemap" \
+  "$monetization_bindings_dir/rustysnes_monetizationFFI.modulemap" \
+  > "$ffi_headers/module.modulemap"
+
+ffi_device_lib="$out_dir/librustysnes_ffi-device.a"
+ffi_sim_lib="$out_dir/librustysnes_ffi-sim.a"
+libtool -static -o "$ffi_device_lib" \
+  "$device_dir/librustysnes_mobile.a" "$device_dir/librustysnes_monetization.a"
+libtool -static -o "$ffi_sim_lib" \
+  "$sim_dir/librustysnes_mobile.a" "$sim_dir/librustysnes_monetization.a"
+
 xcodebuild -create-xcframework \
-  -library "$device_dir/librustysnes_monetization.a" -headers "$monetization_headers" \
-  -library "$sim_dir/librustysnes_monetization.a" -headers "$monetization_headers" \
-  -output "$out_dir/RustysnesMonetizationFFI.xcframework"
+  -library "$ffi_device_lib" -headers "$ffi_headers" \
+  -library "$ffi_sim_lib" -headers "$ffi_headers" \
+  -output "$out_dir/RustysnesFFI.xcframework"
 
 echo "==> Packaging RustysnesIOS.xcframework"
 # Library-only (no -headers) -- rustysnes-ios's small, hand-declared FFI surface is exposed to
