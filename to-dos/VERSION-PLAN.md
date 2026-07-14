@@ -1263,13 +1263,26 @@ migration, and direct-IP/LAN netplay were all investigated and found not to fit 
 honestly-verifiable change at this rung (see `CHANGELOG.md`'s `v1.17.0` entry for the full
 reasoning per item); all three remain on the roadmap for a later mobile-track rung.
 
-### `v1.18.0 "Dormant"` — the rest of the mobile track
+### `v1.18.0 "Dormant"` — Mobile Phase 5: monetization scaffolding — **RELEASED 2026-07-14**
 
-`rustysnes-monetization` (dormant RevenueCat/AppLovin-style scaffold, never a dependency of the
-deterministic core, policy shape only — no committed pricing). A store-launch decision (Play +
-App Store submission, monetization activation) is an explicit maintainer go/no-go against
-`docs/mobile-readiness.md`, not a numbered rung — mirroring RustyNES's own still-pending,
-twice-deferred launch.
+Delivered: a new, standalone `rustysnes-monetization` UniFFI crate — dormant entitlement/
+ad-pacing policy scaffold (`check_entitlement`, `default_ad_pacing_policy`, `should_show_ad`),
+never a dependency of the deterministic core, every concrete pricing/pacing number an explicit
+placeholder (unlike RustyNES's own already-committed figure). Wired into both mobile shells as
+an inert dependency — compiled in, called once at startup, logged only, no real store SDK, no
+UI. Verified for real on Android: rebuilt via a real Gradle build, installed on the real AVD,
+launched, and confirmed via `logcat` that the dormant scaffold logs correctly with no crash.
+iOS: the Rust `staticlib`/`rlib` outputs cross-compile for real in this development environment;
+the `cdylib`/xcframework packaging pipeline needs a real Apple toolchain, so it's
+compile-verified via `ios.yml`'s real macOS CI build only — which caught a genuine
+`xcodebuild` "Multiple commands produce" failure from two per-crate xcframeworks each
+contributing a same-named `module.modulemap` to a shared build-products directory, fixed by
+merging `rustysnes-mobile` and `rustysnes-monetization` into one combined
+`RustysnesFFI.xcframework`.
+
+A store-launch decision (Play + App Store submission, monetization activation) remains an
+explicit maintainer go/no-go against `docs/mobile-readiness.md`, not a numbered rung —
+mirroring RustyNES's own still-pending, twice-deferred launch.
 
 ### `v1.19.0 "Afterburner"` — PGO/BOLT pipeline
 
