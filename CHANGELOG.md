@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **PGO/BOLT pipeline** (Mobile-track-adjacent, deliberately last per the RustyNES-parity
+  roadmap): `scripts/pgo/run.sh` instruments, trains against the committed permissive ROM corpus
+  (via a new `crates/rustysnes-test-harness/src/bin/pgo_trainer.rs` binary — the `gilyon`
+  CPU-instruction suite plus a handful of `undisbeliever` HDMA-glitch/INIDISP-hammer ROMs, chosen
+  for control-flow breadth beyond the single steady-state `headless_frame` bench ROM), and
+  rebuilds the shipping `rustysnes` binary with the merged profile. New
+  `.github/workflows/pgo.yml`: `workflow_dispatch` + release-tag push only (never the PR gate —
+  an instrument+train+rebuild cycle is far too slow for that). Promotion requires **both** a
+  measured `>3%` Criterion speedup over the plain release build **and** a byte-identical re-run
+  of the full `--features test-roms` oracle under the PGO-merged profile, citing
+  `docs/adr/0004`'s determinism contract — never promotes on speed alone. An optional Linux-only
+  BOLT post-link stage chains onto an already-promoted PGO binary, best-effort.
+- Fixed a real, latent CI gap found while building this: `rust-toolchain.toml` didn't list
+  `llvm-tools-preview`, and `dtolnay/rust-toolchain` silently ignores the `rust-setup` composite
+  action's own `components:` input whenever a `rust-toolchain.toml` file exists in the repo (the
+  same behavior already found and fixed for `ios.yml` in `v1.16.0`) — without this, `cargo-pgo`'s
+  `.profraw`/`.profdata` merging would have silently failed to find the component on a fresh CI
+  runner. Added `llvm-tools-preview` directly to `rust-toolchain.toml`, the actual effective
+  source of truth.
+- **Verified for real in this development environment**: the full instrument → train (5 committed
+  ROMs) → optimized-rebuild pipeline produces a genuine, running `rustysnes` binary, and the
+  determinism oracle (`cargo pgo optimize test`) passes cleanly under the PGO-merged profile. The
+  local A/B speedup did not clear the `>3%` promotion bar on a short local training run (as
+  documented honestly in `docs/performance.md` — this is an expected, not a failure, state; a
+  short/narrow local run isn't representative of CI's real `3600`-frame training sweep).
+
 ## [1.18.0] "Dormant" - 2026-07-14
 
 Fourteenth release of the RustyNES-parity roadmap: Mobile Phase 5, monetization scaffolding.
