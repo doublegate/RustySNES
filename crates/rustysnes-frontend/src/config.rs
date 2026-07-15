@@ -219,6 +219,15 @@ pub struct VideoConfig {
     /// posture (`port2_peripheral`, `rewind`, …) — an inert value in a build that can't act on
     /// it, not a compile-time-gated field.
     pub hd_pack_name: Option<String>,
+    /// Crop the trailing "overscan" scanlines a real 4:3 CRT wouldn't reliably show (`v1.20.0`,
+    /// View → Hide Overscan). SNES hardware's own `SETINI` register (`rustysnes_ppu`) already
+    /// distinguishes the standard 224-line display from an extended 239-line one a game can
+    /// opt into — this toggle crops exactly that extra 15-line extension back off on the
+    /// PRESENTATION side only (`app.rs`'s `crop_overscan`), the same "display-only, never the
+    /// deterministic core" boundary every other post-filter in this module already respects.
+    /// Additive, `false` by default — byte-identical presentation to every prior release when
+    /// unchanged.
+    pub hide_overscan: bool,
 }
 
 impl Default for VideoConfig {
@@ -233,6 +242,7 @@ impl Default for VideoConfig {
             hqx_strength: 0.6,
             xbrz_strength: 0.6,
             hd_pack_name: None,
+            hide_overscan: false,
         }
     }
 }

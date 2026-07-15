@@ -579,7 +579,7 @@ impl ShellState {
                             }
                         }
                     });
-                    // TODO(impl-phase): overscan.
+                    ui.checkbox(&mut cfg.video.hide_overscan, "Hide Overscan");
                 });
 
                 ui.menu_button("Debug", |ui| {
