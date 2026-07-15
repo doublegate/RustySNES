@@ -1261,7 +1261,7 @@ impl App {
             // race-free and never confuses the two. See `crop_overscan`'s own doc for why cropping
             // a FRACTION of the height, rather than a fixed pixel count, stays correct under
             // HD-pack's own upscale.
-            let (fb, dims) = if config.video.hide_overscan && dims.1 % 239 == 0 {
+            let (fb, dims) = if config.video.hide_overscan && dims.1.is_multiple_of(239) {
                 crop_overscan(fb, dims)
             } else {
                 (fb, dims)
@@ -1885,7 +1885,7 @@ impl App {
 /// (`app.rs`'s HD-pack compositing block runs before this) — `239 * scale * 15 / 239` reduces
 /// to exactly `15 * scale` with no rounding, for any integer `scale`. Only called when the
 /// caller has already confirmed the frame is actually in the 239-line mode (`render`'s own
-/// `dims.1 % 239 == 0` check against the FINALIZED presented dims) — this function assumes
+/// `dims.1.is_multiple_of(239)` check against the FINALIZED presented dims) — this function assumes
 /// that, it does not re-check it, since a 224-line frame's `dims.1 * 15 / 239` would NOT
 /// reliably equal a clean crop-to-224 amount.
 ///
