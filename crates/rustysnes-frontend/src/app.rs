@@ -209,6 +209,10 @@ struct Active {
     rewind: crate::rewind::RewindBuffer,
     /// A single quick-save-state slot (`MenuAction::SaveState`/`LoadState`).
     quick_save: Option<Vec<u8>>,
+    /// The loaded ROM's identity + decoded header, for the Debug → ROM Info panel (`v1.20.0`).
+    /// Captured once per ROM load/close (`refresh_rom_info`) rather than every present, since a
+    /// loaded ROM's header/hashes never change while it stays loaded.
+    rom_info: Option<crate::debugger::RomInfo>,
     /// The loaded Lua script, if any (`v0.8.0`, T-81-002). `None` until `MenuAction::LoadScript`.
     #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
     script: Option<ScriptEngine>,
@@ -643,6 +647,9 @@ impl App {
         }
         #[cfg(target_arch = "wasm32")]
         let initial_status = String::new();
+        // `None` on `wasm32` boot (no ROM loaded yet); reflects whatever the CLI path above
+        // loaded on native (`v1.20.0`, the ROM Info panel).
+        let initial_rom_info = crate::debugger::RomInfo::capture(&mut emu);
 
         // Open the audio device (best-effort: a missing device leaves the emulator silent, not
         // dead). The producer-side resampler converts the S-DSP 32 kHz stream to the device rate.
@@ -737,6 +744,7 @@ impl App {
                 self.config.rewind.interval_frames,
             ),
             quick_save: None,
+            rom_info: initial_rom_info,
             #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
             script: None,
             #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
@@ -765,6 +773,7 @@ impl App {
             Ok(()) => "ROM loaded".to_string(),
             Err(e) => format!("ROM load failed: {e}"),
         };
+        active.rom_info = crate::debugger::RomInfo::capture(&mut emu);
         drop(emu);
         // A new cart invalidates every prior snapshot, same as the native `MenuAction::OpenRom`.
         active.rewind.clear();
@@ -1355,6 +1364,7 @@ impl App {
                 &mut active.watchpoints,
                 &mut active.breakpoints,
                 save_slots.as_deref(),
+                active.rom_info.as_ref(),
                 #[cfg(feature = "cheats")]
                 &mut active.cheats,
                 #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
@@ -1476,6 +1486,8 @@ impl App {
                                 active.cheevos.unload_game();
                                 active.cheevos.load_game(emu.rom());
                             }
+                            active.rom_info = crate::debugger::RomInfo::capture(&mut emu);
+                            drop(emu);
                         }
                         // A new cart invalidates every prior snapshot (rewind ring +
                         // quick-save) — restoring one now would apply a foreign ROM's state to
@@ -1493,6 +1505,7 @@ impl App {
                     active.shell.status = "ROM closed".into();
                     active.rewind.clear();
                     active.quick_save = None;
+                    active.rom_info = None;
                     #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
                     active.cheevos.unload_game();
                 }

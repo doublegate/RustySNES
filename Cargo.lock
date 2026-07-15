@@ -3775,6 +3775,7 @@ dependencies = [
  "clap_complete",
  "console_error_panic_hook",
  "cpal",
+ "crc32fast",
  "directories",
  "egui",
  "egui-wgpu",

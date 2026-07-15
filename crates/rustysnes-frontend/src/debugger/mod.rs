@@ -20,7 +20,10 @@ mod cpu_panel;
 mod doc_panel;
 mod memory_compare_panel;
 mod ppu_panel;
+mod rom_info_panel;
 mod watch_panel;
+
+pub use rom_info_panel::RomInfo;
 
 use crate::debug_snapshot::{DebugSnapshot, WatchpointEntry};
 use crate::ui_shell::{MenuAction, ShellState};
@@ -43,6 +46,8 @@ pub enum DebugPanel {
     MemCompare,
     /// An in-app SNES-terminology glossary (`v1.8.0 "Tracepoint"`) + a link to the full docs site.
     Doc,
+    /// CRC32/SHA-256/header decode of the loaded cart (`v1.20.0`).
+    RomInfo,
 }
 
 /// Format a row of 16-bit words as space-separated 4-hex-digit groups — shared by the PPU (VRAM/
@@ -81,6 +86,7 @@ impl ShellState {
         watchpoints: &mut Vec<WatchpointEntry>,
         breakpoints: &mut Vec<u32>,
         actions: &mut Vec<MenuAction>,
+        rom_info: Option<&RomInfo>,
     ) {
         let mut open = self.debugger_open;
         egui::Window::new("Debugger")
@@ -95,10 +101,12 @@ impl ShellState {
                     ui.selectable_value(&mut self.panel, DebugPanel::Watch, "Memory/Watch");
                     ui.selectable_value(&mut self.panel, DebugPanel::MemCompare, "Compare");
                     ui.selectable_value(&mut self.panel, DebugPanel::Doc, "Docs");
+                    ui.selectable_value(&mut self.panel, DebugPanel::RomInfo, "ROM Info");
                 });
                 ui.separator();
-                // These three panels handle a `None` snapshot themselves (Watch/MemCompare show
-                // "no data yet"; Doc needs no snapshot at all), so they're dispatched before the
+                // These four panels handle a `None` snapshot themselves (Watch/MemCompare show
+                // "no data yet"; Doc needs no snapshot at all; RomInfo needs its own separately-
+                // threaded `rom_info`, not a `DebugSnapshot`), so they're dispatched before the
                 // early-return below rather than after it.
                 match self.panel {
                     DebugPanel::Watch => {
@@ -111,6 +119,10 @@ impl ShellState {
                     }
                     DebugPanel::Doc => {
                         doc_panel::render(ui);
+                        return;
+                    }
+                    DebugPanel::RomInfo => {
+                        rom_info_panel::render(ui, rom_info);
                         return;
                     }
                     DebugPanel::Cpu | DebugPanel::Ppu | DebugPanel::Apu | DebugPanel::Cart => {}
@@ -133,7 +145,10 @@ impl ShellState {
                     DebugPanel::Ppu => ppu_panel::render(ui, debug),
                     DebugPanel::Apu => apu_panel::render(ui, debug),
                     DebugPanel::Cart => cart_panel::render(ui, debug),
-                    DebugPanel::Watch | DebugPanel::MemCompare | DebugPanel::Doc => {
+                    DebugPanel::Watch
+                    | DebugPanel::MemCompare
+                    | DebugPanel::Doc
+                    | DebugPanel::RomInfo => {
                         unreachable!("handled above")
                     }
                 }

@@ -66,6 +66,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   release when unchanged. 3 real unit tests cover native resolution, an HD-pack-scaled
   resolution, and that the kept bytes are untouched.
 
+- Debug → ROM Info panel: a read-only CRC32/SHA-256/header decode of the loaded cart
+  (`crates/rustysnes-frontend/src/debugger/rom_info_panel.rs`), captured once per ROM load/close
+  rather than every frame. `rustysnes_cart::header::Header` gained a decoded `title: String` field
+  along the way.
+
 ## [1.19.0] "Afterburner" - 2026-07-15
 
 Fifteenth release of the RustyNES-parity roadmap: an optional PGO/BOLT pipeline for the
