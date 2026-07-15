@@ -1312,3 +1312,48 @@ reaches RustyNES's current maturity bar at RustySNES's own `v1.19.0`, not a lite
 If the store-launch decision above is ever greenlit, that's the natural point to consider a
 `v2.0.0` MAJOR bump (a platform-scope-expanding, non-backward-compatible milestone, matching this
 document's own MAJOR-bump rule) — decided then, via the lockstep checklist, not pre-committed here.
+
+### `v1.20.0 "Aperture"` — UI/UX-parity ladder, Phase A — **RELEASED 2026-07-15**
+
+A new ladder, separate from the just-closed RustyNES-parity one: a systematic audit of
+RustySNES's menus/settings/debugger against RustyNES's own frontend found the GitHub Pages wasm
+demo showing literal `(rebuild with --features X)` placeholders for two features
+(`cheats`/`debug-hooks`) that were never actually excluded for any architectural reason, plus a
+desktop peripheral-input gap (the Settings Mouse/Super Scope selector wired the emulated hardware
+but nothing ever captured host pointer input) and two small, named catch-up items already on
+record (`to-dos/ROADMAP.md`'s "Milestones beyond the phases", `to-dos/LOCKSTEP-CHECKLIST.md`'s
+2026-07-15 entry).
+
+Delivered: `.github/workflows/web.yml`'s `trunk build` gained `--features cheats,debug-hooks`,
+making the wasm demo's Tools → Cheats and Debug → Debugger overlay menu items real; a new
+`crate::peripherals` module feeds `egui::Context`'s pointer state into `EmuCore::set_mouse`/
+`set_superscope` once per frame, mapped through the same letterbox transform the present path
+already uses (real bugs found and fixed in review: mouse deltas needed `pixels_per_point` +
+letterbox rescaling to stay window-size/DPI-independent, and Super Scope needed to map into the
+SNES's fixed base 256×224/239 screen space rather than the PPU's raw, possibly pixel-doubled
+`fb_dims`); a View → Hide Overscan toggle crops the SNES's `SETINI`-extended 239-line display
+back to 224 by a height FRACTION (stays exact under HD-pack's own integer upscale), applied
+against the finalized presented `dims` (a real desync bug found and fixed in review — an earlier
+pre-captured flag could read a stale resolution across a run-ahead/`emu-thread` PresentBuffer
+handoff); and a new Debug → ROM Info panel (CRC32/SHA-256/header decode of the loaded cart,
+captured once per successful load rather than every frame) closes the ROM-Info-panel catch-up
+item, gained a decoded `title: String` field on `rustysnes_cart::header::Header` along the way,
+and — per a real review finding — only hashes the ROM when `debug-hooks` is on and the load
+actually succeeded, not on every attempt.
+
+Also fixed a real, separate finding surfaced while scoping the peripheral-input work:
+`docs/frontend.md`'s own "Status" line claimed controller port 1 had "keyboard + gilrs gamepad"
+input, but `gilrs::Gilrs` is never actually instantiated anywhere in `rustysnes-frontend` — port
+1 is keyboard-only today. Corrected the doc; real gamepad support (and the Super Multitap
+sub-pad host input it blocks) is a genuinely separate, larger prerequisite, tracked in the
+UI/UX-parity plan's backlog, not silently expanded into this rung.
+
+Verified for real: a local `trunk build --release` reproducing the exact CI command (gzip size
+2.96 MiB, well under the 5 MiB budget); the full local regression gate (fmt/test/clippy across
+every feature combination including `wasm32-unknown-unknown`/doc-warnings-as-errors) green on
+every PR; every `gemini-code-assist`/`copilot-pull-request-reviewer` finding adjudicated and its
+GitHub thread resolved before merge, including two independently-confirmed real bugs (the mouse/
+Super Scope scaling issues) and a real presented-frame desync (the overscan flag). Phases B and C
+of the UI/UX-parity plan (in-app Help docs, deeper debugger panels, wasm Lua scripting via
+`piccolo`, browser netplay lobby, browser RetroAchievements, i18n) remain scoped but not started —
+each is its own future rung, sized like a small roadmap phase on its own.

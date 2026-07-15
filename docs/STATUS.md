@@ -3,7 +3,7 @@
 This file is authoritative for per-suite pass counts, the board / coprocessor matrix, and
 version policy. Everything else defers to it.
 
-**Current release:** `v1.19.0 "Afterburner"` (`v0.1.0 "Foundation"`,
+**Current release:** `v1.20.0 "Aperture"` (`v0.1.0 "Foundation"`,
 `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"`, `v0.4.0 "Completion"`, `v0.5.0 "Fidelity"`,
 `v0.6.0 "Shippable"`, `v0.7.0 "Resolution"`, `v0.8.0 "Community"`, `v0.9.0 "Threshold"`,
 `v1.0.0 "Zenith"`, `v1.0.1 "Aftertouch"`, `v1.1.0 "Latchkey"`, `v1.2.0 "Phosphor"`,
@@ -53,7 +53,13 @@ real-verified end-to-end in this development environment including a genuine BOL
 found and fixed in PR review (`v1.19.0 "Afterburner"`) — all frontend/tooling/CI work
 with **zero
 change** to the accuracy dashboard, per-suite pass counts, or coprocessor tier matrix below,
-which stayed byte-identical throughout; see `CHANGELOG.md` for full per-release detail. `v1.0.0`
+which stayed byte-identical throughout; see `CHANGELOG.md` for full per-release detail.
+**`v1.20.0 "Aperture"`** opens a new UI/UX-parity ladder (Phase A) auditing the desktop frontend
+and wasm demo against RustyNES's own frontend maturity: two wasm demo menu items (`Cheats`/
+`Debugger overlay`) fixed from placeholder to real, live Mouse/Super Scope host-input capture
+wired for the first time (`crate::peripherals`), a View → Hide Overscan toggle, and a new
+Debug → ROM Info panel — again zero change to the accuracy dashboard; see `CHANGELOG.md` for
+full detail. `v1.0.0`
 closes the production-cut
 gate: `Board: Send` (unblocking `emu-thread` to compile/test/lint clean for the first time, though
 it stays off-by-default pending full feature parity — see `docs/frontend.md`), the five

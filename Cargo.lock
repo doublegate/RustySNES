@@ -3703,7 +3703,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
 name = "rustysnes-android"
-version = "1.19.0"
+version = "1.20.0"
 dependencies = [
  "android_logger",
  "bytemuck",
@@ -3719,7 +3719,7 @@ dependencies = [
 
 [[package]]
 name = "rustysnes-apu"
-version = "1.19.0"
+version = "1.20.0"
 dependencies = [
  "bitflags 2.13.0",
  "rustysnes-savestate",
@@ -3727,7 +3727,7 @@ dependencies = [
 
 [[package]]
 name = "rustysnes-cart"
-version = "1.19.0"
+version = "1.20.0"
 dependencies = [
  "bitflags 2.13.0",
  "rustysnes-savestate",
@@ -3736,7 +3736,7 @@ dependencies = [
 
 [[package]]
 name = "rustysnes-cheevos"
-version = "1.19.0"
+version = "1.20.0"
 dependencies = [
  "cc",
  "ureq",
@@ -3744,7 +3744,7 @@ dependencies = [
 
 [[package]]
 name = "rustysnes-core"
-version = "1.19.0"
+version = "1.20.0"
 dependencies = [
  "criterion",
  "rustysnes-apu",
@@ -3759,7 +3759,7 @@ dependencies = [
 
 [[package]]
 name = "rustysnes-cpu"
-version = "1.19.0"
+version = "1.20.0"
 dependencies = [
  "bitflags 2.13.0",
  "rustysnes-savestate",
@@ -3767,7 +3767,7 @@ dependencies = [
 
 [[package]]
 name = "rustysnes-frontend"
-version = "1.19.0"
+version = "1.20.0"
 dependencies = [
  "anstyle",
  "bytemuck",
@@ -3808,11 +3808,11 @@ dependencies = [
 
 [[package]]
 name = "rustysnes-gfx-shaders"
-version = "1.19.0"
+version = "1.20.0"
 
 [[package]]
 name = "rustysnes-ios"
-version = "1.19.0"
+version = "1.20.0"
 dependencies = [
  "bytemuck",
  "log",
@@ -3825,7 +3825,7 @@ dependencies = [
 
 [[package]]
 name = "rustysnes-libretro"
-version = "1.19.0"
+version = "1.20.0"
 dependencies = [
  "libc",
  "rust-libretro",
@@ -3834,7 +3834,7 @@ dependencies = [
 
 [[package]]
 name = "rustysnes-mobile"
-version = "1.19.0"
+version = "1.20.0"
 dependencies = [
  "rustysnes-cart",
  "rustysnes-core",
@@ -3844,14 +3844,14 @@ dependencies = [
 
 [[package]]
 name = "rustysnes-monetization"
-version = "1.19.0"
+version = "1.20.0"
 dependencies = [
  "uniffi",
 ]
 
 [[package]]
 name = "rustysnes-netplay"
-version = "1.19.0"
+version = "1.20.0"
 dependencies = [
  "js-sys",
  "rustysnes-core",
@@ -3863,7 +3863,7 @@ dependencies = [
 
 [[package]]
 name = "rustysnes-ppu"
-version = "1.19.0"
+version = "1.20.0"
 dependencies = [
  "bitflags 2.13.0",
  "rustysnes-cart",
@@ -3873,14 +3873,14 @@ dependencies = [
 
 [[package]]
 name = "rustysnes-savestate"
-version = "1.19.0"
+version = "1.20.0"
 dependencies = [
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "rustysnes-script"
-version = "1.19.0"
+version = "1.20.0"
 dependencies = [
  "mlua",
  "rustysnes-core",
@@ -3889,7 +3889,7 @@ dependencies = [
 
 [[package]]
 name = "rustysnes-test-harness"
-version = "1.19.0"
+version = "1.20.0"
 dependencies = [
  "insta",
  "rustysnes-apu",

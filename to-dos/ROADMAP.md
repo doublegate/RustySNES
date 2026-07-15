@@ -374,6 +374,16 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   Tracked in lockstep against RustyNES's own continuing development via
   `to-dos/LOCKSTEP-CHECKLIST.md`, not a frozen snapshot target. Full detail in
   `to-dos/VERSION-PLAN.md`'s "RustyNES-parity ladder" section.
+- **A new, separate UI/UX-parity ladder, Phase A (`v1.20.0 "Aperture"`, RELEASED 2026-07-15).** A
+  systematic audit of RustySNES's menus/settings/debugger against RustyNES's own frontend found
+  the wasm demo showing placeholder labels for two features never actually excluded for any real
+  reason (`cheats`/`debug-hooks`, now real), a desktop peripheral-input gap (Settings selected the
+  Mouse/Super Scope hardware but nothing captured host pointer input, now wired via a new
+  `crate::peripherals` module), a missing View → Hide Overscan toggle, and closed the ROM Info
+  debugger panel small-catch-up item named above. Full detail in `to-dos/VERSION-PLAN.md`'s
+  `v1.20.0 "Aperture"` entry. Phases B (in-app Help docs, deeper debugger panels) and C (wasm Lua
+  scripting, browser netplay lobby, browser RetroAchievements, i18n) remain scoped but not
+  started.
 - **Flagged by the 2026-07-12 lockstep re-check — no rung assigned yet, maintainer go/no-go
   needed.** RustyNES shipped two items since the roadmap's `v2.1.5` baseline that RustySNES's own
   ladder doesn't currently account for: (1) a **GIF/WAV screen+audio capture subsystem**
@@ -404,7 +414,9 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   its own, narrower scope, and no untrusted-input crash has ever been found), so neither is
   silently folded into an already-closed rung — see `to-dos/LOCKSTEP-CHECKLIST.md`'s 2026-07-15
   log row for the full disposition, including three smaller items (a self-contained ROM Info
-  debugger panel judged a small catch-up; RustySNES's `movie.rs` deserializer already independently
+  debugger panel judged a small catch-up — **closed in `v1.20.0 "Aperture"`**, as part of that
+  rung's own separate UI/UX-parity audit against RustyNES's frontend, not this lockstep check
+  directly; RustySNES's `movie.rs` deserializer already independently
   hardened against the same OOM-DoS class RustyNES's fuzzing just found, so already covered; and a
   Zapper aperture-hardening technique that doesn't map onto RustySNES's own, architecturally
   different geometric Super Scope hit-detection model, so not directly applicable).
