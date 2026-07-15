@@ -385,6 +385,29 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   into an already-scoped rung — see `to-dos/LOCKSTEP-CHECKLIST.md`'s 2026-07-12 log row for the
   full disposition, including two other RustyNES additions (a SIMD blitter/wasm-size pass, a
   browser RA + Vs. DualSystem libretro pairing) judged small-catch-up or correctly out of scope.
+- **Flagged by the 2026-07-15 lockstep re-check — no rung assigned yet, maintainer go/no-go
+  needed.** RustyNES cut `v2.2.0 "Capstone"` since the last check (`v2.1.10`), shipping two items
+  RustySNES's own roadmap doesn't currently account for: (1) **no fuzzing infrastructure at all**
+  — RustySNES has no `fuzz/` directory, while RustyNES's now spans 8 cargo-fuzz targets covering
+  PPU/APU register I/O, netplay message parsing, save-state, and movie deserialization; this
+  project's own `docs/testing-strategy.md` already names Layer 1 unit testing as "each chip is
+  fuzzable in isolation" but that capability was never actually built out — no corpus, no CI
+  target, no committed `fuzz/` crate exists for `rustysnes-core`'s own untrusted-input boundaries
+  (ROM header parsing, save-state loading, movie deserialization, netplay wire messages); and
+  (2) **netplay lobby/matchmaking + spectator/desync/liveness depth** — RustyNES's
+  `rustynes-netplay` signaling protocol grew a browse-and-join room directory, server-side
+  quick-match, delayed-stream spectators, a graded hysteresis-backed desync verdict, and
+  peer-liveness RTT timeouts; `rustysnes-netplay` has none of this (confirmed: no
+  `SignalMessage`/`ListRooms`/`QuickMatch`/`delay_frames`/`DesyncStatus`/`PeerLink` equivalents),
+  so the original `v1.5.0`-era "netplay already at parity" assessment is now stale against
+  RustyNES's deepened baseline. Neither is urgent (RustySNES's existing netplay is functional at
+  its own, narrower scope, and no untrusted-input crash has ever been found), so neither is
+  silently folded into an already-closed rung — see `to-dos/LOCKSTEP-CHECKLIST.md`'s 2026-07-15
+  log row for the full disposition, including three smaller items (a self-contained ROM Info
+  debugger panel judged a small catch-up; RustySNES's `movie.rs` deserializer already independently
+  hardened against the same OOM-DoS class RustyNES's fuzzing just found, so already covered; and a
+  Zapper aperture-hardening technique that doesn't map onto RustySNES's own, architecturally
+  different geometric Super Scope hit-detection model, so not directly applicable).
 - **Further beyond — the fractional-timebase refactor (`docs/adr/0002`).** Assessed in `v1.1.0`
   and found **not currently warranted** — every named accuracy residual is answerable within the
   existing whole-master-clock-tick model (`docs/audit/fractional-timebase-go-no-go-2026-07-11.md`).
