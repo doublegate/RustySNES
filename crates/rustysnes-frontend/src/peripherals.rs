@@ -35,7 +35,7 @@ use crate::gfx::Gfx;
 /// prerequisite, see the module doc.
 pub fn sync(egui_ctx: &egui::Context, gfx: &Gfx, emu: &mut EmuCore, device: PeripheralInputKind) {
     match device {
-        PeripheralInputKind::Mouse => sync_mouse(egui_ctx, emu),
+        PeripheralInputKind::Mouse => sync_mouse(egui_ctx, gfx, emu),
         PeripheralInputKind::SuperScope => sync_superscope(egui_ctx, gfx, emu),
         PeripheralInputKind::Other => {}
     }
@@ -72,30 +72,39 @@ impl From<crate::config::PeripheralKind> for PeripheralInputKind {
 /// SNES Mouse: relative motion since last frame (real hardware reports deltas, not an absolute
 /// position) plus the primary/secondary button state. `egui::PointerState::delta` already
 /// accumulates exactly that between egui passes, so no manual last-position tracking is needed.
-fn sync_mouse(egui_ctx: &egui::Context, emu: &mut EmuCore) {
-    let (delta, left, right) = egui_ctx.input(|i| {
+///
+/// `egui`'s delta is in logical *points*, not the physical pixels `gfx.config.{width,height}`
+/// (`size_in_pixels`) use, and a raw point delta would also scale with the window's own
+/// size/present scale (3x window scale = 3x-too-fast mouse) — found in review (PR #114, both
+/// bots independently). Converts to physical pixels via `pixels_per_point`, then rescales through
+/// the same letterbox transform [`sync_superscope`] uses, into SNES pixel space, so sensitivity
+/// stays constant regardless of window size, present scale, or host display DPI.
+fn sync_mouse(egui_ctx: &egui::Context, gfx: &Gfx, emu: &mut EmuCore) {
+    let (delta_points, left, right) = egui_ctx.input(|i| {
         (
             i.pointer.delta(),
             i.pointer.button_down(egui::PointerButton::Primary),
             i.pointer.button_down(egui::PointerButton::Secondary),
         )
     });
-    #[allow(clippy::cast_possible_truncation)]
-    emu.set_mouse(
-        0,
-        delta.x.round() as i32,
-        delta.y.round() as i32,
-        left,
-        right,
+    let ppp = egui_ctx.pixels_per_point();
+    let delta_px = (delta_points.x * ppp, delta_points.y * ppp);
+    let (dx, dy) = scale_delta_to_snes(
+        (gfx.config.width, gfx.config.height),
+        gfx.letterbox_scale(),
+        delta_px,
+        emu.fb_dims(),
     );
+    #[allow(clippy::cast_possible_truncation)]
+    emu.set_mouse(0, dx.round() as i32, dy.round() as i32, left, right);
 }
 
 /// Super Scope: absolute aim position (mapped from window pixels through the letterbox transform
-/// into SNES `0..fb_w`/`0..fb_h` pixel space) plus trigger/cursor/turbo. No fourth mouse button
+/// into SNES `0..256`/`0..239` screen space) plus trigger/cursor/turbo. No fourth mouse button
 /// exists to drive `scope::PAUSE`, so it stays unset here — matches this module's own "host
 /// mouse input only" scope; a future keyboard-bound Pause is a natural, separate follow-up.
 fn sync_superscope(egui_ctx: &egui::Context, gfx: &Gfx, emu: &mut EmuCore) {
-    let (pointer, left, right, middle) = egui_ctx.input(|i| {
+    let (pointer_pt, left, right, middle) = egui_ctx.input(|i| {
         (
             i.pointer.latest_pos(),
             i.pointer.button_down(egui::PointerButton::Primary),
@@ -103,12 +112,20 @@ fn sync_superscope(egui_ctx: &egui::Context, gfx: &Gfx, emu: &mut EmuCore) {
             i.pointer.button_down(egui::PointerButton::Middle),
         )
     });
-    let fb_dims = emu.fb_dims();
+    let pixels_per_point = egui_ctx.pixels_per_point();
+    // `SuperScopeState::set_input` always clamps/offscreen-checks against the SNES's BASE
+    // 256-wide, non-interlaced-height screen space, unconditionally — never the game's current
+    // (possibly pixel-doubled) video mode — so this maps into `logical_snes_dims`, not the raw
+    // (possibly hi-res/interlaced) `emu.fb_dims()` (found in review, PR #114, Copilot).
+    let target_dims = logical_snes_dims(emu.fb_dims());
     // Matches `SuperScopeState::set_input`'s own `-16` fringe convention (one step further out to
     // stay unambiguously off-screen after its `-16..=dimension+16` clamp) — same sentinel
     // `rustysnes-libretro`'s own `poll_port_input` uses for an off-screen lightgun read.
-    let (x, y) = pointer
-        .and_then(|p| pointer_to_snes_pixel(gfx, (p.x, p.y), fb_dims))
+    let (x, y) = pointer_pt
+        .and_then(|p| {
+            let px = (p.x * pixels_per_point, p.y * pixels_per_point);
+            pointer_to_snes_pixel(gfx, px, target_dims)
+        })
         .unwrap_or((-20, -20));
     let mut buttons = 0u8;
     if left {
@@ -123,22 +140,66 @@ fn sync_superscope(egui_ctx: &egui::Context, gfx: &Gfx, emu: &mut EmuCore) {
     emu.set_superscope(0, x, y, buttons);
 }
 
-/// Map a host pointer position (window/surface pixels) through `Gfx::letterbox_scale` into
-/// SNES pixel space `(0..fb_w, 0..fb_h)`, or `None` if the pointer falls outside the letterboxed
-/// game image (over the black bars, or off-window). Thin wrapper around
-/// [`pointer_to_snes_pixel_pure`] — pulls the live window size + letterbox scale out of `gfx`,
-/// which needs a real wgpu device to construct and so can't be exercised directly by a unit test
-/// (`gfx.rs`'s own `letterbox_scale_matches_known_cases` test hits the same constraint).
+/// Derive the SNES's fixed BASE screen dims (`256` wide, `224`/`239` tall) from the PPU's actual
+/// `fb_dims`, halving any axis the current video mode has pixel-doubled: hi-res mode doubles
+/// width to `512` (`rustysnes_core::facade::SNES_W_HIRES`), interlace doubles height (up to
+/// `rustysnes_core::facade::SNES_H_HIRES`, `448`). Super Scope games are always base-resolution
+/// in practice, but this stays correct even if the PPU happens to be in a doubled mode for
+/// unrelated reasons — see [`sync_superscope`]'s own doc for why the core needs this space, not
+/// the raw framebuffer's.
+const fn logical_snes_dims(fb_dims: (u32, u32)) -> (u32, u32) {
+    let w = if fb_dims.0 > 256 {
+        fb_dims.0 / 2
+    } else {
+        fb_dims.0
+    };
+    let h = if fb_dims.1 > 239 {
+        fb_dims.1 / 2
+    } else {
+        fb_dims.1
+    };
+    (w, h)
+}
+
+/// Map a host pointer position (window/surface PHYSICAL pixels — already `pixels_per_point`-
+/// scaled by the caller) through `Gfx::letterbox_scale` into `target_dims`'s pixel space, or
+/// `None` if the pointer falls outside the letterboxed game image (over the black bars, or
+/// off-window). Thin wrapper around [`pointer_to_snes_pixel_pure`] — pulls the live window size +
+/// letterbox scale out of `gfx`, which needs a real wgpu device to construct and so can't be
+/// exercised directly by a unit test (`gfx.rs`'s own `letterbox_scale_matches_known_cases` test
+/// hits the same constraint).
 fn pointer_to_snes_pixel(
     gfx: &Gfx,
     pointer_px: (f32, f32),
-    fb_dims: (u32, u32),
+    target_dims: (u32, u32),
 ) -> Option<(i32, i32)> {
     pointer_to_snes_pixel_pure(
         (gfx.config.width, gfx.config.height),
         gfx.letterbox_scale(),
         pointer_px,
-        fb_dims,
+        target_dims,
+    )
+}
+
+/// Scale a relative pointer-motion delta (window/surface PHYSICAL pixels) into SNES pixel space,
+/// through the same letterbox image-rect `pointer_to_snes_pixel_pure` maps absolute positions
+/// through — a delta only needs the rect's SIZE (`image_w`/`image_h`), not its origin, since
+/// motion is translation-invariant.
+#[allow(clippy::cast_precision_loss)]
+fn scale_delta_to_snes(
+    win_dims: (u32, u32),
+    letterbox_scale: (f32, f32),
+    delta_px: (f32, f32),
+    fb_dims: (u32, u32),
+) -> (f32, f32) {
+    let win_w = win_dims.0.max(1) as f32;
+    let win_h = win_dims.1.max(1) as f32;
+    let (scale_x, scale_y) = letterbox_scale;
+    let image_w = (win_w * scale_x).max(1.0);
+    let image_h = (win_h * scale_y).max(1.0);
+    (
+        delta_px.0 * (fb_dims.0 as f32 / image_w),
+        delta_px.1 * (fb_dims.1 as f32 / image_h),
     )
 }
 
@@ -150,7 +211,7 @@ fn pointer_to_snes_pixel_pure(
     win_dims: (u32, u32),
     letterbox_scale: (f32, f32),
     pointer_px: (f32, f32),
-    fb_dims: (u32, u32),
+    target_dims: (u32, u32),
 ) -> Option<(i32, i32)> {
     let win_w = win_dims.0.max(1) as f32;
     let win_h = win_dims.1.max(1) as f32;
@@ -166,14 +227,14 @@ fn pointer_to_snes_pixel_pure(
     let norm_x = (px - origin_x) / image_w;
     let norm_y = (py - origin_y) / image_h;
     Some((
-        (norm_x * fb_dims.0 as f32) as i32,
-        (norm_y * fb_dims.1 as f32) as i32,
+        (norm_x * target_dims.0 as f32) as i32,
+        (norm_y * target_dims.1 as f32) as i32,
     ))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::pointer_to_snes_pixel_pure;
+    use super::{logical_snes_dims, pointer_to_snes_pixel_pure, scale_delta_to_snes};
 
     const SNES_FB: (u32, u32) = (256, 224);
 
@@ -213,5 +274,42 @@ mod tests {
     fn a_pointer_past_the_window_edge_is_rejected() {
         let got = pointer_to_snes_pixel_pure((800, 600), (1.0, 1.0), (800.0, 300.0), SNES_FB);
         assert_eq!(got, None);
+    }
+
+    #[test]
+    fn logical_dims_passes_through_base_resolution_unchanged() {
+        assert_eq!(logical_snes_dims((256, 224)), (256, 224));
+        assert_eq!(logical_snes_dims((256, 239)), (256, 239));
+    }
+
+    #[test]
+    fn logical_dims_halves_hires_width() {
+        assert_eq!(logical_snes_dims((512, 224)), (256, 224));
+    }
+
+    #[test]
+    fn logical_dims_halves_interlaced_height() {
+        assert_eq!(logical_snes_dims((256, 448)), (256, 224));
+        assert_eq!(logical_snes_dims((512, 448)), (256, 224));
+    }
+
+    #[test]
+    fn delta_scale_is_identity_at_1to1_no_letterbox() {
+        // An 800x600 window with no letterboxing, 4:3 SNES fb: no rescale needed at these dims
+        // (image_w == 800, fb_dims.0 == 256, so a delta only rescales by 256/800 -- verify the
+        // ratio, not literal identity, since fb space is smaller than window space here).
+        let (dx, dy) = scale_delta_to_snes((800, 600), (1.0, 1.0), (10.0, 10.0), SNES_FB);
+        assert!((dx - 3.2).abs() < 1e-4); // 10 * 256/800
+        assert!((dy - 3.7333).abs() < 1e-3); // 10 * 224/600
+    }
+
+    #[test]
+    fn delta_scale_shrinks_with_a_larger_window_at_the_same_letterbox() {
+        // Same letterbox fraction, a 2x larger window -> half the delta for the same physical
+        // pointer motion (the core bug this fix addresses: 3x window scale felt 3x too fast).
+        let small = scale_delta_to_snes((800, 600), (1.0, 1.0), (10.0, 10.0), SNES_FB);
+        let large = scale_delta_to_snes((1600, 1200), (1.0, 1.0), (10.0, 10.0), SNES_FB);
+        assert!(large.0.mul_add(-2.0, small.0).abs() < 1e-3);
+        assert!(large.1.mul_add(-2.0, small.1).abs() < 1e-3);
     }
 }
