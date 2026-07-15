@@ -949,14 +949,6 @@ impl App {
             // cheats/watchpoints/breakpoints/port2-peripheral/voice-mute re-syncs below (post-
             // `v1.3.0` — see the `emu-thread` `audio_samples` block further down).
             let mut emu = active.core.lock().unwrap_or_else(PoisonError::into_inner);
-            // View -> Hide Overscan (`v1.20.0`): whether the game is CURRENTLY using the SNES's
-            // extended 239-line `SETINI` overscan mode, checked once here (before this frame's
-            // own production) and applied to `fb`/`dims` at the end of this block, after every
-            // other buffer transform (HD-pack, run-ahead, the `emu-thread` `PresentBuffer`
-            // handoff) has already settled on the bytes actually being presented — see
-            // `crop_overscan`'s own doc for why cropping a FRACTION of the final height there,
-            // rather than a fixed pixel count here, stays correct under HD-pack's own upscale.
-            let overscan_active = emu.fb_dims().1 > 224;
             // When NOT threaded, run as many whole emulated frames as real elapsed time has earned
             // (fixed-timestep), so emulation tracks the region rate, not the display refresh.
             #[cfg(not(feature = "emu-thread"))]
@@ -1259,7 +1251,17 @@ impl App {
                 scratch.extend_from_slice(&active.present_staging);
                 scratch
             };
-            let (fb, dims) = if config.video.hide_overscan && overscan_active {
+            // View -> Hide Overscan (`v1.20.0`): whether the presented frame is CURRENTLY in the
+            // SNES's extended 239-line `SETINI` overscan mode, checked HERE against the finalized
+            // `dims` — after every buffer transform (HD-pack, run-ahead, the `emu-thread`
+            // `PresentBuffer` handoff) has already settled on the bytes actually being presented
+            // — rather than an earlier `emu.fb_dims()` read, which can desync from `dims` right
+            // at a resolution switch (found in review: PR #115, both bots independently). `dims.1`
+            // is always a multiple of 224 or 239 (times an integer upscale), so this check is
+            // race-free and never confuses the two. See `crop_overscan`'s own doc for why cropping
+            // a FRACTION of the height, rather than a fixed pixel count, stays correct under
+            // HD-pack's own upscale.
+            let (fb, dims) = if config.video.hide_overscan && dims.1 % 239 == 0 {
                 crop_overscan(fb, dims)
             } else {
                 (fb, dims)
@@ -1882,9 +1884,10 @@ impl App {
 /// count, so this stays correct even after HD-pack's own integer upscale has already run
 /// (`app.rs`'s HD-pack compositing block runs before this) — `239 * scale * 15 / 239` reduces
 /// to exactly `15 * scale` with no rounding, for any integer `scale`. Only called when the
-/// caller has already confirmed the frame is actually in the 239-line mode (see `render`'s own
-/// `overscan_active` capture) — this function assumes that, it does not re-check it, since a
-/// 224-line frame's `dims.1 * 15 / 239` would NOT reliably equal a clean crop-to-224 amount.
+/// caller has already confirmed the frame is actually in the 239-line mode (`render`'s own
+/// `dims.1 % 239 == 0` check against the FINALIZED presented dims) — this function assumes
+/// that, it does not re-check it, since a 224-line frame's `dims.1 * 15 / 239` would NOT
+/// reliably equal a clean crop-to-224 amount.
 ///
 /// Truncates `fb` in place rather than allocating a fresh buffer, matching this module's own
 /// "steady-state zero allocations" convention for per-frame buffer transforms.
