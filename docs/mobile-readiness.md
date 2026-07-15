@@ -5,6 +5,11 @@ Tracks the RustyNES-parity roadmap's mobile track (`v1.14.0 "Foundry"` through `
 submission. See `docs/adr/0012-mobile-platform-target.md` for the platform-target decision
 itself; this doc is the living status page, not the decision record.
 
+**The RustyNES-parity roadmap itself closed at `v1.19.0 "Afterburner"`** (2026-07-15) — every
+planned rung, mobile and non-mobile alike, has shipped. The only thing this doc still tracks as
+open is the standing **Mobile Phase 6** store-launch gate below; see `docs/STATUS.md`'s "Current
+release" pointer and `to-dos/VERSION-PLAN.md` for the closed-out ladder itself.
+
 ## Architecture
 
 `crates/rustysnes-mobile` is a thin `UniFFI` bridge over `rustysnes_core::facade::EmuCore` — the
@@ -224,8 +229,54 @@ Netplay is a large, net-new UI surface neither shell has any precedent for. See 
 - **No TestFlight upload, no App Store §4.7 self-audit, no real distribution signing** — the
   `ios.yml` step exists but is an explicit no-op pending the project owner provisioning real
   signing secrets.
-- **No store-submission readiness assessment yet** — that's the standing "Mobile Phase 6"
-  go/no-go gate in `to-dos/ROADMAP.md`, deliberately not tied to a fixed version.
+- **No store-submission readiness assessment yet** — see "Mobile Phase 6 — store-launch gate
+  status" below for the full gate criteria and current disposition.
+
+## Mobile Phase 6 — store-launch gate status
+
+**STATUS: NOT GREENLIT.** No store-submission readiness assessment has occurred. This is an
+explicit maintainer go/no-go decision against this document, reviewed and re-decided each time
+the mobile track advances — not an automatic outcome of shipping `v1.14.0`-`v1.18.0`, and not
+tied to any fixed RustySNES version number. It mirrors RustyNES's own real precedent: that
+project's analogous launch decision has already been deferred twice (`v2.1.0` → `v2.2.0` →
+`v2.3.0`), so a "the mobile track exists" milestone being reached is explicitly NOT the same
+thing as "ready to submit."
+
+**What's done (the prerequisite mobile track, `v1.14.0`-`v1.18.0`, all shipped and verified —
+see "Verified so far" above for the per-release detail):** the `rustysnes-mobile` UniFFI bridge,
+a real Android alpha with save/load-state and a real, found-and-fixed native audio crash, a real
+iOS alpha compile-verified via macOS CI, and the dormant `rustysnes-monetization` scaffold wired
+into both shells as an inert, non-gating call.
+
+**What would still need to happen before Phase 6 could even be considered** (not started; listed
+here so a future go/no-go review has a concrete checklist, not a vague "more polish"):
+
+- **Android:**
+  - Mouse/Super Scope/Multitap touch UX (currently P1 standard gamepad only)
+  - `.github/workflows/android.yml` — NDK cross-build CI, UniFFI Kotlin smoke test, 16KB ELF
+    page-alignment check (a real Play Store requirement on current API levels)
+  - A committed `./gradlew` wrapper (this environment has only ever used a locally cached Gradle
+    distribution directly)
+  - Play Store's own submission requirements: a Data Safety form, target API level compliance
+    check, a signed release (not debug) build, a dormant-vs-live Play Billing decision for
+    `rustysnes-monetization` if monetization is ever actually activated
+- **iOS:**
+  - A real on-device or simulator *run* — every verification so far is compile/link-only (this
+    development environment has no macOS/Xcode toolchain at all); `ios.yml`'s passing
+    `xcodebuild` build proves the code compiles, not that it behaves correctly at runtime
+  - TestFlight distribution signing secrets provisioned (the `ios.yml` upload step is currently
+    an explicit no-op pending these)
+  - The App Store §4.7 self-audit (user-sourced ROM import only, no Nintendo trademark exposure
+    in Super Scope/peripheral naming or art) — flagged as still-fresh in `v1.16.0`'s scope, not
+    yet formally re-confirmed against the shipped UI
+- **Both platforms:** the store-submission readiness assessment itself — an explicit, written
+  maintainer review against this checklist, not an implicit "it built, so it's ready" inference.
+
+**How to apply:** if a future session is asked to "get mobile ready to ship" or similar, treat
+this section as the actual scope — don't re-litigate whether the mobile *track* exists (it does,
+fully) and don't assume "the roadmap is done" implies "Phase 6 is greenlit" (it explicitly does
+not). Update this section's checklist and status line as items above get addressed, and only
+change the STATUS line itself on an explicit maintainer decision.
 
 ## Risk context (not re-litigated here, only cited)
 
