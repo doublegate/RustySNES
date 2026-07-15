@@ -5,10 +5,14 @@ Tracks the RustyNES-parity roadmap's mobile track (`v1.14.0 "Foundry"` through `
 submission. See `docs/adr/0012-mobile-platform-target.md` for the platform-target decision
 itself; this doc is the living status page, not the decision record.
 
-**The RustyNES-parity roadmap itself closed at `v1.19.0 "Afterburner"`** (2026-07-15) — every
-planned rung, mobile and non-mobile alike, has shipped. The only thing this doc still tracks as
-open is the standing **Mobile Phase 6** store-launch gate below; see `docs/STATUS.md`'s "Current
-release" pointer and `to-dos/VERSION-PLAN.md` for the closed-out ladder itself.
+**The RustyNES-parity roadmap** *ladder* **itself closed at `v1.19.0 "Afterburner"`** (2026-07-15)
+— every planned rung, mobile and non-mobile alike, has shipped; see `docs/STATUS.md`'s "Current
+release" pointer and `to-dos/VERSION-PLAN.md` for the closed-out ladder itself. This doc still
+tracks two kinds of open item on top of that closed ladder: the individual deferred/not-yet-
+verified follow-ups listed below (touch UX, CI workflows, a `gradlew` wrapper, etc.), and —
+separately, at a higher level — the standing **Mobile Phase 6** store-launch go/no-go gate, which
+is not a checklist of small follow-ups but an explicit maintainer decision of its own (see that
+section below).
 
 ## Architecture
 
@@ -237,10 +241,10 @@ Netplay is a large, net-new UI surface neither shell has any precedent for. See 
 **STATUS: NOT GREENLIT.** No store-submission readiness assessment has occurred. This is an
 explicit maintainer go/no-go decision against this document, reviewed and re-decided each time
 the mobile track advances — not an automatic outcome of shipping `v1.14.0`-`v1.18.0`, and not
-tied to any fixed RustySNES version number. It mirrors RustyNES's own real precedent: that
-project's analogous launch decision has already been deferred twice (`v2.1.0` → `v2.2.0` →
-`v2.3.0`), so a "the mobile track exists" milestone being reached is explicitly NOT the same
-thing as "ready to submit."
+tied to any fixed RustySNES version number. It mirrors RustyNES's own real precedent
+(`to-dos/VERSION-PLAN.md`'s own citation): that project's analogous joint Android/iOS store-launch
+milestone, targeting its own `v2.3.0`, has **already been deferred twice** — so a "the mobile
+track exists" milestone being reached is explicitly NOT the same thing as "ready to submit."
 
 **What's done (the prerequisite mobile track, `v1.14.0`-`v1.18.0`, all shipped and verified —
 see "Verified so far" above for the per-release detail):** the `rustysnes-mobile` UniFFI bridge,
