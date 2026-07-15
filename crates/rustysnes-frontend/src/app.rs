@@ -210,8 +210,11 @@ struct Active {
     /// A single quick-save-state slot (`MenuAction::SaveState`/`LoadState`).
     quick_save: Option<Vec<u8>>,
     /// The loaded ROM's identity + decoded header, for the Debug → ROM Info panel (`v1.20.0`).
-    /// Captured once per ROM load/close (`refresh_rom_info`) rather than every present, since a
-    /// loaded ROM's header/hashes never change while it stays loaded.
+    /// Set via a `RomInfo::capture` call at each successful-load/close site (`on_gfx_ready`'s CLI
+    /// boot, `MenuAction::OpenRom`/`CloseRom`, `load_rom_bytes_wasm`) rather than every present,
+    /// since a loaded ROM's header/hashes never change while it stays loaded — and only when
+    /// `debug-hooks` is on, since that's the only build where the panel is reachable at all (see
+    /// each call site's own comment for why a failed load skips the recapture).
     rom_info: Option<crate::debugger::RomInfo>,
     /// The loaded Lua script, if any (`v0.8.0`, T-81-002). `None` until `MenuAction::LoadScript`.
     #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
@@ -648,8 +651,13 @@ impl App {
         #[cfg(target_arch = "wasm32")]
         let initial_status = String::new();
         // `None` on `wasm32` boot (no ROM loaded yet); reflects whatever the CLI path above
-        // loaded on native (`v1.20.0`, the ROM Info panel).
+        // loaded on native (`v1.20.0`, the ROM Info panel). Gated on `debug-hooks` — hashing the
+        // full ROM (CRC32 + SHA-256) is real, avoidable work in a build where the Debug menu
+        // entry that would ever show this panel doesn't exist (found in review, PR #116).
+        #[cfg(feature = "debug-hooks")]
         let initial_rom_info = crate::debugger::RomInfo::capture(&mut emu);
+        #[cfg(not(feature = "debug-hooks"))]
+        let initial_rom_info: Option<crate::debugger::RomInfo> = None;
 
         // Open the audio device (best-effort: a missing device leaves the emulator silent, not
         // dead). The producer-side resampler converts the S-DSP 32 kHz stream to the device rate.
@@ -769,11 +777,19 @@ impl App {
             return;
         };
         let mut emu = active.core.lock().unwrap_or_else(PoisonError::into_inner);
-        active.shell.status = match emu.load_rom(bytes) {
+        let loaded = emu.load_rom(bytes);
+        active.shell.status = match &loaded {
             Ok(()) => "ROM loaded".to_string(),
             Err(e) => format!("ROM load failed: {e}"),
         };
-        active.rom_info = crate::debugger::RomInfo::capture(&mut emu);
+        // Only recapture on an actual load (never on failure — `load_rom` leaves the previous
+        // ROM running, so re-hashing it would be pointless work), and only when `debug-hooks` is
+        // on, since that's the only build where the ROM Info panel is reachable at all (found in
+        // review, PR #116).
+        #[cfg(feature = "debug-hooks")]
+        if loaded.is_ok() {
+            active.rom_info = crate::debugger::RomInfo::capture(&mut emu);
+        }
         drop(emu);
         // A new cart invalidates every prior snapshot, same as the native `MenuAction::OpenRom`.
         active.rewind.clear();
@@ -1486,7 +1502,15 @@ impl App {
                                 active.cheevos.unload_game();
                                 active.cheevos.load_game(emu.rom());
                             }
-                            active.rom_info = crate::debugger::RomInfo::capture(&mut emu);
+                            // Same success gate as the RetroAchievements block above, and same
+                            // reasoning: a failure leaves the previous ROM running, so
+                            // re-hashing it would be pointless work. Also gated on `debug-hooks`
+                            // — hashing the full ROM is avoidable work in a build where the
+                            // panel that would show it doesn't exist (found in review, PR #116).
+                            #[cfg(feature = "debug-hooks")]
+                            if active.shell.status.starts_with("Loaded ") {
+                                active.rom_info = crate::debugger::RomInfo::capture(&mut emu);
+                            }
                             drop(emu);
                         }
                         // A new cart invalidates every prior snapshot (rewind ring +
