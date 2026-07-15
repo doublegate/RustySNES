@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Wasm demo: `Cheats`/`Debug` menu items now real, not placeholders** (Phase A of the new
+  UI/UX-parity ladder). `.github/workflows/web.yml`'s `trunk build` gained
+  `--features cheats,debug-hooks` — both are pure computation with zero wasm-incompatible
+  dependencies (confirmed via a real `cargo check --target wasm32-unknown-unknown` and a full
+  local `trunk build` reproducing the exact CI command), and had simply never been added to the
+  deployed demo's feature set, not excluded for any architectural reason. The hosted demo's
+  Tools → Cheats and Debug → Debugger-overlay menu items now show their real controls instead of
+  a `(rebuild with --features ...)` label. Verified: the built demo's gzip size (2.96 MiB) stays
+  well under the 5 MiB budget gate (2.04 MiB headroom), and compile-time `#[cfg]` proof —
+  building with these features on means the sibling `#[cfg(not(feature = "..."))]` placeholder
+  branches are provably absent from this binary. `scripting`/`netplay`/`retroachievements` remain
+  genuinely unavailable on wasm (`mlua`/native sockets/`rcheevos` FFI are not wasm-portable) —
+  their placeholders are honest, not touched by this fix; see `docs/frontend.md`'s "hosted demo
+  page" section for the full disposition and `to-dos/ROADMAP.md`/the approved UI/UX-parity plan
+  for what fixing those three would actually require.
+
 ## [1.19.0] "Afterburner" - 2026-07-15
 
 Fifteenth release of the RustyNES-parity roadmap: an optional PGO/BOLT pipeline for the
