@@ -68,6 +68,9 @@ pub mod input;
 #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
 pub mod netplay;
 pub(crate) mod pacing;
+// Host-input capture for Mouse/Super Scope (`v1.20.0`) — no target_arch/feature gate, matching
+// `set_port_device`'s own unconditional compilation; see the module's own doc for why.
+pub mod peripherals;
 pub mod rewind;
 pub mod save_states;
 pub mod ui_shell;

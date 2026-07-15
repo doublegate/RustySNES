@@ -27,6 +27,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   page" section for the full disposition and `to-dos/ROADMAP.md`/the approved UI/UX-parity plan
   for what fixing those three would actually require.
 
+### Added
+
+- **Live host-input capture for Mouse/Super Scope** (Phase A.2 of the UI/UX-parity ladder, new
+  `crate::peripherals`). `config.port2_peripheral`'s Settings selector already wired the emulated
+  hardware correctly since `v0.9.0`; now `egui::Context`'s pointer state actually drives it once
+  per frame — `EmuCore::set_mouse` from pointer delta + left/right buttons, `EmuCore::set_superscope`
+  from an absolute aim position mapped through the present path's own letterbox transform
+  (`Gfx::letterbox_scale`, exposed `pub(crate)` for this reuse rather than re-derived) into SNES
+  pixel space, with trigger/cursor/turbo on left/right/middle mouse buttons. Mirrors
+  `rustysnes-libretro`'s own already-verified `poll_port_input` translation. Portable to wasm on
+  purpose (no `target_arch` gate) — both the pointer API and the `EmuCore` calls are already
+  platform-agnostic, so the hosted demo gets this too. 5 real unit tests cover the pure
+  coordinate-mapping math directly (centered/corner/pillarboxed/off-window cases), not just
+  "compiles."
+
+### Fixed
+
+- **A real, separate finding surfaced while scoping the above**: `docs/frontend.md`'s own "Status"
+  line claimed controller port 1 had "keyboard + gilrs gamepad" input, but `gilrs::Gilrs` is never
+  actually instantiated anywhere in `rustysnes-frontend` — confirmed via `input::gamepad_button`
+  (the gilrs-button-name mapping function) having zero callers. Port 1 is keyboard-only today.
+  Corrected the doc; wiring real gamepad support is a genuinely separate, larger prerequisite
+  (a live `Gilrs` instance + per-frame event polling), not something silently expanded into this
+  fix — it's also what blocks Super Multitap sub-pad 1-3 host input specifically, tracked
+  separately in the UI/UX-parity plan's backlog.
+
 ## [1.19.0] "Afterburner" - 2026-07-15
 
 Fifteenth release of the RustyNES-parity roadmap: an optional PGO/BOLT pipeline for the

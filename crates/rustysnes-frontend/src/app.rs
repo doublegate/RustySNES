@@ -1013,12 +1013,17 @@ impl App {
                     // Controller port 2 peripheral selection (`v0.9.0`, Phase 7 niche
                     // peripherals) — same "just re-sync unconditionally, once per real frame"
                     // pattern as cheats/watchpoints above; cheap (one enum-tag write) when
-                    // unchanged. Host-input capture for the non-Gamepad devices (a real mouse
-                    // pointer driving Super Scope aim / Mouse deltas, extra gamepads for
-                    // Multitap sub-pads) is a follow-up frontend task — this wires the CORE's
-                    // protocol correctly but doesn't yet feed it live host input
-                    // (`docs/frontend.md` §Peripherals).
+                    // unchanged.
                     emu.set_port_device(1, config.port2_peripheral.to_core());
+                    // Host-input capture for Mouse/Super Scope (`v1.20.0`, closing the gap the
+                    // comment above used to describe) — Multitap sub-pads still have no host
+                    // input source; see `crate::peripherals`'s own module doc for why.
+                    crate::peripherals::sync(
+                        &active.egui_ctx,
+                        &active.gfx,
+                        &mut emu,
+                        config.port2_peripheral.into(),
+                    );
                     // PC breakpoints (`v0.9.0`, T-81-001 PR B) — same re-sync pattern as above;
                     // a no-op branch in `EmuCore::run_frame` when the list is empty.
                     emu.set_breakpoints(&active.breakpoints);
@@ -1089,6 +1094,16 @@ impl App {
                 #[cfg(feature = "debug-hooks")]
                 crate::watchpoints::sync(&active.watchpoints, &mut emu.system_mut().bus);
                 emu.set_port_device(1, config.port2_peripheral.to_core());
+                // Host-input capture for Mouse/Super Scope (`v1.20.0`) — same "re-sync once per
+                // present" cadence the port-device selection above already uses in this threaded
+                // build; live pointer state is read as often as we redraw, matching how
+                // `active.pad1`'s own keyboard latch feeds the thread.
+                crate::peripherals::sync(
+                    &active.egui_ctx,
+                    &active.gfx,
+                    &mut emu,
+                    config.port2_peripheral.into(),
+                );
                 emu.set_breakpoints(&active.breakpoints);
                 emu.set_voice_mutes(config.audio.voice_mutes);
 
