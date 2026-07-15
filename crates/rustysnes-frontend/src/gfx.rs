@@ -867,8 +867,13 @@ impl Gfx {
     /// clip-space position so the 4:3 SNES display fits inside the current surface regardless of
     /// window shape — shared by [`Self::blit`] and [`Self::present`]'s filter passes (`v1.2.0`;
     /// extracted from `blit`'s own inline math, a pure behavior-preserving refactor).
+    ///
+    /// `pub(crate)` since `v1.20.0`: `crate::peripherals` reuses this SAME clip-space fraction to
+    /// map host pointer coordinates into SNES pixel space for Mouse/Super Scope input, rather than
+    /// re-deriving the letterbox math a second time and risking the two implementations drifting
+    /// apart.
     #[allow(clippy::cast_precision_loss)]
-    fn letterbox_scale(&self) -> (f32, f32) {
+    pub(crate) fn letterbox_scale(&self) -> (f32, f32) {
         let win_w = self.config.width.max(1) as f32;
         let win_h = self.config.height.max(1) as f32;
         let win_aspect = win_w / win_h;

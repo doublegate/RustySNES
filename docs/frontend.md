@@ -11,8 +11,12 @@ egui runs every frame.
 
 **Status (Phase 5): playable native.** A real commercial ROM boots in a window with picture
 (PPU BGR555 → RGBA8, aspect-correct 4:3 sub-rect letterbox blit), sound (S-DSP 32 kHz FIFO →
-producer-side DRC-paced linear resampler → lock-free ring → cpal stereo), and control (keyboard +
-gilrs gamepad → `Bus::set_joypad`). ROM load auto-resolves coprocessor firmware + `.srm` SRAM;
+producer-side DRC-paced linear resampler → lock-free ring → cpal stereo), and control (keyboard →
+`Bus::set_joypad`). **Correction (`v1.20.0`):** this line previously also claimed "gilrs gamepad" —
+found false while scoping the Peripherals fix below: `gilrs::Gilrs` is never actually instantiated
+anywhere in this crate, so controller port 1 is keyboard-only today; see "Peripherals" further
+down for the honest disposition and why it's a genuinely separate, larger fix than it looks.
+ROM load auto-resolves coprocessor firmware + `.srm` SRAM;
 Reset / Power-Cycle / Pause are wired. The dependency stack tracks the latest mutually-compatible
 tier: egui/egui-wgpu/egui-winit **0.35**, wgpu **29**, winit **0.30** (winit 0.31 is beta-only and
 egui-winit 0.35 pins to 0.30 — winit is the crate gating us off 0.31). Native + `wasm32` both
@@ -456,20 +460,31 @@ occupies a port (default: `Gamepad`, byte-identical to every prior release); `Bu
 re-synced once per frame" convention `set_joypad` already uses. Save-stated as real hardware
 state (`FORMAT_VERSION` 2→3, `docs/adr/0006`), not host debug tooling.
 
-**What this frontend wires today:** a Settings → Input control (`ui_shell.rs`) selects controller
-port 2's peripheral via `config.port2_peripheral`, re-synced to the Bus every frame
-(`app.rs`, alongside the cheats/watchpoints sync). **What it does NOT yet wire: live host-input
-capture.** No code path currently feeds `set_mouse`/`set_superscope`/`set_multitap_pad` from a
-real OS mouse pointer, a Super Scope crosshair overlay, or extra `gilrs` gamepads for Multitap
-sub-pads 2-4 — selecting a non-`Gamepad` device correctly changes what the emulated hardware
-reports (verifiable via `rustysnes-script`/the test harness calling the `EmuCore`/`Bus` methods
-directly), but the default GUI session won't yet feel it move. This is a real, open follow-up
-frontend task, not a silently-incomplete claim: closing it needs (a) a `WindowEvent::CursorMoved`/
-`MouseInput` capture path (or reading `egui::Context`'s own pointer state, already available every
-frame since `egui_state.on_window_event` runs unconditionally) mapped from window pixels through
-the present path's letterbox/integer-scale transform (`gfx.rs`) to SNES `0..256`/`0..240` pixel
-space, and (b) binding `gilrs` device indices 1-3 to Multitap sub-pads 1-3 (index 0 already has a
-natural home in the existing P1 gamepad auto-bind).
+**What this frontend wires today (`v0.9.0` → `v1.20.0`):** a Settings → Input control
+(`ui_shell.rs`) selects controller port 2's peripheral via `config.port2_peripheral`, re-synced to
+the Bus every frame (`app.rs`, alongside the cheats/watchpoints sync). **Mouse and Super Scope now
+get live host-input capture too** (`v1.20.0`, `crate::peripherals`): `egui::Context`'s own pointer
+state (available every frame since `egui_state.on_window_event` runs unconditionally — no new
+`WindowEvent` plumbing needed) feeds `EmuCore::set_mouse`/`set_superscope` once per frame,
+alongside the existing port-device re-sync. Super Scope's absolute aim position is mapped from
+window pixels through the present path's own letterbox transform (`Gfx::letterbox_scale`, exposed
+`pub(crate)` for exactly this reuse — never re-derived) into SNES `0..256`/`0..240` pixel space;
+trigger/cursor/turbo map to left/right/middle mouse buttons (no fourth button exists for `Pause`,
+left unset). Portable to wasm on purpose — both the pointer API and the `EmuCore` calls are
+already platform-agnostic, so the hosted demo gets this too, not just the native build. The pure
+coordinate-mapping math is unit-tested directly (`peripherals.rs`'s own `#[cfg(test)]` module),
+not just "compiles and is presumed correct."
+
+**What's still NOT wired: Super Multitap sub-pads 1-3.** Real host gamepad polling would be the
+input source, but a genuinely separate, larger discovery blocks it: `gilrs::Gilrs` is never
+actually instantiated anywhere in this crate today — confirmed while scoping the Mouse/Super Scope
+fix above, `input::gamepad_button` (the gilrs-button-name → SNES-button mapping function) has zero
+callers. **Controller port 1's own gamepad support is unwired too** — despite this doc's earlier
+"Status" line claiming "keyboard + gilrs gamepad", the default GUI session is keyboard-only right
+now. This is a real, separate finding, not a silently-incomplete claim: closing Multitap host
+input needs a genuinely new prerequisite (a live `Gilrs` instance + per-frame event polling loop),
+not a small addition on top of the Mouse/Super Scope wiring above — see
+`to-dos/ROADMAP.md`/the UI/UX-parity plan's Phase B/C backlog for where this is tracked.
 
 ## Save-states, rewind, run-ahead
 
