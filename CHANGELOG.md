@@ -11,13 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Wasm demo: `Cheats`/`Debug` menu items now real, not placeholders** (Phase A of the new
-  UI/UX-parity ladder). `.github/workflows/web.yml`'s `trunk build` gained
+- **Wasm demo: `Cheats`/`Debugger overlay` menu items now real, not placeholders** (Phase A of the
+  new UI/UX-parity ladder). `.github/workflows/web.yml`'s `trunk build` gained
   `--features cheats,debug-hooks` — both are pure computation with zero wasm-incompatible
   dependencies (confirmed via a real `cargo check --target wasm32-unknown-unknown` and a full
   local `trunk build` reproducing the exact CI command), and had simply never been added to the
   deployed demo's feature set, not excluded for any architectural reason. The hosted demo's
-  Tools → Cheats and Debug → Debugger-overlay menu items now show their real controls instead of
+  Tools → Cheats and Debug → Debugger overlay menu items now show their real controls instead of
   a `(rebuild with --features ...)` label. Verified: the built demo's gzip size (2.96 MiB) stays
   well under the 5 MiB budget gate (2.04 MiB headroom), and compile-time `#[cfg]` proof —
   building with these features on means the sibling `#[cfg(not(feature = "..."))]` placeholder
