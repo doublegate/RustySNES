@@ -229,12 +229,27 @@ jobs:
           est="target/criterion/headless_frame_steady_state/plain/estimates.json"
           echo "BASE_NS=$(python3 -c "import json,sys; print(int(json.load(open(sys.argv[1]))['mean']['point_estimate']))" "$est")" >> "$GITHUB_ENV"
 
+      # `--with-pgo` on both calls (cargo-pgo's own documented BOLT+PGO combined workflow) is what
+      # actually chains this stage onto the PGO profile the step above just gathered -- without
+      # it, `cargo pgo bolt build` would instrument a PLAIN release build, ignoring the PGO
+      # profile entirely.
+      #
+      # Real BOLT profile gathering requires running the ACTUAL `rustysnes-bolt-instrumented`
+      # binary (cargo-pgo's naming for `cargo pgo bolt build`'s output) against a representative
+      # workload -- but that's `rustysnes-frontend`'s GUI binary, which needs a real display/wgpu
+      # surface to run at all; this project's frontend has no headless CLI mode, and this
+      # sandbox's own wgpu-under-Xvfb attempt is a known hang, not a "just add a flag" fix. A PR
+      # review caught the real bug this replaced: re-invoking the whole `scripts/pgo/run.sh`
+      # here doesn't feed BOLT's profile at all -- it's a SEPARATE, non-BOLT PGO cycle that would
+      # clobber the bolt-instrumented binary with an unrelated plain-PGO one. cargo-pgo's own docs
+      # say profile-less BOLT optimization is a documented, valid fallback ("it will probably not
+      # have a large effect" but is still a real pass), so this stage deliberately skips profile
+      # gathering instead.
       - name: BOLT instrument + optimize
         if: steps.bolt_probe.outputs.have_bolt == 'true'
         run: |
-          cargo pgo bolt build -- -p rustysnes-frontend
-          scripts/pgo/run.sh "${{ github.event.inputs.frames || '3600' }}"
-          cargo pgo bolt optimize -- -p rustysnes-frontend
+          cargo pgo bolt build --with-pgo -- -p rustysnes-frontend
+          cargo pgo bolt optimize --with-pgo -- -p rustysnes-frontend
 
       - name: BOLT headless_frame bench + gate
         if: steps.bolt_probe.outputs.have_bolt == 'true'
