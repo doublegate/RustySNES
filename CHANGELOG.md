@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.20.0] "Aperture" - 2026-07-15
+
+Phase A of the new UI/UX-parity ladder: brings the wasm demo's menus and the desktop frontend's
+peripheral/overscan/inspection controls up from placeholder or dormant to actually functional,
+closing several gaps found in a systematic audit against RustyNES's own frontend.
+
 ### Fixed
 
 - **Wasm demo: `Cheats`/`Debugger overlay` menu items now real, not placeholders** (Phase A of the
