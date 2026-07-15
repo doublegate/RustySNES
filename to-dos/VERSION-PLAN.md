@@ -1284,12 +1284,28 @@ A store-launch decision (Play + App Store submission, monetization activation) r
 explicit maintainer go/no-go against `docs/mobile-readiness.md`, not a numbered rung —
 mirroring RustyNES's own still-pending, twice-deferred launch.
 
-### `v1.19.0 "Afterburner"` — PGO/BOLT pipeline
+### `v1.19.0 "Afterburner"` — PGO/BOLT pipeline — **RELEASED 2026-07-15**
 
-Deliberately last: a promotion gate requiring both >3% Criterion speedup AND byte-identical
-`--features test-roms` re-run under the PGO profile (cites `docs/adr/0004`'s determinism
-contract), deferred until mobile-specific hot-path work has landed so the profile isn't
-invalidated mid-ladder. Optional Linux-only BOLT stage.
+Delivered: `scripts/pgo/run.sh` (instrument → train against the committed permissive ROM corpus
+via a new `pgo_trainer` binary → optimized rebuild of the shipping `rustysnes` binary) and
+`.github/workflows/pgo.yml` (`workflow_dispatch` + release-tag push only — never the PR gate).
+Promotion requires both a `>3%` Criterion speedup over the plain release build **and** a
+byte-identical `--features test-roms` re-run under the PGO profile (cites `docs/adr/0004`'s
+determinism contract — never promotes on speed alone), deferred until this rung so the profile
+isn't invalidated by mobile-specific hot-path work still landing. An optional Linux-only BOLT
+post-link stage chains onto an already-promoted PGO binary, best-effort.
+
+Also fixed a real, latent CI gap found while building this: `rust-toolchain.toml` was missing
+`llvm-tools-preview`, and `dtolnay/rust-toolchain` silently ignores the `rust-setup` composite
+action's own `components:` input whenever a `rust-toolchain.toml` file exists (the same class of
+bug already found and fixed for `ios.yml` in `v1.16.0`).
+
+Verified for real in this development environment: the full instrument → train → optimized-
+rebuild pipeline produces a genuine, running `rustysnes` binary, and the determinism oracle
+passes cleanly under the PGO-merged profile. A PR review caught a real structural bug in the
+BOLT stage (re-invoking the whole training script mid-stage instead of chaining `--with-pgo`
+onto the already-gathered PGO profile, which could have clobbered the bolt-instrumented binary)
+— fixed per `cargo-pgo`'s own documented BOLT+PGO workflow.
 
 **On version numbers:** RustySNES's own SemVer stays independent of RustyNES's — this ladder
 reaches RustyNES's current maturity bar at RustySNES's own `v1.19.0`, not a literal "`v2.2.0`."

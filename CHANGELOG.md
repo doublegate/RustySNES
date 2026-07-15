@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.19.0] "Afterburner" - 2026-07-15
+
+Fifteenth release of the RustyNES-parity roadmap: an optional PGO/BOLT pipeline for the
+shipping `rustysnes` binary, deliberately last per the plan (after mobile-specific hot-path
+work landed, so the profile isn't invalidated).
+
 ### Added
 
 - **PGO/BOLT pipeline** (Mobile-track-adjacent, deliberately last per the RustyNES-parity
@@ -36,6 +42,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   local A/B speedup did not clear the `>3%` promotion bar on a short local training run (as
   documented honestly in `docs/performance.md` — this is an expected, not a failure, state; a
   short/narrow local run isn't representative of CI's real `3600`-frame training sweep).
+
+### Fixed
+
+- **A real bug in `pgo.yml`'s BOLT stage, found in PR review**: re-invoking the whole
+  `scripts/pgo/run.sh` between `cargo pgo bolt build` and `cargo pgo bolt optimize` ran a
+  separate, non-BOLT PGO cycle that never fed BOLT's profile data and could clobber the
+  bolt-instrumented binary with an unrelated plain-PGO one. Fixed per `cargo-pgo`'s own
+  documented BOLT+PGO combined workflow: `--with-pgo` on both `cargo pgo bolt build` and
+  `cargo pgo bolt optimize`, with the erroneous `run.sh` re-invocation removed. Real BOLT profile
+  gathering (running the actual GUI frontend binary against a workload) stays out of scope —
+  this project's frontend has no headless CLI mode — so the fix deliberately uses `cargo-pgo`'s
+  own documented profile-less BOLT fallback instead.
 
 ## [1.18.0] "Dormant" - 2026-07-14
 
