@@ -19,6 +19,7 @@
 use crate::cheats::CheatEntry;
 use crate::config::{Config, Region};
 use crate::debug_snapshot::{DebugSnapshot, MEMORY_WINDOW_LEN, WatchpointEntry, WatchpointKind};
+use crate::debugger::RomInfo;
 use crate::input::Button;
 use crate::save_states::SlotMeta;
 
@@ -375,6 +376,7 @@ impl ShellState {
         watchpoints: &mut Vec<WatchpointEntry>,
         breakpoints: &mut Vec<u32>,
         save_slots: Option<&[SlotMeta]>,
+        rom_info: Option<&RomInfo>,
         #[cfg(feature = "cheats")] cheats: &mut Vec<CheatEntry>,
         #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))] netplay_connected: bool,
         #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
@@ -628,7 +630,14 @@ impl ShellState {
             self.render_settings(&ctx, cfg, info, &mut actions);
         }
         if self.debugger_open {
-            self.render_debugger(&ctx, debug, watchpoints, breakpoints, &mut actions);
+            self.render_debugger(
+                &ctx,
+                debug,
+                watchpoints,
+                breakpoints,
+                &mut actions,
+                rom_info,
+            );
         }
         if self.save_states_open {
             self.render_save_states(&ctx, save_slots, &mut actions);

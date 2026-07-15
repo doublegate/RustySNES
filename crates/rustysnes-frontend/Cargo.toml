@@ -166,6 +166,11 @@ web-time = "1.1"
 # no system zlib dependency.
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
+# Debug -> ROM Info panel (`v1.20.0`): CRC32 of the loaded ROM alongside the SHA-256
+# `rustysnes_core::movie::hash_rom` already computes. Pure Rust, wasm32-portable, and already
+# resolved in the workspace's dependency tree as a transitive dep, so a direct pin here is free.
+crc32fast = "1.5"
+
 # Native-only deps (gilrs/rfd/directories/clap/ratatui/rustysnes-script). A browser tab has no
 # gamepad-via-gilrs, no rfd dialog, no terminal, and `mlua`'s vendored Lua VM needs a C compiler +
 # `std` — the wasm builds never see these (the modules are `cfg(not(target_arch = "wasm32"))`-

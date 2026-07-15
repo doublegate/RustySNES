@@ -8,6 +8,7 @@
 //! See `docs/cartridge-format.md` for the authoritative header-byte layout (`$xFC0`–`$xFDF`)
 //! and the score heuristic.
 
+use alloc::string::String;
 use thiserror::Error;
 
 /// Errors from header detection.
@@ -100,6 +101,10 @@ pub struct Header {
     pub sram_size: usize,
     /// Whether the cart is battery-backed (has persistent SRAM / RTC).
     pub has_battery: bool,
+    /// The 21-byte internal title (`$xFC0`), non-printable bytes replaced with spaces and
+    /// trailing padding trimmed. Best-effort: the SNES header has no encoding guarantee, so this
+    /// is display text, not a validated field (`v1.20.0`, added for the ROM Info debugger panel).
+    pub title: String,
 }
 
 /// Header field offsets relative to the header base (`$xFC0`).
@@ -222,8 +227,25 @@ impl Header {
             rom_size: image.len(),
             sram_size,
             has_battery,
+            title: decode_title(title_bytes),
         }
     }
+}
+
+/// Best-effort decode of the raw 21-byte title field: non-printable bytes become spaces, then
+/// trailing padding is trimmed. See [`Header::title`].
+fn decode_title(title_bytes: &[u8]) -> String {
+    let decoded: String = title_bytes
+        .iter()
+        .map(|&b| {
+            if (0x20..=0x7E).contains(&b) {
+                b as char
+            } else {
+                ' '
+            }
+        })
+        .collect();
+    decoded.trim_end().into()
 }
 
 /// Derive the on-cart coprocessor from the chipset byte (`$xFD6`) plus (for the ambiguous `$F`
@@ -402,6 +424,21 @@ mod tests {
         assert_eq!(h.sram_size, 0x2000);
         assert!(h.has_battery);
         assert_eq!(h.coprocessor, Coprocessor::None);
+        assert_eq!(h.title, "RUSTYSNES TEST ROM");
+    }
+
+    #[test]
+    fn title_replaces_non_printable_bytes_and_trims_padding() {
+        let mut rom = synth_image(0x7FC0, 0x0, 0x00, 0x01);
+        // "AB" followed by non-printable padding — non-printable bytes become spaces, then the
+        // trailing run (padding + replaced bytes) trims off, leaving just "AB".
+        rom[0x7FC0 + field::TITLE] = b'A';
+        rom[0x7FC0 + field::TITLE + 1] = b'B';
+        for i in 2..field::TITLE_LEN {
+            rom[0x7FC0 + field::TITLE + i] = 0x00;
+        }
+        let h = Header::detect(&rom).expect("detect");
+        assert_eq!(h.title, "AB");
     }
 
     #[test]

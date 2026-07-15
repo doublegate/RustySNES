@@ -741,6 +741,17 @@ kind picker + Add button, the armed list with per-row Remove buttons, and a scro
 directly — `DebugSnapshot` itself stays unconditionally compiled (see that struct's own doc), so
 its fields can't depend on a type that only exists when core's `debug-hooks` is on.
 
+**ROM Info panel (`v1.20.0`):** a read-only CRC32/SHA-256/header decode of the loaded cart —
+`crates/rustysnes-frontend/src/debugger/rom_info_panel.rs`. `RomInfo::capture` is called once per
+ROM load/close (native `MenuAction::OpenRom`/`CloseRom` and the `wasm32` file-picker path), not
+recomputed every frame like `DebugSnapshot` — a loaded ROM's identity and header never change while
+it stays loaded. CRC32 comes from `crc32fast` (already resolved in the workspace's dependency tree
+as a transitive dep, so a direct pin was free); SHA-256 reuses `rustysnes_core::movie::hash_rom`
+rather than recomputing it. The header decode also picked up a genuinely new field along the way:
+`rustysnes_cart::header::Header` gained a `title: String` (the raw 21-byte internal title,
+non-printable bytes replaced with spaces, trailing padding trimmed) — `Header::parse` already had
+the raw bytes in hand for its own coprocessor-disambiguation title match, this just surfaces them.
+
 ## Scripting + TAS movies (`v0.8.0 "Instrumentation"`, T-81-002)
 
 A Tools menu (native only, `#[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]`)
