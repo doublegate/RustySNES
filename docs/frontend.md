@@ -197,8 +197,24 @@ Settings → Video (a radio row + per-filter strength sliders) or the View → P
   display) is still worth the maintainer confirming on their own machine before release.
 - **Not built** (documented scope cuts, not silent gaps — unrevisited from `v1.2.0`'s original
   call, not a `v1.12.0` finding): RustyNES's NTSC composite-signal simulation and RetroArch
-  `.slangp`/`.cgp` shader-preset import both remain explicitly out of scope. Overscan cropping
-  remains a separate, pre-existing `TODO(impl-phase)` in the View menu.
+  `.slangp`/`.cgp` shader-preset import both remain explicitly out of scope.
+
+### Hide Overscan (`v1.20.0`)
+
+View → Hide Overscan crops the trailing "overscan" scanlines a real 4:3 CRT wouldn't reliably
+show. This is distinct from every other post-filter above — it's a scanline COUNT crop, not a
+pixel-shader effect, and it's tied to a real SNES hardware register: `SETINI` (`rustysnes_ppu`)
+lets a game extend the standard 224-line display to 239 lines; `app.rs`'s `crop_overscan` crops
+exactly that extra 15-line extension back off, once per frame, after every other buffer transform
+(HD-pack compositing, run-ahead, the `emu-thread` build's `PresentBuffer` handoff) has already
+settled on the bytes actually being presented. Crops a FRACTION (`15/239`) of the current height
+rather than a fixed `224` pixel count, so it stays exact under an HD-pack integer upscale too
+(`239 * scale * 15 / 239` reduces to exactly `15 * scale`, no rounding, for any integer `scale`).
+Presentation-only — the deterministic core's own framebuffer is untouched, matching every other
+filter's determinism-boundary posture (`docs/adr/0004`). Additive, `config.video.hide_overscan`
+defaults to `false` — byte-identical presentation to every prior release when unchanged. 3 real
+unit tests (`app.rs`'s `overscan_tests` module) cover native resolution, an HD-pack-scaled
+resolution, and that the kept (leading) bytes are untouched, not re-derived.
 
 ## HD texture packs (`v1.3.0`, `hd-pack` feature)
 

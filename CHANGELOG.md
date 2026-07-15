@@ -53,6 +53,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fix — it's also what blocks Super Multitap sub-pad 1-3 host input specifically, tracked
   separately in the UI/UX-parity plan's backlog.
 
+### Added
+
+- **View → Hide Overscan** (Phase A.3 of the UI/UX-parity ladder). Crops the trailing "overscan"
+  scanlines a real 4:3 CRT wouldn't reliably show — the SNES's own `SETINI` register extends the
+  standard 224-line display to 239 lines (`rustysnes_ppu`); the new `app.rs`'s `crop_overscan`
+  crops exactly that extra 15-line extension back off, once per frame, after every other buffer
+  transform (HD-pack compositing, run-ahead, the `emu-thread` build's `PresentBuffer` handoff)
+  has already settled on the bytes actually being presented. Crops a FRACTION (`15/239`) of the
+  current height rather than a fixed pixel count, so it stays exact under an HD-pack integer
+  upscale too. Presentation-only, additive, `false` by default — byte-identical to every prior
+  release when unchanged. 3 real unit tests cover native resolution, an HD-pack-scaled
+  resolution, and that the kept bytes are untouched.
+
 ## [1.19.0] "Afterburner" - 2026-07-15
 
 Fifteenth release of the RustyNES-parity roadmap: an optional PGO/BOLT pipeline for the

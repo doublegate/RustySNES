@@ -1251,6 +1251,21 @@ impl App {
                 scratch.extend_from_slice(&active.present_staging);
                 scratch
             };
+            // View -> Hide Overscan (`v1.20.0`): whether the presented frame is CURRENTLY in the
+            // SNES's extended 239-line `SETINI` overscan mode, checked HERE against the finalized
+            // `dims` — after every buffer transform (HD-pack, run-ahead, the `emu-thread`
+            // `PresentBuffer` handoff) has already settled on the bytes actually being presented
+            // — rather than an earlier `emu.fb_dims()` read, which can desync from `dims` right
+            // at a resolution switch (found in review: PR #115, both bots independently). `dims.1`
+            // is always a multiple of 224 or 239 (times an integer upscale), so this check is
+            // race-free and never confuses the two. See `crop_overscan`'s own doc for why cropping
+            // a FRACTION of the height, rather than a fixed pixel count, stays correct under
+            // HD-pack's own upscale.
+            let (fb, dims) = if config.video.hide_overscan && dims.1.is_multiple_of(239) {
+                crop_overscan(fb, dims)
+            } else {
+                (fb, dims)
+            };
             (fb, dims, info, audio_samples, debug, save_slots)
         };
 
@@ -1860,6 +1875,31 @@ impl App {
     }
 }
 
+/// View → Hide Overscan (`v1.20.0`): crop the trailing "overscan" scanlines a real 4:3 CRT
+/// wouldn't reliably show — the SNES's own `SETINI` register extends the standard 224-line
+/// display to 239 lines (`rustysnes_ppu::Ppu::visible_height`); this crops exactly that extra
+/// 15-line extension back off, on the presentation side only.
+///
+/// Crops a FRACTION (`15/239`) of `dims`'s CURRENT height rather than a fixed `224` pixel
+/// count, so this stays correct even after HD-pack's own integer upscale has already run
+/// (`app.rs`'s HD-pack compositing block runs before this) — `239 * scale * 15 / 239` reduces
+/// to exactly `15 * scale` with no rounding, for any integer `scale`. Only called when the
+/// caller has already confirmed the frame is actually in the 239-line mode (`render`'s own
+/// `dims.1.is_multiple_of(239)` check against the FINALIZED presented dims) — this function assumes
+/// that, it does not re-check it, since a 224-line frame's `dims.1 * 15 / 239` would NOT
+/// reliably equal a clean crop-to-224 amount.
+///
+/// Truncates `fb` in place rather than allocating a fresh buffer, matching this module's own
+/// "steady-state zero allocations" convention for per-frame buffer transforms.
+fn crop_overscan(mut fb: Vec<u8>, dims: (u32, u32)) -> (Vec<u8>, (u32, u32)) {
+    let (w, h) = dims;
+    let crop_rows = h * 15 / 239;
+    let new_h = h - crop_rows;
+    let stride = w as usize * 4;
+    fb.truncate(stride * new_h as usize);
+    (fb, (w, new_h))
+}
+
 /// Read a ROM file into `emu`, then best-effort install any required coprocessor firmware and a
 /// `.srm` battery save sitting next to the ROM. Returns a human-readable status line.
 ///
@@ -2036,5 +2076,45 @@ mod hotkey_tests {
             App::hotkey_menu_action(winit::keyboard::KeyCode::Backquote),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod overscan_tests {
+    use super::crop_overscan;
+
+    #[test]
+    fn crops_exactly_15_of_239_lines_at_native_resolution() {
+        let (w, h) = (256u32, 239u32);
+        let fb = vec![0xAAu8; w as usize * h as usize * 4];
+        let (cropped, dims) = crop_overscan(fb, (w, h));
+        assert_eq!(dims, (256, 224));
+        assert_eq!(cropped.len(), 256 * 224 * 4);
+    }
+
+    #[test]
+    fn crops_the_same_fraction_under_an_hd_pack_upscale() {
+        // HD-pack scales both dims by an integer factor; the crop must scale with it too.
+        const SCALE: u32 = 3;
+        let (w, h) = (256 * SCALE, 239 * SCALE);
+        let fb = vec![0xBBu8; w as usize * h as usize * 4];
+        let (cropped, dims) = crop_overscan(fb, (w, h));
+        assert_eq!(dims, (256 * SCALE, 224 * SCALE));
+        assert_eq!(
+            cropped.len(),
+            (256 * SCALE) as usize * (224 * SCALE) as usize * 4
+        );
+    }
+
+    #[test]
+    fn keeps_the_leading_bytes_untouched() {
+        // The crop must drop trailing rows only -- the leading (kept) bytes are byte-identical,
+        // not re-derived.
+        let (w, h) = (4u32, 239u32);
+        let fb: Vec<u8> = (0..w as usize * h as usize * 4)
+            .map(|i| u8::try_from(i % 256).unwrap())
+            .collect();
+        let (cropped, _dims) = crop_overscan(fb.clone(), (w, h));
+        assert_eq!(cropped, fb[..cropped.len()]);
     }
 }
