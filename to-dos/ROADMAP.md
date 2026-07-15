@@ -365,10 +365,15 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   pricing/pacing figure an explicit placeholder; wired into both mobile shells as an inert,
   log-only startup call, verified for real on the Android AVD via `logcat` and compile-verified
   for iOS via a real macOS CI build, which caught and fixed a genuine `xcodebuild`
-  xcframework-modulemap collision) — and a PGO/BOLT pipeline last (`v1.19.0`). Tracked in
-  lockstep against RustyNES's own continuing development via `to-dos/LOCKSTEP-CHECKLIST.md`, not
-  a frozen snapshot target. Full detail in `to-dos/VERSION-PLAN.md`'s "RustyNES-parity ladder"
-  section.
+  xcframework-modulemap collision), and finally an optional PGO/BOLT pipeline for the shipping
+  `rustysnes` binary (`v1.19.0 "Afterburner"`, **RELEASED 2026-07-15** — `scripts/pgo/run.sh` +
+  `.github/workflows/pgo.yml`, promotion gated on both a `>3%` Criterion speedup and a
+  byte-identical `--features test-roms` re-run under the PGO profile, never on speed alone;
+  verified for real end-to-end in this development environment, including a genuine BOLT-stage
+  structural bug found and fixed in PR review). This closes the RustyNES-parity ladder plan.
+  Tracked in lockstep against RustyNES's own continuing development via
+  `to-dos/LOCKSTEP-CHECKLIST.md`, not a frozen snapshot target. Full detail in
+  `to-dos/VERSION-PLAN.md`'s "RustyNES-parity ladder" section.
 - **Flagged by the 2026-07-12 lockstep re-check — no rung assigned yet, maintainer go/no-go
   needed.** RustyNES shipped two items since the roadmap's `v2.1.5` baseline that RustySNES's own
   ladder doesn't currently account for: (1) a **GIF/WAV screen+audio capture subsystem**
