@@ -89,7 +89,15 @@ jobs:
         # No RUSTFLAGS override: `-C target-feature=-reference-types` broke wasm-bindgen's
         # externref table generation once the demo linked in real `Closure`-based code — see
         # `web/index.html`'s `data-target-name` comment.
-        run: trunk build --release --public-url /RustySNES/
+        #
+        # `--features cheats,debug-hooks` (v1.20.0): both are pure computation with zero
+        # wasm-incompatible dependencies (confirmed via `cargo check --target
+        # wasm32-unknown-unknown`) — the demo previously only got the crate's own `default`
+        # feature set, which never included these, so their Tools/Debug menu items showed a
+        # "(rebuild with --features ...)" placeholder for no real architectural reason. Additive
+        # to (not replacing) `default` — Trunk only disables default features when
+        # `--no-default-features` is also passed, which this build does not do.
+        run: trunk build --release --public-url /RustySNES/ --features cheats,debug-hooks
         working-directory: crates/rustysnes-frontend/web
 
       - name: Enforce wasm size budget (< 5 MiB gzip)

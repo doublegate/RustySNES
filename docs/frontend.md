@@ -622,6 +622,15 @@ and `?settings=` share-link — none of those features exist in RustySNES today 
 handling, no wasm Lua backend, no config-to-URL serialization), so faking their UI would be the
 same "claims support that doesn't exist" anti-pattern this project avoids everywhere else.
 
+**`v1.20.0`:** `.github/workflows/web.yml`'s `trunk build` gained `--features cheats,debug-hooks`
+— both are pure computation with zero wasm-incompatible dependencies (confirmed via a real
+`cargo check --target wasm32-unknown-unknown`), and had simply never been added to the deployed
+demo's build, not excluded for any architectural reason. Tools → Cheats and Debug →
+Debugger overlay now show their real controls in the hosted demo instead of a
+`(rebuild with --features ...)` placeholder label. `scripting`/`netplay`/`retroachievements`
+remain genuinely unavailable on wasm today (`mlua`/native sockets/`rcheevos` FFI are not
+wasm-portable) — their placeholders are honest, not a gap in this fix.
+
 ## The `full` build (`v1.0.0`)
 
 `cargo full-build` / `cargo full-run <rom>` (aliases in `.cargo/config.toml`) build/run the most
