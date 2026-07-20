@@ -32,6 +32,8 @@ pub fn all() -> Vec<Test> {
         e3_11(),
         dsp_addressing(),
         e3_14(),
+        dsp_global_regs(),
+        e9_19(),
     ]
 }
 
@@ -718,6 +720,108 @@ fn dsp_addressing() -> Test {
         "E3.11b",
         'E',
         "DSP register addressing",
+        Provenance::Documented("SNESdev Wiki, S-DSP registers; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Writing `ENDX` clears it; it is not a register you can set.
+///
+/// `$7C` reports which voices have reached the end of their sample, and **any** write clears all
+/// eight bits regardless of the value written. A core that models it as ordinary storage returns
+/// whatever was written — so writing `$FF` and reading `$FF` back is the exact signature of
+/// getting this wrong, and it is what a driver polling for sample-end would see as "every voice
+/// finished" forever.
+///
+/// The assertion is deliberately "not `$FF`" rather than "exactly `$00`": with no sample playing
+/// there is nothing to set the bits in the first place, so requiring zero would pass on a core
+/// that had simply never implemented the register at all. What this test can prove is the narrower
+/// and still useful thing — that the write did not stick.
+fn e9_19() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_a_imm(0x7C)
+        .mov_dp_a(0xF2) // ENDX
+        .mov_a_imm(0xFF)
+        .mov_dp_a(0xF3) // any write clears; it must not store $FF
+        .mov_a_imm(0x7C)
+        .mov_dp_a(0xF2)
+        .mov_a_dp(0xF3)
+        .mov_dp_a(PORT2)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("A core storing the write returns $FF. Anything else means the write was treated as a");
+    a.c("clear, which is the documented behaviour.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.l("cmp #$FF");
+    a.l("bne @ok");
+    a.l("jmp @fail_stored");
+    a.label("ok");
+    a.l("bra @pass");
+    a.label("fail_stored");
+    a.l("sep #$20");
+    a.l("lda #$02");
+    a.l("sta f:V_TEST_RESULT");
+    a.l("jmp test_restore");
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E9.19",
+        'E',
+        "ENDX write clears it",
+        Provenance::Documented("SNESdev Wiki, S-DSP registers; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The DSP's global registers are individually addressable and hold what is written.
+///
+/// The companion to the voice-register test: `$x C`/`$x D` are the global block — master and echo
+/// volumes, echo feedback — and they are decoded from the same latch by a different part of the
+/// address. A core that gets the voice registers right and aliases the globals (or vice versa)
+/// passes one test and fails the other, which is why both exist.
+///
+/// Written low-to-high and read back high-to-low, so a core that simply returns the last value
+/// written cannot pass.
+fn dsp_global_regs() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF).mov_sp_x();
+    for (reg, val) in [(0x0Cu8, 0x11u8), (0x1C, 0x22), (0x2C, 0x33), (0x3C, 0x44)] {
+        prog.mov_a_imm(reg).mov_dp_a(0xF2);
+        prog.mov_a_imm(val).mov_dp_a(0xF3);
+    }
+    for (reg, port) in [(0x3Cu8, PORT1), (0x2C, PORT2), (0x1C, PORT3)] {
+        prog.mov_a_imm(reg).mov_dp_a(0xF2);
+        prog.mov_a_dp(0xF3).mov_dp_a(port);
+    }
+    prog.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("Read back in the reverse of the write order: EVOLR, EVOLL, MVOLR.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.assert_a8(0x44, "EVOLR ($3C) did not read back");
+    a.l("lda f:$7E0101");
+    a.assert_a8(0x33, "EVOLL ($2C) did not read back");
+    a.l("lda f:$7E0102");
+    a.assert_a8(
+        0x22,
+        "MVOLR ($1C) did not read back; if it holds another register's value the globals are \
+         aliased",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E3.11c",
+        'E',
+        "DSP global registers",
         Provenance::Documented("SNESdev Wiki, S-DSP registers; fullsnes"),
         Kind::Scored,
         None,

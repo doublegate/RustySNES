@@ -8816,6 +8816,243 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; E3.11c — DSP global registers
+; provenance: Documented (SNESdev Wiki, S-DSP registers; fullsnes)
+.proc test_e3_11c
+    .a16
+    .i16
+    bra @body
+@prog:
+    .byte $CD, $EF, $BD, $E8, $0C, $C4, $F2, $E8, $11, $C4, $F3, $E8
+    .byte $1C, $C4, $F2, $E8, $22, $C4, $F3, $E8, $2C, $C4, $F2, $E8
+    .byte $33, $C4, $F3, $E8, $3C, $C4, $F2, $E8, $44, $C4, $F3, $E8
+    .byte $3C, $C4, $F2, $E4, $F3, $C4, $F5, $E8, $2C, $C4, $F2, $E4
+    .byte $F3, $C4, $F6, $E8, $1C, $C4, $F2, $E4, $F3, $C4, $F7, $E8
+    .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
+    .byte $F1, $5F, $C0, $FF
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image.
+    lda #@prog
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    phk
+    pla
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #76
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    ; Read back in the reverse of the write order: EVOLR, EVOLL, MVOLR.
+    sep #$20
+    .a8
+    lda f:$7E0100
+    cmp #$44
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E0101
+    cmp #$33
+    beq :+
+    jmp @fail2
+  :
+    lda f:$7E0102
+    cmp #$22
+    beq :+
+    jmp @fail3
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jmp test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; EVOLR ($3C) did not read back
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; EVOLL ($2C) did not read back
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+@fail3:
+    ; MVOLR ($1C) did not read back; if it holds another register's value the globals are aliased
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; E9.19 — ENDX write clears it
+; provenance: Documented (SNESdev Wiki, S-DSP registers; fullsnes)
+.proc test_e9_19
+    .a16
+    .i16
+    bra @body
+@prog:
+    .byte $CD, $EF, $BD, $E8, $7C, $C4, $F2, $E8, $FF, $C4, $F3, $E8
+    .byte $7C, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $5A, $C4, $F4, $E4
+    .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image.
+    lda #@prog
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    phk
+    pla
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #36
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    ; A core storing the write returns $FF. Anything else means the write was treated as a
+    ; clear, which is the documented behaviour.
+    sep #$20
+    .a8
+    lda f:$7E0101
+    cmp #$FF
+    bne @ok
+    jmp @fail_stored
+@ok:
+    bra @pass
+@fail_stored:
+    sep #$20
+    .a8
+    lda #$02
+    sta f:V_TEST_RESULT
+    jmp test_restore
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jmp test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 ; A5.S01 — Sweep: CLC
 ; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
 .proc test_a5_s01
@@ -11945,7 +12182,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 160
+    .word 162
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -12075,6 +12312,8 @@ _test_entries:
     .addr test_e3_11
     .addr test_e3_11b
     .addr test_e3_14
+    .addr test_e3_11c
+    .addr test_e9_19
     .addr test_a5_s01
     .addr test_a5_s02
     .addr test_a5_s03
@@ -12238,6 +12477,8 @@ _test_flags:
     .byte $01   ; E3.11
     .byte $01   ; E3.11b
     .byte $01   ; E3.14
+    .byte $01   ; E3.11c
+    .byte $01   ; E9.19
     .byte $01   ; A5.S01
     .byte $01   ; A5.S02
     .byte $01   ; A5.S03
@@ -12401,6 +12642,8 @@ _test_names:
     .addr @n_e3_11
     .addr @n_e3_11b
     .addr @n_e3_14
+    .addr @n_e3_11c
+    .addr @n_e9_19
     .addr @n_a5_s01
     .addr @n_a5_s02
     .addr @n_a5_s03
@@ -12813,6 +13056,12 @@ _test_names:
 @n_e3_14:
     .byte 21
     .byte "$F8/$F9 are plain RAM"
+@n_e3_11c:
+    .byte 20
+    .byte "DSP global registers"
+@n_e9_19:
+    .byte 20
+    .byte "ENDX write clears it"
 @n_a5_s01:
     .byte 10
     .byte "Sweep: CLC"

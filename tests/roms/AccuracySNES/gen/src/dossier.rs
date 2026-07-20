@@ -159,6 +159,8 @@ pub const MAP: &[(&str, &[&str])] = &[
     ("E3.01", &["E3.01"]),
     ("E3.11", &["E3.11"]),
     ("E3.11b", &[]),
+    ("E3.11c", &[]),
+    ("E9.19", &["E9.19"]),
     ("E3.14", &["E3.14"]),
     ("E1.06", &["E1.06"]),
     ("E1.15", &["E1.15"]),
@@ -272,6 +274,12 @@ pub const SPLITS: &[(&str, &str)] = &[
 
 /// Tests that implement no enumerated dossier assertion, with the reason each is legitimate.
 pub const UNENUMERATED: &[(&str, &str)] = &[
+    (
+        "E3.11c",
+        "DSP global-register addressing. The companion to E3.11b: the global block is decoded \
+         from the same latch by a different part of the address, so a core that gets the voice \
+         registers right and aliases the globals passes one and fails the other",
+    ),
     (
         "E3.11b",
         "DSP register addressing through the $F2/$F3 latch. Not an enumerated assertion of its \

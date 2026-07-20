@@ -1068,6 +1068,22 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 I/O; fullsnes). Kind: scored.
 | 1 | `$02` | $F8 did not read back what was written, so it is not behaving as the plain RAM it should be |
 | 2 | `$04` | $F9 did not read back what was written, so it is not behaving as the plain RAM it should be |
 
+### E3.11c — DSP global registers
+
+Provenance: **Documented** (SNESdev Wiki, S-DSP registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | EVOLR ($3C) did not read back |
+| 2 | `$04` | EVOLL ($2C) did not read back |
+| 3 | `$06` | MVOLR ($1C) did not read back; if it holds another register's value the globals are aliased |
+
+### E9.19 — ENDX write clears it
+
+Provenance: **Documented** (SNESdev Wiki, S-DSP registers; fullsnes). Kind: scored.
+
+No failure codes (control-flow test: reaching the end is the pass).
+
 ## Group A
 
 ### A5.S01 — Sweep: CLC
