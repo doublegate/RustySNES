@@ -1915,11 +1915,6 @@ CATALOG_IMPL = 1
     lda #$05          ; variant 2 = V observed CLEAR ((2<<1)|1)
     sta f:$7EE010
     jmp test_restore
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jmp test_restore
 @fail1:
     ; decimal ADC $99+$01 did not produce $00
     sep #$20
@@ -3534,11 +3529,6 @@ CATALOG_IMPL = 1
     ora #$01          ; encode as (version << 1) | 1
     sta f:$7EE010
     jmp test_restore
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jmp test_restore
 .endproc
 
 ; C14.02 — PPU2 version (golden)
@@ -3558,11 +3548,6 @@ CATALOG_IMPL = 1
     and #$0F          ; PPU2 version
     asl a
     ora #$01
-    sta f:$7EE010
-    jmp test_restore
-    sep #$20
-    .a8
-    lda #$01
     sta f:$7EE010
     jmp test_restore
 .endproc
@@ -4739,11 +4724,6 @@ CATALOG_IMPL = 1
     ora #$01          ; encode as (revision << 1) | 1
     sta f:$7EE010
     jmp test_restore
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jmp test_restore
 .endproc
 
 ; B5.01 — 8x8 unsigned multiply
@@ -4798,7 +4778,7 @@ CATALOG_IMPL = 1
 .proc test_b5_02
     .a16
     .i16
-    ; $04D2 / $07 = $B1 remainder $03. The divide needs 16 CPU cycles after the write to $4206.
+    ; $04D2 / $07 = $B0 remainder $02 (1234 / 7 = 176 r2). The divide needs 16 CPU cycles.
     rep #$30
     .a16
     .i16
@@ -4965,11 +4945,6 @@ CATALOG_IMPL = 1
     and #$0F          ; low nibble only — the full byte does not fit a variant code
     asl a
     ora #$01
-    sta f:$7EE010
-    jmp test_restore
-    sep #$20
-    .a8
-    lda #$01
     sta f:$7EE010
     jmp test_restore
 .endproc

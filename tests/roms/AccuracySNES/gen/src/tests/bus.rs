@@ -282,9 +282,7 @@ fn b5_01() -> Test {
 /// overlap in their output registers, which is also why B5.04 exists.
 fn b5_02() -> Test {
     let mut a = Asm::new();
-    a.c(
-        "$04D2 / $07 = $B1 remainder $03. The divide needs 16 CPU cycles after the write to $4206.",
-    );
+    a.c("$04D2 / $07 = $B0 remainder $02 (1234 / 7 = 176 r2). The divide needs 16 CPU cycles.");
     a.l("rep #$30");
     a.l("phk");
     a.l("plb");

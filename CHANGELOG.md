@@ -41,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mul/div overlap, which the SNESdev Errata explicitly declines to define and which is therefore
   recorded rather than asserted.
 - **`docs/accuracysnes-plan.md` — the AccuracySNES phase plan**, plus follow-on tickets
-  **T-04-A**–**T-04-J** in `to-dos/ROADMAP.md`. Frames the ~244 remaining tests by *what blocks
+  **T-04-A**–**T-04-J** in `to-dos/ROADMAP.md`. Frames the ~235 remaining tests by *what blocks
   them* rather than by group: reachable now (Groups B, G, the rest of register-observable C, the
   rest of A), needs its own mechanism (D's research top-up, E's on-cart APU harness), cannot be
   fully self-scoring (F — a cart cannot press its own buttons), and needs a framebuffer oracle

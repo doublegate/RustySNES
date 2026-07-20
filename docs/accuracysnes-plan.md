@@ -5,7 +5,7 @@
 `docs/accuracysnes-research-dossier.md` §5; the cartridge itself is `tests/roms/AccuracySNES/`.
 
 AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-04-A** through
-**T-04-H**, one per remaining work unit, and are listed in `to-dos/ROADMAP.md`.
+**T-04-J**, one per remaining work unit, and are listed in `to-dos/ROADMAP.md`. (T-04-J is done.)
 
 ---
 
