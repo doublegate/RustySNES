@@ -489,12 +489,14 @@ rt_finished:
     rts
 .endproc
 
-; Indirect call into the test under V_TMP. Kept as its own routine so the return address the
-; test sees is well-defined.
+; Indirect call into the test whose 24-bit entry point is in V_DISPATCH. Kept as its own routine
+; so the return address the test sees is well-defined.
+;
+; No test actually returns through it: every one exits with `jml test_restore`, which is a long
+; jump for the same reason this is a long indirect — a body may live outside bank $00, and
+; test_restore does not.
 .proc call_indirect
-    ; JMP [abs] — a 24-bit indirect, so a test body may live in any bank. Every test exits with
-    ; `jmp f:test_restore`, a long jump, for the same reason.
-    jmp [V_DISPATCH]
+    jmp [V_DISPATCH]            ; JMP [abs]: a 24-bit indirect
 .endproc
 
 ; ---------------------------------------------------------------------------------------------
