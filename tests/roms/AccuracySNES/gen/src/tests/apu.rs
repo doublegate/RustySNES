@@ -508,36 +508,26 @@ fn e3_01() -> Test {
 
     let mut a = Asm::new();
     upload_and_run(&mut a, &prog);
-    a.c("The counter must have advanced at all — otherwise the clear below proves nothing.");
-    a.l("sep #$20");
+    a.c("Both halves of the first read in one assertion: it must have advanced (non-zero, or the");
+    a.c("clear check below is vacuous) and it must fit in four bits (the upper nibble is not part");
+    a.c("of the count). Expressed through the DSL rather than as hand-written verdict bytes, so");
+    a.c("the code and its reason land in the generated ERROR_CODES.md like every other failure.");
+    a.l("rep #$30");
     a.l("lda f:$7E0101");
-    a.l("cmp #$01");
-    a.l("bcs :+");
-    a.l("jmp @fail_zero");
-    a.l(":");
-    a.c("And it must fit in four bits: the upper nibble is not part of the count.");
-    a.l("lda f:$7E0101");
-    a.l("cmp #$10");
-    a.l("bcc :+");
-    a.l("jmp @fail_wide");
-    a.l(":");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        1,
+        15,
+        "the first read of $FD was zero or wider than four bits — a timer counter is a 4-bit \
+         value, and a zero here would make the clear check below vacuous",
+    );
     a.c("The second read must be zero: reading a timer counter consumes it.");
+    a.l("sep #$20");
     a.l("lda f:$7E0102");
     a.assert_a8(
         0x00,
         "the second read of $FD was non-zero — reading a timer counter must clear it",
     );
-    a.l("bra @pass");
-    a.label("fail_zero");
-    a.l("sep #$20");
-    a.l("lda #$06");
-    a.l("sta f:V_TEST_RESULT   ; timer 0 never advanced, so the clear check is vacuous");
-    a.l("jmp test_restore");
-    a.label("fail_wide");
-    a.l("sep #$20");
-    a.l("lda #$08");
-    a.l("sta f:V_TEST_RESULT   ; the counter returned more than four bits");
-    a.l("jmp test_restore");
     apu_timeout_arm(&mut a);
     a.finish(
         "E3.01",
@@ -581,11 +571,14 @@ fn e3_14() -> Test {
     let mut a = Asm::new();
     upload_and_run(&mut a, &prog);
     a.c("Record both bytes rather than assert them. $5A/$A5 would mean plain RAM.");
+    a.c("One 16-bit load reaches both bytes — they are adjacent by construction.");
     a.l("rep #$30");
     a.l("lda f:$7E0101");
+    a.l("pha");
     a.l("and #$00FF");
     a.record(112, "E3.14 value read back from $F8 after writing $5A");
-    a.l("lda f:$7E0102");
+    a.l("pla");
+    a.l("xba");
     a.l("and #$00FF");
     a.record(113, "E3.14 value read back from $F9 after writing $A5");
     a.l("sep #$20");

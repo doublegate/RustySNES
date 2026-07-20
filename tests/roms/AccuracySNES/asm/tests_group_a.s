@@ -8340,39 +8340,31 @@ CATALOG_IMPL = 1
     ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
     lda #$A5
     sta APUIO0
-    ; The counter must have advanced at all — otherwise the clear below proves nothing.
+    ; Both halves of the first read in one assertion: it must have advanced (non-zero, or the
+    ; clear check below is vacuous) and it must fit in four bits (the upper nibble is not part
+    ; of the count). Expressed through the DSL rather than as hand-written verdict bytes, so
+    ; the code and its reason land in the generated ERROR_CODES.md like every other failure.
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0101
+    and #$00FF
+    cmp #$0001
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0010
+    bcc :+
+    jmp @fail1
+  :
+    ; The second read must be zero: reading a timer counter consumes it.
     sep #$20
     .a8
-    lda f:$7E0101
-    cmp #$01
-    bcs :+
-    jmp @fail_zero
-    :
-    ; And it must fit in four bits: the upper nibble is not part of the count.
-    lda f:$7E0101
-    cmp #$10
-    bcc :+
-    jmp @fail_wide
-    :
-    ; The second read must be zero: reading a timer counter consumes it.
     lda f:$7E0102
     cmp #$00
     beq :+
-    jmp @fail1
+    jmp @fail2
   :
-    bra @pass
-@fail_zero:
-    sep #$20
-    .a8
-    lda #$06
-    sta f:V_TEST_RESULT   ; timer 0 never advanced, so the clear check is vacuous
-    jmp test_restore
-@fail_wide:
-    sep #$20
-    .a8
-    lda #$08
-    sta f:V_TEST_RESULT   ; the counter returned more than four bits
-    jmp test_restore
     bra @pass
 @timeout:
     sep #$20
@@ -8387,10 +8379,17 @@ CATALOG_IMPL = 1
     sta f:$7EE010
     jmp test_restore
 @fail1:
-    ; the second read of $FD was non-zero — reading a timer counter must clear it
+    ; the first read of $FD was zero or wider than four bits — a timer counter is a 4-bit value, and a zero here would make the clear check below vacuous
     sep #$20
     .a8
     lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; the second read of $FD was non-zero — reading a timer counter must clear it
+    sep #$20
+    .a8
+    lda #$04
     sta f:$7EE010
     jmp test_restore
 .endproc
@@ -8463,14 +8462,17 @@ CATALOG_IMPL = 1
     lda #$A5
     sta APUIO0
     ; Record both bytes rather than assert them. $5A/$A5 would mean plain RAM.
+    ; One 16-bit load reaches both bytes — they are adjacent by construction.
     rep #$30
     .a16
     .i16
     lda f:$7E0101
+    pha
     and #$00FF
     ; record slot 112: E3.14 value read back from $F8 after writing $5A
     sta f:$7EE2E0
-    lda f:$7E0102
+    pla
+    xba
     and #$00FF
     ; record slot 113: E3.14 value read back from $F9 after writing $A5
     sta f:$7EE2E2

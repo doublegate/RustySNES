@@ -1037,7 +1037,8 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 I/O; fullsnes). Kind: scored.
 
 | Code | Byte | Meaning |
 |---|---|---|
-| 1 | `$02` | the second read of $FD was non-zero — reading a timer counter must clear it |
+| 1 | `$02` | the first read of $FD was zero or wider than four bits — a timer counter is a 4-bit value, and a zero here would make the clear check below vacuous |
+| 2 | `$04` | the second read of $FD was non-zero — reading a timer counter must clear it |
 
 ### E3.14 — $F8/$F9 readback
 
