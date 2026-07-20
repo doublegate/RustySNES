@@ -11,29 +11,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **The S-DSP blocker is now identified and written down.** `E5`-`E9` (~73 assertions — BRR,
-  pitch, envelopes, key on/off, the mixer) are all read back through DSP registers, and the
-  `$F2`/`$F3` path does not work in this harness yet: a program that writes a register and reads it
-  back gets zero, and the DSP register file inspected from the host is entirely zero. Identical on
-  RustySNES and snes9x, so it is the cart's sequence at fault rather than the cores.
+- **The S-DSP is reachable, and the blocker was never the DSP.** `E3.11` (`$F2` bit 7 disables
+  writing through `$F3`) and a foundational DSP register-addressing test both land, which unblocks
+  `E5`-`E9` (~73 assertions).
 
-  Two tests written against it were **withdrawn rather than recorded as goldens**. `E3.14`'s
-  treatment does not transfer: there the claim was specific and the disagreement was itself the
-  finding, whereas a golden for "DSP addressing" that nobody can interpret adds noise rather than
-  evidence. `docs/accuracysnes-plan.md` names the three candidate causes to check first.
+  The cause was one bit. `E3.01` writes `$F1` to enable a timer, and `$F1` bit 7 also controls
+  whether `$FFC0`-`$FFFF` reads as the IPL boot ROM or as RAM — so clearing it meant the release
+  path's `JMP $FFC0` landed in zeroed RAM, the SMP wandered off, and **every APU upload after that
+  test silently died**. It presented as "the DSP is unreachable" because the DSP tests happened to
+  run later in the battery. `release_to_ipl` now re-maps the ROM before jumping, so a program that
+  touches `$F1` for its own reasons cannot break the ones after it.
+
+- **Correction: `E3.14` was briefly published as a Contested golden, and that was wrong.** The
+  claim was that neither snes9x nor Mesen2 returns what was written to `$F8`/`$F9`, contradicting
+  the documentation. All three return it correctly; the apparent failure was the IPL bug above.
+  It is a Scored test again.
+
+  Worth stating plainly because the reasoning that produced the false finding is otherwise sound:
+  three-way agreement against a test really is this project's signature of a broken test. It is a
+  good heuristic, not a proof — **a harness bug upstream of every implementation produces exactly
+  the same signature**, and this one did.
 
 - **The SPC700's I/O block: `E3.01` scored, `E3.14` recorded.** `E3.01` pins that reading a timer
   counter returns four bits **and clears it** — `$FD`-`$FF` are not registers holding a value, they
   are counters a read consumes, and a core treating them as storage lets a driver double-count
   every tick it sees. The first read is only required to be non-zero, because how far the timer
   advanced depends on the delay loop's exact cost and asserting a count would be asserting the loop.
-
-- **`E3.14` is a Contested golden vector, not a failing test.** The dossier and fullsnes describe
-  `$F8`/`$F9` as plain RAM. Neither snes9x nor Mesen2 returns the written value, and the two agree
-  with each other — the pattern this project reads as "the claim needs re-deriving", not "the
-  emulators are wrong". All three return `$01` and `$00` after writing `$5A`/`$A5`. Recorded rather
-  than deleted, because deleting loses the finding, and rather than weakened, because an assertion
-  adjusted until it passes launders an unresolved question into a green tick.
 
 - **Three more SPC700 flag tests — `E1` is now 7 of 15.** `E1.04` (`DIV`'s H flag is a nibble
   comparison of the *inputs*, `(Y & 15) >= (X & 15)`, with nothing to do with any carry the
@@ -206,10 +209,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **158 tests — 145 scoring at 100.00%, 12 golden
+**AccuracySNES totals, as of this section:** **160 tests — 148 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **118 of 443** on-cart plus **42** scene-only —
-**160 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier. Dossier coverage is **119 of 443** on-cart plus **42** scene-only —
+**161 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 

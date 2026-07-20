@@ -29,6 +29,8 @@ pub fn all() -> Vec<Test> {
         e1_13(),
         e1_15(),
         e3_01(),
+        e3_11(),
+        dsp_addressing(),
         e3_14(),
     ]
 }
@@ -545,21 +547,21 @@ fn e3_01() -> Test {
     )
 }
 
-/// What `$F8` and `$F9` return after a write (golden vector).
+/// `$F8` and `$F9` are plain RAM.
 ///
-/// The dossier states these behave as plain RAM: they sit in the middle of the I/O block, are not
-/// registers, and a program may use them as two spare bytes. **Both reference emulators disagree**
-/// — neither returns the written value, and they agree with each other, which is the pattern this
-/// project treats as "the claim needs re-deriving", not "the emulators are wrong".
+/// They sit in the middle of the I/O block and are not registers — nothing reads them, nothing
+/// writes them, and a program may use them as two spare bytes. Worth pinning precisely because
+/// they look like registers: a core that decodes the whole `$F0`-`$FF` range as I/O returns
+/// something other than what was stored, and the failure surfaces far from the cause, in whatever
+/// used them as scratch.
 ///
-/// So this records what the implementations actually return rather than asserting the documented
-/// behaviour. Recording is the useful move: it makes the disagreement visible and comparable,
-/// where deleting the test would lose the finding and weakening the assertion until it passed
-/// would launder an unresolved question into a green tick.
-///
-/// Observed at the time of writing: `$F8` returns `$01` and `$F9` returns `$00` after writing
-/// `$5A`/`$A5`, identically on RustySNES, snes9x and Mesen2. Whatever those two addresses are,
-/// all three implementations agree they are not storage.
+/// **This test was briefly recorded as a Contested golden, and that was wrong.** It appeared to
+/// fail on all three implementations, which is this project's signature of a broken test — but the
+/// cause was neither the test nor the emulators: an earlier test wrote `$F1` to enable a timer,
+/// which also cleared bit 7 and unmapped the IPL ROM, so every APU upload after it silently died.
+/// Once the release path re-maps the ROM, all three return what was written. The lesson is that
+/// "three-way agreement means the test is wrong" is a good heuristic and not a proof: a harness
+/// bug upstream of every implementation produces the same signature.
 fn e3_14() -> Test {
     let mut prog = Spc::new();
     prog.mov_x_imm(0xEF)
@@ -576,31 +578,146 @@ fn e3_14() -> Test {
 
     let mut a = Asm::new();
     upload_and_run(&mut a, &prog);
-    a.c("Record both bytes rather than assert them. $5A/$A5 would mean plain RAM.");
-    a.c("One 16-bit load reaches both bytes — they are adjacent by construction.");
-    a.l("rep #$30");
-    a.l("lda f:$7E0101");
-    a.l("pha");
-    a.l("and #$00FF");
-    a.record(112, "E3.14 value read back from $F8 after writing $5A");
-    a.l("pla");
-    a.l("xba");
-    a.l("and #$00FF");
-    a.record(113, "E3.14 value read back from $F9 after writing $A5");
     a.l("sep #$20");
-    a.l("lda #$01");
-    a.l("sta f:V_TEST_RESULT   ; golden: the numbers are in the measurement channel");
-    a.l("jmp test_restore");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x5A,
+        "$F8 did not read back what was written — it is plain RAM",
+    );
+    a.l("lda f:$7E0102");
+    a.assert_a8(
+        0xA5,
+        "$F9 did not read back what was written — it is plain RAM",
+    );
     apu_timeout_arm(&mut a);
     a.finish(
         "E3.14",
         'E',
-        "$F8/$F9 readback",
-        Provenance::Contested(
-            "the dossier and fullsnes describe $F8/$F9 as plain RAM; neither snes9x nor Mesen2 \
-             returns the written value, and the two agree with each other",
-        ),
-        Kind::Golden,
+        "$F8/$F9 are plain RAM",
+        Provenance::Documented("SNESdev Wiki, SPC700 I/O; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `$F2` bit 7 makes writes through `$F3` do nothing.
+///
+/// The DSP register file is reached through an address latch (`$F2`) and a data port (`$F3`), and
+/// the top bit of the address is not part of the address — it disables writing. A core that masks
+/// `$F2` to five bits and ignores bit 7 lets a write through that hardware discards, which is the
+/// wrong direction to be wrong in: the value lands, the driver never notices, and the sound is
+/// subtly off rather than absent.
+///
+/// Checked by writing a known value, attempting to overwrite it with the bit set, and reading
+/// back. The read is done with the bit clear, so the test cannot pass by the *read* also being
+/// suppressed.
+fn e3_11() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        // MVOLL ($0C) = $7F, the value that must survive
+        .mov_dp_imm(0xF2, 0x0C)
+        .mov_dp_imm(0xF3, 0x7F)
+        // Same register, address bit 7 set: this write must be discarded
+        .mov_dp_imm(0xF2, 0x8C)
+        .mov_dp_imm(0xF3, 0x00)
+        // Read back with the bit clear
+        .mov_dp_imm(0xF2, 0x0C)
+        .mov_a_dp(0xF3)
+        .mov_dp_a(PORT2)
+        // Control: the same sequence WITHOUT bit 7 must take effect, or the check above would
+        // pass on a core that simply never writes the DSP at all.
+        .mov_dp_imm(0xF2, 0x0C)
+        .mov_dp_imm(0xF3, 0x33)
+        .mov_dp_imm(0xF2, 0x0C)
+        .mov_a_dp(0xF3)
+        .mov_dp_a(PORT3)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("The suppressed write must not have landed: MVOLL still holds $7F.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x7F,
+        "a write through $F3 with $F2 bit 7 set took effect — that bit disables writing",
+    );
+    a.c("And an ordinary write must still work, or the check above proves only that nothing");
+    a.c("reaches the DSP at all.");
+    a.l("lda f:$7E0102");
+    a.assert_a8(0x33, "an ordinary DSP write did not take effect");
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E3.11",
+        'E',
+        "$F2 bit 7 blocks writes",
+        Provenance::Documented("SNESdev Wiki, S-DSP; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// DSP registers are independently addressable through `$F2`/`$F3`.
+///
+/// Foundational rather than exotic: every other DSP assertion is reached through this latch, so a
+/// core that mis-decodes the address — masking too few bits, aliasing voice registers onto each
+/// other, or latching the address at the wrong moment — makes every DSP test downstream
+/// meaningless rather than failing.
+///
+/// Three registers in different parts of the file are written with distinct values and then read
+/// back in a different order. The reordering is the point: reading them back in write order would
+/// pass on a core that simply returns the last value written, which is the most likely way to get
+/// the latch wrong.
+fn dsp_addressing() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_dp_imm(0xF2, 0x00) // voice 0 VOLL
+        .mov_dp_imm(0xF3, 0x11)
+        .mov_dp_imm(0xF2, 0x10) // voice 1 VOLL
+        .mov_dp_imm(0xF3, 0x22)
+        .mov_dp_imm(0xF2, 0x0C) // MVOLL
+        .mov_dp_imm(0xF3, 0x33)
+        // Read back in a different order than they were written.
+        .mov_dp_imm(0xF2, 0x10)
+        .mov_a_dp(0xF3)
+        .mov_dp_a(PORT1)
+        .mov_dp_imm(0xF2, 0x00)
+        .mov_a_dp(0xF3)
+        .mov_dp_a(PORT2)
+        .mov_dp_imm(0xF2, 0x0C)
+        .mov_a_dp(0xF3)
+        .mov_dp_a(PORT3)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("Read back out of order: voice 1, then voice 0, then the master volume.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.assert_a8(
+        0x22,
+        "voice 1's VOLL did not read back — the DSP address latch is mis-decoded",
+    );
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x11,
+        "voice 0's VOLL did not read back; if it holds voice 1's value the voices are aliased",
+    );
+    a.l("lda f:$7E0102");
+    a.assert_a8(0x33, "MVOLL did not read back");
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E3.11b",
+        'E',
+        "DSP register addressing",
+        Provenance::Documented("SNESdev Wiki, S-DSP registers; fullsnes"),
+        Kind::Scored,
         None,
     )
 }

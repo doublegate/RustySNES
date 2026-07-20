@@ -157,6 +157,8 @@ pub const MAP: &[(&str, &[&str])] = &[
     ("E1.05", &["E1.05"]),
     ("E1.13", &["E1.13"]),
     ("E3.01", &["E3.01"]),
+    ("E3.11", &["E3.11"]),
+    ("E3.11b", &[]),
     ("E3.14", &["E3.14"]),
     ("E1.06", &["E1.06"]),
     ("E1.15", &["E1.15"]),
@@ -270,6 +272,12 @@ pub const SPLITS: &[(&str, &str)] = &[
 
 /// Tests that implement no enumerated dossier assertion, with the reason each is legitimate.
 pub const UNENUMERATED: &[(&str, &str)] = &[
+    (
+        "E3.11b",
+        "DSP register addressing through the $F2/$F3 latch. Not an enumerated assertion of its \
+         own: it is the mechanism every other DSP assertion is reached through, so a core that \
+         mis-decodes it makes those tests meaningless rather than failing",
+    ),
     (
         "A9.02",
         "XBA's flag behaviour. A9 enumerates BIT and ORA [d] but not XBA, so there is no \

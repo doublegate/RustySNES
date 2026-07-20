@@ -7470,7 +7470,7 @@ CATALOG_IMPL = 1
 @prog:
     .byte $CD, $EF, $BD, $E8, $10, $8D, $10, $CF, $C4, $F6, $CB, $F7
     .byte $0D, $AE, $C4, $F5, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5
-    .byte $D0, $FA, $5F, $C0, $FF
+    .byte $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
 @body:
     rep #$30
     .a16
@@ -7488,7 +7488,7 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
-    lda #29
+    lda #33
     sta f:V_APU_LEN
     lda #$0200
     sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
@@ -7614,7 +7614,7 @@ CATALOG_IMPL = 1
 @prog:
     .byte $CD, $EF, $BD, $8D, $00, $E8, $20, $CD, $08, $9E, $C4, $F6
     .byte $CB, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA
-    .byte $5F, $C0, $FF
+    .byte $E8, $80, $C4, $F1, $5F, $C0, $FF
 @body:
     rep #$30
     .a16
@@ -7632,7 +7632,7 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
-    lda #27
+    lda #31
     sta f:V_APU_LEN
     lda #$0200
     sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
@@ -7729,8 +7729,8 @@ CATALOG_IMPL = 1
 @prog:
     .byte $CD, $EF, $BD, $8D, $05, $E8, $00, $CD, $03, $9E, $0D, $AE
     .byte $C4, $F6, $8D, $03, $E8, $00, $CD, $05, $9E, $0D, $AE, $C4
-    .byte $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $5F
-    .byte $C0, $FF
+    .byte $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8
+    .byte $80, $C4, $F1, $5F, $C0, $FF
 @body:
     rep #$30
     .a16
@@ -7748,7 +7748,7 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
-    lda #38
+    lda #42
     sta f:V_APU_LEN
     lda #$0200
     sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
@@ -7849,8 +7849,8 @@ CATALOG_IMPL = 1
 @prog:
     .byte $CD, $EF, $BD, $8D, $05, $E8, $00, $CD, $03, $9E, $0D, $AE
     .byte $C4, $F6, $8D, $03, $E8, $00, $CD, $05, $9E, $0D, $AE, $C4
-    .byte $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $5F
-    .byte $C0, $FF
+    .byte $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8
+    .byte $80, $C4, $F1, $5F, $C0, $FF
 @body:
     rep #$30
     .a16
@@ -7868,7 +7868,7 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
-    lda #38
+    lda #42
     sta f:V_APU_LEN
     lda #$0200
     sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
@@ -7969,8 +7969,8 @@ CATALOG_IMPL = 1
 @prog:
     .byte $CD, $EF, $BD, $8D, $00, $E8, $03, $CD, $08, $9E, $0D, $AE
     .byte $C4, $F6, $8D, $00, $E8, $20, $CD, $08, $9E, $0D, $AE, $C4
-    .byte $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $5F
-    .byte $C0, $FF
+    .byte $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8
+    .byte $80, $C4, $F1, $5F, $C0, $FF
 @body:
     rep #$30
     .a16
@@ -7988,7 +7988,7 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
-    lda #38
+    lda #42
     sta f:V_APU_LEN
     lda #$0200
     sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
@@ -8091,8 +8091,8 @@ CATALOG_IMPL = 1
     .byte $CD, $EF, $BD, $8F, $FF, $10, $8F, $0F, $11, $8F, $01, $12
     .byte $8F, $00, $13, $8F, $00, $14, $8F, $01, $15, $BA, $10, $7A
     .byte $12, $0D, $AE, $C4, $F6, $BA, $14, $7A, $12, $0D, $AE, $C4
-    .byte $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $5F
-    .byte $C0, $FF
+    .byte $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8
+    .byte $80, $C4, $F1, $5F, $C0, $FF
 @body:
     rep #$30
     .a16
@@ -8110,7 +8110,7 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
-    lda #50
+    lda #54
     sta f:V_APU_LEN
     lda #$0200
     sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
@@ -8212,7 +8212,7 @@ CATALOG_IMPL = 1
     .byte $CD, $EF, $BD, $8F, $00, $10, $8F, $01, $11, $BA, $10, $0D
     .byte $AE, $C4, $F6, $8F, $00, $12, $8F, $80, $13, $BA, $12, $0D
     .byte $AE, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0
-    .byte $FA, $5F, $C0, $FF
+    .byte $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
 @body:
     rep #$30
     .a16
@@ -8230,7 +8230,7 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
-    lda #40
+    lda #44
     sta f:V_APU_LEN
     lda #$0200
     sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
@@ -8331,7 +8331,8 @@ CATALOG_IMPL = 1
 @prog:
     .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $01, $F1, $8D, $00, $FE
     .byte $FE, $E4, $FD, $C4, $F6, $E4, $FD, $C4, $F7, $E8, $5A, $C4
-    .byte $F4, $E4, $F4, $68, $A5, $D0, $FA, $5F, $C0, $FF
+    .byte $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F
+    .byte $C0, $FF
 @body:
     rep #$30
     .a16
@@ -8349,7 +8350,7 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
-    lda #34
+    lda #38
     sta f:V_APU_LEN
     lda #$0200
     sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
@@ -8450,16 +8451,18 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
-; E3.14 — $F8/$F9 readback
-; provenance: Contested (the dossier and fullsnes describe $F8/$F9 as plain RAM; neither snes9x nor Mesen2 returns the written value, and the two agree with each other)
-.proc test_e3_14
+; E3.11 — $F2 bit 7 blocks writes
+; provenance: Documented (SNESdev Wiki, S-DSP; fullsnes)
+.proc test_e3_11
     .a16
     .i16
     bra @body
 @prog:
-    .byte $CD, $EF, $BD, $8F, $5A, $F8, $8F, $A5, $F9, $E4, $F8, $C4
-    .byte $F6, $E4, $F9, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68
-    .byte $A5, $D0, $FA, $5F, $C0, $FF
+    .byte $CD, $EF, $BD, $8F, $0C, $F2, $8F, $7F, $F3, $8F, $8C, $F2
+    .byte $8F, $00, $F3, $8F, $0C, $F2, $E4, $F3, $C4, $F6, $8F, $0C
+    .byte $F2, $8F, $33, $F3, $8F, $0C, $F2, $E4, $F3, $C4, $F7, $E8
+    .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
+    .byte $F1, $5F, $C0, $FF
 @body:
     rep #$30
     .a16
@@ -8477,7 +8480,7 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
-    lda #30
+    lda #52
     sta f:V_APU_LEN
     lda #$0200
     sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
@@ -8524,26 +8527,21 @@ CATALOG_IMPL = 1
     ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
     lda #$A5
     sta APUIO0
-    ; Record both bytes rather than assert them. $5A/$A5 would mean plain RAM.
-    ; One 16-bit load reaches both bytes — they are adjacent by construction.
-    rep #$30
-    .a16
-    .i16
-    lda f:$7E0101
-    pha
-    and #$00FF
-    ; record slot 112: E3.14 value read back from $F8 after writing $5A
-    sta f:$7EE2E0
-    pla
-    xba
-    and #$00FF
-    ; record slot 113: E3.14 value read back from $F9 after writing $A5
-    sta f:$7EE2E2
+    ; The suppressed write must not have landed: MVOLL still holds $7F.
     sep #$20
     .a8
-    lda #$01
-    sta f:V_TEST_RESULT   ; golden: the numbers are in the measurement channel
-    jmp test_restore
+    lda f:$7E0101
+    cmp #$7F
+    beq :+
+    jmp @fail1
+  :
+    ; And an ordinary write must still work, or the check above proves only that nothing
+    ; reaches the DSP at all.
+    lda f:$7E0102
+    cmp #$33
+    beq :+
+    jmp @fail2
+  :
     bra @pass
 @timeout:
     sep #$20
@@ -8555,6 +8553,265 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; a write through $F3 with $F2 bit 7 set took effect — that bit disables writing
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; an ordinary DSP write did not take effect
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; E3.11b — DSP register addressing
+; provenance: Documented (SNESdev Wiki, S-DSP registers; fullsnes)
+.proc test_e3_11b
+    .a16
+    .i16
+    bra @body
+@prog:
+    .byte $CD, $EF, $BD, $8F, $00, $F2, $8F, $11, $F3, $8F, $10, $F2
+    .byte $8F, $22, $F3, $8F, $0C, $F2, $8F, $33, $F3, $8F, $10, $F2
+    .byte $E4, $F3, $C4, $F5, $8F, $00, $F2, $E4, $F3, $C4, $F6, $8F
+    .byte $0C, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
+    .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image.
+    lda #@prog
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    phk
+    pla
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #59
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    ; Read back out of order: voice 1, then voice 0, then the master volume.
+    sep #$20
+    .a8
+    lda f:$7E0100
+    cmp #$22
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E0101
+    cmp #$11
+    beq :+
+    jmp @fail2
+  :
+    lda f:$7E0102
+    cmp #$33
+    beq :+
+    jmp @fail3
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jmp test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; voice 1's VOLL did not read back — the DSP address latch is mis-decoded
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; voice 0's VOLL did not read back; if it holds voice 1's value the voices are aliased
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+@fail3:
+    ; MVOLL did not read back
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; E3.14 — $F8/$F9 are plain RAM
+; provenance: Documented (SNESdev Wiki, SPC700 I/O; fullsnes)
+.proc test_e3_14
+    .a16
+    .i16
+    bra @body
+@prog:
+    .byte $CD, $EF, $BD, $8F, $5A, $F8, $8F, $A5, $F9, $E4, $F8, $C4
+    .byte $F6, $E4, $F9, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68
+    .byte $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image.
+    lda #@prog
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    phk
+    pla
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #34
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    sep #$20
+    .a8
+    lda f:$7E0101
+    cmp #$5A
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E0102
+    cmp #$A5
+    beq :+
+    jmp @fail2
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jmp test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; $F8 did not read back what was written — it is plain RAM
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; $F9 did not read back what was written — it is plain RAM
+    sep #$20
+    .a8
+    lda #$04
     sta f:$7EE010
     jmp test_restore
 .endproc
@@ -11688,7 +11945,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 158
+    .word 160
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -11815,6 +12072,8 @@ _test_entries:
     .addr test_e1_13
     .addr test_e1_15
     .addr test_e3_01
+    .addr test_e3_11
+    .addr test_e3_11b
     .addr test_e3_14
     .addr test_a5_s01
     .addr test_a5_s02
@@ -11976,7 +12235,9 @@ _test_flags:
     .byte $01   ; E1.13
     .byte $01   ; E1.15
     .byte $01   ; E3.01
-    .byte $02   ; E3.14
+    .byte $01   ; E3.11
+    .byte $01   ; E3.11b
+    .byte $01   ; E3.14
     .byte $01   ; A5.S01
     .byte $01   ; A5.S02
     .byte $01   ; A5.S03
@@ -12137,6 +12398,8 @@ _test_names:
     .addr @n_e1_13
     .addr @n_e1_15
     .addr @n_e3_01
+    .addr @n_e3_11
+    .addr @n_e3_11b
     .addr @n_e3_14
     .addr @n_a5_s01
     .addr @n_a5_s02
@@ -12541,9 +12804,15 @@ _test_names:
 @n_e3_01:
     .byte 20
     .byte "Timer read clears it"
+@n_e3_11:
+    .byte 23
+    .byte "$F2 bit 7 blocks writes"
+@n_e3_11b:
+    .byte 23
+    .byte "DSP register addressing"
 @n_e3_14:
-    .byte 16
-    .byte "$F8/$F9 readback"
+    .byte 21
+    .byte "$F8/$F9 are plain RAM"
 @n_a5_s01:
     .byte 10
     .byte "Sweep: CLC"

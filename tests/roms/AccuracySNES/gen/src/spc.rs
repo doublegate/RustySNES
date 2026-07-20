@@ -161,6 +161,13 @@ impl Spc {
         // A branch displacement IS a signed byte reinterpreted as an opcode operand; the
         // two-s-complement bit pattern is the encoding, not a lossy conversion.
         self.push(&[0xD0, rel.to_le_bytes()[0]]); // BNE @wait
+        // Re-map the IPL ROM before jumping into it. `$F1` bit 7 controls whether `$FFC0`-`$FFFF`
+        // reads as the boot ROM or as RAM, and any program that touched `$F1` for its own reasons
+        // — enabling a timer, say — will have cleared it. Jumping to `$FFC0` then lands in zeroed
+        // RAM, the SMP wanders off, and EVERY LATER UPLOAD FAILS, because there is no IPL left to
+        // handshake with. That is exactly what happened: one timer test wrote `$F1 = $01`, and
+        // every APU test after it silently died, which read as "the DSP is unreachable".
+        self.mov_a_imm(0x80).mov_dp_a(0xF1);
         self.push(&[0x5F, 0xC0, 0xFF]) // JMP $FFC0 — the IPL entry
     }
 
