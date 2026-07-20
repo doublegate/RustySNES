@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Group D opens: seven general-purpose DMA tests (T-04-D).** Transfer modes 0 and 1, the byte
+  counter reaching zero, both non-incrementing A-bus steps, the undocumented `$43xB` scratch latch,
+  and the 8-clocks-per-byte rate as a length differential so startup overhead cancels. These are
+  self-scoring on-cart — DMA moves bytes into memory the CPU can read back, which is why the group
+  leads with behaviour rather than with timing.
+
+  Three of the seven were **wrong on their first run and both emulators said so**, which is the
+  signature of a broken test rather than a broken core. The interesting one: `$4300` bits 4-3 are a
+  two-bit *field* (0 = increment, 1 = fixed, 2 = decrement, 3 = fixed), not two independent flags —
+  the exact confusion `D1.07`/`D1.07b` exist to catch, made while writing them. They are declared
+  as a split so neither can be deleted as a duplicate of the other.
+
 - **Mode 7 scenes (`C11`, plus `C5.08`/`C10.05`/`C12.03`) — 35 scenes total.** Identity and
   rotate/scale transforms, all three screen-over modes, screen flip, EXTBG, direct colour, mosaic
   and windowing. A shared `scene_mode7_vram` helper lays down the tilemap and character data in one
@@ -68,10 +80,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **134 tests — 124 scoring at 100.00%, 10 golden
+**AccuracySNES totals, as of this section:** **141 tests — 130 scoring at 100.00%, 10 golden
 vectors**, plus one region-dependent SKIP per image, and **35 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **95 of 443** on-cart plus **34** scene-only —
-**129 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier. Dossier coverage is **100 of 443** on-cart plus **34** scene-only —
+**134 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 
@@ -235,6 +247,13 @@ rewritten to the current number — this line is the one to read.
   confirming the goldens returned. Rationale recorded in `docs/scheduler.md` §H/V-IRQ.
 
 ### Fixed
+
+- **The DMA `$43xB` scratch latch is now modelled**, mirrored at `$43xF` and per-channel. It is
+  undocumented storage the controller never reads, but it is CPU-visible: RustySNES returned 0 from
+  both addresses while snes9x returned what was written, which is how `D1.10` found it. It is
+  deliberately **not** added to the save state — ares and bsnes serialise theirs, but changing the
+  `DMA0` section's length is a format-version decision (`docs/adr/0006`) and the latch has no
+  effect on emulation; the reasoning is recorded rather than left implicit.
 
 - **Mode 7 rendered one scanline low.** The identical off-by-one this release already fixed in the
   tiled backgrounds — `render_mode7` is a separate function and was missed. Nine of the ten new

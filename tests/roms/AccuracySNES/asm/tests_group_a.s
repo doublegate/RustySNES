@@ -6120,6 +6120,595 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; D1.01 — DMA mode 0
+; provenance: Documented (SNESdev Wiki, DMA; fullsnes)
+.proc test_d1_01
+    .a16
+    .i16
+    bra @body
+@data:
+    .byte $11, $22, $33, $44
+@body:
+    ; Mode 0 into $2180 (the WRAM data port): all four bytes land at consecutive WRAM
+    ; addresses because $2180 auto-increments WMADD, not because the B-bus address moved.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta $2181
+    lda #$05
+    sta $2182
+    stz $2183         ; WMADD = $7E:0500, clear of every test's scratch
+    stz $4300         ; DMAP: A->B, increment, mode 0
+    lda #$80
+    sta $4301         ; B-bus = $2180
+    rep #$30
+    .a16
+    .i16
+    ldx #@data
+    stx $4302         ; A-bus address = this test's data table
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; A-bus bank = this bank
+    rep #$30
+    .a16
+    .i16
+    ldx #$0004
+    stx $4305         ; byte count
+    sep #$20
+    .a8
+    lda #$01
+    sta $420B         ; run channel 0
+    ; Read the four bytes back and fold them into one word so a single compare covers all.
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0500
+    cmp #$2211
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E0502
+    cmp #$4433
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; the first two bytes did not arrive in order at $7E:0500
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; the last two bytes did not arrive in order at $7E:0502
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; D1.01b — DMA mode 1
+; provenance: Documented (SNESdev Wiki, DMA; fullsnes)
+.proc test_d1_01b
+    .a16
+    .i16
+    bra @body
+@data:
+    .byte $11, $22, $33, $44
+@body:
+    ; Mode 1 into $2118/$2119: byte 0 -> VMDATAL, byte 1 -> VMDATAH, then repeat.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115         ; VMAIN: step 1 word, increment after the high byte
+    rep #$30
+    .a16
+    .i16
+    ldx #$1000
+    stx $2116         ; VRAM word address $1000, clear of the font and the tilemaps
+    sep #$20
+    .a8
+    lda #$01
+    sta $4300         ; DMAP: A->B, increment, mode 1
+    lda #$18
+    sta $4301         ; B-bus = $2118
+    rep #$30
+    .a16
+    .i16
+    ldx #@data
+    stx $4302         ; A-bus address = this test's data table
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; A-bus bank = this bank
+    rep #$30
+    .a16
+    .i16
+    ldx #$0004
+    stx $4305         ; byte count
+    sep #$20
+    .a8
+    lda #$01
+    sta $420B
+    ; Read the two words back. Setting VMADDL primes the read latch, so the first 16-bit read
+    ; of $2139/$213A already returns word $1000 — no dummy read, which would consume it.
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115         ; increment after the HIGH byte, so a 16-bit read is one word
+    rep #$30
+    .a16
+    .i16
+    ldx #$1000
+    stx $2116
+    lda $2139
+    cmp #$2211
+    beq :+
+    jmp @fail1
+  :
+    ; Re-set the address for the second word rather than relying on the read increment: the
+    ; prefetch latch makes successive reads a separate question, and mixing the two would
+    ; leave a failure ambiguous between the DMA and the read port.
+    ldx #$1001
+    stx $2116
+    lda $2139
+    cmp #$4433
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; VRAM word 0 is wrong: the two bytes did not split across $2118/$2119
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; VRAM word 1 is wrong
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; D1.06 — DMA count hits zero
+; provenance: Documented (SNESdev Wiki, DMA registers; fullsnes)
+.proc test_d1_06
+    .a16
+    .i16
+    bra @body
+@data:
+    .byte $11, $22, $33, $44
+@body:
+    ; Run a 4-byte transfer, then read $4305/06.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta $2181
+    lda #$06
+    sta $2182
+    stz $2183         ; WMADD = $7E:0600
+    stz $4300
+    lda #$80
+    sta $4301
+    rep #$30
+    .a16
+    .i16
+    ldx #@data
+    stx $4302         ; A-bus address = this test's data table
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; A-bus bank = this bank
+    rep #$30
+    .a16
+    .i16
+    ldx #$0004
+    stx $4305         ; byte count
+    sep #$20
+    .a8
+    lda #$01
+    sta $420B
+    rep #$30
+    .a16
+    .i16
+    lda $4305
+    cmp #$0000
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; the DMA byte counter did not decrement to zero
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; D1.07 — DMA fixed A-bus
+; provenance: Documented (SNESdev Wiki, DMA registers; fullsnes)
+.proc test_d1_07
+    .a16
+    .i16
+    bra @body
+@data:
+    .byte $11, $22, $33, $44
+@body:
+    ; DMAP bits 4-3 = 1: fixed source. Four bytes from one address must all be $11.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta $2181
+    lda #$07
+    sta $2182
+    stz $2183         ; WMADD = $7E:0700
+    lda #$08
+    sta $4300         ; DMAP: A->B, step field = 1 (FIXED), mode 0
+    lda #$80
+    sta $4301
+    rep #$30
+    .a16
+    .i16
+    ldx #@data
+    stx $4302         ; A-bus address = this test's data table
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; A-bus bank = this bank
+    rep #$30
+    .a16
+    .i16
+    ldx #$0004
+    stx $4305         ; byte count
+    sep #$20
+    .a8
+    lda #$01
+    sta $420B
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0700
+    cmp #$1111
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E0702
+    cmp #$1111
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; bytes 0-1 are not both the fixed source byte
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; bytes 2-3 are not both the fixed source byte
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; D1.07b — DMA decrementing A-bus
+; provenance: Documented (SNESdev Wiki, DMA registers; fullsnes)
+.proc test_d1_07b
+    .a16
+    .i16
+    bra @body
+@data:
+    .byte $11, $22, $33, $44
+@body:
+    ; DMAP bits 4-3 = 2: decrement. Source the LAST byte; the transfer walks back.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta $2181
+    lda #$08
+    sta $2182
+    stz $2183         ; WMADD = $7E:0800
+    lda #$10
+    sta $4300         ; DMAP: A->B, step field = 2 (DECREMENT), mode 0
+    lda #$80
+    sta $4301
+    rep #$30
+    .a16
+    .i16
+    ldx #(@data + 3)
+    stx $4302         ; start at the last byte
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304
+    rep #$30
+    .a16
+    .i16
+    ldx #$0004
+    stx $4305
+    sep #$20
+    .a8
+    lda #$01
+    sta $420B
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0800
+    cmp #$3344
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E0802
+    cmp #$1122
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; bytes 0-1 are not the table read backwards
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; bytes 2-3 are not the table read backwards
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; D1.10 — DMA $43xB scratch latch
+; provenance: Corroborated (ares and bsnes both model the latch and serialize it)
+.proc test_d1_10
+    .a16
+    .i16
+    ; Write $43xB, read it back, then read $43xF and require the same value.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$5A
+    sta $430B
+    lda $430B
+    cmp #$5A
+    beq :+
+    jmp @fail1
+  :
+    lda $430F
+    cmp #$5A
+    beq :+
+    jmp @fail2
+  :
+    ; A different channel must have its own latch, not share channel 0's.
+    lda #$A5
+    sta $431B
+    lda $430B
+    cmp #$5A
+    beq :+
+    jmp @fail3
+  :
+    lda $431F
+    cmp #$A5
+    beq :+
+    jmp @fail4
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; $430B did not read back the value written to it
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; $430F does not mirror $430B
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+@fail3:
+    ; writing $431B changed channel 0's latch — the channels are not separate
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jmp test_restore
+@fail4:
+    ; $431F does not mirror $431B
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; D1.02 — DMA 8 clocks/byte
+; provenance: Documented (SNESdev Wiki, DMA timing; fullsnes)
+.proc test_d1_02
+    .a16
+    .i16
+    bra @body
+@data:
+    .byte $11, $22, $33, $44
+@body:
+    ; Two mode-0 transfers into WRAM, 32 bytes apart in length. The difference is the rate.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$08
+    sta $4300         ; step field = 1 (fixed): the table is only 4 bytes long
+    lda #$80
+    sta $4301
+    ; --- 16 bytes ---
+    lda #$00
+    sta $2181
+    lda #$09
+    sta $2182
+    stz $2183
+    rep #$30
+    .a16
+    .i16
+    ldx #@data
+    stx $4302         ; A-bus address = this test's data table
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; A-bus bank = this bank
+    rep #$30
+    .a16
+    .i16
+    ldx #$0010
+    stx $4305         ; byte count
+    sep #$20
+    .a8
+    jsr hv_begin
+    lda #$01
+    sta $420B
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E00A0
+    ; record slot 104: D1.02 16-byte DMA (dots)
+    sta f:$7EE2D0
+    ; --- 48 bytes: 32 more ---
+    sep #$20
+    .a8
+    lda #$00
+    sta $2181
+    lda #$0A
+    sta $2182
+    stz $2183
+    rep #$30
+    .a16
+    .i16
+    ldx #@data
+    stx $4302         ; A-bus address = this test's data table
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; A-bus bank = this bank
+    rep #$30
+    .a16
+    .i16
+    ldx #$0030
+    stx $4305         ; byte count
+    sep #$20
+    .a8
+    jsr hv_begin
+    lda #$01
+    sta $420B
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    ; record slot 105: D1.02 48-byte DMA (dots)
+    sta f:$7EE2D2
+    sec
+    sbc f:$7E00A0
+    ; record slot 106: D1.02 difference — expect 32 bytes x 8 clocks = 64 dots
+    sta f:$7EE2D4
+    cmp #$003C
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0045
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; 32 extra DMA bytes did not cost 64 dots (8 clocks each)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 ; A5.S01 — Sweep: CLC
 ; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
 .proc test_a5_s01
@@ -9249,7 +9838,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 134
+    .word 141
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -9353,6 +9942,13 @@ _test_entries:
     .addr test_b2_10
     .addr test_b4_07
     .addr test_b4_09
+    .addr test_d1_01
+    .addr test_d1_01b
+    .addr test_d1_06
+    .addr test_d1_07
+    .addr test_d1_07b
+    .addr test_d1_10
+    .addr test_d1_02
     .addr test_a5_s01
     .addr test_a5_s02
     .addr test_a5_s03
@@ -9490,6 +10086,13 @@ _test_flags:
     .byte $02   ; B2.10
     .byte $02   ; B4.07
     .byte $01   ; B4.09
+    .byte $01   ; D1.01
+    .byte $01   ; D1.01b
+    .byte $01   ; D1.06
+    .byte $01   ; D1.07
+    .byte $01   ; D1.07b
+    .byte $01   ; D1.10
+    .byte $01   ; D1.02
     .byte $01   ; A5.S01
     .byte $01   ; A5.S02
     .byte $01   ; A5.S03
@@ -9627,6 +10230,13 @@ _test_names:
     .addr @n_b2_10
     .addr @n_b4_07
     .addr @n_b4_09
+    .addr @n_d1_01
+    .addr @n_d1_01b
+    .addr @n_d1_06
+    .addr @n_d1_07
+    .addr @n_d1_07b
+    .addr @n_d1_10
+    .addr @n_d1_02
     .addr @n_a5_s01
     .addr @n_a5_s02
     .addr @n_a5_s03
@@ -9961,6 +10571,27 @@ _test_names:
 @n_b4_09:
     .byte 17
     .byte "HV-IRQ needs both"
+@n_d1_01:
+    .byte 10
+    .byte "DMA mode 0"
+@n_d1_01b:
+    .byte 10
+    .byte "DMA mode 1"
+@n_d1_06:
+    .byte 19
+    .byte "DMA count hits zero"
+@n_d1_07:
+    .byte 15
+    .byte "DMA fixed A-bus"
+@n_d1_07b:
+    .byte 22
+    .byte "DMA decrementing A-bus"
+@n_d1_10:
+    .byte 23
+    .byte "DMA $43xB scratch latch"
+@n_d1_02:
+    .byte 17
+    .byte "DMA 8 clocks/byte"
 @n_a5_s01:
     .byte 10
     .byte "Sweep: CLC"

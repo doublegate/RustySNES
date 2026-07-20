@@ -831,6 +831,71 @@ Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
 |---|---|---|
 | 1 | `$02` | the HV-IRQ did not require both comparators to match |
 
+## Group D
+
+### D1.01 — DMA mode 0
+
+Provenance: **Documented** (SNESdev Wiki, DMA; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the first two bytes did not arrive in order at $7E:0500 |
+| 2 | `$04` | the last two bytes did not arrive in order at $7E:0502 |
+
+### D1.01b — DMA mode 1
+
+Provenance: **Documented** (SNESdev Wiki, DMA; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | VRAM word 0 is wrong: the two bytes did not split across $2118/$2119 |
+| 2 | `$04` | VRAM word 1 is wrong |
+
+### D1.06 — DMA count hits zero
+
+Provenance: **Documented** (SNESdev Wiki, DMA registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the DMA byte counter did not decrement to zero |
+
+### D1.07 — DMA fixed A-bus
+
+Provenance: **Documented** (SNESdev Wiki, DMA registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | bytes 0-1 are not both the fixed source byte |
+| 2 | `$04` | bytes 2-3 are not both the fixed source byte |
+
+### D1.07b — DMA decrementing A-bus
+
+Provenance: **Documented** (SNESdev Wiki, DMA registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | bytes 0-1 are not the table read backwards |
+| 2 | `$04` | bytes 2-3 are not the table read backwards |
+
+### D1.10 — DMA $43xB scratch latch
+
+Provenance: **Corroborated** (ares and bsnes both model the latch and serialize it). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | $430B did not read back the value written to it |
+| 2 | `$04` | $430F does not mirror $430B |
+| 3 | `$06` | writing $431B changed channel 0's latch — the channels are not separate |
+| 4 | `$08` | $431F does not mirror $431B |
+
+### D1.02 — DMA 8 clocks/byte
+
+Provenance: **Documented** (SNESdev Wiki, DMA timing; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | 32 extra DMA bytes did not cost 64 dots (8 clocks each) |
+
 ## Group A
 
 ### A5.S01 — Sweep: CLC

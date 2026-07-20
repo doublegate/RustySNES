@@ -47,6 +47,20 @@ pub struct Channel {
     pub hdma_addr: u16,
     /// `$43nA` NTRL — HDMA line counter (bit7 = repeat, bits0-6 = lines).
     pub line_counter: u8,
+    /// The undocumented readable scratch latch at `$43xB`, mirrored at `$43xF`.
+    ///
+    /// Nothing in the DMA controller reads it — it is a byte of storage the hardware exposes and
+    /// then forgets about. It matters because it is CPU-visible: AccuracySNES `D1.10` writes it
+    /// and reads it back, snes9x passes that test, and RustySNES returned 0 from both addresses
+    /// until the test was written.
+    ///
+    /// **Deliberately not in the save state.** ares and bsnes do serialise theirs, but adding a
+    /// byte to the `DMA0` section changes its length, and this format's compatibility rules make
+    /// that a version-bump decision rather than a free one (`docs/adr/0006`). The latch has no
+    /// effect on emulation, so the only observable cost is a `$43xB` read taken immediately after
+    /// a state load. Recorded in `docs/accuracysnes-plan.md` so it is a decision rather than an
+    /// oversight.
+    pub scratch: u8,
     /// HDMA: this channel has finished its table for the frame.
     pub hdma_completed: bool,
     /// HDMA: perform a transfer on this line (vs. just decrement the counter).
@@ -64,6 +78,7 @@ impl Default for Channel {
             indirect_bank: 0xFF,
             hdma_addr: 0xFFFF,
             line_counter: 0xFF,
+            scratch: 0,
             hdma_completed: false,
             hdma_do_transfer: false,
         }
@@ -160,6 +175,8 @@ impl Dma {
             0x8 => c.hdma_addr = (c.hdma_addr & 0xFF00) | u16::from(val),
             0x9 => c.hdma_addr = (c.hdma_addr & 0x00FF) | (u16::from(val) << 8),
             0xA => c.line_counter = val,
+            // $43xB and $43xF are one latch seen at two addresses, per channel.
+            0xB | 0xF => c.scratch = val,
             _ => {}
         }
     }
@@ -212,6 +229,7 @@ impl Dma {
             0x8 => c.hdma_addr as u8,
             0x9 => (c.hdma_addr >> 8) as u8,
             0xA => c.line_counter,
+            0xB | 0xF => c.scratch,
             _ => 0,
         }
     }
