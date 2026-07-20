@@ -1,0 +1,37 @@
+# AccuracySNES rendered-scene goldens (docs/adr/0013).
+#
+# Format: <scene id>\t<hash>
+#
+# The hash is FNV-1a over a fixed 256x224 region of canonical 0RRRRRGGGGGBBBBB pixels. Fixed and
+# canonical because emulators agree about neither geometry nor pixel format, and a golden has to
+# compare pictures rather than output conventions. Each host declares where its own picture starts
+# in its own buffer (`FIRST_ROW`): RustySNES 0, snes9x's libretro core 0, Mesen2 7.
+#
+# ADR 0013 rule 4: a golden may be blessed ONLY from a cross-validated render — a scene the
+# reference emulators have been shown to agree on, with the agreement recorded here. A scene with
+# no entry is reported as unblessed and does not fail the gate, because an unblessed scene is not
+# yet evidence of anything.
+#
+# Separate from undisbeliever-framebuffer.tsv on purpose: these are first-party and may be
+# regenerated when WE intend a behaviour change; those are third-party and may not. Mixing them
+# invites applying the wrong rule to the wrong file.
+#
+# --- blessed 2026-07-20 ------------------------------------------------------------------------
+#
+# Cross-validated three ways on the identical image, all agreeing bit-for-bit:
+#   * RustySNES        crates/rustysnes-test-harness/tests/accuracysnes_scenes.rs
+#   * snes9x (libretro) scripts/accuracysnes/libretro_crossval.c --scenes
+#   * Mesen2 (headless) scripts/accuracysnes/mesen_scenes.lua
+#
+# These are the first three scenes the oracle ever ran, and all three initially disagreed with the
+# references. Both causes were RustySNES bugs, not scene bugs, and both are fixed in the same
+# change (see CHANGELOG and docs/ppu.md):
+#   1. the BG vertical fetch was a line late — the first displayed line must show BG row
+#      BGnVOFS+1, not row 0;
+#   2. mosaic quantised the BG's own row rather than the screen row, so a mosaic block moved with
+#      the scroll instead of staying anchored to the picture.
+# Independent corroboration: agreement with snes9x across the 29-ROM undisbeliever suite went from
+# 2/29 to 14/29 with those two fixes in place.
+c5-mode1-bg-priority	0x4fccc3fcf1027a01
+c8-fixed-colour-add	0x313006a2eb2c3745
+c10-mosaic-4x	0xebef39df0c777605

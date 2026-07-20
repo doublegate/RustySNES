@@ -4877,7 +4877,9 @@ CATALOG_IMPL = 1
     plb
     sep #$20
     .a8
-    jsr wait_vblank   ; V is now at the first vblank line
+    stz $2133         ; SETINI: no interlace (see B2.05 — test order must not decide this)
+    jsr wait_vblank
+    jsr wait_vblank   ; V is now at the first vblank line of a settled frame
     rep #$30
     .a16
     .i16
@@ -4903,6 +4905,18 @@ CATALOG_IMPL = 1
     cmp #100          ; below 100 means the counter has wrapped into the next frame
     bcs @vloop
     lda f:$7E0120
+    cmp #311
+    bne :+
+    ; SKIP: V topped out at 311 — this is a PAL machine, so B2.05 is the applicable assertion
+    sep #$20
+    .a8
+    lda #VERDICT_SKIP
+    sta f:V_TEST_RESULT
+    jmp test_restore
+    ; unreachable — restores the assembler's width belief only
+    .a16
+    .i16
+    :
     cmp #$0105
     beq :+
     jmp @fail1
@@ -5459,6 +5473,649 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     lda #$06
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B1.03 — Internal cycles are 6
+; provenance: Documented (SNES Development Manual Bk I 21.1; SNESdev Wiki; fullsnes)
+.proc test_b1_03
+    .a16
+    .i16
+    ; XBA minus NOP is exactly one internal cycle: 6 clocks, so 24 dots over 16 repeats.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$30
+    .a8
+    .i8
+    jsr hv_begin
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0098
+    ; record slot 70: 16 NOP, absolute
+    sta f:$7EE28C
+    sep #$30
+    .a8
+    .i8
+    jsr hv_begin
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0098
+    ; record slot 71: 16 XBA - 16 NOP = 16 internal cycles
+    sta f:$7EE28E
+    cmp #$0016
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$001B
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; one internal cycle did not cost 6 master clocks
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B1.04 — DMA speed is uniform
+; provenance: Documented (SNES Development Manual Bk I 21.1 (DMA at 2.68MHz regardless of address))
+.proc test_b1_04
+    .a16
+    .i16
+    ; 32 bytes to the VRAM port, once from a MEMSEL-fast bank and once from a slow one.
+    ; Forced blank is in force for the whole battery, so VRAM is writable throughout.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$01
+    sta $420D         ; MEMSEL = 1: banks $80+ are a 6-clock region for the CPU
+    lda #$80
+    sta $2115         ; VMAIN step 1, increment after the high byte
+    ; --- channel 0: A->B, mode 1 (two registers), destination $2118 ---
+    lda #$01
+    sta $4300
+    lda #$18
+    sta $4301
+    ; --- transfer 1: source $80:8000, the CPU-fast bank ---
+    rep #$30
+    .a16
+    .i16
+    ldx #$1800
+    stx $2116
+    ldx #$8000
+    stx $4302
+    sep #$20
+    .a8
+    lda #$80
+    sta $4304
+    rep #$30
+    .a16
+    .i16
+    ldx #$0020
+    stx $4305         ; 32 bytes
+    sep #$20
+    .a8
+    jsr hv_begin
+    lda #$01
+    sta $420B         ; start channel 0
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E009A
+    ; record slot 72: DMA 32B from a MEMSEL-fast bank
+    sta f:$7EE290
+    ; --- transfer 2: identical, but sourced from bank $00 (always 8 clocks for the CPU) ---
+    rep #$30
+    .a16
+    .i16
+    ldx #$1900
+    stx $2116
+    ldx #$8000
+    stx $4302
+    sep #$20
+    .a8
+    stz $4304         ; bank $00
+    rep #$30
+    .a16
+    .i16
+    ldx #$0020
+    stx $4305
+    sep #$20
+    .a8
+    jsr hv_begin
+    lda #$01
+    sta $420B
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    ; record slot 73: DMA 32B from a slow bank
+    sta f:$7EE292
+    ; --- restore MEMSEL before asserting; a failing path exits immediately ---
+    sep #$20
+    .a8
+    stz $420D
+    rep #$20
+    .a16
+    sec
+    sbc f:$7E009A
+    cmp #$8000
+    bcc :+
+    eor #$FFFF
+    inc a             ; negate: take the magnitude
+  :
+    cmp #$0003
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; DMA timing changed with the source region — it must be 8 clocks/byte regardless
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B2.06 — Interlace line count
+; provenance: Contested (the dossier conditions the extra line on $213F.7 (the field), which this test does not control — sampling V across an uncontrolled field cannot assert a line count)
+.proc test_b2_06
+    .a16
+    .i16
+    ; Enable interlace, let a full frame pass so the setting is stable, then find V's maximum.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$01
+    sta $2133         ; SETINI bit 0 = screen interlace
+    jsr wait_vblank
+    jsr wait_vblank   ; a settled frame under the new setting
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E0126
+@iloop:
+    sep #$20
+    .a8
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp f:$7E0126
+    bcc :+
+    sta f:$7E0126
+    :
+    cmp #100
+    bcs @iloop
+    sep #$20
+    .a8
+    stz $2133         ; restore before asserting
+    rep #$20
+    .a16
+    lda f:$7E0126
+    ; record slot 74: V counter maximum with interlace enabled
+    sta f:$7EE294
+    ; Report which line count was seen: variant 1 = 261 (no extra line), 2 = 262, 3 = other.
+    ; Both comparisons run while A is still 16-bit and the answer is staged in X; narrowing on
+    ; one branch would leave the generator's width tracker wrong for the other path's `cmp`.
+    ldx #$0007        ; default: variant 3 = something else
+    cmp #261
+    bne :+
+    ldx #$0003        ; variant 1 = 261, no extra line
+    :
+    cmp #262
+    bne :+
+    ldx #$0005        ; variant 2 = 262, interlace added a line
+    :
+    sep #$20
+    .a8
+    txa
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B2.05 — PAL frame is 312 lines
+; provenance: Documented (SNESdev Wiki, Timing; fullsnes)
+.proc test_b2_05
+    .a16
+    .i16
+    ; Identical to B2.04's measurement; only the expected line count differs.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    stz $2133         ; SETINI: no interlace — B2.06 leaves it ON, and an interlaced PAL
+    ; frame is 313 lines on the long field, so measuring frame height without clearing this
+    ; measures B2.06's leftovers instead. Found by the PAL image: B2.04 skipped (it saw 311)
+    ; while B2.05 failed, which is only possible if the two measured different machines.
+    jsr wait_vblank
+    jsr wait_vblank   ; a settled frame under the cleared setting
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E0120     ; running maximum
+@vloop:
+    sep #$20
+    .a8
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp f:$7E0120
+    bcc :+
+    sta f:$7E0120
+    :
+    cmp #100          ; below 100 means the counter has wrapped into the next frame
+    bcs @vloop
+    lda f:$7E0120
+    cmp #261
+    bne :+
+    ; SKIP: V topped out at 261 — this is an NTSC machine, so B2.04 is the applicable assertion
+    sep #$20
+    .a8
+    lda #VERDICT_SKIP
+    sta f:V_TEST_RESULT
+    jmp test_restore
+    ; unreachable — restores the assembler's width belief only
+    .a16
+    .i16
+    :
+    cmp #$0137
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; the V counter did not reach 311 (a PAL frame is 312 lines, 0-311)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B4.14 — IRQ dispatch latency
+; provenance: Documented (SNESdev Wiki, Timing; fullsnes — the sub-cycle poll point is not CPU-observable, so its consequence is measured instead)
+.proc test_b4_14
+    .a16
+    .i16
+    ; Arm an H-IRQ at a known dot, install a handler that latches H on entry, and spin. The
+    ; latched dot minus HTIME is the dispatch latency. Run it twice with different spin bodies.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    sei
+    ; Install the handler. It latches H, acknowledges, flags the spin loop, and returns.
+    rep #$20
+    .a16
+    lda #@handler
+    sta a:V_IRQ_VEC
+    sep #$20
+    .a8
+    ; Pass 1: spin on NOPs, the shortest instruction there is.
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0134     ; rendezvous byte: the handler sets it (STZ has no long form)
+    lda #200
+    sta $4207
+    stz $4208         ; HTIME = 200
+    lda $4211         ; clear any stale latch
+    lda #$10
+    sta $4200         ; H-IRQ enabled, NMI off, auto-joypad off
+    cli
+@spin1:
+    nop
+    nop
+    nop
+    nop
+    lda f:$7E0134
+    beq @spin1
+    sei
+    rep #$20
+    .a16
+    lda f:$7E0136     ; H latched on handler entry
+    sec
+    sbc #200          ; minus HTIME: the dispatch latency in dots
+    ; record slot 100: B4.14 dispatch latency, NOP spin (dots)
+    sta f:$7EE2C8
+    sta f:$7E0138
+    sep #$20
+    .a8
+    ; Pass 2: spin on JSL/RTL. If the poll were continuous rather than at an instruction
+    ; boundary, this would enter the handler in the same place as pass 1.
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0134     ; rendezvous byte: the handler sets it (STZ has no long form)
+    lda #200
+    sta $4207
+    stz $4208         ; HTIME = 200
+    lda $4211         ; clear any stale latch
+    lda #$10
+    sta $4200         ; H-IRQ enabled, NMI off, auto-joypad off
+    cli
+@spin2:
+    jsl @far
+    sep #$20
+    .a8
+    lda f:$7E0134
+    beq @spin2
+    sei
+    rep #$20
+    .a16
+    lda f:$7E0136
+    sec
+    sbc #200
+    ; record slot 101: B4.14 dispatch latency, JSL/RTL spin (dots)
+    sta f:$7EE2CA
+    sec
+    sbc f:$7E0138     ; the extra delay a long instruction imposes
+    ; record slot 102: B4.14 extra latency from the long spin body (dots)
+    sta f:$7EE2CC
+    ; Restore the default handler before leaving — the vector is global state.
+    sep #$20
+    .a8
+    stz $4200
+    lda $4211
+    rep #$20
+    .a16
+    lda #irq_stub
+    sta a:V_IRQ_VEC
+    sep #$20
+    .a8
+    lda #$01
+    sta f:V_TEST_RESULT   ; golden: the numbers live in the measurement channel
+    jmp test_restore
+    ; --- the far routine the long spin calls ---
+@far:
+    rtl
+    ; --- the handler ---
+@handler:
+    rep #$30
+    .a16
+    .i16
+    pha
+    sep #$20
+    .a8
+    lda $2137         ; latch H and V at handler entry
+    lda $213C
+    xba
+    lda $213C
+    and #$01
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    sta f:$7E0136
+    sep #$20
+    .a8
+    lda $4211         ; acknowledge
+    lda #$01
+    sta f:$7E0134     ; tell the spin loop to stop
+    rep #$20
+    .a16
+    pla
+    rti
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B2.10 — Region bit (golden)
+; provenance: Contested (SNESdev PPU registers places the 50/60Hz bit at bit 3, which overlaps the PPU2 version field; fullsnes places it at bit 4)
+.proc test_b2_10
+    .a16
+    .i16
+    ; Report $213F bits 4 and 3 together so the encoding conflict is visible in the result.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda $213F
+    sta f:$7E0128
+    and #$10          ; candidate region bit per fullsnes
+    lsr a
+    lsr a
+    lsr a           ; -> bit 1
+    sta f:$7E0129
+    lda f:$7E0128
+    and #$08          ; candidate region bit per SNESdev PPU registers
+    lsr a
+    lsr a
+    lsr a           ; -> bit 0
+    ora f:$7E0129
+    asl a
+    ora #$01
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B4.07 — H-IRQ position (golden)
+; provenance: Contested (the $4211 poll loop is coarser than the dot the comparator fires on, so the exact H position is not resolvable from software by polling)
+.proc test_b4_07
+    .a16
+    .i16
+    ; HTIME = 128, H-IRQ only. Poll $4211, then latch H and check it is on the programmed dot.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    sei
+    lda #$80
+    sta $4207
+    stz $4208         ; HTIME = 128
+    lda $4211         ; clear any stale latch
+    lda #$10
+    sta $4200         ; H-IRQ enabled, NMI off, auto-joypad off
+@wh:
+    lda $4211
+    and #$80
+    beq @wh
+    sep #$20
+    .a8
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213C
+    xba
+    lda $213C
+    and #$01
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    sta f:$7E012A
+    ; record slot 75: H position when the H-IRQ was observed
+    sta f:$7EE296
+    ; --- disarm before asserting ---
+    sep #$20
+    .a8
+    stz $4200
+    lda $4211
+    rep #$20
+    .a16
+    lda f:$7E012A
+    ; Report the latched H in 32-dot buckets. The poll loop is coarser than the dot the IRQ
+    ; actually fires on, so the exact position is not resolvable from software this way.
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a           ; H / 32
+    sep #$20
+    .a8
+    asl a
+    ora #$01
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B4.09 — HV-IRQ needs both
+; provenance: Documented (SNESdev Wiki, Timing; fullsnes)
+.proc test_b4_09
+    .a16
+    .i16
+    ; HTIME = 128, VTIME = 150, both enabled. The IRQ must appear on line 150 specifically.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    sei
+    lda #$80
+    sta $4207
+    stz $4208         ; HTIME = 128
+    lda #150
+    sta $4209
+    stz $420A         ; VTIME = 150
+    lda $4211
+    lda #$30
+    sta $4200         ; both H-IRQ and V-IRQ enabled
+@whv:
+    lda $4211
+    and #$80
+    beq @whv
+    sep #$20
+    .a8
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    sta f:$7E012C
+    ; record slot 76: V position when the HV-IRQ was observed
+    sta f:$7EE298
+    sep #$20
+    .a8
+    stz $4200
+    lda $4211
+    rep #$20
+    .a16
+    lda f:$7E012C
+    cmp #$0096
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0099
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; the HV-IRQ did not require both comparators to match
+    sep #$20
+    .a8
+    lda #$02
     sta f:$7EE010
     jmp test_restore
 .endproc
@@ -8592,7 +9249,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 126
+    .word 134
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -8688,6 +9345,14 @@ _test_entries:
     .addr test_b5_03
     .addr test_b5_04
     .addr test_b5_05
+    .addr test_b1_03
+    .addr test_b1_04
+    .addr test_b2_06
+    .addr test_b2_05
+    .addr test_b4_14
+    .addr test_b2_10
+    .addr test_b4_07
+    .addr test_b4_09
     .addr test_a5_s01
     .addr test_a5_s02
     .addr test_a5_s03
@@ -8817,6 +9482,14 @@ _test_flags:
     .byte $01   ; B5.03
     .byte $02   ; B5.04
     .byte $01   ; B5.05
+    .byte $01   ; B1.03
+    .byte $01   ; B1.04
+    .byte $02   ; B2.06
+    .byte $01   ; B2.05
+    .byte $02   ; B4.14
+    .byte $02   ; B2.10
+    .byte $02   ; B4.07
+    .byte $01   ; B4.09
     .byte $01   ; A5.S01
     .byte $01   ; A5.S02
     .byte $01   ; A5.S03
@@ -8946,6 +9619,14 @@ _test_names:
     .addr @n_b5_03
     .addr @n_b5_04
     .addr @n_b5_05
+    .addr @n_b1_03
+    .addr @n_b1_04
+    .addr @n_b2_06
+    .addr @n_b2_05
+    .addr @n_b4_14
+    .addr @n_b2_10
+    .addr @n_b4_07
+    .addr @n_b4_09
     .addr @n_a5_s01
     .addr @n_a5_s02
     .addr @n_a5_s03
@@ -9256,6 +9937,30 @@ _test_names:
 @n_b5_05:
     .byte 22
     .byte "Mul/div power-on state"
+@n_b1_03:
+    .byte 21
+    .byte "Internal cycles are 6"
+@n_b1_04:
+    .byte 20
+    .byte "DMA speed is uniform"
+@n_b2_06:
+    .byte 20
+    .byte "Interlace line count"
+@n_b2_05:
+    .byte 22
+    .byte "PAL frame is 312 lines"
+@n_b4_14:
+    .byte 20
+    .byte "IRQ dispatch latency"
+@n_b2_10:
+    .byte 19
+    .byte "Region bit (golden)"
+@n_b4_07:
+    .byte 23
+    .byte "H-IRQ position (golden)"
+@n_b4_09:
+    .byte 17
+    .byte "HV-IRQ needs both"
 @n_a5_s01:
     .byte 10
     .byte "Sweep: CLC"

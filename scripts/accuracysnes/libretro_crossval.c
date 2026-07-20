@@ -15,6 +15,15 @@
  * Run:
  *   /tmp/lrcv <core.so> <accuracysnes.sfc> [max_frames]
  *
+ * Run (rendered-scene mode, ADR 0013):
+ *   /tmp/lrcv <core.so> <accuracysnes.sfc> [max_frames] --scenes
+ *
+ * In --scenes mode the host keeps running past the battery, captures the framebuffer at the end of
+ * each scene's hold, and prints one `scene<N>\t0x<hash>` line per scene. The hash is FNV-1a over a
+ * fixed 256x224 region of canonical 0RRRRRGGGGGBBBBB pixels — fixed and canonical because emulators
+ * do not agree about geometry or pixel format, and a golden must compare pictures rather than
+ * output conventions.
+ *
  * Exit code: number of FAILING scored tests, or 253 (bad magic) / 254 (timeout) / 255 (setup).
  */
 
@@ -53,6 +62,32 @@ typedef int16_t (*input_state_t)(unsigned port, unsigned dev, unsigned idx, unsi
 
 static char sys_dir[] = ".";
 
+/* --- framebuffer capture ------------------------------------------------------------------- */
+
+#define SCENE_W 256u
+#define SCENE_H 224u
+/* The buffer row this host's picture starts on. An output convention, exactly like pixel format:
+ * snes9x's libretro core already hands back the first visible line, RustySNES composites from
+ * scanline 0, and Mesen2 starts 7 rows into a 239-row buffer. Calibrated by comparing renders —
+ * with the wrong value two emulators that agree completely still produce different hashes. */
+#define FIRST_ROW 0u
+
+/* Pixel formats, as libretro numbers them. The default is 0RGB1555 and a core announces anything
+ * else through SET_PIXEL_FORMAT, so the value has to be recorded rather than assumed: snes9x asks
+ * for RGB565, and reading its output as 1555 silently shifts every channel. */
+#define FMT_0RGB1555 0u
+#define FMT_XRGB8888 1u
+#define FMT_RGB565   2u
+
+static unsigned pixel_format = FMT_0RGB1555;
+static uint64_t last_frame_hash;
+static bool last_frame_ok;
+/* The canonical pixels behind `last_frame_hash`, kept so a disagreement can be diffed pixel by
+ * pixel instead of only observed as two different 64-bit numbers. A hash says *that* two renders
+ * differ; only the pixels say *where*, which is the difference between a finding and a shrug. */
+static uint16_t last_frame_px[SCENE_W * SCENE_H];
+
+
 static void log_stub(int level, const char *fmt, ...) { (void)level; (void)fmt; }
 struct log_cb { void (*log)(int, const char *, ...); };
 static struct log_cb logger = { log_stub };
@@ -60,6 +95,7 @@ static struct log_cb logger = { log_stub };
 static bool environment(unsigned cmd, void *data) {
     switch (cmd) {
     case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT:
+        pixel_format = *(const unsigned *)data;
         return true;
     case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:
     case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
@@ -76,8 +112,40 @@ static bool environment(unsigned cmd, void *data) {
     }
 }
 
+/* FNV-1a over canonical 0RRRRRGGGGGBBBBB pixels — the same value the Rust harness computes from
+ * its own BGR555 framebuffer, so the two are directly comparable. */
 static void video_refresh(const void *d, unsigned w, unsigned h, size_t p) {
-    (void)d; (void)w; (void)h; (void)p;
+    if (!d || w < SCENE_W || h < SCENE_H + FIRST_ROW) {
+        /* A duped frame arrives as a NULL pointer; a hi-res or overscan frame is outside the
+         * contract. Either way the previous hash stands rather than being silently replaced. */
+        return;
+    }
+    uint64_t hash = 0xcbf29ce484222325ull;
+    for (unsigned y = 0; y < SCENE_H; y++) {
+        const uint8_t *row = (const uint8_t *)d + (size_t)(y + FIRST_ROW) * p;
+        for (unsigned x = 0; x < SCENE_W; x++) {
+            unsigned r, g, b;
+            if (pixel_format == FMT_XRGB8888) {
+                uint32_t v = ((const uint32_t *)row)[x];
+                r = (v >> 19) & 0x1F; g = (v >> 11) & 0x1F; b = (v >> 3) & 0x1F;
+            } else {
+                uint16_t v = ((const uint16_t *)row)[x];
+                if (pixel_format == FMT_RGB565) {
+                    /* Green is 6 bits here because the core widened a 5-bit channel; dropping the
+                     * low bit recovers the original rather than inventing precision. */
+                    r = (v >> 11) & 0x1F; g = (v >> 6) & 0x1F; b = v & 0x1F;
+                } else {
+                    r = (v >> 10) & 0x1F; g = (v >> 5) & 0x1F; b = v & 0x1F;
+                }
+            }
+            uint16_t canonical = (uint16_t)((r << 10) | (g << 5) | b);
+            last_frame_px[y * SCENE_W + x] = canonical;
+            hash ^= (uint64_t)canonical;
+            hash *= 0x00000100000001b3ull;
+        }
+    }
+    last_frame_hash = hash;
+    last_frame_ok = true;
 }
 static void audio_sample(int16_t l, int16_t r) { (void)l; (void)r; }
 static size_t audio_batch(const int16_t *d, size_t f) { (void)d; return f; }
@@ -108,13 +176,42 @@ typedef size_t (*mem_size_fn)(unsigned);
 #define COUNT  (BASE + 0x06u)
 #define DONE   (BASE + 0x08u)
 #define STATUS (BASE + 0x20u)
+/* The full-width measurement channel. A verdict byte cannot carry a dot count -- anything above
+ * 255 wraps and becomes indistinguishable from a real reading -- so timing tests write here. */
+#define MEAS   0xE200u
+#define MEAS_SLOTS 128u
+#define SCENE      (BASE + 0x12u)
+#define SCENE_DONE (BASE + 0x13u)
+#define MAX_SCENES 64u
+/* Which frame of a scene's published window to hash, 1-based. Must match the in-repo harness. */
+#define CAPTURE_SIGHTING 2u
 
 int main(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: %s <core.so> <rom.sfc> [max_frames]\n", argv[0]);
+        fprintf(stderr, "usage: %s <core.so> <rom.sfc> [max_frames] [--scenes]\n", argv[0]);
         return 255;
     }
-    unsigned max_frames = (argc > 3) ? (unsigned)atoi(argv[3]) : 1200;
+    bool want_scenes = false;
+    unsigned fb_after = 0;
+    const char *dump_prefix = NULL;
+    unsigned max_frames = 1200;
+    for (int i = 3; i < argc; i++) {
+        if (strcmp(argv[i], "--scenes") == 0) {
+            want_scenes = true;
+        } else if (strncmp(argv[i], "--scene-dump=", 13) == 0) {
+            want_scenes = true;
+            dump_prefix = argv[i] + 13;
+        } else if (strncmp(argv[i], "--fb-after=", 11) == 0) {
+            fb_after = (unsigned)atoi(argv[i] + 11);
+        } else {
+            max_frames = (unsigned)atoi(argv[i]);
+        }
+    }
+
+    /* --fb-after runs a plain ROM for N frames and prints the canonical framebuffer hash. It is
+     * how a golden that was blessed from OUR OWN output gets an external opinion: the in-repo
+     * undisbeliever goldens prove regression-freedom by construction and correctness not at all,
+     * and this is the cheapest way to tell those two apart. */
 
     void *core = dlopen(argv[1], RTLD_LAZY);
     if (!core) {
@@ -175,6 +272,16 @@ int main(int argc, char **argv) {
     }
     printf("core=%s wram=%zu bytes\n", argv[1], wram_size);
 
+    if (fb_after) {
+        for (unsigned i = 0; i < fb_after; i++) {
+            retro_run();
+        }
+        printf("FBHASH\t0x%016llx\n", (unsigned long long)last_frame_hash);
+        retro_deinit();
+        free(buf);
+        return 0;
+    }
+
     unsigned frame = 0;
     while (frame < max_frames && wram[DONE] != 0xA5) {
         retro_run();
@@ -215,6 +322,97 @@ int main(int argc, char **argv) {
         printf("test %02u = %02X  %s\n", i, b, detail);
     }
     printf("ACCURACYSNES-END pass=%u fail=%u other=%u\n", pass, fail, other);
+
+    /* Every measurement slot, so a golden-vector timing test can be compared across emulators
+     * without this host having to know which slots any particular test owns. Zero slots are
+     * skipped: nothing writes zero deliberately, and printing 128 lines of it helps no one. */
+    printf("ACCURACYSNES-MEAS-BEGIN\n");
+    for (unsigned i = 0; i < MEAS_SLOTS; i++) {
+        unsigned v = (unsigned)wram[MEAS + i * 2] | ((unsigned)wram[MEAS + i * 2 + 1] << 8);
+        if (v) {
+            printf("meas %u\t%u\n", i, v);
+        }
+    }
+    printf("ACCURACYSNES-MEAS-END\n");
+
+    if (want_scenes) {
+        /* The cart's scene loop runs after the battery: it sets up each scene, publishes the
+         * 1-based scene ID, and holds it for a fixed number of frames. Overwriting on every frame
+         * of a hold leaves the LAST frame's hash, which is the scene at its steady state. */
+        static uint64_t hashes[MAX_SCENES];
+        static bool got[MAX_SCENES];
+        static unsigned sightings[MAX_SCENES];
+        static uint16_t px[MAX_SCENES][SCENE_W * SCENE_H];
+        unsigned scene_frames = 0;
+        bool over_range = false;
+        while (scene_frames < max_frames && wram[SCENE_DONE] != 0x5A) {
+            /* Cleared per frame, and set only by a real video_refresh. libretro signals a duplicate
+             * frame by calling video_refresh with a NULL pointer (GET_CAN_DUPE, which this host
+             * enables), and a sticky flag would then let a stale hash stand in for a frame that was
+             * never rendered -- a golden recording the wrong picture, silently. */
+            last_frame_ok = false;
+            retro_run();
+            scene_frames++;
+            unsigned id = wram[SCENE];
+            if (id > MAX_SCENES) {
+                /* Never silent: an ID past the table means the cart grew more scenes than this
+                 * host can hold, and dropping it would look exactly like a scene that matched. */
+                if (!over_range) {
+                    fprintf(stderr, "scene ID %u exceeds MAX_SCENES (%u) -- rebuild this host\n",
+                            id, MAX_SCENES);
+                    over_range = true;
+                }
+                continue;
+            }
+            if (id != 0) {
+                sightings[id - 1]++;
+            }
+            /* The SECOND frame of the published window, by agreement with the in-repo harness. A
+             * host samples WRAM at its own frame boundary, which need not be the one the cart's
+             * vblank poll sees, so both ends of the window are at risk of being off by one — this
+             * host once captured scene 1 with a black band where forced blank was released. An
+             * interior frame sidesteps that without the two clocks having to agree.
+             *
+             * `>=` rather than `==`: if the agreed frame happens to be a duped one there is no hash
+             * to take, and an equality test would skip the scene entirely. The window is four
+             * frames wide precisely so a later one is still well inside the steady state. */
+            if (id != 0 && last_frame_ok && sightings[id - 1] >= CAPTURE_SIGHTING && !got[id - 1]) {
+                hashes[id - 1] = last_frame_hash;
+                got[id - 1] = true;
+                if (dump_prefix) {
+                    memcpy(px[id - 1], last_frame_px, sizeof last_frame_px);
+                }
+            }
+        }
+        if (over_range) {
+            retro_deinit();
+            free(buf);
+            return 255;
+        }
+        if (wram[SCENE_DONE] != 0x5A) {
+            printf("ACCURACYSNES-SCENES-TIMEOUT after %u frames\n", scene_frames);
+        } else {
+            printf("ACCURACYSNES-SCENES-BEGIN frames=%u format=%u\n", scene_frames, pixel_format);
+            for (unsigned i = 0; i < MAX_SCENES; i++) {
+                if (!got[i]) {
+                    continue;
+                }
+                printf("scene%u\t0x%016llx\n", i + 1, (unsigned long long)hashes[i]);
+                if (dump_prefix) {
+                    char path[512];
+                    snprintf(path, sizeof path, "%s.scene%u.bin", dump_prefix, i + 1);
+                    FILE *out = fopen(path, "wb");
+                    if (out) {
+                        fwrite(px[i], sizeof px[i], 1, out);
+                        fclose(out);
+                    } else {
+                        fprintf(stderr, "cannot write %s\n", path);
+                    }
+                }
+            }
+            printf("ACCURACYSNES-SCENES-END\n");
+        }
+    }
 
     retro_deinit();
     free(buf);

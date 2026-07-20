@@ -805,8 +805,8 @@ WDC's list of instructions escaping `$01xx` even in emulation mode: `JSL`, `JSR 
 | B2.05 | PAL frame = 312 lines / 425,568 clocks |
 | B2.06 | Interlace adds a line when `$213F.7 = 0` |
 | B2.07 | NTSC 60.0988 Hz · B2.08 PAL 50.00698 Hz |
-| B2.09 | Picture window: left edge clock 88, right edge clock 1112 |
-| B2.10 | **`$213F` bit 4 = 50/60 Hz [CONFLICT — SNESdev PPU_registers says bit 3; bits 3-0 are the version field, so bit 4 is correct]** |
+| B2.09 | Picture window: left edge clock 88, right edge clock 1112 — *not CPU-observable directly; reachable through the framebuffer oracle (`docs/adr/0013`) once the dot-resolution compositor lands, since locating a mid-line register change in the rendered picture is what maps a dot to a pixel column. See `docs/ppu.md` §Mid-scanline/HDMA-driven register timing.* |
+| B2.10 | **`$213F` bit 4 = 50/60 Hz [CONFLICT — SNESdev PPU_registers says bit 3; bits 3-0 are the version field, so bit 4 is correct] — SETTLED 2026-07-20 by measurement: the battery ships an NTSC and a PAL image differing in one header byte, and **bit 4** is the bit that moves between them while bit 3 does not. fullsnes is right; the wiki is wrong.** |
 
 Master clocks: NTSC 945/44 MHz = 21,477,272.7 Hz; PAL 21,281,370 Hz. VBlank budgets:
 NTSC/224 = 37 lines / 48,988 clocks / 6,123 DMA bytes; NTSC/239 = 22 / 29,128 / 3,641;
@@ -844,7 +844,7 @@ ares independently notes its own refresh pattern is *"technically"* wrong but av
 | B4.11 | **No IRQ at dot 153 on the last scanline of any frame** |
 | B4.12 | `$4211` read releases IRQ; so does disabling via `$4200` |
 | B4.13 | HTIME range 0-339, VTIME 0-261/311 |
-| B4.14 | Interrupt poll occurs **just before the final CPU cycle** → handler entry ≥6-12 master cycles after assertion |
+| B4.14 | Interrupt poll occurs **just before the final CPU cycle** → handler entry ≥6-12 master cycles after assertion — *the sub-cycle poll point is not CPU-observable (the finest readable clock is the H counter at 4 clocks/dot, and reading it costs more than the interval). Its **consequence** is measured instead: handler entry is timed with the CPU spinning on `NOP`s versus on `JSL`/`RTL`. The three references split on the sign — RustySNES +3 dots, snes9x +2, Mesen2 **−2** — so this is recorded as a golden vector, not scored.* |
 
 `$4200 NMITIMEN` = `n-yx ---a`: n = VBlank NMI, yx = IRQ mode (00 none / 01 V / 10 H / 11 both),
 a = auto-joypad enable. `$4212 HVBJOY` = `vh.. ...a`: v = VBlank, **h = HBlank (bit 6)

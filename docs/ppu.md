@@ -133,6 +133,24 @@ mechanism behind raster effects — they must land at the exact dot (`ref-docs/2
    an address set.
 5. **The 340-vs-341 dot convention** is resolved in `docs/scheduler.md`; do not reintroduce
    the alternate numbering here.
+6. **The BG vertical fetch runs a line ahead of the line it appears on.** The first *displayed*
+   scanline shows BG row `BGnVOFS + 1`, not row `BGnVOFS`. So `render_bg` derives its BG row from
+   `self.v` while the framebuffer row stays `self.v - 1`; the two are deliberately not the same
+   number. Fixed in `v1.20.0` — the renderer previously used `v - 1` for both and every background
+   sat one scanline low.
+7. **Mosaic quantises the SCREEN row, not the BG row.** A mosaic block is anchored to the top of
+   the picture, so scrolling moves the *content* through a fixed grid rather than dragging the
+   grid with it. `render_bg` therefore converts to screen space, quantises, and converts back
+   (`((v - 1) / size) * size + 1`) instead of quantising the already-offset BG row. Also fixed in
+   `v1.20.0`.
+
+   Both were found by the AccuracySNES framebuffer oracle (`docs/adr/0013`) on the first three
+   scenes it ever ran, and both were confirmed against two independent references: snes9x and
+   Mesen2 agree bit-for-bit with the corrected output and disagreed with the old one. Independent
+   corroboration: agreement with snes9x across the 29-ROM undisbeliever suite went from **2/29 to
+   14/29**. The `tests/golden/undisbeliever-framebuffer.tsv` entries were re-blessed in the same
+   change; 25 of 29 moved, which is the expected consequence — those goldens had been blessed from
+   our own output and so recorded the bug rather than catching it.
 
 ## Test plan
 

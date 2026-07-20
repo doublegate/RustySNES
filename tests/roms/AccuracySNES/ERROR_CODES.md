@@ -775,6 +775,62 @@ Provenance: **Documented** (anomie regs.txt r1157 and nocash fullsnes, independe
 | 2 | `$04` | $4204/05 did not power up as $FFFF (the captured quotient was not $FFFF / 2) |
 | 3 | `$06` | the captured power-on divide remainder was wrong |
 
+### B1.03 — Internal cycles are 6
+
+Provenance: **Documented** (SNES Development Manual Bk I 21.1; SNESdev Wiki; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | one internal cycle did not cost 6 master clocks |
+
+### B1.04 — DMA speed is uniform
+
+Provenance: **Documented** (SNES Development Manual Bk I 21.1 (DMA at 2.68MHz regardless of address)). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | DMA timing changed with the source region — it must be 8 clocks/byte regardless |
+
+### B2.06 — Interlace line count
+
+Provenance: **Contested** (the dossier conditions the extra line on $213F.7 (the field), which this test does not control — sampling V across an uncontrolled field cannot assert a line count). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
+### B2.05 — PAL frame is 312 lines
+
+Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the V counter did not reach 311 (a PAL frame is 312 lines, 0-311) |
+
+### B4.14 — IRQ dispatch latency
+
+Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes — the sub-cycle poll point is not CPU-observable, so its consequence is measured instead). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
+### B2.10 — Region bit (golden)
+
+Provenance: **Contested** (SNESdev PPU registers places the 50/60Hz bit at bit 3, which overlaps the PPU2 version field; fullsnes places it at bit 4). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
+### B4.07 — H-IRQ position (golden)
+
+Provenance: **Contested** (the $4211 poll loop is coarser than the dot the comparator fires on, so the exact H position is not resolvable from software by polling). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
+### B4.09 — HV-IRQ needs both
+
+Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the HV-IRQ did not require both comparators to match |
+
 ## Group A
 
 ### A5.S01 — Sweep: CLC

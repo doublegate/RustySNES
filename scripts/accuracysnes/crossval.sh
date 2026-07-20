@@ -114,6 +114,99 @@ else
     echo "skip Mesen2: build it with 'make -C ref-proj/Mesen2'" >&2
 fi
 
+# --- the PAL image ------------------------------------------------------------------------------
+#
+# The same battery at PAL timing. The two images differ in one header byte, so this is the cheapest
+# possible isolation of the region: anything that changes between them is the region and can be
+# nothing else. Both references must reach the same failing-test count on both images -- the region
+# pair (B2.04/B2.05) swaps which of the two SKIPs, and neither ever fails.
+PAL_ROM=tests/roms/AccuracySNES/build/accuracysnes-pal.sfc
+
+if [[ -f $PAL_ROM ]]; then
+    if [[ -f $SNES9X ]]; then
+        echo "=== snes9x (PAL image) ==="
+        if "$HOST" "$SNES9X" "$PAL_ROM" 1500 >/dev/null 2>&1; then n=0; else n=$?; fi
+        if [[ $n -eq $SNES9X_KNOWN_FAILURES ]]; then
+            echo "snes9x PAL: OK ($n known divergence(s))"
+        else
+            echo "snes9x PAL: $n failing test(s), expected $SNES9X_KNOWN_FAILURES" >&2
+            rc=1
+        fi
+    fi
+    if [[ -f $MESEN ]] && command -v dotnet >/dev/null; then
+        echo "=== Mesen2 (PAL image) ==="
+        dotnet "$MESEN" --testrunner "$PAL_ROM" scripts/accuracysnes/mesen_crossval.lua \
+            --timeout=120 >/dev/null 2>&1
+        code=$?
+        case $code in
+            0)   echo "Mesen2 PAL: OK (0 failing tests)" ;;
+            253) echo "Mesen2 PAL: results block never appeared (bad magic)" >&2; rc=1 ;;
+            254) echo "Mesen2 PAL: timed out before the battery finished" >&2; rc=1 ;;
+            *)   echo "Mesen2 PAL: $code failing test(s)" >&2; rc=1 ;;
+        esac
+    fi
+else
+    echo "skip the PAL image: build the cart first (cargo run -p accuracysnes-gen)" >&2
+fi
+
+# --- rendered scenes (ADR 0013) ------------------------------------------------------------------
+#
+# The battery above is self-scoring: the cart decides pass/fail and the references merely have to
+# agree. Rendered scenes are the opposite — the cart asserts nothing about pixels, so a golden is
+# only worth committing once the references have been shown to agree on the picture. This checks
+# exactly that, and it is the rule that keeps a golden from quietly becoming a record of our own
+# output. It found two real PPU bugs on the first three scenes it ever ran.
+MANIFEST=tests/roms/AccuracySNES/build/scenes.tsv
+SCENE_GOLDEN=tests/golden/accuracysnes-scenes.tsv
+
+# Compare `scene<N><TAB><hash>` lines on stdin against the committed goldens, mapping the cart's
+# scene numbers to stable names through the manifest. Unblessed scenes are reported, not failed.
+check_scenes() {
+    local who=$1 bad=0 ok=0 unblessed=0
+    while IFS=$'\t' read -r key hash; do
+        [[ $key == scene* ]] || continue
+        local idx=${key#scene}
+        local name
+        name=$(awk -F'\t' -v i="$idx" '$1 == i { print $2 }' "$MANIFEST")
+        if [[ -z $name ]]; then
+            echo "$who: scene $idx is not in $MANIFEST — stale build?" >&2
+            bad=$((bad + 1))
+            continue
+        fi
+        local want
+        want=$(awk -F'\t' -v n="$name" '$1 == n { print $2 }' "$SCENE_GOLDEN")
+        if [[ -z $want ]]; then
+            unblessed=$((unblessed + 1))
+            echo "$who: $name unblessed (got $hash)"
+        elif [[ $want == "$hash" ]]; then
+            ok=$((ok + 1))
+        else
+            echo "$who: $name MISMATCH got $hash, golden $want" >&2
+            bad=$((bad + 1))
+        fi
+    done
+    echo "$who: $ok scene(s) match, $unblessed unblessed, $bad mismatched"
+    return $bad
+}
+
+if [[ -f $MANIFEST && -f $SCENE_GOLDEN ]]; then
+    if [[ -f $SNES9X ]]; then
+        echo "=== snes9x rendered scenes ==="
+        # `|| true`: the host's exit code is the battery's failing-test count (2 known
+        # divergences for snes9x), and with `pipefail` that would fail this pipeline for a reason
+        # that has nothing to do with the scenes. The battery was already graded above.
+        { "$HOST" "$SNES9X" "$ROM" 1200 --scenes 2>/dev/null || true; } | check_scenes "snes9x" \
+            || rc=1
+    fi
+    if [[ -f $MESEN ]] && command -v dotnet >/dev/null; then
+        echo "=== Mesen2 rendered scenes ==="
+        { dotnet "$MESEN" --testrunner "$ROM" scripts/accuracysnes/mesen_scenes.lua \
+            --timeout=180 2>/dev/null || true; } | check_scenes "Mesen2" || rc=1
+    fi
+else
+    echo "skip rendered scenes: build the cart first (cargo run -p accuracysnes-gen)" >&2
+fi
+
 if [[ $ran -eq 0 ]]; then
     echo "error: no reference emulator available; nothing was cross-validated" >&2
     exit 2

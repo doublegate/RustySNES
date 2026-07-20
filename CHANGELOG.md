@@ -11,6 +11,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+**AccuracySNES totals, as of this section:** **134 tests — 124 scoring at 100.00%, 10 golden
+vectors**, plus one region-dependent SKIP per image, and **95 of 443** enumerated dossier
+assertions covered (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+"Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
+rewritten to the current number — this line is the one to read.
+
+- **AccuracySNES ships a PAL image, and it settled a contested assertion.** "This needs a PAL
+  console" was only half true: a console's region fixes the timing, but which timing an emulator
+  boots is decided by the cart header's country code. The generator now emits
+  `build/accuracysnes-pal.sfc` by patching one header byte of the linked NTSC image and recomputing
+  the checksum, so the two images are provably identical apart from the region — any behavioural
+  difference between them is the region and cannot be anything else. `B2.04` (262 lines) and the new
+  `B2.05` (312 lines) are mirrors, each standing down as SKIP on the machine it does not describe,
+  and the skip predicate is the *measured* frame height rather than the region bit, because a
+  frame-height test must not depend on the thing it is evidence for. **`B2.10` is settled**: the bit
+  that moves between the two images is **bit 4**, so fullsnes is right and the SNESdev wiki's bit 3
+  is wrong — settled by measurement rather than by picking a source.
+
+- **`B4.14`: interrupt dispatch latency, measured (golden).** The dossier's claim — the poll occurs
+  just before the final CPU cycle — is sub-cycle and not CPU-observable; the finest clock a cart can
+  read is the H counter at four master clocks per dot, and reading it costs more than the interval.
+  So the cart measures the consequence: with its own IRQ handler installed through a new
+  RAM-indirect IRQ vector, it times handler entry while spinning on `NOP`s and again while spinning
+  on `JSL`/`RTL`. **The three references split on the sign** — RustySNES +3 dots, snes9x +2, Mesen2
+  −2 — which is exactly why it is recorded rather than scored. The
+  libretro cross-validation host dumps the whole measurement channel so any golden timing vector is
+  comparable across emulators.
+
+- **The AccuracySNES framebuffer oracle is live (T-04-H, `docs/adr/0013` ratified).** Part of the
+  PPU decides only what appears on screen, so a self-scoring cart cannot reach it — there is no path
+  from rendered pixels back to the CPU. The cart now renders and the *host* judges: after the
+  battery, a scene loop sets up PPU state, settles, publishes a scene ID, and holds it, and three
+  independent hosts hash a fixed 256x224 region of canonical pixels and compare against
+  `tests/golden/accuracysnes-scenes.tsv` — the in-repo harness, snes9x through the libretro host
+  (`--scenes`) and Mesen2 through `mesen_scenes.lua`. Rendered results are reported in their own
+  tier and **never** enter the on-cart pass rate, because a rendered scene lacks the property the
+  rest of the battery has: that the identical image means the same thing everywhere. Per ADR 0013
+  rule 4 a golden is blessed only from a cross-validated render, and `crossval.sh` now gates on
+  that. Three scenes to start (mode 1 priority, fixed-colour math, mosaic); all three found real
+  bugs, see Fixed.
+
+- **AccuracySNES Group B, second batch — 6 tests.** `B1.03` an internal cycle costs 6 master clocks
+  (isolated by differencing `XBA` against `NOP`, which differ by exactly one internal cycle and are
+  both single-byte). `B1.04` DMA runs at a uniform rate **regardless of source region** — a
+  differential between a `MEMSEL`-fast bank and a slow one, which catches the natural bug of reusing
+  the CPU's speed map for DMA. `B4.09` an HV-IRQ requires **both** comparators to match, not either.
+  Plus three golden vectors: the `$213F` region-bit encoding (the sources conflict on bit 3 vs
+  bit 4), the interlace line count, and the H-IRQ position. Battery now **132 tests, 123 scoring,
+  100.00%, 9 golden**.
+
 - **AccuracySNES: the opcode sweep now covers every inline-measurable class (34 entries), plus
   `A9.03`.** The sweep adds direct page, absolute, absolute long, indexed, read-modify-write,
   stores and untaken branches to the implied/immediate/stack set. `A9.03` settles — or rather,
@@ -127,6 +177,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   confirming the goldens returned. Rationale recorded in `docs/scheduler.md` §H/V-IRQ.
 
 ### Fixed
+
+- **Backgrounds were rendering one scanline low.** The first displayed line must show BG row
+  `BGnVOFS + 1`, not row `BGnVOFS` — the vertical fetch runs a line ahead of the line it appears on.
+  `render_bg` derived its BG row from `self.v - 1`, the same number as the framebuffer row; the two
+  are deliberately different and now are. Found by the framebuffer oracle's first scene and
+  confirmed against two independent references, snes9x and Mesen2, which agree bit-for-bit with the
+  corrected output and disagreed with the old one.
+
+- **Mosaic was anchored to the background instead of to the screen.** A mosaic block belongs to a
+  fixed grid at the top of the picture, so scrolling moves content *through* the grid; RustySNES
+  quantised the already-scrolled BG row, dragging the grid along with the scroll. Now quantised in
+  screen space and converted back. Found by the same oracle, same two references.
+
+  **Re-bless note.** These two fixes moved 25 of the 29
+  `tests/golden/undisbeliever-framebuffer.tsv` entries, which is the expected consequence rather
+  than a red flag: those goldens were blessed from our own output and so recorded the bug instead of
+  catching it — the hazard `docs/scheduler.md` records from the `hdmaen_latch_test` re-bless.
+  Independent evidence for the re-bless: hashing the same 29 third-party ROMs on snes9x through a
+  new `--fb-after=N` mode of the libretro host, agreement went from **2/29 to 14/29**. The
+  remaining 15 are the HDMA and S-CPU A-bus DMA glitch ROMs, which is separate work.
 
 - **The multiply/divide latches now power up as `$FF` / `$FFFF`.** They were defaulting to zero.
   Asserted rather than merely recorded on two independent documentation lineages that agree with

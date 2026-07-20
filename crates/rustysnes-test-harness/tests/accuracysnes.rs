@@ -28,6 +28,7 @@
 //! `mapper_tier_honesty.rs` and `docs/adr/0003`.
 #![cfg(feature = "test-roms")]
 
+use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use rustysnes_core::{System, cart::Cart};
@@ -99,9 +100,24 @@ fn catalog() -> Vec<Entry> {
         .collect()
 }
 
+fn build_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/roms/AccuracySNES/build")
+}
+
 fn rom_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/roms/AccuracySNES/build/accuracysnes.sfc")
+    build_dir().join("accuracysnes.sfc")
+}
+
+/// The PAL sibling image: the same battery, one header byte apart.
+///
+/// "That assertion needs a PAL console" turned out to be only half true. A console's region fixes
+/// the timing, but which timing an emulator boots is decided by the cart header's country code, so
+/// a one-byte change exercises the PAL line count and frame rate on every emulator with no
+/// harness-side region switch that a reference emulator would have no equivalent of. On real
+/// hardware the console still wins, which is why the region-dependent tests decide what they are
+/// running on by measuring the frame height rather than by trusting the header.
+fn pal_rom_path() -> PathBuf {
+    build_dir().join("accuracysnes-pal.sfc")
 }
 
 /// A decoded verdict byte. Mirrors the encoding in `gen/src/dsl.rs`.
@@ -146,7 +162,12 @@ struct Report {
 
 /// Boot the cart and run until the completion sentinel appears (or the frame budget runs out).
 fn run() -> Option<Report> {
-    let rom = std::fs::read(rom_path()).ok()?;
+    run_image(&rom_path())
+}
+
+/// As [`run`], for a specific image.
+fn run_image(path: &std::path::Path) -> Option<Report> {
+    let rom = std::fs::read(path).ok()?;
     let cart = Cart::from_rom(&rom).expect("AccuracySNES header must be detectable");
     let mut sys = System::new(0);
     sys.bus.cart = Some(cart);
@@ -415,7 +436,7 @@ fn measurement_channel_reports_plausible_timings() {
     let mut out = String::from("\n  A5.08 raw measurements (dots):\n");
     for (slot, what) in A5_08_SLOTS {
         let v = report.meas[slot as usize];
-        out.push_str(&format!("    slot {slot}  {v:5}  {what}\n"));
+        let _ = writeln!(out, "    slot {slot}  {v:5}  {what}");
     }
     println!("{out}");
 
@@ -492,4 +513,195 @@ fn every_test_declares_its_dossier_assertions() {
             by.join(", ")
         );
     }
+}
+
+/// Tests whose verdict is *allowed* to differ between the NTSC and PAL images, and why.
+///
+/// Everything else must be identical: the two images differ in one header byte, so a test that
+/// changes verdict between them is either region-dependent and not yet declared so, or is reading
+/// something it should not — and the second case is the one worth catching, because it is silent.
+const REGION_DEPENDENT: &[(&str, &str)] = &[
+    ("B2.04", "the NTSC frame height; the PAL image skips it"),
+    ("B2.05", "the PAL frame height; the NTSC image skips it"),
+    (
+        "B2.06",
+        "the interlaced frame's line count — 263 on NTSC, 313 on PAL",
+    ),
+    (
+        "B2.10",
+        "the region bit itself; this changing is the whole point of the second image",
+    ),
+];
+
+/// The PAL image runs the same battery at PAL timing, and the region-dependent pair swaps over.
+///
+/// The point of the second image is that it isolates the region. It is produced by patching one
+/// header byte of the linked NTSC image and recomputing the checksum, so the two are provably
+/// identical apart from the country code — any behavioural difference between them is the region
+/// and cannot be anything else.
+///
+/// What that buys, concretely: `B2.04` (262 lines) and `B2.05` (312 lines) are mirrors, each
+/// standing down as SKIP on the machine it does not describe, and the predicate is the *measured*
+/// frame height rather than the region bit — because which bit of `$213F` carries the region is
+/// contested (`B2.10`) and a frame-height test must not depend on the thing it is evidence for.
+/// Exactly one of the pair must score on each image; both scoring, or neither, means the region
+/// did not take effect and the "PAL" run was NTSC in disguise.
+#[test]
+fn pal_image_runs_at_pal_timing() {
+    if !pal_rom_path().is_file() {
+        eprintln!("SKIP: build the cart with `cargo run -p accuracysnes-gen` first");
+        return;
+    }
+    let ntsc = run_image(&rom_path()).expect("NTSC image must run");
+    let pal = run_image(&pal_rom_path()).expect("PAL image must run");
+    assert!(ntsc.done && pal.done, "a battery did not finish");
+    assert_eq!(
+        ntsc.count, pal.count,
+        "the two images must carry the identical battery"
+    );
+
+    let entries = catalog();
+    let index_of = |id: &str| {
+        entries
+            .iter()
+            .position(|e| e.id == id)
+            .unwrap_or_else(|| panic!("{id} is not in the catalog"))
+    };
+    let ntsc_frame = index_of("B2.04");
+    let pal_frame = index_of("B2.05");
+    // Referenced by the drift check below via the catalog, not by index.
+
+    let v = |r: &Report, i: usize| Verdict::decode(r.status[i]);
+    assert_eq!(
+        v(&ntsc, ntsc_frame),
+        Verdict::Pass,
+        "B2.04 (262 lines) must score on the NTSC image"
+    );
+    assert_eq!(
+        v(&ntsc, pal_frame),
+        Verdict::Skipped,
+        "B2.05 (312 lines) must stand down on the NTSC image"
+    );
+    assert_eq!(
+        v(&pal, pal_frame),
+        Verdict::Pass,
+        "B2.05 (312 lines) must score on the PAL image — if it skipped, the header's country code \
+         did not take effect and this was an NTSC run wearing a PAL name"
+    );
+    assert_eq!(
+        v(&pal, ntsc_frame),
+        Verdict::Skipped,
+        "B2.04 (262 lines) must stand down on the PAL image"
+    );
+
+    // Everything else must be unaffected. A test that changes verdict between the two images is
+    // either region-dependent and not yet declared so, or is reading something it should not —
+    // and the second case is the one worth catching, because it is silent.
+    //
+    // The declared set is deliberately small and each entry carries its reason (see
+    // `REGION_DEPENDENT`). Exempting goldens wholesale would be easier and much worse: a golden
+    // that becomes region-dependent by accident is exactly what this check exists to notice.
+    let drifted: Vec<_> = (0..ntsc.status.len())
+        .filter(|&i| !REGION_DEPENDENT.iter().any(|(id, _)| *id == entries[i].id))
+        .filter(|&i| ntsc.status[i] != pal.status[i])
+        .map(|i| format!("{} ({:?} -> {:?})", entries[i].id, v(&ntsc, i), v(&pal, i)))
+        .collect();
+    assert!(
+        drifted.is_empty(),
+        "these tests changed verdict between the NTSC and PAL images, which means they depend on \
+         the region without saying so:\n  {}",
+        drifted.join("\n  ")
+    );
+
+    println!(
+        "\n  NTSC: {} pass / {} fail / {} skip     PAL: {} pass / {} fail / {} skip",
+        ntsc.passed, ntsc.failed, ntsc.skipped, pal.passed, pal.failed, pal.skipped
+    );
+}
+
+/// The region bit's position, settled by measurement rather than by picking a source.
+///
+/// `B2.10` is a golden vector because the documentation conflicts: the SNESdev wiki puts the
+/// 50/60 Hz bit of `$213F` at bit 3, fullsnes at bit 4. Neither can be adopted over the other by
+/// reading harder. But the two images differ *only* in the region, so whichever bit moves between
+/// them is the region bit — and this reports it rather than asserting either source was right.
+///
+/// The golden's verdict encodes the two candidate bits as `(bit4 << 1 | bit3) << 1 | 1`.
+#[test]
+fn region_bit_position_is_reported() {
+    if !pal_rom_path().is_file() {
+        eprintln!("SKIP: build the cart with `cargo run -p accuracysnes-gen` first");
+        return;
+    }
+    let ntsc = run_image(&rom_path()).expect("NTSC image must run");
+    let pal = run_image(&pal_rom_path()).expect("PAL image must run");
+    let entries = catalog();
+    let i = entries
+        .iter()
+        .position(|e| e.id == "B2.10")
+        .expect("B2.10 is in the catalog");
+
+    let decode = |b: u8| -> (bool, bool) {
+        let pair = b >> 1;
+        (pair & 0x02 != 0, pair & 0x01 != 0)
+    };
+    let (n4, n3) = decode(ntsc.status[i]);
+    let (p4, p3) = decode(pal.status[i]);
+
+    println!(
+        "\n  $213F region candidates    NTSC: bit4={n4} bit3={n3}    PAL: bit4={p4} bit3={p3}"
+    );
+    let moved: Vec<&str> = [("bit 4", n4 != p4), ("bit 3", n3 != p3)]
+        .into_iter()
+        .filter(|(_, m)| *m)
+        .map(|(n, _)| n)
+        .collect();
+    assert!(
+        !moved.is_empty(),
+        "neither candidate bit changed between the NTSC and PAL images. Either the region did not \
+         take effect, or this core does not model the region bit at all — both are findings, and \
+         both mean the conflict stays unsettled here."
+    );
+    println!("  changed between images: {}", moved.join(", "));
+}
+
+/// `B4.14`'s interrupt-dispatch latency measurements, reported for cross-emulator comparison.
+///
+/// The dossier's claim — "the poll occurs just before the final CPU cycle" — is sub-cycle, and the
+/// finest clock a cart can read is the H counter at four master clocks per dot. So the cart
+/// measures the *consequence* instead: if the poll happens at an instruction boundary rather than
+/// continuously, an interrupt asserting during a long instruction waits for it to retire.
+///
+/// Reported, not asserted. Where in the spin loop the interrupt lands is not controllable from the
+/// cart, so the absolute numbers carry jitter; only the sign of the difference means anything, and
+/// even that is worth comparing across emulators before anyone scores it. What *is* checked is
+/// that the channel was written at all and that the values are physically possible — the failure
+/// this channel exists to expose is a wrapped or unwritten measurement masquerading as a reading.
+#[test]
+fn irq_dispatch_latency_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+
+    let nop_spin = report.meas[100];
+    let long_spin = report.meas[101];
+    let extra = report.meas[102];
+
+    println!("\n  B4.14 interrupt dispatch latency (dots past HTIME):");
+    println!("    slot 100  {nop_spin:5}  spinning on NOPs");
+    println!("    slot 101  {long_spin:5}  spinning on JSL/RTL");
+    println!("    slot 102  {extra:5}  the difference — the cost of a long instruction");
+
+    // A scanline is 341 dots. Anything at or beyond that has wrapped, and a wrapped value is
+    // indistinguishable from a real one, which is precisely why it must not pass silently.
+    for (slot, v) in [(100u8, nop_spin), (101, long_spin)] {
+        assert!(
+            v < 341,
+            "slot {slot} reads {v} dots, which is a whole scanline or more — the measurement \
+             wrapped, so it is not a reading at all"
+        );
+    }
+    assert!(
+        nop_spin > 0 || long_spin > 0,
+        "both latency slots are zero: the handler never ran, so nothing was measured"
+    );
 }

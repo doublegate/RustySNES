@@ -267,11 +267,18 @@ impl Ppu {
         let screen_addr = self.io.bg_screen_addr[bg];
         let char_addr = self.io.bg_tiledata_addr[bg];
 
-        // Mosaic vertical handling (simplified: applies to BG y).
-        let mut line_y = u32::from(self.v - 1);
+        // Mosaic vertical handling. Quantised in SCREEN space, then converted back to the BG's
+        // line: mosaic blocks are anchored to the top of the picture, not to the BG's own
+        // coordinate space.
+        let mut line_y = u32::from(self.v);
         if self.io.mosaic_enable[bg] && self.io.mosaic_size > 1 {
             let m = u32::from(self.io.mosaic_size);
-            line_y = (line_y / m) * m;
+            // Cannot underflow: the caller renders only for `self.v >= 1` (see `tick_ppu_dot`),
+            // and `line_y` is `self.v` until this point. Saturating here instead would turn a
+            // broken invariant into a silently wrong picture, which is the harder bug to find.
+            debug_assert!(line_y >= 1, "render_bg called for scanline 0");
+            let screen_y = line_y - 1;
+            line_y = (screen_y / m) * m + 1;
         }
 
         // Offset-per-tile (OPT) applies to BG1/BG2 in modes 2, 4, 6: BG3's tilemap supplies a
@@ -1271,9 +1278,12 @@ mod tests {
         // Tilemap entry at (0,0): character 0, palette group 0, priority 0.
         vram_set(&mut p, 0x0000, 0x0000);
 
-        // Tile 0 char data at word 0x1000: 2bpp. Make the top-left pixel color 1.
-        // Row 0 plane0 = 0x80 (bit7 set => leftmost pixel), plane1 = 0.
-        vram_set(&mut p, 0x1000, 0x0080);
+        // Tile 0 char data at word 0x1000: 2bpp, one word per row, plane0 in the low byte.
+        // The marker goes on tile row **1**, not row 0, because the first displayed scanline shows
+        // BG row `BGnVOFS + 1` — the background is fetched a line ahead of the line it appears on.
+        // Row 0 is left blank so the assertions below can tell the two apart.
+        vram_set(&mut p, 0x1000, 0x0000); // tile row 0: nothing
+        vram_set(&mut p, 0x1001, 0x0080); // tile row 1: bit 7 => leftmost pixel is color 1
 
         // Enable display + BG1 main.
         p.write_reg(0x2100, 0x0f);
@@ -1281,10 +1291,16 @@ mod tests {
         run_frame(&mut p);
 
         let fb = p.framebuffer();
-        // Top-left pixel should be red (color 1).
-        assert_eq!(fb[0], 0x001f);
+        // Top-left pixel should be red (color 1) — from BG row 1, per the fetch-ahead above.
+        assert_eq!(
+            fb[0], 0x001f,
+            "the first displayed line must show BG row BGnVOFS+1, not row 0"
+        );
         // Next pixel (color 0) is backdrop = 0.
         assert_eq!(fb[1], 0x0000);
+        // And the blank BG row 0 must not appear anywhere: it is fetched for scanline 0, which is
+        // not displayed. Line 2 shows BG row 2, still blank, so only line 1 carries the marker.
+        assert_eq!(fb[crate::SCREEN_WIDTH], 0x0000);
     }
 
     /// Builds the exact `mode0_bg_renders_one_tile` scene on a fresh [`Ppu`], applying `setup`
