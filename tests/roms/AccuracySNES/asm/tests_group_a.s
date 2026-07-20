@@ -7706,6 +7706,232 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; E1.04 — DIV H = nibble compare
+; provenance: Documented (SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata)
+.proc test_e1_04
+    .a16
+    .i16
+    bra @body
+@prog:
+    .byte $CD, $EF, $BD, $8D, $05, $E8, $00, $CD, $03, $9E, $0D, $AE
+    .byte $C4, $F6, $8D, $03, $E8, $00, $CD, $05, $9E, $0D, $AE, $C4
+    .byte $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $5F
+    .byte $C0, $FF
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image.
+    lda #@prog
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    phk
+    pla
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #38
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsr apu_upload
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    ; H is bit 3 of PSW. Y=$05 against X=$03: the low nibbles compare 5 >= 3, so H is SET.
+    sep #$20
+    .a8
+    lda f:$7E0101
+    and #$08
+    cmp #$08
+    beq :+
+    jmp @fail1
+  :
+    ; Swap the operands and the comparison fails, so H must be CLEAR.
+    lda f:$7E0102
+    and #$08
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jmp test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; DIV left H clear although (Y & 15) >= (X & 15) — H here is a nibble compare, not a carry
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; DIV set H although (Y & 15) < (X & 15)
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; E1.05 — DIV V is quotient bit 8
+; provenance: Documented (SNESdev Wiki, SPC700 reference; fullsnes)
+.proc test_e1_05
+    .a16
+    .i16
+    bra @body
+@prog:
+    .byte $CD, $EF, $BD, $8D, $05, $E8, $00, $CD, $03, $9E, $0D, $AE
+    .byte $C4, $F6, $8D, $03, $E8, $00, $CD, $05, $9E, $0D, $AE, $C4
+    .byte $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $5F
+    .byte $C0, $FF
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image.
+    lda #@prog
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    phk
+    pla
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #38
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsr apu_upload
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    ; V is bit 6. Quotient 426 has bit 8 set, so V must be SET.
+    sep #$20
+    .a8
+    lda f:$7E0101
+    and #$40
+    cmp #$40
+    beq :+
+    jmp @fail1
+  :
+    ; Quotient 153 fits in a byte, so V must be CLEAR.
+    lda f:$7E0102
+    and #$40
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jmp test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; DIV left V clear for a quotient of 426 (bit 8 set)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; DIV set V for a quotient of 153, which fits in eight bits
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 ; E1.06 — DIV flags from quotient
 ; provenance: Documented (SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata)
 .proc test_e1_06
@@ -7813,6 +8039,120 @@ CATALOG_IMPL = 1
     jmp test_restore
 @fail2:
     ; DIV YA,X set Z for a non-zero quotient
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; E1.13 — ADDW H = bit-11 carry
+; provenance: Documented (SNESdev Wiki, SPC700 reference; fullsnes)
+.proc test_e1_13
+    .a16
+    .i16
+    bra @body
+@prog:
+    .byte $CD, $EF, $BD, $8F, $FF, $10, $8F, $0F, $11, $8F, $01, $12
+    .byte $8F, $00, $13, $8F, $00, $14, $8F, $01, $15, $BA, $10, $7A
+    .byte $12, $0D, $AE, $C4, $F6, $BA, $14, $7A, $12, $0D, $AE, $C4
+    .byte $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $5F
+    .byte $C0, $FF
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image.
+    lda #@prog
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    phk
+    pla
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #50
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsr apu_upload
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    ; $0FFF + $0001 crosses bit 11, so H (bit 3 of PSW) must be SET.
+    sep #$20
+    .a8
+    lda f:$7E0101
+    and #$08
+    cmp #$08
+    beq :+
+    jmp @fail1
+  :
+    ; $0100 + $0001 does not, so H must be CLEAR — which also shows the flag is not stuck.
+    lda f:$7E0102
+    and #$08
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jmp test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; ADDW left H clear for $0FFF + $0001 — H is the bit-11 carry on the word adds
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; ADDW set H for $0100 + $0001
     sep #$20
     .a8
     lda #$04
@@ -11062,7 +11402,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 153
+    .word 156
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -11183,7 +11523,10 @@ _test_entries:
     .addr test_d2_06
     .addr test_e1_01
     .addr test_e1_02
+    .addr test_e1_04
+    .addr test_e1_05
     .addr test_e1_06
+    .addr test_e1_13
     .addr test_e1_15
     .addr test_a5_s01
     .addr test_a5_s02
@@ -11339,7 +11682,10 @@ _test_flags:
     .byte $01   ; D2.06
     .byte $01   ; E1.01
     .byte $01   ; E1.02
+    .byte $01   ; E1.04
+    .byte $01   ; E1.05
     .byte $01   ; E1.06
+    .byte $01   ; E1.13
     .byte $01   ; E1.15
     .byte $01   ; A5.S01
     .byte $01   ; A5.S02
@@ -11495,7 +11841,10 @@ _test_names:
     .addr @n_d2_06
     .addr @n_e1_01
     .addr @n_e1_02
+    .addr @n_e1_04
+    .addr @n_e1_05
     .addr @n_e1_06
+    .addr @n_e1_13
     .addr @n_e1_15
     .addr @n_a5_s01
     .addr @n_a5_s02
@@ -11882,9 +12231,18 @@ _test_names:
 @n_e1_02:
     .byte 22
     .byte "DIV YA,X normal branch"
+@n_e1_04:
+    .byte 22
+    .byte "DIV H = nibble compare"
+@n_e1_05:
+    .byte 23
+    .byte "DIV V is quotient bit 8"
 @n_e1_06:
     .byte 23
     .byte "DIV flags from quotient"
+@n_e1_13:
+    .byte 21
+    .byte "ADDW H = bit-11 carry"
 @n_e1_15:
     .byte 23
     .byte "MOVW YA sets 16-bit N/Z"

@@ -119,6 +119,12 @@ impl Spc {
         self.push(&[0x68, v])
     }
 
+    /// `ADDW YA,dp` — `$7A`. A true 16-bit add: `H` is the carry from bit 11 into bit 12, and `Z`
+    /// describes all sixteen bits rather than either byte.
+    pub fn addw_ya_dp(&mut self, dp: u8) -> &mut Self {
+        self.push(&[0x7A, dp])
+    }
+
     /// End the program: wait for the cart's release byte, then hand the APU back to the IPL.
     ///
     /// **Every program must end this way, and the reason is not tidiness.** Once a program is
