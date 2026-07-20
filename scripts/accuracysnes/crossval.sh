@@ -71,7 +71,13 @@ ran=0
 #   WDC, GTE and VLSI instruction-operation tables agree; Mesen2 and RustySNES both measure it.
 #   snes9x gets WDM's LENGTH right (it passes A6.08, the functional two-byte test) but not its
 #   timing, which is a narrower and more interesting bug than it first looks.
-SNES9X_KNOWN_FAILURES=2
+# snes9x, +1 test (E3.10 "TEST gates RAM writes"): the TEST register is not implemented at all.
+#   `apu/bapu/smp/memory.cpp`'s `SMP::mmio_write` has no `case 0xf0` — writes to it fall through the
+#   switch and are discarded, so bit 1 (the RAM write enable) has no effect and stores land in APU
+#   RAM regardless. Documented by the SNESdev Wiki and nocash fullsnes; implemented by Mesen2 and
+#   RustySNES, which agree with the cart. No game depends on it — which is exactly why it is the
+#   kind of register an emulator leaves out and a test ROM finds.
+SNES9X_KNOWN_FAILURES=3
 
 # --- snes9x, via the libretro host --------------------------------------------------------------
 if [[ -f $SNES9X ]]; then
