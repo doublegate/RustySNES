@@ -11,117 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **AccuracySNES — a first-party SNES hardware-accuracy test cartridge (Phase A).** Closes ticket
-  **T-04**, which had stood open because, as `docs/STATUS.md` put it, *"no publicly available SNES
-  ROM plays the AccuracyCoin role"*. It does now, because we wrote one.
-  - **`tests/roms/AccuracySNES/`** — dual MIT OR Apache-2.0, entirely original work (including the
-    8x8 font), so unlike every other corpus in `tests/roms/` it carries no licence encumbrance and
-    is simply committed. 128 KiB LoROM, no coprocessor, no SRAM.
-  - **Authored once, emitted twice.** Each test is a Rust value in `gen/src/tests/`; the generator
-    emits both the 65816 assembly and the `SOURCE_CATALOG.tsv` the host harness scores against, so
-    on-cart behaviour and host-side manifest cannot drift. Built with `ca65`/`ld65`; the generator
-    also writes the SNES header and patches the checksum, which `ld65` cannot compute.
-  - **Self-scoring.** The cart runs the whole battery with **no input** and publishes a results
-    block at `$7E:F000` (magic, version, count, completion sentinel, tallies, one status byte per
-    test). The harness supplies no expected values of its own — which is what lets the identical
-    image run unmodified on other emulators and on real hardware.
-  - **RAM is authoritative; the framebuffer is not consulted for scoring.** A deliberate inversion
-    of RustyNES's original AccuracyCoin decoder, whose grid-stride bug silently skipped 31 cells
-    and reported 75.93% where the truth was 64.03%. Screen-scraping oracles under-sample quietly
-    and read high.
-  - **Provenance tiering — the anti-circularity gate.** Every test declares where its expected
-    value came from (`Documented` / `Corroborated` / `Contested` / `Novel`); only the first two may
-    contribute to the pass rate, enforced by `provenance_gate_holds`, mirroring `docs/adr/0003`.
-    Behaviour hardware genuinely does not define is captured as a **golden vector** and never
-    scored — `A7.04` reports the observed decimal-mode `V` bit as a variant instead of asserting it.
-  - **Group A: 43 tests (42 scoring + 1 golden), 65816 CPU** — emulation/native transitions,
-    direct-page and stack wrapping (including the `PLD`-escapes-but-`PLY`-does-not discriminator),
-    absolute/long bank carry, cycle counts, interrupts, decimal mode, block moves, `BIT`/`XBA`.
-    **42/42 scoring, 100.00%.**
-  - **Cycle counts are measured, not asserted from a table.** Reading `$2137` latches the H/V
-    counters into `OPHCT`, giving a direct dot-position readout — the SNES's far more precise
-    counterpart to the sprite-0-hit trick AccuracyCoin uses on the NES. Each test compares two
-    sequences differing only in the property under test, so the constant overhead cancels. Every
-    measurement is kept inside one scanline on purpose: line length is not something a portable
-    test may assume (NTSC has a short line at V=240, and the references disagree on whether the H
-    counter tops out at 339 or 340), so crossing a line would make the result depend on exactly
-    the convention under dispute.
-  - **Interrupts are testable because BRK/COP vector through trampolines** that jump via a RAM
-    pointer, letting each test install its own handler — the same approach AccuracyCoin takes by
-    pointing the NES vectors into RAM.
-  - **Cross-validated on emulators we did not write.** `scripts/accuracysnes/crossval.sh` runs the
-    same image on **Mesen2** (headless `--testrunner` + a Lua reader) and **snes9x** (a small
-    libretro host reading `RETRO_MEMORY_SYSTEM_RAM`); both agree, 0 failures. bsnes and ares cannot
-    be driven headlessly — bsnes' libretro target stubs out `retro_get_memory_data` and ares has no
-    headless mode — so their agreement was established by source review instead.
-  - **Methodology note recorded, not glossed:** ares' `wdc65816` is a lineal copy of bsnes'
-    (a full diff shows only type renames), so `Corroborated` means two independent implementations
-    (the bsnes/ares lineage and Mesen2), not three.
-  - **Cross-validation found a real bug the in-repo harness could not.** An early version of the
-    emulation-mode push-count test passed on RustySNES and snes9x but failed on Mesen2. The fault
-    was the test's: `REP` is ignored while `E=1`, so its attempt to widen the accumulator silently
-    did nothing and a 16-bit store wrote a single byte over stale memory — which happened to match
-    on two emulators and not on the third. Rewritten to compare only the stack pointer's low byte.
-  - **Real-hardware validation has NOT been done** and is the honest ceiling on the battery's
-    authority — tracked in `docs/accuracy-ledger.md`, not quietly claimed.
-  - CI gains an `accuracysnes` job that rebuilds the cart from source and fails if the committed
-    `.sfc` is not byte-identical, so the binary can never drift from `gen/`.
-
-- **Local SNESdev Wiki mirror.** `scripts/snesdev_wiki_mirror.py` pulls all 180 pages and 32
-  images of <https://snes.nesdev.org/wiki/> into a gitignored `snesdev_wiki/` (~7 MB) via the
-  MediaWiki API, emitting Markdown (`output/*.md`, internal links rewritten to resolve locally),
-  raw wikitext, rendered HTML, and images. The SNES counterpart to the `nesdev_wiki/` mirror
-  RustyNES keeps, and the same posture: a local reference copy, never vendored.
-
-- **AccuracySNES Group C, sub-groups C1-C3 (Phase B): PPU port mechanics, 13 tests.** OAM word
-  commit and the write-twice latch (an odd trailing byte stays latched and never reaches memory),
-  `OAMADDR` reload discarding a pending latch, the shared read/write counter; `VMAIN` increment
-  steps and low-byte-vs-high-byte trigger, the VRAM read prefetch latch, address bit 15 being
-  unconnected; CGRAM's two-write commit and `CGADD` flipflop reset, and the `OPHCT` 9-bit read
-  pair. Port behaviour is pure register logic with no renderer dependency, so it lands before the
-  sub-groups that lean on the per-scanline compositor. Battery now **56 tests, 55 scoring,
-  100.00%**, still agreeing with Mesen2 and snes9x.
-- **AccuracySNES Group C continued: OAM/VRAM/counter completion, PPU open bus, version detection —
-  8 more tests.** The OAM high table mirroring every 32 bytes (`$220` decodes as `$200`); `VMAIN`
-  address translation rewriting the address **on the bus** while the register still increments
-  linearly, so register `$1503`/`$1504` drive words `$1518`/`$1520` rather than `$1518`/`$1519`;
-  `$213F` resetting the `OPHCT` read flipflop, asserted against the frozen latched value so it
-  needs no timing tolerance; PPU1 and PPU2 open bus surfacing in `$213E` bit 4 and `$213F` bit 5,
-  and the two latches being independent. Plus the PPU1/PPU2 version nibbles as **golden vectors** —
-  recorded, never scored, since the value is a property of the console a cartridge is in rather
-  than of the architecture, and PPU2 revision gates the 3-chip-only `$2100` early-read bug. Battery
-  now **64 tests, 61 scoring, 100.00%, 3 golden**, agreeing across RustySNES, Mesen2 and snes9x.
-
-- **AccuracySNES: Mode 7 multiply and sprite over-flags — 5 more tests.** `MPYL/M/H` as a
-  `signed16(M7A) * signed8(M7B >> 8)` product, split into a magnitude test and a sign test so an
-  unsigned or half-signed implementation reports a distinct code, plus a check that the low byte of
-  `M7B` cannot leak into the result — the one part of the Mode 7 datapath a self-scoring cart can
-  read back, and widely used by games as a general-purpose signed multiply. And the sprite
-  evaluation flags: Range Over at the 32-sprite limit (asserted in both directions, so a core that
-  never clears the flag fails), Time Over as a **sliver** budget rather than a sprite count (five
-  64-pixel sprites are 40 slivers while being nowhere near the sprite limit), and both flags being
-  set by evaluation even when `$212C` leaves OBJ off the main screen. These are the only Group C
-  tests that release forced blank; they render exactly one complete frame, bracketed by two
-  `wait_vblank` calls so the sample is frame-aligned rather than dependent on where in the frame
-  the test happened to start. Battery now **69 tests, 66 scoring, 100.00%, 3 golden**.
+- **AccuracySNES Group C: access windows and frame geometry — 4 more tests.** `C2.11` — VRAM
+  writes are dropped outside vblank/forced blank, and H-blank does **not** open the window, which
+  is the trap for a core that gates on "not drawing a pixel" rather than "not in the rendering
+  period". `C2.10` — a dropped write still advances the address, because the increment is wired to
+  the port access rather than to the memory write; modelling the drop as an early `return` gets
+  this backwards and lands later transfers one or two words off. `C1.06` — the OAM address reloads
+  from its base once per frame. `C9.04` — overscan moves the start of vblank from line 225 to 240,
+  measured through `OPVCT` rather than by counting, since the counter is what defines the boundary.
+  Battery now **73 tests, 70 scoring, 100.00%, 3 golden**, agreeing across RustySNES, Mesen2 and
+  snes9x.
 
 ### Fixed
 
-- **PPU register writes no longer clobber the PPU1 open-bus latch.** `write_reg` opened with an
-  unconditional `ppu1_mdr = val`, so a write to a *PPU2* register (`$2121`/`$2122`) overwrote
-  *PPU1*'s latch — collapsing two physically separate latches into one. Both independent reference
-  lineages refresh the latches on reads only: every `Ppu1OpenBus` assignment in Mesen2's
-  `SnesPpu.cpp` sits inside `Read`, and snes9x only ever writes `OpenBus1`/`OpenBus2` through
-  `return (PPU.OpenBusN = ...)` in `S9xGetPPU`. Found by AccuracySNES **C13.03**, which is the
-  first defect the cartridge has turned up in this emulator.
-
-### Removed
-
-- The dead `rustysnes-test-harness::accuracy_battery::score_accuracy_battery` skeleton (ticket
-  T-04's placeholder, which returned zeros and was tracked as dead code to delete). Its
-  `AccuracyReport` tally type survives and is what the AccuracySNES gate now scores through.
-
-
+- **The OAM address now reloads from its base at the start of each frame.** `oam_address` was only
+  ever reloaded by a `$2102`/`$2103` write, so it never recovered from wherever sprite evaluation
+  left it — an address a game programmed did not survive a frame. It now reloads from
+  `oam_base_address` as vblank begins, conditional on forced blank being off (a forced-blank frame
+  runs no evaluation and performs no reload). Found by AccuracySNES **C1.06**, the second defect
+  the cartridge has turned up; both references already modelled it.
 
 ## [1.20.0] "Aperture" - 2026-07-15
 
