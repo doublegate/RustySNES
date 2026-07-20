@@ -44,6 +44,7 @@ pub fn all() -> Vec<Test> {
         c2_05(),
         c2_06(),
         c2_12(),
+        c3_09(),
         // --- C3: CGRAM and the H/V counters ---
         c3_01(),
         c3_02(),
@@ -1560,6 +1561,62 @@ fn c7_08() -> Test {
 // ---------------------------------------------------------------------------------------------
 // Access windows and frame geometry
 // ---------------------------------------------------------------------------------------------
+
+/// `$213F` bit 7 is a field flag: it toggles once per frame and holds for the whole of one.
+///
+/// The bit tells a program which field it is on, and it changes at the top of each frame rather
+/// than at some point inside one. Two readings a frame apart must therefore differ, and two
+/// readings *two* frames apart must agree — a core that toggles it per scanline, or on every read,
+/// fails the second half while sailing through the first.
+///
+/// `frame_step` is what makes this assertable at all: the battery is force-blanked throughout, and
+/// without rendering a frame there is no frame boundary to cross.
+fn c3_09() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.c("Three readings, one frame apart each. Only bit 7 matters; the low bits are the PPU2");
+    a.c("version nibble and the region bit, which have nothing to do with the field.");
+    a.l("lda $213F");
+    a.l("and #$80");
+    a.l("sta f:$7E0100");
+    a.l("jsr frame_step");
+    a.l("sep #$20");
+    a.l("lda $213F");
+    a.l("and #$80");
+    a.l("sta f:$7E0101");
+    a.l("jsr frame_step");
+    a.l("sep #$20");
+    a.l("lda $213F");
+    a.l("and #$80");
+    a.l("sta f:$7E0102");
+    a.c("One frame apart: the flag must have changed.");
+    a.l("lda f:$7E0100");
+    a.l("eor f:$7E0101");
+    a.assert_a8(
+        0x80,
+        "$213F bit 7 did not change across a rendered frame, so it is not toggling once per frame",
+    );
+    a.c("Two frames apart: it must be back where it started, which a per-read or per-line toggle");
+    a.c("would not manage.");
+    a.l("lda f:$7E0100");
+    a.l("eor f:$7E0102");
+    a.assert_a8(
+        0x00,
+        "$213F bit 7 did not return to its original value after two frames — it toggles more \
+         often than once per frame",
+    );
+    a.finish(
+        "C3.09",
+        'C',
+        "$213F is a field flag",
+        Provenance::Documented("SNESdev Wiki, PPU registers; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
 
 /// Clearing forced blank mid-frame closes the VRAM window at once, not at the next line.
 ///

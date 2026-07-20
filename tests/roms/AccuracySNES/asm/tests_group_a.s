@@ -3890,6 +3890,71 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; C3.09 — $213F is a field flag
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c3_09
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    ; Three readings, one frame apart each. Only bit 7 matters; the low bits are the PPU2
+    ; version nibble and the region bit, which have nothing to do with the field.
+    lda $213F
+    and #$80
+    sta f:$7E0100
+    jsr frame_step
+    sep #$20
+    .a8
+    lda $213F
+    and #$80
+    sta f:$7E0101
+    jsr frame_step
+    sep #$20
+    .a8
+    lda $213F
+    and #$80
+    sta f:$7E0102
+    ; One frame apart: the flag must have changed.
+    lda f:$7E0100
+    eor f:$7E0101
+    cmp #$80
+    beq :+
+    jmp @fail1
+  :
+    ; Two frames apart: it must be back where it started, which a per-read or per-line toggle
+    ; would not manage.
+    lda f:$7E0100
+    eor f:$7E0102
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; $213F bit 7 did not change across a rendered frame, so it is not toggling once per frame
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; $213F bit 7 did not return to its original value after two frames — it toggles more often than once per frame
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C3.01 — CGRAM two-write commit
 ; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
 .proc test_c3_01
@@ -17218,7 +17283,7 @@ apu_prog_45:
 .export _test_flags
 
 _test_count:
-    .word 210
+    .word 211
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -17289,6 +17354,7 @@ _test_entries:
     .faraddr test_c2_05
     .faraddr test_c2_06
     .faraddr test_c2_12
+    .faraddr test_c3_09
     .faraddr test_c3_01
     .faraddr test_c3_02
     .faraddr test_c3_03
@@ -17502,6 +17568,7 @@ _test_flags:
     .byte $01   ; C2.05
     .byte $01   ; C2.06
     .byte $01   ; C2.12
+    .byte $01   ; C3.09
     .byte $01   ; C3.01
     .byte $01   ; C3.02
     .byte $01   ; C3.03
@@ -17715,6 +17782,7 @@ _test_names:
     .addr @n_c2_05
     .addr @n_c2_06
     .addr @n_c2_12
+    .addr @n_c3_09
     .addr @n_c3_01
     .addr @n_c3_02
     .addr @n_c3_03
@@ -18059,6 +18127,9 @@ _test_names:
 @n_c2_12:
     .byte 21
     .byte "Blank off closes VRAM"
+@n_c3_09:
+    .byte 21
+    .byte "$213F is a field flag"
 @n_c3_01:
     .byte 22
     .byte "CGRAM two-write commit"

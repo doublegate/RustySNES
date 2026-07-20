@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`$213F` bit 7 is a field flag, and the test says so in both directions (`C3.09`).** It toggles
+  once per frame and holds for the whole of one, so two readings a frame apart must *differ* and two
+  readings two frames apart must *agree*. A core that toggles it per scanline, or on every read,
+  sails through the first check and fails the second — which is why both are there.
+
+  Third assertion to be built on `frame_step`: the battery is force-blanked throughout, and without
+  rendering a frame there is no frame boundary to cross.
+
 - **Lifting forced blank mid-frame closes the VRAM window on that write (`C2.12`).** Forced blank
   is what makes VRAM writable during the active display period, and the moment it is lifted the port
   stops accepting writes — on the same instruction, not at the next scanline. A core that closes the
@@ -677,10 +685,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **210 tests — 198 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **211 tests — 199 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **50 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **168 of 443** on-cart plus **50** scene-only —
-**218 of 443** in total, and **every group A-G now has shipped tests**
+framebuffer-oracle tier. Dossier coverage is **169 of 443** on-cart plus **50** scene-only —
+**219 of 443** in total, and **every group A-G now has shipped tests**
 (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
