@@ -5,10 +5,10 @@
 //! measurement and no host cooperation. That is why this group leads with the transfer modes,
 //! the address-step options and the register semantics rather than with timing.
 //!
-//! Every test here sources its bytes from a `.byte` table placed after the test's own
-//! `jmp test_restore`, which is unreachable code and therefore safe to use as data. Sourcing from
-//! an arbitrary ROM address instead would make the expected values depend on whatever the linker
-//! happened to place there — a test that breaks whenever an unrelated test is added.
+//! Every test here sources its bytes from a `.byte` table emitted at the TOP of its own proc and
+//! jumped over (see [`data_table`] for why the top and not the end). Sourcing from an arbitrary
+//! ROM address instead would make the expected values depend on whatever the linker happened to
+//! place there — a test that breaks whenever an unrelated test is added.
 
 use crate::dsl::{Asm, Kind, Provenance, Test};
 
@@ -31,6 +31,11 @@ pub fn all() -> Vec<Test> {
 /// Factored out because six of these tests differ only in the destination and the address-step
 /// bits, and repeating the setup six times is how the sixth copy ends up subtly different from
 /// the other five.
+///
+/// **Register widths on exit: `A` 8-bit, `X`/`Y` 16-bit.** Stated because the caller's
+/// `.a8`/`.a16` directives are emitted from its own `sep`/`rep` lines and a helper call is not one
+/// of those — an undocumented width change here would have the assembler and the CPU disagreeing
+/// about the size of the next immediate.
 fn source_from_table(a: &mut Asm, count: u16) {
     a.l("rep #$30");
     a.l("ldx #@data");

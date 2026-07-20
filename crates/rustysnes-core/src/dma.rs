@@ -54,12 +54,14 @@ pub struct Channel {
     /// and reads it back, snes9x passes that test, and RustySNES returned 0 from both addresses
     /// until the test was written.
     ///
-    /// **Deliberately not in the save state.** ares and bsnes do serialise theirs, but adding a
-    /// byte to the `DMA0` section changes its length, and this format's compatibility rules make
-    /// that a version-bump decision rather than a free one (`docs/adr/0006`). The latch has no
-    /// effect on emulation, so the only observable cost is a `$43xB` read taken immediately after
-    /// a state load. Recorded in `docs/accuracysnes-plan.md` so it is a decision rather than an
-    /// oversight.
+    /// **Deliberately not in the save state**, and **reset to 0 on load**. ares and bsnes do
+    /// serialise theirs, but adding a byte to the `DMA0` section changes its length, and this
+    /// format's compatibility rules make that a version-bump decision rather than a free one
+    /// (`docs/adr/0006`). The latch has no effect on emulation, so the only cost is that a
+    /// `$43xB` read after a load returns 0 instead of the saved byte. Resetting matters more than
+    /// the omission does: inheriting the pre-load value would make that read depend on what ran
+    /// before the load, which the determinism contract rules out. Recorded in
+    /// `docs/accuracysnes-plan.md` so it stays a decision rather than an oversight.
     pub scratch: u8,
     /// HDMA: this channel has finished its table for the frame.
     pub hdma_completed: bool,
@@ -126,6 +128,11 @@ impl Channel {
         self.line_counter = s.read_u8()?;
         self.hdma_completed = s.read_bool()?;
         self.hdma_do_transfer = s.read_bool()?;
+        // Not in the blob, so reset rather than inherit. Leaving it would make a `$43xB` read
+        // after a load depend on what ran BEFORE the load, which is precisely the kind of
+        // pre-load leakage the determinism contract (`docs/adr/0004`) exists to rule out. If the
+        // latch is ever added to the format, delete this line with it.
+        self.scratch = 0;
         Ok(())
     }
 
