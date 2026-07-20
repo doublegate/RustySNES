@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`DIV YA,X`'s overflow branch computes something else entirely (`E1.03`).** When `Y >= X << 1`
+  the quotient will not fit in eight bits, and the instruction does not saturate: it produces
+  `A = 255 - (YA - (X << 9)) / (256 - X)` and `Y = X + (YA - (X << 9)) % (256 - X)` — what the
+  hardware's restoring-division loop leaves behind when it runs off the end. Games hit this, because
+  the condition is `Y` against `X` rather than anything about the dividend.
+
+  `YA = $4000, X = $10` gives `A = $DD` and `Y = $30`. The true quotient's low byte would be `$00`
+  and a clamp would be `$FF` — neither is anywhere near `$DD`, which is what makes these
+  discriminating numbers rather than a coincidence.
+
+  **The duplicate-assertion gate rejected the first version of the mapping**, which claimed `E1.05`
+  (`DIV`'s `V` flag) as well. That assertion already has its own test; the flag is still checked
+  here as a supporting condition, but the coverage claim belongs where the dedicated test is.
+
 - **Echo samples are stored with their bottom bit masked off (`E9.12`).** Each is written as a
   16-bit value ANDed with `$FFFE`, so the low byte's bit 0 is always zero whatever the mixer
   produced. A core that stores the sample verbatim leaves odd values in the buffer, and a driver
@@ -731,10 +745,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **215 tests — 203 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **216 tests — 204 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **50 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **173 of 443** on-cart plus **50** scene-only —
-**223 of 443** in total, and **every group A-G now has shipped tests**
+framebuffer-oracle tier. Dossier coverage is **174 of 443** on-cart plus **50** scene-only —
+**224 of 443** in total, and **every group A-G now has shipped tests**
 (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
