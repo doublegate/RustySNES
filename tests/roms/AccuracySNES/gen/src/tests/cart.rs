@@ -40,11 +40,13 @@ pub fn all() -> Vec<Test> {
 /// visible exactly once and only to whoever reads first. That is `capture_power_on`, before the
 /// runtime's own vblank polling has had a chance to consume either.
 ///
-/// The pairing that makes this more than "two registers read zero" is elsewhere in the battery:
-/// `B4.03` asserts that `$4210` bit 7 *does* set at the start of vblank and `B4.04` that reading it
-/// clears it again, so a core that simply returns `$00` from `$4210` forever fails those. Here the
-/// claim is only about the starting value, and it matters because a driver that samples `$4210`
-/// before enabling NMI would otherwise see a vblank that never happened.
+/// A zero-valued assertion needs a control that a hard-wired zero would fail, and both halves have
+/// one, in the battery rather than here. For `$4210`: `B4.03` asserts bit 7 *does* set at the start
+/// of vblank and `B4.04` that reading it clears it again. For `$4211`: `B4.12` spins until bit 7
+/// sets before it asserts anything, so a core returning a constant `$00` there does not fail that
+/// test — it never leaves it. Here the claim is only about the starting value, and it matters
+/// because a driver that samples `$4210` before enabling NMI would otherwise see a vblank that
+/// never happened.
 ///
 /// **The snapshot is taken tens of cycles after reset**, not at it. If a core began its frame such
 /// that vblank started inside that window, bit 7 would legitimately be set — so this is an
