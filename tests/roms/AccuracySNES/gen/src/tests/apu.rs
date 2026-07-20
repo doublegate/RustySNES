@@ -60,6 +60,7 @@ pub fn all() -> Vec<Test> {
         e5_09(),
         e5_11(),
         e7_10(),
+        e1_03(),
         e1_08(),
         e2_08(),
         e2_09(),
@@ -1453,6 +1454,73 @@ fn e3_10() -> Test {
         'E',
         "TEST gates RAM writes",
         Provenance::Documented("SNESdev Wiki, SPC700 I/O; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `DIV YA,X`'s overflow branch computes something entirely different, and sets `V`.
+///
+/// When `Y >= X << 1` the quotient will not fit in eight bits, and the instruction does not simply
+/// saturate: it produces `A = 255 - (YA - (X << 9)) / (256 - X)` and
+/// `Y = X + (YA - (X << 9)) % (256 - X)`, which is what the hardware's restoring-division loop
+/// leaves behind when it runs off the end. A core that clamps, or returns the true quotient's low
+/// byte, gets a different number — and games do hit this, because the check is `Y` against `X`
+/// rather than anything about the dividend.
+///
+/// `YA = $4000`, `X = $10`: `$4000 - $2000 = $2000`, divided by `256 - 16 = 240` is 34 remainder
+/// 32, so `A = 255 - 34 = $DD` and `Y = 16 + 32 = $30`. The true quotient would be `$400`, and its
+/// low byte `$00` — nothing like `$DD`, which is what makes this a discriminating pair of numbers
+/// rather than a coincidence.
+///
+/// `V` is asserted alongside them as a supporting check — it reports that the quotient overflowed
+/// eight bits, which is the only warning a program gets that `A` is not the answer it asked for.
+/// The *coverage* of that behaviour belongs to `E1.05`, which tests the flag on its own; claiming
+/// it here as well was rejected by the duplicate-assertion gate, correctly.
+fn e1_03() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_y_imm(0x40)
+        .mov_a_imm(0x00) // YA = $4000
+        .mov_x_imm(0x10)
+        .div_ya_x()
+        .mov_dp_a(PORT2) // quotient byte, before anything can touch the flags
+        .mov_dp_y(PORT3) // remainder byte
+        .push_psw()
+        .pop_a()
+        .mov_dp_a(PORT1) // PSW
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0xDD,
+        "DIV's overflow branch did not produce 255 - (YA - (X << 9)) / (256 - X); $00 means the \
+         true quotient's low byte, and $FF means a clamp",
+    );
+    a.l("lda f:$7E0102");
+    a.assert_a8(
+        0x30,
+        "DIV's overflow branch did not produce X + (YA - (X << 9)) % (256 - X) in Y",
+    );
+    a.c("V is bit 6, and it is the only warning a program gets that A is not a real quotient.");
+    a.l("lda f:$7E0100");
+    a.l("and #$40");
+    a.assert_a8(
+        0x40,
+        "DIV did not set V although the quotient overflowed eight bits",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E1.03",
+        'E',
+        "DIV overflow branch",
+        Provenance::Documented("SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata"),
         Kind::Scored,
         None,
     )

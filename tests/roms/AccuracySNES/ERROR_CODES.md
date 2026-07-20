@@ -1239,6 +1239,16 @@ Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes). Kind: scor
 |---|---|---|
 | 1 | `$02` | ENVX did not read back the direct GAIN value; a ramp toward it, or a missing >>4, both land somewhere else |
 
+### E1.03 — DIV overflow branch
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | DIV's overflow branch did not produce 255 - (YA - (X << 9)) / (256 - X); $00 means the true quotient's low byte, and $FF means a clamp |
+| 2 | `$04` | DIV's overflow branch did not produce X + (YA - (X << 9)) % (256 - X) in Y |
+| 3 | `$06` | DIV did not set V although the quotient overflowed eight bits |
+
 ### E1.08 — DAA adjustments
 
 Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes). Kind: scored.
