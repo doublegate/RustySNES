@@ -6,6 +6,7 @@
 
 pub mod bus;
 pub mod cpu;
+pub mod dma;
 pub mod ppu;
 pub mod sweep;
 
@@ -17,6 +18,7 @@ pub fn all() -> Vec<Test> {
     let mut v = cpu::all();
     v.extend(ppu::all());
     v.extend(bus::all());
+    v.extend(dma::all());
     v.extend(sweep::all());
     v
 }

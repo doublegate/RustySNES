@@ -136,6 +136,13 @@ pub const MAP: &[(&str, &[&str])] = &[
     ("B2.04", &["B2.04"]),
     ("B2.05", &["B2.05"]),
     ("B4.14", &["B4.14"]),
+    ("D1.01", &["D1.01"]),
+    ("D1.01b", &["D1.01"]),
+    ("D1.02", &["D1.02"]),
+    ("D1.06", &["D1.06"]),
+    ("D1.07", &["D1.07"]),
+    ("D1.07b", &["D1.07"]),
+    ("D1.10", &["D1.10"]),
     ("B4.03", &["B4.03"]),
     ("B4.04", &["B4.04"]),
     ("B4.05", &["B4.05"]),
@@ -187,6 +194,20 @@ pub const MAP: &[(&str, &[&str])] = &[
 /// failure code. Anything not listed here that is claimed twice is treated as an accidental
 /// duplicate and fails the build.
 pub const SPLITS: &[(&str, &str)] = &[
+    (
+        "D1.01",
+        "the dossier states \"transfer modes 0-7, one test each\" as a single row, so it is a \
+         range in all but name. Cart D1.01 covers mode 0 (every byte to one register) and D1.01b \
+         mode 1 (alternating between two) — the pair is what makes either meaningful, since a \
+         core that confuses the two still writes the right bytes to the wrong places",
+    ),
+    (
+        "D1.07",
+        "one row for three address-step behaviours that share a two-bit field (0 = increment, \
+         1 = fixed, 2 = decrement, 3 = fixed). Cart D1.07 asserts FIXED and D1.07b DECREMENT; a \
+         core that reads the field as two independent flags gets exactly one of them wrong and \
+         the other right, which either test alone would miss",
+    ),
     (
         "A5.01-08",
         "the opcode cycle sweep (T-04-I). The dossier states the base sweep as a single ranged \

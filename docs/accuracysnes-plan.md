@@ -344,6 +344,25 @@ arbitrary instructions. It is its own piece of engineering and gets its own tick
 being bolted onto a batch. **`STP` is excluded outright** — it halts the CPU until reset, so a
 battery that executes it never reports.
 
+### Group D — open (T-04-D)
+
+Seven general-purpose DMA tests landed, covering `D1.01`, `D1.02`, `D1.06`, `D1.07` and `D1.10`.
+The group is unusually pleasant to test on-cart because DMA moves bytes into memory the CPU can
+read back, so most of it is directly self-scoring with no measurement and no host cooperation.
+
+One decision worth recording rather than leaving implicit: the `$43xB`/`$43xF` scratch latch is now
+modelled but is **deliberately not in the save state**. ares and bsnes serialise theirs, but adding
+a byte to the `DMA0` section changes its length, which this format's compatibility rules make a
+version-bump decision (`docs/adr/0006`). The latch has no effect on emulation, so the only
+observable cost is a `$43xB` read taken immediately after a state load. Revisit when the format
+version next moves for another reason.
+
+Next under this ticket: `D1.05` (size 0 = $10000), `D1.13` (DMA reads update open bus, writes never
+do), `D1.14`/`D1.15` (the `$2180` asymmetry, which is measurable as a clock differential), then the
+`D2` HDMA block. `D1.08`'s invalid-A-bus errata and `D3`'s two chip-revision crashes need care:
+the first can hang a core that gets it wrong, and the second is revision-gated in the way
+`C13.01`-`C13.06` are.
+
 ## 5. Defects this cartridge has found
 
 Recorded because it is the only real measure of whether the battery is worth its cost.
@@ -360,6 +379,7 @@ Recorded because it is the only real measure of whether the battery is worth its
 | `C11` scenes | Mode 7 rendered one scanline low — the same off-by-one as the tiled backgrounds, in the separate `render_mode7`. Nine of ten Mode 7 scenes moved on the one-line fix | this branch |
 | `C11.09` scene | EXTBG *replaced* BG1 instead of adding a second layer, so enabling it made BG1 vanish entirely | this branch |
 | `C10.05` scene | Mode 7 ignored mosaic completely, rendering identically with and without it | this branch |
+| `D1.10` | the `$43xB`/`$43xF` DMA scratch latch was not modelled at all — both addresses read 0 where snes9x returned what had been written | this branch |
 
 Both were found the same way: the test failed on RustySNES while **both** references passed it.
 The inverse pattern — a test failing identically on all three — has twice meant a broken test
