@@ -216,8 +216,17 @@ impl Spc {
     ///
     /// # Panics
     ///
-    /// If the target is further back than a branch can reach.
+    /// If the target is not already emitted, or is further back than a branch can reach. The
+    /// first is what makes "backwards only" a contract rather than a comment: a forward
+    /// displacement would assemble cleanly and jump into whatever gets emitted next, which is the
+    /// kind of mistake that surfaces as an emulator disagreement rather than as a generator bug.
     pub fn bne_back(&mut self, target: usize) -> &mut Self {
+        assert!(
+            target <= self.bytes.len(),
+            "bne_back target {target} is ahead of the current offset {}; this branch is backwards \
+             only",
+            self.bytes.len()
+        );
         let after = self.bytes.len() + 2;
         let rel = i64::try_from(target).expect("offset fits i64")
             - i64::try_from(after).expect("offset fits i64");
