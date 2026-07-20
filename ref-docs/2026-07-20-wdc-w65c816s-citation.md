@@ -35,10 +35,15 @@ is a *liability* disclaimer, not a copyright grant.
 | Vendor a verbatim or near-verbatim transcription of its tables | **No** |
 | Cite it, and derive values from it | **Yes** |
 
-Cycle counts, read/write/internal sequences and bus-address behaviour are **facts about a
-processor**, and facts are not copyrightable — the *expression* of WDC's tables is. So RustySNES may
-carry its own re-expressed data derived from the datasheet, with the citation above, and must not
-carry a reproduction of the tables themselves.
+**Project policy**, not a legal opinion: this repository does not reproduce the datasheet's tables
+in whole or in part. Where timing data is needed, it is written independently — measured, or
+described in our own words and structure — and carries the citation above. If a question arises
+about whether a particular derived artifact is distinguishable enough from WDC's expression, treat
+that as a question for the project owner rather than something to resolve in a commit message.
+
+(The reasoning behind the policy is the ordinary observation that a processor's cycle behaviour is
+something one can also determine by measurement. How far that goes is jurisdiction-dependent and is
+deliberately not something this file adjudicates.)
 
 An extraction was produced while sourcing this and deliberately **kept outside the repository**.
 
