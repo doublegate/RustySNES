@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **T-04-J: coverage is now measured instead of estimated.** `gen/src/dossier.rs` maps every cart
+  test to the dossier assertion(s) it implements, because the two numbering schemes look identical
+  and are not — cart `A1.04` is dossier `A1.06`. The generator refuses to build if a test is
+  unmapped, if an assertion is claimed by two tests without a declared reason, or if a test maps to
+  nothing without a justification; both failure modes were verified to actually fire. The mapping
+  is emitted as a `dossier` column in `SOURCE_CATALOG.tsv` and re-checked by the harness against
+  the committed artifact, and `docs/accuracysnes-coverage.md` is regenerated with the ROM.
+- **The dossier's 23 prose sub-groups are now per-ID tables.** Content preserved verbatim, only
+  restructured, plus `E10` which had been missed. The enumeration goes from 232 checkable
+  assertions to **443** across all 43 sub-groups, so the coverage report is a *complete* statement:
+  an assertion with no test is listed there by name. Previously coverage could only be reported for
+  whichever assertions happened to sit in a table — which is exactly where an untested behaviour
+  could hide. Current coverage: **79 of 443**.
+- **The AccuracySNES research corpus is in the repository.** The 938-line hardware-behaviour and
+  test-list design report that `docs/accuracysnes-research-dossier.md` distils was cited at a path
+  under `~/.claude/`, outside version control. It is now
+  `ref-docs/2026-07-19-accuracysnes-hardware-test-design.md`, under the immutable-corpus rules in
+  `ref-docs/README.md`.
 - **AccuracySNES opens Group B — the 5A22 (T-04-B, first batch, 9 tests).** Memory access speed:
   `MEMSEL` switching banks `$80`+ between 8 and 6 master clocks (measured through a long read so
   the timed access is the subject, while the measuring loop keeps running from always-slow bank

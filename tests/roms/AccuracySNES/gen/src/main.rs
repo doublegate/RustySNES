@@ -11,6 +11,7 @@
 //!
 //! Requires `ca65` and `ld65` (cc65 2.19+) on `PATH`.
 
+mod dossier;
 mod dsl;
 mod emit;
 mod font;
@@ -41,7 +42,24 @@ fn main() {
     write(&asm_dir.join("font.s"), &font::asm());
 
     // --- generated data the host side consumes ---
+    dossier::validate(&battery);
     write(&root.join("SOURCE_CATALOG.tsv"), &emit::catalog(&battery));
+
+    // The coverage report is regenerated with the ROM so it cannot drift from the battery.
+    let dossier_path = root
+        .parent()
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent())
+        .map(|p| p.join("docs/accuracysnes-research-dossier.md"))
+        .expect("locate the dossier from the cart directory");
+    let dossier_src = std::fs::read_to_string(&dossier_path)
+        .unwrap_or_else(|e| panic!("read {}: {e}", dossier_path.display()));
+    let enumerated = dossier::parse_enumeration(&dossier_src);
+    let coverage_path = dossier_path.with_file_name("accuracysnes-coverage.md");
+    write(
+        &coverage_path,
+        &dossier::coverage_report(&battery, &enumerated),
+    );
     write(&root.join("ERROR_CODES.md"), &emit::readme_codes(&battery));
 
     // --- assemble ---

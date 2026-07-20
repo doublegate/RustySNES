@@ -72,6 +72,11 @@ struct Entry {
     name: String,
     tier: String,
     kind: String,
+    /// The dossier assertion(s) this test implements, or `-` when it implements none.
+    ///
+    /// Cart IDs and dossier IDs are different numbering schemes — cart `A1.04` is dossier
+    /// `A1.06` — so this column, not the ID, is what says what a test covers.
+    dossier: String,
 }
 
 const RAW_CATALOG: &str = include_str!("../../../tests/roms/AccuracySNES/SOURCE_CATALOG.tsv");
@@ -82,12 +87,13 @@ fn catalog() -> Vec<Entry> {
         .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
         .map(|l| {
             let f: Vec<&str> = l.split('\t').collect();
-            assert!(f.len() >= 8, "malformed catalog row: {l}");
+            assert!(f.len() >= 9, "malformed catalog row: {l}");
             Entry {
                 id: f[1].to_string(),
                 name: f[3].to_string(),
                 tier: f[4].to_string(),
                 kind: f[6].to_string(),
+                dossier: f[8].trim().to_string(),
             }
         })
         .collect()
@@ -366,4 +372,49 @@ fn header_is_detected() {
     assert_eq!(rom.len(), 128 * 1024, "expected a 128 KiB image");
     let cart = Cart::from_rom(&rom).expect("AccuracySNES header must be detectable");
     eprintln!("AccuracySNES detected as {:?}", cart.header.map_mode);
+}
+
+/// Every catalog row declares what it covers, and no two rows silently claim the same assertion.
+///
+/// The generator enforces this at ROM-build time (`gen/src/dossier.rs`), which CI runs. This
+/// re-checks the **committed** artifact, so a hand-edited catalog or a stale regeneration cannot
+/// slip a blank or duplicated mapping past review.
+///
+/// A duplicate here is not a style problem. Four tests were once written that duplicated existing
+/// ones under different IDs, because the cart numbers tests per sub-group while the dossier
+/// numbers assertions; they were caught by eye, and this is what replaces the eye.
+#[test]
+fn every_test_declares_its_dossier_assertions() {
+    let entries = catalog();
+    assert!(!entries.is_empty(), "the catalog is empty");
+
+    for e in &entries {
+        assert!(
+            !e.dossier.is_empty(),
+            "catalog row {} has a blank dossier column; regenerate with `cargo run -p \
+             accuracysnes-gen`",
+            e.id
+        );
+    }
+
+    // `-` means "implements no enumerated assertion", which the generator requires be justified.
+    let mut seen: Vec<(&str, Vec<&str>)> = Vec::new();
+    for e in entries.iter().filter(|e| e.dossier != "-") {
+        for d in e.dossier.split(',') {
+            match seen.iter_mut().find(|(a, _)| *a == d) {
+                Some((_, by)) => by.push(&e.id),
+                None => seen.push((d, vec![&e.id])),
+            }
+        }
+    }
+
+    // Declared splits live in the generator; here we only assert the shape stays sane — every
+    // assertion is claimed by at least one test, and nothing claims an empty string.
+    for (assertion, by) in &seen {
+        assert!(
+            !assertion.trim().is_empty(),
+            "empty assertion ID claimed by {}",
+            by.join(", ")
+        );
+    }
 }

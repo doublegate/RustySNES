@@ -1,0 +1,423 @@
+//! The cart-test → dossier-assertion map (ticket **T-04-J**).
+//!
+//! # Why this file exists
+//!
+//! The cartridge numbers its tests sequentially per sub-group. The dossier
+//! (`docs/accuracysnes-research-dossier.md` §5) numbers *assertions*. The two schemes look
+//! identical and are not: cart `A1.04` is dossier `A1.06`, cart `A2.05` is dossier `A2.06`, cart
+//! `A3.05` is dossier `A3.10`. Reading coverage off the ID numbers therefore reports gaps that do
+//! not exist — and it already cost real rework, when a batch of seven "remaining Group A" tests
+//! was written against that assumption and four turned out to duplicate existing tests.
+//!
+//! So the mapping is written down here, once, and checked at generation time. Coverage becomes a
+//! query (`docs/accuracysnes-coverage.md`, regenerated with the ROM) instead of a guess, and an
+//! accidental duplicate becomes a build failure instead of something spotted by eye.
+//!
+//! # The rules the generator enforces
+//!
+//! 1. Every test in the battery must appear in [`MAP`]. Adding a test without mapping it fails the
+//!    build — the whole point is that the map cannot silently fall behind.
+//! 2. A dossier assertion claimed by **more than one** test must be declared in [`SPLITS`] with a
+//!    reason. Splitting one assertion across two tests is legitimate and common here (opposite
+//!    failure modes usually deserve their own failure codes), but it has to be deliberate. An
+//!    undeclared double-claim is exactly the bug this ticket exists to prevent.
+//! 3. A test that implements no enumerated assertion must map to `&[]` and be declared in
+//!    [`UNENUMERATED`] with a reason. Supporting tests and golden vectors are legitimate; silently
+//!    unmapped ones are not.
+//!
+//! # The denominator is complete
+//!
+//! All **43** sub-groups of the dossier's Part V now enumerate their assertions in per-ID tables —
+//! **443** of them. That was not true when this file was written: 23 sub-groups were prose, so
+//! coverage could only be reported for the 232 assertions that happened to sit in tables, and
+//! figures for the rest were guesses. Converting the prose (content preserved verbatim, only
+//! restructured) removed the last place where "we don't know what we haven't tested" could hide.
+//!
+//! Consequence worth knowing: `docs/accuracysnes-coverage.md` is now a complete statement of what
+//! the battery does and does not cover. If an assertion is missing a test, it is in that file.
+
+/// Every cart test, mapped to the dossier assertion(s) it implements.
+///
+/// Entries are ordered by group then by the order the tests appear in the battery.
+pub const MAP: &[(&str, &[&str])] = &[
+    // --- Group A: 65C816 ---------------------------------------------------------------------
+    ("A1.01", &["A1.01"]),
+    ("A1.02", &["A1.04"]),
+    ("A1.03", &["A1.01"]),
+    ("A1.04", &["A1.06"]),
+    ("A1.05", &["A1.07"]),
+    ("A1.06", &["A1.08"]),
+    ("A2.01", &["A2.01"]),
+    ("A2.02", &["A2.02"]),
+    ("A2.03", &["A2.03"]),
+    ("A2.04", &["A2.04"]),
+    ("A2.05", &["A2.06"]),
+    ("A3.01", &["A3.01"]),
+    ("A3.02", &["A3.02"]),
+    ("A3.03", &["A3.03", "A3.04"]),
+    ("A3.04", &["A3.05"]),
+    ("A3.05", &["A3.10"]),
+    ("A4.01", &["A4.01"]),
+    ("A4.02", &["A4.02"]),
+    ("A4.03", &["A4.06"]),
+    ("A4.04", &["A4.07"]),
+    ("A4.05", &["A4.08"]),
+    ("A5.01", &["A5.11"]),
+    ("A5.02", &["A5.12"]),
+    ("A5.03", &["A5.13"]),
+    ("A5.04", &["A5.21"]),
+    ("A5.05", &["A5.17"]),
+    ("A5.06", &["A5.15"]),
+    ("A5.07", &["A5.14"]),
+    ("A6.01", &["A6.01"]),
+    ("A6.02", &["A6.01"]),
+    ("A6.03", &["A6.06"]),
+    ("A6.04", &["A6.07"]),
+    ("A6.05", &["A6.03"]),
+    ("A6.06", &["A6.04"]),
+    ("A6.07", &["A6.08"]),
+    ("A6.08", &["A6.14"]),
+    ("A6.09", &["A6.05"]),
+    ("A7.01", &["A7.01"]),
+    ("A7.02", &["A7.02"]),
+    ("A7.03", &["A7.03"]),
+    ("A7.04", &["A7.05"]),
+    ("A8.01", &["A8.02"]),
+    ("A8.02", &["A8.02"]),
+    ("A8.03", &["A8.03"]),
+    ("A9.01", &["A9.01", "A9.02"]),
+    ("A9.02", &[]),
+    // --- Group B: 5A22 -----------------------------------------------------------------------
+    ("B1.01", &["B1.01"]),
+    ("B1.02", &["B1.02"]),
+    ("B4.03", &["B4.03"]),
+    ("B4.04", &["B4.04"]),
+    ("B4.15", &[]),
+    ("B5.01", &["B5.01"]),
+    ("B5.02", &["B5.02"]),
+    ("B5.03", &[]),
+    ("B5.04", &["B5.03"]),
+    // --- Group C: S-PPU1 / S-PPU2 ------------------------------------------------------------
+    ("C1.01", &["C1.02"]),
+    ("C1.02", &["C1.02"]),
+    ("C1.03", &["C1.01"]),
+    ("C1.04", &["C1.05"]),
+    ("C1.05", &["C1.04"]),
+    ("C1.06", &["C1.06"]),
+    ("C2.01", &["C2.01"]),
+    ("C2.02", &["C2.02"]),
+    ("C2.03", &["C2.08"]),
+    ("C2.04", &["C2.07"]),
+    ("C2.05", &["C2.01"]),
+    ("C2.06", &["C2.03-05", "C2.06"]),
+    ("C2.10", &["C2.10"]),
+    ("C2.11", &["C2.11"]),
+    ("C3.01", &["C3.01"]),
+    ("C3.02", &["C3.02"]),
+    ("C3.03", &["C3.06"]),
+    ("C3.04", &[]),
+    ("C3.05", &["C3.08"]),
+    ("C7.01", &["C7.01"]),
+    ("C7.02", &["C7.02"]),
+    ("C7.08", &["C7.08"]),
+    ("C9.04", &["C9.04"]),
+    ("C11.06", &["C11.06"]),
+    ("C11.06b", &["C11.06"]),
+    ("C13.01", &["C13.07", "C13.10"]),
+    ("C13.02", &["C13.08", "C13.10"]),
+    ("C13.03", &["C13.09"]),
+    ("C14.01", &["C14.01"]),
+    ("C14.02", &["C14.02"]),
+];
+
+/// Dossier assertions deliberately implemented by more than one cart test, with the reason.
+///
+/// Every entry here is a claim that the two tests assert genuinely different things about one
+/// enumerated behaviour — usually because the failure modes are opposite and each deserves its own
+/// failure code. Anything not listed here that is claimed twice is treated as an accidental
+/// duplicate and fails the build.
+pub const SPLITS: &[(&str, &str)] = &[
+    (
+        "A1.01",
+        "cart A1.01 asserts XCE clears XH/YH; cart A1.03 asserts it forces SH=$01. \
+         One dossier line, two independent register effects",
+    ),
+    (
+        "A6.01",
+        "cart A6.01 covers the native BRK vector, cart A6.02 the separate COP vector. \
+         The dossier lists the whole native vector table as one assertion",
+    ),
+    (
+        "A8.02",
+        "cart A8.01 asserts the terminal A=$FFFF, cart A8.02 the permanent DBR=destination. \
+         A core can get either right and the other wrong",
+    ),
+    (
+        "C1.02",
+        "cart C1.01 asserts the word commits low byte first, cart C1.02 that an odd trailing \
+         byte stays in the latch. Commit order and commit trigger are separate bugs",
+    ),
+    (
+        "C2.01",
+        "cart C2.01 covers step 1, cart C2.05 the 32/128/128 steps — including that both \
+         encodings of 128 mean 128, which is its own trap",
+    ),
+    (
+        "C11.06",
+        "cart C11.06 asserts the product magnitude and that M7B's low byte cannot leak in; \
+         cart C11.06b asserts signedness on both operands and the 24-bit sign extension",
+    ),
+    (
+        "C13.10",
+        "cart C13.01 asserts $213E bit 4 tracks PPU1's latch, cart C13.02 that $213F bit 5 \
+         tracks PPU2's. The dossier states both in one line",
+    ),
+];
+
+/// Tests that implement no enumerated dossier assertion, with the reason each is legitimate.
+pub const UNENUMERATED: &[(&str, &str)] = &[
+    (
+        "A9.02",
+        "XBA's flag behaviour. A9 enumerates BIT and ORA [d] but not XBA, so there is no \
+         assertion to cite — the behaviour is from the WDC datasheet",
+    ),
+    (
+        "B5.03",
+        "divide by zero saturating to $FFFF with the dividend left as the remainder. \
+         Documented in fullsnes but not enumerated in B5, which covers only the two operations, \
+         the undefined overlap, and the power-on state",
+    ),
+    (
+        "C3.04",
+        "that the H counter advances at all. A supporting test rather than a hardware assertion \
+         — it pins the primitive every Group A and Group B cycle measurement is built on, so a \
+         broken counter fails here rather than as noise in a dozen timing tests",
+    ),
+    (
+        "B4.15",
+        "the CPU revision nibble, a golden vector. Not an enumerated assertion, but D3's \
+         revision-gated DMA bugs are specified as auto-skipping on it, so it has to be readable \
+         before those can be written",
+    ),
+];
+
+/// The dossier assertions this test implements, or an empty slice.
+///
+/// # Panics
+/// If `id` is not in [`MAP`] — every test must be mapped, which is what keeps the map honest.
+#[must_use]
+pub fn for_test(id: &str) -> Vec<&'static str> {
+    MAP.iter().find(|(cart, _)| *cart == id).map_or_else(
+        || {
+            panic!(
+                "test {id} is not in the dossier map. Add it to gen/src/dossier.rs::MAP naming \
+                 the assertion(s) it implements, or map it to &[] and justify it in UNENUMERATED. \
+                 Do NOT assume the cart ID equals the dossier ID — they are different schemes."
+            )
+        },
+        |(_, d)| d.to_vec(),
+    )
+}
+
+/// Enforce the three map rules, then write the coverage report.
+///
+/// # Panics
+/// On any unmapped test, any undeclared double-claim, or any unjustified empty mapping.
+pub fn validate(tests: &[crate::dsl::Test]) {
+    // Rule 1: every test is mapped. `for_test` panics with the actionable message.
+    for t in tests {
+        let mapped = for_test(t.id);
+        // Rule 3: an empty mapping must be justified.
+        assert!(
+            !mapped.is_empty() || UNENUMERATED.iter().any(|(c, _)| *c == t.id),
+            "test {} maps to no dossier assertion and is not justified. Add it to \
+             gen/src/dossier.rs::UNENUMERATED with the reason it has nothing to cite.",
+            t.id
+        );
+    }
+
+    // The map must not describe tests that do not exist — a stale entry silently distorts the
+    // coverage report, which is the one thing this file is for.
+    for (cart, _) in MAP {
+        assert!(
+            tests.iter().any(|t| t.id == *cart),
+            "the dossier map lists {cart}, which is not in the battery. Remove the stale entry."
+        );
+    }
+
+    // Rule 2: any assertion claimed twice must be a declared split.
+    let mut claims: Vec<(&str, Vec<&str>)> = Vec::new();
+    for t in tests {
+        for d in for_test(t.id) {
+            match claims.iter_mut().find(|(a, _)| *a == d) {
+                Some((_, by)) => by.push(t.id),
+                None => claims.push((d, vec![t.id])),
+            }
+        }
+    }
+    for (assertion, by) in &claims {
+        if by.len() > 1 {
+            assert!(
+                SPLITS.iter().any(|(a, _)| a == assertion),
+                "dossier assertion {assertion} is claimed by {} tests ({}) but is not a declared \
+                 split. Either these assert genuinely different things — in which case add \
+                 {assertion} to gen/src/dossier.rs::SPLITS with the reason — or one of them is a \
+                 DUPLICATE and should be deleted. This check exists because four duplicates were \
+                 written and very nearly shipped.",
+                by.len(),
+                by.join(", ")
+            );
+        }
+    }
+
+    // Declared splits that are no longer split are stale in the other direction.
+    for (assertion, _) in SPLITS {
+        let n = claims
+            .iter()
+            .find(|(a, _)| a == assertion)
+            .map_or(0, |(_, by)| by.len());
+        assert!(
+            n > 1,
+            "SPLITS declares {assertion} as split across multiple tests, but {n} test(s) claim \
+             it. Remove the stale SPLITS entry."
+        );
+    }
+}
+
+/// Render `docs/accuracysnes-coverage.md` — which enumerated assertions have tests and which do
+/// not, so coverage is a query rather than a guess.
+#[must_use]
+pub fn coverage_report(tests: &[crate::dsl::Test], enumerated: &[(String, Vec<String>)]) -> String {
+    use core::fmt::Write as _;
+    let mut s = String::new();
+    let _ = writeln!(s, "# AccuracySNES — dossier coverage\n");
+    let _ = writeln!(
+        s,
+        "GENERATED by `accuracysnes-gen` alongside the ROM — do not edit by hand.\n"
+    );
+    let _ = writeln!(
+        s,
+        "Maps `docs/accuracysnes-research-dossier.md` §5 assertions to the cart tests that \
+         implement them (`tests/roms/AccuracySNES/gen/src/dossier.rs`). **Cart IDs and dossier \
+         IDs are different numbering schemes** — cart `A1.04` is dossier `A1.06` — so this table, \
+         not the ID numbers, is what says whether something is covered.\n"
+    );
+    let _ = writeln!(
+        s,
+        "Every sub-group of Part V is enumerated, so this is a **complete** statement of coverage \
+         — if an assertion has no test, it is listed here. Rows carrying a range (`A5.01-08`, \
+         `C2.03-05`, `D2.11-14`) stand for several assertions each, so the assertion total is \
+         slightly higher than the row total.\n"
+    );
+
+    let mut covered_total = 0usize;
+    let mut all_total = 0usize;
+    let _ = writeln!(s, "| Sub-group | Enumerated | Covered | Uncovered |");
+    let _ = writeln!(s, "|---|---:|---:|---|");
+    for (sub, ids) in enumerated {
+        let mut uncovered = Vec::new();
+        let mut covered = 0usize;
+        for id in ids {
+            let any = tests.iter().any(|t| for_test(t.id).iter().any(|d| d == id));
+            if any {
+                covered += 1;
+            } else {
+                uncovered.push(id.clone());
+            }
+        }
+        covered_total += covered;
+        all_total += ids.len();
+        let list = if uncovered.is_empty() {
+            "—".to_string()
+        } else {
+            uncovered.join(", ")
+        };
+        let _ = writeln!(s, "| `{sub}` | {} | {covered} | {list} |", ids.len());
+    }
+    let _ = writeln!(
+        s,
+        "\n**{covered_total} of {all_total}** enumerated assertion rows covered by at least one \
+         test.\n"
+    );
+
+    let _ = writeln!(s, "## Assertions split across several tests\n");
+    let _ = writeln!(
+        s,
+        "Declared in `dossier.rs::SPLITS`. Each is a claim that the tests assert different things \
+         about one enumerated behaviour; an undeclared double-claim fails the build.\n"
+    );
+    for (assertion, why) in SPLITS {
+        let by: Vec<&str> = tests
+            .iter()
+            .filter(|t| for_test(t.id).iter().any(|d| d == assertion))
+            .map(|t| t.id)
+            .collect();
+        let _ = writeln!(s, "- **`{assertion}`** — {} · {why}", by.join(", "));
+    }
+
+    let _ = writeln!(s, "\n## Tests with no enumerated assertion\n");
+    for (cart, why) in UNENUMERATED {
+        let _ = writeln!(s, "- **`{cart}`** — {why}");
+    }
+    s
+}
+
+/// Parse the per-ID assertion tables out of the dossier's Part V.
+///
+/// Returns `(sub-group, ids)` for every sub-group that enumerates its assertions in a table.
+/// Prose sub-groups are absent by construction — there is nothing to parse — which is why the
+/// coverage report can only speak for part of the enumeration.
+///
+/// # Panics
+/// If the dossier is missing its Part V markers, since a silently-empty parse would report
+/// everything as uncovered.
+#[must_use]
+pub fn parse_enumeration(dossier: &str) -> Vec<(String, Vec<String>)> {
+    let start = dossier
+        .find("## Part V —")
+        .expect("dossier is missing its Part V heading");
+    let end = dossier
+        .find("## Part VI")
+        .expect("dossier is missing its Part VI heading");
+    let part = &dossier[start..end];
+
+    let mut out: Vec<(String, Vec<String>)> = Vec::new();
+    for line in part.lines() {
+        let trimmed = line.trim_start();
+        let Some(rest) = trimmed.strip_prefix('|') else {
+            continue;
+        };
+        let cell = rest.split('|').next().unwrap_or("").trim();
+        if !is_assertion_id(cell) {
+            continue;
+        }
+        let key = split_sub(cell);
+        match out.iter_mut().find(|(s, _)| *s == key) {
+            Some((_, ids)) => ids.push(cell.to_string()),
+            None => out.push((key, vec![cell.to_string()])),
+        }
+    }
+    out
+}
+
+/// The sub-group part of an assertion ID: `A5.11` -> `A5`, `C13.07` -> `C13`.
+fn split_sub(id: &str) -> String {
+    id.split('.').next().unwrap_or(id).to_string()
+}
+
+/// Whether a table cell looks like an assertion ID (`A1.01`, `C2.03-05`, `A5.01-08`).
+fn is_assertion_id(cell: &str) -> bool {
+    let mut chars = cell.chars();
+    let Some(g) = chars.next() else { return false };
+    if !('A'..='G').contains(&g) {
+        return false;
+    }
+    let rest: String = chars.collect();
+    let Some((sub, num)) = rest.split_once('.') else {
+        return false;
+    };
+    !sub.is_empty()
+        && sub.chars().all(|c| c.is_ascii_digit())
+        && !num.is_empty()
+        && num.chars().all(|c| c.is_ascii_digit() || c == '-')
+}

@@ -38,12 +38,14 @@ flag in the status byte `BRK` pushes).
 | **G** | Power-on / reset / cartridge | ~18 | 0 | ~18 |
 | | | **~320** | **85** | **~235** |
 
-**Read these numbers with care.** The dossier's group headers total ~320 tests, but its
-per-sub-group parentheticals sum to 476 — those count *assertions*, not tests, and one test here
-routinely carries several assertions with distinct failure codes. Our test IDs (`A5.01`–`A5.06`)
-are also our own numbering, not the dossier's assertion IDs (`A5.01`–`A5.22`). Sub-group coverage
-is therefore an estimate, not a per-assertion tick-list. Do not quote a coverage percentage as if
-it were measured.
+**These are test counts. For assertion coverage, read `docs/accuracysnes-coverage.md`** — it is
+regenerated with the ROM from the map in `gen/src/dossier.rs` and currently reports **79 of 443**
+enumerated assertion rows covered. That file is now a *complete* statement: every sub-group of the
+dossier's Part V is enumerated, so an assertion with no test is listed there by name.
+
+One test routinely carries several assertions with distinct failure codes, so test counts and
+assertion counts do not track each other. And cart IDs are not dossier IDs — cart `A1.04` is
+dossier `A1.06`. Never read coverage off an ID number; that mistake has already cost rework (§4).
 
 ## 3. What blocks the remaining work
 
@@ -71,12 +73,12 @@ pattern the C7 sprite tests established.
 - **T-04-G · Group G (~18)** — power-on / reset state. Mostly **golden vectors**: hardware does not
   define much of it, so the honest output is a recorded observation, not an assertion. See §4 for
   the ordering constraint that makes this harder than it looks.
-- **T-04-A · rest of Group A (~10-15, exact count blocked on T-04-J)** — the `A5` spot checks
+- **T-04-A · rest of Group A (38 uncovered assertions — see the coverage report)** — the `A5` spot checks
   (`BRL` flat 4, `BRK` 8/7, `RTI` 7/6, `MVN`/`MVP` 7 per byte,
   `PHD`/`PLD`/`PEA`/`PEI`/`PER`/`REP`/`SEP`/`XBA`), the `+1 m` / `+1 x` sweeps, the E-gated branch
   page-cross penalty, `A1.09` (`TCS`/`TXS` set no flags while other transfers set N/Z), and the
-  `A6` gaps (`RTI` mode matching, `WAI` resume and wake latency). **The count is an estimate and
-  will stay one until T-04-J lands** — see §4.
+  `A6` gaps (`RTI` mode matching, `WAI` resume and wake latency). The earlier "~12 left" figure was
+  wrong — it came from reading ID numbers, and the measured number is considerably larger.
 
 ### Bucket 2 — needs its own mechanism (~30 tests)
 
@@ -128,8 +130,9 @@ only type renames, so that lineage is one opinion. Mesen2 is the genuine second.
 would convert "three emulators agree" into "hardware says so", and nothing else will. Until then
 the `Corroborated` tier means exactly what `docs/adr/0003` says it means and no more.
 
-**Cart IDs and dossier IDs are different numbering schemes, and nothing checks the mapping.**
-This is not a theoretical risk — it has already caused rework. The cart's `A1.04` is the dossier's
+**Cart IDs and dossier IDs are different numbering schemes.** *(Resolved by T-04-J — kept here
+because the reasoning still governs how to read coverage.)* This is not a theoretical risk — it
+caused real rework. The cart's `A1.04` is the dossier's
 `A1.06`, the cart's `A2.05` is the dossier's `A2.06`, and the cart's `A3.05` is the dossier's
 `A3.10`, because the cart numbers tests sequentially per sub-group while the dossier numbers
 assertions. Reading coverage off the ID numbers therefore reports gaps that do not exist: a batch
@@ -137,12 +140,17 @@ of seven "remaining Group A" tests was written against that assumption and **fou
 duplicate existing tests** under different IDs, caught only by eye when the regenerated catalog
 put the old and new names side by side.
 
-**T-04-J** is the fix: give `Test` a `dossier` field naming the assertion(s) each test implements,
-emit it as a column in `SOURCE_CATALOG.tsv`, and add a harness check that every enumerated
-assertion maps to at most one test. Coverage then becomes a query instead of a guess, and a
-duplicate becomes a build failure. Until it lands, treat every per-sub-group "remaining" figure in
-§2 and §3 as an estimate, and diff *behaviour and test names* — never ID numbers — before writing
-a test that looks uncovered.
+**T-04-J landed and fixed it.** `gen/src/dossier.rs` maps every cart test to the assertion(s) it
+implements; the generator refuses to build if a test is unmapped, if an assertion is claimed by two
+tests without a declared reason, or if a test maps to nothing without a justification. The mapping
+is emitted as a `dossier` column in `SOURCE_CATALOG.tsv` and re-checked by the harness against the
+committed artifact. Both failure modes were verified to actually fire.
+
+The same ticket also converted the dossier's 23 **prose** sub-groups into per-ID tables (content
+preserved verbatim, only restructured), taking the enumeration from 232 checkable assertions to
+**443** across all 43 sub-groups. Before that, coverage could only be reported for whichever
+assertions happened to sit in a table, and the rest were guesses — which is precisely where an
+untested behaviour could hide indefinitely.
 
 **The 256-opcode cycle sweep is deliberately not in T-04-A.** The dossier's `A5.01`–`A5.08` call
 for measuring every opcode at `m=1,x=1,e=0,DL=$00`. That needs a safe-operand table (opcode length,
@@ -166,8 +174,6 @@ The inverse pattern — a test failing identically on all three — has twice me
 
 ## 6. Suggested order
 
-0. **T-04-J** — the dossier-to-cart ID map. Cheap, and everything downstream reads more honestly
-   once coverage is a query rather than a guess.
 1. **T-04-A** — finish Group A. Small, closes a group out.
 2. **T-04-B** — Group B. Largest reachable block, reuses proven primitives.
 3. **T-04-C** — the rest of register-observable Group C.

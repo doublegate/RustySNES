@@ -447,10 +447,10 @@ constraints live in **`docs/accuracysnes-plan.md`**; this list is the citable ID
 | **T-04-F** | Group F — input | ~22 | a decision on the **on-cart / host-driven split**: a cart cannot press its own buttons |
 | **T-04-G** | Group G — power-on / reset / cartridge, mostly golden vectors | ~18 | **boot-path ordering**: these must sample *before* `init_registers`, which deliberately erases power-on state |
 | **T-04-I** | The 256-opcode cycle sweep (`A5.01`–`A5.08`) | 1 mechanism | a safe-operand table + a scratch sandbox. `STP` excluded — it halts until reset |
-| **T-04-J** | Dossier-to-cart **ID map**: a `dossier` field on `Test`, emitted into `SOURCE_CATALOG.tsv`, plus a harness check that no enumerated assertion maps to two tests | small | nothing — **do this first**, coverage figures are guesses without it |
+| ~~**T-04-J**~~ | ~~Dossier-to-cart ID map~~ **DONE** — `gen/src/dossier.rs` maps every test to its assertion(s), the generator rejects unmapped tests / undeclared double-claims / unjustified blanks, `SOURCE_CATALOG.tsv` carries a `dossier` column, and the harness re-checks the committed artifact. Also converted the dossier's 23 prose sub-groups into per-ID tables: **443** checkable assertions across all 43 sub-groups, up from 232. Coverage lives in `docs/accuracysnes-coverage.md` (**79 / 443**) | — | — |
 | **T-04-H** | The renderer-dependent rest of Group C (`C5`, `C6`, `C8`, `C10`, `C12`, most of `C9`, `C13.01`–`C13.06`) | ~35 | a **framebuffer oracle**, and an explicit decision that these are host-harness-only and stay out of the on-cart pass rate |
 
-Suggested order: **J** → A → B → C → D → G → E → F, with H taken only if the framebuffer-oracle decision
+Suggested order: A → B → C → D → G → E → F, with H taken only if the framebuffer-oracle decision
 is taken. Real-hardware validation is the standing ceiling on all of it: every result so far is
 three emulators agreeing, and ares/bsnes are one lineage rather than two opinions.
 
