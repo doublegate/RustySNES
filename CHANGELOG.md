@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Three more SPC700 tests, and the fix that makes more than one of them possible.** `E1.02`
+  (`DIV YA,X` on its normal branch, the baseline every stranger `DIV` assertion deviates from),
+  `E1.06` (the errata that `DIV` takes N and Z from the **quotient** alone — a zero quotient sets
+  `Z` even with a non-zero remainder, and the reverse case is checked in the same program so a core
+  that never sets `Z` cannot pass), and `E1.15` (`MOVW YA,dp` flags all sixteen bits, checked from
+  both sides: `$0100` must not set `Z`, `$8000` must set `N`, and a core flagging the accumulator
+  alone gets both wrong).
+
+  **Every uploaded program now hands the APU back to the IPL when the cart releases it.** Once a
+  program is running the boot ROM is not, so the next test's upload has nothing to handshake with.
+  The first version ended in `BRA *`, and every APU test after the first silently timed out and
+  then read the *previous* test's leftover port values — which looks exactly like a wrong answer
+  rather than like a test that never ran. The cart now copies the results out, writes a release
+  byte, and the program jumps to the IPL entry, which re-announces itself for the next upload.
+
 - **Group E is unblocked: the APU is now reachable from the cart (T-04-E).** The SPC700 is a
   separate processor with its own RAM, and the only channel between it and the 65816 is four bytes
   — so nothing about it was testable at all. The cart now uploads a small SPC700 program through
@@ -157,10 +172,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **150 tests — 138 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **153 tests — 141 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **110 of 443** on-cart plus **42** scene-only —
-**152 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier. Dossier coverage is **113 of 443** on-cart plus **42** scene-only —
+**155 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 

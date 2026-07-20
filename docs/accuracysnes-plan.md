@@ -378,7 +378,13 @@ The blocker was never the assertions; it was that the SPC700 is only reachable t
 `apu_upload` in `asm/runtime.s` implements the IPL boot handshake, and `gen/src/spc.rs` assembles
 the SPC700 programs it uploads. `E1.01` is the first test through that path and is cross-validated.
 
-Two rules the machinery is built on, both learned immediately:
+Three rules the machinery is built on, all learned immediately:
+
+- **Every uploaded program must hand the APU back to the IPL.** Once a program runs, the boot ROM
+  does not, so the next upload has nothing to handshake with. The first version ended in `BRA *`
+  and every APU test after the first silently timed out and then read the previous test's leftover
+  ports — indistinguishable from a wrong answer, and the sort of failure that would have been
+  blamed on the emulator. Programs now poll for a release byte and jump to the IPL entry.
 
 - **Every handshake wait is bounded.** The first version was not, and it hung the whole battery —
   reporting nothing about the other 149 tests. A test whose APU never answers reports SKIP, and

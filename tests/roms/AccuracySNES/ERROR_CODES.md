@@ -977,6 +977,33 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes — flagged
 | 3 | `$06` | MUL YA set Z although Y is non-zero — the flags come from Y alone, not from A or YA |
 | 4 | `$08` | MUL YA set N although Y is $01 |
 
+### E1.02 — DIV YA,X normal branch
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | DIV YA,X quotient is wrong ($0020 / $08 = 4) |
+| 2 | `$04` | DIV YA,X remainder is wrong |
+
+### E1.06 — DIV flags from quotient
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | DIV YA,X left Z clear for a zero quotient — the flags come from the quotient, not the remainder |
+| 2 | `$04` | DIV YA,X set Z for a non-zero quotient |
+
+### E1.15 — MOVW YA sets 16-bit N/Z
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | MOVW YA,dp set Z for $0100 — the flags describe all sixteen bits, not the low byte |
+| 2 | `$04` | MOVW YA,dp left N clear for $8000 |
+
 ## Group A
 
 ### A5.S01 — Sweep: CLC
