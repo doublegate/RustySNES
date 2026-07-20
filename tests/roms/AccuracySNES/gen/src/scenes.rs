@@ -194,7 +194,6 @@ pub const SCENES: &[Scene] = &[
             "sta $2107",
             "sta $2108",
             "jsr scene_low_tiles ; 8bpp tiles are 32 words; the canvas map indexes past the font",
-            "sep #$20",
             "lda #$03",
             "sta $212C         ; BG1 + BG2",
             "lda #$0F",
@@ -533,7 +532,6 @@ pub const SCENES: &[Scene] = &[
             "lda #(MAP_BASE >> 8)",
             "sta $2107",
             "jsr scene_low_tiles ; without this every 8bpp pixel reads zero and the screen is empty",
-            "sep #$20",
             "lda #$01",
             "sta $212C",
             "lda #$01",
@@ -571,7 +569,38 @@ pub fn asm() -> String {
         s,
         "; (32 words/tile against a 512-word font = tiles $00-$0F)."
     );
+    let _ = writeln!(s, ";");
+    let _ = writeln!(
+        s,
+        "; WIDTH-NEUTRAL: P is saved and restored, so the A/X/Y widths on exit are"
+    );
+    let _ = writeln!(
+        s,
+        "; exactly what they were on entry. Deliberate rather than merely tidy: the"
+    );
+    let _ = writeln!(
+        s,
+        "; caller is generated assembly whose .a8/.a16 directives come from its OWN"
+    );
+    let _ = writeln!(
+        s,
+        "; sep/rep lines, and a JSR is not one of those — so a helper that changed"
+    );
+    let _ = writeln!(
+        s,
+        "; the width would leave the assembler believing one thing while the CPU did"
+    );
+    let _ = writeln!(
+        s,
+        "; another, and the next immediate operand would be assembled at the wrong"
+    );
+    let _ = writeln!(
+        s,
+        "; size. That failure already cost this project a debugging session; see the"
+    );
+    let _ = writeln!(s, "; .a8/.a16 emission in `asm` below.");
     let _ = writeln!(s, ".proc scene_low_tiles");
+    let _ = writeln!(s, "    php");
     let _ = writeln!(s, "    .a16");
     let _ = writeln!(s, "    .i16");
     let _ = writeln!(s, "    sep #$20");
@@ -602,6 +631,10 @@ pub fn asm() -> String {
     let _ = writeln!(s, "    inx");
     let _ = writeln!(s, "    cpx #(SCREEN_COLS * 32)");
     let _ = writeln!(s, "    bne @cell");
+    let _ = writeln!(
+        s,
+        "    plp               ; restore the caller's register widths"
+    );
     let _ = writeln!(s, "    rts");
     let _ = writeln!(s, ".endproc");
 

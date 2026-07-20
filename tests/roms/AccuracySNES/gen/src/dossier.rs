@@ -362,8 +362,16 @@ pub fn validate_scenes(enumerated: &[(String, Vec<String>)]) {
 
     let mut bad = Vec::new();
     for sc in crate::scenes::SCENES {
-        let ids: Vec<&str> = sc.dossier.split(',').map(str::trim).collect();
-        if ids.iter().all(|d| d.is_empty()) {
+        // Empty fragments are dropped rather than reported: a trailing comma is a typo in the
+        // separator, not a claim about an assertion, and reporting it as `'' is not an enumerated
+        // assertion` buries the real question of whether the scene names anything at all.
+        let ids: Vec<&str> = sc
+            .dossier
+            .split(',')
+            .map(str::trim)
+            .filter(|d| !d.is_empty())
+            .collect();
+        if ids.is_empty() {
             bad.push(format!("{}: names no assertion", sc.id));
             continue;
         }

@@ -8,7 +8,17 @@ SCENES_IMPL = 1
 
 ; Rewrite the tilemap with tile indices low enough to exist in 8bpp
 ; (32 words/tile against a 512-word font = tiles $00-$0F).
+;
+; WIDTH-NEUTRAL: P is saved and restored, so the A/X/Y widths on exit are
+; exactly what they were on entry. Deliberate rather than merely tidy: the
+; caller is generated assembly whose .a8/.a16 directives come from its OWN
+; sep/rep lines, and a JSR is not one of those — so a helper that changed
+; the width would leave the assembler believing one thing while the CPU did
+; another, and the next immediate operand would be assembled at the wrong
+; size. That failure already cost this project a debugging session; see the
+; .a8/.a16 emission in `asm` below.
 .proc scene_low_tiles
+    php
     .a16
     .i16
     sep #$20
@@ -39,6 +49,7 @@ SCENES_IMPL = 1
     inx
     cpx #(SCREEN_COLS * 32)
     bne @cell
+    plp               ; restore the caller's register widths
     rts
 .endproc
 
@@ -201,8 +212,6 @@ SCENES_IMPL = 1
     sta $2107
     sta $2108
     jsr scene_low_tiles ; 8bpp tiles are 32 words; the canvas map indexes past the font
-    sep #$20
-    .a8
     lda #$03
     sta $212C         ; BG1 + BG2
     lda #$0F
@@ -569,8 +578,6 @@ SCENES_IMPL = 1
     lda #(MAP_BASE >> 8)
     sta $2107
     jsr scene_low_tiles ; without this every 8bpp pixel reads zero and the screen is empty
-    sep #$20
-    .a8
     lda #$01
     sta $212C
     lda #$01
