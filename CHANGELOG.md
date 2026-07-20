@@ -18,17 +18,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nothing without a justification; both failure modes were verified to actually fire. The mapping
   is emitted as a `dossier` column in `SOURCE_CATALOG.tsv` and re-checked by the harness against
   the committed artifact, and `docs/accuracysnes-coverage.md` is regenerated with the ROM.
+
 - **The dossier's 23 prose sub-groups are now per-ID tables.** Content preserved verbatim, only
   restructured, plus `E10` which had been missed. The enumeration goes from 232 checkable
   assertions to **443** across all 43 sub-groups, so the coverage report is a *complete* statement:
   an assertion with no test is listed there by name. Previously coverage could only be reported for
   whichever assertions happened to sit in a table — which is exactly where an untested behaviour
   could hide. Current coverage: **79 of 443**.
+
 - **The AccuracySNES research corpus is in the repository.** The 938-line hardware-behaviour and
   test-list design report that `docs/accuracysnes-research-dossier.md` distils was cited at a path
   under `~/.claude/`, outside version control. It is now
   `ref-docs/2026-07-19-accuracysnes-hardware-test-design.md`, under the immutable-corpus rules in
   `ref-docs/README.md`.
+
 - **AccuracySNES opens Group B — the 5A22 (T-04-B, first batch, 9 tests).** Memory access speed:
   `MEMSEL` switching banks `$80`+ between 8 and 6 master clocks (measured through a long read so
   the timed access is the subject, while the measuring loop keeps running from always-slow bank
@@ -40,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   left as the remainder. Plus two golden vectors: the CPU revision nibble, and the **undefined**
   mul/div overlap, which the SNESdev Errata explicitly declines to define and which is therefore
   recorded rather than asserted.
+
 - **`docs/accuracysnes-plan.md` — the AccuracySNES phase plan**, plus follow-on tickets
   **T-04-A**–**T-04-J** in `to-dos/ROADMAP.md`. Frames the ~235 remaining tests by *what blocks
   them* rather than by group: reachable now (Groups B, G, the rest of register-observable C, the
@@ -47,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fully self-scoring (F — a cart cannot press its own buttons), and needs a framebuffer oracle
   (the renderer-dependent rest of C, which would break the property that the same image runs on
   real hardware). Also records the constraints worth settling before the affected group starts.
+
 - **AccuracySNES: three Group A gaps closed (T-04-A, first batch).** `A1.06` — `TCD`/`TDC` move
   all 16 bits regardless of `m`, so an 8-bit accumulator must not narrow a register that has no
   8-bit form. `A5.07` — read-modify-write `abs,X` pays a flat cost with no page-cross penalty,
@@ -54,6 +59,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the status byte it pushes, which in emulation mode is the *only* thing distinguishing a
   software `BRK` from a hardware IRQ arriving at the same `$FFFE`. Battery now **76 tests, 73
   scoring, 100.00%, 3 golden**. Battery after both batches: **85 tests, 80 scoring, 100.00%, 5 golden**.
+
+- **AccuracySNES Group B continued (T-04-B): frame geometry and the IRQ timers — 4 tests.**
+  `B2.04` — an NTSC frame is 262 lines, sampled by polling `OPVCT` from vblank until the counter
+  wraps and keeping the maximum, so it measures the counter rather than trusting a constant.
+  `B4.05` — `RDNMI` auto-clears at the end of vblank, the counterpart to `B4.04`'s clear-on-read.
+  `B4.08` — a V-IRQ fires on the programmed scanline, armed with interrupts masked and observed by
+  polling `$4211`, so it measures the comparator without depending on interrupt dispatch.
+  `B4.12` — reading `$4211` releases the latch immediately, asserted with a second read *on the
+  same scanline*. Battery now **90 tests, 85 scoring, 100.00%, 5 golden**.
+
+- **AccuracySNES `A5.08` — the `A5.22` cycle spot checks, as a golden vector, and the measured
+  blocker for T-04-I.** Converts cited cycle counts into measurable time via
+  `clocks = 6*cycles + 2*mem` (`mem` = instruction length plus data/stack accesses) — the term a
+  naive "cycles x constant" conversion misses, and why `NOP` and `LDA #imm`, both 2 cycles, do not
+  cost the same. Written scored first; it failed on **all three** references at **different**
+  sub-assertions (snes9x on `XBA`, RustySNES on `REP`), which is the signature of the references
+  disagreeing with each other rather than of a broken test. It therefore reports a bitmask of which
+  expectations matched — RustySNES `101`, snes9x `100` — and stays out of the pass rate. The
+  consequence for the planned 256-opcode sweep is recorded in `docs/accuracysnes-plan.md`: the
+  blocker is sourcing an **external** per-opcode timing table, not writing the sweep.
+
+- **AccuracySNES: pre-`init_registers` power-on sampling (T-04-G prerequisite).**
+  `capture_power_on` runs at the top of reset, before `init_registers` puts every register into a
+  known state, and stashes what it samples in a documented WRAM capture block. Without it no
+  power-on test can exist: the runtime deliberately erases exactly the state such a test wants.
+  This unblocks all 18 Group G assertions. `B5.05` is the first consumer.
+
+- **AccuracySNES `B5.05` — the multiply/divide power-on latches.** `$4202` powers up `$FF` and
+  `$4204/05` `$FFFF`. Both are write-only, so the test observes the latch *through the unit it
+  feeds*: start a multiply without writing `$4202` and the product is `$FF x N`.
+
+### Changed
+
+- **`hdmaen_latch_test` / `hdmaen_latch_test_2` golden framebuffers re-blessed** as a direct,
+  intended consequence of the V-IRQ fix: both ROMs gate their `STA $420C` on a V-only IRQ, so
+  firing once per frame rather than on every dot changes which dot the write lands on and hence the
+  banding realization. Legitimate only because these goldens are regression snapshots of our own
+  deterministic output — undisbeliever documents the ROM as *not stable* on real hardware — and
+  because the change is externally corroborated (ares' edge detector; Mesen2 and snes9x both pass
+  `B4.08`/`B4.12`, which RustySNES failed). Isolated by reverting the IRQ change alone and
+  confirming the goldens returned. Rationale recorded in `docs/scheduler.md` §H/V-IRQ.
+
+### Fixed
+
+- **The multiply/divide latches now power up as `$FF` / `$FFFF`.** They were defaulting to zero.
+  Asserted rather than merely recorded on two independent documentation lineages that agree with
+  nothing contradicting them in nineteen years — anomie's `regs.txt` r1157 (*"$4202 holds the value
+  $ff on power on and is unchanged on reset"*, in a document that marks its uncertain claims with
+  `(?)` and marks neither of these) and nocash's fullsnes (`$4202`-`$4206` listed `(FFh)` at
+  power-up) — and implemented by bsnes, ares and Mesen2. **snes9x diverges** (its
+  `S9xSoftResetPPU` blanket-`memset`s `$4200-$42FF` to zero), which is a snes9x bug rather than
+  counter-evidence; the divergence is declared explicitly in `scripts/accuracysnes/crossval.sh` so
+  the cross-validation gate keeps its teeth instead of being weakened to unanimity. No hardware
+  test ROM is known to verify this, and the provenance string says so.
+
+- **`RDNMI` now auto-clears at the end of vblank.** The flag was cleared only by a read, so it
+  stayed set through the whole active display and code polling `$4210` outside vblank saw a vblank
+  that had already ended and acted a frame late. Found by AccuracySNES `B4.05`.
+
+- **A V-only IRQ no longer re-asserts on every dot of its scanline.** With H-IRQ disabled the
+  horizontal half of the comparator was treated as unconditionally matching, which made
+  `V == VTIME` a *level* held across all 341 dots: acknowledging via `$4211` was undone a few dots
+  later, and a V-only handler saw a storm instead of one interrupt per frame. The comparator is now
+  sampled at a single dot (`VIRQ_TRIGGER_DOT`, the documented `H ~ 2.5`). ares reaches the same
+  behaviour from the other direction — its `irqValid.raise(...)` is an *edge* detector. Found by
+  AccuracySNES `B4.12`, with `B4.08` pinning the firing line.
 
 ## [1.20.0] "Aperture" - 2026-07-15
 

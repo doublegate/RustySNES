@@ -13,11 +13,11 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **85** (80 scoring + 5 golden vectors) |
+| Tests | **91** (85 scoring + 6 golden vectors) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES, Mesen2, snes9x — all agree, 0 failures |
 | Groups shipped | **A** (65C816 CPU, 46 tests) · **C** partial (PPU, 30 tests) · **B** partial (5A22, 9 tests) |
-| Defects found in this emulator | **2** — see §5 |
+| Defects found in this emulator | **5** — see §5 |
 
 Phase A shipped Group A. Phase B has so far shipped the register-observable half of Group C — the
 OAM/VRAM/CGRAM port mechanics, the H/V counters, the two open-bus latches, the version nibbles, the
@@ -29,14 +29,14 @@ flag in the status byte `BRK` pushes).
 
 | Group | Scope | Enumerated | Done | Left |
 |---|---|---:|---:|---:|
-| **A** | 65C816 CPU | ~55 | 46 | ~10-15 |
-| **B** | 5A22 bus, clock, timing | ~30 | 9 | ~21 |
+| **A** | 65C816 CPU | ~55 | 47 | ~10-15 |
+| **B** | 5A22 bus, clock, timing | ~30 | 14 | ~16 |
 | **C** | S-PPU1 / S-PPU2 | ~85 | 30 | ~55 |
 | **D** | DMA / HDMA | ~35 | 0 | ~35 |
 | **E** | SPC700 + S-DSP | ~75 | 0 | ~75 |
 | **F** | Input | ~22 | 0 | ~22 |
 | **G** | Power-on / reset / cartridge | ~18 | 0 | ~18 |
-| | | **~320** | **85** | **~235** |
+| | | **~320** | **91** | **~229** |
 
 **These are test counts. For assertion coverage, read `docs/accuracysnes-coverage.md`** — it is
 regenerated with the ROM from the map in `gen/src/dossier.rs` and currently reports **79 of 443**
@@ -70,9 +70,13 @@ pattern the C7 sprite tests established.
   trigger, address destroyed during render), the 9- and 10-bit `VMAIN` remap rotations,
   CGRAM-during-render, counter-flipflop independence, `C7.04`–`C7.09` sprite flag set positions,
   `C9.05` overscan vblank deferral, `C11.07`/`C11.08` MPY latch corruption and MPY-during-render.
-- **T-04-G · Group G (~18)** — power-on / reset state. Mostly **golden vectors**: hardware does not
-  define much of it, so the honest output is a recorded observation, not an assertion. See §4 for
-  the ordering constraint that makes this harder than it looks.
+- **T-04-G · Group G (~18)** — power-on / reset state. **The blocking prerequisite is done:**
+  `capture_power_on` in `asm/runtime.s` runs at the top of reset, *before* `init_registers`, and
+  stashes what it samples in a documented WRAM capture block (`$E040-`, see `runtime.inc`). Tests
+  then read the capture rather than the live registers. `B5.05` is the first consumer and exists
+  partly to prove the hook. Expect most of Group G to be **golden vectors**: hardware does not
+  define much of this, so the honest output is a recorded observation, not an assertion — and the
+  first measurement raised the question (see §4).
 - **T-04-A · rest of Group A (38 uncovered assertions — see the coverage report)** — the `A5` spot checks
   (`BRL` flat 4, `BRK` 8/7, `RTI` 7/6, `MVN`/`MVP` 7 per byte,
   `PHD`/`PLD`/`PEA`/`PEI`/`PER`/`REP`/`SEP`/`XBA`), the `+1 m` / `+1 x` sweeps, the E-gated branch
@@ -115,14 +119,47 @@ pattern the C7 sprite tests established.
 
 ## 4. Constraints to decide before starting the affected group
 
-**Group G has an ordering problem.** The runtime's `init_registers` deliberately puts every PPU
-register `$2101`–`$2133` and every CPU register `$4200`–`$420D` into a known state before any test
-runs — precisely because hardware does not. Power-on tests placed in the normal battery would
-therefore measure *our runtime*, not the machine. They have to sample before `init_registers`,
-which means special-casing them in the boot path and stashing the observations for the battery to
-report later.
+**Group G's ordering problem — solved.** The runtime's `init_registers` deliberately puts every
+PPU register `$2101`–`$2133` and every CPU register `$4200`–`$420D` into a known state before any
+test runs, precisely because hardware does not. A power-on test placed in the normal battery would
+therefore measure *our runtime*, not the machine. `capture_power_on` samples before
+`init_registers` and stashes the result in the capture block for a test to report later.
+
+Two things that mechanism made obvious immediately, and which Group G should expect:
+
+- Several of these registers are **write-only**, so "read the power-on value" is not literally
+  possible. The value has to be observed through the unit it feeds — writing only `$4203` runs the
+  multiplier against whatever `$4202` already held. Group G needs an observation strategy per
+  register, not a generic dump.
+- The very first power-on measurement found the **references disagreeing** — and the right
+  response was to research it, not to default to recording. Mesen2 reproduced the documented
+  `$4202 = $FF` / `$4204-05 = $FFFF`; snes9x did not. anomie's `regs.txt` r1157 and nocash's
+  fullsnes state the values independently, bsnes and ares implement them, and nothing has
+  contradicted them in nineteen years — so `B5.05` **scores**, RustySNES was wrong and is fixed,
+  and snes9x's divergence is declared in `crossval.sh` with its citation. Reference disagreement is
+  a prompt to go and find out which one is right; it is not by itself evidence that a behaviour is
+  undefined. Where the sources genuinely decline to define something (`A7.04`, `B5.04`), the golden
+  vector remains correct.
 
 **Group F splits the portability property.** See bucket 3.
+
+**DRAM refresh (`B3`) — the scope conflict is only apparent, and `B3` is unblocked as golden
+vectors.** `docs/accuracy-ledger.md` classifies DRAM refresh **Out-of-scope (empirically)**: across
+500 steady-state frames × 3 ROMs the CPU-driven model already reproduces the correct
+≈357,368-clock NTSC frame, so the originally-planned additive stall would have been a regression
+against a confirmed-correct baseline. The dossier separately says `B3` tests should probe
+**position**, not aggregate frame length.
+
+Those are not in conflict — they are about different quantities. The ledger's evidence is that our
+*total* is right; the dossier's point is that the *distribution* within the line is a different
+claim, which we do not model at all. A `B3` test probing position would therefore fail on
+RustySNES by design, not by defect.
+
+The resolution is the one the dossier already applies to `D3`'s revision-gated DMA bugs, which the
+same ledger also marks Out-of-scope: **report as variants, never as failures.** So `B3` is written
+as golden vectors that record whether a per-scanline stall was observed and where — informative to
+any emulator author reading the results, and incapable of moving a pass rate that the project has
+deliberately decided this behaviour should not move.
 
 **Real hardware remains the honest ceiling.** Every result so far is three emulators agreeing, and
 two of those are not fully independent — a full diff of ares' and bsnes' `wdc65816` cores shows
@@ -152,7 +189,31 @@ preserved verbatim, only restructured), taking the enumeration from 232 checkabl
 assertions happened to sit in a table, and the rest were guesses — which is precisely where an
 untested behaviour could hide indefinitely.
 
-**The 256-opcode cycle sweep is deliberately not in T-04-A.** The dossier's `A5.01`–`A5.08` call
+**T-04-I is blocked on an oracle, not on engineering — and that is now measured, not assumed.**
+`A5.08` implements the dossier's `A5.22` cycle spot checks (`XBA`, `REP`, `PHD`/`PLD`) using the
+only sound conversion available:
+
+```text
+clocks = 8*mem + 6*internal,  cycles = mem + internal   =>   clocks = 6*cycles + 2*mem
+```
+
+`mem` being instruction length plus data/stack accesses. That second term is why `NOP` and
+`LDA #imm` — both 2 cycles — do not cost the same time, and why "cycles x a constant" cannot work.
+
+Written as a scored test, it failed on **all three** emulators at **different** sub-assertions:
+snes9x on `XBA`, RustySNES on `REP`. Identical failure everywhere means the test is wrong; failure
+at different points means the references do not agree with each other on instruction-level timing.
+The bitmask each reports makes it concrete — RustySNES `101`, snes9x `100`.
+
+Nothing on hand can decide which is right, because the only oracle available is the emulators
+themselves. **A 256-opcode sweep has this problem 256 times over.** The mechanism is
+straightforward; the blocker is a per-opcode timing table from an external source — undisbeliever's
+tables are the obvious candidate — with its provenance recorded. Until that is sourced, a sweep can
+only produce a *fingerprint* for comparing implementations, not a pass rate. `A5.08` is therefore a
+golden vector, and T-04-I's first task is sourcing the table, not writing assembly.
+
+**`STP` stays excluded outright** — it halts the CPU until reset, so a battery that executes it
+never reports. The dossier's `A5.01`–`A5.08` call
 for measuring every opcode at `m=1,x=1,e=0,DL=$00`. That needs a safe-operand table (opcode length,
 whether it branches, whether it writes somewhere harmful) and a scratch sandbox that survives 256
 arbitrary instructions. It is its own piece of engineering and gets its own ticket rather than
@@ -167,6 +228,9 @@ Recorded because it is the only real measure of whether the battery is worth its
 |---|---|---|
 | `C13.03` | `write_reg` opened with an unconditional `ppu1_mdr = val`, so a write to a *PPU2* register (`$2121`/`$2122`) clobbered *PPU1*'s open-bus latch — two physically separate latches behaving as one | #118 |
 | `C1.06` | `oam_address` was only ever reloaded by a `$2102`/`$2103` write, so it never recovered from wherever sprite evaluation left it; an address a game programmed did not survive a frame | #119 |
+| `B4.05` | `RDNMI` cleared only on read, never at the end of vblank, so `$4210` polled outside vblank reported a vblank that had already ended | #121 |
+| `B4.12` | with H-IRQ disabled the comparator's horizontal half matched unconditionally, making `V == VTIME` a level held across all 341 dots — `$4211` could not acknowledge it. Re-blessed two golden framebuffers as a direct consequence | #121 |
+| `B5.05` | the multiply/divide latches powered up as zero instead of `$FF` / `$FFFF`. Found only because the first power-on measurement disagreed across references, which prompted the research that established the documented value | #121 |
 
 Both were found the same way: the test failed on RustySNES while **both** references passed it.
 The inverse pattern — a test failing identically on all three — has twice meant a broken test

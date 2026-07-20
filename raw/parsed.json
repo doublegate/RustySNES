@@ -1,0 +1,2272 @@
+{
+ "69": {
+  "Syntax": "ADC #const",
+  "Addressing Mode": "Immediate",
+  "Opcode": "$69",
+  "Bytes": "2 / 3",
+  "Cycles": "2",
+  "Extra": "+1 if m=0",
+  "_section": "ADC - Add with Carry"
+ },
+ "6D": {
+  "Syntax": "ADC addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$6D",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0",
+  "_section": "ADC - Add with Carry"
+ },
+ "6F": {
+  "Syntax": "ADC long",
+  "Addressing Mode": "Absolute Long",
+  "Opcode": "$6F",
+  "Bytes": "4",
+  "Cycles": "5",
+  "Extra": "+1 if m=0",
+  "_section": "ADC - Add with Carry"
+ },
+ "65": {
+  "Syntax": "ADC dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$65",
+  "Bytes": "2",
+  "Cycles": "3",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "ADC - Add with Carry"
+ },
+ "72": {
+  "Syntax": "ADC (dp)",
+  "Addressing Mode": "Direct Page Indirect",
+  "Opcode": "$72",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "ADC - Add with Carry"
+ },
+ "67": {
+  "Syntax": "ADC [dp]",
+  "Addressing Mode": "Direct Page Indirect Long",
+  "Opcode": "$67",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "ADC - Add with Carry"
+ },
+ "7D": {
+  "Syntax": "ADC addr, X",
+  "Addressing Mode": "Absolute Indexed, X",
+  "Opcode": "$7D",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if index crosses page boundary",
+  "_section": "ADC - Add with Carry"
+ },
+ "7F": {
+  "Syntax": "ADC long, X",
+  "Addressing Mode": "Absolute Long Indexed, X",
+  "Opcode": "$7F",
+  "Bytes": "4",
+  "Cycles": "5",
+  "Extra": "+1 if m=0",
+  "_section": "ADC - Add with Carry"
+ },
+ "79": {
+  "Syntax": "ADC addr, Y",
+  "Addressing Mode": "Absolute Indexed, Y",
+  "Opcode": "$79",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if index crosses page boundary",
+  "_section": "ADC - Add with Carry"
+ },
+ "75": {
+  "Syntax": "ADC dp, X",
+  "Addressing Mode": "Direct Page Indexed, X",
+  "Opcode": "$75",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "ADC - Add with Carry"
+ },
+ "61": {
+  "Syntax": "ADC (dp, X)",
+  "Addressing Mode": "Direct Page Indirect, X",
+  "Opcode": "$61",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "ADC - Add with Carry"
+ },
+ "71": {
+  "Syntax": "ADC (dp), Y",
+  "Addressing Mode": "DP Indirect Indexed, Y",
+  "Opcode": "$71",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0, +1 if index crosses page boundary",
+  "_section": "ADC - Add with Carry"
+ },
+ "77": {
+  "Syntax": "ADC [dp], Y",
+  "Addressing Mode": "DP Indirect Long Indexed, Y",
+  "Opcode": "$77",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "ADC - Add with Carry"
+ },
+ "63": {
+  "Syntax": "ADC sr, S",
+  "Addressing Mode": "Stack Relative",
+  "Opcode": "$63",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if m=0",
+  "_section": "ADC - Add with Carry"
+ },
+ "73": {
+  "Syntax": "ADC (sr, S), Y",
+  "Addressing Mode": "SR Indirect Indexed, Y",
+  "Opcode": "$73",
+  "Bytes": "2",
+  "Cycles": "7",
+  "Extra": "+1 if m=0",
+  "_section": "ADC - Add with Carry"
+ },
+ "29": {
+  "Syntax": "AND #const",
+  "Addressing Mode": "Immediate",
+  "Opcode": "$29",
+  "Bytes": "2 / 3",
+  "Cycles": "2",
+  "Extra": "+1 if m=0",
+  "_section": "AND - And Accumulator with Memory"
+ },
+ "2D": {
+  "Syntax": "AND addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$2D",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0",
+  "_section": "AND - And Accumulator with Memory"
+ },
+ "2F": {
+  "Syntax": "AND long",
+  "Addressing Mode": "Absolute Long",
+  "Opcode": "$2F",
+  "Bytes": "4",
+  "Cycles": "5",
+  "Extra": "+1 if m=0",
+  "_section": "AND - And Accumulator with Memory"
+ },
+ "25": {
+  "Syntax": "AND dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$25",
+  "Bytes": "2",
+  "Cycles": "3",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "AND - And Accumulator with Memory"
+ },
+ "32": {
+  "Syntax": "AND (dp)",
+  "Addressing Mode": "Direct Page Indirect",
+  "Opcode": "$32",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "AND - And Accumulator with Memory"
+ },
+ "27": {
+  "Syntax": "AND [dp]",
+  "Addressing Mode": "Direct Page Indirect Long",
+  "Opcode": "$27",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "AND - And Accumulator with Memory"
+ },
+ "3D": {
+  "Syntax": "AND addr, X",
+  "Addressing Mode": "Absolute Indexed, X",
+  "Opcode": "$3D",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if index crosses page boundary",
+  "_section": "AND - And Accumulator with Memory"
+ },
+ "3F": {
+  "Syntax": "AND long, X",
+  "Addressing Mode": "Absolute Long Indexed, X",
+  "Opcode": "$3F",
+  "Bytes": "4",
+  "Cycles": "5",
+  "Extra": "+1 if m=0",
+  "_section": "AND - And Accumulator with Memory"
+ },
+ "39": {
+  "Syntax": "AND addr, Y",
+  "Addressing Mode": "Absolute Indexed, Y",
+  "Opcode": "$39",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if index crosses page boundary",
+  "_section": "AND - And Accumulator with Memory"
+ },
+ "35": {
+  "Syntax": "AND dp, X",
+  "Addressing Mode": "Direct Page Indexed, X",
+  "Opcode": "$35",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "AND - And Accumulator with Memory"
+ },
+ "21": {
+  "Syntax": "AND (dp, X)",
+  "Addressing Mode": "Direct Page Indirect, X",
+  "Opcode": "$21",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "AND - And Accumulator with Memory"
+ },
+ "31": {
+  "Syntax": "AND (dp), Y",
+  "Addressing Mode": "DP Indirect Indexed, Y",
+  "Opcode": "$31",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0, +1 if index crosses page boundary",
+  "_section": "AND - And Accumulator with Memory"
+ },
+ "37": {
+  "Syntax": "AND [dp], Y",
+  "Addressing Mode": "DP Indirect Long Indexed, Y",
+  "Opcode": "$37",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "AND - And Accumulator with Memory"
+ },
+ "23": {
+  "Syntax": "AND sr, S",
+  "Addressing Mode": "Stack Relative",
+  "Opcode": "$23",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if m=0",
+  "_section": "AND - And Accumulator with Memory"
+ },
+ "33": {
+  "Syntax": "AND (sr, S), Y",
+  "Addressing Mode": "SR Indirect Indexed, Y",
+  "Opcode": "$33",
+  "Bytes": "2",
+  "Cycles": "7",
+  "Extra": "+1 if m=0",
+  "_section": "AND - And Accumulator with Memory"
+ },
+ "0A": {
+  "Syntax": "ASL",
+  "Addressing Mode": "Accumulator",
+  "Opcode": "$0A",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "ASL - Arithmetic Shift Left"
+ },
+ "0E": {
+  "Syntax": "ASL addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$0E",
+  "Bytes": "3",
+  "Cycles": "6",
+  "Extra": "+2 if m=0",
+  "_section": "ASL - Arithmetic Shift Left"
+ },
+ "06": {
+  "Syntax": "ASL dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$06",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+2 if m=0, +1 if D.l ≠ 0",
+  "_section": "ASL - Arithmetic Shift Left"
+ },
+ "1E": {
+  "Syntax": "ASL addr, X",
+  "Addressing Mode": "Absolute Indexed, X",
+  "Opcode": "$1E",
+  "Bytes": "3",
+  "Cycles": "7",
+  "Extra": "+2 if m=0",
+  "_section": "ASL - Arithmetic Shift Left"
+ },
+ "16": {
+  "Syntax": "ASL dp, X",
+  "Addressing Mode": "Direct Page Indexed, X",
+  "Opcode": "$16",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+2 if m=0, +1 if D.l ≠ 0",
+  "_section": "ASL - Arithmetic Shift Left"
+ },
+ "90": {
+  "Syntax": "BCC near",
+  "Name": "Branch if Carry Clear",
+  "Condition": "carry clear",
+  "": "c=0",
+  "Opcode": "$90",
+  "Bytes": "2",
+  "Cycles": "2",
+  "Extra": "+1 if branch taken, +1 if e=1",
+  "_section": "Branches"
+ },
+ "B0": {
+  "Syntax": "BCS near",
+  "Name": "Branch if Carry Set",
+  "Condition": "carry set",
+  "": "c=1",
+  "Opcode": "$B0",
+  "Bytes": "2",
+  "Cycles": "2",
+  "Extra": "+1 if branch taken, +1 if e=1",
+  "_section": "Branches"
+ },
+ "D0": {
+  "Syntax": "BNE near",
+  "Name": "Branch if Not Equal",
+  "Condition": "zero clear",
+  "": "z=0",
+  "Opcode": "$D0",
+  "Bytes": "2",
+  "Cycles": "2",
+  "Extra": "+1 if branch taken, +1 if e=1",
+  "_section": "Branches"
+ },
+ "F0": {
+  "Syntax": "BEQ near",
+  "Name": "Branch if Equal",
+  "Condition": "zero set",
+  "": "z=1",
+  "Opcode": "$F0",
+  "Bytes": "2",
+  "Cycles": "2",
+  "Extra": "+1 if branch taken, +1 if e=1",
+  "_section": "Branches"
+ },
+ "10": {
+  "Syntax": "BPL near",
+  "Name": "Branch if Plus",
+  "Condition": "negative clear",
+  "": "n=0",
+  "Opcode": "$10",
+  "Bytes": "2",
+  "Cycles": "2",
+  "Extra": "+1 if branch taken, +1 if e=1",
+  "_section": "Branches"
+ },
+ "30": {
+  "Syntax": "BMI near",
+  "Name": "Branch if Minus",
+  "Condition": "negative set",
+  "": "n=1",
+  "Opcode": "$30",
+  "Bytes": "2",
+  "Cycles": "2",
+  "Extra": "+1 if branch taken, +1 if e=1",
+  "_section": "Branches"
+ },
+ "50": {
+  "Syntax": "BVC near",
+  "Name": "Branch if Overflow Clear",
+  "Condition": "overflow clear",
+  "": "v=0",
+  "Opcode": "$50",
+  "Bytes": "2",
+  "Cycles": "2",
+  "Extra": "+1 if branch taken, +1 if e=1",
+  "_section": "Branches"
+ },
+ "70": {
+  "Syntax": "BVS near",
+  "Name": "Branch if Overflow Set",
+  "Condition": "overflow set",
+  "": "v=1",
+  "Opcode": "$70",
+  "Bytes": "2",
+  "Cycles": "2",
+  "Extra": "+1 if branch taken, +1 if e=1",
+  "_section": "Branches"
+ },
+ "80": {
+  "Syntax": "BRA near",
+  "Name": "Branch Always",
+  "Condition": "always",
+  "": "",
+  "Opcode": "$80",
+  "Bytes": "2",
+  "Cycles": "3",
+  "Extra": "+1 if e=1",
+  "_section": "Branches"
+ },
+ "82": {
+  "Syntax": "BRL label",
+  "Name": "Branch Always Long",
+  "Condition": "always",
+  "": "",
+  "Opcode": "$82",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "",
+  "_section": "Branches"
+ },
+ "89": {
+  "Syntax": "BIT #const",
+  "Addressing Mode": "Immediate",
+  "Opcode": "$89",
+  "Bytes": "2 / 3",
+  "Cycles": "2",
+  "Extra": "+1 if m=0",
+  "_section": "BIT - Test Memory Bits against Accumulator"
+ },
+ "2C": {
+  "Syntax": "BIT addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$2C",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0",
+  "_section": "BIT - Test Memory Bits against Accumulator"
+ },
+ "24": {
+  "Syntax": "BIT dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$24",
+  "Bytes": "2",
+  "Cycles": "3",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "BIT - Test Memory Bits against Accumulator"
+ },
+ "3C": {
+  "Syntax": "BIT addr, X",
+  "Addressing Mode": "Absolute Indexed, X",
+  "Opcode": "$3C",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if index crosses page boundary",
+  "_section": "BIT - Test Memory Bits against Accumulator"
+ },
+ "34": {
+  "Syntax": "BIT dp, X",
+  "Addressing Mode": "Direct Page Indexed, X",
+  "Opcode": "$34",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "BIT - Test Memory Bits against Accumulator"
+ },
+ "00": {
+  "Syntax": "BRK param",
+  "Addressing Mode": "Interrupt",
+  "Opcode": "$00",
+  "Bytes": "2",
+  "Cycles": "7",
+  "Extra": "+1 if e=0",
+  "_section": "Software Interrupts"
+ },
+ "02": {
+  "Syntax": "COP param",
+  "Addressing Mode": "Interrupt",
+  "Opcode": "$02",
+  "Bytes": "2",
+  "Cycles": "7",
+  "Extra": "+1 if e=0",
+  "_section": "Software Interrupts"
+ },
+ "18": {
+  "Syntax": "CLC",
+  "Name": "Clear Carry Flag",
+  "Opcode": "$18",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "Clear Status Flags"
+ },
+ "58": {
+  "Syntax": "CLI",
+  "Name": "Clear Interrupt Disable Flag",
+  "Opcode": "$58",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "Clear Status Flags"
+ },
+ "D8": {
+  "Syntax": "CLD",
+  "Name": "Clear Decimal Flag",
+  "Opcode": "$D8",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "Clear Status Flags"
+ },
+ "B8": {
+  "Syntax": "CLV",
+  "Name": "Clear Overflow Flag",
+  "Opcode": "$B8",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "Clear Status Flags"
+ },
+ "C9": {
+  "Syntax": "CMP #const",
+  "Addressing Mode": "Immediate",
+  "Opcode": "$C9",
+  "Bytes": "2 / 3",
+  "Cycles": "2",
+  "Extra": "+1 if m=0",
+  "_section": "CMP - Compare Accumulator with Memory"
+ },
+ "CD": {
+  "Syntax": "CMP addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$CD",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0",
+  "_section": "CMP - Compare Accumulator with Memory"
+ },
+ "CF": {
+  "Syntax": "CMP long",
+  "Addressing Mode": "Absolute Long",
+  "Opcode": "$CF",
+  "Bytes": "4",
+  "Cycles": "5",
+  "Extra": "+1 if m=0",
+  "_section": "CMP - Compare Accumulator with Memory"
+ },
+ "C5": {
+  "Syntax": "CMP dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$C5",
+  "Bytes": "2",
+  "Cycles": "3",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "CMP - Compare Accumulator with Memory"
+ },
+ "D2": {
+  "Syntax": "CMP (dp)",
+  "Addressing Mode": "Direct Page Indirect",
+  "Opcode": "$D2",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "CMP - Compare Accumulator with Memory"
+ },
+ "C7": {
+  "Syntax": "CMP [dp]",
+  "Addressing Mode": "Direct Page Indirect Long",
+  "Opcode": "$C7",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "CMP - Compare Accumulator with Memory"
+ },
+ "DD": {
+  "Syntax": "CMP addr, X",
+  "Addressing Mode": "Absolute Indexed, X",
+  "Opcode": "$DD",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if index crosses page boundary",
+  "_section": "CMP - Compare Accumulator with Memory"
+ },
+ "DF": {
+  "Syntax": "CMP long, X",
+  "Addressing Mode": "Absolute Long Indexed, X",
+  "Opcode": "$DF",
+  "Bytes": "4",
+  "Cycles": "5",
+  "Extra": "+1 if m=0",
+  "_section": "CMP - Compare Accumulator with Memory"
+ },
+ "D9": {
+  "Syntax": "CMP addr, Y",
+  "Addressing Mode": "Absolute Indexed, Y",
+  "Opcode": "$D9",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if index crosses page boundary",
+  "_section": "CMP - Compare Accumulator with Memory"
+ },
+ "D5": {
+  "Syntax": "CMP dp, X",
+  "Addressing Mode": "Direct Page Indexed, X",
+  "Opcode": "$D5",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "CMP - Compare Accumulator with Memory"
+ },
+ "C1": {
+  "Syntax": "CMP (dp, X)",
+  "Addressing Mode": "Direct Page Indirect, X",
+  "Opcode": "$C1",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "CMP - Compare Accumulator with Memory"
+ },
+ "D1": {
+  "Syntax": "CMP (dp), Y",
+  "Addressing Mode": "DP Indirect Indexed, Y",
+  "Opcode": "$D1",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0, +1 if index crosses page boundary",
+  "_section": "CMP - Compare Accumulator with Memory"
+ },
+ "D7": {
+  "Syntax": "CMP [dp], Y",
+  "Addressing Mode": "DP Indirect Long Indexed, Y",
+  "Opcode": "$D7",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "CMP - Compare Accumulator with Memory"
+ },
+ "C3": {
+  "Syntax": "CMP sr, S",
+  "Addressing Mode": "Stack Relative",
+  "Opcode": "$C3",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if m=0",
+  "_section": "CMP - Compare Accumulator with Memory"
+ },
+ "D3": {
+  "Syntax": "CMP (sr, S), Y",
+  "Addressing Mode": "SR Indirect Indexed, Y",
+  "Opcode": "$D3",
+  "Bytes": "2",
+  "Cycles": "7",
+  "Extra": "+1 if m=0",
+  "_section": "CMP - Compare Accumulator with Memory"
+ },
+ "E0": {
+  "Syntax": "CPX #const",
+  "Addressing Mode": "Immediate",
+  "Opcode": "$E0",
+  "Bytes": "2 / 3",
+  "Cycles": "2",
+  "Extra": "+1 if x=0",
+  "_section": "CPX - Compare Index Register X with Memory"
+ },
+ "EC": {
+  "Syntax": "CPX addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$EC",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if x=0",
+  "_section": "CPX - Compare Index Register X with Memory"
+ },
+ "E4": {
+  "Syntax": "CPX dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$E4",
+  "Bytes": "2",
+  "Cycles": "3",
+  "Extra": "+1 if x=0, +1 if D.l ≠ 0",
+  "_section": "CPX - Compare Index Register X with Memory"
+ },
+ "C0": {
+  "Syntax": "CPY #const",
+  "Addressing Mode": "Immediate",
+  "Opcode": "$C0",
+  "Bytes": "2 / 3",
+  "Cycles": "2",
+  "Extra": "+1 if x=0",
+  "_section": "CPY - Compare Index Register Y with Memory"
+ },
+ "CC": {
+  "Syntax": "CPY addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$CC",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if x=0",
+  "_section": "CPY - Compare Index Register Y with Memory"
+ },
+ "C4": {
+  "Syntax": "CPY dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$C4",
+  "Bytes": "2",
+  "Cycles": "3",
+  "Extra": "+1 if x=0, +1 if D.l ≠ 0",
+  "_section": "CPY - Compare Index Register Y with Memory"
+ },
+ "3A": {
+  "Syntax": "DEC",
+  "Addressing Mode": "Accumulator",
+  "Opcode": "$3A",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "DEC - Decrement"
+ },
+ "CE": {
+  "Syntax": "DEC addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$CE",
+  "Bytes": "3",
+  "Cycles": "6",
+  "Extra": "+2 if m=0",
+  "_section": "DEC - Decrement"
+ },
+ "C6": {
+  "Syntax": "DEC dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$C6",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+2 if m=0, +1 if D.l ≠ 0",
+  "_section": "DEC - Decrement"
+ },
+ "DE": {
+  "Syntax": "DEC addr, X",
+  "Addressing Mode": "Absolute Indexed, X",
+  "Opcode": "$DE",
+  "Bytes": "3",
+  "Cycles": "7",
+  "Extra": "+2 if m=0",
+  "_section": "DEC - Decrement"
+ },
+ "D6": {
+  "Syntax": "DEC dp, X",
+  "Addressing Mode": "Direct Page Indexed, X",
+  "Opcode": "$D6",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+2 if m=0, +1 if D.l ≠ 0",
+  "_section": "DEC - Decrement"
+ },
+ "CA": {
+  "Syntax": "DEX",
+  "Addressing Mode": "Implied",
+  "Opcode": "$CA",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "DEX, DEY - Decrement Index Registers"
+ },
+ "88": {
+  "Syntax": "DEY",
+  "Addressing Mode": "Implied",
+  "Opcode": "$88",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "DEX, DEY - Decrement Index Registers"
+ },
+ "49": {
+  "Syntax": "EOR #const",
+  "Addressing Mode": "Immediate",
+  "Opcode": "$49",
+  "Bytes": "2 / 3",
+  "Cycles": "2",
+  "Extra": "+1 if m=0",
+  "_section": "EOR - Exclusive OR Accumulator with Memory"
+ },
+ "4D": {
+  "Syntax": "EOR addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$4D",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0",
+  "_section": "EOR - Exclusive OR Accumulator with Memory"
+ },
+ "4F": {
+  "Syntax": "EOR long",
+  "Addressing Mode": "Absolute Long",
+  "Opcode": "$4F",
+  "Bytes": "4",
+  "Cycles": "5",
+  "Extra": "+1 if m=0",
+  "_section": "EOR - Exclusive OR Accumulator with Memory"
+ },
+ "45": {
+  "Syntax": "EOR dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$45",
+  "Bytes": "2",
+  "Cycles": "3",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "EOR - Exclusive OR Accumulator with Memory"
+ },
+ "52": {
+  "Syntax": "EOR (dp)",
+  "Addressing Mode": "Direct Page Indirect",
+  "Opcode": "$52",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "EOR - Exclusive OR Accumulator with Memory"
+ },
+ "47": {
+  "Syntax": "EOR [dp]",
+  "Addressing Mode": "Direct Page Indirect Long",
+  "Opcode": "$47",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "EOR - Exclusive OR Accumulator with Memory"
+ },
+ "5D": {
+  "Syntax": "EOR addr, X",
+  "Addressing Mode": "Absolute Indexed, X",
+  "Opcode": "$5D",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if index crosses page boundary",
+  "_section": "EOR - Exclusive OR Accumulator with Memory"
+ },
+ "5F": {
+  "Syntax": "EOR long, X",
+  "Addressing Mode": "Absolute Long Indexed, X",
+  "Opcode": "$5F",
+  "Bytes": "4",
+  "Cycles": "5",
+  "Extra": "+1 if m=0",
+  "_section": "EOR - Exclusive OR Accumulator with Memory"
+ },
+ "59": {
+  "Syntax": "EOR addr, Y",
+  "Addressing Mode": "Absolute Indexed, Y",
+  "Opcode": "$59",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if index crosses page boundary",
+  "_section": "EOR - Exclusive OR Accumulator with Memory"
+ },
+ "55": {
+  "Syntax": "EOR dp, X",
+  "Addressing Mode": "Direct Page Indexed, X",
+  "Opcode": "$55",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "EOR - Exclusive OR Accumulator with Memory"
+ },
+ "41": {
+  "Syntax": "EOR (dp, X)",
+  "Addressing Mode": "Direct Page Indirect, X",
+  "Opcode": "$41",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "EOR - Exclusive OR Accumulator with Memory"
+ },
+ "51": {
+  "Syntax": "EOR (dp), Y",
+  "Addressing Mode": "DP Indirect Indexed, Y",
+  "Opcode": "$51",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0, +1 if index crosses page boundary",
+  "_section": "EOR - Exclusive OR Accumulator with Memory"
+ },
+ "57": {
+  "Syntax": "EOR [dp], Y",
+  "Addressing Mode": "DP Indirect Long Indexed, Y",
+  "Opcode": "$57",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "EOR - Exclusive OR Accumulator with Memory"
+ },
+ "43": {
+  "Syntax": "EOR sr, S",
+  "Addressing Mode": "Stack Relative",
+  "Opcode": "$43",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if m=0",
+  "_section": "EOR - Exclusive OR Accumulator with Memory"
+ },
+ "53": {
+  "Syntax": "EOR (sr, S), Y",
+  "Addressing Mode": "SR Indirect Indexed, Y",
+  "Opcode": "$53",
+  "Bytes": "2",
+  "Cycles": "7",
+  "Extra": "+1 if m=0",
+  "_section": "EOR - Exclusive OR Accumulator with Memory"
+ },
+ "1A": {
+  "Syntax": "INC",
+  "Addressing Mode": "Accumulator",
+  "Opcode": "$1A",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "INC - Increment"
+ },
+ "EE": {
+  "Syntax": "INC addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$EE",
+  "Bytes": "3",
+  "Cycles": "6",
+  "Extra": "+2 if m=0",
+  "_section": "INC - Increment"
+ },
+ "E6": {
+  "Syntax": "INC dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$E6",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+2 if m=0, +1 if D.l ≠ 0",
+  "_section": "INC - Increment"
+ },
+ "FE": {
+  "Syntax": "INC addr, X",
+  "Addressing Mode": "Absolute Indexed, X",
+  "Opcode": "$FE",
+  "Bytes": "3",
+  "Cycles": "7",
+  "Extra": "+2 if m=0",
+  "_section": "INC - Increment"
+ },
+ "F6": {
+  "Syntax": "INC dp, X",
+  "Addressing Mode": "Direct Page Indexed, X",
+  "Opcode": "$F6",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+2 if m=0, +1 if D.l ≠ 0",
+  "_section": "INC - Increment"
+ },
+ "E8": {
+  "Syntax": "INX",
+  "Addressing Mode": "Implied",
+  "Opcode": "$E8",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "INX, INY - Increment Index Registers"
+ },
+ "C8": {
+  "Syntax": "INY",
+  "Addressing Mode": "Implied",
+  "Opcode": "$C8",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "INX, INY - Increment Index Registers"
+ },
+ "20": {
+  "Syntax": "JSR addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$20",
+  "Bytes": "3",
+  "Cycles": "6",
+  "Extra": "",
+  "_section": "JSR, JSL - Jump to Subroutine"
+ },
+ "FC": {
+  "Syntax": "JSR (addr, X)",
+  "Addressing Mode": "Absolute Indexed Indirect, X",
+  "Opcode": "$FC",
+  "Bytes": "3",
+  "Cycles": "8",
+  "Extra": "",
+  "_section": "JSR, JSL - Jump to Subroutine"
+ },
+ "22": {
+  "Syntax": "JSL long",
+  "Addressing Mode": "Absolute Long",
+  "Opcode": "$22",
+  "Bytes": "4",
+  "Cycles": "8",
+  "Extra": "",
+  "_section": "JSR, JSL - Jump to Subroutine"
+ },
+ "A9": {
+  "Syntax": "LDA #const",
+  "Addressing Mode": "Immediate",
+  "Opcode": "$A9",
+  "Bytes": "2 / 3",
+  "Cycles": "2",
+  "Extra": "+1 if m=0",
+  "_section": "LDA - Load Accumulator from Memory"
+ },
+ "AD": {
+  "Syntax": "LDA addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$AD",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0",
+  "_section": "LDA - Load Accumulator from Memory"
+ },
+ "AF": {
+  "Syntax": "LDA long",
+  "Addressing Mode": "Absolute Long",
+  "Opcode": "$AF",
+  "Bytes": "4",
+  "Cycles": "5",
+  "Extra": "+1 if m=0",
+  "_section": "LDA - Load Accumulator from Memory"
+ },
+ "A5": {
+  "Syntax": "LDA dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$A5",
+  "Bytes": "2",
+  "Cycles": "3",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "LDA - Load Accumulator from Memory"
+ },
+ "B2": {
+  "Syntax": "LDA (dp)",
+  "Addressing Mode": "Direct Page Indirect",
+  "Opcode": "$B2",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "LDA - Load Accumulator from Memory"
+ },
+ "A7": {
+  "Syntax": "LDA [dp]",
+  "Addressing Mode": "Direct Page Indirect Long",
+  "Opcode": "$A7",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "LDA - Load Accumulator from Memory"
+ },
+ "BD": {
+  "Syntax": "LDA addr, X",
+  "Addressing Mode": "Absolute Indexed, X",
+  "Opcode": "$BD",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if index crosses page boundary",
+  "_section": "LDA - Load Accumulator from Memory"
+ },
+ "BF": {
+  "Syntax": "LDA long, X",
+  "Addressing Mode": "Absolute Long Indexed, X",
+  "Opcode": "$BF",
+  "Bytes": "4",
+  "Cycles": "5",
+  "Extra": "+1 if m=0",
+  "_section": "LDA - Load Accumulator from Memory"
+ },
+ "B9": {
+  "Syntax": "LDA addr, Y",
+  "Addressing Mode": "Absolute Indexed, Y",
+  "Opcode": "$B9",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if index crosses page boundary",
+  "_section": "LDA - Load Accumulator from Memory"
+ },
+ "B5": {
+  "Syntax": "LDA dp, X",
+  "Addressing Mode": "Direct Page Indexed, X",
+  "Opcode": "$B5",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "LDA - Load Accumulator from Memory"
+ },
+ "A1": {
+  "Syntax": "LDA (dp, X)",
+  "Addressing Mode": "Direct Page Indirect, X",
+  "Opcode": "$A1",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "LDA - Load Accumulator from Memory"
+ },
+ "B1": {
+  "Syntax": "LDA (dp), Y",
+  "Addressing Mode": "DP Indirect Indexed, Y",
+  "Opcode": "$B1",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0, +1 if index crosses page boundary",
+  "_section": "LDA - Load Accumulator from Memory"
+ },
+ "B7": {
+  "Syntax": "LDA [dp], Y",
+  "Addressing Mode": "DP Indirect Long Indexed, Y",
+  "Opcode": "$B7",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "LDA - Load Accumulator from Memory"
+ },
+ "A3": {
+  "Syntax": "LDA sr, S",
+  "Addressing Mode": "Stack Relative",
+  "Opcode": "$A3",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if m=0",
+  "_section": "LDA - Load Accumulator from Memory"
+ },
+ "B3": {
+  "Syntax": "LDA (sr, S), Y",
+  "Addressing Mode": "SR Indirect Indexed, Y",
+  "Opcode": "$B3",
+  "Bytes": "2",
+  "Cycles": "7",
+  "Extra": "+1 if m=0",
+  "_section": "LDA - Load Accumulator from Memory"
+ },
+ "A2": {
+  "Syntax": "LDX #const",
+  "Addressing Mode": "Immediate",
+  "Opcode": "$A2",
+  "Bytes": "2 / 3",
+  "Cycles": "2",
+  "Extra": "+1 if x=0",
+  "_section": "LDX - Load Index Register X from Memory"
+ },
+ "AE": {
+  "Syntax": "LDX addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$AE",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if x=0",
+  "_section": "LDX - Load Index Register X from Memory"
+ },
+ "A6": {
+  "Syntax": "LDX dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$A6",
+  "Bytes": "2",
+  "Cycles": "3",
+  "Extra": "+1 if x=0, +1 if D.l ≠ 0",
+  "_section": "LDX - Load Index Register X from Memory"
+ },
+ "BE": {
+  "Syntax": "LDX addr, Y",
+  "Addressing Mode": "Absolute Indexed, Y",
+  "Opcode": "$BE",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if x=0, +1 if index crosses page boundary",
+  "_section": "LDX - Load Index Register X from Memory"
+ },
+ "B6": {
+  "Syntax": "LDX dp, Y",
+  "Addressing Mode": "Direct Page Indexed, Y",
+  "Opcode": "$B6",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if x=0, +1 if D.l ≠ 0",
+  "_section": "LDX - Load Index Register X from Memory"
+ },
+ "A0": {
+  "Syntax": "LDY #const",
+  "Addressing Mode": "Immediate",
+  "Opcode": "$A0",
+  "Bytes": "2 / 3",
+  "Cycles": "2",
+  "Extra": "+1 if x=0",
+  "_section": "LDY - Load Index Register Y from Memory"
+ },
+ "AC": {
+  "Syntax": "LDY addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$AC",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if x=0",
+  "_section": "LDY - Load Index Register Y from Memory"
+ },
+ "A4": {
+  "Syntax": "LDY dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$A4",
+  "Bytes": "2",
+  "Cycles": "3",
+  "Extra": "+1 if x=0, +1 if D.l ≠ 0",
+  "_section": "LDY - Load Index Register Y from Memory"
+ },
+ "BC": {
+  "Syntax": "LDY addr, X",
+  "Addressing Mode": "Absolute Indexed, X",
+  "Opcode": "$BC",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if x=0, +1 if index crosses page boundary",
+  "_section": "LDY - Load Index Register Y from Memory"
+ },
+ "B4": {
+  "Syntax": "LDY dp, X",
+  "Addressing Mode": "Direct Page Indexed, X",
+  "Opcode": "$B4",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if x=0, +1 if D.l ≠ 0",
+  "_section": "LDY - Load Index Register Y from Memory"
+ },
+ "4A": {
+  "Syntax": "LSR",
+  "Addressing Mode": "Accumulator",
+  "Opcode": "$4A",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "LSR - Logical Shift Right"
+ },
+ "4E": {
+  "Syntax": "LSR addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$4E",
+  "Bytes": "3",
+  "Cycles": "6",
+  "Extra": "+1 if m=0",
+  "_section": "LSR - Logical Shift Right"
+ },
+ "46": {
+  "Syntax": "LSR dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$46",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "LSR - Logical Shift Right"
+ },
+ "5E": {
+  "Syntax": "LSR addr, X",
+  "Addressing Mode": "Absolute Indexed, X",
+  "Opcode": "$5E",
+  "Bytes": "3",
+  "Cycles": "7",
+  "Extra": "+1 if m=0",
+  "_section": "LSR - Logical Shift Right"
+ },
+ "56": {
+  "Syntax": "LSR dp, X",
+  "Addressing Mode": "Direct Page Indexed, X",
+  "Opcode": "$56",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "LSR - Logical Shift Right"
+ },
+ "54": {
+  "Syntax": "MVN srcBank, destBank",
+  "Addressing Mode": "Block Move",
+  "Opcode": "$54",
+  "Bytes": "3",
+  "Cycles": "",
+  "Extra": "7 per byte moved",
+  "_section": "MVN - Block Move Next"
+ },
+ "44": {
+  "Syntax": "MVP srcBank, destBank",
+  "Addressing Mode": "Block Move",
+  "Opcode": "$44",
+  "Bytes": "3",
+  "Cycles": "",
+  "Extra": "7 per byte moved",
+  "_section": "MVP - Block Move Previous"
+ },
+ "EA": {
+  "Syntax": "NOP",
+  "Addressing Mode": "Implied",
+  "Opcode": "$EA",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "NOP - No Operation"
+ },
+ "09": {
+  "Syntax": "ORA #const",
+  "Addressing Mode": "Immediate",
+  "Opcode": "$09",
+  "Bytes": "2 / 3",
+  "Cycles": "2",
+  "Extra": "+1 if m=0",
+  "_section": "ORA - OR Accumulator with Memory"
+ },
+ "0D": {
+  "Syntax": "ORA addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$0D",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0",
+  "_section": "ORA - OR Accumulator with Memory"
+ },
+ "0F": {
+  "Syntax": "ORA long",
+  "Addressing Mode": "Absolute Long",
+  "Opcode": "$0F",
+  "Bytes": "4",
+  "Cycles": "5",
+  "Extra": "+1 if m=0",
+  "_section": "ORA - OR Accumulator with Memory"
+ },
+ "05": {
+  "Syntax": "ORA dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$05",
+  "Bytes": "2",
+  "Cycles": "3",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "ORA - OR Accumulator with Memory"
+ },
+ "12": {
+  "Syntax": "ORA (dp)",
+  "Addressing Mode": "Direct Page Indirect",
+  "Opcode": "$12",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "ORA - OR Accumulator with Memory"
+ },
+ "07": {
+  "Syntax": "ORA [dp]",
+  "Addressing Mode": "Direct Page Indirect Long",
+  "Opcode": "$07",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "ORA - OR Accumulator with Memory"
+ },
+ "1D": {
+  "Syntax": "ORA addr, X",
+  "Addressing Mode": "Absolute Indexed, X",
+  "Opcode": "$1D",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if index crosses page boundary",
+  "_section": "ORA - OR Accumulator with Memory"
+ },
+ "1F": {
+  "Syntax": "ORA long, X",
+  "Addressing Mode": "Absolute Long Indexed, X",
+  "Opcode": "$1F",
+  "Bytes": "4",
+  "Cycles": "5",
+  "Extra": "+1 if m=0",
+  "_section": "ORA - OR Accumulator with Memory"
+ },
+ "19": {
+  "Syntax": "ORA addr, Y",
+  "Addressing Mode": "Absolute Indexed, Y",
+  "Opcode": "$19",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if index crosses page boundary",
+  "_section": "ORA - OR Accumulator with Memory"
+ },
+ "15": {
+  "Syntax": "ORA dp, X",
+  "Addressing Mode": "Direct Page Indexed, X",
+  "Opcode": "$15",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "ORA - OR Accumulator with Memory"
+ },
+ "01": {
+  "Syntax": "ORA (dp, X)",
+  "Addressing Mode": "Direct Page Indirect, X",
+  "Opcode": "$01",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "ORA - OR Accumulator with Memory"
+ },
+ "11": {
+  "Syntax": "ORA (dp), Y",
+  "Addressing Mode": "DP Indirect Indexed, Y",
+  "Opcode": "$11",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0, +1 if index crosses page boundary",
+  "_section": "ORA - OR Accumulator with Memory"
+ },
+ "17": {
+  "Syntax": "ORA [dp], Y",
+  "Addressing Mode": "DP Indirect Long Indexed, Y",
+  "Opcode": "$17",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "ORA - OR Accumulator with Memory"
+ },
+ "03": {
+  "Syntax": "ORA sr, S",
+  "Addressing Mode": "Stack Relative",
+  "Opcode": "$03",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if m=0",
+  "_section": "ORA - OR Accumulator with Memory"
+ },
+ "13": {
+  "Syntax": "ORA (sr, S), Y",
+  "Addressing Mode": "SR Indirect Indexed, Y",
+  "Opcode": "$13",
+  "Bytes": "2",
+  "Cycles": "7",
+  "Extra": "+1 if m=0",
+  "_section": "ORA - OR Accumulator with Memory"
+ },
+ "F4": {
+  "Syntax": "PEA addr",
+  "Addressing Mode": "Stack (Absolute)",
+  "Opcode": "$F4",
+  "Bytes": "3",
+  "Cycles": "5",
+  "Extra": "",
+  "_section": "PEA - Push Effective Absolute Address"
+ },
+ "D4": {
+  "Syntax": "PEI (dp)",
+  "Addressing Mode": "Stack (DP Indirect)",
+  "Opcode": "$D4",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if D.l ≠ 0",
+  "_section": "PEI - Push Effective Indirect Address"
+ },
+ "62": {
+  "Syntax": "PER label",
+  "Addressing Mode": "Stack (PC Relative Long)",
+  "Opcode": "$62",
+  "Bytes": "3",
+  "Cycles": "6",
+  "Extra": "",
+  "_section": "PER - Push Effective PC Relative Indirect Address"
+ },
+ "48": {
+  "Syntax": "PHA",
+  "Name": "Push Accumulator",
+  "Opcode": "$48",
+  "Bytes": "1",
+  "Cycles": "3",
+  "Extra": "+1 if m=0",
+  "_section": "Push to Stack"
+ },
+ "8B": {
+  "Syntax": "PHB",
+  "Name": "Push Data Bank",
+  "Opcode": "$8B",
+  "Bytes": "1",
+  "Cycles": "3",
+  "Extra": "",
+  "_section": "Push to Stack"
+ },
+ "0B": {
+  "Syntax": "PHD",
+  "Name": "Push Direct Page Register",
+  "Opcode": "$0B",
+  "Bytes": "1",
+  "Cycles": "4",
+  "Extra": "",
+  "_section": "Push to Stack"
+ },
+ "4B": {
+  "Syntax": "PHK",
+  "Name": "Push Program Bank Register",
+  "Opcode": "$4B",
+  "Bytes": "1",
+  "Cycles": "3",
+  "Extra": "",
+  "_section": "Push to Stack"
+ },
+ "08": {
+  "Syntax": "PHP",
+  "Name": "Push Processor Status Register",
+  "Opcode": "$08",
+  "Bytes": "1",
+  "Cycles": "3",
+  "Extra": "",
+  "_section": "Push to Stack"
+ },
+ "DA": {
+  "Syntax": "PHX",
+  "Name": "Push Index Register X",
+  "Opcode": "$DA",
+  "Bytes": "1",
+  "Cycles": "3",
+  "Extra": "+1 if x=0",
+  "_section": "Push to Stack"
+ },
+ "5A": {
+  "Syntax": "PHY",
+  "Name": "Push Index Register Y",
+  "Opcode": "$5A",
+  "Bytes": "1",
+  "Cycles": "3",
+  "Extra": "+1 if x=0",
+  "_section": "Push to Stack"
+ },
+ "68": {
+  "Syntax": "PLA",
+  "Name": "Pull Accumulator",
+  "Opcode": "$68",
+  "Bytes": "1",
+  "Cycles": "4",
+  "Extra": "+1 if m=0",
+  "_section": "Pull from Stack"
+ },
+ "AB": {
+  "Syntax": "PLB",
+  "Name": "Pull Data Bank",
+  "Opcode": "$AB",
+  "Bytes": "1",
+  "Cycles": "4",
+  "Extra": "",
+  "_section": "Pull from Stack"
+ },
+ "2B": {
+  "Syntax": "PLD",
+  "Name": "Pull Direct Page Register",
+  "Opcode": "$2B",
+  "Bytes": "1",
+  "Cycles": "5",
+  "Extra": "",
+  "_section": "Pull from Stack"
+ },
+ "28": {
+  "Syntax": "PLP",
+  "Name": "Pull Processor Status Register",
+  "Opcode": "$28",
+  "Bytes": "1",
+  "Cycles": "4",
+  "Extra": "",
+  "_section": "Pull from Stack"
+ },
+ "FA": {
+  "Syntax": "PLX",
+  "Name": "Pull Index Register X",
+  "Opcode": "$FA",
+  "Bytes": "1",
+  "Cycles": "4",
+  "Extra": "+1 if x=0",
+  "_section": "Pull from Stack"
+ },
+ "7A": {
+  "Syntax": "PLY",
+  "Name": "Pull Index Register Y",
+  "Opcode": "$7A",
+  "Bytes": "1",
+  "Cycles": "4",
+  "Extra": "+1 if x=0",
+  "_section": "Pull from Stack"
+ },
+ "C2": {
+  "Syntax": "REP #const",
+  "Addressing Mode": "Immediate",
+  "Opcode": "$C2",
+  "Bytes": "2",
+  "Cycles": "3",
+  "Extra": "",
+  "_section": "REP - Reset Status Bits"
+ },
+ "2A": {
+  "Syntax": "ROL",
+  "Addressing Mode": "Accumulator",
+  "Opcode": "$2A",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "ROL - Rotate Left"
+ },
+ "2E": {
+  "Syntax": "ROL addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$2E",
+  "Bytes": "3",
+  "Cycles": "6",
+  "Extra": "+1 if m=0",
+  "_section": "ROL - Rotate Left"
+ },
+ "26": {
+  "Syntax": "ROL dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$26",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "ROL - Rotate Left"
+ },
+ "3E": {
+  "Syntax": "ROL addr, X",
+  "Addressing Mode": "Absolute Indexed, X",
+  "Opcode": "$3E",
+  "Bytes": "3",
+  "Cycles": "7",
+  "Extra": "+1 if m=0",
+  "_section": "ROL - Rotate Left"
+ },
+ "36": {
+  "Syntax": "ROL dp, X",
+  "Addressing Mode": "Direct Page Indexed, X",
+  "Opcode": "$36",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "ROL - Rotate Left"
+ },
+ "6A": {
+  "Syntax": "ROR",
+  "Addressing Mode": "Accumulator",
+  "Opcode": "$6A",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "ROR - Rotate Right"
+ },
+ "6E": {
+  "Syntax": "ROR addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$6E",
+  "Bytes": "3",
+  "Cycles": "6",
+  "Extra": "+1 if m=0",
+  "_section": "ROR - Rotate Right"
+ },
+ "66": {
+  "Syntax": "ROR dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$66",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "ROR - Rotate Right"
+ },
+ "7E": {
+  "Syntax": "ROR addr, X",
+  "Addressing Mode": "Absolute Indexed, X",
+  "Opcode": "$7E",
+  "Bytes": "3",
+  "Cycles": "7",
+  "Extra": "+1 if m=0",
+  "_section": "ROR - Rotate Right"
+ },
+ "76": {
+  "Syntax": "ROR dp, X",
+  "Addressing Mode": "Direct Page Indexed, X",
+  "Opcode": "$76",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "ROR - Rotate Right"
+ },
+ "40": {
+  "Syntax": "RTI",
+  "Addressing Mode": "Stack (return interrupt)",
+  "Opcode": "$40",
+  "Bytes": "1",
+  "Cycles": "6",
+  "Extra": "+1 if e=0",
+  "_section": "RTI - Return From Interrupt"
+ },
+ "60": {
+  "Syntax": "RTS",
+  "Addressing Mode": "Stack (return)",
+  "Opcode": "$60",
+  "Bytes": "1",
+  "Cycles": "6",
+  "Extra": "",
+  "_section": "RTS, RTL - Return From Subroutine"
+ },
+ "6B": {
+  "Syntax": "RTL",
+  "Addressing Mode": "Stack (return long)",
+  "Opcode": "$6B",
+  "Bytes": "1",
+  "Cycles": "6",
+  "Extra": "",
+  "_section": "RTS, RTL - Return From Subroutine"
+ },
+ "E9": {
+  "Syntax": "SBC #const",
+  "Addressing Mode": "Immediate",
+  "Opcode": "$E9",
+  "Bytes": "2 / 3",
+  "Cycles": "2",
+  "Extra": "+1 if m=0",
+  "_section": "SBC - Subtract with Borrow from Accumulator"
+ },
+ "ED": {
+  "Syntax": "SBC addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$ED",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0",
+  "_section": "SBC - Subtract with Borrow from Accumulator"
+ },
+ "EF": {
+  "Syntax": "SBC long",
+  "Addressing Mode": "Absolute Long",
+  "Opcode": "$EF",
+  "Bytes": "4",
+  "Cycles": "5",
+  "Extra": "+1 if m=0",
+  "_section": "SBC - Subtract with Borrow from Accumulator"
+ },
+ "E5": {
+  "Syntax": "SBC dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$E5",
+  "Bytes": "2",
+  "Cycles": "3",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "SBC - Subtract with Borrow from Accumulator"
+ },
+ "F2": {
+  "Syntax": "SBC (dp)",
+  "Addressing Mode": "Direct Page Indirect",
+  "Opcode": "$F2",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "SBC - Subtract with Borrow from Accumulator"
+ },
+ "E7": {
+  "Syntax": "SBC [dp]",
+  "Addressing Mode": "Direct Page Indirect Long",
+  "Opcode": "$E7",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "SBC - Subtract with Borrow from Accumulator"
+ },
+ "FD": {
+  "Syntax": "SBC addr, X",
+  "Addressing Mode": "Absolute Indexed, X",
+  "Opcode": "$FD",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if index crosses page boundary",
+  "_section": "SBC - Subtract with Borrow from Accumulator"
+ },
+ "FF": {
+  "Syntax": "SBC long, X",
+  "Addressing Mode": "Absolute Long Indexed, X",
+  "Opcode": "$FF",
+  "Bytes": "4",
+  "Cycles": "5",
+  "Extra": "+1 if m=0",
+  "_section": "SBC - Subtract with Borrow from Accumulator"
+ },
+ "F9": {
+  "Syntax": "SBC addr, Y",
+  "Addressing Mode": "Absolute Indexed, Y",
+  "Opcode": "$F9",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if index crosses page boundary",
+  "_section": "SBC - Subtract with Borrow from Accumulator"
+ },
+ "F5": {
+  "Syntax": "SBC dp, X",
+  "Addressing Mode": "Direct Page Indexed, X",
+  "Opcode": "$F5",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "SBC - Subtract with Borrow from Accumulator"
+ },
+ "E1": {
+  "Syntax": "SBC (dp, X)",
+  "Addressing Mode": "Direct Page Indirect, X",
+  "Opcode": "$E1",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "SBC - Subtract with Borrow from Accumulator"
+ },
+ "F1": {
+  "Syntax": "SBC (dp), Y",
+  "Addressing Mode": "DP Indirect Indexed, Y",
+  "Opcode": "$F1",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0, +1 if index crosses page boundary",
+  "_section": "SBC - Subtract with Borrow from Accumulator"
+ },
+ "F7": {
+  "Syntax": "SBC [dp], Y",
+  "Addressing Mode": "DP Indirect Long Indexed, Y",
+  "Opcode": "$F7",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "SBC - Subtract with Borrow from Accumulator"
+ },
+ "E3": {
+  "Syntax": "SBC sr, S",
+  "Addressing Mode": "Stack Relative",
+  "Opcode": "$E3",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if m=0",
+  "_section": "SBC - Subtract with Borrow from Accumulator"
+ },
+ "F3": {
+  "Syntax": "SBC (sr, S), Y",
+  "Addressing Mode": "SR Indirect Indexed, Y",
+  "Opcode": "$F3",
+  "Bytes": "2",
+  "Cycles": "7",
+  "Extra": "+1 if m=0",
+  "_section": "SBC - Subtract with Borrow from Accumulator"
+ },
+ "38": {
+  "Syntax": "SEC",
+  "Name": "Set Carry Flag",
+  "Opcode": "$38",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "Set Status Flags"
+ },
+ "78": {
+  "Syntax": "SEI",
+  "Name": "Set Interrupt Disable Flag",
+  "Opcode": "$78",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "Set Status Flags"
+ },
+ "F8": {
+  "Syntax": "SED",
+  "Name": "Set Decimal Flag",
+  "Opcode": "$F8",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "Set Status Flags"
+ },
+ "E2": {
+  "Syntax": "SEP #const",
+  "Addressing Mode": "Immediate",
+  "Opcode": "$E2",
+  "Bytes": "2",
+  "Cycles": "3",
+  "Extra": "",
+  "_section": "SEP - Set Status Bits"
+ },
+ "8D": {
+  "Syntax": "STA addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$8D",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0",
+  "_section": "STA - Store Accumulator to Memory"
+ },
+ "8F": {
+  "Syntax": "STA long",
+  "Addressing Mode": "Absolute Long",
+  "Opcode": "$8F",
+  "Bytes": "4",
+  "Cycles": "5",
+  "Extra": "+1 if m=0",
+  "_section": "STA - Store Accumulator to Memory"
+ },
+ "85": {
+  "Syntax": "STA dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$85",
+  "Bytes": "2",
+  "Cycles": "3",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "STA - Store Accumulator to Memory"
+ },
+ "92": {
+  "Syntax": "STA (dp)",
+  "Addressing Mode": "Direct Page Indirect",
+  "Opcode": "$92",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "STA - Store Accumulator to Memory"
+ },
+ "87": {
+  "Syntax": "STA [dp]",
+  "Addressing Mode": "Direct Page Indirect Long",
+  "Opcode": "$87",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "STA - Store Accumulator to Memory"
+ },
+ "9D": {
+  "Syntax": "STA addr, X",
+  "Addressing Mode": "Absolute Indexed, X",
+  "Opcode": "$9D",
+  "Bytes": "3",
+  "Cycles": "5",
+  "Extra": "+1 if m=0",
+  "_section": "STA - Store Accumulator to Memory"
+ },
+ "9F": {
+  "Syntax": "STA long, X",
+  "Addressing Mode": "Absolute Long Indexed, X",
+  "Opcode": "$9F",
+  "Bytes": "4",
+  "Cycles": "5",
+  "Extra": "+1 if m=0",
+  "_section": "STA - Store Accumulator to Memory"
+ },
+ "99": {
+  "Syntax": "STA addr, Y",
+  "Addressing Mode": "Absolute Indexed, Y",
+  "Opcode": "$99",
+  "Bytes": "3",
+  "Cycles": "5",
+  "Extra": "+1 if m=0",
+  "_section": "STA - Store Accumulator to Memory"
+ },
+ "95": {
+  "Syntax": "STA dp, X",
+  "Addressing Mode": "Direct Page Indexed, X",
+  "Opcode": "$95",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "STA - Store Accumulator to Memory"
+ },
+ "81": {
+  "Syntax": "STA (dp, X)",
+  "Addressing Mode": "Direct Page Indirect, X",
+  "Opcode": "$81",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "STA - Store Accumulator to Memory"
+ },
+ "91": {
+  "Syntax": "STA (dp), Y",
+  "Addressing Mode": "DP Indirect Indexed, Y",
+  "Opcode": "$91",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "STA - Store Accumulator to Memory"
+ },
+ "97": {
+  "Syntax": "STA [dp], Y",
+  "Addressing Mode": "DP Indirect Long Indexed, Y",
+  "Opcode": "$97",
+  "Bytes": "2",
+  "Cycles": "6",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "STA - Store Accumulator to Memory"
+ },
+ "83": {
+  "Syntax": "STA sr, S",
+  "Addressing Mode": "Stack Relative",
+  "Opcode": "$83",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if m=0",
+  "_section": "STA - Store Accumulator to Memory"
+ },
+ "93": {
+  "Syntax": "STA (sr, S), Y",
+  "Addressing Mode": "SR Indirect Indexed, Y",
+  "Opcode": "$93",
+  "Bytes": "2",
+  "Cycles": "7",
+  "Extra": "+1 if m=0",
+  "_section": "STA - Store Accumulator to Memory"
+ },
+ "DB": {
+  "Syntax": "STP",
+  "Addressing Mode": "Implied",
+  "Opcode": "$DB",
+  "Bytes": "1",
+  "Cycles": "3",
+  "Extra": "",
+  "_section": "STP - Stop the Processor"
+ },
+ "8E": {
+  "Syntax": "STX addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$8E",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if x=0",
+  "_section": "STX - Store Index Register X to Memory"
+ },
+ "86": {
+  "Syntax": "STX dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$86",
+  "Bytes": "2",
+  "Cycles": "3",
+  "Extra": "+1 if x=0, +1 if D.l ≠ 0",
+  "_section": "STX - Store Index Register X to Memory"
+ },
+ "96": {
+  "Syntax": "STX dp, Y",
+  "Addressing Mode": "Direct Page Indexed, Y",
+  "Opcode": "$96",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if x=0, +1 if D.l ≠ 0",
+  "_section": "STX - Store Index Register X to Memory"
+ },
+ "8C": {
+  "Syntax": "STY addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$8C",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if x=0",
+  "_section": "STY - Store Index Register Y to Memory"
+ },
+ "84": {
+  "Syntax": "STY dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$84",
+  "Bytes": "2",
+  "Cycles": "3",
+  "Extra": "+1 if x=0, +1 if D.l ≠ 0",
+  "_section": "STY - Store Index Register Y to Memory"
+ },
+ "94": {
+  "Syntax": "STY dp, X",
+  "Addressing Mode": "Direct Page Indexed, X",
+  "Opcode": "$94",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if x=0, +1 if D.l ≠ 0",
+  "_section": "STY - Store Index Register Y to Memory"
+ },
+ "9C": {
+  "Syntax": "STZ addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$9C",
+  "Bytes": "3",
+  "Cycles": "4",
+  "Extra": "+1 if m=0",
+  "_section": "STZ - Store Zero to Memory"
+ },
+ "64": {
+  "Syntax": "STZ dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$64",
+  "Bytes": "2",
+  "Cycles": "3",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "STZ - Store Zero to Memory"
+ },
+ "9E": {
+  "Syntax": "STZ addr, X",
+  "Addressing Mode": "Absolute Indexed, X",
+  "Opcode": "$9E",
+  "Bytes": "3",
+  "Cycles": "5",
+  "Extra": "+1 if m=0",
+  "_section": "STZ - Store Zero to Memory"
+ },
+ "74": {
+  "Syntax": "STZ dp, X",
+  "Addressing Mode": "Direct Page Indexed, X",
+  "Opcode": "$74",
+  "Bytes": "2",
+  "Cycles": "4",
+  "Extra": "+1 if m=0, +1 if D.l ≠ 0",
+  "_section": "STZ - Store Zero to Memory"
+ },
+ "AA": {
+  "Syntax": "TAX",
+  "Name": "Transfer A to X",
+  "Opcode": "$AA",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "Transfer Registers"
+ },
+ "A8": {
+  "Syntax": "TAY",
+  "Name": "Transfer A to Y",
+  "Opcode": "$A8",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "Transfer Registers"
+ },
+ "5B": {
+  "Syntax": "TCD",
+  "Name": "Transfer 16 bit A to D",
+  "Opcode": "$5B",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "Transfer Registers"
+ },
+ "1B": {
+  "Syntax": "TCS",
+  "Name": "Transfer 16 bit A to S",
+  "Opcode": "$1B",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "Transfer Registers"
+ },
+ "7B": {
+  "Syntax": "TDC",
+  "Name": "Transfer D to 16 bit A",
+  "Opcode": "$7B",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "Transfer Registers"
+ },
+ "3B": {
+  "Syntax": "TSC",
+  "Name": "Transfer S to 16 bit A",
+  "Opcode": "$3B",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "Transfer Registers"
+ },
+ "BA": {
+  "Syntax": "TSX",
+  "Name": "Transfer S to X",
+  "Opcode": "$BA",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "Transfer Registers"
+ },
+ "8A": {
+  "Syntax": "TXA",
+  "Name": "Transfer X to A",
+  "Opcode": "$8A",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "Transfer Registers"
+ },
+ "9A": {
+  "Syntax": "TXS",
+  "Name": "Transfer X to S",
+  "Opcode": "$9A",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "Transfer Registers"
+ },
+ "9B": {
+  "Syntax": "TXY",
+  "Name": "Transfer X to Y",
+  "Opcode": "$9B",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "Transfer Registers"
+ },
+ "98": {
+  "Syntax": "TYA",
+  "Name": "Transfer Y to A",
+  "Opcode": "$98",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "Transfer Registers"
+ },
+ "BB": {
+  "Syntax": "TYX",
+  "Name": "Transfer Y to X",
+  "Opcode": "$BB",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "Transfer Registers"
+ },
+ "1C": {
+  "Syntax": "TRB addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$1C",
+  "Bytes": "3",
+  "Cycles": "6",
+  "Extra": "+2 if m=0",
+  "_section": "TRB - Test and Reset Memory Bits Against Accumulator"
+ },
+ "14": {
+  "Syntax": "TRB dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$14",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+2 if m=0, +1 if D.l ≠ 0",
+  "_section": "TRB - Test and Reset Memory Bits Against Accumulator"
+ },
+ "0C": {
+  "Syntax": "TSB addr",
+  "Addressing Mode": "Absolute",
+  "Opcode": "$0C",
+  "Bytes": "3",
+  "Cycles": "6",
+  "Extra": "+2 if m=0",
+  "_section": "TSB - Test and Set Memory Bits Against Accumulator"
+ },
+ "04": {
+  "Syntax": "TSB dp",
+  "Addressing Mode": "Direct Page",
+  "Opcode": "$04",
+  "Bytes": "2",
+  "Cycles": "5",
+  "Extra": "+2 if m=0, +1 if D.l ≠ 0",
+  "_section": "TSB - Test and Set Memory Bits Against Accumulator"
+ },
+ "CB": {
+  "Syntax": "WAI",
+  "Addressing Mode": "Implied",
+  "Opcode": "$CB",
+  "Bytes": "1",
+  "Cycles": "3",
+  "Extra": "additional cycles needed by interrupt handler to restart the processor",
+  "_section": "WAI - Wait for Interrupt"
+ },
+ "EB": {
+  "Syntax": "XBA",
+  "Addressing Mode": "Implied",
+  "Opcode": "$EB",
+  "Bytes": "1",
+  "Cycles": "3",
+  "Extra": "",
+  "_section": "XBA - Exchange the B and A Accumulators"
+ },
+ "FB": {
+  "Syntax": "XCE",
+  "Addressing Mode": "Implied",
+  "Opcode": "$FB",
+  "Bytes": "1",
+  "Cycles": "2",
+  "Extra": "",
+  "_section": "XCE - Exchange Carry and Emulation Bits"
+ }
+}

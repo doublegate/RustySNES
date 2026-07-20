@@ -26,15 +26,21 @@ pub fn all() -> Vec<Test> {
         // --- B1: memory access speed ---
         b1_01(),
         b1_02(),
-        // --- B4: NMI flag mechanics ---
+        // --- B2: frame geometry ---
+        b2_04(),
+        // --- B4: NMI flag mechanics and the IRQ timers ---
         b4_03(),
         b4_04(),
+        b4_05(),
+        b4_08(),
+        b4_12(),
         b4_15(),
         // --- B5: the multiply/divide unit ---
         b5_01(),
         b5_02(),
         b5_03(),
         b5_04(),
+        b5_05(),
     ]
 }
 
@@ -381,6 +387,252 @@ fn b5_04() -> Test {
             "SNESdev Errata states overlapping $4203/$4206 operation is undefined",
         ),
         Kind::Golden,
+        None,
+    )
+}
+
+// ---------------------------------------------------------------------------------------------
+// B2 — frame geometry
+// ---------------------------------------------------------------------------------------------
+
+/// Emit: latch the counters and leave the 9-bit V position in a 16-bit accumulator.
+///
+/// **Register width contract: returns with `A` 16-bit; `X`/`Y` are untouched.** Entry width does
+/// not matter — the emitter sets what it needs. Stated explicitly because the generator tracks
+/// widths file-globally to decide between `.a8` and `.a16`, and the dangerous direction is silent:
+/// if the assembler believes `A` is 16-bit while the CPU has it 8-bit, immediate operands assemble
+/// one byte short and every instruction after them shifts.
+fn read_v(a: &mut Asm) {
+    a.l("sep #$20");
+    a.l("lda $213F         ; reset the counter read flipflops");
+    a.l("lda $2137         ; latch H and V");
+    a.l("lda $213D         ; V low");
+    a.l("xba");
+    a.l("lda $213D");
+    a.l("and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus");
+    a.l("xba");
+    a.l("rep #$20");
+    a.l("and #$01FF");
+}
+
+/// An NTSC frame is 262 lines, so the V counter tops out at 261.
+///
+/// Frame length is the denominator of every timing budget on the machine — a core one line out
+/// gives games a vblank that is 340 dots too long or too short, which is exactly the kind of error
+/// that only shows up as a game-specific glitch much later.
+///
+/// Sampled rather than counted: the loop latches V repeatedly from the start of vblank until the
+/// counter wraps, tracking the maximum. Each iteration costs a handful of dots against a scanline
+/// of 340, so the top line cannot be missed.
+fn b2_04() -> Test {
+    let mut a = Asm::new();
+    a.c("Start at vblank, poll V until it wraps to the top of the next frame, keep the maximum.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("jsr wait_vblank   ; V is now at the first vblank line");
+    a.l("rep #$30");
+    a.l("lda #$0000");
+    a.l("sta f:$7E0120     ; running maximum");
+    a.label("vloop");
+    read_v(&mut a);
+    a.l("cmp f:$7E0120");
+    a.l("bcc :+");
+    a.l("sta f:$7E0120");
+    a.l(":");
+    a.l("cmp #100          ; below 100 means the counter has wrapped into the next frame");
+    a.l("bcs @vloop");
+    a.l("lda f:$7E0120");
+    a.assert_a16(
+        261,
+        "the V counter did not reach 261 (an NTSC frame is 262 lines, 0-261)",
+    );
+    a.finish(
+        "B2.04",
+        'B',
+        "NTSC frame is 262 lines",
+        Provenance::Documented("SNESdev Wiki, Timing; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `RDNMI` bit 7 clears by itself at the end of vblank, not only when read.
+///
+/// A core that clears the flag *only* on read leaves it set through the whole active display, so
+/// code that polls `$4210` outside vblank sees a vblank that already ended and acts a frame late.
+/// This is the counterpart to B4.04: together they pin both ways the flag can go away.
+fn b4_05() -> Test {
+    let mut a = Asm::new();
+    a.c("Reach vblank and deliberately do NOT read $4210, then wait for active display and read.");
+    a.c("The flag must already be gone.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda $4210         ; clear anything left pending by an earlier test");
+    a.l("jsr wait_vblank");
+    a.l("jsr wait_vblank   ; in vblank, flag set, and left unread");
+    a.label("wa");
+    a.l("lda $4212");
+    a.l("and #$80");
+    a.l("bne @wa           ; wait for vblank to end");
+    a.l("lda $4210");
+    a.l("and #$80");
+    a.assert_a8(
+        0x00,
+        "RDNMI stayed set past the end of vblank (it must auto-clear, not only clear on read)",
+    );
+    a.finish(
+        "B4.05",
+        'B',
+        "RDNMI auto-clears",
+        Provenance::Documented("SNESdev Wiki, Timing; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// A V-IRQ fires on the programmed scanline.
+///
+/// Armed with interrupts masked and observed by polling `$4211`, so the test measures *when the
+/// comparator matched* without depending on interrupt dispatch. Raster effects are built on this:
+/// a V-IRQ that fires a line early or late tears the split it was scheduled for.
+fn b4_08() -> Test {
+    let mut a = Asm::new();
+    a.c("VTIME = 100, V-IRQ only. I is set so nothing vectors; $4211 is polled instead. The V");
+    a.c("counter is latched the moment the flag appears and must still be on the programmed line.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("sei               ; observe the comparator, do not dispatch");
+    a.l("lda #100");
+    a.l("sta $4209");
+    a.l("stz $420A         ; VTIME = 100");
+    a.l("lda $4211         ; clear any stale latch");
+    a.l("lda #$20");
+    a.l("sta $4200         ; V-IRQ enabled, NMI off, auto-joypad off");
+    a.label("wirq");
+    a.l("lda $4211");
+    a.l("and #$80");
+    a.l("beq @wirq");
+    read_v(&mut a);
+    a.l("sta f:$7E0122");
+    a.c("Disarm before asserting — a failing path exits straight to test_restore.");
+    a.l("sep #$20");
+    a.l("stz $4200");
+    a.l("lda $4211");
+    a.l("rep #$20");
+    a.l("lda f:$7E0122");
+    a.assert_a16_range(
+        100,
+        102,
+        "the V-IRQ did not fire on the programmed scanline",
+    );
+    a.finish(
+        "B4.08",
+        'B',
+        "V-IRQ fires at VTIME",
+        Provenance::Documented("SNESdev Wiki, Timing; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Reading `$4211` releases the IRQ latch immediately, even while the trigger line is still current.
+///
+/// The V-IRQ is a one-shot per frame, not a level held for the whole scanline: once acknowledged it
+/// stays clear even though the counter has not moved off the programmed line yet. A core that
+/// re-asserts while `V == VTIME` produces a storm of spurious interrupts for the rest of the line.
+fn b4_12() -> Test {
+    let mut a = Asm::new();
+    a.c("Read $4211 twice back to back at the moment it fires. The second read is still on the");
+    a.c("same scanline, and must find the latch already released by the first.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("sei");
+    a.l("lda #100");
+    a.l("sta $4209");
+    a.l("stz $420A");
+    a.l("lda $4211");
+    a.l("lda #$20");
+    a.l("sta $4200");
+    a.label("wirq2");
+    a.l("lda $4211");
+    a.l("and #$80");
+    a.l("beq @wirq2        ; this read both detects and acknowledges");
+    a.l("lda $4211         ; immediately again, still on line 100");
+    a.l("sta f:$7E0124");
+    a.l("stz $4200         ; disarm before asserting");
+    a.l("lda $4211");
+    a.l("lda f:$7E0124");
+    a.l("and #$80");
+    a.assert_a8(0x00, "$4211 did not release the IRQ latch on read");
+    a.finish(
+        "B4.12",
+        'B',
+        "$4211 read releases IRQ",
+        Provenance::Documented("SNESdev Wiki, Timing; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Power-on state of the multiply/divide latches: `WRMPYA` = `$FF`, `WRDIV` = `$FFFF`.
+///
+/// Both are **write-only**, so this is not a readback — it is the latch observed through the unit
+/// it feeds. The runtime writes only `$4203` (multiplying whatever `$4202` already held) and only
+/// `$4206` (dividing whatever `$4204/05` held), before `init_registers` zeroes them, and stashes
+/// the results in the capture block.
+///
+/// Scored, on two independent documentation lineages that agree and nothing contradicting them in
+/// nineteen years: anomie's `regs.txt` (r1157) states the values flatly in a document that marks
+/// its uncertain claims with `(?)` and marks neither of these; nocash's fullsnes independently
+/// lists `$4202`-`$4206` as `(FFh)` at power-up under a legend separating power-up from reset.
+/// bsnes, ares and Mesen2 all implement it.
+///
+/// **snes9x fails this test**, and that is a snes9x bug rather than counter-evidence: its
+/// `S9xSoftResetPPU` blanket-`memset`s `$4200-$42FF` to zero and special-cases only `$4201`/`$4213`.
+/// The divergence is declared in `scripts/accuracysnes/crossval.sh` so the cross-validation gate
+/// stays meaningful instead of being weakened to unanimity.
+///
+/// Deliberately **not** asserted: the power-on contents of `$4203` and `$4206`. Multiplication only
+/// starts on a write to `$4203` and division on a write to `$4206`, so their power-on values can
+/// never influence a readable result — fullsnes says `$FF`, Mesen2 uses `$00`, and nothing can tell
+/// the difference.
+fn b5_05() -> Test {
+    let mut a = Asm::new();
+    a.c(
+        "$FF x 2 = $01FE, and $FFFF / 2 = $7FFF remainder 1, read from the pre-init capture block.",
+    );
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("lda f:$7EE040     ; V_PO_MPY");
+    a.assert_a16(
+        0x01FE,
+        "$4202 did not power up as $FF (the captured product was not $FF x 2)",
+    );
+    a.l("lda f:$7EE042     ; V_PO_DIV");
+    a.assert_a16(
+        0x7FFF,
+        "$4204/05 did not power up as $FFFF (the captured quotient was not $FFFF / 2)",
+    );
+    a.l("lda f:$7EE044     ; V_PO_DIVREM");
+    a.assert_a16(0x0001, "the captured power-on divide remainder was wrong");
+    a.finish(
+        "B5.05",
+        'B',
+        "Mul/div power-on state",
+        Provenance::Documented(
+            "anomie regs.txt r1157 and nocash fullsnes, independently; implemented by \
+             bsnes/ares/Mesen2. No known hardware test ROM",
+        ),
+        Kind::Scored,
         None,
     )
 }

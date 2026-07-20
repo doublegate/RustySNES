@@ -22,6 +22,21 @@ V_TMP           = VAR_BASE + $0E      ; scratch (u16)
 V_TEST_RESULT   = VAR_BASE + $10      ; the running test's verdict byte (u8)
 V_DIRTY         = VAR_BASE + $12      ; non-zero when the screen needs a redraw (u8)
 
+; ---------------------------------------------------------------------------------------------
+; Power-on capture block ($E040-$E04F).
+;
+; Sampled by `capture_power_on` at the very top of reset, BEFORE `init_registers` runs. This
+; exists because `init_registers` deliberately puts every PPU and CPU register into a known state
+; — precisely because hardware does not — which means any test that runs in the normal battery is
+; measuring the runtime, not the machine. Power-on behaviour has to be read before that, once, and
+; stashed for a test to report later.
+;
+; Several of these registers are WRITE-ONLY, so "read the power-on value" means observing the
+; latch through the unit it feeds: writing only the multiplier's second operand reveals the first.
+V_PO_MPY        = VAR_BASE + $40      ; RDMPY after $4203=2 with $4202 never written (u16)
+V_PO_DIV        = VAR_BASE + $42      ; RDDIV after $4206=2 with $4204/05 never written (u16)
+V_PO_DIVREM     = VAR_BASE + $44      ; RDMPY (remainder) from that same divide (u16)
+
 ; --- results block ---------------------------------------------------------------------------
 RESULTS         = $7EF000
 R_MAGIC         = RESULTS + $00       ; "ACSN"

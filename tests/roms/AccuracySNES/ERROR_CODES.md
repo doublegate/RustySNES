@@ -379,6 +379,12 @@ Provenance: **Documented** (WDC datasheet; SNESdev Wiki, 65C816 interrupts). Kin
 |---|---|---|
 | 1 | `$02` | BRK did not set the B flag in the status byte it pushed |
 
+### A5.08 — Cycle spot checks (gold)
+
+Provenance: **Contested** (the three reference emulators disagree with each other on instruction-level timing; no external per-opcode timing table is sourced yet). Kind: golden vector, never scored.
+
+No failure codes (control-flow test: reaching the end is the pass).
+
 ## Group C
 
 ### C1.01 — OAM word write/read
@@ -662,6 +668,14 @@ Provenance: **Documented** (SNESdev Wiki, Memory map / timing; fullsnes). Kind: 
 |---|---|---|
 | 1 | `$02` | the joypad ports were not 6 master clocks slower per access than CPU MMIO |
 
+### B2.04 — NTSC frame is 262 lines
+
+Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the V counter did not reach 261 (an NTSC frame is 262 lines, 0-261) |
+
 ### B4.03 — RDNMI sets at vblank
 
 Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
@@ -678,6 +692,30 @@ Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
 |---|---|---|
 | 1 | `$02` | RDNMI bit 7 was not set on the first read of a vblank |
 | 2 | `$04` | RDNMI did not clear on read |
+
+### B4.05 — RDNMI auto-clears
+
+Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | RDNMI stayed set past the end of vblank (it must auto-clear, not only clear on read) |
+
+### B4.08 — V-IRQ fires at VTIME
+
+Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the V-IRQ did not fire on the programmed scanline |
+
+### B4.12 — $4211 read releases IRQ
+
+Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | $4211 did not release the IRQ latch on read |
 
 ### B4.15 — CPU revision (golden)
 
@@ -716,4 +754,14 @@ Provenance: **Documented** (SNESdev Wiki, CPU registers; fullsnes). Kind: scored
 Provenance: **Contested** (SNESdev Errata states overlapping $4203/$4206 operation is undefined). Kind: golden vector, never scored.
 
 No failure codes (control-flow test: reaching the end is the pass).
+
+### B5.05 — Mul/div power-on state
+
+Provenance: **Documented** (anomie regs.txt r1157 and nocash fullsnes, independently; implemented by bsnes/ares/Mesen2. No known hardware test ROM). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | $4202 did not power up as $FF (the captured product was not $FF x 2) |
+| 2 | `$04` | $4204/05 did not power up as $FFFF (the captured quotient was not $FFFF / 2) |
+| 3 | `$06` | the captured power-on divide remainder was wrong |
 
