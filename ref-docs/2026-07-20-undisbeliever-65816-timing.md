@@ -4,6 +4,29 @@
 have been "corrected" by the extractor. See the *Caveats / errata* section for a
 source-internal inconsistency that is flagged but **not** edited.
 
+## How this file may and may not be used in RustySNES
+
+**Reference only. It is NOT the scoring oracle for AccuracySNES, and no test may cite it as one.**
+
+Two independent reasons, both established when it was sourced (2026-07-20):
+
+1. **Partial circularity.** undisbeliever's own Sources list includes *higan*'s `wdc65816`
+   implementation (Near). higan is an emulator, and the same lineage produces bsnes and ares —
+   precisely the ecosystem AccuracySNES exists to be independent of. `A5.08` measured the three
+   reference emulators disagreeing with each other on instruction timing; scoring against a table
+   partly derived from one of them would reproduce that circularity at one remove rather than
+   resolve it. This is a compilation, not a hardware measurement.
+2. **Licence.** CC BY-SA 4.0 — freely redistributable, but **copyleft**, in a repository that is
+   MIT OR Apache-2.0 and whose corpus rule is to commit permissive/public-domain fixtures. The file
+   is vendored verbatim with its attribution and licence notice intact, which redistribution allows.
+   A Rust table transcribed from these values would arguably be adapted material inheriting
+   ShareAlike, so **do not transcribe it into code**.
+
+Legitimate uses: sanity-checking a measured timing fingerprint, cross-reading a specific opcode,
+and identifying disagreements worth chasing. The intended scoring oracle is the WDC W65C816S
+datasheet (Table 5-7, Instruction Operation) — the only link in this chain independent of any
+emulator, and one undisbeliever cites himself.
+
 ## Provenance
 
 | Field | Value |

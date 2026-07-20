@@ -711,7 +711,7 @@ WDC's list of instructions escaping `$01xx` even in emulation mode: `JSL`, `JSR 
 | A5.14 | RMW `abs,X` flat (e.g. `ASL $1234,X` = 7) |
 | A5.15 | Branch = `2 + t + t*e*p`; page-cross penalty **only when E=1** |
 | A5.16 | `BRL` flat 4, never penalized |
-| A5.17 | **16-bit RMW is +2, not +1** — resolves a transcription error in undisbeliever's table |
+| A5.17 | **16-bit RMW is +2, not +1.** Not a transcription error since corrected, as this table previously said — undisbeliever's published table is **internally inconsistent to this day**: `ASL`/`INC`/`DEC`/`TRB`/`TSB` say `+2 if m=0` while `LSR`/`ROL`/`ROR` say `+1`, twelve rows disagreeing with the rest of their own instruction class. Verified 2026-07-20 against `ref-docs/2026-07-20-undisbeliever-65816-timing.md`. Commit `de84e932` (2021-03-13) fixed a *different* RMW bug (a bogus page-cross penalty on absolute-indexed forms) and did not touch this |
 | A5.18 | `BRK` 8 native / 7 emulation |
 | A5.19 | `RTI` 7 native / 6 emulation |
 | A5.20 | `MVN`/`MVP` 7 cycles per byte |
