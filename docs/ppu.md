@@ -156,6 +156,12 @@ The crate is a working dual-chip model. Public API the scheduler/bus call:
   latch, `MPYL/M/H` Mode-7 multiply, `SLHV $2137` latch, `OPHCT/OPVCT` read-twice 9-bit,
   `STAT77/78` (over-flags + version + NTSC/PAL + field; `$213F` read clears the latch). Reads
   of write-only/unused registers return the PPU MDR (open-bus) latch.
+- **Open bus:** PPU1 and PPU2 keep **separate** MDR latches (`io.ppu1_mdr`, `io.ppu2_mdr`),
+  surfacing as `$213E` bit 4 and `$213F` bit 5 respectively. They are refreshed **only by reads**
+  — `$2134`–`$2136`, `$2138`–`$213A`, `$213E` for PPU1; `$213B`–`$213D`, `$213F` for PPU2 — and a
+  register *write* never touches either. Refreshing one latch must leave the other untouched;
+  folding them into a single byte, or updating PPU1 on every write, is what AccuracySNES **C13.03**
+  exists to catch (it did, in `write_reg`).
 - **Timeline:** `tick_dot(&mut self, bus: &mut impl VideoBus)` advances H 0..=340 / V per region
   (262 NTSC / 312 PAL), sets VBlank at V=225 (V=240 overscan) and HBlank, fires
   `notify_scanline`/`notify_vblank`, raises NMI at VBlank start, and level-fires the HV-IRQ
