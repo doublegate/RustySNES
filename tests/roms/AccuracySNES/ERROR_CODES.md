@@ -1388,6 +1388,15 @@ Provenance: **Documented** (fullsnes, S-DSP noise; anomie's DSP doc — flagged 
 |---|---|---|
 | 1 | `$02` | a noise voice's envelope survived an end-without-loop block, so noise voices are not decoding BRR underneath |
 
+### E9.06 — EDL 0 is a 4-byte buffer
+
+Provenance: **Documented** (fullsnes, S-DSP echo — flagged as errata; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the first four bytes of the echo buffer were not written with EDL = 0, so a length of zero was taken to mean no buffer at all |
+| 2 | `$04` | byte 4 of the echo buffer was overwritten with EDL = 0 — the buffer is one sample long, and a core writing further walks over whatever follows ESA |
+
 ### E9.10 — FLG.5 stops echo writes
 
 Provenance: **Documented** (fullsnes, S-DSP echo; anomie's DSP doc). Kind: scored.

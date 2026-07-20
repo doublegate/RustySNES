@@ -77,6 +77,7 @@ pub fn all() -> Vec<Test> {
         e7_16(),
         e8_04(),
         e9_04(),
+        e9_06(),
         e9_10(),
         e9_17(),
         e9_18(),
@@ -2341,6 +2342,79 @@ fn e7_16() -> Test {
         'E',
         "OUTX is pre-volume",
         Provenance::Documented("fullsnes, S-DSP envelopes; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `EDL = 0` is not "no buffer": it is a four-byte one, rewritten in place every sample.
+///
+/// The natural reading of a length of zero is that echo is off, or that the buffer is empty. It is
+/// neither — the DSP writes one sample's worth, four bytes, at the buffer's start, and does it
+/// again next sample. A core that treats zero as "skip the write" leaves the buffer alone; one that
+/// treats it as a full-size buffer walks off across whatever follows `ESA` in APU RAM, which on a
+/// real driver is its own code.
+///
+/// The test paints eight bytes and reads two of them back: byte 0 must have been overwritten, byte
+/// 4 must not. That pair is what separates "wrote four bytes" from both wrong answers — a core
+/// that skipped the write fails on byte 0, and one that wrote a longer buffer fails on byte 4.
+///
+/// The written value is zero and asserted as such rather than as "something else": no voice is
+/// keyed on and both echo volumes are zero, so what the mixer produces is exactly zero.
+fn e9_06() -> Test {
+    /// The page `ESA` names, well clear of the program image at `$0200`.
+    const ECHO_PAGE: u8 = 0x30;
+    /// Where that page starts. Derived, so the two cannot drift apart.
+    const ECHO_ADDR: u16 = (ECHO_PAGE as u16) << 8;
+
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF).mov_sp_x();
+    // Writes off BEFORE anything else. The DSP is shared with every earlier test, and painting a
+    // marker while it is still writing would leave the buffer in a state neither reading can be
+    // trusted against -- in particular a full-size-buffer core could have its pointer past byte 4
+    // already, and byte 4 would survive for the wrong reason.
+    dsp_write(&mut prog, 0x6C, 0x20); // FLG: echo writes disabled
+    dsp_write(&mut prog, 0x6D, ECHO_PAGE); // ESA
+    dsp_write(&mut prog, 0x7D, 0x00); // EDL = 0
+    dsp_write(&mut prog, 0x4D, 0x00); // EON
+    dsp_write(&mut prog, 0x2C, 0x00); // EVOL L
+    dsp_write(&mut prog, 0x3C, 0x00); // EVOL R
+    dsp_write(&mut prog, 0x0D, 0x00); // EFB
+    // ESA and EDL do not take effect instantly (`E9.07`, `E9.08`); give them a moment before the
+    // buffer is painted, so the writes measured below are aimed where this test put the marker.
+    prog.delay(0x00);
+    for i in 0..8u16 {
+        prog.mov_a_imm(0x5A).mov_abs_a(ECHO_ADDR + i);
+    }
+    dsp_write(&mut prog, 0x6C, 0x00); // FLG: echo writes enabled
+    prog.delay(0x00); // 256 iterations: many samples' worth of writes
+    dsp_write(&mut prog, 0x6C, 0x20); // and disabled again, so the reads below are stable
+    prog.mov_a_abs(ECHO_ADDR).mov_dp_a(PORT1);
+    prog.mov_a_abs(ECHO_ADDR + 4).mov_dp_a(PORT2);
+    prog.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.assert_a8(
+        0x00,
+        "the first four bytes of the echo buffer were not written with EDL = 0, so a length of \
+         zero was taken to mean no buffer at all",
+    );
+    a.c("And byte 4 is past the four the DSP writes, so it still holds the marker.");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x5A,
+        "byte 4 of the echo buffer was overwritten with EDL = 0 — the buffer is one sample long, \
+         and a core writing further walks over whatever follows ESA",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E9.06",
+        'E',
+        "EDL 0 is a 4-byte buffer",
+        Provenance::Documented("fullsnes, S-DSP echo — flagged as errata; anomie's DSP doc"),
         Kind::Scored,
         None,
     )
