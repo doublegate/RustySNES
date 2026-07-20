@@ -1153,6 +1153,31 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes). Kind: sco
 | 2 | `$04` | DAA on $9A did not wrap to $00 — both adjustments apply, and $9A + $60 + 6 leaves the byte |
 | 3 | `$06` | DAA on $9A did not set the carry |
 
+### E2.08 — TCALL vector table
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | TCALL 1 did not vector through $FFDC — $B2 means it read a neighbouring slot, so the table is indexed with the wrong stride or the wrong direction |
+
+### E2.09 — BRK shares TCALL 0
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | BRK did not vector through $FFDE, the TCALL 0 slot — the SPC700 has no break vector of its own |
+
+### E3.03 — $F1 bit 5 clears port 3
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 I/O; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | port 3 did not hold the entry address's high byte, so the latch-clear check below would be vacuous |
+| 2 | `$04` | $F1 bit 5 did not clear the port 2/3 input latches |
+
 ### E3.04 — Writes pass under IPL
 
 Provenance: **Documented** (SNESdev Wiki, SPC700 I/O; fullsnes). Kind: scored.

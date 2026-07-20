@@ -268,6 +268,31 @@ impl Spc {
         self.push(&[0xE5, lo, hi])
     }
 
+    /// `PUSH A` — `$2D`.
+    pub fn push_a(&mut self) -> &mut Self {
+        self.push(&[0x2D])
+    }
+
+    /// `POP PSW` — `$8E`. The only way to clear the `B` flag short of `RETI`.
+    pub fn pop_psw(&mut self) -> &mut Self {
+        self.push(&[0x8E])
+    }
+
+    /// `TCALL n` — `$n1`. Vectors through `[$FFDE - n*2]`.
+    ///
+    /// # Panics
+    ///
+    /// If `n` is above 15; there are sixteen vectors.
+    pub fn tcall(&mut self, n: u8) -> &mut Self {
+        assert!(n < 16, "TCALL takes a vector 0-15, not {n}");
+        self.push(&[(n << 4) | 0x01])
+    }
+
+    /// `BRK` — `$0F`. Vectors through `$FFDE`, the same slot as `TCALL 0`.
+    pub fn brk(&mut self) -> &mut Self {
+        self.push(&[0x0F])
+    }
+
     /// `CMP A,#imm` — `$68`.
     pub fn cmp_a_imm(&mut self, v: u8) -> &mut Self {
         self.push(&[0x68, v])

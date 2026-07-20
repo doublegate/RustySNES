@@ -13,7 +13,7 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **190** (178 scoring + 11 golden vectors + 1 region SKIP per image) |
+| Tests | **193** (181 scoring + 11 golden vectors + 1 region SKIP per image) |
 | Rendered scenes | **41**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but three, all recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`. Both images. |
