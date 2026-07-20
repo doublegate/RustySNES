@@ -386,7 +386,7 @@ fn header_is_detected() {
 const MEAS_BASE: u32 = 0x7E_E200;
 
 /// Number of `u16` slots in the cart's measurement channel.
-const MEAS_SLOTS: u8 = 64;
+const MEAS_SLOTS: u8 = 128;
 
 /// The measurement slots `A5.08` records, so a timing question can be answered from a full-width
 /// number rather than from a verdict byte that silently wraps.

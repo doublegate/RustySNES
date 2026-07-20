@@ -161,9 +161,22 @@ pub fn readme_codes(tests: &[Test]) -> String {
         );
         let _ = writeln!(s);
         if t.codes.is_empty() {
+            // A test with no allocated codes cannot fail. Which of the two reasons applies matters
+            // to anyone reading a result: a golden vector reports *which* behaviour it saw and is
+            // never scored, while a plain test simply has nothing to assert beyond completing.
             let _ = writeln!(
                 s,
-                "No failure codes (control-flow test: reaching the end is the pass)."
+                "{}",
+                match t.kind {
+                    crate::dsl::Kind::Golden =>
+                        "No failure codes — this is a **golden vector**. It cannot fail: it reports \
+                         which behaviour it observed as a variant code (`(variant << 1) | 1`) and \
+                         is excluded from the pass rate. See the test's entry in \
+                         `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records \
+                         rather than asserts.",
+                    crate::dsl::Kind::Scored =>
+                        "No failure codes (control-flow test: reaching the end is the pass).",
+                }
             );
         } else {
             let _ = writeln!(s, "| Code | Byte | Meaning |");

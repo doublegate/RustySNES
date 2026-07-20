@@ -389,6 +389,12 @@ Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree on t
 | 2 | `$04` | REP #imm did not cost 3 cycles / 2 accesses |
 | 3 | `$06` | PHD/PLD did not cost 4 and 5 cycles with 3 accesses each |
 
+### A9.03 — E=1 R-M-W modify write
+
+Provenance: **Contested** (WDC note (17) asserts RWB is low during the modify cycle in emulation mode; the GTE and VLSI renderings of the same table are silent). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
 ## Group C
 
 ### C1.01 — OAM word write/read
@@ -562,13 +568,13 @@ Provenance: **Corroborated** (the bsnes/ares lineage and Mesen2 model two distin
 
 Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: golden vector, never scored.
 
-No failure codes (control-flow test: reaching the end is the pass).
+No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ### C14.02 — PPU2 version (golden)
 
 Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: golden vector, never scored.
 
-No failure codes (control-flow test: reaching the end is the pass).
+No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ### C11.06 — MPY is 16x8 signed
 
@@ -725,7 +731,7 @@ Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
 
 Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: golden vector, never scored.
 
-No failure codes (control-flow test: reaching the end is the pass).
+No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ### B5.01 — 8x8 unsigned multiply
 
@@ -757,7 +763,7 @@ Provenance: **Documented** (SNESdev Wiki, CPU registers; fullsnes). Kind: scored
 
 Provenance: **Contested** (SNESdev Errata states overlapping $4203/$4206 operation is undefined). Kind: golden vector, never scored.
 
-No failure codes (control-flow test: reaching the end is the pass).
+No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ### B5.05 — Mul/div power-on state
 
@@ -940,6 +946,102 @@ Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; doc
 | 1 | `$02` | measured cost disagrees with the manufacturer tables |
 
 ### A5.S22 — Sweep: PHX+PLX
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S23 — Sweep: LDA dp
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S24 — Sweep: LDA abs
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S25 — Sweep: LDA long
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S26 — Sweep: STA dp
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S27 — Sweep: STA abs
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S28 — Sweep: LDA dp,X
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S29 — Sweep: LDA abs,X
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S30 — Sweep: INC dp
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S31 — Sweep: INC abs
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S32 — Sweep: ADC dp
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S33 — Sweep: CMP abs
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S34 — Sweep: BVS untaken
 
 Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
 

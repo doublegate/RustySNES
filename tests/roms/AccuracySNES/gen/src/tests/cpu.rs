@@ -71,6 +71,7 @@ pub fn all() -> Vec<Test> {
         a5_07(),
         a6_09(),
         a5_08(),
+        a9_03(),
     ]
 }
 
@@ -1695,6 +1696,101 @@ fn a5_08() -> Test {
              docs/accuracysnes-timing-oracle.md",
         ),
         Kind::Scored,
+        None,
+    )
+}
+
+/// Emulation-mode read-modify-write: does the modify cycle perform a **write**?
+///
+/// WDC's note (17) states that *"in the emulation mode, during a R-M-W instruction the RWB is low
+/// during both write and modify cycles"*. GTE's and VLSI's renderings of the same table are silent
+/// on it — so this is a **single-vendor claim**, and the kind of thing a test cartridge exists to
+/// settle rather than inherit.
+///
+/// # How a bus signal becomes observable from software
+///
+/// `RWB` low means a write. If the modify cycle writes, an R-M-W against a **write-sensitive**
+/// register performs *two* writes rather than one. `$2102`/`$2104` is the natural probe: OAM's data
+/// port auto-increments its address on every write, so the address counter afterwards counts
+/// writes directly, whatever values were written.
+///
+/// The sequence sets the OAM address, runs one `INC $2104` in emulation mode, then rewinds and
+/// reads back to see how far the counter moved. One write leaves it at 1; a modify-cycle write
+/// leaves it at 2.
+///
+/// # The seed value is load-bearing
+///
+/// `OAM[1]` is seeded `$99`, and specifically **not** `$22`, because `$2104` is write-only: the
+/// R-M-W's read returns **open bus**, which is the last byte fetched — `$21`, the high byte of the
+/// operand address — and `INC` makes that `$22`. Seeding `$22` therefore collides:
+///
+/// - one write  -> `OAM[0] = $22`, `OAM[1]` keeps its seed
+/// - two writes -> `OAM[0] = $21` (the unmodified value), `OAM[1] = $22` (the modified one)
+///
+/// With a `$22` seed both paths leave `$22` in `OAM[1]` and the probe silently always reports one
+/// write. The first version of this test did exactly that, and the three-way emulator split it
+/// appeared to show was partly an artifact of the collision rather than a real disagreement.
+///
+/// # Why this reports rather than asserts
+///
+/// Two of the three vendor tables decline to state it, so neither answer has the weight to score.
+/// Variant 1 = one write (the counter moved 1), variant 2 = two writes (WDC's note holds).
+/// Recording it makes the observation available to every emulator that runs the cart without
+/// anyone's convention being promoted to a pass rate.
+fn a9_03() -> Test {
+    let mut a = Asm::new();
+    a.c("Seed OAM words 0 and 1, aim the port at word 0, then do one R-M-W on $2104 in emulation");
+    a.c("mode. The OAM address counter afterwards reports how many writes actually happened.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.c("--- seed two words so a stray second write is visible, and clear the probe ---");
+    a.l("stz $2102");
+    a.l("stz $2103");
+    a.l("lda #$11");
+    a.l("sta $2104");
+    a.l("lda #$99       ; NOT $22 — see the collision note below");
+    a.l("sta $2104");
+    a.l("lda #$33");
+    a.l("sta $2104");
+    a.l("lda #$44");
+    a.l("sta $2104");
+    a.c("--- aim at word 0 and perform ONE read-modify-write on the data port ---");
+    a.l("stz $2102");
+    a.l("stz $2103");
+    a.enter_emulation();
+    a.l("inc a:$2104       ; R-M-W on the write-sensitive OAM data port");
+    a.enter_native();
+    a.c("--- how far did the address counter move? rewind and count back ---");
+    a.l("sep #$20");
+    a.l("stz $2102");
+    a.l("stz $2103");
+    a.l("lda $2138");
+    a.l("sta f:$7E0130     ; byte 0 after the R-M-W");
+    a.l("lda $2138");
+    a.l("sta f:$7E0131     ; byte 1");
+    a.c("A single write advances the port by one byte; a modify-cycle write advances it by two.");
+    a.c("Byte 1 still holding its seed means one write; overwritten means two.");
+    a.l("lda f:$7E0131");
+    a.l("cmp #$99");
+    a.l("bne @two");
+    a.l("lda #$03          ; variant 1 = one write — the modify cycle did not write");
+    a.l("sta f:$7EE010");
+    a.l("jmp test_restore");
+    a.label("two");
+    a.l("lda #$05          ; variant 2 = two writes — WDC note (17) holds");
+    a.l("sta f:$7EE010");
+    a.l("jmp test_restore");
+    a.finish(
+        "A9.03",
+        'A',
+        "E=1 R-M-W modify write",
+        Provenance::Contested(
+            "WDC note (17) asserts RWB is low during the modify cycle in emulation mode; \
+             the GTE and VLSI renderings of the same table are silent",
+        ),
+        Kind::Golden,
         None,
     )
 }

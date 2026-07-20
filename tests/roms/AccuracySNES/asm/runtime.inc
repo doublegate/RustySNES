@@ -38,7 +38,7 @@ V_PO_DIV        = VAR_BASE + $42      ; RDDIV after $4206=2 with $4204/05 never 
 V_PO_DIVREM     = VAR_BASE + $44      ; RDMPY (remainder) from that same divide (u16)
 
 ; ---------------------------------------------------------------------------------------------
-; Raw measurement channel ($E200-$E27F) — 64 u16 slots.
+; Raw measurement channel ($E200-$E2FF) — 128 u16 slots.
 ;
 ; A test's verdict is ONE BYTE, which is fine for pass/fail/variant and useless for a measurement:
 ; a dot count does not fit. Reporting a 32-NOP baseline through the variant code returned "21",
@@ -52,7 +52,7 @@ V_PO_DIVREM     = VAR_BASE + $44      ; RDMPY (remainder) from that same divide 
 ; Slots are assigned per test and documented at the test that owns them; nothing here is
 ; interpreted on-cart.
 MEAS_BASE       = $7EE200
-MEAS_SLOTS      = 64
+MEAS_SLOTS      = 128
 
 ; --- results block ---------------------------------------------------------------------------
 RESULTS         = $7EF000
