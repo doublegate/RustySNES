@@ -105,6 +105,53 @@ pattern the C7 sprite tests established.
   do not run on real hardware unaided. Split the group accordingly rather than pretending the whole
   thing is portable.
 
+### Bucket 3b — "needs hardware we do not have" (resolved, 2026-07-20)
+
+Three assertions were parked as structurally unreachable. Two turned out to be reachable and the
+third turned out to be blocked on something concrete rather than on physics — which is a materially
+different claim, and worth writing down rather than leaving as a shrug.
+
+- **"PAL needs a PAL console."** Half true. A console's region fixes the *timing*, but which timing
+  an emulator boots is decided by the cart header's country code. The generator therefore emits a
+  second image, `build/accuracysnes-pal.sfc`, by patching one header byte of the linked NTSC image
+  and recomputing the checksum — so the two are provably identical apart from the region, and any
+  behavioural difference between them is the region and cannot be anything else.
+
+  `B2.04` (262 lines) and `B2.05` (312 lines) are mirrors, each standing down as **SKIP** on the
+  machine it does not describe. The skip predicate is the *measured* frame height, never the region
+  bit: which bit of `$213F` carries the region was itself contested, and a frame-height test must
+  not depend on the thing it is evidence for.
+
+  On real hardware the console still wins — a PAL-header cart in an NTSC console runs at NTSC
+  timing — so the cart decides what it is running on by measurement, and a result is never
+  misattributed to a region the machine was not in.
+
+  **This settled `B2.10`.** The region bit is the bit that moves between the two images, and that is
+  **bit 4**: fullsnes is right, the SNESdev wiki's bit 3 is wrong. Settled by measurement rather
+  than by picking a source, which is what the contested tier is for.
+
+- **"`B4.14`'s poll timing is sub-cycle."** True as stated, and the assertion was stated too
+  precisely. The finest clock a cart can read is the H counter at four master clocks per dot, and
+  reading it costs more than the interval being measured — so "the poll occurs just before the final
+  CPU cycle" is not observable. Its **consequence** is: if the poll happens at an instruction
+  boundary rather than continuously, an interrupt asserting during a long instruction waits for that
+  instruction to retire. `B4.14` now installs its own IRQ handler (via a new RAM-indirect IRQ vector,
+  like the existing BRK/COP trampolines), latches H on entry, and times dispatch twice — spinning on
+  `NOP`s, then on `JSL`/`RTL`.
+
+  **The three references split on the sign**: RustySNES +3 dots, snes9x +2, Mesen2 **−2**. So it is
+  a golden vector, not a scored test, and the numbers are published for comparison. That split is
+  the finding; asserting a threshold here would have been asserting our own output.
+
+- **"`B2.09`'s window edges aren't CPU-observable."** Correct that no register reports them, but the
+  framebuffer oracle changes what counts as observable: locating a mid-line register change in the
+  *rendered picture* is exactly what maps a dot to a pixel column, and the picture window's edges
+  fall out of that. It is therefore **blocked on the dot-resolution compositor**, not unreachable —
+  RustySNES composites per scanline, so a mid-line write cannot split a line at all, and a scene
+  written today would encode our own simplification rather than measure the hardware. See
+  `docs/ppu.md` §Mid-scanline/HDMA-driven register timing, where the designed fix is already
+  described and not yet landed.
+
 ### Bucket 4 — needs a framebuffer oracle (~35 tests)
 
 - **T-04-H · the renderer-dependent rest of Group C** — backgrounds and modes (`C5`), offset-per-tile
@@ -259,6 +306,8 @@ Recorded because it is the only real measure of whether the battery is worth its
 | `B4.05` | `RDNMI` cleared only on read, never at the end of vblank, so `$4210` polled outside vblank reported a vblank that had already ended | #121 |
 | `B4.12` | with H-IRQ disabled the comparator's horizontal half matched unconditionally, making `V == VTIME` a level held across all 341 dots — `$4211` could not acknowledge it. Re-blessed two golden framebuffers as a direct consequence | #121 |
 | `B5.05` | the multiply/divide latches powered up as zero instead of `$FF` / `$FFFF`. Found only because the first power-on measurement disagreed across references, which prompted the research that established the documented value | #121 |
+| `C5.02` scene | the BG vertical fetch was a line late — the first displayed line must show BG row `BGnVOFS + 1`, and `render_bg` used the framebuffer row for both. Found by the framebuffer oracle's very first scene | this branch |
+| `C10.01` scene | mosaic quantised the BG's own row instead of the screen row, so a mosaic block moved with the scroll instead of staying anchored to the picture | this branch |
 
 Both were found the same way: the test failed on RustySNES while **both** references passed it.
 The inverse pattern — a test failing identically on all three — has twice meant a broken test

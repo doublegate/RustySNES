@@ -4877,7 +4877,9 @@ CATALOG_IMPL = 1
     plb
     sep #$20
     .a8
-    jsr wait_vblank   ; V is now at the first vblank line
+    stz $2133         ; SETINI: no interlace (see B2.05 — test order must not decide this)
+    jsr wait_vblank
+    jsr wait_vblank   ; V is now at the first vblank line of a settled frame
     rep #$30
     .a16
     .i16
@@ -4903,6 +4905,18 @@ CATALOG_IMPL = 1
     cmp #100          ; below 100 means the counter has wrapped into the next frame
     bcs @vloop
     lda f:$7E0120
+    cmp #311
+    bne :+
+    ; SKIP: V topped out at 311 — this is a PAL machine, so B2.05 is the applicable assertion
+    sep #$20
+    .a8
+    lda #VERDICT_SKIP
+    sta f:V_TEST_RESULT
+    jmp test_restore
+    ; unreachable — restores the assembler's width belief only
+    .a16
+    .i16
+    :
     cmp #$0105
     beq :+
     jmp @fail1
@@ -5729,6 +5743,214 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     txa
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B2.05 — PAL frame is 312 lines
+; provenance: Documented (SNESdev Wiki, Timing; fullsnes)
+.proc test_b2_05
+    .a16
+    .i16
+    ; Identical to B2.04's measurement; only the expected line count differs.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    stz $2133         ; SETINI: no interlace — B2.06 leaves it ON, and an interlaced PAL
+    ; frame is 313 lines on the long field, so measuring frame height without clearing this
+    ; measures B2.06's leftovers instead. Found by the PAL image: B2.04 skipped (it saw 311)
+    ; while B2.05 failed, which is only possible if the two measured different machines.
+    jsr wait_vblank
+    jsr wait_vblank   ; a settled frame under the cleared setting
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E0120     ; running maximum
+@vloop:
+    sep #$20
+    .a8
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp f:$7E0120
+    bcc :+
+    sta f:$7E0120
+    :
+    cmp #100          ; below 100 means the counter has wrapped into the next frame
+    bcs @vloop
+    lda f:$7E0120
+    cmp #261
+    bne :+
+    ; SKIP: V topped out at 261 — this is an NTSC machine, so B2.04 is the applicable assertion
+    sep #$20
+    .a8
+    lda #VERDICT_SKIP
+    sta f:V_TEST_RESULT
+    jmp test_restore
+    ; unreachable — restores the assembler's width belief only
+    .a16
+    .i16
+    :
+    cmp #$0137
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; the V counter did not reach 311 (a PAL frame is 312 lines, 0-311)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B4.14 — IRQ dispatch latency
+; provenance: Documented (SNESdev Wiki, Timing; fullsnes — the sub-cycle poll point is not CPU-observable, so its consequence is measured instead)
+.proc test_b4_14
+    .a16
+    .i16
+    ; Arm an H-IRQ at a known dot, install a handler that latches H on entry, and spin. The
+    ; latched dot minus HTIME is the dispatch latency. Run it twice with different spin bodies.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    sei
+    ; Install the handler. It latches H, acknowledges, flags the spin loop, and returns.
+    rep #$20
+    .a16
+    lda #@handler
+    sta a:V_IRQ_VEC
+    sep #$20
+    .a8
+    ; Pass 1: spin on NOPs, the shortest instruction there is.
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0134     ; rendezvous byte: the handler sets it (STZ has no long form)
+    lda #200
+    sta $4207
+    stz $4208         ; HTIME = 200
+    lda $4211         ; clear any stale latch
+    lda #$10
+    sta $4200         ; H-IRQ enabled, NMI off, auto-joypad off
+    cli
+@spin1:
+    nop
+    nop
+    nop
+    nop
+    lda f:$7E0134
+    beq @spin1
+    sei
+    rep #$20
+    .a16
+    lda f:$7E0136     ; H latched on handler entry
+    sec
+    sbc #200          ; minus HTIME: the dispatch latency in dots
+    ; record slot 100: B4.14 dispatch latency, NOP spin (dots)
+    sta f:$7EE2C8
+    sta f:$7E0138
+    sep #$20
+    .a8
+    ; Pass 2: spin on JSL/RTL. If the poll were continuous rather than at an instruction
+    ; boundary, this would enter the handler in the same place as pass 1.
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0134     ; rendezvous byte: the handler sets it (STZ has no long form)
+    lda #200
+    sta $4207
+    stz $4208         ; HTIME = 200
+    lda $4211         ; clear any stale latch
+    lda #$10
+    sta $4200         ; H-IRQ enabled, NMI off, auto-joypad off
+    cli
+@spin2:
+    jsl @far
+    sep #$20
+    .a8
+    lda f:$7E0134
+    beq @spin2
+    sei
+    rep #$20
+    .a16
+    lda f:$7E0136
+    sec
+    sbc #200
+    ; record slot 101: B4.14 dispatch latency, JSL/RTL spin (dots)
+    sta f:$7EE2CA
+    sec
+    sbc f:$7E0138     ; the extra delay a long instruction imposes
+    ; record slot 102: B4.14 extra latency from the long spin body (dots)
+    sta f:$7EE2CC
+    ; Restore the default handler before leaving — the vector is global state.
+    sep #$20
+    .a8
+    stz $4200
+    lda $4211
+    rep #$20
+    .a16
+    lda #irq_stub
+    sta a:V_IRQ_VEC
+    sep #$20
+    .a8
+    lda #$01
+    sta f:V_TEST_RESULT   ; golden: the numbers live in the measurement channel
+    jmp test_restore
+    ; --- the far routine the long spin calls ---
+@far:
+    rtl
+    ; --- the handler ---
+@handler:
+    rep #$30
+    .a16
+    .i16
+    pha
+    sep #$20
+    .a8
+    lda $2137         ; latch H and V at handler entry
+    lda $213C
+    xba
+    lda $213C
+    and #$01
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    sta f:$7E0136
+    sep #$20
+    .a8
+    lda $4211         ; acknowledge
+    lda #$01
+    sta f:$7E0134     ; tell the spin loop to stop
+    rep #$20
+    .a16
+    pla
+    rti
+    sep #$20
+    .a8
+    lda #$01
     sta f:$7EE010
     jmp test_restore
 .endproc
@@ -9027,7 +9249,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 132
+    .word 134
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -9126,6 +9348,8 @@ _test_entries:
     .addr test_b1_03
     .addr test_b1_04
     .addr test_b2_06
+    .addr test_b2_05
+    .addr test_b4_14
     .addr test_b2_10
     .addr test_b4_07
     .addr test_b4_09
@@ -9261,6 +9485,8 @@ _test_flags:
     .byte $01   ; B1.03
     .byte $01   ; B1.04
     .byte $02   ; B2.06
+    .byte $01   ; B2.05
+    .byte $02   ; B4.14
     .byte $02   ; B2.10
     .byte $02   ; B4.07
     .byte $01   ; B4.09
@@ -9396,6 +9622,8 @@ _test_names:
     .addr @n_b1_03
     .addr @n_b1_04
     .addr @n_b2_06
+    .addr @n_b2_05
+    .addr @n_b4_14
     .addr @n_b2_10
     .addr @n_b4_07
     .addr @n_b4_09
@@ -9718,6 +9946,12 @@ _test_names:
 @n_b2_06:
     .byte 20
     .byte "Interlace line count"
+@n_b2_05:
+    .byte 22
+    .byte "PAL frame is 312 lines"
+@n_b4_14:
+    .byte 20
+    .byte "IRQ dispatch latency"
 @n_b2_10:
     .byte 19
     .byte "Region bit (golden)"

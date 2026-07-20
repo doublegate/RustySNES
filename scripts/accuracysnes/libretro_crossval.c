@@ -176,6 +176,10 @@ typedef size_t (*mem_size_fn)(unsigned);
 #define COUNT  (BASE + 0x06u)
 #define DONE   (BASE + 0x08u)
 #define STATUS (BASE + 0x20u)
+/* The full-width measurement channel. A verdict byte cannot carry a dot count -- anything above
+ * 255 wraps and becomes indistinguishable from a real reading -- so timing tests write here. */
+#define MEAS   0xE200u
+#define MEAS_SLOTS 128u
 #define SCENE      (BASE + 0x12u)
 #define SCENE_DONE (BASE + 0x13u)
 #define MAX_SCENES 64u
@@ -318,6 +322,18 @@ int main(int argc, char **argv) {
         printf("test %02u = %02X  %s\n", i, b, detail);
     }
     printf("ACCURACYSNES-END pass=%u fail=%u other=%u\n", pass, fail, other);
+
+    /* Every measurement slot, so a golden-vector timing test can be compared across emulators
+     * without this host having to know which slots any particular test owns. Zero slots are
+     * skipped: nothing writes zero deliberately, and printing 128 lines of it helps no one. */
+    printf("ACCURACYSNES-MEAS-BEGIN\n");
+    for (unsigned i = 0; i < MEAS_SLOTS; i++) {
+        unsigned v = (unsigned)wram[MEAS + i * 2] | ((unsigned)wram[MEAS + i * 2 + 1] << 8);
+        if (v) {
+            printf("meas %u\t%u\n", i, v);
+        }
+    }
+    printf("ACCURACYSNES-MEAS-END\n");
 
     if (want_scenes) {
         /* The cart's scene loop runs after the battery: it sets up each scene, publishes the

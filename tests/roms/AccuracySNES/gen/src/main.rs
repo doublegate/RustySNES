@@ -26,6 +26,14 @@ use std::process::Command;
 /// LoROM maps bank `$00:$8000-$FFFF` to file offset `$0000-$7FFF`, so `$00:FFDC` is `$7FDC`.
 const CHECKSUM_OFFSET: usize = 0x7FDC;
 
+/// File offset of the header's country/region byte, `$00:FFD9`.
+const COUNTRY_OFFSET: usize = 0x7FD9;
+
+/// Country codes. `Header::region_from_code` maps `$02..=$0C` to PAL, so `$02` (Europe) is the
+/// canonical PAL value and `$01` (USA) the canonical NTSC one.
+const COUNTRY_NTSC: u8 = 0x01;
+const COUNTRY_PAL: u8 = 0x02;
+
 /// Expected image size: 128 KiB (four 32 KiB LoROM banks).
 const ROM_SIZE: usize = 128 * 1024;
 
@@ -120,6 +128,57 @@ fn main() {
         image.len()
     );
     assert_eq!(sum ^ comp, 0xFFFF, "checksum/complement invariant broken");
+
+    write_pal_image(&image, &build_dir.join("accuracysnes-pal.sfc"));
+}
+
+/// Write the PAL sibling image: the same battery, one header byte apart.
+///
+/// "This assertion needs a PAL console" is only half true. A console's region fixes the *timing*,
+/// but which timing an emulator boots is decided by the cart header's country code — so a PAL
+/// image exercises the PAL line count and frame rate on every emulator, unmodified, with no
+/// harness-side region switch that a reference emulator would have no equivalent of.
+///
+/// It is deliberately produced by patching one byte of the linked NTSC image rather than by a
+/// second assembly pass. That makes the two images provably identical apart from the region: any
+/// behavioural difference between them is the region and cannot be anything else. On real hardware
+/// the console still wins — a PAL-header cart in an NTSC console runs at NTSC timing — which is why
+/// the cart reads `$213F` and reports the region it *actually* ran in rather than the one its
+/// header asked for.
+fn write_pal_image(ntsc: &[u8], path: &Path) {
+    let mut image = ntsc.to_vec();
+    assert_eq!(
+        image[COUNTRY_OFFSET], COUNTRY_NTSC,
+        "the NTSC image's country byte is not where the header says it is"
+    );
+    image[COUNTRY_OFFSET] = COUNTRY_PAL;
+    patch_checksum(&mut image);
+    std::fs::write(path, &image).expect("write PAL image");
+
+    let differing = ntsc
+        .iter()
+        .zip(&image)
+        .enumerate()
+        .filter(|(_, (a, b))| a != b)
+        .map(|(i, _)| i)
+        .collect::<Vec<_>>();
+    // Only the country byte and the checksum field may move. (Not *exactly* five bytes: a
+    // checksum byte can coincidentally keep its value.)
+    let allowed = [
+        COUNTRY_OFFSET,
+        CHECKSUM_OFFSET,
+        CHECKSUM_OFFSET + 1,
+        CHECKSUM_OFFSET + 2,
+        CHECKSUM_OFFSET + 3,
+    ];
+    assert!(
+        differing.contains(&COUNTRY_OFFSET) && differing.iter().all(|i| allowed.contains(i)),
+        "PAL image differs from NTSC outside the country/checksum bytes: {differing:x?}"
+    );
+    println!(
+        "accuracysnes-gen: wrote {} (region byte + checksum only)",
+        path.display()
+    );
 }
 
 /// Compute and write the SNES header checksum and its complement.

@@ -797,6 +797,20 @@ Provenance: **Contested** (the dossier conditions the extra line on $213F.7 (the
 
 No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
+### B2.05 — PAL frame is 312 lines
+
+Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the V counter did not reach 311 (a PAL frame is 312 lines, 0-311) |
+
+### B4.14 — IRQ dispatch latency
+
+Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes — the sub-cycle poll point is not CPU-observable, so its consequence is measured instead). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
 ### B2.10 — Region bit (golden)
 
 Provenance: **Contested** (SNESdev PPU registers places the 50/60Hz bit at bit 3, which overlaps the PPU2 version field; fullsnes places it at bit 4). Kind: golden vector, never scored.

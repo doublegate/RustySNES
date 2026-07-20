@@ -345,6 +345,35 @@ impl Asm {
         self.l(&format!("sta f:${addr:06X}"))
     }
 
+    /// Stand the test down as SKIP, unconditionally, from wherever control has reached.
+    ///
+    /// This is how a region-dependent assertion behaves on the console it does not apply to. It
+    /// matters that the mechanism is SKIP rather than PASS: a test that quietly passes on the
+    /// machine it cannot test is indistinguishable from one that verified something, and the pass
+    /// rate would then include assertions nothing checked.
+    ///
+    /// The predicate must be derived from something already **measured**, never from a register
+    /// whose meaning is itself under test — the region bit's position is contested (`B2.10`), so
+    /// skipping on it would make a frame-height test depend on the very thing it is evidence for.
+    ///
+    /// Call from 16-bit `A`/`X` context: control does not return, but the assembler's width
+    /// belief is restored afterwards so the fall-through path (the code that runs when the skip
+    /// condition was false) still assembles as 16-bit. Leaving `.a8` in force here silently turns
+    /// the next `cmp #$0105` into an 8-bit compare — which ca65 catches as a range error only
+    /// because the constant happens to exceed 255.
+    pub fn skip(&mut self, why: &str) -> &mut Self {
+        self.c(&format!("SKIP: {why}"));
+        self.l("sep #$20");
+        self.l("lda #VERDICT_SKIP");
+        self.l("sta f:V_TEST_RESULT");
+        self.l("jmp test_restore");
+        self.lines
+            .push("    ; unreachable — restores the assembler's width belief only".into());
+        self.lines.push("    .a16".into());
+        self.lines.push("    .i16".into());
+        self
+    }
+
     /// Assert the 16-bit accumulator equals `val`. Requires `A` currently 16-bit.
     pub fn assert_a16(&mut self, val: u16, why: &str) -> &mut Self {
         self.l(&format!("cmp #${val:04X}"));

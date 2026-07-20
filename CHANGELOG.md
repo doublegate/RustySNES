@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES ships a PAL image, and it settled a contested assertion.** "This needs a PAL
+  console" was only half true: a console's region fixes the timing, but which timing an emulator
+  boots is decided by the cart header's country code. The generator now emits
+  `build/accuracysnes-pal.sfc` by patching one header byte of the linked NTSC image and recomputing
+  the checksum, so the two images are provably identical apart from the region — any behavioural
+  difference between them is the region and cannot be anything else. `B2.04` (262 lines) and the new
+  `B2.05` (312 lines) are mirrors, each standing down as SKIP on the machine it does not describe,
+  and the skip predicate is the *measured* frame height rather than the region bit, because a
+  frame-height test must not depend on the thing it is evidence for. **`B2.10` is settled**: the bit
+  that moves between the two images is **bit 4**, so fullsnes is right and the SNESdev wiki's bit 3
+  is wrong — settled by measurement rather than by picking a source.
+
+- **`B4.14`: interrupt dispatch latency, measured (golden).** The dossier's claim — the poll occurs
+  just before the final CPU cycle — is sub-cycle and not CPU-observable; the finest clock a cart can
+  read is the H counter at four master clocks per dot, and reading it costs more than the interval.
+  So the cart measures the consequence: with its own IRQ handler installed through a new
+  RAM-indirect IRQ vector, it times handler entry while spinning on `NOP`s and again while spinning
+  on `JSL`/`RTL`. **The three references split on the sign** — RustySNES +3 dots, snes9x +2, Mesen2
+  −2 — which is exactly why it is recorded rather than scored. Battery now **134 tests**; the
+  libretro cross-validation host dumps the whole measurement channel so any golden timing vector is
+  comparable across emulators.
+
 - **The AccuracySNES framebuffer oracle is live (T-04-H, `docs/adr/0013` ratified).** Part of the
   PPU decides only what appears on screen, so a self-scoring cart cannot reach it — there is no path
   from rendered pixels back to the CPU. The cart now renders and the *host* judges: after the

@@ -45,6 +45,8 @@ pub fn all() -> Vec<Test> {
         b1_03(),
         b1_04(),
         b2_06(),
+        b2_05(),
+        b4_14(),
         b2_10(),
         b4_07(),
         b4_09(),
@@ -431,6 +433,12 @@ fn read_v(a: &mut Asm) {
 /// Sampled rather than counted: the loop latches V repeatedly from the start of vblank until the
 /// counter wraps, tracking the maximum. Each iteration costs a handful of dots against a scanline
 /// of 340, so the top line cannot be missed.
+///
+/// **Region.** The battery ships as two images differing in one header byte, so this same test
+/// runs on both an NTSC and a PAL machine (`build/accuracysnes-pal.sfc`). It stands down as SKIP
+/// on PAL rather than asserting the wrong number, and `B2.05` is its mirror. The skip predicate is
+/// the *measured* line count, not the region bit: which bit of `$213F` carries the region is
+/// contested (`B2.10`), and a frame-height test must not depend on the thing it is evidence for.
 fn b2_04() -> Test {
     let mut a = Asm::new();
     a.c("Start at vblank, poll V until it wraps to the top of the next frame, keep the maximum.");
@@ -438,7 +446,9 @@ fn b2_04() -> Test {
     a.l("phk");
     a.l("plb");
     a.l("sep #$20");
-    a.l("jsr wait_vblank   ; V is now at the first vblank line");
+    a.l("stz $2133         ; SETINI: no interlace (see B2.05 — test order must not decide this)");
+    a.l("jsr wait_vblank");
+    a.l("jsr wait_vblank   ; V is now at the first vblank line of a settled frame");
     a.l("rep #$30");
     a.l("lda #$0000");
     a.l("sta f:$7E0120     ; running maximum");
@@ -451,6 +461,10 @@ fn b2_04() -> Test {
     a.l("cmp #100          ; below 100 means the counter has wrapped into the next frame");
     a.l("bcs @vloop");
     a.l("lda f:$7E0120");
+    a.l("cmp #311");
+    a.l("bne :+");
+    a.skip("V topped out at 311 — this is a PAL machine, so B2.05 is the applicable assertion");
+    a.l(":");
     a.assert_a16(
         261,
         "the V counter did not reach 261 (an NTSC frame is 262 lines, 0-261)",
@@ -459,6 +473,57 @@ fn b2_04() -> Test {
         "B2.04",
         'B',
         "NTSC frame is 262 lines",
+        Provenance::Documented("SNESdev Wiki, Timing; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// A PAL frame is 312 lines, so the V counter tops out at 311.
+///
+/// The mirror of `B2.04`, and the reason the battery ships a PAL image at all. "This needs a PAL
+/// console" is only half true: a console's region fixes the timing, but which timing an emulator
+/// boots is decided by the cart header's country code, so a one-byte header change exercises PAL
+/// on every emulator with no harness-side switch a reference emulator has no equivalent of. On real
+/// hardware the console still wins, which is why this decides what it is running on by measurement
+/// rather than by trusting its own header.
+fn b2_05() -> Test {
+    let mut a = Asm::new();
+    a.c("Identical to B2.04's measurement; only the expected line count differs.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("stz $2133         ; SETINI: no interlace — B2.06 leaves it ON, and an interlaced PAL");
+    a.c("frame is 313 lines on the long field, so measuring frame height without clearing this");
+    a.c("measures B2.06's leftovers instead. Found by the PAL image: B2.04 skipped (it saw 311)");
+    a.c("while B2.05 failed, which is only possible if the two measured different machines.");
+    a.l("jsr wait_vblank");
+    a.l("jsr wait_vblank   ; a settled frame under the cleared setting");
+    a.l("rep #$30");
+    a.l("lda #$0000");
+    a.l("sta f:$7E0120     ; running maximum");
+    a.label("vloop");
+    read_v(&mut a);
+    a.l("cmp f:$7E0120");
+    a.l("bcc :+");
+    a.l("sta f:$7E0120");
+    a.l(":");
+    a.l("cmp #100          ; below 100 means the counter has wrapped into the next frame");
+    a.l("bcs @vloop");
+    a.l("lda f:$7E0120");
+    a.l("cmp #261");
+    a.l("bne :+");
+    a.skip("V topped out at 261 — this is an NTSC machine, so B2.04 is the applicable assertion");
+    a.l(":");
+    a.assert_a16(
+        311,
+        "the V counter did not reach 311 (a PAL frame is 312 lines, 0-311)",
+    );
+    a.finish(
+        "B2.05",
+        'B',
+        "PAL frame is 312 lines",
         Provenance::Documented("SNESdev Wiki, Timing; fullsnes"),
         Kind::Scored,
         None,
@@ -882,6 +947,144 @@ fn b2_10() -> Test {
         Kind::Golden,
         None,
     )
+}
+
+/// Interrupt dispatch is deferred to an instruction boundary (golden vector).
+///
+/// The dossier states this as "the poll occurs just before the final CPU cycle, so handler entry is
+/// 6-12 master cycles after assertion". That exact claim is sub-cycle and a cart cannot see it: the
+/// finest clock the CPU can read is the H counter at 4 master clocks per dot, and reading it costs
+/// more than the interval being measured.
+///
+/// What *is* observable is the consequence, and it is the part that matters to software: if the
+/// poll happens at an instruction boundary rather than continuously, then an interrupt asserting
+/// during a long instruction waits for that instruction to retire. So this measures handler entry
+/// twice — once with the CPU spinning on two-cycle `NOP`s, once with it spinning on the longest
+/// instruction pair a test can safely execute — and records both, plus the difference.
+///
+/// **Golden, not scored.** The absolute numbers depend on where in the spin loop the interrupt
+/// happens to land, which the cart cannot control to a dot. Their *difference* is the signal, and
+/// the point is to make it comparable across emulators rather than to assert a threshold nothing
+/// independent has established. `A5.08` is the precedent: a measurement whose references disagree
+/// is recorded, not scored.
+fn b4_14() -> Test {
+    let mut a = Asm::new();
+    a.c("Arm an H-IRQ at a known dot, install a handler that latches H on entry, and spin. The");
+    a.c(
+        "latched dot minus HTIME is the dispatch latency. Run it twice with different spin bodies.",
+    );
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("sei");
+
+    a.c("Install the handler. It latches H, acknowledges, flags the spin loop, and returns.");
+    a.l("rep #$20");
+    a.l("lda #@handler");
+    a.l("sta a:V_IRQ_VEC");
+    a.l("sep #$20");
+
+    a.c("Pass 1: spin on NOPs, the shortest instruction there is.");
+    arm_h_irq(&mut a);
+    a.l("cli");
+    a.label("spin1");
+    a.repeat(4, &["nop"]);
+    a.l("lda f:$7E0134");
+    a.l("beq @spin1");
+    a.l("sei");
+    a.l("rep #$20");
+    a.l("lda f:$7E0136     ; H latched on handler entry");
+    a.l("sec");
+    a.l("sbc #200          ; minus HTIME: the dispatch latency in dots");
+    a.record(100, "B4.14 dispatch latency, NOP spin (dots)");
+    a.l("sta f:$7E0138");
+    a.l("sep #$20");
+
+    a.c("Pass 2: spin on JSL/RTL. If the poll were continuous rather than at an instruction");
+    a.c("boundary, this would enter the handler in the same place as pass 1.");
+    arm_h_irq(&mut a);
+    a.l("cli");
+    a.label("spin2");
+    a.l("jsl @far");
+    a.l("sep #$20");
+    a.l("lda f:$7E0134");
+    a.l("beq @spin2");
+    a.l("sei");
+    a.l("rep #$20");
+    a.l("lda f:$7E0136");
+    a.l("sec");
+    a.l("sbc #200");
+    a.record(101, "B4.14 dispatch latency, JSL/RTL spin (dots)");
+    a.l("sec");
+    a.l("sbc f:$7E0138     ; the extra delay a long instruction imposes");
+    a.record(102, "B4.14 extra latency from the long spin body (dots)");
+
+    a.c("Restore the default handler before leaving — the vector is global state.");
+    a.l("sep #$20");
+    a.l("stz $4200");
+    a.l("lda $4211");
+    a.l("rep #$20");
+    a.l("lda #irq_stub");
+    a.l("sta a:V_IRQ_VEC");
+    a.l("sep #$20");
+    a.l("lda #$01");
+    a.l("sta f:V_TEST_RESULT   ; golden: the numbers live in the measurement channel");
+    a.l("jmp test_restore");
+
+    a.c("--- the far routine the long spin calls ---");
+    a.label("far");
+    a.l("rtl");
+
+    a.c("--- the handler ---");
+    a.label("handler");
+    a.l("rep #$30");
+    a.l("pha");
+    a.l("sep #$20");
+    a.l("lda $2137         ; latch H and V at handler entry");
+    a.l("lda $213C");
+    a.l("xba");
+    a.l("lda $213C");
+    a.l("and #$01");
+    a.l("xba");
+    a.l("rep #$20");
+    a.l("and #$01FF");
+    a.l("sta f:$7E0136");
+    a.l("sep #$20");
+    a.l("lda $4211         ; acknowledge");
+    a.l("lda #$01");
+    a.l("sta f:$7E0134     ; tell the spin loop to stop");
+    a.l("rep #$20");
+    a.l("pla");
+    a.l("rti");
+
+    a.finish(
+        "B4.14",
+        'B',
+        "IRQ dispatch latency",
+        Provenance::Documented(
+            "SNESdev Wiki, Timing; fullsnes — the sub-cycle poll point is not CPU-observable, so \
+             its consequence is measured instead",
+        ),
+        Kind::Golden,
+        None,
+    )
+}
+
+/// Arm an H-IRQ at dot 200, clearing the stale latch and the handler's rendezvous byte.
+///
+/// Shared by `B4.14`'s two passes so the only difference between them is the spin body — which is
+/// the whole experiment.
+fn arm_h_irq(a: &mut Asm) {
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta f:$7E0134     ; rendezvous byte: the handler sets it (STZ has no long form)");
+    a.l("lda #200");
+    a.l("sta $4207");
+    a.l("stz $4208         ; HTIME = 200");
+    a.l("lda $4211         ; clear any stale latch");
+    a.l("lda #$10");
+    a.l("sta $4200         ; H-IRQ enabled, NMI off, auto-joypad off");
 }
 
 /// An H-IRQ fires on the programmed dot, and the horizontal comparator lags `HTIME`.

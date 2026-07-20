@@ -114,6 +114,41 @@ else
     echo "skip Mesen2: build it with 'make -C ref-proj/Mesen2'" >&2
 fi
 
+# --- the PAL image ------------------------------------------------------------------------------
+#
+# The same battery at PAL timing. The two images differ in one header byte, so this is the cheapest
+# possible isolation of the region: anything that changes between them is the region and can be
+# nothing else. Both references must reach the same failing-test count on both images -- the region
+# pair (B2.04/B2.05) swaps which of the two SKIPs, and neither ever fails.
+PAL_ROM=tests/roms/AccuracySNES/build/accuracysnes-pal.sfc
+
+if [[ -f $PAL_ROM ]]; then
+    if [[ -f $SNES9X ]]; then
+        echo "=== snes9x (PAL image) ==="
+        if "$HOST" "$SNES9X" "$PAL_ROM" 1500 >/dev/null 2>&1; then n=0; else n=$?; fi
+        if [[ $n -eq $SNES9X_KNOWN_FAILURES ]]; then
+            echo "snes9x PAL: OK ($n known divergence(s))"
+        else
+            echo "snes9x PAL: $n failing test(s), expected $SNES9X_KNOWN_FAILURES" >&2
+            rc=1
+        fi
+    fi
+    if [[ -f $MESEN ]] && command -v dotnet >/dev/null; then
+        echo "=== Mesen2 (PAL image) ==="
+        dotnet "$MESEN" --testrunner "$PAL_ROM" scripts/accuracysnes/mesen_crossval.lua \
+            --timeout=120 >/dev/null 2>&1
+        code=$?
+        case $code in
+            0)   echo "Mesen2 PAL: OK (0 failing tests)" ;;
+            253) echo "Mesen2 PAL: results block never appeared (bad magic)" >&2; rc=1 ;;
+            254) echo "Mesen2 PAL: timed out before the battery finished" >&2; rc=1 ;;
+            *)   echo "Mesen2 PAL: $code failing test(s)" >&2; rc=1 ;;
+        esac
+    fi
+else
+    echo "skip the PAL image: build the cart first (cargo run -p accuracysnes-gen)" >&2
+fi
+
 # --- rendered scenes (ADR 0013) ------------------------------------------------------------------
 #
 # The battery above is self-scoring: the cart decides pass/fail and the references merely have to

@@ -116,6 +116,10 @@ V_DISPATCH      = $0040
 ; install its own handler (AccuracyCoin does the same thing by vectoring into RAM).
 V_BRK_VEC       = $0042
 V_COP_VEC       = $0044
+; The IRQ vector goes through RAM for the same reason BRK and COP do: a test that wants to observe
+; interrupt DISPATCH (rather than just the comparator through $4211) has to run its own handler.
+; Initialised to `irq_stub` at reset, so a test that never touches it sees the old behaviour.
+V_IRQ_VEC       = $004A
 
 ; Cycle-measurement scratch (see hv_sync / hv_h in runtime.s).
 V_H0            = $0046
@@ -143,6 +147,7 @@ PAD_X           = $0040
 ; The runtime defines these; every other translation unit imports them.
 .ifndef RUNTIME_IMPL
     .import test_restore
+    .import irq_stub
     .import hv_begin
     .import hv_end
 .import wait_vblank

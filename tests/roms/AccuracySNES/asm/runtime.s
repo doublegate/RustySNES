@@ -60,6 +60,13 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     lda #$8F
     sta INIDISP                 ; forced blank while we set up
 
+    rep #$20
+    .a16
+    lda #irq_stub
+    sta a:V_IRQ_VEC             ; default: the IRQ trampoline behaves exactly like the old stub
+    sep #$20
+    .a8
+
     jsr capture_power_on        ; MUST precede init_registers — see below
 
     jsr init_registers
@@ -1202,6 +1209,12 @@ test_restore := test_restore_impl
 .export irq_stub
 .proc irq_stub
     rti
+.endproc
+
+; The IRQ trampoline, for tests that need to observe dispatch rather than the comparator flag.
+.export irq_trampoline
+.proc irq_trampoline
+    jmp (V_IRQ_VEC)
 .endproc
 
 ; BRK / COP trampolines. The vectors are fixed at link time; these jump through a RAM pointer so

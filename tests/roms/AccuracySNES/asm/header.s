@@ -9,6 +9,7 @@
 
 .import reset
 .import irq_stub
+.import irq_trampoline
 .import brk_trampoline
 .import cop_trampoline
 
@@ -46,7 +47,7 @@ title:
     .addr irq_stub              ; $FFE8  ABORT
     .addr irq_stub              ; $FFEA  NMI
     .word $0000                 ; $FFEC  unused (the CPU always boots in emulation mode)
-    .addr irq_stub              ; $FFEE  IRQ
+    .addr irq_trampoline        ; $FFEE  IRQ (through RAM, see V_IRQ_VEC)
 
     ; --- emulation mode, $FFF0-$FFFF ---
     .word $0000, $0000          ; $FFF0, $FFF2  unused
