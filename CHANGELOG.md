@@ -20,6 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `B4.12` — reading `$4211` releases the latch immediately, asserted with a second read *on the
   same scanline*. Battery now **90 tests, 85 scoring, 100.00%, 5 golden**.
 
+- **AccuracySNES `A5.08` — the `A5.22` cycle spot checks, as a golden vector, and the measured
+  blocker for T-04-I.** Converts cited cycle counts into measurable time via
+  `clocks = 6*cycles + 2*mem` (`mem` = instruction length plus data/stack accesses) — the term a
+  naive "cycles x constant" conversion misses, and why `NOP` and `LDA #imm`, both 2 cycles, do not
+  cost the same. Written scored first; it failed on **all three** references at **different**
+  sub-assertions (snes9x on `XBA`, RustySNES on `REP`), which is the signature of the references
+  disagreeing with each other rather than of a broken test. It therefore reports a bitmask of which
+  expectations matched — RustySNES `101`, snes9x `100` — and stays out of the pass rate. The
+  consequence for the planned 256-opcode sweep is recorded in `docs/accuracysnes-plan.md`: the
+  blocker is sourcing an **external** per-opcode timing table, not writing the sweep.
 - **AccuracySNES: pre-`init_registers` power-on sampling (T-04-G prerequisite).**
   `capture_power_on` runs at the top of reset, before `init_registers` puts every register into a
   known state, and stashes what it samples in a documented WRAM capture block. Without it no

@@ -13,7 +13,7 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **90** (85 scoring + 5 golden vectors) |
+| Tests | **91** (85 scoring + 6 golden vectors) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES, Mesen2, snes9x — all agree, 0 failures |
 | Groups shipped | **A** (65C816 CPU, 46 tests) · **C** partial (PPU, 30 tests) · **B** partial (5A22, 9 tests) |
@@ -29,14 +29,14 @@ flag in the status byte `BRK` pushes).
 
 | Group | Scope | Enumerated | Done | Left |
 |---|---|---:|---:|---:|
-| **A** | 65C816 CPU | ~55 | 46 | ~10-15 |
+| **A** | 65C816 CPU | ~55 | 47 | ~10-15 |
 | **B** | 5A22 bus, clock, timing | ~30 | 14 | ~16 |
 | **C** | S-PPU1 / S-PPU2 | ~85 | 30 | ~55 |
 | **D** | DMA / HDMA | ~35 | 0 | ~35 |
 | **E** | SPC700 + S-DSP | ~75 | 0 | ~75 |
 | **F** | Input | ~22 | 0 | ~22 |
 | **G** | Power-on / reset / cartridge | ~18 | 0 | ~18 |
-| | | **~320** | **90** | **~230** |
+| | | **~320** | **91** | **~229** |
 
 **These are test counts. For assertion coverage, read `docs/accuracysnes-coverage.md`** — it is
 regenerated with the ROM from the map in `gen/src/dossier.rs` and currently reports **79 of 443**
@@ -189,7 +189,31 @@ preserved verbatim, only restructured), taking the enumeration from 232 checkabl
 assertions happened to sit in a table, and the rest were guesses — which is precisely where an
 untested behaviour could hide indefinitely.
 
-**The 256-opcode cycle sweep is deliberately not in T-04-A.** The dossier's `A5.01`–`A5.08` call
+**T-04-I is blocked on an oracle, not on engineering — and that is now measured, not assumed.**
+`A5.08` implements the dossier's `A5.22` cycle spot checks (`XBA`, `REP`, `PHD`/`PLD`) using the
+only sound conversion available:
+
+```text
+clocks = 8*mem + 6*internal,  cycles = mem + internal   =>   clocks = 6*cycles + 2*mem
+```
+
+`mem` being instruction length plus data/stack accesses. That second term is why `NOP` and
+`LDA #imm` — both 2 cycles — do not cost the same time, and why "cycles x a constant" cannot work.
+
+Written as a scored test, it failed on **all three** emulators at **different** sub-assertions:
+snes9x on `XBA`, RustySNES on `REP`. Identical failure everywhere means the test is wrong; failure
+at different points means the references do not agree with each other on instruction-level timing.
+The bitmask each reports makes it concrete — RustySNES `101`, snes9x `100`.
+
+Nothing on hand can decide which is right, because the only oracle available is the emulators
+themselves. **A 256-opcode sweep has this problem 256 times over.** The mechanism is
+straightforward; the blocker is a per-opcode timing table from an external source — undisbeliever's
+tables are the obvious candidate — with its provenance recorded. Until that is sourced, a sweep can
+only produce a *fingerprint* for comparing implementations, not a pass rate. `A5.08` is therefore a
+golden vector, and T-04-I's first task is sourcing the table, not writing assembly.
+
+**`STP` stays excluded outright** — it halts the CPU until reset, so a battery that executes it
+never reports. The dossier's `A5.01`–`A5.08` call
 for measuring every opcode at `m=1,x=1,e=0,DL=$00`. That needs a safe-operand table (opcode length,
 whether it branches, whether it writes somewhere harmful) and a scratch sandbox that survives 256
 arbitrary instructions. It is its own piece of engineering and gets its own ticket rather than

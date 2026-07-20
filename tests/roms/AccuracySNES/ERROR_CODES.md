@@ -379,6 +379,12 @@ Provenance: **Documented** (WDC datasheet; SNESdev Wiki, 65C816 interrupts). Kin
 |---|---|---|
 | 1 | `$02` | BRK did not set the B flag in the status byte it pushed |
 
+### A5.08 — Cycle spot checks (gold)
+
+Provenance: **Contested** (the three reference emulators disagree with each other on instruction-level timing; no external per-opcode timing table is sourced yet). Kind: golden vector, never scored.
+
+No failure codes (control-flow test: reaching the end is the pass).
+
 ## Group C
 
 ### C1.01 — OAM word write/read

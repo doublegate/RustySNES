@@ -2342,6 +2342,245 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; A5.08 — Cycle spot checks (gold)
+; provenance: Contested (the three reference emulators disagree with each other on instruction-level timing; no external per-opcode timing table is sourced yet)
+.proc test_a5_08
+    .a16
+    .i16
+    ; Three differential measurements against NOP; report which matched as a bitmask.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0094     ; the result bitmask
+    ; --- baseline: 32 NOPs ---
+    jsr hv_begin
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0090
+    ; --- XBA: expected +6 clocks each, +48 dots over 32 ---
+    sep #$20
+    .a8
+    jsr hv_begin
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    xba
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0090
+    cmp #48 - 2
+    bcc :+
+    cmp #48 + 3
+    bcs :+
+    sep #$20
+    .a8
+    lda f:$7E0094
+    ora #$01
+    sta f:$7E0094
+    rep #$20
+    .a16
+    :
+    ; --- REP #$00: expected +8 clocks each, +64 dots over 32 ---
+    sep #$20
+    .a8
+    jsr hv_begin
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    .byte $C2, $00   ; rep #$00
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0090
+    cmp #64 - 2
+    bcc :+
+    cmp #64 + 3
+    bcs :+
+    sep #$20
+    .a8
+    lda f:$7E0094
+    ora #$02
+    sta f:$7E0094
+    rep #$20
+    .a16
+    :
+    ; --- PHD+PLD: expected 66 clocks per pair against 28, so +76 dots over 8 ---
+    sep #$20
+    .a8
+    jsr hv_begin
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0092
+    sep #$20
+    .a8
+    jsr hv_begin
+    phd
+    pld
+    phd
+    pld
+    phd
+    pld
+    phd
+    pld
+    phd
+    pld
+    phd
+    pld
+    phd
+    pld
+    phd
+    pld
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0092
+    cmp #76 - 2
+    bcc :+
+    cmp #76 + 3
+    bcs :+
+    sep #$20
+    .a8
+    lda f:$7E0094
+    ora #$04
+    sta f:$7E0094
+    rep #$20
+    .a16
+    :
+    ; --- report the bitmask as the variant code ---
+    sep #$20
+    .a8
+    lda f:$7E0094
+    asl a
+    ora #$01
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 ; C1.01 — OAM word write/read
 ; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
 .proc test_c1_01
@@ -5225,7 +5464,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 90
+    .word 91
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -5275,6 +5514,7 @@ _test_entries:
     .addr test_a1_06
     .addr test_a5_07
     .addr test_a6_09
+    .addr test_a5_08
     .addr test_c1_01
     .addr test_c1_02
     .addr test_c1_03
@@ -5368,6 +5608,7 @@ _test_flags:
     .byte $01   ; A1.06
     .byte $01   ; A5.07
     .byte $01   ; A6.09
+    .byte $02   ; A5.08
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -5461,6 +5702,7 @@ _test_names:
     .addr @n_a1_06
     .addr @n_a5_07
     .addr @n_a6_09
+    .addr @n_a5_08
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -5643,6 +5885,9 @@ _test_names:
 @n_a6_09:
     .byte 22
     .byte "BRK sets B in pushed P"
+@n_a5_08:
+    .byte 24
+    .byte "Cycle spot checks (gold)"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"
