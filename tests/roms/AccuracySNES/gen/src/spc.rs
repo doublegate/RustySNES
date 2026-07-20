@@ -244,6 +244,16 @@ impl Spc {
         self.push(&[0xE0])
     }
 
+    /// `CLRP` — `$20`. Direct page moves to `$00xx`.
+    pub fn clrp(&mut self) -> &mut Self {
+        self.push(&[0x20])
+    }
+
+    /// `SETP` — `$40`. Direct page moves to `$01xx` — the same page the stack lives on.
+    pub fn setp(&mut self) -> &mut Self {
+        self.push(&[0x40])
+    }
+
     /// `SETC` — `$80`.
     pub fn setc(&mut self) -> &mut Self {
         self.push(&[0x80])

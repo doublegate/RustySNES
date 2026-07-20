@@ -71,6 +71,7 @@ pub fn all() -> Vec<Test> {
         e1_09(),
         e1_10(),
         e1_12(),
+        e2_06(),
         e2_07(),
         e4_01(),
         e4_02(),
@@ -3053,6 +3054,58 @@ fn e5_11() -> Test {
         'E',
         "Directory entry address",
         Provenance::Documented("fullsnes, S-DSP BRR; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `PSW.P` moves the direct page to `$01xx`, and it moves it for *every* direct-page access.
+///
+/// The bit is easy to implement for the obvious loads and stores and forget for the rest — the bit
+/// operations, the pointer fetches behind `[aa]+Y`, the read-modify-writes. A driver that sets `P`
+/// to keep its variables clear of the zero page then finds half its accesses going to the wrong
+/// place, and the failure looks like memory corruption rather than an addressing bug.
+///
+/// The two pages are seeded with different values first, so "it went to `$0120`" and "it went to
+/// `$0020`" are distinguishable answers rather than one answer and one absence. `$0120` is far
+/// below the stack, which lives at the top of the same page.
+fn e2_06() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .clrp()
+        .mov_dp_imm(0x20, 0x11) // $0020, the page-0 copy
+        .setp()
+        .mov_dp_imm(0x20, 0x5A) // $0120, if P is honoured
+        .clrp()
+        .mov_a_abs(0x0120)
+        .mov_dp_a(PORT1)
+        .mov_a_dp(0x20) // page 0 again
+        .mov_dp_a(PORT2)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.assert_a8(
+        0x5A,
+        "a direct-page store with P set did not reach $0120, so the bit is not selecting the page",
+    );
+    a.c("And the page-0 copy is untouched, which is the half that catches a core writing BOTH.");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x11,
+        "the page-0 byte changed as well, so the store went to $0020 rather than to $0120",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E2.06",
+        'E',
+        "PSW.P selects the page",
+        Provenance::Documented("SNESdev Wiki, SPC700 addressing; fullsnes"),
         Kind::Scored,
         None,
     )
