@@ -60,6 +60,10 @@ pub fn all() -> Vec<Test> {
         e5_09(),
         e5_11(),
         e7_10(),
+        e1_08(),
+        e1_10(),
+        e1_12(),
+        e2_07(),
         e4_01(),
         e4_02(),
         e4_04(),
@@ -1077,6 +1081,238 @@ fn voice_program(sample: &[u8], v: Voice) -> Spc {
     dsp_read_to(&mut p, 0x09, PORT3); // voice 0 OUTX
     p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
     p
+}
+
+/// `CLRV` clears the half-carry as well as the overflow flag.
+///
+/// The mnemonic names one flag and the instruction clears two. Nothing else on the SPC700 clears
+/// `H` on its own, so a decimal-arithmetic routine that uses `CLRV` to prepare for `DAA` is relying
+/// on the second effect — and on a core that clears only `V`, the stale `H` silently changes what
+/// `DAA` does.
+///
+/// An `ADC` of `$7F + $01` sets both flags first: the signed result overflows and the low nibble
+/// carries. The reading before `CLRV` is reported too, because "both flags are clear afterwards" is
+/// vacuous unless they were set to begin with.
+fn e1_12() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .clrc()
+        .mov_a_imm(0x7F)
+        .adc_a_imm(0x01) // -> $80: V set (signed overflow) and H set (nibble carry)
+        .push_psw()
+        .pop_a()
+        .mov_dp_a(PORT1) // PSW with both set
+        .clrv()
+        .push_psw()
+        .pop_a()
+        .mov_dp_a(PORT2) // PSW after CLRV
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("V is bit 6, H is bit 3. Both must be set before CLRV or the check after it proves");
+    a.c("nothing.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.l("and #$48");
+    a.assert_a8(
+        0x48,
+        "ADC $7F + $01 did not set both V and H, so the CLRV check below would be vacuous",
+    );
+    a.l("lda f:$7E0101");
+    a.l("and #$48");
+    a.assert_a8(
+        0x00,
+        "CLRV left a flag set — it clears H as well as V, and nothing else on the SPC700 clears H",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E1.12",
+        'E',
+        "CLRV clears H too",
+        Provenance::Documented("SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `DAA` applies two adjustments, and the second one can carry out of the byte.
+///
+/// `if (C || A > $99) { A += $60; C = 1; }` then `if (H || (A & 15) > 9) { A += 6; }`. Two cases
+/// pin both halves: `$0A` trips only the low-nibble test and becomes `$10`; `$9A` trips both, and
+/// the `+$60` followed by `+6` wraps it to `$00` with carry set. A core implementing `DAA` as a
+/// single table lookup, or as the 65C816's decimal mode, gets the second case wrong.
+///
+/// `CLRC` and `CLRV` set up the entry flags — `CLRV` because it is the only way to clear `H`
+/// (`E1.12`), and a stale `H` would trip the second adjustment for a reason the test is not about.
+fn e1_08() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .clrc()
+        .clrv() // clears H as well — see E1.12
+        .mov_a_imm(0x0A)
+        .daa()
+        .mov_dp_a(PORT1) // only the low-nibble adjustment: $0A + 6 = $10
+        .clrc()
+        .clrv()
+        .mov_a_imm(0x9A)
+        .daa()
+        .mov_dp_a(PORT2) // both: $9A + $60 = $FA, then + 6 = $00 with carry
+        .push_psw()
+        .pop_a()
+        .mov_dp_a(PORT3)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.assert_a8(
+        0x10,
+        "DAA on $0A did not apply the low-nibble adjustment, so $0A + 6 = $10 did not happen",
+    );
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x00,
+        "DAA on $9A did not wrap to $00 — both adjustments apply, and $9A + $60 + 6 leaves the byte",
+    );
+    a.c("And the carry the first adjustment sets, which is what makes the wrap a decimal result");
+    a.c("rather than a lost hundred.");
+    a.l("lda f:$7E0102");
+    a.l("and #$01");
+    a.assert_a8(0x01, "DAA on $9A did not set the carry");
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E1.08",
+        'E',
+        "DAA adjustments",
+        Provenance::Documented("SNESdev Wiki, SPC700 reference; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `TSET1` is an equality test, not a result test: `N`/`Z` come from `A - target` *before* the write.
+///
+/// The instruction ORs `A` into the target and reports flags — but the flags describe a comparison
+/// of `A` against the target's **old** value, exactly as `CMP` would. That is the opposite of what
+/// the mnemonic suggests, and the difference is visible whenever the result is non-zero but the
+/// operands were equal: `$55` set into `$55` leaves `$55`, so a core reporting flags from the result
+/// says "not zero" where the hardware says "equal".
+///
+/// Both cases are here because the second is the discriminator and the first is what proves the
+/// instruction did its job at all — the target must come back with `A`'s bits set.
+fn e1_10() -> Test {
+    const SCRATCH: u16 = 0x0500;
+
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_a_imm(0x30)
+        .mov_abs_a(SCRATCH)
+        .mov_a_imm(0x0F)
+        .tset1_abs(SCRATCH) // $0F vs $30: unequal, and the target becomes $3F
+        .push_psw()
+        .pop_a()
+        .mov_dp_a(PORT1)
+        .mov_a_abs(SCRATCH)
+        .mov_dp_a(PORT2)
+        .mov_a_imm(0x55)
+        .mov_abs_a(SCRATCH + 1)
+        .mov_a_imm(0x55)
+        .tset1_abs(SCRATCH + 1) // equal, though the result $55 is not zero
+        .push_psw()
+        .pop_a()
+        .mov_dp_a(PORT3)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("Unequal operands: Z (bit 1) clear, and the target came back with A's bits set.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.l("and #$02");
+    a.assert_a8(0x00, "TSET1 set Z although A and the target differed");
+    a.l("lda f:$7E0101");
+    a.assert_a8(0x3F, "TSET1 did not OR A into its target");
+    a.c("Equal operands, non-zero result. This is the case that separates a comparison from a");
+    a.c("result: the hardware says equal, a core reading flags off the result says not-zero.");
+    a.l("lda f:$7E0102");
+    a.l("and #$02");
+    a.assert_a8(
+        0x02,
+        "TSET1 did not set Z for equal operands, so its flags describe the result rather than a \
+         comparison against the target's old value",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E1.10",
+        'E',
+        "TSET1 is a compare",
+        Provenance::Documented("SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// A `CALL` pushes the address it will return to, not that address minus one.
+///
+/// The 65816 pushes `return - 1` and `RTS` compensates; the SPC700 does not, and a core that copies
+/// the 65816's convention returns one byte early — into the middle of whatever instruction follows
+/// the call. Nothing about that is subtle once it happens, and nothing about it is visible until it
+/// does.
+///
+/// The subroutine never returns: it pops the two pushed bytes, reports them, and finishes the
+/// program. Popping is the only way to *see* what was pushed, and having seen it there is nothing
+/// left on the stack to return with. The expected value is computed from the program's own layout —
+/// the offset immediately after the `CALL` — rather than written down, so it cannot drift out of
+/// step with the code.
+fn e2_07() -> Test {
+    let mut sub = Spc::new();
+    sub.pop_a()
+        .mov_dp_a(PORT1) // first pop: the low byte, if the push order is high-then-low
+        .pop_a()
+        .mov_dp_a(PORT2)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut prog = Spc::new();
+    let routine = prog.data_first(IMAGE_BASE, sub.bytes());
+    prog.mov_x_imm(0xEF).mov_sp_x().call_abs(routine);
+    let expected = IMAGE_BASE + u16::try_from(prog.here()).expect("program fits APU RAM");
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.assert_a8(
+        (expected & 0xFF) as u8,
+        "the low byte of the pushed return address is wrong; one less than expected means the \
+         65816's return-minus-one convention was applied",
+    );
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        (expected >> 8) as u8,
+        "the high byte of the pushed return address is wrong",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E2.07",
+        'E',
+        "CALL pushes exact addr",
+        Provenance::Documented("SNESdev Wiki, SPC700 reference; fullsnes"),
+        Kind::Scored,
+        None,
+    )
 }
 
 /// The IPL boot ROM is the same 64 bytes on every SNES.

@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Four SPC700 instructions whose behaviour contradicts their names (`E1`, `E2`).** `E1.12`:
+  `CLRV` clears the half-carry as well as the overflow flag, and nothing else on the SPC700 clears
+  `H` — so a decimal routine using it to prepare for `DAA` depends on the undocumented half.
+  `E1.08`: `DAA` applies two adjustments, and `$9A` trips both, wrapping to `$00` with carry set.
+  `E1.10`: `TSET1` reports `N`/`Z` from a *comparison* of `A` against the target's old value, not
+  from the result — visible when the operands are equal and the result is not zero, where the
+  hardware says "equal" and a result-based core says "not zero". `E2.07`: a `CALL` pushes the
+  address it will return to, not that address minus one; a core copying the 65816's convention
+  returns into the middle of the following instruction.
+
+  `E2.07`'s subroutine never returns. Popping the pushed bytes is the only way to see them, and
+  having seen them there is nothing left to return with — so it reports and ends the program. Its
+  expected value is computed from the program's own layout rather than written down.
+
 - **The boot ROM itself (`E4`).** The cart has used the IPL handshake since Group E existed;
   these are the first tests *of* it. `E4.01` walks all 64 bytes of `$FFC0`-`$FFFF` and reports both
   their sum and a position-weighted rolling value — the sum alone would accept any permutation,
@@ -354,10 +368,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **183 tests — 171 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **187 tests — 175 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **141 of 443** on-cart plus **42** scene-only —
-**183 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier. Dossier coverage is **145 of 443** on-cart plus **42** scene-only —
+**187 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 
