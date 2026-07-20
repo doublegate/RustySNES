@@ -325,6 +325,15 @@ impl Asm {
         self.fail_if_ne(why)
     }
 
+    /// Fail when the preceding comparison found `A` strictly below the operand.
+    pub fn fail_if_below(&mut self, why: &str) -> &mut Self {
+        let code = self.alloc(why);
+        self.lines.push("    bcs :+".into());
+        self.lines.push(format!("    jmp @fail{code}"));
+        self.lines.push("  :".into());
+        self
+    }
+
     /// Assert a 16-bit `A` lies in `lo..=hi`.
     ///
     /// Cycle measurements carry a few dots of phase jitter: the CPU's 6- and 8-clock cycles do

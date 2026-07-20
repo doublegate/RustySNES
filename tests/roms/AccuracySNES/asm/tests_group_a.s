@@ -2176,6 +2176,754 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; C1.01 — OAM word write/read
+; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
+.proc test_c1_01
+    .a16
+    .i16
+    ; OAMADDR is a WORD address. Two byte writes to $2104 fill one word, low byte first.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    stz $2102         ; OAMADDR = word 0
+    stz $2103
+    lda #$AA
+    sta $2104
+    lda #$BB
+    sta $2104         ; word 0 now committed
+    stz $2102         ; rewind to word 0 to read it back
+    stz $2103
+    lda $2138
+    cmp #$AA
+    beq :+
+    jmp @fail1
+  :
+    lda $2138
+    cmp #$BB
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; OAM low byte did not read back
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; OAM high byte did not read back
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C1.02 — OAM odd write latched
+; provenance: Documented (SNESdev Wiki, OAM; anomie)
+.proc test_c1_02
+    .a16
+    .i16
+    ; Seed word 1 with a known value, then write THREE bytes from word 0. The third byte is
+    ; latched as the low half of word 1 and must not be committed on its own.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    ; --- seed word 1 = $EEDD ---
+    lda #$01
+    sta $2102         ; OAMADDR = word 1
+    stz $2103
+    lda #$DD
+    sta $2104
+    lda #$EE
+    sta $2104
+    ; --- three bytes starting at word 0 ---
+    stz $2102
+    stz $2103
+    lda #$11
+    sta $2104
+    lda #$22
+    sta $2104         ; word 0 committed
+    lda #$33
+    sta $2104         ; latched only — must NOT reach word 1
+    ; --- read back ---
+    stz $2102
+    stz $2103
+    lda $2138
+    cmp #$11
+    beq :+
+    jmp @fail1
+  :
+    lda $2138
+    cmp #$22
+    beq :+
+    jmp @fail2
+  :
+    lda $2138
+    cmp #$DD
+    beq :+
+    jmp @fail3
+  :
+    lda $2138
+    cmp #$EE
+    beq :+
+    jmp @fail4
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; word 0 low byte wrong
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; word 0 high byte wrong
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+@fail3:
+    ; the odd trailing byte was committed (it must stay in the latch)
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jmp test_restore
+@fail4:
+    ; word 1 high byte was disturbed
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C1.03 — OAMADDR reload clears
+; provenance: Documented (SNESdev Wiki, OAM; anomie)
+.proc test_c1_03
+    .a16
+    .i16
+    ; Write an odd byte count, then reload OAMADDR: the pending latch is discarded and the
+    ; next pair starts cleanly rather than being offset by one byte.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$02
+    sta $2102         ; word 2
+    stz $2103
+    lda #$99
+    sta $2104         ; leave a byte pending in the latch
+    lda #$02
+    sta $2102         ; reload -> discard the pending byte
+    stz $2103
+    lda #$44
+    sta $2104
+    lda #$55
+    sta $2104
+    lda #$02
+    sta $2102
+    stz $2103
+    lda $2138
+    cmp #$44
+    beq :+
+    jmp @fail1
+  :
+    lda $2138
+    cmp #$55
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; reloading OAMADDR did not discard the pending latch byte
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; word high byte wrong after OAMADDR reload
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C1.04 — OAM rd/wr one counter
+; provenance: Documented (SNESdev Wiki, OAM)
+.proc test_c1_04
+    .a16
+    .i16
+    ; Write one word, then read one byte, then read again: the read pointer must have followed
+    ; the write pointer rather than tracking separately.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$04
+    sta $2102
+    stz $2103
+    lda #$5A
+    sta $2104
+    lda #$A5
+    sta $2104
+    lda #$7E
+    sta $2104
+    lda #$E7
+    sta $2104         ; words 4 and 5 written
+    lda #$05
+    sta $2102         ; point at word 5 only
+    stz $2103
+    lda $2138
+    cmp #$7E
+    beq :+
+    jmp @fail1
+  :
+    lda $2138
+    cmp #$E7
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; shared counter: word 5 low byte wrong
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; shared counter: word 5 high byte wrong
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C2.01 — VMAIN step 1 word
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c2_01
+    .a16
+    .i16
+    ; VMAIN=$80: step 1 word, increment after the HIGH byte. Three words written back to back
+    ; must land at consecutive addresses.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115
+    rep #$30
+    .a16
+    .i16
+    ldx #$1000
+    stx $2116
+    lda #$1111
+    sta $2118
+    lda #$2222
+    sta $2118
+    lda #$3333
+    sta $2118
+    ; Read back word $1001. The first read after setting the address is the stale prefetch,
+    ; so discard it and take the second (see C2.03).
+    ldx #$1001
+    stx $2116
+    lda $2139         ; prefetch, discarded
+    ldx #$1001
+    stx $2116
+    sep #$20
+    .a8
+    lda $2139
+    cmp #$22
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; step-1 increment did not reach word $1001
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C2.02 — VMAIN low-byte trigger
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c2_02
+    .a16
+    .i16
+    ; VMAIN=$00 increments after $2118 (the LOW byte), so writing only low bytes fills the low
+    ; half of consecutive words and never touches the high halves. This is exactly how the
+    ; runtime uploads its 1bpp font, so it is load-bearing here.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Clear two words first so the high bytes are known.
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115
+    rep #$30
+    .a16
+    .i16
+    ldx #$1100
+    stx $2116
+    lda #$0000
+    sta $2118
+    sta $2118
+    ; Now low-byte-only writes.
+    sep #$20
+    .a8
+    stz $2115         ; VMAIN = $00: increment after the LOW byte
+    rep #$30
+    .a16
+    .i16
+    ldx #$1100
+    stx $2116
+    sep #$20
+    .a8
+    lda #$3C
+    sta $2118
+    lda #$C3
+    sta $2118
+    ; Read back word $1100: low $3C, high still 0.
+    rep #$30
+    .a16
+    .i16
+    ldx #$1100
+    stx $2116
+    lda $2139
+    ldx #$1100
+    stx $2116
+    lda $2139
+    cmp #$003C
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; low-byte-only write disturbed the high byte, or did not increment
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C2.03 — VRAM read prefetch
+; provenance: Documented (SNESdev Wiki; docs/ppu.md edge case 4)
+.proc test_c2_03
+    .a16
+    .i16
+    ; Write two distinguishable words, then set the address and read TWICE. The first read is
+    ; the prefetch latched when the address was written; the second is the real value.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115
+    rep #$30
+    .a16
+    .i16
+    ldx #$1200
+    stx $2116
+    lda #$ABCD
+    sta $2118
+    lda #$1234
+    sta $2118         ; word $1200 = $ABCD, word $1201 = $1234
+    ldx #$1200
+    stx $2116
+    lda $2139         ; prefetch of word $1200
+    and #$FFFF
+    cmp #$ABCD
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; the read after setting VMADD did not return word $1200
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C2.04 — VRAM bit 15 unconnected
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c2_04
+    .a16
+    .i16
+    ; VRAM is 32K words, so a 16-bit word address has one bit too many. Bit 15 is unconnected,
+    ; making $8xxx an alias of $0xxx rather than an out-of-range access.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115
+    rep #$30
+    .a16
+    .i16
+    ldx #$1300
+    stx $2116
+    lda #$BEEF
+    sta $2118
+    ; Read the same word through the mirrored address.
+    ldx #$9300
+    stx $2116
+    lda $2139
+    ldx #$9300
+    stx $2116
+    lda $2139
+    cmp #$BEEF
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; VRAM address bit 15 was decoded (it must be unconnected)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C2.05 — VMAIN step 32 words
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c2_05
+    .a16
+    .i16
+    ; Write with step=32, then read the far word back to confirm the stride.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$81          ; VMAIN: step 32 words, increment after the high byte
+    sta $2115
+    rep #$30
+    .a16
+    .i16
+    ldx #$1400
+    stx $2116
+    lda #$0F0F
+    sta $2118
+    lda #$F0F0
+    sta $2118         ; words $1400 and $1420
+    ; Read word $1420 with the plain step so the address does not run away.
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115
+    rep #$30
+    .a16
+    .i16
+    ldx #$1420
+    stx $2116
+    lda $2139
+    ldx #$1420
+    stx $2116
+    lda $2139
+    cmp #$F0F0
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; VMAIN step-32 increment did not land at word $1420
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C3.01 — CGRAM two-write commit
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c3_01
+    .a16
+    .i16
+    ; $2122 is written twice per colour: low byte then high. Read back through $213B.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$10
+    sta $2121         ; CGADD = colour 16
+    lda #$34
+    sta $2122
+    lda #$12
+    sta $2122         ; colour 16 = $1234
+    lda #$10
+    sta $2121
+    lda $213B
+    cmp #$34
+    beq :+
+    jmp @fail1
+  :
+    lda $213B
+    and #$7F          ; bit 7 of the second read is PPU2 open bus
+    cmp #$12
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; CGRAM low byte did not read back
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; CGRAM high byte did not read back
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C3.02 — CGADD resets flipflop
+; provenance: Documented (SNESdev Wiki, PPU registers)
+.proc test_c3_02
+    .a16
+    .i16
+    ; Leave a byte pending, reload CGADD, then write a full colour: the pending byte must be
+    ; discarded rather than pairing with the next write.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$11
+    sta $2121
+    lda #$99
+    sta $2122         ; pending
+    lda #$11
+    sta $2121         ; reload -> flipflop reset
+    lda #$78
+    sta $2122
+    lda #$56
+    sta $2122
+    lda #$11
+    sta $2121
+    lda $213B
+    cmp #$78
+    beq :+
+    jmp @fail1
+  :
+    lda $213B
+    and #$7F
+    cmp #$56
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; CGADD write did not reset the flipflop
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; CGRAM high byte wrong after flipflop reset
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C3.03 — OPHCT is a 9-bit pair
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c3_03
+    .a16
+    .i16
+    ; $213F resets the read flipflops, $2137 latches, then two $213C reads give low byte and
+    ; (in bit 0 only) bit 8. Reconstructed, that must be a real position on the scanline.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda $213F         ; reset the OPHCT/OPVCT read flipflops
+    lda $2137         ; latch H and V
+    lda $213C         ; low 8 bits
+    xba
+    lda $213C
+    and #$01          ; bit 0 is counter bit 8; bits 1-7 are open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp #$0000
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0155
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; reconstructed H counter is outside a scanline
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C3.04 — H counter advances
+; provenance: Documented (SNESdev Wiki, PPU registers)
+.proc test_c3_04
+    .a16
+    .i16
+    ; Latch, burn a known amount of time, latch again. The elapsed dot count must be non-zero
+    ; and must not have wrapped past the end of the line.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    jsr hv_begin
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; elapsed dots
+    cmp #$0001
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0155
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; the H counter did not advance plausibly across 16 NOPs
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 .segment "CATALOG"
 .export _test_count
 .export _test_entries
@@ -2183,7 +2931,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 43
+    .word 56
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -2230,6 +2978,19 @@ _test_entries:
     .addr test_a8_03
     .addr test_a9_01
     .addr test_a9_02
+    .addr test_c1_01
+    .addr test_c1_02
+    .addr test_c1_03
+    .addr test_c1_04
+    .addr test_c2_01
+    .addr test_c2_02
+    .addr test_c2_03
+    .addr test_c2_04
+    .addr test_c2_05
+    .addr test_c3_01
+    .addr test_c3_02
+    .addr test_c3_03
+    .addr test_c3_04
 
 ; Per-test flags: bit0 = scores toward the pass rate, bit1 = golden-vector.
 _test_flags:
@@ -2276,6 +3037,19 @@ _test_flags:
     .byte $01   ; A8.03
     .byte $01   ; A9.01
     .byte $01   ; A9.02
+    .byte $01   ; C1.01
+    .byte $01   ; C1.02
+    .byte $01   ; C1.03
+    .byte $01   ; C1.04
+    .byte $01   ; C2.01
+    .byte $01   ; C2.02
+    .byte $01   ; C2.03
+    .byte $01   ; C2.04
+    .byte $01   ; C2.05
+    .byte $01   ; C3.01
+    .byte $01   ; C3.02
+    .byte $01   ; C3.03
+    .byte $01   ; C3.04
 
 ; Menu labels, each a length-prefixed ASCII string.
 _test_names:
@@ -2322,6 +3096,19 @@ _test_names:
     .addr @n_a8_03
     .addr @n_a9_01
     .addr @n_a9_02
+    .addr @n_c1_01
+    .addr @n_c1_02
+    .addr @n_c1_03
+    .addr @n_c1_04
+    .addr @n_c2_01
+    .addr @n_c2_02
+    .addr @n_c2_03
+    .addr @n_c2_04
+    .addr @n_c2_05
+    .addr @n_c3_01
+    .addr @n_c3_02
+    .addr @n_c3_03
+    .addr @n_c3_04
 @n_a1_01:
     .byte 16
     .byte "XCE clears XH/YH"
@@ -2451,3 +3238,42 @@ _test_names:
 @n_a9_02:
     .byte 18
     .byte "XBA swaps A halves"
+@n_c1_01:
+    .byte 19
+    .byte "OAM word write/read"
+@n_c1_02:
+    .byte 21
+    .byte "OAM odd write latched"
+@n_c1_03:
+    .byte 21
+    .byte "OAMADDR reload clears"
+@n_c1_04:
+    .byte 21
+    .byte "OAM rd/wr one counter"
+@n_c2_01:
+    .byte 17
+    .byte "VMAIN step 1 word"
+@n_c2_02:
+    .byte 22
+    .byte "VMAIN low-byte trigger"
+@n_c2_03:
+    .byte 18
+    .byte "VRAM read prefetch"
+@n_c2_04:
+    .byte 23
+    .byte "VRAM bit 15 unconnected"
+@n_c2_05:
+    .byte 19
+    .byte "VMAIN step 32 words"
+@n_c3_01:
+    .byte 22
+    .byte "CGRAM two-write commit"
+@n_c3_02:
+    .byte 21
+    .byte "CGADD resets flipflop"
+@n_c3_03:
+    .byte 21
+    .byte "OPHCT is a 9-bit pair"
+@n_c3_04:
+    .byte 18
+    .byte "H counter advances"

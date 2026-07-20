@@ -74,6 +74,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   raw wikitext, rendered HTML, and images. The SNES counterpart to the `nesdev_wiki/` mirror
   RustyNES keeps, and the same posture: a local reference copy, never vendored.
 
+- **AccuracySNES Group C, sub-groups C1-C3 (Phase B): PPU port mechanics, 13 tests.** OAM word
+  commit and the write-twice latch (an odd trailing byte stays latched and never reaches memory),
+  `OAMADDR` reload discarding a pending latch, the shared read/write counter; `VMAIN` increment
+  steps and low-byte-vs-high-byte trigger, the VRAM read prefetch latch, address bit 15 being
+  unconnected; CGRAM's two-write commit and `CGADD` flipflop reset, and the `OPHCT` 9-bit read
+  pair. Port behaviour is pure register logic with no renderer dependency, so it lands before the
+  sub-groups that lean on the per-scanline compositor. Battery now **56 tests, 55 scoring,
+  100.00%**, still agreeing with Mesen2 and snes9x.
+
 ### Removed
 
 - The dead `rustysnes-test-harness::accuracy_battery::score_accuracy_battery` skeleton (ticket

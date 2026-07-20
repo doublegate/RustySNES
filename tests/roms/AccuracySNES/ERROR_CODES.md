@@ -355,3 +355,117 @@ Provenance: **Documented** (WDC datasheet). Kind: scored.
 |---|---|---|
 | 1 | `$02` | XBA did not swap the accumulator halves |
 
+## Group C
+
+### C1.01 — OAM word write/read
+
+Provenance: **Documented** (SNESdev Wiki, OAM; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | OAM low byte did not read back |
+| 2 | `$04` | OAM high byte did not read back |
+
+### C1.02 — OAM odd write latched
+
+Provenance: **Documented** (SNESdev Wiki, OAM; anomie). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | word 0 low byte wrong |
+| 2 | `$04` | word 0 high byte wrong |
+| 3 | `$06` | the odd trailing byte was committed (it must stay in the latch) |
+| 4 | `$08` | word 1 high byte was disturbed |
+
+### C1.03 — OAMADDR reload clears
+
+Provenance: **Documented** (SNESdev Wiki, OAM; anomie). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | reloading OAMADDR did not discard the pending latch byte |
+| 2 | `$04` | word high byte wrong after OAMADDR reload |
+
+### C1.04 — OAM rd/wr one counter
+
+Provenance: **Documented** (SNESdev Wiki, OAM). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | shared counter: word 5 low byte wrong |
+| 2 | `$04` | shared counter: word 5 high byte wrong |
+
+### C2.01 — VMAIN step 1 word
+
+Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | step-1 increment did not reach word $1001 |
+
+### C2.02 — VMAIN low-byte trigger
+
+Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | low-byte-only write disturbed the high byte, or did not increment |
+
+### C2.03 — VRAM read prefetch
+
+Provenance: **Documented** (SNESdev Wiki; docs/ppu.md edge case 4). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the read after setting VMADD did not return word $1200 |
+
+### C2.04 — VRAM bit 15 unconnected
+
+Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | VRAM address bit 15 was decoded (it must be unconnected) |
+
+### C2.05 — VMAIN step 32 words
+
+Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | VMAIN step-32 increment did not land at word $1420 |
+
+### C3.01 — CGRAM two-write commit
+
+Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | CGRAM low byte did not read back |
+| 2 | `$04` | CGRAM high byte did not read back |
+
+### C3.02 — CGADD resets flipflop
+
+Provenance: **Documented** (SNESdev Wiki, PPU registers). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | CGADD write did not reset the flipflop |
+| 2 | `$04` | CGRAM high byte wrong after flipflop reset |
+
+### C3.03 — OPHCT is a 9-bit pair
+
+Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | reconstructed H counter is outside a scanline |
+
+### C3.04 — H counter advances
+
+Provenance: **Documented** (SNESdev Wiki, PPU registers). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the H counter did not advance plausibly across 16 NOPs |
+
