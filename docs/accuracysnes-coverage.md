@@ -44,7 +44,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `E3` | 14 | 7 | 0 | E3.02, E3.06, E3.07, E3.08, E3.09, E3.12, E3.13 |
 | `E4` | 11 | 3 | 0 | E4.03, E4.05, E4.06, E4.07, E4.08, E4.09, E4.10, E4.11 |
 | `E5` | 13 | 8 | 0 | E5.01, E5.06, E5.10, E5.12, E5.13 |
-| `E6` | 11 | 0 | 0 | E6.01, E6.02, E6.03, E6.04, E6.05, E6.06, E6.07, E6.08, E6.09, E6.10, E6.11 |
+| `E6` | 11 | 1 | 0 | E6.01, E6.03, E6.04, E6.05, E6.06, E6.07, E6.08, E6.09, E6.10, E6.11 |
 | `E7` | 18 | 7 | 0 | E7.02, E7.03, E7.04, E7.05, E7.06, E7.07, E7.09, E7.12, E7.13, E7.17, E7.18 |
 | `E8` | 11 | 1 | 0 | E8.01, E8.02, E8.03, E8.05, E8.06, E8.07, E8.08, E8.09, E8.10, E8.11 |
 | `E9` | 20 | 7 | 0 | E9.01, E9.02, E9.03, E9.05, E9.07, E9.08, E9.09, E9.11, E9.13, E9.14, E9.15, E9.16, E9.20 |
@@ -52,7 +52,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `F1` | 22 | 1 | 0 | F1.01, F1.03, F1.04, F1.05, F1.06, F1.07, F1.08, F1.09, F1.10, F1.11, F1.12, F1.13, F1.14, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
 | `G1` | 18 | 8 | 0 | G1.01, G1.03, G1.05, G1.06, G1.07, G1.13, G1.15, G1.16, G1.17, G1.18 |
 
-**182 of 443** enumerated assertion rows covered by an on-cart test, plus **50** covered only by a rendered scene (`docs/adr/0013`) — **232 of 443** in total.
+**183 of 443** enumerated assertion rows covered by an on-cart test, plus **50** covered only by a rendered scene (`docs/adr/0013`) — **233 of 443** in total.
 
 The two columns are kept apart on purpose. An on-cart result means the same thing on any emulator and on real hardware; a rendered scene needs a host holding the golden. Adding them into one figure would quietly change what the number claims.
 
@@ -60,6 +60,7 @@ The two columns are kept apart on purpose. An on-cart result means the same thin
 
 Declared in `dossier.rs::SPLITS`. Each is a claim that the tests assert different things about one enumerated behaviour; an undeclared double-claim fails the build.
 
+- **`E6.02`** — E6.02, E6.02b, E6.02c, E6.02d · one row for a rate — and a single reading of ENDX cannot establish a rate, only "finished" or "not finished", which bounds it on one side. So each pitch is read twice, at waits either side of where it finishes: E6.02/E6.02b bracket $1000 to 24-64 samples per wait and E6.02c/E6.02d bracket $2000 to 64-128. Both windows contain the documented rate and the two do not overlap, which is the increase; none of the four means anything alone, and the pair-of-pairs is what the row is worth
 - **`D1.01`** — D1.01, D1.01b · the dossier states "transfer modes 0-7, one test each" as a single row, so it is a range in all but name. Cart D1.01 covers mode 0 (every byte to one register) and D1.01b mode 1 (alternating between two) — the pair is what makes either meaningful, since a core that confuses the two still writes the right bytes to the wrong places
 - **`D1.07`** — D1.07, D1.07b · one row for three address-step behaviours that share a two-bit field (0 = increment, 1 = fixed, 2 = decrement, 3 = fixed). Cart D1.07 asserts FIXED and D1.07b DECREMENT; a core that reads the field as two independent flags gets exactly one of them wrong and the other right, which either test alone would miss
 - **`A5.01-08`** — A5.S01, A5.S02, A5.S03, A5.S04, A5.S05, A5.S06, A5.S07, A5.S08, A5.S09, A5.S10, A5.S11, A5.S12, A5.S13, A5.S14, A5.S15, A5.S16, A5.S17, A5.S18, A5.S19, A5.S20, A5.S21, A5.S22, A5.S23, A5.S24, A5.S25, A5.S26, A5.S27, A5.S28, A5.S29, A5.S30, A5.S31, A5.S32, A5.S33, A5.S34 · the opcode cycle sweep (T-04-I). The dossier states the base sweep as a single ranged assertion covering all 256 opcodes; the cart implements it as one test per opcode so a failure names the instruction rather than the batch. Every A5.Sxx test is one row of it

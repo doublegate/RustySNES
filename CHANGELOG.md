@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Pitch scales the sample rate, and `$2000` is an octave above `$1000` (`E6.02`).** The first
+  assertion from the S-DSP's pitch block, and the first on this cart to measure a *rate*. A single
+  reading of `ENDX` cannot do that — it says "finished" or "not finished", which bounds a rate on one
+  side only — so three tests play the same 384-sample voice and bound it on both: at `$1000` it has
+  not finished after six waits and has after sixteen, and at `$2000` the same six waits are enough.
+
+  Each pitch is read twice, at waits either side of where it finishes, because one reading bounds a
+  rate on one side only. The result is two windows — `$1000` consumes 24-64 samples per wait,
+  `$2000` consumes 64-128 — which both contain the documented rates, do not overlap, and cannot both
+  be satisfied by a core that ignores the pitch register.
+
+  The four waits were **found by bisection rather than calculated** — the first attempt placed them
+  by arithmetic and the voice had already finished — and then deliberately moved *away* from the
+  boundaries they found, so no verdict sits close to a finishing point. What the windows do not
+  establish is that the factor is exactly two: a core scaling by 1.5 fits both, and excluding it
+  would mean bracketing between adjacent waits, where every verdict is a hair's breadth from
+  flipping. `docs/accuracysnes-plan.md` records the trade. All four tests agree on snes9x and
+  Mesen2, on both images.
+
 - **The power-on state is now reachable, and Group G reports out of it (`G1.02`, `G1.04`, `G1.08`,
   `G1.09`).** The battery runs long after reset, through a runtime that deliberately puts every PPU
   and CPU register into a known state — so until now the whole power-on half of Group G was

@@ -164,6 +164,10 @@ pub const MAP: &[(&str, &[&str])] = &[
     ("E3.11c", &[]),
     ("E9.19", &["E9.19"]),
     ("F1.02", &["F1.02"]),
+    ("E6.02", &["E6.02"]),
+    ("E6.02b", &["E6.02"]),
+    ("E6.02c", &["E6.02"]),
+    ("E6.02d", &["E6.02"]),
     ("G1.02", &["G1.02"]),
     ("G1.04", &["G1.04"]),
     ("G1.08", &["G1.08"]),
@@ -276,6 +280,15 @@ pub const MAP: &[(&str, &[&str])] = &[
 /// failure code. Anything not listed here that is claimed twice is treated as an accidental
 /// duplicate and fails the build.
 pub const SPLITS: &[(&str, &str)] = &[
+    (
+        "E6.02",
+        "one row for a rate — and a single reading of ENDX cannot establish a rate, only \
+         \"finished\" or \"not finished\", which bounds it on one side. So each pitch is read \
+         twice, at waits either side of where it finishes: E6.02/E6.02b bracket $1000 to 24-64 \
+         samples per wait and E6.02c/E6.02d bracket $2000 to 64-128. Both windows contain the \
+         documented rate and the two do not overlap, which is the increase; none of the four means \
+         anything alone, and the pair-of-pairs is what the row is worth",
+    ),
     (
         "D1.01",
         "the dossier states \"transfer modes 0-7, one test each\" as a single row, so it is a \
