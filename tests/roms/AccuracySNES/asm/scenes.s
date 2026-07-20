@@ -191,15 +191,16 @@ SCENES_IMPL = 1
     .a8
     lda #$20
     sta $2101         ; OBJSEL: size pair 1 (8x8 / 16x16), name base word $0000
-    rep #$30
-    .a16
+    rep #$10
     .i16
     ldx #$0000
     stx $2102         ; OAMADD = 0
+
+    ; A stays 8-bit and X stays 16-bit for both loops. OAM is written a byte at a time and
+    ; the counters only need the index width, so flipping the accumulator inside the loop
+    ; would be 160 pointless `sep`/`rep` pairs and one more place to get a width wrong.
     ldx #$0000
 @low:
-    sep #$20
-    .a8
     lda #$00
     sta $2104         ; X low
     lda #224
@@ -207,21 +208,13 @@ SCENES_IMPL = 1
     lda #$00
     sta $2104         ; tile
     sta $2104         ; attributes
-    rep #$30
-    .a16
-    .i16
     inx
     cpx #128
     bne @low
     ldx #$0000
-@high:
-    sep #$20
-    .a8
     lda #$00
+@high:
     sta $2104         ; high table: X bit 8 clear, size bit clear
-    rep #$30
-    .a16
-    .i16
     inx
     cpx #32
     bne @high
