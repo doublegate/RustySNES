@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mode 7 reads neither `BG1SC` nor `BG1NBA` (`C5.13`), declared as an equivalence.** The scene
+  points both registers at nonsense and must render exactly what `c11-mode7-identity` renders —
+  Mode 7 has its own fixed VRAM layout, byte-interleaved with characters at `$0000`, and consults
+  neither. Its hash duplicating another scene's is the *assertion* here rather than a warning, which
+  is the difference between a declared equivalence and the accidental collisions that caught two
+  broken scenes this week. An equivalence also survives a change to the shared Mode 7 canvas, where
+  a second committed hash would not.
+
 - **Pure black is unreachable through direct colour (`C12.02`).** Pixel value 0 is transparent in
   every mode, direct colour included, so the backdrop shows where a naive RGB decode would render
   black. The scene sets a loud red backdrop so a transparent pixel is legible as one.
@@ -543,8 +551,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **AccuracySNES totals, as of this section:** **202 tests — 190 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier — **46 scenes**. Dossier coverage is **160 of 443** on-cart plus **46** scene-only —
-**206 of 443** in total. **Every group A-G now has shipped tests.** (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier — **47 scenes**. Dossier coverage is **160 of 443** on-cart plus **47** scene-only —
+**207 of 443** in total. **Every group A-G now has shipped tests.** (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 
