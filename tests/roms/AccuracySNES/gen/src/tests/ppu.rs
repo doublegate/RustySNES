@@ -380,6 +380,32 @@ fn c1_07() -> Test {
     )
 }
 
+/// Emit a loop that parks all 128 sprites below the visible area.
+///
+/// `Y = 240`, not 224: the visible height is not fixed, and an overscan display shows 239 lines. A
+/// sprite parked at 224 is still in range there, which is how Mesen2's PAL run first failed
+/// `C7.09` — the flag the test asked to have cleared had been set again by the very sprites it had
+/// just parked.
+///
+/// **Requires 16-bit `A`/`X`/`Y`**; leaves them 16-bit. Uses `Y` as the counter and the label
+/// `@park<tag>`, so a caller emitting it twice must pass different tags.
+fn park_all_sprites(a: &mut Asm, tag: &str) {
+    a.l("ldx #$0000");
+    a.l("stx $2102");
+    a.l("ldy #$0000");
+    a.label(&format!("park{tag}"));
+    a.l("sep #$20");
+    a.l("stz $2104         ; X");
+    a.l("lda #240");
+    a.l("sta $2104         ; Y=240: below the visible area in 224- AND 239-line modes");
+    a.l("stz $2104         ; tile");
+    a.l("stz $2104         ; attr");
+    a.l("rep #$30");
+    a.l("iny");
+    a.l("cpy #128");
+    a.l(&format!("bne @park{tag}"));
+}
+
 /// The sprite overflow flags clear when vblank ends, and forced blank does not clear them.
 ///
 /// `$213E` bit 6 (range over) latches when more than 32 sprites are in range on a scanline, and it
@@ -433,20 +459,7 @@ fn c7_09() -> Test {
     a.l("bne @clearhi");
     a.c("Park all 128 sprites off-screen: a stray one left by an earlier test would set the flags");
     a.c("for a reason this test is not about.");
-    a.l("ldx #$0000");
-    a.l("stx $2102");
-    a.l("ldy #$0000");
-    a.label("park1");
-    a.l("sep #$20");
-    a.l("stz $2104         ; X");
-    a.l("lda #240");
-    a.l("sta $2104         ; Y=240: below the visible area in 224- AND 239-line modes");
-    a.l("stz $2104         ; tile");
-    a.l("stz $2104         ; attr");
-    a.l("rep #$30");
-    a.l("iny");
-    a.l("cpy #128");
-    a.l("bne @park1");
+    park_all_sprites(&mut a, "1");
     a.c("Now put 34 of them on one line: two past the 32-sprite range limit, and at two slivers");
     a.c("each, well past the 34-sliver limit as well. Both flags must latch.");
     a.l("ldx #$0000");
@@ -481,20 +494,7 @@ fn c7_09() -> Test {
     a.c("Park them all again — under forced blank, with no frame rendered. The flag must persist:");
     a.c("forced blank is not the end of vblank.");
     a.l("rep #$30");
-    a.l("ldx #$0000");
-    a.l("stx $2102");
-    a.l("ldy #$0000");
-    a.label("park2");
-    a.l("sep #$20");
-    a.l("stz $2104");
-    a.l("lda #240");
-    a.l("sta $2104");
-    a.l("stz $2104");
-    a.l("stz $2104");
-    a.l("rep #$30");
-    a.l("iny");
-    a.l("cpy #128");
-    a.l("bne @park2");
+    park_all_sprites(&mut a, "2");
     a.l("sep #$20");
     a.l("lda $213E");
     a.l("and #$C0");

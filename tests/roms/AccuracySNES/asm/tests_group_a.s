@@ -3373,11 +3373,11 @@ CATALOG_IMPL = 1
 @park2:
     sep #$20
     .a8
-    stz $2104
+    stz $2104         ; X
     lda #240
-    sta $2104
-    stz $2104
-    stz $2104
+    sta $2104         ; Y=240: below the visible area in 224- AND 239-line modes
+    stz $2104         ; tile
+    stz $2104         ; attr
     rep #$30
     .a16
     .i16
