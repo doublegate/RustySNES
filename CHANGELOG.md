@@ -15,14 +15,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every mode, direct colour included, so the backdrop shows where a naive RGB decode would render
   black. The scene sets a loud red backdrop so a transparent pixel is legible as one.
 
-  **A second scene was written in the same batch, for `C11.02`, and dropped — and the reason is
-  worth more than the scene.** Mode 7's origin rule masks `M7HOFS - M7X` with `NOT $1C00`, and the
-  scene rendered a picture *identical to `c11-mode7-identity`* on all three emulators. `$1C00` is
-  `7 * $400`, so the mask only ever clears multiples of 1024 — and a Mode 7 map is 1024x1024 and
-  wraps, so every value the mask removes is one the wrap removes anyway. The rule is invisible by
-  construction while screen-over is set to wrap. It was caught only because the hash happened to
-  equal another scene's; three emulators agreeing, a stable hash and a plausible name are not
-  evidence that a scene shows anything.
+- **Mode 7's 13-bit origin mask, after two dead ends (`C11.02`).** `ORG.X` is
+  `(M7HOFS - M7X) AND NOT $1C00`, and making that visible took getting two things right at once.
+  **Screen-over must be TRANSPARENT**: `$1C00` is `7 * $400`, so the mask only removes multiples of
+  1024, and a wrapping 1024x1024 map removes those anyway — the rule is invisible by construction
+  while screen-over is wrap. And **`M7HOFS` is thirteen bits *signed***: `$1C40` has bit 12 set and
+  is therefore negative, the origin is off the map to the left with or without the mask, and the
+  scene renders a blank screen either way. `$0C40` is the same low bits with bit 12 clear: masked it
+  is 64 and on the map, unmasked it is 3136 and off it, so the two possibilities are a picture and a
+  blank screen.
+
+  **Both dead ends were caught by the hash colliding with an existing scene's** — the first with
+  `c11-mode7-identity`, the second with `c8-window-inverted-empty-is-full` (all backdrop). Three
+  emulators agreeing, a stable hash and a plausible name are not evidence that a scene shows
+  anything; checking a new hash against the committed goldens is.
 
 - **Sprite colour math applies to palettes 4-7 and to nothing else (`C8.01`).** A scene with two
   identical sprites side by side, one in palette 2 and one in palette 6, colour math enabled for
@@ -537,8 +543,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **AccuracySNES totals, as of this section:** **202 tests — 190 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier — **45 scenes**. Dossier coverage is **160 of 443** on-cart plus **45** scene-only —
-**205 of 443** in total. **Every group A-G now has shipped tests.** (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier — **46 scenes**. Dossier coverage is **160 of 443** on-cart plus **46** scene-only —
+**206 of 443** in total. **Every group A-G now has shipped tests.** (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 
