@@ -582,6 +582,11 @@ fn d2_04() -> Test {
 /// Writing into WRAM through `$2180` is what makes HDMA self-scoring: `WMADD` auto-increments, so
 /// a frame of per-line transfers leaves an exact trail the CPU can read back. The page is cleared
 /// first so "HDMA stopped here" is distinguishable from "this byte was already zero".
+///
+/// **Register widths on exit: `A` 8-bit, `X`/`Y` 16-bit.** Stated because the caller's
+/// `.a8`/`.a16` directives come from its own `sep`/`rep` lines and a helper call is not one of
+/// those — an undocumented width change here would leave the assembler and the CPU disagreeing
+/// about the size of the next immediate.
 fn setup_hdma_to_wram(a: &mut Asm, page: u8) {
     a.l("sep #$20");
     a.c("Clear the landing page so a trailing zero means HDMA stopped, not that it never started.");
