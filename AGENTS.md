@@ -72,6 +72,10 @@ cargo run -p accuracysnes-gen                            # NEVER pipe through `t
 REF_PROJ=$PWD/ref-proj bash scripts/accuracysnes/crossval.sh   # battery + PAL image + rendered scenes
 ```
 
+`accuracysnes-gen` is a **workspace member**, so lint it with the workspace command above — running
+`cargo clippy` from inside `tests/roms/AccuracySNES/gen/` picks up different settings and reports
+clean while CI fails.
+
 Frontend opt-in features (default-off): wasm-canvas · emu-thread · debug-hooks · hd-pack ·
 scripting · retroachievements. Harness features: test-roms · commercial-roms.
 

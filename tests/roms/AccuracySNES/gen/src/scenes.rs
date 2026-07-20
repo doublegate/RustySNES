@@ -794,12 +794,12 @@ pub const SCENES: &[Scene] = &[
     },
 ];
 
-/// Emit `scene_low_tiles`, the shared tilemap rewrite a deep-colour scene needs.
-///
-/// Split out of [`asm`] because it is a self-contained routine, not part of assembling the scene
-/// list — and because keeping it inline pushed `asm` past the line limit for no benefit.
-fn low_tiles_helper() -> String {
+/// The comment block `scene_low_tiles` carries, split out only to keep `low_tiles_helper` inside
+/// the workspace's function-length lint. It is long because the two constraints it records were
+/// each learned the expensive way.
+fn low_tiles_rationale() -> String {
     let mut s = String::new();
+
     // A shared helper rather than fifteen copies. The canvas fills the tilemap with glyph indices
     // spread over the whole font, which is right for 2bpp and useless for a deeper mode: an 8bpp
     // tile is 32 words, so tile $21 starts past the end of a 512-word font and every pixel reads
@@ -878,6 +878,15 @@ fn low_tiles_helper() -> String {
         "; size. That failure already cost this project a debugging session; see the"
     );
     let _ = writeln!(s, "; .a8/.a16 emission in `asm` below.");
+    s
+}
+
+/// Emit `scene_low_tiles`, the shared tilemap rewrite a deep-colour scene needs.
+///
+/// Split out of [`asm`] because it is a self-contained routine, not part of assembling the scene
+/// list — and because keeping it inline pushed `asm` past the line limit for no benefit.
+fn low_tiles_helper() -> String {
+    let mut s = low_tiles_rationale();
     let _ = writeln!(s, ".proc scene_low_tiles");
     let _ = writeln!(s, "    php");
     let _ = writeln!(s, "    .a16");
