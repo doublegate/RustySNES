@@ -1383,6 +1383,17 @@ Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DS
 |---|---|---|
 | 1 | `$02` | a fully attacked envelope did not read $7F; $FF or $FE means ENVX is not E >> 4 of an eleven-bit envelope |
 
+## Group F
+
+### F1.02 — Pad reads 17+ are 1
+
+Provenance: **Documented** (SNESdev Wiki, controller protocol; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a button read as pressed during the sixteen data bits, so the reads below say nothing about what follows them |
+| 2 | `$04` | a read past the sixteenth returned 0 — an official pad drives the line high once its data bits are exhausted, and peripherals are identified by not doing so |
+
 ## Group A
 
 ### A5.S01 — Sweep: CLC

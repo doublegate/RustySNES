@@ -7731,6 +7731,71 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; F1.02 — Pad reads 17+ are 1
+; provenance: Documented (SNESdev Wiki, controller protocol; fullsnes)
+.proc test_f1_02
+    .a16
+    .i16
+    sep #$20
+    .a8
+    ; Latch, then clock out the sixteen data bits, ORing them together. Nothing is pressed, so
+    ; the OR must be 0 — without this a core that returns 1 to every read would pass below.
+    lda #$01
+    sta JOYSER0
+    lda #$00
+    sta JOYSER0
+    lda #$00
+    sta f:$7E0100         ; the OR of the first sixteen reads
+    ldx #$10
+@data:
+    lda JOYSER0
+    and #$01
+    ora f:$7E0100
+    sta f:$7E0100
+    dex
+    bne @data
+    lda f:$7E0100
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    ; Reads 17-20. Every one must be 1: the pad has nothing left to send.
+    lda #$01
+    sta f:$7E0100         ; the AND of the next four reads
+    ldx #$04
+@ones:
+    lda JOYSER0
+    and #$01
+    and f:$7E0100
+    sta f:$7E0100
+    dex
+    bne @ones
+    lda f:$7E0100
+    cmp #$01
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; a button read as pressed during the sixteen data bits, so the reads below say nothing about what follows them
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; a read past the sixteenth returned 0 — an official pad drives the line high once its data bits are exhausted, and peripherals are identified by not doing so
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; A5.S01 — Sweep: CLC
 ; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
 .proc test_a5_s01
@@ -16091,7 +16156,7 @@ apu_prog_42:
 .export _test_flags
 
 _test_count:
-    .word 197
+    .word 198
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -16258,6 +16323,7 @@ _test_entries:
     .faraddr test_e7_11
     .faraddr test_e7_14
     .faraddr test_e7_15
+    .faraddr test_f1_02
     .faraddr test_a5_s01
     .faraddr test_a5_s02
     .faraddr test_a5_s03
@@ -16458,6 +16524,7 @@ _test_flags:
     .byte $01   ; E7.11
     .byte $01   ; E7.14
     .byte $01   ; E7.15
+    .byte $01   ; F1.02
     .byte $01   ; A5.S01
     .byte $01   ; A5.S02
     .byte $01   ; A5.S03
@@ -16658,6 +16725,7 @@ _test_names:
     .addr @n_e7_11
     .addr @n_e7_14
     .addr @n_e7_15
+    .addr @n_f1_02
     .addr @n_a5_s01
     .addr @n_a5_s02
     .addr @n_a5_s03
@@ -17181,6 +17249,9 @@ _test_names:
 @n_e7_15:
     .byte 14
     .byte "ENVX is E >> 4"
+@n_f1_02:
+    .byte 19
+    .byte "Pad reads 17+ are 1"
 @n_a5_s01:
     .byte 10
     .byte "Sweep: CLC"

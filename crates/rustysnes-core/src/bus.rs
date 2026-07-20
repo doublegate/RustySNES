@@ -228,8 +228,20 @@ pub struct Bus {
     wram: Box<[u8; WRAM_SIZE]>,
     /// WRAM port address (`$2181-$2183`), auto-incremented by `$2180` access.
     wram_addr: u32,
-    /// Controller shift latches (`$4016/$4017`) + the auto-read result (`$4218-$421F`).
+    /// The buttons currently held, per player — what the frontend last set, and what
+    /// `$4218-$421F` reports. **Not** the shift register: a manual read must not destroy it, and
+    /// the strobe reloads from it.
     joypad: [u16; 2],
+    /// The manual-read shift registers behind `$4016`/`$4017`, reloaded from [`Self::joypad`]
+    /// while the strobe is high.
+    ///
+    /// Separate from the buttons because the pad is a *parallel-load* shift register: `$4016.0`
+    /// high loads it from the button lines and low starts clocking, so a program may strobe and
+    /// re-read as often as it likes within one frame and get the same answer each time. Sharing one
+    /// register with the button state made the second read of a frame return all-ones, and made a
+    /// manual read corrupt the auto-read result — both invisible to a frontend that rewrites the
+    /// state every frame, and both found by AccuracySNES `F1.02`.
+    joypad_shift: [u16; 2],
     joypad_strobe: bool,
     /// Per-port peripheral state (`v0.9.0`, Phase 7 niche peripherals) — Mouse/Super Scope/Super
     /// Multitap. Idle (and touching nothing on `$4016`/`$4017`'s `data1` bit) unless a port's
@@ -301,6 +313,7 @@ impl Bus {
                 .unwrap(),
             wram_addr: 0,
             joypad: [0; 2],
+            joypad_shift: [0; 2],
             joypad_strobe: false,
             ports: [PortState::default(), PortState::default()],
             pio: 0xFF,
@@ -783,6 +796,12 @@ impl Bus {
                 // before (no functional change to the default path); the other peripherals latch.
                 let strobe = val & 1 != 0;
                 self.joypad_strobe = strobe;
+                // A parallel load, not an edge: while the strobe is high the shift registers track
+                // the button lines, and the falling edge simply stops them tracking. Reloading here
+                // is what lets a program strobe twice in one frame and read the same buttons twice.
+                if strobe {
+                    self.joypad_shift = self.joypad;
+                }
                 self.ports[0].latch(strobe);
                 self.ports[1].latch(strobe);
             }
@@ -820,8 +839,11 @@ impl Bus {
     /// [`crate::controller::PortState::clock`].
     fn port_clock(&mut self, port: usize) -> (u8, u8) {
         if self.ports[port].device == PortDevice::Gamepad {
-            let bit = ((self.joypad[port] & 0x8000) >> 15) as u8;
-            self.joypad[port] = (self.joypad[port] << 1) | 1;
+            // Shifting in ones is the pad's real behaviour once its sixteen data bits are gone:
+            // nothing is left driving the line low, so reads 17-32 return 1. That is how software
+            // tells a standard pad from a peripheral.
+            let bit = ((self.joypad_shift[port] & 0x8000) >> 15) as u8;
+            self.joypad_shift[port] = (self.joypad_shift[port] << 1) | 1;
             return (bit, 0);
         }
         let iobit = self.iobit_pin(port);
@@ -985,6 +1007,8 @@ impl Bus {
             s.write_u32(self.wram_addr);
             s.write_u16(self.joypad[0]);
             s.write_u16(self.joypad[1]);
+            s.write_u16(self.joypad_shift[0]);
+            s.write_u16(self.joypad_shift[1]);
             s.write_bool(self.joypad_strobe);
             s.write_u8(self.open_bus);
             s.write_u16(self.last_hdma_line);
@@ -1025,6 +1049,8 @@ impl Bus {
         self.wram_addr = s.read_u32()? & 0x1_FFFF;
         self.joypad[0] = s.read_u16()?;
         self.joypad[1] = s.read_u16()?;
+        self.joypad_shift[0] = s.read_u16()?;
+        self.joypad_shift[1] = s.read_u16()?;
         self.joypad_strobe = s.read_bool()?;
         self.open_bus = s.read_u8()?;
         self.last_hdma_line = s.read_u16()?;
@@ -1227,6 +1253,73 @@ mod tests {
     #[test]
     fn hdma_run_dot_matches_ppu_render_dot() {
         assert_eq!(HDMA_RUN_DOT, rustysnes_ppu::RENDER_DOT);
+    }
+
+    /// A strobe reloads the shift register, so two manual reads in one frame agree.
+    ///
+    /// The regression this locks: the shift register used to *be* the button word, so the first
+    /// read consumed it and the second returned all-ones. A frontend rewrites the button state
+    /// every frame, which hid it; a game that polls twice per frame would not have been hidden
+    /// from it.
+    #[test]
+    fn strobe_reloads_the_gamepad_shift_register() {
+        let mut bus = Bus::default();
+        bus.set_joypad(0, 0x8000); // B held, nothing else
+
+        let read16 = |bus: &mut Bus| {
+            bus.write_cpu_reg(0x4016, 0x01);
+            bus.write_cpu_reg(0x4016, 0x00);
+            let mut bits = 0u16;
+            for _ in 0..16 {
+                bits = (bits << 1) | u16::from(bus.read_cpu_reg(0x4016) & 1);
+            }
+            bits
+        };
+
+        assert_eq!(read16(&mut bus), 0x8000, "first read of the frame");
+        assert_eq!(
+            read16(&mut bus),
+            0x8000,
+            "second read must agree with the first"
+        );
+    }
+
+    /// Past sixteen bits a standard pad reads 1 — which is how software identifies it.
+    #[test]
+    fn gamepad_reads_one_past_its_data_bits() {
+        let mut bus = Bus::default();
+        bus.set_joypad(0, 0x0000);
+        bus.write_cpu_reg(0x4016, 0x01);
+        bus.write_cpu_reg(0x4016, 0x00);
+        for _ in 0..16 {
+            assert_eq!(
+                bus.read_cpu_reg(0x4016) & 1,
+                0,
+                "a data bit read as pressed"
+            );
+        }
+        for i in 0..4 {
+            assert_eq!(
+                bus.read_cpu_reg(0x4016) & 1,
+                1,
+                "read {} past the data bits",
+                i + 17
+            );
+        }
+    }
+
+    /// A manual read must not disturb the auto-read result.
+    #[test]
+    fn manual_read_does_not_consume_the_auto_read_result() {
+        let mut bus = Bus::default();
+        bus.set_joypad(0, 0x1234);
+        bus.write_cpu_reg(0x4016, 0x01);
+        bus.write_cpu_reg(0x4016, 0x00);
+        for _ in 0..16 {
+            let _ = bus.read_cpu_reg(0x4016);
+        }
+        assert_eq!(bus.read_cpu_reg(0x4218), 0x34);
+        assert_eq!(bus.read_cpu_reg(0x4219), 0x12);
     }
 
     #[test]
