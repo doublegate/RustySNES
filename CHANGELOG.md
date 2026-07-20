@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Two more assertions attempted, measured and parked rather than shipped.** `C1.07` (a 1→0
+  transition of `$2100` bit 7 reloads the OAM address): written as a straight-line test, all three
+  emulators returned the walked-to byte rather than the reloaded one. The reload is evidently tied
+  to rendering *starting* — the transition arms it and the next visible scanline applies it — and
+  the battery runs entirely under forced blank, so nothing in the test crossed that boundary.
+  Reaching it needs a frame to actually render between the transition and the read, then a re-blank
+  before touching `$2138`, since an OAM read during active display is unreliable (`C1.08` is the
+  assertion that says so).
+
+  It joins the interlace note as the second thing this week that needs **frame-boundary
+  machinery** the battery does not have: a scene published on a known field, and a test that can
+  let one frame render and stop. Both are in `docs/accuracysnes-plan.md`; together they unblock
+  `C1.07`, `C7.12`, `C9.03` and `C9.06`.
+
 - **A sprite's name-select bit reaches a different part of VRAM (`C7.11`).** Two sprites with the
   *same tile number*, one with the attribute bit set: the character address gains
   `(NameSelect + 1) << 12`, so the second reads from `$1000` words on — where the font never
