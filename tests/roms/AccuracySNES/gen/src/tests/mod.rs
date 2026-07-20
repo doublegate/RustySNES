@@ -8,6 +8,7 @@ pub mod apu;
 pub mod bus;
 pub mod cpu;
 pub mod dma;
+pub mod input;
 pub mod ppu;
 pub mod sweep;
 
@@ -21,6 +22,7 @@ pub fn all() -> Vec<Test> {
     v.extend(bus::all());
     v.extend(dma::all());
     v.extend(apu::all());
+    v.extend(input::all());
     v.extend(sweep::all());
     v
 }

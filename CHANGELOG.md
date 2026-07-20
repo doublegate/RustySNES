@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Group F opens with one test, and it found a defect the frontend could not (`F1.02`).** A
+  standard pad returns 1 once its sixteen data bits are gone, which is how software tells a pad from
+  a multitap or a mouse. The test checks the sixteen data bits first as a vacuity guard — with
+  nothing held they must all be 0 — so a core that returns 1 to everything fails there instead.
+
 - **Four more 65816 addressing rules (`A2`, `A3`), and a fourth snes9x divergence.** `A3.07`:
   `JSL` escapes page 1 — its third push lands at `$00FF`, not wrapped to `$01FF`. `A3.09`: so does
   `PHD`. `A2.07`: `(dp),Y` carries into the *next bank* once the pointer is loaded, so `$FFFF + 2`
@@ -211,6 +216,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   writes a third value there first.
 
 ### Fixed
+
+- **The gamepad's shift register was the button word itself, so a strobe never reloaded it.** The
+  SNES pad is a *parallel-load* shift register: `$4016.0` high loads it from the button lines and
+  low starts clocking, so a program may strobe and re-read as often as it likes within a frame and
+  get the same answer each time. RustySNES shifted the button state in place — so the first manual
+  read of a frame consumed the buttons, every later one returned all-ones, and a manual read also
+  corrupted the auto-read result at `$4218-$421F`. **A frontend rewrites the button state every
+  frame, which hid both**; a game that polls twice in one frame would not have been so lucky. The
+  shift registers are now separate state, reloaded while the strobe is high *and* on its falling
+  edge — a program that raises the strobe, changes the buttons, and lowers it must capture what is
+  held at the fall, not at the rise — and a read taken while the strobe is still high returns the
+  first bit without advancing, because a continuously reloading register never moves on. Saved as
+  state (save-state `FORMAT_VERSION` 3 → 4, with the reason in `docs/adr/0006`).
 
 - **`B4.12` asserted more than its citation.** It read `$4211` to acknowledge an IRQ and then read
   it again on the same scanline, expecting the latch released. But a V-only IRQ's comparator matches
@@ -455,10 +473,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **197 tests — 185 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **198 tests — 186 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **155 of 443** on-cart plus **42** scene-only —
-**197 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier. Dossier coverage is **156 of 443** on-cart plus **42** scene-only —
+**198 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 

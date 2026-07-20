@@ -75,6 +75,13 @@ and diffing the deterministic output against a fork that kept running uninterrup
   (`docs/ppu.md` §Hi-res (Modes 5/6) color-math precision). `tests/golden/savestate-v1-gilyon.bin`
   is the real `FORMAT_VERSION = 1` fixture (captured from the pre-bump code against the committed
   gilyon `cputest-basic.sfc`) the regression test above loads to prove the mismatch fails loudly.
+- **`3` → `4` (AccuracySNES `F1.02`):** `crate::bus`'s `BUS0` section grew by two `u16` — the
+  gamepad **shift registers**, which used to share storage with the button state. A manual `$4016`
+  read shifted the button word itself, so a program that strobed twice in one frame read all-ones
+  the second time and a manual read corrupted the auto-read result at `$4218-$421F`. Both were
+  invisible to a frontend that rewrites the button state every frame, which is why the bug survived
+  until a test ROM strobed twice with nobody watching. The registers are saved for the same reason
+  `Bus::joypad` already was: real, CPU-observable controller-port state.
 - **`2` → `3` (`v0.9.0`, Phase 7 niche peripherals):** `crate::bus`'s `BUS0` section grew — a new
   WRIO (`$4201`/`$4213`) `pio` byte plus each controller port's `crate::controller::PortState`
   (which peripheral is attached — Mouse/Super Scope/Super Multitap — plus that device's own

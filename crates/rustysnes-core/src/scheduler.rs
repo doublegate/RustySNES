@@ -39,7 +39,7 @@ use crate::sa1_bus::Sa1Bus;
 /// (device selection + Mouse/Super Scope/Super Multitap runtime state). Same guarantee as the `2`
 /// bump above: a `FORMAT_VERSION < 3` blob fails loudly (a `BUS0` section-length mismatch), not
 /// silently.
-const FORMAT_VERSION: u16 = 3;
+const FORMAT_VERSION: u16 = 4;
 /// The save-state envelope's leading magic bytes — identifies the blob as a RustySNES save-state
 /// before anything else is trusted.
 const MAGIC: &[u8; 4] = b"RSNS";
