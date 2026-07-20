@@ -34,11 +34,12 @@ local FIRST_ROW = 7
 -- Which frame of a scene's published window to hash, 1-based. Must match the other hosts: the
 -- cart publishes an ID only once the scene has settled and clears it before anything disturbs it,
 -- but each host samples at its own frame boundary, so both ends of the window can be off by one.
-local CAPTURE_SIGHTING = 2
+local CAPTURE_SIGHTING = 4
 
 local MAX_FRAMES = 2000
 local frames = 0
 local battery_done = false
+local reported = false
 local sightings = {}
 local hashes = {}
 local order = {}
@@ -127,7 +128,12 @@ local function onFrame()
         end
     end
 
-    if rd(SCENE_DONE) == 0x5A then
+    -- `emu.stop` does not take effect immediately, so without this guard the report block runs
+    -- again on the next frame and prints the whole list twice. It stayed hidden while the battery
+    -- was short enough that only one frame elapsed; a longer battery made it two, and the
+    -- duplicate list read as a scene mismatch rather than as a duplicated report.
+    if rd(SCENE_DONE) == 0x5A and not reported then
+        reported = true
         print("ACCURACYSNES-SCENES-BEGIN frames=" .. frames)
         table.sort(order)
         for _, i in ipairs(order) do

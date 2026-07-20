@@ -45,7 +45,7 @@ const SCENE_DONE_MARK: u8 = 0x5A;
 const MAX_FRAMES: u32 = 4_000;
 
 /// Which frame of a scene's published window to hash, 1-based. Must match the reference hosts.
-const CAPTURE_SIGHTING: u32 = 2;
+const CAPTURE_SIGHTING: u32 = 4;
 
 fn rom_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

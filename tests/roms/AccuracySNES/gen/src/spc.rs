@@ -125,6 +125,17 @@ impl Spc {
         self.push(&[0x7A, dp])
     }
 
+    /// Burn roughly `iters * 6` SPC700 cycles with a `DBNZ Y` loop (`$FE`).
+    ///
+    /// Used only where a test needs *time to pass* rather than a specific number of cycles — a
+    /// timer to tick, say. Deliberately approximate: a test that depended on the exact count would
+    /// be asserting this loop's cycle cost, which is not what it is for. `iters = 0` means 256,
+    /// because `DBNZ` decrements before testing.
+    pub fn delay(&mut self, iters: u8) -> &mut Self {
+        self.mov_y_imm(iters);
+        self.push(&[0xFE, 0xFE]) // DBNZ Y, -2: branch back to the DBNZ itself
+    }
+
     /// End the program: wait for the cart's release byte, then hand the APU back to the IPL.
     ///
     /// **Every program must end this way, and the reason is not tidiness.** Once a program is
