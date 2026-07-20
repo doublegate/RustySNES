@@ -18,8 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A BG's extra tilemap screen is placed to the right when it is 64 wide (`C5.12`), and the canvas
   had to grow a marker before that could be seen.** `scene_second_screen` fills the screen after the
-  canvas with tiles `$20`-`$2F` at palette 5 — deliberately unlike the canvas's `$10`-`$1F` — so a
-  64x32 map scrolled 256 pixels renders something no other scene renders. Without it the canvas's
+  canvas with tiles `$20`-`$2F` at a flat palette 5, varying with the column and nothing else — the
+  canvas draws 64 glyphs from `$21` upward with a row-derived palette, so the tile numbers overlap
+  and the two are still nothing alike as pictures — so a 64x32 map scrolled 256 pixels renders
+  something no other scene renders. Without it the canvas's
   own horizontal period divides 256 and the scroll is invisible, which is what the first attempt
   rendered: a picture hash-identical to the plain canvas.
 

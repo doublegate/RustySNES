@@ -876,7 +876,10 @@ pub const SCENES: &[Scene] = &[
                picture is the marker, and a core that ignores the size bits, or places the extra \
                screen below as a 32x64 map would, wraps back into the canvas instead. The marker \
                exists because the canvas repeats every 256 pixels: without it, scrolling into the \
-               second screen renders a picture identical to not scrolling at all.",
+               second screen renders a picture identical to not scrolling at all. It is a fixed \
+               column-derived pattern at one palette rather than a disjoint tile range — the \
+               canvas uses overlapping tile numbers and a row-derived palette, and the two are \
+               still nothing alike as pictures.",
         setup: &[
             "sep #$20",
             "stz $2105         ; BGMODE 0",
@@ -2019,9 +2022,11 @@ fn mode7_vram_helper() -> String {
 /// indistinguishable from not having scrolled at all: the first attempt at a map-size scene
 /// rendered a picture hash-identical to the plain canvas.
 ///
-/// The marker is deliberately unlike the canvas: tiles `$20`-`$2F` (the canvas uses `$10`-`$1F`)
-/// at a fixed palette 5, varying with the column only. Any core that lands in this screen renders
-/// something no other scene renders, and one that lands back in the canvas renders a picture the
+/// The marker is a *fixed pattern*, not a disjoint tile range: tiles `$20`-`$2F` at palette 5,
+/// varying with the column and nothing else. `scene_canvas` draws 64 glyphs from `$21` upward with
+/// a row-derived palette, so the two overlap in tile numbers and are still nothing alike as
+/// pictures — which is what the hash cares about. A core that lands in this screen renders
+/// something no other scene renders; one that lands back in the canvas renders a picture the
 /// goldens already contain.
 ///
 /// Width-neutral (`php`/`plp`), for the reason spelled out on `scene_low_tiles`.
@@ -2048,8 +2053,9 @@ fn second_screen_helper() -> String {
     w("@cell:");
     w("    txa");
     w("    and #$000F");
-    w("    ora #$0020        ; tiles $20-$2F: printable, and outside the canvas's $10-$1F");
-    w("    ora #$1400        ; palette 5, which the canvas's row-derived palettes do not favour");
+    w("    ora #$0020        ; tiles $20-$2F, printable");
+    w("    ora #$1400        ; palette 5 for every cell -- the canvas varies its palette by row,");
+    w("                      ; so a flat one is the visible difference rather than the tile range");
     w("    sta VMDATAL");
     w("    inx");
     w("    cpx #(SCREEN_COLS * 32)");

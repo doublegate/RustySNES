@@ -234,9 +234,10 @@ scroll is not observable no matter which screen it lands in. The same trap as th
 the 64-row offset before it: **a scene can only show a difference the canvas is capable of
 expressing.**
 
-That is what `scene_second_screen` now does: it fills `MAP_BASE + $400` with tiles `$20`-`$2F` at
-palette 5, which the canvas never uses, so landing in the second screen renders something no other
-scene renders. The shipped scene scrolls a 64x32 map 256 pixels and must show the marker.
+That is what `scene_second_screen` now does: it fills `MAP_BASE + $400` with tiles `$20`-`$2F` at a
+flat palette 5, varying with the column and nothing else. The canvas draws 64 glyphs from `$21`
+upward with a row-derived palette, so the tile numbers overlap and the two are still nothing alike
+as pictures — landing in the second screen renders something no other scene renders. The shipped scene scrolls a 64x32 map 256 pixels and must show the marker.
 
 A second wrong version wrote the scroll to `$210F` — BG2HOFS, not BG1HOFS (`$210D`) — and produced
 another stable, three-way-agreed hash identical to an existing scene's. Two wrong scenes in a row,

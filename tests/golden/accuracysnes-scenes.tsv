@@ -129,8 +129,10 @@
 #
 # 2026-07-20, thirteenth batch (1 scene: C5.12, the map-size placement). No divergence. The
 # `scene_second_screen` helper the twelfth batch called for now fills the screen after the canvas
-# with tiles $20-$2F at palette 5 -- deliberately unlike the canvas's $10-$1F -- so scrolling 256
-# pixels into a 64x32 map's second screen renders something no other scene renders.
+# with tiles $20-$2F at a flat palette 5, varying with the column and nothing else. The canvas
+# draws 64 glyphs from $21 upward with a row-derived palette, so the tile numbers overlap and the
+# two are still nothing alike as pictures -- scrolling 256 pixels into a 64x32 map's second screen
+# renders something no other scene renders.
 #
 # Two bugs in the scene before it measured anything, both mine: the first version had no marker
 # (the canvas repeats every 256 px, so the scroll was invisible), and the second wrote the scroll

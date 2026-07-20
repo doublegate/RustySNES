@@ -199,8 +199,9 @@ SCENES_IMPL = 1
 @cell:
     txa
     and #$000F
-    ora #$0020        ; tiles $20-$2F: printable, and outside the canvas's $10-$1F
-    ora #$1400        ; palette 5, which the canvas's row-derived palettes do not favour
+    ora #$0020        ; tiles $20-$2F, printable
+    ora #$1400        ; palette 5 for every cell -- the canvas varies its palette by row,
+                      ; so a flat one is the visible difference rather than the tile range
     sta VMDATAL
     inx
     cpx #(SCREEN_COLS * 32)
@@ -1148,7 +1149,7 @@ SCENES_IMPL = 1
 .endproc
 
 ; c5-bgsc-64x32-second-map-right — C5.12
-; BG1 sized 64x32 and scrolled 256 pixels, so the display sits entirely in the second tilemap screen. A 64-wide map places that screen to the RIGHT of the first, and `scene_second_screen` fills it with a marker the canvas never uses — so the correct picture is the marker, and a core that ignores the size bits, or places the extra screen below as a 32x64 map would, wraps back into the canvas instead. The marker exists because the canvas repeats every 256 pixels: without it, scrolling into the second screen renders a picture identical to not scrolling at all.
+; BG1 sized 64x32 and scrolled 256 pixels, so the display sits entirely in the second tilemap screen. A 64-wide map places that screen to the RIGHT of the first, and `scene_second_screen` fills it with a marker the canvas never uses — so the correct picture is the marker, and a core that ignores the size bits, or places the extra screen below as a 32x64 map would, wraps back into the canvas instead. The marker exists because the canvas repeats every 256 pixels: without it, scrolling into the second screen renders a picture identical to not scrolling at all. It is a fixed column-derived pattern at one palette rather than a disjoint tile range — the canvas uses overlapping tile numbers and a row-derived palette, and the two are still nothing alike as pictures.
 .proc scene_c5_bgsc_64x32_second_map_right
     .a16
     .i16
