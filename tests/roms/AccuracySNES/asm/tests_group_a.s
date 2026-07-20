@@ -982,11 +982,11 @@ CATALOG_IMPL = 1
     lda f:$7E0048     ; V_H1 = elapsed dots
     sec
     sbc f:$7E0080
-    cmp #$0006
+    cmp #$000A
     bcs :+
     jmp @fail1
   :
-    cmp #$0013
+    cmp #$000F
     bcc :+
     jmp @fail1
   :
@@ -1054,11 +1054,11 @@ CATALOG_IMPL = 1
     lda f:$7E0048     ; V_H1 = elapsed dots
     sec
     sbc f:$7E0080
-    cmp #$0006
+    cmp #$000A
     bcs :+
     jmp @fail1
   :
-    cmp #$0013
+    cmp #$000F
     bcc :+
     jmp @fail1
   :
@@ -1130,7 +1130,7 @@ CATALOG_IMPL = 1
     eor #$FFFF
     inc a             ; negate: take the magnitude
   :
-    cmp #$0007
+    cmp #$0003
     bcc :+
     jmp @fail1
   :
@@ -1141,6 +1141,162 @@ CATALOG_IMPL = 1
     jmp test_restore
 @fail1:
     ; indexed store timing changed with page crossing (it must not)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; A5.04 — Decimal costs no cycles
+; provenance: Documented (WDC datasheet)
+.proc test_a5_04
+    .a16
+    .i16
+    ; Same ADC, binary vs decimal. On the 65C02 decimal adds a cycle; on the 65816 it does not.
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    cld
+    jsr hv_begin
+    clc
+    adc #$01
+    clc
+    adc #$01
+    clc
+    adc #$01
+    clc
+    adc #$01
+    clc
+    adc #$01
+    clc
+    adc #$01
+    clc
+    adc #$01
+    clc
+    adc #$01
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0080     ; baseline
+    sep #$20
+    .a8
+    sed
+    jsr hv_begin
+    clc
+    adc #$01
+    clc
+    adc #$01
+    clc
+    adc #$01
+    clc
+    adc #$01
+    clc
+    adc #$01
+    clc
+    adc #$01
+    clc
+    adc #$01
+    clc
+    adc #$01
+    jsr hv_end
+    sep #$20
+    .a8
+    cld               ; leave decimal before any further arithmetic
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0080
+    cmp #$8000
+    bcc :+
+    eor #$FFFF
+    inc a             ; negate: take the magnitude
+  :
+    cmp #$0003
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; decimal mode changed instruction timing (it must not on the 65816)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; A5.05 — 16-bit RMW is +2
+; provenance: Documented (WDC datasheet (corrects undisbeliever's table))
+.proc test_a5_05
+    .a16
+    .i16
+    ; ASL dp with m=1 vs m=0. The 16-bit form reads and writes an extra byte.
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    tcd
+    sep #$20          ; 8-bit accumulator -> 8-bit RMW
+    .a8
+    jsr hv_begin
+    asl $20
+    asl $20
+    asl $20
+    asl $20
+    asl $20
+    asl $20
+    asl $20
+    asl $20
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0080
+    rep #$20          ; 16-bit accumulator -> 16-bit RMW
+    .a16
+    jsr hv_begin
+    asl $20
+    asl $20
+    asl $20
+    asl $20
+    asl $20
+    asl $20
+    asl $20
+    asl $20
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0080
+    cmp #$001E
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0023
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; 16-bit RMW is not +2 cycles over the 8-bit form
     sep #$20
     .a8
     lda #$02
@@ -1190,11 +1346,11 @@ CATALOG_IMPL = 1
     lda f:$7E0048     ; V_H1 = elapsed dots
     sec
     sbc f:$7E0080
-    cmp #$0006
+    cmp #$000A
     bcs :+
     jmp @fail1
   :
-    cmp #$0013
+    cmp #$000F
     bcc :+
     jmp @fail1
   :
@@ -2027,7 +2183,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 41
+    .word 43
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -2054,6 +2210,8 @@ _test_entries:
     .addr test_a5_01
     .addr test_a5_02
     .addr test_a5_03
+    .addr test_a5_04
+    .addr test_a5_05
     .addr test_a5_06
     .addr test_a6_01
     .addr test_a6_02
@@ -2098,6 +2256,8 @@ _test_flags:
     .byte $01   ; A5.01
     .byte $01   ; A5.02
     .byte $01   ; A5.03
+    .byte $01   ; A5.04
+    .byte $01   ; A5.05
     .byte $01   ; A5.06
     .byte $01   ; A6.01
     .byte $01   ; A6.02
@@ -2142,6 +2302,8 @@ _test_names:
     .addr @n_a5_01
     .addr @n_a5_02
     .addr @n_a5_03
+    .addr @n_a5_04
+    .addr @n_a5_05
     .addr @n_a5_06
     .addr @n_a6_01
     .addr @n_a6_02
@@ -2229,6 +2391,12 @@ _test_names:
 @n_a5_03:
     .byte 22
     .byte "Stores always pay +1 p"
+@n_a5_04:
+    .byte 23
+    .byte "Decimal costs no cycles"
+@n_a5_05:
+    .byte 16
+    .byte "16-bit RMW is +2"
 @n_a5_06:
     .byte 21
     .byte "Taken branch costs +1"

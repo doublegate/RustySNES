@@ -940,6 +940,7 @@ test_restore := test_restore_impl
     rep #$30
     .a16
     .i16
+    cld                         ; see hv_end: the delta arithmetic must not run in BCD
     pha
 @wait:
     jsr hv_read_raw
@@ -958,6 +959,10 @@ test_restore := test_restore_impl
     rep #$30
     .a16
     .i16
+    cld                         ; SBC honours D. A test measuring with decimal mode set would
+                                ; otherwise have its delta computed in BCD — which silently
+                                ; under-reports and made decimal-mode ADC look *faster* than
+                                ; binary. PLP restores the caller's D on the way out.
     pha
     jsr hv_read_raw
     sec

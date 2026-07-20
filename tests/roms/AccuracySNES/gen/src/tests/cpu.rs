@@ -42,6 +42,8 @@ pub fn all() -> Vec<Test> {
         a5_01(),
         a5_02(),
         a5_03(),
+        a5_04(),
+        a5_05(),
         a5_06(),
         // --- A6: interrupts ---
         a6_01(),
@@ -937,8 +939,12 @@ fn a9_02() -> Test {
 /// below expects a different figure.
 const DOTS_PER_8_INTERNAL: u16 = 12;
 
-/// Tolerance on every timing comparison, in dots. See `Asm::assert_a16_range`.
-const TOL: u16 = 6;
+/// Tolerance on every timing comparison, in dots.
+///
+/// Measured, not guessed: eight runs of an identical sequence span exactly one dot, which is the
+/// irreducible quantisation of a 6/8-master-clock CPU cycle against a 4-clock dot. Two dots is
+/// therefore generous; anything wider would start to blur "the penalty applied" into "it did not".
+const TOL: u16 = 2;
 
 /// The `+1 w` penalty: direct-page addressing costs an extra cycle when `DL != 0`.
 ///
@@ -1054,6 +1060,84 @@ fn a5_03() -> Test {
         'A',
         "Stores always pay +1 p",
         Provenance::Documented("WDC datasheet; superfamicom.org cycle-count tables"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Decimal mode costs nothing extra on the 65816 — unlike the 65C02, where it adds a cycle.
+fn a5_04() -> Test {
+    let mut a = Asm::new();
+    a.c(
+        "Same ADC, binary vs decimal. On the 65C02 decimal adds a cycle; on the 65816 it does not.",
+    );
+    a.l("rep #$30");
+    a.l("sep #$20");
+    a.l("cld");
+    a.measure_begin();
+    a.repeat(8, &["clc", "adc #$01"]);
+    a.measure_end();
+    a.measure_result();
+    a.l("sta f:$7E0080     ; baseline");
+    a.l("sep #$20");
+    a.l("sed");
+    a.measure_begin();
+    a.repeat(8, &["clc", "adc #$01"]);
+    a.measure_end();
+    a.l("sep #$20");
+    a.l("cld               ; leave decimal before any further arithmetic");
+    a.measure_result();
+    a.l("sec");
+    a.l("sbc f:$7E0080");
+    a.assert_abs_le(
+        TOL,
+        "decimal mode changed instruction timing (it must not on the 65816)",
+    );
+    a.finish(
+        "A5.04",
+        'A',
+        "Decimal costs no cycles",
+        Provenance::Documented("WDC datasheet"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// A 16-bit read-modify-write costs **two** more cycles than its 8-bit form, not one.
+///
+/// undisbeliever's widely-copied opcode table lists this as `+1`, which is a transcription error:
+/// the extra byte has to be both read and written back. Those two cycles are direct-page memory
+/// accesses at 8 master clocks each, not internal cycles at 6, so the expected delta is
+/// `8 reps x 2 x 8 / 4 = 32` dots rather than twice [`DOTS_PER_8_INTERNAL`].
+fn a5_05() -> Test {
+    let mut a = Asm::new();
+    a.c("ASL dp with m=1 vs m=0. The 16-bit form reads and writes an extra byte.");
+    a.l("rep #$30");
+    a.l("lda #$0000");
+    a.l("tcd");
+    a.l("sep #$20          ; 8-bit accumulator -> 8-bit RMW");
+    a.measure_begin();
+    a.repeat(8, &["asl $20"]);
+    a.measure_end();
+    a.measure_result();
+    a.l("sta f:$7E0080");
+    a.l("rep #$20          ; 16-bit accumulator -> 16-bit RMW");
+    a.measure_begin();
+    a.repeat(8, &["asl $20"]);
+    a.measure_end();
+    a.measure_result();
+    a.l("sec");
+    a.l("sbc f:$7E0080");
+    a.assert_a16_range(
+        32 - TOL,
+        32 + TOL,
+        "16-bit RMW is not +2 cycles over the 8-bit form",
+    );
+    a.finish(
+        "A5.05",
+        'A',
+        "16-bit RMW is +2",
+        Provenance::Documented("WDC datasheet (corrects undisbeliever's table)"),
         Kind::Scored,
         None,
     )

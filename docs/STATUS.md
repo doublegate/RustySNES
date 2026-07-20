@@ -3,64 +3,19 @@
 This file is authoritative for per-suite pass counts, the board / coprocessor matrix, and
 version policy. Everything else defers to it.
 
-**Current release:** `v1.20.0 "Aperture"` (`v0.1.0 "Foundation"`,
+**Current release:** `v1.9.0 "Marionette"` (`v0.1.0 "Foundation"`,
 `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"`, `v0.4.0 "Completion"`, `v0.5.0 "Fidelity"`,
 `v0.6.0 "Shippable"`, `v0.7.0 "Resolution"`, `v0.8.0 "Community"`, `v0.9.0 "Threshold"`,
 `v1.0.0 "Zenith"`, `v1.0.1 "Aftertouch"`, `v1.1.0 "Latchkey"`, `v1.2.0 "Phosphor"`,
 `v1.3.0 "Palimpsest"`, and `v1.4.0 "Convergence"` precede it; see `to-dos/VERSION-PLAN.md` for the
-full ladder). **`v1.5.0`-`v1.19.0`** are the RustyNES-parity ladder — a CI
+full ladder). **`v1.5.0`-`v1.9.0`** are the opening rungs of the RustyNES-parity ladder — a CI
 safety net (`v1.5.0 "Bedrock"`), a MkDocs documentation site + PWA + accuracy ledger
 (`v1.6.0 "Lighthouse"`), the debugger extracted into its own module plus a hex Memory panel
 (`v1.7.0 "Telemetry"`, `v1.7.1` patch), a Memory Compare panel + in-app Docs panel
-(`v1.8.0 "Tracepoint"`), widening `rustysnes-script`'s `emu.read` to the full 24-bit bus
-(`v1.9.0 "Marionette"`), wiring HD-pack compositing into the `emu-thread` build for the first
-time (`v1.10.0 "Atelier"`), fixing RetroAchievements to actually load a game for the first
-time (`v1.11.0 "Podium"`), adding a third presentation post-filter (`PostFilter::Xbrz`) plus
-extracting the WGSL shader sources into a new `rustysnes-gfx-shaders` crate for reuse by the
-mobile bridge (`v1.12.0 "Refraction"`), adding two accessibility theme variants
-(`AppTheme::HighContrast`/`Colorblind`) while honestly re-scoping the other two originally-planned
-items (`v1.13.0 "Vantage"`), reversing `v1.0.0`'s "no mobile appetite" default with a new
-`rustysnes-mobile` `UniFFI` bridge crate over `EmuCore`, real-verified via a `cargo ndk` ARM64
-cross-compile and inspected Kotlin/Swift binding output, plus the `no_std` CI gate expanded to a
-per-crate matrix (`v1.14.0 "Foundry"`), a real Android alpha — a new `rustysnes-android`
-presentation-only `wgpu`-on-`Surface` crate plus a minimal Kotlin Compose shell, verified for real
-on a live Android emulator (a committed test ROM boots and its framebuffer visibly advances
-frame-to-frame, background/foreground lifecycle exercised, zero `logcat` errors) — with the
-`Mouse`/`Super Scope`/`Multitap` touch UX, save-state UI, and post-filter wiring honestly deferred
-to `v1.15.1+` (`v1.15.0 "Sideload"`), and an iOS alpha — a new `rustysnes-ios` crate mirroring
-`rustysnes-android`'s architecture, verified for real via genuine `aarch64-apple-ios`/
-`aarch64-apple-ios-sim` cross-compiles in a Linux sandbox with no Xcode installed, plus a real,
-passing, unsigned `xcodebuild` simulator build on a `macos-latest` CI runner (the project's only
-real Xcode/Swift toolchain) after fixing four real CI-found build bugs and three real
-PR-review-found runtime/lifecycle bugs (`v1.16.0 "Beacon"`), and a hardening pass adding
-Save State/Load State to both mobile shells that, in the process of re-verifying it for real on
-the Android AVD, found and fixed a real, pre-existing, already-shipped native crash present
-since `v1.15.0` (per-frame allocation churn in the audio path disrupting `AudioTrack`'s native
-buffer timing after ~10+ seconds of continuous run — never caught before because no prior
-verification pass ran that long), with RetroAchievements wiring, an `mlua` migration, and
-netplay honestly re-scoped to a later rung (`v1.17.0 "Parity"`), and dormant monetization
-scaffolding — a new, standalone `rustysnes-monetization` `UniFFI` crate (never a dependency of
-the deterministic core, every pricing/pacing figure an explicit placeholder pending the
-standing "Mobile Phase 6" store-launch gate) wired into both mobile shells as an inert,
-log-only startup call, real-verified on the Android AVD via `logcat` and compile-verified for
-iOS via a real macOS CI build after fixing a genuine `xcodebuild` xcframework-modulemap
-collision found on that same CI run (`v1.18.0 "Dormant"`), and finally an optional PGO/BOLT
-pipeline for the shipping `rustysnes` binary — `scripts/pgo/run.sh` (instrument → train against
-the committed permissive ROM corpus → optimized rebuild) plus `.github/workflows/pgo.yml`
-(`workflow_dispatch`/release-tag-only, promotion gated on both a `>3%` Criterion speedup and a
-byte-identical `--features test-roms` re-run under the PGO profile, never on speed alone),
-real-verified end-to-end in this development environment including a genuine BOLT-stage bug
-found and fixed in PR review (`v1.19.0 "Afterburner"`) — all frontend/tooling/CI work
-with **zero
-change** to the accuracy dashboard, per-suite pass counts, or coprocessor tier matrix below,
-which stayed byte-identical throughout; see `CHANGELOG.md` for full per-release detail.
-**`v1.20.0 "Aperture"`** opens a new UI/UX-parity ladder (Phase A) auditing the desktop frontend
-and wasm demo against RustyNES's own frontend maturity: two wasm demo menu items (`Cheats`/
-`Debugger overlay`) fixed from placeholder to real, live Mouse/Super Scope host-input capture
-wired for the first time (`crate::peripherals`), a View → Hide Overscan toggle, and a new
-Debug → ROM Info panel — again zero change to the accuracy dashboard; see `CHANGELOG.md` for
-full detail. `v1.0.0`
-closes the production-cut
+(`v1.8.0 "Tracepoint"`), and widening `rustysnes-script`'s `emu.read` to the full 24-bit bus
+(`v1.9.0 "Marionette"`) — all frontend/tooling/CI work with **zero change** to the accuracy
+dashboard, per-suite pass counts, or coprocessor tier matrix below, which stayed byte-identical
+throughout; see `CHANGELOG.md` for full per-release detail. `v1.0.0` closes the production-cut
 gate: `Board: Send` (unblocking `emu-thread` to compile/test/lint clean for the first time, though
 it stays off-by-default pending full feature parity — see `docs/frontend.md`), the five
 desktop-UX-shell-maturity items (thumbnail Save States manager, key-rebind grid, themes, speed
@@ -235,7 +190,7 @@ tracked here, always current, reaffirmed every release:
 | Core/Curated coprocessors (oracle-gated) | ✅ **3 / 3, honesty gate green** | DSP-1 (4 commercial ROMs), Super FX/GSU (58 Krom ROMs + per-opcode suite), SA-1 (18 commercial carts) — `ORACLE_COPROCESSORS` |
 | BestEffort coprocessors, real-title validated | ✅ **6 / 9** | DSP-2, DSP-4, ST010, S-DD1, CX4, OBC1 — each boots a real commercial title to real gameplay content |
 | BestEffort coprocessors, unit-test only | ⚠️ **3 / 9** | SPC7110 (the one available local dump turned out to be a fan-translation ROM hack that needs a patch-only memory region no real cartridge has — `docs/audit/spc7110-boot-crash-2026-07-08.md`; a genuine original-cartridge dump, sha256 `69d06a3f3a4f3ba769541fe94e92b42142e423e9f0924eab97865b2d826ec82d`, is the ROM-sourcing gap now tracked in `docs/rom-test-corpus.md`), ST018, S-RTC (neither has a commercial dump in the local corpus) |
-| AccuracySNES (first-party battery) | ✅ **40 / 40 scoring, 100.00%** | Group A (65816 CPU) — 41 tests, of which 40 score and 1 is a golden vector. Cross-validated headlessly against **Mesen2 and snes9x** (both agree, 0 failures). Provenance gate green. Groups B-G land in later phases (`docs/accuracysnes-research-dossier.md` §5) |
+| AccuracySNES (first-party battery) | ✅ **42 / 42 scoring, 100.00%** | Group A (65816 CPU) — 43 tests, of which 42 score and 1 is a golden vector. Cross-validated headlessly against **Mesen2 and snes9x** (both agree, 0 failures). Provenance gate green. Groups B-G land in later phases (`docs/accuracysnes-research-dossier.md` §5) |
 | Determinism contract | ✅ **proven** | bit-identical framebuffer/audio across runs; save-state round-trip proven across all three board tiers (no-coprocessor, Curated, BestEffort) |
 
 **Named residuals, tracked not hidden:** the 65816 `e1.e` divergence (`docs/adr/0002`); DSP-3 and

@@ -190,6 +190,22 @@ Provenance: **Documented** (WDC datasheet; superfamicom.org cycle-count tables).
 |---|---|---|
 | 1 | `$02` | indexed store timing changed with page crossing (it must not) |
 
+### A5.04 — Decimal costs no cycles
+
+Provenance: **Documented** (WDC datasheet). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | decimal mode changed instruction timing (it must not on the 65816) |
+
+### A5.05 — 16-bit RMW is +2
+
+Provenance: **Documented** (WDC datasheet (corrects undisbeliever's table)). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | 16-bit RMW is not +2 cycles over the 8-bit form |
+
 ### A5.06 — Taken branch costs +1
 
 Provenance: **Documented** (WDC datasheet). Kind: scored.

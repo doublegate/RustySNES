@@ -35,10 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     contribute to the pass rate, enforced by `provenance_gate_holds`, mirroring `docs/adr/0003`.
     Behaviour hardware genuinely does not define is captured as a **golden vector** and never
     scored — `A7.04` reports the observed decimal-mode `V` bit as a variant instead of asserting it.
-  - **Group A: 41 tests (40 scoring + 1 golden), 65816 CPU** — emulation/native transitions,
+  - **Group A: 43 tests (42 scoring + 1 golden), 65816 CPU** — emulation/native transitions,
     direct-page and stack wrapping (including the `PLD`-escapes-but-`PLY`-does-not discriminator),
     absolute/long bank carry, cycle counts, interrupts, decimal mode, block moves, `BIT`/`XBA`.
-    **40/40 scoring, 100.00%.**
+    **42/42 scoring, 100.00%.**
   - **Cycle counts are measured, not asserted from a table.** Reading `$2137` latches the H/V
     counters into `OPHCT`, giving a direct dot-position readout — the SNES's far more precise
     counterpart to the sprite-0-hit trick AccuracyCoin uses on the NES. Each test compares two
