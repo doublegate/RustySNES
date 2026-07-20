@@ -44,7 +44,8 @@
 43	c4-210d-drives-mode7-scroll	C4.04,C4.05
 44	c7-lower-index-on-top	C7.15
 45	c8-obj-math-palettes-4-7	C8.01
-46	c7-objsel-size-6	C7.10
-47	c7-objsel-size-7	C7.10
-48	c7-vflip-tall-halves	C7.13
-49	c7-64px-wraps-bottom-to-top	C7.14
+46	c7-name-select-picks-second-table	C7.11
+47	c7-objsel-size-6	C7.10
+48	c7-objsel-size-7	C7.10
+49	c7-vflip-tall-halves	C7.13
+50	c7-64px-wraps-bottom-to-top	C7.14

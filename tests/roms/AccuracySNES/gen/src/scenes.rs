@@ -1519,6 +1519,47 @@ pub const SCENES: &[Scene] = &[
         ],
     },
     Scene {
+        id: "c7-name-select-picks-second-table",
+        dossier: "C7.11",
+        what: "Two sprites with the same tile number, one with the name-select attribute bit set. \
+               A sprite's character address is `(Base << 13) + (tile << 4)`, plus \
+               `(NameSelect + 1) << 12` when that bit is set — so the second sprite reads from a \
+               part of VRAM the font never reached and draws nothing. A core that ignores the bit \
+               draws two identical glyphs, which is the picture this scene exists to be different \
+               from. Blank is a legible answer here only because the other sprite is not.",
+        setup: &[
+            "sep #$20",
+            "stz $2105         ; BGMODE 0",
+            "jsr scene_oam_reset",
+            "sep #$20",
+            "stz $2101         ; OBJSEL: 8x8/16x16, name base word $0000, name offset 0",
+            "rep #$30",
+            "ldx #$0000",
+            "stx $2102",
+            "sep #$20",
+            "lda #60",
+            "sta $2104         ; sprite 0 X",
+            "lda #90",
+            "sta $2104         ; sprite 0 Y",
+            "lda #$10",
+            "sta $2104         ; tile $10, from the first name table — a glyph",
+            "lda #$30",
+            "sta $2104         ; attr: palette 0, priority 3, name-select CLEAR",
+            "lda #140",
+            "sta $2104         ; sprite 1 X",
+            "lda #90",
+            "sta $2104",
+            "lda #$10",
+            "sta $2104         ; the same tile number",
+            "lda #$31",
+            "sta $2104         ; attr: name-select SET — $1000 words on, where the font never went",
+            "lda #$10",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
         id: "c7-objsel-size-6",
         dossier: "C7.10",
         what: "OBJSEL size pair 6, which no official document lists: 16x32 small, 32x64 large. \

@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A sprite's name-select bit reaches a different part of VRAM (`C7.11`).** Two sprites with the
+  *same tile number*, one with the attribute bit set: the character address gains
+  `(NameSelect + 1) << 12`, so the second reads from `$1000` words on — where the font never
+  reached — and draws nothing. A core that ignores the bit draws two identical glyphs. Blank is a
+  legible answer here only because the other sprite is not.
+
+  **A `C7.12` scene (OBJ interlace on a tall sprite) was attempted and produced three different
+  hashes on three emulators** — the only three-way split any scene has produced. That is not three
+  cores disagreeing about interlace: the picture *alternates every frame*, and the capture protocol
+  (hash the fourth sighting of an eight-frame window) does not pin frame parity, so each host lands
+  on whichever field its own counter happens to be on. Publishing a scene only on a known field is a
+  change to `run_scenes` rather than to a scene, and it would unblock the interlace half of `C9` as
+  well. Written up in `docs/accuracysnes-plan.md`.
+
 - **`VxOUTX` is sampled before the per-voice volume (`E7.16`).** A voice turned all the way down
   still reports the same `OUTX` it reported at full volume, because the register sits after the
   envelope and before `VxVOLL`/`VxVOLR`. A core that reads it off the mixer's input returns zero,
@@ -613,9 +627,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   battery already had.
 
 **AccuracySNES totals, as of this section:** **207 tests — 195 scoring at 100.00%, 11 golden
-vectors**, plus one region-dependent SKIP per image, and **49 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **165 of 443** on-cart plus **49** scene-only —
-**214 of 443** in total, and **every group A-G now has shipped tests**
+vectors**, plus one region-dependent SKIP per image, and **50 rendered scenes** in the host
+framebuffer-oracle tier. Dossier coverage is **165 of 443** on-cart plus **50** scene-only —
+**215 of 443** in total, and **every group A-G now has shipped tests**
 (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
