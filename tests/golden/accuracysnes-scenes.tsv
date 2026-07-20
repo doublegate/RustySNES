@@ -54,6 +54,11 @@
 #     ten scenes moved on that one line.
 #   * EXTBG replaced BG1 instead of adding a layer, so enabling it made BG1 vanish entirely.
 #   * Mode 7 had no mosaic handling at all, and rendered identically with and without it.
+#   Re-blessed within the same batch after review: the Mode 7 character byte is now the word index
+#   PLUS ONE, so character 0's pixel (0,0) is non-zero. At a large zoom every out-of-range pixel
+#   samples that one sub-pixel, so a zero there made the char-0 screen-over mode render transparent
+#   and hash identically to the transparent mode -- on all three emulators, which is exactly the
+#   kind of agreement that proves nothing.
 
 c5-mode1-bg-priority	0x4fccc3fcf1027a01
 c8-fixed-colour-add	0x313006a2eb2c3745
@@ -80,13 +85,13 @@ c6-opt-h-keeps-fine-scroll	0xeed8f2e603cad155
 c6-opt-enable-bit-bg1	0x15a44507628f9329
 c6-opt-enable-bit-bg2	0x08d18d6f12afe809
 c6-mode4-h-vs-v-select	0x43f1a048e884fd91
-c11-mode7-identity	0xbd42dccfcc1749a5
-c11-mode7-rotate-scale	0x995e9c452790c534
-c11-screen-over-wrap	0x20e99493b4e9d325
-c11-screen-over-transparent	0x19ba21540c4b7d65
-c11-screen-over-char0	0x19ba21540c4b7d65
-c11-mode7-screen-flip	0x93e13fc8c5c1d1a5
-c11-extbg-priority-split	0xa64e07273c768f25
-c11-mode7-direct-colour	0xc7ed3481b6cb7525
-c10-mode7-mosaic	0x586087cf95cd5325
-c11-mode7-window	0x1c813ed3a39c5ee8
+c11-mode7-identity	0x61673947271ec365
+c11-mode7-rotate-scale	0x47c11edf79e1b99f
+c11-screen-over-wrap	0x620e762943b6d325
+c11-screen-over-transparent	0x4fff8f53cf0b0b65
+c11-screen-over-char0	0x44e9ae6ed8556365
+c11-mode7-screen-flip	0x97a8353b249fb9e5
+c11-extbg-priority-split	0x64cf43a141a1bd25
+c11-mode7-direct-colour	0x76edbfc0e31af525
+c10-mode7-mosaic	0x682dea05f07aed25
+c11-mode7-window	0x47dd6ca0efa7c52a

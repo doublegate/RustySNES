@@ -164,8 +164,13 @@ SCENES_IMPL = 1
     ora f:V_TMP               ; tile 0-255, distinct per 8x8 block of the map
     and #$00FF
     sta f:V_TMP
-    ; high byte = character data: the word index, so each tile is a colour gradient.
+    ; high byte = character data: the word index PLUS ONE, so each tile is a colour
+    ; gradient and character 0's pixel (0,0) is non-zero. That last part matters: at a
+    ; large zoom every out-of-range pixel samples the same sub-pixel, so if char 0 pixel
+    ; (0,0) were colour 0 the char-0 screen-over mode would render transparent and be
+    ; indistinguishable from the transparent mode -- which it was, on all three emulators.
     txa
+    inc a
     and #$00FF
     xba                       ; into the high byte
     ora f:V_TMP
@@ -1265,7 +1270,7 @@ SCENES_IMPL = 1
     rts
 .endproc
 
-; c11-mode7-direct-colour — C11.10
+; c11-mode7-direct-colour — C11.10,C12.03
 ; Direct colour on Mode 7 BG1, where it IS available (unlike EXTBG's BG2). The 8-bit pixel supplies the colour itself, so the canvas's 256 palette entries stop mattering — which is exactly what distinguishes this from `c11-mode7-identity`, the same scene with CGRAM still in the path.
 .proc scene_c11_mode7_direct_colour
     .a16
@@ -1356,23 +1361,23 @@ SCENES_IMPL = 1
     stz $211A
     lda #$B5
     sta $211B
-    stz $211B
+    stz $211B         ; M7A = $00B5 — the same matrix as c11-mode7-rotate-scale, so the
     lda #$4B
     sta $211C
     lda #$FF
-    sta $211C
+    sta $211C         ; M7B = -$00B5   two scenes differ only by the window
     lda #$B5
     sta $211D
-    stz $211D
+    stz $211D         ; M7C = $00B5
     lda #$B5
     sta $211E
-    stz $211E
+    stz $211E         ; M7D = $00B5
     lda #128
     sta $211F
-    stz $211F
+    stz $211F         ; M7X = 128
     lda #112
     sta $2120
-    stz $2120
+    stz $2120         ; M7Y = 112
     lda #$02
     sta $2123         ; W12SEL: BG1 uses window 1
     lda #64

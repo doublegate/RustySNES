@@ -105,7 +105,7 @@ Declared in `gen/src/scenes.rs`. Each is reported by the host framebuffer oracle
 - **`C11.04`** — c11-screen-over-char0
 - **`C11.01`** — c11-mode7-screen-flip
 - **`C11.09`** — c11-extbg-priority-split
-- **`C11.10`** — c11-mode7-direct-colour
+- **`C11.10,C12.03`** — c11-mode7-direct-colour
 - **`C10.05`** — c10-mode7-mosaic
 - **`C11.11`** — c11-mode7-window
 
