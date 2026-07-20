@@ -78,6 +78,7 @@ pub fn all() -> Vec<Test> {
         e8_04(),
         e9_04(),
         e9_06(),
+        e9_12(),
         e9_10(),
         e9_17(),
         e9_18(),
@@ -2342,6 +2343,95 @@ fn e7_16() -> Test {
         'E',
         "OUTX is pre-volume",
         Provenance::Documented("fullsnes, S-DSP envelopes; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The echo buffer's samples are stored with their bottom bit masked off.
+///
+/// The DSP writes each echo sample as a 16-bit value masked with `$FFFE`, so the low byte's bit 0 is
+/// always zero no matter what the mixer produced. A core that stores the sample verbatim leaves
+/// odd values in the buffer, and a driver that reads the buffer back — some do, to fade an echo
+/// tail out by hand — sees numbers the hardware cannot produce.
+///
+/// **The marker is `$FF`, which makes one assertion do two jobs.** Bit 0 of `$FF` is set, so a zero
+/// there afterwards proves both that a write happened *and* that what was written is even. Painting
+/// with an even marker would have left "nothing was written" and "an even value was written"
+/// indistinguishable.
+///
+/// A voice is playing into the echo (`EON` bit 0) so the value written is not trivially zero; what
+/// it is exactly depends on the whole mixer chain, which is why the test asks about one bit rather
+/// than about the number.
+fn e9_12() -> Test {
+    /// The page `ESA` names, well clear of the program image at `$0200`.
+    const ECHO_PAGE: u8 = 0x30;
+    /// Where that page starts. Derived, so the two cannot drift apart.
+    const ECHO_ADDR: u16 = (ECHO_PAGE as u16) << 8;
+    /// The sample directory, on the stack page well below the stack itself.
+    const DIR_ADDR: u16 = (DIR_PAGE as u16) << 8;
+
+    let sample = constant_sample(0x8, 0x7);
+    let mut prog = Spc::new();
+    let addr = prog.data_first(IMAGE_BASE, &sample);
+    prog.mov_x_imm(0xEF).mov_sp_x();
+    let [lo, hi] = addr.to_le_bytes();
+    prog.mov_a_imm(lo).mov_abs_a(DIR_ADDR);
+    prog.mov_a_imm(hi).mov_abs_a(DIR_ADDR + 1);
+    prog.mov_a_imm(lo).mov_abs_a(DIR_ADDR + 2);
+    prog.mov_a_imm(hi).mov_abs_a(DIR_ADDR + 3);
+
+    dsp_write(&mut prog, 0x6C, 0x20); // FLG: echo writes off while everything is set up
+    dsp_write(&mut prog, 0x6D, ECHO_PAGE); // ESA
+    dsp_write(&mut prog, 0x7D, 0x00); // EDL = 0: four bytes at the buffer start (`E9.06`)
+    dsp_write(&mut prog, 0x2C, 0x00); // EVOL L — the echo is measured, not heard
+    dsp_write(&mut prog, 0x3C, 0x00); // EVOL R
+    dsp_write(&mut prog, 0x0D, 0x00); // EFB
+    dsp_write(&mut prog, 0x5D, DIR_PAGE); // DIR
+    dsp_write(&mut prog, 0x0C, 0x7F); // MVOLL
+    dsp_write(&mut prog, 0x1C, 0x7F); // MVOLR
+    dsp_write(&mut prog, 0x3D, 0x00); // NON
+    dsp_write(&mut prog, 0x2D, 0x00); // PMON
+    dsp_write(&mut prog, 0x00, 0x7F); // voice 0 VOL L
+    dsp_write(&mut prog, 0x01, 0x7F); // voice 0 VOL R
+    dsp_write(&mut prog, 0x02, 0x00); // PITCH low
+    dsp_write(&mut prog, 0x03, 0x10); // PITCH high: one sample per output sample
+    dsp_write(&mut prog, 0x04, 0x00); // SRCN
+    dsp_write(&mut prog, 0x06, 0x00); // ADSR2
+    dsp_write(&mut prog, 0x07, 0x7F); // GAIN: direct, full scale
+    dsp_write(&mut prog, 0x05, 0x00); // ADSR1: GAIN is in charge
+    dsp_write(&mut prog, 0x4D, 0x01); // EON: voice 0 feeds the echo
+    dsp_write(&mut prog, 0x4C, 0x01); // KON
+    prog.delay(0x00);
+    dsp_write(&mut prog, 0x4C, 0x00);
+    prog.delay(0x00); // let the voice settle at its constant output
+
+    for i in 0..4u16 {
+        prog.mov_a_imm(0xFF).mov_abs_a(ECHO_ADDR + i);
+    }
+    dsp_write(&mut prog, 0x6C, 0x00); // FLG: echo writes on
+    prog.delay(0x00); // 256 iterations, not none — see `Spc::delay`
+    dsp_write(&mut prog, 0x6C, 0x20); // and off again, so the read below is stable
+    prog.mov_a_abs(ECHO_ADDR).mov_dp_a(PORT1);
+    prog.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("The marker was $FF. A clear bit 0 means the DSP wrote here AND masked the value even.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.l("and #$01");
+    a.assert_a8(
+        0x00,
+        "the echo buffer's low byte kept its bottom bit — either nothing was written over the \
+         $FF marker, or the sample was stored without the & $FFFE mask",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E9.12",
+        'E',
+        "Echo writes are masked",
+        Provenance::Documented("fullsnes, S-DSP echo; anomie's DSP doc"),
         Kind::Scored,
         None,
     )
