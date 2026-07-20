@@ -13,11 +13,11 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **198** (186 scoring + 11 golden vectors + 1 region SKIP per image) |
+| Tests | **201** (189 scoring + 11 golden vectors + 1 region SKIP per image) |
 | Rendered scenes | **41**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but four, all recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`. Both images. |
-| Groups shipped | **A** (65C816) · **B** (5A22) · **C** (PPU, on-cart and rendered) · **D** (DMA/HDMA) · **E** (SPC700 + S-DSP) — all partial |
+| Groups shipped | **A** (65C816) · **B** (5A22) · **C** (PPU, on-cart and rendered) · **D** (DMA/HDMA) · **E** (SPC700 + S-DSP) · **F** (controller ports) · **G** (cartridge/memory map) — all seven, all partial |
 | Defects found in this emulator | **11** — see §5 |
 
 These counts are maintained by hand and will drift. **`docs/accuracysnes-coverage.md` is the
@@ -33,14 +33,14 @@ flag in the status byte `BRK` pushes).
 
 | Group | Scope | Enumerated | Done | Left |
 |---|---|---:|---:|---:|
-| **A** | 65C816 CPU | ~55 | 69 | see coverage report |
-| **B** | 5A22 bus, clock, timing | ~30 | 20 | ~10 |
+| **A** | 65C816 CPU | ~55 | 86 | see coverage report |
+| **B** | 5A22 bus, clock, timing | ~30 | 22 | ~8 |
 | **C** | S-PPU1 / S-PPU2 | ~85 | 30 | ~55 |
-| **D** | DMA / HDMA | ~35 | 0 | ~35 |
-| **E** | SPC700 + S-DSP | ~75 | 0 | ~75 |
-| **F** | Input | ~22 | 0 | ~22 |
-| **G** | Power-on / reset / cartridge | ~18 | 0 | ~18 |
-| | | **~320** | **132** | **~188** |
+| **D** | DMA / HDMA | ~35 | 15 | ~20 |
+| **E** | SPC700 + S-DSP | ~75 | 44 | ~31 |
+| **F** | Input | ~22 | 1 | ~21 |
+| **G** | Power-on / reset / cartridge | ~18 | 3 | ~15 |
+| | | **~320** | **201** | **~119** |
 
 **These are test counts. For assertion coverage, read `docs/accuracysnes-coverage.md`** — it is
 regenerated with the ROM from the map in `gen/src/dossier.rs`, so it is always current where the

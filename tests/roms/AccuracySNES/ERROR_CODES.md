@@ -1394,6 +1394,36 @@ Provenance: **Documented** (SNESdev Wiki, controller protocol; fullsnes). Kind: 
 | 1 | `$02` | a button read as pressed during the sixteen data bits, so the reads below say nothing about what follows them |
 | 2 | `$04` | a read past the sixteenth returned 0 — an official pad drives the line high once its data bits are exhausted, and peripherals are identified by not doing so |
 
+## Group G
+
+### G1.10 — Checksum XOR complement
+
+Provenance: **Documented** (SNESdev Wiki, cartridge header; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the header's checksum and complement do not XOR to $FFFF — the pair every emulator uses to recognise a header at all |
+
+### G1.12 — LoROM header location
+
+Provenance: **Documented** (SNESdev Wiki, cartridge header; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the map-mode byte at $FFD5 is not $20 (LoROM, SlowROM), so the header is not where LoROM puts it |
+| 2 | `$04` | the ROM-size byte at $FFD7 is not 7 (128 KiB), so the header was read from the right address of the wrong image |
+| 3 | `$06` | the title does not begin at $FFC0 with ACCURACYSNES's first letter |
+
+### G1.14 — LoROM bank decode
+
+Provenance: **Documented** (SNESdev Wiki, memory map; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | bank $00's signature is wrong — the image is not mapped as expected |
+| 2 | `$04` | bank $01 did not map its own 32 KiB — reading $A0 means the bank stride is 64 KiB, not 32 |
+| 3 | `$06` | bank $80 did not mirror bank $00 — the LoROM decode masks the bank with $7F |
+
 ## Group A
 
 ### A5.S01 — Sweep: CLC

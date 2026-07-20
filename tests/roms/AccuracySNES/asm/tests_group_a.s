@@ -7796,6 +7796,137 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; G1.10 — Checksum XOR complement
+; provenance: Documented (SNESdev Wiki, cartridge header; fullsnes)
+.proc test_g1_10
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    lda f:$00FFDC        ; the complement
+    eor f:$00FFDE        ; XOR the checksum
+    cmp #$FFFF
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the header's checksum and complement do not XOR to $FFFF — the pair every emulator uses to recognise a header at all
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; G1.12 — LoROM header location
+; provenance: Documented (SNESdev Wiki, cartridge header; fullsnes)
+.proc test_g1_12
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda f:$00FFD5
+    cmp #$20
+    beq :+
+    jmp @fail1
+  :
+    lda f:$00FFD7
+    cmp #$07
+    beq :+
+    jmp @fail2
+  :
+    ; And the title, whose first byte is the one thing a human recognises in a hex dump.
+    lda f:$00FFC0
+    cmp #$41
+    beq :+
+    jmp @fail3
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the map-mode byte at $FFD5 is not $20 (LoROM, SlowROM), so the header is not where LoROM puts it
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the ROM-size byte at $FFD7 is not 7 (128 KiB), so the header was read from the right address of the wrong image
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; the title does not begin at $FFC0 with ACCURACYSNES's first letter
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; G1.14 — LoROM bank decode
+; provenance: Documented (SNESdev Wiki, memory map; fullsnes)
+.proc test_g1_14
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda f:$008005
+    cmp #$A0
+    beq :+
+    jmp @fail1
+  :
+    ; Bank $01 is a DIFFERENT 32 KiB. A core using a 64 KiB stride reads bank $00's byte here.
+    lda f:$018005
+    cmp #$A1
+    beq :+
+    jmp @fail2
+  :
+    ; And $80 mirrors $00, because the decode masks the top bit off the bank number.
+    lda f:$808005
+    cmp #$A0
+    beq :+
+    jmp @fail3
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; bank $00's signature is wrong — the image is not mapped as expected
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; bank $01 did not map its own 32 KiB — reading $A0 means the bank stride is 64 KiB, not 32
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; bank $80 did not mirror bank $00 — the LoROM decode masks the bank with $7F
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; A5.S01 — Sweep: CLC
 ; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
 .proc test_a5_s01
@@ -16156,7 +16287,7 @@ apu_prog_42:
 .export _test_flags
 
 _test_count:
-    .word 198
+    .word 201
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -16324,6 +16455,9 @@ _test_entries:
     .faraddr test_e7_14
     .faraddr test_e7_15
     .faraddr test_f1_02
+    .faraddr test_g1_10
+    .faraddr test_g1_12
+    .faraddr test_g1_14
     .faraddr test_a5_s01
     .faraddr test_a5_s02
     .faraddr test_a5_s03
@@ -16525,6 +16659,9 @@ _test_flags:
     .byte $01   ; E7.14
     .byte $01   ; E7.15
     .byte $01   ; F1.02
+    .byte $01   ; G1.10
+    .byte $01   ; G1.12
+    .byte $01   ; G1.14
     .byte $01   ; A5.S01
     .byte $01   ; A5.S02
     .byte $01   ; A5.S03
@@ -16726,6 +16863,9 @@ _test_names:
     .addr @n_e7_14
     .addr @n_e7_15
     .addr @n_f1_02
+    .addr @n_g1_10
+    .addr @n_g1_12
+    .addr @n_g1_14
     .addr @n_a5_s01
     .addr @n_a5_s02
     .addr @n_a5_s03
@@ -17252,6 +17392,15 @@ _test_names:
 @n_f1_02:
     .byte 19
     .byte "Pad reads 17+ are 1"
+@n_g1_10:
+    .byte 23
+    .byte "Checksum XOR complement"
+@n_g1_12:
+    .byte 21
+    .byte "LoROM header location"
+@n_g1_14:
+    .byte 17
+    .byte "LoROM bank decode"
 @n_a5_s01:
     .byte 10
     .byte "Sweep: CLC"
