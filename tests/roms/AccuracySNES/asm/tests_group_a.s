@@ -1447,7 +1447,10 @@ CATALOG_IMPL = 1
     .i16
     lda #.LOWORD(@handler)
     sta a:V_COP_VEC
-    cop #$00
+    ; Encoded as raw bytes rather than `cop #$00`. Immediate addressing on COP is accepted by
+    ; recent ca65 git builds but rejected as an illegal addressing mode by the 2.19 release
+    ; that CI installs from apt, and the ROM must assemble identically on both.
+    .byte $02, $00    ; cop #$00
     sep #$20
     .a8
     lda f:$7E0091

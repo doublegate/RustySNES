@@ -1240,7 +1240,10 @@ fn a6_02() -> Test {
     a.l("rep #$30");
     a.l("lda #.LOWORD(@handler)");
     a.l("sta a:V_COP_VEC");
-    a.l("cop #$00");
+    a.c("Encoded as raw bytes rather than `cop #$00`. Immediate addressing on COP is accepted by");
+    a.c("recent ca65 git builds but rejected as an illegal addressing mode by the 2.19 release");
+    a.c("that CI installs from apt, and the ROM must assemble identically on both.");
+    a.l(".byte $02, $00    ; cop #$00");
     a.assert_mem8(0x7E_0091, 0xC0, "COP did not reach its own vector");
     a.finish(
         "A6.02",
