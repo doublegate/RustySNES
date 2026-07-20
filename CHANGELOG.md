@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The SPC700's vector table, and the port-latch strobes (`E2`, `E3`).** `E2.08`: `TCALL n`
+  vectors through `[$FFDE - n*2]`, counting *down* from the top of the address space — a stride and
+  a direction that are both easy to get backwards, and a driver using `TCALL` for its dispatch table
+  lands somewhere arbitrary if either is. `E2.09`: `BRK` has no vector of its own; it shares
+  `TCALL 0`'s, so installing one handler installs both. `E3.03`: `$F1` bits 4 and 5 are *strobes*
+  that clear the CPU-to-APU port latches and do not persist — a core storing them as ordinary bits
+  either never clears anything or clears the ports on every later `$F1` write, and the second is
+  worse, because a driver writes `$F1` on almost every command.
+
+  Both vector tests plant the *right* handler at the slot under test and a different one either
+  side, so a miscounted vector produces a **wrong answer** rather than a hang. That distinction
+  matters: a test whose only failure mode is the timeout reports SKIP, which says the APU did not
+  answer rather than that it answered wrongly.
+
+  **`E2.09` broke `E4.02` on its first run, and the coupling is real.** `BRK` sets the `B` flag and
+  nothing on the SPC700 clears it short of a `POP PSW`, so the handler left `B` set for the whole
+  rest of the battery — and `E4.02`, which reads the register state the IPL hands over, saw `$1A`
+  where it expects `$0A`. The handlers now restore `PSW` before handing back. A test that changes
+  processor state every later test can see has to put it back.
+
 - **Three SPC700 I/O registers (`E3`), and a third snes9x divergence.** `E3.04`: the boot ROM is an
   *overlay*, not a region — a store to `$FFC0` reaches the RAM underneath whether or not the ROM is
   mapped over it, and is simply invisible until the overlay is switched off. An emulator treating
@@ -388,10 +408,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **190 tests — 178 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **193 tests — 181 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **148 of 443** on-cart plus **42** scene-only —
-**190 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier. Dossier coverage is **151 of 443** on-cart plus **42** scene-only —
+**193 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 

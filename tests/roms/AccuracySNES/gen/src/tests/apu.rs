@@ -61,6 +61,9 @@ pub fn all() -> Vec<Test> {
         e5_11(),
         e7_10(),
         e1_08(),
+        e2_08(),
+        e2_09(),
+        e3_03(),
         e3_04(),
         e3_05(),
         e3_10(),
@@ -1086,6 +1089,184 @@ fn voice_program(sample: &[u8], v: Voice) -> Spc {
     p
 }
 
+/// A pair of handlers for the vector tests: one that means "arrived here", one that means "arrived
+/// somewhere else".
+///
+/// Both end the program, so whichever runs is the one the cart hears from. That is what turns a
+/// mis-computed vector from a hang into a *wrong answer* — a test whose only failure mode is the
+/// timeout reports SKIP, which says the APU did not answer rather than that it answered wrongly.
+///
+/// **They restore `PSW` before handing back**, which is not tidiness. `BRK` sets the `B` flag and
+/// nothing clears it afterwards, so a handler that simply finishes leaves `B` set in the SPC700 for
+/// the whole rest of the battery — and `E4.02`, which reads the register state the IPL hands over,
+/// then sees `$1A` where it expects `$0A`. It did, on the first run of these two tests. A test that
+/// changes processor state every later test can see has to put it back.
+fn vector_handlers(ok: u8, bad: u8) -> (Spc, Spc) {
+    let mk = |mark: u8| {
+        let mut p = Spc::new();
+        p.mov_x_imm(0xEF)
+            .mov_sp_x()
+            .mov_a_imm(0x02)
+            .push_a()
+            .pop_psw() // clear B, which BRK set and nothing else clears
+            .mov_a_imm(mark)
+            .mov_dp_a(PORT1)
+            .mov_a_imm(DONE)
+            .mov_dp_a(PORT0)
+            .release_to_ipl();
+        p
+    };
+    (mk(ok), mk(bad))
+}
+
+/// `TCALL n` vectors through `[$FFDE - n*2]`, counting *down* from the top of the table.
+///
+/// Sixteen one-byte call instructions sharing a vector table at the very top of the address space —
+/// which is inside the boot ROM while it is mapped, and ordinary RAM once it is not. The stride and
+/// the direction are both easy to get backwards, and a driver using `TCALL` for its dispatch table
+/// (they are one byte, which is the whole point) lands somewhere arbitrary if either is wrong.
+///
+/// The program unmaps the boot ROM so the table is writable, then plants the *right* handler at
+/// `TCALL 1`'s slot and a different one either side of it. So a core that miscounts does not hang —
+/// it runs the other handler and reports the wrong mark, which is a failure the cart can describe.
+fn e2_08() -> Test {
+    let (ok, bad) = vector_handlers(0xA1, 0xB2);
+
+    let mut prog = Spc::new();
+    let mut blob = ok.bytes().to_vec();
+    let bad_at = u16::try_from(blob.len()).expect("handlers are small");
+    blob.extend_from_slice(bad.bytes());
+    let ok_addr = prog.data_first(IMAGE_BASE, &blob);
+    let bad_addr = ok_addr + bad_at;
+
+    prog.mov_x_imm(0xEF).mov_sp_x().mov_dp_imm(0xF1, 0x00); // unmap the boot ROM: the vector table is RAM again
+    for (slot, addr) in [
+        (0xFFDCu16, ok_addr), // TCALL 1
+        (0xFFDE, bad_addr),   // TCALL 0 — one slot the wrong way
+        (0xFFDA, bad_addr),   // TCALL 2 — the other way
+    ] {
+        let [lo, hi] = addr.to_le_bytes();
+        prog.mov_a_imm(lo).mov_abs_a(slot);
+        prog.mov_a_imm(hi).mov_abs_a(slot + 1);
+    }
+    prog.tcall(1);
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.assert_a8(
+        0xA1,
+        "TCALL 1 did not vector through $FFDC — $B2 means it read a neighbouring slot, so the \
+         table is indexed with the wrong stride or the wrong direction",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E2.08",
+        'E',
+        "TCALL vector table",
+        Provenance::Documented("SNESdev Wiki, SPC700 reference; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `BRK` vectors through `$FFDE` — the same slot as `TCALL 0`, not one of its own.
+///
+/// The SPC700 has no separate break vector. `BRK` pushes `PC` and `PSW`, sets the `B` flag, and
+/// jumps through the table entry `TCALL 0` already uses, so a program that installs a `TCALL 0`
+/// handler has installed a `BRK` handler whether it meant to or not. A core that gives `BRK` its own
+/// vector — the 65816 has one at `$FFE6`, which is where the instinct comes from — sends a stray
+/// `BRK` somewhere the program never planned for.
+///
+/// Same shape as `E2.08`: the right handler at `$FFDE`, a different one next door, so a wrong vector
+/// is a wrong answer rather than a hang.
+fn e2_09() -> Test {
+    let (ok, bad) = vector_handlers(0xC3, 0xD4);
+
+    let mut prog = Spc::new();
+    let mut blob = ok.bytes().to_vec();
+    let bad_at = u16::try_from(blob.len()).expect("handlers are small");
+    blob.extend_from_slice(bad.bytes());
+    let ok_addr = prog.data_first(IMAGE_BASE, &blob);
+    let bad_addr = ok_addr + bad_at;
+
+    prog.mov_x_imm(0xEF).mov_sp_x().mov_dp_imm(0xF1, 0x00); // unmap the boot ROM
+    for (slot, addr) in [(0xFFDEu16, ok_addr), (0xFFDC, bad_addr)] {
+        let [lo, hi] = addr.to_le_bytes();
+        prog.mov_a_imm(lo).mov_abs_a(slot);
+        prog.mov_a_imm(hi).mov_abs_a(slot + 1);
+    }
+    prog.brk();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.assert_a8(
+        0xC3,
+        "BRK did not vector through $FFDE, the TCALL 0 slot — the SPC700 has no break vector of \
+         its own",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E2.09",
+        'E',
+        "BRK shares TCALL 0",
+        Provenance::Documented("SNESdev Wiki, SPC700 reference; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `$F1` bits 4 and 5 clear the CPU-to-APU port latches, and do not stay set.
+///
+/// They are strobes, not switches: writing a 1 clears the corresponding pair of input latches
+/// immediately and the bit does not persist, so a driver can clear stale commands without having to
+/// write the register twice. A core that stores them as ordinary bits either never clears anything
+/// or clears the ports on every subsequent `$F1` write — and the second failure is worse, because a
+/// driver writes `$F1` to enable timers on almost every command.
+///
+/// The value it clears is one the upload itself left there: `apu_upload` puts the entry address in
+/// ports 2 and 3, so port 3 holds `$02` — the high byte of `$0200`. Using what the handshake already
+/// wrote means the test needs nothing from the cart side that the mechanism does not already do.
+fn e3_03() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_a_dp(0xF7)
+        .mov_dp_a(PORT1) // the IPL left the entry address's high byte here
+        .mov_dp_imm(0xF1, 0xA0) // bit 5 clears ports 2 and 3; bit 7 keeps the boot ROM mapped
+        .mov_a_dp(0xF7)
+        .mov_dp_a(PORT2)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("Port 3 holds $02, the high byte of the $0200 entry address the upload wrote there. If it");
+    a.c("does not, the clear below would be measuring nothing.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.assert_a8(
+        0x02,
+        "port 3 did not hold the entry address's high byte, so the latch-clear check below would \
+         be vacuous",
+    );
+    a.l("lda f:$7E0101");
+    a.assert_a8(0x00, "$F1 bit 5 did not clear the port 2/3 input latches");
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E3.03",
+        'E',
+        "$F1 clears port latches",
+        Provenance::Documented("SNESdev Wiki, SPC700 I/O; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
 /// `$F1` bit 7 controls what `$FFC0`-`$FFFF` *reads* as; writes always reach the RAM underneath.
 ///
 /// The boot ROM is an overlay, not a region. A store to `$FFC0` lands in APU RAM whether or not the
@@ -1567,6 +1748,11 @@ fn e4_01() -> Test {
 /// `A = 0`, `X = 0`, `Y = 0`, `PSW = $02` — `Z` set, everything else clear. A driver that relies on
 /// it (and they do: the entry state is why so many drivers open with a `MOV` rather than a load)
 /// breaks on a core that jumps to the program with its own leftovers in the registers.
+///
+/// It depends on no earlier test having left a sticky flag set, which is a real coupling rather than
+/// a theoretical one: `E2.09` executes a `BRK`, `BRK` sets `B`, and nothing on the SPC700 clears it
+/// short of a `POP PSW`. That test's handler restores `PSW` before handing back for exactly this
+/// reason — see [`vector_handlers`].
 ///
 /// The program's first three instructions capture the state before anything can disturb it, using
 /// only the flag-free moves. `Y` and `A` are reported bitwise-ORed together rather than separately: both
