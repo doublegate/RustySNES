@@ -38,6 +38,14 @@ use core::fmt::Write as _;
 /// emulation mode and under any `DBR`).
 pub const TEST_RESULT: &str = "$7EE010";
 
+/// Base of the raw measurement channel in WRAM — 64 u16 slots, read by the host harness.
+///
+/// Shared with `asm/runtime.inc` and `tests/accuracysnes.rs`, which must agree on it byte for byte.
+pub const MEAS_BASE: u32 = 0x7E_E200;
+
+/// Number of `u16` slots in the measurement channel.
+pub const MEAS_SLOTS: u8 = 64;
+
 /// Verdict byte meaning "the test passed with no variant".
 pub const PASS: u8 = 0x01;
 
@@ -226,6 +234,14 @@ impl Asm {
     /// NTSC has a short line at V=240, PAL a long one, and emulators disagree on whether the H
     /// counter tops out at 339 or 340 — so a measurement that crossed a line boundary would
     /// depend on exactly the convention under dispute.
+    /// Begin a cycle measurement.
+    ///
+    /// **The measured span must stay under one scanline.** `measure_end` differences the H counter,
+    /// which wraps at 341 dots, so a longer span silently returns a small number instead of
+    /// failing — a wrapped reading is indistinguishable from a real one. `A5.08` once measured a
+    /// 341-dot span, read ~0, and appeared to prove the emulator wrong about `REP`. Keep repeat
+    /// counts modest, and record raw values with [`Asm::record`] so a suspicious result can be
+    /// checked rather than inferred.
     pub fn measure_begin(&mut self) -> &mut Self {
         self.l("jsr hv_begin");
         self
@@ -305,6 +321,28 @@ impl Asm {
         self.lines.push(format!("    jmp @fail{code}"));
         self.lines.push("  :".into());
         self
+    }
+
+    /// Record the 16-bit accumulator into measurement slot `slot`, leaving `A` untouched.
+    ///
+    /// The verdict byte a test reports cannot carry a measurement — a dot count does not fit in a
+    /// variant code, and a value that wraps past 256 is indistinguishable from a real one. A
+    /// 32-`NOP` baseline reported that way read back as "21 dots", which is below the physical
+    /// floor. Measurements therefore go to the full-width channel at [`MEAS_BASE`] and are read by
+    /// the host harness.
+    ///
+    /// **Requires `A` 16-bit**; leaves it 16-bit and unchanged.
+    ///
+    /// # Panics
+    /// If `slot` is outside the block.
+    pub fn record(&mut self, slot: u8, why: &str) -> &mut Self {
+        assert!(
+            slot < MEAS_SLOTS,
+            "measurement slot {slot} is outside the block"
+        );
+        let addr = MEAS_BASE + u32::from(slot) * 2;
+        self.c(&format!("record slot {slot}: {why}"));
+        self.l(&format!("sta f:${addr:06X}"))
     }
 
     /// Assert the 16-bit accumulator equals `val`. Requires `A` currently 16-bit.

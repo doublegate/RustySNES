@@ -2342,12 +2342,12 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
-; A5.08 — Cycle spot checks (gold)
-; provenance: Contested (the three reference emulators disagree with each other on instruction-level timing; no external per-opcode timing table is sourced yet)
+; A5.08 — A5.22 cycle spot checks
+; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree on these rows; docs/accuracysnes-timing-oracle.md)
 .proc test_a5_08
     .a16
     .i16
-    ; Three differential measurements against NOP; report which matched as a bitmask.
+    ; Differential against NOP, 16 repeats, so no span approaches the 341-dot line wrap.
     rep #$30
     .a16
     .i16
@@ -2355,26 +2355,8 @@ CATALOG_IMPL = 1
     plb
     sep #$20
     .a8
-    lda #$00
-    sta f:$7E0094     ; the result bitmask
-    ; --- baseline: 32 NOPs ---
+    ; --- baseline: 16 NOPs ---
     jsr hv_begin
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
     nop
     nop
     nop
@@ -2397,26 +2379,12 @@ CATALOG_IMPL = 1
     .i16
     lda f:$7E0048     ; V_H1 = elapsed dots
     sta f:$7E0090
-    ; --- XBA: expected +6 clocks each, +48 dots over 32 ---
+    ; record slot 0: 16 NOP, absolute
+    sta f:$7EE200
+    ; --- XBA: +6 clocks each over NOP, so +24 dots over 16 ---
     sep #$20
     .a8
     jsr hv_begin
-    xba
-    xba
-    xba
-    xba
-    xba
-    xba
-    xba
-    xba
-    xba
-    xba
-    xba
-    xba
-    xba
-    xba
-    xba
-    xba
     xba
     xba
     xba
@@ -2438,40 +2406,25 @@ CATALOG_IMPL = 1
     .a16
     .i16
     lda f:$7E0048     ; V_H1 = elapsed dots
+    ; record slot 1: 16 XBA, absolute
+    sta f:$7EE202
     sec
     sbc f:$7E0090
-    cmp #48 - 2
-    bcc :+
-    cmp #48 + 3
+    ; record slot 2: 16 XBA - 16 NOP
+    sta f:$7EE204
+    cmp #$0016
     bcs :+
-    sep #$20
-    .a8
-    lda f:$7E0094
-    ora #$01
-    sta f:$7E0094
-    rep #$20
-    .a16
-    :
-    ; --- REP #$00: expected +8 clocks each, +64 dots over 32 ---
+    jmp @fail1
+  :
+    cmp #$001B
+    bcc :+
+    jmp @fail1
+  :
+    ; --- REP #$00: 2 bytes, so +8 clocks each, +32 dots over 16. Emitted as raw bytes so the
+    ; generator's width tracker is not told the accumulator changed size.
     sep #$20
     .a8
     jsr hv_begin
-    .byte $C2, $00   ; rep #$00
-    .byte $C2, $00   ; rep #$00
-    .byte $C2, $00   ; rep #$00
-    .byte $C2, $00   ; rep #$00
-    .byte $C2, $00   ; rep #$00
-    .byte $C2, $00   ; rep #$00
-    .byte $C2, $00   ; rep #$00
-    .byte $C2, $00   ; rep #$00
-    .byte $C2, $00   ; rep #$00
-    .byte $C2, $00   ; rep #$00
-    .byte $C2, $00   ; rep #$00
-    .byte $C2, $00   ; rep #$00
-    .byte $C2, $00   ; rep #$00
-    .byte $C2, $00   ; rep #$00
-    .byte $C2, $00   ; rep #$00
-    .byte $C2, $00   ; rep #$00
     .byte $C2, $00   ; rep #$00
     .byte $C2, $00   ; rep #$00
     .byte $C2, $00   ; rep #$00
@@ -2493,46 +2446,21 @@ CATALOG_IMPL = 1
     .a16
     .i16
     lda f:$7E0048     ; V_H1 = elapsed dots
+    ; record slot 3: 16 REP #$00, absolute
+    sta f:$7EE206
     sec
     sbc f:$7E0090
-    cmp #64 - 2
-    bcc :+
-    cmp #64 + 3
+    ; record slot 4: 16 REP #$00 - 16 NOP
+    sta f:$7EE208
+    cmp #$001E
     bcs :+
-    sep #$20
-    .a8
-    lda f:$7E0094
-    ora #$02
-    sta f:$7E0094
-    rep #$20
-    .a16
-    :
-    ; --- PHD+PLD: expected 66 clocks per pair against 28, so +76 dots over 8 ---
-    sep #$20
-    .a8
-    jsr hv_begin
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    jsr hv_end
-    rep #$30
-    .a16
-    .i16
-    lda f:$7E0048     ; V_H1 = elapsed dots
-    sta f:$7E0092
+    jmp @fail2
+  :
+    cmp #$0023
+    bcc :+
+    jmp @fail2
+  :
+    ; --- PHD+PLD: 30 + 36 = 66 clocks per pair against 2 NOPs at 28, so +76 dots over 8 ---
     sep #$20
     .a8
     jsr hv_begin
@@ -2557,26 +2485,44 @@ CATALOG_IMPL = 1
     .a16
     .i16
     lda f:$7E0048     ; V_H1 = elapsed dots
+    ; record slot 5: 8x (PHD+PLD), absolute
+    sta f:$7EE20A
     sec
-    sbc f:$7E0092
-    cmp #76 - 2
-    bcc :+
-    cmp #76 + 3
+    sbc f:$7E0090
+    ; record slot 6: 8x (PHD+PLD) - 16 NOP
+    sta f:$7EE20C
+    cmp #$004A
     bcs :+
+    jmp @fail3
+  :
+    cmp #$004F
+    bcc :+
+    jmp @fail3
+  :
     sep #$20
     .a8
-    lda f:$7E0094
-    ora #$04
-    sta f:$7E0094
-    rep #$20
-    .a16
-    :
-    ; --- report the bitmask as the variant code ---
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; XBA did not cost 3 cycles (1 more than NOP)
     sep #$20
     .a8
-    lda f:$7E0094
-    asl a
-    ora #$01
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; REP #imm did not cost 3 cycles / 2 accesses
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+@fail3:
+    ; PHD/PLD did not cost 4 and 5 cycles with 3 accesses each
+    sep #$20
+    .a8
+    lda #$06
     sta f:$7EE010
     jmp test_restore
 .endproc
@@ -5608,7 +5554,7 @@ _test_flags:
     .byte $01   ; A1.06
     .byte $01   ; A5.07
     .byte $01   ; A6.09
-    .byte $02   ; A5.08
+    .byte $01   ; A5.08
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -5886,8 +5832,8 @@ _test_names:
     .byte 22
     .byte "BRK sets B in pushed P"
 @n_a5_08:
-    .byte 24
-    .byte "Cycle spot checks (gold)"
+    .byte 23
+    .byte "A5.22 cycle spot checks"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"

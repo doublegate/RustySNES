@@ -379,11 +379,15 @@ Provenance: **Documented** (WDC datasheet; SNESdev Wiki, 65C816 interrupts). Kin
 |---|---|---|
 | 1 | `$02` | BRK did not set the B flag in the status byte it pushed |
 
-### A5.08 — Cycle spot checks (gold)
+### A5.08 — A5.22 cycle spot checks
 
-Provenance: **Contested** (the three reference emulators disagree with each other on instruction-level timing; no external per-opcode timing table is sourced yet). Kind: golden vector, never scored.
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree on these rows; docs/accuracysnes-timing-oracle.md). Kind: scored.
 
-No failure codes (control-flow test: reaching the end is the pass).
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | XBA did not cost 3 cycles (1 more than NOP) |
+| 2 | `$04` | REP #imm did not cost 3 cycles / 2 accesses |
+| 3 | `$06` | PHD/PLD did not cost 4 and 5 cycles with 3 accesses each |
 
 ## Group C
 

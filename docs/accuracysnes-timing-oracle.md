@@ -207,22 +207,24 @@ Remaining, in order:
 1. **Three new test candidates from §8**, all of which exist because documents alone cannot settle
    them: the taken-branch internal-cycle address bus, WDC's emulation-mode R-M-W `RWB` note (17), and
    the IRQ/NMI first cycle where anomie's measurement already contradicts the datasheet (§5).
-2. **A 16-bit measurement-reporting channel — do this before anything else.** Attempting to
-   diagnose `A5.08`'s `REP` mismatch hit a hard wall: a test reports through a **one-byte** status
-   value, and a dot count does not fit. A 32-`NOP` baseline read back as "21 dots", which is
-   physically impossible (the floor is ~12 master clocks per instruction), because the true value
-   wrapped — it is `256 + 21` or more. The earlier "107" for `REP` is equally suspect for the same
-   reason: it could be 107 or 363, and the two imply completely different conclusions.
+2. ~~A 16-bit measurement-reporting channel~~ — **done, and it immediately settled `REP`.**
+   `MEAS_BASE` (`$7E:E200`, 64 `u16` slots) carries raw measurements to the host harness, since a
+   one-byte verdict cannot hold a dot count. `A5.08` records seven slots and the harness prints and
+   sanity-checks them.
 
-   The 16-bit subtraction inside the test is fine; only the *reporting* truncates. The fix is to
-   write raw measurements into a WRAM block for the harness to read, exactly as
-   `capture_power_on` already does for power-on state. **T-04-I needs this regardless** — a
-   256-opcode sweep produces 256 measurements and there is nowhere to put them today. It is the
-   next piece of machinery, ahead of any derivation work.
+   **`REP` is settled: RustySNES was right and the test was wrong.** The raw numbers showed a
+   32-`NOP` baseline at 277 dots, so the 32-`REP` block sat at exactly **341 dots — one scanline** —
+   and the H-counter difference wrapped to ~0. That read as "the emulator gets `REP` wrong". It does
+   not: its `REP` is opcode fetch + operand fetch + one internal cycle, precisely what all three
+   vendor tables specify. Rebuilt at 16 repeats, every prediction now lands exactly — `XBA` 24 dots,
+   `REP` 32, `PHD`+`PLD` 76 — and `A5.08` is a **scored** test again.
 
-3. **Then derive per-opcode expectations** into the generator from §3 + §4 and settle `REP`. Note
-   what is already known: RustySNES's `REP` is opcode fetch + operand fetch + one internal cycle —
-   3 cycles, 2 memory accesses — which is exactly what the datasheets specify. So the core looks
-   right and the test looks wrong, but that cannot be confirmed until measurements can be read back
-   without truncation.
+   The general hazard is now documented on `measure_begin` and guarded in the harness: a measured
+   span must stay under the 341-dot wrap, because past it the primitive returns a plausible small
+   number instead of failing. That is the worst kind of failure — indistinguishable from a real
+   reading — and it was invisible until raw values could be read back.
+
+3. **Derive per-opcode expectations** into the generator from §3 + §4. The method is now proven
+   end-to-end on four instructions; what remains is the safe-operand table and the sandbox.
+
 4. Rockwell never second-sourced the 16-bit part, so three vendors is the ceiling here.

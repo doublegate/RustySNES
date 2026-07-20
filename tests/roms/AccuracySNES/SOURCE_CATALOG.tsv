@@ -46,7 +46,7 @@
 43	A1.06	A	TCD/TDC always 16-bit	Documented	WDC datasheet; SNESdev Wiki, 65C816	Scored	0x7EF04B	A1.08
 44	A5.07	A	RMW abs,X is flat	Documented	WDC datasheet; undisbeliever's timing tables	Scored	0x7EF04C	A5.14
 45	A6.09	A	BRK sets B in pushed P	Documented	WDC datasheet; SNESdev Wiki, 65C816 interrupts	Scored	0x7EF04D	A6.05
-46	A5.08	A	Cycle spot checks (gold)	Contested	the three reference emulators disagree with each other on instruction-level timing; no external per-opcode timing table is sourced yet	Golden	0x7EF04E	A5.22
+46	A5.08	A	A5.22 cycle spot checks	Documented	WDC/GTE/VLSI instruction-operation tables agree on these rows; docs/accuracysnes-timing-oracle.md	Scored	0x7EF04E	A5.22
 47	C1.01	C	OAM word write/read	Documented	SNESdev Wiki, OAM; fullsnes	Scored	0x7EF04F	C1.02
 48	C1.02	C	OAM odd write latched	Documented	SNESdev Wiki, OAM; anomie	Scored	0x7EF050	C1.02
 49	C1.03	C	OAMADDR reload clears	Documented	SNESdev Wiki, OAM; anomie	Scored	0x7EF051	C1.01
