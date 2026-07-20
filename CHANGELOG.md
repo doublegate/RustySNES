@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The S-DSP blocker is now identified and written down.** `E5`-`E9` (~73 assertions — BRR,
+  pitch, envelopes, key on/off, the mixer) are all read back through DSP registers, and the
+  `$F2`/`$F3` path does not work in this harness yet: a program that writes a register and reads it
+  back gets zero, and the DSP register file inspected from the host is entirely zero. Identical on
+  RustySNES and snes9x, so it is the cart's sequence at fault rather than the cores.
+
+  Two tests written against it were **withdrawn rather than recorded as goldens**. `E3.14`'s
+  treatment does not transfer: there the claim was specific and the disagreement was itself the
+  finding, whereas a golden for "DSP addressing" that nobody can interpret adds noise rather than
+  evidence. `docs/accuracysnes-plan.md` names the three candidate causes to check first.
+
 - **The SPC700's I/O block: `E3.01` scored, `E3.14` recorded.** `E3.01` pins that reading a timer
   counter returns four bits **and clears it** — `$FD`-`$FF` are not registers holding a value, they
   are counters a read consumes, and a core treating them as storage lets a driver double-count

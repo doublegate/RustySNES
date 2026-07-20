@@ -7495,6 +7495,13 @@ CATALOG_IMPL = 1
     lda #$0200
     sta f:V_APU_ENTRY
     jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
     ; Wait for the program's done marker, but not forever: an APU that never boots would
     ; otherwise hang the whole battery and report nothing about any other test.
     rep #$30
@@ -7632,6 +7639,13 @@ CATALOG_IMPL = 1
     lda #$0200
     sta f:V_APU_ENTRY
     jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
     ; Wait for the program's done marker, but not forever: an APU that never boots would
     ; otherwise hang the whole battery and report nothing about any other test.
     rep #$30
@@ -7741,6 +7755,13 @@ CATALOG_IMPL = 1
     lda #$0200
     sta f:V_APU_ENTRY
     jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
     ; Wait for the program's done marker, but not forever: an APU that never boots would
     ; otherwise hang the whole battery and report nothing about any other test.
     rep #$30
@@ -7854,6 +7875,13 @@ CATALOG_IMPL = 1
     lda #$0200
     sta f:V_APU_ENTRY
     jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
     ; Wait for the program's done marker, but not forever: an APU that never boots would
     ; otherwise hang the whole battery and report nothing about any other test.
     rep #$30
@@ -7967,6 +7995,13 @@ CATALOG_IMPL = 1
     lda #$0200
     sta f:V_APU_ENTRY
     jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
     ; Wait for the program's done marker, but not forever: an APU that never boots would
     ; otherwise hang the whole battery and report nothing about any other test.
     rep #$30
@@ -8082,6 +8117,13 @@ CATALOG_IMPL = 1
     lda #$0200
     sta f:V_APU_ENTRY
     jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
     ; Wait for the program's done marker, but not forever: an APU that never boots would
     ; otherwise hang the whole battery and report nothing about any other test.
     rep #$30
@@ -8195,6 +8237,13 @@ CATALOG_IMPL = 1
     lda #$0200
     sta f:V_APU_ENTRY
     jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
     ; Wait for the program's done marker, but not forever: an APU that never boots would
     ; otherwise hang the whole battery and report nothing about any other test.
     rep #$30
@@ -8307,6 +8356,13 @@ CATALOG_IMPL = 1
     lda #$0200
     sta f:V_APU_ENTRY
     jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
     ; Wait for the program's done marker, but not forever: an APU that never boots would
     ; otherwise hang the whole battery and report nothing about any other test.
     rep #$30
@@ -8428,6 +8484,13 @@ CATALOG_IMPL = 1
     lda #$0200
     sta f:V_APU_ENTRY
     jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
     ; Wait for the program's done marker, but not forever: an APU that never boots would
     ; otherwise hang the whole battery and report nothing about any other test.
     rep #$30
