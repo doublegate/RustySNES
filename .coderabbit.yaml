@@ -25,6 +25,33 @@ reviews:
     drafts: false
 
   path_filters:
+    # --- Includes ----------------------------------------------------------------------------
+    #
+    # These have to be here, and the list has to be complete. CodeRabbit ships a DEFAULT block
+    # list that contains `**/gen/**` — which matches `tests/roms/AccuracySNES/gen/`, the test
+    # generator, i.e. the most review-worthy source in this repository. The first three PRs under
+    # this config had every generator file silently dropped ("Review skipped due to path filters")
+    # and the `gen/src/**` instructions below never ran. An explicit include removes a path from
+    # that block list.
+    #
+    # The catch is that these patterns also drive a sparse checkout, so a lone positive pattern
+    # can narrow the review to *only* that path. Hence every directory worth reviewing is named
+    # rather than just the one being rescued. **Adding a new top-level directory means adding it
+    # here** — otherwise it is reviewed by nobody and nothing says so.
+    - '.github/**'
+    - 'android/**'
+    - 'crates/**'
+    - 'docs/**'
+    - 'ios/**'
+    - 'scripts/**'
+    - 'tests/**'
+    - 'to-dos/**'
+    - '*.md'
+    - '*.toml'
+    - '*.yaml'
+    - '*.yml'
+    - '*.json'
+    # --- Excludes ----------------------------------------------------------------------------
     # Generated artefacts. Reviewing them is reviewing the generator twice, and the ROM is binary.
     - '!tests/roms/AccuracySNES/asm/tests_group_a.s'
     - '!tests/roms/AccuracySNES/asm/scenes.s'
@@ -32,6 +59,9 @@ reviews:
     - '!tests/roms/AccuracySNES/ERROR_CODES.md'
     - '!tests/roms/AccuracySNES/build/**'
     - '!docs/accuracysnes-coverage.md'
+    # Golden vectors: hashes and captured logs. A diff here is a blessing decision made elsewhere;
+    # the file itself carries no argument to review.
+    - '!tests/golden/**'
     # Immutable research and vendored study clones.
     - '!ref-docs/**'
     - '!ref-proj/**'
@@ -89,6 +119,46 @@ reviews:
         Docs are the spec, not a history log. Flag claims that contradict the code, counts that
         contradict the generated `docs/accuracysnes-coverage.md`, and any statement of coverage that
         is broader than what the corresponding test actually asserts.
+
+    - path: 'tests/roms/AccuracySNES/asm/runtime.inc'
+      instructions: |
+        Shared symbol definitions. Every address here is claimed by something; a new variable that
+        overlaps an existing block, or a block whose stated width is smaller than what the code
+        stores into it, is the failure mode. Check the arithmetic of `VAR_BASE + $nn` offsets
+        against their declared sizes and against the neighbouring definitions.
+
+  # Encodings of gates this repository actually runs, so the bot's verdict and CI's agree.
+  pre_merge_checks:
+    title:
+      mode: warning
+      requirements: |
+        Conventional Commits: `type(scope): subject`, imperative mood, no trailing period, and
+        the type drawn from feat, fix, docs, refactor, test, chore, perf, build, ci.
+    custom_checks:
+      - name: CHANGELOG entry
+        mode: warning
+        instructions: |
+          If the diff changes user-visible behaviour — emulator output, a frontend feature, a CLI
+          flag, a public API, or the contents of the AccuracySNES cartridge — `CHANGELOG.md` must
+          be modified in the same pull request. Pass if the change is purely internal
+          (refactoring, tests of existing behaviour, comments, CI configuration).
+      - name: Docs-as-spec
+        mode: warning
+        instructions: |
+          A behaviour change under `crates/rustysnes-<chip>/` must be accompanied by an edit to
+          the matching `docs/<chip>.md` in the same pull request, because those documents are the
+          specification rather than a history log. Pass if the crate change does not alter
+          observable behaviour, or if the relevant doc was already correct — say which it is.
+      - name: AccuracySNES bookkeeping
+        mode: warning
+        instructions: |
+          If the diff adds or removes a test or a scene under `tests/roms/AccuracySNES/gen/src/`,
+          check three things: the test appears in `dossier.rs::MAP` (mapped to a dossier assertion
+          or to an empty slice with a matching `UNENUMERATED` entry); the regenerated artefacts
+          (`asm/tests_group_a.s`, `SOURCE_CATALOG.tsv`, `docs/accuracysnes-coverage.md`, the two
+          `.sfc` images) are present in the diff, since a source change without them means the
+          committed ROM does not match its generator; and the hand-maintained counts in
+          `docs/accuracysnes-plan.md` moved by the same amount as the generated coverage table.
 
 chat:
   auto_reply: true
