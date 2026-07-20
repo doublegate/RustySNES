@@ -71,9 +71,13 @@ A test we wrote, grading an emulator we wrote, proves nothing. Every test carrie
 | Tier | Meaning | Scores? |
 |---|---|---|
 | **Documented** | a primary reference states the behaviour outright | yes |
-| **Corroborated** | ares, bsnes, and Mesen2 independently agree in source | yes |
+| **Corroborated** | the bsnes/ares lineage and Mesen2 agree in source | yes |
 | **Contested** | references disagree, or one admits it is unexplained | no |
 | **Novel** | our own hypothesis, no external backing | no |
+
+**ares and bsnes count as one reference, not two.** A full diff of their `wdc65816` cores shows
+only type renames; ares' 65816 is a lineal descendant of bsnes'. Mesen2 is the genuinely
+independent second opinion, so `Corroborated` means two implementations agree, not three.
 
 There is also a **golden-vector** kind for behaviour hardware genuinely does not define — the
 `$4203`/`$4206` overlap, decimal-mode `V`, the WRAM power-on fill, post-reset `ENDX`. Those record

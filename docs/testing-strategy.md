@@ -24,8 +24,9 @@ the same image runs unmodified on ares, bsnes, Mesen2, and real hardware, and th
 supplies no expected values of its own. Two rules govern what its number is allowed to mean:
 
 - **Provenance tiering.** Every test declares where its expected value came from — `Documented`
-  (a primary reference states it), `Corroborated` (ares + bsnes + Mesen2 agree in source),
-  `Contested` (the references disagree, or one admits it is unexplained), `Novel` (our own
+  (a primary reference states it), `Corroborated` (the bsnes/ares lineage and Mesen2 agree in
+  source — bsnes and ares count as **one** reference, not two, since ares' `wdc65816` is a lineal
+  copy of bsnes'), `Contested` (the references disagree, or one admits it is unexplained), `Novel` (our own
   hypothesis). **Only the first two may contribute to the pass rate.** A test we wrote grading an
   emulator we wrote proves nothing otherwise. Enforced by `tests/accuracysnes.rs`'s
   `provenance_gate_holds`, mirroring `docs/adr/0003`.

@@ -9,7 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-
 ### Added
 
 - **AccuracySNES — a first-party SNES hardware-accuracy test cartridge (Phase A).** Closes ticket
@@ -88,6 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The dead `rustysnes-test-harness::accuracy_battery::score_accuracy_battery` skeleton (ticket
   T-04's placeholder, which returned zeros and was tracked as dead code to delete). Its
   `AccuracyReport` tally type survives and is what the AccuracySNES gate now scores through.
+
 
 
 ## [1.20.0] "Aperture" - 2026-07-15
@@ -597,7 +597,6 @@ Sixth release of the RustyNES-parity roadmap: HD-pack `emu-thread` wiring.
   this only affects the narrow case where a user has both features enabled
   simultaneously.
 
-||||||| parent of 51829b1 (feat(accuracysnes): first-party SNES hardware-accuracy test cartridge (Phase A))
 ## [1.9.0] "Marionette" - 2026-07-12
 
 Fifth release of the RustyNES-parity roadmap: Lua scripting bus-widening.
