@@ -394,38 +394,29 @@ Three rules the machinery is built on, all learned immediately:
   an assembler bug — the most expensive way to find it. Five emitters were written for `E1.12` and
   removed with it.
 
-#### The S-DSP blocker (`E5`-`E9`, ~73 assertions)
+#### The S-DSP blocker — solved, and it was not the DSP
 
-The DSP is reached from the SPC700 through an address latch (`$F2`) and a data port (`$F3`), and
-**that path does not work yet in this harness**. A program that writes `$F2 = $00`, `$F3 = $11` and
-then reads `$F3` back gets `$00`, and the DSP register file inspected from the host afterwards is
-entirely zero. This reproduces identically on RustySNES and snes9x, so it is the *cart's* sequence
-that is wrong, not the cores — the project's usual signature.
+`E5`-`E9` (~73 assertions) are all read back through DSP registers, and for a while the `$F2`/`$F3`
+path appeared not to work at all: a probe that wrote a register and read it back got zero, on
+RustySNES *and* snes9x. Two candidates were investigated and eliminated — `MOV dp,#imm`'s dummy
+read of a read-sensitive `$F0`-`$FF` address, and a stale release byte left in the CPU-side port.
 
-Two tests were written against it (`E3.11`, and a foundational register-addressing round trip) and
-**both were withdrawn rather than recorded as goldens**. `E3.14`'s treatment does not apply here:
-there the claim was specific and the disagreement was itself the finding, whereas a golden for "DSP
-addressing" that nobody can interpret adds noise rather than evidence.
+The actual cause was one bit, and it had nothing to do with the DSP. `E3.01` writes `$F1` to enable
+a timer; `$F1` bit 7 also selects whether `$FFC0`-`$FFFF` reads as the IPL boot ROM or as RAM. So
+the release path's `JMP $FFC0` landed in zeroed RAM, the SMP wandered off, and **every APU upload
+after that test silently died**. It presented as "the DSP is unreachable" purely because the DSP
+probes ran later in the battery. `release_to_ipl` now re-maps the ROM before jumping.
 
-This is the next thing to solve for Group E, and it gates `E5`-`E9` entirely — BRR decoding, pitch,
-envelopes, key-on/off and the mixer are all read back through DSP registers. Two candidates have already been **ruled out**, which is worth recording so the next attempt does
-not repeat them:
+Two lessons worth keeping:
 
-- *The `MOV dp,#imm` dummy read.* `$8F` performs a read of its destination and `$F0`-`$FF` are
-  read-sensitive, so the obvious suspicion was that writing `$F2`/`$F3` that way misbehaved.
-  Rewriting the probe with the `MOV A,#i` / `MOV dp,A` idiom every real driver uses changed
-  nothing.
-- *A stale release byte.* The previous test's release value sits in the CPU-side port 0, so a
-  program whose release loop reads it immediately would jump back to the IPL before the cart read
-  anything. `upload_and_run` now clears that port after uploading — correct regardless — and the
-  symptom persisted.
-
-What the symptom actually looks like: the port snapshot comes back holding `$BB`, which is the
-IPL's own announcement, so the program *has already returned to the IPL* by the time the cart
-reads. Something is releasing or restarting it early. Candidates still open: whether the DSP needs
-the SPC700 to yield cycles between the `$F2` write and the `$F3` access; whether the IPL leaves
-`FLG` (`$6C`) in a soft reset that suppresses register writes; and whether the release loop's
-`CMP` is matching a value the handshake left behind.
+- **A shared teardown is load-bearing.** One test's legitimate register write broke every test
+  after it, and nothing failed loudly — the battery reported 100% while a third of it was dead.
+  The release path is the only place that can defend against this, so it does.
+- **Three-way agreement against a test is a heuristic, not a proof.** It is this project's stated
+  signature of a broken test, and it produced a *false* finding here: `E3.14` was published as a
+  Contested golden claiming both references contradict the documentation on `$F8`/`$F9`. They do
+  not. A harness bug upstream of every implementation produces exactly the same signature, and the
+  correction is recorded in the CHANGELOG rather than quietly dropped.
 
 `E1.12` (CLRV clears H as well as V) was written, failed, and was **withdrawn rather than
 weakened**: the `ADC` sequence meant to set `H` did not set it on RustySNES, snes9x *or* Mesen2.
