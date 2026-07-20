@@ -344,26 +344,50 @@ int main(int argc, char **argv) {
         static unsigned sightings[MAX_SCENES];
         static uint16_t px[MAX_SCENES][SCENE_W * SCENE_H];
         unsigned scene_frames = 0;
+        bool over_range = false;
         while (scene_frames < max_frames && wram[SCENE_DONE] != 0x5A) {
+            /* Cleared per frame, and set only by a real video_refresh. libretro signals a duplicate
+             * frame by calling video_refresh with a NULL pointer (GET_CAN_DUPE, which this host
+             * enables), and a sticky flag would then let a stale hash stand in for a frame that was
+             * never rendered -- a golden recording the wrong picture, silently. */
+            last_frame_ok = false;
             retro_run();
             scene_frames++;
             unsigned id = wram[SCENE];
-            if (id != 0 && id <= MAX_SCENES) {
+            if (id > MAX_SCENES) {
+                /* Never silent: an ID past the table means the cart grew more scenes than this
+                 * host can hold, and dropping it would look exactly like a scene that matched. */
+                if (!over_range) {
+                    fprintf(stderr, "scene ID %u exceeds MAX_SCENES (%u) -- rebuild this host\n",
+                            id, MAX_SCENES);
+                    over_range = true;
+                }
+                continue;
+            }
+            if (id != 0) {
                 sightings[id - 1]++;
             }
             /* The SECOND frame of the published window, by agreement with the in-repo harness. A
              * host samples WRAM at its own frame boundary, which need not be the one the cart's
              * vblank poll sees, so both ends of the window are at risk of being off by one — this
              * host once captured scene 1 with a black band where forced blank was released. An
-             * interior frame sidesteps that without the two clocks having to agree. */
-            if (id != 0 && id <= MAX_SCENES && last_frame_ok
-                && sightings[id - 1] == CAPTURE_SIGHTING && !got[id - 1]) {
+             * interior frame sidesteps that without the two clocks having to agree.
+             *
+             * `>=` rather than `==`: if the agreed frame happens to be a duped one there is no hash
+             * to take, and an equality test would skip the scene entirely. The window is four
+             * frames wide precisely so a later one is still well inside the steady state. */
+            if (id != 0 && last_frame_ok && sightings[id - 1] >= CAPTURE_SIGHTING && !got[id - 1]) {
                 hashes[id - 1] = last_frame_hash;
                 got[id - 1] = true;
                 if (dump_prefix) {
                     memcpy(px[id - 1], last_frame_px, sizeof last_frame_px);
                 }
             }
+        }
+        if (over_range) {
+            retro_deinit();
+            free(buf);
+            return 255;
         }
         if (wram[SCENE_DONE] != 0x5A) {
             printf("ACCURACYSNES-SCENES-TIMEOUT after %u frames\n", scene_frames);

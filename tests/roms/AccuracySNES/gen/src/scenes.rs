@@ -39,7 +39,10 @@ pub struct Scene {
     pub dossier: &'static str,
     /// What the scene arranges, and what a reader should expect to see.
     pub what: &'static str,
-    /// Setup body, run with the screen blanked; the runtime releases forced blank afterwards.
+    /// Setup body. The runtime enters with forced blank on and the registers freshly
+    /// re-initialised, and **the scene is responsible for releasing forced blank itself** — every
+    /// scene ends by writing `INIDISP` ($2100), because brightness is part of what a scene may
+    /// want to vary. Omit that write and the scene renders black.
     pub setup: &'static [&'static str],
 }
 

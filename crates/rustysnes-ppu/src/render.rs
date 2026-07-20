@@ -273,6 +273,10 @@ impl Ppu {
         let mut line_y = u32::from(self.v);
         if self.io.mosaic_enable[bg] && self.io.mosaic_size > 1 {
             let m = u32::from(self.io.mosaic_size);
+            // Cannot underflow: the caller renders only for `self.v >= 1` (see `tick_ppu_dot`),
+            // and `line_y` is `self.v` until this point. Saturating here instead would turn a
+            // broken invariant into a silently wrong picture, which is the harder bug to find.
+            debug_assert!(line_y >= 1, "render_bg called for scanline 0");
             let screen_y = line_y - 1;
             line_y = (screen_y / m) * m + 1;
         }

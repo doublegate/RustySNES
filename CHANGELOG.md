@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+**AccuracySNES totals, as of this section:** **134 tests — 124 scoring at 100.00%, 10 golden
+vectors**, plus one region-dependent SKIP per image, and **95 of 443** enumerated dossier
+assertions covered (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+"Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
+rewritten to the current number — this line is the one to read.
+
 - **AccuracySNES ships a PAL image, and it settled a contested assertion.** "This needs a PAL
   console" was only half true: a console's region fixes the timing, but which timing an emulator
   boots is decided by the cart header's country code. The generator now emits
@@ -29,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   So the cart measures the consequence: with its own IRQ handler installed through a new
   RAM-indirect IRQ vector, it times handler entry while spinning on `NOP`s and again while spinning
   on `JSL`/`RTL`. **The three references split on the sign** — RustySNES +3 dots, snes9x +2, Mesen2
-  −2 — which is exactly why it is recorded rather than scored. Battery now **134 tests**; the
+  −2 — which is exactly why it is recorded rather than scored. The
   libretro cross-validation host dumps the whole measurement channel so any golden timing vector is
   comparable across emulators.
 

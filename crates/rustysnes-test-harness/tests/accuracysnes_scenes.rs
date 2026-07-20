@@ -108,6 +108,14 @@ fn hash_scene(fb: &[u16], width: usize) -> (u64, Vec<u16>) {
         width, SCENE_W,
         "a rendered scene must not be hi-res: the golden is defined over {SCENE_W}x{SCENE_H}"
     );
+    assert!(
+        fb.len() >= (FIRST_ROW + SCENE_H) * width,
+        "the framebuffer holds {} pixels, too few for rows {FIRST_ROW}..{} at width {width} — the \
+         scene region is a contract, and silently hashing whatever fits would produce a golden \
+         that describes a different picture",
+        fb.len(),
+        FIRST_ROW + SCENE_H
+    );
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     let mut px = Vec::with_capacity(SCENE_W * SCENE_H);
     for y in FIRST_ROW..FIRST_ROW + SCENE_H {
