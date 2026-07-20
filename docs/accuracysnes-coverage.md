@@ -33,7 +33,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `C9` | 8 | 1 | 0 | C9.01, C9.02, C9.03, C9.05, C9.06, C9.07, C9.08 |
 | `C10` | 5 | 0 | 3 | C10.03, C10.04 |
 | `C11` | 12 | 1 | 6 | C11.02, C11.03, C11.07, C11.08, C11.12 |
-| `C12` | 3 | 0 | 2 | C12.02 |
+| `C12` | 3 | 0 | 3 | — |
 | `C13` | 10 | 4 | 0 | C13.01, C13.02, C13.03, C13.04, C13.05, C13.06 |
 | `C14` | 3 | 2 | 0 | C14.03 |
 | `D1` | 15 | 10 | 0 | D1.08, D1.11, D1.12, D1.13, D1.14 |
@@ -52,7 +52,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `F1` | 22 | 1 | 0 | F1.01, F1.03, F1.04, F1.05, F1.06, F1.07, F1.08, F1.09, F1.10, F1.11, F1.12, F1.13, F1.14, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
 | `G1` | 18 | 4 | 0 | G1.01, G1.02, G1.03, G1.04, G1.05, G1.06, G1.07, G1.08, G1.09, G1.13, G1.15, G1.16, G1.17, G1.18 |
 
-**160 of 443** enumerated assertion rows covered by an on-cart test, plus **44** covered only by a rendered scene (`docs/adr/0013`) — **204 of 443** in total.
+**160 of 443** enumerated assertion rows covered by an on-cart test, plus **45** covered only by a rendered scene (`docs/adr/0013`) — **205 of 443** in total.
 
 The two columns are kept apart on purpose. An on-cart result means the same thing on any emulator and on real hardware; a rendered scene needs a host holding the golden. Adding them into one figure would quietly change what the number claims.
 
@@ -101,6 +101,7 @@ Declared in `gen/src/scenes.rs`. Each is reported by the host framebuffer oracle
 - **`C6.01`** — c6-opt-enable-bit-bg2
 - **`C6.02`** — c6-mode4-h-vs-v-select
 - **`C5.08,C11.05`** — c11-mode7-identity
+- **`C12.02`** — c12-direct-colour-zero-is-transparent
 - **`C11.01`** — c11-mode7-rotate-scale
 - **`C11.04`** — c11-screen-over-wrap
 - **`C11.04`** — c11-screen-over-transparent

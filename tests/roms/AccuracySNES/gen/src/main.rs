@@ -204,7 +204,7 @@ fn patch_checksum(image: &mut [u8]) {
 }
 
 /// The `tests/roms/AccuracySNES` directory, derived from this crate's manifest path.
-fn cart_root() -> PathBuf {
+pub(crate) fn cart_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("gen/ has a parent")
