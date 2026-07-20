@@ -132,6 +132,10 @@ pub struct Test {
     pub kind: Kind,
     /// The generated assembly body (label + code + exit stubs).
     pub body: String,
+    /// Read-only bytes this test needs somewhere other than bank $00, emitted verbatim into the
+    /// `APUDATA` segment. Empty for almost every test: it exists for the SPC700 program images,
+    /// which are large, are pure data, and were pushing bank $00 over its limit.
+    pub data: String,
     /// `(code, description)` for every failure code this test can emit, for the README.
     pub codes: Vec<(u8, String)>,
 }
@@ -151,6 +155,7 @@ impl Test {
 /// author, so every assertion gets its own identifier.
 pub struct Asm {
     lines: Vec<String>,
+    data: Vec<String>,
     next_code: u8,
     codes: Vec<(u8, String)>,
 }
@@ -167,9 +172,20 @@ impl Asm {
     pub const fn new() -> Self {
         Self {
             lines: Vec::new(),
+            data: Vec::new(),
             next_code: 1,
             codes: Vec::new(),
         }
+    }
+
+    /// Emit a line into the out-of-bank `APUDATA` segment rather than into the test body.
+    ///
+    /// For read-only blobs that the test refers to by address instead of executing in place. Bank
+    /// $00 holds the runtime, the font, every test body and the catalog, and it is finite; a
+    /// several-hundred-byte SPC700 image per test is the one thing here big enough to matter.
+    pub fn d(&mut self, line: &str) -> &mut Self {
+        self.data.push(line.to_string());
+        self
     }
 
     /// Emit a raw assembly line (indented one level), tracking accumulator/index width.
@@ -512,6 +528,11 @@ impl Asm {
         let _ = writeln!(body, ".endproc");
 
         let codes = core::mem::take(&mut self.codes);
+        let mut data = String::new();
+        for line in &self.data {
+            let _ = writeln!(data, "{line}");
+        }
+
         Test {
             id,
             group,
@@ -519,6 +540,7 @@ impl Asm {
             provenance,
             kind,
             body,
+            data,
             codes,
         }
     }

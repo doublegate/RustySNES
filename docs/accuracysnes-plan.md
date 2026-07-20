@@ -13,7 +13,7 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **169** (157 scoring + 11 golden vectors + 1 region SKIP per image) |
+| Tests | **173** (161 scoring + 11 golden vectors + 1 region SKIP per image) |
 | Rendered scenes | **41**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES, Mesen2, snes9x — all agree, on both the NTSC and PAL images |
@@ -174,6 +174,24 @@ revision and stay there.
 
 So `C13.01`-`C13.06` stay uncovered on purpose, and the coverage report lists them as such. The
 other four (`C13.07`-`C13.10`, the open-bus latches) are CPU-observable and already covered on-cart.
+
+### `E7.07` — parked after one attempt, with a measurement worth keeping
+
+The sustain boundary (`$100 * (SL + 1)`, compared on `E >> 8`) looked like the easiest exact
+assertion in Group E: attack at rate `$F` to full scale, decay at rate `$7`, sustain level 3,
+sustain rate 0 so the envelope freezes where decay leaves it. The documented rule puts that freeze
+below `$400`, so `VxENVX` — `E >> 4` — should land in `$30`-`$3F`.
+
+**All three emulators freeze at exactly `$40`**, stable across settle times from 20 to 90 delay
+loops. Read against a trajectory that reaches the boundary from above, `$40` means the decay stopped
+*at* `$100 * (SL + 1)` rather than below it, which the reference implementation's own comparison —
+`(env >> 8) == (adsr2 >> 5)` evaluated after the decrement — does not obviously produce.
+
+Three independent implementations agreeing on a value is normally the signal to believe the value.
+Here it is not enough, because the assertion's *prose* would have to explain why, and this one
+cannot yet. Writing `assert ENVX == $40` with a citation that says `$3F` would be exactly the kind
+of test that records our own output and calls it a spec. Parked, not abandoned: the number above is
+the finding to start from.
 
 ### Bucket 4 — needs a framebuffer oracle (~35 tests)
 

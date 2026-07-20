@@ -1143,6 +1143,38 @@ Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes). Kind: scor
 |---|---|---|
 | 1 | `$02` | ENVX did not read back the direct GAIN value; a ramp toward it, or a missing >>4, both land somewhere else |
 
+### E7.01 — Rate 0 never fires
+
+Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the envelope moved although the GAIN rate was 0, which never fires |
+
+### E7.08 — Key-off releases to zero
+
+Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the envelope was not zero well after key-off, so release did not run to silence |
+
+### E7.11 — GAIN linear increase
+
+Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a linear-increase GAIN did not reach full scale; $1F means the mode bits were ignored and the byte was taken as a direct value |
+
+### E7.15 — ENVX is E >> 4
+
+Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a fully attacked envelope did not read $7F; $FF or $FE means ENVX is not E >> 4 of an eleven-bit envelope |
+
 ## Group A
 
 ### A5.S01 — Sweep: CLC

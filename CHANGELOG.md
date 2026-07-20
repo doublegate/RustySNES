@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The envelope generator, four ways (`E7`).** With a voice playing, the envelope is finally
+  observable: `E7.15` attacks at rate `$F` to full scale and reads exactly `$7F`, which is the one
+  assertion that pins `VxENVX` as `E >> 4` of an eleven-bit envelope — a core carrying a full byte,
+  or shifting by three, reports `$FF` or `$FE` and is otherwise indistinguishable. `E7.11` and
+  `E7.01` are a pair on custom GAIN: linear increase at rate `$1F` climbs from zero to full scale,
+  and the same ramp at rate 0 does not move at all, because the rate table's first entry means
+  "never" rather than "as fast as possible". `E7.08` key-offs a voice held at full direct gain and
+  finds the envelope at zero, which only the release path can do.
+
+  The pairs are load-bearing. On its own, "the envelope did not move" is also what a core with no
+  GAIN ramps reports, and what a voice that never started reports.
+
+- **The SPC700 program images moved out of bank `$00`.** They are pure data read through a 24-bit
+  pointer, they are several hundred bytes each, and bank `$00` — which also holds the runtime, the
+  font, every test body and the catalog — ran out. They now link into an `APUDATA` segment in bank
+  `$01`, which is what makes the rest of Group E affordable at all.
+
 - **The S-DSP plays a sample, and five assertions follow from that (`E5`, `E7`).** Everything the
   cart could previously say about the DSP was said by writing a register and reading it back, which
   proves the address latch decodes and nothing else. These upload a program that plants a BRR
@@ -42,6 +59,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   writes a third value there first.
 
 ### Fixed
+
+- **`E3.01` raced the timer it was reading.** Its two reads of `$FD` are about eight SPC700 cycles
+  apart and a tick at that divider lands every 128, so a tick falling between them was uncommon
+  rather than impossible — and when it did, the second read was non-zero for a reason that has
+  nothing to do with whether the first one cleared it. It surfaced as Mesen2 failing the test on the
+  PAL image only, after an unrelated change shifted the battery's timing. The timer is now stopped
+  before the pair of reads.
 
 - **The cross-validation gate could report a silent pass on zero rendered scenes.** The snes9x
   scene run has a frame budget that has to cover the battery *and* the scene loop after it, and the
@@ -271,10 +295,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **169 tests — 157 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **173 tests — 161 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **127 of 443** on-cart plus **42** scene-only —
-**169 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier. Dossier coverage is **131 of 443** on-cart plus **42** scene-only —
+**173 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 

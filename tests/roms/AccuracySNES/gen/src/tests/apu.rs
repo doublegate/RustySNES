@@ -21,8 +21,20 @@
 //! is why the result registers are captured with `MOV dp,A` and `MOV dp,Y`, the two moves that
 //! leave flags alone.
 
+use core::sync::atomic::{AtomicUsize, Ordering};
+
 use crate::dsl::{Asm, Kind, Provenance, Test};
 use crate::spc::{DONE, PORT0, PORT1, PORT2, PORT3, RELEASE, Spc};
+
+/// Hands out a unique suffix for each uploaded SPC700 image's label.
+///
+/// The images live in a shared segment, so their labels have to be globally unique; a counter is
+/// enough because generation is single-threaded and runs the tests in a fixed order. The number
+/// means nothing beyond "not the same as the last one".
+fn next_prog_id() -> usize {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
 
 /// Every Group E test, in menu order.
 #[must_use]
@@ -48,6 +60,10 @@ pub fn all() -> Vec<Test> {
         e5_09(),
         e5_11(),
         e7_10(),
+        e7_01(),
+        e7_08(),
+        e7_11(),
+        e7_15(),
     ]
 }
 
@@ -62,23 +78,22 @@ pub fn all() -> Vec<Test> {
 /// one of those, so an undocumented width here would have the assembler and the CPU disagreeing
 /// about the size of the next immediate — and every instruction after it shifted.
 fn upload_and_run(a: &mut Asm, prog: &Spc) {
-    // `jmp`, not `bra`: the image being jumped over is the SPC700 program itself, and a program
-    // that carries BRR sample data is several hundred bytes -- far past a branch's reach.
-    a.l("jmp @body");
-    a.label("prog");
+    // The image goes in the out-of-bank data segment, not inline in the test body: these are
+    // several hundred bytes each and bank $00 is finite. `apu_upload` takes a 24-bit pointer
+    // anyway, so nothing about the upload cares where it lives.
+    let label = format!("apu_prog_{}", next_prog_id());
+    a.d(&format!("{label}:"));
     for line in prog.as_ca65("    ").lines() {
-        a.l(line.trim_start());
+        a.d(line);
     }
-    a.label("body");
     a.l("rep #$30");
     a.l("phk");
     a.l("plb");
-    a.c("Point apu_upload at this test's own program image.");
-    a.l("lda #@prog");
+    a.c("Point apu_upload at this test's own program image, which lives in another bank.");
+    a.l(&format!("lda #.loword({label})"));
     a.l("sta f:V_APU_SRC");
     a.l("sep #$20");
-    a.l("phk");
-    a.l("pla");
+    a.l(&format!("lda #^{label}"));
     a.l("sta f:V_APU_BANK");
     a.l("rep #$30");
     a.l(&format!("lda #{}", prog.bytes().len()));
@@ -524,6 +539,13 @@ fn e3_01() -> Test {
         .mov_dp_imm(0xFA, 0x01) // T0DIV = 1: the fastest this timer runs
         .mov_dp_imm(0xF1, 0x01) // CONTROL: enable timer 0
         .delay(0x00) // 256 iterations, comfortably several ticks
+        // Stop the timer before reading it. The two reads below are about eight cycles apart and a
+        // tick at this divider lands every 128, so a tick falling between them is uncommon rather
+        // than impossible -- and when it does, the second read is non-zero for a reason that has
+        // nothing to do with whether the first one cleared it. It showed up as Mesen2 failing this
+        // test on the PAL image only, after an unrelated change shifted the battery's timing.
+        // Bit 7 keeps the IPL ROM mapped; see `Spc::release_to_ipl`.
+        .mov_dp_imm(0xF1, 0x80)
         .mov_a_dp(0xFD)
         .mov_dp_a(PORT2) // first read: the accumulated count
         .mov_a_dp(0xFD)
@@ -933,7 +955,44 @@ fn brr_sample(blocks: &[Vec<u8>], run_out: usize) -> Vec<u8> {
 /// is a sixteenth of that. `settle` is a count of delay loops after key-on, each roughly a thousand
 /// SPC700 cycles — a few dozen output samples. Both are deliberately coarse: these assertions are
 /// about what the DSP eventually reports, not about when.
-fn voice_program(sample: &[u8], srcn: u8, pitch_hi: u8, settle: u8) -> Spc {
+/// How one voice test differs from the next.
+///
+/// A struct rather than a widening argument list, because most of these fields are the same in
+/// most tests and the interesting thing about any one program is the one or two that are not.
+#[derive(Clone, Copy)]
+struct Voice {
+    /// Which directory entry the voice plays from.
+    srcn: u8,
+    /// High byte of the pitch. `$10` is one sample per output sample.
+    pitch_hi: u8,
+    /// `VxADSR1`: bit 7 enables the ADSR generator, bits 6-4 decay, bits 3-0 attack.
+    adsr1: u8,
+    /// `VxADSR2`: bits 7-5 sustain level, bits 4-0 sustain rate.
+    adsr2: u8,
+    /// `VxGAIN`, consulted only while `adsr1` bit 7 is clear.
+    gain: u8,
+    /// Delay loops between key-on and the read, each roughly a thousand SPC700 cycles.
+    settle: u8,
+    /// Key the voice off after settling, then wait this many more delay loops before reading.
+    koff: Option<u8>,
+}
+
+impl Voice {
+    /// A looping voice held at full direct gain: the shape most of these tests vary from.
+    const fn direct_gain() -> Self {
+        Self {
+            srcn: 0,
+            pitch_hi: 0x10,
+            adsr1: 0x00,
+            adsr2: 0x00,
+            gain: 0x7F,
+            settle: 4,
+            koff: None,
+        }
+    }
+}
+
+fn voice_program(sample: &[u8], v: Voice) -> Spc {
     let mut p = Spc::new();
     let addr = p.data_first(IMAGE_BASE, sample);
     p.mov_x_imm(0xEF).mov_sp_x();
@@ -944,7 +1003,7 @@ fn voice_program(sample: &[u8], srcn: u8, pitch_hi: u8, settle: u8) -> Spc {
     // would leave "wrong entry" meaning "whatever APU RAM happened to hold".
     let dir = u16::from(DIR_PAGE) << 8;
     for entry in 0u16..2 {
-        let src = if u8::try_from(entry).expect("two entries") == srcn {
+        let src = if u8::try_from(entry).expect("two entries") == v.srcn {
             addr
         } else {
             0x0000
@@ -973,19 +1032,29 @@ fn voice_program(sample: &[u8], srcn: u8, pitch_hi: u8, settle: u8) -> Spc {
     dsp_write(&mut p, 0x00, 0x7F); // VOL L
     dsp_write(&mut p, 0x01, 0x7F); // VOL R
     dsp_write(&mut p, 0x02, 0x00); // PITCH low
-    dsp_write(&mut p, 0x03, pitch_hi); // PITCH high: $10 is one sample per output sample
-    dsp_write(&mut p, 0x04, srcn); // SRCN
-    dsp_write(&mut p, 0x05, 0x00); // ADSR1: ADSR disabled, so GAIN is in charge
-    dsp_write(&mut p, 0x06, 0x00); // ADSR2
-    dsp_write(&mut p, 0x07, 0x7F); // GAIN: bit 7 clear is direct gain, envelope = $7F << 4
+    dsp_write(&mut p, 0x03, v.pitch_hi); // PITCH high: $10 is one sample per output sample
+    dsp_write(&mut p, 0x04, v.srcn); // SRCN
+    // ADSR2 and GAIN are written BEFORE ADSR1, which is the order the errata asks for (`E7.18`):
+    // the mode is decided by ADSR1 bit 7, so writing it last means the generator is never briefly
+    // running against parameters meant for the other mode.
+    dsp_write(&mut p, 0x06, v.adsr2); // ADSR2
+    dsp_write(&mut p, 0x07, v.gain); // GAIN, consulted only while ADSR1 bit 7 is clear
+    dsp_write(&mut p, 0x05, v.adsr1); // ADSR1
 
     dsp_write(&mut p, 0x7C, 0x00); // ENDX: any write clears it, so start from a known state
     dsp_write(&mut p, 0x4C, 0x01); // KON voice 0
     p.delay(0x00);
     dsp_write(&mut p, 0x4C, 0x00); // and clear it — see the module comment
 
-    for _ in 0..settle {
+    for _ in 0..v.settle {
         p.delay(0x00);
+    }
+
+    if let Some(after) = v.koff {
+        dsp_write(&mut p, 0x5C, 0x01); // KOF voice 0
+        for _ in 0..after {
+            p.delay(0x00);
+        }
     }
 
     dsp_read_to(&mut p, 0x7C, PORT1); // ENDX
@@ -993,6 +1062,172 @@ fn voice_program(sample: &[u8], srcn: u8, pitch_hi: u8, settle: u8) -> Spc {
     dsp_read_to(&mut p, 0x09, PORT3); // voice 0 OUTX
     p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
     p
+}
+
+/// A looping block, for tests whose voice must simply keep playing.
+///
+/// Code 3 — end *and* loop — so the block repeats forever: the envelope is then the only thing in
+/// the program that can move, which is what every envelope test below needs.
+fn looping_sample() -> Vec<u8> {
+    brr_sample(&[brr_block(0x8, 0, 0b11, 0x7, 0x9)], 0)
+}
+
+/// The envelope's full scale is `$7FF`, and `VxENVX` reports it shifted down four.
+///
+/// A voice attacked at rate `$F` reaches maximum essentially at once — the documented step for that
+/// rate is `+1024` per sample, against `+32` for every other — and with the sustain level at `7`
+/// the boundary is the top of the range, so it arrives and stays. `VxENVX` then reads exactly
+/// `$7F`.
+///
+/// The exactness is the test. An eleven-bit envelope reported as `E >> 4` cannot produce a value
+/// above `$7F`, so bit 7 is always clear; a core carrying a full byte of envelope, or shifting by
+/// three, reports `$FF` or `$FE` here and is otherwise indistinguishable — every other envelope
+/// test only ever checks a direction or a range.
+fn e7_15() -> Test {
+    let prog = voice_program(
+        &looping_sample(),
+        Voice {
+            // ADSR on, attack $F. The decay rate does not matter here: sustain level 7 puts the
+            // decay boundary at the top of the range, so the envelope is in sustain from the
+            // moment it arrives, and sustain rate 0 never fires, so it stays.
+            adsr1: 0x8F,
+            adsr2: 0xE0,
+            ..Voice::direct_gain()
+        },
+    );
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x7F,
+        "a fully attacked envelope did not read $7F; $FF or $FE means ENVX is not E >> 4 of an \
+         eleven-bit envelope",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E7.15",
+        'E',
+        "ENVX is E >> 4",
+        Provenance::Documented("SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Key-off releases at a fixed rate, every sample, all the way to zero.
+///
+/// Release is not a rate you can choose: it steps `-8` every sample regardless of anything in
+/// `ADSR` or `GAIN`, which takes an envelope from full scale to silence in about eight
+/// milliseconds. This voice is held at a direct gain of `$7F` that nothing else would ever move —
+/// `E7.10` asserts exactly that — so a reading of zero after `KOF` can only be the release path.
+///
+/// The one thing it cannot distinguish is a core that stops the voice outright on key-off instead
+/// of releasing it, since both end at zero. That distinction needs a reading *during* the ramp, and
+/// the delay loop here is too coarse to place one.
+fn e7_08() -> Test {
+    let prog = voice_program(
+        &looping_sample(),
+        Voice {
+            koff: Some(12),
+            ..Voice::direct_gain()
+        },
+    );
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x00,
+        "the envelope was not zero well after key-off, so release did not run to silence",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E7.08",
+        'E',
+        "Key-off releases to zero",
+        Provenance::Documented("SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Custom GAIN, linear increase: the envelope climbs from zero to full scale on its own.
+///
+/// With `ADSR1` bit 7 clear and `VxGAIN` bit 7 set, the low five bits are a rate and bits 6-5 pick
+/// one of four ramps. Mode `10` is linear increase, `+32` per step, and rate `$1F` steps every
+/// sample — so a voice keyed on at envelope zero reaches `$7FF` in sixty-four samples and holds
+/// there.
+///
+/// Reaching full scale is the whole assertion, and it is worth stating what that separates: a core
+/// treating a custom-GAIN byte as a *direct* value would set the envelope to `$1F << 4` and report
+/// `$1F`, which is the mistake this shape of register invites.
+fn e7_11() -> Test {
+    let prog = voice_program(
+        &looping_sample(),
+        Voice {
+            gain: 0xDF, // custom, linear increase, rate $1F (every sample)
+            ..Voice::direct_gain()
+        },
+    );
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x7F,
+        "a linear-increase GAIN did not reach full scale; $1F means the mode bits were ignored \
+         and the byte was taken as a direct value",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E7.11",
+        'E',
+        "GAIN linear increase",
+        Provenance::Documented("SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Rate 0 never fires, so a ramp configured with it does not move at all.
+///
+/// The rate table's first entry is not "as fast as possible" but "never": a rate of 0 disables the
+/// step entirely. The same linear-increase GAIN as `E7.11` with rate 0 therefore leaves the
+/// envelope where key-on put it, at zero.
+///
+/// It is the pair to `E7.11`, and needs to be: on its own, "the envelope did not move" is also what
+/// a core with no GAIN ramps at all reports, and what a voice that never started reports. Only the
+/// two together say that the ramp works *and* that rate 0 switches it off.
+fn e7_01() -> Test {
+    let prog = voice_program(
+        &looping_sample(),
+        Voice {
+            gain: 0xC0, // custom, linear increase, rate 0 — which never fires
+            ..Voice::direct_gain()
+        },
+    );
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x00,
+        "the envelope moved although the GAIN rate was 0, which never fires",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E7.01",
+        'E',
+        "Rate 0 never fires",
+        Provenance::Documented("SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
 }
 
 /// A direct GAIN value *is* the envelope: `ENVX` reads back the byte that was written.
@@ -1009,7 +1244,7 @@ fn voice_program(sample: &[u8], srcn: u8, pitch_hi: u8, settle: u8) -> Spc {
 fn e7_10() -> Test {
     // Code 3 — end and loop — so the voice repeats this block forever and never runs out.
     let sample = brr_sample(&[brr_block(0x8, 0, 0b11, 0x7, 0x9)], 0);
-    let prog = voice_program(&sample, 0, 0x10, 4);
+    let prog = voice_program(&sample, Voice::direct_gain());
 
     let mut a = Asm::new();
     upload_and_run(&mut a, &prog);
@@ -1045,7 +1280,7 @@ fn e5_09() -> Test {
         ],
         0,
     );
-    let prog = voice_program(&sample, 0, 0x10, 4);
+    let prog = voice_program(&sample, Voice::direct_gain());
 
     let mut a = Asm::new();
     upload_and_run(&mut a, &prog);
@@ -1093,7 +1328,14 @@ fn e5_08() -> Test {
         ],
         6,
     );
-    let prog = voice_program(&sample, 0, 0x01, 2);
+    let prog = voice_program(
+        &sample,
+        Voice {
+            pitch_hi: 0x01,
+            settle: 2,
+            ..Voice::direct_gain()
+        },
+    );
 
     let mut a = Asm::new();
     upload_and_run(&mut a, &prog);
@@ -1128,7 +1370,7 @@ fn e5_08() -> Test {
 /// stuck at whatever was written".
 fn e5_07() -> Test {
     let sample = brr_sample(&[brr_block(0x8, 0, 0b01, 0x7, 0x9)], 0);
-    let prog = voice_program(&sample, 0, 0x10, 4);
+    let prog = voice_program(&sample, Voice::direct_gain());
 
     let mut a = Asm::new();
     upload_and_run(&mut a, &prog);
@@ -1166,7 +1408,13 @@ fn e5_11() -> Test {
         ],
         0,
     );
-    let prog = voice_program(&sample, 1, 0x10, 4);
+    let prog = voice_program(
+        &sample,
+        Voice {
+            srcn: 1,
+            ..Voice::direct_gain()
+        },
+    );
 
     let mut a = Asm::new();
     upload_and_run(&mut a, &prog);
