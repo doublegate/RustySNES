@@ -1597,132 +1597,104 @@ fn a6_09() -> Test {
     )
 }
 
-/// The `A5.22` cycle spot checks — **a golden vector, and the reason T-04-I needs an oracle**.
+/// The `A5.22` cycle spot checks: `XBA` = 3 cycles, `REP`/`SEP` = 3, `PHD` = 4, `PLD` = 5.
 ///
-/// # What this measures
+/// # Converting cited cycle counts into measurable time
 ///
-/// 65816 *cycles* do not map to a fixed number of dots: each cycle is 6, 8 or 12 master clocks
-/// depending on what it touches. With code in bank `$00` ROM and the stack in low WRAM (both
-/// 8-clock) and internal cycles at 6:
+/// 65816 *cycles* do not map to a fixed number of dots: each is 6, 8 or 12 master clocks depending
+/// on what it touches. With code in bank `$00` ROM and the stack in low WRAM (both 8-clock) and
+/// internal cycles at 6:
 ///
 /// ```text
-/// clocks = 8*mem + 6*internal,  and  cycles = mem + internal
-///       => clocks = 6*cycles + 2*mem
+/// clocks = 8*mem + 6*internal,  cycles = mem + internal   =>   clocks = 6*cycles + 2*mem
 /// ```
 ///
-/// where `mem` is instruction length plus data/stack accesses. That second term is what a naive
-/// "cycles x constant" conversion misses, and it is why `NOP` and `LDA #imm` — both 2 cycles —
-/// cost different amounts of time. From the dossier's cited counts: `NOP` 14 clocks, `XBA` 20,
-/// `REP #imm` 22, `PHD` 30, `PLD` 36. Each case below is differential against `NOP`, so the fixed
-/// measurement overhead cancels.
+/// `mem` being instruction length plus data/stack accesses. That second term is why `NOP` and
+/// `LDA #imm` — both 2 cycles — do not cost the same. From the cited counts: `NOP` 14 clocks,
+/// `XBA` 20, `REP #imm` 22, `PHD` 30, `PLD` 36. See `docs/accuracysnes-timing-oracle.md`; the
+/// structure is corroborated by all three vendor renderings of the instruction-operation table.
 ///
-/// # Why it records instead of asserting
+/// # Why the repeat count is 16 and not 32
 ///
-/// Written as a scored test first. It failed on **all three** emulators — and on *different*
-/// sub-assertions: snes9x on `XBA`, RustySNES on `REP`. Identical failure everywhere usually means
-/// the test is wrong; failure at *different* points means something else, namely that the three
-/// references do not agree with each other on instruction-level timing. Nothing here can decide
-/// which is right, because the only oracle available is the emulators themselves.
+/// **The measurement cannot span a scanline.** `hv_begin`/`hv_end` difference the H counter, which
+/// wraps at `DOTS_PER_LINE` (341), so a longer span silently returns a small number rather than
+/// failing. This test previously used 32 repeats: the `REP` block landed at exactly 341 dots
+/// absolute and measured ~0, which read as "RustySNES gets `REP` wrong". It does not — its `REP` is
+/// opcode fetch + operand fetch + one internal cycle, precisely what the datasheets specify. The
+/// bug was the measurement wrapping, and it was invisible until the full-width measurement channel
+/// existed to show the raw numbers.
 ///
-/// So it reports a bitmask of which expectations matched — bit 0 `XBA`, bit 1 `REP`, bit 2
-/// `PHD`/`PLD` — and stays out of the pass rate.
-///
-/// **This is the blocking finding for T-04-I.** A 256-opcode sweep has exactly this problem 256
-/// times over: the mechanism is straightforward, but scoring it requires a per-opcode timing table
-/// from an external source (undisbeliever's tables are the obvious candidate) rather than from any
-/// emulator. Until that table is sourced and its provenance recorded, a sweep can only ever produce
-/// a fingerprint to compare implementations against — useful, but not a pass rate.
+/// At 16 repeats against a 16-`NOP` baseline every span stays under 300 dots absolute, with the
+/// raw values recorded to the channel so the next person can check rather than infer.
 fn a5_08() -> Test {
     let mut a = Asm::new();
-    a.c("Three differential measurements against NOP; report which matched as a bitmask.");
+    a.c("Differential against NOP, 16 repeats, so no span approaches the 341-dot line wrap.");
     a.l("rep #$30");
     a.l("phk");
     a.l("plb");
     a.l("sep #$20");
-    a.l("lda #$00");
-    a.l("sta f:$7E0094     ; the result bitmask");
-    a.c("--- baseline: 32 NOPs ---");
-    a.measure_begin();
-    a.repeat(32, &["nop"]);
-    a.measure_end();
-    a.measure_result();
-    a.l("sta f:$7E0090");
-    a.c("--- XBA: expected +6 clocks each, +48 dots over 32 ---");
-    a.l("sep #$20");
-    a.measure_begin();
-    a.repeat(32, &["xba"]);
-    a.measure_end();
-    a.measure_result();
-    a.l("sec");
-    a.l("sbc f:$7E0090");
-    a.l("cmp #48 - 2");
-    a.l("bcc :+");
-    a.l("cmp #48 + 3");
-    a.l("bcs :+");
-    a.l("sep #$20");
-    a.l("lda f:$7E0094");
-    a.l("ora #$01");
-    a.l("sta f:$7E0094");
-    a.l("rep #$20");
-    a.l(":");
-    a.c("--- REP #$00: expected +8 clocks each, +64 dots over 32 ---");
-    a.l("sep #$20");
-    a.measure_begin();
-    a.repeat(32, &[".byte $C2, $00   ; rep #$00"]);
-    a.measure_end();
-    a.measure_result();
-    a.l("sec");
-    a.l("sbc f:$7E0090");
-    a.l("cmp #64 - 2");
-    a.l("bcc :+");
-    a.l("cmp #64 + 3");
-    a.l("bcs :+");
-    a.l("sep #$20");
-    a.l("lda f:$7E0094");
-    a.l("ora #$02");
-    a.l("sta f:$7E0094");
-    a.l("rep #$20");
-    a.l(":");
-    a.c("--- PHD+PLD: expected 66 clocks per pair against 28, so +76 dots over 8 ---");
-    a.l("sep #$20");
+    a.c("--- baseline: 16 NOPs ---");
     a.measure_begin();
     a.repeat(16, &["nop"]);
     a.measure_end();
     a.measure_result();
-    a.l("sta f:$7E0092");
+    a.l("sta f:$7E0090");
+    a.record(0, "16 NOP, absolute");
+    a.c("--- XBA: +6 clocks each over NOP, so +24 dots over 16 ---");
+    a.l("sep #$20");
+    a.measure_begin();
+    a.repeat(16, &["xba"]);
+    a.measure_end();
+    a.measure_result();
+    a.record(1, "16 XBA, absolute");
+    a.l("sec");
+    a.l("sbc f:$7E0090");
+    a.record(2, "16 XBA - 16 NOP");
+    a.assert_a16_range(
+        24 - TOL,
+        24 + TOL,
+        "XBA did not cost 3 cycles (1 more than NOP)",
+    );
+    a.c("--- REP #$00: 2 bytes, so +8 clocks each, +32 dots over 16. Emitted as raw bytes so the");
+    a.c("generator's width tracker is not told the accumulator changed size.");
+    a.l("sep #$20");
+    a.measure_begin();
+    a.repeat(16, &[".byte $C2, $00   ; rep #$00"]);
+    a.measure_end();
+    a.measure_result();
+    a.record(3, "16 REP #$00, absolute");
+    a.l("sec");
+    a.l("sbc f:$7E0090");
+    a.record(4, "16 REP #$00 - 16 NOP");
+    a.assert_a16_range(
+        32 - TOL,
+        32 + TOL,
+        "REP #imm did not cost 3 cycles / 2 accesses",
+    );
+    a.c("--- PHD+PLD: 30 + 36 = 66 clocks per pair against 2 NOPs at 28, so +76 dots over 8 ---");
     a.l("sep #$20");
     a.measure_begin();
     a.repeat(8, &["phd", "pld"]);
     a.measure_end();
     a.measure_result();
+    a.record(5, "8x (PHD+PLD), absolute");
     a.l("sec");
-    a.l("sbc f:$7E0092");
-    a.l("cmp #76 - 2");
-    a.l("bcc :+");
-    a.l("cmp #76 + 3");
-    a.l("bcs :+");
-    a.l("sep #$20");
-    a.l("lda f:$7E0094");
-    a.l("ora #$04");
-    a.l("sta f:$7E0094");
-    a.l("rep #$20");
-    a.l(":");
-    a.c("--- report the bitmask as the variant code ---");
-    a.l("sep #$20");
-    a.l("lda f:$7E0094");
-    a.l("asl a");
-    a.l("ora #$01");
-    a.l("sta f:$7EE010");
-    a.l("jmp test_restore");
+    a.l("sbc f:$7E0090");
+    a.record(6, "8x (PHD+PLD) - 16 NOP");
+    a.assert_a16_range(
+        76 - TOL,
+        76 + TOL,
+        "PHD/PLD did not cost 4 and 5 cycles with 3 accesses each",
+    );
     a.finish(
         "A5.08",
         'A',
-        "Cycle spot checks (gold)",
-        Provenance::Contested(
-            "the three reference emulators disagree with each other on instruction-level \
-             timing; no external per-opcode timing table is sourced yet",
+        "A5.22 cycle spot checks",
+        Provenance::Documented(
+            "WDC/GTE/VLSI instruction-operation tables agree on these rows; \
+             docs/accuracysnes-timing-oracle.md",
         ),
-        Kind::Golden,
+        Kind::Scored,
         None,
     )
 }

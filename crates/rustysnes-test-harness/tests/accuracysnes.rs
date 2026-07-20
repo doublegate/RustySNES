@@ -137,6 +137,11 @@ struct Report {
     golden: u16,
     status: Vec<u8>,
     frames: u32,
+    /// Raw full-width measurements from the cart's measurement channel.
+    ///
+    /// A verdict byte cannot carry a dot count; anything above 255 wraps and becomes
+    /// indistinguishable from a real reading. Timing tests write here instead.
+    meas: Vec<u16>,
 }
 
 /// Boot the cart and run until the completion sentinel appears (or the frame budget runs out).
@@ -174,6 +179,9 @@ fn run() -> Option<Report> {
         golden: rd16(R_GOLDEN),
         status,
         frames,
+        meas: (0..MEAS_SLOTS)
+            .map(|i| rd16(MEAS_BASE + u32::from(i) * 2))
+            .collect(),
     })
 }
 
@@ -372,6 +380,73 @@ fn header_is_detected() {
     assert_eq!(rom.len(), 128 * 1024, "expected a 128 KiB image");
     let cart = Cart::from_rom(&rom).expect("AccuracySNES header must be detectable");
     eprintln!("AccuracySNES detected as {:?}", cart.header.map_mode);
+}
+
+/// Base of the cart's raw measurement channel — must match `gen/src/dsl.rs` and `runtime.inc`.
+const MEAS_BASE: u32 = 0x7E_E200;
+
+/// Number of `u16` slots in the cart's measurement channel.
+const MEAS_SLOTS: u8 = 64;
+
+/// The measurement slots `A5.08` records, so a timing question can be answered from a full-width
+/// number rather than from a verdict byte that silently wraps.
+const A5_08_SLOTS: [(u8, &str); 7] = [
+    (0, "16 NOP, absolute"),
+    (1, "16 XBA, absolute"),
+    (2, "16 XBA - 16 NOP        (expect 24)"),
+    (3, "16 REP #$00, absolute"),
+    (4, "16 REP #$00 - 16 NOP   (expect 32)"),
+    (5, "8x (PHD+PLD), absolute"),
+    (6, "8x (PHD+PLD) - 16 NOP  (expect 76)"),
+];
+
+/// Report the raw timing measurements, and sanity-check them against physics.
+///
+/// This exists because a one-byte verdict cannot carry a dot count. Reporting a 32-`NOP` baseline
+/// through the variant code returned "21 dots", which is below the physical floor — the value had
+/// wrapped past 256, and a wrapped reading is indistinguishable from a real one. The bound below
+/// is deliberately crude: it only has to catch a truncated or unwritten value, not to assert a
+/// timing model.
+#[test]
+fn measurement_channel_reports_plausible_timings() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+
+    let mut out = String::from("\n  A5.08 raw measurements (dots):\n");
+    for (slot, what) in A5_08_SLOTS {
+        let v = report.meas[slot as usize];
+        out.push_str(&format!("    slot {slot}  {v:5}  {what}\n"));
+    }
+    println!("{out}");
+
+    // Two crude checks, deliberately not a timing model — they only have to catch a wrapped or
+    // unwritten value, which is the failure mode this channel exists to expose.
+    //
+    // Floor: a 65816 instruction is at least 2 cycles and a cycle at least 6 master clocks
+    // (1.5 dots), so 16 NOPs cannot come in under ~48 dots.
+    let nop16 = report.meas[0];
+    assert!(
+        nop16 >= 48,
+        "16 NOPs measured {nop16} dots, below the physical floor — the value wrapped or was never \
+         written."
+    );
+
+    // Ceiling: every absolute span must stay clear of the 341-dot scanline wrap, because past it
+    // the H-counter difference silently returns a small number instead of failing. A5.08 once
+    // measured exactly 341 and read ~0, which looked like an emulator bug and was not.
+    for (slot, what) in [
+        (0u8, "16 NOP"),
+        (1, "16 XBA"),
+        (3, "16 REP"),
+        (5, "8x PHD+PLD"),
+    ] {
+        let v = report.meas[slot as usize];
+        assert!(
+            v < 320,
+            "{what} measured {v} dots, too close to the 341-dot line wrap for the difference to be \
+             trustworthy — reduce the repeat count"
+        );
+    }
 }
 
 /// Every catalog row declares what it covers, and no two rows silently claim the same assertion.

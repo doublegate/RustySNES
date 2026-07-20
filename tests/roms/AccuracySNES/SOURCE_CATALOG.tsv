@@ -46,7 +46,7 @@
 43	A1.06	A	TCD/TDC always 16-bit	Documented	WDC datasheet; SNESdev Wiki, 65C816	Scored	0x7EF04B	A1.08
 44	A5.07	A	RMW abs,X is flat	Documented	WDC datasheet; undisbeliever's timing tables	Scored	0x7EF04C	A5.14
 45	A6.09	A	BRK sets B in pushed P	Documented	WDC datasheet; SNESdev Wiki, 65C816 interrupts	Scored	0x7EF04D	A6.05
-46	A5.08	A	Cycle spot checks (gold)	Contested	the three reference emulators disagree with each other on instruction-level timing; no external per-opcode timing table is sourced yet	Golden	0x7EF04E	A5.22
+46	A5.08	A	A5.22 cycle spot checks	Documented	WDC/GTE/VLSI instruction-operation tables agree on these rows; docs/accuracysnes-timing-oracle.md	Scored	0x7EF04E	A5.22
 47	C1.01	C	OAM word write/read	Documented	SNESdev Wiki, OAM; fullsnes	Scored	0x7EF04F	C1.02
 48	C1.02	C	OAM odd write latched	Documented	SNESdev Wiki, OAM; anomie	Scored	0x7EF050	C1.02
 49	C1.03	C	OAMADDR reload clears	Documented	SNESdev Wiki, OAM; anomie	Scored	0x7EF051	C1.01
@@ -91,3 +91,25 @@
 88	B5.03	B	Divide by zero	Documented	SNESdev Wiki, CPU registers; fullsnes	Scored	0x7EF078	-
 89	B5.04	B	Mul/div overlap (golden)	Contested	SNESdev Errata states overlapping $4203/$4206 operation is undefined	Golden	0x7EF079	B5.03
 90	B5.05	B	Mul/div power-on state	Documented	anomie regs.txt r1157 and nocash fullsnes, independently; implemented by bsnes/ares/Mesen2. No known hardware test ROM	Scored	0x7EF07A	B5.04
+91	A5.S01	A	Sweep: CLC	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF07B	A5.01-08
+92	A5.S02	A	Sweep: SEC	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF07C	A5.01-08
+93	A5.S03	A	Sweep: CLV	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF07D	A5.01-08
+94	A5.S04	A	Sweep: INX	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF07E	A5.01-08
+95	A5.S05	A	Sweep: DEX	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF07F	A5.01-08
+96	A5.S06	A	Sweep: TAX	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF080	A5.01-08
+97	A5.S07	A	Sweep: TXY	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF081	A5.01-08
+98	A5.S08	A	Sweep: ASL A	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF082	A5.01-08
+99	A5.S09	A	Sweep: XBA	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF083	A5.01-08
+100	A5.S10	A	Sweep: TCD	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF084	A5.01-08
+101	A5.S11	A	Sweep: LDA #imm	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF085	A5.01-08
+102	A5.S12	A	Sweep: LDX #imm	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF086	A5.01-08
+103	A5.S13	A	Sweep: CMP #imm	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF087	A5.01-08
+104	A5.S14	A	Sweep: BIT #imm	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF088	A5.01-08
+105	A5.S15	A	Sweep: REP #imm	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF089	A5.01-08
+106	A5.S16	A	Sweep: SEP #imm	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF08A	A5.01-08
+107	A5.S17	A	Sweep: WDM	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF08B	A5.01-08
+108	A5.S18	A	Sweep: PHA+PLA	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF08C	A5.01-08
+109	A5.S19	A	Sweep: PHP+PLP	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF08D	A5.01-08
+110	A5.S20	A	Sweep: PHB+PLB	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF08E	A5.01-08
+111	A5.S21	A	Sweep: PHD+PLD	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF08F	A5.01-08
+112	A5.S22	A	Sweep: PHX+PLX	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF090	A5.01-08

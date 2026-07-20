@@ -70,6 +70,29 @@ pub const MAP: &[(&str, &[&str])] = &[
     ("A5.06", &["A5.15"]),
     ("A5.07", &["A5.14"]),
     ("A5.08", &["A5.22"]),
+    // --- T-04-I opcode sweep: many tests, one enumerated assertion (declared in SPLITS) ---
+    ("A5.S01", &["A5.01-08"]),
+    ("A5.S02", &["A5.01-08"]),
+    ("A5.S03", &["A5.01-08"]),
+    ("A5.S04", &["A5.01-08"]),
+    ("A5.S05", &["A5.01-08"]),
+    ("A5.S06", &["A5.01-08"]),
+    ("A5.S07", &["A5.01-08"]),
+    ("A5.S08", &["A5.01-08"]),
+    ("A5.S09", &["A5.01-08"]),
+    ("A5.S10", &["A5.01-08"]),
+    ("A5.S11", &["A5.01-08"]),
+    ("A5.S12", &["A5.01-08"]),
+    ("A5.S13", &["A5.01-08"]),
+    ("A5.S14", &["A5.01-08"]),
+    ("A5.S15", &["A5.01-08"]),
+    ("A5.S16", &["A5.01-08"]),
+    ("A5.S17", &["A5.01-08"]),
+    ("A5.S18", &["A5.01-08"]),
+    ("A5.S19", &["A5.01-08"]),
+    ("A5.S20", &["A5.01-08"]),
+    ("A5.S21", &["A5.01-08"]),
+    ("A5.S22", &["A5.01-08"]),
     ("A6.01", &["A6.01"]),
     ("A6.02", &["A6.01"]),
     ("A6.03", &["A6.06"]),
@@ -143,6 +166,12 @@ pub const MAP: &[(&str, &[&str])] = &[
 /// failure code. Anything not listed here that is claimed twice is treated as an accidental
 /// duplicate and fails the build.
 pub const SPLITS: &[(&str, &str)] = &[
+    (
+        "A5.01-08",
+        "the opcode cycle sweep (T-04-I). The dossier states the base sweep as a single ranged \
+         assertion covering all 256 opcodes; the cart implements it as one test per opcode so a \
+         failure names the instruction rather than the batch. Every A5.Sxx test is one row of it",
+    ),
     (
         "A1.01",
         "cart A1.01 asserts XCE clears XH/YH; cart A1.03 asserts it forces SH=$01. \

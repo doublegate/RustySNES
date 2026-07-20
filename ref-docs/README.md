@@ -8,6 +8,11 @@ frozen: new findings go in NEW dated files, never edits. Put the deep research r
 
 - `research-report.md` — the original deep research report.
 - `2026-06-24-{apu,ppu,coprocessors}.md` — dated subsystem extracts.
+- `2026-07-20-wdc-w65c816s-citation.md` — **citation only, deliberately not an extract.** The WDC
+  W65C816S datasheet is the intended timing oracle (Table 5-7's VDA/VPA pin columns give a
+  manufacturer-defined read/write/internal split per cycle), but its copyright reserves *"the right
+  of reproduction in whole or in part in any form"* with no permissive carve-out. Facts derived
+  from it may be re-expressed in this repo with the citation; its tables may not be reproduced.
 - `2026-07-20-undisbeliever-65816-timing.md` — undisbeliever's 65816 instruction timing table,
   all 256 opcodes, vendored verbatim. **CC BY-SA 4.0** (the only file here that is not
   permissively licensed) with attribution intact — do not transcribe its values into code, which

@@ -37,6 +37,23 @@ V_PO_MPY        = VAR_BASE + $40      ; RDMPY after $4203=2 with $4202 never wri
 V_PO_DIV        = VAR_BASE + $42      ; RDDIV after $4206=2 with $4204/05 never written (u16)
 V_PO_DIVREM     = VAR_BASE + $44      ; RDMPY (remainder) from that same divide (u16)
 
+; ---------------------------------------------------------------------------------------------
+; Raw measurement channel ($E200-$E27F) — 64 u16 slots.
+;
+; A test's verdict is ONE BYTE, which is fine for pass/fail/variant and useless for a measurement:
+; a dot count does not fit. Reporting a 32-NOP baseline through the variant code returned "21",
+; which is impossible — the true value had wrapped past 256. Any timing diagnostic read back that
+; way is unfalsifiable, because a wrapped value and a real one are indistinguishable.
+;
+; So measurements go here, full width, and the host harness reads them alongside the results block.
+; This is also what a 256-opcode cycle sweep (T-04-I) needs: it produces 256 numbers and the status
+; array has nowhere to put them.
+;
+; Slots are assigned per test and documented at the test that owns them; nothing here is
+; interpreted on-cart.
+MEAS_BASE       = $7EE200
+MEAS_SLOTS      = 64
+
 ; --- results block ---------------------------------------------------------------------------
 RESULTS         = $7EF000
 R_MAGIC         = RESULTS + $00       ; "ACSN"

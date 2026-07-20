@@ -13,7 +13,7 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **91** (85 scoring + 6 golden vectors) |
+| Tests | **113** (108 scoring + 5 golden vectors) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES, Mesen2, snes9x — all agree, 0 failures |
 | Groups shipped | **A** (65C816 CPU, 46 tests) · **C** partial (PPU, 30 tests) · **B** partial (5A22, 9 tests) |
@@ -29,14 +29,14 @@ flag in the status byte `BRK` pushes).
 
 | Group | Scope | Enumerated | Done | Left |
 |---|---|---:|---:|---:|
-| **A** | 65C816 CPU | ~55 | 47 | ~10-15 |
+| **A** | 65C816 CPU | ~55 | 69 | see coverage report |
 | **B** | 5A22 bus, clock, timing | ~30 | 14 | ~16 |
 | **C** | S-PPU1 / S-PPU2 | ~85 | 30 | ~55 |
 | **D** | DMA / HDMA | ~35 | 0 | ~35 |
 | **E** | SPC700 + S-DSP | ~75 | 0 | ~75 |
 | **F** | Input | ~22 | 0 | ~22 |
 | **G** | Power-on / reset / cartridge | ~18 | 0 | ~18 |
-| | | **~320** | **91** | **~229** |
+| | | **~320** | **113** | **~207** |
 
 **These are test counts. For assertion coverage, read `docs/accuracysnes-coverage.md`** — it is
 regenerated with the ROM from the map in `gen/src/dossier.rs` and currently reports **79 of 443**
@@ -189,7 +189,20 @@ preserved verbatim, only restructured), taking the enumeration from 232 checkabl
 assertions happened to sit in a table, and the rest were guesses — which is precisely where an
 untested behaviour could hide indefinitely.
 
-**T-04-I is blocked on an oracle, not on engineering — and that is now measured, not assumed.**
+**T-04-I's oracle is now established — see `docs/accuracysnes-timing-oracle.md`.** The blocking
+question was whether Ricoh altered the 65816 core's cycle structure, because if so the WDC datasheet
+would be useless for the SNES. It did not: the 5A22 is a **stock WDC core plus a clock-stretching
+wait-state generator** keyed on the VDA/VPA pins, which the 5A22's own pinout exposes and which
+Nintendo's manual corroborates (*"the CPU is operated internally with a 3.58MHz clock speed"* —
+master/6, the core's native cycle). So the oracle is two emulator-independent layers: WDC Table 5-7
+for cycle classification, and a wait-state map for the SNES overlay. No public Ricoh 5A22 datasheet
+exists — that was checked, not assumed.
+
+What remains for T-04-I is now ordinary work: a safe-operand table, a sandbox, and per-opcode
+expectations computed from those two layers. The paragraph below records why the first attempt could
+not score, and stands as the reason the oracle was needed.
+
+**The original blocker, kept for the reasoning.**
 `A5.08` implements the dossier's `A5.22` cycle spot checks (`XBA`, `REP`, `PHD`/`PLD`) using the
 only sound conversion available:
 

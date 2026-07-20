@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES: the opcode cycle sweep runs (T-04-I) — 22 tests.** A safe-operand table and
+  sandbox in `gen/src/tests/sweep.rs`, emitting one test per opcode so a failure names the
+  instruction rather than the batch. Expectations are derived from `clocks = 6*cycles + 2*mem`
+  against cycle counts the WDC, GTE and VLSI instruction-operation tables all agree on — no
+  emulator anywhere in the chain. Covers the opcodes whose operands and safety are unambiguous:
+  implied, immediate at `m=1`/`x=1`, and balanced push/pull pairs. Battery now **113 tests, 108
+  scoring, 100.00%, 5 golden**.
+
+- **A full-width measurement channel for AccuracySNES.** A test's verdict is one byte, which cannot
+  carry a dot count — a value above 255 wraps and becomes indistinguishable from a real reading.
+  Timing tests now write raw measurements to `$7E:E200` (64 `u16` slots) and the harness prints and
+  sanity-checks them, bounding both the physical floor and the 341-dot scanline wrap. T-04-I's
+  256-opcode sweep needs this regardless: it produces 256 numbers and the status array has nowhere
+  to put them.
+
 - **T-04-J: coverage is now measured instead of estimated.** `gen/src/dossier.rs` maps every cart
   test to the dossier assertion(s) it implements, because the two numbering schemes look identical
   and are not — cart `A1.04` is dossier `A1.06`. The generator refuses to build if a test is

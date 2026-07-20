@@ -21,12 +21,26 @@
 # Exit:   0 if every available reference agrees (zero failing tests), non-zero otherwise.
 
 set -uo pipefail
+
+# Where the reference-emulator clones live. Overridable so this can be run from a git worktree
+# without symlinking `ref-proj` into it — a symlink there is machine-specific, and one was once
+# committed by accident because .gitignore's `/ref-proj/` matches a directory but not a symlink.
+#
+# Resolved BEFORE the cd below, and against the caller's working directory, so that a relative
+# `REF_PROJ=../ref-proj` means what the caller meant rather than being silently reinterpreted
+# relative to the repository root.
+if [[ -n ${REF_PROJ:-} && ${REF_PROJ} != /* ]]; then
+    REF_PROJ=$PWD/$REF_PROJ
+fi
+
 cd "$(dirname "$0")/../.."
 
 ROM=tests/roms/AccuracySNES/build/accuracysnes.sfc
 HOST=${TMPDIR:-/tmp}/accuracysnes_lrcv
-MESEN=ref-proj/Mesen2/bin/linux-x64/Release/linux-x64/publish/Mesen.dll
-SNES9X=ref-proj/snes9x/libretro/snes9x_libretro.so
+REF_PROJ=${REF_PROJ:-ref-proj}
+
+MESEN=$REF_PROJ/Mesen2/bin/linux-x64/Release/linux-x64/publish/Mesen.dll
+SNES9X=$REF_PROJ/snes9x/libretro/snes9x_libretro.so
 
 if [[ ! -f $ROM ]]; then
     echo "error: $ROM not found — run 'cargo run -p accuracysnes-gen' first" >&2
@@ -51,7 +65,13 @@ ran=0
 #   nocash fullsnes (which lists $4202-$4206 as "(FFh)" power-up); implemented by bsnes
 #   (sfc/cpu/cpu.hpp), ares, and Mesen2 (AluMulDiv::Initialize). snes9x's S9xSoftResetPPU
 #   blanket-memsets $4200-$42FF to zero and special-cases only $4201/$4213, so it reports 0 x N.
-SNES9X_KNOWN_FAILURES=1
+#
+# snes9x, +1 test (A5.S17 "Sweep: WDM"): WDM ($42) is a reserved TWO-byte no-op costing 2 cycles /
+#   2 bus accesses = 16 master clocks. undisbeliever's table gives $42 as 2 bytes / 2 cycles; the
+#   WDC, GTE and VLSI instruction-operation tables agree; Mesen2 and RustySNES both measure it.
+#   snes9x gets WDM's LENGTH right (it passes A6.08, the functional two-byte test) but not its
+#   timing, which is a narrower and more interesting bug than it first looks.
+SNES9X_KNOWN_FAILURES=2
 
 # --- snes9x, via the libretro host --------------------------------------------------------------
 if [[ -f $SNES9X ]]; then
