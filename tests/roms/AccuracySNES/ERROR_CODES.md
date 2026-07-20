@@ -563,6 +563,15 @@ Provenance: **Documented** (SNESdev Wiki, VRAM access; fullsnes). Kind: scored.
 | 1 | `$02` | the seed did not reach VRAM under forced blank, so nothing below means anything |
 | 2 | `$04` | a VRAM write made after forced blank was lifted mid-frame landed anyway — the window closes on that write, not at the next scanline |
 
+### C3.03b — CGRAM read bit 7 is bus
+
+Provenance: **Documented** (SNESdev Wiki, CGRAM; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the second CGRAM read did not carry bit 7 from PPU2's open bus after a low byte of $FF |
+| 2 | `$04` | the second CGRAM read returned bit 7 set after a low byte of $00 — bit 7 is open bus, not a sixteenth stored bit |
+
 ### C3.09 — $213F is a field flag
 
 Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.

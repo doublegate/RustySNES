@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Bit 7 of a CGRAM read is PPU2's open bus, not a sixteenth stored bit (`C3.03`).** A palette
+  entry stores fifteen bits, so what comes back in the second `$213B` read's top bit is whatever
+  PPU2 last drove — and the *first* read of the pair is what drove it. The bit therefore mirrors the
+  low byte's bit 7.
+
+  Two entries make that unambiguous: `$FFFF` stores as `$7FFF` with a low byte of `$FF`, and `$7F00`
+  keeps a low byte of `$00`. Both hold the same fifteen real bits in the high byte, so any
+  difference between the two readings is the open-bus bit and can be nothing else. A core returning
+  a stored zero there gets the same answer for both.
+
 - **`$213F` bit 7 is a field flag, and the test says so in both directions (`C3.09`).** It toggles
   once per frame and holds for the whole of one, so two readings a frame apart must *differ* and two
   readings two frames apart must *agree*. A core that toggles it per scanline, or on every read,
@@ -685,10 +695,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **211 tests — 199 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **212 tests — 200 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **50 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **169 of 443** on-cart plus **50** scene-only —
-**219 of 443** in total, and **every group A-G now has shipped tests**
+framebuffer-oracle tier. Dossier coverage is **170 of 443** on-cart plus **50** scene-only —
+**220 of 443** in total, and **every group A-G now has shipped tests**
 (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.

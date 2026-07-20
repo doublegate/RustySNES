@@ -3890,6 +3890,63 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; C3.03b — CGRAM read bit 7 is bus
+; provenance: Documented (SNESdev Wiki, CGRAM; fullsnes)
+.proc test_c3_03b
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Entry 0 = $FFFF. Bit 15 does not exist, so this stores $7FFF and the low byte is $FF.
+    sep #$20
+    .a8
+    stz $2121         ; CGADD = 0
+    lda #$FF
+    sta $2122         ; low
+    sta $2122         ; high
+    stz $2121
+    lda $213B         ; low byte: $FF, and it drives PPU2's latch
+    lda $213B         ; high byte: 15 real bits plus the latch's bit 7
+    cmp #$FF
+    beq :+
+    jmp @fail1
+  :
+    ; Entry 0 = $7F00: the same fifteen stored bits in the high byte, a low byte of $00.
+    stz $2121
+    stz $2122         ; low = $00
+    lda #$7F
+    sta $2122         ; high = $7F
+    stz $2121
+    lda $213B         ; low byte: $00
+    lda $213B
+    cmp #$7F
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the second CGRAM read did not carry bit 7 from PPU2's open bus after a low byte of $FF
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the second CGRAM read returned bit 7 set after a low byte of $00 — bit 7 is open bus, not a sixteenth stored bit
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C3.09 — $213F is a field flag
 ; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
 .proc test_c3_09
@@ -17283,7 +17340,7 @@ apu_prog_45:
 .export _test_flags
 
 _test_count:
-    .word 211
+    .word 212
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -17354,6 +17411,7 @@ _test_entries:
     .faraddr test_c2_05
     .faraddr test_c2_06
     .faraddr test_c2_12
+    .faraddr test_c3_03b
     .faraddr test_c3_09
     .faraddr test_c3_01
     .faraddr test_c3_02
@@ -17568,6 +17626,7 @@ _test_flags:
     .byte $01   ; C2.05
     .byte $01   ; C2.06
     .byte $01   ; C2.12
+    .byte $01   ; C3.03b
     .byte $01   ; C3.09
     .byte $01   ; C3.01
     .byte $01   ; C3.02
@@ -17782,6 +17841,7 @@ _test_names:
     .addr @n_c2_05
     .addr @n_c2_06
     .addr @n_c2_12
+    .addr @n_c3_03b
     .addr @n_c3_09
     .addr @n_c3_01
     .addr @n_c3_02
@@ -18127,6 +18187,9 @@ _test_names:
 @n_c2_12:
     .byte 21
     .byte "Blank off closes VRAM"
+@n_c3_03b:
+    .byte 23
+    .byte "CGRAM read bit 7 is bus"
 @n_c3_09:
     .byte 21
     .byte "$213F is a field flag"
