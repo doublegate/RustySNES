@@ -1578,6 +1578,57 @@ SCENES_IMPL = 1
     rts
 .endproc
 
+; c8-obj-math-palettes-4-7 — C8.01
+; Two identical sprites side by side, one in palette 2 and one in palette 6, with colour math enabled for OBJ against the fixed colour. Only the palette-6 sprite blends: sprite colour math applies to palettes 4-7 and to nothing else. It is an errata rather than a rule anyone would guess, and a core that applies the maths to every sprite blends both — a picture that looks perfectly reasonable until it is compared with one that is right.
+.proc scene_c8_obj_math_palettes_4_7
+    .a16
+    .i16
+    sep #$20
+    .a8
+    stz $2105         ; BGMODE 0
+    jsr scene_oam_reset
+    sep #$20
+    .a8
+    stz $2101         ; OBJSEL: 8x8 / 16x16, name base word $0000 (the font)
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+    stx $2102
+    sep #$20
+    .a8
+    lda #60
+    sta $2104         ; sprite 0 X
+    lda #90
+    sta $2104         ; sprite 0 Y
+    lda #$10
+    sta $2104         ; tile $10 — printable at 4bpp
+    lda #$34
+    sta $2104         ; attr: palette 2, priority 3 — below the math threshold
+    lda #140
+    sta $2104         ; sprite 1 X
+    lda #90
+    sta $2104         ; sprite 1 Y
+    lda #$10
+    sta $2104         ; the same tile, so only the palette differs
+    lda #$3C
+    sta $2104         ; attr: palette 6, priority 3 — inside the math range
+    lda #$10
+    sta $212C         ; OBJ on the main screen
+    lda #$02
+    sta $2130         ; CGWSEL: the subscreen is the fixed colour
+    lda #$10
+    sta $2131         ; CGADSUB: add, applied to OBJ only
+    lda #$9F
+    sta $2132         ; COLDATA: blue = 31
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
 ; c7-objsel-size-6 — C7.10
 ; OBJSEL size pair 6, which no official document lists: 16x32 small, 32x64 large. Two sprites side by side, one of each, so the picture states both halves of the pair at once. The pairs above 5 are the only ones whose members are not square, and a core that stops its table at 5 — or repeats an earlier pair to fill the gap — draws squares here.
 .proc scene_c7_objsel_size_6
@@ -1787,7 +1838,7 @@ SCENES_IMPL = 1
 .export _scene_count
 .export _scene_entries
 _scene_count:
-    .word 43
+    .word 44
 _scene_entries:
     .addr scene_c5_mode1_bg_priority
     .addr scene_c8_fixed_colour_add
@@ -1828,6 +1879,7 @@ _scene_entries:
     .addr scene_c4_hofs_keeps_low_three_bits
     .addr scene_c4_210d_drives_mode7_scroll
     .addr scene_c7_lower_index_on_top
+    .addr scene_c8_obj_math_palettes_4_7
     .addr scene_c7_objsel_size_6
     .addr scene_c7_objsel_size_7
     .addr scene_c7_vflip_tall_halves

@@ -81,6 +81,12 @@
 #     matches both references bit-for-bit, and the golden below is that agreed value.
 #   * The two new scenes cover the undocumented size pairs themselves (`C7.10`), and differ from
 #     each other by one OBJSEL bit -- the large member's height, 64 against 32.
+#
+# 2026-07-20, eighth batch (1 scene: sprite colour math, C8.01). No divergence. Two identical
+# sprites in palettes 2 and 6 with colour math enabled for OBJ: only the palette-6 one blends,
+# because sprite colour math applies to palettes 4-7 and to nothing else. All three emulators
+# already agreed, which is the outcome to expect from an errata everyone has implemented -- the
+# scene's value is that the next core to be measured against this corpus cannot skip it.
 
 c5-mode1-bg-priority	0x4fccc3fcf1027a01
 c8-fixed-colour-add	0x313006a2eb2c3745
@@ -125,3 +131,4 @@ c7-vflip-tall-halves	0x942eb72697166c8b
 c7-64px-wraps-bottom-to-top	0xe9ff3fd41d87f581
 c7-objsel-size-6	0xb86779b44bd801f5
 c7-objsel-size-7	0x751d88828ff52727
+c8-obj-math-palettes-4-7	0x7696cd59bf0681e5

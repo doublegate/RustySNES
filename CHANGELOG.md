@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sprite colour math applies to palettes 4-7 and to nothing else (`C8.01`).** A scene with two
+  identical sprites side by side, one in palette 2 and one in palette 6, colour math enabled for
+  OBJ against the fixed colour: only the palette-6 sprite blends. It is an errata rather than a rule
+  anyone would guess, and a core that applies the maths to every sprite blends both — a picture that
+  looks perfectly reasonable until it is compared with one that is right.
+
 - **The undocumented sprite size pairs, as two scenes (`C7.10`).** `OBJSEL` pairs 6 and 7 are the
   only ones whose members are not square — 16x32/32x64 and 16x32/32x32 — and no official document
   lists them. The two scenes place one sprite of each size side by side and differ from each other
@@ -512,8 +518,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **AccuracySNES totals, as of this section:** **202 tests — 190 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier — **43 scenes**. Dossier coverage is **160 of 443** on-cart plus **43** scene-only —
-**203 of 443** in total. **Every group A-G now has shipped tests.** (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier — **44 scenes**. Dossier coverage is **160 of 443** on-cart plus **44** scene-only —
+**204 of 443** in total. **Every group A-G now has shipped tests.** (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 
