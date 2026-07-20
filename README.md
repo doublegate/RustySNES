@@ -459,15 +459,18 @@ Run `rustysnes help controls` / `help gamepad` for the full reference.
 No *publicly available* SNES ROM plays the role AccuracyCoin plays for the NES, so RustySNES
 wrote one: **AccuracySNES** ([`tests/roms/AccuracySNES/`](tests/roms/AccuracySNES/)), a
 first-party, dual-MIT/Apache-2.0 self-scoring test cartridge. It runs with no input, publishes its
-verdicts to WRAM, and is cross-validated headlessly against Mesen2 and snes9x — the identical image
-runs unmodified on other emulators and on real hardware. Around it, accuracy is a
+verdicts to WRAM, and is cross-validated headlessly against Mesen2 and snes9x. The point of the
+design is that it needs no host-side expected values: the identical image is meant to run
+unmodified on any emulator and, on a flash cart, on a real console — though see the honest ceiling
+below, because it has not yet been run on one. Around it, accuracy is a
 **composed multi-layer battery** across independently-sourced suites
 ([`docs/testing-strategy.md`](docs/testing-strategy.md)); each layer's own status is tracked
 here, always current, reaffirmed every release:
 
 | Layer | Result |
 | --- | --- |
-| AccuracySNES (first-party self-scoring cartridge) | **100.00%** — 120 / 120 scoring, plus 6 golden vectors; agrees with Mesen2 and snes9x |
+| AccuracySNES (first-party self-scoring cartridge) | **100.00%** — 124 / 124 scoring, plus 10 golden vectors; agrees with Mesen2 and snes9x on both the NTSC and PAL images |
+| AccuracySNES rendered scenes (host framebuffer oracle, [`docs/adr/0013`](docs/adr/0013-accuracysnes-framebuffer-oracle.md)) | **3 / 3 blessed** — reported separately and deliberately **not** folded into the line above, because a rendered scene needs a host holding the golden |
 | CPU (65C816) per-opcode oracle | **0-diff** — 5,119,999 / 5,120,000 (the one residual is a documented inter-reference divergence, not a bug — [`docs/adr/0002`](docs/adr/0002-fractional-timebase-refactor.md)) |
 | SPC700 per-opcode oracle | **0-diff, 100.00%** — 256,000 / 256,000 |
 | On-cart CPU (gilyon `cputest-basic`) | **green** — 1107 / 1107 "Success" |
@@ -481,11 +484,11 @@ here, always current, reaffirmed every release:
 ### Oracle provenance: what "0-diff" does and does not mean
 
 A pass rate is only worth what its oracle is worth, so it is worth being precise about where each
-one comes from — `docs/adr/0003`'s honesty gate exists for exactly this reason.
+one comes from — [`docs/adr/0003`](docs/adr/0003-accuracy-tiering-honesty-gate.md)'s honesty gate exists for exactly this reason.
 
 **The per-opcode oracles are consistency evidence, not hardware evidence.** The 65816 corpus
 RustySNES gates on in CI is **self-generated** and committed, because the upstream
-SingleStepTests/65816 set ships no licence and cannot be vendored into an MIT/Apache tree
+SingleStepTests/65816 set ships no license and cannot be vendored into an MIT/Apache tree
 ([`docs/adr/0005`](docs/adr/0005-65816-opcode-oracle-license.md)). A self-generated oracle would
 otherwise freeze its own bugs, so before it was frozen the core had to agree opcode-for-opcode and
 cycle-for-cycle with the upstream set *and* with a second independent reference. That bootstrap is
