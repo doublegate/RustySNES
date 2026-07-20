@@ -33,6 +33,7 @@ pub fn all() -> Vec<Test> {
         c1_03(),
         c1_04(),
         c1_05(),
+        c1_high_table(),
         // --- C2: VRAM port ---
         c2_01(),
         c2_02(),
@@ -46,6 +47,7 @@ pub fn all() -> Vec<Test> {
         c3_03(),
         c3_04(),
         c3_05(),
+        c3_07(),
         // --- C13: open bus ---
         c13_01(),
         c13_02(),
@@ -679,6 +681,55 @@ fn c3_04() -> Test {
     )
 }
 
+/// The `OPHCT` and `OPVCT` read flipflops are independent of each other.
+///
+/// Each counter has its own low/high toggle. Reading `$213C` therefore says nothing about what
+/// `$213D` will return next — a core with one shared flipflop hands back `OPVCT`'s *high* byte
+/// after a single `$213C` read, and a driver that reads H and V in that order gets a vertical
+/// position of 0 or 1 for the whole frame.
+///
+/// The value is frozen by a single `$2137` latch and never re-latched, so both `$213D` reads sample
+/// the same number and the comparison is byte-exact rather than approximate. The retry loop at the
+/// top is the vacuity guard: `OPVCT`'s high byte is a single bit, so the test only distinguishes
+/// the two behaviours while the low byte is something other than 0 or 1, and it waits for a
+/// scanline where that holds.
+fn c3_07() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.c("Latch until the frozen V lands somewhere its low byte cannot be mistaken for its high.");
+    a.label("retry");
+    a.l("lda $213F         ; reset both read flipflops");
+    a.l("lda $2137         ; latch H and V together");
+    a.l("lda $213D         ; V low");
+    a.l("cmp #8");
+    a.l("bcc @retry");
+    a.l("cmp #200");
+    a.l("bcs @retry");
+    a.l("sta f:$7E0100     ; the frozen V low byte");
+    a.c("Reset the flipflops and read H first. Nothing re-latches, so V is still the same number.");
+    a.l("lda $213F");
+    a.l("lda $213C         ; H low — this sets OPHCT's flipflop and must not touch OPVCT's");
+    a.l("lda $213D         ; V low again, if the two are independent");
+    a.l("sec");
+    a.l("sbc f:$7E0100");
+    a.assert_a8(
+        0x00,
+        "reading $213C advanced $213D's flipflop — the two counters share one, so a read of V \
+         after a read of H returns its high byte",
+    );
+    a.finish(
+        "C3.07",
+        'C',
+        "Counter flipflops differ",
+        Provenance::Documented("SNESdev Wiki, PPU registers; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
 /// Reading `$213F` resets the `OPHCT` read flipflop, so the next read is the low byte again.
 ///
 /// The latched counter value itself is frozen until the next `$2137` latch, which is what makes
@@ -712,6 +763,53 @@ fn c3_05() -> Test {
         'C',
         "$213F resets flipflop",
         Provenance::Documented("SNESdev Wiki, PPU registers; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The OAM high table commits every byte as it is written; only the low table pairs them.
+///
+/// Below `$200` a write is buffered until its odd-address partner arrives, so a lone byte does not
+/// reach OAM. The high table has no such pairing — each byte lands immediately. A core that applies
+/// the low table's rule everywhere loses every odd write to the high table, which is where the X
+/// bit 8 and size bits live: sprites go missing or change size depending on how the driver happened
+/// to batch its writes.
+///
+/// The byte is seeded to `$00` first so "it committed" is a change rather than a coincidence.
+fn c1_high_table() -> Test {
+    let mut a = Asm::new();
+    a.c("Seed high-table byte 0 with $00, then write $AA into it as a single, unpaired byte.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("ldx #$0100");
+    a.l("stx $2102         ; OAMADD = word $100, the high table");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta $2104");
+    a.l("rep #$30");
+    a.l("ldx #$0100");
+    a.l("stx $2102");
+    a.l("sep #$20");
+    a.l("lda #$AA");
+    a.l("sta $2104         ; one byte, no partner");
+    a.c("Read it straight back. A core that waits for a pair still has the $00.");
+    a.l("rep #$30");
+    a.l("ldx #$0100");
+    a.l("stx $2102");
+    a.l("sep #$20");
+    a.l("lda $2138");
+    a.assert_a8(
+        0xAA,
+        "a single byte written to the OAM high table did not commit — the pairing rule belongs to \
+         the low table only",
+    );
+    a.finish(
+        "C1.03b",
+        'C',
+        "High table commits bytes",
+        Provenance::Documented("SNESdev Wiki, OAM; fullsnes"),
         Kind::Scored,
         None,
     )

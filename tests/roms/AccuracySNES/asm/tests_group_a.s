@@ -3170,6 +3170,59 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; C1.03b — High table commits bytes
+; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
+.proc test_c1_03b
+    .a16
+    .i16
+    ; Seed high-table byte 0 with $00, then write $AA into it as a single, unpaired byte.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ldx #$0100
+    stx $2102         ; OAMADD = word $100, the high table
+    sep #$20
+    .a8
+    lda #$00
+    sta $2104
+    rep #$30
+    .a16
+    .i16
+    ldx #$0100
+    stx $2102
+    sep #$20
+    .a8
+    lda #$AA
+    sta $2104         ; one byte, no partner
+    ; Read it straight back. A core that waits for a pair still has the $00.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0100
+    stx $2102
+    sep #$20
+    .a8
+    lda $2138
+    cmp #$AA
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; a single byte written to the OAM high table did not commit — the pairing rule belongs to the low table only
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C2.01 — VMAIN step 1 word
 ; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
 .proc test_c2_01
@@ -3760,6 +3813,52 @@ CATALOG_IMPL = 1
     jml test_restore
 @fail1:
     ; $213F did not reset the OPHCT flipflop (the third read was not the low byte)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C3.07 — Counter flipflops differ
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c3_07
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    ; Latch until the frozen V lands somewhere its low byte cannot be mistaken for its high.
+@retry:
+    lda $213F         ; reset both read flipflops
+    lda $2137         ; latch H and V together
+    lda $213D         ; V low
+    cmp #8
+    bcc @retry
+    cmp #200
+    bcs @retry
+    sta f:$7E0100     ; the frozen V low byte
+    ; Reset the flipflops and read H first. Nothing re-latches, so V is still the same number.
+    lda $213F
+    lda $213C         ; H low — this sets OPHCT's flipflop and must not touch OPVCT's
+    lda $213D         ; V low again, if the two are independent
+    sec
+    sbc f:$7E0100
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; reading $213C advanced $213D's flipflop — the two counters share one, so a read of V after a read of H returns its high byte
     sep #$20
     .a8
     lda #$02
@@ -16415,7 +16514,7 @@ apu_prog_42:
 .export _test_flags
 
 _test_count:
-    .word 202
+    .word 204
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -16476,6 +16575,7 @@ _test_entries:
     .faraddr test_c1_03
     .faraddr test_c1_04
     .faraddr test_c1_05
+    .faraddr test_c1_03b
     .faraddr test_c2_01
     .faraddr test_c2_02
     .faraddr test_c2_03
@@ -16487,6 +16587,7 @@ _test_entries:
     .faraddr test_c3_03
     .faraddr test_c3_04
     .faraddr test_c3_05
+    .faraddr test_c3_07
     .faraddr test_c13_01
     .faraddr test_c13_02
     .faraddr test_c13_03
@@ -16681,6 +16782,7 @@ _test_flags:
     .byte $01   ; C1.03
     .byte $01   ; C1.04
     .byte $01   ; C1.05
+    .byte $01   ; C1.03b
     .byte $01   ; C2.01
     .byte $01   ; C2.02
     .byte $01   ; C2.03
@@ -16692,6 +16794,7 @@ _test_flags:
     .byte $01   ; C3.03
     .byte $01   ; C3.04
     .byte $01   ; C3.05
+    .byte $01   ; C3.07
     .byte $01   ; C13.01
     .byte $01   ; C13.02
     .byte $01   ; C13.03
@@ -16886,6 +16989,7 @@ _test_names:
     .addr @n_c1_03
     .addr @n_c1_04
     .addr @n_c1_05
+    .addr @n_c1_03b
     .addr @n_c2_01
     .addr @n_c2_02
     .addr @n_c2_03
@@ -16897,6 +17001,7 @@ _test_names:
     .addr @n_c3_03
     .addr @n_c3_04
     .addr @n_c3_05
+    .addr @n_c3_07
     .addr @n_c13_01
     .addr @n_c13_02
     .addr @n_c13_03
@@ -17202,6 +17307,9 @@ _test_names:
 @n_c1_05:
     .byte 21
     .byte "OAM high table mirror"
+@n_c1_03b:
+    .byte 24
+    .byte "High table commits bytes"
 @n_c2_01:
     .byte 17
     .byte "VMAIN step 1 word"
@@ -17235,6 +17343,9 @@ _test_names:
 @n_c3_05:
     .byte 21
     .byte "$213F resets flipflop"
+@n_c3_07:
+    .byte 24
+    .byte "Counter flipflops differ"
 @n_c13_01:
     .byte 22
     .byte "PPU1 open bus in $213E"
