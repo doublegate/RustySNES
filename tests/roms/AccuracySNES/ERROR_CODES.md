@@ -1065,8 +1065,8 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 I/O; fullsnes). Kind: scored.
 
 | Code | Byte | Meaning |
 |---|---|---|
-| 1 | `$02` | $F8 did not read back what was written — it is plain RAM |
-| 2 | `$04` | $F9 did not read back what was written — it is plain RAM |
+| 1 | `$02` | $F8 did not read back what was written, so it is not behaving as the plain RAM it should be |
+| 2 | `$04` | $F9 did not read back what was written, so it is not behaving as the plain RAM it should be |
 
 ## Group A
 

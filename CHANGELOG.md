@@ -32,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   good heuristic, not a proof — **a harness bug upstream of every implementation produces exactly
   the same signature**, and this one did.
 
-- **The SPC700's I/O block: `E3.01` scored, `E3.14` recorded.** `E3.01` pins that reading a timer
+- **The SPC700's I/O block: `E3.01` and `E3.14`, both scored.** `E3.01` pins that reading a timer
   counter returns four bits **and clears it** — `$FD`-`$FF` are not registers holding a value, they
   are counters a read consumes, and a core treating them as storage lets a driver double-count
   every tick it sees. The first read is only required to be non-zero, because how far the timer

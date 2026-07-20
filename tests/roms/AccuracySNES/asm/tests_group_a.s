@@ -8801,14 +8801,14 @@ CATALOG_IMPL = 1
     sta f:$7EE010
     jmp test_restore
 @fail1:
-    ; $F8 did not read back what was written — it is plain RAM
+    ; $F8 did not read back what was written, so it is not behaving as the plain RAM it should be
     sep #$20
     .a8
     lda #$02
     sta f:$7EE010
     jmp test_restore
 @fail2:
-    ; $F9 did not read back what was written — it is plain RAM
+    ; $F9 did not read back what was written, so it is not behaving as the plain RAM it should be
     sep #$20
     .a8
     lda #$04

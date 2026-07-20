@@ -582,12 +582,14 @@ fn e3_14() -> Test {
     a.l("lda f:$7E0101");
     a.assert_a8(
         0x5A,
-        "$F8 did not read back what was written — it is plain RAM",
+        "$F8 did not read back what was written, so it is not behaving as the plain RAM it \
+         should be",
     );
     a.l("lda f:$7E0102");
     a.assert_a8(
         0xA5,
-        "$F9 did not read back what was written — it is plain RAM",
+        "$F9 did not read back what was written, so it is not behaving as the plain RAM it \
+         should be",
     );
     apu_timeout_arm(&mut a);
     a.finish(
