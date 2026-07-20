@@ -554,6 +554,15 @@ Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes; anomie). Kind
 | 1 | `$02` | remap 01 did not translate register $1503 to bus word $1518 |
 | 2 | `$04` | the remap fed back into the address register (the second write missed word $1520) |
 
+### C2.12 — Blank off closes VRAM
+
+Provenance: **Documented** (SNESdev Wiki, VRAM access; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the seed did not reach VRAM under forced blank, so nothing below means anything |
+| 2 | `$04` | a VRAM write made after forced blank was lifted mid-frame landed anyway — the window closes on that write, not at the next scanline |
+
 ### C3.01 — CGRAM two-write commit
 
 Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.

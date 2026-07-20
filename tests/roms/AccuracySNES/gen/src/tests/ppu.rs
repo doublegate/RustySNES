@@ -43,6 +43,7 @@ pub fn all() -> Vec<Test> {
         c2_04(),
         c2_05(),
         c2_06(),
+        c2_12(),
         // --- C3: CGRAM and the H/V counters ---
         c3_01(),
         c3_02(),
@@ -1558,7 +1559,105 @@ fn c7_08() -> Test {
 
 // ---------------------------------------------------------------------------------------------
 // Access windows and frame geometry
-//
+// ---------------------------------------------------------------------------------------------
+
+/// Clearing forced blank mid-frame closes the VRAM window at once, not at the next line.
+///
+/// Forced blank is what makes VRAM writable during the active display period; the moment it is
+/// lifted the port stops accepting writes, on the same instruction rather than at the next scanline
+/// boundary. A core that closes the window lazily lets a handful of writes through after the
+/// program has already turned the screen back on — the classic way for a tile to arrive corrupted
+/// in exactly one frame out of many.
+///
+/// The write under blank is asserted first. Without it, "the second write did not land" would also
+/// be what a broken VRAM port looks like, and the test would pass on a core that never writes VRAM
+/// at all.
+fn c2_12() -> Test {
+    let mut a = Asm::new();
+    a.c("Word $2000 is untouched by the font and the canvas. Seed it under forced blank, which");
+    a.c("must work — that is the control for everything below.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$80");
+    a.l("sta $2115         ; VMAIN: increment after the high byte");
+    a.l("rep #$30");
+    a.l("ldx #$2000");
+    a.l("stx $2116");
+    a.l("lda #$1234");
+    a.l("sta $2118");
+    a.c("Read it back: the port works and the seed is there.");
+    a.l("ldx #$2000");
+    a.l("stx $2116");
+    a.l("sep #$20");
+    a.l("lda $2139         ; prefetch discard");
+    a.l("rep #$30");
+    a.l("ldx #$2000");
+    a.l("stx $2116");
+    a.l("sep #$20");
+    a.l("lda $2139");
+    a.assert_a8(
+        0x34,
+        "the seed did not reach VRAM under forced blank, so nothing below means anything",
+    );
+    a.c("Get well inside the picture while still blanked, by watching the V counter rather than");
+    a.c("the vblank flag. Line 0 is a blanking line where VRAM is legitimately open, so a test");
+    a.c("that fires the moment $4212 says 'not vblank' measures line 0 on one core and line 1 on");
+    a.c("another -- which is how the first version of this passed on two emulators and failed on");
+    a.c("the third for a reason that had nothing to do with the window.");
+    a.c("");
+    a.c("64, not 8, because only the V counter's LOW BYTE is read here and a PAL frame has 312");
+    a.c("lines: 8..199 also matches 264..311, which are vblank, where the port is open and the");
+    a.c("test would measure nothing. From 64 the alias needs line 320, which does not exist.");
+    a.label("wl");
+    a.l("lda $213F         ; reset the counter read flipflops");
+    a.l("lda $2137         ; latch H and V");
+    a.l("lda $213D         ; V low");
+    a.l("cmp #64");
+    a.l("bcc @wl");
+    a.l("cmp #200");
+    a.l("bcs @wl           ; V is in 64..199: mid-picture, and unambiguous");
+    a.c("Lift forced blank. The window must close on this write, not on the next line.");
+    a.l("lda #$0F");
+    a.l("sta $2100");
+    a.l("rep #$30");
+    a.l("ldx #$2000");
+    a.l("stx $2116");
+    a.l("lda #$5678");
+    a.l("sta $2118         ; must be dropped");
+    a.l("sep #$20");
+    a.l("lda #$8F");
+    a.l("sta $2100         ; blank again so the read below is safe");
+    a.label("wv2");
+    a.l("lda $4212");
+    a.l("and #$80");
+    a.l("beq @wv2          ; back in vblank, so the read below is safe");
+    a.l("rep #$30");
+    a.l("ldx #$2000");
+    a.l("stx $2116");
+    a.l("sep #$20");
+    a.l("lda $2139         ; prefetch discard");
+    a.l("rep #$30");
+    a.l("ldx #$2000");
+    a.l("stx $2116");
+    a.l("sep #$20");
+    a.l("lda $2139");
+    a.assert_a8(
+        0x34,
+        "a VRAM write made after forced blank was lifted mid-frame landed anyway — the window \
+         closes on that write, not at the next scanline",
+    );
+    a.finish(
+        "C2.12",
+        'C',
+        "Blank off closes VRAM",
+        Provenance::Documented("SNESdev Wiki, VRAM access; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
 // Like C7, these need a rendered frame — but they score off VRAM reads and the V counter, never
 // off pixels.
 // ---------------------------------------------------------------------------------------------

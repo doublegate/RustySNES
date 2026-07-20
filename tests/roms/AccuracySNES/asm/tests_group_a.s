@@ -3773,6 +3773,123 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; C2.12 — Blank off closes VRAM
+; provenance: Documented (SNESdev Wiki, VRAM access; fullsnes)
+.proc test_c2_12
+    .a16
+    .i16
+    ; Word $2000 is untouched by the font and the canvas. Seed it under forced blank, which
+    ; must work — that is the control for everything below.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115         ; VMAIN: increment after the high byte
+    rep #$30
+    .a16
+    .i16
+    ldx #$2000
+    stx $2116
+    lda #$1234
+    sta $2118
+    ; Read it back: the port works and the seed is there.
+    ldx #$2000
+    stx $2116
+    sep #$20
+    .a8
+    lda $2139         ; prefetch discard
+    rep #$30
+    .a16
+    .i16
+    ldx #$2000
+    stx $2116
+    sep #$20
+    .a8
+    lda $2139
+    cmp #$34
+    beq :+
+    jmp @fail1
+  :
+    ; Get well inside the picture while still blanked, by watching the V counter rather than
+    ; the vblank flag. Line 0 is a blanking line where VRAM is legitimately open, so a test
+    ; that fires the moment $4212 says 'not vblank' measures line 0 on one core and line 1 on
+    ; another -- which is how the first version of this passed on two emulators and failed on
+    ; the third for a reason that had nothing to do with the window.
+    ; 
+    ; 64, not 8, because only the V counter's LOW BYTE is read here and a PAL frame has 312
+    ; lines: 8..199 also matches 264..311, which are vblank, where the port is open and the
+    ; test would measure nothing. From 64 the alias needs line 320, which does not exist.
+@wl:
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    cmp #64
+    bcc @wl
+    cmp #200
+    bcs @wl           ; V is in 64..199: mid-picture, and unambiguous
+    ; Lift forced blank. The window must close on this write, not on the next line.
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    ldx #$2000
+    stx $2116
+    lda #$5678
+    sta $2118         ; must be dropped
+    sep #$20
+    .a8
+    lda #$8F
+    sta $2100         ; blank again so the read below is safe
+@wv2:
+    lda $4212
+    and #$80
+    beq @wv2          ; back in vblank, so the read below is safe
+    rep #$30
+    .a16
+    .i16
+    ldx #$2000
+    stx $2116
+    sep #$20
+    .a8
+    lda $2139         ; prefetch discard
+    rep #$30
+    .a16
+    .i16
+    ldx #$2000
+    stx $2116
+    sep #$20
+    .a8
+    lda $2139
+    cmp #$34
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the seed did not reach VRAM under forced blank, so nothing below means anything
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; a VRAM write made after forced blank was lifted mid-frame landed anyway — the window closes on that write, not at the next scanline
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C3.01 — CGRAM two-write commit
 ; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
 .proc test_c3_01
@@ -17101,7 +17218,7 @@ apu_prog_45:
 .export _test_flags
 
 _test_count:
-    .word 209
+    .word 210
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -17171,6 +17288,7 @@ _test_entries:
     .faraddr test_c2_04
     .faraddr test_c2_05
     .faraddr test_c2_06
+    .faraddr test_c2_12
     .faraddr test_c3_01
     .faraddr test_c3_02
     .faraddr test_c3_03
@@ -17383,6 +17501,7 @@ _test_flags:
     .byte $01   ; C2.04
     .byte $01   ; C2.05
     .byte $01   ; C2.06
+    .byte $01   ; C2.12
     .byte $01   ; C3.01
     .byte $01   ; C3.02
     .byte $01   ; C3.03
@@ -17595,6 +17714,7 @@ _test_names:
     .addr @n_c2_04
     .addr @n_c2_05
     .addr @n_c2_06
+    .addr @n_c2_12
     .addr @n_c3_01
     .addr @n_c3_02
     .addr @n_c3_03
@@ -17936,6 +18056,9 @@ _test_names:
 @n_c2_06:
     .byte 20
     .byte "VMAIN remap hits bus"
+@n_c2_12:
+    .byte 21
+    .byte "Blank off closes VRAM"
 @n_c3_01:
     .byte 22
     .byte "CGRAM two-write commit"
