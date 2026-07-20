@@ -71,6 +71,7 @@ pub fn all() -> Vec<Test> {
         e1_09(),
         e1_10(),
         e1_12(),
+        e2_03(),
         e2_06(),
         e2_07(),
         e4_01(),
@@ -3054,6 +3055,72 @@ fn e5_11() -> Test {
         'E',
         "Directory entry address",
         Provenance::Documented("fullsnes, S-DSP BRR; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `MOVW dp,YA` dummy-reads its low byte only, not both.
+///
+/// Stores on this processor read their destination before writing it (`E2.01`), and a sixteen-bit
+/// store might reasonably do that twice. It does not: only the low address is read. Pointed at the
+/// timer counters — where a read is destructive — that difference is directly visible, because
+/// `$FD` comes back empty and `$FE`, one address higher and written by the very same instruction,
+/// still holds its count.
+///
+/// Both timers are stopped before the instruction runs. The counters are four bits and the reads
+/// are a handful of cycles apart, so a tick landing in between would answer a question this test is
+/// not asking — the same hazard `E3.01` was rebuilt around.
+///
+/// The `$FE` reading is asserted as a range rather than "not zero": it doubles as the vacuity
+/// guard, since a timer that never advanced would leave both counters empty and make the `$FD`
+/// assertion meaningless.
+fn e2_03() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_dp_imm(0xFA, 0x01) // T0DIV = 1
+        .mov_dp_imm(0xFB, 0x01) // T1DIV = 1
+        .mov_dp_imm(0xF1, 0x83) // enable timers 0 and 1; bit 7 keeps the IPL ROM mapped
+        .delay(0x00)
+        .mov_dp_imm(0xF1, 0x80) // stop both before anything reads them
+        .mov_y_imm(0x00)
+        .mov_a_imm(0x00)
+        .movw_dp_ya(0xFD) // the write goes nowhere; the dummy read is the point
+        .mov_a_dp(0xFD)
+        .mov_dp_a(PORT1) // consumed by MOVW's dummy read
+        .mov_a_dp(0xFE)
+        .mov_dp_a(PORT2) // untouched: MOVW never read this one
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("Timer 1's counter is the vacuity guard as well as the assertion: if it were empty the");
+    a.c("check below would pass on a pair of timers that never ran.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        1,
+        15,
+        "timer 1's counter was empty, so either the timers never ran or MOVW consumed $FE as well",
+    );
+    a.c("And timer 0's is empty, because MOVW's dummy read reached $FD and only $FD.");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0,
+        0,
+        "timer 0's counter survived MOVW dp,YA — the instruction dummy-reads its low address",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E2.03",
+        'E',
+        "MOVW reads the low byte",
+        Provenance::Documented("SNESdev Wiki, SPC700; fullsnes — flagged as errata"),
         Kind::Scored,
         None,
     )

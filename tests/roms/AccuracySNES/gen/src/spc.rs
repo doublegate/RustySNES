@@ -244,6 +244,12 @@ impl Spc {
         self.push(&[0xE0])
     }
 
+    /// `MOVW dp,YA` — `$DA`. Writes two bytes, but dummy-reads only the **low** one, which is what
+    /// makes it distinguishable from two separate stores.
+    pub fn movw_dp_ya(&mut self, dp: u8) -> &mut Self {
+        self.push(&[0xDA, dp])
+    }
+
     /// `INC dp` — `$AB`. A read-modify-write, and so a second kind of direct-page access from the
     /// one `MOV` exercises.
     pub fn inc_dp(&mut self, dp: u8) -> &mut Self {
