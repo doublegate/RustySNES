@@ -244,6 +244,12 @@ impl Spc {
         self.push(&[0xE0])
     }
 
+    /// `INC dp` — `$AB`. A read-modify-write, and so a second kind of direct-page access from the
+    /// one `MOV` exercises.
+    pub fn inc_dp(&mut self, dp: u8) -> &mut Self {
+        self.push(&[0xAB, dp])
+    }
+
     /// `CLRP` — `$20`. Direct page moves to `$00xx`.
     pub fn clrp(&mut self) -> &mut Self {
         self.push(&[0x20])

@@ -15183,7 +15183,7 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
-    lda #38
+    lda #47
     sta f:V_APU_LEN
     lda #$0200
     sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
@@ -15243,6 +15243,12 @@ CATALOG_IMPL = 1
     beq :+
     jmp @fail2
   :
+    ; And a read-modify-write through P: INC must read $0120 and write it back, not page 0.
+    lda f:$7E0102
+    cmp #$5B
+    beq :+
+    jmp @fail3
+  :
     bra @pass
 @timeout:
     sep #$20
@@ -15268,6 +15274,13 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; INC dp with P set did not increment $0120 — a read-modify-write resolves the page for both halves, and $5A means the write went elsewhere
+    sep #$20
+    .a8
+    lda #$06
     sta f:$7EE010
     jml test_restore
 .endproc
@@ -17635,9 +17648,9 @@ apu_prog_30:
     .byte $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
 apu_prog_31:
     .byte $CD, $EF, $BD, $20, $8F, $11, $20, $40, $8F, $5A, $20, $20
-    .byte $E5, $20, $01, $C4, $F5, $E4, $20, $C4, $F6, $E8, $5A, $C4
-    .byte $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F
-    .byte $C0, $FF
+    .byte $E5, $20, $01, $C4, $F5, $E4, $20, $C4, $F6, $40, $AB, $20
+    .byte $20, $E5, $20, $01, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
+    .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
 apu_prog_32:
     .byte $5F, $1A, $02, $AE, $C4, $F5, $AE, $C4, $F6, $E8, $5A, $C4
     .byte $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F

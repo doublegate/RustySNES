@@ -1347,6 +1347,7 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 addressing; fullsnes). Kind: sc
 |---|---|---|
 | 1 | `$02` | a direct-page store with P set did not reach $0120, so the bit is not selecting the page |
 | 2 | `$04` | the page-0 byte changed as well, so the store went to $0020 rather than to $0120 |
+| 3 | `$06` | INC dp with P set did not increment $0120 — a read-modify-write resolves the page for both halves, and $5A means the write went elsewhere |
 
 ### E2.07 — CALL pushes exact addr
 

@@ -3061,10 +3061,16 @@ fn e5_11() -> Test {
 
 /// `PSW.P` moves the direct page to `$01xx`, and it moves it for *every* direct-page access.
 ///
-/// The bit is easy to implement for the obvious loads and stores and forget for the rest — the bit
-/// operations, the pointer fetches behind `[aa]+Y`, the read-modify-writes. A driver that sets `P`
-/// to keep its variables clear of the zero page then finds half its accesses going to the wrong
+/// The bit is easy to implement for the obvious loads and stores and forget for the rest — the
+/// read-modify-writes, the bit operations, the pointer fetches behind `[aa]+Y`. A driver that sets
+/// `P` to keep its variables clear of the zero page then finds half its accesses going to the wrong
 /// place, and the failure looks like memory corruption rather than an addressing bug.
+///
+/// Two kinds of access are checked, because one proves less than it looks: a `MOV` store, and an
+/// `INC dp` — a read-modify-write, which reads through `P`, modifies, and writes back through it.
+/// A core that resolves the page once at decode and reuses it passes both; one that resolves it
+/// separately for the read and the write can fail the second while passing the first. The `[aa]+Y`
+/// pointer fetch the dossier also names is **not** covered here.
 ///
 /// The two pages are seeded with different values first, so "it went to `$0120`" and "it went to
 /// `$0020`" are distinguishable answers rather than one answer and one absence. `$0120` is far
@@ -3082,6 +3088,12 @@ fn e2_06() -> Test {
         .mov_dp_a(PORT1)
         .mov_a_dp(0x20) // page 0 again
         .mov_dp_a(PORT2)
+        // A read-modify-write through P: it must read $0120, increment, and write $0120 back.
+        .setp()
+        .inc_dp(0x20)
+        .clrp()
+        .mov_a_abs(0x0120)
+        .mov_dp_a(PORT3)
         .mov_a_imm(DONE)
         .mov_dp_a(PORT0)
         .release_to_ipl();
@@ -3099,6 +3111,13 @@ fn e2_06() -> Test {
     a.assert_a8(
         0x11,
         "the page-0 byte changed as well, so the store went to $0020 rather than to $0120",
+    );
+    a.c("And a read-modify-write through P: INC must read $0120 and write it back, not page 0.");
+    a.l("lda f:$7E0102");
+    a.assert_a8(
+        0x5B,
+        "INC dp with P set did not increment $0120 — a read-modify-write resolves the page for \
+         both halves, and $5A means the write went elsewhere",
     );
     apu_timeout_arm(&mut a);
     a.finish(
