@@ -834,6 +834,55 @@ pub const SCENES: &[Scene] = &[
         ],
     },
     Scene {
+        id: "c11-org-13bit-mask",
+        dossier: "C11.02",
+        what: "Mode 7 with screen-over set to TRANSPARENT and `M7HOFS = $0C40`, which is the only \
+               arrangement in which the origin's 13-bit mask is visible at all. `ORG.X` is \
+               `(M7HOFS - M7X) AND NOT $1C00`, so the mask clears bits 10-12 and $0C40 becomes 64 \
+               — inside the map, and the picture is an ordinary offset view. Without the mask the \
+               origin is 3136, far outside a 1024x1024 map, and every pixel is transparent. \
+               $0C40 rather than $1C40 because M7HOFS is thirteen bits SIGNED: with bit 12 set the \
+               value is negative, the origin is off the map to the left either way, and the mask \
+               turns into a no-op that changes nothing — which is what a first attempt at this \
+               scene rendered. The \
+               wrap setting hides this completely: $1C00 is 7 * $400, so the mask only ever \
+               removes multiples of 1024, which is exactly what wrapping removes anyway. A first \
+               version of this scene left screen-over at wrap and rendered a picture identical to \
+               `c11-mode7-identity` on all three emulators — a stable hash that showed nothing.",
+        setup: &[
+            "sep #$20",
+            "lda #$07",
+            "sta $2105         ; BGMODE 7",
+            "jsr scene_mode7_vram",
+            "sep #$20",
+            "lda #$80",
+            "sta $211A         ; M7SEL: screen-over = transparent outside the map",
+            "stz $211B",
+            "lda #$01",
+            "sta $211B         ; M7A = $0100 (1.0)",
+            "stz $211C",
+            "stz $211C         ; M7B = 0",
+            "stz $211D",
+            "stz $211D         ; M7C = 0",
+            "stz $211E",
+            "sta $211E         ; M7D = $0100 (1.0)",
+            "stz $211F",
+            "stz $211F         ; M7X = 0",
+            "stz $2120",
+            "stz $2120         ; M7Y = 0",
+            "; M7HOFS = $0C40, positive in thirteen bits. Masked it is 64; unmasked it is 3136,",
+            "; which is off a 1024-wide map and therefore transparent everywhere.",
+            "lda #$40",
+            "sta $210D",
+            "lda #$0C",
+            "sta $210D",
+            "lda #$01",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
         id: "c12-direct-colour-zero-is-transparent",
         dossier: "C12.02",
         what: "Direct colour mode with a non-black backdrop. Pixel value 0 is transparent in every \

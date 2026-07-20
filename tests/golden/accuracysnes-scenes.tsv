@@ -96,6 +96,18 @@
 # DROPPED: it rendered a picture identical to `c11-mode7-identity`, on all three emulators. $1C00
 # is 7 * $400, so the mask only clears multiples of 1024 -- and a Mode 7 map is 1024x1024 and
 # wraps, so every value the mask removes is one the wrap removes anyway. See the plan doc.
+#
+# 2026-07-20, tenth batch (1 scene: C11.02 again, now working). Screen-over set to TRANSPARENT is
+# what makes the mask visible: the masked origin (64) is on the map and the unmasked one (3136) is
+# not, so the two possibilities are a picture and a blank screen. Two dead ends were needed to get
+# there, both caught by a hash colliding with an existing scene's:
+#   * screen-over left at wrap -- identical to `c11-mode7-identity`, because the mask only removes
+#     multiples of 1024 and wrapping removes those anyway;
+#   * M7HOFS = $1C40 -- identical to `c8-window-inverted-empty-is-full`, i.e. all backdrop, because
+#     M7HOFS is thirteen bits SIGNED and $1C40 is negative. The origin is off the map to the left
+#     either way and the mask changes nothing. $0C40 is the same low bits with bit 12 clear.
+# A duplicate hash is the only thing that caught either. Checking a new scene's hash against the
+# committed goldens is worth doing every time.
 
 c5-mode1-bg-priority	0x4fccc3fcf1027a01
 c8-fixed-colour-add	0x313006a2eb2c3745
@@ -142,3 +154,4 @@ c7-objsel-size-6	0xb86779b44bd801f5
 c7-objsel-size-7	0x751d88828ff52727
 c8-obj-math-palettes-4-7	0x7696cd59bf0681e5
 c12-direct-colour-zero-is-transparent	0x5f0aa17cfe971185
+c11-org-13bit-mask	0xa65485c01b9cc065

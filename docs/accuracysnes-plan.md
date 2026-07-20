@@ -14,7 +14,7 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 | | |
 |---|---|
 | Tests | **202** (190 scoring + 11 golden vectors + 1 region SKIP per image) |
-| Rendered scenes | **45**, all cross-validated (`docs/adr/0013`) |
+| Rendered scenes | **46**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but four, all recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`. Both images. |
 | Groups shipped | **A** (65C816) · **B** (5A22) · **C** (PPU, on-cart and rendered) · **D** (DMA/HDMA) · **E** (SPC700 + S-DSP) · **F** (controller ports) · **G** (cartridge/memory map) — all seven, all partial |
@@ -223,7 +223,7 @@ citation — it decides whether a handler that returns quickly re-enters immedia
 visible difference in any game using a mid-frame IRQ — but it cannot be scored against a citation
 that does not make the claim.
 
-### `C11.02` — the 13-bit mask cannot be seen through a wrapping Mode 7 map
+### `C11.02` — solved, and the two dead ends are the lesson
 
 The origin rule is `ORG.X = (M7HOFS - M7X) AND NOT $1C00`, with `$1C00` put back when the
 difference is negative. A scene was written for it and **rendered a picture identical to
@@ -235,9 +235,15 @@ the rule invisible by construction whenever screen-over is set to wrap. Getting 
 `M7SEL`'s screen-over field to transparent or char-0 so that being *outside* 0-1023 is visible,
 and choosing a difference whose masked and unmasked forms fall on opposite sides of that boundary.
 
-Not hard, but not the scene that was written — and worth recording, because the first attempt
-looked like a working test: three emulators agreeing, a stable hash, a plausible name. It was
-caught only because the hash happened to equal another scene's.
+That is what the shipped scene does. Getting there also required noticing that `M7HOFS` is thirteen
+bits **signed**, so `$1C40` — the obvious "large offset" — is *negative*, puts the origin off the map
+to the left with or without the mask, and renders a blank screen either way. `$0C40` is the same low
+bits with bit 12 clear.
+
+Both dead ends looked like working tests: three emulators agreeing, a stable hash, a plausible name.
+Each was caught only because its hash equalled an existing scene's — the first `c11-mode7-identity`,
+the second `c8-window-inverted-empty-is-full`. **Check a new scene's hash against the committed
+goldens before blessing it.**
 
 ### Group F — blocked on a *peripheral contract*, and now measured
 
