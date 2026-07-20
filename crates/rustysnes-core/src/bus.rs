@@ -795,13 +795,16 @@ impl Bus {
                 // (`rustysnes_core::controller`'s module doc) — `Gamepad` ignores it exactly as
                 // before (no functional change to the default path); the other peripherals latch.
                 let strobe = val & 1 != 0;
-                self.joypad_strobe = strobe;
                 // A parallel load, not an edge: while the strobe is high the shift registers track
-                // the button lines, and the falling edge simply stops them tracking. Reloading here
-                // is what lets a program strobe twice in one frame and read the same buttons twice.
-                if strobe {
+                // the button lines, and the falling edge simply stops them tracking. So the reload
+                // happens on the way down as well as while high — otherwise a program that raises
+                // the strobe, changes nothing, and lowers it would freeze whatever the buttons were
+                // at the *rising* edge rather than at the falling one. Reloading here is what lets
+                // a program strobe twice in one frame and read the same buttons twice.
+                if strobe || self.joypad_strobe {
                     self.joypad_shift = self.joypad;
                 }
+                self.joypad_strobe = strobe;
                 self.ports[0].latch(strobe);
                 self.ports[1].latch(strobe);
             }
@@ -839,6 +842,14 @@ impl Bus {
     /// [`crate::controller::PortState::clock`].
     fn port_clock(&mut self, port: usize) -> (u8, u8) {
         if self.ports[port].device == PortDevice::Gamepad {
+            if self.joypad_strobe {
+                // Held high, the register is being reloaded continuously, so it never advances:
+                // every read returns the first bit. Software that reads without lowering the
+                // strobe gets B over and over, which is the behaviour a latch-then-read driver
+                // depends on not happening by accident.
+                self.joypad_shift[port] = self.joypad[port];
+                return (((self.joypad[port] & 0x8000) >> 15) as u8, 0);
+            }
             // Shifting in ones is the pad's real behaviour once its sixteen data bits are gone:
             // nothing is left driving the line low, so reads 17-32 return 1. That is how software
             // tells a standard pad from a peripheral.
@@ -1282,6 +1293,36 @@ mod tests {
             0x8000,
             "second read must agree with the first"
         );
+    }
+
+    /// The falling edge captures the buttons as they are *then*, not as they were on the way up.
+    #[test]
+    fn strobe_captures_buttons_at_the_falling_edge() {
+        let mut bus = Bus::default();
+        bus.set_joypad(0, 0x0000);
+        bus.write_cpu_reg(0x4016, 0x01); // strobe high with nothing held
+        bus.set_joypad(0, 0x8000); // B goes down while the strobe is still high
+        bus.write_cpu_reg(0x4016, 0x00); // falling edge: this is what must be captured
+        assert_eq!(
+            bus.read_cpu_reg(0x4016) & 1,
+            1,
+            "the falling edge froze a stale button word"
+        );
+    }
+
+    /// Held high, the register never advances: every read is the first bit.
+    #[test]
+    fn strobe_held_high_does_not_advance() {
+        let mut bus = Bus::default();
+        bus.set_joypad(0, 0x8000); // B held, so the first bit is 1 and the rest are 0
+        bus.write_cpu_reg(0x4016, 0x01);
+        for _ in 0..4 {
+            assert_eq!(
+                bus.read_cpu_reg(0x4016) & 1,
+                1,
+                "a read with the strobe high advanced the shift register"
+            );
+        }
     }
 
     /// Past sixteen bits a standard pad reads 1 — which is how software identifies it.

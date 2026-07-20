@@ -224,8 +224,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   read of a frame consumed the buttons, every later one returned all-ones, and a manual read also
   corrupted the auto-read result at `$4218-$421F`. **A frontend rewrites the button state every
   frame, which hid both**; a game that polls twice in one frame would not have been so lucky. The
-  shift registers are now separate state, reloaded while the strobe is high, and saved (save-state
-  `FORMAT_VERSION` 3 → 4, with the reason in `docs/adr/0006`).
+  shift registers are now separate state, reloaded while the strobe is high *and* on its falling
+  edge — a program that raises the strobe, changes the buttons, and lowers it must capture what is
+  held at the fall, not at the rise — and a read taken while the strobe is still high returns the
+  first bit without advancing, because a continuously reloading register never moves on. Saved as
+  state (save-state `FORMAT_VERSION` 3 → 4, with the reason in `docs/adr/0006`).
 
 - **`B4.12` asserted more than its citation.** It read `$4211` to acknowledge an IRQ and then read
   it again on the same scanline, expecting the latch released. But a V-only IRQ's comparator matches
