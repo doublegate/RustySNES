@@ -17,12 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   side only — so three tests play the same 384-sample voice and bound it on both: at `$1000` it has
   not finished after six waits and has after sixteen, and at `$2000` the same six waits are enough.
 
-  The two finishing points were **measured by bisection rather than calculated**: the `$1000` voice
-  finishes between the seventh and eighth wait, the `$2000` voice between the fourth and fifth. Six
-  is the geometric mean, so each verdict has about a third of the elapsed time in hand either side —
-  the widest margin the construction admits, since the two finishing times differ by a factor of
-  two. All three tests agree on snes9x and Mesen2, on both images, which is what says the margin is
-  real rather than a property of one DSP implementation.
+  Each pitch is read twice, at waits either side of where it finishes, because one reading bounds a
+  rate on one side only. The result is two windows — `$1000` consumes 24-64 samples per wait,
+  `$2000` consumes 64-128 — which both contain the documented rates, do not overlap, and cannot both
+  be satisfied by a core that ignores the pitch register.
+
+  The waits were **measured by bisection rather than calculated**, and are placed at the geometric
+  mean of the two finishing points so each verdict has about a third of the elapsed time in hand.
+  What that deliberately does not establish is that the factor is exactly two: a core scaling by 1.5
+  fits both windows, and excluding it would mean bracketing between adjacent waits at a tenth of the
+  margin. `docs/accuracysnes-plan.md` records the trade. All four tests agree on snes9x and Mesen2,
+  on both images.
 
 - **The power-on state is now reachable, and Group G reports out of it (`G1.02`, `G1.04`, `G1.08`,
   `G1.09`).** The battery runs long after reset, through a runtime that deliberately puts every PPU

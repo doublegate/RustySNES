@@ -1563,7 +1563,15 @@ Provenance: **Documented** (fullsnes, S-DSP pitch; anomie's DSP doc). Kind: scor
 
 | Code | Byte | Meaning |
 |---|---|---|
-| 1 | `$02` | a 384-sample voice at pitch $2000 had not finished after six waits, though the same voice at $1000 needs eight — so doubling the pitch register did not double the rate |
+| 1 | `$02` | a 384-sample voice at pitch $2000 had not finished after six waits, though the same voice at $1000 needs eight — so raising the pitch register did not raise the rate |
+
+### E6.02d — Pitch $2000 upper bound
+
+Provenance: **Documented** (fullsnes, S-DSP pitch; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a 384-sample voice at pitch $2000 had already finished after three waits, so it is consuming more than 128 samples per wait — far above what doubling $1000 would give |
 
 ## Group F
 

@@ -13,7 +13,7 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **226** (214 scoring + 11 golden vectors + 1 region SKIP per image) |
+| Tests | **227** (215 scoring + 11 golden vectors + 1 region SKIP per image) |
 | Rendered scenes | **50**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but four, all recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`. Both images. |
@@ -330,6 +330,27 @@ internal to the DSP's own scheduling rather than one the program asks for.
 Reaching that needs the collapse cases first, which are probabilistic on hardware and are their own
 piece of work. Parked with the measurement: `ENDX` reads 1 on RustySNES, snes9x and Mesen2 alike
 after a `KOFF`+`KON` pair.
+
+### `E6.02` — a rate needs four assertions, and the exact factor needs eight
+
+`ENDX` reports "finished" or "not finished", which bounds a rate on one side only, so a rate
+measurement costs two assertions per pitch. `E6.02`-`E6.02d` spend those four and bracket the two
+rates to **24-64** and **64-128** samples per wait — windows that contain the documented 48 and 96,
+that do not overlap, and that no core ignoring the pitch register can satisfy.
+
+**What they deliberately do not establish is that the factor is two.** A core scaling by 1.5 fits
+both windows. Excluding it means bracketing each rate between *adjacent* waits, which is where
+bisection actually puts them (`$1000` between the seventh and eighth, `$2000` between the fourth
+and fifth) — but shipping that would be four assertions with roughly a tenth of the elapsed time in
+hand each, and a tenth is inside the range that has already broken APU tests here twice when an
+unrelated edit moved the battery's code. A longer sample buys finer granularity in wait units and
+buys it linearly, so a factor-of-ten margin improvement means a factor-of-ten longer sample and a
+battery that spends a visible fraction of a second on one row.
+
+The trade is explicit: **a tighter claim is a thinner margin, and this cartridge would rather state
+a wider window it can defend on three emulators than a precise one that flips when a test above it
+grows a line.** If the exact factor becomes worth having, the way in is a longer sample, not a
+narrower wait.
 
 ### Group F — blocked on a *peripheral contract*, and now measured
 

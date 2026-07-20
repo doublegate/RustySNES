@@ -167,6 +167,7 @@ pub const MAP: &[(&str, &[&str])] = &[
     ("E6.02", &["E6.02"]),
     ("E6.02b", &["E6.02"]),
     ("E6.02c", &["E6.02"]),
+    ("E6.02d", &["E6.02"]),
     ("G1.02", &["G1.02"]),
     ("G1.04", &["G1.04"]),
     ("G1.08", &["G1.08"]),
@@ -282,11 +283,11 @@ pub const SPLITS: &[(&str, &str)] = &[
     (
         "E6.02",
         "one row for a rate — and a single reading of ENDX cannot establish a rate, only \
-         \"finished\" or \"not finished\", which bounds it on one side. Cart E6.02 and E6.02b play \
-         the same 384-sample voice at $1000 for six waits and for sixteen — the first short of \
-         where it finishes and the second comfortably past it — bracketing 1:1 from above and \
-         below; E6.02c repeats the six at $2000 and finds it finished, which is the octave. No two \
-         of the three are redundant and no one of them means anything alone",
+         \"finished\" or \"not finished\", which bounds it on one side. So each pitch is read \
+         twice, at waits either side of where it finishes: E6.02/E6.02b bracket $1000 to 24-64 \
+         samples per wait and E6.02c/E6.02d bracket $2000 to 64-128. Both windows contain the \
+         documented rate and the two do not overlap, which is the increase; none of the four means \
+         anything alone, and the pair-of-pairs is what the row is worth",
     ),
     (
         "D1.01",

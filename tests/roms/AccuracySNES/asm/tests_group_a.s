@@ -18049,7 +18049,105 @@ CATALOG_IMPL = 1
     sta f:$7EE010
     jml test_restore
 @fail1:
-    ; a 384-sample voice at pitch $2000 had not finished after six waits, though the same voice at $1000 needs eight — so doubling the pitch register did not double the rate
+    ; a 384-sample voice at pitch $2000 had not finished after six waits, though the same voice at $1000 needs eight — so raising the pitch register did not raise the rate
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; E6.02d — Pitch $2000 upper bound
+; provenance: Documented (fullsnes, S-DSP pitch; anomie's DSP doc)
+.proc test_e6_02d
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image, which lives in another bank.
+    lda #.loword(apu_prog_57)
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    lda #^apu_prog_57
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #467
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsl apu_upload_far
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0100     ; ENDX as the program read it
+    and #$0001        ; voice 0
+    cmp #$0000
+    beq :+
+    jmp @fail1
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jml test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; a 384-sample voice at pitch $2000 had already finished after three waits, so it is consuming more than 128 samples per wait — far above what doubling $1000 would give
     sep #$20
     .a8
     lda #$02
@@ -18886,6 +18984,46 @@ apu_prog_56:
     .byte $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $09
     .byte $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
     .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+apu_prog_57:
+    .byte $5F, $DB, $02, $80, $77, $77, $77, $77, $77, $77, $77, $77
+    .byte $80, $77, $77, $77, $77, $77, $77, $77, $77, $80, $77, $77
+    .byte $77, $77, $77, $77, $77, $77, $80, $77, $77, $77, $77, $77
+    .byte $77, $77, $77, $80, $77, $77, $77, $77, $77, $77, $77, $77
+    .byte $80, $77, $77, $77, $77, $77, $77, $77, $77, $80, $77, $77
+    .byte $77, $77, $77, $77, $77, $77, $80, $77, $77, $77, $77, $77
+    .byte $77, $77, $77, $80, $77, $77, $77, $77, $77, $77, $77, $77
+    .byte $80, $77, $77, $77, $77, $77, $77, $77, $77, $80, $77, $77
+    .byte $77, $77, $77, $77, $77, $77, $80, $77, $77, $77, $77, $77
+    .byte $77, $77, $77, $80, $77, $77, $77, $77, $77, $77, $77, $77
+    .byte $80, $77, $77, $77, $77, $77, $77, $77, $77, $80, $77, $77
+    .byte $77, $77, $77, $77, $77, $77, $80, $77, $77, $77, $77, $77
+    .byte $77, $77, $77, $80, $77, $77, $77, $77, $77, $77, $77, $77
+    .byte $80, $77, $77, $77, $77, $77, $77, $77, $77, $80, $77, $77
+    .byte $77, $77, $77, $77, $77, $77, $80, $77, $77, $77, $77, $77
+    .byte $77, $77, $77, $80, $77, $77, $77, $77, $77, $77, $77, $77
+    .byte $80, $77, $77, $77, $77, $77, $77, $77, $77, $80, $77, $77
+    .byte $77, $77, $77, $77, $77, $77, $81, $77, $77, $77, $77, $77
+    .byte $77, $77, $77, $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8
+    .byte $02, $C5, $01, $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5
+    .byte $03, $01, $E8, $00, $C5, $04, $01, $E8, $00, $C5, $05, $01
+    .byte $E8, $00, $C5, $06, $01, $E8, $00, $C5, $07, $01, $E8, $6C
+    .byte $C4, $F2, $E8, $20, $C4, $F3, $E8, $5C, $C4, $F2, $E8, $00
+    .byte $C4, $F3, $E8, $3D, $C4, $F2, $E8, $00, $C4, $F3, $E8, $4D
+    .byte $C4, $F2, $E8, $00, $C4, $F3, $E8, $2D, $C4, $F2, $E8, $00
+    .byte $C4, $F3, $E8, $5D, $C4, $F2, $E8, $01, $C4, $F3, $E8, $0C
+    .byte $C4, $F2, $E8, $7F, $C4, $F3, $E8, $1C, $C4, $F2, $E8, $7F
+    .byte $C4, $F3, $E8, $00, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $01
+    .byte $C4, $F2, $E8, $7F, $C4, $F3, $E8, $02, $C4, $F2, $E8, $00
+    .byte $C4, $F3, $E8, $03, $C4, $F2, $E8, $20, $C4, $F3, $E8, $04
+    .byte $C4, $F2, $E8, $00, $C4, $F3, $E8, $06, $C4, $F2, $E8, $00
+    .byte $C4, $F3, $E8, $07, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $05
+    .byte $C4, $F2, $E8, $00, $C4, $F3, $E8, $7C, $C4, $F2, $E8, $00
+    .byte $C4, $F3, $E8, $4C, $C4, $F2, $E8, $01, $C4, $F3, $8D, $00
+    .byte $FE, $FE, $E8, $4C, $C4, $F2, $E8, $00, $C4, $F3, $8D, $00
+    .byte $FE, $FE, $8D, $00, $FE, $FE, $E8, $7C, $C4, $F2, $E4, $F3
+    .byte $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $09
+    .byte $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
+    .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
 
 .segment "CATALOG"
 .export _test_count
@@ -18894,7 +19032,7 @@ apu_prog_56:
 .export _test_flags
 
 _test_count:
-    .word 226
+    .word 227
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -19082,6 +19220,7 @@ _test_entries:
     .faraddr test_e6_02
     .faraddr test_e6_02b
     .faraddr test_e6_02c
+    .faraddr test_e6_02d
     .faraddr test_f1_02
     .faraddr test_g1_02
     .faraddr test_g1_04
@@ -19311,6 +19450,7 @@ _test_flags:
     .byte $01   ; E6.02
     .byte $01   ; E6.02b
     .byte $01   ; E6.02c
+    .byte $01   ; E6.02d
     .byte $01   ; F1.02
     .byte $01   ; G1.02
     .byte $01   ; G1.04
@@ -19540,6 +19680,7 @@ _test_names:
     .addr @n_e6_02
     .addr @n_e6_02b
     .addr @n_e6_02c
+    .addr @n_e6_02d
     .addr @n_f1_02
     .addr @n_g1_02
     .addr @n_g1_04
@@ -20134,6 +20275,9 @@ _test_names:
 @n_e6_02c:
     .byte 24
     .byte "Pitch $2000 is +1 octave"
+@n_e6_02d:
+    .byte 23
+    .byte "Pitch $2000 upper bound"
 @n_f1_02:
     .byte 19
     .byte "Pad reads 17+ are 1"

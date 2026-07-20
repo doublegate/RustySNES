@@ -98,6 +98,7 @@ pub fn all() -> Vec<Test> {
         e6_02(),
         e6_02b(),
         e6_02c(),
+        e6_02d(),
     ]
 }
 
@@ -3441,14 +3442,25 @@ fn pitch_rate_test(
 /// `ENDX` can establish a rate — it says only "finished" or "not finished", which bounds the rate
 /// on one side. Three readings of the same 384-sample voice bound it on both:
 ///
-/// | | pitch | waits | `ENDX` | what it rules out |
+/// | | pitch | waits | `ENDX` | what it establishes |
 /// |---|---|---|---|---|
-/// | `E6.02` | `$1000` | 6 | clear | that the voice is running fast enough to have finished |
-/// | `E6.02b` | `$1000` | 16 | set | that it is running arbitrarily slowly, or not at all |
-/// | `E6.02c` | `$2000` | 6 | set | anything short of the doubling — same wait, opposite verdict |
+/// | `E6.02` | `$1000` | 6 | clear | fewer than 64 samples per wait |
+/// | `E6.02b` | `$1000` | 16 | set | at least 24 — so it is playing, and not arbitrarily slowly |
+/// | `E6.02c` | `$2000` | 6 | set | at least 64: strictly faster than `$1000`, same wait |
+/// | `E6.02d` | `$2000` | 3 | clear | fewer than 128 — the upper bound that makes it a window |
 ///
 /// A wait is one `settle` loop of the shared `voice_program` (256 iterations of `DBNZ Y`), plus
 /// the key-on delay, which is why the counts above are one more than the `settle` values passed in.
+/// The sample is 384 long, so "finished after *n* waits" means at least `384/n` samples per wait.
+///
+/// **What this does not establish is the exact factor**, and the honest statement of the result is
+/// the two windows: `$1000` consumes 24-64 samples per wait and `$2000` consumes 64-128. Both
+/// windows contain the documented values (48 and 96), and a core that ignores the pitch register
+/// entirely cannot satisfy both — but a core scaling by 1.5 rather than 2 also fits. Excluding that
+/// needs each rate bracketed between *adjacent* waits, which is where the bisection above actually
+/// puts them, but shipping it would mean four assertions with roughly a tenth of the elapsed time
+/// in hand. That is the timing-marginal construction this group has been bitten by before, so it
+/// is deliberately not shipped; see `docs/accuracysnes-plan.md`.
 ///
 /// **The two boundaries were measured rather than calculated.** Bisecting on this cart puts the
 /// `$1000` voice's finish between the seventh and eighth wait and the `$2000` voice's between the
@@ -3492,11 +3504,13 @@ fn e6_02b() -> Test {
     )
 }
 
-/// `$2000` is one octave up: the same sample is gone in half the time.
+/// `$2000` plays faster: the same voice, the same wait, and the opposite verdict.
 ///
-/// Same voice, same wait as `E6.02`, one bit changed in the pitch register — and the verdict
-/// inverts. That is what makes this an assertion about the pitch scaling rather than about the
-/// sample or the timer: the two tests differ in nothing else.
+/// One bit changed in the pitch register and nothing else, which is what makes this an assertion
+/// about pitch scaling rather than about the sample or the timer. Read with `E6.02` it establishes
+/// that `$2000` consumes at least 64 samples per wait where `$1000` consumes fewer than 64 — a
+/// strict increase, and the direction the octave predicts. It does not by itself pin the factor at
+/// two; `E6.02`'s table says what the four together do and do not establish.
 fn e6_02c() -> Test {
     pitch_rate_test(
         "E6.02c",
@@ -3505,6 +3519,24 @@ fn e6_02c() -> Test {
         5,
         true,
         "a 384-sample voice at pitch $2000 had not finished after six waits, though the same voice \
-         at $1000 needs eight — so doubling the pitch register did not double the rate",
+         at $1000 needs eight — so raising the pitch register did not raise the rate",
+    )
+}
+
+/// The upper bound on `$2000`, without which `E6.02c` is only half a measurement.
+///
+/// `E6.02c` says the voice consumes at least 64 samples per wait; a core running it ten times too
+/// fast satisfies that just as well as one running it at the documented rate. Three waits are not
+/// enough for a 384-sample voice to finish at anything up to 128 samples per wait, so this closes
+/// the window from above and turns "at least" into "between".
+fn e6_02d() -> Test {
+    pitch_rate_test(
+        "E6.02d",
+        "Pitch $2000 upper bound",
+        0x20,
+        2,
+        false,
+        "a 384-sample voice at pitch $2000 had already finished after three waits, so it is \
+         consuming more than 128 samples per wait — far above what doubling $1000 would give",
     )
 }
