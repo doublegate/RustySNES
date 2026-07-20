@@ -11,6 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Four more 65816 addressing rules (`A2`, `A3`), and a fourth snes9x divergence.** `A3.07`:
+  `JSL` escapes page 1 — its third push lands at `$00FF`, not wrapped to `$01FF`. `A3.09`: so does
+  `PHD`. `A2.07`: `(dp),Y` carries into the *next bank* once the pointer is loaded, so `$FFFF + 2`
+  reads `$7F:0001` and not `$7E:0001`. `A2.10`: `PEI` reads its pointer straight through the page
+  boundary at `E=1` with `DL = $00`, because it is a "new" instruction — the same old-versus-new
+  split as `PLD` against `PLY`, on the fetch side rather than the stack side.
+
+  **`A2.10` fails on snes9x.** `DirectIndirectE1` in `cpuaddr.h` fetches the pointer with
+  `Registers.DL ? WRAP_BANK : WRAP_PAGE`, applying the old-instruction wrap rule, and `PEI` shares
+  that helper with the genuinely old `(d),Y` modes. snes9x's own comment in `OpD4E1` — "PEI is a new
+  instruction, and so doesn't respect the emu-mode stack bounds" — shows it distinguishes
+  new-instruction behaviour for the *stack* but not for the fetch. Mesen2 and RustySNES agree with
+  the cart.
+
+  **`A3.07` does not exercise `RTL`, and that is a measurement rather than an omission.** The first
+  version called `JSL` and let the subroutine return; RustySNES, snes9x and Mesen2 all *hung*. Three
+  implementations failing identically is the signature of a broken test: after the escaping pushes
+  `S` is `$00FE`, emulation mode forces the stack's high byte back to `$01` at the next instruction,
+  and there is no return address left to pull. The subroutine now rebuilds the stack and jumps back
+  instead of returning.
+
 - **The dispatch table is 24-bit, so a test body can live in any bank.** Bank `$00` filled up twice
   in a week and the workarounds were running out: the SPC700 images moved to bank `$01`, then the
   font followed, and what remained was the one thing that could not move — every test body, because
@@ -426,10 +447,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **193 tests — 181 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **197 tests — 185 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **151 of 443** on-cart plus **42** scene-only —
-**193 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier. Dossier coverage is **155 of 443** on-cart plus **42** scene-only —
+**197 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 

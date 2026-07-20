@@ -84,6 +84,23 @@ Provenance: **Documented** (superfamicom.org 65816 reference; WDC datasheet). Ki
 |---|---|---|
 | 1 | `$02` | [dp] pointer fetch page-wrapped (new modes must not) |
 
+### A2.07 — (dp),Y carries bank
+
+Provenance: **Documented** (WDC datasheet; superfamicom.org addressing notes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | (dp),Y did not carry into the next bank — $99 means it wrapped inside the data bank |
+
+### A2.10 — PEI does not page-wrap
+
+Provenance: **Documented** (WDC datasheet; superfamicom.org addressing notes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | PEI page-wrapped its pointer fetch — $99 is the byte at $0000, which only an old-style wrap would read |
+| 2 | `$04` | PEI did not push the pointer's low byte |
+
 ### A3.01 — E=1 stack wraps pg1
 
 Provenance: **Documented** (WDC datasheet; 6502.org 65c816opcodes). Kind: scored.
@@ -129,6 +146,25 @@ Provenance: **Documented** (WDC datasheet). Kind: scored.
 |---|---|---|
 | 1 | `$02` | native stack did not wrap to $FFFF within bank $00 |
 | 2 | `$04` | push at S=$0000 did not land at $00:0000 |
+
+### A3.07 — JSL escapes page 1
+
+Provenance: **Documented** (WDC datasheet; superfamicom.org escape list). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | JSL wrapped its third push into page 1 and clobbered $01FF, instead of escaping to $00FF |
+| 2 | `$04` | nothing was written to $00FF, so JSL's third push did not escape page 1 at all |
+
+### A3.09 — PHD escapes page 1
+
+Provenance: **Documented** (WDC datasheet; superfamicom.org escape list). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | PHD wrapped into page 1 and clobbered $01FF |
+| 2 | `$04` | PHD did not write D's high byte to $0100 |
+| 3 | `$06` | PHD did not write D's low byte to $00FF — it must escape page 1 |
 
 ### A4.01 — JMP (a) no page bug
 

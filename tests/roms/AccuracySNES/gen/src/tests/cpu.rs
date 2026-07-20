@@ -26,12 +26,16 @@ pub fn all() -> Vec<Test> {
         a2_03(),
         a2_04(),
         a2_05(),
+        a2_07(),
+        a2_10(),
         // --- A3: stack wrapping ---
         a3_01(),
         a3_02(),
         a3_03(),
         a3_04(),
         a3_05(),
+        a3_07(),
+        a3_09(),
         // --- A4: absolute / jump wrapping ---
         a4_01(),
         a4_02(),
@@ -413,6 +417,229 @@ fn a3_02() -> Test {
         'A',
         "PEA escapes page 1",
         Provenance::Documented("WDC datasheet; hardware-confirmed per superfamicom.org"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `JSL` escapes page 1: the third pushed byte lands below `$0100`, not wrapped above it.
+///
+/// The emulation-mode stack is confined to `$01xx` for the instructions the 6502 had. `JSL` is not
+/// one of them — it pushes three bytes, and from `S = $0101` the last of them goes to `$00FF`. A
+/// core applying the confinement rule uniformly wraps that byte to `$01FF` instead, which corrupts
+/// whatever is at the top of the stack page.
+///
+/// The canary at `$01FF` is the discriminator: untouched if the push escaped, overwritten if it
+/// wrapped. The byte at `$00FF` is checked for having been written at all, without asserting *what*
+/// — it is the low byte of a return address, and a test that pinned it would be pinning where in
+/// the ROM it happens to be assembled.
+///
+/// **The `RTL` half of the dossier row is deliberately not exercised, and the reason is a
+/// measurement.** The first version of this test called `JSL` and let the subroutine `RTL` back;
+/// RustySNES, snes9x and Mesen2 all *hung*. Three implementations failing identically is the
+/// signature of a broken test rather than three broken emulators: after the escaping pushes `S` is
+/// `$00FE`, and emulation mode forces the stack's high byte back to `$01` at the next instruction,
+/// so there is no return address to pull. The subroutine here therefore leaves emulation mode,
+/// rebuilds the stack and jumps back instead of returning.
+fn a3_07() -> Test {
+    let mut a = Asm::new();
+    a.c("The subroutine, jumped over. It does not RTL — see the note above — it leaves emulation");
+    a.c("mode, puts the stack somewhere defined, and rejoins the test.");
+    a.l("bra @body");
+    a.label("sub");
+    a.l("clc");
+    a.l("xce               ; -> native");
+    a.l("rep #$30");
+    a.l(".a16");
+    a.l(".i16");
+    a.l("lda f:V_SAVED_S");
+    a.l("tcs");
+    a.l("jmp @after");
+    a.label("body");
+    a.c("Seed the canary at $01FF and clear $00FF, so each has a distinct 'was written' value.");
+    a.l("rep #$30");
+    a.l("sep #$20");
+    a.l("lda #$EE");
+    a.l("sta f:$7E01FF");
+    a.l("lda #$00");
+    a.l("sta f:$7E00FF");
+    a.l("rep #$30");
+    a.c("E=1, S=$0101: JSL pushes PB to $0101, PCH to $0100, PCL to $00FF.");
+    a.l("lda #$0101");
+    a.l("tcs");
+    a.enter_emulation();
+    a.l("jsl @sub");
+    a.label("after");
+    a.l("rep #$30");
+    a.l("sep #$20");
+    a.l("lda f:$7E01FF");
+    a.assert_a8(
+        0xEE,
+        "JSL wrapped its third push into page 1 and clobbered $01FF, instead of escaping to $00FF",
+    );
+    a.c("And the byte did land below the page. Any non-zero value will do: it is the low byte of");
+    a.c("a return address this test deliberately does not depend on the layout of.");
+    a.l("rep #$30");
+    a.l("lda f:$7E00FF");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        1,
+        0xFF,
+        "nothing was written to $00FF, so JSL's third push did not escape page 1 at all",
+    );
+    a.finish(
+        "A3.07",
+        'A',
+        "JSL escapes page 1",
+        Provenance::Documented("WDC datasheet; superfamicom.org escape list"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `PHD` escapes page 1: from `S = $0100` its two bytes land at `$0100` and `$00FF`.
+///
+/// Another instruction the 6502 never had, and so another one the emulation-mode confinement rule
+/// does not apply to. From `S = $0100` the first push fills the last byte of the page and the
+/// second one leaves it — a core that wraps writes to `$01FF` instead and destroys the top of the
+/// stack.
+///
+/// The dossier pairs `PHD` with `PER`; only `PHD` is asserted here. `PER` pushes a PC-relative
+/// address, so its expected value depends on where in the ROM this test happens to be assembled,
+/// and a test that has to be re-derived whenever the code above it moves is a test that will one
+/// day be re-derived wrongly.
+fn a3_09() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("sep #$20");
+    a.l("lda #$EE");
+    a.l("sta f:$7E01FF"); // the canary a wrapping push would destroy
+    a.l("rep #$30");
+    a.l("lda #$1234");
+    a.l("tcd");
+    a.l("lda #$0100");
+    a.l("tcs");
+    a.enter_emulation();
+    a.l("phd");
+    a.enter_native();
+    a.l("rep #$30");
+    a.c("Put D back before anything else reads a direct-page address.");
+    a.l("lda #$0000");
+    a.l("tcd");
+    a.l("sep #$20");
+    a.l("lda f:$7E01FF");
+    a.assert_a8(0xEE, "PHD wrapped into page 1 and clobbered $01FF");
+    a.l("lda f:$7E0100");
+    a.assert_a8(0x12, "PHD did not write D's high byte to $0100");
+    a.l("lda f:$7E00FF");
+    a.assert_a8(
+        0x34,
+        "PHD did not write D's low byte to $00FF — it must escape page 1",
+    );
+    a.finish(
+        "A3.09",
+        'A',
+        "PHD escapes page 1",
+        Provenance::Documented("WDC datasheet; superfamicom.org escape list"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `(dp),Y` carries into the next bank once the pointer has been loaded.
+///
+/// The pointer fetch is confined to the direct page, but the `Y` that is added afterwards is added
+/// to a full 24-bit address formed with the data bank — so a pointer of `$FFFF` plus `Y = 2` lands
+/// in the *next* bank, not back at the bottom of this one. A core that wraps within the bank reads
+/// something 64 KB away from what the program meant, which for a table crossing a bank boundary is
+/// the difference between data and whatever precedes it.
+///
+/// Both candidate addresses are seeded with different values, so the wrong answer is a specific
+/// wrong byte rather than whatever memory happened to hold. WRAM is used for both because it is the
+/// only region where two consecutive banks are readable and writable.
+fn a2_07() -> Test {
+    let mut a = Asm::new();
+    a.c("$7F:0001 is where the bank carry must land; $7E:0001 is where a bank-wrapping core");
+    a.c("would look instead.");
+    a.l("rep #$30");
+    a.l("sep #$20");
+    a.l("lda #$5A");
+    a.l("sta f:$7F0001");
+    a.l("lda #$99");
+    a.l("sta f:$7E0001");
+    a.c("Direct page $10/$11 holds the pointer $FFFF; DBR = $7E; Y = 2.");
+    a.l("rep #$30");
+    a.l("lda #$0000");
+    a.l("tcd");
+    a.l("lda #$FFFF");
+    a.l("sta f:$7E0010");
+    a.l("ldy #$0002");
+    a.l("sep #$20");
+    a.l("lda #$7E");
+    a.l("pha");
+    a.l("plb");
+    a.l("lda ($10),y");
+    a.c("Restore the data bank before anything else uses absolute addressing.");
+    a.l("phk");
+    a.l("plb");
+    a.assert_a8(
+        0x5A,
+        "(dp),Y did not carry into the next bank — $99 means it wrapped inside the data bank",
+    );
+    a.finish(
+        "A2.07",
+        'A',
+        "(dp),Y carries bank",
+        Provenance::Documented("WDC datasheet; superfamicom.org addressing notes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `PEI (dp)` reads its pointer without page-wrapping, even at `E=1` with `DL = $00`.
+///
+/// The direct-page page-wrap rule — a 16-bit read at `$FF` fetching its high byte from `$00` of the
+/// same page — applies to the instructions the 6502 had. `PEI` is not one of them, so it reads
+/// `$00FF` and `$0100`, straight through the page boundary. It is the same old-versus-new split as
+/// `PLD` against `PLY` (`A3.03`), on the fetch side rather than the stack side.
+///
+/// `$0000` is seeded with a third value, so a page-wrapping core pushes a *specific* wrong word
+/// rather than something incidental. The pushed bytes are read out of WRAM rather than pulled off
+/// the stack, which keeps the stack pointer's own emulation-mode behaviour out of an assertion that
+/// is not about it.
+fn a2_10() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("sep #$20");
+    a.l("lda #$34");
+    a.l("sta f:$7E00FF"); // the low byte of the pointer
+    a.l("lda #$12");
+    a.l("sta f:$7E0100"); // its high byte, if the read does not wrap
+    a.l("lda #$99");
+    a.l("sta f:$7E0000"); // and where a wrapping read would take it from
+    a.l("rep #$30");
+    a.l("lda #$0000");
+    a.l("tcd");
+    a.l("lda #$01FF");
+    a.l("tcs");
+    a.enter_emulation();
+    a.l("pei ($FF)");
+    a.enter_native();
+    a.l("rep #$30");
+    a.l("sep #$20");
+    a.l("lda f:$7E01FF");
+    a.assert_a8(
+        0x12,
+        "PEI page-wrapped its pointer fetch — $99 is the byte at $0000, which only an old-style \
+         wrap would read",
+    );
+    a.l("lda f:$7E01FE");
+    a.assert_a8(0x34, "PEI did not push the pointer's low byte");
+    a.finish(
+        "A2.10",
+        'A',
+        "PEI does not page-wrap",
+        Provenance::Documented("WDC datasheet; superfamicom.org addressing notes"),
         Kind::Scored,
         None,
     )
