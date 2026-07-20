@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   each bank maps its own **32 KiB**. The per-bank signature bytes this image has carried since the
   beginning exist for the second one, and it is why the cart is 128 KiB rather than the minimum 32.
 
+  `G1.11` then adds up **every byte of the image** — all 131,072 — and compares the total against
+  the checksum in the header. What that really tests is the memory map: reaching every byte means
+  walking all four banks through the LoROM formula, so a decode that mirrors a bank, drops one, or
+  gets the stride wrong produces a different total. `G1.14` proves the formula on three sample
+  bytes; this proves it on all of them. It does **not** validate the checksum algorithm, and the
+  test says so: the generator computes it the same way, so a shared misunderstanding would agree
+  with itself.
+
   These assert what every other test silently depends on. Every assertion in every other group runs
   out of a ROM addressed through that formula, so if the formula were wrong the failures would
   appear anywhere but here — and a mapping bug that happens to be self-consistent produces a battery
@@ -486,10 +494,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **201 tests — 189 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **202 tests — 190 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **159 of 443** on-cart plus **42** scene-only —
-**201 of 443** in total. **Every group A-G now has shipped tests.** (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier. Dossier coverage is **160 of 443** on-cart plus **42** scene-only —
+**202 of 443** in total. **Every group A-G now has shipped tests.** (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 
