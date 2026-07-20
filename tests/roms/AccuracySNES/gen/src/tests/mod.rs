@@ -4,6 +4,7 @@
 //! arriving in Phase B. Groups D-G land in later phases — see `docs/accuracysnes-plan.md` for
 //! what blocks each, and `to-dos/ROADMAP.md` for the T-04-* ticket IDs.
 
+pub mod apu;
 pub mod bus;
 pub mod cpu;
 pub mod dma;
@@ -19,6 +20,7 @@ pub fn all() -> Vec<Test> {
     v.extend(ppu::all());
     v.extend(bus::all());
     v.extend(dma::all());
+    v.extend(apu::all());
     v.extend(sweep::all());
     v
 }

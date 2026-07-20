@@ -7461,6 +7461,129 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; E1.01 — MUL YA flags from Y
+; provenance: Documented (SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata)
+.proc test_e1_01
+    .a16
+    .i16
+    bra @body
+@prog:
+    .byte $CD, $EF, $BD, $E8, $10, $8D, $10, $CF, $C4, $F6, $CB, $F7
+    .byte $0D, $AE, $C4, $F5, $E8, $5A, $C4, $F4, $2F, $FE
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image.
+    lda #@prog
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    phk
+    pla
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #22
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsr apu_upload
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Product first: $10 * $10 = $0100.
+    sep #$20
+    .a8
+    lda APUIO2
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    lda APUIO3
+    cmp #$01
+    beq :+
+    jmp @fail2
+  :
+    ; Then the flags. Z is bit 1 of PSW and must be CLEAR even though A came out $00.
+    lda APUIO1
+    and #$02
+    cmp #$00
+    beq :+
+    jmp @fail3
+  :
+    ; N is bit 7, and $01 is positive, so it must be clear too.
+    lda APUIO1
+    and #$80
+    cmp #$00
+    beq :+
+    jmp @fail4
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jmp test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; MUL YA low byte is wrong
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; MUL YA high byte is wrong
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+@fail3:
+    ; MUL YA set Z although Y is non-zero — the flags come from Y alone, not from A or YA
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jmp test_restore
+@fail4:
+    ; MUL YA set N although Y is $01
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 ; A5.S01 — Sweep: CLC
 ; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
 .proc test_a5_s01
@@ -10590,7 +10713,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 149
+    .word 150
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -10709,6 +10832,7 @@ _test_entries:
     .addr test_d1_04
     .addr test_d2_05
     .addr test_d2_06
+    .addr test_e1_01
     .addr test_a5_s01
     .addr test_a5_s02
     .addr test_a5_s03
@@ -10861,6 +10985,7 @@ _test_flags:
     .byte $01   ; D1.04
     .byte $01   ; D2.05
     .byte $01   ; D2.06
+    .byte $01   ; E1.01
     .byte $01   ; A5.S01
     .byte $01   ; A5.S02
     .byte $01   ; A5.S03
@@ -11013,6 +11138,7 @@ _test_names:
     .addr @n_d1_04
     .addr @n_d2_05
     .addr @n_d2_06
+    .addr @n_e1_01
     .addr @n_a5_s01
     .addr @n_a5_s02
     .addr @n_a5_s03
@@ -11392,6 +11518,9 @@ _test_names:
 @n_d2_06:
     .byte 22
     .byte "HDMA $4308/$430A state"
+@n_e1_01:
+    .byte 19
+    .byte "MUL YA flags from Y"
 @n_a5_s01:
     .byte 10
     .byte "Sweep: CLC"

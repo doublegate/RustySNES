@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Group E is unblocked: the APU is now reachable from the cart (T-04-E).** The SPC700 is a
+  separate processor with its own RAM, and the only channel between it and the 65816 is four bytes
+  — so nothing about it was testable at all. The cart now uploads a small SPC700 program through
+  the IPL boot ROM's handshake (`apu_upload`), lets it run, and reads its answers back through
+  those same four ports, which is exactly what a game's sound driver does at boot.
+
+  The programs are assembled by a new `gen/src/spc.rs`, because `ca65` does not speak SPC700. It
+  is deliberately minimal — one emitter per instruction a committed test actually uses, since an
+  unexercised encoding is an unverified one, and a wrong byte in it would surface as an emulator
+  disagreement rather than as an assembler bug.
+
+  First test: `E1.01`, the errata that `MUL YA` takes N and Z from `Y` alone. With `Y = A = $10`
+  the product is `$0100`, so `A` ends at `$00` and `Z` is nonetheless **clear**. Reading `PSW` at
+  all is the recurring trick here — the SPC700 has no instruction for it, so `PUSH PSW`/`POP A`
+  does the job, which only works because the results are captured first with the two moves that
+  leave flags alone.
+
+  **Every wait in the handshake is bounded.** The first version was not, and it hung the whole
+  battery — reporting nothing about the other 149 tests, which is a far worse failure than one
+  test standing down. `V_APU_STAGE` names the step that gave up, and a test whose APU never
+  answers reports SKIP.
+
 - **Sprites (`C7`) — three new scenes, bringing the blessed total to 41.** `C7.15` (sprite
   priority is OAM index alone, so the scene writes the two in the opposite order to the expected
   result — a core drawing in write order gets it exactly backwards), `C7.13` (the errata: V-flip
@@ -135,10 +157,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **149 tests — 137 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **150 tests — 138 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **109 of 443** on-cart plus **42** scene-only —
-**151 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier. Dossier coverage is **110 of 443** on-cart plus **42** scene-only —
+**152 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 

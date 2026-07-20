@@ -29,6 +29,17 @@ V_OPT_H_EVEN    = VAR_BASE + $16
 V_OPT_H_ODD     = VAR_BASE + $18
 V_OPT_V_EVEN    = VAR_BASE + $1A
 V_OPT_V_ODD     = VAR_BASE + $1C
+; APU upload parameters, read by `apu_upload` (see runtime.s).
+V_APU_SRC       = VAR_BASE + $1E      ; 16-bit source address of the SPC700 image
+V_APU_BANK      = VAR_BASE + $20      ; source bank
+V_APU_LEN       = VAR_BASE + $22      ; byte count
+V_APU_DEST      = VAR_BASE + $24      ; APU RAM destination
+V_APU_ENTRY     = VAR_BASE + $26      ; APU entry point to jump to
+; The source pointer is copied into DIRECT PAGE before the transfer: `lda [dp],y` is the only
+; addressing mode that reaches an arbitrary bank with an index, and it requires a direct-page
+; pointer. $0050 is clear of every other bank-$00 slot the runtime uses.
+V_APU_STAGE     = VAR_BASE + $28      ; which handshake step failed, if one did
+V_APU_PTR       = $0050
 
 ; ---------------------------------------------------------------------------------------------
 ; Power-on capture block ($E040-$E04F).
@@ -96,6 +107,11 @@ VERDICT_NOTRUN  = $00
 VERDICT_PASS    = $01
 VERDICT_SKIP    = $FF
 
+APUIO0          = $2140
+APUIO1          = $2141
+APUIO2          = $2142
+APUIO3          = $2143
+
 ; --- PPU / CPU registers we touch ------------------------------------------------------------
 INIDISP         = $2100
 BGMODE          = $2105
@@ -162,6 +178,7 @@ PAD_X           = $0040
     .import hv_begin
     .import hv_end
 .import wait_vblank
+    .import apu_upload
 .endif
 .ifndef CATALOG_IMPL
     .import _test_count
