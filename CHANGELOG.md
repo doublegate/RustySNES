@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The undocumented sprite size pairs, as two scenes (`C7.10`).** `OBJSEL` pairs 6 and 7 are the
+  only ones whose members are not square — 16x32/32x64 and 16x32/32x32 — and no official document
+  lists them. The two scenes place one sprite of each size side by side and differ from each other
+  by a single `OBJSEL` bit: the large member's height, 64 against 32. A core that stops its size
+  table at 5, or repeats an earlier pair to fill the gap, draws squares.
+
 - **Group G opens: the cartridge itself (`G1.10`, `G1.12`, `G1.14`).** The one group whose subject
   is not a chip. `G1.10`: the header's checksum and complement must XOR to `$FFFF` — the pair every
   emulator uses to *find* a header at all. `G1.12`: a LoROM header sits at `$00:FFC0`, and its
@@ -237,6 +243,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   writes a third value there first.
 
 ### Fixed
+
+- **Sprite vertical flip is computed against the sprite's WIDTH, not its height** — and correcting a
+  test is what found it. `c7-vflip-tall-halves` was selecting `OBJSEL` pair 3 with the size bit set,
+  which is **32x32**: a square sprite, on which `C7.13`'s errata says nothing. Pointed at a real
+  16x32 sprite, the scene split three ways — snes9x and Mesen2 agreed, RustySNES did not.
+
+  On hardware each square half of a rectangular sprite flips *inside itself* and the halves do not
+  swap places, which falls out of using the width. For square sprites the two are the same number,
+  which is why nothing else in the corpus moved. RustySNES now matches both references bit-for-bit,
+  and the re-blessed golden is that agreed value.
 
 - **The gamepad's shift register was the button word itself, so a strobe never reloaded it.** The
   SNES pad is a *parallel-load* shift register: `$4016.0` high loads it from the button lines and
@@ -496,8 +512,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **AccuracySNES totals, as of this section:** **202 tests — 190 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **160 of 443** on-cart plus **42** scene-only —
-**202 of 443** in total. **Every group A-G now has shipped tests.** (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier — **43 scenes**. Dossier coverage is **160 of 443** on-cart plus **43** scene-only —
+**203 of 443** in total. **Every group A-G now has shipped tests.** (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 

@@ -823,11 +823,24 @@ impl Ppu {
             }
             let idx = in_range[k] as usize;
             let obj = self.object(idx);
-            let (w, h) = self.object_size(obj.size);
+            // The height is not needed: the vertical-flip rule below is expressed in terms of the
+            // width, and the row range is already bounded by sprite evaluation.
+            let (w, _h) = self.object_size(obj.size);
 
             let mut row = (scan_y.wrapping_sub(u32::from(obj.y))) & 0xff;
             if obj.vflip {
-                row = h - 1 - row;
+                // Vertical flip is computed against the sprite's WIDTH, not its height, and that
+                // is not a typo. For a square sprite the two are the same and this is the ordinary
+                // whole-sprite flip. For the undocumented rectangular sizes (OBJSEL pairs 6 and 7,
+                // whose members are 16x32 / 32x64 / 32x32) it means each square half flips inside
+                // itself and the halves do NOT swap positions — the hardware quirk AccuracySNES
+                // `C7.13` pins, and which the `c7-vflip-tall-halves` scene caught this core
+                // getting wrong once the scene was corrected to use a genuinely tall sprite.
+                row = if row < w {
+                    w - 1 - row
+                } else {
+                    w * 3 - 1 - row
+                };
             }
 
             let pal_base = 128 + (u16::from(obj.palette) << 4);

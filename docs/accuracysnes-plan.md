@@ -14,11 +14,11 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 | | |
 |---|---|
 | Tests | **202** (190 scoring + 11 golden vectors + 1 region SKIP per image) |
-| Rendered scenes | **41**, all cross-validated (`docs/adr/0013`) |
+| Rendered scenes | **43**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but four, all recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`. Both images. |
 | Groups shipped | **A** (65C816) · **B** (5A22) · **C** (PPU, on-cart and rendered) · **D** (DMA/HDMA) · **E** (SPC700 + S-DSP) · **F** (controller ports) · **G** (cartridge/memory map) — all seven, all partial |
-| Defects found in this emulator | **11** — see §5 |
+| Defects found in this emulator | **12** — see §5 |
 
 These counts are maintained by hand and will drift. **`docs/accuracysnes-coverage.md` is the
 authority**: it is regenerated with the ROM, so it cannot.
@@ -521,6 +521,7 @@ Recorded because it is the only real measure of whether the battery is worth its
 | `C10.05` scene | Mode 7 ignored mosaic completely, rendering identically with and without it | this branch |
 | `D1.10` | the `$43xB`/`$43xF` DMA scratch latch was not modelled at all — both addresses read 0 where snes9x returned what had been written | this branch |
 | `D1.09` | a WRAM-sourced DMA to `$2180` performed the write. Hardware performs none — it is a WRAM-to-WRAM transfer through the data port. GP-DMA and HDMA have separate transfer paths, so fixing one left the test failing | this branch |
+| `C7.13` scene | sprite vertical flip was computed against the sprite's HEIGHT. Hardware uses its WIDTH, so each square half of a rectangular sprite flips inside itself and the halves do not swap. Identical for square sprites, which is why it survived — and why it took *correcting* a scene that was quietly using a 32x32 sprite to find it | this branch |
 | `F1.02` | the gamepad's shift register *was* the button word, so the `$4016` strobe never reloaded it: the first manual read of a frame consumed the buttons, every later one returned all-ones, and a manual read also corrupted the auto-read result at `$4218-$421F`. Invisible to a frontend, which rewrites the button state every frame; a game polling twice per frame would have seen it | this branch |
 
 Both were found the same way: the test failed on RustySNES while **both** references passed it.

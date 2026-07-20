@@ -38,5 +38,7 @@
 37	c4-hofs-keeps-low-three-bits	C4.01
 38	c4-210d-drives-mode7-scroll	C4.04,C4.05
 39	c7-lower-index-on-top	C7.15
-40	c7-vflip-tall-halves	C7.13
-41	c7-64px-wraps-bottom-to-top	C7.14
+40	c7-objsel-size-6	C7.10
+41	c7-objsel-size-7	C7.10
+42	c7-vflip-tall-halves	C7.13
+43	c7-64px-wraps-bottom-to-top	C7.14
