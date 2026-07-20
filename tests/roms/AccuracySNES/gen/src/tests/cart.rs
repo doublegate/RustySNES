@@ -1,4 +1,9 @@
-//! Group G — the cartridge itself: header, memory map, power-on state (ticket **T-04-G**).
+//! Group G — the cartridge itself: header and memory map (ticket **T-04-G**).
+//!
+//! The group's dossier scope also covers power-on and reset state, and **none of that is here
+//! yet**: the battery runs long after reset, through a runtime that has already written most of the
+//! registers whose power-on values the dossier enumerates. Reaching them needs a test that runs
+//! before the runtime does, which is a mechanism rather than a test.
 //!
 //! The one group whose subject is not a chip. What it asserts is that the *emulator's* view of the
 //! cartridge matches the one every other assertion silently depends on: that the header is where

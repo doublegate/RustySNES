@@ -33,14 +33,14 @@ flag in the status byte `BRK` pushes).
 
 | Group | Scope | Enumerated | Done | Left |
 |---|---|---:|---:|---:|
-| **A** | 65C816 CPU | ~55 | 69 | see coverage report |
-| **B** | 5A22 bus, clock, timing | ~30 | 20 | ~10 |
+| **A** | 65C816 CPU | ~55 | 86 | see coverage report |
+| **B** | 5A22 bus, clock, timing | ~30 | 22 | ~8 |
 | **C** | S-PPU1 / S-PPU2 | ~85 | 30 | ~55 |
-| **D** | DMA / HDMA | ~35 | 0 | ~35 |
-| **E** | SPC700 + S-DSP | ~75 | 0 | ~75 |
-| **F** | Input | ~22 | 0 | ~22 |
-| **G** | Power-on / reset / cartridge | ~18 | 0 | ~18 |
-| | | **~320** | **132** | **~188** |
+| **D** | DMA / HDMA | ~35 | 15 | ~20 |
+| **E** | SPC700 + S-DSP | ~75 | 44 | ~31 |
+| **F** | Input | ~22 | 1 | ~21 |
+| **G** | Power-on / reset / cartridge | ~18 | 3 | ~15 |
+| | | **~320** | **201** | **~119** |
 
 **These are test counts. For assertion coverage, read `docs/accuracysnes-coverage.md`** — it is
 regenerated with the ROM from the map in `gen/src/dossier.rs`, so it is always current where the
