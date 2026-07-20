@@ -126,6 +126,16 @@
 # it rendered the plain canvas, hash-identical to `c8-window-left-gt-right-empty`. The canvas's
 # tilemap repeats horizontally with a period dividing 256, so the scroll is invisible whichever
 # screen it lands in. It needs a marker written into the second screen first -- see the plan doc.
+#
+# 2026-07-20, thirteenth batch (1 scene: C5.12, the map-size placement). No divergence. The
+# `scene_second_screen` helper the twelfth batch called for now fills the screen after the canvas
+# with tiles $20-$2F at palette 5 -- deliberately unlike the canvas's $10-$1F -- so scrolling 256
+# pixels into a 64x32 map's second screen renders something no other scene renders.
+#
+# Two bugs in the scene before it measured anything, both mine: the first version had no marker
+# (the canvas repeats every 256 px, so the scroll was invisible), and the second wrote the scroll
+# to $210F, which is BG2HOFS. BG1HOFS is $210D. Each produced a stable, three-way-agreed hash that
+# was identical to an existing scene's.
 
 c5-mode1-bg-priority	0x4fccc3fcf1027a01
 c8-fixed-colour-add	0x313006a2eb2c3745
@@ -175,3 +185,4 @@ c12-direct-colour-zero-is-transparent	0x5f0aa17cfe971185
 c11-org-13bit-mask	0xa65485c01b9cc065
 c5-mode7-ignores-bgsc	0x61673947271ec365
 c5-mode4-two-layers	0xedb2fcffaf97d845
+c5-bgsc-64x32-second-map-right	0xe6608c42ab8ac555

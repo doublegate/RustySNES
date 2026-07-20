@@ -181,6 +181,33 @@ SCENES_IMPL = 1
     plp
     rts
 .endproc
+; Fill the tilemap screen after the canvas (see scenes.rs::second_screen_helper).
+.proc scene_second_screen
+    php
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$80
+    sta VMAIN
+    rep #$30
+    .a16
+    .i16
+    ldx #(MAP_BASE + $400)   ; the second 32x32 screen, one screen on from the canvas
+    stx VMADDL
+    ldx #$0000
+@cell:
+    txa
+    and #$000F
+    ora #$0020        ; tiles $20-$2F: printable, and outside the canvas's $10-$1F
+    ora #$1400        ; palette 5, which the canvas's row-derived palettes do not favour
+    sta VMDATAL
+    inx
+    cpx #(SCREEN_COLS * 32)
+    bne @cell
+    plp
+    rts
+.endproc
 
 ; Park all 128 sprites off-screen and point OBJ character data at the font.
 .proc scene_oam_reset
@@ -1120,6 +1147,32 @@ SCENES_IMPL = 1
     rts
 .endproc
 
+; c5-bgsc-64x32-second-map-right — C5.12
+; BG1 sized 64x32 and scrolled 256 pixels, so the display sits entirely in the second tilemap screen. A 64-wide map places that screen to the RIGHT of the first, and `scene_second_screen` fills it with a marker the canvas never uses — so the correct picture is the marker, and a core that ignores the size bits, or places the extra screen below as a 32x64 map would, wraps back into the canvas instead. The marker exists because the canvas repeats every 256 pixels: without it, scrolling into the second screen renders a picture identical to not scrolling at all.
+.proc scene_c5_bgsc_64x32_second_map_right
+    .a16
+    .i16
+    sep #$20
+    .a8
+    stz $2105         ; BGMODE 0
+    lda #((MAP_BASE >> 8) | $01)
+    sta $2107         ; BG1SC: canvas base, size bits 01 = 64x32
+    jsr scene_second_screen
+    sep #$20
+    .a8
+    stz $210D
+    lda #$01
+    sta $210D         ; BG1HOFS = $0100 — one whole screen to the right
+    lda #$01
+    sta $212C
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
 ; c5-mode7-ignores-bgsc — C5.13
 ; The identity Mode 7 scene again, with BG1SC and BG1NBA deliberately pointed at nonsense first. Mode 7 has its own fixed VRAM layout — byte-interleaved tilemap and characters at $0000 — and reads neither register, so the picture must be exactly the one `c11-mode7-identity` produces. That equality is the assertion, declared as an equivalence in the harness rather than as a second committed hash: a core that honours BG1SC in Mode 7 renders from the wrong address and fails it, while a change to the shared Mode 7 canvas moves both scenes together and leaves it holding.
 .proc scene_c5_mode7_ignores_bgsc
@@ -1990,7 +2043,7 @@ SCENES_IMPL = 1
 .export _scene_count
 .export _scene_entries
 _scene_count:
-    .word 48
+    .word 49
 _scene_entries:
     .addr scene_c5_mode1_bg_priority
     .addr scene_c8_fixed_colour_add
@@ -2019,6 +2072,7 @@ _scene_entries:
     .addr scene_c6_mode4_h_vs_v_select
     .addr scene_c11_mode7_identity
     .addr scene_c5_mode4_two_layers
+    .addr scene_c5_bgsc_64x32_second_map_right
     .addr scene_c5_mode7_ignores_bgsc
     .addr scene_c11_org_13bit_mask
     .addr scene_c12_direct_colour_zero_is_transparent
