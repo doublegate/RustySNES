@@ -46,6 +46,15 @@ pub fn asm(tests: &[Test]) -> String {
         let _ = writeln!(s, "{}", t.body);
     }
 
+    // Out-of-bank read-only data: the SPC700 program images. They are pure data, they are read
+    // through a 24-bit pointer by `apu_upload`, and they are large enough that keeping them in
+    // bank $00 alongside every test body overflowed it.
+    let data: String = tests.iter().map(|t| t.data.as_str()).collect();
+    if !data.is_empty() {
+        let _ = writeln!(s, ".segment \"APUDATA\"");
+        let _ = writeln!(s, "{data}");
+    }
+
     // The dispatch table: one entry per test, walked by the runtime.
     let _ = writeln!(s, ".segment \"CATALOG\"");
     let _ = writeln!(s, ".export _test_count");
