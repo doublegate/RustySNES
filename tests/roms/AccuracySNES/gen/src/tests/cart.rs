@@ -61,15 +61,22 @@ fn g1_10() -> Test {
 /// a bank, drops one, or gets the stride wrong produces a different total. `G1.14` proves the
 /// formula on three sample bytes; this proves it on all 131,072.
 ///
-/// The two header fields are excluded the way the algorithm specifies — the complement counted as
-/// `$0000` and the checksum as `$FFFF`, since a value cannot be part of its own sum. Rather than
-/// branch inside a loop that runs 131,072 times, the sum is taken over the image as it stands and
-/// corrected afterwards: subtract the four bytes actually there, add back `$00 $00 $FF $FF`.
+/// The two header fields are neutralised, since a value cannot be part of its own sum. The dossier
+/// states the convention as `$FFDC = $FFFF` (the complement) and `$FFDE = $0000` (the checksum);
+/// this cart's generator uses the mirror image of that, `$FFDC = $0000` and `$FFDE = $FFFF`. **The
+/// two are arithmetically identical** — both contribute `$FF + $FF + $00 + $00` — which is why the
+/// correction below is a single `+$1FE` and holds under either reading. Rather than branch inside a
+/// loop that runs 131,072 times, the sum is taken over the image as it stands and corrected
+/// afterwards: subtract the four bytes actually there, add back what the convention counts.
 ///
-/// **This does not validate the algorithm**, and it would be dishonest to claim it does: the
-/// generator computes the checksum the same way, so a shared misunderstanding would agree with
-/// itself. What it validates is that an emulator presents the whole image, correctly mapped, to a
-/// program that reads it byte by byte.
+/// **Two things it does not cover**, both worth stating rather than leaving to be assumed:
+///
+/// * **The algorithm.** The generator computes the checksum the same way, so a shared
+///   misunderstanding would agree with itself. What is validated is that an emulator presents the
+///   whole image, correctly mapped, to a program that reads it byte by byte.
+/// * **The non-power-of-two rule** (largest prefix plus mirrored remainder), which this image
+///   cannot exercise: it is exactly 128 KiB. Reaching that needs a second, deliberately odd-sized
+///   image, which is a build-system change rather than a test.
 fn g1_11() -> Test {
     const SUM: &str = "$7E0110";
 
@@ -123,7 +130,7 @@ fn g1_11() -> Test {
         "sbc f:{SUM}+2         ; the four header bytes are not part of the sum"
     ));
     a.l("clc");
-    a.l("adc #$01FE             ; and $00 + $00 + $FF + $FF is");
+    a.l("adc #$01FE             ; ...and $FF + $FF + $00 + $00 goes back in their place");
     a.l("eor f:$00FFDE");
     a.assert_a16(
         0x0000,

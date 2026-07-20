@@ -7932,7 +7932,7 @@ CATALOG_IMPL = 1
     sec
     sbc f:$7E0110+2         ; the four header bytes are not part of the sum
     clc
-    adc #$01FE             ; and $00 + $00 + $FF + $FF is
+    adc #$01FE             ; ...and $FF + $FF + $00 + $00 goes back in their place
     eor f:$00FFDE
     cmp #$0000
     beq :+
