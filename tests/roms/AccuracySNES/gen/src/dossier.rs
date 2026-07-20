@@ -164,6 +164,9 @@ pub const MAP: &[(&str, &[&str])] = &[
     ("E3.11c", &[]),
     ("E9.19", &["E9.19"]),
     ("F1.02", &["F1.02"]),
+    ("G1.02", &["G1.02"]),
+    ("G1.04", &["G1.04"]),
+    ("G1.08", &["G1.08"]),
     ("G1.10", &["G1.10"]),
     ("G1.11", &["G1.11"]),
     ("G1.12", &["G1.12"]),
@@ -220,7 +223,7 @@ pub const MAP: &[(&str, &[&str])] = &[
     ("B4.05", &["B4.05"]),
     ("B4.08", &["B4.08"]),
     ("B4.12", &["B4.12"]),
-    ("B4.15", &[]),
+    ("B4.15", &["G1.09"]),
     ("B5.01", &["B5.01"]),
     ("B5.02", &["B5.02"]),
     ("B5.03", &[]),
@@ -366,12 +369,6 @@ pub const UNENUMERATED: &[(&str, &str)] = &[
         "that the H counter advances at all. A supporting test rather than a hardware assertion \
          — it pins the primitive every Group A and Group B cycle measurement is built on, so a \
          broken counter fails here rather than as noise in a dozen timing tests",
-    ),
-    (
-        "B4.15",
-        "the CPU revision nibble, a golden vector. Not an enumerated assertion, but D3's \
-         revision-gated DMA bugs are specified as auto-skipping on it, so it has to be readable \
-         before those can be written",
     ),
 ];
 

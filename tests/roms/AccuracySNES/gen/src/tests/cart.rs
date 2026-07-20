@@ -1,9 +1,12 @@
-//! Group G — the cartridge itself: header and memory map (ticket **T-04-G**).
+//! Group G — the cartridge itself: header, memory map, and the power-on state (ticket **T-04-G**).
 //!
-//! The group's dossier scope also covers power-on and reset state, and **none of that is here
-//! yet**: the battery runs long after reset, through a runtime that has already written most of the
-//! registers whose power-on values the dossier enumerates. Reaching them needs a test that runs
-//! before the runtime does, which is a mechanism rather than a test.
+//! The group's dossier scope also covers power-on and reset state, which the battery cannot reach
+//! directly: it runs long after reset, through a runtime that has already written most of the
+//! registers whose power-on values the dossier enumerates. What makes those assertions reachable is
+//! `runtime.s::capture_power_on` plus the two instructions at the very top of `reset` — a snapshot
+//! taken *before* `init_registers` puts the machine into a known state, stashed in the capture
+//! block at `$7E:E040`. The tests below report out of that snapshot rather than reading the
+//! registers themselves, which by then would only describe the runtime.
 //!
 //! The one group whose subject is not a chip. What it asserts is that the *emulator's* view of the
 //! cartridge matches the one every other assertion silently depends on: that the header is where
@@ -20,7 +23,164 @@ use crate::dsl::{Asm, Kind, Provenance, Test};
 /// Every Group G test, in menu order.
 #[must_use]
 pub fn all() -> Vec<Test> {
-    vec![g1_10(), g1_11(), g1_12(), g1_14()]
+    vec![
+        g1_02(),
+        g1_04(),
+        g1_08(),
+        g1_10(),
+        g1_11(),
+        g1_12(),
+        g1_14(),
+    ]
+}
+
+/// Neither `$4210` nor `$4211` has its flag set when the machine starts.
+///
+/// Both are read-once registers: reading clears the flag, so the value they hold at reset is
+/// visible exactly once and only to whoever reads first. That is `capture_power_on`, before the
+/// runtime's own vblank polling has had a chance to consume either.
+///
+/// A zero-valued assertion needs a control that a hard-wired zero would fail, and both halves have
+/// one, in the battery rather than here. For `$4210`: `B4.03` asserts bit 7 *does* set at the start
+/// of vblank and `B4.04` that reading it clears it again. For `$4211`: `B4.12` spins until bit 7
+/// sets before it asserts anything, so a core returning a constant `$00` there does not fail that
+/// test — it never leaves it. Here the claim is only about the starting value, and it matters
+/// because a driver that samples `$4210` before enabling NMI would otherwise see a vblank that
+/// never happened.
+///
+/// **The snapshot is taken tens of cycles after reset**, not at it. If a core began its frame such
+/// that vblank started inside that window, bit 7 would legitimately be set — so this is an
+/// assertion about reset state on the assumption that reset does not land in vblank, which is what
+/// every reference does and what the documented power-on values describe.
+fn g1_02() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda f:$7EE047     ; V_PO_RDNMI, the first read of $4210 after reset");
+    a.l("and #$80");
+    a.assert_a8(
+        0x00,
+        "$4210 bit 7 (NMI pending) was already set when the machine started",
+    );
+    a.l("lda f:$7EE048     ; V_PO_TIMEUP, the first read of $4211 after reset");
+    a.l("and #$80");
+    a.assert_a8(
+        0x00,
+        "$4211 bit 7 (IRQ pending) was already set when the machine started",
+    );
+    a.finish(
+        "G1.02",
+        'G',
+        "Reset: $4210/$4211 clear",
+        Provenance::Documented("SNESdev Wiki, power-on state; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The CPU starts in **emulation mode**, and the reset vector is the one LoROM puts at `$00FFFC`.
+///
+/// The E flag is unreadable — there is no instruction that loads it — and the only way to observe
+/// it is to destroy it: `XCE` *exchanges* C and E, so the first `clc`/`xce` of `reset` leaves the
+/// old E flag in the carry for exactly one instruction. The runtime captures it there.
+///
+/// A core that came up native would run this same code correctly (`xce` from native is harmless)
+/// and every other test in the battery would still pass, which is why the value has to be caught at
+/// the top of reset rather than inferred. What it protects is a real class of game: a title whose
+/// reset code assumes 8-bit registers and a page-1 stack, and which crashes on a core that hands it
+/// native mode.
+///
+/// The second half reads the reset vector and follows it: the byte it points at must be the `SEI`
+/// that opens `reset`. That does not prove the CPU *used* `$00FFFC` — nothing running on-cart can,
+/// since by then it has already happened — but it does prove the word LoROM's map exposes at
+/// `$00FFFC` is a working entry point, and the fact that this test is executing is the rest of the
+/// argument.
+fn g1_04() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda f:$7EE046     ; V_PO_EMU, the carry XCE left at the top of reset");
+    a.assert_a8(
+        0x01,
+        "the CPU was not in emulation mode at reset — XCE's carry said E was already clear",
+    );
+    a.c("Follow the reset vector: bank $00, and the byte there is reset's opening SEI.");
+    a.l("rep #$30");
+    a.l("lda f:$00FFFC");
+    a.l("tax");
+    a.l("sep #$20");
+    a.l("lda f:$000000,x");
+    a.assert_a8(
+        0x78,
+        "the word at $00FFFC does not point at code beginning with SEI, so the reset vector is \
+         not where LoROM puts it",
+    );
+    a.finish(
+        "G1.04",
+        'G',
+        "Reset: emulation mode",
+        Provenance::Documented("SNESdev Wiki, power-on state; WDC 65C816 datasheet, XCE"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Reading a **write-only** MMIO register returns the CPU's open bus, not `$00` and not `$FF`.
+///
+/// Nothing drives the data bus for an address no device answers, so what the CPU latches is
+/// whatever was there last — and for a load that is the final byte of the *operand it just
+/// fetched*. `$4200` (`NMITIMEN`) is written by every game and readable by none, which makes it the
+/// cleanest address to ask the question at.
+///
+/// The test reads that one register twice, through two addressing modes whose last operand byte
+/// differs:
+///
+/// * `lda a:$4200` fetches `$00`, `$42` — so the bus last held **`$42`**, the address's high byte.
+/// * `lda f:$004200` fetches `$00`, `$42`, `$00` — the bank byte comes last, so the bus last held
+///   **`$00`**.
+///
+/// Same register, same cycle position, two different answers. That is what makes the assertion
+/// about the *bus* rather than about the register: a core returning a constant (`$00`, `$FF`, or a
+/// stale last-read value) gets at most one of the two right, and a core that returns the address
+/// high byte because someone hardcoded it fails the long-addressed half.
+///
+/// **The B bus (`$21xx`) is deliberately not asserted here.** Reads of write-only PPU registers
+/// return the *PPU's own* MDR — a latch on the far side of the B bus, updated by writes to PPU
+/// registers as well as reads — not the CPU's. The two are separate latches that usually hold
+/// different bytes, and which one a given address exposes is a per-chip question this assertion
+/// does not settle.
+fn g1_08() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.c("Absolute: the operand's high byte is the last thing fetched, so the bus holds $42.");
+    a.l("lda a:$4200");
+    a.assert_a8(
+        0x42,
+        "reading write-only $4200 with absolute addressing did not return the open-bus value $42 \
+         — a core answering $00 or $FF is not modelling the bus at all",
+    );
+    a.c("Long: the BANK byte comes last, so the same register now reads back as $00.");
+    a.l("lda f:$004200");
+    a.assert_a8(
+        0x00,
+        "reading write-only $4200 with long addressing did not return $00, the bank byte the CPU \
+         fetched last — so the value returned is fixed rather than whatever was last on the bus",
+    );
+    a.finish(
+        "G1.08",
+        'G',
+        "Write-only read: openbus",
+        Provenance::Documented("SNESdev Wiki, open bus; fullsnes, memory map notes"),
+        Kind::Scored,
+        None,
+    )
 }
 
 /// The header's checksum and its complement must XOR to `$FFFF`.

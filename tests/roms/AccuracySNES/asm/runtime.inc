@@ -55,6 +55,9 @@ V_APU_PTR       = $0050
 V_PO_MPY        = VAR_BASE + $40      ; RDMPY after $4203=2 with $4202 never written (u16)
 V_PO_DIV        = VAR_BASE + $42      ; RDDIV after $4206=2 with $4204/05 never written (u16)
 V_PO_DIVREM     = VAR_BASE + $44      ; RDMPY (remainder) from that same divide (u16)
+V_PO_EMU        = VAR_BASE + $46      ; 1 if the CPU was in emulation mode at reset, 0 if not (u8)
+V_PO_RDNMI      = VAR_BASE + $47      ; $4210 as first read after reset (u8) — bit 7 and version
+V_PO_TIMEUP     = VAR_BASE + $48      ; $4211 as first read after reset (u8) — bit 7
 
 ; ---------------------------------------------------------------------------------------------
 ; Raw measurement channel ($E200-$E2FF) — 128 u16 slots.
@@ -131,6 +134,7 @@ CGADD           = $2121
 CGDATA          = $2122
 TM              = $212C
 RDNMI           = $4210
+TIMEUP          = $4211
 HVBJOY          = $4212
 NMITIMEN        = $4200
 JOYSER0         = $4016

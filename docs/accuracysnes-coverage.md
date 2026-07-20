@@ -50,9 +50,9 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `E9` | 20 | 7 | 0 | E9.01, E9.02, E9.03, E9.05, E9.07, E9.08, E9.09, E9.11, E9.13, E9.14, E9.15, E9.16, E9.20 |
 | `E10` | 6 | 0 | 0 | E10.01, E10.02, E10.03, E10.04, E10.05, E10.06 |
 | `F1` | 22 | 1 | 0 | F1.01, F1.03, F1.04, F1.05, F1.06, F1.07, F1.08, F1.09, F1.10, F1.11, F1.12, F1.13, F1.14, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
-| `G1` | 18 | 4 | 0 | G1.01, G1.02, G1.03, G1.04, G1.05, G1.06, G1.07, G1.08, G1.09, G1.13, G1.15, G1.16, G1.17, G1.18 |
+| `G1` | 18 | 8 | 0 | G1.01, G1.03, G1.05, G1.06, G1.07, G1.13, G1.15, G1.16, G1.17, G1.18 |
 
-**178 of 443** enumerated assertion rows covered by an on-cart test, plus **50** covered only by a rendered scene (`docs/adr/0013`) — **228 of 443** in total.
+**182 of 443** enumerated assertion rows covered by an on-cart test, plus **50** covered only by a rendered scene (`docs/adr/0013`) — **232 of 443** in total.
 
 The two columns are kept apart on purpose. An on-cart result means the same thing on any emulator and on real hardware; a rendered scene needs a host holding the golden. Adding them into one figure would quietly change what the number claims.
 
@@ -134,4 +134,3 @@ Declared in `gen/src/scenes.rs`. Each is reported by the host framebuffer oracle
 - **`A9.03`** — the emulation-mode R-M-W modify-cycle write. Not an enumerated assertion — it comes from the cross-vendor comparison in docs/accuracysnes-timing-oracle.md §8, where WDC's note (17) stands alone against two silent renderings
 - **`B5.03`** — divide by zero saturating to $FFFF with the dividend left as the remainder. Documented in fullsnes but not enumerated in B5, which covers only the two operations, the undefined overlap, and the power-on state
 - **`C3.04`** — that the H counter advances at all. A supporting test rather than a hardware assertion — it pins the primitive every Group A and Group B cycle measurement is built on, so a broken counter fails here rather than as noise in a dozen timing tests
-- **`B4.15`** — the CPU revision nibble, a golden vector. Not an enumerated assertion, but D3's revision-gated DMA bugs are specified as auto-skipping on it, so it has to be readable before those can be written
