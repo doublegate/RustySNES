@@ -33,7 +33,7 @@ pub fn all() -> Vec<Test> {
         c1_03(),
         c1_04(),
         c1_05(),
-        c1_high_table(),
+        c1_03b(),
         // --- C2: VRAM port ---
         c2_01(),
         c2_02(),
@@ -270,6 +270,53 @@ fn c1_05() -> Test {
         "C1.05",
         'C',
         "OAM high table mirror",
+        Provenance::Documented("SNESdev Wiki, OAM; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The OAM high table commits every byte as it is written; only the low table pairs them.
+///
+/// Below `$200` a write is buffered until its odd-address partner arrives, so a lone byte does not
+/// reach OAM. The high table has no such pairing — each byte lands immediately. A core that applies
+/// the low table's rule everywhere loses every odd write to the high table, which is where the X
+/// bit 8 and size bits live: sprites go missing or change size depending on how the driver happened
+/// to batch its writes.
+///
+/// The byte is seeded to `$00` first so "it committed" is a change rather than a coincidence.
+fn c1_03b() -> Test {
+    let mut a = Asm::new();
+    a.c("Seed high-table byte 0 with $00, then write $AA into it as a single, unpaired byte.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("ldx #$0100");
+    a.l("stx $2102         ; OAMADD = word $100, the high table");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta $2104");
+    a.l("rep #$30");
+    a.l("ldx #$0100");
+    a.l("stx $2102");
+    a.l("sep #$20");
+    a.l("lda #$AA");
+    a.l("sta $2104         ; one byte, no partner");
+    a.c("Read it straight back. A core that waits for a pair still has the $00.");
+    a.l("rep #$30");
+    a.l("ldx #$0100");
+    a.l("stx $2102");
+    a.l("sep #$20");
+    a.l("lda $2138");
+    a.assert_a8(
+        0xAA,
+        "a single byte written to the OAM high table did not commit — the pairing rule belongs to \
+         the low table only",
+    );
+    a.finish(
+        "C1.03b",
+        'C',
+        "High table commits bytes",
         Provenance::Documented("SNESdev Wiki, OAM; fullsnes"),
         Kind::Scored,
         None,
@@ -763,53 +810,6 @@ fn c3_05() -> Test {
         'C',
         "$213F resets flipflop",
         Provenance::Documented("SNESdev Wiki, PPU registers; fullsnes"),
-        Kind::Scored,
-        None,
-    )
-}
-
-/// The OAM high table commits every byte as it is written; only the low table pairs them.
-///
-/// Below `$200` a write is buffered until its odd-address partner arrives, so a lone byte does not
-/// reach OAM. The high table has no such pairing — each byte lands immediately. A core that applies
-/// the low table's rule everywhere loses every odd write to the high table, which is where the X
-/// bit 8 and size bits live: sprites go missing or change size depending on how the driver happened
-/// to batch its writes.
-///
-/// The byte is seeded to `$00` first so "it committed" is a change rather than a coincidence.
-fn c1_high_table() -> Test {
-    let mut a = Asm::new();
-    a.c("Seed high-table byte 0 with $00, then write $AA into it as a single, unpaired byte.");
-    a.l("rep #$30");
-    a.l("phk");
-    a.l("plb");
-    a.l("ldx #$0100");
-    a.l("stx $2102         ; OAMADD = word $100, the high table");
-    a.l("sep #$20");
-    a.l("lda #$00");
-    a.l("sta $2104");
-    a.l("rep #$30");
-    a.l("ldx #$0100");
-    a.l("stx $2102");
-    a.l("sep #$20");
-    a.l("lda #$AA");
-    a.l("sta $2104         ; one byte, no partner");
-    a.c("Read it straight back. A core that waits for a pair still has the $00.");
-    a.l("rep #$30");
-    a.l("ldx #$0100");
-    a.l("stx $2102");
-    a.l("sep #$20");
-    a.l("lda $2138");
-    a.assert_a8(
-        0xAA,
-        "a single byte written to the OAM high table did not commit — the pairing rule belongs to \
-         the low table only",
-    );
-    a.finish(
-        "C1.03b",
-        'C',
-        "High table commits bytes",
-        Provenance::Documented("SNESdev Wiki, OAM; fullsnes"),
         Kind::Scored,
         None,
     )
