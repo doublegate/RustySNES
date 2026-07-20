@@ -60,6 +60,11 @@ pub fn all() -> Vec<Test> {
         c7_01(),
         c7_02(),
         c7_08(),
+        // --- access windows and frame geometry, also requiring a rendered frame ---
+        c2_11(),
+        c2_10(),
+        c1_06(),
+        c9_04(),
     ]
 }
 
@@ -1079,6 +1084,9 @@ fn c11_06b() -> Test {
 /// `tag` disambiguates the emitted cheap-local labels. ca65 resets cheap-local scope only at a
 /// non-cheap label, and a test that renders twice has none in between, so the second expansion
 /// would redefine the first's labels.
+///
+/// **Register width contract: returns with `A` 8-bit and `X`/`Y` 16-bit**, holding the sampled
+/// `$213E`. See [`enter_active_display`] for why this is documented rather than left implicit.
 fn setup_and_render(
     a: &mut Asm,
     tag: &str,
@@ -1244,6 +1252,285 @@ fn c7_08() -> Test {
         'C',
         "Flags ignore $212C",
         Provenance::Documented("SNESdev Wiki, Sprites; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+// ---------------------------------------------------------------------------------------------
+// Access windows and frame geometry
+//
+// Like C7, these need a rendered frame — but they score off VRAM reads and the V counter, never
+// off pixels.
+// ---------------------------------------------------------------------------------------------
+
+/// Emit: release forced blank, settle on a stable frame, then land solidly inside active display.
+///
+/// Two `wait_vblank` calls put us on a vblank boundary with a whole frame's worth of settled
+/// state; the poll then waits for vblank to end. The delay loop after it is what makes the test
+/// mean what it says: without it the writes would land on the pre-render line, and "V=0 counts as
+/// rendering" is a much weaker claim than "line ~20 counts as rendering".
+///
+/// **Register width contract: returns with `A` 8-bit and `X`/`Y` 16-bit.** Callers must set the
+/// width they need rather than assume the entry state survived. This is stated because the
+/// generator tracks widths file-globally to emit `.a8`/`.a16`, and the dangerous direction is
+/// silent: if the assembler believes `A` is 16-bit while the CPU has it 8-bit, immediate operands
+/// are assembled one byte short and everything after them shifts. An earlier timing helper in this
+/// project desynced exactly that way.
+fn enter_active_display(a: &mut Asm, tag: &str) {
+    a.l("sep #$20");
+    a.l("lda #$0F");
+    a.l("sta $2100         ; forced blank off — the access window now depends on position");
+    a.l("jsr wait_vblank");
+    a.l("jsr wait_vblank   ; a full settled frame");
+    a.label(&format!("wa_{tag}"));
+    a.l("lda $4212");
+    a.l("and #$80");
+    a.l(&format!("bne @wa_{tag}   ; wait for vblank to end"));
+    a.l("rep #$10");
+    a.l("ldx #$0400");
+    a.label(&format!("burn_{tag}"));
+    a.l("dex");
+    a.l(&format!(
+        "bne @burn_{tag} ; ~20 scanlines in, well clear of the pre-render line"
+    ));
+}
+
+/// VRAM writes are dropped during active display.
+///
+/// The access window is vblank or forced blank — and *only* those. H-blank does not open it, which
+/// is the trap: a core that gates on "not currently drawing a pixel" rather than "not in the
+/// rendering period" lets mid-line writes through and corrupts VRAM in a way that looks like a
+/// game bug.
+fn c2_11() -> Test {
+    let mut a = Asm::new();
+    a.c("Clear three words under forced blank, then try to write two of them from active display.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$80");
+    a.l("sta $2115         ; VMAIN step 1, increment after the high byte");
+    a.l("rep #$30");
+    a.l("ldx #$1600");
+    a.l("stx $2116");
+    a.l("lda #$0000");
+    a.l("sta $2118");
+    a.l("sta $2118");
+    a.l("sta $2118         ; words $1600-$1602 cleared");
+    a.l("ldx #$1600");
+    a.l("stx $2116         ; aim at $1600 before the window closes");
+    enter_active_display(&mut a, "c211");
+    a.l("rep #$20");
+    a.l("lda #$AAAA");
+    a.l("sta $2118         ; must be dropped");
+    a.l("sta $2118         ; must be dropped");
+    a.l("sep #$20");
+    a.l("lda #$8F");
+    a.l("sta $2100         ; forced blank restored");
+    a.c("--- read back: both words must still be zero ---");
+    a.l("rep #$30");
+    a.l("ldx #$1600");
+    a.l("stx $2116");
+    a.l("lda $2139");
+    a.assert_a16(0x0000, "a VRAM write during active display was not dropped");
+    a.l("ldx #$1601");
+    a.l("stx $2116");
+    a.l("lda $2139");
+    a.assert_a16(
+        0x0000,
+        "the second VRAM write during active display was not dropped",
+    );
+    a.finish(
+        "C2.11",
+        'C',
+        "VRAM locked in render",
+        Provenance::Documented("SNESdev Wiki, PPU registers; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// A dropped VRAM write still advances the address.
+///
+/// The increment is wired to the port access, not to the memory write, so an out-of-window write
+/// is lost while the address moves on regardless. Modelling the drop as an early `return` — the
+/// obvious implementation — gets this backwards, and the symptom is a DMA that silently lands one
+/// or two words off after any mistimed write.
+fn c2_10() -> Test {
+    let mut a = Asm::new();
+    a.c(
+        "Same shape as C2.11, but the payload is the write that follows: if the two dropped writes",
+    );
+    a.c("advanced the address, the legal third write lands at $1602 rather than back at $1600.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$80");
+    a.l("sta $2115");
+    a.l("rep #$30");
+    a.l("ldx #$1610");
+    a.l("stx $2116");
+    a.l("lda #$0000");
+    a.l("sta $2118");
+    a.l("sta $2118");
+    a.l("sta $2118         ; words $1610-$1612 cleared");
+    a.l("ldx #$1610");
+    a.l("stx $2116");
+    enter_active_display(&mut a, "c210");
+    a.l("rep #$20");
+    a.l("lda #$AAAA");
+    a.l("sta $2118         ; dropped, but the address must advance to $1611");
+    a.l("sta $2118         ; dropped, but the address must advance to $1612");
+    a.l("sep #$20");
+    a.l("lda #$8F");
+    a.l("sta $2100         ; forced blank: the window is open again");
+    a.l("rep #$20");
+    a.l("lda #$BBBB");
+    a.l("sta $2118         ; this one must land, and at $1612");
+    a.c("--- read back ---");
+    a.l("rep #$30");
+    a.l("ldx #$1612");
+    a.l("stx $2116");
+    a.l("lda $2139");
+    a.assert_a16(
+        0xBBBB,
+        "the address did not advance across the dropped writes",
+    );
+    a.l("ldx #$1610");
+    a.l("stx $2116");
+    a.l("lda $2139");
+    a.assert_a16(0x0000, "the legal write landed at $1610 instead of $1612");
+    a.finish(
+        "C2.10",
+        'C',
+        "Dropped write still incs",
+        Provenance::Documented("SNESdev Wiki, PPU registers; fullsnes; anomie"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The OAM address reloads from its base once per frame, at the start of vblank.
+///
+/// Sprite evaluation walks OAM and leaves the internal counter wherever it finished, so without
+/// the reload the address a game left behind would not survive a frame. The read below happens
+/// while forced blank is still off, because the reload is conditional on that — restoring forced
+/// blank first would suppress the very thing being measured.
+fn c1_06() -> Test {
+    let mut a = Asm::new();
+    a.c("Seed three words, set the base to word 0, then walk the internal address forward to word");
+    a.c("2. After a rendered frame the next read must come from word 0 again.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("stz $2102");
+    a.l("stz $2103");
+    a.l("lda #$11");
+    a.l("sta $2104");
+    a.l("lda #$22");
+    a.l("sta $2104         ; word 0");
+    a.l("lda #$33");
+    a.l("sta $2104");
+    a.l("lda #$44");
+    a.l("sta $2104         ; word 1");
+    a.l("lda #$55");
+    a.l("sta $2104");
+    a.l("lda #$66");
+    a.l("sta $2104         ; word 2");
+    a.c("--- base = word 0, then advance the internal counter to word 2 by reading ---");
+    a.l("stz $2102");
+    a.l("stz $2103");
+    a.l("lda $2138");
+    a.l("lda $2138");
+    a.l("lda $2138");
+    a.l("lda $2138         ; internal address now word 2");
+    a.c("--- render one complete frame; the reload happens as vblank begins ---");
+    a.l("lda #$0F");
+    a.l("sta $2100");
+    a.l("jsr wait_vblank");
+    a.l("jsr wait_vblank");
+    a.l("lda $2138         ; read while forced blank is still off");
+    a.l("sta f:$7E0102");
+    a.l("lda #$8F");
+    a.l("sta $2100");
+    a.l("lda f:$7E0102");
+    a.assert_a8(
+        0x11,
+        "the OAM address did not reload from its base across a frame",
+    );
+    a.finish(
+        "C1.06",
+        'C',
+        "OAM addr reloads",
+        Provenance::Documented("SNESdev Wiki, OAM; anomie"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Overscan moves the start of vblank from line 225 to line 240.
+///
+/// `$2133` bit 2 trades 15 scanlines of vblank for 15 more visible lines, so it changes when
+/// vblank-timed work may run — a core that keeps vblank at 225 while claiming overscan support
+/// gives games 15 scanlines of transfer budget that hardware does not.
+///
+/// Measured through `OPVCT` rather than by counting: the counter is the thing that actually
+/// defines the boundary.
+fn c9_04() -> Test {
+    let mut a = Asm::new();
+    a.c("Sample the V counter at the instant vblank begins, with overscan off and then on. Both");
+    a.c("samples take two wait_vblank calls so the setting has been stable for a whole frame —");
+    a.c("toggling $2133 mid-frame is its own documented hazard and is not what this measures.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("stz $2133         ; overscan off: 224 visible lines");
+    a.l("jsr wait_vblank");
+    a.l("jsr wait_vblank");
+    a.l("lda $213F         ; reset the counter read flipflops");
+    a.l("lda $2137         ; latch H and V");
+    a.l("lda $213D         ; V low");
+    a.l("xba");
+    a.l("lda $213D");
+    a.l("and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus");
+    a.l("xba");
+    a.l("rep #$20");
+    a.l("and #$01FF");
+    a.assert_a16_range(
+        225,
+        232,
+        "vblank did not begin near line 225 without overscan",
+    );
+    a.l("sep #$20");
+    a.l("lda #$04");
+    a.l("sta $2133         ; overscan on: 239 visible lines");
+    a.l("jsr wait_vblank");
+    a.l("jsr wait_vblank");
+    a.l("lda $213F");
+    a.l("lda $2137");
+    a.l("lda $213D");
+    a.l("xba");
+    a.l("lda $213D");
+    a.l("and #$01");
+    a.l("xba");
+    a.l("rep #$20");
+    a.l("and #$01FF");
+    a.assert_a16_range(
+        240,
+        247,
+        "overscan did not move the start of vblank to line 240",
+    );
+    a.l("sep #$20");
+    a.l("stz $2133         ; restore");
+    a.finish(
+        "C9.04",
+        'C',
+        "Overscan moves vblank",
+        Provenance::Documented("SNESdev Wiki, Timing; fullsnes"),
         Kind::Scored,
         None,
     )

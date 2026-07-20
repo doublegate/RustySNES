@@ -852,6 +852,14 @@ impl Ppu {
         if self.v == vbl {
             self.vblank = true;
             self.nmi_pending = true;
+            // The OAM address reloads from its base once per frame, as vblank begins, and only
+            // while forced blank is off. Sprite evaluation leaves the running counter wherever it
+            // finished, so without this reload an address a game set up would not survive a frame.
+            // Conditional on force-blank because a forced-blank frame runs no evaluation and so
+            // performs no reload — see AccuracySNES C1.06 and `docs/ppu.md`.
+            if !self.io.display_disable {
+                self.io.oam_address = self.io.oam_base_address;
+            }
             bus.notify_vblank();
         } else if self.v == 0 {
             self.vblank = false;

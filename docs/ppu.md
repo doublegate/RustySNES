@@ -156,6 +156,10 @@ The crate is a working dual-chip model. Public API the scheduler/bus call:
   latch, `MPYL/M/H` Mode-7 multiply, `SLHV $2137` latch, `OPHCT/OPVCT` read-twice 9-bit,
   `STAT77/78` (over-flags + version + NTSC/PAL + field; `$213F` read clears the latch). Reads
   of write-only/unused registers return the PPU MDR (open-bus) latch.
+- **OAM address reload:** the running `oam_address` reloads from `oam_base_address` once per
+  frame, as vblank begins, and **only while forced blank is off** (`end_of_scanline`). Sprite
+  evaluation leaves the running counter wherever it finished, so without the reload an address a
+  game programmed would not survive a frame. AccuracySNES **C1.06** covers it.
 - **Open bus:** PPU1 and PPU2 keep **separate** MDR latches (`io.ppu1_mdr`, `io.ppu2_mdr`),
   surfacing as `$213E` bit 4 and `$213F` bit 5 respectively. They are refreshed **only by reads**
   — `$2134`–`$2136`, `$2138`–`$213A`, `$213E` for PPU1; `$213B`–`$213D`, `$213F` for PPU2 — and a

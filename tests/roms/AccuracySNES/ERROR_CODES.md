@@ -585,3 +585,38 @@ Provenance: **Documented** (SNESdev Wiki, Sprites; fullsnes). Kind: scored.
 |---|---|---|
 | 1 | `$02` | Range Over did not set while OBJ was off the main screen ($212C gates compositing, not evaluation) |
 
+### C2.11 — VRAM locked in render
+
+Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a VRAM write during active display was not dropped |
+| 2 | `$04` | the second VRAM write during active display was not dropped |
+
+### C2.10 — Dropped write still incs
+
+Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes; anomie). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the address did not advance across the dropped writes |
+| 2 | `$04` | the legal write landed at $1610 instead of $1612 |
+
+### C1.06 — OAM addr reloads
+
+Provenance: **Documented** (SNESdev Wiki, OAM; anomie). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the OAM address did not reload from its base across a frame |
+
+### C9.04 — Overscan moves vblank
+
+Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | vblank did not begin near line 225 without overscan |
+| 2 | `$04` | overscan did not move the start of vblank to line 240 |
+

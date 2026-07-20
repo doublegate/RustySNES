@@ -3920,6 +3920,338 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; C2.11 — VRAM locked in render
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c2_11
+    .a16
+    .i16
+    ; Clear three words under forced blank, then try to write two of them from active display.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115         ; VMAIN step 1, increment after the high byte
+    rep #$30
+    .a16
+    .i16
+    ldx #$1600
+    stx $2116
+    lda #$0000
+    sta $2118
+    sta $2118
+    sta $2118         ; words $1600-$1602 cleared
+    ldx #$1600
+    stx $2116         ; aim at $1600 before the window closes
+    sep #$20
+    .a8
+    lda #$0F
+    sta $2100         ; forced blank off — the access window now depends on position
+    jsr wait_vblank
+    jsr wait_vblank   ; a full settled frame
+@wa_c211:
+    lda $4212
+    and #$80
+    bne @wa_c211   ; wait for vblank to end
+    rep #$10
+    .i16
+    ldx #$0400
+@burn_c211:
+    dex
+    bne @burn_c211 ; ~20 scanlines in, well clear of the pre-render line
+    rep #$20
+    .a16
+    lda #$AAAA
+    sta $2118         ; must be dropped
+    sta $2118         ; must be dropped
+    sep #$20
+    .a8
+    lda #$8F
+    sta $2100         ; forced blank restored
+    ; --- read back: both words must still be zero ---
+    rep #$30
+    .a16
+    .i16
+    ldx #$1600
+    stx $2116
+    lda $2139
+    cmp #$0000
+    beq :+
+    jmp @fail1
+  :
+    ldx #$1601
+    stx $2116
+    lda $2139
+    cmp #$0000
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; a VRAM write during active display was not dropped
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; the second VRAM write during active display was not dropped
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C2.10 — Dropped write still incs
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes; anomie)
+.proc test_c2_10
+    .a16
+    .i16
+    ; Same shape as C2.11, but the payload is the write that follows: if the two dropped writes
+    ; advanced the address, the legal third write lands at $1602 rather than back at $1600.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115
+    rep #$30
+    .a16
+    .i16
+    ldx #$1610
+    stx $2116
+    lda #$0000
+    sta $2118
+    sta $2118
+    sta $2118         ; words $1610-$1612 cleared
+    ldx #$1610
+    stx $2116
+    sep #$20
+    .a8
+    lda #$0F
+    sta $2100         ; forced blank off — the access window now depends on position
+    jsr wait_vblank
+    jsr wait_vblank   ; a full settled frame
+@wa_c210:
+    lda $4212
+    and #$80
+    bne @wa_c210   ; wait for vblank to end
+    rep #$10
+    .i16
+    ldx #$0400
+@burn_c210:
+    dex
+    bne @burn_c210 ; ~20 scanlines in, well clear of the pre-render line
+    rep #$20
+    .a16
+    lda #$AAAA
+    sta $2118         ; dropped, but the address must advance to $1611
+    sta $2118         ; dropped, but the address must advance to $1612
+    sep #$20
+    .a8
+    lda #$8F
+    sta $2100         ; forced blank: the window is open again
+    rep #$20
+    .a16
+    lda #$BBBB
+    sta $2118         ; this one must land, and at $1612
+    ; --- read back ---
+    rep #$30
+    .a16
+    .i16
+    ldx #$1612
+    stx $2116
+    lda $2139
+    cmp #$BBBB
+    beq :+
+    jmp @fail1
+  :
+    ldx #$1610
+    stx $2116
+    lda $2139
+    cmp #$0000
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; the address did not advance across the dropped writes
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; the legal write landed at $1610 instead of $1612
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C1.06 — OAM addr reloads
+; provenance: Documented (SNESdev Wiki, OAM; anomie)
+.proc test_c1_06
+    .a16
+    .i16
+    ; Seed three words, set the base to word 0, then walk the internal address forward to word
+    ; 2. After a rendered frame the next read must come from word 0 again.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    stz $2102
+    stz $2103
+    lda #$11
+    sta $2104
+    lda #$22
+    sta $2104         ; word 0
+    lda #$33
+    sta $2104
+    lda #$44
+    sta $2104         ; word 1
+    lda #$55
+    sta $2104
+    lda #$66
+    sta $2104         ; word 2
+    ; --- base = word 0, then advance the internal counter to word 2 by reading ---
+    stz $2102
+    stz $2103
+    lda $2138
+    lda $2138
+    lda $2138
+    lda $2138         ; internal address now word 2
+    ; --- render one complete frame; the reload happens as vblank begins ---
+    lda #$0F
+    sta $2100
+    jsr wait_vblank
+    jsr wait_vblank
+    lda $2138         ; read while forced blank is still off
+    sta f:$7E0102
+    lda #$8F
+    sta $2100
+    lda f:$7E0102
+    cmp #$11
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; the OAM address did not reload from its base across a frame
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C9.04 — Overscan moves vblank
+; provenance: Documented (SNESdev Wiki, Timing; fullsnes)
+.proc test_c9_04
+    .a16
+    .i16
+    ; Sample the V counter at the instant vblank begins, with overscan off and then on. Both
+    ; samples take two wait_vblank calls so the setting has been stable for a whole frame —
+    ; toggling $2133 mid-frame is its own documented hazard and is not what this measures.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    stz $2133         ; overscan off: 224 visible lines
+    jsr wait_vblank
+    jsr wait_vblank
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp #$00E1
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$00E9
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$04
+    sta $2133         ; overscan on: 239 visible lines
+    jsr wait_vblank
+    jsr wait_vblank
+    lda $213F
+    lda $2137
+    lda $213D
+    xba
+    lda $213D
+    and #$01
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp #$00F0
+    bcs :+
+    jmp @fail2
+  :
+    cmp #$00F8
+    bcc :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    stz $2133         ; restore
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; vblank did not begin near line 225 without overscan
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; overscan did not move the start of vblank to line 240
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 .segment "CATALOG"
 .export _test_count
 .export _test_entries
@@ -3927,7 +4259,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 69
+    .word 73
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -4000,6 +4332,10 @@ _test_entries:
     .addr test_c7_01
     .addr test_c7_02
     .addr test_c7_08
+    .addr test_c2_11
+    .addr test_c2_10
+    .addr test_c1_06
+    .addr test_c9_04
 
 ; Per-test flags: bit0 = scores toward the pass rate, bit1 = golden-vector.
 _test_flags:
@@ -4072,6 +4408,10 @@ _test_flags:
     .byte $01   ; C7.01
     .byte $01   ; C7.02
     .byte $01   ; C7.08
+    .byte $01   ; C2.11
+    .byte $01   ; C2.10
+    .byte $01   ; C1.06
+    .byte $01   ; C9.04
 
 ; Menu labels, each a length-prefixed ASCII string.
 _test_names:
@@ -4144,6 +4484,10 @@ _test_names:
     .addr @n_c7_01
     .addr @n_c7_02
     .addr @n_c7_08
+    .addr @n_c2_11
+    .addr @n_c2_10
+    .addr @n_c1_06
+    .addr @n_c9_04
 @n_a1_01:
     .byte 16
     .byte "XCE clears XH/YH"
@@ -4351,3 +4695,15 @@ _test_names:
 @n_c7_08:
     .byte 18
     .byte "Flags ignore $212C"
+@n_c2_11:
+    .byte 21
+    .byte "VRAM locked in render"
+@n_c2_10:
+    .byte 24
+    .byte "Dropped write still incs"
+@n_c1_06:
+    .byte 16
+    .byte "OAM addr reloads"
+@n_c9_04:
+    .byte 21
+    .byte "Overscan moves vblank"
