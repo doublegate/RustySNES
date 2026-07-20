@@ -1143,6 +1143,33 @@ Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes). Kind: scor
 |---|---|---|
 | 1 | `$02` | ENVX did not read back the direct GAIN value; a ramp toward it, or a missing >>4, both land somewhere else |
 
+### E4.01 — IPL ROM contents
+
+Provenance: **Documented** (the canonical 64-byte IPL listing; fullsnes, SNESdev Wiki). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the IPL ROM's bytes do not sum to $B8, so it is not the canonical boot ROM |
+| 2 | `$04` | the IPL ROM summed correctly but its rolling checksum is wrong, so the bytes are right and their order is not |
+
+### E4.02 — IPL handoff state
+
+Provenance: **Documented** (fullsnes, SNESdev Wiki, APU boot handshake). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the IPL handed over with PSW other than $02 once the half-carry bit is masked — Z must be set and N, V, I and C clear |
+| 2 | `$04` | the IPL handed over with X non-zero |
+| 3 | `$06` | the IPL handed over with A or Y non-zero (they are reported ORed together) |
+
+### E4.04 — IPL ready announcement
+
+Provenance: **Documented** (fullsnes, SNESdev Wiki, APU boot handshake). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | port 1 announced $BB but port 0 does not read $AA, so the ready word is not $BBAA — or the two bytes are written in the wrong order |
+
 ### E5.02 — BRR nibbles are signed
 
 Provenance: **Documented** (fullsnes, S-DSP BRR; anomie's DSP doc). Kind: scored.
