@@ -1,0 +1,94 @@
+# CodeRabbit configuration — https://docs.coderabbit.ai/guides/configure-coderabbit
+#
+# The second bot reviewer on this repository, alongside GitHub Copilot. Two independent reviewers
+# is the same argument the accuracy work itself runs on: one opinion is a claim, two that agree are
+# evidence, and two that disagree are a finding. Copilot has caught overstated doc comments and
+# order-dependent tests; this config tells CodeRabbit where the rest of the sharp edges are.
+
+language: en-GB
+early_access: false
+
+reviews:
+  # Thorough rather than gentle. This repository is an accuracy oracle: a review that lets a
+  # plausible-but-wrong assertion through costs more than one that asks an unnecessary question.
+  profile: assertive
+  # Never block a merge on the bot's say-so. Findings are adjudicated in the thread and resolved
+  # there; a "changes requested" state that a human then has to clear adds a step and no signal.
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+
+  auto_review:
+    enabled: true
+    drafts: false
+
+  path_filters:
+    # Generated artefacts. Reviewing them is reviewing the generator twice, and the ROM is binary.
+    - '!tests/roms/AccuracySNES/asm/tests_group_a.s'
+    - '!tests/roms/AccuracySNES/asm/scenes.s'
+    - '!tests/roms/AccuracySNES/SOURCE_CATALOG.tsv'
+    - '!tests/roms/AccuracySNES/ERROR_CODES.md'
+    - '!tests/roms/AccuracySNES/build/**'
+    - '!docs/accuracysnes-coverage.md'
+    # Immutable research and vendored study clones.
+    - '!ref-docs/**'
+    - '!ref-proj/**'
+
+  path_instructions:
+    - path: 'tests/roms/AccuracySNES/gen/src/**'
+      instructions: |
+        This generates a hardware-accuracy test cartridge. Judge each test by whether it can
+        distinguish the behaviour it names from the alternatives, not by whether it passes.
+
+        Flag, specifically:
+        - **Vacuity.** An assertion whose expected value is also what a broken or absent
+          implementation produces (zero, "unchanged", "not $FF") needs a paired control assertion
+          that would fail on that implementation. Say which alternative goes uncaught.
+        - **Overstated doc comments.** The prose above a test is a claim about what it validates.
+          If it names behaviours the emitted program does not exercise, or asserts a rationale that
+          is not true of the code, that is a defect even though the test passes.
+        - **Shared state.** OAM, CGRAM, VRAM and the S-DSP registers are not reset between tests. A
+          test that does not establish its own starting conditions may be measuring the previous
+          one; look for an earlier test that leaves the relevant state dirty.
+        - **Timing-marginal reads.** Reading a register a few cycles after disturbing it, or
+          asserting on a value that is still moving, produces a verdict that flips when unrelated
+          code shifts. Prefer a settle, a disarm, or a provably stationary value.
+        - **Scanline geometry.** Line 0 is a blanking line; the V counter's low byte aliases on a
+          312-line PAL frame; the visible height is 224 or 239 depending on overscan. Constants
+          derived from any of these deserve a second look.
+        - **Duplicate coverage.** `dossier.rs::MAP` must not claim an assertion another test already
+          implements. There is a build gate for this, but flag it in review too.
+
+    - path: 'tests/roms/AccuracySNES/gen/src/scenes.rs'
+      instructions: |
+        Rendered scenes are hashed framebuffers. A scene proves nothing unless the picture it draws
+        differs from every other scene's — a stable hash that three emulators agree on is not
+        evidence, because a scene that renders the wrong thing is equally stable and equally agreed.
+        Flag any scene whose setup may not be able to express the difference it claims: a periodic
+        canvas that hides a scroll, a square sprite where a tall one was meant, a register the mode
+        ignores.
+
+    - path: 'tests/roms/AccuracySNES/asm/runtime.s'
+      instructions: |
+        Hand-written 65816. The battery runs under forced blank throughout; anything that lifts it
+        must put it back. Helpers are width-neutral (`php`/`plp`) by convention — flag one that is
+        not, because ca65's `.a8`/`.a16` state is file-global and a mismatch emits silently wrong
+        instruction lengths.
+
+    - path: 'crates/**'
+      instructions: |
+        Emulator core. Hot paths are allocation-free; `unsafe` requires a `// SAFETY:` comment
+        naming the invariant. Any change to save-stated fields needs a `FORMAT_VERSION` bump and a
+        `docs/adr/0006` bump-log entry. Behaviour changes must update the matching `docs/<chip>.md`
+        in the same change.
+
+    - path: 'docs/**'
+      instructions: |
+        Docs are the spec, not a history log. Flag claims that contradict the code, counts that
+        contradict the generated `docs/accuracysnes-coverage.md`, and any statement of coverage that
+        is broader than what the corresponding test actually asserts.
+
+chat:
+  auto_reply: true
