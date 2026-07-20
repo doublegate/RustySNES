@@ -148,6 +148,19 @@ flamegraph.svg
 /ref-proj
 /ref-proj/
 
+# Third-party reference material held locally for consultation and NEVER redistributed.
+# Nintendo's SNES/Super Famicom developer documentation is Nintendo-copyrighted and was never
+# publicly licensed; it is kept here the same way ref-proj/ holds GPL emulator clones and
+# tests/roms/external/ holds commercial dumps — read, cite, re-express in our own words, never
+# vendor. Both a file and a directory of each name are ignored, because an earlier `/ref-proj/`
+# rule matched a directory but NOT a symlink and one got committed by accident.
+/ref-docs/nintendo
+/ref-docs/nintendo/
+/ref-docs/*.pdf
+/ref-docs/*.PDF
+/ref-docs/*.cbr
+/ref-docs/*.zip
+
 # --- Temporary files ---
 /tmp/
 /temp/
