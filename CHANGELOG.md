@@ -11,6 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The boot ROM itself (`E4`).** The cart has used the IPL handshake since Group E existed;
+  these are the first tests *of* it. `E4.01` walks all 64 bytes of `$FFC0`-`$FFFF` and reports both
+  their sum and a position-weighted rolling value — the sum alone would accept any permutation,
+  which is precisely the mistake a hand-transcribed listing makes. `E4.04`: an idle boot ROM
+  announces `$BBAA`, the one piece of APU state a game can check before it has uploaded anything.
+  `E4.02`: the IPL hands a program `A`/`X`/`Y` zero and a defined `PSW`.
+
+  `E4.04` polls the **second** byte and asserts the first, which makes it an ordering claim as well.
+  The boot ROM stores `$AA` to port 0 and then `$BB` to port 1, two separate instructions, so once
+  `$BB` is visible `$AA` must already be. The first version did it the other way round and landed in
+  the gap between the two stores; snes9x failed it, correctly. A driver that polls for `$AA` and then
+  trusts port 1 has the same bug.
+
+  **`E4.02` found the documented handoff state to be incomplete.** RustySNES, snes9x and Mesen2 all
+  hand over `PSW = $0A`, not the listed `$02`: `Z` as described, plus `H` left set by the boot ROM's
+  own arithmetic. Three independent implementations agreeing that a listing is incomplete is worth
+  recording — but not worth scoring against, since asserting `$0A` would be grading a measured value
+  with a citation that says something else. The test asserts the documented bits (`Z` set, `N`/`V`/
+  `I`/`C` clear) and publishes the whole byte to the measurement channel, which exists so a number
+  can be reported without being scored.
+
 - **A BRR filter and an envelope floor (`E5.05`, `E7.14`).** `E5.05`: filter 1 is a recurrence,
   not a scale factor — it keeps most of the previous output and adds the new sample, so a constant
   input converges on a fixed point an order of magnitude above itself. A core that ignores the
@@ -333,10 +354,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **180 tests — 168 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **183 tests — 171 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **138 of 443** on-cart plus **42** scene-only —
-**180 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier. Dossier coverage is **141 of 443** on-cart plus **42** scene-only —
+**183 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 

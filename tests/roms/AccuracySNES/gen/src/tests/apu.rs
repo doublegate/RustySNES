@@ -60,6 +60,9 @@ pub fn all() -> Vec<Test> {
         e5_09(),
         e5_11(),
         e7_10(),
+        e4_01(),
+        e4_02(),
+        e4_04(),
         e5_02(),
         e9_04(),
         e9_18(),
@@ -1074,6 +1077,212 @@ fn voice_program(sample: &[u8], v: Voice) -> Spc {
     dsp_read_to(&mut p, 0x09, PORT3); // voice 0 OUTX
     p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
     p
+}
+
+/// The IPL boot ROM is the same 64 bytes on every SNES.
+///
+/// `$FFC0`-`$FFFF` is a mask ROM inside the SPC700 — not part of the cartridge, not part of APU
+/// RAM, and byte-identical on every console ever made. Everything about the audio boot depends on
+/// it: a game's driver reaches the APU only through the handshake this ROM implements, so a wrong
+/// byte in it does not degrade audio, it prevents any audio at all.
+///
+/// The program walks all 64 bytes and reports two checks: their sum, and a position-weighted
+/// rolling value (`r = r * 2 + b`). The sum alone would accept any permutation of the same bytes,
+/// which is precisely the mistake an emulator hand-transcribing the listing would make — the rolling
+/// value is order-sensitive and costs three instructions.
+///
+/// It maps `$F1` bit 7 first. Every other program in this group leaves that bit alone, but a test
+/// that reads the boot ROM cannot assume it is the boot ROM that is mapped there.
+fn e4_01() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_dp_imm(0xF1, 0x80) // map the IPL ROM at $FFC0-$FFFF
+        .mov_dp_imm(0x10, 0x00) // sum
+        .mov_dp_imm(0x11, 0x00) // rolling value
+        .mov_x_imm(0x00);
+    let loop_top = prog.here();
+    prog.mov_a_dp(0x11)
+        .asl_a()
+        .mov_dp_a(0x12) // rolling * 2
+        .mov_a_abs_x(0xFFC0)
+        .mov_dp_a(0x13) // this byte
+        .clrc()
+        .adc_a_dp(0x12)
+        .mov_dp_a(0x11) // rolling = rolling * 2 + byte
+        .mov_a_dp(0x10)
+        .clrc()
+        .adc_a_dp(0x13)
+        .mov_dp_a(0x10) // sum += byte
+        .inc_x()
+        .cmp_x_imm(64);
+    prog.bne_back(loop_top);
+    prog.mov_a_dp(0x10)
+        .mov_dp_a(PORT1)
+        .mov_a_dp(0x11)
+        .mov_dp_a(PORT2)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.assert_a8(
+        0xB8,
+        "the IPL ROM's bytes do not sum to $B8, so it is not the canonical boot ROM",
+    );
+    a.c("And the order, which a sum cannot see: r = r*2 + b over the same 64 bytes.");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x4F,
+        "the IPL ROM summed correctly but its rolling checksum is wrong, so the bytes are right \
+         and their order is not",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E4.01",
+        'E',
+        "IPL ROM contents",
+        Provenance::Documented("the canonical 64-byte IPL listing; fullsnes, SNESdev Wiki"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The IPL hands a program a defined register state, not whatever it happened to leave.
+///
+/// `A = 0`, `X = 0`, `Y = 0`, `PSW = $02` — `Z` set, everything else clear. A driver that relies on
+/// it (and they do: the entry state is why so many drivers open with a `MOV` rather than a load)
+/// breaks on a core that jumps to the program with its own leftovers in the registers.
+///
+/// The program's first three instructions capture the state before anything can disturb it, using
+/// only the flag-free moves. `Y` and `A` are reported bitwise-ORed together rather than separately: both
+/// must be zero, so their OR being zero says both, and it buys a third register out of the three
+/// mailbox bytes available. `SP` is the one part not checked — reading it needs a register this
+/// test would then have to report somewhere.
+///
+/// **The `PSW` assertion masks the half-carry bit, and the reason is a finding.** RustySNES, snes9x
+/// and Mesen2 all hand over `$0A`, not the documented `$02`: `Z` as described, plus `H` left set by
+/// the boot ROM's own arithmetic. Three independent implementations agreeing that the listing is
+/// incomplete is worth more than a fourth opinion, but it is not licence to assert `$0A` — that
+/// would be scoring a measured value against a citation that says something else. So the test
+/// asserts the documented bits (`Z` set, `N`/`V`/`I`/`C` clear) and publishes the full byte to the
+/// measurement channel, where a number can be reported without being scored.
+fn e4_02() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_dp_a(0x10) // A at entry, stashed (flag-free)
+        .mov_dp_x(PORT2) // X at entry (flag-free)
+        .push_psw()
+        .pop_a()
+        .mov_dp_a(PORT1) // PSW at entry
+        .mov_a_y()
+        .or_a_dp(0x10)
+        .mov_dp_a(PORT3) // Y | A, which is zero only if both are
+        .mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.c("Publish the whole byte first — see the note above about $0A against a documented $02.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(112, "IPL handoff PSW");
+    a.c("Then assert the documented bits only: Z set, N/V/I/C clear. Bit 3 (H) is masked out.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.l("and #$F7");
+    a.assert_a8(
+        0x02,
+        "the IPL handed over with PSW other than $02 once the half-carry bit is masked — Z must \
+         be set and N, V, I and C clear",
+    );
+    a.l("lda f:$7E0101");
+    a.assert_a8(0x00, "the IPL handed over with X non-zero");
+    a.l("lda f:$7E0102");
+    a.assert_a8(
+        0x00,
+        "the IPL handed over with A or Y non-zero (they are reported ORed together)",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E4.02",
+        'E',
+        "IPL handoff state",
+        Provenance::Documented("fullsnes, SNESdev Wiki, APU boot handshake"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// An idle IPL announces itself as `$BBAA`, and it is the only thing a driver may wait for.
+///
+/// Port 0 reads `$AA` and port 1 reads `$BB` whenever the boot ROM is sitting in its ready loop —
+/// at power-on, and again every time a program hands control back. It is the one piece of APU state
+/// a game can check *before* it has uploaded anything, so every sound driver in existence opens by
+/// polling for it.
+///
+/// No upload: this reads the two ports directly, which is exactly what the driver does. What it
+/// measures is that the previous test's release actually returned the APU to the boot ROM — a core
+/// that never re-announces leaves every later upload waiting on a handshake that will not come.
+///
+/// It *polls* rather than reading once, and that is not a weakening. The previous test released the
+/// APU a few 65816 instructions ago; the SPC700 has to notice the release byte, jump to `$FFC0`, and
+/// run the announcement, which takes real time on a processor running at a twentieth of the CPU's
+/// clock. Reading once asserts that the handoff is instantaneous, which is not the claim and is not
+/// true. Polling with a bound is what a driver does, and a core that never announces still fails —
+/// it runs out the bound and reports SKIP rather than a pass.
+///
+/// **It polls the second byte and asserts the first**, which makes the test an ordering claim as
+/// well. The boot ROM stores `$AA` to port 0 and then `$BB` to port 1, two separate instructions, so
+/// once `$BB` is visible `$AA` must already be. Doing it the other way round — poll for `$AA`, then
+/// read port 1 — lands in the gap between the two stores, and snes9x failed exactly that on the
+/// first version of this test. A driver polling for `$AA` alone and then trusting port 1 has the
+/// same bug.
+fn e4_04() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("ldx #$0000");
+    a.label("wait");
+    a.l("sep #$20");
+    a.l("lda APUIO1");
+    a.l("cmp #$BB");
+    a.l("beq @ready");
+    a.l("rep #$30");
+    a.l("inx");
+    a.l("cpx #$4000");
+    a.l("bne @wait");
+    a.c("Never announced. SKIP rather than FAIL: an APU that is not in its boot ROM has told us");
+    a.c("nothing about what the boot ROM announces, which is the only thing being measured.");
+    a.l("sep #$20");
+    a.l("lda #$FF");
+    a.l("sta f:V_TEST_RESULT");
+    a.l("jmp test_restore");
+    a.label("ready");
+    a.c("Port 1 is $BB, which the boot ROM writes second — so port 0 must already hold the $AA it");
+    a.c("writes first. The pair is the announcement; $BB alone is a byte a core could leave");
+    a.c("anywhere.");
+    a.l("sep #$20");
+    a.l("lda APUIO0");
+    a.assert_a8(
+        0xAA,
+        "port 1 announced $BB but port 0 does not read $AA, so the ready word is not $BBAA — or \
+         the two bytes are written in the wrong order",
+    );
+    a.finish(
+        "E4.04",
+        'E',
+        "IPL ready announcement",
+        Provenance::Documented("fullsnes, SNESdev Wiki, APU boot handshake"),
+        Kind::Scored,
+        None,
+    )
 }
 
 /// A looping block, for tests whose voice must simply keep playing.

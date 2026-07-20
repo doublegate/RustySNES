@@ -156,6 +156,75 @@ impl Spc {
         entry
     }
 
+    /// `MOV A,!abs+X` — `$F5`. The indexed absolute read the IPL-ROM checksum walks with.
+    pub fn mov_a_abs_x(&mut self, addr: u16) -> &mut Self {
+        let [lo, hi] = addr.to_le_bytes();
+        self.push(&[0xF5, lo, hi])
+    }
+
+    /// `MOV dp,X` — `$D8`. Flag-free, like its `A` and `Y` counterparts.
+    pub fn mov_dp_x(&mut self, dp: u8) -> &mut Self {
+        self.push(&[0xD8, dp])
+    }
+
+    /// `MOV A,Y` — `$DD`.
+    pub fn mov_a_y(&mut self) -> &mut Self {
+        self.push(&[0xDD])
+    }
+
+    /// `OR A,dp` — `$04`.
+    pub fn or_a_dp(&mut self, dp: u8) -> &mut Self {
+        self.push(&[0x04, dp])
+    }
+
+    /// `ADC A,dp` — `$84`. Adds the carry, so pair it with [`Spc::clrc`].
+    pub fn adc_a_dp(&mut self, dp: u8) -> &mut Self {
+        self.push(&[0x84, dp])
+    }
+
+    /// `CLRC` — `$60`.
+    pub fn clrc(&mut self) -> &mut Self {
+        self.push(&[0x60])
+    }
+
+    /// `ASL A` — `$1C`.
+    pub fn asl_a(&mut self) -> &mut Self {
+        self.push(&[0x1C])
+    }
+
+    /// `INC X` — `$3D`.
+    pub fn inc_x(&mut self) -> &mut Self {
+        self.push(&[0x3D])
+    }
+
+    /// `CMP X,#imm` — `$C8`.
+    pub fn cmp_x_imm(&mut self, v: u8) -> &mut Self {
+        self.push(&[0xC8, v])
+    }
+
+    /// The current offset, for [`Spc::bne_back`] to branch to.
+    #[must_use]
+    pub const fn here(&self) -> usize {
+        self.bytes.len()
+    }
+
+    /// `BNE` back to a point recorded by [`Spc::here`].
+    ///
+    /// Backwards only, and the displacement is computed rather than written by hand — the same
+    /// reasoning as in [`Spc::release_to_ipl`], where a hand-counted offset was right until an
+    /// instruction moved.
+    ///
+    /// # Panics
+    ///
+    /// If the target is further back than a branch can reach.
+    pub fn bne_back(&mut self, target: usize) -> &mut Self {
+        let after = self.bytes.len() + 2;
+        let rel = i64::try_from(target).expect("offset fits i64")
+            - i64::try_from(after).expect("offset fits i64");
+        let rel = i8::try_from(rel).expect("branch target is out of reach");
+        self.push(&[0xD0, rel.to_le_bytes()[0]])
+    }
+
     /// `CMP A,#imm` — `$68`.
     pub fn cmp_a_imm(&mut self, v: u8) -> &mut Self {
         self.push(&[0x68, v])
