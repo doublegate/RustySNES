@@ -111,6 +111,11 @@ pattern the C7 sprite tests established.
   (`C6`), colour math and windows (`C8`), mosaic (`C10`), direct colour (`C12`), the hi-res and
   interlace cases (most of `C9`), and the `C13.01`–`C13.06` INIDISP early-read artifacts.
 
+  **Decision drafted: [`docs/adr/0013`](adr/0013-accuracysnes-framebuffer-oracle.md)** — a
+  host-side framebuffer oracle as a separate tier, reusing the proven `undisbeliever_golden.rs`
+  hashing, with rendered results reported separately and never folded into the on-cart pass rate.
+  Awaiting ratification; three open questions are listed in the ADR.
+
   These decide only what appears on screen, so **they cannot be self-scored at all**. Scoring them
   means comparing pixels, which breaks the property that makes this cartridge worth having: that
   the identical image runs unmodified on other emulators and on real hardware. Any design here must
