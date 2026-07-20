@@ -189,7 +189,20 @@ preserved verbatim, only restructured), taking the enumeration from 232 checkabl
 assertions happened to sit in a table, and the rest were guesses — which is precisely where an
 untested behaviour could hide indefinitely.
 
-**T-04-I is blocked on an oracle, not on engineering — and that is now measured, not assumed.**
+**T-04-I's oracle is now established — see `docs/accuracysnes-timing-oracle.md`.** The blocking
+question was whether Ricoh altered the 65816 core's cycle structure, because if so the WDC datasheet
+would be useless for the SNES. It did not: the 5A22 is a **stock WDC core plus a clock-stretching
+wait-state generator** keyed on the VDA/VPA pins, which the 5A22's own pinout exposes and which
+Nintendo's manual corroborates (*"the CPU is operated internally with a 3.58MHz clock speed"* —
+master/6, the core's native cycle). So the oracle is two emulator-independent layers: WDC Table 5-7
+for cycle classification, and a wait-state map for the SNES overlay. No public Ricoh 5A22 datasheet
+exists — that was checked, not assumed.
+
+What remains for T-04-I is now ordinary work: a safe-operand table, a sandbox, and per-opcode
+expectations computed from those two layers. The paragraph below records why the first attempt could
+not score, and stands as the reason the oracle was needed.
+
+**The original blocker, kept for the reasoning.**
 `A5.08` implements the dossier's `A5.22` cycle spot checks (`XBA`, `REP`, `PHD`/`PLD`) using the
 only sound conversion available:
 
