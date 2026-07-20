@@ -17,11 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still sees the last frame's verdict — which is what makes the flag usable at all, since a driver
   reads it during vblank.
 
-  Three readings, because each is meaningless alone: after a frame with 34 sprites on one line the
-  flag is **set**; after parking every sprite *without* rendering it is **still set**; after one more
-  rendered frame with nothing in range it is **clear**. A core that clears the flag on any `$2100`
-  write passes the first and fails the second; one that never clears it passes both and fails the
-  third.
+  **Both** flags, not one: 34 sprites of 16x16 exceed the 32-sprite range limit *and*, at two
+  slivers each, the 34-sliver limit, so bit 6 and bit 7 latch together. Three readings, because each
+  is meaningless alone: after a frame with those sprites the flags are **set**; after parking every
+  sprite *without* rendering they are **still set**; after one more rendered frame with nothing in
+  range they are **clear**. A core that clears them on any `$2100` write passes the first and fails
+  the second; one that never clears them passes both and fails the third.
+
+  The test also clears the OAM high table and sets `OBJSEL` explicitly, because `C1.03b` leaves
+  `$AA` in the high table's first byte — size bits for sprites 0-3. Inheriting a large size would
+  let a parked sprite reach back into the picture and make this test depend on the order the battery
+  happens to run in.
 
   The parked sprites sit at `Y = 240`, not 224, and that is a finding rather than a detail: the
   visible height is not fixed. An overscan display shows 239 lines, and Mesen2's PAL run failed the

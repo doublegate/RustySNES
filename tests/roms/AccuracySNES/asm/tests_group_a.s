@@ -3281,13 +3281,35 @@ CATALOG_IMPL = 1
 .proc test_c7_09
     .a16
     .i16
-    ; Park all 128 sprites off-screen first: OAM is 544 bytes nothing else clears, and a stray
-    ; sprite left by an earlier test would set the flag for a reason this test is not about.
+    ; A known sprite size, and a high table with no size or X-bit-8 bits left in it by an
+    ; earlier test. Without both, a parked sprite can be large enough to reach the picture.
     rep #$30
     .a16
     .i16
     phk
     plb
+    sep #$20
+    .a8
+    lda #$60
+    sta $2101         ; OBJSEL pair 3: 16x16 small, 32x32 large, name base word $0000
+    rep #$30
+    .a16
+    .i16
+    ldx #$0100
+    stx $2102         ; the 32-byte high table
+    ldy #$0000
+@clearhi:
+    sep #$20
+    .a8
+    stz $2104
+    rep #$30
+    .a16
+    .i16
+    iny
+    cpy #32
+    bne @clearhi
+    ; Park all 128 sprites off-screen: a stray one left by an earlier test would set the flags
+    ; for a reason this test is not about.
     ldx #$0000
     stx $2102
     ldy #$0000
@@ -3305,7 +3327,8 @@ CATALOG_IMPL = 1
     iny
     cpy #128
     bne @park1
-    ; Now put 34 of them on one line — two more than the range limit.
+    ; Now put 34 of them on one line: two past the 32-sprite range limit, and at two slivers
+    ; each, well past the 34-sliver limit as well. Both flags must latch.
     ldx #$0000
     stx $2102
     ldy #$0000
@@ -3334,8 +3357,8 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     lda $213E
-    and #$40
-    cmp #$40
+    and #$C0
+    cmp #$C0
     beq :+
     jmp @fail1
   :
@@ -3364,8 +3387,8 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     lda $213E
-    and #$40
-    cmp #$40
+    and #$C0
+    cmp #$C0
     beq :+
     jmp @fail2
   :
@@ -3375,7 +3398,7 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     lda $213E
-    and #$40
+    and #$C0
     cmp #$00
     beq :+
     jmp @fail3
@@ -3386,21 +3409,21 @@ CATALOG_IMPL = 1
     sta f:$7EE010
     jml test_restore
 @fail1:
-    ; 34 sprites on one scanline did not set $213E's range-over flag, so the readings below say nothing
+    ; 34 sprites of 16x16 on one scanline did not set both $213E overflow flags, so the readings below say nothing
     sep #$20
     .a8
     lda #$02
     sta f:$7EE010
     jml test_restore
 @fail2:
-    ; the range-over flag cleared without a frame boundary — forced blank is not the end of vblank, and a driver reading the flag during blanking would lose it
+    ; an overflow flag cleared without a frame boundary — forced blank is not the end of vblank, and a driver reading the flags during blanking would lose them
     sep #$20
     .a8
     lda #$04
     sta f:$7EE010
     jml test_restore
 @fail3:
-    ; the range-over flag survived a rendered frame with nothing in range, so it is never cleared at the end of vblank
+    ; an overflow flag survived a rendered frame with nothing in range, so it is never cleared at the end of vblank
     sep #$20
     .a8
     lda #$06

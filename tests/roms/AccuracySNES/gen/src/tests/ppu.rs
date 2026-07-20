@@ -387,27 +387,52 @@ fn c1_07() -> Test {
 /// event: a program that blanks the screen and reads the flag still sees the last frame's verdict,
 /// which is exactly what makes the flag usable at all, since a driver reads it during vblank.
 ///
+/// Both flags, not one: 34 sprites of 16x16 exceed the 32-sprite range limit *and*, at two slivers
+/// each, the 34-sliver limit — so bit 6 and bit 7 latch together and the test can assert the pair.
+///
 /// Three readings, in one test, because each is meaningless alone:
 ///
-/// 1. after a frame with 34 sprites on one line, the flag is **set**;
-/// 2. after parking every sprite but *without* rendering, it is **still set** — forced blank did
-///    not clear it;
-/// 3. after one more rendered frame with nothing in range, it is **clear**.
+/// 1. after a frame with 34 sprites on one line, both flags are **set**;
+/// 2. after parking every sprite but *without* rendering, they are **still set** — forced blank did
+///    not clear them;
+/// 3. after one more rendered frame with nothing in range, they are **clear**.
 ///
-/// A core that clears the flag on any `$2100` write passes (1) and fails (2). One that never clears
-/// it passes (1) and (2) and fails (3). Only the sequence separates them.
+/// A core that clears the flags on any `$2100` write passes (1) and fails (2). One that never
+/// clears them passes (1) and (2) and fails (3). Only the sequence separates them.
 ///
-/// Sprites are parked at `Y = 240` rather than 224 because the visible height is not fixed: an
-/// overscan display shows 239 lines, and a host whose PAL default is overscan renders sprites
-/// parked at 224. Mesen2's PAL run failed the third reading for exactly that reason — the parked
-/// sprites were still in range, and the flag it was asked to have cleared had been set again.
+/// Two pieces of setup are defensive, and both were earned:
+///
+/// * **The OAM high table is cleared and `OBJSEL` set explicitly.** OAM is 544 bytes nothing else
+///   resets, and `C1.03b` leaves `$AA` in the high table's first byte — size bits for sprites 0-3.
+///   Inheriting a large size would let a parked sprite reach back into the picture, making this
+///   test depend on the order the battery happens to run in.
+/// * **Sprites park at `Y = 240`, not 224.** The visible height is not fixed: an overscan display
+///   shows 239 lines. Mesen2's PAL run failed the third reading for exactly that reason — the
+///   parked sprites were still in range, and the flag the test asked to have cleared had been set
+///   again by the very sprites it had just parked.
 fn c7_09() -> Test {
     let mut a = Asm::new();
-    a.c("Park all 128 sprites off-screen first: OAM is 544 bytes nothing else clears, and a stray");
-    a.c("sprite left by an earlier test would set the flag for a reason this test is not about.");
+    a.c("A known sprite size, and a high table with no size or X-bit-8 bits left in it by an");
+    a.c("earlier test. Without both, a parked sprite can be large enough to reach the picture.");
     a.l("rep #$30");
     a.l("phk");
     a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$60");
+    a.l("sta $2101         ; OBJSEL pair 3: 16x16 small, 32x32 large, name base word $0000");
+    a.l("rep #$30");
+    a.l("ldx #$0100");
+    a.l("stx $2102         ; the 32-byte high table");
+    a.l("ldy #$0000");
+    a.label("clearhi");
+    a.l("sep #$20");
+    a.l("stz $2104");
+    a.l("rep #$30");
+    a.l("iny");
+    a.l("cpy #32");
+    a.l("bne @clearhi");
+    a.c("Park all 128 sprites off-screen: a stray one left by an earlier test would set the flags");
+    a.c("for a reason this test is not about.");
     a.l("ldx #$0000");
     a.l("stx $2102");
     a.l("ldy #$0000");
@@ -422,7 +447,8 @@ fn c7_09() -> Test {
     a.l("iny");
     a.l("cpy #128");
     a.l("bne @park1");
-    a.c("Now put 34 of them on one line — two more than the range limit.");
+    a.c("Now put 34 of them on one line: two past the 32-sprite range limit, and at two slivers");
+    a.c("each, well past the 34-sliver limit as well. Both flags must latch.");
     a.l("ldx #$0000");
     a.l("stx $2102");
     a.l("ldy #$0000");
@@ -446,11 +472,11 @@ fn c7_09() -> Test {
     a.l("jsr frame_step");
     a.l("sep #$20");
     a.l("lda $213E");
-    a.l("and #$40");
+    a.l("and #$C0");
     a.assert_a8(
-        0x40,
-        "34 sprites on one scanline did not set $213E's range-over flag, so the readings below \
-         say nothing",
+        0xC0,
+        "34 sprites of 16x16 on one scanline did not set both $213E overflow flags, so the \
+         readings below say nothing",
     );
     a.c("Park them all again — under forced blank, with no frame rendered. The flag must persist:");
     a.c("forced blank is not the end of vblank.");
@@ -471,22 +497,22 @@ fn c7_09() -> Test {
     a.l("bne @park2");
     a.l("sep #$20");
     a.l("lda $213E");
-    a.l("and #$40");
+    a.l("and #$C0");
     a.assert_a8(
-        0x40,
-        "the range-over flag cleared without a frame boundary — forced blank is not the end of \
-         vblank, and a driver reading the flag during blanking would lose it",
+        0xC0,
+        "an overflow flag cleared without a frame boundary — forced blank is not the end of \
+         vblank, and a driver reading the flags during blanking would lose them",
     );
     a.c("One more rendered frame, now with nothing in range. The end of ITS vblank clears the");
     a.c("flag, and nothing sets it again.");
     a.l("jsr frame_step");
     a.l("sep #$20");
     a.l("lda $213E");
-    a.l("and #$40");
+    a.l("and #$C0");
     a.assert_a8(
         0x00,
-        "the range-over flag survived a rendered frame with nothing in range, so it is never \
-         cleared at the end of vblank",
+        "an overflow flag survived a rendered frame with nothing in range, so it is never cleared \
+         at the end of vblank",
     );
     a.finish(
         "C7.09",

@@ -501,9 +501,9 @@ Provenance: **Documented** (SNESdev Wiki, sprites; fullsnes). Kind: scored.
 
 | Code | Byte | Meaning |
 |---|---|---|
-| 1 | `$02` | 34 sprites on one scanline did not set $213E's range-over flag, so the readings below say nothing |
-| 2 | `$04` | the range-over flag cleared without a frame boundary — forced blank is not the end of vblank, and a driver reading the flag during blanking would lose it |
-| 3 | `$06` | the range-over flag survived a rendered frame with nothing in range, so it is never cleared at the end of vblank |
+| 1 | `$02` | 34 sprites of 16x16 on one scanline did not set both $213E overflow flags, so the readings below say nothing |
+| 2 | `$04` | an overflow flag cleared without a frame boundary — forced blank is not the end of vblank, and a driver reading the flags during blanking would lose them |
+| 3 | `$06` | an overflow flag survived a rendered frame with nothing in range, so it is never cleared at the end of vblank |
 
 ### C2.01 — VMAIN step 1 word
 
