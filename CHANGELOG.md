@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **BRR decoding arithmetic, as three tests that are each other's controls (`E5`).** All three play
+  a sample whose every nibble is identical, so filter 0 decodes the same value every time and the
+  output is a constant the cart can read without racing the sample clock. `E5.02`: nibbles are
+  signed, so a sample of `$8` nibbles must come out *negative* — read as unsigned it becomes a DC
+  offset and a wrong waveform rather than silence. `E5.03`: the same shift with `+7` nibbles must
+  come out positive and non-zero. `E5.04`: shift 13 is not a shift at all but a documented special
+  case that discards the magnitude and keeps the sign, so the same `+7` nibbles must collapse to
+  zero — a core applying it literally produces an enormous sample where the hardware produces
+  silence.
+
+  Zero is also what a voice that never started looks like, which is exactly why `E5.03` is in the
+  set rather than folded into the others.
+
+- **Two more things a playing voice makes visible (`E9`).** `E9.18`: `FLG`'s reset bit is not a
+  gentle stop — it behaves as `KOFF = $FF` with the envelopes forced to zero, so a voice held at a
+  direct gain nothing else would move reads zero afterwards. `E9.04`: a voice switched to noise
+  *still decodes its BRR sample underneath*, so an end-without-loop block silences it anyway; a
+  driver parking a noise voice on whatever sample address happens to be there gets silence at an
+  unpredictable moment, and a core that skips decoding for noise voices never reproduces it.
+
 - **The envelope generator, four ways (`E7`).** With a voice playing, the envelope is finally
   observable: `E7.15` attacks at rate `$F` to full scale and reads exactly `$7F`, which is the one
   assertion that pins `VxENVX` as `E >> 4` of an eleven-bit envelope — a core carrying a full byte,
@@ -295,10 +315,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **173 tests — 161 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **178 tests — 166 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **131 of 443** on-cart plus **42** scene-only —
-**173 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier. Dossier coverage is **136 of 443** on-cart plus **42** scene-only —
+**178 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 

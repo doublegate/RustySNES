@@ -1143,6 +1143,46 @@ Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes). Kind: scor
 |---|---|---|
 | 1 | `$02` | ENVX did not read back the direct GAIN value; a ramp toward it, or a missing >>4, both land somewhere else |
 
+### E5.02 — BRR nibbles are signed
+
+Provenance: **Documented** (fullsnes, S-DSP BRR; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a sample of $8 nibbles produced a positive output, so the nibbles were read as unsigned |
+
+### E9.04 — Noise voices decode BRR
+
+Provenance: **Documented** (fullsnes, S-DSP noise; anomie's DSP doc — flagged as errata). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a noise voice's envelope survived an end-without-loop block, so noise voices are not decoding BRR underneath |
+
+### E9.18 — FLG reset kills voices
+
+Provenance: **Documented** (SNESdev Wiki, S-DSP; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the envelope survived a FLG reset, so the reset bit did not force the voices off |
+
+### E5.03 — BRR sample arithmetic
+
+Provenance: **Documented** (fullsnes, S-DSP BRR; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a sample of $7 nibbles did not produce a positive non-zero output; zero means nothing reached the output at all, and a negative value means the nibbles were sign-confused |
+
+### E5.04 — Invalid shift collapses
+
+Provenance: **Documented** (fullsnes, S-DSP BRR; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | shift 13 did not collapse a positive sample to zero, so the invalid shifts are being applied as ordinary ones |
+
 ### E7.01 — Rate 0 never fires
 
 Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc). Kind: scored.
