@@ -8,6 +8,11 @@
 language: en-GB
 early_access: false
 
+# House style, applied to reviews and chat alike. The repository's own rule, extended to the bot.
+tone_instructions: >-
+  Write in precise technical prose. No emojis anywhere. State the defect and the input that
+  triggers it; do not soften a finding with praise or hedge one you are confident in.
+
 reviews:
   # Thorough rather than gentle. This repository is an accuracy oracle: a review that lets a
   # plausible-but-wrong assertion through costs more than one that asks an unnecessary question.
@@ -16,13 +21,35 @@ reviews:
   # there; a "changes requested" state that a human then has to clear adds a step and no signal.
   request_changes_workflow: false
   high_level_summary: true
+  high_level_summary_instructions: >-
+    Say what the change claims and what would make the claim false. For an AccuracySNES change,
+    name the dossier assertions added or altered and whether the coverage denominator moved. For an
+    emulator-core change, name the observable behaviour that differs. Do not restate the diff.
   poem: false
   review_status: true
   collapse_walkthrough: false
+  # Post what the review left out — ignored files, suppressed comments, extra context. The default
+  # is off, and that silence is exactly how the `**/gen/**` filter below went unnoticed across
+  # three pull requests: the bot said nothing because it had been given nothing to say it about.
+  review_details: true
 
   auto_review:
     enabled: true
     drafts: false
+    # Never stop re-reviewing. The default pauses automatic review after five reviewed commits,
+    # and a batch here routinely takes more than five pushes while findings are adjudicated —
+    # the later pushes are the ones carrying the fixes, so they are the ones worth reading.
+    auto_pause_after_reviewed_commits: 0
+
+  # Both of these open follow-up pull requests containing generated code, and both are wrong for
+  # this repository. A doc comment here is the argument for why a test is not vacuous, not a
+  # restatement of the signature; and a generated unit test asserting current behaviour is the
+  # precise opposite of an accuracy oracle, which asserts what the *hardware* does.
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
 
   path_filters:
     # --- Includes ----------------------------------------------------------------------------
@@ -159,6 +186,23 @@ reviews:
           `.sfc` images) are present in the diff, since a source change without them means the
           committed ROM does not match its generator; and the hand-maintained counts in
           `docs/accuracysnes-plan.md` moved by the same amount as the generated coverage table.
+
+knowledge_base:
+  # Claims in this repository cite external hardware documentation — SNESdev, fullsnes, anomie's
+  # register notes — and a review that can check a cited claim against its source is worth more
+  # than one that can only check internal consistency.
+  web_search:
+    enabled: true
+  code_guidelines:
+    enabled: true
+    # Explicit rather than inherited: the defaults cover AGENTS.md and CLAUDE.md, but this
+    # repository's binding rules are as much in CONTRIBUTING.md and the ADRs — ADR 0013 is why
+    # on-cart and scene coverage are never summed, ADR 0006 is the save-state version discipline.
+    filePatterns:
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+      - 'CONTRIBUTING.md'
+      - 'docs/adr/*.md'
 
 chat:
   auto_reply: true
