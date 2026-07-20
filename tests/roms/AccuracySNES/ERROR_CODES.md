@@ -1339,6 +1339,15 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes — flagged
 | 1 | `$02` | ADC $7F + $01 did not set both V and H, so the CLRV check below would be vacuous |
 | 2 | `$04` | CLRV left a flag set — it clears H as well as V, and nothing else on the SPC700 clears H |
 
+### E2.03 — MOVW reads the low byte
+
+Provenance: **Documented** (SNESdev Wiki, SPC700; fullsnes — flagged as errata). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | timer 1's counter was empty, so either the timers never ran or MOVW consumed $FE as well |
+| 2 | `$04` | timer 0's counter survived MOVW dp,YA — the instruction dummy-reads its low address |
+
 ### E2.06 — PSW.P selects the page
 
 Provenance: **Documented** (SNESdev Wiki, SPC700 addressing; fullsnes). Kind: scored.
