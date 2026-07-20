@@ -25,8 +25,13 @@ cd "$(dirname "$0")/../.."
 
 ROM=tests/roms/AccuracySNES/build/accuracysnes.sfc
 HOST=${TMPDIR:-/tmp}/accuracysnes_lrcv
-MESEN=ref-proj/Mesen2/bin/linux-x64/Release/linux-x64/publish/Mesen.dll
-SNES9X=ref-proj/snes9x/libretro/snes9x_libretro.so
+# Where the reference-emulator clones live. Overridable so this can be run from a git worktree
+# without symlinking `ref-proj` into it — a symlink there is machine-specific, and one was once
+# committed by accident because .gitignore's `/ref-proj/` matches a directory but not a symlink.
+REF_PROJ=${REF_PROJ:-ref-proj}
+
+MESEN=$REF_PROJ/Mesen2/bin/linux-x64/Release/linux-x64/publish/Mesen.dll
+SNES9X=$REF_PROJ/snes9x/libretro/snes9x_libretro.so
 
 if [[ ! -f $ROM ]]; then
     echo "error: $ROM not found — run 'cargo run -p accuracysnes-gen' first" >&2

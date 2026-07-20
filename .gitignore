@@ -145,6 +145,7 @@ flamegraph.svg
 # text — a local reference copy only, never vendored into the MIT/Apache tree. Mirrors the
 # posture RustyNES takes with its own /nesdev_wiki/.
 /snesdev_wiki/
+/ref-proj
 /ref-proj/
 
 # --- Temporary files ---
