@@ -394,6 +394,25 @@ Three rules the machinery is built on, all learned immediately:
   an assembler bug — the most expensive way to find it. Five emitters were written for `E1.12` and
   removed with it.
 
+#### The S-DSP blocker (`E5`-`E9`, ~73 assertions)
+
+The DSP is reached from the SPC700 through an address latch (`$F2`) and a data port (`$F3`), and
+**that path does not work yet in this harness**. A program that writes `$F2 = $00`, `$F3 = $11` and
+then reads `$F3` back gets `$00`, and the DSP register file inspected from the host afterwards is
+entirely zero. This reproduces identically on RustySNES and snes9x, so it is the *cart's* sequence
+that is wrong, not the cores — the project's usual signature.
+
+Two tests were written against it (`E3.11`, and a foundational register-addressing round trip) and
+**both were withdrawn rather than recorded as goldens**. `E3.14`'s treatment does not apply here:
+there the claim was specific and the disagreement was itself the finding, whereas a golden for "DSP
+addressing" that nobody can interpret adds noise rather than evidence.
+
+This is the next thing to solve for Group E, and it gates `E5`-`E9` entirely — BRR decoding, pitch,
+envelopes, key-on/off and the mixer are all read back through DSP registers. Candidates worth
+checking first, in order of likelihood: whether the DSP needs the SPC700 to yield cycles between
+the `$F2` write and the `$F3` access; whether the IPL leaves `FLG` (`$6C`) in a soft reset that
+suppresses register writes; and whether `$F3` reads are delayed by one access.
+
 `E1.12` (CLRV clears H as well as V) was written, failed, and was **withdrawn rather than
 weakened**: the `ADC` sequence meant to set `H` did not set it on RustySNES, snes9x *or* Mesen2.
 Three-way agreement against the test is the project's own signature of a broken test, so the
