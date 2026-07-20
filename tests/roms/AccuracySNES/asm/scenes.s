@@ -1083,6 +1083,47 @@ SCENES_IMPL = 1
     rts
 .endproc
 
+; c5-mode7-ignores-bgsc — C5.13
+; The identity Mode 7 scene again, with BG1SC and BG1NBA deliberately pointed at nonsense first. Mode 7 has its own fixed VRAM layout — byte-interleaved tilemap and characters at $0000 — and reads neither register, so the picture must be exactly the one `c11-mode7-identity` produces. That equality is the assertion, declared as an equivalence in the harness rather than as a second committed hash: a core that honours BG1SC in Mode 7 renders from the wrong address and fails it, while a change to the shared Mode 7 canvas moves both scenes together and leaves it holding.
+.proc scene_c5_mode7_ignores_bgsc
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$07
+    sta $2105         ; BGMODE 7
+    ; Nonsense in both registers BEFORE the VRAM upload, so nothing can be read from them.
+    lda #$7B
+    sta $2107         ; BG1SC: base word $7800, 64x64 — a long way from Mode 7's $0000
+    lda #$0F
+    sta $210B         ; BG1NBA: character base $F000 words
+    jsr scene_mode7_vram
+    sep #$20
+    .a8
+    stz $211A         ; M7SEL: no flip, screen-over = wrap
+    stz $211B
+    lda #$01
+    sta $211B         ; M7A = $0100 (1.0)
+    stz $211C
+    stz $211C         ; M7B = 0
+    stz $211D
+    stz $211D         ; M7C = 0
+    stz $211E
+    sta $211E         ; M7D = $0100 (1.0)
+    stz $211F
+    stz $211F         ; M7X = 0
+    stz $2120
+    stz $2120         ; M7Y = 0
+    lda #$01
+    sta $212C
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
 ; c11-org-13bit-mask — C11.02
 ; Mode 7 with screen-over set to TRANSPARENT and `M7HOFS = $0C40`, which is the only arrangement in which the origin's 13-bit mask is visible at all. `ORG.X` is `(M7HOFS - M7X) AND NOT $1C00`, so the mask clears bits 10-12 and $0C40 becomes 64 — inside the map, and the picture is an ordinary offset view. Without the mask the origin is 3136, far outside a 1024x1024 map, and every pixel is transparent. $0C40 rather than $1C40 because M7HOFS is thirteen bits SIGNED: with bit 12 set the value is negative, the origin is off the map to the left either way, and the mask turns into a no-op that changes nothing — which is what a first attempt at this scene rendered. The wrap setting hides this completely: $1C00 is 7 * $400, so the mask only ever removes multiples of 1024, which is exactly what wrapping removes anyway. A first version of this scene left screen-over at wrap and rendered a picture identical to `c11-mode7-identity` on all three emulators — a stable hash that showed nothing.
 .proc scene_c11_org_13bit_mask
@@ -1912,7 +1953,7 @@ SCENES_IMPL = 1
 .export _scene_count
 .export _scene_entries
 _scene_count:
-    .word 46
+    .word 47
 _scene_entries:
     .addr scene_c5_mode1_bg_priority
     .addr scene_c8_fixed_colour_add
@@ -1940,6 +1981,7 @@ _scene_entries:
     .addr scene_c6_opt_enable_bit_bg2
     .addr scene_c6_mode4_h_vs_v_select
     .addr scene_c11_mode7_identity
+    .addr scene_c5_mode7_ignores_bgsc
     .addr scene_c11_org_13bit_mask
     .addr scene_c12_direct_colour_zero_is_transparent
     .addr scene_c11_mode7_rotate_scale

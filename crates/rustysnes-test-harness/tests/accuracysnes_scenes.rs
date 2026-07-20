@@ -210,6 +210,12 @@ const EQUIVALENCES: &[(&str, &str, &str)] = &[
          setting it must change nothing",
     ),
     (
+        "c5-mode7-ignores-bgsc",
+        "c11-mode7-identity",
+        "C5.13: Mode 7 has its own fixed VRAM layout and reads neither BG1SC nor BG1NBA, so \
+         pointing both at nonsense must change nothing",
+    ),
+    (
         "c8-window-left-gt-right-empty",
         "c8-both-windows-disabled-empty",
         "C8.05 and C8.07: crossed window bounds and no enabled window are both EMPTY masks rather \

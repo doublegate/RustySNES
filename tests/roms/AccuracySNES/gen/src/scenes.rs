@@ -834,6 +834,47 @@ pub const SCENES: &[Scene] = &[
         ],
     },
     Scene {
+        id: "c5-mode7-ignores-bgsc",
+        dossier: "C5.13",
+        what: "The identity Mode 7 scene again, with BG1SC and BG1NBA deliberately pointed at \
+               nonsense first. Mode 7 has its own fixed VRAM layout — byte-interleaved tilemap and \
+               characters at $0000 — and reads neither register, so the picture must be exactly \
+               the one `c11-mode7-identity` produces. That equality is the assertion, declared as \
+               an equivalence in the harness rather than as a second committed hash: a core that \
+               honours BG1SC in Mode 7 renders from the wrong address and fails it, while a change \
+               to the shared Mode 7 canvas moves both scenes together and leaves it holding.",
+        setup: &[
+            "sep #$20",
+            "lda #$07",
+            "sta $2105         ; BGMODE 7",
+            "; Nonsense in both registers BEFORE the VRAM upload, so nothing can be read from them.",
+            "lda #$7B",
+            "sta $2107         ; BG1SC: base word $7800, 64x64 — a long way from Mode 7's $0000",
+            "lda #$0F",
+            "sta $210B         ; BG1NBA: character base $F000 words",
+            "jsr scene_mode7_vram",
+            "sep #$20",
+            "stz $211A         ; M7SEL: no flip, screen-over = wrap",
+            "stz $211B",
+            "lda #$01",
+            "sta $211B         ; M7A = $0100 (1.0)",
+            "stz $211C",
+            "stz $211C         ; M7B = 0",
+            "stz $211D",
+            "stz $211D         ; M7C = 0",
+            "stz $211E",
+            "sta $211E         ; M7D = $0100 (1.0)",
+            "stz $211F",
+            "stz $211F         ; M7X = 0",
+            "stz $2120",
+            "stz $2120         ; M7Y = 0",
+            "lda #$01",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
         id: "c11-org-13bit-mask",
         dossier: "C11.02",
         what: "Mode 7 with screen-over set to TRANSPARENT and `M7HOFS = $0C40`, which is the only \
