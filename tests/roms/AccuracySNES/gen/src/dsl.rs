@@ -415,11 +415,22 @@ impl Asm {
         }
         // Pass stub. `sep #$20` + `.a8` makes the stub self-correcting regardless of the width
         // in force wherever control jumped from.
-        let _ = writeln!(body, "    sep #$20");
-        let _ = writeln!(body, "    .a8");
-        let _ = writeln!(body, "    lda #${pass_byte:02X}");
-        let _ = writeln!(body, "    sta f:{TEST_RESULT}");
-        let _ = writeln!(body, "    jmp test_restore");
+        //
+        // Skipped when the body already ends in an unconditional `jmp test_restore` — which is how
+        // every golden vector exits, having written its own variant code. Emitting it there would
+        // be unreachable bytes in the ROM and, worse, would read as a second exit path that does
+        // not exist.
+        let body_exits = self
+            .lines
+            .last()
+            .is_some_and(|l| l.trim() == "jmp test_restore");
+        if !body_exits {
+            let _ = writeln!(body, "    sep #$20");
+            let _ = writeln!(body, "    .a8");
+            let _ = writeln!(body, "    lda #${pass_byte:02X}");
+            let _ = writeln!(body, "    sta f:{TEST_RESULT}");
+            let _ = writeln!(body, "    jmp test_restore");
+        }
         // Failure stubs, one per allocated code.
         for (code, why) in &self.codes {
             let byte = code << 1;

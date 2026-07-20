@@ -15,8 +15,12 @@ established, by whom, and with what confidence. It is not itself a specification
 | 4 | SNES hardware behavior catalog | SNESdev Wiki (Errata, Timing, PPU/CPU/APU register pages), fullsnes, Anomie's docs, superfamicom.org, TASVideos — fetched live, with six sub-agents |
 | 5 | Reference-emulator quirk corpus | `ref-proj/{ares,bsnes,Mesen2}` source comments, read directly |
 
-Agent 4's full working notes are preserved at
-`~/.claude/plans/gentle-greeting-penguin-agent-a2476505e377698b0.md` (58 KB, outside the repo).
+Agent 4's full working notes are committed as
+`ref-docs/2026-07-19-accuracysnes-hardware-test-design.md` (938 lines) — the immutable research
+corpus this dossier distils. Read it when a claim here needs its original wording or its wider
+context; per `ref-docs/README.md` it is frozen, so corrections go in a new dated file rather than
+edits to it. This dossier is the layer that adds the confidence marking below; the corpus itself
+carries none.
 
 **Confidence marking.** Claims are marked where they are not settled:
 **[ERRATA]** = SNESdev Errata page · **[CONFLICT]** = sources disagree, resolution stated ·
@@ -694,7 +698,7 @@ WDC's list of instructions escaping `$01xx` even in emulation mode: `JSL`, `JSR 
 | A4.09 | PC wraps within bank on operand fetch |
 | A4.10 | Branch target wrap **[UNVERIFIED — upstream literally marks `r`/`rl` "XXX: untested"]** |
 
-#### A5. Cycle counts (22)
+#### A5. Cycle counts (22 assertions in 15 rows)
 
 | # | Assertion |
 |---|---|
@@ -737,12 +741,16 @@ WDC's list of instructions escaping `$01xx` even in emulation mode: `JSL`, `JSR 
 **Note:** ABORT is not wired on the 5A22 — its vectors are unused. Reset always forces E=1, so the
 "native RESET" slot `$FFEC` some references list does not exist in practice.
 
+
 #### A7. Decimal mode (5)
 
-`SED; CLC; LDA #$09; ADC #$01` → A=$10, C=0 · 16-bit `LDA #$0999; ADC #$0001` → A=$1000 · 8/16-bit
-SBC · **N/Z valid in decimal** (65C02-like) · **V is meaningless → golden vector, never asserted**
-**[UNDEFINED]**.
-
+| # | Assertion |
+|---|---|
+| A7.01 | `SED; CLC; LDA #$09; ADC #$01` → A=$10, C=0 |
+| A7.02 | 16-bit `LDA #$0999; ADC #$0001` → A=$1000 |
+| A7.03 | 8/16-bit `SBC` |
+| A7.04 | **N/Z valid in decimal** (65C02-like) |
+| A7.05 | **V is meaningless → golden vector, never asserted** **[UNDEFINED]** |
 #### A8. Block move (6)
 
 | # | Assertion |
@@ -754,12 +762,17 @@ SBC · **N/Z valid in decimal** (65C02-like) · **V is meaningless → golden ve
 | A8.05 | E=1 confines offsets to `$00xx` |
 | A8.06 | **Interruptible mid-block** — NMI + RTI mid-MVN resumes correctly **[UNVERIFIED — undocumented upstream]** |
 
+
 #### A9. Misc (3)
 
-`BIT #imm` affects Z only · `BIT abs` sets N=bit15/7, V=bit14/6 · `ORA [d]` (the Super Mario World
-case).
+| # | Assertion |
+|---|---|
+| A9.01 | `BIT #imm` affects Z only |
+| A9.02 | `BIT abs` sets N=bit15/7, V=bit14/6 |
+| A9.03 | `ORA [d]` (the Super Mario World case) |
 
 ### 5.B Group B — 5A22 bus, clock, timing (~30 tests)
+
 
 #### B1. Memory access speed (5)
 
@@ -774,11 +787,14 @@ case).
 | `$80-$BF:$8000-$FFFF`, `$C0-$FF` | **6 if MEMSEL=1 else 8** |
 | Internal cycles | 6 |
 
-Tests: FastROM toggle observable · joypad port measurably slower · internal cycles always 6 ·
-**DMA is 8 clocks/byte, region-independent**. Derived rates: /6 = 3.579545 MHz, /8 = 2.684658 MHz,
-/12 = 1.789772 MHz.
-
-#### B2. Scanline / frame geometry (10)
+| # | Assertion |
+|---|---|
+| B1.01 | FastROM toggle observable |
+| B1.02 | joypad port measurably slower |
+| B1.03 | internal cycles always 6 |
+| B1.04 | **DMA is 8 clocks/byte, region-independent** |
+| B1.05 | Derived rates: /6 = 3.579545 MHz, /8 = 2.684658 MHz, /12 = 1.789772 MHz |
+#### B2. Scanline / frame geometry (10 assertions in 9 rows)
 
 | # | Assertion |
 |---|---|
@@ -796,11 +812,14 @@ Master clocks: NTSC 945/44 MHz = 21,477,272.7 Hz; PAL 21,281,370 Hz. VBlank budg
 NTSC/224 = 37 lines / 48,988 clocks / 6,123 DMA bytes; NTSC/239 = 22 / 29,128 / 3,641;
 PAL/224 = 87 / 115,188 / 14,398; PAL/239 = 72 / 95,328 / 11,916.
 
+
 #### B3. DRAM refresh (3)
 
-40-clock CPU stall per scanline leaving 1324 active · begins at cycle **538** on the first line of
-the first frame, thereafter at the multiple of 8 closest to 536 after the previous pause ·
-observable via a tight H-counter-timed loop.
+| # | Assertion |
+|---|---|
+| B3.01 | 40-clock CPU stall per scanline, leaving 1324 active |
+| B3.02 | begins at cycle **538** on the first line of the first frame, thereafter at the multiple of 8 closest to 536 after the previous pause |
+| B3.03 | observable via a tight H-counter-timed loop |
 
 **Note the local conflict:** `docs/accuracy-ledger.md` classifies DRAM refresh **Out-of-scope
 (empirically)** — measured across 500 frames × 3 ROMs, RustySNES's CPU-driven model already
@@ -808,7 +827,6 @@ reproduces the correct ≈357,368-clock NTSC frame, so an additive stall would b
 ares independently notes its own refresh pattern is *"technically"* wrong but averages out
 (`sfc/cpu/timing.cpp:23`, the "5-3, 5-3" logic-analyzer note). B3 tests should therefore probe
 **position**, not aggregate frame length.
-
 #### B4. Interrupt timing (14)
 
 | # | Assertion |
@@ -832,11 +850,15 @@ ares independently notes its own refresh pattern is *"technically"* wrong but av
 a = auto-joypad enable. `$4212 HVBJOY` = `vh.. ...a`: v = VBlank, **h = HBlank (bit 6)
 [CONFLICT — Mesen prose says bit 4; its own diagram and fullsnes say bit 6]**, a = auto-read busy.
 
+
 #### B5. Multiply / divide (4)
 
-`$4202`/`$4203` unsigned 8×8→16 into RDMPY `$4216/17` · `$4204/05`/`$4206` 16/8 → RDDIV `$4214/15`
-with remainder in RDMPY · **overlapping operation is [UNDEFINED] per Errata — report the observed
-value as a golden vector, never assert** · power-on `$4202`=$FF, `$4204/05`=$FFFF.
+| # | Assertion |
+|---|---|
+| B5.01 | `$4202`/`$4203` unsigned 8×8→16 into RDMPY `$4216/17` |
+| B5.02 | `$4204/05`/`$4206` 16/8 → RDDIV `$4214/15` with remainder in RDMPY |
+| B5.03 | **overlapping operation is [UNDEFINED] per Errata — report the observed value as a golden vector, never assert** |
+| B5.04 | power-on `$4202`=$FF, `$4204/05`=$FFFF |
 
 ### 5.C Group C — S-PPU1 / S-PPU2 (~85 tests, the largest group)
 
@@ -854,7 +876,7 @@ value as a golden vector, never assert** · power-on `$4202`=$FF, `$4204/05`=$FF
 | C1.08 | Address destroyed during render — `$2138` mid-frame returns a position ≠ programmed |
 | C1.09 | Priority rotation: `$2103` bit 7 → first sprite index = `(OAMAddr & $FE) >> 1` **[CONFLICT — fullsnes says register bits 6-1; unresolved]** |
 
-#### C2. VRAM port mechanics (12)
+#### C2. VRAM port mechanics (12 assertions in 10 rows)
 
 | # | Assertion |
 |---|---|
@@ -877,45 +899,63 @@ VMAIN remap permutations:
 10-bit : aaaaaa YYYxxxxxPP  -> aaaaaa xxxxxxPPYYY   (256-colour, 4 words/plane)
 ```
 
+
 #### C3. CGRAM and counters (10)
 
-CGRAM inherits the OAM low-table two-write latch · `$2121` resets the flipflop · `$213B` 2nd read
-bit 7 = PPU2 open bus · **CGRAM access during active display hits the color currently being drawn**
-· `$2137` latches only when `$4201.7` is set and **returns open bus** · `$213C/$213D` 2nd read =
-counter bit 8 in bit 0, **bits 7-1 PPU2 open bus** · the two counter flipflops are independent ·
-**`$213F` read resets BOTH flipflops and clears the latch flag** · `$213F.7` toggles at V=0, H=1 ·
-Super Scope latches ≈ dot X+40, line Y+1.
+| # | Assertion |
+|---|---|
+| C3.01 | CGRAM inherits the OAM low-table two-write latch |
+| C3.02 | `$2121` resets the flipflop |
+| C3.03 | `$213B` 2nd read bit 7 = PPU2 open bus |
+| C3.04 | **CGRAM access during active display hits the color currently being drawn** |
+| C3.05 | `$2137` latches only when `$4201.7` is set and **returns open bus** |
+| C3.06 | `$213C`/`$213D` 2nd read = counter bit 8 in bit 0, **bits 7-1 PPU2 open bus** |
+| C3.07 | the two counter flipflops are independent |
+| C3.08 | **`$213F` read resets BOTH flipflops and clears the latch flag** |
+| C3.09 | `$213F.7` toggles at V=0, H=1 |
+| C3.10 | Super Scope latches ≈ dot X+40, line Y+1 |
 
 #### C4. Scroll registers (5)
 
-`BGnHOFS = (Cur<<8) | (Prev & ~7) | ((Reg>>8) & 7)` · `BGnVOFS = (Cur<<8) | Prev` · **one shared
-`Prev` latch across BG1-BG4, H and V** · Mode 7 latch separate · `$210D` writes both BG1HOFS and
-M7HOFS.
+| # | Assertion |
+|---|---|
+| C4.01 | `BGnHOFS = (Cur<<8) | (Prev & ~7) | ((Reg>>8) & 7)` |
+| C4.02 | `BGnVOFS = (Cur<<8) | Prev` |
+| C4.03 | **one shared `Prev` latch across BG1-BG4, H and V** |
+| C4.04 | Mode 7 latch separate |
+| C4.05 | `$210D` writes both BG1HOFS and M7HOFS |
 
-#### C5. Backgrounds and modes (17)
+#### C5. Backgrounds and modes (15)
 
-| Mode | BG1 | BG2 | BG3 | BG4 | Hires | Priority (front→back) |
-|---|---|---|---|---|---|---|
-| 0 | 2bpp | 2bpp | 2bpp | 2bpp | — | S3 1H 2H S2 1L 2L S1 3H 4H S0 3L 4L |
-| 1 | 4bpp | 4bpp | 2bpp | — | — | S3 1H 2H S2 1L 2L S1 3H S0 3L (BGMODE.3=1 → BG3H to front) |
-| 2 | 4bpp | 4bpp | OPT | — | — | S3 1H S2 2H S1 1L S0 2L |
-| 3 | 8bpp | 4bpp | — | — | — | S3 1H S2 2H S1 1L S0 2L |
-| 4 | 8bpp | 2bpp | OPT | — | — | S3 1H S2 2H S1 1L S0 2L |
-| 5 | 4bpp | 2bpp | — | — | yes | S3 1H S2 2H S1 1L S0 2L |
-| 6 | 4bpp | OPT | — | — | yes | S3 1H S2 S1 1L S0 |
-| 7 | 8bpp | (EXTBG) | — | — | — | S3 S2 2H S1 1L S0 2L |
-
-Plus: Mode 0 palette segregation (BG1 0-31, BG2 32-63, BG3 64-95, BG4 96-127) · tilemap entry
-`vhopppcc cccccccc` · 16x16 assembly uses +1/+16/+17 · BGnSC sizes place extra maps right/below/both
-· BGnSC/BGnNBA ignored in Mode 7 · 2/4/8bpp bitplane layouts · modes 5/6 use 16-px-wide tiles.
+| # | Assertion |
+|---|---|
+| C5.01 | Mode 0 — BG1-4 all 2bpp, no hires, priority `S3 1H 2H S2 1L 2L S1 3H 4H S0 3L 4L` |
+| C5.02 | Mode 1 — BG1/BG2 4bpp, BG3 2bpp, priority `S3 1H 2H S2 1L 2L S1 3H S0 3L` (BGMODE.3=1 → BG3H to front) |
+| C5.03 | Mode 2 — BG1/BG2 4bpp, BG3 = OPT, priority `S3 1H S2 2H S1 1L S0 2L` |
+| C5.04 | Mode 3 — BG1 8bpp, BG2 4bpp, priority `S3 1H S2 2H S1 1L S0 2L` |
+| C5.05 | Mode 4 — BG1 8bpp, BG2 2bpp, BG3 = OPT, priority `S3 1H S2 2H S1 1L S0 2L` |
+| C5.06 | Mode 5 — BG1 4bpp, BG2 2bpp, **hires**, priority `S3 1H S2 2H S1 1L S0 2L` |
+| C5.07 | Mode 6 — BG1 4bpp, BG2 = OPT, **hires**, priority `S3 1H S2 S1 1L S0` |
+| C5.08 | Mode 7 — BG1 8bpp, BG2 = EXTBG, priority `S3 S2 2H S1 1L S0 2L` |
+| C5.09 | Mode 0 palette segregation (BG1 0-31, BG2 32-63, BG3 64-95, BG4 96-127) |
+| C5.10 | tilemap entry `vhopppcc cccccccc` |
+| C5.11 | 16x16 assembly uses +1/+16/+17 |
+| C5.12 | BGnSC sizes place extra maps right/below/both |
+| C5.13 | BGnSC/BGnNBA ignored in Mode 7 |
+| C5.14 | 2/4/8bpp bitplane layouts |
+| C5.15 | modes 5/6 use 16-px-wide tiles |
 
 #### C6. Offset-per-tile (7)
 
-Bit 13 → BG1, bit 14 → BG2 · Mode 4 bit 15 selects H vs V · H offsets keep the BG's low 3 HOFS bits
-· V offsets replace VOFS entirely · **the leftmost tile is NEVER affected [ERRATA]** — the first
-entry controls the *second* visible column · each entry affects a whole column · wraparound (the
-Super Famista 5 case).
-
+| # | Assertion |
+|---|---|
+| C6.01 | Bit 13 → BG1, bit 14 → BG2 |
+| C6.02 | Mode 4 bit 15 selects H vs V |
+| C6.03 | H offsets keep the BG's low 3 HOFS bits |
+| C6.04 | V offsets replace VOFS entirely |
+| C6.05 | **the leftmost tile is NEVER affected [ERRATA]** — the first entry controls the *second* visible column |
+| C6.06 | each entry affects a whole column |
+| C6.07 | wraparound (the Super Famista 5 case) |
 #### C7. Sprites (16)
 
 | # | Assertion |
@@ -937,14 +977,23 @@ Super Famista 5 case).
 | C7.15 | Lower OAM index always on top |
 | C7.16 | OAM write timing during render (the Uniracers case) |
 
-#### C8. Color math and windows (16)
 
-**Sprite color math only on palettes 4-7 [ERRATA]** · clamp to 0/31, no wrap · **half/div2 ignored
-when the subscreen is the fixed backdrop** · window bounds inclusive · `left > right` → empty ·
-inverted + `left > right` → full · **both windows disabled → empty, not full** · OR/AND/XOR/XNOR ·
-CGWSEL force-black (bits 7-6) and prevent-math (5-4) independent · subtract mode `$2131.7` ·
-COLDATA per-channel select bits · color window + DMA B-bus (the Krusty's case).
+#### C8. Color math and windows (12)
 
+| # | Assertion |
+|---|---|
+| C8.01 | **Sprite color math only on palettes 4-7 [ERRATA]** |
+| C8.02 | clamp to 0/31, no wrap |
+| C8.03 | **half/div2 ignored when the subscreen is the fixed backdrop** |
+| C8.04 | window bounds inclusive |
+| C8.05 | `left > right` → empty |
+| C8.06 | inverted + `left > right` → full |
+| C8.07 | **both windows disabled → empty, not full** |
+| C8.08 | OR/AND/XOR/XNOR window combination |
+| C8.09 | CGWSEL force-black (bits 7-6) and prevent-math (bits 5-4) independent |
+| C8.10 | subtract mode `$2131.7` |
+| C8.11 | COLDATA per-channel select bits |
+| C8.12 | color window + DMA B-bus (the Krusty's case) |
 #### C9. Hi-res, interlace, overscan (8)
 
 | # | Assertion |
@@ -958,12 +1007,16 @@ COLDATA per-channel select bits · color window + DMA B-bus (the Krusty's case).
 | C9.07 | Modes 5/6 color math restriction |
 | C9.08 | Subscreen color math in hi-res (the Jurassic Park case) |
 
+
 #### C10. Mosaic (5)
 
-Applied after scrolling, before window/color math · anchored to screen top-left, not the scroll
-origin · **mid-frame `$2106` write re-anchors the start line to the current scanline** · 1x1 = 2x1
-half-pixels in true hi-res · Mode 7 BG2 uses bits A and B separately for V and H.
-
+| # | Assertion |
+|---|---|
+| C10.01 | Applied after scrolling, before window/color math |
+| C10.02 | anchored to screen top-left, not the scroll origin |
+| C10.03 | **mid-frame `$2106` write re-anchors the start line to the current scanline** |
+| C10.04 | 1x1 = 2x1 half-pixels in true hi-res |
+| C10.05 | Mode 7 BG2 uses bits A and B separately for V and H |
 #### C11. Mode 7 (12)
 
 | # | Assertion |
@@ -981,12 +1034,14 @@ half-pixels in true hi-res · Mode 7 BG2 uses bits A and B separately for V and 
 | C11.11 | Mode 7 window logic (the Atlas / MechWarrior case) |
 | C11.12 | Scroll latch timing (the NHL '94 case) |
 
+
 #### C12. Direct color (3)
 
-`RRRr0 GGGg0 BBb00` — pixel bits supply the high bits, tilemap attribute bits one extra per channel
-(blue gets 2+1) · **pure black is unreachable** (pixel value 0 is always transparent) · available on
-Mode 3/4 BG1 and Mode 7 BG1 only.
-
+| # | Assertion |
+|---|---|
+| C12.01 | `RRRr0 GGGg0 BBb00` — pixel bits supply the high bits, tilemap attribute bits one extra per channel (blue gets 2+1) |
+| C12.02 | **pure black is unreachable** (pixel value 0 is always transparent) |
+| C12.03 | available on Mode 3/4 BG1 and Mode 7 BG1 only |
 #### C13. INIDISP and open bus (10)
 
 | # | Assertion |
@@ -1002,32 +1057,43 @@ Mode 3/4 BG1 and Mode 7 BG1 only.
 | C13.09 | **PPU1 and PPU2 open bus are SEPARATE latches** |
 | C13.10 | `$213E` bit 4 = PPU1 open bus; `$213F` bit 5 = PPU2 open bus |
 
+
 #### C14. Version detection (3)
 
-`$213E` bits 3-0 = PPU1 version (only 1 known) · `$213F` bits 3-0 = PPU2 version (1/2/3) —
-**gates C13.01** · `$213E` bit 5 = master/slave.
+| # | Assertion |
+|---|---|
+| C14.01 | `$213E` bits 3-0 = PPU1 version (only 1 known) |
+| C14.02 | `$213F` bits 3-0 = PPU2 version (1/2/3) — **gates C13.01** |
+| C14.03 | `$213E` bit 5 = master/slave |
 
 ### 5.D Group D — DMA / HDMA (~35 tests)
 
-#### D1. General-purpose DMA (20)
+
+#### D1. General-purpose DMA (15)
 
 `$4300` DMAP = `da-ttttt`: bit7 direction, bit6 HDMA indirect, bit4 A-bus fixed, bit3 A-bus
 decrement, bits 2-0 mode.
 
-Transfer modes 0-7, one test each · **8 master cycles per byte, region-independent** · 8-cycle
-startup overhead plus channel-start alignment · lower channel number first · `$4302-04` A-bus,
-`$4305/06` size (0 = $10000), `$4307` indirect bank · size decrements to 0 during transfer · A-bus
-fixed/increment/decrement · **invalid A-bus addresses [ERRATA]**: `$21xx`, `$4000-$41FF`,
-`$4200-$421F`, `$4300-$437F` · **WRAM→WRAM via `$2180` prohibited** · `$43x0-$43xF` mirroring, with
-`$43xB`/`$43xF` an undocumented readable scratch latch (both ares and bsnes model it and serialize
-it into save states) · DMA power-on state (Heian Fuuunden) · CPU timing before DMA start (MMPR) ·
-**DMA reads update open bus; DMA writes never do**.
+| # | Assertion |
+|---|---|
+| D1.01 | Transfer modes 0-7, one test each |
+| D1.02 | **8 master cycles per byte, region-independent** |
+| D1.03 | 8-cycle startup overhead plus channel-start alignment |
+| D1.04 | lower channel number first |
+| D1.05 | `$4302-04` A-bus, `$4305/06` size (0 = $10000), `$4307` indirect bank |
+| D1.06 | size decrements to 0 during transfer |
+| D1.07 | A-bus fixed/increment/decrement |
+| D1.08 | **invalid A-bus addresses [ERRATA]**: `$21xx`, `$4000-$41FF`, `$4200-$421F`, `$4300-$437F` |
+| D1.09 | **WRAM→WRAM via `$2180` prohibited** |
+| D1.10 | `$43x0-$43xF` mirroring, with `$43xB`/`$43xF` an undocumented readable scratch latch (both ares and bsnes model it and serialize it into save states) |
+| D1.11 | DMA power-on state (Heian Fuuunden) |
+| D1.12 | CPU timing before DMA start (MMPR) |
+| D1.13 | **DMA reads update open bus; DMA writes never do** |
+| D1.14 | **`$2180` asymmetry, B→A**: `$2180`→WRAM *"does cause a write to occur (but no read), but the value written is invalid"* (+4 clocks) |
+| D1.15 | **`$2180` asymmetry, A→B**: WRAM→`$2180` *"does not cause a write to occur"* (+8 clocks, no access) |
 
-**`$2180` asymmetry** (Mesen2 `SnesDmaController.cpp:53,62`): B→A (`$2180`→WRAM) *"do cause a write
-to occur (but no read), but the value written is invalid"* (+4 clocks); A→B (WRAM→`$2180`) *"does
-not cause a write to occur"* (+8 clocks, no access).
-
-#### D2. HDMA (17)
+The `$2180` asymmetry is Mesen2's `SnesDmaController.cpp:53,62`.
+#### D2. HDMA (17 assertions in 14 rows)
 
 | # | Assertion |
 |---|---|
@@ -1058,10 +1124,13 @@ graphical glitches in some games (Aladdin, Super Ghouls and Ghosts)."*
 `//todo: should 0x00 be indirectAddress >> 8 ?` in **both** ares (`sfc/cpu/dma.cpp:164`) and bsnes
 (`:163`).
 
-#### D3. Revision-gated (2, auto-skip by `$4210.3-0`)
 
-**5A22 v1**: crash if a DMA finishes just before HDMA. **5A22 v2**: a recent HDMA to INIDISP
-prevents the next DMA from completing (workaround `BBADn=$FF` with transfer pattern 1).
+#### D3. Revision-gated (auto-skip by `$4210.3-0`) (2)
+
+| # | Assertion |
+|---|---|
+| D3.01 | **5A22 v1**: crash if a DMA finishes just before HDMA |
+| D3.02 | **5A22 v2**: a recent HDMA to INIDISP prevents the next DMA from completing (workaround `BBADn=$FF` with transfer pattern 1) |
 
 `docs/accuracy-ledger.md` classifies these **Out-of-scope** for RustySNES — chip-revision defects
 compliant commercial ROMs avoid, not reproduced by mainstream reference emulators. AccuracySNES
@@ -1089,29 +1158,43 @@ should therefore report them as **variants**, not failures.
 | E1.14 | `XCN` is 5 cycles |
 | E1.15 | `MOVW YA,aa` sets N/Z on the 16-bit value |
 
+
 #### E2. Memory-access side effects (10)
 
-**Store opcodes issue a dummy read** — `MOV $FD,A` **clears Timer 0's counter** · exemptions `$FA`
-(`MOV aa,bb`) and `$AF` (`MOV (X)+,A`) · `MOVW aa,YA` dummy-reads the **LSB only** · `DBNZ aa` is
-an RMW · DP index wraps within the page · `PSW.P` selects `$00xx`/`$01xx` everywhere including bit
-ops and `[aa]+Y` pointer fetches · **calls push the exact return address, not retaddr-1** ·
-`TCALL n` → `[$FFDE - n*2]` (n=15 reads inside the IPL ROM when mapped) · `BRK` shares the
-`TCALL 0` vector · full 256-opcode cycle sweep.
+| # | Assertion |
+|---|---|
+| E2.01 | **Store opcodes issue a dummy read** — `MOV $FD,A` **clears Timer 0's counter** |
+| E2.02 | exemptions `$FA` (`MOV aa,bb`) and `$AF` (`MOV (X)+,A`) |
+| E2.03 | `MOVW aa,YA` dummy-reads the **LSB only** |
+| E2.04 | `DBNZ aa` is an RMW |
+| E2.05 | DP index wraps within the page |
+| E2.06 | `PSW.P` selects `$00xx`/`$01xx` everywhere including bit ops and `[aa]+Y` pointer fetches |
+| E2.07 | **calls push the exact return address, not retaddr-1** |
+| E2.08 | `TCALL n` → `[$FFDE - n*2]` (n=15 reads inside the IPL ROM when mapped) |
+| E2.09 | `BRK` shares the `TCALL 0` vector |
+| E2.10 | full 256-opcode cycle sweep |
 
 #### E3. I/O registers (14)
 
 Map: `$F0` TEST (reset $0A) · `$F1` CONTROL · `$F2` DSPADDR · `$F3` DSPDATA · `$F4-$F7` CPUIO0-3 ·
 `$F8/$F9` AUXIO4/5 · `$FA-$FC` TnDIV · `$FD-$FF` TnOUT.
 
-**Reading `$FD/$FE/$FF` returns 4 bits and zeroes the counter** · `$F1` bits 0-2 0→1 reset that
-timer's stage2 **and** stage3 · `$F1` bits 4/5 clear the CPUIO input latches, non-persistent ·
-`$F1` bit 7 unmaps the IPL ROM; **writes to `$FFC0+` always hit RAM regardless** · `TnDIV = $00`
-means divide-by-**256** · T0/T1 8 kHz (128 cycles), T2 64 kHz (16 cycles) · **timers advance on DSP
-cycles T1 and T17** · TEST bits 0/3 halt timers · **TEST wait-states 2 and 3 cost the CPU 10/20
-clocks but the timers only 8/16** · TEST bit 1 = RAM write enable; clearing it blocks SPC700 *and*
-S-DSP writes · `$F2` bit 7 discards writes through `$F3` · **CPUIO bus conflict: the S-CPU reads
-the OR of old and new** · writes to `$00F0-$00FF` also land in the RAM shadow · `$F8`/`$F9` behave
-as plain RAM.
+| # | Assertion |
+|---|---|
+| E3.01 | **Reading `$FD`/`$FE`/`$FF` returns 4 bits and zeroes the counter** |
+| E3.02 | `$F1` bits 0-2 0→1 reset that timer's stage2 **and** stage3 |
+| E3.03 | `$F1` bits 4/5 clear the CPUIO input latches, non-persistent |
+| E3.04 | `$F1` bit 7 unmaps the IPL ROM; **writes to `$FFC0+` always hit RAM regardless** |
+| E3.05 | `TnDIV = $00` means divide-by-**256** |
+| E3.06 | T0/T1 8 kHz (128 cycles), T2 64 kHz (16 cycles) |
+| E3.07 | **timers advance on DSP cycles T1 and T17** |
+| E3.08 | TEST bits 0/3 halt timers |
+| E3.09 | **TEST wait-states 2 and 3 cost the CPU 10/20 clocks but the timers only 8/16** |
+| E3.10 | TEST bit 1 = RAM write enable; clearing it blocks SPC700 *and* S-DSP writes |
+| E3.11 | `$F2` bit 7 discards writes through `$F3` |
+| E3.12 | **CPUIO bus conflict: the S-CPU reads the OR of old and new** |
+| E3.13 | writes to `$00F0-$00FF` also land in the RAM shadow |
+| E3.14 | `$F8`/`$F9` behave as plain RAM |
 
 **The 10/20-vs-8/16 divergence is the SMP wait-state glitch**, documented identically in ares and
 bsnes (`sfc/smp/timing.cpp:1-8`): *"due to an unknown hardware issue, clock dividers of 8 and 16
@@ -1120,27 +1203,39 @@ will run far slower than expected, other times… deadlock until the system is r
 are not affected.**"* Hence two tables: `cycleWaitStates[4] = {2,4,10,20}` vs
 `timerWaitStates[4] = {2,4,8,16}`.
 
-#### E4. IPL boot and handshake (12)
+#### E4. IPL boot and handshake (11)
 
-IPL ROM byte-identical to the canonical 64-byte listing, reset vector `$FFC0` · handoff state
-`A=0, X=0, Y=0, SP=$EF, PSW=$02` · zerofills `$0000-$00EF` · ready = `Word[$2140] == $BBAA` · first
-kick `$CC`; subsequent `((index+2) & $FF) | 1`, strictly > last index+1 and non-zero · `$2141 == 0`
-execute, non-zero transfer · **the final data-byte ack window is only a few cycles wide** ·
-transfer address `$00F2` lets the IPL loop poke DSP registers as (reg#, value) pairs · **16-bit
-writes to `$2140/41` can corrupt `$2143` [ERRATA] — write 8-bit only** · simultaneous CPU/SPC
-access to `$2140-43` produces incorrect data **[ERRATA]** · APU RAM power-on pattern repeating
-**32×$00 then 32×$FF** (chip-dependent — informational).
+| # | Assertion |
+|---|---|
+| E4.01 | IPL ROM byte-identical to the canonical 64-byte listing, reset vector `$FFC0` |
+| E4.02 | handoff state `A=0, X=0, Y=0, SP=$EF, PSW=$02` |
+| E4.03 | zerofills `$0000-$00EF` |
+| E4.04 | ready = `Word[$2140] == $BBAA` |
+| E4.05 | first kick `$CC`; subsequent `((index+2) & $FF) | 1`, strictly > last index+1 and non-zero |
+| E4.06 | `$2141 == 0` execute, non-zero transfer |
+| E4.07 | **the final data-byte ack window is only a few cycles wide** |
+| E4.08 | transfer address `$00F2` lets the IPL loop poke DSP registers as (reg#, value) pairs |
+| E4.09 | **16-bit writes to `$2140/41` can corrupt `$2143` [ERRATA] — write 8-bit only** |
+| E4.10 | simultaneous CPU/SPC access to `$2140-43` produces incorrect data **[ERRATA]** |
+| E4.11 | APU RAM power-on pattern repeating **32×$00 then 32×$FF** (chip-dependent — informational) |
 
-#### E5. BRR decoding (16)
+#### E5. BRR decoding (13)
 
-Header `ssssffle` · high nibble first, signed -8..+7 · `(nibble << shift) >> 1` arithmetic ·
-**invalid shift 13/14/15 collapse to `$0000` / `$F800`** · the four filters as exact integer
-formulas · **15-bit wrap: clamp to 16 bits, then `+4000h..+7FFFh` → `-4000h..-1` and
-`-8000h..-4001h` → `0..3FFFh`, sign lost** · End+Mute forces Release with envelope 0 immediately ·
-code 2 behaves as code 0 · **ENDX sets at the START of decoding the end block** · **BRR decoding
-continues even for released voices** · DIR entry = `DIR*$100 + SRCN*4` · **mid-playback SRCN
-change: not yet looped → start address; already looped → loop address** · three consecutive
-max-negative samples cause an overflow pop **[ERRATA]**.
+| # | Assertion |
+|---|---|
+| E5.01 | Header `ssssffle` |
+| E5.02 | high nibble first, signed -8..+7 |
+| E5.03 | `(nibble << shift) >> 1` arithmetic |
+| E5.04 | **invalid shift 13/14/15 collapse to `$0000` / `$F800`** |
+| E5.05 | the four filters as exact integer formulas (below) |
+| E5.06 | **15-bit wrap: clamp to 16 bits, then `+4000h..+7FFFh` → `-4000h..-1` and `-8000h..-4001h` → `0..3FFFh`, sign lost** |
+| E5.07 | End+Mute forces Release with envelope 0 immediately |
+| E5.08 | code 2 behaves as code 0 |
+| E5.09 | **ENDX sets at the START of decoding the end block** |
+| E5.10 | **BRR decoding continues even for released voices** |
+| E5.11 | DIR entry = `DIR*$100 + SRCN*4` |
+| E5.12 | **mid-playback SRCN change: not yet looped → start address; already looped → loop address** |
+| E5.13 | three consecutive max-negative samples cause an overflow pop **[ERRATA]** |
 
 ```text
 Filter 0: new = sample
@@ -1153,71 +1248,100 @@ Filter 3: new = sample + old*2 + ((-old*13) SAR 6) - older + ((older*3) SAR 4)
 
 #### E6. Pitch and gaussian interpolation (11)
 
-Counter bits 15-12 select the sample, 11-4 the gaussian index · `$1000` = 1:1 (32 kHz), `$2000` =
-+1 octave · PMON factor `(OUTX[x-1] SAR 4) + $400`, then `(Step*Factor) SAR 10` · **PMON never
-affects voice 0** · **PMON does not modulate noise** · counter clamped to `$7FFF` · all 512 gaussian
-table entries byte-exact · **the `$801` overflow bug**: `nibbles=77778888, shift=12, filter=0` →
-`+3FF8h` instead of `-4000h` · **partial overflow rules: 1st addition can't overflow, 2nd WRAPS
-(i=$00-$1F), 3rd SATURATES (i=$20-$FF)** · gaussian bypassed for noise · golden waveform vectors
-`79797979`, `77997799`, `77779999`, `7777CC44`.
+| # | Assertion |
+|---|---|
+| E6.01 | Counter bits 15-12 select the sample, 11-4 the gaussian index |
+| E6.02 | `$1000` = 1:1 (32 kHz), `$2000` = +1 octave |
+| E6.03 | PMON factor `(OUTX[x-1] SAR 4) + $400`, then `(Step*Factor) SAR 10` |
+| E6.04 | **PMON never affects voice 0** |
+| E6.05 | **PMON does not modulate noise** |
+| E6.06 | counter clamped to `$7FFF` |
+| E6.07 | all 512 gaussian table entries byte-exact |
+| E6.08 | **the `$801` overflow bug**: `nibbles=77778888, shift=12, filter=0` → `+3FF8h` instead of `-4000h` |
+| E6.09 | **partial overflow rules: 1st addition can't overflow, 2nd WRAPS (i=$00-$1F), 3rd SATURATES (i=$20-$FF)** |
+| E6.10 | gaussian bypassed for noise |
+| E6.11 | golden waveform vectors `79797979`, `77997799`, `77779999`, `7777CC44` |
 
-#### E7. Envelopes (21)
+#### E7. Envelopes (18)
 
-32-entry rate table `{0,2048,1536,…,2,1}`, rate 0 never fires · **counter offset table
-`{0,0,1040,536,…}`** — two voices at different rates reveal the implied phase · attack index
-`a*2+1`, step +32 · **`a==$F` → every sample, step +1024** · decay index `d*2+16`, step
-`E -= 1; E -= E>>8` · sustain rate index = `r` verbatim · sustain boundary `$100*(l+1)`, compare
-`(E>>8) == SL` · release forced every-sample, step -8, ~0.008 s · **release rate is fixed —
-custom release requires GAIN [ERRATA]** · direct gain `E = G<<4` · four custom-gain modes (linear
-dec -32, exp dec, linear inc +32, bent inc +32 below $600 else +8) · **GAIN-mode sustain-boundary
-bug: the Decay→Sustain compare reads the boundary from `VxGAIN` bits 7-5, not `VxADSR2`** ·
-**bent-increase uses the CLIPPED previous envelope, so an underflowed negative reads as ≥ $600** ·
-linear-decrease underflow clamps, never wraps · `VxENVX = E>>4`, bit 7 always 0 · `VxOUTX` is
-post-envelope, pre-volume, high byte · **ENVX/OUTX writes 1-2 clocks before the DSP writeback are
-lost** · **ADSR/GAIN mode-change race — write ADSR2/GAIN before ADSR1 [ERRATA]**.
+| # | Assertion |
+|---|---|
+| E7.01 | 32-entry rate table `{0,2048,1536,…,2,1}`, rate 0 never fires |
+| E7.02 | **counter offset table `{0,0,1040,536,…}`** — two voices at different rates reveal the implied phase |
+| E7.03 | attack index `a*2+1`, step +32 |
+| E7.04 | **`a==$F` → every sample, step +1024** |
+| E7.05 | decay index `d*2+16`, step `E -= 1; E -= E>>8` |
+| E7.06 | sustain rate index = `r` verbatim |
+| E7.07 | sustain boundary `$100*(l+1)`, compare `(E>>8) == SL` |
+| E7.08 | release forced every-sample, step -8, ~0.008 s |
+| E7.09 | **release rate is fixed — custom release requires GAIN [ERRATA]** |
+| E7.10 | direct gain `E = G<<4` |
+| E7.11 | four custom-gain modes (linear dec -32, exp dec, linear inc +32, bent inc +32 below $600 else +8) |
+| E7.12 | **GAIN-mode sustain-boundary bug: the Decay→Sustain compare reads the boundary from `VxGAIN` bits 7-5, not `VxADSR2`** |
+| E7.13 | **bent-increase uses the CLIPPED previous envelope, so an underflowed negative reads as ≥ $600** |
+| E7.14 | linear-decrease underflow clamps, never wraps |
+| E7.15 | `VxENVX = E>>4`, bit 7 always 0 |
+| E7.16 | `VxOUTX` is post-envelope, pre-volume, high byte |
+| E7.17 | **ENVX/OUTX writes 1-2 clocks before the DSP writeback are lost** |
+| E7.18 | **ADSR/GAIN mode-change race — write ADSR2/GAIN before ADSR1 [ERRATA]** |
 
 ares corroborates the GAIN mode-7 quirk directly: `i32 _envelope; //used by GAIN mode 7, very
 obscure quirk` (`sfc/dsp/dsp.hpp:128`). RustySNES already fixed the corresponding `spc_dsp6`
 "Envelope/gain $E0 threshold" case.
 
-#### E8. Key on/off (13)
+#### E8. Key on/off (11)
 
-**KON/KOFF polled every SECOND sample (16 kHz) [ERRATA]** · **5-sample key-on delay** · KON restarts
-even if playing, zeroing the envelope, and clears ENDX even when suppressed · KON is
-write-triggered/non-persistent; **KOFF and FLG.7 exert influence continuously** · three collapse
-cases: `KOFF=$FF / KON=$01 / KOFF=$00` → voice 1 usually keys on; `KON=$01 / KON=$02` → usually only
-voice 2, and if both, **voice 1 is 2 samples ahead, proving the 16 kHz rate**; `KOFF=$FF / KOFF=$00`
-→ voices keep playing · **63-cycle KOFF window** (64-127 probabilistic) · **FLG.7 polled EVERY
-sample, per-voice** · KOFF+KON together silences faster than KOFF alone · DSP KOF init (Chester
-Cheetah / King of Dragons).
+| # | Assertion |
+|---|---|
+| E8.01 | **KON/KOFF polled every SECOND sample (16 kHz) [ERRATA]** |
+| E8.02 | **5-sample key-on delay** |
+| E8.03 | KON restarts even if playing, zeroing the envelope, and clears ENDX even when suppressed |
+| E8.04 | KON is write-triggered/non-persistent; **KOFF and FLG.7 exert influence continuously** |
+| E8.05 | collapse case `KOFF=$FF / KON=$01 / KOFF=$00` → voice 1 usually keys on |
+| E8.06 | collapse case `KON=$01 / KON=$02` → usually only voice 2, and if both, **voice 1 is 2 samples ahead, proving the 16 kHz rate** |
+| E8.07 | collapse case `KOFF=$FF / KOFF=$00` → voices keep playing |
+| E8.08 | **63-cycle KOFF window** (64-127 probabilistic) |
+| E8.09 | **FLG.7 polled EVERY sample, per-voice** |
+| E8.10 | KOFF+KON together silences faster than KOFF alone |
+| E8.11 | DSP KOF init (Chester Cheetah / King of Dragons) |
 
 #### E9. Noise, echo, mixer (20)
 
-LFSR taps bit0 XOR bit1 → bit14, initial `$4000` · **noise output is highpass-filtered [ERRATA]** ·
-VxPITCH does not affect noise frequency · **noise voices still decode BRR, so End+Mute kills the
-noise** · echo 4 bytes/entry, low 7 bits in bits 1-7 · **`EDL=0` gives a 4-byte (1-sample) buffer
-and continuously overwrites 4 bytes at the buffer start [ERRATA]** · **EDL change latency up to
-0.25 s** · **ESA change delayed 1-2 samples** · **echo buffer wraps at a 16-bit boundary,
-corrupting page zero and the `$FFC0+` IPL shadow [ERRATA]** · **FLG bit 5 disables echo WRITES but
-not READS — the buffer becomes a static forever-loop** · **only the final FIR7 addition saturates;
-the first seven WRAP [ERRATA]** · echo write masked `& $FFFE` · L/R FIR independent, no crosstalk ·
-**MVOL/EVOL/EFB/FIRx = `$80` overflows; VxVOL = `$80` does not** · per-voice mix saturates after
-each addition · **final output XORed with `$FFFF`** by the post-amp (phase inversion — matters for
-any bit-exact audio hash) · FLG.MUTE zeroes output but echo RAM writes continue · FLG.RESET behaves
-as `KOFF=$FF` + envelopes 0, but echo keeps sounding · **ENDX: any write clears ALL bits regardless
-of value** · the official Nintendo FIR preset `FF 08 17 24 24 17 08 FF` is **bugged** (positive taps
-exceed +$7F) yet games rely on it.
+| # | Assertion |
+|---|---|
+| E9.01 | LFSR taps bit0 XOR bit1 → bit14, initial `$4000` |
+| E9.02 | **noise output is highpass-filtered [ERRATA]** |
+| E9.03 | VxPITCH does not affect noise frequency |
+| E9.04 | **noise voices still decode BRR, so End+Mute kills the noise** |
+| E9.05 | echo 4 bytes/entry, low 7 bits in bits 1-7 |
+| E9.06 | **`EDL=0` gives a 4-byte (1-sample) buffer and continuously overwrites 4 bytes at the buffer start [ERRATA]** |
+| E9.07 | **EDL change latency up to 0.25 s** |
+| E9.08 | **ESA change delayed 1-2 samples** |
+| E9.09 | **echo buffer wraps at a 16-bit boundary, corrupting page zero and the `$FFC0+` IPL shadow [ERRATA]** |
+| E9.10 | **FLG bit 5 disables echo WRITES but not READS — the buffer becomes a static forever-loop** |
+| E9.11 | **only the final FIR7 addition saturates; the first seven WRAP [ERRATA]** |
+| E9.12 | echo write masked `& $FFFE` |
+| E9.13 | L/R FIR independent, no crosstalk |
+| E9.14 | **MVOL/EVOL/EFB/FIRx = `$80` overflows; VxVOL = `$80` does not** |
+| E9.15 | per-voice mix saturates after each addition |
+| E9.16 | **final output XORed with `$FFFF`** by the post-amp (phase inversion — matters for any bit-exact audio hash) |
+| E9.17 | FLG.MUTE zeroes output but echo RAM writes continue |
+| E9.18 | FLG.RESET behaves as `KOFF=$FF` + envelopes 0, but echo keeps sounding |
+| E9.19 | **ENDX: any write clears ALL bits regardless of value** |
+| E9.20 | the official Nintendo FIR preset `FF 08 17 24 24 17 08 FF` is **bugged** (positive taps exceed +$7F) yet games rely on it |
 
 ares and bsnes both flag global muting as unresolved: `//todo: global muting isn't this simple`
 (`sfc/dsp/echo.cpp:96`).
-
 #### E10. Cycle-level pipeline (6)
 
-32 SPC cycles per output sample · the T0-T31 register-access schedule (ENDX.n at T1/T4/T7…, FLG.5
-at T29/T30, KON at T31) · ENDX/OUTX/ENVX written on three separate cycles · SPC and DSP share
-`/RESET` and the 2.048 MHz clock · **post-reset FLG behaves as `$E0` regardless of what reads
-back**; **[CONFLICT — nocash says ENDX=$FF, Anomie says 0 → golden vector]** · SPC cycle timing
-(the ActRaiser 2 / Tales of Phantasia case).
+| # | Assertion |
+|---|---|
+| E10.01 | 32 SPC cycles per output sample |
+| E10.02 | the T0-T31 register-access schedule (ENDX.n at T1/T4/T7…, FLG.5 at T29/T30, KON at T31) |
+| E10.03 | ENDX/OUTX/ENVX written on three separate cycles |
+| E10.04 | SPC and DSP share `/RESET` and the 2.048 MHz clock |
+| E10.05 | **post-reset FLG behaves as `$E0` regardless of what reads back**; **[CONFLICT — nocash says ENDX=$FF, Anomie says 0 → golden vector]** |
+| E10.06 | SPC cycle timing (the ActRaiser 2 / Tales of Phantasia case) |
 
 Clocks: S-DSP 24.576 MHz, DSP internal 3.072 MHz, SPC700 1.024 MHz, output 32 kHz nominal.
 **Real-hardware DSP rate varies 31,965-32,349 Hz and rises ~8 Hz cold→warm — audio timing must

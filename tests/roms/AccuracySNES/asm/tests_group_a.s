@@ -1915,11 +1915,6 @@ CATALOG_IMPL = 1
     lda #$05          ; variant 2 = V observed CLEAR ((2<<1)|1)
     sta f:$7EE010
     jmp test_restore
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jmp test_restore
 @fail1:
     ; decimal ADC $99+$01 did not produce $00
     sep #$20
@@ -2172,6 +2167,174 @@ CATALOG_IMPL = 1
     jmp test_restore
 @fail1:
     ; XBA did not swap the accumulator halves
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; A1.06 — TCD/TDC always 16-bit
+; provenance: Documented (WDC datasheet; SNESdev Wiki, 65C816)
+.proc test_a1_06
+    .a16
+    .i16
+    ; Set D with m=1, read it back with m=0. D is restored before the assertion because a
+    ; failing path would otherwise leave every direct-page access in the battery relocated.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    lda #$1234
+    sep #$20          ; m=1: an 8-bit accumulator must not narrow the transfer
+    .a8
+    tcd
+    rep #$20
+    .a16
+    tdc
+    sta f:$7E0114
+    lda #$0000
+    tcd               ; restore D BEFORE asserting
+    lda f:$7E0114
+    cmp #$1234
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; TCD/TDC narrowed to 8 bits under m=1 (they are always 16-bit)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; A5.07 — RMW abs,X is flat
+; provenance: Documented (WDC datasheet; undisbeliever's timing tables)
+.proc test_a5_07
+    .a16
+    .i16
+    ; Same instruction, once without a page cross and once with. The index must be 8-BIT: a
+    ; 16-bit index makes the penalty unconditional, which is what A5.02 establishes.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$10
+    .i8
+    ldx #$00
+    jsr hv_begin
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0080
+    sep #$10
+    .i8
+    ldx #$FF          ; $1234 + $FF = $1333 — crosses into the next page
+    jsr hv_begin
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0080
+    cmp #$8000
+    bcc :+
+    eor #$FFFF
+    inc a             ; negate: take the magnitude
+  :
+    cmp #$0003
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; RMW abs,X paid a page-cross penalty (its cost is flat)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; A6.09 — BRK sets B in pushed P
+; provenance: Documented (WDC datasheet; SNESdev Wiki, 65C816 interrupts)
+.proc test_a6_09
+    .a16
+    .i16
+    ; The handler recovers the pushed P through the stack. In emulation BRK pushes PCH, PCL,
+    ; P — so P is the last byte written, at $01:(S+1), and TSX gives S's low byte.
+    jmp @start
+@handler:
+    tsx
+    lda a:$0101,x     ; the pushed status byte
+    sta f:$7E009A
+    rti
+@start:
+    rep #$30
+    .a16
+    .i16
+    lda #.LOWORD(@handler)
+    sta a:V_BRK_VEC
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E009A     ; poison, so a handler that never runs cannot pass
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+    brk
+    .byte $EA
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    sep #$20
+    .a8
+    lda f:$7E009A
+    and #$10
+    cmp #$10
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; BRK did not set the B flag in the status byte it pushed
     sep #$20
     .a8
     lda #$02
@@ -3366,11 +3529,6 @@ CATALOG_IMPL = 1
     ora #$01          ; encode as (version << 1) | 1
     sta f:$7EE010
     jmp test_restore
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jmp test_restore
 .endproc
 
 ; C14.02 — PPU2 version (golden)
@@ -3390,11 +3548,6 @@ CATALOG_IMPL = 1
     and #$0F          ; PPU2 version
     asl a
     ora #$01
-    sta f:$7EE010
-    jmp test_restore
-    sep #$20
-    .a8
-    lda #$01
     sta f:$7EE010
     jmp test_restore
 .endproc
@@ -4252,6 +4405,550 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; B1.01 — MEMSEL selects FastROM
+; provenance: Documented (SNESdev Wiki, Memory map / timing; fullsnes)
+.proc test_b1_01
+    .a16
+    .i16
+    ; 32 long reads from bank $80, once slow and once fast. 2 master clocks saved per access
+    ; over 32 accesses is 64 clocks = 16 dots, comfortably outside the measurement jitter.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    stz $420D         ; MEMSEL = 0: banks $80+ run at 8 clocks
+    jsr hv_begin
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0080
+    sep #$20
+    .a8
+    lda #$01
+    sta $420D         ; MEMSEL = 1: FastROM, 6 clocks
+    jsr hv_begin
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    lda f:$808000
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0082
+    ; Restore the slow default before asserting — a failing path exits immediately.
+    sep #$20
+    .a8
+    stz $420D
+    rep #$20
+    .a16
+    lda f:$7E0080
+    sec
+    sbc f:$7E0082     ; slow - fast, so a working FastROM is positive
+    cmp #$000E
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0013
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; MEMSEL did not change bank $80 access speed by 2 master clocks per access
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B1.02 — JOYSER is 12 clocks
+; provenance: Documented (SNESdev Wiki, Memory map / timing; fullsnes)
+.proc test_b1_02
+    .a16
+    .i16
+    ; $4016 (JOYSER0, 12 clocks) against $4212 (HVBJOY, 6 clocks). $4212 is chosen as the
+    ; baseline because it is the one CPU MMIO read with no side effect at all: $4210 and $4211
+    ; are read-to-clear, and clearing a pending flag mid-measurement would change the test.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    jsr hv_begin
+    lda $4212
+    lda $4212
+    lda $4212
+    lda $4212
+    lda $4212
+    lda $4212
+    lda $4212
+    lda $4212
+    lda $4212
+    lda $4212
+    lda $4212
+    lda $4212
+    lda $4212
+    lda $4212
+    lda $4212
+    lda $4212
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0080
+    sep #$20
+    .a8
+    jsr hv_begin
+    lda $4016
+    lda $4016
+    lda $4016
+    lda $4016
+    lda $4016
+    lda $4016
+    lda $4016
+    lda $4016
+    lda $4016
+    lda $4016
+    lda $4016
+    lda $4016
+    lda $4016
+    lda $4016
+    lda $4016
+    lda $4016
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0080     ; joypad - mmio
+    cmp #$0016
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$001B
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; the joypad ports were not 6 master clocks slower per access than CPU MMIO
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B4.03 — RDNMI sets at vblank
+; provenance: Documented (SNESdev Wiki, Timing; fullsnes)
+.proc test_b4_03
+    .a16
+    .i16
+    ; The runtime keeps NMI disabled and polls, so this samples the flag with $4200.7 clear.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda $4210         ; clear any flag left pending by an earlier test
+    jsr wait_vblank   ; land on a vblank boundary
+    jsr wait_vblank   ; and again, so the flag was set by THIS vblank
+    lda $4210
+    and #$80
+    cmp #$80
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; RDNMI bit 7 was not set at vblank while NMI was disabled
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B4.04 — RDNMI is read-to-clear
+; provenance: Documented (SNESdev Wiki, Timing; fullsnes)
+.proc test_b4_04
+    .a16
+    .i16
+    ; Read twice back to back inside one vblank. The first read must report and consume the
+    ; flag; the second must find it gone.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda $4210
+    jsr wait_vblank
+    jsr wait_vblank
+    lda $4210
+    and #$80
+    cmp #$80
+    beq :+
+    jmp @fail1
+  :
+    lda $4210         ; the same vblank, immediately after
+    and #$80
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; RDNMI bit 7 was not set on the first read of a vblank
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; RDNMI did not clear on read
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B4.15 — CPU revision (golden)
+; provenance: Documented (SNESdev Wiki, Timing; fullsnes)
+.proc test_b4_15
+    .a16
+    .i16
+    ; Report the low nibble of $4210 as the variant code.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda $4210
+    and #$0F          ; CPU revision
+    asl a
+    ora #$01          ; encode as (revision << 1) | 1
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B5.01 — 8x8 unsigned multiply
+; provenance: Documented (SNESdev Wiki, CPU registers; fullsnes)
+.proc test_b5_01
+    .a16
+    .i16
+    ; $5A * $03 = $010E, chosen so the answer straddles both result bytes and neither can be
+    ; right by accident if the halves are swapped.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$5A
+    sta $4202
+    lda #$03
+    sta $4203         ; the write to $4203 starts the multiply
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    rep #$20
+    .a16
+    lda $4216
+    cmp #$010E
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; 8x8 multiply produced the wrong product
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B5.02 — 16/8 unsigned divide
+; provenance: Documented (SNESdev Wiki, CPU registers; fullsnes)
+.proc test_b5_02
+    .a16
+    .i16
+    ; $04D2 / $07 = $B0 remainder $02 (1234 / 7 = 176 r2). The divide needs 16 CPU cycles.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    lda #$04D2
+    sta $4204         ; 16-bit store fills $4204/$4205
+    sep #$20
+    .a8
+    lda #$07
+    sta $4206         ; the write to $4206 starts the divide
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    rep #$20
+    .a16
+    lda $4214
+    cmp #$00B0
+    beq :+
+    jmp @fail1
+  :
+    lda $4216
+    cmp #$0002
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; 16/8 divide produced the wrong quotient
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; 16/8 divide produced the wrong remainder
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B5.03 — Divide by zero
+; provenance: Documented (SNESdev Wiki, CPU registers; fullsnes)
+.proc test_b5_03
+    .a16
+    .i16
+    ; $1234 / 0 -> quotient $FFFF, remainder $1234.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    lda #$1234
+    sta $4204
+    sep #$20
+    .a8
+    stz $4206         ; divide by zero
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    rep #$20
+    .a16
+    lda $4214
+    cmp #$FFFF
+    beq :+
+    jmp @fail1
+  :
+    lda $4216
+    cmp #$1234
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; divide by zero did not saturate the quotient to $FFFF
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; divide by zero did not leave the dividend as the remainder
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B5.04 — Mul/div overlap (golden)
+; provenance: Contested (SNESdev Errata states overlapping $4203/$4206 operation is undefined)
+.proc test_b5_04
+    .a16
+    .i16
+    ; Start a divide, then start a multiply before it can finish, and report what RDMPY holds.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    lda #$1234
+    sta $4204
+    sep #$20
+    .a8
+    lda #$07
+    sta $4206         ; divide begins
+    lda #$5A
+    sta $4202
+    lda #$03
+    sta $4203         ; multiply begins while the divide is still in flight
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    lda $4216         ; whatever the shared register ended up holding
+    and #$0F          ; low nibble only — the full byte does not fit a variant code
+    asl a
+    ora #$01
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 .segment "CATALOG"
 .export _test_count
 .export _test_entries
@@ -4259,7 +4956,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 73
+    .word 85
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -4306,6 +5003,9 @@ _test_entries:
     .addr test_a8_03
     .addr test_a9_01
     .addr test_a9_02
+    .addr test_a1_06
+    .addr test_a5_07
+    .addr test_a6_09
     .addr test_c1_01
     .addr test_c1_02
     .addr test_c1_03
@@ -4336,6 +5036,15 @@ _test_entries:
     .addr test_c2_10
     .addr test_c1_06
     .addr test_c9_04
+    .addr test_b1_01
+    .addr test_b1_02
+    .addr test_b4_03
+    .addr test_b4_04
+    .addr test_b4_15
+    .addr test_b5_01
+    .addr test_b5_02
+    .addr test_b5_03
+    .addr test_b5_04
 
 ; Per-test flags: bit0 = scores toward the pass rate, bit1 = golden-vector.
 _test_flags:
@@ -4382,6 +5091,9 @@ _test_flags:
     .byte $01   ; A8.03
     .byte $01   ; A9.01
     .byte $01   ; A9.02
+    .byte $01   ; A1.06
+    .byte $01   ; A5.07
+    .byte $01   ; A6.09
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -4412,6 +5124,15 @@ _test_flags:
     .byte $01   ; C2.10
     .byte $01   ; C1.06
     .byte $01   ; C9.04
+    .byte $01   ; B1.01
+    .byte $01   ; B1.02
+    .byte $01   ; B4.03
+    .byte $01   ; B4.04
+    .byte $02   ; B4.15
+    .byte $01   ; B5.01
+    .byte $01   ; B5.02
+    .byte $01   ; B5.03
+    .byte $02   ; B5.04
 
 ; Menu labels, each a length-prefixed ASCII string.
 _test_names:
@@ -4458,6 +5179,9 @@ _test_names:
     .addr @n_a8_03
     .addr @n_a9_01
     .addr @n_a9_02
+    .addr @n_a1_06
+    .addr @n_a5_07
+    .addr @n_a6_09
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -4488,6 +5212,15 @@ _test_names:
     .addr @n_c2_10
     .addr @n_c1_06
     .addr @n_c9_04
+    .addr @n_b1_01
+    .addr @n_b1_02
+    .addr @n_b4_03
+    .addr @n_b4_04
+    .addr @n_b4_15
+    .addr @n_b5_01
+    .addr @n_b5_02
+    .addr @n_b5_03
+    .addr @n_b5_04
 @n_a1_01:
     .byte 16
     .byte "XCE clears XH/YH"
@@ -4617,6 +5350,15 @@ _test_names:
 @n_a9_02:
     .byte 18
     .byte "XBA swaps A halves"
+@n_a1_06:
+    .byte 21
+    .byte "TCD/TDC always 16-bit"
+@n_a5_07:
+    .byte 17
+    .byte "RMW abs,X is flat"
+@n_a6_09:
+    .byte 22
+    .byte "BRK sets B in pushed P"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"
@@ -4707,3 +5449,30 @@ _test_names:
 @n_c9_04:
     .byte 21
     .byte "Overscan moves vblank"
+@n_b1_01:
+    .byte 22
+    .byte "MEMSEL selects FastROM"
+@n_b1_02:
+    .byte 19
+    .byte "JOYSER is 12 clocks"
+@n_b4_03:
+    .byte 20
+    .byte "RDNMI sets at vblank"
+@n_b4_04:
+    .byte 22
+    .byte "RDNMI is read-to-clear"
+@n_b4_15:
+    .byte 21
+    .byte "CPU revision (golden)"
+@n_b5_01:
+    .byte 21
+    .byte "8x8 unsigned multiply"
+@n_b5_02:
+    .byte 20
+    .byte "16/8 unsigned divide"
+@n_b5_03:
+    .byte 14
+    .byte "Divide by zero"
+@n_b5_04:
+    .byte 24
+    .byte "Mul/div overlap (golden)"

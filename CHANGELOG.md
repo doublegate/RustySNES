@@ -11,25 +11,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **AccuracySNES Group C: access windows and frame geometry — 4 more tests.** `C2.11` — VRAM
-  writes are dropped outside vblank/forced blank, and H-blank does **not** open the window, which
-  is the trap for a core that gates on "not drawing a pixel" rather than "not in the rendering
-  period". `C2.10` — a dropped write still advances the address, because the increment is wired to
-  the port access rather than to the memory write; modelling the drop as an early `return` gets
-  this backwards and lands later transfers one or two words off. `C1.06` — the OAM address reloads
-  from its base once per frame. `C9.04` — overscan moves the start of vblank from line 225 to 240,
-  measured through `OPVCT` rather than by counting, since the counter is what defines the boundary.
-  Battery now **73 tests, 70 scoring, 100.00%, 3 golden**, agreeing across RustySNES, Mesen2 and
-  snes9x.
-
-### Fixed
-
-- **The OAM address now reloads from its base at the start of each frame.** `oam_address` was only
-  ever reloaded by a `$2102`/`$2103` write, so it never recovered from wherever sprite evaluation
-  left it — an address a game programmed did not survive a frame. It now reloads from
-  `oam_base_address` as vblank begins, conditional on forced blank being off (a forced-blank frame
-  runs no evaluation and performs no reload). Found by AccuracySNES **C1.06**, the second defect
-  the cartridge has turned up; both references already modelled it.
+- **T-04-J: coverage is now measured instead of estimated.** `gen/src/dossier.rs` maps every cart
+  test to the dossier assertion(s) it implements, because the two numbering schemes look identical
+  and are not — cart `A1.04` is dossier `A1.06`. The generator refuses to build if a test is
+  unmapped, if an assertion is claimed by two tests without a declared reason, or if a test maps to
+  nothing without a justification; both failure modes were verified to actually fire. The mapping
+  is emitted as a `dossier` column in `SOURCE_CATALOG.tsv` and re-checked by the harness against
+  the committed artifact, and `docs/accuracysnes-coverage.md` is regenerated with the ROM.
+- **The dossier's 23 prose sub-groups are now per-ID tables.** Content preserved verbatim, only
+  restructured, plus `E10` which had been missed. The enumeration goes from 232 checkable
+  assertions to **443** across all 43 sub-groups, so the coverage report is a *complete* statement:
+  an assertion with no test is listed there by name. Previously coverage could only be reported for
+  whichever assertions happened to sit in a table — which is exactly where an untested behaviour
+  could hide. Current coverage: **79 of 443**.
+- **The AccuracySNES research corpus is in the repository.** The 938-line hardware-behaviour and
+  test-list design report that `docs/accuracysnes-research-dossier.md` distils was cited at a path
+  under `~/.claude/`, outside version control. It is now
+  `ref-docs/2026-07-19-accuracysnes-hardware-test-design.md`, under the immutable-corpus rules in
+  `ref-docs/README.md`.
+- **AccuracySNES opens Group B — the 5A22 (T-04-B, first batch, 9 tests).** Memory access speed:
+  `MEMSEL` switching banks `$80`+ between 8 and 6 master clocks (measured through a long read so
+  the timed access is the subject, while the measuring loop keeps running from always-slow bank
+  `$00`), and the joypad ports being the slowest region on the bus at 12 clocks against CPU MMIO's
+  6. `RDNMI` mechanics: bit 7 setting at vblank *independently of whether NMI is enabled* — the
+  flag tracks the event, not the interrupt — and clearing on read, split into two tests because
+  the failure modes are opposite. The multiply/divide unit: 8x8 unsigned multiply, 16/8 divide
+  with the remainder sharing `RDMPY`, and divide-by-zero saturating to `$FFFF` with the dividend
+  left as the remainder. Plus two golden vectors: the CPU revision nibble, and the **undefined**
+  mul/div overlap, which the SNESdev Errata explicitly declines to define and which is therefore
+  recorded rather than asserted.
+- **`docs/accuracysnes-plan.md` — the AccuracySNES phase plan**, plus follow-on tickets
+  **T-04-A**–**T-04-J** in `to-dos/ROADMAP.md`. Frames the ~235 remaining tests by *what blocks
+  them* rather than by group: reachable now (Groups B, G, the rest of register-observable C, the
+  rest of A), needs its own mechanism (D's research top-up, E's on-cart APU harness), cannot be
+  fully self-scoring (F — a cart cannot press its own buttons), and needs a framebuffer oracle
+  (the renderer-dependent rest of C, which would break the property that the same image runs on
+  real hardware). Also records the constraints worth settling before the affected group starts.
+- **AccuracySNES: three Group A gaps closed (T-04-A, first batch).** `A1.06` — `TCD`/`TDC` move
+  all 16 bits regardless of `m`, so an 8-bit accumulator must not narrow a register that has no
+  8-bit form. `A5.07` — read-modify-write `abs,X` pays a flat cost with no page-cross penalty,
+  measured 8-deep against the same instruction without a cross. `A6.09` — `BRK` sets the `B` flag
+  in the status byte it pushes, which in emulation mode is the *only* thing distinguishing a
+  software `BRK` from a hardware IRQ arriving at the same `$FFFE`. Battery now **76 tests, 73
+  scoring, 100.00%, 3 golden**. Battery after both batches: **85 tests, 80 scoring, 100.00%, 5 golden**.
 
 ## [1.20.0] "Aperture" - 2026-07-15
 

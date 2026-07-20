@@ -66,6 +66,10 @@ pub fn all() -> Vec<Test> {
         // --- A9: misc flags ---
         a9_01(),
         a9_02(),
+        // --- T-04-A: closing out the remaining enumerated Group A behaviour ---
+        a1_06(),
+        a5_07(),
+        a6_09(),
     ]
 }
 
@@ -1458,6 +1462,135 @@ fn a6_08() -> Test {
         'A',
         "WDM is a 2-byte NOP",
         Provenance::Documented("WDC datasheet"),
+        Kind::Scored,
+        None,
+    )
+}
+
+// ---------------------------------------------------------------------------------------------
+// T-04-A — the remaining enumerated Group A behaviour
+//
+// Several of these clobber the stack pointer or the direct-page register. Every one of them
+// restores the clobbered register **before** its assertion, never after: an assertion that fails
+// jumps straight to a failure stub and then to `test_restore`, so a restore placed after the
+// comparison simply does not run on the failing path and takes the rest of the battery down with
+// it. Stash, restore, then assert.
+// ---------------------------------------------------------------------------------------------
+
+/// `TCD` and `TDC` move all 16 bits regardless of the `m` flag.
+///
+/// The direct-page register has no 8-bit form, so the accumulator width must not gate the
+/// transfer. A core that routes these through its generic "respect `m`" transfer path loses the
+/// high byte of `D` and every direct-page access afterwards resolves to the wrong page.
+fn a1_06() -> Test {
+    let mut a = Asm::new();
+    a.c("Set D with m=1, read it back with m=0. D is restored before the assertion because a");
+    a.c("failing path would otherwise leave every direct-page access in the battery relocated.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("lda #$1234");
+    a.l("sep #$20          ; m=1: an 8-bit accumulator must not narrow the transfer");
+    a.l("tcd");
+    a.l("rep #$20");
+    a.l("tdc");
+    a.l("sta f:$7E0114");
+    a.l("lda #$0000");
+    a.l("tcd               ; restore D BEFORE asserting");
+    a.l("lda f:$7E0114");
+    a.assert_a16(
+        0x1234,
+        "TCD/TDC narrowed to 8 bits under m=1 (they are always 16-bit)",
+    );
+    a.finish(
+        "A1.06",
+        'A',
+        "TCD/TDC always 16-bit",
+        Provenance::Documented("WDC datasheet; SNESdev Wiki, 65C816"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Read-modify-write `abs,X` pays a flat cost — there is no page-cross penalty.
+///
+/// Unlike a plain indexed read, an RMW always performs the same bus sequence, so crossing a page
+/// must cost nothing extra. A core that applies its generic indexed-addressing penalty to RMW
+/// instructions makes `ASL $1234,X` cost 8 instead of 7 whenever the index carries.
+fn a5_07() -> Test {
+    let mut a = Asm::new();
+    a.c("Same instruction, once without a page cross and once with. The index must be 8-BIT: a");
+    a.c("16-bit index makes the penalty unconditional, which is what A5.02 establishes.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$10");
+    a.l("ldx #$00");
+    a.measure_begin();
+    a.repeat(8, &["asl a:$1234,x"]);
+    a.measure_end();
+    a.measure_result();
+    a.l("sta f:$7E0080");
+    a.l("sep #$10");
+    a.l("ldx #$FF          ; $1234 + $FF = $1333 — crosses into the next page");
+    a.measure_begin();
+    a.repeat(8, &["asl a:$1234,x"]);
+    a.measure_end();
+    a.measure_result();
+    a.l("sec");
+    a.l("sbc f:$7E0080");
+    a.assert_abs_le(
+        TOL,
+        "RMW abs,X paid a page-cross penalty (its cost is flat)",
+    );
+    a.finish(
+        "A5.07",
+        'A',
+        "RMW abs,X is flat",
+        Provenance::Documented("WDC datasheet; undisbeliever's timing tables"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `BRK` sets the `B` flag in the status byte it pushes, in emulation mode.
+///
+/// Emulation mode has no separate `BRK` vector — software `BRK` and a hardware IRQ arrive at the
+/// same `$FFFE`, and bit 4 of the pushed status byte is the *only* thing that tells the handler
+/// which happened. A core that pushes `P` verbatim leaves a handler unable to distinguish them.
+fn a6_09() -> Test {
+    let mut a = Asm::new();
+    a.c("The handler recovers the pushed P through the stack. In emulation BRK pushes PCH, PCL,");
+    a.c("P — so P is the last byte written, at $01:(S+1), and TSX gives S's low byte.");
+    a.l("jmp @start");
+    a.label("handler");
+    a.l("tsx");
+    a.l("lda a:$0101,x     ; the pushed status byte");
+    a.l("sta f:$7E009A");
+    a.l("rti");
+    a.label("start");
+    a.l("rep #$30");
+    a.l("lda #.LOWORD(@handler)");
+    a.l("sta a:V_BRK_VEC");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta f:$7E009A     ; poison, so a handler that never runs cannot pass");
+    a.enter_emulation();
+    a.l("brk");
+    a.l(".byte $EA");
+    a.enter_native();
+    a.l("sep #$20");
+    a.l("lda f:$7E009A");
+    a.l("and #$10");
+    a.assert_a8(
+        0x10,
+        "BRK did not set the B flag in the status byte it pushed",
+    );
+    a.finish(
+        "A6.09",
+        'A',
+        "BRK sets B in pushed P",
+        Provenance::Documented("WDC datasheet; SNESdev Wiki, 65C816 interrupts"),
         Kind::Scored,
         None,
     )
