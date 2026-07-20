@@ -244,6 +244,17 @@ impl Spc {
         self.push(&[0xE0])
     }
 
+    /// `SETC` — `$80`.
+    pub fn setc(&mut self) -> &mut Self {
+        self.push(&[0x80])
+    }
+
+    /// `DAS` — `$BE`. Decimal-adjust after subtraction: the mirror of [`Spc::daa`], and it reads
+    /// the *inverted* sense of both flags.
+    pub fn das(&mut self) -> &mut Self {
+        self.push(&[0xBE])
+    }
+
     /// `DAA` — `$DF`. Decimal-adjust after addition.
     pub fn daa(&mut self) -> &mut Self {
         self.push(&[0xDF])

@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`DAS` reads the inverted sense of `C` and `H` (`E1.09`).** `DAA` adjusts when a flag is *set*;
+  `DAS` adjusts when one is *clear*. A core that copies `DAA`'s conditions and merely flips the
+  addition to a subtraction adjusts in exactly the wrong cases — invisible on the values anyone
+  would pick by eye, wrong on almost everything else.
+
+  Two runs of the same value differing only in `H`: with `H` set nothing happens to `$15`, with `H`
+  clear it becomes `$0F`. `C` is set in both so the first condition stays out of the way, and `$15`
+  trips neither of `DAS`'s value tests — so every difference between the two answers is the flag.
+  Setting `H` needs an `ADC` with a nibble carry because nothing sets it directly, and clearing it
+  needs `CLRV` (`E1.12`) because nothing else clears it either.
+
 - **`DIV YA,X`'s overflow branch computes something else entirely (`E1.03`).** When `Y >= X << 1`
   the quotient will not fit in eight bits, and the instruction does not saturate: it produces
   `A = 255 - (YA - (X << 9)) / (256 - X)` and `Y = X + (YA - (X << 9)) % (256 - X)` — what the
@@ -745,10 +756,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **216 tests — 204 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **217 tests — 205 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **50 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **174 of 443** on-cart plus **50** scene-only —
-**224 of 443** in total, and **every group A-G now has shipped tests**
+framebuffer-oracle tier. Dossier coverage is **175 of 443** on-cart plus **50** scene-only —
+**225 of 443** in total, and **every group A-G now has shipped tests**
 (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.

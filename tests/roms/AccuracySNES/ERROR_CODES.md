@@ -1311,6 +1311,15 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 I/O; fullsnes). Kind: scored.
 | 1 | `$02` | a store landed in APU RAM with TEST bit 1 clear, so the RAM write enable is not modelled |
 | 2 | `$04` | the store after restoring TEST did not land either, so the check above says nothing about bit 1 |
 
+### E1.09 — DAS mirrors DAA
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | DAS adjusted $15 with H and C both set — it adjusts when they are CLEAR, which is the opposite of DAA |
+| 2 | `$04` | DAS did not subtract 6 from $15 with H clear, so it is not reading the inverted sense of the half-carry |
+
 ### E1.10 — TSET1 is a compare
 
 Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata). Kind: scored.
