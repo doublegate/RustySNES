@@ -1547,7 +1547,7 @@ Provenance: **Documented** (fullsnes, S-DSP pitch; anomie's DSP doc). Kind: scor
 
 | Code | Byte | Meaning |
 |---|---|---|
-| 1 | `$02` | a 384-sample voice at pitch $1000 had already finished after six waits, two short of where bisection puts its finish — so it is consuming samples faster than 1:1 |
+| 1 | `$02` | a 384-sample voice at pitch $1000 had already finished after six waits, so it is consuming at least 64 samples per wait — a third above 1:1 |
 
 ### E6.02b — Pitch $1000 does finish
 
@@ -1555,7 +1555,7 @@ Provenance: **Documented** (fullsnes, S-DSP pitch; anomie's DSP doc). Kind: scor
 
 | Code | Byte | Meaning |
 |---|---|---|
-| 1 | `$02` | a 384-sample voice at pitch $1000 had still not finished after sixteen waits, twice as long as it needs — so it is running far below 1:1, or not playing at all |
+| 1 | `$02` | a 384-sample voice at pitch $1000 had still not finished after sixteen waits, so it is consuming fewer than 24 samples per wait — half of 1:1 — or not playing at all |
 
 ### E6.02c — Pitch $2000 is +1 octave
 
@@ -1563,7 +1563,7 @@ Provenance: **Documented** (fullsnes, S-DSP pitch; anomie's DSP doc). Kind: scor
 
 | Code | Byte | Meaning |
 |---|---|---|
-| 1 | `$02` | a 384-sample voice at pitch $2000 had not finished after six waits, though the same voice at $1000 needs eight — so raising the pitch register did not raise the rate |
+| 1 | `$02` | a 384-sample voice at pitch $2000 had not finished after six waits, so it is consuming fewer than 64 samples per wait — no faster than $1000 manages in the same time |
 
 ### E6.02d — Pitch $2000 upper bound
 
@@ -1571,7 +1571,7 @@ Provenance: **Documented** (fullsnes, S-DSP pitch; anomie's DSP doc). Kind: scor
 
 | Code | Byte | Meaning |
 |---|---|---|
-| 1 | `$02` | a 384-sample voice at pitch $2000 had already finished after three waits, so it is consuming more than 128 samples per wait — far above what doubling $1000 would give |
+| 1 | `$02` | a 384-sample voice at pitch $2000 had already finished after three waits, so it is consuming at least 128 samples per wait — far above what doubling $1000 would give |
 
 ## Group F
 

@@ -22,12 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `$2000` consumes 64-128 — which both contain the documented rates, do not overlap, and cannot both
   be satisfied by a core that ignores the pitch register.
 
-  The waits were **measured by bisection rather than calculated**, and are placed at the geometric
-  mean of the two finishing points so each verdict has about a third of the elapsed time in hand.
-  What that deliberately does not establish is that the factor is exactly two: a core scaling by 1.5
-  fits both windows, and excluding it would mean bracketing between adjacent waits at a tenth of the
-  margin. `docs/accuracysnes-plan.md` records the trade. All four tests agree on snes9x and Mesen2,
-  on both images.
+  The four waits were **found by bisection rather than calculated** — the first attempt placed them
+  by arithmetic and the voice had already finished — and then deliberately moved *away* from the
+  boundaries they found, so no verdict sits close to a finishing point. What the windows do not
+  establish is that the factor is exactly two: a core scaling by 1.5 fits both, and excluding it
+  would mean bracketing between adjacent waits, where every verdict is a hair's breadth from
+  flipping. `docs/accuracysnes-plan.md` records the trade. All four tests agree on snes9x and
+  Mesen2, on both images.
 
 - **The power-on state is now reachable, and Group G reports out of it (`G1.02`, `G1.04`, `G1.08`,
   `G1.09`).** The battery runs long after reset, through a runtime that deliberately puts every PPU

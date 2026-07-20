@@ -3462,19 +3462,19 @@ fn pitch_rate_test(
 /// in hand. That is the timing-marginal construction this group has been bitten by before, so it
 /// is deliberately not shipped; see `docs/accuracysnes-plan.md`.
 ///
-/// **The two boundaries were measured rather than calculated.** Bisecting on this cart puts the
-/// `$1000` voice's finish between the seventh and eighth wait and the `$2000` voice's between the
-/// fourth and fifth — a ratio of about two, which is the octave showing up directly in the
-/// bisection. Six waits is the geometric mean of the two, so each verdict has about a third of the
-/// elapsed time in hand on either side. That margin is the most this construction can have: the
-/// two finishing times differ by a factor of two and nothing can place a single reading further
-/// than `sqrt(2)` from both.
+/// **The four waits were found by bisection, then moved away from what it found.** Bisecting on
+/// this cart puts the `$1000` voice's finish between the seventh and eighth wait and the `$2000`
+/// voice's between the fourth and fifth. A test placed *at* those boundaries would carry the
+/// tightest window and the thinnest margin; each of the four above is a wait or more clear of the
+/// nearest boundary instead, which is why the windows they state are wider than the bisection knows
+/// them to be. That is the trade, taken deliberately: the first attempt here placed the wait by
+/// arithmetic and the voice had already finished.
 ///
 /// The measurement is deterministic rather than racy — every cycle of it happens inside the
 /// uploaded SPC program, so neither the cart's own code size nor the host's speed can move it. A
 /// core modelling a different number of SPC cycles per output sample would move it, but that is
-/// `E10.01` and a different assertion; a third of the elapsed time is a wide enough margin to
-/// absorb the discrepancies the three cross-validated references actually have.
+/// `E10.01` and a different assertion, and the margin here is wide enough to absorb the
+/// discrepancies the three cross-validated references actually have.
 fn e6_02() -> Test {
     pitch_rate_test(
         "E6.02",
@@ -3482,8 +3482,8 @@ fn e6_02() -> Test {
         0x10,
         5,
         false,
-        "a 384-sample voice at pitch $1000 had already finished after six waits, two short of \
-         where bisection puts its finish — so it is consuming samples faster than 1:1",
+        "a 384-sample voice at pitch $1000 had already finished after six waits, so it is \
+         consuming at least 64 samples per wait — a third above 1:1",
     )
 }
 
@@ -3499,8 +3499,8 @@ fn e6_02b() -> Test {
         0x10,
         15,
         true,
-        "a 384-sample voice at pitch $1000 had still not finished after sixteen waits, twice as \
-         long as it needs — so it is running far below 1:1, or not playing at all",
+        "a 384-sample voice at pitch $1000 had still not finished after sixteen waits, so it is \
+         consuming fewer than 24 samples per wait — half of 1:1 — or not playing at all",
     )
 }
 
@@ -3518,8 +3518,8 @@ fn e6_02c() -> Test {
         0x20,
         5,
         true,
-        "a 384-sample voice at pitch $2000 had not finished after six waits, though the same voice \
-         at $1000 needs eight — so raising the pitch register did not raise the rate",
+        "a 384-sample voice at pitch $2000 had not finished after six waits, so it is consuming \
+         fewer than 64 samples per wait — no faster than $1000 manages in the same time",
     )
 }
 
@@ -3537,6 +3537,6 @@ fn e6_02d() -> Test {
         2,
         false,
         "a 384-sample voice at pitch $2000 had already finished after three waits, so it is \
-         consuming more than 128 samples per wait — far above what doubling $1000 would give",
+         consuming at least 128 samples per wait — far above what doubling $1000 would give",
     )
 }
