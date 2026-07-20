@@ -61,6 +61,9 @@ pub fn all() -> Vec<Test> {
         e5_11(),
         e7_10(),
         e1_08(),
+        e3_04(),
+        e3_05(),
+        e3_10(),
         e1_10(),
         e1_12(),
         e2_07(),
@@ -1081,6 +1084,178 @@ fn voice_program(sample: &[u8], v: Voice) -> Spc {
     dsp_read_to(&mut p, 0x09, PORT3); // voice 0 OUTX
     p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
     p
+}
+
+/// `$F1` bit 7 controls what `$FFC0`-`$FFFF` *reads* as; writes always reach the RAM underneath.
+///
+/// The boot ROM is an overlay, not a region. A store to `$FFC0` lands in APU RAM whether or not the
+/// ROM is mapped over it — the write is simply invisible until the overlay is switched off. That is
+/// what makes the boot ROM's own space usable as ordinary RAM by a driver that no longer needs it,
+/// and it is why an emulator that treats `$FFC0`-`$FFFF` as read-only while mapped loses a driver's
+/// data with no error anywhere.
+///
+/// The whole claim in one program: write a byte with the ROM mapped, read back the *ROM* byte,
+/// unmap, read back the *written* byte. `$CD` is the first byte of the canonical listing, which
+/// `E4.01` checks in full.
+fn e3_04() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_dp_imm(0xF1, 0x80) // boot ROM mapped
+        .mov_a_imm(0x5A)
+        .mov_abs_a(0xFFC0) // goes to the RAM underneath, invisibly
+        .mov_a_abs(0xFFC0)
+        .mov_dp_a(PORT1) // still reads the ROM
+        .mov_dp_imm(0xF1, 0x00) // unmap it
+        .mov_a_abs(0xFFC0)
+        .mov_dp_a(PORT2) // now the write is visible
+        .mov_dp_imm(0xF1, 0x80) // and put it back, or there is no IPL to hand control to
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.assert_a8(
+        0xCD,
+        "a read of $FFC0 with the boot ROM mapped did not return the ROM's first byte",
+    );
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x5A,
+        "the byte written to $FFC0 while the ROM was mapped did not reach the RAM underneath — a \
+         read-only overlay loses a driver's data silently",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E3.04",
+        'E',
+        "Writes pass under IPL",
+        Provenance::Documented("SNESdev Wiki, SPC700 I/O; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// A timer divider of `$00` means 256, not zero and not one.
+///
+/// `TnDIV` is the reload value of an 8-bit pre-divider, so writing `$00` selects its full period —
+/// the *slowest* setting available, 256 times slower than `$01`. Read as a literal zero it becomes
+/// either a division by nothing (a timer running 256 times too fast) or a stopped timer, and a
+/// sound driver's tempo is wrong by more than two orders of magnitude either way.
+///
+/// Both halves are measured over the same delay: at `$01` the counter must have advanced, at `$00`
+/// it must not have. The timer is stopped before each read, because the counter is four bits and the
+/// reads are a few cycles apart — the same race `E3.01` was rebuilt to avoid.
+fn e3_05() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_dp_imm(0xFA, 0x01) // T0DIV = 1, the fastest
+        .mov_dp_imm(0xF1, 0x81) // enable timer 0, boot ROM stays mapped
+        .delay(0x00)
+        .mov_dp_imm(0xF1, 0x80) // stop before reading
+        .mov_a_dp(0xFD)
+        .mov_dp_a(PORT1)
+        .mov_dp_imm(0xFA, 0x00) // T0DIV = 0, which means 256
+        .mov_dp_imm(0xF1, 0x81) // re-enable: a 0->1 on the enable bit restarts the divider
+        .delay(0x00)
+        .mov_dp_imm(0xF1, 0x80)
+        .mov_a_dp(0xFD)
+        .mov_dp_a(PORT2)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("The control: at divider 1 the counter advanced over this delay. Without it, the check");
+    a.c("below would pass on a timer that never ran at all.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        1,
+        15,
+        "timer 0 did not advance at divider 1, so the divider-0 check below would be vacuous",
+    );
+    a.c("And at divider 0 — meaning 256 — the same delay is nowhere near one tick.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x00,
+        "timer 0 ticked at divider $00 over a delay that is 256 times too short, so $00 was read \
+         as a small number rather than as 256",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E3.05",
+        'E',
+        "TnDIV $00 means 256",
+        Provenance::Documented("SNESdev Wiki, SPC700 timers; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `TEST` bit 1 is the RAM write enable, and clearing it makes stores do nothing.
+///
+/// `$F0` is a hardware test register no game should touch, which is exactly why an emulator is
+/// likely to model it as ordinary storage — and then a ROM that *does* touch it behaves differently
+/// for reasons nothing in the trace explains. Bit 1 gates every write into APU RAM; with it clear,
+/// stores execute, take their cycles, and change nothing.
+///
+/// The program seeds a byte, disables writes, stores a different byte, restores the register, and
+/// only then reads back — reading while writes are disabled would be measuring the read path
+/// instead. The final store proves the gate reopened, without which "the value did not change"
+/// would also be what a broken write path looks like.
+fn e3_10() -> Test {
+    const SCRATCH: u16 = 0x0510;
+
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_a_imm(0x11)
+        .mov_abs_a(SCRATCH) // seeded with writes enabled
+        .mov_dp_imm(0xF0, 0x08) // TEST: bit 1 clear, bit 3 as it powers up
+        .mov_a_imm(0x22)
+        .mov_abs_a(SCRATCH) // executes, changes nothing
+        .mov_dp_imm(0xF0, 0x0A) // restore the power-on value
+        .mov_a_abs(SCRATCH)
+        .mov_dp_a(PORT1)
+        .mov_a_imm(0x33)
+        .mov_abs_a(SCRATCH) // and writes work again
+        .mov_a_abs(SCRATCH)
+        .mov_dp_a(PORT2)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.assert_a8(
+        0x11,
+        "a store landed in APU RAM with TEST bit 1 clear, so the RAM write enable is not modelled",
+    );
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x33,
+        "the store after restoring TEST did not land either, so the check above says nothing about \
+         bit 1",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E3.10",
+        'E',
+        "TEST gates RAM writes",
+        Provenance::Documented("SNESdev Wiki, SPC700 I/O; fullsnes"),
+        Kind::Scored,
+        None,
+    )
 }
 
 /// `CLRV` clears the half-carry as well as the overflow flag.

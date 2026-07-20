@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Three SPC700 I/O registers (`E3`), and a third snes9x divergence.** `E3.04`: the boot ROM is an
+  *overlay*, not a region — a store to `$FFC0` reaches the RAM underneath whether or not the ROM is
+  mapped over it, and is simply invisible until the overlay is switched off. An emulator treating
+  that range as read-only while mapped loses a driver's data with no error anywhere. `E3.05`:
+  `TnDIV = $00` selects a divider of **256**, the slowest setting, not zero and not one; read as a
+  literal zero a driver's tempo is wrong by two orders of magnitude. `E3.10`: `TEST` bit 1 gates
+  every write into APU RAM, and with it clear stores execute, take their cycles, and change nothing.
+
+  **`E3.10` fails on snes9x, and the citation is unusually clean:** `SMP::mmio_write` in
+  `apu/bapu/smp/memory.cpp` has no `case 0xf0` at all, so writes to the `TEST` register fall through
+  the switch and are discarded. Mesen2 and RustySNES both implement it. No game depends on it —
+  which is exactly why it is the kind of register an emulator leaves out and a test ROM finds. It
+  joins `B5.05` and `A5.S17` as a recorded reference divergence with a source citation, not a
+  lowered bar.
+
+- **The font moved out of bank `$00`.** Bank `$00` filled up again — this time with test *bodies*,
+  which cannot move: the dispatch table holds 16-bit entry points. The font can, because the runtime
+  already reads it with long addressing. It is declared after `BANK1` in the linker config because
+  ld65 fills a memory area in declaration order and `BANK1` has a fixed start at the bottom of it.
+
 - **Four SPC700 instructions whose behaviour contradicts their names (`E1`, `E2`).** `E1.12`:
   `CLRV` clears the half-carry as well as the overflow flag, and nothing else on the SPC700 clears
   `H` — so a decimal routine using it to prepare for `DAA` depends on the undocumented half.
@@ -368,10 +388,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **187 tests — 175 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **190 tests — 178 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **145 of 443** on-cart plus **42** scene-only —
-**187 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier. Dossier coverage is **148 of 443** on-cart plus **42** scene-only —
+**190 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 

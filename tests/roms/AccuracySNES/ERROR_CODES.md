@@ -1153,6 +1153,33 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes). Kind: sco
 | 2 | `$04` | DAA on $9A did not wrap to $00 — both adjustments apply, and $9A + $60 + 6 leaves the byte |
 | 3 | `$06` | DAA on $9A did not set the carry |
 
+### E3.04 — Writes pass under IPL
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 I/O; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a read of $FFC0 with the boot ROM mapped did not return the ROM's first byte |
+| 2 | `$04` | the byte written to $FFC0 while the ROM was mapped did not reach the RAM underneath — a read-only overlay loses a driver's data silently |
+
+### E3.05 — TnDIV $00 means 256
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 timers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | timer 0 did not advance at divider 1, so the divider-0 check below would be vacuous |
+| 2 | `$04` | timer 0 ticked at divider $00 over a delay that is 256 times too short, so $00 was read as a small number rather than as 256 |
+
+### E3.10 — TEST gates RAM writes
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 I/O; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a store landed in APU RAM with TEST bit 1 clear, so the RAM write enable is not modelled |
+| 2 | `$04` | the store after restoring TEST did not land either, so the check above says nothing about bit 1 |
+
 ### E1.10 — TSET1 is a compare
 
 Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata). Kind: scored.
