@@ -28,6 +28,8 @@ pub fn all() -> Vec<Test> {
         e1_06(),
         e1_13(),
         e1_15(),
+        e3_01(),
+        e3_14(),
     ]
 }
 
@@ -475,6 +477,131 @@ fn e1_13() -> Test {
         "ADDW H = bit-11 carry",
         Provenance::Documented("SNESdev Wiki, SPC700 reference; fullsnes"),
         Kind::Scored,
+        None,
+    )
+}
+
+/// Reading a timer counter returns four bits and clears it.
+///
+/// `$FD`-`$FF` are not registers holding a value; they are counters that a read consumes. The
+/// upper nibble is not part of the count and the read has a side effect, so two reads in a row
+/// give a number and then zero — which is the entire protocol for using them, and a core that
+/// treats them as plain storage returns the same value twice and lets a driver double-count every
+/// tick it observes.
+///
+/// The first read is only required to be non-zero: how far the timer has advanced depends on the
+/// delay loop's exact cost, and asserting a specific count would be asserting the loop.
+fn e3_01() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_dp_imm(0xFA, 0x01) // T0DIV = 1: the fastest this timer runs
+        .mov_dp_imm(0xF1, 0x01) // CONTROL: enable timer 0
+        .delay(0x00) // 256 iterations, comfortably several ticks
+        .mov_a_dp(0xFD)
+        .mov_dp_a(PORT2) // first read: the accumulated count
+        .mov_a_dp(0xFD)
+        .mov_dp_a(PORT3) // second read: must be zero, because the first one cleared it
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("The counter must have advanced at all — otherwise the clear below proves nothing.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.l("cmp #$01");
+    a.l("bcs :+");
+    a.l("jmp @fail_zero");
+    a.l(":");
+    a.c("And it must fit in four bits: the upper nibble is not part of the count.");
+    a.l("lda f:$7E0101");
+    a.l("cmp #$10");
+    a.l("bcc :+");
+    a.l("jmp @fail_wide");
+    a.l(":");
+    a.c("The second read must be zero: reading a timer counter consumes it.");
+    a.l("lda f:$7E0102");
+    a.assert_a8(
+        0x00,
+        "the second read of $FD was non-zero — reading a timer counter must clear it",
+    );
+    a.l("bra @pass");
+    a.label("fail_zero");
+    a.l("sep #$20");
+    a.l("lda #$06");
+    a.l("sta f:V_TEST_RESULT   ; timer 0 never advanced, so the clear check is vacuous");
+    a.l("jmp test_restore");
+    a.label("fail_wide");
+    a.l("sep #$20");
+    a.l("lda #$08");
+    a.l("sta f:V_TEST_RESULT   ; the counter returned more than four bits");
+    a.l("jmp test_restore");
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E3.01",
+        'E',
+        "Timer read clears it",
+        Provenance::Documented("SNESdev Wiki, SPC700 I/O; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// What `$F8` and `$F9` return after a write (golden vector).
+///
+/// The dossier states these behave as plain RAM: they sit in the middle of the I/O block, are not
+/// registers, and a program may use them as two spare bytes. **Both reference emulators disagree**
+/// — neither returns the written value, and they agree with each other, which is the pattern this
+/// project treats as "the claim needs re-deriving", not "the emulators are wrong".
+///
+/// So this records what the implementations actually return rather than asserting the documented
+/// behaviour. Recording is the useful move: it makes the disagreement visible and comparable,
+/// where deleting the test would lose the finding and weakening the assertion until it passed
+/// would launder an unresolved question into a green tick.
+///
+/// Observed at the time of writing: `$F8` returns `$01` and `$F9` returns `$00` after writing
+/// `$5A`/`$A5`, identically on RustySNES, snes9x and Mesen2. Whatever those two addresses are,
+/// all three implementations agree they are not storage.
+fn e3_14() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_dp_imm(0xF8, 0x5A)
+        .mov_dp_imm(0xF9, 0xA5)
+        .mov_a_dp(0xF8)
+        .mov_dp_a(PORT2)
+        .mov_a_dp(0xF9)
+        .mov_dp_a(PORT3)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("Record both bytes rather than assert them. $5A/$A5 would mean plain RAM.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(112, "E3.14 value read back from $F8 after writing $5A");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.record(113, "E3.14 value read back from $F9 after writing $A5");
+    a.l("sep #$20");
+    a.l("lda #$01");
+    a.l("sta f:V_TEST_RESULT   ; golden: the numbers are in the measurement channel");
+    a.l("jmp test_restore");
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E3.14",
+        'E',
+        "$F8/$F9 readback",
+        Provenance::Contested(
+            "the dossier and fullsnes describe $F8/$F9 as plain RAM; neither snes9x nor Mesen2 \
+             returns the written value, and the two agree with each other",
+        ),
+        Kind::Golden,
         None,
     )
 }

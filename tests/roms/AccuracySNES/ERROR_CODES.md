@@ -1031,6 +1031,20 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes). Kind: sco
 | 1 | `$02` | MOVW YA,dp set Z for $0100 — the flags describe all sixteen bits, not the low byte |
 | 2 | `$04` | MOVW YA,dp left N clear for $8000 |
 
+### E3.01 — Timer read clears it
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 I/O; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the second read of $FD was non-zero — reading a timer counter must clear it |
+
+### E3.14 — $F8/$F9 readback
+
+Provenance: **Contested** (the dossier and fullsnes describe $F8/$F9 as plain RAM; neither snes9x nor Mesen2 returns the written value, and the two agree with each other). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
 ## Group A
 
 ### A5.S01 — Sweep: CLC

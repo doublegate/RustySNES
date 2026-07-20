@@ -8273,6 +8273,227 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; E3.01 — Timer read clears it
+; provenance: Documented (SNESdev Wiki, SPC700 I/O; fullsnes)
+.proc test_e3_01
+    .a16
+    .i16
+    bra @body
+@prog:
+    .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $01, $F1, $8D, $00, $FE
+    .byte $FE, $E4, $FD, $C4, $F6, $E4, $FD, $C4, $F7, $E8, $5A, $C4
+    .byte $F4, $E4, $F4, $68, $A5, $D0, $FA, $5F, $C0, $FF
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image.
+    lda #@prog
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    phk
+    pla
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #34
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsr apu_upload
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    ; The counter must have advanced at all — otherwise the clear below proves nothing.
+    sep #$20
+    .a8
+    lda f:$7E0101
+    cmp #$01
+    bcs :+
+    jmp @fail_zero
+    :
+    ; And it must fit in four bits: the upper nibble is not part of the count.
+    lda f:$7E0101
+    cmp #$10
+    bcc :+
+    jmp @fail_wide
+    :
+    ; The second read must be zero: reading a timer counter consumes it.
+    lda f:$7E0102
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    bra @pass
+@fail_zero:
+    sep #$20
+    .a8
+    lda #$06
+    sta f:V_TEST_RESULT   ; timer 0 never advanced, so the clear check is vacuous
+    jmp test_restore
+@fail_wide:
+    sep #$20
+    .a8
+    lda #$08
+    sta f:V_TEST_RESULT   ; the counter returned more than four bits
+    jmp test_restore
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jmp test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; the second read of $FD was non-zero — reading a timer counter must clear it
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; E3.14 — $F8/$F9 readback
+; provenance: Contested (the dossier and fullsnes describe $F8/$F9 as plain RAM; neither snes9x nor Mesen2 returns the written value, and the two agree with each other)
+.proc test_e3_14
+    .a16
+    .i16
+    bra @body
+@prog:
+    .byte $CD, $EF, $BD, $8F, $5A, $F8, $8F, $A5, $F9, $E4, $F8, $C4
+    .byte $F6, $E4, $F9, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68
+    .byte $A5, $D0, $FA, $5F, $C0, $FF
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image.
+    lda #@prog
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    phk
+    pla
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #30
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsr apu_upload
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    ; Record both bytes rather than assert them. $5A/$A5 would mean plain RAM.
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0101
+    and #$00FF
+    ; record slot 112: E3.14 value read back from $F8 after writing $5A
+    sta f:$7EE2E0
+    lda f:$7E0102
+    and #$00FF
+    ; record slot 113: E3.14 value read back from $F9 after writing $A5
+    sta f:$7EE2E2
+    sep #$20
+    .a8
+    lda #$01
+    sta f:V_TEST_RESULT   ; golden: the numbers are in the measurement channel
+    jmp test_restore
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jmp test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 ; A5.S01 — Sweep: CLC
 ; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
 .proc test_a5_s01
@@ -11402,7 +11623,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 156
+    .word 158
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -11528,6 +11749,8 @@ _test_entries:
     .addr test_e1_06
     .addr test_e1_13
     .addr test_e1_15
+    .addr test_e3_01
+    .addr test_e3_14
     .addr test_a5_s01
     .addr test_a5_s02
     .addr test_a5_s03
@@ -11687,6 +11910,8 @@ _test_flags:
     .byte $01   ; E1.06
     .byte $01   ; E1.13
     .byte $01   ; E1.15
+    .byte $01   ; E3.01
+    .byte $02   ; E3.14
     .byte $01   ; A5.S01
     .byte $01   ; A5.S02
     .byte $01   ; A5.S03
@@ -11846,6 +12071,8 @@ _test_names:
     .addr @n_e1_06
     .addr @n_e1_13
     .addr @n_e1_15
+    .addr @n_e3_01
+    .addr @n_e3_14
     .addr @n_a5_s01
     .addr @n_a5_s02
     .addr @n_a5_s03
@@ -12246,6 +12473,12 @@ _test_names:
 @n_e1_15:
     .byte 23
     .byte "MOVW YA sets 16-bit N/Z"
+@n_e3_01:
+    .byte 20
+    .byte "Timer read clears it"
+@n_e3_14:
+    .byte 16
+    .byte "$F8/$F9 readback"
 @n_a5_s01:
     .byte 10
     .byte "Sweep: CLC"
