@@ -1093,7 +1093,7 @@ SCENES_IMPL = 1
     lda #$07
     sta $2105         ; BGMODE 7
     ; Nonsense in both registers BEFORE the VRAM upload, so nothing can be read from them.
-    lda #$7C
+    lda #$7B
     sta $2107         ; BG1SC: base word $7800, 64x64 — a long way from Mode 7's $0000
     lda #$0F
     sta $210B         ; BG1NBA: character base $F000 words
