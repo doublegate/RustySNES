@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`VxOUTX` is sampled before the per-voice volume (`E7.16`).** A voice turned all the way down
+  still reports the same `OUTX` it reported at full volume, because the register sits after the
+  envelope and before `VxVOLL`/`VxVOLR`. A core that reads it off the mixer's input returns zero,
+  and a driver using `OUTX` to watch a sound's progress loses it the moment the music fades that
+  channel out. Its control is `E5.03` — the same voice with the volume left at `$7F`, reading the
+  same band.
+
+  **An `E8.03` test was written and dropped.** The dossier row says a `KON` "clears `ENDX` even when
+  suppressed", and the obvious reading is the `KOFF`+`KON` pair `E8.04` already uses. All three
+  emulators leave `ENDX` set — three failing identically is a broken test, not three broken cores,
+  so "suppressed" there is not `KOFF`. The likeliest candidate is the key-on *collapse* cases, where
+  two `KON` writes land inside the same 16 kHz polling window and one is dropped; that is a
+  suppression internal to the DSP's scheduling rather than one a program asks for, and it needs the
+  collapse cases built first. Parked with the measurement in `docs/accuracysnes-plan.md`.
+
 - **`KOFF` outranks `KON`, and mute is downstream of `VxOUTX` (`E8.04`, `E9.17`).** The two key
   registers are not symmetric: `KON` is a write-triggered *edge* that starts a voice once, while
   `KOFF` is a *level* the DSP consults every time it looks. So a driver that sets `KOFF` and then
@@ -597,10 +612,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **206 tests — 194 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **207 tests — 195 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **49 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **164 of 443** on-cart plus **49** scene-only —
-**213 of 443** in total, and **every group A-G now has shipped tests**
+framebuffer-oracle tier. Dossier coverage is **165 of 443** on-cart plus **49** scene-only —
+**214 of 443** in total, and **every group A-G now has shipped tests**
 (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.

@@ -1319,6 +1319,14 @@ Provenance: **Documented** (fullsnes, S-DSP BRR; anomie's DSP doc). Kind: scored
 |---|---|---|
 | 1 | `$02` | a sample of $8 nibbles produced a positive output, so the nibbles were read as unsigned |
 
+### E7.16 — OUTX is pre-volume
+
+Provenance: **Documented** (fullsnes, S-DSP envelopes; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | VxOUTX read zero with the voice volume at zero — the register is sampled before the volume, not after it |
+
 ### E8.04 — KOFF outranks KON
 
 Provenance: **Documented** (fullsnes, S-DSP key on/off; anomie's DSP doc). Kind: scored.

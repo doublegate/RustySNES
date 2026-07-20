@@ -74,6 +74,7 @@ pub fn all() -> Vec<Test> {
         e4_02(),
         e4_04(),
         e5_02(),
+        e7_16(),
         e8_04(),
         e9_04(),
         e9_17(),
@@ -995,6 +996,8 @@ struct Voice {
     gain: u8,
     /// `NON`: one bit per voice, replacing its sample with the noise generator.
     non: u8,
+    /// `VxVOLL`/`VxVOLR`, the per-voice volume the mixer applies. Downstream of `VxOUTX`.
+    vol: u8,
     /// Delay loops between key-on and the read, each roughly a thousand SPC700 cycles.
     settle: u8,
     /// `(register, value)` writes made *after* settling — key-off, a `FLG` reset, anything whose
@@ -1016,6 +1019,7 @@ impl Voice {
             adsr2: 0x00,
             gain: 0x7F,
             non: 0x00,
+            vol: 0x7F,
             settle: 4,
             late: &[],
             late_settle: 0,
@@ -1060,8 +1064,8 @@ fn voice_program(sample: &[u8], v: Voice) -> Spc {
     dsp_write(&mut p, 0x0C, 0x7F); // MVOLL
     dsp_write(&mut p, 0x1C, 0x7F); // MVOLR
 
-    dsp_write(&mut p, 0x00, 0x7F); // VOL L
-    dsp_write(&mut p, 0x01, 0x7F); // VOL R
+    dsp_write(&mut p, 0x00, v.vol); // VOL L
+    dsp_write(&mut p, 0x01, v.vol); // VOL R
     dsp_write(&mut p, 0x02, 0x00); // PITCH low
     dsp_write(&mut p, 0x03, v.pitch_hi); // PITCH high: $10 is one sample per output sample
     dsp_write(&mut p, 0x04, v.srcn); // SRCN
@@ -2296,6 +2300,46 @@ fn e9_18() -> Test {
         'E',
         "FLG reset kills voices",
         Provenance::Documented("SNESdev Wiki, S-DSP; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `VxOUTX` is read before the per-voice volume is applied: silencing the voice does not silence it.
+///
+/// The register reports the sample after the envelope and before `VxVOLL`/`VxVOLR`, so a voice
+/// turned all the way down still shows the same `OUTX` it showed at full volume. A core that reads
+/// the register off the mixer's input instead returns zero, and a driver using `OUTX` to watch a
+/// sound's progress loses it the moment the music fades that channel out.
+///
+/// The control is `E5.03`, which is this voice with the volume left at `$7F`, reading the same
+/// band. Together they say the volume does not reach the register, which neither says alone.
+fn e7_16() -> Test {
+    let prog = voice_program(
+        &constant_sample(0x8, 0x7),
+        Voice {
+            vol: 0x00, // both channels all the way down
+            ..Voice::direct_gain()
+        },
+    );
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x01,
+        0x7F,
+        "VxOUTX read zero with the voice volume at zero — the register is sampled before the \
+         volume, not after it",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E7.16",
+        'E',
+        "OUTX is pre-volume",
+        Provenance::Documented("fullsnes, S-DSP envelopes; anomie's DSP doc"),
         Kind::Scored,
         None,
     )

@@ -13,7 +13,7 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **206** (194 scoring + 11 golden vectors + 1 region SKIP per image) |
+| Tests | **207** (195 scoring + 11 golden vectors + 1 region SKIP per image) |
 | Rendered scenes | **49**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but four, all recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`. Both images. |
@@ -264,6 +264,22 @@ Both dead ends looked like working tests: three emulators agreeing, a stable has
 Each was caught only because its hash equalled an existing scene's — the first `c11-mode7-identity`,
 the second `c8-window-inverted-empty-is-full`. **Check a new scene's hash against the committed
 goldens before blessing it.**
+
+### `E8.03` — "clears `ENDX` even when suppressed" does not mean suppressed by `KOFF`
+
+The dossier row reads: *"KON restarts even if playing, zeroing the envelope, and clears ENDX even
+when suppressed."* The obvious test is to write `KOFF` and `KON` together — the arrangement `E8.04`
+already uses — and assert that `ENDX` comes back clear even though the voice never starts.
+
+**All three emulators leave `ENDX` set.** Three failing identically is the signature of a broken
+test rather than three broken cores, so the reading is wrong: whatever "suppressed" means there, it
+is not `KOFF`. The likeliest candidate is the key-on *collapse* cases (`E8.05`, `E8.06`), where two
+`KON` writes land inside the same 16 kHz polling window and one of them is dropped — a suppression
+internal to the DSP's own scheduling rather than one the program asks for.
+
+Reaching that needs the collapse cases first, which are probabilistic on hardware and are their own
+piece of work. Parked with the measurement: `ENDX` reads 1 on RustySNES, snes9x and Mesen2 alike
+after a `KOFF`+`KON` pair.
 
 ### Group F — blocked on a *peripheral contract*, and now measured
 
