@@ -77,6 +77,7 @@ pub fn all() -> Vec<Test> {
         e7_16(),
         e8_04(),
         e9_04(),
+        e9_10(),
         e9_17(),
         e9_18(),
         e5_03(),
@@ -2340,6 +2341,88 @@ fn e7_16() -> Test {
         'E',
         "OUTX is pre-volume",
         Provenance::Documented("fullsnes, S-DSP envelopes; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `FLG` bit 5 stops the DSP *writing* the echo buffer; nothing else about echo changes.
+///
+/// The bit is usually described as "echo disable", and it is not: the DSP goes on reading the
+/// buffer and feeding it through the FIR, it simply stops writing anything back. A driver that
+/// clears the buffer once and sets the bit gets silence; one that sets the bit over a buffer full
+/// of noise gets that noise forever, because the same samples circulate unchanged. A core that
+/// treats the bit as "echo off" produces silence in both cases and sounds fine until a game does
+/// the second thing.
+///
+/// The test asks the memory rather than the ear. It paints a marker over the buffer's first bytes,
+/// waits, and reads them back through APU RAM — twice, once with the bit set and once clear:
+///
+/// * with writes **disabled**, the marker survives;
+/// * with writes **enabled**, it is gone, replaced by the zero the mixer is producing (no voice is
+///   keyed on and both echo volumes are zero, so what gets written is deterministic).
+///
+/// `EDL = 0` is the smallest buffer — four bytes, continuously overwritten at the buffer's start
+/// (`E9.06`) — which is what makes a short wait enough and puts the write exactly where the marker
+/// is.
+fn e9_10() -> Test {
+    /// The page `ESA` names, well clear of the program image at `$0200`.
+    const ECHO_PAGE: u8 = 0x30;
+    /// Where that page starts. Derived, so the two cannot drift apart.
+    const ECHO_ADDR: u16 = (ECHO_PAGE as u16) << 8;
+
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF).mov_sp_x();
+    // Echo pointed at a page well clear of the program image, with the smallest buffer.
+    dsp_write(&mut prog, 0x6D, ECHO_PAGE); // ESA
+    dsp_write(&mut prog, 0x7D, 0x00); // EDL: four bytes, rewritten every sample
+    dsp_write(&mut prog, 0x4D, 0x00); // EON: no voice feeds the echo
+    dsp_write(&mut prog, 0x2C, 0x00); // EVOL L
+    dsp_write(&mut prog, 0x3C, 0x00); // EVOL R
+    dsp_write(&mut prog, 0x0D, 0x00); // EFB
+
+    // Phase 1: writes disabled. The marker must survive.
+    dsp_write(&mut prog, 0x6C, 0x20); // FLG: echo writes disabled, no reset, no mute
+    for i in 0..4u16 {
+        prog.mov_a_imm(0x5A).mov_abs_a(ECHO_ADDR + i);
+    }
+    prog.delay(0x00); // 256 iterations, not none — see `Spc::delay`
+    prog.mov_a_abs(ECHO_ADDR).mov_dp_a(PORT1);
+
+    // Phase 2: writes enabled. The marker must be gone.
+    for i in 0..4u16 {
+        prog.mov_a_imm(0x5A).mov_abs_a(ECHO_ADDR + i);
+    }
+    dsp_write(&mut prog, 0x6C, 0x00); // FLG: echo writes enabled
+    prog.delay(0x00); // 256 iterations: long enough for many echo writes to land
+    prog.mov_a_abs(ECHO_ADDR).mov_dp_a(PORT2);
+
+    dsp_write(&mut prog, 0x6C, 0x20); // put the write-disable back before handing over
+    prog.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.assert_a8(
+        0x5A,
+        "the echo buffer was written with FLG bit 5 set — the bit disables echo WRITES, and a \
+         driver that parks a buffer under it expects to find it intact",
+    );
+    a.c("And with the bit clear the DSP writes what the mixer is producing, which with no voice");
+    a.c("keyed on and both echo volumes at zero is zero.");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x00,
+        "the echo buffer still held the marker with FLG bit 5 clear, so the DSP is not writing it \
+         at all",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E9.10",
+        'E',
+        "FLG.5 stops echo writes",
+        Provenance::Documented("fullsnes, S-DSP echo; anomie's DSP doc"),
         Kind::Scored,
         None,
     )
