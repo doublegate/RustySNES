@@ -60,6 +60,15 @@ const NOP_CLOCKS: u16 = 14;
 /// Tolerance in dots, matching the rest of the battery's timing tests.
 const TOL: u16 = 2;
 
+/// Longest `body` any entry in [`SAFE`] may have.
+///
+/// The baseline is one `NOP` per instruction in the body, so [`NOPS`] has to cover the longest one.
+/// Checked rather than assumed — a longer entry added later would otherwise slice out of bounds.
+const MAX_BODY: usize = 4;
+
+/// The baseline body, sliced to match the entry under test. Static so no allocation is involved.
+const NOPS: [&str; MAX_BODY] = ["nop"; MAX_BODY];
+
 /// The opcodes swept, with their derived expectations.
 const SAFE: &[Op] = &[
     Op {
@@ -209,6 +218,12 @@ const fn expected_dots(op_clocks: u16, iters: u16) -> u16 {
 }
 
 fn one(index: usize, op: &Op) -> Test {
+    assert!(
+        op.body.len() <= MAX_BODY,
+        "sweep entry {} has {} instructions, over MAX_BODY ({MAX_BODY}) — raise MAX_BODY",
+        op.name,
+        op.body.len()
+    );
     let iters = u16::try_from(op.body.len()).expect("body length fits u16");
     let expect = expected_dots(op.clocks, iters);
     let slot_base = 8 + u8::try_from(index).expect("sweep index fits u8") * 2;
@@ -234,8 +249,7 @@ fn one(index: usize, op: &Op) -> Test {
     a.l("sep #$30");
     a.c("--- baseline ---");
     a.measure_begin();
-    let nops: Vec<&str> = (0..iters).map(|_| "nop").collect();
-    a.repeat(u32::from(REPS), &nops);
+    a.repeat(u32::from(REPS), &NOPS[..op.body.len()]);
     a.measure_end();
     a.measure_result();
     a.l("sta f:$7E0096");
