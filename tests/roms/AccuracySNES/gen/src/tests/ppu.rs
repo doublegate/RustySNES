@@ -1,18 +1,25 @@
 //! Group C — the S-PPU1 / S-PPU2.
 //!
-//! Per `docs/accuracysnes-research-dossier.md` §5.C. This first batch is sub-groups **C1-C3**:
-//! the OAM, VRAM, and CGRAM/counter *port mechanics*.
+//! Per `docs/accuracysnes-research-dossier.md` §5.C.
 //!
-//! They are deliberately first. Port behaviour is pure register logic with no dependence on the
-//! renderer, so it establishes a passing baseline before the sub-groups (C6 offset-per-tile,
-//! C7 sprites, C9 hi-res) that lean on parts of the PPU this project's own docs already record as
-//! simplified — the per-scanline compositor, and offset-per-tile and interlace not being wired to
-//! dot resolution.
+//! What is here is bounded by one constraint: the cart scores itself out of RAM and never looks at
+//! the framebuffer, because that is what lets the identical image run on other emulators and on
+//! real hardware. So Group C is built out of the PPU behaviour that is *observable through a
+//! register read* — the OAM/VRAM/CGRAM port mechanics and the H/V counters (C1-C3), the two
+//! open-bus latches and the version nibbles (C13, C14), the Mode 7 hardware multiply (C11.06), and
+//! the sprite over-flags (C7).
 //!
-//! Every test runs under **forced blank** (the runtime keeps `INIDISP = $8F` for the duration of
-//! the battery), which is exactly when VRAM, OAM, and CGRAM are architecturally accessible. The
-//! access-during-render cases are a separate, later batch: they need the renderer running and are
-//! among the most contested behaviours in the whole corpus.
+//! Most of the rest of Group C — backgrounds and modes, offset-per-tile, colour math and windows,
+//! hi-res, mosaic, direct colour — decides what appears on screen and nothing else, so asserting it
+//! needs a framebuffer oracle. That is a separate design decision, not something to smuggle in
+//! here.
+//!
+//! Nearly everything runs under **forced blank** (the runtime keeps `INIDISP = $8F` for the
+//! duration of the battery), which is exactly when VRAM, OAM, and CGRAM are architecturally
+//! accessible. The C7 sprite tests are the exception: over-flags are produced by OAM evaluation,
+//! which only happens while the PPU renders, so they release forced blank, render one complete
+//! frame, and restore it. The access-during-render cases are a separate, later batch — they need
+//! the renderer running *and* are among the most contested behaviours in the whole corpus.
 
 use crate::dsl::{Asm, Kind, Provenance, Test};
 
@@ -46,6 +53,13 @@ pub fn all() -> Vec<Test> {
         // --- C14: version detection (golden) ---
         c14_01(),
         c14_02(),
+        // --- C11: Mode 7 hardware multiply ---
+        c11_06(),
+        c11_06b(),
+        // --- C7: sprite evaluation flags (the only Group C tests that render) ---
+        c7_01(),
+        c7_02(),
+        c7_08(),
     ]
 }
 
@@ -941,6 +955,296 @@ fn c14_02() -> Test {
         "PPU2 version (golden)",
         Provenance::Documented("SNESdev Wiki, PPU registers; fullsnes"),
         Kind::Golden,
+        None,
+    )
+}
+
+// ---------------------------------------------------------------------------------------------
+// C11 — Mode 7 hardware multiply
+// ---------------------------------------------------------------------------------------------
+
+/// `MPYL/M/H` is `signed16(M7A) * signed8(M7B >> 8)`, as a 24-bit signed product.
+///
+/// The multiplier is the one piece of the Mode 7 datapath that is directly readable, which makes
+/// it the only part of C11 a self-scoring cartridge can assert without a framebuffer oracle. It is
+/// also load-bearing well outside Mode 7: games use it as a general-purpose 16x8 signed multiply.
+///
+/// Both operand registers are written twice through the shared Mode 7 latch, and the multiplicand
+/// is the **high byte** of `M7B` — not the whole word, and not the low byte.
+fn c11_06() -> Test {
+    let mut a = Asm::new();
+    a.c("Positive case: M7A = $0100 (256), M7B high byte = $02, so the product is 512 = $000200.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta $211B         ; M7A low");
+    a.l("lda #$01");
+    a.l("sta $211B         ; M7A high -> M7A = $0100");
+    a.l("lda #$00");
+    a.l("sta $211C         ; M7B low (ignored by the multiply)");
+    a.l("lda #$02");
+    a.l("sta $211C         ; M7B high -> multiplicand = +2");
+    a.l("lda $2134");
+    a.assert_a8(0x00, "MPYL wrong for 256 * 2");
+    a.l("lda $2135");
+    a.assert_a8(0x02, "MPYM wrong for 256 * 2");
+    a.l("lda $2136");
+    a.assert_a8(0x00, "MPYH wrong for 256 * 2");
+    a.c("The low byte of M7B must not participate: rewriting it alone cannot change the product.");
+    a.l("lda #$FF");
+    a.l("sta $211C         ; M7B low = $FF");
+    a.l("lda #$02");
+    a.l("sta $211C         ; M7B high still $02");
+    a.l("lda $2135");
+    a.assert_a8(0x02, "the low byte of M7B leaked into the multiply");
+    a.finish(
+        "C11.06",
+        'C',
+        "MPY is 16x8 signed",
+        Provenance::Documented("SNESdev Wiki, Mode 7; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The Mode 7 multiply is signed on **both** operands, and the product sign-extends to 24 bits.
+///
+/// Split from C11.06 so an unsigned or half-signed implementation reports a distinct failure code
+/// rather than hiding behind the positive case.
+fn c11_06b() -> Test {
+    let mut a = Asm::new();
+    a.c("Negative multiplicand: M7A = $0002, M7B high = $FF (-1) -> -2 = $FFFFFE.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$02");
+    a.l("sta $211B");
+    a.l("lda #$00");
+    a.l("sta $211B         ; M7A = $0002");
+    a.l("lda #$00");
+    a.l("sta $211C");
+    a.l("lda #$FF");
+    a.l("sta $211C         ; multiplicand = -1");
+    a.l("lda $2134");
+    a.assert_a8(0xFE, "MPYL wrong for 2 * -1 (M7B high must be signed)");
+    a.l("lda $2135");
+    a.assert_a8(0xFF, "MPYM wrong for 2 * -1");
+    a.l("lda $2136");
+    a.assert_a8(0xFF, "the product did not sign-extend to 24 bits");
+    a.c("Negative multiplier: M7A = $FFFF (-1), M7B high = $02 -> -2 = $FFFFFE.");
+    a.l("lda #$FF");
+    a.l("sta $211B");
+    a.l("lda #$FF");
+    a.l("sta $211B         ; M7A = $FFFF");
+    a.l("lda #$00");
+    a.l("sta $211C");
+    a.l("lda #$02");
+    a.l("sta $211C");
+    a.l("lda $2134");
+    a.assert_a8(0xFE, "MPYL wrong for -1 * 2 (M7A must be signed)");
+    a.l("lda $2136");
+    a.assert_a8(0xFF, "the product did not sign-extend for a negative M7A");
+    a.finish(
+        "C11.06b",
+        'C',
+        "MPY sign handling",
+        Provenance::Documented("SNESdev Wiki, Mode 7; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+// ---------------------------------------------------------------------------------------------
+// C7 — sprite evaluation flags
+//
+// These are the only Group C tests that release forced blank. The over-flags are produced by OAM
+// range/sliver evaluation, which only runs while the PPU is actually rendering, so unlike every
+// other test here they need a real frame to happen. They still score off a register read, never
+// off the framebuffer.
+// ---------------------------------------------------------------------------------------------
+
+/// Emit a full OAM setup and render exactly one frame, leaving `$213E` in the 8-bit accumulator.
+///
+/// `on_line` sprites are parked at Y=100; every other sprite goes to Y=$F0, which is below the
+/// visible area in 224-line mode and therefore never enters range. Leaving the rest of OAM at
+/// whatever the previous tests wrote would make the range count depend on test order.
+///
+/// The two `wait_vblank` calls are load-bearing: the first lands on a vblank boundary, the second
+/// spans one complete active period. A single call would start mid-frame and evaluate only the
+/// scanlines that happened to remain, which is exactly the kind of non-determinism that makes a
+/// timing-dependent test flake.
+/// `tag` disambiguates the emitted cheap-local labels. ca65 resets cheap-local scope only at a
+/// non-cheap label, and a test that renders twice has none in between, so the second expansion
+/// would redefine the first's labels.
+fn setup_and_render(
+    a: &mut Asm,
+    tag: &str,
+    obsel: u8,
+    on_line: u16,
+    high_table: Option<(u8, u8)>,
+    obj_on_main: bool,
+) {
+    a.l("sep #$20");
+    a.l(&format!("lda #${obsel:02X}"));
+    a.l("sta $2101         ; OBJSEL: size pair in bits 7-5, name base in bits 1-0");
+    a.c("--- low table: `on_line` sprites on one scanline, the rest parked off-screen ---");
+    a.l("stz $2102");
+    a.l("stz $2103");
+    a.l("rep #$10");
+    a.l("ldx #$0000");
+    a.label(&format!("fill_{tag}"));
+    a.l("lda #$00");
+    a.l("sta $2104         ; X = 0");
+    a.l(&format!("cpx #${on_line:04X}"));
+    a.l(&format!("bcs @off_{tag}"));
+    a.l("lda #100");
+    a.l(&format!("bra @sety_{tag}"));
+    a.label(&format!("off_{tag}"));
+    a.l("lda #$F0          ; below the visible area in 224-line mode");
+    a.label(&format!("sety_{tag}"));
+    a.l("sta $2104         ; Y");
+    a.l("lda #$00");
+    a.l("sta $2104         ; tile");
+    a.l("lda #$00");
+    a.l("sta $2104         ; attr");
+    a.l("inx");
+    a.l("cpx #$0080");
+    a.l(&format!("bne @fill_{tag}"));
+    a.c("--- high table: 32 bytes, 2 bits per sprite (bit 0 = X bit 8, bit 1 = size select) ---");
+    a.l("lda #$00");
+    a.l("sta $2102");
+    a.l("lda #$01");
+    a.l("sta $2103         ; OAMADDR = word $100, the high table");
+    a.l("ldx #$0000");
+    a.label(&format!("hi_{tag}"));
+    a.l("lda #$00");
+    a.l("sta $2104");
+    a.l("inx");
+    a.l("cpx #$0020");
+    a.l(&format!("bne @hi_{tag}"));
+    if let Some((b0, b1)) = high_table {
+        a.c("Mark the leading sprites as the large size of the pair.");
+        a.l("lda #$00");
+        a.l("sta $2102");
+        a.l("lda #$01");
+        a.l("sta $2103");
+        a.l(&format!("lda #${b0:02X}"));
+        a.l("sta $2104");
+        a.l(&format!("lda #${b1:02X}"));
+        a.l("sta $2104");
+    }
+    a.c("--- render one complete frame, then sample and restore forced blank ---");
+    if obj_on_main {
+        a.l("lda #$10");
+        a.l("sta $212C         ; OBJ on the main screen");
+    } else {
+        a.l("stz $212C         ; deliberately leave OBJ OFF the main screen");
+    }
+    a.l("lda #$0F");
+    a.l("sta $2100         ; brightness 15, forced blank released");
+    a.l("jsr wait_vblank   ; land on a vblank boundary");
+    a.l("jsr wait_vblank   ; span one complete active period");
+    a.l("lda $213E");
+    a.l("pha");
+    a.l("lda #$8F");
+    a.l("sta $2100         ; forced blank again, as the rest of the battery expects");
+    a.l("stz $212C");
+    a.l("pla");
+}
+
+/// Range Over (`$213E` bit 6) sets when more than 32 sprites fall on one scanline, and only then.
+///
+/// The negative half matters as much as the positive one: a core that simply never clears the flag
+/// passes the 40-sprite case and fails the 2-sprite case.
+fn c7_01() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("--- 2 sprites on the line: well under the limit, flag must stay clear ---");
+    setup_and_render(&mut a, "a", 0x00, 2, None, true);
+    a.l("and #$40");
+    a.assert_a8(0x00, "Range Over set with only 2 sprites on the scanline");
+    a.c("--- 40 sprites on the line: over the 32-sprite limit ---");
+    a.l("rep #$30");
+    setup_and_render(&mut a, "b", 0x00, 40, None, true);
+    a.l("and #$40");
+    a.assert_a8(
+        0x40,
+        "Range Over did not set with 40 sprites on one scanline",
+    );
+    a.finish(
+        "C7.01",
+        'C',
+        "Range Over at 32 sprites",
+        Provenance::Documented("SNESdev Wiki, Sprites; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Time Over (`$213E` bit 7) is a **sliver** budget, not a sprite count.
+///
+/// Five 64-pixel-wide sprites are 40 slivers — over the 34-sliver budget — while being nowhere
+/// near the 32-sprite range limit. A core that drives Time Over off the sprite count instead of
+/// the 8-pixel-column count sees five sprites, sets nothing, and fails here while passing C7.01.
+fn c7_02() -> Test {
+    let mut a = Asm::new();
+    a.c("OBJSEL size select lives in bits 7-5, not the low bits: mode 2 ($40) pairs 8x8 with");
+    a.c("64x64, and the high table marks sprites 0-4 as the large member of that pair. Writing");
+    a.c("the mode number into the low bits instead sets the tile-name base and silently leaves");
+    a.c("the size pair at 8x8/16x16 — 10 slivers, comfortably inside the budget, no flag.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    setup_and_render(&mut a, "a", 0x40, 5, Some((0xAA, 0x02)), true);
+    a.l("pha");
+    a.l("and #$80");
+    a.assert_a8(0x80, "Time Over did not set for 40 slivers from 5 sprites");
+    a.l("pla");
+    a.l("and #$40");
+    a.assert_a8(
+        0x00,
+        "Range Over set for only 5 sprites (it is a sprite count, not a sliver count)",
+    );
+    a.finish(
+        "C7.02",
+        'C',
+        "Time Over is slivers",
+        Provenance::Documented("SNESdev Wiki, Sprites; fullsnes; anomie"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The over-flags come from OAM evaluation, which runs whether or not OBJ is on a screen.
+///
+/// `$212C` bit 4 gates *compositing*, not *evaluation* — the sprite pipeline still walks OAM and
+/// still exhausts its budgets. A core that skips evaluation when the layer is disabled reports
+/// clean flags for a frame that would have overflowed, which is a plausible optimisation and the
+/// reason this is a separate test.
+fn c7_08() -> Test {
+    let mut a = Asm::new();
+    a.c("Same 40-sprite overflow as C7.01, but with OBJ left off the main screen entirely.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    setup_and_render(&mut a, "a", 0x00, 40, None, false);
+    a.l("and #$40");
+    a.assert_a8(
+        0x40,
+        "Range Over did not set while OBJ was off the main screen ($212C gates compositing, \
+         not evaluation)",
+    );
+    a.finish(
+        "C7.08",
+        'C',
+        "Flags ignore $212C",
+        Provenance::Documented("SNESdev Wiki, Sprites; fullsnes"),
+        Kind::Scored,
         None,
     )
 }

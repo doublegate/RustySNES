@@ -64,3 +64,8 @@
 61	C13.03	C	PPU1/PPU2 bus separate	Corroborated	the bsnes/ares lineage and Mesen2 model two distinct latches	Scored	0x7EF05D
 62	C14.01	C	PPU1 version (golden)	Documented	SNESdev Wiki, PPU registers; fullsnes	Golden	0x7EF05E
 63	C14.02	C	PPU2 version (golden)	Documented	SNESdev Wiki, PPU registers; fullsnes	Golden	0x7EF05F
+64	C11.06	C	MPY is 16x8 signed	Documented	SNESdev Wiki, Mode 7; fullsnes	Scored	0x7EF060
+65	C11.06b	C	MPY sign handling	Documented	SNESdev Wiki, Mode 7; fullsnes	Scored	0x7EF061
+66	C7.01	C	Range Over at 32 sprites	Documented	SNESdev Wiki, Sprites; fullsnes	Scored	0x7EF062
+67	C7.02	C	Time Over is slivers	Documented	SNESdev Wiki, Sprites; fullsnes; anomie	Scored	0x7EF063
+68	C7.08	C	Flags ignore $212C	Documented	SNESdev Wiki, Sprites; fullsnes	Scored	0x7EF064

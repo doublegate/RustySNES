@@ -536,3 +536,52 @@ Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: golden
 
 No failure codes (control-flow test: reaching the end is the pass).
 
+### C11.06 — MPY is 16x8 signed
+
+Provenance: **Documented** (SNESdev Wiki, Mode 7; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | MPYL wrong for 256 * 2 |
+| 2 | `$04` | MPYM wrong for 256 * 2 |
+| 3 | `$06` | MPYH wrong for 256 * 2 |
+| 4 | `$08` | the low byte of M7B leaked into the multiply |
+
+### C11.06b — MPY sign handling
+
+Provenance: **Documented** (SNESdev Wiki, Mode 7; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | MPYL wrong for 2 * -1 (M7B high must be signed) |
+| 2 | `$04` | MPYM wrong for 2 * -1 |
+| 3 | `$06` | the product did not sign-extend to 24 bits |
+| 4 | `$08` | MPYL wrong for -1 * 2 (M7A must be signed) |
+| 5 | `$0A` | the product did not sign-extend for a negative M7A |
+
+### C7.01 — Range Over at 32 sprites
+
+Provenance: **Documented** (SNESdev Wiki, Sprites; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | Range Over set with only 2 sprites on the scanline |
+| 2 | `$04` | Range Over did not set with 40 sprites on one scanline |
+
+### C7.02 — Time Over is slivers
+
+Provenance: **Documented** (SNESdev Wiki, Sprites; fullsnes; anomie). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | Time Over did not set for 40 slivers from 5 sprites |
+| 2 | `$04` | Range Over set for only 5 sprites (it is a sprite count, not a sliver count) |
+
+### C7.08 — Flags ignore $212C
+
+Provenance: **Documented** (SNESdev Wiki, Sprites; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | Range Over did not set while OBJ was off the main screen ($212C gates compositing, not evaluation) |
+

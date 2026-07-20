@@ -781,6 +781,13 @@ test_restore := test_restore_impl
 ; Wait for the start of vblank: first leave it, then wait to re-enter.
 ; The naive one-loop form returns immediately when called from inside vblank, leaving only a
 ; fraction of the period for VRAM writes — a classic source of intermittent corruption.
+;
+; Exported because the Group C sprite tests need it: they are the only tests that release forced
+; blank, and they must render a COMPLETE frame to sample the sprite over-flags deterministically.
+; Two back-to-back calls do that — the first lands on a vblank boundary, the second spans a whole
+; active period. Calling it once from an arbitrary point mid-frame would evaluate only the
+; scanlines that happened to remain.
+.export wait_vblank
 .proc wait_vblank
     sep #$20
     .a8

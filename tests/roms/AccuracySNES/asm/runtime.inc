@@ -99,6 +99,7 @@ PAD_X           = $0040
     .import test_restore
     .import hv_begin
     .import hv_end
+.import wait_vblank
 .endif
 .ifndef CATALOG_IMPL
     .import _test_count

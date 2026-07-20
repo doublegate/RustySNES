@@ -92,6 +92,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   than of the architecture, and PPU2 revision gates the 3-chip-only `$2100` early-read bug. Battery
   now **64 tests, 61 scoring, 100.00%, 3 golden**, agreeing across RustySNES, Mesen2 and snes9x.
 
+- **AccuracySNES: Mode 7 multiply and sprite over-flags — 5 more tests.** `MPYL/M/H` as a
+  `signed16(M7A) * signed8(M7B >> 8)` product, split into a magnitude test and a sign test so an
+  unsigned or half-signed implementation reports a distinct code, plus a check that the low byte of
+  `M7B` cannot leak into the result — the one part of the Mode 7 datapath a self-scoring cart can
+  read back, and widely used by games as a general-purpose signed multiply. And the sprite
+  evaluation flags: Range Over at the 32-sprite limit (asserted in both directions, so a core that
+  never clears the flag fails), Time Over as a **sliver** budget rather than a sprite count (five
+  64-pixel sprites are 40 slivers while being nowhere near the sprite limit), and both flags being
+  set by evaluation even when `$212C` leaves OBJ off the main screen. These are the only Group C
+  tests that release forced blank; they render exactly one complete frame, bracketed by two
+  `wait_vblank` calls so the sample is frame-aligned rather than dependent on where in the frame
+  the test happened to start. Battery now **69 tests, 66 scoring, 100.00%, 3 golden**.
+
 ### Fixed
 
 - **PPU register writes no longer clobber the PPU1 open-bus latch.** `write_reg` opened with an

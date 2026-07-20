@@ -3399,6 +3399,527 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; C11.06 — MPY is 16x8 signed
+; provenance: Documented (SNESdev Wiki, Mode 7; fullsnes)
+.proc test_c11_06
+    .a16
+    .i16
+    ; Positive case: M7A = $0100 (256), M7B high byte = $02, so the product is 512 = $000200.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta $211B         ; M7A low
+    lda #$01
+    sta $211B         ; M7A high -> M7A = $0100
+    lda #$00
+    sta $211C         ; M7B low (ignored by the multiply)
+    lda #$02
+    sta $211C         ; M7B high -> multiplicand = +2
+    lda $2134
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    lda $2135
+    cmp #$02
+    beq :+
+    jmp @fail2
+  :
+    lda $2136
+    cmp #$00
+    beq :+
+    jmp @fail3
+  :
+    ; The low byte of M7B must not participate: rewriting it alone cannot change the product.
+    lda #$FF
+    sta $211C         ; M7B low = $FF
+    lda #$02
+    sta $211C         ; M7B high still $02
+    lda $2135
+    cmp #$02
+    beq :+
+    jmp @fail4
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; MPYL wrong for 256 * 2
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; MPYM wrong for 256 * 2
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+@fail3:
+    ; MPYH wrong for 256 * 2
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jmp test_restore
+@fail4:
+    ; the low byte of M7B leaked into the multiply
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C11.06b — MPY sign handling
+; provenance: Documented (SNESdev Wiki, Mode 7; fullsnes)
+.proc test_c11_06b
+    .a16
+    .i16
+    ; Negative multiplicand: M7A = $0002, M7B high = $FF (-1) -> -2 = $FFFFFE.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$02
+    sta $211B
+    lda #$00
+    sta $211B         ; M7A = $0002
+    lda #$00
+    sta $211C
+    lda #$FF
+    sta $211C         ; multiplicand = -1
+    lda $2134
+    cmp #$FE
+    beq :+
+    jmp @fail1
+  :
+    lda $2135
+    cmp #$FF
+    beq :+
+    jmp @fail2
+  :
+    lda $2136
+    cmp #$FF
+    beq :+
+    jmp @fail3
+  :
+    ; Negative multiplier: M7A = $FFFF (-1), M7B high = $02 -> -2 = $FFFFFE.
+    lda #$FF
+    sta $211B
+    lda #$FF
+    sta $211B         ; M7A = $FFFF
+    lda #$00
+    sta $211C
+    lda #$02
+    sta $211C
+    lda $2134
+    cmp #$FE
+    beq :+
+    jmp @fail4
+  :
+    lda $2136
+    cmp #$FF
+    beq :+
+    jmp @fail5
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; MPYL wrong for 2 * -1 (M7B high must be signed)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; MPYM wrong for 2 * -1
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+@fail3:
+    ; the product did not sign-extend to 24 bits
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jmp test_restore
+@fail4:
+    ; MPYL wrong for -1 * 2 (M7A must be signed)
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jmp test_restore
+@fail5:
+    ; the product did not sign-extend for a negative M7A
+    sep #$20
+    .a8
+    lda #$0A
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C7.01 — Range Over at 32 sprites
+; provenance: Documented (SNESdev Wiki, Sprites; fullsnes)
+.proc test_c7_01
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; --- 2 sprites on the line: well under the limit, flag must stay clear ---
+    sep #$20
+    .a8
+    lda #$00
+    sta $2101         ; OBJSEL: size pair in bits 7-5, name base in bits 1-0
+    ; --- low table: `on_line` sprites on one scanline, the rest parked off-screen ---
+    stz $2102
+    stz $2103
+    rep #$10
+    .i16
+    ldx #$0000
+@fill_a:
+    lda #$00
+    sta $2104         ; X = 0
+    cpx #$0002
+    bcs @off_a
+    lda #100
+    bra @sety_a
+@off_a:
+    lda #$F0          ; below the visible area in 224-line mode
+@sety_a:
+    sta $2104         ; Y
+    lda #$00
+    sta $2104         ; tile
+    lda #$00
+    sta $2104         ; attr
+    inx
+    cpx #$0080
+    bne @fill_a
+    ; --- high table: 32 bytes, 2 bits per sprite (bit 0 = X bit 8, bit 1 = size select) ---
+    lda #$00
+    sta $2102
+    lda #$01
+    sta $2103         ; OAMADDR = word $100, the high table
+    ldx #$0000
+@hi_a:
+    lda #$00
+    sta $2104
+    inx
+    cpx #$0020
+    bne @hi_a
+    ; --- render one complete frame, then sample and restore forced blank ---
+    lda #$10
+    sta $212C         ; OBJ on the main screen
+    lda #$0F
+    sta $2100         ; brightness 15, forced blank released
+    jsr wait_vblank   ; land on a vblank boundary
+    jsr wait_vblank   ; span one complete active period
+    lda $213E
+    pha
+    lda #$8F
+    sta $2100         ; forced blank again, as the rest of the battery expects
+    stz $212C
+    pla
+    and #$40
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    ; --- 40 sprites on the line: over the 32-sprite limit ---
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$00
+    sta $2101         ; OBJSEL: size pair in bits 7-5, name base in bits 1-0
+    ; --- low table: `on_line` sprites on one scanline, the rest parked off-screen ---
+    stz $2102
+    stz $2103
+    rep #$10
+    .i16
+    ldx #$0000
+@fill_b:
+    lda #$00
+    sta $2104         ; X = 0
+    cpx #$0028
+    bcs @off_b
+    lda #100
+    bra @sety_b
+@off_b:
+    lda #$F0          ; below the visible area in 224-line mode
+@sety_b:
+    sta $2104         ; Y
+    lda #$00
+    sta $2104         ; tile
+    lda #$00
+    sta $2104         ; attr
+    inx
+    cpx #$0080
+    bne @fill_b
+    ; --- high table: 32 bytes, 2 bits per sprite (bit 0 = X bit 8, bit 1 = size select) ---
+    lda #$00
+    sta $2102
+    lda #$01
+    sta $2103         ; OAMADDR = word $100, the high table
+    ldx #$0000
+@hi_b:
+    lda #$00
+    sta $2104
+    inx
+    cpx #$0020
+    bne @hi_b
+    ; --- render one complete frame, then sample and restore forced blank ---
+    lda #$10
+    sta $212C         ; OBJ on the main screen
+    lda #$0F
+    sta $2100         ; brightness 15, forced blank released
+    jsr wait_vblank   ; land on a vblank boundary
+    jsr wait_vblank   ; span one complete active period
+    lda $213E
+    pha
+    lda #$8F
+    sta $2100         ; forced blank again, as the rest of the battery expects
+    stz $212C
+    pla
+    and #$40
+    cmp #$40
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; Range Over set with only 2 sprites on the scanline
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; Range Over did not set with 40 sprites on one scanline
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C7.02 — Time Over is slivers
+; provenance: Documented (SNESdev Wiki, Sprites; fullsnes; anomie)
+.proc test_c7_02
+    .a16
+    .i16
+    ; OBJSEL size select lives in bits 7-5, not the low bits: mode 2 ($40) pairs 8x8 with
+    ; 64x64, and the high table marks sprites 0-4 as the large member of that pair. Writing
+    ; the mode number into the low bits instead sets the tile-name base and silently leaves
+    ; the size pair at 8x8/16x16 — 10 slivers, comfortably inside the budget, no flag.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$40
+    sta $2101         ; OBJSEL: size pair in bits 7-5, name base in bits 1-0
+    ; --- low table: `on_line` sprites on one scanline, the rest parked off-screen ---
+    stz $2102
+    stz $2103
+    rep #$10
+    .i16
+    ldx #$0000
+@fill_a:
+    lda #$00
+    sta $2104         ; X = 0
+    cpx #$0005
+    bcs @off_a
+    lda #100
+    bra @sety_a
+@off_a:
+    lda #$F0          ; below the visible area in 224-line mode
+@sety_a:
+    sta $2104         ; Y
+    lda #$00
+    sta $2104         ; tile
+    lda #$00
+    sta $2104         ; attr
+    inx
+    cpx #$0080
+    bne @fill_a
+    ; --- high table: 32 bytes, 2 bits per sprite (bit 0 = X bit 8, bit 1 = size select) ---
+    lda #$00
+    sta $2102
+    lda #$01
+    sta $2103         ; OAMADDR = word $100, the high table
+    ldx #$0000
+@hi_a:
+    lda #$00
+    sta $2104
+    inx
+    cpx #$0020
+    bne @hi_a
+    ; Mark the leading sprites as the large size of the pair.
+    lda #$00
+    sta $2102
+    lda #$01
+    sta $2103
+    lda #$AA
+    sta $2104
+    lda #$02
+    sta $2104
+    ; --- render one complete frame, then sample and restore forced blank ---
+    lda #$10
+    sta $212C         ; OBJ on the main screen
+    lda #$0F
+    sta $2100         ; brightness 15, forced blank released
+    jsr wait_vblank   ; land on a vblank boundary
+    jsr wait_vblank   ; span one complete active period
+    lda $213E
+    pha
+    lda #$8F
+    sta $2100         ; forced blank again, as the rest of the battery expects
+    stz $212C
+    pla
+    pha
+    and #$80
+    cmp #$80
+    beq :+
+    jmp @fail1
+  :
+    pla
+    and #$40
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; Time Over did not set for 40 slivers from 5 sprites
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; Range Over set for only 5 sprites (it is a sprite count, not a sliver count)
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C7.08 — Flags ignore $212C
+; provenance: Documented (SNESdev Wiki, Sprites; fullsnes)
+.proc test_c7_08
+    .a16
+    .i16
+    ; Same 40-sprite overflow as C7.01, but with OBJ left off the main screen entirely.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta $2101         ; OBJSEL: size pair in bits 7-5, name base in bits 1-0
+    ; --- low table: `on_line` sprites on one scanline, the rest parked off-screen ---
+    stz $2102
+    stz $2103
+    rep #$10
+    .i16
+    ldx #$0000
+@fill_a:
+    lda #$00
+    sta $2104         ; X = 0
+    cpx #$0028
+    bcs @off_a
+    lda #100
+    bra @sety_a
+@off_a:
+    lda #$F0          ; below the visible area in 224-line mode
+@sety_a:
+    sta $2104         ; Y
+    lda #$00
+    sta $2104         ; tile
+    lda #$00
+    sta $2104         ; attr
+    inx
+    cpx #$0080
+    bne @fill_a
+    ; --- high table: 32 bytes, 2 bits per sprite (bit 0 = X bit 8, bit 1 = size select) ---
+    lda #$00
+    sta $2102
+    lda #$01
+    sta $2103         ; OAMADDR = word $100, the high table
+    ldx #$0000
+@hi_a:
+    lda #$00
+    sta $2104
+    inx
+    cpx #$0020
+    bne @hi_a
+    ; --- render one complete frame, then sample and restore forced blank ---
+    stz $212C         ; deliberately leave OBJ OFF the main screen
+    lda #$0F
+    sta $2100         ; brightness 15, forced blank released
+    jsr wait_vblank   ; land on a vblank boundary
+    jsr wait_vblank   ; span one complete active period
+    lda $213E
+    pha
+    lda #$8F
+    sta $2100         ; forced blank again, as the rest of the battery expects
+    stz $212C
+    pla
+    and #$40
+    cmp #$40
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; Range Over did not set while OBJ was off the main screen ($212C gates compositing, not evaluation)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 .segment "CATALOG"
 .export _test_count
 .export _test_entries
@@ -3406,7 +3927,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 64
+    .word 69
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -3474,6 +3995,11 @@ _test_entries:
     .addr test_c13_03
     .addr test_c14_01
     .addr test_c14_02
+    .addr test_c11_06
+    .addr test_c11_06b
+    .addr test_c7_01
+    .addr test_c7_02
+    .addr test_c7_08
 
 ; Per-test flags: bit0 = scores toward the pass rate, bit1 = golden-vector.
 _test_flags:
@@ -3541,6 +4067,11 @@ _test_flags:
     .byte $01   ; C13.03
     .byte $02   ; C14.01
     .byte $02   ; C14.02
+    .byte $01   ; C11.06
+    .byte $01   ; C11.06b
+    .byte $01   ; C7.01
+    .byte $01   ; C7.02
+    .byte $01   ; C7.08
 
 ; Menu labels, each a length-prefixed ASCII string.
 _test_names:
@@ -3608,6 +4139,11 @@ _test_names:
     .addr @n_c13_03
     .addr @n_c14_01
     .addr @n_c14_02
+    .addr @n_c11_06
+    .addr @n_c11_06b
+    .addr @n_c7_01
+    .addr @n_c7_02
+    .addr @n_c7_08
 @n_a1_01:
     .byte 16
     .byte "XCE clears XH/YH"
@@ -3800,3 +4336,18 @@ _test_names:
 @n_c14_02:
     .byte 21
     .byte "PPU2 version (golden)"
+@n_c11_06:
+    .byte 18
+    .byte "MPY is 16x8 signed"
+@n_c11_06b:
+    .byte 17
+    .byte "MPY sign handling"
+@n_c7_01:
+    .byte 24
+    .byte "Range Over at 32 sprites"
+@n_c7_02:
+    .byte 20
+    .byte "Time Over is slivers"
+@n_c7_08:
+    .byte 18
+    .byte "Flags ignore $212C"
