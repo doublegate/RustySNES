@@ -1159,6 +1159,91 @@ pub const SCENES: &[Scene] = &[
             "sta $2100",
         ],
     },
+    Scene {
+        id: "c4-shared-scroll-latch",
+        dossier: "C4.02,C4.03",
+        what: "One byte written to BG1HOFS ($210D), then one byte to BG1VOFS ($210E). The scroll \
+               registers share a SINGLE `Prev` latch across all four backgrounds and both axes, so \
+               the V scroll comes out built from both writes: (second << 8) | first. A core with a \
+               per-register latch builds it from that register's own history instead, and the \
+               picture lands 128 rows away — not a subtlety, a different screen.",
+        setup: &[
+            "sep #$20",
+            "stz $2105         ; BGMODE 0",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "stz $210B",
+            "lda #$80",
+            "sta $210D         ; ONE write to the H register: this only loads the shared latch",
+            "lda #$01",
+            "sta $210E         ; ONE write to the V register: (01 << 8) | 80 = $0180 if shared",
+            "lda #$01",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c4-hofs-keeps-low-three-bits",
+        dossier: "C4.01",
+        what: "The H scroll's write-twice formula is not the V scroll's: it masks the previous \
+               byte's low three bits away and takes them from the register's own current value \
+               instead. Writing $47 then $00 therefore scrolls by $40, not $47. Paired with \
+               `c4-shared-scroll-latch`, which shows the V register keeping all eight bits of the \
+               same latch, the two make the asymmetry visible rather than merely stated.",
+        setup: &[
+            "sep #$20",
+            "stz $2105",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "stz $210B",
+            "lda #$47",
+            "sta $210D",
+            "lda #$00",
+            "sta $210D         ; BG1HOFS: the $7 in $47 is masked off by the H formula",
+            "lda #$01",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c4-210d-drives-mode7-scroll",
+        dossier: "C4.04,C4.05",
+        what: "The same $210D writes in Mode 7. That register drives BOTH BG1HOFS and M7HOFS, and \
+               the Mode 7 side latches through its own 13-bit path rather than the background \
+               one — so the picture moves, and by a different amount than the tiled case. A core \
+               that treats $210D as belonging to the backgrounds alone leaves Mode 7 unscrolled.",
+        setup: &[
+            "sep #$20",
+            "lda #$07",
+            "sta $2105         ; BGMODE 7",
+            "jsr scene_mode7_vram",
+            "sep #$20",
+            "stz $211A",
+            "stz $211B",
+            "lda #$01",
+            "sta $211B         ; M7A = $0100",
+            "stz $211C",
+            "stz $211C",
+            "stz $211D",
+            "stz $211D",
+            "stz $211E",
+            "sta $211E         ; M7D = $0100",
+            "stz $211F",
+            "stz $211F",
+            "stz $2120",
+            "stz $2120",
+            "lda #$47",
+            "sta $210D",
+            "lda #$00",
+            "sta $210D         ; drives M7HOFS as well as BG1HOFS",
+            "lda #$01",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
 ];
 
 /// The comment block `scene_low_tiles` carries, split out only to keep `low_tiles_helper` inside

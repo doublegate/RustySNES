@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The scroll-register write-twice latch (`C4`) — three new scenes, bringing the blessed total
+  to 38.** These registers are
+  write-only, so the latch is observable only through the picture. `C4.02`/`C4.03`: one `Prev`
+  latch is shared across all four backgrounds *and* both axes, which shows up only when a register
+  is written **once** and the next write goes somewhere else — so the scene writes one byte to
+  `$210D` and one to `$210E` and reads the answer off the V scroll. A core with a per-register
+  latch lands 128 rows away. `C4.01`: the H formula masks the previous byte's low three bits and
+  takes them from the register instead, so `$47` then `$00` scrolls by `$40` — the asymmetry with
+  the V formula, which keeps all eight bits of the same latch. `C4.04`/`C4.05`: `$210D` drives
+  `M7HOFS` as well as `BG1HOFS`, through Mode 7's own 13-bit path.
+
 - **Four more Group D tests: channel priority, indirect HDMA, and the HDMA working registers.**
   `D1.04` (a multi-channel start runs the lower channel first), `D2.05` (indirect mode fetches each
   transfer through a pointer), `D2.06` (`$4308/09` and `$430A` are live working state, so the
@@ -113,9 +124,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   battery already had.
 
 **AccuracySNES totals, as of this section:** **149 tests — 137 scoring at 100.00%, 11 golden
-vectors**, plus one region-dependent SKIP per image, and **35 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **109 of 443** on-cart plus **34** scene-only —
-**143 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+vectors**, plus one region-dependent SKIP per image, and **38 rendered scenes** in the host
+framebuffer-oracle tier. Dossier coverage is **109 of 443** on-cart plus **39** scene-only —
+**148 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 
