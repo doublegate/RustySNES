@@ -503,18 +503,21 @@ pub fn coverage_report(tests: &[crate::dsl::Test], enumerated: &[(String, Vec<St
     /// this report is supposed to close for the battery. The blessing list is the golden file, read
     /// here rather than trusted from memory.
     fn scene_assertions() -> Vec<String> {
-        let goldens = std::fs::read_to_string(
-            crate::cart_root().join("../../golden/accuracysnes-scenes.tsv"),
-        )
-        .unwrap_or_default();
-        let blessed: Vec<&str> = goldens
+        // Read, not `unwrap_or_default`: an unreadable golden file would silently report every
+        // scene as unblessed and undercount coverage with no failure anywhere, which is the same
+        // class of quiet wrongness this whole report exists to prevent. Every other required input
+        // in this generator panics on a read error too.
+        let path = crate::cart_root().join("../../golden/accuracysnes-scenes.tsv");
+        let goldens = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let blessed: std::collections::HashSet<&str> = goldens
             .lines()
             .filter(|l| !l.trim_start().starts_with('#') && !l.trim().is_empty())
             .filter_map(|l| l.split('\t').next())
             .collect();
         crate::scenes::SCENES
             .iter()
-            .filter(|sc| blessed.contains(&sc.id))
+            .filter(|sc| blessed.contains(sc.id))
             .flat_map(|sc| sc.dossier.split(','))
             .map(|d| d.trim().to_string())
             .collect()
