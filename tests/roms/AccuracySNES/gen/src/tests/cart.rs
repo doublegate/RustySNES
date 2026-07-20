@@ -20,7 +20,7 @@ use crate::dsl::{Asm, Kind, Provenance, Test};
 /// Every Group G test, in menu order.
 #[must_use]
 pub fn all() -> Vec<Test> {
-    vec![g1_10(), g1_12(), g1_14()]
+    vec![g1_10(), g1_11(), g1_12(), g1_14()]
 }
 
 /// The header's checksum and its complement must XOR to `$FFFF`.
@@ -48,6 +48,93 @@ fn g1_10() -> Test {
         'G',
         "Checksum XOR complement",
         Provenance::Documented("SNESdev Wiki, cartridge header; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The checksum is the sum of every byte in the image, and the cart adds them all up to prove it.
+///
+/// A 131,072-byte sum, computed by the cart at run time and compared against the word the generator
+/// wrote into the header. What it really tests is the **memory map**: reaching every byte means
+/// walking all four banks through `((bank & $7F) << 15) | (addr & $7FFF)`, so a decode that mirrors
+/// a bank, drops one, or gets the stride wrong produces a different total. `G1.14` proves the
+/// formula on three sample bytes; this proves it on all 131,072.
+///
+/// The two header fields are excluded the way the algorithm specifies — the complement counted as
+/// `$0000` and the checksum as `$FFFF`, since a value cannot be part of its own sum. Rather than
+/// branch inside a loop that runs 131,072 times, the sum is taken over the image as it stands and
+/// corrected afterwards: subtract the four bytes actually there, add back `$00 $00 $FF $FF`.
+///
+/// **This does not validate the algorithm**, and it would be dishonest to claim it does: the
+/// generator computes the checksum the same way, so a shared misunderstanding would agree with
+/// itself. What it validates is that an emulator presents the whole image, correctly mapped, to a
+/// program that reads it byte by byte.
+fn g1_11() -> Test {
+    const SUM: &str = "$7E0110";
+
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("lda #$0000");
+    a.l(&format!("sta f:{SUM}"));
+    a.c("Four banks of 32 KiB, each walked with long indexed addressing so the data bank never");
+    a.c("comes into it. Unrolled because the bank is part of the address, not a variable.");
+    for bank in 0u8..4 {
+        a.l("ldx #$0000");
+        a.label(&format!("bank{bank}"));
+        a.l("sep #$20");
+        a.l(&format!("lda f:${bank:02X}8000,x"));
+        a.l("rep #$20");
+        a.l("and #$00FF");
+        a.l("clc");
+        a.l(&format!("adc f:{SUM}"));
+        a.l(&format!("sta f:{SUM}"));
+        a.l("inx");
+        a.l("cpx #$8000");
+        a.l(&format!("bne @bank{bank}"));
+    }
+    a.c("Correct the two header fields out of the total: take away the four bytes that are");
+    a.c(
+        "actually there and put back the $0000 complement and $FFFF checksum the algorithm counts.",
+    );
+    a.l("sep #$20");
+    a.l("lda f:$00FFDC");
+    a.l("rep #$20");
+    a.l("and #$00FF");
+    a.l(&format!(
+        "sta f:{SUM}+2         ; scratch: the running correction"
+    ));
+    for (addr, label) in [
+        ("$00FFDD", "complement high"),
+        ("$00FFDE", "checksum low"),
+        ("$00FFDF", "checksum high"),
+    ] {
+        a.l("sep #$20");
+        a.l(&format!("lda f:{addr}         ; {label}"));
+        a.l("rep #$20");
+        a.l("and #$00FF");
+        a.l("clc");
+        a.l(&format!("adc f:{SUM}+2"));
+        a.l(&format!("sta f:{SUM}+2"));
+    }
+    a.l(&format!("lda f:{SUM}"));
+    a.l("sec");
+    a.l(&format!(
+        "sbc f:{SUM}+2         ; the four header bytes are not part of the sum"
+    ));
+    a.l("clc");
+    a.l("adc #$01FE             ; and $00 + $00 + $FF + $FF is");
+    a.l("eor f:$00FFDE");
+    a.assert_a16(
+        0x0000,
+        "the sum of all 131,072 bytes does not match the checksum in the header — an image that \
+         is short, mirrored, or mapped with the wrong bank stride sums differently",
+    );
+    a.finish(
+        "G1.11",
+        'G',
+        "Checksum over the image",
+        Provenance::Documented("SNESdev Wiki, cartridge header checksum; fullsnes"),
         Kind::Scored,
         None,
     )

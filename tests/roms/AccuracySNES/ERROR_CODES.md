@@ -1404,6 +1404,14 @@ Provenance: **Documented** (SNESdev Wiki, cartridge header; fullsnes). Kind: sco
 |---|---|---|
 | 1 | `$02` | the header's checksum and complement do not XOR to $FFFF — the pair every emulator uses to recognise a header at all |
 
+### G1.11 — Checksum over the image
+
+Provenance: **Documented** (SNESdev Wiki, cartridge header checksum; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the sum of all 131,072 bytes does not match the checksum in the header — an image that is short, mirrored, or mapped with the wrong bank stride sums differently |
+
 ### G1.12 — LoROM header location
 
 Provenance: **Documented** (SNESdev Wiki, cartridge header; fullsnes). Kind: scored.

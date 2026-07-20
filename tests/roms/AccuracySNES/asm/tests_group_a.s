@@ -7824,6 +7824,134 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; G1.11 — Checksum over the image
+; provenance: Documented (SNESdev Wiki, cartridge header checksum; fullsnes)
+.proc test_g1_11
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E0110
+    ; Four banks of 32 KiB, each walked with long indexed addressing so the data bank never
+    ; comes into it. Unrolled because the bank is part of the address, not a variable.
+    ldx #$0000
+@bank0:
+    sep #$20
+    .a8
+    lda f:$008000,x
+    rep #$20
+    .a16
+    and #$00FF
+    clc
+    adc f:$7E0110
+    sta f:$7E0110
+    inx
+    cpx #$8000
+    bne @bank0
+    ldx #$0000
+@bank1:
+    sep #$20
+    .a8
+    lda f:$018000,x
+    rep #$20
+    .a16
+    and #$00FF
+    clc
+    adc f:$7E0110
+    sta f:$7E0110
+    inx
+    cpx #$8000
+    bne @bank1
+    ldx #$0000
+@bank2:
+    sep #$20
+    .a8
+    lda f:$028000,x
+    rep #$20
+    .a16
+    and #$00FF
+    clc
+    adc f:$7E0110
+    sta f:$7E0110
+    inx
+    cpx #$8000
+    bne @bank2
+    ldx #$0000
+@bank3:
+    sep #$20
+    .a8
+    lda f:$038000,x
+    rep #$20
+    .a16
+    and #$00FF
+    clc
+    adc f:$7E0110
+    sta f:$7E0110
+    inx
+    cpx #$8000
+    bne @bank3
+    ; Correct the two header fields out of the total: take away the four bytes that are
+    ; actually there and put back the $0000 complement and $FFFF checksum the algorithm counts.
+    sep #$20
+    .a8
+    lda f:$00FFDC
+    rep #$20
+    .a16
+    and #$00FF
+    sta f:$7E0110+2         ; scratch: the running correction
+    sep #$20
+    .a8
+    lda f:$00FFDD         ; complement high
+    rep #$20
+    .a16
+    and #$00FF
+    clc
+    adc f:$7E0110+2
+    sta f:$7E0110+2
+    sep #$20
+    .a8
+    lda f:$00FFDE         ; checksum low
+    rep #$20
+    .a16
+    and #$00FF
+    clc
+    adc f:$7E0110+2
+    sta f:$7E0110+2
+    sep #$20
+    .a8
+    lda f:$00FFDF         ; checksum high
+    rep #$20
+    .a16
+    and #$00FF
+    clc
+    adc f:$7E0110+2
+    sta f:$7E0110+2
+    lda f:$7E0110
+    sec
+    sbc f:$7E0110+2         ; the four header bytes are not part of the sum
+    clc
+    adc #$01FE             ; and $00 + $00 + $FF + $FF is
+    eor f:$00FFDE
+    cmp #$0000
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the sum of all 131,072 bytes does not match the checksum in the header — an image that is short, mirrored, or mapped with the wrong bank stride sums differently
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; G1.12 — LoROM header location
 ; provenance: Documented (SNESdev Wiki, cartridge header; fullsnes)
 .proc test_g1_12
@@ -16287,7 +16415,7 @@ apu_prog_42:
 .export _test_flags
 
 _test_count:
-    .word 201
+    .word 202
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -16456,6 +16584,7 @@ _test_entries:
     .faraddr test_e7_15
     .faraddr test_f1_02
     .faraddr test_g1_10
+    .faraddr test_g1_11
     .faraddr test_g1_12
     .faraddr test_g1_14
     .faraddr test_a5_s01
@@ -16660,6 +16789,7 @@ _test_flags:
     .byte $01   ; E7.15
     .byte $01   ; F1.02
     .byte $01   ; G1.10
+    .byte $01   ; G1.11
     .byte $01   ; G1.12
     .byte $01   ; G1.14
     .byte $01   ; A5.S01
@@ -16864,6 +16994,7 @@ _test_names:
     .addr @n_e7_15
     .addr @n_f1_02
     .addr @n_g1_10
+    .addr @n_g1_11
     .addr @n_g1_12
     .addr @n_g1_14
     .addr @n_a5_s01
@@ -17395,6 +17526,9 @@ _test_names:
 @n_g1_10:
     .byte 23
     .byte "Checksum XOR complement"
+@n_g1_11:
+    .byte 23
+    .byte "Checksum over the image"
 @n_g1_12:
     .byte 21
     .byte "LoROM header location"
