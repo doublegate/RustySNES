@@ -245,7 +245,7 @@ fn b4_15() -> Test {
     a.l("asl a");
     a.l("ora #$01          ; encode as (revision << 1) | 1");
     a.l("sta f:$7EE010");
-    a.l("jmp test_restore");
+    a.l("jml test_restore");
     a.finish(
         "B4.15",
         'B',
@@ -387,7 +387,7 @@ fn b5_04() -> Test {
     a.l("asl a");
     a.l("ora #$01");
     a.l("sta f:$7EE010");
-    a.l("jmp test_restore");
+    a.l("jml test_restore");
     a.finish(
         "B5.04",
         'B',
@@ -916,7 +916,7 @@ fn b2_06() -> Test {
     a.l("sep #$20");
     a.l("txa");
     a.l("sta f:$7EE010");
-    a.l("jmp test_restore");
+    a.l("jml test_restore");
     a.finish(
         "B2.06",
         'B',
@@ -962,7 +962,7 @@ fn b2_10() -> Test {
     a.l("asl a");
     a.l("ora #$01");
     a.l("sta f:$7EE010");
-    a.l("jmp test_restore");
+    a.l("jml test_restore");
     a.finish(
         "B2.10",
         'B',
@@ -1057,7 +1057,7 @@ fn b4_14() -> Test {
     a.l("sep #$20");
     a.l("lda #$01");
     a.l("sta f:V_TEST_RESULT   ; golden: the numbers live in the measurement channel");
-    a.l("jmp test_restore");
+    a.l("jml test_restore");
 
     a.c("--- the far routine the long spin calls ---");
     a.label("far");
@@ -1168,7 +1168,7 @@ fn b4_07() -> Test {
     a.l("asl a");
     a.l("ora #$01");
     a.l("sta f:$7EE010");
-    a.l("jmp test_restore");
+    a.l("jml test_restore");
     a.finish(
         "B4.07",
         'B',

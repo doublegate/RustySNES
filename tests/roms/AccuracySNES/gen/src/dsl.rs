@@ -382,7 +382,7 @@ impl Asm {
         self.l("sep #$20");
         self.l("lda #VERDICT_SKIP");
         self.l("sta f:V_TEST_RESULT");
-        self.l("jmp test_restore");
+        self.l("jml test_restore");
         self.lines
             .push("    ; unreachable — restores the assembler's width belief only".into());
         self.lines.push("    .a16".into());
@@ -499,20 +499,20 @@ impl Asm {
         // Pass stub. `sep #$20` + `.a8` makes the stub self-correcting regardless of the width
         // in force wherever control jumped from.
         //
-        // Skipped when the body already ends in an unconditional `jmp test_restore` — which is how
+        // Skipped when the body already ends in an unconditional `jml test_restore` — which is how
         // every golden vector exits, having written its own variant code. Emitting it there would
         // be unreachable bytes in the ROM and, worse, would read as a second exit path that does
         // not exist.
         let body_exits = self
             .lines
             .last()
-            .is_some_and(|l| l.trim() == "jmp test_restore");
+            .is_some_and(|l| l.trim() == "jml test_restore");
         if !body_exits {
             let _ = writeln!(body, "    sep #$20");
             let _ = writeln!(body, "    .a8");
             let _ = writeln!(body, "    lda #${pass_byte:02X}");
             let _ = writeln!(body, "    sta f:{TEST_RESULT}");
-            let _ = writeln!(body, "    jmp test_restore");
+            let _ = writeln!(body, "    jml test_restore");
         }
         // Failure stubs, one per allocated code.
         for (code, why) in &self.codes {
@@ -523,7 +523,7 @@ impl Asm {
             let _ = writeln!(body, "    .a8");
             let _ = writeln!(body, "    lda #${byte:02X}");
             let _ = writeln!(body, "    sta f:{TEST_RESULT}");
-            let _ = writeln!(body, "    jmp test_restore");
+            let _ = writeln!(body, "    jml test_restore");
         }
         let _ = writeln!(body, ".endproc");
 

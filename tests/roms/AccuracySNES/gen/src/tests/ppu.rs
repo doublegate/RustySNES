@@ -925,7 +925,7 @@ fn c14_01() -> Test {
     a.l("asl a");
     a.l("ora #$01          ; encode as (version << 1) | 1");
     a.l("sta f:$7EE010");
-    a.l("jmp test_restore");
+    a.l("jml test_restore");
     a.finish(
         "C14.01",
         'C',
@@ -953,7 +953,7 @@ fn c14_02() -> Test {
     a.l("asl a");
     a.l("ora #$01");
     a.l("sta f:$7EE010");
-    a.l("jmp test_restore");
+    a.l("jml test_restore");
     a.finish(
         "C14.02",
         'C',

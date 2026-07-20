@@ -42,7 +42,34 @@ pub fn asm(tests: &[Test]) -> String {
     let _ = writeln!(s, ".segment \"TESTS\"");
     let _ = writeln!(s);
 
-    for t in tests {
+    // Group E's bodies live in bank $02. Bank $00 holds the runtime, the catalog and every other
+    // test body, and it filled up twice in one week; group E is both the largest group and the one
+    // still growing, and it is the one that can move — its tests reach everything through long
+    // addressing or through the I/O registers, which are mirrored in every LoROM bank.
+    for t in tests.iter().filter(|t| t.group != 'E') {
+        let _ = writeln!(s, "{}", t.body);
+    }
+    let _ = writeln!(s, ".segment \"TESTSE\"");
+    let _ = writeln!(s);
+    for t in tests.iter().filter(|t| t.group == 'E') {
+        // A body outside bank $00 may not reach the runtime with a bank-local `jsr`: the same
+        // 16-bit address in another bank is not a subroutine, it is whatever bytes are there. The
+        // failure is silent and total — every test in the group reported a garbage verdict when
+        // one `jsr apu_upload` survived the move — so it is a build error rather than a comment.
+        for line in t.body.lines() {
+            let op = line.trim();
+            let target = op.strip_prefix("jsr ").or_else(|| op.strip_prefix("jmp "));
+            if let Some(target) = target {
+                // `@`-prefixed targets are cheap locals inside the same `.proc`, so they are in
+                // this bank by construction. Anything else names a runtime label.
+                assert!(
+                    target.starts_with('@') && op.starts_with("jmp "),
+                    "{}: an out-of-bank test body must reach the runtime with `jsl`/`jml`, not \
+                     `{op}`",
+                    t.id
+                );
+            }
+        }
         let _ = writeln!(s, "{}", t.body);
     }
 
@@ -65,10 +92,13 @@ pub fn asm(tests: &[Test]) -> String {
     let _ = writeln!(s, "_test_count:");
     let _ = writeln!(s, "    .word {}", tests.len());
     let _ = writeln!(s);
-    let _ = writeln!(s, "; Entry points (16-bit; all tests live in bank $00).");
+    let _ = writeln!(
+        s,
+        "; Entry points, 24-bit: test bodies no longer all live in bank $00."
+    );
     let _ = writeln!(s, "_test_entries:");
     for t in tests {
-        let _ = writeln!(s, "    .addr {}", t.label());
+        let _ = writeln!(s, "    .faraddr {}", t.label());
     }
     let _ = writeln!(s);
     let _ = writeln!(

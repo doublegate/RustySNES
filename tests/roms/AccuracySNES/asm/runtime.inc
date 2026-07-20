@@ -135,10 +135,19 @@ HVBJOY          = $4212
 NMITIMEN        = $4200
 JOYSER0         = $4016
 
-; JMP (abs) takes a 16-bit pointer in bank $00, so the dispatch slot cannot live in the
+; JMP [abs] takes its pointer from bank $00, so the dispatch slot cannot live in the
 ; long-addressed variable block. $00:0040 is inside the low-WRAM mirror and is not touched by
 ; any test's scratch usage.
-V_DISPATCH      = $0040
+;
+; THREE CONTIGUOUS BYTES, not two: test bodies no longer all fit in bank $00, so the dispatch
+; table holds 24-bit entry points and the jump is JMP [abs] rather than JMP (abs). `JMP [abs]`
+; fetches all three bytes from consecutive addresses, so the bank byte cannot be parked somewhere
+; convenient — it has to be V_DISPATCH+2. $004C-$004E is the only free triple below V_APU_PTR.
+V_DISPATCH      = $004C
+
+; Scratch for the index-times-three arithmetic that indexes the table above. Shares $0040 with
+; PAD_X, which is only live while the menu is reading the controller.
+V_DISPATCH_TMP  = $0040
 
 ; Software-interrupt trampoline targets. The cartridge vectors are fixed at link time, so
 ; BRK/COP/IRQ point at trampolines that jump through these bank-$00 pointers, letting each test
@@ -184,6 +193,7 @@ PAD_X           = $0040
     .import hv_end
 .import wait_vblank
     .import apu_upload
+.import apu_upload_far
 .endif
 .ifndef CATALOG_IMPL
     .import _test_count

@@ -382,11 +382,23 @@ rt_next:
     tsc
     sta f:V_SAVED_S             ; test_restore rebuilds the stack from this
 
+    ; index -> 3-byte table offset. The entries are 24-bit because test bodies outgrew bank $00;
+    ; see V_DISPATCH in runtime.inc.
     lda f:V_TEST_IDX
-    asl                         ; index -> 2-byte table offset
+    sta a:V_DISPATCH_TMP        ; the untripled index
+    asl
+    clc
+    adc a:V_DISPATCH_TMP
     tax
-    lda f:_test_entries,x
-    sta a:V_DISPATCH            ; bank $00, reachable by JMP (abs)
+    lda f:_test_entries,x       ; low and mid bytes
+    sta a:V_DISPATCH
+    sep #$20
+    .a8
+    lda f:_test_entries+2,x     ; bank byte, which must land at V_DISPATCH+2
+    sta a:V_DISPATCH+2
+    rep #$30
+    .a16
+    .i16
 
     ; Canonical entry state: native, 16-bit A/X/Y, DP = $0000, DBR = $00.
     lda #$0000
@@ -477,10 +489,14 @@ rt_finished:
     rts
 .endproc
 
-; Indirect call into the test under V_TMP. Kept as its own routine so the return address the
-; test sees is well-defined.
+; Indirect call into the test whose 24-bit entry point is in V_DISPATCH. Kept as its own routine
+; so the return address the test sees is well-defined.
+;
+; No test actually returns through it: every one exits with `jml test_restore`, which is a long
+; jump for the same reason this is a long indirect — a body may live outside bank $00, and
+; test_restore does not.
 .proc call_indirect
-    jmp (V_DISPATCH)
+    jmp [V_DISPATCH]            ; JMP [abs]: a 24-bit indirect
 .endproc
 
 ; ---------------------------------------------------------------------------------------------
@@ -1226,6 +1242,15 @@ test_restore := test_restore_impl
 ; handshake is unreadable at exactly the moment you need to read it.
 ;
 ; Parameters in V_APU_* (see runtime.inc). Clobbers A/X/Y. Returns with the program running.
+; A long-callable wrapper, for test bodies that do not live in bank $00. A plain `jsr` from
+; another bank lands at the same 16-bit address *in that bank*, which is not a subroutine — it is
+; whatever bytes happen to be there. Group E's bodies are in bank $02, so they call this.
+.export apu_upload_far
+.proc apu_upload_far
+    jsr apu_upload
+    rtl
+.endproc
+
 .export apu_upload
 .proc apu_upload
     php
