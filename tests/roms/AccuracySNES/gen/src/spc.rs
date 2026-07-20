@@ -244,6 +244,12 @@ impl Spc {
         self.push(&[0xE0])
     }
 
+    /// `MOV dp,dp` — `$FA`, encoded **source first, then destination**, which is the reverse of
+    /// how the mnemonic reads. One of the two stores that does *not* dummy-read its destination.
+    pub fn mov_dp_dp(&mut self, dst: u8, src: u8) -> &mut Self {
+        self.push(&[0xFA, src, dst])
+    }
+
     /// `MOVW dp,YA` — `$DA`. Writes two bytes, but dummy-reads only the **low** one, which is what
     /// makes it distinguishable from two separate stores.
     pub fn movw_dp_ya(&mut self, dp: u8) -> &mut Self {

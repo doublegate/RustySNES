@@ -71,6 +71,7 @@ pub fn all() -> Vec<Test> {
         e1_09(),
         e1_10(),
         e1_12(),
+        e2_02(),
         e2_03(),
         e2_06(),
         e2_07(),
@@ -3055,6 +3056,72 @@ fn e5_11() -> Test {
         'E',
         "Directory entry address",
         Provenance::Documented("fullsnes, S-DSP BRR; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `MOV dp,dp` is exempt from the store dummy-read that every other store performs.
+///
+/// `E2.01` establishes the rule: a store reads its destination first, and against a timer counter —
+/// where reading is destructive — that read is visible as the counter being emptied. `$FA` is one
+/// of the two opcodes the rule does not apply to, so the same store through it leaves the counter
+/// alone.
+///
+/// The two tests are the same measurement with one instruction changed, which is what makes this an
+/// assertion about `$FA` rather than about timers. A core that applies the dummy read uniformly
+/// passes `E2.01` and fails here; one that omits it everywhere does the reverse.
+///
+/// Timer 1 is run alongside and reported as the vacuity guard. Without it, "timer 0 still holds a
+/// count" and "the timers never started" are the same reading — and the second would make the
+/// assertion pass for the wrong reason.
+fn e2_02() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_dp_imm(0x10, 0x77) // the byte to store; its value is irrelevant to a read-only target
+        .mov_dp_imm(0xFA, 0x01) // T0DIV = 1
+        .mov_dp_imm(0xFB, 0x01) // T1DIV = 1
+        .mov_dp_imm(0xF1, 0x83) // enable timers 0 and 1; bit 7 keeps the IPL ROM mapped
+        .delay(0x00)
+        .mov_dp_imm(0xF1, 0x80) // stop both, so nothing ticks between the reads below
+        .mov_dp_dp(0xFD, 0x10) // MOV $FD,$10 — a store with no dummy read
+        .mov_a_dp(0xFD)
+        .mov_dp_a(PORT1) // must still hold its count
+        .mov_a_dp(0xFE)
+        .mov_dp_a(PORT2) // the guard: the timers did run
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("Timer 1 first: it says the timers ran at all, which is what makes the reading below mean");
+    a.c("anything.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        1,
+        15,
+        "timer 1's counter was empty, so the timers never ran and the check below would pass on a \
+         counter that had nothing in it",
+    );
+    a.c("And timer 0 survived a store to it, because MOV dp,dp does not dummy-read its target.");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        1,
+        15,
+        "timer 0's counter was consumed by MOV dp,dp — that opcode is exempt from the store \
+         dummy-read, and a core applying the rule uniformly clears it",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E2.02",
+        'E',
+        "MOV dp,dp is exempt",
+        Provenance::Documented("SNESdev Wiki, SPC700; fullsnes — flagged as errata"),
         Kind::Scored,
         None,
     )
