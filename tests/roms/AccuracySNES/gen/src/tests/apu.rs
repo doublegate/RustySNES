@@ -8,6 +8,13 @@
 //!
 //! The programs themselves are assembled by `gen/src/spc.rs` — `ca65` does not speak SPC700.
 //!
+//! **Never hand-write a verdict byte.** Use the assertion helpers, even when the condition does
+//! not look like an equality — `assert_a16_range` covers "must not be this value" perfectly well.
+//! A hand-written `sta V_TEST_RESULT` puts a failure code in the ROM that the generated
+//! `ERROR_CODES.md` cannot know about, so the table silently stops being a complete account of
+//! what a failure byte means. This has been got wrong twice in this file; the helpers exist
+//! precisely so it cannot be.
+//!
 //! **Reading `PSW` is the recurring trick.** Several of these assertions are about which flags an
 //! instruction sets, and the SPC700 has no "read flags" instruction. `PUSH PSW` / `POP A` does it,
 //! but only if nothing between the instruction under test and the push disturbs the flags — which
@@ -32,6 +39,8 @@ pub fn all() -> Vec<Test> {
         e3_11(),
         dsp_addressing(),
         e3_14(),
+        dsp_global_regs(),
+        e9_19(),
     ]
 }
 
@@ -718,6 +727,104 @@ fn dsp_addressing() -> Test {
         "E3.11b",
         'E',
         "DSP register addressing",
+        Provenance::Documented("SNESdev Wiki, S-DSP registers; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Writing `ENDX` clears it; it is not a register you can set.
+///
+/// `$7C` reports which voices have reached the end of their sample, and **any** write clears all
+/// eight bits regardless of the value written. A core that models it as ordinary storage returns
+/// whatever was written — so writing `$FF` and reading `$FF` back is the exact signature of
+/// getting this wrong, and it is what a driver polling for sample-end would see as "every voice
+/// finished" forever.
+///
+/// The assertion is deliberately "not `$FF`" rather than "exactly `$00`": with no sample playing
+/// there is nothing to set the bits in the first place, so requiring zero would pass on a core
+/// that had simply never implemented the register at all. What this test can prove is the narrower
+/// and still useful thing — that the write did not stick.
+fn e9_19() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_a_imm(0x7C)
+        .mov_dp_a(0xF2) // address latch: select ENDX ($7C)
+        .mov_a_imm(0xFF)
+        .mov_dp_a(0xF3) // data port: any write clears ENDX, so this must not store $FF
+        .mov_a_imm(0x7C)
+        .mov_dp_a(0xF2) // select it again to read back
+        .mov_a_dp(0xF3)
+        .mov_dp_a(PORT2)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("A core storing the write returns $FF. Anything else means the write was treated as a");
+    a.c("clear, which is the documented behaviour.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x00,
+        0xFE,
+        "ENDX read back as $FF, so the write was stored rather than treated as a clear",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E9.19",
+        'E',
+        "ENDX write clears it",
+        Provenance::Documented("SNESdev Wiki, S-DSP registers; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The DSP's global registers are individually addressable and hold what is written.
+///
+/// The companion to the voice-register test: `$x C`/`$x D` are the global block — master and echo
+/// volumes, echo feedback — and they are decoded from the same latch by a different part of the
+/// address. A core that gets the voice registers right and aliases the globals (or vice versa)
+/// passes one test and fails the other, which is why both exist.
+///
+/// Written low-to-high and read back high-to-low, so a core that simply returns the last value
+/// written cannot pass.
+fn dsp_global_regs() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF).mov_sp_x();
+    for (reg, val) in [(0x0Cu8, 0x11u8), (0x1C, 0x22), (0x2C, 0x33), (0x3C, 0x44)] {
+        prog.mov_a_imm(reg).mov_dp_a(0xF2);
+        prog.mov_a_imm(val).mov_dp_a(0xF3);
+    }
+    for (reg, port) in [(0x3Cu8, PORT1), (0x2C, PORT2), (0x1C, PORT3)] {
+        prog.mov_a_imm(reg).mov_dp_a(0xF2);
+        prog.mov_a_dp(0xF3).mov_dp_a(port);
+    }
+    prog.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("Read back in the reverse of the write order: EVOLR, EVOLL, MVOLR.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.assert_a8(0x44, "EVOLR ($3C) did not read back");
+    a.l("lda f:$7E0101");
+    a.assert_a8(0x33, "EVOLL ($2C) did not read back");
+    a.l("lda f:$7E0102");
+    a.assert_a8(
+        0x22,
+        "MVOLR ($1C) did not read back; if it holds another register's value the globals are \
+         aliased",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E3.11c",
+        'E',
+        "DSP global registers",
         Provenance::Documented("SNESdev Wiki, S-DSP registers; fullsnes"),
         Kind::Scored,
         None,

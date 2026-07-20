@@ -47,12 +47,12 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `E6` | 11 | 0 | 0 | E6.01, E6.02, E6.03, E6.04, E6.05, E6.06, E6.07, E6.08, E6.09, E6.10, E6.11 |
 | `E7` | 18 | 0 | 0 | E7.01, E7.02, E7.03, E7.04, E7.05, E7.06, E7.07, E7.08, E7.09, E7.10, E7.11, E7.12, E7.13, E7.14, E7.15, E7.16, E7.17, E7.18 |
 | `E8` | 11 | 0 | 0 | E8.01, E8.02, E8.03, E8.04, E8.05, E8.06, E8.07, E8.08, E8.09, E8.10, E8.11 |
-| `E9` | 20 | 0 | 0 | E9.01, E9.02, E9.03, E9.04, E9.05, E9.06, E9.07, E9.08, E9.09, E9.10, E9.11, E9.12, E9.13, E9.14, E9.15, E9.16, E9.17, E9.18, E9.19, E9.20 |
+| `E9` | 20 | 1 | 0 | E9.01, E9.02, E9.03, E9.04, E9.05, E9.06, E9.07, E9.08, E9.09, E9.10, E9.11, E9.12, E9.13, E9.14, E9.15, E9.16, E9.17, E9.18, E9.20 |
 | `E10` | 6 | 0 | 0 | E10.01, E10.02, E10.03, E10.04, E10.05, E10.06 |
 | `F1` | 22 | 0 | 0 | F1.01, F1.02, F1.03, F1.04, F1.05, F1.06, F1.07, F1.08, F1.09, F1.10, F1.11, F1.12, F1.13, F1.14, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
 | `G1` | 18 | 0 | 0 | G1.01, G1.02, G1.03, G1.04, G1.05, G1.06, G1.07, G1.08, G1.09, G1.10, G1.11, G1.12, G1.13, G1.14, G1.15, G1.16, G1.17, G1.18 |
 
-**119 of 443** enumerated assertion rows covered by an on-cart test, plus **42** covered only by a rendered scene (`docs/adr/0013`) — **161 of 443** in total.
+**120 of 443** enumerated assertion rows covered by an on-cart test, plus **42** covered only by a rendered scene (`docs/adr/0013`) — **162 of 443** in total.
 
 The two columns are kept apart on purpose. An on-cart result means the same thing on any emulator and on real hardware; a rendered scene needs a host holding the golden. Adding them into one figure would quietly change what the number claims.
 
@@ -119,6 +119,7 @@ Declared in `gen/src/scenes.rs`. Each is reported by the host framebuffer oracle
 
 ## Tests with no enumerated assertion
 
+- **`E3.11c`** — DSP global-register addressing. The companion to E3.11b: the global block is decoded from the same latch by a different part of the address, so a core that gets the voice registers right and aliases the globals passes one and fails the other
 - **`E3.11b`** — DSP register addressing through the $F2/$F3 latch. Not an enumerated assertion of its own: it is the mechanism every other DSP assertion is reached through, so a core that mis-decodes it makes those tests meaningless rather than failing
 - **`A9.02`** — XBA's flag behaviour. A9 enumerates BIT and ORA [d] but not XBA, so there is no assertion to cite — the behaviour is from the WDC datasheet
 - **`A9.03`** — the emulation-mode R-M-W modify-cycle write. Not an enumerated assertion — it comes from the cross-vendor comparison in docs/accuracysnes-timing-oracle.md §8, where WDC's note (17) stands alone against two silent renderings
