@@ -363,6 +363,21 @@ rewritten to the current number — this line is the one to read.
 
 ### Fixed
 
+- **The rendered-scene gate had become intermittently red, and the cause was the oracle, not the
+  emulators.** Two separate faults, both surfaced by the battery growing longer:
+
+  1. Mesen2'''s report block could run on more than one frame before `emu.stop` took effect, printing
+     the whole scene list twice. It stayed hidden while only one frame elapsed; a longer battery
+     made it two, and the duplicated list read as a scene mismatch rather than as a duplicated
+     report.
+  2. The capture window (4 settle frames, 4 published) was too tight once the phase between the
+     cart'''s vblank polling and a host'''s frame callback shifted. "Take the second sighting"
+     occasionally landed on a transition frame, and the gate failed on a different scene each run.
+     Widened to 6 and 8, capturing the fourth — all 41 goldens are unchanged, which is the evidence
+     that the window moved and the steady state did not.
+
+  An intermittently-red gate is worse than a slow one, because it gets ignored.
+
 - **A WRAM source with `$2180` as the DMA destination no longer writes.** It is a WRAM-to-WRAM
   transfer through the data port, and the hardware performs no write at all — the read still
   happens and the time is still spent. RustySNES copied the bytes, which looks right until a game

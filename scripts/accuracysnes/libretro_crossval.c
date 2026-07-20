@@ -184,7 +184,7 @@ typedef size_t (*mem_size_fn)(unsigned);
 #define SCENE_DONE (BASE + 0x13u)
 #define MAX_SCENES 64u
 /* Which frame of a scene's published window to hash, 1-based. Must match the in-repo harness. */
-#define CAPTURE_SIGHTING 2u
+#define CAPTURE_SIGHTING 4u
 
 int main(int argc, char **argv) {
     if (argc < 3) {

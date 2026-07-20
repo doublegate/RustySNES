@@ -81,9 +81,14 @@ MEAS_SLOTS      = 128
 ; frames of the published window are both at risk of being off by one: snes9x captured scene 1
 ; with a black band across the top (the frame where forced blank was released) and the in-repo
 ; harness captured the previous scene entirely. The window is therefore wide enough that hosts can
-; agree to take the SECOND sighting and be well inside the steady state either way.
-SCENE_SETTLE    = 4
-SCENE_FRAMES    = 4
+; agree to take an interior sighting and be well inside the steady state either way.
+;
+; Widened from 4/4 once the battery grew long enough to shift the phase between the cart's vblank
+; polling and a host's frame callback: with only four published frames, "the second sighting"
+; occasionally landed on a transition and the gate went red on a different scene each run. An
+; intermittently-red gate is worse than a slow one, because it gets ignored.
+SCENE_SETTLE    = 6
+SCENE_FRAMES    = 8
 
 ; --- results block ---------------------------------------------------------------------------
 RESULTS         = $7EF000

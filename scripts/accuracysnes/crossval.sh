@@ -200,8 +200,12 @@ if [[ -f $MANIFEST && -f $SCENE_GOLDEN ]]; then
     fi
     if [[ -f $MESEN ]] && command -v dotnet >/dev/null; then
         echo "=== Mesen2 rendered scenes ==="
+        # 400s, not 180. The scene loop runs after the whole battery, and the battery keeps
+        # growing -- a timeout that merely fits today produces intermittent "mismatches" that are
+        # really a truncated run, and an intermittently-red gate gets ignored, which is worse than
+        # a slow one.
         { dotnet "$MESEN" --testrunner "$ROM" scripts/accuracysnes/mesen_scenes.lua \
-            --timeout=180 2>/dev/null || true; } | check_scenes "Mesen2" || rc=1
+            --timeout=400 2>/dev/null || true; } | check_scenes "Mesen2" || rc=1
     fi
 else
     echo "skip rendered scenes: build the cart first (cargo run -p accuracysnes-gen)" >&2
