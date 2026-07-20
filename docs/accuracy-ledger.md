@@ -17,6 +17,15 @@ RustyNES's own `docs/accuracy-ledger.md` uses:
 Every row cites the subsystem doc with the full mechanism and evidence trail — this ledger is the
 index, not a duplicate of that reasoning.
 
+## AccuracySNES residuals
+
+| Item | Disposition | Detail |
+|---|---|---|
+| Decimal-mode `V` flag (`A7.04`) | **Out-of-scope** (golden vector) | Hardware does not define `V` after a decimal `ADC`. ares, bsnes, and Mesen2 all compute it with the identical binary-overflow formula evaluated *before* the BCD `+$60` correction — agreement by shared convention, not authority. The test records the observed bit as a variant and never scores. |
+| Real-hardware validation | **Deferred** | AccuracySNES is designed to run on a real SNES and has not been. Cross-validated headlessly against Mesen2 and snes9x (both agree, 0 failures), and its expected values reviewed against ares/bsnes/Mesen2 source — but no silicon. This is the honest ceiling on the battery's authority. |
+| ares/bsnes counted as one reference | **Out-of-scope** (methodology note) | A full diff of their `wdc65816` cores shows only type renames; ares' 65816 is a lineal descendant of bsnes'. The `Corroborated` tier therefore means "the bsnes/ares lineage and Mesen2 agree" — two implementations, not three. Recorded so the tier is not over-read. |
+| Groups B-G | **Deferred** | Phase A ships Group A (65816 CPU) only. The remaining ~290 tests are enumerated per-test in `docs/accuracysnes-research-dossier.md` §5. |
+
 ## Core/SPC oracle residuals
 
 | Item | Disposition | Detail |

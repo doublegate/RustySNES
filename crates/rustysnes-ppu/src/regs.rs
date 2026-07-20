@@ -44,8 +44,14 @@ impl Ppu {
 
     /// Write one PPU register ($2100–$213F). Writes to read-only addresses are ignored.
     pub fn write_reg(&mut self, addr: u16, val: u8) {
-        // Most writes update the PPU1 MDR open-bus latch.
-        self.io.ppu1_mdr = val;
+        // Register writes deliberately do NOT touch either MDR.
+        //
+        // This used to unconditionally set `ppu1_mdr = val` on every write, which made a write to
+        // a *PPU2* register ($2121/$2122) clobber *PPU1*'s open-bus latch — collapsing two
+        // physically separate latches into one and breaking AccuracySNES C13.03. Both independent
+        // reference lineages refresh the latches only on reads: every `Ppu1OpenBus` assignment in
+        // Mesen2's `SnesPpu.cpp` sits inside `Read`, and snes9x writes its `OpenBus1`/`OpenBus2`
+        // only through `return (PPU.OpenBusN = ...)` in `S9xGetPPU`. See `docs/ppu.md`.
         let v = u16::from(val);
         match addr {
             // INIDISP

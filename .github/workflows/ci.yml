@@ -266,6 +266,38 @@ jobs:
           cache-key-suffix: bench
       - run: ./scripts/bench_regression_check.sh
 
+  # AccuracySNES reproducibility gate. The cart's `.sfc` is committed so contributors can run the
+  # battery without an assembler; this job proves the committed image is exactly what the source
+  # produces, so the binary can never silently drift from `gen/`.
+  accuracysnes:
+    needs: setup
+    if: needs.setup.outputs.mode != 'skip'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/rust-setup
+        with:
+          cache-key-suffix: accuracysnes
+      - name: Install cc65 (ca65/ld65)
+        run: |
+          dpkg -s cc65 >/dev/null 2>&1 || {
+            sudo apt-get update
+            sudo apt-get install -y cc65
+          }
+      - name: Rebuild the cartridge from source
+        run: cargo run -p accuracysnes-gen
+      - name: Assert the committed artifacts are byte-identical
+        run: |
+          if ! git diff --exit-code -- tests/roms/AccuracySNES; then
+            echo "::error::AccuracySNES build output differs from the committed artifacts."
+            echo "::error::Run 'cargo run -p accuracysnes-gen' and commit the result."
+            exit 1
+          fi
+      - name: Run the battery
+        run: |
+          cargo test -p rustysnes-test-harness --features test-roms \
+            --test accuracysnes -- --nocapture
+
   # v1.5.0 "Bedrock": the one stable required-check name branch protection points at
   # (`docs/adr/0011`). Individual jobs above are conditionally skipped depending on `setup`'s mode,
   # which makes them unsuitable to require directly (a skipped required check blocks merging
@@ -273,7 +305,7 @@ jobs:
   # skipped, and fails if any of them failed or were cancelled.
   ci-success:
     if: always()
-    needs: [changes, setup, lint, test-light, full-test, no_std, bench]
+    needs: [changes, setup, lint, test-light, full-test, no_std, bench, accuracysnes]
     runs-on: ubuntu-latest
     steps:
       - name: Check all required jobs

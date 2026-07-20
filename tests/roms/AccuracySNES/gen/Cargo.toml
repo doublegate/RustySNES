@@ -1,0 +1,19 @@
+[package]
+name = "accuracysnes-gen"
+description = "Generator for the AccuracySNES hardware-accuracy test cartridge"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "accuracysnes-gen"
+path = "src/main.rs"
+
+[dependencies]
+
+[lints]
+workspace = true

@@ -17,6 +17,8 @@ doc-valid-idents = [
     "FastROM",
     "SlowROM",
     "AccuracyCoin",
+    "AccuracySNES",
+    "SNESdev",
     "RustySNES",
     "RustyNES",
     "SuperFX",

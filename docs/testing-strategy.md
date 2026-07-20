@@ -12,11 +12,32 @@ license**).
 the docs get updated. For any accuracy work: **pin the failing ROM expectation FIRST**, then
 implement until it passes.
 
-## The two-layer oracle (the "AccuracyCoin-equivalent")
+## The AccuracySNES battery (first-party, the AccuracyCoin-equivalent)
 
-RustyNES uses a single 139-test AccuracyCoin battery. The SNES has **no single canonical
-battery** — and **no Nintendulator-style textual golden CPU log exists for the 65816** — so the
-oracle is *composed* of two layers (`ref-docs/research-report.md` "Standards"):
+RustyNES uses a single 139-test AccuracyCoin battery. The SNES had **no single canonical
+battery** — and there is still **no Nintendulator-style textual golden CPU log for the 65816** —
+so this project now ships its own: **AccuracySNES** (`tests/roms/AccuracySNES/`), original work,
+MIT OR Apache-2.0, closing what `docs/STATUS.md` tracked as ticket **T-04**.
+
+It is self-scoring: the cart decides pass/fail on-cart and publishes a results block in WRAM, so
+the same image runs unmodified on ares, bsnes, Mesen2, and real hardware, and the host harness
+supplies no expected values of its own. Two rules govern what its number is allowed to mean:
+
+- **Provenance tiering.** Every test declares where its expected value came from — `Documented`
+  (a primary reference states it), `Corroborated` (the bsnes/ares lineage and Mesen2 agree in
+  source — bsnes and ares count as **one** reference, not two, since ares' `wdc65816` is a lineal
+  copy of bsnes'), `Contested` (the references disagree, or one admits it is unexplained), `Novel` (our own
+  hypothesis). **Only the first two may contribute to the pass rate.** A test we wrote grading an
+  emulator we wrote proves nothing otherwise. Enforced by `tests/accuracysnes.rs`'s
+  `provenance_gate_holds`, mirroring `docs/adr/0003`.
+- **Golden vectors.** Behaviour hardware genuinely does not define (`$4203`/`$4206` overlap,
+  decimal-mode `V`, the WRAM power-on fill, post-reset `ENDX`) is *recorded*, never scored.
+
+**Real-hardware validation is the honest ceiling on its authority** and has not been done; that is
+tracked, not claimed.
+
+The composed multi-suite oracle below remains in force alongside it — AccuracySNES adds a layer,
+it does not replace the per-opcode oracles:
 
 1. **Primary per-opcode oracle (both CPUs):** SingleStepTests **65816** + **spc700** JSON —
    per-opcode, all addressing modes, 8/16-bit, native + emulation, with **cycle-by-cycle
@@ -38,6 +59,7 @@ RustyNES's commercial-ROM policy.
 
 | Corpus | License (verified) | Role | Commit? |
 |---|---|---|---|
+| **AccuracySNES** (this repo) | **MIT OR Apache-2.0** [OK] | first-party accuracy battery | **yes — committed** |
 | SingleStepTests/**65816** | **NONE** (404 on `gh api .../license`) [GATE] | primary CPU oracle | **NO — gitignore or self-generate** |
 | SingleStepTests/**spc700** | **MIT** [OK] | primary SPC oracle | yes (external tier OK) |
 | gilyon/snes-tests | **MIT** [OK] | committable CPU+SPC `.sfc` + golden tables | **yes** |

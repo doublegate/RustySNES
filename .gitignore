@@ -81,6 +81,10 @@ artifacts/
 !/tests/roms/**/*.sfc
 !/tests/roms/gilyon/**
 !/tests/roms/undisbeliever/**
+!/tests/roms/AccuracySNES/**
+# ...but not the assembler's intermediates; only the source and the linked .sfc are committed.
+/tests/roms/AccuracySNES/build/*.o
+/tests/roms/AccuracySNES/build/*.map
 /tests/roms/external/
 /game-roms/
 
@@ -137,6 +141,10 @@ flamegraph.svg
 
 # --- Documentation ---
 /docs/_site/
+# Local SNESdev Wiki mirror (scripts/snesdev_wiki_mirror.py). Contributor-licensed upstream
+# text — a local reference copy only, never vendored into the MIT/Apache tree. Mirrors the
+# posture RustyNES takes with its own /nesdev_wiki/.
+/snesdev_wiki/
 /ref-proj/
 
 # --- Temporary files ---
