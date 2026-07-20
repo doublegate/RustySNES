@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Timer 2 counts eight times faster than timer 0 (`E3.06`), and `TEST` bit 0 halts them all
+  (`E3.08`).** The first is a ratio rather than two measurements: both timers run over one interval,
+  started by a single write and stopped by another, so whatever that interval was, `T2` must show
+  about eight times what `T0` does. It catches the obvious mistake — one clock rate for all three
+  timers — which no other timer test on this cart can see, because `E3.01`, `E3.05` and `E2.01` all
+  use `T0` alone and a uniform-rate core passes every one of them.
+
+  `E3.08` runs one interval twice with nothing changed but the halt bit: frozen, then running. The
+  second half is what stops the first from being satisfied by a timer that never started.
+
+  **A fifth snes9x divergence**, and it is the fourth one's twin: `apu/bapu/smp/memory.cpp` has no
+  `case 0xf0` at all, so the whole `TEST` register is discarded. `E3.10` already found that through
+  bit 1 (the RAM write enable); `E3.08` finds it through bit 0. ares implements it explicitly and
+  Mesen2 agrees with the cart. Declared with the citation in `scripts/accuracysnes/crossval.sh`.
+
 - **Pitch scales the sample rate, and `$2000` is an octave above `$1000` (`E6.02`).** The first
   assertion from the S-DSP's pitch block, and the first on this cart to measure a *rate*. A single
   reading of `ENDX` cannot do that — it says "finished" or "not finished", which bounds a rate on one

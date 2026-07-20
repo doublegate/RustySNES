@@ -99,6 +99,8 @@ pub fn all() -> Vec<Test> {
         e6_02b(),
         e6_02c(),
         e6_02d(),
+        e3_06(),
+        e3_08(),
     ]
 }
 
@@ -3538,5 +3540,140 @@ fn e6_02d() -> Test {
         false,
         "a 384-sample voice at pitch $2000 had already finished after three waits, so it is \
          consuming at least 128 samples per wait — far above what doubling $1000 would give",
+    )
+}
+
+/// Timer 2 counts **eight times faster** than timer 0 at the same divider.
+///
+/// The two timers are fed from different taps of the same clock: `T0` and `T1` from a 8 kHz stage,
+/// `T2` from a 64 kHz one, so `TnDIV` means eight times as much wall time on `T0` as on `T2`. A
+/// core that runs all three timers off one rate is the obvious mistake, and it is invisible to
+/// every other timer test on this cart — `E3.01`, `E3.05` and `E2.01` all use `T0` alone, and a
+/// uniform-rate core passes all of them.
+///
+/// Both timers run over the *same* interval, started by one write and stopped by another, so this
+/// is a ratio rather than two independent measurements: whatever the interval actually was, `T2`
+/// must show about eight times what `T0` does. The interval is chosen short enough that `T2`'s
+/// four-bit counter cannot wrap — a wrap would read as a *small* number and look like a slow timer,
+/// which is the one failure this test could not tell from a pass.
+///
+/// The assertion is a pair of ranges, not two exact counts. Where the interval falls relative to
+/// each timer's internal divider phase decides whether the last tick lands inside it, so ±1 is not
+/// a defect; a factor of eight is far outside that. A uniform-rate core reads `$01` where this
+/// wants nine or more.
+fn e3_06() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_dp_imm(0xFA, 0x01) // T0DIV = 1
+        .mov_dp_imm(0xFC, 0x01) // T2DIV = 1
+        .mov_a_dp(0xFD) // drain both counters so the interval starts from zero
+        .mov_a_dp(0xFF)
+        .mov_dp_imm(0xF1, 0x85) // enable timers 0 and 2 together; bit 7 keeps the IPL mapped
+        .delay(0x18) // 24 iterations: long enough for T2 to count, short enough not to wrap
+        .mov_dp_imm(0xF1, 0x80) // and stop them together
+        .mov_a_dp(0xFD)
+        .mov_dp_a(PORT2)
+        .mov_a_dp(0xFF)
+        .mov_dp_a(PORT3)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("Timer 0 first: one tick, maybe two. Zero would make the ratio below unmeasurable.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        1,
+        3,
+        "timer 0 did not tick once over this interval, or ticked more than three times — either \
+         way the interval is not the one this test needs and the ratio below means nothing",
+    );
+    a.c("Timer 2 over the SAME interval: eight times the rate, so eight or more ticks.");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        8,
+        15,
+        "timer 2 did not count roughly eight times what timer 0 did over the same interval, so it \
+         is not running from the 64 kHz stage — a core reading $01 here runs every timer at 8 kHz",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E3.06",
+        'E',
+        "T2 is eight times T0",
+        Provenance::Documented("SNESdev Wiki, SPC700 timers; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `TEST` bit 0 halts the timers, and clearing it lets them run again.
+///
+/// `$F0` is a hardware test register, so a core is likely to model it as ordinary storage — and
+/// then a ROM that writes it behaves differently for reasons nothing in the trace explains. This
+/// is the same argument `E3.10` makes for bit 1 and the RAM write enable, one bit over.
+///
+/// The test is one interval run twice with nothing changed but that bit, which is what makes it an
+/// assertion about the bit rather than about the delay: **halted** first, then **running**. Taking
+/// the halted reading alone would be satisfied by a timer that never started, and a core modelling
+/// `$F0` as RAM passes the second half and fails the first.
+///
+/// `TEST` is restored to its reset value of `$0A` afterwards. Leaving a hardware test register
+/// disturbed would make every later APU test measure this one — the shared-state failure the group
+/// has already been bitten by.
+fn e3_08() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_dp_imm(0xFA, 0x01) // T0DIV = 1, the fastest
+        .mov_dp_imm(0xF0, 0x0B) // TEST: reset value $0A plus bit 0 — timers halted
+        .mov_dp_imm(0xF1, 0x81) // enable timer 0 anyway
+        .delay(0x00)
+        .mov_dp_imm(0xF1, 0x80)
+        .mov_a_dp(0xFD)
+        .mov_dp_a(PORT2) // must be zero: the timer was enabled but halted
+        .mov_dp_imm(0xF0, 0x0A) // TEST back to its reset value, timers free to run
+        .mov_dp_imm(0xF1, 0x81)
+        .delay(0x00)
+        .mov_dp_imm(0xF1, 0x80)
+        .mov_a_dp(0xFD)
+        .mov_dp_a(PORT3) // and now the same delay does advance it
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("Halted: enabled, at the fastest divider, over a delay that is several ticks long.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16(
+        0,
+        "timer 0 advanced while TEST bit 0 was set, so the halt bit is being modelled as ordinary \
+         storage rather than as a control",
+    );
+    a.c("Running: the control, and without it the reading above would pass on a dead timer.");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        1,
+        15,
+        "timer 0 did not advance with TEST back at its reset value, so the halted reading above \
+         says nothing about the halt bit",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E3.08",
+        'E',
+        "TEST bit 0 halts timers",
+        Provenance::Documented("fullsnes, SPC700 TEST register; ares and bsnes smp/timing"),
+        Kind::Scored,
+        None,
     )
 }

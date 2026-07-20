@@ -13,10 +13,10 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **227** (215 scoring + 11 golden vectors + 1 region SKIP per image) |
+| Tests | **229** (217 scoring + 11 golden vectors + 1 region SKIP per image) |
 | Rendered scenes | **50**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
-| Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but four, all recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`. Both images. |
+| Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but five, all recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`. Both images. |
 | Groups shipped | **A** (65C816) · **B** (5A22) · **C** (PPU, on-cart and rendered) · **D** (DMA/HDMA) · **E** (SPC700 + S-DSP) · **F** (controller ports) · **G** (cartridge/memory map) — all seven, all partial |
 | Defects found in this emulator | **12** — see §5 |
 

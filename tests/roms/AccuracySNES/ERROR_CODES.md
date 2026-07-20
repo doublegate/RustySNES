@@ -1573,6 +1573,24 @@ Provenance: **Documented** (fullsnes, S-DSP pitch; anomie's DSP doc). Kind: scor
 |---|---|---|
 | 1 | `$02` | a 384-sample voice at pitch $2000 had already finished after three waits, so it is consuming at least 128 samples per wait — far above what doubling $1000 would give |
 
+### E3.06 — T2 is eight times T0
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 timers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | timer 0 did not tick once over this interval, or ticked more than three times — either way the interval is not the one this test needs and the ratio below means nothing |
+| 2 | `$04` | timer 2 did not count roughly eight times what timer 0 did over the same interval, so it is not running from the 64 kHz stage — a core reading $01 here runs every timer at 8 kHz |
+
+### E3.08 — TEST bit 0 halts timers
+
+Provenance: **Documented** (fullsnes, SPC700 TEST register; ares and bsnes smp/timing). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | timer 0 advanced while TEST bit 0 was set, so the halt bit is being modelled as ordinary storage rather than as a control |
+| 2 | `$04` | timer 0 did not advance with TEST back at its reset value, so the halted reading above says nothing about the halt bit |
+
 ## Group F
 
 ### F1.02 — Pad reads 17+ are 1
