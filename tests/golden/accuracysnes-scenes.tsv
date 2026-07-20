@@ -46,6 +46,14 @@
 # it now picks tiles $10-$1F (printable at 4bpp and 8bpp alike) and varies the tile with the row.
 # Both changes were forced by scenes that rendered a picture no assertion could show --
 # see the plan doc. The re-bless is a deliberate change to the input, not drift in the output.
+#
+# 2026-07-20, fourth batch (10 scenes: Mode 7). THREE more RustySNES bugs, all confirmed against
+# both references agreeing with each other:
+#   * the Mode 7 vertical fetch was a line late -- the identical off-by-one the first batch found
+#     in the tiled backgrounds, missed because `render_mode7` is a separate function. Nine of the
+#     ten scenes moved on that one line.
+#   * EXTBG replaced BG1 instead of adding a layer, so enabling it made BG1 vanish entirely.
+#   * Mode 7 had no mosaic handling at all, and rendered identically with and without it.
 
 c5-mode1-bg-priority	0x4fccc3fcf1027a01
 c8-fixed-colour-add	0x313006a2eb2c3745
@@ -72,3 +80,13 @@ c6-opt-h-keeps-fine-scroll	0xeed8f2e603cad155
 c6-opt-enable-bit-bg1	0x15a44507628f9329
 c6-opt-enable-bit-bg2	0x08d18d6f12afe809
 c6-mode4-h-vs-v-select	0x43f1a048e884fd91
+c11-mode7-identity	0xbd42dccfcc1749a5
+c11-mode7-rotate-scale	0x995e9c452790c534
+c11-screen-over-wrap	0x20e99493b4e9d325
+c11-screen-over-transparent	0x19ba21540c4b7d65
+c11-screen-over-char0	0x19ba21540c4b7d65
+c11-mode7-screen-flip	0x93e13fc8c5c1d1a5
+c11-extbg-priority-split	0xa64e07273c768f25
+c11-mode7-direct-colour	0xc7ed3481b6cb7525
+c10-mode7-mosaic	0x586087cf95cd5325
+c11-mode7-window	0x1c813ed3a39c5ee8

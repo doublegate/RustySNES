@@ -905,7 +905,12 @@ test_restore := test_restore_impl
     sep #$20
     .a8
 
-    ; --- CGRAM: 128 entries, none equal, spread over red/green/blue ---
+    ; --- CGRAM: all 256 entries, none equal, spread over red/green/blue ---
+    ;
+    ; All 256, not the 128 a 4bpp mode can reach. An 8bpp or Mode 7 scene indexes the whole
+    ; palette, so leaving the upper half alone would have it render through whatever the previous
+    ; scene or test left in CGRAM — the same cross-scene contamination the per-scene canvas rebuild
+    ; exists to prevent, in the one place the rebuild was not reaching.
     stz CGADD
     rep #$30
     .a16
@@ -948,7 +953,7 @@ test_restore := test_restore_impl
     .a16
     .i16
     inx
-    cpx #128
+    cpx #256
     bne @pal
 
     ; --- BG1 tilemap: varying tile, palette and priority ---

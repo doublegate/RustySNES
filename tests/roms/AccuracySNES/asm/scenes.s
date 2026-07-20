@@ -124,6 +124,59 @@ SCENES_IMPL = 1
     rts
 .endproc
 
+; Mode 7 VRAM: tilemap in the low bytes, character data in the high bytes, one pass.
+.proc scene_mode7_vram
+    php
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$80
+    sta VMAIN
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+    stx VMADDL
+@cell:
+    ; low byte = tilemap entry: a 16x16 grid of distinct tiles across the 128x128 map.
+    txa
+    and #$007F                ; map column 0-127
+    lsr a
+    lsr a
+    lsr a                     ; column / 8 -> 0-15
+    sta f:V_TMP
+    txa
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a                     ; map row 0-127
+    lsr a
+    lsr a
+    lsr a                     ; row / 8 -> 0-15
+    asl a
+    asl a
+    asl a
+    asl a                     ; row block * 16
+    ora f:V_TMP               ; tile 0-255, distinct per 8x8 block of the map
+    and #$00FF
+    sta f:V_TMP
+    ; high byte = character data: the word index, so each tile is a colour gradient.
+    txa
+    and #$00FF
+    xba                       ; into the high byte
+    ora f:V_TMP
+    sta VMDATAL               ; one 16-bit store writes both halves
+    inx
+    cpx #$4000                ; 16384 words = the whole Mode 7 area
+    bne @cell
+    plp
+    rts
+.endproc
+
 ; c5-mode1-bg-priority — C5.02
 ; Mode 1 with BG1 and BG2 enabled at different priorities, each showing the font tiles already in VRAM through a distinct palette. Evidence for the mode-1 layer and priority ordering.
 .proc scene_c5_mode1_bg_priority
@@ -949,11 +1002,399 @@ SCENES_IMPL = 1
     rts
 .endproc
 
+; c11-mode7-identity — C5.08,C11.05
+; Mode 7 with the identity matrix and no scroll: one screen pixel is one map pixel. The baseline the other Mode 7 scenes are read against, and evidence for the byte-interleaved VRAM layout on its own — a core that reads the tilemap from the high bytes and the characters from the low bytes renders noise rather than the 16x16 grid of gradient tiles this lays down.
+.proc scene_c11_mode7_identity
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$07
+    sta $2105         ; BGMODE 7
+    jsr scene_mode7_vram
+    sep #$20
+    .a8
+    stz $211A         ; M7SEL: no flip, screen-over = wrap
+    stz $211B
+    lda #$01
+    sta $211B         ; M7A = $0100 (1.0)
+    stz $211C
+    stz $211C         ; M7B = 0
+    stz $211D
+    stz $211D         ; M7C = 0
+    stz $211E
+    sta $211E         ; M7D = $0100 (1.0)
+    stz $211F
+    stz $211F         ; M7X = 0
+    stz $2120
+    stz $2120         ; M7Y = 0
+    lda #$01
+    sta $212C         ; BG1 — the only layer Mode 7 has without EXTBG
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; c11-mode7-rotate-scale — C11.01
+; A rotation-and-scale matrix (A=D=$00B5, B=-$00B5, C=$00B5 — roughly 45 degrees at 0.7x) about a centre of (128,112). Evidence for the affine transform itself: a core that transposes the matrix, drops the centre subtraction, or applies the offsets in the wrong order produces a picture that is recognisably wrong rather than subtly so, because the tile grid makes the axes visible.
+.proc scene_c11_mode7_rotate_scale
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$07
+    sta $2105
+    jsr scene_mode7_vram
+    sep #$20
+    .a8
+    stz $211A
+    lda #$B5
+    sta $211B
+    stz $211B         ; M7A = $00B5
+    lda #$4B
+    sta $211C
+    lda #$FF
+    sta $211C         ; M7B = -$00B5
+    lda #$B5
+    sta $211D
+    stz $211D         ; M7C = $00B5
+    lda #$B5
+    sta $211E
+    stz $211E         ; M7D = $00B5
+    lda #128
+    sta $211F
+    stz $211F         ; M7X = 128
+    lda #112
+    sta $2120
+    stz $2120         ; M7Y = 112
+    lda #$01
+    sta $212C
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; c11-screen-over-wrap — C11.04
+; Zoomed out 8x (A=D=$0800) so the 1024x1024 map is smaller than the screen, with M7SEL bit 7 clear: the map REPEATS outside its bounds. The first of three scenes that differ only in M7SEL's top two bits, which is what makes the screen-over field legible — each mode is defined by how it differs from the other two.
+.proc scene_c11_screen_over_wrap
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$07
+    sta $2105
+    jsr scene_mode7_vram
+    sep #$20
+    .a8
+    stz $211A         ; M7SEL bit 7 clear: wrap
+    stz $211B
+    lda #$08
+    sta $211B         ; M7A = $0800 — 8x zoom out, so the map edge is on screen
+    stz $211C
+    stz $211C
+    stz $211D
+    stz $211D
+    stz $211E
+    sta $211E         ; M7D = $0800
+    stz $211F
+    stz $211F
+    stz $2120
+    stz $2120
+    lda #$01
+    sta $212C
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; c11-screen-over-transparent — C11.04
+; The same zoom with M7SEL bit 7 set and bit 6 clear: outside the map is TRANSPARENT, so the backdrop shows through and the map appears as a single tile floating on it. Must not hash the same as the wrap scene.
+.proc scene_c11_screen_over_transparent
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$07
+    sta $2105
+    jsr scene_mode7_vram
+    sep #$20
+    .a8
+    lda #$80
+    sta $211A         ; M7SEL: screen-over = transparent
+    stz $211B
+    lda #$08
+    sta $211B
+    stz $211C
+    stz $211C
+    stz $211D
+    stz $211D
+    stz $211E
+    sta $211E
+    stz $211F
+    stz $211F
+    stz $2120
+    stz $2120
+    lda #$01
+    sta $212C
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; c11-screen-over-char0 — C11.04
+; The same zoom again with both M7SEL top bits set: outside the map every pixel comes from character 0 instead. The third of the trio — and the one most likely to be missing, because a core that implements only wrap and transparent renders this identically to one of them.
+.proc scene_c11_screen_over_char0
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$07
+    sta $2105
+    jsr scene_mode7_vram
+    sep #$20
+    .a8
+    lda #$C0
+    sta $211A         ; M7SEL: screen-over = character 0
+    stz $211B
+    lda #$08
+    sta $211B
+    stz $211C
+    stz $211C
+    stz $211D
+    stz $211D
+    stz $211E
+    sta $211E
+    stz $211F
+    stz $211F
+    stz $2120
+    stz $2120
+    lda #$01
+    sta $212C
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; c11-mode7-screen-flip — C11.01
+; The identity matrix with M7SEL's horizontal and vertical flip bits both set. The flip is applied to the SCREEN coordinate before the transform, not to the result, so it is not the same as negating the matrix — a core that implements it as a negation gets the centre wrong and the picture lands somewhere else entirely.
+.proc scene_c11_mode7_screen_flip
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$07
+    sta $2105
+    jsr scene_mode7_vram
+    sep #$20
+    .a8
+    lda #$03
+    sta $211A         ; M7SEL bits 0 and 1: flip both axes
+    stz $211B
+    lda #$01
+    sta $211B
+    stz $211C
+    stz $211C
+    stz $211D
+    stz $211D
+    stz $211E
+    sta $211E
+    stz $211F
+    stz $211F
+    stz $2120
+    stz $2120
+    lda #$01
+    sta $212C
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; c11-extbg-priority-split — C11.09
+; EXTBG on (SETINI bit 6) with both BG1 and BG2 enabled. Mode 7 has one background, and EXTBG splits it in two by the pixel's high bit: pixels 0-127 become BG1, 128-255 become BG2 at its own priority. The character gradient runs through both halves, so the split appears as alternating bands rather than as a subtle ordering change.
+.proc scene_c11_extbg_priority_split
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$07
+    sta $2105
+    jsr scene_mode7_vram
+    sep #$20
+    .a8
+    lda #$40
+    sta $2133         ; SETINI bit 6: EXTBG
+    stz $211A
+    stz $211B
+    lda #$01
+    sta $211B
+    stz $211C
+    stz $211C
+    stz $211D
+    stz $211D
+    stz $211E
+    sta $211E
+    stz $211F
+    stz $211F
+    stz $2120
+    stz $2120
+    lda #$03
+    sta $212C         ; BG1 + BG2 — the two halves of the one Mode 7 layer
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; c11-mode7-direct-colour — C11.10
+; Direct colour on Mode 7 BG1, where it IS available (unlike EXTBG's BG2). The 8-bit pixel supplies the colour itself, so the canvas's 256 palette entries stop mattering — which is exactly what distinguishes this from `c11-mode7-identity`, the same scene with CGRAM still in the path.
+.proc scene_c11_mode7_direct_colour
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$07
+    sta $2105
+    jsr scene_mode7_vram
+    sep #$20
+    .a8
+    lda #$01
+    sta $2130         ; CGWSEL bit 0: direct colour
+    stz $211A
+    stz $211B
+    lda #$01
+    sta $211B
+    stz $211C
+    stz $211C
+    stz $211D
+    stz $211D
+    stz $211E
+    sta $211E
+    stz $211F
+    stz $211F
+    stz $2120
+    stz $2120
+    lda #$01
+    sta $212C
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; c10-mode7-mosaic — C10.05
+; Mosaic size 4 applied in Mode 7. The claim is that Mode 7 takes its vertical and horizontal mosaic from different bits than a tiled mode does, so this is read against `c10-mosaic-4x`: same MOSAIC register value, different mode, and the block structure must appear in both.
+.proc scene_c10_mode7_mosaic
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$07
+    sta $2105
+    jsr scene_mode7_vram
+    sep #$20
+    .a8
+    lda #$31
+    sta $2106         ; MOSAIC: size 4, enabled on BG1
+    stz $211A
+    stz $211B
+    lda #$01
+    sta $211B
+    stz $211C
+    stz $211C
+    stz $211D
+    stz $211D
+    stz $211E
+    sta $211E
+    stz $211F
+    stz $211F
+    stz $2120
+    stz $2120
+    lda #$01
+    sta $212C
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; c11-mode7-window — C11.11
+; A window clipping Mode 7's BG1 on the main screen, bounds 64..191. Windows act in SCREEN space, so the clipped band is a straight vertical edge regardless of how the map underneath is rotated — this scene rotates it, so a core that applies the window in map space produces a diagonal edge instead.
+.proc scene_c11_mode7_window
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$07
+    sta $2105
+    jsr scene_mode7_vram
+    sep #$20
+    .a8
+    stz $211A
+    lda #$B5
+    sta $211B
+    stz $211B
+    lda #$4B
+    sta $211C
+    lda #$FF
+    sta $211C
+    lda #$B5
+    sta $211D
+    stz $211D
+    lda #$B5
+    sta $211E
+    stz $211E
+    lda #128
+    sta $211F
+    stz $211F
+    lda #112
+    sta $2120
+    stz $2120
+    lda #$02
+    sta $2123         ; W12SEL: BG1 uses window 1
+    lda #64
+    sta $2126
+    lda #191
+    sta $2127
+    lda #$01
+    sta $212E         ; TMW: clip BG1
+    sta $212C
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
 .segment "CATALOG"
 .export _scene_count
 .export _scene_entries
 _scene_count:
-    .word 25
+    .word 35
 _scene_entries:
     .addr scene_c5_mode1_bg_priority
     .addr scene_c8_fixed_colour_add
@@ -980,3 +1421,13 @@ _scene_entries:
     .addr scene_c6_opt_enable_bit_bg1
     .addr scene_c6_opt_enable_bit_bg2
     .addr scene_c6_mode4_h_vs_v_select
+    .addr scene_c11_mode7_identity
+    .addr scene_c11_mode7_rotate_scale
+    .addr scene_c11_screen_over_wrap
+    .addr scene_c11_screen_over_transparent
+    .addr scene_c11_screen_over_char0
+    .addr scene_c11_mode7_screen_flip
+    .addr scene_c11_extbg_priority_split
+    .addr scene_c11_mode7_direct_colour
+    .addr scene_c10_mode7_mosaic
+    .addr scene_c11_mode7_window

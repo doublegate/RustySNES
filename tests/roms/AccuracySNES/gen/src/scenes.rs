@@ -799,6 +799,366 @@ pub const SCENES: &[Scene] = &[
             "sta $2100",
         ],
     },
+    Scene {
+        id: "c11-mode7-identity",
+        dossier: "C5.08,C11.05",
+        what: "Mode 7 with the identity matrix and no scroll: one screen pixel is one map pixel. \
+               The baseline the other Mode 7 scenes are read against, and evidence for the \
+               byte-interleaved VRAM layout on its own — a core that reads the tilemap from the \
+               high bytes and the characters from the low bytes renders noise rather than the \
+               16x16 grid of gradient tiles this lays down.",
+        setup: &[
+            "sep #$20",
+            "lda #$07",
+            "sta $2105         ; BGMODE 7",
+            "jsr scene_mode7_vram",
+            "sep #$20",
+            "stz $211A         ; M7SEL: no flip, screen-over = wrap",
+            "stz $211B",
+            "lda #$01",
+            "sta $211B         ; M7A = $0100 (1.0)",
+            "stz $211C",
+            "stz $211C         ; M7B = 0",
+            "stz $211D",
+            "stz $211D         ; M7C = 0",
+            "stz $211E",
+            "sta $211E         ; M7D = $0100 (1.0)",
+            "stz $211F",
+            "stz $211F         ; M7X = 0",
+            "stz $2120",
+            "stz $2120         ; M7Y = 0",
+            "lda #$01",
+            "sta $212C         ; BG1 — the only layer Mode 7 has without EXTBG",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c11-mode7-rotate-scale",
+        dossier: "C11.01",
+        what: "A rotation-and-scale matrix (A=D=$00B5, B=-$00B5, C=$00B5 — roughly 45 degrees at \
+               0.7x) about a centre of (128,112). Evidence for the affine transform itself: a \
+               core that transposes the matrix, drops the centre subtraction, or applies the \
+               offsets in the wrong order produces a picture that is recognisably wrong rather \
+               than subtly so, because the tile grid makes the axes visible.",
+        setup: &[
+            "sep #$20",
+            "lda #$07",
+            "sta $2105",
+            "jsr scene_mode7_vram",
+            "sep #$20",
+            "stz $211A",
+            "lda #$B5",
+            "sta $211B",
+            "stz $211B         ; M7A = $00B5",
+            "lda #$4B",
+            "sta $211C",
+            "lda #$FF",
+            "sta $211C         ; M7B = -$00B5",
+            "lda #$B5",
+            "sta $211D",
+            "stz $211D         ; M7C = $00B5",
+            "lda #$B5",
+            "sta $211E",
+            "stz $211E         ; M7D = $00B5",
+            "lda #128",
+            "sta $211F",
+            "stz $211F         ; M7X = 128",
+            "lda #112",
+            "sta $2120",
+            "stz $2120         ; M7Y = 112",
+            "lda #$01",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c11-screen-over-wrap",
+        dossier: "C11.04",
+        what: "Zoomed out 8x (A=D=$0800) so the 1024x1024 map is smaller than the screen, with \
+               M7SEL bit 7 clear: the map REPEATS outside its bounds. The first of three scenes \
+               that differ only in M7SEL's top two bits, which is what makes the screen-over \
+               field legible — each mode is defined by how it differs from the other two.",
+        setup: &[
+            "sep #$20",
+            "lda #$07",
+            "sta $2105",
+            "jsr scene_mode7_vram",
+            "sep #$20",
+            "stz $211A         ; M7SEL bit 7 clear: wrap",
+            "stz $211B",
+            "lda #$08",
+            "sta $211B         ; M7A = $0800 — 8x zoom out, so the map edge is on screen",
+            "stz $211C",
+            "stz $211C",
+            "stz $211D",
+            "stz $211D",
+            "stz $211E",
+            "sta $211E         ; M7D = $0800",
+            "stz $211F",
+            "stz $211F",
+            "stz $2120",
+            "stz $2120",
+            "lda #$01",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c11-screen-over-transparent",
+        dossier: "C11.04",
+        what: "The same zoom with M7SEL bit 7 set and bit 6 clear: outside the map is \
+               TRANSPARENT, so the backdrop shows through and the map appears as a single tile \
+               floating on it. Must not hash the same as the wrap scene.",
+        setup: &[
+            "sep #$20",
+            "lda #$07",
+            "sta $2105",
+            "jsr scene_mode7_vram",
+            "sep #$20",
+            "lda #$80",
+            "sta $211A         ; M7SEL: screen-over = transparent",
+            "stz $211B",
+            "lda #$08",
+            "sta $211B",
+            "stz $211C",
+            "stz $211C",
+            "stz $211D",
+            "stz $211D",
+            "stz $211E",
+            "sta $211E",
+            "stz $211F",
+            "stz $211F",
+            "stz $2120",
+            "stz $2120",
+            "lda #$01",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c11-screen-over-char0",
+        dossier: "C11.04",
+        what: "The same zoom again with both M7SEL top bits set: outside the map every pixel \
+               comes from character 0 instead. The third of the trio — and the one most likely to \
+               be missing, because a core that implements only wrap and transparent renders this \
+               identically to one of them.",
+        setup: &[
+            "sep #$20",
+            "lda #$07",
+            "sta $2105",
+            "jsr scene_mode7_vram",
+            "sep #$20",
+            "lda #$C0",
+            "sta $211A         ; M7SEL: screen-over = character 0",
+            "stz $211B",
+            "lda #$08",
+            "sta $211B",
+            "stz $211C",
+            "stz $211C",
+            "stz $211D",
+            "stz $211D",
+            "stz $211E",
+            "sta $211E",
+            "stz $211F",
+            "stz $211F",
+            "stz $2120",
+            "stz $2120",
+            "lda #$01",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c11-mode7-screen-flip",
+        dossier: "C11.01",
+        what: "The identity matrix with M7SEL's horizontal and vertical flip bits both set. The \
+               flip is applied to the SCREEN coordinate before the transform, not to the result, \
+               so it is not the same as negating the matrix — a core that implements it as a \
+               negation gets the centre wrong and the picture lands somewhere else entirely.",
+        setup: &[
+            "sep #$20",
+            "lda #$07",
+            "sta $2105",
+            "jsr scene_mode7_vram",
+            "sep #$20",
+            "lda #$03",
+            "sta $211A         ; M7SEL bits 0 and 1: flip both axes",
+            "stz $211B",
+            "lda #$01",
+            "sta $211B",
+            "stz $211C",
+            "stz $211C",
+            "stz $211D",
+            "stz $211D",
+            "stz $211E",
+            "sta $211E",
+            "stz $211F",
+            "stz $211F",
+            "stz $2120",
+            "stz $2120",
+            "lda #$01",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c11-extbg-priority-split",
+        dossier: "C11.09",
+        what: "EXTBG on (SETINI bit 6) with both BG1 and BG2 enabled. Mode 7 has one background, \
+               and EXTBG splits it in two by the pixel's high bit: pixels 0-127 become BG1, \
+               128-255 become BG2 at its own priority. The character gradient runs through both \
+               halves, so the split appears as alternating bands rather than as a subtle \
+               ordering change.",
+        setup: &[
+            "sep #$20",
+            "lda #$07",
+            "sta $2105",
+            "jsr scene_mode7_vram",
+            "sep #$20",
+            "lda #$40",
+            "sta $2133         ; SETINI bit 6: EXTBG",
+            "stz $211A",
+            "stz $211B",
+            "lda #$01",
+            "sta $211B",
+            "stz $211C",
+            "stz $211C",
+            "stz $211D",
+            "stz $211D",
+            "stz $211E",
+            "sta $211E",
+            "stz $211F",
+            "stz $211F",
+            "stz $2120",
+            "stz $2120",
+            "lda #$03",
+            "sta $212C         ; BG1 + BG2 — the two halves of the one Mode 7 layer",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c11-mode7-direct-colour",
+        dossier: "C11.10",
+        what: "Direct colour on Mode 7 BG1, where it IS available (unlike EXTBG's BG2). The \
+               8-bit pixel supplies the colour itself, so the canvas's 256 palette entries stop \
+               mattering — which is exactly what distinguishes this from `c11-mode7-identity`, \
+               the same scene with CGRAM still in the path.",
+        setup: &[
+            "sep #$20",
+            "lda #$07",
+            "sta $2105",
+            "jsr scene_mode7_vram",
+            "sep #$20",
+            "lda #$01",
+            "sta $2130         ; CGWSEL bit 0: direct colour",
+            "stz $211A",
+            "stz $211B",
+            "lda #$01",
+            "sta $211B",
+            "stz $211C",
+            "stz $211C",
+            "stz $211D",
+            "stz $211D",
+            "stz $211E",
+            "sta $211E",
+            "stz $211F",
+            "stz $211F",
+            "stz $2120",
+            "stz $2120",
+            "lda #$01",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c10-mode7-mosaic",
+        dossier: "C10.05",
+        what: "Mosaic size 4 applied in Mode 7. The claim is that Mode 7 takes its vertical and \
+               horizontal mosaic from different bits than a tiled mode does, so this is read \
+               against `c10-mosaic-4x`: same MOSAIC register value, different mode, and the block \
+               structure must appear in both.",
+        setup: &[
+            "sep #$20",
+            "lda #$07",
+            "sta $2105",
+            "jsr scene_mode7_vram",
+            "sep #$20",
+            "lda #$31",
+            "sta $2106         ; MOSAIC: size 4, enabled on BG1",
+            "stz $211A",
+            "stz $211B",
+            "lda #$01",
+            "sta $211B",
+            "stz $211C",
+            "stz $211C",
+            "stz $211D",
+            "stz $211D",
+            "stz $211E",
+            "sta $211E",
+            "stz $211F",
+            "stz $211F",
+            "stz $2120",
+            "stz $2120",
+            "lda #$01",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c11-mode7-window",
+        dossier: "C11.11",
+        what: "A window clipping Mode 7's BG1 on the main screen, bounds 64..191. Windows act in \
+               SCREEN space, so the clipped band is a straight vertical edge regardless of how \
+               the map underneath is rotated — this scene rotates it, so a core that applies the \
+               window in map space produces a diagonal edge instead.",
+        setup: &[
+            "sep #$20",
+            "lda #$07",
+            "sta $2105",
+            "jsr scene_mode7_vram",
+            "sep #$20",
+            "stz $211A",
+            "lda #$B5",
+            "sta $211B",
+            "stz $211B",
+            "lda #$4B",
+            "sta $211C",
+            "lda #$FF",
+            "sta $211C",
+            "lda #$B5",
+            "sta $211D",
+            "stz $211D",
+            "lda #$B5",
+            "sta $211E",
+            "stz $211E",
+            "lda #128",
+            "sta $211F",
+            "stz $211F",
+            "lda #112",
+            "sta $2120",
+            "stz $2120",
+            "lda #$02",
+            "sta $2123         ; W12SEL: BG1 uses window 1",
+            "lda #64",
+            "sta $2126",
+            "lda #191",
+            "sta $2127",
+            "lda #$01",
+            "sta $212E         ; TMW: clip BG1",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
 ];
 
 /// The comment block `scene_low_tiles` carries, split out only to keep `low_tiles_helper` inside
@@ -1030,6 +1390,80 @@ fn opt_map_helper() -> String {
     s
 }
 
+/// Emit `scene_mode7_vram`, which lays out the tilemap and character data a Mode 7 scene needs.
+///
+/// Mode 7 stores both in the same 16 KB of VRAM, interleaved by byte: the tilemap occupies the LOW
+/// byte of each word and the character data the HIGH byte (`C11.05`). That is what makes a single
+/// pass possible — one 16384-iteration loop writes a tilemap entry and a character byte at once,
+/// which is also the cheapest way to be sure the two halves cannot drift apart.
+///
+/// The map is a 16x16 grid of distinct tiles so that rotation, flipping and screen-over all have
+/// something legible to act on; the character bytes are the word index, giving each tile a smooth
+/// gradient across the palette. Colour 0 is transparent, so a little of the backdrop shows through
+/// — deliberate, since a fully opaque field would hide the screen-over cases entirely.
+///
+/// Width-neutral (`php`/`plp`).
+fn mode7_vram_helper() -> String {
+    let mut s = String::new();
+    let mut w = |line: &str| {
+        let _ = writeln!(s, "{line}");
+    };
+    w("");
+    w("; Mode 7 VRAM: tilemap in the low bytes, character data in the high bytes, one pass.");
+    w(".proc scene_mode7_vram");
+    w("    php");
+    w("    .a16");
+    w("    .i16");
+    w("    sep #$20");
+    w("    .a8");
+    w("    lda #$80");
+    w("    sta VMAIN");
+    w("    rep #$30");
+    w("    .a16");
+    w("    .i16");
+    w("    ldx #$0000");
+    w("    stx VMADDL");
+    w("@cell:");
+    w("    ; low byte = tilemap entry: a 16x16 grid of distinct tiles across the 128x128 map.");
+    w("    txa");
+    w("    and #$007F                ; map column 0-127");
+    w("    lsr a");
+    w("    lsr a");
+    w("    lsr a                     ; column / 8 -> 0-15");
+    w("    sta f:V_TMP");
+    w("    txa");
+    w("    lsr a");
+    w("    lsr a");
+    w("    lsr a");
+    w("    lsr a");
+    w("    lsr a");
+    w("    lsr a");
+    w("    lsr a                     ; map row 0-127");
+    w("    lsr a");
+    w("    lsr a");
+    w("    lsr a                     ; row / 8 -> 0-15");
+    w("    asl a");
+    w("    asl a");
+    w("    asl a");
+    w("    asl a                     ; row block * 16");
+    w("    ora f:V_TMP               ; tile 0-255, distinct per 8x8 block of the map");
+    w("    and #$00FF");
+    w("    sta f:V_TMP");
+    w("    ; high byte = character data: the word index, so each tile is a colour gradient.");
+    w("    txa");
+    w("    and #$00FF");
+    w("    xba                       ; into the high byte");
+    w("    ora f:V_TMP");
+    w("    sta VMDATAL               ; one 16-bit store writes both halves");
+    w("    inx");
+    w("    cpx #$4000                ; 16384 words = the whole Mode 7 area");
+    w("    bne @cell");
+    w("    plp");
+    w("    rts");
+    w(".endproc");
+    s
+}
+
 /// Emit the scene setup routines and the dispatch table the runtime walks.
 #[must_use]
 pub fn asm() -> String {
@@ -1046,6 +1480,7 @@ pub fn asm() -> String {
 
     s.push_str(&low_tiles_helper());
     s.push_str(&opt_map_helper());
+    s.push_str(&mode7_vram_helper());
 
     for sc in SCENES {
         let _ = writeln!(s, "\n; {} — {}", sc.id, sc.dossier);

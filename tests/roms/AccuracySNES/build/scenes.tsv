@@ -24,3 +24,13 @@
 23	c6-opt-enable-bit-bg1	C6.01
 24	c6-opt-enable-bit-bg2	C6.01
 25	c6-mode4-h-vs-v-select	C6.02
+26	c11-mode7-identity	C5.08,C11.05
+27	c11-mode7-rotate-scale	C11.01
+28	c11-screen-over-wrap	C11.04
+29	c11-screen-over-transparent	C11.04
+30	c11-screen-over-char0	C11.04
+31	c11-mode7-screen-flip	C11.01
+32	c11-extbg-priority-split	C11.09
+33	c11-mode7-direct-colour	C11.10
+34	c10-mode7-mosaic	C10.05
+35	c11-mode7-window	C11.11
