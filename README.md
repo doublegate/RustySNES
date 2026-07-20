@@ -52,7 +52,9 @@ building toward the same modern-feature breadth as its sibling project
 - **Reference-grade accuracy** — a from-scratch core on a 21.477 MHz NTSC master clock with a
   lockstep scheduler for every chip. The 5A22 CPU's variable-cycle (6/8/12) instruction timings
   and dot-accurate PPU/HDMA behavior are cycle-exact, not approximated: the 65C816 and SPC700 both
-  clear their per-opcode SingleStepTests oracles at 0-diff.
+  clear their per-opcode oracles at 0-diff, cycle-by-cycle including the bus-pin trace. On what
+  those oracles are and are not evidence of, see
+  [Oracle provenance](#oracle-provenance-what-0-diff-does-and-does-not-mean).
 - **Determinism as a hard contract** — the asynchronous SPC700/S-DSP audio processor is kept
   perfectly coherent with the main CPU through an integer relative-time accumulator, with no
   floating point in the timing path. The same seed, ROM, and input sequence yield a bit-identical
@@ -78,7 +80,7 @@ building toward the same modern-feature breadth as its sibling project
 
 | Feature | Description |
 | --- | --- |
-| **Cycle-Accurate Core** | 65C816 + SPC700 both 0-diff vs. their SingleStepTests per-opcode oracles; a master-clock lockstep scheduler; dot-accurate PPU/HDMA/interrupts |
+| **Cycle-Accurate Core** | 65C816 + SPC700 both 0-diff vs. their per-opcode oracles ([provenance](#oracle-provenance-what-0-diff-does-and-does-not-mean)); a master-clock lockstep scheduler; dot-accurate PPU/HDMA/interrupts |
 | **11 Coprocessors** | DSP-1, Super FX/GSU, SA-1 (Core/Curated, oracle-gated); DSP-2/4, ST010, CX4, OBC1, S-DD1 (BestEffort, real-title validated); ST018, S-RTC (BestEffort, unit-tested); SPC7110 (implemented — the local dump is a ROM-sourcing gap, not an open bug) |
 | **Native Desktop Frontend** | `winit` + `wgpu` + `cpal` + `egui`; keyboard + gamepad input, drag-and-drop/zip-archived ROM loading, automatic coprocessor-firmware + `.srm` SRAM loading |
 | **WebAssembly Build** | The SAME `App`/egui shell as native (`wasm-winit`), deployed live at the hosted demo, plus a lighter canvas-2D fallback (`wasm-canvas`), a PWA/offline service worker, and a `<5 MiB` gzip size-budget CI gate |
@@ -141,9 +143,11 @@ frames spanning every LoROM/HiROM × coprocessor combination in the local ROM co
   line) work without per-quirk patches.
 - **Cycle-accurate WDC 65C816 (Ricoh 5A22)** — all opcodes and addressing modes, native and
   emulation mode, variable 6/8/12-cycle bus access timing, `REP`/`SEP`/`XCE`, and cycle-exact
-  interrupt/DMA timing — 0-diff (state + cycles) against the SingleStepTests/65816 oracle
+  interrupt/DMA timing — 0-diff (state + cycles) against the committed per-opcode oracle, which
+  was bootstrap-validated against SingleStepTests/65816 before being frozen
   (5,119,999 / 5,120,000; the one residual is a documented inter-reference divergence, not a bug —
-  [`docs/adr/0002`](docs/adr/0002-fractional-timebase-refactor.md)).
+  [`docs/adr/0002`](docs/adr/0002-fractional-timebase-refactor.md),
+  [`docs/adr/0005`](docs/adr/0005-65816-opcode-oracle-license.md)).
 - **Cycle-accurate PPU1 (5C77) + PPU2 (5C78)** — BG modes 0-7, Mode 7 affine transforms, the full
   128-sprite OAM pipeline, color math, windows, and a per-scanline compositor that renders each
   line one dot before that line's own HDMA can mutate the registers it reads, matching real
@@ -152,7 +156,9 @@ frames spanning every LoROM/HiROM × coprocessor combination in the local ROM co
   with the main CPU via an integer relative-time accumulator (no floating point in the timing
   path), and the S-DSP is itself cycle-stepped (32 ticks per 32 kHz sample) so a mid-instruction
   DSP-register read sees cycle-correct envelope state. 0-diff against the SingleStepTests/spc700
-  oracle (256,000 / 256,000) and a literal `PASSED TESTS` verdict on all four blargg `spc_*` ROMs.
+  oracle (256,000 / 256,000) and a literal `PASSED TESTS` verdict on all four blargg `spc_*` ROMs
+  — the blargg ROMs being the stronger evidence of the two, since they run on real hardware
+  ([provenance](#oracle-provenance-what-0-diff-does-and-does-not-mean)).
 
 ### Cartridges and coprocessors
 
@@ -450,14 +456,18 @@ Run `rustysnes help controls` / `help gamepad` for the full reference.
 
 ## Compatibility and Accuracy
 
-RustySNES doesn't have one monolithic all-in-one oracle ROM (the way RustyNES's AccuracyCoin
-does for the NES) — no publicly available SNES ROM plays that role. Instead, accuracy is a
+No *publicly available* SNES ROM plays the role AccuracyCoin plays for the NES, so RustySNES
+wrote one: **AccuracySNES** ([`tests/roms/AccuracySNES/`](tests/roms/AccuracySNES/)), a
+first-party, dual-MIT/Apache-2.0 self-scoring test cartridge. It runs with no input, publishes its
+verdicts to WRAM, and is cross-validated headlessly against Mesen2 and snes9x — the identical image
+runs unmodified on other emulators and on real hardware. Around it, accuracy is a
 **composed multi-layer battery** across independently-sourced suites
 ([`docs/testing-strategy.md`](docs/testing-strategy.md)); each layer's own status is tracked
 here, always current, reaffirmed every release:
 
 | Layer | Result |
 | --- | --- |
+| AccuracySNES (first-party self-scoring cartridge) | **100.00%** — 120 / 120 scoring, plus 6 golden vectors; agrees with Mesen2 and snes9x |
 | CPU (65C816) per-opcode oracle | **0-diff** — 5,119,999 / 5,120,000 (the one residual is a documented inter-reference divergence, not a bug — [`docs/adr/0002`](docs/adr/0002-fractional-timebase-refactor.md)) |
 | SPC700 per-opcode oracle | **0-diff, 100.00%** — 256,000 / 256,000 |
 | On-cart CPU (gilyon `cputest-basic`) | **green** — 1107 / 1107 "Success" |
@@ -467,6 +477,36 @@ here, always current, reaffirmed every release:
 | BestEffort coprocessors, real-title validated | **6 / 9** — DSP-2, DSP-4, ST010, S-DD1, CX4, OBC1 |
 | BestEffort coprocessors, unit-test only | **3 / 9** — SPC7110 (ROM-sourcing gap, not a bug), ST018, S-RTC |
 | Determinism contract | **proven** — bit-identical framebuffer/audio across runs; save-state round-trip proven across all three board tiers |
+
+### Oracle provenance: what "0-diff" does and does not mean
+
+A pass rate is only worth what its oracle is worth, so it is worth being precise about where each
+one comes from — `docs/adr/0003`'s honesty gate exists for exactly this reason.
+
+**The per-opcode oracles are consistency evidence, not hardware evidence.** The 65816 corpus
+RustySNES gates on in CI is **self-generated** and committed, because the upstream
+SingleStepTests/65816 set ships no licence and cannot be vendored into an MIT/Apache tree
+([`docs/adr/0005`](docs/adr/0005-65816-opcode-oracle-license.md)). A self-generated oracle would
+otherwise freeze its own bugs, so before it was frozen the core had to agree opcode-for-opcode and
+cycle-for-cycle with the upstream set *and* with a second independent reference. That bootstrap is
+what the "0-diff" number rests on.
+
+The caveat worth stating plainly: **SingleStepTests' vectors are themselves emulator-generated.**
+Its documentation says they are produced by "an implementation" that conforms to available
+documentation and passes other published test sets. Agreement with it demonstrates that RustySNES
+matches the consensus of other implementations — genuinely useful, and *not* the same as matching
+silicon. The same applies to its MIT-licensed `spc700` sibling.
+
+**The stronger evidence is elsewhere in the table**, and is weighted accordingly: the blargg
+`spc_*` ROMs, the gilyon `cputest-basic` ROM and the undisbeliever golden framebuffers are all
+real test ROMs that run on real hardware. AccuracySNES is deliberately built on manufacturer
+documentation and hardware measurement rather than on any emulator, and it records rather than
+scores wherever the sources genuinely disagree
+([`docs/accuracysnes-timing-oracle.md`](docs/accuracysnes-timing-oracle.md)).
+
+**The honest ceiling, stated once:** nothing here has been run on a real SNES. Every result is
+software agreeing with software. A flash-cart run of AccuracySNES would convert "three emulators
+agree" into "hardware says so", and nothing short of that will.
 
 **Named residuals, tracked not hidden:** the 65816 `e1.e` inter-reference divergence; DSP-3 and
 ST011 have no board wired yet; SPC7110's one locally available dump turned out to be a
@@ -482,9 +522,9 @@ validation yet. The full per-suite breakdown and the coprocessor coverage matrix
 `scripting`, `cheats`, `netplay`, `retroachievements`, `hd-pack`, `emu-thread`) is a frontend tap
 or opt-in flag, so the default/native/`no_std`/wasm builds stay byte-identical when off.
 
-> A note on test counts: RustySNES is validated by closed-form oracle ROMs (SingleStepTests,
-> gilyon, undisbeliever, blargg) and per-coprocessor commercial-ROM suites, not by a headline unit
-> test number alone (unit/integration tests run in `cargo test --workspace`, separate from the
+> A note on test counts: RustySNES is validated by closed-form oracle ROMs (AccuracySNES,
+> SingleStepTests, gilyon, undisbeliever, blargg) and per-coprocessor commercial-ROM suites, not by
+> a headline unit test number alone (unit/integration tests run in `cargo test --workspace`, separate from the
 > oracle suites above, which need `--features test-roms`). When a doc and a passing test ROM
 > disagree, **the ROM wins** — that is this project's definition of "cycle-accurate."
 
@@ -698,7 +738,8 @@ If you use RustySNES in academic research, please cite:
   version = {1.8.0},
   url     = {https://github.com/doublegate/RustySNES},
   note    = {Cycle-accurate SNES/Super Famicom emulator on a master-clock-precise scheduler;
-             65C816 and SPC700 both 0-diff against SingleStepTests; 11 cartridge coprocessors
+             65C816 and SPC700 both 0-diff against their per-opcode oracles; AccuracySNES,
+             a first-party self-scoring hardware-accuracy cartridge; 11 cartridge coprocessors
              (DSP-1, Super FX/GSU, SA-1, DSP-2/4, ST010, S-DD1, CX4, OBC1, SPC7110, ST018,
              S-RTC), save states with rewind/run-ahead, Lua 5.4 scripting with a deterministic
              TAS format, GGPO-style rollback netplay, RetroAchievements, and a multi-panel
