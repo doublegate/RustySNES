@@ -38,6 +38,8 @@ pub fn all() -> Vec<Test> {
         e3_01(),
         e3_11(),
         dsp_addressing(),
+        e2_01(),
+        e2_05(),
         e3_14(),
         dsp_global_regs(),
         e9_19(),
@@ -826,6 +828,109 @@ fn dsp_global_regs() -> Test {
         'E',
         "DSP global registers",
         Provenance::Documented("SNESdev Wiki, S-DSP registers; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Direct-page indexing wraps inside the page.
+///
+/// `MOV A,$FF+X` with `X = 2` reads direct-page `$01`, not `$0101`. The index is added to the
+/// 8-bit offset and the result stays in the page the `P` flag selects — it does not carry into the
+/// page above. A core that computes the address as a 16-bit sum reads a byte from the wrong page
+/// entirely, which is silent until something lives there.
+fn e2_05() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_dp_imm(0x01, 0x5A) // where a wrapped index must land
+        .mov_dp_imm(0xFF, 0x99) // and where the un-indexed offset points
+        .mov_x_imm(0x02)
+        .mov_a_dp_x(0xFF) // $FF + 2 -> $01 if it wraps, $0101 if it does not
+        .mov_dp_a(PORT2)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x5A,
+        "$FF + X did not wrap within the direct page; a 16-bit sum would read $0101 instead",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E2.05",
+        'E',
+        "DP index wraps in page",
+        Provenance::Documented("SNESdev Wiki, SPC700 addressing; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// A store to a timer counter clears it, because stores dummy-read their destination.
+///
+/// `MOV $FD,A` writes nothing useful — the counter is read-only — but the instruction reads its
+/// destination first, and reading a timer counter *consumes* it. So a store to `$FD` clears
+/// Timer 0 as surely as a load does, which is a trap for any driver that "initialises" the
+/// counters by writing them.
+///
+/// Checked as a differential: the same delay is run twice, once with the store in the middle and
+/// once without. Without the store the counter must have advanced; with it, the reading afterwards
+/// must be smaller. Absolute counts are not asserted because they depend on the delay loop's exact
+/// cost, which is not what this is about.
+fn e2_01() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_dp_imm(0xFA, 0x01) // T0DIV = 1
+        .mov_dp_imm(0xF1, 0x81) // enable timer 0, and KEEP the IPL ROM mapped (bit 7)
+        // --- control: delay, then read. The counter must have advanced. ---
+        .delay(0x00)
+        .mov_a_dp(0xFD)
+        .mov_dp_a(PORT2)
+        // --- the store: delay again, store to $FD, then read. The store's dummy read cleared it. ---
+        .delay(0x00)
+        .mov_a_imm(0x00)
+        .mov_dp_a(0xFD) // MOV $FD,A — a store, whose dummy read consumes the counter
+        .mov_a_dp(0xFD)
+        .mov_dp_a(PORT3)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("Control first: without a store in the way, the counter advanced.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        2,
+        15,
+        "timer 0 did not advance over the control delay, so the check below is vacuous — it would \
+         pass on a counter that was empty the whole time",
+    );
+    a.c("And immediately after the store the counter is essentially empty. Asserted directly");
+    a.c("rather than as a difference: a core that does NOT clear leaves an arbitrary value there,");
+    a.c("and an arbitrary value lands inside a difference range often enough to pass by luck.");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0,
+        1,
+        "the counter was not empty immediately after a store to $FD, so the store's dummy read \
+         did not consume it",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E2.01",
+        'E',
+        "Store dummy-reads target",
+        Provenance::Documented("SNESdev Wiki, SPC700; fullsnes — flagged as errata"),
         Kind::Scored,
         None,
     )

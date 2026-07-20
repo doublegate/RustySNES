@@ -8701,6 +8701,240 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; E2.01 — Store dummy-reads target
+; provenance: Documented (SNESdev Wiki, SPC700; fullsnes — flagged as errata)
+.proc test_e2_01
+    .a16
+    .i16
+    bra @body
+@prog:
+    .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $81, $F1, $8D, $00, $FE
+    .byte $FE, $E4, $FD, $C4, $F6, $8D, $00, $FE, $FE, $E8, $00, $C4
+    .byte $FD, $E4, $FD, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68
+    .byte $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image.
+    lda #@prog
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    phk
+    pla
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #46
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    ; Control first: without a store in the way, the counter advanced.
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0101
+    and #$00FF
+    cmp #$0002
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0010
+    bcc :+
+    jmp @fail1
+  :
+    ; And immediately after the store the counter is essentially empty. Asserted directly
+    ; rather than as a difference: a core that does NOT clear leaves an arbitrary value there,
+    ; and an arbitrary value lands inside a difference range often enough to pass by luck.
+    lda f:$7E0102
+    and #$00FF
+    cmp #$0000
+    bcs :+
+    jmp @fail2
+  :
+    cmp #$0002
+    bcc :+
+    jmp @fail2
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jmp test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; timer 0 did not advance over the control delay, so the check below is vacuous — it would pass on a counter that was empty the whole time
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; the counter was not empty immediately after a store to $FD, so the store's dummy read did not consume it
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; E2.05 — DP index wraps in page
+; provenance: Documented (SNESdev Wiki, SPC700 addressing; fullsnes)
+.proc test_e2_05
+    .a16
+    .i16
+    bra @body
+@prog:
+    .byte $CD, $EF, $BD, $8F, $5A, $01, $8F, $99, $FF, $CD, $02, $F4
+    .byte $FF, $C4, $F6, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0
+    .byte $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image.
+    lda #@prog
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    phk
+    pla
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #32
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    sep #$20
+    .a8
+    lda f:$7E0101
+    cmp #$5A
+    beq :+
+    jmp @fail1
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jmp test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; $FF + X did not wrap within the direct page; a 16-bit sum would read $0101 instead
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 ; E3.14 — $F8/$F9 are plain RAM
 ; provenance: Documented (SNESdev Wiki, SPC700 I/O; fullsnes)
 .proc test_e3_14
@@ -12188,7 +12422,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 162
+    .word 164
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -12317,6 +12551,8 @@ _test_entries:
     .addr test_e3_01
     .addr test_e3_11
     .addr test_e3_11b
+    .addr test_e2_01
+    .addr test_e2_05
     .addr test_e3_14
     .addr test_e3_11c
     .addr test_e9_19
@@ -12482,6 +12718,8 @@ _test_flags:
     .byte $01   ; E3.01
     .byte $01   ; E3.11
     .byte $01   ; E3.11b
+    .byte $01   ; E2.01
+    .byte $01   ; E2.05
     .byte $01   ; E3.14
     .byte $01   ; E3.11c
     .byte $01   ; E9.19
@@ -12647,6 +12885,8 @@ _test_names:
     .addr @n_e3_01
     .addr @n_e3_11
     .addr @n_e3_11b
+    .addr @n_e2_01
+    .addr @n_e2_05
     .addr @n_e3_14
     .addr @n_e3_11c
     .addr @n_e9_19
@@ -13059,6 +13299,12 @@ _test_names:
 @n_e3_11b:
     .byte 23
     .byte "DSP register addressing"
+@n_e2_01:
+    .byte 24
+    .byte "Store dummy-reads target"
+@n_e2_05:
+    .byte 22
+    .byte "DP index wraps in page"
 @n_e3_14:
     .byte 21
     .byte "$F8/$F9 are plain RAM"

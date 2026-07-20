@@ -114,6 +114,12 @@ impl Spc {
         self.push(&[0xE4, dp])
     }
 
+    /// `MOV A,dp+X` — `$F4`. The index wraps **within the direct page**, so `$FF + 2` is `$01`,
+    /// not `$0101`.
+    pub fn mov_a_dp_x(&mut self, dp: u8) -> &mut Self {
+        self.push(&[0xF4, dp])
+    }
+
     /// `CMP A,#imm` — `$68`.
     pub fn cmp_a_imm(&mut self, v: u8) -> &mut Self {
         self.push(&[0x68, v])

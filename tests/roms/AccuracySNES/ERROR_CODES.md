@@ -1059,6 +1059,23 @@ Provenance: **Documented** (SNESdev Wiki, S-DSP registers; fullsnes). Kind: scor
 | 2 | `$04` | voice 0's VOLL did not read back; if it holds voice 1's value the voices are aliased |
 | 3 | `$06` | MVOLL did not read back |
 
+### E2.01 — Store dummy-reads target
+
+Provenance: **Documented** (SNESdev Wiki, SPC700; fullsnes — flagged as errata). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | timer 0 did not advance over the control delay, so the check below is vacuous — it would pass on a counter that was empty the whole time |
+| 2 | `$04` | the counter was not empty immediately after a store to $FD, so the store's dummy read did not consume it |
+
+### E2.05 — DP index wraps in page
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 addressing; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | $FF + X did not wrap within the direct page; a 16-bit sum would read $0101 instead |
+
 ### E3.14 — $F8/$F9 are plain RAM
 
 Provenance: **Documented** (SNESdev Wiki, SPC700 I/O; fullsnes). Kind: scored.

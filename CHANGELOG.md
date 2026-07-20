@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **SPC700 memory-access side effects (`E2`).** `E2.05`: direct-page indexing wraps *inside* the
+  page, so `$FF + X` with `X = 2` reads `$01` and not `$0101` — a core computing a 16-bit sum reads
+  from the wrong page entirely, which is silent until something lives there. `E2.01`: a store
+  dummy-reads its destination, so `MOV $FD,A` **clears Timer 0** even though the counter is
+  read-only — a trap for any driver that "initialises" the counters by writing them.
+
+  `E2.01` first asserted the store's effect as a *difference* from a control reading, and that
+  version failed on snes9x. The core was right and the assertion was weak: a core that does not
+  clear leaves an arbitrary value there, and an arbitrary value lands inside a difference range
+  often enough to pass or fail by luck. Asserting the post-store reading directly (empty, against a
+  control that must have advanced) is both stronger and stable on all three.
+
 - **First S-DSP behaviour tests, now that the DSP is reachable.** `E9.19`: writing `ENDX` clears
   it — any write, regardless of value — so a core modelling it as ordinary storage returns what was
   written, and a driver polling for sample-end sees "every voice finished" forever. The assertion
@@ -221,10 +233,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **162 tests — 150 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **164 tests — 152 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **120 of 443** on-cart plus **42** scene-only —
-**162 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier. Dossier coverage is **122 of 443** on-cart plus **42** scene-only —
+**164 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 
