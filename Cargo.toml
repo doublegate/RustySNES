@@ -18,6 +18,7 @@ members = [
     "crates/rustysnes-frontend",
     "crates/rustysnes-libretro",
     "crates/rustysnes-test-harness",
+    "tests/roms/AccuracySNES/gen",
 ]
 
 [workspace.package]

@@ -1,11 +1,13 @@
-//! `rustysnes-test-harness` — the AccuracyCoin-equivalent gate. Reuse the RustyNES harness
-//! SHAPE (don't reinvent): a CPU golden-log differ, a `run_until_complete()` test-ROM runner,
-//! the accuracy-battery scorer, a visual-golden/`.snap` comparator, and (when board breadth is
-//! large) the `mapper_tier_honesty` test that forbids a `BestEffort` board backing the
-//! accuracy oracle. See `docs/testing-strategy.md`.
+//! `rustysnes-test-harness` — the accuracy gate. See `docs/testing-strategy.md`.
 //!
-//! Each piece is a SKELETON with a clear surface + `TODO(T-PS-NNN)` markers; the real driving
-//! logic lands once the chip models exist (test-ROM-is-spec).
+//! The real oracles are the integration tests in `tests/`: the per-opcode 65816 and SPC700 JSON
+//! runners, the on-cart suites (gilyon, undisbeliever, blargg `spc_*`), the coprocessor
+//! liveness checks, the board-tier honesty gate, and — since Phase A of the AccuracySNES work —
+//! `tests/accuracysnes.rs`, which drives this project's own first-party hardware-accuracy
+//! cartridge (`tests/roms/AccuracySNES/`).
+//!
+//! This library holds the small shared pieces those tests build on. Some of it is still
+//! skeletal (`runner`, `golden_log`); each such item says so in its own docs.
 
 #![warn(missing_docs)]
 
@@ -14,7 +16,7 @@ pub mod golden_log;
 pub mod runner;
 pub mod visual;
 
-pub use accuracy_battery::{AccuracyReport, score_accuracy_battery};
+pub use accuracy_battery::AccuracyReport;
 pub use golden_log::{GoldenLine, diff_against_golden};
 pub use runner::{TestResult, run_until_complete};
 pub use visual::{FrameHash, compare_snapshot};

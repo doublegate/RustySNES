@@ -1,0 +1,8 @@
+AccuracySNES is part of RustySNES and is dual-licensed, at your option, under either:
+
+  * Apache License, Version 2.0 (see ../../../LICENSE-APACHE)
+  * MIT license                 (see ../../../LICENSE-MIT)
+
+This includes the cartridge source (gen/, asm/), the generated 65816 assembly, the embedded
+8x8 font, and the built accuracysnes.sfc image. All of it is original work; no third-party
+test ROM, font, or reference source is vendored or derived from.

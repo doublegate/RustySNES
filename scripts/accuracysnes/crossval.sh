@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Cross-validate AccuracySNES against independent reference emulators.
+#
+# The in-repo harness proves the cart agrees with RustySNES, which on its own proves nothing —
+# we wrote both. This script runs the same image on emulators we did not write. Agreement means
+# the expected values are defensible; disagreement is a finding either way.
+#
+# Two independent lineages are covered:
+#   * Mesen2   — via its headless --testrunner plus a Lua script that reads the results block.
+#   * snes9x   — via a tiny libretro host that reads RETRO_MEMORY_SYSTEM_RAM directly.
+#
+# bsnes and ares are deliberately NOT here, for concrete reasons:
+#   * bsnes' libretro target stubs out retro_get_memory_data entirely (returns nullptr), so there
+#     is no way to read WRAM from it headlessly.
+#   * ares has no headless mode and no memory-dump CLI at all.
+#   * Separately, ares' wdc65816 core is a lineal copy of bsnes' (a full diff shows only type
+#     renames), so even if both could be driven they would count as one opinion, not two.
+# Those two are covered by source review instead — see docs/accuracysnes-research-dossier.md.
+#
+# Usage:  scripts/accuracysnes/crossval.sh
+# Exit:   0 if every available reference agrees (zero failing tests), non-zero otherwise.
+
+set -uo pipefail
+cd "$(dirname "$0")/../.."
+
+ROM=tests/roms/AccuracySNES/build/accuracysnes.sfc
+HOST=${TMPDIR:-/tmp}/accuracysnes_lrcv
+MESEN=ref-proj/Mesen2/bin/linux-x64/Release/linux-x64/publish/Mesen.dll
+SNES9X=ref-proj/snes9x/libretro/snes9x_libretro.so
+
+if [[ ! -f $ROM ]]; then
+    echo "error: $ROM not found — run 'cargo run -p accuracysnes-gen' first" >&2
+    exit 1
+fi
+
+rc=0
+ran=0
+
+# --- snes9x, via the libretro host --------------------------------------------------------------
+if [[ -f $SNES9X ]]; then
+    cc -O2 -o "$HOST" scripts/accuracysnes/libretro_crossval.c -ldl || exit 1
+    echo "=== snes9x (libretro) ==="
+    if "$HOST" "$SNES9X" "$ROM" 1200; then
+        echo "snes9x: OK"
+    else
+        echo "snes9x: $? failing test(s)" >&2
+        rc=1
+    fi
+    ran=$((ran + 1))
+else
+    echo "skip snes9x: build it with 'make -C ref-proj/snes9x/libretro'" >&2
+fi
+
+# --- Mesen2, via its headless test runner --------------------------------------------------------
+if [[ -f $MESEN ]] && command -v dotnet >/dev/null; then
+    echo "=== Mesen2 (headless test runner) ==="
+    dotnet "$MESEN" --testrunner "$ROM" scripts/accuracysnes/mesen_crossval.lua --timeout=60 \
+        >/dev/null 2>&1
+    code=$?
+    case $code in
+        0)   echo "Mesen2: OK (0 failing tests)" ;;
+        253) echo "Mesen2: results block never appeared (bad magic)" >&2; rc=1 ;;
+        254) echo "Mesen2: timed out before the battery finished" >&2; rc=1 ;;
+        *)   echo "Mesen2: $code failing test(s)" >&2; rc=1 ;;
+    esac
+    ran=$((ran + 1))
+else
+    echo "skip Mesen2: build it with 'make -C ref-proj/Mesen2'" >&2
+fi
+
+if [[ $ran -eq 0 ]]; then
+    echo "error: no reference emulator available; nothing was cross-validated" >&2
+    exit 2
+fi
+
+echo
+if [[ $rc -eq 0 ]]; then
+    echo "cross-validation: $ran reference(s) agree with the cart"
+else
+    echo "cross-validation: DISAGREEMENT — investigate before trusting the pass rate" >&2
+fi
+exit $rc

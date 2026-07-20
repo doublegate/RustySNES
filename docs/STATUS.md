@@ -203,12 +203,22 @@ are implemented and shipped — see the frontend and memory-map-model tables bel
 
 ## Accuracy dashboard
 
-RustySNES doesn't have one monolithic all-in-one oracle ROM the way RustyNES's AccuracyCoin does.
-An early skeleton for exactly that approach exists (`rustysnes-test-harness::accuracy_battery`,
-ticket T-04) but was never implemented and has since been superseded — no publicly available
-SNES ROM plays the AccuracyCoin role, and the composed multi-suite approach below is what
-actually shipped; that skeleton is tracked as dead code to remove in a follow-up, not a competing
-source of truth. The accuracy story here is instead a **composed multi-layer battery** across
+RustySNES now **does** have a monolithic all-in-one oracle ROM: **AccuracySNES**
+(`tests/roms/AccuracySNES/`), first-party and MIT OR Apache-2.0. This closes ticket **T-04**,
+which had stood open on the grounds that no publicly available SNES ROM played the AccuracyCoin
+role — true then, and the reason the answer was to write one. The `accuracy_battery` skeleton
+that was tracked as dead code is gone; its `AccuracyReport` tally type survives and is what the
+battery scores through.
+
+AccuracySNES is self-scoring (the cart decides pass/fail on-cart and publishes a WRAM results
+block, so the same image runs unmodified on ares/bsnes/Mesen2/real hardware), and every test
+declares a **provenance tier** — only `Documented`/`Corroborated` tests may contribute to the
+pass rate, with `Contested`/`Novel` recorded but never counted. Behaviour hardware does not
+define is captured as a **golden vector**, never scored. **Real-hardware validation has not been
+done and is the honest ceiling on its authority.**
+
+The composed multi-suite battery below remains in force alongside it — AccuracySNES adds a layer,
+it does not replace the per-opcode oracles. The accuracy story here is instead a **composed multi-layer battery** across
 independently-sourced suites (`docs/testing-strategy.md`). Rather than force these heterogeneous
 suites into one artificial summed fraction (a 5.12M-case CPU oracle would swamp a 4-ROM audio
 suite in any raw sum, which would be misleading, not informative — this project's honesty-gate
@@ -225,6 +235,7 @@ tracked here, always current, reaffirmed every release:
 | Core/Curated coprocessors (oracle-gated) | ✅ **3 / 3, honesty gate green** | DSP-1 (4 commercial ROMs), Super FX/GSU (58 Krom ROMs + per-opcode suite), SA-1 (18 commercial carts) — `ORACLE_COPROCESSORS` |
 | BestEffort coprocessors, real-title validated | ✅ **6 / 9** | DSP-2, DSP-4, ST010, S-DD1, CX4, OBC1 — each boots a real commercial title to real gameplay content |
 | BestEffort coprocessors, unit-test only | ⚠️ **3 / 9** | SPC7110 (the one available local dump turned out to be a fan-translation ROM hack that needs a patch-only memory region no real cartridge has — `docs/audit/spc7110-boot-crash-2026-07-08.md`; a genuine original-cartridge dump, sha256 `69d06a3f3a4f3ba769541fe94e92b42142e423e9f0924eab97865b2d826ec82d`, is the ROM-sourcing gap now tracked in `docs/rom-test-corpus.md`), ST018, S-RTC (neither has a commercial dump in the local corpus) |
+| AccuracySNES (first-party battery) | ✅ **40 / 40 scoring, 100.00%** | Group A (65816 CPU) — 41 tests, of which 40 score and 1 is a golden vector. Cross-validated headlessly against **Mesen2 and snes9x** (both agree, 0 failures). Provenance gate green. Groups B-G land in later phases (`docs/accuracysnes-research-dossier.md` §5) |
 | Determinism contract | ✅ **proven** | bit-identical framebuffer/audio across runs; save-state round-trip proven across all three board tiers (no-coprocessor, Curated, BestEffort) |
 
 **Named residuals, tracked not hidden:** the 65816 `e1.e` divergence (`docs/adr/0002`); DSP-3 and

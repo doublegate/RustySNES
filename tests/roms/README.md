@@ -21,9 +21,10 @@ actual `LICENSE` (or confirming its absence via `gh api .../license` → 404).
 |---|---|---|---|---|---|
 | **gilyon** | [github.com/gilyon/snes-tests](https://github.com/gilyon/snes-tests) (release `v1.4`) | **MIT** (`LICENSE`, "Copyright (c) 2023 gilyon") | committed | 3 prebuilt `.sfc` (`cputest/cputest-basic.sfc`, `cputest/cputest-full.sfc`, `spctest/spctest.sfc`) + their golden result tables (`cputest/tests-basic.txt`, `cputest/tests-full.txt`, `spctest/tests.txt`) + per-dir READMEs + `LICENSE` | 1.3 MB / 10 files |
 | **undisbeliever** | [github.com/undisbeliever/snes-test-roms](https://github.com/undisbeliever/snes-test-roms) (release `v20210217`) | **MIT** as-shipped in the release ROM zip (`LICENSE`, "Copyright (c) 2019"); current repo HEAD is **Zlib** ("Copyright © 2016") — kept as `LICENSE.zlib-repo-current`. Both permissive/committable. | committed | 29 prebuilt PPU/DMA/HDMA hardware-glitch `.sfc` (`hdma-*`, `inidisp_*`, `scpu-a-dma-bug-*`) + `LICENSE` (MIT) + `LICENSE.zlib-repo-current` | 3.7 MB / 31 files |
+| **AccuracySNES** | **first-party** (`tests/roms/AccuracySNES/`) | **MIT OR Apache-2.0** (own work) | committed | Cartridge source (`gen/` Rust definitions + `asm/`), the generated `SOURCE_CATALOG.tsv` / `ERROR_CODES.md`, and the linked `build/accuracysnes.sfc` (128 KiB). Assembler intermediates are gitignored. | 1.1 MB |
 | **spc700-singlestep** | [github.com/SingleStepTests/spc700](https://github.com/SingleStepTests/spc700) (`v1/`) | **MIT** (`gh api .../license` → MIT; `LICENSE`, "Copyright (c) 2024 SingleStepTests") | committed | **Deterministic sampled subset**: 256 opcode files × first 50 tests = 12,800 tests (`v1/00.json`..`v1/ff.json`) + `LICENSE` + `SAMPLING.md`. Full 256k-test set lives in `external/spc700-singlestep-full/`. | 4.5 MB / 258 files |
 
-**Committed total: ~9.5 MB.**
+**Committed total: ~10.6 MB.**
 
 ## External corpora (gitignored — local only, `external/`)
 
@@ -49,6 +50,25 @@ pages, not the zip). Acquire it manually from the SNESdev Wiki "Tests" page
 drop the extracted ROMs in `external/blargg-spc/` (gitignored). See that dir's
 `MISSING-fetch-manually.txt`. Interim SPC700 per-opcode coverage is already provided
 by `spc700-singlestep/` (committed) and `external/krom/CPUTest/SPC700/*`.
+
+## AccuracySNES — the first-party battery
+
+The one corpus here that is **ours**. `docs/testing-strategy.md` records that the SNES has no
+single canonical accuracy battery, and `docs/STATUS.md` tracked that gap as ticket **T-04**;
+AccuracySNES closes it. Because it is original work it carries no licence encumbrance, so unlike
+every corpus in the external tier it can simply be committed — and any other emulator project can
+vendor it too.
+
+The cart is self-scoring: it runs the whole battery with no input and publishes a results block in
+WRAM, so the same image runs unmodified on ares, bsnes, Mesen2, and real hardware. Every test
+carries a **provenance tier**, and only `Documented`/`Corroborated` tests may contribute to the
+pass rate — the anti-circularity gate, since a test we wrote grading an emulator we wrote proves
+nothing on its own. See `tests/roms/AccuracySNES/README.md`.
+
+```bash
+cargo run -p accuracysnes-gen        # rebuild the cart (needs ca65/ld65)
+cargo test -p rustysnes-test-harness --features test-roms --test accuracysnes -- --nocapture
+```
 
 ## How to run
 

@@ -9,6 +9,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+### Added
+
+- **AccuracySNES — a first-party SNES hardware-accuracy test cartridge (Phase A).** Closes ticket
+  **T-04**, which had stood open because, as `docs/STATUS.md` put it, *"no publicly available SNES
+  ROM plays the AccuracyCoin role"*. It does now, because we wrote one.
+  - **`tests/roms/AccuracySNES/`** — dual MIT OR Apache-2.0, entirely original work (including the
+    8x8 font), so unlike every other corpus in `tests/roms/` it carries no licence encumbrance and
+    is simply committed. 128 KiB LoROM, no coprocessor, no SRAM.
+  - **Authored once, emitted twice.** Each test is a Rust value in `gen/src/tests/`; the generator
+    emits both the 65816 assembly and the `SOURCE_CATALOG.tsv` the host harness scores against, so
+    on-cart behaviour and host-side manifest cannot drift. Built with `ca65`/`ld65`; the generator
+    also writes the SNES header and patches the checksum, which `ld65` cannot compute.
+  - **Self-scoring.** The cart runs the whole battery with **no input** and publishes a results
+    block at `$7E:F000` (magic, version, count, completion sentinel, tallies, one status byte per
+    test). The harness supplies no expected values of its own — which is what lets the identical
+    image run unmodified on other emulators and on real hardware.
+  - **RAM is authoritative; the framebuffer is not consulted for scoring.** A deliberate inversion
+    of RustyNES's original AccuracyCoin decoder, whose grid-stride bug silently skipped 31 cells
+    and reported 75.93% where the truth was 64.03%. Screen-scraping oracles under-sample quietly
+    and read high.
+  - **Provenance tiering — the anti-circularity gate.** Every test declares where its expected
+    value came from (`Documented` / `Corroborated` / `Contested` / `Novel`); only the first two may
+    contribute to the pass rate, enforced by `provenance_gate_holds`, mirroring `docs/adr/0003`.
+    Behaviour hardware genuinely does not define is captured as a **golden vector** and never
+    scored — `A7.04` reports the observed decimal-mode `V` bit as a variant instead of asserting it.
+  - **Group A: 41 tests (40 scoring + 1 golden), 65816 CPU** — emulation/native transitions,
+    direct-page and stack wrapping (including the `PLD`-escapes-but-`PLY`-does-not discriminator),
+    absolute/long bank carry, cycle counts, interrupts, decimal mode, block moves, `BIT`/`XBA`.
+    **40/40 scoring, 100.00%.**
+  - **Cycle counts are measured, not asserted from a table.** Reading `$2137` latches the H/V
+    counters into `OPHCT`, giving a direct dot-position readout — the SNES's far more precise
+    counterpart to the sprite-0-hit trick AccuracyCoin uses on the NES. Each test compares two
+    sequences differing only in the property under test, so the constant overhead cancels. Every
+    measurement is kept inside one scanline on purpose: line length is not something a portable
+    test may assume (NTSC has a short line at V=240, and the references disagree on whether the H
+    counter tops out at 339 or 340), so crossing a line would make the result depend on exactly
+    the convention under dispute.
+  - **Interrupts are testable because BRK/COP vector through trampolines** that jump via a RAM
+    pointer, letting each test install its own handler — the same approach AccuracyCoin takes by
+    pointing the NES vectors into RAM.
+  - **Cross-validated on emulators we did not write.** `scripts/accuracysnes/crossval.sh` runs the
+    same image on **Mesen2** (headless `--testrunner` + a Lua reader) and **snes9x** (a small
+    libretro host reading `RETRO_MEMORY_SYSTEM_RAM`); both agree, 0 failures. bsnes and ares cannot
+    be driven headlessly — bsnes' libretro target stubs out `retro_get_memory_data` and ares has no
+    headless mode — so their agreement was established by source review instead.
+  - **Methodology note recorded, not glossed:** ares' `wdc65816` is a lineal copy of bsnes'
+    (a full diff shows only type renames), so `Corroborated` means two independent implementations
+    (the bsnes/ares lineage and Mesen2), not three.
+  - **Cross-validation found a real bug the in-repo harness could not.** An early version of the
+    emulation-mode push-count test passed on RustySNES and snes9x but failed on Mesen2. The fault
+    was the test's: `REP` is ignored while `E=1`, so its attempt to widen the accumulator silently
+    did nothing and a 16-bit store wrote a single byte over stale memory — which happened to match
+    on two emulators and not on the third. Rewritten to compare only the stack pointer's low byte.
+  - **Real-hardware validation has NOT been done** and is the honest ceiling on the battery's
+    authority — tracked in `docs/accuracy-ledger.md`, not quietly claimed.
+  - CI gains an `accuracysnes` job that rebuilds the cart from source and fails if the committed
+    `.sfc` is not byte-identical, so the binary can never drift from `gen/`.
+
+- **Local SNESdev Wiki mirror.** `scripts/snesdev_wiki_mirror.py` pulls all 180 pages and 32
+  images of <https://snes.nesdev.org/wiki/> into a gitignored `snesdev_wiki/` (~7 MB) via the
+  MediaWiki API, emitting Markdown (`output/*.md`, internal links rewritten to resolve locally),
+  raw wikitext, rendered HTML, and images. The SNES counterpart to the `nesdev_wiki/` mirror
+  RustyNES keeps, and the same posture: a local reference copy, never vendored.
+
+### Removed
+
+- The dead `rustysnes-test-harness::accuracy_battery::score_accuracy_battery` skeleton (ticket
+  T-04's placeholder, which returned zeros and was tracked as dead code to delete). Its
+  `AccuracyReport` tally type survives and is what the AccuracySNES gate now scores through.
+
+
 ## [1.20.0] "Aperture" - 2026-07-15
 
 Phase A of the new UI/UX-parity ladder: brings the wasm demo's menus and the desktop frontend's
@@ -516,6 +588,7 @@ Sixth release of the RustyNES-parity roadmap: HD-pack `emu-thread` wiring.
   this only affects the narrow case where a user has both features enabled
   simultaneously.
 
+||||||| parent of 51829b1 (feat(accuracysnes): first-party SNES hardware-accuracy test cartridge (Phase A))
 ## [1.9.0] "Marionette" - 2026-07-12
 
 Fifth release of the RustyNES-parity roadmap: Lua scripting bus-widening.

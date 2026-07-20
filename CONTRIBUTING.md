@@ -80,3 +80,26 @@ comments, or commits (project policy).
   `docs/` specification.
 - Discussion is preferred over deferral; if a comment can't be resolved
   in review, file a follow-up ticket explicitly.
+
+## Local hardware reference (SNESdev Wiki mirror)
+
+`scripts/snesdev_wiki_mirror.py` mirrors <https://snes.nesdev.org/wiki/> into a gitignored
+`snesdev_wiki/` directory — 180 pages and 32 images, about 7 MB — so the hardware reference is
+greppable offline. This is the SNES counterpart to the `nesdev_wiki/` mirror RustyNES keeps.
+
+```bash
+python3 scripts/snesdev_wiki_mirror.py            # full mirror (re-runnable)
+python3 scripts/snesdev_wiki_mirror.py --dry-run  # list pages, fetch nothing
+```
+
+| Path | Contents |
+|---|---|
+| `snesdev_wiki/INDEX.md` | generated table of contents, grouped by namespace |
+| `snesdev_wiki/output/*.md` | Markdown conversions — the form you actually read, with internal links rewritten to resolve locally |
+| `snesdev_wiki/wikitext/*.wiki` | raw wikitext, the most faithful source form |
+| `snesdev_wiki/html/*.xhtml` | rendered HTML as the wiki serves it |
+| `snesdev_wiki/images/` | every image the pages reference |
+
+The upstream text is contributor-licensed. The mirror is **gitignored and must never be
+committed or vendored** into this MIT/Apache tree — the same posture `ref-proj/` takes for
+reference emulator source.
