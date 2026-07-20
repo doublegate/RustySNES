@@ -1183,6 +1183,14 @@ Provenance: **Documented** (fullsnes, S-DSP BRR; anomie's DSP doc). Kind: scored
 |---|---|---|
 | 1 | `$02` | shift 13 did not collapse a positive sample to zero, so the invalid shifts are being applied as ordinary ones |
 
+### E5.05 — BRR filter 1
+
+Provenance: **Documented** (fullsnes, S-DSP BRR filters; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | filter 1 did not settle well above its constant input — a single-digit reading is filter 0's answer, so the filter was not applied |
+
 ### E7.01 — Rate 0 never fires
 
 Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc). Kind: scored.
@@ -1206,6 +1214,14 @@ Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DS
 | Code | Byte | Meaning |
 |---|---|---|
 | 1 | `$02` | a linear-increase GAIN did not reach full scale; $1F means the mode bits were ignored and the byte was taken as a direct value |
+
+### E7.14 — GAIN decrease clamps
+
+Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a linear-decrease envelope did not clamp at zero; a large reading means it wrapped |
 
 ### E7.15 — ENVX is E >> 4
 

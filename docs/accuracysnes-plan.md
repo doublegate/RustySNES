@@ -13,10 +13,10 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **178** (166 scoring + 11 golden vectors + 1 region SKIP per image) |
+| Tests | **180** (168 scoring + 11 golden vectors + 1 region SKIP per image) |
 | Rendered scenes | **41**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
-| Cross-validated | RustySNES, Mesen2, snes9x — all agree, on both the NTSC and PAL images |
+| Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but two, both recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`. Both images. |
 | Groups shipped | **A** (65C816) · **B** (5A22) · **C** (PPU, on-cart and rendered) · **D** (DMA/HDMA) · **E** (SPC700 + S-DSP) — all partial |
 | Defects found in this emulator | **10** — see §5 |
 
@@ -192,6 +192,23 @@ Here it is not enough, because the assertion's *prose* would have to explain why
 cannot yet. Writing `assert ENVX == $40` with a citation that says `$3F` would be exactly the kind
 of test that records our own output and calls it a spec. Parked, not abandoned: the number above is
 the finding to start from.
+
+### `E5.06` — attempted, and the attempt is the finding
+
+The fifteen-bit wrap (`+4000h..+7FFFh` becomes `-4000h..-1`, sign lost) looked reachable through
+`VxOUTX`: drive filter 1 past the boundary with a constant input and read the sign. It is not, and
+the reason generalises to every `OUTX` test.
+
+The constant-input trick the other BRR tests rely on works because a non-overflowing filter
+converges on a *fixed point* — the output stops changing, so it does not matter which sample the
+cart catches. Wrapping destroys exactly that property: the output becomes a sawtooth that cycles
+through the whole range, and `VxOUTX` reports wherever it happens to be. The two reference
+emulators returned `$E1` and `$D0` from the same image; they agree only that it is negative, and
+that agreement is luck, not behaviour.
+
+Reaching it needs a read phase-locked to the sample clock, which the cart cannot do through four
+mailbox bytes. **The rule this leaves behind: an `OUTX` assertion is only valid where the output is
+provably stationary.** Every committed one says so in its own comment.
 
 ### Bucket 4 — needs a framebuffer oracle (~35 tests)
 
