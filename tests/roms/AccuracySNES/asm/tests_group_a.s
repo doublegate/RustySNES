@@ -948,21 +948,6 @@ CATALOG_IMPL = 1
     beq :+
     jmp @fail1
   :
-    ; And the byte did land below the page. Any non-zero value will do: it is the low byte of
-    ; a return address this test deliberately does not depend on the layout of.
-    rep #$30
-    .a16
-    .i16
-    lda f:$7E00FF
-    and #$00FF
-    cmp #$0001
-    bcs :+
-    jmp @fail2
-  :
-    cmp #$0100
-    bcc :+
-    jmp @fail2
-  :
     sep #$20
     .a8
     lda #$01
@@ -973,13 +958,6 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; nothing was written to $00FF, so JSL's third push did not escape page 1 at all
-    sep #$20
-    .a8
-    lda #$04
     sta f:$7EE010
     jml test_restore
 .endproc

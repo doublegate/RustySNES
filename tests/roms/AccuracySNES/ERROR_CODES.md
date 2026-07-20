@@ -154,7 +154,6 @@ Provenance: **Documented** (WDC datasheet; superfamicom.org escape list). Kind: 
 | Code | Byte | Meaning |
 |---|---|---|
 | 1 | `$02` | JSL wrapped its third push into page 1 and clobbered $01FF, instead of escaping to $00FF |
-| 2 | `$04` | nothing was written to $00FF, so JSL's third push did not escape page 1 at all |
 
 ### A3.09 — PHD escapes page 1
 

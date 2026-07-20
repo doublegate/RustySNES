@@ -429,10 +429,11 @@ fn a3_02() -> Test {
 /// core applying the confinement rule uniformly wraps that byte to `$01FF` instead, which corrupts
 /// whatever is at the top of the stack page.
 ///
-/// The canary at `$01FF` is the discriminator: untouched if the push escaped, overwritten if it
-/// wrapped. The byte at `$00FF` is checked for having been written at all, without asserting *what*
-/// — it is the low byte of a return address, and a test that pinned it would be pinning where in
-/// the ROM it happens to be assembled.
+/// The canary at `$01FF` is the whole discriminator: untouched if the push escaped, overwritten if
+/// it wrapped. What landed at `$00FF` is deliberately not asserted — it is the low byte of a return
+/// address, so pinning its value would pin where in the ROM this test is assembled, and even
+/// "non-zero" is a layout assumption that a `JSL` landing on a `$xxFF` boundary would break. The
+/// exact-value form of that claim is `A3.09`, where the pushed bytes are `D`'s and known.
 ///
 /// **The `RTL` half of the dossier row is deliberately not exercised, and the reason is a
 /// measurement.** The first version of this test called `JSL` and let the subroutine `RTL` back;
@@ -476,16 +477,6 @@ fn a3_07() -> Test {
     a.assert_a8(
         0xEE,
         "JSL wrapped its third push into page 1 and clobbered $01FF, instead of escaping to $00FF",
-    );
-    a.c("And the byte did land below the page. Any non-zero value will do: it is the low byte of");
-    a.c("a return address this test deliberately does not depend on the layout of.");
-    a.l("rep #$30");
-    a.l("lda f:$7E00FF");
-    a.l("and #$00FF");
-    a.assert_a16_range(
-        1,
-        0xFF,
-        "nothing was written to $00FF, so JSL's third push did not escape page 1 at all",
     );
     a.finish(
         "A3.07",
