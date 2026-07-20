@@ -644,3 +644,76 @@ Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
 | 1 | `$02` | vblank did not begin near line 225 without overscan |
 | 2 | `$04` | overscan did not move the start of vblank to line 240 |
 
+## Group B
+
+### B1.01 — MEMSEL selects FastROM
+
+Provenance: **Documented** (SNESdev Wiki, Memory map / timing; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | MEMSEL did not change bank $80 access speed by 2 master clocks per access |
+
+### B1.02 — JOYSER is 12 clocks
+
+Provenance: **Documented** (SNESdev Wiki, Memory map / timing; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the joypad ports were not 6 master clocks slower per access than CPU MMIO |
+
+### B4.03 — RDNMI sets at vblank
+
+Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | RDNMI bit 7 was not set at vblank while NMI was disabled |
+
+### B4.04 — RDNMI is read-to-clear
+
+Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | RDNMI bit 7 was not set on the first read of a vblank |
+| 2 | `$04` | RDNMI did not clear on read |
+
+### B4.15 — CPU revision (golden)
+
+Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: golden vector, never scored.
+
+No failure codes (control-flow test: reaching the end is the pass).
+
+### B5.01 — 8x8 unsigned multiply
+
+Provenance: **Documented** (SNESdev Wiki, CPU registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | 8x8 multiply produced the wrong product |
+
+### B5.02 — 16/8 unsigned divide
+
+Provenance: **Documented** (SNESdev Wiki, CPU registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | 16/8 divide produced the wrong quotient |
+| 2 | `$04` | 16/8 divide produced the wrong remainder |
+
+### B5.03 — Divide by zero
+
+Provenance: **Documented** (SNESdev Wiki, CPU registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | divide by zero did not saturate the quotient to $FFFF |
+| 2 | `$04` | divide by zero did not leave the dividend as the remainder |
+
+### B5.04 — Mul/div overlap (golden)
+
+Provenance: **Contested** (SNESdev Errata states overlapping $4203/$4206 operation is undefined). Kind: golden vector, never scored.
+
+No failure codes (control-flow test: reaching the end is the pass).
+

@@ -13,10 +13,10 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **76** (73 scoring + 3 golden vectors) |
+| Tests | **85** (80 scoring + 5 golden vectors) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES, Mesen2, snes9x — all agree, 0 failures |
-| Groups shipped | **A** (65C816 CPU, 46 tests) · **C** partial (PPU, 30 tests) |
+| Groups shipped | **A** (65C816 CPU, 46 tests) · **C** partial (PPU, 30 tests) · **B** partial (5A22, 9 tests) |
 | Defects found in this emulator | **2** — see §5 |
 
 Phase A shipped Group A. Phase B has so far shipped the register-observable half of Group C — the
@@ -30,13 +30,13 @@ flag in the status byte `BRK` pushes).
 | Group | Scope | Enumerated | Done | Left |
 |---|---|---:|---:|---:|
 | **A** | 65C816 CPU | ~55 | 46 | ~10-15 |
-| **B** | 5A22 bus, clock, timing | ~30 | 0 | ~30 |
+| **B** | 5A22 bus, clock, timing | ~30 | 9 | ~21 |
 | **C** | S-PPU1 / S-PPU2 | ~85 | 30 | ~55 |
 | **D** | DMA / HDMA | ~35 | 0 | ~35 |
 | **E** | SPC700 + S-DSP | ~75 | 0 | ~75 |
 | **F** | Input | ~22 | 0 | ~22 |
 | **G** | Power-on / reset / cartridge | ~18 | 0 | ~18 |
-| | | **~320** | **76** | **~244** |
+| | | **~320** | **85** | **~235** |
 
 **Read these numbers with care.** The dossier's group headers total ~320 tests, but its
 per-sub-group parentheticals sum to 476 — those count *assertions*, not tests, and one test here
@@ -56,10 +56,14 @@ Everything scoreable from a register read, using primitives already built and pr
 `hv_begin`/`hv_end` H-counter measurement pair, and the release-forced-blank + double-`wait_vblank`
 pattern the C7 sprite tests established.
 
-- **T-04-B · Group B (~30)** — memory access speed by region, scanline/frame geometry, DRAM
-  refresh, interrupt timing, the hardware multiply/divide unit. Highest value per unit of effort:
-  it reuses the timing primitive wholesale, and it is the subsystem where an error is most
-  consequential, because every other subsystem is scheduled against it.
+- **T-04-B · Group B (~21 left of ~30)** — **started.** The first batch shipped access speed
+  (`MEMSEL`/FastROM, the 12-clock joypad ports), the `RDNMI` flag mechanics, the CPU revision
+  nibble, and the multiply/divide unit including the undefined mul/div overlap as a golden vector.
+  Left: the scanline-geometry assertions (`B2`, which need frame-length and short-scanline totals
+  rather than within-line deltas), DRAM refresh (`B3` — and note `docs/accuracy-ledger.md` and the
+  dossier actively disagree on scope, so those tests must probe *position*, not aggregate frame
+  length), and the IRQ-timing half of `B4`, which needs the IRQ armed and acknowledged around a
+  measurement.
 - **T-04-C · rest of register-observable Group C (~20)** — `C1.07`/`C1.08` (the `$2100` 1→0 reload
   trigger, address destroyed during render), the 9- and 10-bit `VMAIN` remap rotations,
   CGRAM-during-render, counter-flipflop independence, `C7.04`–`C7.09` sprite flag set positions,

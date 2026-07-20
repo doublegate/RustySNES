@@ -432,7 +432,7 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
 
 AccuracySNES (`tests/roms/AccuracySNES/`) closed ticket **T-04** — the monolithic all-in-one
 oracle ROM that no publicly available SNES ROM provided, so we wrote one. The battery currently
-stands at **76 tests (73 scoring + 3 golden), 100.00%**, cross-validated against Mesen2 and
+stands at **85 tests (80 scoring + 5 golden), 100.00%**, cross-validated against Mesen2 and
 snes9x. The tickets below carry the rest of the enumeration in
 `docs/accuracysnes-research-dossier.md` §5. Full rationale, blocker analysis, and the ordering
 constraints live in **`docs/accuracysnes-plan.md`**; this list is the citable ID index.
@@ -440,7 +440,7 @@ constraints live in **`docs/accuracysnes-plan.md`**; this list is the citable ID
 | Ticket | Scope | Size | Blocked on |
 |---|---|---:|---|
 | **T-04-A** | Finish Group A (65C816) — `A5` spot checks, RMW `abs,X`, E-gated branch penalty, the `A6` gaps (`PBR`, `RTI` mode match, B flag, `WAI`) | ~12 | nothing |
-| **T-04-B** | Group B — 5A22 bus, clock, timing: access speed by region, scanline/frame geometry, DRAM refresh, interrupt timing, multiply/divide | ~30 | nothing |
+| **T-04-B** | Group B — 5A22 bus, clock, timing. **Started:** access speed, `RDNMI` mechanics, multiply/divide shipped. Left: `B2` scanline geometry, `B3` DRAM refresh (probe *position*, not frame length), `B4` IRQ timing | ~21 | nothing |
 | **T-04-C** | The rest of register-observable Group C — `C1.07`/`C1.08`, the 9/10-bit `VMAIN` rotations, CGRAM-during-render, `C7.04`–`C7.09`, `C9.05`, `C11.07`/`C11.08` | ~20 | nothing |
 | **T-04-D** | Group D — DMA / HDMA | ~35 | **a research top-up**: the dossier's DMA/HDMA sub-agent never returned, so `D1`/`D2` are under-sourced |
 | **T-04-E** | Group E — SPC700 + S-DSP | ~75 | an **on-cart APU harness** (IPL upload, results back through `$2140`–`$2143`) |

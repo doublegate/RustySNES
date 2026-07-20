@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES opens Group B — the 5A22 (T-04-B, first batch, 9 tests).** Memory access speed:
+  `MEMSEL` switching banks `$80`+ between 8 and 6 master clocks (measured through a long read so
+  the timed access is the subject, while the measuring loop keeps running from always-slow bank
+  `$00`), and the joypad ports being the slowest region on the bus at 12 clocks against CPU MMIO's
+  6. `RDNMI` mechanics: bit 7 setting at vblank *independently of whether NMI is enabled* — the
+  flag tracks the event, not the interrupt — and clearing on read, split into two tests because
+  the failure modes are opposite. The multiply/divide unit: 8x8 unsigned multiply, 16/8 divide
+  with the remainder sharing `RDMPY`, and divide-by-zero saturating to `$FFFF` with the dividend
+  left as the remainder. Plus two golden vectors: the CPU revision nibble, and the **undefined**
+  mul/div overlap, which the SNESdev Errata explicitly declines to define and which is therefore
+  recorded rather than asserted.
 - **`docs/accuracysnes-plan.md` — the AccuracySNES phase plan**, plus follow-on tickets
   **T-04-A**–**T-04-J** in `to-dos/ROADMAP.md`. Frames the ~244 remaining tests by *what blocks
   them* rather than by group: reachable now (Groups B, G, the rest of register-observable C, the
@@ -24,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   measured 8-deep against the same instruction without a cross. `A6.09` — `BRK` sets the `B` flag
   in the status byte it pushes, which in emulation mode is the *only* thing distinguishing a
   software `BRK` from a hardware IRQ arriving at the same `$FFFE`. Battery now **76 tests, 73
-  scoring, 100.00%, 3 golden**.
+  scoring, 100.00%, 3 golden**. Battery after both batches: **85 tests, 80 scoring, 100.00%, 5 golden**.
 
 ## [1.20.0] "Aperture" - 2026-07-15
 
