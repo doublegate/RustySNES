@@ -283,9 +283,10 @@ pub const SPLITS: &[(&str, &str)] = &[
         "E6.02",
         "one row for a rate — and a single reading of ENDX cannot establish a rate, only \
          \"finished\" or \"not finished\", which bounds it on one side. Cart E6.02 and E6.02b play \
-         the same 384-sample voice at $1000 for one wait and for twice that wait, bracketing 1:1 \
-         from above and below; E6.02c repeats the first wait at $2000 and finds it finished, which \
-         is the octave. No two of the three are redundant and no one of them means anything alone",
+         the same 384-sample voice at $1000 for six waits and for sixteen — the first short of \
+         where it finishes and the second comfortably past it — bracketing 1:1 from above and \
+         below; E6.02c repeats the six at $2000 and finds it finished, which is the octave. No two \
+         of the three are redundant and no one of them means anything alone",
     ),
     (
         "D1.01",
