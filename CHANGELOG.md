@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **The scroll-register write-twice latch (`C4`) — three scenes, 38 total.** These registers are
+- **The scroll-register write-twice latch (`C4`) — three new scenes, bringing the blessed total
+  to 38.** These registers are
   write-only, so the latch is observable only through the picture. `C4.02`/`C4.03`: one `Prev`
   latch is shared across all four backgrounds *and* both axes, which shows up only when a register
   is written **once** and the next write goes somewhere else — so the scene writes one byte to
