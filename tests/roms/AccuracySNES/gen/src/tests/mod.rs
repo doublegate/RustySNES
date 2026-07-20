@@ -6,6 +6,7 @@
 
 pub mod apu;
 pub mod bus;
+pub mod cart;
 pub mod cpu;
 pub mod dma;
 pub mod input;
@@ -23,6 +24,7 @@ pub fn all() -> Vec<Test> {
     v.extend(dma::all());
     v.extend(apu::all());
     v.extend(input::all());
+    v.extend(cart::all());
     v.extend(sweep::all());
     v
 }

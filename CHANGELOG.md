@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Group G opens: the cartridge itself (`G1.10`, `G1.12`, `G1.14`).** The one group whose subject
+  is not a chip. `G1.10`: the header's checksum and complement must XOR to `$FFFF` — the pair every
+  emulator uses to *find* a header at all. `G1.12`: a LoROM header sits at `$00:FFC0`, and its
+  map-mode and ROM-size bytes say which image it belongs to. `G1.14`: LoROM decodes a bank as
+  `((bank & $7F) << 15) | (addr & $7FFF)`, which is two claims — banks `$80`+ mirror `$00`+, and
+  each bank maps its own **32 KiB**. The per-bank signature bytes this image has carried since the
+  beginning exist for the second one, and it is why the cart is 128 KiB rather than the minimum 32.
+
+  These assert what every other test silently depends on. Every assertion in every other group runs
+  out of a ROM addressed through that formula, so if the formula were wrong the failures would
+  appear anywhere but here — and a mapping bug that happens to be self-consistent produces a battery
+  that passes and a commercial ROM that does not boot.
+
 - **Group F opens with one test, and it found a defect the frontend could not (`F1.02`).** A
   standard pad returns 1 once its sixteen data bits are gone, which is how software tells a pad from
   a multitap or a mouse. The test checks the sixteen data bits first as a vacuity guard — with
@@ -473,10 +486,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **198 tests — 186 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **201 tests — 189 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **156 of 443** on-cart plus **42** scene-only —
-**198 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier. Dossier coverage is **159 of 443** on-cart plus **42** scene-only —
+**201 of 443** in total. **Every group A-G now has shipped tests.** (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 
