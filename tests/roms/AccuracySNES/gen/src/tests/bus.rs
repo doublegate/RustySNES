@@ -664,10 +664,17 @@ fn b4_12() -> Test {
     a.l("lda $4211");
     a.l("and #$80");
     a.l("beq @wirq2        ; this read both detects and acknowledges");
-    a.l("lda $4211         ; immediately again, still on line 100");
+    a.c("Disarm BEFORE looking again. The claim is that a read releases the latch; while the");
+    a.c(
+        "comparator still matches -- a V-only IRQ matches for the whole scanline -- a core is free",
+    );
+    a.c("to re-assert it, and a second read on the same line then says nothing about the release.");
+    a.c("Asserting the stronger thing made this test depend on where in the scanline the polling");
+    a.c("loop happened to catch the flag: it began failing on Mesen2 when an unrelated change");
+    a.c("moved the battery's code by a few bytes.");
+    a.l("stz $4200         ; disarm, so nothing can re-assert what the read released");
+    a.l("lda $4211         ; must now read clear");
     a.l("sta f:$7E0124");
-    a.l("stz $4200         ; disarm before asserting");
-    a.l("lda $4211");
     a.l("lda f:$7E0124");
     a.l("and #$80");
     a.assert_a8(0x00, "$4211 did not release the IRQ latch on read");
