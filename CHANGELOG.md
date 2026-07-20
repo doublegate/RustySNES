@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Echo samples are stored with their bottom bit masked off (`E9.12`).** Each is written as a
+  16-bit value ANDed with `$FFFE`, so the low byte's bit 0 is always zero whatever the mixer
+  produced. A core that stores the sample verbatim leaves odd values in the buffer, and a driver
+  that reads the buffer back — some do, to fade an echo tail by hand — sees numbers the hardware
+  cannot produce.
+
+  **The marker is `$FF`, which makes one assertion do two jobs.** Bit 0 of `$FF` is set, so a zero
+  there afterwards proves both that a write happened *and* that what was written is even. An even
+  marker would have left "nothing was written" and "an even value was written" indistinguishable —
+  the same trap `E5.04` avoids by pairing with `E5.03`, solved here with one byte instead of a
+  second test.
+
 - **`EDL = 0` is a four-byte buffer, not the absence of one (`E9.06`).** The natural reading of a
   length of zero is that echo is off, or that the buffer is empty. It is neither: the DSP writes one
   sample's worth — four bytes — at the buffer's start, and does it again next sample. A core that
@@ -719,10 +731,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **214 tests — 202 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **215 tests — 203 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **50 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **172 of 443** on-cart plus **50** scene-only —
-**222 of 443** in total, and **every group A-G now has shipped tests**
+framebuffer-oracle tier. Dossier coverage is **173 of 443** on-cart plus **50** scene-only —
+**223 of 443** in total, and **every group A-G now has shipped tests**
 (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.

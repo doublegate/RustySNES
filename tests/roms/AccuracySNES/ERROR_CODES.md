@@ -1397,6 +1397,14 @@ Provenance: **Documented** (fullsnes, S-DSP echo — flagged as errata; anomie's
 | 1 | `$02` | the first four bytes of the echo buffer were not written with EDL = 0, so a length of zero was taken to mean no buffer at all |
 | 2 | `$04` | byte 4 of the echo buffer was overwritten with EDL = 0 — the buffer is one sample long, and a core writing further walks over whatever follows ESA |
 
+### E9.12 — Echo writes are masked
+
+Provenance: **Documented** (fullsnes, S-DSP echo; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the echo buffer's low byte kept its bottom bit — either nothing was written over the $FF marker, or the sample was stored without the & $FFFE mask |
+
 ### E9.10 — FLG.5 stops echo writes
 
 Provenance: **Documented** (fullsnes, S-DSP echo; anomie's DSP doc). Kind: scored.
