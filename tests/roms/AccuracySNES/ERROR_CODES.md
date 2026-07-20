@@ -1103,6 +1103,46 @@ Provenance: **Documented** (SNESdev Wiki, S-DSP registers; fullsnes). Kind: scor
 |---|---|---|
 | 1 | `$02` | ENDX read back as $FF, so the write was stored rather than treated as a clear |
 
+### E5.07 — End+mute zeroes env
+
+Provenance: **Documented** (fullsnes, S-DSP BRR; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | ENVX was not zero after an end-without-loop block, so end+mute did not force release |
+
+### E5.08 — Loop flag without end
+
+Provenance: **Documented** (fullsnes, S-DSP BRR; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | ENDX bit 0 set although no block carried the end flag, so the loop bit was read as one |
+
+### E5.09 — ENDX sets on end block
+
+Provenance: **Documented** (fullsnes, S-DSP BRR; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | ENDX bit 0 never set although the voice decoded a block with the end flag |
+
+### E5.11 — Directory entry address
+
+Provenance: **Documented** (fullsnes, S-DSP BRR; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | ENDX never set for SRCN 1, so the directory entry was not read from DIR*$100 + SRCN*4 |
+
+### E7.10 — Direct GAIN is envelope
+
+Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | ENVX did not read back the direct GAIN value; a ramp toward it, or a missing >>4, both land somewhere else |
+
 ## Group A
 
 ### A5.S01 — Sweep: CLC

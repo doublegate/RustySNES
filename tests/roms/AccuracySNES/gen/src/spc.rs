@@ -120,6 +120,42 @@ impl Spc {
         self.push(&[0xF4, dp])
     }
 
+    /// `MOV !abs,A` — `$C5`. The only store here that reaches outside the direct page, which is
+    /// what the voice tests need: a BRR sample directory lives at a page the DSP's `DIR` register
+    /// names, and that page is deliberately not the one the program's variables are in.
+    pub fn mov_abs_a(&mut self, addr: u16) -> &mut Self {
+        let [lo, hi] = addr.to_le_bytes();
+        self.push(&[0xC5, lo, hi])
+    }
+
+    /// Place `data` at the start of the program, jumped over, and return its APU RAM address.
+    ///
+    /// The S-DSP reads sample data out of APU RAM by address, so a test that plays a sample has to
+    /// get bytes there and then *know where they are*. Putting them first solves the ordering
+    /// problem: an address computed from the program's base is fixed before a single instruction is
+    /// emitted, whereas data appended at the end moves every time the code above it changes.
+    ///
+    /// The skip is a `JMP` (`$5F`) rather than a `BRA` on purpose — a sample plus its run-out
+    /// padding is far longer than a branch's reach, and the padding is not optional (see the
+    /// voice tests: the DSP walks forward out of a non-looping sample into whatever follows it).
+    ///
+    /// # Panics
+    ///
+    /// If the program is not empty. The address it returns is only correct for data at the base.
+    pub fn data_first(&mut self, base: u16, data: &[u8]) -> u16 {
+        assert!(
+            self.bytes.is_empty(),
+            "data_first must be the first thing emitted; its address is the program's base"
+        );
+        let len = u16::try_from(data.len()).expect("a data block is far smaller than APU RAM");
+        let entry = base + 3;
+        let after = entry + len;
+        let [lo, hi] = after.to_le_bytes();
+        self.push(&[0x5F, lo, hi]); // JMP past the data
+        self.push(data);
+        entry
+    }
+
     /// `CMP A,#imm` — `$68`.
     pub fn cmp_a_imm(&mut self, v: u8) -> &mut Self {
         self.push(&[0x68, v])

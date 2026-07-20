@@ -11,6 +11,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The S-DSP plays a sample, and five assertions follow from that (`E5`, `E7`).** Everything the
+  cart could previously say about the DSP was said by writing a register and reading it back, which
+  proves the address latch decodes and nothing else. These upload a program that plants a BRR
+  sample and a sample directory in APU RAM, points a voice at it, keys it on, and reports what the
+  DSP says afterwards: `ENDX` sets when a block carrying the end flag is decoded (`E5.09`); the loop
+  bit alone does not set it, because code 2 is an ordinary block (`E5.08`); end-without-loop forces
+  release with a zero envelope even against a direct GAIN that nothing else would move (`E5.07`); a
+  directory entry is at `DIR*$100 + SRCN*4`, checked through entry 1 with entry 0 pointed at silence
+  so a wrong stride has somewhere defined to land (`E5.11`); and a direct GAIN *is* the envelope, so
+  `VxENVX` reads back the byte written (`E7.10`).
+
+  Two of those pairs are the point. `E5.07` and `E7.10` differ by one header bit and assert opposite
+  values from the same read, which separates "the envelope works" from "the envelope is stuck at
+  what was written". `E5.08` and `E5.09` differ by one header bit and assert opposite `ENDX` values,
+  which is what keeps `E5.08` from also passing on a voice that never started.
+
+- **A settle before reading `ENDX` (`E9.19`), and the reason is a hazard the dossier already
+  enumerates.** `E9.19` wrote `$FF` to `ENDX` and read it straight back. `ENDX`, `OUTX` and `ENVX`
+  are written back from an internal buffer once per sample, and a CPU write landing one or two
+  clocks before that writeback is lost (`E7.17`) — so the read was racing a documented window, and
+  its answer depended on which DSP clock the write happened to land on. It was not hypothetical: a
+  single extra byte elsewhere in the battery moved the write into the window and flipped the result
+  on snes9x at PAL timing while leaving NTSC alone. The test now waits a few samples and asserts the
+  same thing about the same write, minus the coin flip.
+
+- **`E2.05` poisons the address a wrong answer would read.** As shipped it asserted only that
+  `$0101` — where a 16-bit `dp+X` sum would land — did not happen to hold the same marker as the
+  correct address, which is a weaker claim that quietly depends on APU RAM's power-on state. It now
+  writes a third value there first.
+
+### Fixed
+
+- **The cross-validation gate could report a silent pass on zero rendered scenes.** The snes9x
+  scene run has a frame budget that has to cover the battery *and* the scene loop after it, and the
+  battery keeps growing; run short, the cart never reaches the scenes, the host reports none, and
+  "0 mismatched" read as success. `check_scenes` now fails when it sees no scenes at all, and the
+  budgets were raised.
+
 - **SPC700 memory-access side effects (`E2`).** `E2.05`: direct-page indexing wraps *inside* the
   page, so `$FF + X` with `X = 2` reads `$01` and not `$0101` — a core computing a 16-bit sum reads
   from the wrong page entirely, which is silent until something lives there. `E2.01`: a store
@@ -233,10 +271,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **164 tests — 152 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **169 tests — 157 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **122 of 443** on-cart plus **42** scene-only —
-**164 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier. Dossier coverage is **127 of 443** on-cart plus **42** scene-only —
+**169 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 

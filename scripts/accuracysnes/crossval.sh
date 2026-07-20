@@ -77,7 +77,7 @@ SNES9X_KNOWN_FAILURES=2
 if [[ -f $SNES9X ]]; then
     cc -O2 -o "$HOST" scripts/accuracysnes/libretro_crossval.c -ldl || exit 1
     echo "=== snes9x (libretro) ==="
-    if "$HOST" "$SNES9X" "$ROM" 1200; then
+    if "$HOST" "$SNES9X" "$ROM" 2000; then
         n=0
     else
         n=$?
@@ -125,7 +125,7 @@ PAL_ROM=tests/roms/AccuracySNES/build/accuracysnes-pal.sfc
 if [[ -f $PAL_ROM ]]; then
     if [[ -f $SNES9X ]]; then
         echo "=== snes9x (PAL image) ==="
-        if "$HOST" "$SNES9X" "$PAL_ROM" 1500 >/dev/null 2>&1; then n=0; else n=$?; fi
+        if "$HOST" "$SNES9X" "$PAL_ROM" 2000 >/dev/null 2>&1; then n=0; else n=$?; fi
         if [[ $n -eq $SNES9X_KNOWN_FAILURES ]]; then
             echo "snes9x PAL: OK ($n known divergence(s))"
         else
@@ -186,6 +186,13 @@ check_scenes() {
         fi
     done
     echo "$who: $ok scene(s) match, $unblessed unblessed, $bad mismatched"
+    # No scenes at all is a failure, not a clean sheet. It means the host never got as far as the
+    # scene loop -- almost always a frame budget that stopped growing with the battery -- and
+    # "nothing mismatched" would otherwise report that as a pass.
+    if [[ $((ok + unblessed + bad)) -eq 0 ]]; then
+        echo "$who: no scenes reported at all — the run did not reach the scene loop" >&2
+        return 1
+    fi
     return $bad
 }
 
@@ -195,7 +202,11 @@ if [[ -f $MANIFEST && -f $SCENE_GOLDEN ]]; then
         # `|| true`: the host's exit code is the battery's failing-test count (2 known
         # divergences for snes9x), and with `pipefail` that would fail this pipeline for a reason
         # that has nothing to do with the scenes. The battery was already graded above.
-        { "$HOST" "$SNES9X" "$ROM" 1200 --scenes 2>/dev/null || true; } | check_scenes "snes9x" \
+        #
+        # The frame budget covers the battery AND the scene loop that follows it, so it has to grow
+        # with the battery. Run short, the cart never reaches the scenes and the host reports zero
+        # of them -- which `check_scenes` counts as nothing mismatched, i.e. a silent pass.
+        { "$HOST" "$SNES9X" "$ROM" 2600 --scenes 2>/dev/null || true; } | check_scenes "snes9x" \
             || rc=1
     fi
     if [[ -f $MESEN ]] && command -v dotnet >/dev/null; then
