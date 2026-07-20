@@ -355,6 +355,30 @@ Provenance: **Documented** (WDC datasheet). Kind: scored.
 |---|---|---|
 | 1 | `$02` | XBA did not swap the accumulator halves |
 
+### A1.06 — TCD/TDC always 16-bit
+
+Provenance: **Documented** (WDC datasheet; SNESdev Wiki, 65C816). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | TCD/TDC narrowed to 8 bits under m=1 (they are always 16-bit) |
+
+### A5.07 — RMW abs,X is flat
+
+Provenance: **Documented** (WDC datasheet; undisbeliever's timing tables). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | RMW abs,X paid a page-cross penalty (its cost is flat) |
+
+### A6.09 — BRK sets B in pushed P
+
+Provenance: **Documented** (WDC datasheet; SNESdev Wiki, 65C816 interrupts). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | BRK did not set the B flag in the status byte it pushed |
+
 ## Group C
 
 ### C1.01 — OAM word write/read

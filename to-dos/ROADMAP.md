@@ -428,6 +428,32 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   **The one release expected to break byte-identity / save-state compatibility.** Do NOT conflate
   it with "the master clock already exists (the Phase-0 scheduler)" — the RustyNES versioning trap.
 
+## AccuracySNES follow-on tickets (T-04-*)
+
+AccuracySNES (`tests/roms/AccuracySNES/`) closed ticket **T-04** — the monolithic all-in-one
+oracle ROM that no publicly available SNES ROM provided, so we wrote one. The battery currently
+stands at **76 tests (73 scoring + 3 golden), 100.00%**, cross-validated against Mesen2 and
+snes9x. The tickets below carry the rest of the enumeration in
+`docs/accuracysnes-research-dossier.md` §5. Full rationale, blocker analysis, and the ordering
+constraints live in **`docs/accuracysnes-plan.md`**; this list is the citable ID index.
+
+| Ticket | Scope | Size | Blocked on |
+|---|---|---:|---|
+| **T-04-A** | Finish Group A (65C816) — `A5` spot checks, RMW `abs,X`, E-gated branch penalty, the `A6` gaps (`PBR`, `RTI` mode match, B flag, `WAI`) | ~12 | nothing |
+| **T-04-B** | Group B — 5A22 bus, clock, timing: access speed by region, scanline/frame geometry, DRAM refresh, interrupt timing, multiply/divide | ~30 | nothing |
+| **T-04-C** | The rest of register-observable Group C — `C1.07`/`C1.08`, the 9/10-bit `VMAIN` rotations, CGRAM-during-render, `C7.04`–`C7.09`, `C9.05`, `C11.07`/`C11.08` | ~20 | nothing |
+| **T-04-D** | Group D — DMA / HDMA | ~35 | **a research top-up**: the dossier's DMA/HDMA sub-agent never returned, so `D1`/`D2` are under-sourced |
+| **T-04-E** | Group E — SPC700 + S-DSP | ~75 | an **on-cart APU harness** (IPL upload, results back through `$2140`–`$2143`) |
+| **T-04-F** | Group F — input | ~22 | a decision on the **on-cart / host-driven split**: a cart cannot press its own buttons |
+| **T-04-G** | Group G — power-on / reset / cartridge, mostly golden vectors | ~18 | **boot-path ordering**: these must sample *before* `init_registers`, which deliberately erases power-on state |
+| **T-04-I** | The 256-opcode cycle sweep (`A5.01`–`A5.08`) | 1 mechanism | a safe-operand table + a scratch sandbox. `STP` excluded — it halts until reset |
+| **T-04-J** | Dossier-to-cart **ID map**: a `dossier` field on `Test`, emitted into `SOURCE_CATALOG.tsv`, plus a harness check that no enumerated assertion maps to two tests | small | nothing — **do this first**, coverage figures are guesses without it |
+| **T-04-H** | The renderer-dependent rest of Group C (`C5`, `C6`, `C8`, `C10`, `C12`, most of `C9`, `C13.01`–`C13.06`) | ~35 | a **framebuffer oracle**, and an explicit decision that these are host-harness-only and stay out of the on-cart pass rate |
+
+Suggested order: **J** → A → B → C → D → G → E → F, with H taken only if the framebuffer-oracle decision
+is taken. Real-hardware validation is the standing ceiling on all of it: every result so far is
+three emulators agreeing, and ares/bsnes are one lineage rather than two opinions.
+
 ## Cross-phase dependencies
 
 - Phase 2 (scheduler) depends on Phase 1 (the CPU drives the scheduler's access-speed query).

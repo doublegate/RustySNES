@@ -11,25 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **AccuracySNES Group C: access windows and frame geometry — 4 more tests.** `C2.11` — VRAM
-  writes are dropped outside vblank/forced blank, and H-blank does **not** open the window, which
-  is the trap for a core that gates on "not drawing a pixel" rather than "not in the rendering
-  period". `C2.10` — a dropped write still advances the address, because the increment is wired to
-  the port access rather than to the memory write; modelling the drop as an early `return` gets
-  this backwards and lands later transfers one or two words off. `C1.06` — the OAM address reloads
-  from its base once per frame. `C9.04` — overscan moves the start of vblank from line 225 to 240,
-  measured through `OPVCT` rather than by counting, since the counter is what defines the boundary.
-  Battery now **73 tests, 70 scoring, 100.00%, 3 golden**, agreeing across RustySNES, Mesen2 and
-  snes9x.
-
-### Fixed
-
-- **The OAM address now reloads from its base at the start of each frame.** `oam_address` was only
-  ever reloaded by a `$2102`/`$2103` write, so it never recovered from wherever sprite evaluation
-  left it — an address a game programmed did not survive a frame. It now reloads from
-  `oam_base_address` as vblank begins, conditional on forced blank being off (a forced-blank frame
-  runs no evaluation and performs no reload). Found by AccuracySNES **C1.06**, the second defect
-  the cartridge has turned up; both references already modelled it.
+- **`docs/accuracysnes-plan.md` — the AccuracySNES phase plan**, plus follow-on tickets
+  **T-04-A**–**T-04-J** in `to-dos/ROADMAP.md`. Frames the ~244 remaining tests by *what blocks
+  them* rather than by group: reachable now (Groups B, G, the rest of register-observable C, the
+  rest of A), needs its own mechanism (D's research top-up, E's on-cart APU harness), cannot be
+  fully self-scoring (F — a cart cannot press its own buttons), and needs a framebuffer oracle
+  (the renderer-dependent rest of C, which would break the property that the same image runs on
+  real hardware). Also records the constraints worth settling before the affected group starts.
+- **AccuracySNES: three Group A gaps closed (T-04-A, first batch).** `A1.06` — `TCD`/`TDC` move
+  all 16 bits regardless of `m`, so an 8-bit accumulator must not narrow a register that has no
+  8-bit form. `A5.07` — read-modify-write `abs,X` pays a flat cost with no page-cross penalty,
+  measured 8-deep against the same instruction without a cross. `A6.09` — `BRK` sets the `B` flag
+  in the status byte it pushes, which in emulation mode is the *only* thing distinguishing a
+  software `BRK` from a hardware IRQ arriving at the same `$FFFE`. Battery now **76 tests, 73
+  scoring, 100.00%, 3 golden**.
 
 ## [1.20.0] "Aperture" - 2026-07-15
 

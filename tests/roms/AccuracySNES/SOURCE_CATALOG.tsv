@@ -43,33 +43,36 @@
 40	A8.03	A	MVP copies backward	Documented	WDC datasheet	Scored	0x7EF048
 41	A9.01	A	BIT imm vs abs	Documented	WDC datasheet	Scored	0x7EF049
 42	A9.02	A	XBA swaps A halves	Documented	WDC datasheet	Scored	0x7EF04A
-43	C1.01	C	OAM word write/read	Documented	SNESdev Wiki, OAM; fullsnes	Scored	0x7EF04B
-44	C1.02	C	OAM odd write latched	Documented	SNESdev Wiki, OAM; anomie	Scored	0x7EF04C
-45	C1.03	C	OAMADDR reload clears	Documented	SNESdev Wiki, OAM; anomie	Scored	0x7EF04D
-46	C1.04	C	OAM rd/wr one counter	Documented	SNESdev Wiki, OAM	Scored	0x7EF04E
-47	C1.05	C	OAM high table mirror	Documented	SNESdev Wiki, OAM; fullsnes	Scored	0x7EF04F
-48	C2.01	C	VMAIN step 1 word	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF050
-49	C2.02	C	VMAIN low-byte trigger	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF051
-50	C2.03	C	VRAM read prefetch	Documented	SNESdev Wiki; docs/ppu.md edge case 4	Scored	0x7EF052
-51	C2.04	C	VRAM bit 15 unconnected	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF053
-52	C2.05	C	VMAIN step 32 words	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF054
-53	C2.06	C	VMAIN remap hits bus	Documented	SNESdev Wiki, PPU registers; fullsnes; anomie	Scored	0x7EF055
-54	C3.01	C	CGRAM two-write commit	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF056
-55	C3.02	C	CGADD resets flipflop	Documented	SNESdev Wiki, PPU registers	Scored	0x7EF057
-56	C3.03	C	OPHCT is a 9-bit pair	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF058
-57	C3.04	C	H counter advances	Documented	SNESdev Wiki, PPU registers	Scored	0x7EF059
-58	C3.05	C	$213F resets flipflop	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF05A
-59	C13.01	C	PPU1 open bus in $213E	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF05B
-60	C13.02	C	PPU2 open bus in $213F	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF05C
-61	C13.03	C	PPU1/PPU2 bus separate	Corroborated	the bsnes/ares lineage and Mesen2 model two distinct latches	Scored	0x7EF05D
-62	C14.01	C	PPU1 version (golden)	Documented	SNESdev Wiki, PPU registers; fullsnes	Golden	0x7EF05E
-63	C14.02	C	PPU2 version (golden)	Documented	SNESdev Wiki, PPU registers; fullsnes	Golden	0x7EF05F
-64	C11.06	C	MPY is 16x8 signed	Documented	SNESdev Wiki, Mode 7; fullsnes	Scored	0x7EF060
-65	C11.06b	C	MPY sign handling	Documented	SNESdev Wiki, Mode 7; fullsnes	Scored	0x7EF061
-66	C7.01	C	Range Over at 32 sprites	Documented	SNESdev Wiki, Sprites; fullsnes	Scored	0x7EF062
-67	C7.02	C	Time Over is slivers	Documented	SNESdev Wiki, Sprites; fullsnes; anomie	Scored	0x7EF063
-68	C7.08	C	Flags ignore $212C	Documented	SNESdev Wiki, Sprites; fullsnes	Scored	0x7EF064
-69	C2.11	C	VRAM locked in render	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF065
-70	C2.10	C	Dropped write still incs	Documented	SNESdev Wiki, PPU registers; fullsnes; anomie	Scored	0x7EF066
-71	C1.06	C	OAM addr reloads	Documented	SNESdev Wiki, OAM; anomie	Scored	0x7EF067
-72	C9.04	C	Overscan moves vblank	Documented	SNESdev Wiki, Timing; fullsnes	Scored	0x7EF068
+43	A1.06	A	TCD/TDC always 16-bit	Documented	WDC datasheet; SNESdev Wiki, 65C816	Scored	0x7EF04B
+44	A5.07	A	RMW abs,X is flat	Documented	WDC datasheet; undisbeliever's timing tables	Scored	0x7EF04C
+45	A6.09	A	BRK sets B in pushed P	Documented	WDC datasheet; SNESdev Wiki, 65C816 interrupts	Scored	0x7EF04D
+46	C1.01	C	OAM word write/read	Documented	SNESdev Wiki, OAM; fullsnes	Scored	0x7EF04E
+47	C1.02	C	OAM odd write latched	Documented	SNESdev Wiki, OAM; anomie	Scored	0x7EF04F
+48	C1.03	C	OAMADDR reload clears	Documented	SNESdev Wiki, OAM; anomie	Scored	0x7EF050
+49	C1.04	C	OAM rd/wr one counter	Documented	SNESdev Wiki, OAM	Scored	0x7EF051
+50	C1.05	C	OAM high table mirror	Documented	SNESdev Wiki, OAM; fullsnes	Scored	0x7EF052
+51	C2.01	C	VMAIN step 1 word	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF053
+52	C2.02	C	VMAIN low-byte trigger	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF054
+53	C2.03	C	VRAM read prefetch	Documented	SNESdev Wiki; docs/ppu.md edge case 4	Scored	0x7EF055
+54	C2.04	C	VRAM bit 15 unconnected	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF056
+55	C2.05	C	VMAIN step 32 words	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF057
+56	C2.06	C	VMAIN remap hits bus	Documented	SNESdev Wiki, PPU registers; fullsnes; anomie	Scored	0x7EF058
+57	C3.01	C	CGRAM two-write commit	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF059
+58	C3.02	C	CGADD resets flipflop	Documented	SNESdev Wiki, PPU registers	Scored	0x7EF05A
+59	C3.03	C	OPHCT is a 9-bit pair	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF05B
+60	C3.04	C	H counter advances	Documented	SNESdev Wiki, PPU registers	Scored	0x7EF05C
+61	C3.05	C	$213F resets flipflop	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF05D
+62	C13.01	C	PPU1 open bus in $213E	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF05E
+63	C13.02	C	PPU2 open bus in $213F	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF05F
+64	C13.03	C	PPU1/PPU2 bus separate	Corroborated	the bsnes/ares lineage and Mesen2 model two distinct latches	Scored	0x7EF060
+65	C14.01	C	PPU1 version (golden)	Documented	SNESdev Wiki, PPU registers; fullsnes	Golden	0x7EF061
+66	C14.02	C	PPU2 version (golden)	Documented	SNESdev Wiki, PPU registers; fullsnes	Golden	0x7EF062
+67	C11.06	C	MPY is 16x8 signed	Documented	SNESdev Wiki, Mode 7; fullsnes	Scored	0x7EF063
+68	C11.06b	C	MPY sign handling	Documented	SNESdev Wiki, Mode 7; fullsnes	Scored	0x7EF064
+69	C7.01	C	Range Over at 32 sprites	Documented	SNESdev Wiki, Sprites; fullsnes	Scored	0x7EF065
+70	C7.02	C	Time Over is slivers	Documented	SNESdev Wiki, Sprites; fullsnes; anomie	Scored	0x7EF066
+71	C7.08	C	Flags ignore $212C	Documented	SNESdev Wiki, Sprites; fullsnes	Scored	0x7EF067
+72	C2.11	C	VRAM locked in render	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF068
+73	C2.10	C	Dropped write still incs	Documented	SNESdev Wiki, PPU registers; fullsnes; anomie	Scored	0x7EF069
+74	C1.06	C	OAM addr reloads	Documented	SNESdev Wiki, OAM; anomie	Scored	0x7EF06A
+75	C9.04	C	Overscan moves vblank	Documented	SNESdev Wiki, Timing; fullsnes	Scored	0x7EF06B

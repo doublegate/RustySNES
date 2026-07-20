@@ -2179,6 +2179,174 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; A1.06 — TCD/TDC always 16-bit
+; provenance: Documented (WDC datasheet; SNESdev Wiki, 65C816)
+.proc test_a1_06
+    .a16
+    .i16
+    ; Set D with m=1, read it back with m=0. D is restored before the assertion because a
+    ; failing path would otherwise leave every direct-page access in the battery relocated.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    lda #$1234
+    sep #$20          ; m=1: an 8-bit accumulator must not narrow the transfer
+    .a8
+    tcd
+    rep #$20
+    .a16
+    tdc
+    sta f:$7E0114
+    lda #$0000
+    tcd               ; restore D BEFORE asserting
+    lda f:$7E0114
+    cmp #$1234
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; TCD/TDC narrowed to 8 bits under m=1 (they are always 16-bit)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; A5.07 — RMW abs,X is flat
+; provenance: Documented (WDC datasheet; undisbeliever's timing tables)
+.proc test_a5_07
+    .a16
+    .i16
+    ; Same instruction, once without a page cross and once with. The index must be 8-BIT: a
+    ; 16-bit index makes the penalty unconditional, which is what A5.02 establishes.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$10
+    .i8
+    ldx #$00
+    jsr hv_begin
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0080
+    sep #$10
+    .i8
+    ldx #$FF          ; $1234 + $FF = $1333 — crosses into the next page
+    jsr hv_begin
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    asl a:$1234,x
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0080
+    cmp #$8000
+    bcc :+
+    eor #$FFFF
+    inc a             ; negate: take the magnitude
+  :
+    cmp #$0003
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; RMW abs,X paid a page-cross penalty (its cost is flat)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; A6.09 — BRK sets B in pushed P
+; provenance: Documented (WDC datasheet; SNESdev Wiki, 65C816 interrupts)
+.proc test_a6_09
+    .a16
+    .i16
+    ; The handler recovers the pushed P through the stack. In emulation BRK pushes PCH, PCL,
+    ; P — so P is the last byte written, at $01:(S+1), and TSX gives S's low byte.
+    jmp @start
+@handler:
+    tsx
+    lda a:$0101,x     ; the pushed status byte
+    sta f:$7E009A
+    rti
+@start:
+    rep #$30
+    .a16
+    .i16
+    lda #.LOWORD(@handler)
+    sta a:V_BRK_VEC
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E009A     ; poison, so a handler that never runs cannot pass
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+    brk
+    .byte $EA
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    sep #$20
+    .a8
+    lda f:$7E009A
+    and #$10
+    cmp #$10
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; BRK did not set the B flag in the status byte it pushed
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 ; C1.01 — OAM word write/read
 ; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
 .proc test_c1_01
@@ -4259,7 +4427,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 73
+    .word 76
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -4306,6 +4474,9 @@ _test_entries:
     .addr test_a8_03
     .addr test_a9_01
     .addr test_a9_02
+    .addr test_a1_06
+    .addr test_a5_07
+    .addr test_a6_09
     .addr test_c1_01
     .addr test_c1_02
     .addr test_c1_03
@@ -4382,6 +4553,9 @@ _test_flags:
     .byte $01   ; A8.03
     .byte $01   ; A9.01
     .byte $01   ; A9.02
+    .byte $01   ; A1.06
+    .byte $01   ; A5.07
+    .byte $01   ; A6.09
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -4458,6 +4632,9 @@ _test_names:
     .addr @n_a8_03
     .addr @n_a9_01
     .addr @n_a9_02
+    .addr @n_a1_06
+    .addr @n_a5_07
+    .addr @n_a6_09
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -4617,6 +4794,15 @@ _test_names:
 @n_a9_02:
     .byte 18
     .byte "XBA swaps A halves"
+@n_a1_06:
+    .byte 21
+    .byte "TCD/TDC always 16-bit"
+@n_a5_07:
+    .byte 17
+    .byte "RMW abs,X is flat"
+@n_a6_09:
+    .byte 22
+    .byte "BRK sets B in pushed P"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"
