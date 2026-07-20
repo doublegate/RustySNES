@@ -13,7 +13,7 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **220** (208 scoring + 11 golden vectors + 1 region SKIP per image) |
+| Tests | **223** (211 scoring + 11 golden vectors + 1 region SKIP per image) |
 | Rendered scenes | **50**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but four, all recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`. Both images. |
@@ -74,13 +74,22 @@ pattern the C7 sprite tests established.
   trigger, address destroyed during render), the 9- and 10-bit `VMAIN` remap rotations,
   CGRAM-during-render, counter-flipflop independence, `C7.04`–`C7.09` sprite flag set positions,
   `C9.05` overscan vblank deferral, `C11.07`/`C11.08` MPY latch corruption and MPY-during-render.
-- **T-04-G · Group G (~18)** — power-on / reset state. **The blocking prerequisite is done:**
-  `capture_power_on` in `asm/runtime.s` runs at the top of reset, *before* `init_registers`, and
-  stashes what it samples in a documented WRAM capture block (`$E040-`, see `runtime.inc`). Tests
-  then read the capture rather than the live registers. `B5.05` is the first consumer and exists
-  partly to prove the hook. Expect most of Group G to be **golden vectors**: hardware does not
-  define much of this, so the honest output is a recorded observation, not an assertion — and the
-  first measurement raised the question (see §4).
+- **T-04-G · Group G (10 uncovered)** — power-on / reset state. The mechanism is done and now has
+  four consumers: `capture_power_on` in `asm/runtime.s` runs at the top of reset, *before*
+  `init_registers`, and stashes what it samples in a documented WRAM capture block (`$E040-`, see
+  `runtime.inc`); tests read the capture rather than the live registers. It grew two additions with
+  `G1.02`/`G1.04` — the carry `XCE` leaves at the very top of `reset` (the boot-time emulation flag,
+  readable for exactly one instruction) and the first reads of the read-to-clear `$4210`/`$4211`.
+
+  What is left divides cleanly. **Genuinely undefined and therefore golden at best**: `G1.03`
+  (APUIOn, WMDATA, JOYSER, HDMAEN and the rest — the dossier says report, never assert), `G1.05`
+  (most PPU registers start unknown), `G1.07` (the WRAM fill, which bsnes randomises by setting).
+  **Needs a second image**: `G1.15`/`G1.16` (HiROM and ExHiROM decode), `G1.17` (SRAM mapping, which
+  this cart's header does not declare), `G1.18` (the copier header, which requires a file 512 bytes
+  longer), and the non-power-of-two half of `G1.11`. **Needs a soft reset the harness cannot
+  currently issue**: `G1.06` (PPU state survives cartridge `/RESET`). `G1.01` is write-only
+  registers whose power-on values no instruction can read back, and `G1.13` is a `[CONFLICT]` on a
+  FastROM bit this SlowROM image cannot exercise either way.
 - **T-04-A · rest of Group A (38 uncovered assertions — see the coverage report)** — the `A5` spot checks
   (`BRL` flat 4, `BRK` 8/7, `RTI` 7/6, `MVN`/`MVP` 7 per byte,
   `PHD`/`PLD`/`PEA`/`PEI`/`PER`/`REP`/`SEP`/`XBA`), the `+1 m` / `+1 x` sweeps, the E-gated branch

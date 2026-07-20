@@ -44,6 +44,13 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     sei
     clc
     xce                         ; leave 6502 emulation -> native
+    ; XCE *exchanges* C and E, so the carry now holds the E flag as it was at reset — the only
+    ; moment that value is readable, and it is gone one instruction later. A8 is guaranteed here:
+    ; emulation mode forces M and X set, and XCE does not clear them. `sta f:` needs no DBR and no
+    ; DP, both of which are still whatever the machine powered up with.
+    lda #$00
+    rol a                       ; A = 1 if the CPU booted in emulation mode (G1.04)
+    sta f:V_PO_EMU
     cld
     rep #$38                    ; A/X/Y 16-bit, decimal off
     .a16
@@ -116,6 +123,14 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     sep #$20
     .a8
     .i16
+    ; $4210 and $4211 are read FIRST, and reading either one clears its flag — so this is the only
+    ; chance to see what reset left there. Both are also read-once-per-frame registers the runtime
+    ; touches later, which is the other reason nothing may come before them.
+    lda RDNMI
+    sta f:V_PO_RDNMI            ; bit 7 = NMI pending, bits 3-0 = 5A22 version
+    lda TIMEUP
+    sta f:V_PO_TIMEUP           ; bit 7 = IRQ pending
+
     lda #$02
     sta $4203                   ; multiply: $4202 (power-on) x 2
     nop

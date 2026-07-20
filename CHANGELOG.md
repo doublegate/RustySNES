@@ -11,6 +11,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The power-on state is now reachable, and Group G reports out of it (`G1.02`, `G1.04`, `G1.08`,
+  `G1.09`).** The battery runs long after reset, through a runtime that deliberately puts every PPU
+  and CPU register into a known state — so until now the whole power-on half of Group G was
+  unreachable: any test that ran in the normal battery was measuring the runtime, not the machine.
+
+  What makes it reachable is a snapshot taken *before* that initialisation, extended here to cover
+  three more facts. `XCE` exchanges C and E, so the first `clc`/`xce` of `reset` leaves the boot-time
+  emulation flag in the carry for exactly one instruction; the runtime catches it there. `$4210` and
+  `$4211` are read-to-clear, so their reset values are visible exactly once and only to whoever reads
+  first, which is now the capture routine rather than a vblank poll.
+
+  On top of that snapshot: `G1.04` asserts the CPU booted in **emulation mode** and that the word
+  LoROM exposes at `$00FFFC` points at code beginning with `SEI`; `G1.02` asserts neither interrupt
+  flag was already pending at reset. `G1.09` needed no new test — the existing CPU-revision golden
+  vector *is* that assertion, and had simply never been mapped to it.
+
+- **Reading a write-only register returns the CPU's open bus (`G1.08`).** `$4200` is read twice
+  through two addressing modes whose last operand byte differs: absolute leaves the address's high
+  byte on the bus (`$42`), long leaves the bank byte (`$00`). Same register, two answers — which is
+  what makes the assertion about the bus rather than the register. A core returning a constant
+  (`$00`, `$FF`, a stale value) gets at most one of the two right.
+
+  The B bus is deliberately left out: reads of write-only PPU registers return the *PPU's* MDR, a
+  different latch on the far side of that bus, and which one a given address exposes is a question
+  this assertion does not settle.
+
 - **`MOV dp,dp` is exempt from the store dummy-read (`E2.02`).** `E2.01` establishes the rule — a
   store reads its destination first, visible against a timer counter because reading one empties it.
   `$FA` is one of the two opcodes the rule does not apply to, so the same store through it leaves

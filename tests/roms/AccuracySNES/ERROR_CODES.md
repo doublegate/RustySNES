@@ -1554,6 +1554,33 @@ Provenance: **Documented** (SNESdev Wiki, controller protocol; fullsnes). Kind: 
 
 ## Group G
 
+### G1.02 — Reset: $4210/$4211 clear
+
+Provenance: **Documented** (SNESdev Wiki, power-on state; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | $4210 bit 7 (NMI pending) was already set when the machine started |
+| 2 | `$04` | $4211 bit 7 (IRQ pending) was already set when the machine started |
+
+### G1.04 — Reset: emulation mode
+
+Provenance: **Documented** (SNESdev Wiki, power-on state; WDC 65C816 datasheet, XCE). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the CPU was not in emulation mode at reset — XCE's carry said E was already clear |
+| 2 | `$04` | the word at $00FFFC does not point at code beginning with SEI, so the reset vector is not where LoROM puts it |
+
+### G1.08 — Write-only read: openbus
+
+Provenance: **Documented** (SNESdev Wiki, open bus; fullsnes, memory map notes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | reading write-only $4200 with absolute addressing did not return the open-bus value $42 — a core answering $00 or $FF is not modelling the bus at all |
+| 2 | `$04` | reading write-only $4200 with long addressing did not return $00, the bank byte the CPU fetched last — so the value returned is fixed rather than whatever was last on the bus |
+
 ### G1.10 — Checksum XOR complement
 
 Provenance: **Documented** (SNESdev Wiki, cartridge header; fullsnes). Kind: scored.

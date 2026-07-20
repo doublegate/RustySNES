@@ -8342,6 +8342,147 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; G1.02 — Reset: $4210/$4211 clear
+; provenance: Documented (SNESdev Wiki, power-on state; fullsnes)
+.proc test_g1_02
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda f:$7EE047     ; V_PO_RDNMI, the first read of $4210 after reset
+    and #$80
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7EE048     ; V_PO_TIMEUP, the first read of $4211 after reset
+    and #$80
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; $4210 bit 7 (NMI pending) was already set when the machine started
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; $4211 bit 7 (IRQ pending) was already set when the machine started
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; G1.04 — Reset: emulation mode
+; provenance: Documented (SNESdev Wiki, power-on state; WDC 65C816 datasheet, XCE)
+.proc test_g1_04
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda f:$7EE046     ; V_PO_EMU, the carry XCE left at the top of reset
+    cmp #$01
+    beq :+
+    jmp @fail1
+  :
+    ; Follow the reset vector: bank $00, and the byte there is reset's opening SEI.
+    rep #$30
+    .a16
+    .i16
+    lda f:$00FFFC
+    tax
+    sep #$20
+    .a8
+    lda f:$000000,x
+    cmp #$78
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the CPU was not in emulation mode at reset — XCE's carry said E was already clear
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the word at $00FFFC does not point at code beginning with SEI, so the reset vector is not where LoROM puts it
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; G1.08 — Write-only read: openbus
+; provenance: Documented (SNESdev Wiki, open bus; fullsnes, memory map notes)
+.proc test_g1_08
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    ; Absolute: the operand's high byte is the last thing fetched, so the bus holds $42.
+    lda a:$4200
+    cmp #$42
+    beq :+
+    jmp @fail1
+  :
+    ; Long: the BANK byte comes last, so the same register now reads back as $00.
+    lda f:$004200
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; reading write-only $4200 with absolute addressing did not return the open-bus value $42 — a core answering $00 or $FF is not modelling the bus at all
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; reading write-only $4200 with long addressing did not return $00, the bank byte the CPU fetched last — so the value returned is fixed rather than whatever was last on the bus
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; G1.10 — Checksum XOR complement
 ; provenance: Documented (SNESdev Wiki, cartridge header; fullsnes)
 .proc test_g1_10
@@ -18332,7 +18473,7 @@ apu_prog_53:
 .export _test_flags
 
 _test_count:
-    .word 220
+    .word 223
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -18518,6 +18659,9 @@ _test_entries:
     .faraddr test_e7_14
     .faraddr test_e7_15
     .faraddr test_f1_02
+    .faraddr test_g1_02
+    .faraddr test_g1_04
+    .faraddr test_g1_08
     .faraddr test_g1_10
     .faraddr test_g1_11
     .faraddr test_g1_12
@@ -18741,6 +18885,9 @@ _test_flags:
     .byte $01   ; E7.14
     .byte $01   ; E7.15
     .byte $01   ; F1.02
+    .byte $01   ; G1.02
+    .byte $01   ; G1.04
+    .byte $01   ; G1.08
     .byte $01   ; G1.10
     .byte $01   ; G1.11
     .byte $01   ; G1.12
@@ -18964,6 +19111,9 @@ _test_names:
     .addr @n_e7_14
     .addr @n_e7_15
     .addr @n_f1_02
+    .addr @n_g1_02
+    .addr @n_g1_04
+    .addr @n_g1_08
     .addr @n_g1_10
     .addr @n_g1_11
     .addr @n_g1_12
@@ -19548,6 +19698,15 @@ _test_names:
 @n_f1_02:
     .byte 19
     .byte "Pad reads 17+ are 1"
+@n_g1_02:
+    .byte 24
+    .byte "Reset: $4210/$4211 clear"
+@n_g1_04:
+    .byte 21
+    .byte "Reset: emulation mode"
+@n_g1_08:
+    .byte 24
+    .byte "Write-only read: openbus"
 @n_g1_10:
     .byte 23
     .byte "Checksum XOR complement"
