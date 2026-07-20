@@ -602,7 +602,7 @@ fn setup_hdma_to_wram(a: &mut Asm, page: u8) {
     a.l("sta $2181");
     a.l(&format!("lda #${page:02X}"));
     a.l("sta $2182");
-    a.l("stz $2183         ; WMADD = $7E:{page}00");
+    a.l(&format!("stz $2183         ; WMADD = $7E:{page:02X}00"));
     a.l("stz $4300         ; A->B, direct table, mode 0 (one byte per transfer)");
     a.l("lda #$80");
     a.l("sta $4301         ; B-bus = $2180");

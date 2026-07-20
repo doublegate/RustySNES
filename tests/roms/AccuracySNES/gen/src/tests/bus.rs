@@ -418,7 +418,7 @@ fn b5_04() -> Test {
 /// contested (`B2.10`) and which a frame-length test must not depend on.
 ///
 /// **Register width contract: returns with `A` 16-bit.** Costs a frame; call it once.
-pub(crate) fn measure_frame_height(a: &mut Asm) {
+pub fn measure_frame_height(a: &mut Asm) {
     a.l("sep #$20");
     a.l("stz $2133         ; SETINI: no interlace, which would add a line");
     a.l("jsr wait_vblank");
@@ -437,7 +437,7 @@ pub(crate) fn measure_frame_height(a: &mut Asm) {
     a.l("lda f:$7E0124");
 }
 
-pub(crate) fn read_v(a: &mut Asm) {
+pub fn read_v(a: &mut Asm) {
     a.l("sep #$20");
     a.l("lda $213F         ; reset the counter read flipflops");
     a.l("lda $2137         ; latch H and V");

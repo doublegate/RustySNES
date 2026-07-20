@@ -6955,7 +6955,7 @@ CATALOG_IMPL = 1
     sta $2181
     lda #$0A
     sta $2182
-    stz $2183         ; WMADD = $7E:{page}00
+    stz $2183         ; WMADD = $7E:0A00
     stz $4300         ; A->B, direct table, mode 0 (one byte per transfer)
     lda #$80
     sta $4301         ; B-bus = $2180
@@ -7055,7 +7055,7 @@ CATALOG_IMPL = 1
     sta $2181
     lda #$0B
     sta $2182
-    stz $2183         ; WMADD = $7E:{page}00
+    stz $2183         ; WMADD = $7E:0B00
     stz $4300         ; A->B, direct table, mode 0 (one byte per transfer)
     lda #$80
     sta $4301         ; B-bus = $2180
