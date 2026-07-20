@@ -68,6 +68,12 @@ fn upload_and_run(a: &mut Asm, prog: &Spc) {
     a.l("lda #$0200");
     a.l("sta f:V_APU_ENTRY");
     a.l("jsr apu_upload");
+    a.c("Clear the CPU-side port 0 before the program can look at it. The previous test left the");
+    a.c("release byte there, and a program whose release loop sees it immediately jumps back to");
+    a.c("the IPL before the cart has read a thing — which reads as a wrong answer, not a race.");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta APUIO0");
     a.c("Wait for the program's done marker, but not forever: an APU that never boots would");
     a.c("otherwise hang the whole battery and report nothing about any other test.");
     a.l("rep #$30");

@@ -408,10 +408,24 @@ there the claim was specific and the disagreement was itself the finding, wherea
 addressing" that nobody can interpret adds noise rather than evidence.
 
 This is the next thing to solve for Group E, and it gates `E5`-`E9` entirely — BRR decoding, pitch,
-envelopes, key-on/off and the mixer are all read back through DSP registers. Candidates worth
-checking first, in order of likelihood: whether the DSP needs the SPC700 to yield cycles between
-the `$F2` write and the `$F3` access; whether the IPL leaves `FLG` (`$6C`) in a soft reset that
-suppresses register writes; and whether `$F3` reads are delayed by one access.
+envelopes, key-on/off and the mixer are all read back through DSP registers. Two candidates have already been **ruled out**, which is worth recording so the next attempt does
+not repeat them:
+
+- *The `MOV dp,#imm` dummy read.* `$8F` performs a read of its destination and `$F0`-`$FF` are
+  read-sensitive, so the obvious suspicion was that writing `$F2`/`$F3` that way misbehaved.
+  Rewriting the probe with the `MOV A,#i` / `MOV dp,A` idiom every real driver uses changed
+  nothing.
+- *A stale release byte.* The previous test's release value sits in the CPU-side port 0, so a
+  program whose release loop reads it immediately would jump back to the IPL before the cart read
+  anything. `upload_and_run` now clears that port after uploading — correct regardless — and the
+  symptom persisted.
+
+What the symptom actually looks like: the port snapshot comes back holding `$BB`, which is the
+IPL's own announcement, so the program *has already returned to the IPL* by the time the cart
+reads. Something is releasing or restarting it early. Candidates still open: whether the DSP needs
+the SPC700 to yield cycles between the `$F2` write and the `$F3` access; whether the IPL leaves
+`FLG` (`$6C`) in a soft reset that suppresses register writes; and whether the release loop's
+`CMP` is matching a value the handshake left behind.
 
 `E1.12` (CLRV clears H as well as V) was written, failed, and was **withdrawn rather than
 weakened**: the `ADC` sequence meant to set `H` did not set it on RustySNES, snes9x *or* Mesen2.
