@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Two PPU port rules that only a program can see (`C1.03`, `C3.07`).** `C1.03`: the OAM *high*
+  table commits every byte as it is written — the pairing rule that buffers a lone byte belongs to
+  the low table only. A core that applies it everywhere loses every odd write to the high table,
+  which is where the X bit 8 and size bits live, so sprites go missing or change size depending on
+  how a driver happened to batch its writes. `C3.07`: `OPHCT` and `OPVCT` have **independent** read
+  flipflops, so reading `$213C` says nothing about what `$213D` returns next; with one shared
+  flipflop a driver that reads H then V gets a vertical position of 0 or 1 for the whole frame.
+
+  `C3.07` latches once and never re-latches, so both `$213D` reads sample the same frozen number
+  and the comparison is byte-exact rather than approximate. Its retry loop is the vacuity guard:
+  `OPVCT`'s high byte is a single bit, so the test only separates the two behaviours while the low
+  byte is something other than 0 or 1, and it waits for a scanline where that holds.
+
 - **Mode 4's two layers (`C5.05`).** BG1 is 8bpp and BG2 is 2bpp — three bits of colour depth
   apart, from the same tilemap — and BG3 exists only as the offset-per-tile table, left inert here
   so the scene is about the mode's layers rather than about OPT. A core that reuses mode 3's depths,
@@ -568,10 +581,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **202 tests — 190 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **204 tests — 192 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **49 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **160 of 443** on-cart plus **49** scene-only —
-**209 of 443** in total, and **every group A-G now has shipped tests**
+framebuffer-oracle tier. Dossier coverage is **162 of 443** on-cart plus **49** scene-only —
+**211 of 443** in total, and **every group A-G now has shipped tests**
 (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.

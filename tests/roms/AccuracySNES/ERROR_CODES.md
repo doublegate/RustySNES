@@ -479,6 +479,14 @@ Provenance: **Documented** (SNESdev Wiki, OAM; fullsnes). Kind: scored.
 | 1 | `$02` | OAM high table did not mirror: byte $220 -> $200 |
 | 2 | `$04` | OAM high table did not mirror: byte $221 -> $201 |
 
+### C1.03b — High table commits bytes
+
+Provenance: **Documented** (SNESdev Wiki, OAM; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a single byte written to the OAM high table did not commit — the pairing rule belongs to the low table only |
+
 ### C2.01 — VMAIN step 1 word
 
 Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.
@@ -569,6 +577,14 @@ Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored
 | Code | Byte | Meaning |
 |---|---|---|
 | 1 | `$02` | $213F did not reset the OPHCT flipflop (the third read was not the low byte) |
+
+### C3.07 — Counter flipflops differ
+
+Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | reading $213C advanced $213D's flipflop — the two counters share one, so a read of V after a read of H returns its high byte |
 
 ### C13.01 — PPU1 open bus in $213E
 
