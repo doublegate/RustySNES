@@ -2546,7 +2546,7 @@ CATALOG_IMPL = 1
     stz $2103
     lda #$11
     sta $2104
-    lda #$22
+    lda #$99       ; NOT $22 — see the collision note below
     sta $2104
     lda #$33
     sta $2104
@@ -2576,7 +2576,7 @@ CATALOG_IMPL = 1
     ; A single write advances the port by one byte; a modify-cycle write advances it by two.
     ; Byte 1 still holding its seed means one write; overwritten means two.
     lda f:$7E0131
-    cmp #$22
+    cmp #$99
     bne @two
     lda #$03          ; variant 1 = one write — the modify cycle did not write
     sta f:$7EE010
@@ -5485,8 +5485,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -5572,8 +5574,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -5659,8 +5663,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -5746,8 +5752,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -5833,8 +5841,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -5920,8 +5930,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -6007,8 +6019,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -6094,8 +6108,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -6181,8 +6197,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -6268,8 +6286,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -6339,7 +6359,7 @@ CATALOG_IMPL = 1
     .a16
     .i16
     ; LDA #imm — expect 16 clocks per iteration.
-    ; Derivation: 2 cycles, 2 accesses (opcode + operand) at m=1.
+    ; Derivation: 2 cycles, 2 accesses (opcode + operand) with the m flag set (8-bit accumulator).
     ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
     ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
     rep #$30
@@ -6355,8 +6375,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -6426,7 +6448,7 @@ CATALOG_IMPL = 1
     .a16
     .i16
     ; LDX #imm — expect 16 clocks per iteration.
-    ; Derivation: 2 cycles, 2 accesses at x=1.
+    ; Derivation: 2 cycles, 2 accesses with the x flag set (8-bit index).
     ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
     ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
     rep #$30
@@ -6442,8 +6464,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -6513,7 +6537,7 @@ CATALOG_IMPL = 1
     .a16
     .i16
     ; CMP #imm — expect 16 clocks per iteration.
-    ; Derivation: 2 cycles, 2 accesses at m=1.
+    ; Derivation: 2 cycles, 2 accesses with the m flag set (8-bit accumulator).
     ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
     ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
     rep #$30
@@ -6529,8 +6553,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -6600,7 +6626,7 @@ CATALOG_IMPL = 1
     .a16
     .i16
     ; BIT #imm — expect 16 clocks per iteration.
-    ; Derivation: 2 cycles, 2 accesses at m=1.
+    ; Derivation: 2 cycles, 2 accesses with the m flag set (8-bit accumulator).
     ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
     ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
     rep #$30
@@ -6616,8 +6642,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -6703,8 +6731,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -6790,8 +6820,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -6877,8 +6909,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -6948,7 +6982,7 @@ CATALOG_IMPL = 1
     .a16
     .i16
     ; PHA+PLA — expect 50 clocks per iteration.
-    ; Derivation: PHA 3 cycles / 2 accesses = 22, PLA 4 / 2 = 28, at m=1.
+    ; Derivation: PHA 3 cycles / 2 accesses = 22, PLA 4 / 2 = 28, with the m flag set (8-bit accumulator).
     ; Baseline is 2 NOP(s) per iteration so the fetch overhead cancels; the difference is
     ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
     rep #$30
@@ -6964,8 +6998,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -7067,8 +7103,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -7170,8 +7208,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -7273,8 +7313,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -7360,7 +7402,7 @@ CATALOG_IMPL = 1
     .a16
     .i16
     ; PHX+PLX — expect 50 clocks per iteration.
-    ; Derivation: PHX 3 / 2 = 22, PLX 4 / 2 = 28, at x=1.
+    ; Derivation: PHX 3 / 2 = 22, PLX 4 / 2 = 28, with the x flag set (8-bit index).
     ; Baseline is 2 NOP(s) per iteration so the fetch overhead cancels; the difference is
     ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
     rep #$30
@@ -7376,8 +7418,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -7463,7 +7507,7 @@ CATALOG_IMPL = 1
     .a16
     .i16
     ; LDA dp — expect 24 clocks per iteration.
-    ; Derivation: 3 cycles, 3 accesses (opcode, dp operand, data) at m=1, DL=0 — no internal cycle.
+    ; Derivation: 3 cycles, 3 accesses (opcode, dp operand, data) with the m flag set (8-bit accumulator), DL=0 — no internal cycle.
     ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
     ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
     rep #$30
@@ -7479,8 +7523,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -7550,7 +7596,7 @@ CATALOG_IMPL = 1
     .a16
     .i16
     ; LDA abs — expect 32 clocks per iteration.
-    ; Derivation: 4 cycles, 4 accesses (opcode, 2 operand bytes, data) at m=1.
+    ; Derivation: 4 cycles, 4 accesses (opcode, 2 operand bytes, data) with the m flag set (8-bit accumulator).
     ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
     ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
     rep #$30
@@ -7566,8 +7612,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -7637,7 +7685,7 @@ CATALOG_IMPL = 1
     .a16
     .i16
     ; LDA long — expect 40 clocks per iteration.
-    ; Derivation: 5 cycles, 5 accesses (opcode, 3 operand bytes, data) at m=1.
+    ; Derivation: 5 cycles, 5 accesses (opcode, 3 operand bytes, data) with the m flag set (8-bit accumulator).
     ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
     ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
     rep #$30
@@ -7653,8 +7701,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -7740,8 +7790,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -7811,7 +7863,7 @@ CATALOG_IMPL = 1
     .a16
     .i16
     ; STA abs — expect 32 clocks per iteration.
-    ; Derivation: 4 cycles, 4 accesses at m=1.
+    ; Derivation: 4 cycles, 4 accesses with the m flag set (8-bit accumulator).
     ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
     ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
     rep #$30
@@ -7827,8 +7879,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -7914,8 +7968,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -7985,7 +8041,7 @@ CATALOG_IMPL = 1
     .a16
     .i16
     ; LDA abs,X — expect 32 clocks per iteration.
-    ; Derivation: 4 cycles, 4 accesses at x=1 with no page cross — the +1 p penalty does not apply.
+    ; Derivation: 4 cycles, 4 accesses with the x flag set (8-bit index) with no page cross — the +1 p penalty does not apply.
     ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
     ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
     rep #$30
@@ -8001,8 +8057,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -8088,8 +8146,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -8175,8 +8235,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -8246,7 +8308,7 @@ CATALOG_IMPL = 1
     .a16
     .i16
     ; ADC dp — expect 24 clocks per iteration.
-    ; Derivation: 3 cycles, 3 accesses at m=1, DL=0.
+    ; Derivation: 3 cycles, 3 accesses with the m flag set (8-bit accumulator), DL=0.
     ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
     ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
     rep #$30
@@ -8262,8 +8324,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -8333,7 +8397,7 @@ CATALOG_IMPL = 1
     .a16
     .i16
     ; CMP abs — expect 32 clocks per iteration.
-    ; Derivation: 4 cycles, 4 accesses at m=1.
+    ; Derivation: 4 cycles, 4 accesses with the m flag set (8-bit accumulator).
     ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
     ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
     rep #$30
@@ -8349,8 +8413,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin
@@ -8436,8 +8502,10 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
-    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
-    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ; Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making
+    ; the accumulator and index registers 8-bit — that is what every expectation in the table
+    ; is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a
+    ; defined index that cannot cross a page. The baseline is NOPs, which touch neither.
     ldx #$00
     ; --- baseline ---
     jsr hv_begin

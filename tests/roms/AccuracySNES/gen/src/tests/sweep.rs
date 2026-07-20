@@ -17,7 +17,7 @@
 //! # Why this subset
 //!
 //! The sweep covers the opcodes whose operands and safety are *unambiguous*: implied,
-//! immediate-with-`m=1`/`x=1`, and balanced push/pull pairs. That is deliberate — the dossier's
+//! immediate with the `m` and `x` flags set (8-bit accumulator and index), and balanced push/pull pairs. That is deliberate — the dossier's
 //! `A5.01`-`A5.08` ask for all 256, and the remainder need per-opcode work this table is the
 //! foundation for, not a shortcut around:
 //!
@@ -135,25 +135,25 @@ const SAFE: &[Op] = &[
         name: "LDA #imm",
         body: &["lda #$00"],
         clocks: 16,
-        why: "2 cycles, 2 accesses (opcode + operand) at m=1",
+        why: "2 cycles, 2 accesses (opcode + operand) with the m flag set (8-bit accumulator)",
     },
     Op {
         name: "LDX #imm",
         body: &["ldx #$00"],
         clocks: 16,
-        why: "2 cycles, 2 accesses at x=1",
+        why: "2 cycles, 2 accesses with the x flag set (8-bit index)",
     },
     Op {
         name: "CMP #imm",
         body: &["cmp #$00"],
         clocks: 16,
-        why: "2 cycles, 2 accesses at m=1",
+        why: "2 cycles, 2 accesses with the m flag set (8-bit accumulator)",
     },
     Op {
         name: "BIT #imm",
         body: &["bit #$00"],
         clocks: 16,
-        why: "2 cycles, 2 accesses at m=1",
+        why: "2 cycles, 2 accesses with the m flag set (8-bit accumulator)",
     },
     Op {
         name: "REP #imm",
@@ -177,7 +177,7 @@ const SAFE: &[Op] = &[
         name: "PHA+PLA",
         body: &["pha", "pla"],
         clocks: 50,
-        why: "PHA 3 cycles / 2 accesses = 22, PLA 4 / 2 = 28, at m=1",
+        why: "PHA 3 cycles / 2 accesses = 22, PLA 4 / 2 = 28, with the m flag set (8-bit accumulator)",
     },
     Op {
         name: "PHP+PLP",
@@ -201,7 +201,7 @@ const SAFE: &[Op] = &[
         name: "PHX+PLX",
         body: &["phx", "plx"],
         clocks: 50,
-        why: "PHX 3 / 2 = 22, PLX 4 / 2 = 28, at x=1",
+        why: "PHX 3 / 2 = 22, PLX 4 / 2 = 28, with the x flag set (8-bit index)",
     },
     // --- memory addressing. Operands are checked-safe WRAM: direct page $10 with D=0 reaches
     // $00:0010, absolute $0400 and long $7E0400 are low WRAM. With DBR=$00 an unchecked absolute
@@ -210,19 +210,19 @@ const SAFE: &[Op] = &[
         name: "LDA dp",
         body: &["lda $10"],
         clocks: 24,
-        why: "3 cycles, 3 accesses (opcode, dp operand, data) at m=1, DL=0 — no internal cycle",
+        why: "3 cycles, 3 accesses (opcode, dp operand, data) with the m flag set (8-bit accumulator), DL=0 — no internal cycle",
     },
     Op {
         name: "LDA abs",
         body: &["lda a:$0400"],
         clocks: 32,
-        why: "4 cycles, 4 accesses (opcode, 2 operand bytes, data) at m=1",
+        why: "4 cycles, 4 accesses (opcode, 2 operand bytes, data) with the m flag set (8-bit accumulator)",
     },
     Op {
         name: "LDA long",
         body: &["lda f:$7E0400"],
         clocks: 40,
-        why: "5 cycles, 5 accesses (opcode, 3 operand bytes, data) at m=1",
+        why: "5 cycles, 5 accesses (opcode, 3 operand bytes, data) with the m flag set (8-bit accumulator)",
     },
     Op {
         name: "STA dp",
@@ -234,7 +234,7 @@ const SAFE: &[Op] = &[
         name: "STA abs",
         body: &["sta a:$0400"],
         clocks: 32,
-        why: "4 cycles, 4 accesses at m=1",
+        why: "4 cycles, 4 accesses with the m flag set (8-bit accumulator)",
     },
     Op {
         name: "LDA dp,X",
@@ -246,7 +246,7 @@ const SAFE: &[Op] = &[
         name: "LDA abs,X",
         body: &["lda a:$0400,x"],
         clocks: 32,
-        why: "4 cycles, 4 accesses at x=1 with no page cross — the +1 p penalty does not apply",
+        why: "4 cycles, 4 accesses with the x flag set (8-bit index) with no page cross — the +1 p penalty does not apply",
     },
     Op {
         name: "INC dp",
@@ -264,13 +264,13 @@ const SAFE: &[Op] = &[
         name: "ADC dp",
         body: &["adc $10"],
         clocks: 24,
-        why: "3 cycles, 3 accesses at m=1, DL=0",
+        why: "3 cycles, 3 accesses with the m flag set (8-bit accumulator), DL=0",
     },
     Op {
         name: "CMP abs",
         body: &["cmp a:$0400"],
         clocks: 32,
-        why: "4 cycles, 4 accesses at m=1",
+        why: "4 cycles, 4 accesses with the m flag set (8-bit accumulator)",
     },
     // Untaken branch: 2 cycles, 2 accesses, i.e. 2 clocks more than a NOP.
     //
@@ -333,8 +333,12 @@ fn one(index: usize, op: &Op) -> Test {
     a.c("3-byte 3-cycle fetch, and PHX/PLX push and pull two bytes instead of one. Both showed up");
     a.c("as failures the first time this ran — the sandbox has to match its own preconditions.");
     a.l("sep #$30");
-    a.c("X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline");
-    a.c("is NOPs, which do not touch X, so this costs nothing in the difference.");
+    a.c("Two distinct preconditions, easy to conflate: `sep #$30` sets the m and x FLAGS, making");
+    a.c("the accumulator and index registers 8-bit — that is what every expectation in the table");
+    a.c(
+        "is derived at. `ldx #$00` then sets the X REGISTER to zero, so the indexed entries have a",
+    );
+    a.c("defined index that cannot cross a page. The baseline is NOPs, which touch neither.");
     a.l("ldx #$00");
     a.c("--- baseline ---");
     a.measure_begin();

@@ -393,7 +393,7 @@ Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree on t
 
 Provenance: **Contested** (WDC note (17) asserts RWB is low during the modify cycle in emulation mode; the GTE and VLSI renderings of the same table are silent). Kind: golden vector, never scored.
 
-No failure codes (control-flow test: reaching the end is the pass).
+No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ## Group C
 
@@ -568,13 +568,13 @@ Provenance: **Corroborated** (the bsnes/ares lineage and Mesen2 model two distin
 
 Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: golden vector, never scored.
 
-No failure codes (control-flow test: reaching the end is the pass).
+No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ### C14.02 — PPU2 version (golden)
 
 Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: golden vector, never scored.
 
-No failure codes (control-flow test: reaching the end is the pass).
+No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ### C11.06 — MPY is 16x8 signed
 
@@ -731,7 +731,7 @@ Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
 
 Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: golden vector, never scored.
 
-No failure codes (control-flow test: reaching the end is the pass).
+No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ### B5.01 — 8x8 unsigned multiply
 
@@ -763,7 +763,7 @@ Provenance: **Documented** (SNESdev Wiki, CPU registers; fullsnes). Kind: scored
 
 Provenance: **Contested** (SNESdev Errata states overlapping $4203/$4206 operation is undefined). Kind: golden vector, never scored.
 
-No failure codes (control-flow test: reaching the end is the pass).
+No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ### B5.05 — Mul/div power-on state
 

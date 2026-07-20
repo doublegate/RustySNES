@@ -1718,6 +1718,19 @@ fn a5_08() -> Test {
 /// reads back to see how far the counter moved. One write leaves it at 1; a modify-cycle write
 /// leaves it at 2.
 ///
+/// # The seed value is load-bearing
+///
+/// `OAM[1]` is seeded `$99`, and specifically **not** `$22`, because `$2104` is write-only: the
+/// R-M-W's read returns **open bus**, which is the last byte fetched — `$21`, the high byte of the
+/// operand address — and `INC` makes that `$22`. Seeding `$22` therefore collides:
+///
+/// - one write  -> `OAM[0] = $22`, `OAM[1]` keeps its seed
+/// - two writes -> `OAM[0] = $21` (the unmodified value), `OAM[1] = $22` (the modified one)
+///
+/// With a `$22` seed both paths leave `$22` in `OAM[1]` and the probe silently always reports one
+/// write. The first version of this test did exactly that, and the three-way emulator split it
+/// appeared to show was partly an artifact of the collision rather than a real disagreement.
+///
 /// # Why this reports rather than asserts
 ///
 /// Two of the three vendor tables decline to state it, so neither answer has the weight to score.
@@ -1737,7 +1750,7 @@ fn a9_03() -> Test {
     a.l("stz $2103");
     a.l("lda #$11");
     a.l("sta $2104");
-    a.l("lda #$22");
+    a.l("lda #$99       ; NOT $22 — see the collision note below");
     a.l("sta $2104");
     a.l("lda #$33");
     a.l("sta $2104");
@@ -1760,7 +1773,7 @@ fn a9_03() -> Test {
     a.c("A single write advances the port by one byte; a modify-cycle write advances it by two.");
     a.c("Byte 1 still holding its seed means one write; overwritten means two.");
     a.l("lda f:$7E0131");
-    a.l("cmp #$22");
+    a.l("cmp #$99");
     a.l("bne @two");
     a.l("lda #$03          ; variant 1 = one write — the modify cycle did not write");
     a.l("sta f:$7EE010");
