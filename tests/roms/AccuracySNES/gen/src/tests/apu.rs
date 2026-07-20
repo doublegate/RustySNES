@@ -65,9 +65,11 @@ pub fn all() -> Vec<Test> {
         e9_18(),
         e5_03(),
         e5_04(),
+        e5_05(),
         e7_01(),
         e7_08(),
         e7_11(),
+        e7_14(),
         e7_15(),
     ]
 }
@@ -1090,7 +1092,16 @@ fn looping_sample() -> Vec<u8> {
 /// time and gaussian interpolation of a constant is that constant, so the reading is stable and the
 /// assertion is about the arithmetic rather than about when the cart looked.
 fn constant_sample(shift: u8, nibble: u8) -> Vec<u8> {
-    brr_sample(&[brr_block(shift, 0, 0b11, nibble, nibble)], 0)
+    filtered_sample(shift, 0, nibble)
+}
+
+/// [`constant_sample`] with a filter of the caller's choosing.
+///
+/// A constant input is the clearest way to see what a filter does: filter 0 reproduces it, and
+/// every other filter is a recurrence over the samples before it, so it settles at a value the
+/// filter's own formula decides rather than at the input.
+fn filtered_sample(shift: u8, filter: u8, nibble: u8) -> Vec<u8> {
+    brr_sample(&[brr_block(shift, filter, 0b11, nibble, nibble)], 0)
 }
 
 /// BRR nibbles are signed: `$8` is `-8`, not `+8`.
@@ -1191,6 +1202,83 @@ fn e5_04() -> Test {
         'E',
         "Invalid shift collapses",
         Provenance::Documented("fullsnes, S-DSP BRR; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Filter 1 is a recurrence, not a scale factor: a constant input settles far above itself.
+///
+/// The filter keeps most of the previous output and adds the new sample, so a constant input does
+/// not stay at its own value — it converges on a fixed point an order of magnitude higher. With the
+/// same shift and nibble as `E5.03`, whose filter-0 reading is single-digit, `VxOUTX` here settles
+/// in the `$40`-`$7F` band and stays there: a genuine fixed point, not a moment in a waveform.
+///
+/// The bounds are deliberately loose, and it is worth saying why rather than quietly picking a
+/// number. The exact fixed point is the documented recurrence's, scaled by an envelope that is a
+/// direct gain of `$7F0` rather than full scale, and divided down by the decoder's internal
+/// representation — a chain in which every link belongs to a different assertion. What this test
+/// claims is the part that is filter 1's alone: that it accumulates. A core that ignores the filter
+/// field reports `E5.03`'s single-digit answer and fails by an enormous margin, which is the
+/// failure worth catching — the documentation is emphatic that these formulas are exact and that
+/// simplifying them breaks game audio.
+fn e5_05() -> Test {
+    let prog = voice_program(&filtered_sample(0x8, 1, 0x7), Voice::direct_gain());
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x40,
+        0x7F,
+        "filter 1 did not settle well above its constant input — a single-digit reading is \
+         filter 0's answer, so the filter was not applied",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E5.05",
+        'E',
+        "BRR filter 1",
+        Provenance::Documented("fullsnes, S-DSP BRR filters; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// A linear-decrease envelope that runs out of room clamps at zero; it does not wrap.
+///
+/// Key-on puts the envelope at zero, and a linear-decrease GAIN steps it down by 32 every sample,
+/// so the very first step underflows. The hardware holds it at zero. A core that lets the eleven-bit
+/// value wrap reports something near full scale instead — silence becoming maximum volume, which is
+/// the loudest possible way to get an envelope wrong.
+///
+/// Its control is `E7.11`, the same custom-GAIN machinery driving the ramp the other way: without
+/// it, "the envelope is zero" is also what a core with no GAIN ramps at all reports.
+fn e7_14() -> Test {
+    let prog = voice_program(
+        &looping_sample(),
+        Voice {
+            gain: 0x9F, // custom, linear decrease, rate $1F (every sample)
+            ..Voice::direct_gain()
+        },
+    );
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x00,
+        "a linear-decrease envelope did not clamp at zero; a large reading means it wrapped",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E7.14",
+        'E',
+        "GAIN decrease clamps",
+        Provenance::Documented("SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc"),
         Kind::Scored,
         None,
     )

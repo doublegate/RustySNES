@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A BRR filter and an envelope floor (`E5.05`, `E7.14`).** `E5.05`: filter 1 is a recurrence,
+  not a scale factor — it keeps most of the previous output and adds the new sample, so a constant
+  input converges on a fixed point an order of magnitude above itself. A core that ignores the
+  filter field reports `E5.03`'s single-digit answer and fails by an enormous margin. `E7.14`: a
+  linear-decrease GAIN applied to a freshly keyed-on voice underflows on its very first step, and
+  the hardware holds it at zero; a core that lets the eleven-bit envelope wrap turns silence into
+  maximum volume.
+
+  **`E5.06` — the fifteen-bit wrap — was attempted and is not reachable this way, and the attempt
+  is worth more than the test would have been.** The constant-input trick the other BRR tests rely
+  on works because a non-overflowing filter converges on a fixed point: the output stops changing,
+  so it does not matter which sample the cart catches. Wrapping destroys exactly that property —
+  the output becomes a sawtooth cycling through the whole range, and `VxOUTX` reports wherever it
+  happens to be. The two reference emulators returned `$E1` and `$D0` from the same image, agreeing
+  only that it was negative, and that agreement was luck. The rule this leaves behind is in
+  `docs/accuracysnes-plan.md`: **an `OUTX` assertion is only valid where the output is provably
+  stationary**, and every committed one now says so in its own comment.
+
 - **BRR decoding arithmetic, as three tests that are each other's controls (`E5`).** All three play
   a sample whose every nibble is identical, so filter 0 decodes the same value every time and the
   output is a constant the cart can read without racing the sample clock. `E5.02`: nibbles are
@@ -315,10 +333,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **178 tests — 166 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **180 tests — 168 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **136 of 443** on-cart plus **42** scene-only —
-**178 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier. Dossier coverage is **138 of 443** on-cart plus **42** scene-only —
+**180 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 
