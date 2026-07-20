@@ -2527,6 +2527,66 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; A9.03 — E=1 R-M-W modify write
+; provenance: Contested (WDC note (17) asserts RWB is low during the modify cycle in emulation mode; the GTE and VLSI renderings of the same table are silent)
+.proc test_a9_03
+    .a16
+    .i16
+    ; Seed OAM words 0 and 1, aim the port at word 0, then do one R-M-W on $2104 in emulation
+    ; mode. The OAM address counter afterwards reports how many writes actually happened.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    ; --- seed two words so a stray second write is visible, and clear the probe ---
+    stz $2102
+    stz $2103
+    lda #$11
+    sta $2104
+    lda #$22
+    sta $2104
+    lda #$33
+    sta $2104
+    lda #$44
+    sta $2104
+    ; --- aim at word 0 and perform ONE read-modify-write on the data port ---
+    stz $2102
+    stz $2103
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+    inc a:$2104       ; R-M-W on the write-sensitive OAM data port
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    ; --- how far did the address counter move? rewind and count back ---
+    sep #$20
+    .a8
+    stz $2102
+    stz $2103
+    lda $2138
+    sta f:$7E0130     ; byte 0 after the R-M-W
+    lda $2138
+    sta f:$7E0131     ; byte 1
+    ; A single write advances the port by one byte; a modify-cycle write advances it by two.
+    ; Byte 1 still holding its seed means one write; overwritten means two.
+    lda f:$7E0131
+    cmp #$22
+    bne @two
+    lda #$03          ; variant 1 = one write — the modify cycle did not write
+    sta f:$7EE010
+    jmp test_restore
+@two:
+    lda #$05          ; variant 2 = two writes — WDC note (17) holds
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 ; C1.01 — OAM word write/read
 ; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
 .proc test_c1_01
@@ -8464,7 +8524,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 125
+    .word 126
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -8515,6 +8575,7 @@ _test_entries:
     .addr test_a5_07
     .addr test_a6_09
     .addr test_a5_08
+    .addr test_a9_03
     .addr test_c1_01
     .addr test_c1_02
     .addr test_c1_03
@@ -8643,6 +8704,7 @@ _test_flags:
     .byte $01   ; A5.07
     .byte $01   ; A6.09
     .byte $01   ; A5.08
+    .byte $02   ; A9.03
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -8771,6 +8833,7 @@ _test_names:
     .addr @n_a5_07
     .addr @n_a6_09
     .addr @n_a5_08
+    .addr @n_a9_03
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -8990,6 +9053,9 @@ _test_names:
 @n_a5_08:
     .byte 23
     .byte "A5.22 cycle spot checks"
+@n_a9_03:
+    .byte 22
+    .byte "E=1 R-M-W modify write"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"

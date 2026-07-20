@@ -272,12 +272,26 @@ write, and no wait state. Nothing fetches from the address, nothing is written t
 latches *data*, not addresses. The core drives an address no part of the system consumes. Settling
 this needs a logic analyser on the physical address pins, not a test ROM.
 
-**2. WDC note (17), emulation-mode R-M-W `RWB` — testable, and worth writing.**
+**2. WDC note (17), emulation-mode R-M-W `RWB` — WRITTEN as `A9.03`, and the emulators split.**
 WDC alone asserts that in emulation mode `RWB` is low during *both* the write and the modify cycle
-of a read-modify-write; GTE and VLSI are silent. If true, the modify cycle performs a **write**, so
-an R-M-W against a write-sensitive register writes twice — observable through any register with a
-write side effect (an auto-incrementing port is the obvious probe). This is the one candidate that
-converts cleanly into an on-cart test.
+of a read-modify-write; GTE and VLSI are silent. If true the modify cycle performs a **write**, so
+an R-M-W against a write-sensitive register writes twice. `A9.03` probes that through `$2104`,
+whose address counter auto-increments per write and therefore counts writes directly whatever
+values are written.
+
+The result vindicates keeping it unscored:
+
+| | Reports |
+|---|---|
+| **Mesen2** | variant 2 — **two writes**, WDC's note (17) holds |
+| **RustySNES** | variant 1 — one write |
+| **snes9x** | variant 1 — one write |
+
+A three-way split on a single-vendor claim. Nothing available adjudicates it: the one document that
+states it is the one two other vendors decline to corroborate, and the emulators divide 2-1 the
+other way. Scoring it would promote somebody's convention to a pass rate. It is recorded so any
+emulator running the cart can see where it lands, and it is a strong candidate for the first thing
+to check against real hardware.
 
 **3. IRQ/NMI first cycle — testable in principle, hard in practice.**
 anomie measured it as an opcode fetch (6 or 8 clocks depending on region) against the datasheet's

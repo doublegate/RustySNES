@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES: the opcode sweep now covers every inline-measurable class (34 entries), plus
+  `A9.03`.** The sweep adds direct page, absolute, absolute long, indexed, read-modify-write,
+  stores and untaken branches to the implied/immediate/stack set. `A9.03` settles — or rather,
+  records — WDC's single-vendor note (17) on emulation-mode read-modify-write, by probing `$2104`
+  whose address counter auto-increments per write and so counts writes directly. **The emulators
+  split three ways**: Mesen2 sees two writes (WDC's note holds), RustySNES and snes9x see one.
+  Recorded as a golden vector rather than scored, since the one document asserting it is the one
+  two other vendors decline to corroborate. Battery now **126 tests, 120 scoring, 100.00%,
+  6 golden**.
+
 - **AccuracySNES: the opcode cycle sweep runs (T-04-I) — 22 tests.** A safe-operand table and
   sandbox in `gen/src/tests/sweep.rs`, emitting one test per opcode so a failure names the
   instruction rather than the batch. Expectations are derived from `clocks = 6*cycles + 2*mem`

@@ -13,7 +13,7 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **125** (120 scoring + 5 golden vectors) |
+| Tests | **126** (120 scoring + 6 golden vectors) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES, Mesen2, snes9x — all agree, 0 failures |
 | Groups shipped | **A** (65C816 CPU, 46 tests) · **C** partial (PPU, 30 tests) · **B** partial (5A22, 9 tests) |
@@ -36,7 +36,7 @@ flag in the status byte `BRK` pushes).
 | **E** | SPC700 + S-DSP | ~75 | 0 | ~75 |
 | **F** | Input | ~22 | 0 | ~22 |
 | **G** | Power-on / reset / cartridge | ~18 | 0 | ~18 |
-| | | **~320** | **125** | **~195** |
+| | | **~320** | **126** | **~194** |
 
 **These are test counts. For assertion coverage, read `docs/accuracysnes-coverage.md`** — it is
 regenerated with the ROM from the map in `gen/src/dossier.rs` and currently reports **79 of 443**

@@ -70,6 +70,7 @@ Declared in `dossier.rs::SPLITS`. Each is a claim that the tests assert differen
 ## Tests with no enumerated assertion
 
 - **`A9.02`** — XBA's flag behaviour. A9 enumerates BIT and ORA [d] but not XBA, so there is no assertion to cite — the behaviour is from the WDC datasheet
+- **`A9.03`** — the emulation-mode R-M-W modify-cycle write. Not an enumerated assertion — it comes from the cross-vendor comparison in docs/accuracysnes-timing-oracle.md §8, where WDC's note (17) stands alone against two silent renderings
 - **`B5.03`** — divide by zero saturating to $FFFF with the dividend left as the remainder. Documented in fullsnes but not enumerated in B5, which covers only the two operations, the undefined overlap, and the power-on state
 - **`C3.04`** — that the H counter advances at all. A supporting test rather than a hardware assertion — it pins the primitive every Group A and Group B cycle measurement is built on, so a broken counter fails here rather than as noise in a dozen timing tests
 - **`B4.15`** — the CPU revision nibble, a golden vector. Not an enumerated assertion, but D3's revision-gated DMA bugs are specified as auto-skipping on it, so it has to be readable before those can be written

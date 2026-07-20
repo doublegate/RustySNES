@@ -389,6 +389,12 @@ Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree on t
 | 2 | `$04` | REP #imm did not cost 3 cycles / 2 accesses |
 | 3 | `$06` | PHD/PLD did not cost 4 and 5 cycles with 3 accesses each |
 
+### A9.03 — E=1 R-M-W modify write
+
+Provenance: **Contested** (WDC note (17) asserts RWB is low during the modify cycle in emulation mode; the GTE and VLSI renderings of the same table are silent). Kind: golden vector, never scored.
+
+No failure codes (control-flow test: reaching the end is the pass).
+
 ## Group C
 
 ### C1.01 — OAM word write/read

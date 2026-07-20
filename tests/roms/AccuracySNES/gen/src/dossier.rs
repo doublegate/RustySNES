@@ -123,6 +123,7 @@ pub const MAP: &[(&str, &[&str])] = &[
     ("A8.03", &["A8.03"]),
     ("A9.01", &["A9.01", "A9.02"]),
     ("A9.02", &[]),
+    ("A9.03", &[]),
     // --- Group B: 5A22 -----------------------------------------------------------------------
     ("B1.01", &["B1.01"]),
     ("B1.02", &["B1.02"]),
@@ -227,6 +228,12 @@ pub const UNENUMERATED: &[(&str, &str)] = &[
         "A9.02",
         "XBA's flag behaviour. A9 enumerates BIT and ORA [d] but not XBA, so there is no \
          assertion to cite — the behaviour is from the WDC datasheet",
+    ),
+    (
+        "A9.03",
+        "the emulation-mode R-M-W modify-cycle write. Not an enumerated assertion — it comes from \
+         the cross-vendor comparison in docs/accuracysnes-timing-oracle.md §8, where WDC's note \
+         (17) stands alone against two silent renderings",
     ),
     (
         "B5.03",
