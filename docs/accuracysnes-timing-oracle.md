@@ -241,9 +241,49 @@ Remaining, in order:
      snes9x gets the length right — it passes `A6.08`, the functional test — but not the timing.
      Declared in `crossval.sh` with its citation, and a narrower bug than it first appears.
 
-   Remaining for full coverage: control flow (`PC`-moving, needs a different harness than inline
-   repetition), untaken branches, and the memory-addressing modes (each needs a checked safe
-   operand, since `DBR=$00` puts absolute addresses within reach of MMIO). `STP` stays permanently
-   excluded — it halts the CPU until reset, so a self-scoring battery that runs it never reports.
+   **Extended to 34 entries** covering implied, immediate, stack pairs, direct page, absolute,
+   absolute long, indexed, read-modify-write, stores, and untaken branches — every class that inline
+   repetition can measure. Memory operands are named checked-safe WRAM addresses rather than a
+   blanket rule, because with `DBR=$00` an absolute operand is within reach of MMIO.
+
+   The untaken-branch entry is worth reading before adding more like it: the condition must be
+   established **inside** the measured body. Setting it in the sandbox does not survive, because
+   `measure_begin` emits a `jsr` whose callee clobbers the flags. The first version relied on the
+   sandbox's `ldx #$00` leaving `Z` set and silently measured a *taken* branch instead — the two
+   differ by 12 dots here, so it failed loudly, but a smaller gap would have passed quietly.
+
+   Still outside the sweep, and each needs different machinery rather than more table rows: taken
+   branches and control flow (`JMP`, `JSR`, `JSL`, `RTS`, `RTL`, `RTI`) move `PC` and cannot be
+   repeated inline; `BRK`/`COP` vector away; `WAI` waits for an interrupt. `STP` is permanently
+   excluded — it halts the CPU until reset, so a self-scoring battery that executes it never
+   reports.
+
+## 10. The three cross-vendor candidates — assessed
+
+§8 turned up three rows the documents could not settle. Assessing them for testability first, rather
+than writing tests and discovering the problem afterwards:
+
+**1. Taken-branch internal-cycle address bus — NOT OBSERVABLE. No test is possible.**
+The disagreement is real (GTE says `PBR,PC+2` then `PBR,PC+2+OFF`; VLSI and WDC say `PBR,PC+1`
+twice) but it cannot be detected from software on this machine, and an earlier note in this document
+claiming it was "SNES-observable" was **wrong**. An internal cycle is defined by `VDA=0, VPA=0`, and
+that is precisely the condition under which the 5A22 performs **no bus access at all** — no read, no
+write, and no wait state. Nothing fetches from the address, nothing is written to it, and open bus
+latches *data*, not addresses. The core drives an address no part of the system consumes. Settling
+this needs a logic analyser on the physical address pins, not a test ROM.
+
+**2. WDC note (17), emulation-mode R-M-W `RWB` — testable, and worth writing.**
+WDC alone asserts that in emulation mode `RWB` is low during *both* the write and the modify cycle
+of a read-modify-write; GTE and VLSI are silent. If true, the modify cycle performs a **write**, so
+an R-M-W against a write-sensitive register writes twice — observable through any register with a
+write side effect (an auto-incrementing port is the obvious probe). This is the one candidate that
+converts cleanly into an on-cart test.
+
+**3. IRQ/NMI first cycle — testable in principle, hard in practice.**
+anomie measured it as an opcode fetch (6 or 8 clocks depending on region) against the datasheet's
+internal cycle (always 6). The difference is 2 clocks on a single event, well under the measurement
+noise floor for one occurrence, and interrupt entry cannot be repeated inline the way an instruction
+can. It needs a harness that arms and services many interrupts inside one measurement window —
+related to, but distinct from, the control-flow batch.
 
 4. Rockwell never second-sourced the 16-bit part, so three vendors is the ceiling here.

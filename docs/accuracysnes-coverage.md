@@ -58,7 +58,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 
 Declared in `dossier.rs::SPLITS`. Each is a claim that the tests assert different things about one enumerated behaviour; an undeclared double-claim fails the build.
 
-- **`A5.01-08`** — A5.S01, A5.S02, A5.S03, A5.S04, A5.S05, A5.S06, A5.S07, A5.S08, A5.S09, A5.S10, A5.S11, A5.S12, A5.S13, A5.S14, A5.S15, A5.S16, A5.S17, A5.S18, A5.S19, A5.S20, A5.S21, A5.S22 · the opcode cycle sweep (T-04-I). The dossier states the base sweep as a single ranged assertion covering all 256 opcodes; the cart implements it as one test per opcode so a failure names the instruction rather than the batch. Every A5.Sxx test is one row of it
+- **`A5.01-08`** — A5.S01, A5.S02, A5.S03, A5.S04, A5.S05, A5.S06, A5.S07, A5.S08, A5.S09, A5.S10, A5.S11, A5.S12, A5.S13, A5.S14, A5.S15, A5.S16, A5.S17, A5.S18, A5.S19, A5.S20, A5.S21, A5.S22, A5.S23, A5.S24, A5.S25, A5.S26, A5.S27, A5.S28, A5.S29, A5.S30, A5.S31, A5.S32, A5.S33, A5.S34 · the opcode cycle sweep (T-04-I). The dossier states the base sweep as a single ranged assertion covering all 256 opcodes; the cart implements it as one test per opcode so a failure names the instruction rather than the batch. Every A5.Sxx test is one row of it
 - **`A1.01`** — A1.01, A1.03 · cart A1.01 asserts XCE clears XH/YH; cart A1.03 asserts it forces SH=$01. One dossier line, two independent register effects
 - **`A6.01`** — A6.01, A6.02 · cart A6.01 covers the native BRK vector, cart A6.02 the separate COP vector. The dossier lists the whole native vector table as one assertion
 - **`A8.02`** — A8.01, A8.02 · cart A8.01 asserts the terminal A=$FFFF, cart A8.02 the permanent DBR=destination. A core can get either right and the other wrong

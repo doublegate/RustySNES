@@ -5425,6 +5425,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -5509,6 +5512,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -5593,6 +5599,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -5677,6 +5686,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -5761,6 +5773,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -5845,6 +5860,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -5929,6 +5947,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -6013,6 +6034,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -6097,6 +6121,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -6181,6 +6208,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -6265,6 +6295,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -6349,6 +6382,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -6433,6 +6469,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -6517,6 +6556,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -6601,6 +6643,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -6685,6 +6730,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -6769,6 +6817,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -6853,6 +6904,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -6953,6 +7007,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -7053,6 +7110,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -7153,6 +7213,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -7253,6 +7316,9 @@ CATALOG_IMPL = 1
     sep #$30
     .a8
     .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
     ; --- baseline ---
     jsr hv_begin
     nop
@@ -7331,6 +7397,1066 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; A5.S23 — Sweep: LDA dp
+; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
+.proc test_a5_s23
+    .a16
+    .i16
+    ; LDA dp — expect 24 clocks per iteration.
+    ; Derivation: 3 cycles, 3 accesses (opcode, dp operand, data) at m=1, DL=0 — no internal cycle.
+    ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
+    ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; The sandbox establishes m=1 AND x=1, the state every expectation in this table is stated
+    ; at. `sep #$20` alone narrows only the accumulator and leaves the index registers 16-bit,
+    ; which silently changes the cost of every index-register instruction: LDX #imm becomes a
+    ; 3-byte 3-cycle fetch, and PHX/PLX push and pull two bytes instead of one. Both showed up
+    ; as failures the first time this ran — the sandbox has to match its own preconditions.
+    sep #$30
+    .a8
+    .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
+    ; --- baseline ---
+    jsr hv_begin
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0096
+    ; record slot 52: baseline NOPs, absolute
+    sta f:$7EE268
+    ; --- the opcode under test ---
+    sep #$30
+    .a8
+    .i8
+    jsr hv_begin
+    lda $10
+    lda $10
+    lda $10
+    lda $10
+    lda $10
+    lda $10
+    lda $10
+    lda $10
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0096
+    ; record slot 53: measured minus baseline
+    sta f:$7EE26A
+    cmp #$0012
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0017
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; measured cost disagrees with the manufacturer tables
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; A5.S24 — Sweep: LDA abs
+; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
+.proc test_a5_s24
+    .a16
+    .i16
+    ; LDA abs — expect 32 clocks per iteration.
+    ; Derivation: 4 cycles, 4 accesses (opcode, 2 operand bytes, data) at m=1.
+    ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
+    ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; The sandbox establishes m=1 AND x=1, the state every expectation in this table is stated
+    ; at. `sep #$20` alone narrows only the accumulator and leaves the index registers 16-bit,
+    ; which silently changes the cost of every index-register instruction: LDX #imm becomes a
+    ; 3-byte 3-cycle fetch, and PHX/PLX push and pull two bytes instead of one. Both showed up
+    ; as failures the first time this ran — the sandbox has to match its own preconditions.
+    sep #$30
+    .a8
+    .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
+    ; --- baseline ---
+    jsr hv_begin
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0096
+    ; record slot 54: baseline NOPs, absolute
+    sta f:$7EE26C
+    ; --- the opcode under test ---
+    sep #$30
+    .a8
+    .i8
+    jsr hv_begin
+    lda a:$0400
+    lda a:$0400
+    lda a:$0400
+    lda a:$0400
+    lda a:$0400
+    lda a:$0400
+    lda a:$0400
+    lda a:$0400
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0096
+    ; record slot 55: measured minus baseline
+    sta f:$7EE26E
+    cmp #$0022
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0027
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; measured cost disagrees with the manufacturer tables
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; A5.S25 — Sweep: LDA long
+; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
+.proc test_a5_s25
+    .a16
+    .i16
+    ; LDA long — expect 40 clocks per iteration.
+    ; Derivation: 5 cycles, 5 accesses (opcode, 3 operand bytes, data) at m=1.
+    ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
+    ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; The sandbox establishes m=1 AND x=1, the state every expectation in this table is stated
+    ; at. `sep #$20` alone narrows only the accumulator and leaves the index registers 16-bit,
+    ; which silently changes the cost of every index-register instruction: LDX #imm becomes a
+    ; 3-byte 3-cycle fetch, and PHX/PLX push and pull two bytes instead of one. Both showed up
+    ; as failures the first time this ran — the sandbox has to match its own preconditions.
+    sep #$30
+    .a8
+    .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
+    ; --- baseline ---
+    jsr hv_begin
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0096
+    ; record slot 56: baseline NOPs, absolute
+    sta f:$7EE270
+    ; --- the opcode under test ---
+    sep #$30
+    .a8
+    .i8
+    jsr hv_begin
+    lda f:$7E0400
+    lda f:$7E0400
+    lda f:$7E0400
+    lda f:$7E0400
+    lda f:$7E0400
+    lda f:$7E0400
+    lda f:$7E0400
+    lda f:$7E0400
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0096
+    ; record slot 57: measured minus baseline
+    sta f:$7EE272
+    cmp #$0032
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0037
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; measured cost disagrees with the manufacturer tables
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; A5.S26 — Sweep: STA dp
+; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
+.proc test_a5_s26
+    .a16
+    .i16
+    ; STA dp — expect 24 clocks per iteration.
+    ; Derivation: 3 cycles, 3 accesses; the data cycle is a write.
+    ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
+    ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; The sandbox establishes m=1 AND x=1, the state every expectation in this table is stated
+    ; at. `sep #$20` alone narrows only the accumulator and leaves the index registers 16-bit,
+    ; which silently changes the cost of every index-register instruction: LDX #imm becomes a
+    ; 3-byte 3-cycle fetch, and PHX/PLX push and pull two bytes instead of one. Both showed up
+    ; as failures the first time this ran — the sandbox has to match its own preconditions.
+    sep #$30
+    .a8
+    .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
+    ; --- baseline ---
+    jsr hv_begin
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0096
+    ; record slot 58: baseline NOPs, absolute
+    sta f:$7EE274
+    ; --- the opcode under test ---
+    sep #$30
+    .a8
+    .i8
+    jsr hv_begin
+    sta $10
+    sta $10
+    sta $10
+    sta $10
+    sta $10
+    sta $10
+    sta $10
+    sta $10
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0096
+    ; record slot 59: measured minus baseline
+    sta f:$7EE276
+    cmp #$0012
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0017
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; measured cost disagrees with the manufacturer tables
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; A5.S27 — Sweep: STA abs
+; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
+.proc test_a5_s27
+    .a16
+    .i16
+    ; STA abs — expect 32 clocks per iteration.
+    ; Derivation: 4 cycles, 4 accesses at m=1.
+    ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
+    ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; The sandbox establishes m=1 AND x=1, the state every expectation in this table is stated
+    ; at. `sep #$20` alone narrows only the accumulator and leaves the index registers 16-bit,
+    ; which silently changes the cost of every index-register instruction: LDX #imm becomes a
+    ; 3-byte 3-cycle fetch, and PHX/PLX push and pull two bytes instead of one. Both showed up
+    ; as failures the first time this ran — the sandbox has to match its own preconditions.
+    sep #$30
+    .a8
+    .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
+    ; --- baseline ---
+    jsr hv_begin
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0096
+    ; record slot 60: baseline NOPs, absolute
+    sta f:$7EE278
+    ; --- the opcode under test ---
+    sep #$30
+    .a8
+    .i8
+    jsr hv_begin
+    sta a:$0400
+    sta a:$0400
+    sta a:$0400
+    sta a:$0400
+    sta a:$0400
+    sta a:$0400
+    sta a:$0400
+    sta a:$0400
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0096
+    ; record slot 61: measured minus baseline
+    sta f:$7EE27A
+    cmp #$0022
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0027
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; measured cost disagrees with the manufacturer tables
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; A5.S28 — Sweep: LDA dp,X
+; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
+.proc test_a5_s28
+    .a16
+    .i16
+    ; LDA dp,X — expect 30 clocks per iteration.
+    ; Derivation: 4 cycles, 3 accesses + 1 internal for the index add.
+    ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
+    ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; The sandbox establishes m=1 AND x=1, the state every expectation in this table is stated
+    ; at. `sep #$20` alone narrows only the accumulator and leaves the index registers 16-bit,
+    ; which silently changes the cost of every index-register instruction: LDX #imm becomes a
+    ; 3-byte 3-cycle fetch, and PHX/PLX push and pull two bytes instead of one. Both showed up
+    ; as failures the first time this ran — the sandbox has to match its own preconditions.
+    sep #$30
+    .a8
+    .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
+    ; --- baseline ---
+    jsr hv_begin
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0096
+    ; record slot 62: baseline NOPs, absolute
+    sta f:$7EE27C
+    ; --- the opcode under test ---
+    sep #$30
+    .a8
+    .i8
+    jsr hv_begin
+    lda $10,x
+    lda $10,x
+    lda $10,x
+    lda $10,x
+    lda $10,x
+    lda $10,x
+    lda $10,x
+    lda $10,x
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0096
+    ; record slot 63: measured minus baseline
+    sta f:$7EE27E
+    cmp #$001E
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0023
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; measured cost disagrees with the manufacturer tables
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; A5.S29 — Sweep: LDA abs,X
+; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
+.proc test_a5_s29
+    .a16
+    .i16
+    ; LDA abs,X — expect 32 clocks per iteration.
+    ; Derivation: 4 cycles, 4 accesses at x=1 with no page cross — the +1 p penalty does not apply.
+    ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
+    ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; The sandbox establishes m=1 AND x=1, the state every expectation in this table is stated
+    ; at. `sep #$20` alone narrows only the accumulator and leaves the index registers 16-bit,
+    ; which silently changes the cost of every index-register instruction: LDX #imm becomes a
+    ; 3-byte 3-cycle fetch, and PHX/PLX push and pull two bytes instead of one. Both showed up
+    ; as failures the first time this ran — the sandbox has to match its own preconditions.
+    sep #$30
+    .a8
+    .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
+    ; --- baseline ---
+    jsr hv_begin
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0096
+    ; record slot 64: baseline NOPs, absolute
+    sta f:$7EE280
+    ; --- the opcode under test ---
+    sep #$30
+    .a8
+    .i8
+    jsr hv_begin
+    lda a:$0400,x
+    lda a:$0400,x
+    lda a:$0400,x
+    lda a:$0400,x
+    lda a:$0400,x
+    lda a:$0400,x
+    lda a:$0400,x
+    lda a:$0400,x
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0096
+    ; record slot 65: measured minus baseline
+    sta f:$7EE282
+    cmp #$0022
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0027
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; measured cost disagrees with the manufacturer tables
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; A5.S30 — Sweep: INC dp
+; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
+.proc test_a5_s30
+    .a16
+    .i16
+    ; INC dp — expect 38 clocks per iteration.
+    ; Derivation: R-M-W: 5 cycles, 4 accesses (opcode, operand, read, write) + 1 internal modify.
+    ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
+    ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; The sandbox establishes m=1 AND x=1, the state every expectation in this table is stated
+    ; at. `sep #$20` alone narrows only the accumulator and leaves the index registers 16-bit,
+    ; which silently changes the cost of every index-register instruction: LDX #imm becomes a
+    ; 3-byte 3-cycle fetch, and PHX/PLX push and pull two bytes instead of one. Both showed up
+    ; as failures the first time this ran — the sandbox has to match its own preconditions.
+    sep #$30
+    .a8
+    .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
+    ; --- baseline ---
+    jsr hv_begin
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0096
+    ; record slot 66: baseline NOPs, absolute
+    sta f:$7EE284
+    ; --- the opcode under test ---
+    sep #$30
+    .a8
+    .i8
+    jsr hv_begin
+    inc $10
+    inc $10
+    inc $10
+    inc $10
+    inc $10
+    inc $10
+    inc $10
+    inc $10
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0096
+    ; record slot 67: measured minus baseline
+    sta f:$7EE286
+    cmp #$002E
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0033
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; measured cost disagrees with the manufacturer tables
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; A5.S31 — Sweep: INC abs
+; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
+.proc test_a5_s31
+    .a16
+    .i16
+    ; INC abs — expect 46 clocks per iteration.
+    ; Derivation: R-M-W: 6 cycles, 5 accesses + 1 internal modify.
+    ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
+    ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; The sandbox establishes m=1 AND x=1, the state every expectation in this table is stated
+    ; at. `sep #$20` alone narrows only the accumulator and leaves the index registers 16-bit,
+    ; which silently changes the cost of every index-register instruction: LDX #imm becomes a
+    ; 3-byte 3-cycle fetch, and PHX/PLX push and pull two bytes instead of one. Both showed up
+    ; as failures the first time this ran — the sandbox has to match its own preconditions.
+    sep #$30
+    .a8
+    .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
+    ; --- baseline ---
+    jsr hv_begin
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0096
+    ; record slot 68: baseline NOPs, absolute
+    sta f:$7EE288
+    ; --- the opcode under test ---
+    sep #$30
+    .a8
+    .i8
+    jsr hv_begin
+    inc a:$0400
+    inc a:$0400
+    inc a:$0400
+    inc a:$0400
+    inc a:$0400
+    inc a:$0400
+    inc a:$0400
+    inc a:$0400
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0096
+    ; record slot 69: measured minus baseline
+    sta f:$7EE28A
+    cmp #$003E
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0043
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; measured cost disagrees with the manufacturer tables
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; A5.S32 — Sweep: ADC dp
+; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
+.proc test_a5_s32
+    .a16
+    .i16
+    ; ADC dp — expect 24 clocks per iteration.
+    ; Derivation: 3 cycles, 3 accesses at m=1, DL=0.
+    ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
+    ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; The sandbox establishes m=1 AND x=1, the state every expectation in this table is stated
+    ; at. `sep #$20` alone narrows only the accumulator and leaves the index registers 16-bit,
+    ; which silently changes the cost of every index-register instruction: LDX #imm becomes a
+    ; 3-byte 3-cycle fetch, and PHX/PLX push and pull two bytes instead of one. Both showed up
+    ; as failures the first time this ran — the sandbox has to match its own preconditions.
+    sep #$30
+    .a8
+    .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
+    ; --- baseline ---
+    jsr hv_begin
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0096
+    ; record slot 70: baseline NOPs, absolute
+    sta f:$7EE28C
+    ; --- the opcode under test ---
+    sep #$30
+    .a8
+    .i8
+    jsr hv_begin
+    adc $10
+    adc $10
+    adc $10
+    adc $10
+    adc $10
+    adc $10
+    adc $10
+    adc $10
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0096
+    ; record slot 71: measured minus baseline
+    sta f:$7EE28E
+    cmp #$0012
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0017
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; measured cost disagrees with the manufacturer tables
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; A5.S33 — Sweep: CMP abs
+; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
+.proc test_a5_s33
+    .a16
+    .i16
+    ; CMP abs — expect 32 clocks per iteration.
+    ; Derivation: 4 cycles, 4 accesses at m=1.
+    ; Baseline is 1 NOP(s) per iteration so the fetch overhead cancels; the difference is
+    ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; The sandbox establishes m=1 AND x=1, the state every expectation in this table is stated
+    ; at. `sep #$20` alone narrows only the accumulator and leaves the index registers 16-bit,
+    ; which silently changes the cost of every index-register instruction: LDX #imm becomes a
+    ; 3-byte 3-cycle fetch, and PHX/PLX push and pull two bytes instead of one. Both showed up
+    ; as failures the first time this ran — the sandbox has to match its own preconditions.
+    sep #$30
+    .a8
+    .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
+    ; --- baseline ---
+    jsr hv_begin
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0096
+    ; record slot 72: baseline NOPs, absolute
+    sta f:$7EE290
+    ; --- the opcode under test ---
+    sep #$30
+    .a8
+    .i8
+    jsr hv_begin
+    cmp a:$0400
+    cmp a:$0400
+    cmp a:$0400
+    cmp a:$0400
+    cmp a:$0400
+    cmp a:$0400
+    cmp a:$0400
+    cmp a:$0400
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0096
+    ; record slot 73: measured minus baseline
+    sta f:$7EE292
+    cmp #$0022
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0027
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; measured cost disagrees with the manufacturer tables
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; A5.S34 — Sweep: BVS untaken
+; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
+.proc test_a5_s34
+    .a16
+    .i16
+    ; BVS untaken — expect 30 clocks per iteration.
+    ; Derivation: CLV 2 cycles / 1 access = 14, plus an untaken branch at 2 cycles / 2 accesses = 16.
+    ; Baseline is 2 NOP(s) per iteration so the fetch overhead cancels; the difference is
+    ; the instruction's own extra cost. Raw spans are recorded so a failure can be inspected.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; The sandbox establishes m=1 AND x=1, the state every expectation in this table is stated
+    ; at. `sep #$20` alone narrows only the accumulator and leaves the index registers 16-bit,
+    ; which silently changes the cost of every index-register instruction: LDX #imm becomes a
+    ; 3-byte 3-cycle fetch, and PHX/PLX push and pull two bytes instead of one. Both showed up
+    ; as failures the first time this ran — the sandbox has to match its own preconditions.
+    sep #$30
+    .a8
+    .i8
+    ; X = 0 so the indexed entries have a defined index that cannot cross a page. The baseline
+    ; is NOPs, which do not touch X, so this costs nothing in the difference.
+    ldx #$00
+    ; --- baseline ---
+    jsr hv_begin
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0096
+    ; record slot 74: baseline NOPs, absolute
+    sta f:$7EE294
+    ; --- the opcode under test ---
+    sep #$30
+    .a8
+    .i8
+    jsr hv_begin
+    clv
+    bvs *+2
+    clv
+    bvs *+2
+    clv
+    bvs *+2
+    clv
+    bvs *+2
+    clv
+    bvs *+2
+    clv
+    bvs *+2
+    clv
+    bvs *+2
+    clv
+    bvs *+2
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sec
+    sbc f:$7E0096
+    ; record slot 75: measured minus baseline
+    sta f:$7EE296
+    cmp #$0002
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0007
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; measured cost disagrees with the manufacturer tables
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 .segment "CATALOG"
 .export _test_count
 .export _test_entries
@@ -7338,7 +8464,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 113
+    .word 125
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -7455,6 +8581,18 @@ _test_entries:
     .addr test_a5_s20
     .addr test_a5_s21
     .addr test_a5_s22
+    .addr test_a5_s23
+    .addr test_a5_s24
+    .addr test_a5_s25
+    .addr test_a5_s26
+    .addr test_a5_s27
+    .addr test_a5_s28
+    .addr test_a5_s29
+    .addr test_a5_s30
+    .addr test_a5_s31
+    .addr test_a5_s32
+    .addr test_a5_s33
+    .addr test_a5_s34
 
 ; Per-test flags: bit0 = scores toward the pass rate, bit1 = golden-vector.
 _test_flags:
@@ -7571,6 +8709,18 @@ _test_flags:
     .byte $01   ; A5.S20
     .byte $01   ; A5.S21
     .byte $01   ; A5.S22
+    .byte $01   ; A5.S23
+    .byte $01   ; A5.S24
+    .byte $01   ; A5.S25
+    .byte $01   ; A5.S26
+    .byte $01   ; A5.S27
+    .byte $01   ; A5.S28
+    .byte $01   ; A5.S29
+    .byte $01   ; A5.S30
+    .byte $01   ; A5.S31
+    .byte $01   ; A5.S32
+    .byte $01   ; A5.S33
+    .byte $01   ; A5.S34
 
 ; Menu labels, each a length-prefixed ASCII string.
 _test_names:
@@ -7687,6 +8837,18 @@ _test_names:
     .addr @n_a5_s20
     .addr @n_a5_s21
     .addr @n_a5_s22
+    .addr @n_a5_s23
+    .addr @n_a5_s24
+    .addr @n_a5_s25
+    .addr @n_a5_s26
+    .addr @n_a5_s27
+    .addr @n_a5_s28
+    .addr @n_a5_s29
+    .addr @n_a5_s30
+    .addr @n_a5_s31
+    .addr @n_a5_s32
+    .addr @n_a5_s33
+    .addr @n_a5_s34
 @n_a1_01:
     .byte 16
     .byte "XCE clears XH/YH"
@@ -8026,3 +9188,39 @@ _test_names:
 @n_a5_s22:
     .byte 14
     .byte "Sweep: PHX+PLX"
+@n_a5_s23:
+    .byte 13
+    .byte "Sweep: LDA dp"
+@n_a5_s24:
+    .byte 14
+    .byte "Sweep: LDA abs"
+@n_a5_s25:
+    .byte 15
+    .byte "Sweep: LDA long"
+@n_a5_s26:
+    .byte 13
+    .byte "Sweep: STA dp"
+@n_a5_s27:
+    .byte 14
+    .byte "Sweep: STA abs"
+@n_a5_s28:
+    .byte 15
+    .byte "Sweep: LDA dp,X"
+@n_a5_s29:
+    .byte 16
+    .byte "Sweep: LDA abs,X"
+@n_a5_s30:
+    .byte 13
+    .byte "Sweep: INC dp"
+@n_a5_s31:
+    .byte 14
+    .byte "Sweep: INC abs"
+@n_a5_s32:
+    .byte 13
+    .byte "Sweep: ADC dp"
+@n_a5_s33:
+    .byte 14
+    .byte "Sweep: CMP abs"
+@n_a5_s34:
+    .byte 18
+    .byte "Sweep: BVS untaken"
