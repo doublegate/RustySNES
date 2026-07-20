@@ -65,6 +65,12 @@ reviews:
     # can narrow the review to *only* that path. Hence every directory worth reviewing is named
     # rather than just the one being rescued. **Adding a new top-level directory means adding it
     # here** — otherwise it is reviewed by nobody and nothing says so.
+    #
+    # Four top-level directories are left out deliberately, not by oversight: `assets/`, `images/`,
+    # `screenshots/` and `raw/` hold binaries and captures, which a text review cannot say anything
+    # useful about. `ref-docs/` and `ref-proj/` are excluded explicitly below, for a different
+    # reason — they are immutable, so a finding there has nowhere to go.
+    - '.cargo/**'
     - '.github/**'
     - 'android/**'
     - 'crates/**'
@@ -73,11 +79,15 @@ reviews:
     - 'scripts/**'
     - 'tests/**'
     - 'to-dos/**'
+    - 'Cargo.lock'
     - '*.md'
     - '*.toml'
     - '*.yaml'
     - '*.yml'
     - '*.json'
+    - '.editorconfig'
+    - '.gitignore'
+    - '.markdownlintignore'
     # --- Excludes ----------------------------------------------------------------------------
     # Generated artefacts. Reviewing them is reviewing the generator twice, and the ROM is binary.
     - '!tests/roms/AccuracySNES/asm/tests_group_a.s'
@@ -159,8 +169,10 @@ reviews:
     title:
       mode: warning
       requirements: |
-        Conventional Commits: `type(scope): subject`, imperative mood, no trailing period, and
-        the type drawn from feat, fix, docs, refactor, test, chore, perf, build, ci.
+        Conventional Commits: `type: subject`, with an optional `(scope)` and an optional `!`
+        marking a breaking change — `docs: refresh the coverage table`, `feat(ppu): ...` and
+        `feat!: ...` are all valid. Imperative mood, no trailing period, and the type drawn from
+        feat, fix, docs, refactor, test, chore, perf, build, ci.
     custom_checks:
       - name: CHANGELOG entry
         mode: warning
@@ -174,8 +186,10 @@ reviews:
         instructions: |
           A behaviour change under `crates/rustysnes-<chip>/` must be accompanied by an edit to
           the matching `docs/<chip>.md` in the same pull request, because those documents are the
-          specification rather than a history log. Pass if the crate change does not alter
-          observable behaviour, or if the relevant doc was already correct — say which it is.
+          specification rather than a history log. Pass only if the crate change does not alter
+          observable behaviour — say what the change does instead. "The document was already
+          correct" is not a pass: if the behaviour changed, the specification of it changed, and
+          this check and the `crates/**` path instruction have to say the same thing.
       - name: AccuracySNES bookkeeping
         mode: warning
         instructions: |
@@ -183,8 +197,8 @@ reviews:
           check three things: the test appears in `dossier.rs::MAP` (mapped to a dossier assertion
           or to an empty slice with a matching `UNENUMERATED` entry); the regenerated artefacts
           (`asm/tests_group_a.s`, `SOURCE_CATALOG.tsv`, `docs/accuracysnes-coverage.md`, the two
-          `.sfc` images) are present in the diff, since a source change without them means the
-          committed ROM does not match its generator; and the hand-maintained counts in
+          `.sfc` images, and `asm/scenes.s` whenever a scene changed) are present in the diff,
+          since a source change without them means the committed ROM does not match its generator; and the hand-maintained counts in
           `docs/accuracysnes-plan.md` moved by the same amount as the generated coverage table.
 
 knowledge_base:
