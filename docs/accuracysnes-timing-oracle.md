@@ -159,10 +159,55 @@ and Nintendo's manual never mentions refresh at all.
 - **Eyes & Lichty, *Programming the 65816*** — WDC-endorsed, so it corroborates the WDC datasheet
   but is not independent of it.
 
-## 8. Open follow-up
+## 8. Cross-vendor verification — three renderings, and what it caught
 
-WDC's datasheets have accumulated typos across revisions, and a single vendor rendering is a single
-point of failure. **GTE** and **VLSI (VL65C816)** both published their own detailed
-instruction-operation tables — anomie preferred the GTE one, *"particularly nice, as it identifies
-the CPU activity for each cycle of the instruction"*. Three vendor datasheets agreeing on a cycle
-row would be materially stronger than one. Worth chasing before the sweep is scored.
+The 65816 was second-sourced, and three vendors published their own detailed instruction-operation
+tables: **GTE** (1987 Microcircuits Data Book, "Table 9"), **VLSI** (1988, "Table 6"), and **WDC**
+(2024, "Table 5-7"). All three carry the same column set — VP, ML, VDA, VPA, address bus, data bus,
+R/W — and GTE's and VLSI's notes lists are verbatim identical (11 notes); WDC keeps those and adds
+six more. All three are held locally under `ref-docs/datasheets/` (gitignored, all-rights-reserved
+manufacturer documents) with a full row-by-row write-up in `COMPARISON.md`.
+
+**The headline is reassuring: five of six sampled instructions agree bit-for-bit across all three** —
+`LDA abs`, `STA abs,X` (including note 4's unconditional extra cycle, whose wording is verbatim
+identical in all three), `ASL abs` (including `ML` held low across the locked read-modify-write
+window and the reverse-order high-then-low writeback), `PLA`, `JSR abs`, and `MVN` across all three
+iterations. That is what makes the oracle usable: these are not one document's assertions.
+
+**Three disagreements, and they are the more valuable output.**
+
+| # | What | Disposition |
+|---|---|---|
+| 1 | **`PHA`: VLSI marks both push cycles `R/W = 1` (read).** GTE and WDC say 0 (write) | A VLSI typesetting slip, localised — its `PEA`/`PEI`/`JSR` writes are correctly 0. A push is a write; this is not a real disagreement. **Do not feed VLSI's `R/W` column in as a blind third vote without inspecting the block.** |
+| 2 | **Taken-branch internal cycles: what is on the address bus?** GTE says `PBR,PC+2` then `PBR,PC+2+OFF`; VLSI and WDC both say `PBR,PC+1` for both | **Measure it.** Flags and cycle counts are identical everywhere — only the address-bus contents differ. GTE's reading is the more physically plausible (PC has already passed the operand, and the second dead cycle is the page-fixup cycle). The 2-1 vote is weak evidence: WDC and VLSI plausibly inherited one simplification rather than confirming independently. **This is SNES-observable** — the address driven during an internal cycle is what the bus and MDR see, so open-bus and DMA-interaction behaviour can depend on it. |
+| 3 | **`PHx` 16-bit extra cycle: which cycle carries note (1)?** GTE and VLSI attach it to cycle 3a (the register-high push, which only exists when the register is 16-bit); WDC attaches it to cycle 2 and puts its own note (12) on 3a | Annotation-level, no behavioural difference, but WDC stands alone and looks wrong. Prefer the 2-vendor reading. |
+
+Also single-sourced and therefore worth testing rather than trusting: **WDC's note (17)** — *"In the
+emulation mode, during a R-M-W instruction the RWB is low during both write and modify cycles"* — is
+asserted by WDC alone and unstated by both 1980s renderings.
+
+> **Caveat: do not cross-check using the vendors' opcode *counts*.** All three print per-mode opcode
+> counts that contradict their own adjacent mnemonic lists, and WDC and VLSI share the same inherited
+> errors (absolute: GTE 16 correct, WDC/VLSI 18 wrong; `abs,X`: GTE/VLSI 11 correct, WDC 12 wrong;
+> absolute R-M-W: GTE 8 correct, WDC/VLSI 6 wrong). Only the **cycle rows** are trustworthy.
+
+This exercise justified itself. It caught a vendor typo, an apparently-inherited simplification
+masquerading as corroboration, and two single-vendor claims — none of which would have been visible
+from WDC alone, and one of which (§8.2) is now a test candidate precisely because the documents
+cannot settle it.
+
+## 9. Open follow-up
+
+~~Chase GTE and VLSI renderings~~ — **done, see §8.** anomie's preference for GTE
+(*"particularly nice, as it identifies the CPU activity for each cycle of the instruction"*) proved
+well placed: where the three disagree, GTE is right or more plausible in every case.
+
+Remaining, in order:
+
+1. **Three new test candidates from §8**, all of which exist because documents alone cannot settle
+   them: the taken-branch internal-cycle address bus, WDC's emulation-mode R-M-W `RWB` note (17), and
+   the IRQ/NMI first cycle where anomie's measurement already contradicts the datasheet (§5).
+2. **Derive per-opcode expectations** into the generator from §3 + §4, and revisit `A5.08` — its
+   `REP` mismatch is now checkable against three vendor renderings rather than against our own
+   arithmetic.
+3. Rockwell never second-sourced the 16-bit part, so three vendors is the ceiling here.
