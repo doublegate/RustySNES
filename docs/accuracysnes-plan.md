@@ -13,11 +13,15 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **132** (123 scoring + 9 golden vectors) |
+| Tests | **162** (150 scoring + 11 golden vectors + 1 region SKIP per image) |
+| Rendered scenes | **41**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
-| Cross-validated | RustySNES, Mesen2, snes9x — all agree, 0 failures |
-| Groups shipped | **A** (65C816 CPU, 46 tests) · **C** partial (PPU, 30 tests) · **B** partial (5A22, 9 tests) |
-| Defects found in this emulator | **5** — see §5 |
+| Cross-validated | RustySNES, Mesen2, snes9x — all agree, on both the NTSC and PAL images |
+| Groups shipped | **A** (65C816) · **B** (5A22) · **C** (PPU, on-cart and rendered) · **D** (DMA/HDMA) · **E** (SPC700 + S-DSP) — all partial |
+| Defects found in this emulator | **10** — see §5 |
+
+These counts are maintained by hand and will drift. **`docs/accuracysnes-coverage.md` is the
+authority**: it is regenerated with the ROM, so it cannot.
 
 Phase A shipped Group A. Phase B has so far shipped the register-observable half of Group C — the
 OAM/VRAM/CGRAM port mechanics, the H/V counters, the two open-bus latches, the version nibbles, the
@@ -39,8 +43,8 @@ flag in the status byte `BRK` pushes).
 | | | **~320** | **132** | **~188** |
 
 **These are test counts. For assertion coverage, read `docs/accuracysnes-coverage.md`** — it is
-regenerated with the ROM from the map in `gen/src/dossier.rs` and currently reports **79 of 443**
-enumerated assertion rows covered. That file is now a *complete* statement: every sub-group of the
+regenerated with the ROM from the map in `gen/src/dossier.rs`, so it is always current where the
+figures above are not. That file is now a *complete* statement: every sub-group of the
 dossier's Part V is enumerated, so an assertion with no test is listed there by name.
 
 One test routinely carries several assertions with distinct failure codes, so test counts and
