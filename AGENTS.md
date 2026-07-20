@@ -47,7 +47,9 @@ authoritative per-subsystem state.
 - `docs/` — the spec (update in the same PR as code); `docs/STATUS.md` = single source of truth;
   `docs/adr/` — ADRs. `ref-docs/` — immutable research. `ref-proj/` — study clones (gitignored; bsnes/ares/Mesen2).
 - `tests/roms/` — committed permissive corpus + gitignored `external/` (commercial dumps + coprocessor firmware).
-- `tests/roms/AccuracySNES/` — **the first-party self-scoring test cartridge**. `gen/` is a Rust
+- `tests/roms/AccuracySNES/` — **the first-party self-scoring test cartridge** (162 tests / 41
+  rendered scenes / 162 of 443 dossier assertions as of 2026-07-20; `docs/accuracysnes-plan.md`
+  is the live count). `gen/` is a Rust
   generator that emits the 65816 source, assembles it with `ca65`/`ld65`, and writes the ROM plus
   `SOURCE_CATALOG.tsv`, `docs/accuracysnes-coverage.md` and `build/scenes.tsv`. Never hand-edit
   `asm/tests_group_a.s` or `asm/scenes.s` — they are generated. `docs/accuracysnes-plan.md` is the
@@ -108,8 +110,33 @@ Working rules that have each already cost a debugging session:
   is invisible against a 16-tile cycle. Check that a scene renders what it claims to arrange.
 - `STZ` has no long-addressing form; `cop #$00` is rejected by ca65 2.19 (emit `.byte $02,$00`);
   menu labels are capped at 24 columns.
-- Three emulators failing **identically** means a broken test; RustySNES failing **alone** means a
-  real bug. Both have happened repeatedly — check which before investigating.
+- **Never hand-write a verdict byte.** Use the assertion helpers even when the condition is not an
+  equality — `assert_a16_range` expresses "must not be X" fine. A hand-written `sta V_TEST_RESULT`
+  puts a code in the ROM that the generated `ERROR_CODES.md` cannot know about, so the table stops
+  being the complete account of failure bytes that it exists to be. Got wrong twice.
+- Three emulators failing **identically** usually means a broken test; RustySNES failing **alone**
+  means a real bug. Both have happened repeatedly — check which before investigating. But the first
+  is a **heuristic, not a proof**: a harness bug upstream of every implementation produces the same
+  signature, and one did — it cost a published finding that had to be retracted (see the `$F8`/`$F9`
+  correction in the CHANGELOG).
+
+### Group E — the APU, reached through four bytes
+
+The SPC700 is a separate processor with its own RAM; the only channel is `$2140`-`$2143`. The cart
+uploads a small SPC700 program through the IPL boot handshake (`apu_upload` in `asm/runtime.s`),
+lets it run, and reads its answers back. `gen/src/spc.rs` assembles those programs — `ca65` does not
+speak SPC700. Verify any new opcode encoding against
+`crates/rustysnes-apu/src/spc700_exec.rs`'s dispatch table.
+
+- **Every program must hand the APU back to the IPL** (`release_to_ipl`), and that path **re-maps
+  the IPL ROM first**. `$F1` bit 7 selects whether `$FFC0`+ reads as the boot ROM or as RAM, so a
+  test that writes `$F1` for its own reasons (enabling a timer, say) leaves `JMP $FFC0` landing in
+  dead RAM — and then *every upload after it silently fails* while the battery still reports 100%.
+- **Every handshake wait is bounded**, and a test whose APU never answers reports SKIP. An
+  unbounded wait hangs the whole battery and reports nothing about any other test.
+- The emitter carries only opcodes a committed test exercises. An unexercised encoding is an
+  unverified one, and a wrong byte in it surfaces as an emulator disagreement rather than as an
+  assembler bug.
 
 ## Conventions
 
