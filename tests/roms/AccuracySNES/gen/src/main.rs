@@ -68,6 +68,7 @@ fn main() {
     let dossier_src = std::fs::read_to_string(&dossier_path)
         .unwrap_or_else(|e| panic!("read {}: {e}", dossier_path.display()));
     let enumerated = dossier::parse_enumeration(&dossier_src);
+    dossier::validate_scenes(&enumerated);
     let coverage_path = dossier_path.with_file_name("accuracysnes-coverage.md");
     write(
         &coverage_path,

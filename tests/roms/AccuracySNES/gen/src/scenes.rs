@@ -73,7 +73,7 @@ pub const SCENES: &[Scene] = &[
     },
     Scene {
         id: "c8-fixed-colour-add",
-        dossier: "C8.10",
+        dossier: "C8.11",
         what: "Colour math in additive mode against the fixed colour, with the subscreen left as \
                the fixed backdrop. Evidence for CGADSUB/COLDATA and the half/div2 behaviour.",
         setup: &[
@@ -111,7 +111,527 @@ pub const SCENES: &[Scene] = &[
             "sta $2100",
         ],
     },
+    Scene {
+        id: "c5-mode0-four-bg-priority",
+        dossier: "C5.01",
+        what: "Mode 0 with all four backgrounds enabled, each scrolled by a different amount so \
+               the lower layers show through the transparent pixels of the ones above. Evidence \
+               for the mode-0 priority order and for four independent 2bpp layers existing at all.",
+        setup: &[
+            "sep #$20",
+            "stz $2105         ; BGMODE 0: four 2bpp layers",
+            "stz $210B",
+            "stz $210C         ; all four BGs take character data from word $0000",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "sta $2108",
+            "sta $2109",
+            "sta $210A         ; one tilemap, four layers — the difference is scroll and palette",
+            "; Scroll each layer by a different amount. Without this the higher-priority layer",
+            "; covers the others exactly and the priority order is unobservable.",
+            "lda #$04",
+            "sta $210F",
+            "stz $210F         ; BG2 H scroll = 4",
+            "lda #$08",
+            "sta $2111",
+            "stz $2111         ; BG3 H scroll = 8",
+            "lda #$0C",
+            "sta $2113",
+            "stz $2113         ; BG4 H scroll = 12",
+            "lda #$0F",
+            "sta $212C         ; BG1-4 all on the main screen",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c5-mode0-palette-segregation",
+        dossier: "C5.09",
+        what: "Mode 0 again, but read for colour rather than order: each background takes its \
+               palette from its own 32-entry CGRAM region (BG1 0-31, BG2 32-63, BG3 64-95, \
+               BG4 96-127). The canvas fills all 128 entries with distinct colours, so a core \
+               that ignores the per-BG offset renders the four layers in the same colours.",
+        setup: &[
+            "sep #$20",
+            "stz $2105",
+            "stz $210B",
+            "stz $210C",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "sta $2108",
+            "sta $2109",
+            "sta $210A",
+            "; Vertical rather than horizontal offsets this time, so the layers interleave by row",
+            "; and each region's colours land in a different part of the picture.",
+            "lda #$02",
+            "sta $2110",
+            "stz $2110         ; BG2 V scroll = 2",
+            "lda #$04",
+            "sta $2112",
+            "stz $2112         ; BG3 V scroll = 4",
+            "lda #$06",
+            "sta $2114",
+            "stz $2114         ; BG4 V scroll = 6",
+            "lda #$0F",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c5-mode3-8bpp",
+        dossier: "C5.04",
+        what: "Mode 3: BG1 8bpp, BG2 4bpp, both reading the same VRAM. The extra bitplanes are \
+               zero (the canvas only writes a 2bpp font), so this pins how a core assembles a \
+               deeper pixel from planes that are not all present — deterministic, because the \
+               VRAM it reads was cleared before the font was loaded.",
+        setup: &[
+            "sep #$20",
+            "lda #$03",
+            "sta $2105         ; BGMODE 3",
+            "stz $210B",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "sta $2108",
+            "jsr scene_low_tiles ; 8bpp tiles are 32 words; the canvas map indexes past the font",
+            "lda #$03",
+            "sta $212C         ; BG1 + BG2",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c5-tilemap-flip-bits",
+        dossier: "C5.10",
+        what: "The tilemap entry's H and V flip bits (bits 14 and 15 of `vhopppcc cccccccc`). The \
+               canvas writes neither, so this scene rewrites the tilemap with both set on \
+               alternating cells — a core that ignores a flip bit, or swaps the two, renders \
+               recognisably different glyphs rather than subtly wrong ones.",
+        setup: &[
+            "sep #$20",
+            "stz $2105",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "stz $210B",
+            "; Rewrite the tilemap: cell index bit 0 picks H flip, bit 5 (row parity) picks V flip.",
+            "lda #$80",
+            "sta $2115         ; VMAIN: increment after the high byte, so a 16-bit store = one entry",
+            "rep #$30",
+            "ldx #MAP_BASE",
+            "stx $2116",
+            "ldx #$0000",
+            "@flipcell:",
+            "txa",
+            "and #$003F",
+            "clc",
+            "adc #$0041        ; a letter glyph, so a flip is obvious",
+            "sta f:V_TMP",
+            "txa",
+            "and #$0001",
+            "beq :+",
+            "lda #$4000        ; H flip",
+            "bra :++",
+            ":",
+            "lda #$0000",
+            ":",
+            "sta f:V_TMP2",
+            "txa",
+            "and #$0020        ; every other row of cells",
+            "beq :+",
+            "lda #$8000        ; V flip",
+            "bra :++",
+            ":",
+            "lda #$0000",
+            ":",
+            "ora f:V_TMP2",
+            "ora f:V_TMP",
+            "sta $2118",
+            "inx",
+            "cpx #(SCREEN_COLS * 32)",
+            "bne @flipcell",
+            "sep #$20",
+            "lda #$01",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c5-16x16-tiles",
+        dossier: "C5.11",
+        what: "BG1 switched to 16x16 tiles (BGMODE bit 4). A 16x16 cell is assembled from the \
+               named tile plus +1, +16 and +17, so a core that uses the wrong neighbour renders \
+               the right glyphs in the wrong quadrants — visible, and specific about which \
+               quadrant is wrong.",
+        setup: &[
+            "sep #$20",
+            "lda #$10",
+            "sta $2105         ; BGMODE 0 with BG1 in 16x16 tiles",
+            "stz $210B",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "lda #$01",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c8-subtract-mode",
+        dossier: "C8.10",
+        what: "Colour math in SUBTRACT mode (`$2131` bit 7) against the fixed colour, the \
+               counterpart to `c8-fixed-colour-add`. Together they pin the sign: a core that \
+               ignores bit 7 renders the two scenes identically.",
+        setup: &[
+            "sep #$20",
+            "stz $2105",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "stz $210B",
+            "lda #$01",
+            "sta $212C",
+            "lda #$02",
+            "sta $2130         ; CGWSEL: the subscreen is the fixed colour",
+            "lda #$A1",
+            "sta $2131         ; CGADSUB: subtract, applied to BG1 and the backdrop",
+            "lda #$9F",
+            "sta $2132         ; COLDATA: blue = 31",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c8-clamp-no-wrap",
+        dossier: "C8.02",
+        what: "Additive colour math driven hard enough to saturate every channel. Results clamp \
+               at 31 and do not wrap, so the bright areas go white and stay white — a core that \
+               wraps produces dark speckle exactly where the picture should be brightest, which \
+               is unmistakable rather than subtle.",
+        setup: &[
+            "sep #$20",
+            "stz $2105",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "stz $210B",
+            "lda #$01",
+            "sta $212C",
+            "lda #$02",
+            "sta $2130",
+            "lda #$21",
+            "sta $2131         ; add",
+            "lda #$FF",
+            "sta $2132         ; COLDATA: all three channel selects, value 31 — saturate everything",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c8-half-ignored-on-fixed-backdrop",
+        dossier: "C8.03",
+        what: "Identical to `c8-fixed-colour-add` except that CGADSUB's half/div2 bit is set. The \
+               documented behaviour is that half is IGNORED when the subscreen is the fixed \
+               backdrop, so this scene must hash the same as that one. Two scenes that must \
+               agree is a stronger statement than one scene that must match a number.",
+        setup: &[
+            "sep #$20",
+            "stz $2105",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "stz $210B",
+            "lda #$01",
+            "sta $212C",
+            "lda #$02",
+            "sta $2130         ; CGWSEL: the subscreen is the fixed colour",
+            "lda #$61",
+            "sta $2131         ; CGADSUB: add + HALF, applied to BG1",
+            "lda #$9F",
+            "sta $2132         ; COLDATA: blue = 31, as in the add scene",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c8-window-bounds-inclusive",
+        dossier: "C8.04",
+        what: "Window 1 set to 64..191 and used to clip BG1 on the main screen. Both bounds are \
+               inclusive, so the masked band is 128 pixels wide — a core with an exclusive edge \
+               is off by one column at a hard black/colour boundary, which a hash catches even \
+               though an eye would not.",
+        setup: &[
+            "sep #$20",
+            "stz $2105",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "stz $210B",
+            "lda #$01",
+            "sta $212C",
+            "lda #$02",
+            "sta $2123         ; W12SEL: BG1 uses window 1, not inverted",
+            "lda #64",
+            "sta $2126         ; WH0: window 1 left edge",
+            "lda #191",
+            "sta $2127         ; WH1: window 1 right edge",
+            "lda #$01",
+            "sta $212E         ; TMW: clip BG1 on the main screen",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c8-window-left-gt-right-empty",
+        dossier: "C8.05",
+        what: "The same window with its bounds crossed (left 200, right 50). That is an EMPTY \
+               window, not a wrapped one: BG1 stays fully visible. A core that treats the pair \
+               as a wraparound range clips both ends of the screen instead.",
+        setup: &[
+            "sep #$20",
+            "stz $2105",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "stz $210B",
+            "lda #$01",
+            "sta $212C",
+            "lda #$02",
+            "sta $2123",
+            "lda #200",
+            "sta $2126",
+            "lda #50",
+            "sta $2127         ; left > right",
+            "lda #$01",
+            "sta $212E",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c8-window-inverted-empty-is-full",
+        dossier: "C8.06",
+        what: "The crossed bounds again, with window 1 inverted. An inverted empty window is a \
+               FULL one, so BG1 disappears entirely and the backdrop is all that remains. Paired \
+               with the previous scene this pins the inversion as acting on the region rather \
+               than on the comparison.",
+        setup: &[
+            "sep #$20",
+            "stz $2105",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "stz $210B",
+            "lda #$01",
+            "sta $212C",
+            "lda #$03",
+            "sta $2123         ; W12SEL: BG1 uses window 1, INVERTED",
+            "lda #200",
+            "sta $2126",
+            "lda #50",
+            "sta $2127",
+            "lda #$01",
+            "sta $212E",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c8-both-windows-disabled-empty",
+        dossier: "C8.07",
+        what: "TMW clips BG1, but neither window is enabled for it in W12SEL. The combined mask \
+               is EMPTY, not full — BG1 stays fully visible. This is the errata case: the \
+               intuitive reading is that clipping with no window means clipping everything, and \
+               a core that implements the intuition blanks the layer.",
+        setup: &[
+            "sep #$20",
+            "stz $2105",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "stz $210B",
+            "lda #$01",
+            "sta $212C",
+            "stz $2123         ; W12SEL: neither window enabled for BG1",
+            "lda #64",
+            "sta $2126",
+            "lda #191",
+            "sta $2127         ; bounds set, but no window selects them",
+            "lda #$01",
+            "sta $212E         ; TMW: clip BG1 anyway",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c8-window-logic-xor",
+        dossier: "C8.08",
+        what: "Both windows enabled for BG1 and combined with XOR: window 1 covers 32..159, \
+               window 2 covers 96..223, so the mask is the two non-overlapping wings and the \
+               64-pixel overlap is left alone. Each of OR, AND, XOR and XNOR produces a visibly \
+               different band pattern, so picking the wrong one cannot pass.",
+        setup: &[
+            "sep #$20",
+            "stz $2105",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "stz $210B",
+            "lda #$01",
+            "sta $212C",
+            "lda #$0A",
+            "sta $2123         ; W12SEL: BG1 uses window 1 AND window 2, neither inverted",
+            "lda #32",
+            "sta $2126",
+            "lda #159",
+            "sta $2127         ; window 1",
+            "lda #96",
+            "sta $2128",
+            "lda #223",
+            "sta $2129         ; window 2, overlapping",
+            "lda #$02",
+            "sta $212A         ; WBGLOG: BG1 combines its two windows with XOR",
+            "lda #$01",
+            "sta $212E",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c10-mosaic-screen-anchored",
+        dossier: "C10.02",
+        what: "Mosaic 4 with BG1 scrolled by 2 pixels in each axis — deliberately not a multiple \
+               of the mosaic size. The block grid stays anchored to the top-left of the SCREEN, \
+               so the content moves through a stationary grid. A core that anchors to the scroll \
+               origin instead produces the same picture shifted, which the `c10-mosaic-4x` scene \
+               alone cannot distinguish.",
+        setup: &[
+            "sep #$20",
+            "stz $2105",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "stz $210B",
+            "lda #$02",
+            "sta $210D",
+            "stz $210D         ; BG1 H scroll = 2",
+            "lda #$02",
+            "sta $210E",
+            "stz $210E         ; BG1 V scroll = 2",
+            "lda #$01",
+            "sta $212C",
+            "lda #$31",
+            "sta $2106         ; MOSAIC: size 4, enabled on BG1",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c12-direct-colour-mode3",
+        dossier: "C12.01,C12.03",
+        what: "Direct colour mode (CGWSEL bit 0) on Mode 3's 8bpp BG1, where the pixel value \
+               supplies the colour directly instead of indexing CGRAM. Only modes 3, 4 and 7 \
+               offer it, so this also pins that CGRAM is bypassed rather than merely reordered: \
+               the canvas's 128 palette entries stop mattering entirely.",
+        setup: &[
+            "sep #$20",
+            "lda #$03",
+            "sta $2105         ; BGMODE 3 — 8bpp BG1, a precondition for direct colour",
+            "stz $210B",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "jsr scene_low_tiles ; without this every 8bpp pixel reads zero and the screen is empty",
+            "lda #$01",
+            "sta $212C",
+            "lda #$01",
+            "sta $2130         ; CGWSEL bit 0: direct colour",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
 ];
+
+/// Emit `scene_low_tiles`, the shared tilemap rewrite a deep-colour scene needs.
+///
+/// Split out of [`asm`] because it is a self-contained routine, not part of assembling the scene
+/// list — and because keeping it inline pushed `asm` past the line limit for no benefit.
+fn low_tiles_helper() -> String {
+    let mut s = String::new();
+    // A shared helper rather than fifteen copies. The canvas fills the tilemap with glyph indices
+    // spread over the whole font, which is right for 2bpp and useless for a deeper mode: an 8bpp
+    // tile is 32 words, so tile $21 starts past the end of a 512-word font and every pixel reads
+    // as zero — transparent. A mode-3 or direct-colour scene built on the canvas map renders an
+    // empty screen and proves nothing. Two of them did, on the first run.
+    let _ = writeln!(
+        s,
+        "\n; Rewrite the tilemap with tile indices low enough to exist in 8bpp"
+    );
+    let _ = writeln!(
+        s,
+        "; (32 words/tile against a 512-word font = tiles $00-$0F)."
+    );
+    let _ = writeln!(s, ";");
+    let _ = writeln!(
+        s,
+        "; WIDTH-NEUTRAL: P is saved and restored, so the A/X/Y widths on exit are"
+    );
+    let _ = writeln!(
+        s,
+        "; exactly what they were on entry. Deliberate rather than merely tidy: the"
+    );
+    let _ = writeln!(
+        s,
+        "; caller is generated assembly whose .a8/.a16 directives come from its OWN"
+    );
+    let _ = writeln!(
+        s,
+        "; sep/rep lines, and a JSR is not one of those — so a helper that changed"
+    );
+    let _ = writeln!(
+        s,
+        "; the width would leave the assembler believing one thing while the CPU did"
+    );
+    let _ = writeln!(
+        s,
+        "; another, and the next immediate operand would be assembled at the wrong"
+    );
+    let _ = writeln!(
+        s,
+        "; size. That failure already cost this project a debugging session; see the"
+    );
+    let _ = writeln!(s, "; .a8/.a16 emission in `asm` below.");
+    let _ = writeln!(s, ".proc scene_low_tiles");
+    let _ = writeln!(s, "    php");
+    let _ = writeln!(s, "    .a16");
+    let _ = writeln!(s, "    .i16");
+    let _ = writeln!(s, "    sep #$20");
+    let _ = writeln!(s, "    .a8");
+    let _ = writeln!(s, "    lda #$80");
+    let _ = writeln!(s, "    sta VMAIN");
+    let _ = writeln!(s, "    rep #$30");
+    let _ = writeln!(s, "    .a16");
+    let _ = writeln!(s, "    .i16");
+    let _ = writeln!(s, "    ldx #MAP_BASE");
+    let _ = writeln!(s, "    stx VMADDL");
+    let _ = writeln!(s, "    ldx #$0000");
+    let _ = writeln!(s, "@cell:");
+    let _ = writeln!(s, "    txa");
+    let _ = writeln!(s, "    and #$000F        ; tile $00-$0F");
+    let _ = writeln!(s, "    sta f:V_TMP");
+    let _ = writeln!(s, "    txa");
+    let _ = writeln!(s, "    lsr a");
+    let _ = writeln!(s, "    lsr a");
+    let _ = writeln!(s, "    lsr a");
+    let _ = writeln!(s, "    lsr a");
+    let _ = writeln!(s, "    and #$0007");
+    let _ = writeln!(s, "    .repeat 10");
+    let _ = writeln!(s, "    asl a");
+    let _ = writeln!(s, "    .endrepeat");
+    let _ = writeln!(s, "    ora f:V_TMP       ; palette in bits 10-12");
+    let _ = writeln!(s, "    sta VMDATAL");
+    let _ = writeln!(s, "    inx");
+    let _ = writeln!(s, "    cpx #(SCREEN_COLS * 32)");
+    let _ = writeln!(s, "    bne @cell");
+    let _ = writeln!(
+        s,
+        "    plp               ; restore the caller's register widths"
+    );
+    let _ = writeln!(s, "    rts");
+    let _ = writeln!(s, ".endproc");
+
+    s
+}
 
 /// Emit the scene setup routines and the dispatch table the runtime walks.
 #[must_use]
@@ -126,6 +646,8 @@ pub fn asm() -> String {
     let _ = writeln!(s, "SCENES_IMPL = 1");
     let _ = writeln!(s, ".include \"runtime.inc\"");
     let _ = writeln!(s, "\n.segment \"TESTS\"");
+
+    s.push_str(&low_tiles_helper());
 
     for sc in SCENES {
         let _ = writeln!(s, "\n; {} — {}", sc.id, sc.dossier);

@@ -346,10 +346,71 @@ pub fn validate(tests: &[crate::dsl::Test]) {
     }
 }
 
+/// Every rendered scene must name assertions that actually exist in the dossier.
+///
+/// The same gate the battery gets, for the same reason: a typo in a scene's `dossier` field would
+/// silently claim coverage of nothing. That is worse here than in a test, because a scene has no
+/// on-cart verdict to look wrong — the only signal would be a coverage number quietly one too high.
+///
+/// # Panics
+/// If a scene names an assertion the dossier does not enumerate, or names none at all.
+pub fn validate_scenes(enumerated: &[(String, Vec<String>)]) {
+    let known: std::collections::BTreeSet<&str> = enumerated
+        .iter()
+        .flat_map(|(_, ids)| ids.iter().map(String::as_str))
+        .collect();
+
+    let mut bad = Vec::new();
+    for sc in crate::scenes::SCENES {
+        // Empty fragments are dropped rather than reported: a trailing comma is a typo in the
+        // separator, not a claim about an assertion, and reporting it as `'' is not an enumerated
+        // assertion` buries the real question of whether the scene names anything at all.
+        let ids: Vec<&str> = sc
+            .dossier
+            .split(',')
+            .map(str::trim)
+            .filter(|d| !d.is_empty())
+            .collect();
+        if ids.is_empty() {
+            bad.push(format!("{}: names no assertion", sc.id));
+            continue;
+        }
+        for d in ids {
+            if !known.contains(d) {
+                bad.push(format!("{}: '{d}' is not an enumerated assertion", sc.id));
+            }
+        }
+    }
+    assert!(
+        bad.is_empty(),
+        "rendered scenes claim assertions the dossier does not enumerate:\n  {}",
+        bad.join("\n  ")
+    );
+}
+
 /// Render `docs/accuracysnes-coverage.md` — which enumerated assertions have tests and which do
 /// not, so coverage is a query rather than a guess.
 #[must_use]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one report, written top to bottom in output order"
+)]
 pub fn coverage_report(tests: &[crate::dsl::Test], enumerated: &[(String, Vec<String>)]) -> String {
+    /// Assertions covered by a rendered scene rather than by an on-cart test.
+    ///
+    /// Kept separate throughout, because the two are not the same kind of evidence: a scored test
+    /// means the same thing on any emulator and on real hardware, while a rendered scene needs a
+    /// host holding the golden. Folding them into one number would quietly redefine what the
+    /// headline figure claims — the same reasoning ADR 0013 uses to keep scenes out of the pass
+    /// rate. They are reported side by side and totalled separately.
+    fn scene_assertions() -> Vec<String> {
+        crate::scenes::SCENES
+            .iter()
+            .flat_map(|sc| sc.dossier.split(','))
+            .map(|d| d.trim().to_string())
+            .collect()
+    }
+
     use core::fmt::Write as _;
     let mut s = String::new();
     let _ = writeln!(s, "# AccuracySNES — dossier coverage\n");
@@ -372,34 +433,54 @@ pub fn coverage_report(tests: &[crate::dsl::Test], enumerated: &[(String, Vec<St
          slightly higher than the row total.\n"
     );
 
+    let scenes = scene_assertions();
     let mut covered_total = 0usize;
+    let mut scene_total = 0usize;
     let mut all_total = 0usize;
-    let _ = writeln!(s, "| Sub-group | Enumerated | Covered | Uncovered |");
-    let _ = writeln!(s, "|---|---:|---:|---|");
+    let _ = writeln!(
+        s,
+        "| Sub-group | Enumerated | Covered (on-cart) | Covered (scene) | Uncovered |"
+    );
+    let _ = writeln!(s, "|---|---:|---:|---:|---|");
     for (sub, ids) in enumerated {
         let mut uncovered = Vec::new();
         let mut covered = 0usize;
+        let mut by_scene = 0usize;
         for id in ids {
-            let any = tests.iter().any(|t| for_test(t.id).iter().any(|d| d == id));
-            if any {
+            if tests.iter().any(|t| for_test(t.id).iter().any(|d| d == id)) {
                 covered += 1;
+            } else if scenes.iter().any(|d| d == id) {
+                by_scene += 1;
             } else {
                 uncovered.push(id.clone());
             }
         }
         covered_total += covered;
+        scene_total += by_scene;
         all_total += ids.len();
         let list = if uncovered.is_empty() {
             "—".to_string()
         } else {
             uncovered.join(", ")
         };
-        let _ = writeln!(s, "| `{sub}` | {} | {covered} | {list} |", ids.len());
+        let _ = writeln!(
+            s,
+            "| `{sub}` | {} | {covered} | {by_scene} | {list} |",
+            ids.len()
+        );
     }
     let _ = writeln!(
         s,
-        "\n**{covered_total} of {all_total}** enumerated assertion rows covered by at least one \
-         test.\n"
+        "\n**{covered_total} of {all_total}** enumerated assertion rows covered by an on-cart \
+         test, plus **{scene_total}** covered only by a rendered scene \
+         (`docs/adr/0013`) — **{} of {all_total}** in total.\n",
+        covered_total + scene_total
+    );
+    let _ = writeln!(
+        s,
+        "The two columns are kept apart on purpose. An on-cart result means the same thing on any \
+         emulator and on real hardware; a rendered scene needs a host holding the golden. Adding \
+         them into one figure would quietly change what the number claims.\n"
     );
 
     let _ = writeln!(s, "## Assertions split across several tests\n");
@@ -415,6 +496,16 @@ pub fn coverage_report(tests: &[crate::dsl::Test], enumerated: &[(String, Vec<St
             .map(|t| t.id)
             .collect();
         let _ = writeln!(s, "- **`{assertion}`** — {} · {why}", by.join(", "));
+    }
+
+    let _ = writeln!(s, "\n## Assertions covered by a rendered scene\n");
+    let _ = writeln!(
+        s,
+        "Declared in `gen/src/scenes.rs`. Each is reported by the host framebuffer oracle against \
+         a cross-validated golden, never scored on-cart (`docs/adr/0013`).\n"
+    );
+    for sc in crate::scenes::SCENES {
+        let _ = writeln!(s, "- **`{}`** — {}", sc.dossier, sc.id);
     }
 
     let _ = writeln!(s, "\n## Tests with no enumerated assertion\n");

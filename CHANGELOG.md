@@ -11,9 +11,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Fifteen more rendered scenes (T-04-H) — 18 total, all cross-validated.** Mode 0 four-layer
+  priority and palette segregation, Mode 3's 8bpp BG1, the tilemap flip bits, 16x16 tiles, colour
+  math in subtract mode and at saturation, five window scenes (inclusive bounds, crossed bounds,
+  inverted-empty, both-windows-disabled, XOR combination), screen-anchored mosaic, and direct
+  colour. RustySNES, snes9x and Mesen2 agree bit-for-bit on every one — no divergence this time,
+  which is the expected outcome now that the background-fetch and mosaic-anchoring bugs the first
+  batch exposed are fixed, since both sit upstream of most of what these render.
+
+  Three of them assert **equivalences** rather than numbers, and the harness gates on those
+  separately: `c8-half-ignored-on-fixed-backdrop` must hash identically to `c8-fixed-colour-add`
+  (CGADSUB's half bit is ignored when the subscreen is the fixed backdrop, `C8.03`), and
+  `c8-window-left-gt-right-empty` must equal `c8-both-windows-disabled-empty` (crossed bounds and
+  no enabled window are both *empty* masks, not full ones, `C8.05`/`C8.07`). An equivalence is the
+  stronger statement: it survives a change to the canvas, and it catches a core that gets both
+  scenes wrong the same way — which two independent hash comparisons cannot.
+
+  Scene coverage now appears in `docs/accuracysnes-coverage.md` as its **own column**, never added
+  into the on-cart figure: an on-cart result means the same thing on any emulator and on real
+  hardware, a rendered scene needs a host holding the golden, and one number cannot mean both. A
+  scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
+  battery already had.
+
 **AccuracySNES totals, as of this section:** **134 tests — 124 scoring at 100.00%, 10 golden
-vectors**, plus one region-dependent SKIP per image, and **95 of 443** enumerated dossier
-assertions covered (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+vectors**, plus one region-dependent SKIP per image, and **18 rendered scenes** in the host
+framebuffer-oracle tier. Dossier coverage is **95 of 443** on-cart plus **19** scene-only —
+**114 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 

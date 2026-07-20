@@ -35,3 +35,36 @@
 c5-mode1-bg-priority	0x4fccc3fcf1027a01
 c8-fixed-colour-add	0x313006a2eb2c3745
 c10-mosaic-4x	0xebef39df0c777605
+
+# --- blessed 2026-07-20, second batch (15 scenes) -----------------------------------------------
+#
+# Cross-validated the same three ways, all agreeing bit-for-bit on every scene. Unlike the first
+# batch this one found no divergence, which is the expected outcome once the two bugs the first
+# batch exposed were fixed — background fetch and mosaic anchoring are upstream of most of what
+# these scenes render.
+#
+# Two pairs (three scenes) are deliberately expected to hash IDENTICALLY, and the harness checks
+# that rather than only checking each against its own number. An equivalence is the stronger
+# statement: it survives a change to the canvas, and it fails for a core that gets both scenes
+# wrong in the same way, which matching a committed number does not.
+#
+#   c8-half-ignored-on-fixed-backdrop == c8-fixed-colour-add
+#       CGADSUB's half/div2 bit is ignored when the subscreen is the fixed backdrop (C8.03).
+#   c8-window-left-gt-right-empty == c8-both-windows-disabled-empty
+#       Crossed window bounds and no enabled window are both EMPTY masks, not full ones
+#       (C8.05, C8.07) -- so BG1 is fully visible in both.
+c5-mode0-four-bg-priority	0x4300879df7644d4d
+c5-mode0-palette-segregation	0xaccea37c1cbec40a
+c5-mode3-8bpp	0xfa61b9e133381465
+c5-tilemap-flip-bits	0x8906efc348309f25
+c5-16x16-tiles	0xb252517305a12917
+c8-subtract-mode	0x756e12f3edfcaa85
+c8-clamp-no-wrap	0xf3b05a38ab4ac325
+c8-half-ignored-on-fixed-backdrop	0x313006a2eb2c3745
+c8-window-bounds-inclusive	0x5bf6edd4777687d6
+c8-window-left-gt-right-empty	0x5b2489d9baa9e9f4
+c8-window-inverted-empty-is-full	0xbcb8d1c2bec08325
+c8-both-windows-disabled-empty	0x5b2489d9baa9e9f4
+c8-window-logic-xor	0x1968c1ee0e11ddb7
+c10-mosaic-screen-anchored	0xaf6951a8a0c82665
+c12-direct-colour-mode3	0x13e2696c78c29115
