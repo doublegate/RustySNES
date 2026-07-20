@@ -92,10 +92,11 @@
 # transparent in every mode, direct colour included, so pure black is not reachable through it and
 # the backdrop shows instead.
 #
-# A second scene was written in the same batch for C11.02 (Mode 7's 13-bit origin mask) and
-# DROPPED: it rendered a picture identical to `c11-mode7-identity`, on all three emulators. $1C00
-# is 7 * $400, so the mask only clears multiples of 1024 -- and a Mode 7 map is 1024x1024 and
-# wraps, so every value the mask removes is one the wrap removes anyway. See the plan doc.
+# A second scene was attempted in the same batch for C11.02 (Mode 7's 13-bit origin mask) and was
+# NOT blessed then: it rendered a picture identical to `c11-mode7-identity`, on all three
+# emulators. $1C00 is 7 * $400, so the mask only clears multiples of 1024 -- and a Mode 7 map is
+# 1024x1024 and wraps, so every value the mask removes is one the wrap removes anyway. A working
+# version landed in the tenth batch below; the golden at the bottom of this file is that one.
 #
 # 2026-07-20, tenth batch (1 scene: C11.02 again, now working). Screen-over set to TRANSPARENT is
 # what makes the mask visible: the masked origin (64) is on the map and the unmasked one (3136) is
