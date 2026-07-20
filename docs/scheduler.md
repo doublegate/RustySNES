@@ -361,6 +361,25 @@ delay lands an IRQ-gated register write (e.g. `hdmaen_latch_test`'s `STA $420C` 
 the hardware-correct dot; without it the write drifts ~3–4 dots early and — against the fixed
 dot-1104 HDMA latch — collapses the test's banded crossing into a uniform per-line alternation.
 
+**V-only IRQ (`$4200` bit 5 without bit 4) is sampled at one dot, not held across the line.**
+The comparator fires at `V = VTIME, H = VIRQ_TRIGGER_DOT (2)` — the dossier's documented `H ~ 2.5`
+rounded to the nearest whole dot. Modelling the horizontal half as unconditionally true when H-IRQ
+is disabled made `V == VTIME` a *level* that re-raised the IRQ on all 341 dots of the target line,
+so acknowledging via `$4211` was undone a few dots later and a V-only handler saw a storm rather
+than one interrupt per frame. ares reaches the same place from the other direction: its
+`irqValid.raise(...)` (`sfc/cpu/irq.cpp:26-30`) is an *edge* detector, so a level condition raises
+once. Found by AccuracySNES **B4.12**; **B4.08** pins the firing line.
+
+> **Golden re-bless, this change.** `hdmaen_latch_test` and `hdmaen_latch_test_2` moved
+> (`0x47870388220f3725` → `0x60dd903f56753725`, `0xdce49c12e5402f25` → `0x1a189dc89e5f4525`) and
+> were deliberately re-blessed. Both ROMs gate their `STA $420C` on a V-only IRQ, so firing once
+> per frame instead of on every dot of the line changes which dot the write lands on and therefore
+> the banding realization. That is legitimate here *only* because these goldens are regression
+> snapshots of our own deterministic output — see the note below — and because the change is
+> corroborated externally (ares' edge detector; Mesen2 and snes9x both pass B4.08/B4.12, which
+> RustySNES failed before the fix). A golden that tracked an external oracle would mean the
+> opposite: that the change was wrong.
+
 > **On `hdmaen_latch_test` (ROM 1) determinism.** undisbeliever documents `hdmaen_latch_test.sfc`
 > as *not a stable test* — its exact bands differ on every power-cycle on real hardware, because
 > the HDMAEN-write-vs-latch race turns on the sub-cycle CPU/DMA phase at power-on. RustySNES is

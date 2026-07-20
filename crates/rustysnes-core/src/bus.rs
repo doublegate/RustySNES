@@ -650,6 +650,13 @@ impl Bus {
                 self.clock.nmi_line = true;
             }
         }
+        // RDNMI's VBlank flag is cleared by a read *and*, independently, at the end of VBlank.
+        // Modelling only the read left it set through the whole active display, so code that
+        // polls $4210 outside VBlank saw a VBlank that had already ended and acted a frame late.
+        // Stateless because the flag can only ever be raised during VBlank. AccuracySNES B4.05.
+        if !self.ppu.in_vblank() {
+            self.clock.rdnmi_flag = false;
+        }
         if self.ppu.irq_pending() {
             self.ppu.ack_irq();
             self.clock.irq_line = true;

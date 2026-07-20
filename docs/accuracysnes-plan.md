@@ -13,11 +13,11 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **85** (80 scoring + 5 golden vectors) |
+| Tests | **89** (84 scoring + 5 golden vectors) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES, Mesen2, snes9x — all agree, 0 failures |
 | Groups shipped | **A** (65C816 CPU, 46 tests) · **C** partial (PPU, 30 tests) · **B** partial (5A22, 9 tests) |
-| Defects found in this emulator | **2** — see §5 |
+| Defects found in this emulator | **4** — see §5 |
 
 Phase A shipped Group A. Phase B has so far shipped the register-observable half of Group C — the
 OAM/VRAM/CGRAM port mechanics, the H/V counters, the two open-bus latches, the version nibbles, the
@@ -30,13 +30,13 @@ flag in the status byte `BRK` pushes).
 | Group | Scope | Enumerated | Done | Left |
 |---|---|---:|---:|---:|
 | **A** | 65C816 CPU | ~55 | 46 | ~10-15 |
-| **B** | 5A22 bus, clock, timing | ~30 | 9 | ~21 |
+| **B** | 5A22 bus, clock, timing | ~30 | 13 | ~17 |
 | **C** | S-PPU1 / S-PPU2 | ~85 | 30 | ~55 |
 | **D** | DMA / HDMA | ~35 | 0 | ~35 |
 | **E** | SPC700 + S-DSP | ~75 | 0 | ~75 |
 | **F** | Input | ~22 | 0 | ~22 |
 | **G** | Power-on / reset / cartridge | ~18 | 0 | ~18 |
-| | | **~320** | **85** | **~235** |
+| | | **~320** | **89** | **~231** |
 
 **These are test counts. For assertion coverage, read `docs/accuracysnes-coverage.md`** — it is
 regenerated with the ROM from the map in `gen/src/dossier.rs` and currently reports **79 of 443**
@@ -167,6 +167,8 @@ Recorded because it is the only real measure of whether the battery is worth its
 |---|---|---|
 | `C13.03` | `write_reg` opened with an unconditional `ppu1_mdr = val`, so a write to a *PPU2* register (`$2121`/`$2122`) clobbered *PPU1*'s open-bus latch — two physically separate latches behaving as one | #118 |
 | `C1.06` | `oam_address` was only ever reloaded by a `$2102`/`$2103` write, so it never recovered from wherever sprite evaluation left it; an address a game programmed did not survive a frame | #119 |
+| `B4.05` | `RDNMI` cleared only on read, never at the end of vblank, so `$4210` polled outside vblank reported a vblank that had already ended | #121 |
+| `B4.12` | with H-IRQ disabled the comparator's horizontal half matched unconditionally, making `V == VTIME` a level held across all 341 dots — `$4211` could not acknowledge it. Re-blessed two golden framebuffers as a direct consequence | #121 |
 
 Both were found the same way: the test failed on RustySNES while **both** references passed it.
 The inverse pattern — a test failing identically on all three — has twice meant a broken test

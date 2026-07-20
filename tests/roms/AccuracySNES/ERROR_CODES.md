@@ -662,6 +662,14 @@ Provenance: **Documented** (SNESdev Wiki, Memory map / timing; fullsnes). Kind: 
 |---|---|---|
 | 1 | `$02` | the joypad ports were not 6 master clocks slower per access than CPU MMIO |
 
+### B2.04 — NTSC frame is 262 lines
+
+Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the V counter did not reach 261 (an NTSC frame is 262 lines, 0-261) |
+
 ### B4.03 — RDNMI sets at vblank
 
 Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
@@ -678,6 +686,30 @@ Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
 |---|---|---|
 | 1 | `$02` | RDNMI bit 7 was not set on the first read of a vblank |
 | 2 | `$04` | RDNMI did not clear on read |
+
+### B4.05 — RDNMI auto-clears
+
+Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | RDNMI stayed set past the end of vblank (it must auto-clear, not only clear on read) |
+
+### B4.08 — V-IRQ fires at VTIME
+
+Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the V-IRQ did not fire on the programmed scanline |
+
+### B4.12 — $4211 read releases IRQ
+
+Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | $4211 did not release the IRQ latch on read |
 
 ### B4.15 — CPU revision (golden)
 

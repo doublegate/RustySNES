@@ -4619,6 +4619,63 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; B2.04 — NTSC frame is 262 lines
+; provenance: Documented (SNESdev Wiki, Timing; fullsnes)
+.proc test_b2_04
+    .a16
+    .i16
+    ; Start at vblank, poll V until it wraps to the top of the next frame, keep the maximum.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    jsr wait_vblank   ; V is now at the first vblank line
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E0120     ; running maximum
+@vloop:
+    sep #$20
+    .a8
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp f:$7E0120
+    bcc :+
+    sta f:$7E0120
+    :
+    cmp #100          ; below 100 means the counter has wrapped into the next frame
+    bcs @vloop
+    lda f:$7E0120
+    cmp #$0105
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; the V counter did not reach 261 (an NTSC frame is 262 lines, 0-261)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 ; B4.03 — RDNMI sets at vblank
 ; provenance: Documented (SNESdev Wiki, Timing; fullsnes)
 .proc test_b4_03
@@ -4701,6 +4758,164 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B4.05 — RDNMI auto-clears
+; provenance: Documented (SNESdev Wiki, Timing; fullsnes)
+.proc test_b4_05
+    .a16
+    .i16
+    ; Reach vblank and deliberately do NOT read $4210, then wait for active display and read.
+    ; The flag must already be gone.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda $4210         ; clear anything left pending by an earlier test
+    jsr wait_vblank
+    jsr wait_vblank   ; in vblank, flag set, and left unread
+@wa:
+    lda $4212
+    and #$80
+    bne @wa           ; wait for vblank to end
+    lda $4210
+    and #$80
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; RDNMI stayed set past the end of vblank (it must auto-clear, not only clear on read)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B4.08 — V-IRQ fires at VTIME
+; provenance: Documented (SNESdev Wiki, Timing; fullsnes)
+.proc test_b4_08
+    .a16
+    .i16
+    ; VTIME = 100, V-IRQ only. I is set so nothing vectors; $4211 is polled instead. The V
+    ; counter is latched the moment the flag appears and must still be on the programmed line.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    sei               ; observe the comparator, do not dispatch
+    lda #100
+    sta $4209
+    stz $420A         ; VTIME = 100
+    lda $4211         ; clear any stale latch
+    lda #$20
+    sta $4200         ; V-IRQ enabled, NMI off, auto-joypad off
+@wirq:
+    lda $4211
+    and #$80
+    beq @wirq
+    sep #$20
+    .a8
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    sta f:$7E0122
+    ; Disarm before asserting — a failing path exits straight to test_restore.
+    sep #$20
+    .a8
+    stz $4200
+    lda $4211
+    rep #$20
+    .a16
+    lda f:$7E0122
+    cmp #$0064
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0067
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; the V-IRQ did not fire on the programmed scanline
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; B4.12 — $4211 read releases IRQ
+; provenance: Documented (SNESdev Wiki, Timing; fullsnes)
+.proc test_b4_12
+    .a16
+    .i16
+    ; Read $4211 twice back to back at the moment it fires. The second read is still on the
+    ; same scanline, and must find the latch already released by the first.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    sei
+    lda #100
+    sta $4209
+    stz $420A
+    lda $4211
+    lda #$20
+    sta $4200
+@wirq2:
+    lda $4211
+    and #$80
+    beq @wirq2        ; this read both detects and acknowledges
+    lda $4211         ; immediately again, still on line 100
+    sta f:$7E0124
+    stz $4200         ; disarm before asserting
+    lda $4211
+    lda f:$7E0124
+    and #$80
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; $4211 did not release the IRQ latch on read
+    sep #$20
+    .a8
+    lda #$02
     sta f:$7EE010
     jmp test_restore
 .endproc
@@ -4956,7 +5171,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 85
+    .word 89
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -5038,8 +5253,12 @@ _test_entries:
     .addr test_c9_04
     .addr test_b1_01
     .addr test_b1_02
+    .addr test_b2_04
     .addr test_b4_03
     .addr test_b4_04
+    .addr test_b4_05
+    .addr test_b4_08
+    .addr test_b4_12
     .addr test_b4_15
     .addr test_b5_01
     .addr test_b5_02
@@ -5126,8 +5345,12 @@ _test_flags:
     .byte $01   ; C9.04
     .byte $01   ; B1.01
     .byte $01   ; B1.02
+    .byte $01   ; B2.04
     .byte $01   ; B4.03
     .byte $01   ; B4.04
+    .byte $01   ; B4.05
+    .byte $01   ; B4.08
+    .byte $01   ; B4.12
     .byte $02   ; B4.15
     .byte $01   ; B5.01
     .byte $01   ; B5.02
@@ -5214,8 +5437,12 @@ _test_names:
     .addr @n_c9_04
     .addr @n_b1_01
     .addr @n_b1_02
+    .addr @n_b2_04
     .addr @n_b4_03
     .addr @n_b4_04
+    .addr @n_b4_05
+    .addr @n_b4_08
+    .addr @n_b4_12
     .addr @n_b4_15
     .addr @n_b5_01
     .addr @n_b5_02
@@ -5455,12 +5682,24 @@ _test_names:
 @n_b1_02:
     .byte 19
     .byte "JOYSER is 12 clocks"
+@n_b2_04:
+    .byte 23
+    .byte "NTSC frame is 262 lines"
 @n_b4_03:
     .byte 20
     .byte "RDNMI sets at vblank"
 @n_b4_04:
     .byte 22
     .byte "RDNMI is read-to-clear"
+@n_b4_05:
+    .byte 17
+    .byte "RDNMI auto-clears"
+@n_b4_08:
+    .byte 20
+    .byte "V-IRQ fires at VTIME"
+@n_b4_12:
+    .byte 23
+    .byte "$4211 read releases IRQ"
 @n_b4_15:
     .byte 21
     .byte "CPU revision (golden)"

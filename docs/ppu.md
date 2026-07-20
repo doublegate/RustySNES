@@ -160,6 +160,11 @@ The crate is a working dual-chip model. Public API the scheduler/bus call:
   frame, as vblank begins, and **only while forced blank is off** (`end_of_scanline`). Sprite
   evaluation leaves the running counter wherever it finished, so without the reload an address a
   game programmed would not survive a frame. AccuracySNES **C1.06** covers it.
+- **HV-IRQ sampling:** the horizontal comparator fires `HIRQ_TRIGGER_DELAY` (4) dots after the
+  programmed `HTIME`. With H-IRQ **disabled** (V-only), the comparator is sampled at a single dot
+  `VIRQ_TRIGGER_DOT` (2) rather than being treated as matching across the whole line — otherwise
+  `V == VTIME` is a level that re-raises the IRQ every dot and `$4211` cannot acknowledge it. See
+  `docs/scheduler.md` §H/V-IRQ; AccuracySNES **B4.08**/**B4.12**.
 - **Open bus:** PPU1 and PPU2 keep **separate** MDR latches (`io.ppu1_mdr`, `io.ppu2_mdr`),
   surfacing as `$213E` bit 4 and `$213F` bit 5 respectively. They are refreshed **only by reads**
   — `$2134`–`$2136`, `$2138`–`$213A`, `$213E` for PPU1; `$213B`–`$213D`, `$213F` for PPU2 — and a

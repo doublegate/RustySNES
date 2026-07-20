@@ -75,13 +75,17 @@
 72	C2.11	C	VRAM locked in render	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF068	C2.11
 73	C2.10	C	Dropped write still incs	Documented	SNESdev Wiki, PPU registers; fullsnes; anomie	Scored	0x7EF069	C2.10
 74	C1.06	C	OAM addr reloads	Documented	SNESdev Wiki, OAM; anomie	Scored	0x7EF06A	C1.06
-75	C9.04	C	Overscan moves vblank	Documented	SNESdev Wiki, Timing; fullsnes	Scored	0x7EF06B	C9.04
+75	C9.04	C	Overscan moves vblank	Documented	SNESdev Wiki, Timing; fullsnes	Scored	0x7EF06B	C9.04,B4.02
 76	B1.01	B	MEMSEL selects FastROM	Documented	SNESdev Wiki, Memory map / timing; fullsnes	Scored	0x7EF06C	B1.01
 77	B1.02	B	JOYSER is 12 clocks	Documented	SNESdev Wiki, Memory map / timing; fullsnes	Scored	0x7EF06D	B1.02
-78	B4.03	B	RDNMI sets at vblank	Documented	SNESdev Wiki, Timing; fullsnes	Scored	0x7EF06E	B4.03
-79	B4.04	B	RDNMI is read-to-clear	Documented	SNESdev Wiki, Timing; fullsnes	Scored	0x7EF06F	B4.04
-80	B4.15	B	CPU revision (golden)	Documented	SNESdev Wiki, Timing; fullsnes	Golden	0x7EF070	-
-81	B5.01	B	8x8 unsigned multiply	Documented	SNESdev Wiki, CPU registers; fullsnes	Scored	0x7EF071	B5.01
-82	B5.02	B	16/8 unsigned divide	Documented	SNESdev Wiki, CPU registers; fullsnes	Scored	0x7EF072	B5.02
-83	B5.03	B	Divide by zero	Documented	SNESdev Wiki, CPU registers; fullsnes	Scored	0x7EF073	-
-84	B5.04	B	Mul/div overlap (golden)	Contested	SNESdev Errata states overlapping $4203/$4206 operation is undefined	Golden	0x7EF074	B5.03
+78	B2.04	B	NTSC frame is 262 lines	Documented	SNESdev Wiki, Timing; fullsnes	Scored	0x7EF06E	B2.04
+79	B4.03	B	RDNMI sets at vblank	Documented	SNESdev Wiki, Timing; fullsnes	Scored	0x7EF06F	B4.03
+80	B4.04	B	RDNMI is read-to-clear	Documented	SNESdev Wiki, Timing; fullsnes	Scored	0x7EF070	B4.04
+81	B4.05	B	RDNMI auto-clears	Documented	SNESdev Wiki, Timing; fullsnes	Scored	0x7EF071	B4.05
+82	B4.08	B	V-IRQ fires at VTIME	Documented	SNESdev Wiki, Timing; fullsnes	Scored	0x7EF072	B4.08
+83	B4.12	B	$4211 read releases IRQ	Documented	SNESdev Wiki, Timing; fullsnes	Scored	0x7EF073	B4.12
+84	B4.15	B	CPU revision (golden)	Documented	SNESdev Wiki, Timing; fullsnes	Golden	0x7EF074	-
+85	B5.01	B	8x8 unsigned multiply	Documented	SNESdev Wiki, CPU registers; fullsnes	Scored	0x7EF075	B5.01
+86	B5.02	B	16/8 unsigned divide	Documented	SNESdev Wiki, CPU registers; fullsnes	Scored	0x7EF076	B5.02
+87	B5.03	B	Divide by zero	Documented	SNESdev Wiki, CPU registers; fullsnes	Scored	0x7EF077	-
+88	B5.04	B	Mul/div overlap (golden)	Contested	SNESdev Errata states overlapping $4203/$4206 operation is undefined	Golden	0x7EF078	B5.03

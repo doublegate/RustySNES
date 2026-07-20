@@ -112,6 +112,13 @@ const ACTIVE_DOT_START: u16 = 22;
 /// (ares `hcounter(10) == (HTIME+1)<<2` ⇒ fire at dot `HTIME + 3.5`; see `check_hv_irq`).
 const HIRQ_TRIGGER_DELAY: u16 = 4;
 
+/// The dot at which a V-only IRQ's comparator is sampled.
+///
+/// The SNESdev timing notes put a V-IRQ at `V = VTIME, H ~ 2.5`; 2 is the nearest whole dot the
+/// counter takes. Only relevant when `$4200` selects V without H — with H enabled the H target
+/// already pins the trigger to one dot.
+const VIRQ_TRIGGER_DOT: u16 = 2;
+
 /// Framebuffer length at normal (non-hires) resolution, in 15-bit BGR pixels.
 ///
 /// This is the length [`Ppu::framebuffer`] returns for every frame that never enters hi-res —
@@ -882,8 +889,19 @@ impl Ppu {
         // hcounter), so the IRQ simply never fires for such HTIME — suppress rather than wrap into
         // the next line, which would be a spurious match hardware/ares never produce.
         let h_target = self.irq_h + HIRQ_TRIGGER_DELAY;
-        let h_hit = h_target < DOTS_PER_LINE && self.h == h_target;
-        let h_match = !self.irq_enable_h || h_hit;
+        let h_match = if self.irq_enable_h {
+            h_target < DOTS_PER_LINE && self.h == h_target
+        } else {
+            // V-only IRQ: the comparator is sampled once near the start of the line, not held
+            // across it. Modelling `h_match` as unconditionally true here made `V == VTIME` a
+            // level that re-raised the IRQ on all 340 dots of the target line, so acknowledging
+            // via `$4211` was undone a few dots later and a V-only handler saw a storm instead of
+            // one interrupt. ares gets this from `irqValid.raise(...)` being an edge detector
+            // (`sfc/cpu/irq.cpp:26-30`); firing on a single dot is the same thing statelessly.
+            // The dot is the dossier's documented H ~ 2.5 rounded to the nearest whole dot.
+            // Found by AccuracySNES B4.12.
+            self.h == VIRQ_TRIGGER_DOT
+        };
         let v_match = !self.irq_enable_v || self.v == self.irq_v;
         if (self.irq_enable_h || self.irq_enable_v) && h_match && v_match {
             self.irq_pending = true;
