@@ -1319,6 +1319,14 @@ Provenance: **Documented** (fullsnes, S-DSP BRR; anomie's DSP doc). Kind: scored
 |---|---|---|
 | 1 | `$02` | a sample of $8 nibbles produced a positive output, so the nibbles were read as unsigned |
 
+### E8.04 — KOFF outranks KON
+
+Provenance: **Documented** (fullsnes, S-DSP key on/off; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a KON written while KOFF was still set restarted the voice — KOFF is a level the DSP consults continuously, not an edge that KON can override |
+
 ### E9.04 — Noise voices decode BRR
 
 Provenance: **Documented** (fullsnes, S-DSP noise; anomie's DSP doc — flagged as errata). Kind: scored.
@@ -1326,6 +1334,14 @@ Provenance: **Documented** (fullsnes, S-DSP noise; anomie's DSP doc — flagged 
 | Code | Byte | Meaning |
 |---|---|---|
 | 1 | `$02` | a noise voice's envelope survived an end-without-loop block, so noise voices are not decoding BRR underneath |
+
+### E9.17 — Mute is after OUTX
+
+Provenance: **Documented** (fullsnes, S-DSP FLG; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | VxOUTX went quiet when FLG's mute bit was set — mute belongs to the mixer, and OUTX is upstream of it |
 
 ### E9.18 — FLG reset kills voices
 
