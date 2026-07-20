@@ -34,6 +34,7 @@ pub fn all() -> Vec<Test> {
         c1_04(),
         c1_05(),
         c1_03b(),
+        c1_07(),
         // --- C2: VRAM port ---
         c2_01(),
         c2_02(),
@@ -317,6 +318,61 @@ fn c1_03b() -> Test {
         "C1.03b",
         'C',
         "High table commits bytes",
+        Provenance::Documented("SNESdev Wiki, OAM; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Clearing forced blank reloads the OAM address, but only once rendering actually starts.
+///
+/// The reload is documented for `$2100` bit 7's falling edge, and it is easy to read that as
+/// something the write itself does. It is not: the transition arms the reload and the next rendered
+/// frame applies it. A first version of this test toggled blank and read `$2138` immediately, and
+/// all three emulators returned the *walked-to* byte — three failing identically being the
+/// signature of a broken test rather than three broken cores.
+///
+/// So the test renders a frame. `frame_step` clears blank from inside vblank, waits for rendering
+/// to begin and then for the following vblank, and blanks again before returning — which is also
+/// what makes the `$2138` read afterwards safe, since an OAM read during active display is
+/// unreliable (`C1.08`).
+///
+/// The pointer is deliberately moved *off* the programmed address first, by consuming a word. With
+/// that step skipped, a reload and no reload look identical.
+fn c1_07() -> Test {
+    let mut a = Asm::new();
+    a.c("Seed OAM word 5 with a recognisable pair, then set the address there and consume it, so");
+    a.c("the internal pointer sits at word 6 while $2102 still says 5.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("ldx #$0005");
+    a.l("stx $2102");
+    a.l("sep #$20");
+    a.l("lda #$A5");
+    a.l("sta $2104");
+    a.l("lda #$5A");
+    a.l("sta $2104");
+    a.l("rep #$30");
+    a.l("ldx #$0005");
+    a.l("stx $2102");
+    a.l("sep #$20");
+    a.l("lda $2138         ; $A5, pointer advances");
+    a.l("lda $2138         ; $5A, pointer now at word 6");
+    a.c("Render one frame. The falling edge inside frame_step arms the reload; the frame applies");
+    a.c("it; blank is back on by the time this returns.");
+    a.l("jsr frame_step");
+    a.l("sep #$20");
+    a.l("lda $2138");
+    a.assert_a8(
+        0xA5,
+        "the OAM address was not reloaded across a rendered frame — the read came from where the \
+         pointer had walked to rather than from $2102",
+    );
+    a.finish(
+        "C1.07",
+        'C',
+        "Blank edge reloads OAM",
         Provenance::Documented("SNESdev Wiki, OAM; fullsnes"),
         Kind::Scored,
         None,

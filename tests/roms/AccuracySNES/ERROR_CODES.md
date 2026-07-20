@@ -487,6 +487,14 @@ Provenance: **Documented** (SNESdev Wiki, OAM; fullsnes). Kind: scored.
 |---|---|---|
 | 1 | `$02` | a single byte written to the OAM high table did not commit — the pairing rule belongs to the low table only |
 
+### C1.07 — Blank edge reloads OAM
+
+Provenance: **Documented** (SNESdev Wiki, OAM; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the OAM address was not reloaded across a rendered frame — the read came from where the pointer had walked to rather than from $2102 |
+
 ### C2.01 — VMAIN step 1 word
 
 Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.

@@ -194,6 +194,7 @@ PAD_X           = $0040
     .import hv_end
 .import wait_vblank
     .import apu_upload
+.import frame_step
 .import apu_upload_far
 .endif
 .ifndef CATALOG_IMPL

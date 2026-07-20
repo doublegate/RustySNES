@@ -13,7 +13,7 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **207** (195 scoring + 11 golden vectors + 1 region SKIP per image) |
+| Tests | **208** (196 scoring + 11 golden vectors + 1 region SKIP per image) |
 | Rendered scenes | **50**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but four, all recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`. Both images. |
@@ -265,7 +265,13 @@ Each was caught only because its hash equalled an existing scene's — the first
 the second `c8-window-inverted-empty-is-full`. **Check a new scene's hash against the committed
 goldens before blessing it.**
 
-### `C1.07` — the OAM address reload is not immediate at the register write
+### `C1.07` — solved by `frame_step`, and the primitive is now available
+
+**Solved.** The runtime has a `frame_step` helper: it clears forced blank from inside vblank, waits
+for rendering to begin and then for the following vblank, and blanks again before returning. `C1.07`
+uses it and passes on all three emulators.
+
+What follows is the finding that led there, kept because it is the reason the primitive exists.
 
 `$2100` bit 7 going 1→0 reloads the OAM address from `$2102`/`$2103`. A test wrote the two values
 back to back, moved the internal pointer off the programmed address first, and read `$2138`
@@ -278,8 +284,10 @@ that boundary.
 
 Reaching it means letting a frame actually render between the transition and the read, then
 re-blanking before touching `$2138` (an OAM read during active display is unreliable — `C1.08` is
-the assertion that says so). That is a frame-synchronised test rather than a straight-line one, and
-it belongs with the other frame-boundary work the interlace note above calls for.
+the assertion that says so). That is what `frame_step` does, and it is available to any other
+assertion that needs rendering to have happened: `C7.09` (the sprite range/time-over flags clear at
+the end of vblank but not during forced blank) and `C9.05` (the mid-frame overscan hazard) are the
+next two.
 
 ### Interlace scenes need frame-parity control, which the scene protocol does not have
 
