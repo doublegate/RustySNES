@@ -442,6 +442,126 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A2.07 — (dp),Y carries bank
+; provenance: Documented (WDC datasheet; superfamicom.org addressing notes)
+.proc test_a2_07
+    .a16
+    .i16
+    ; $7F:0001 is where the bank carry must land; $7E:0001 is where a bank-wrapping core
+    ; would look instead.
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$5A
+    sta f:$7F0001
+    lda #$99
+    sta f:$7E0001
+    ; Direct page $10/$11 holds the pointer $FFFF; DBR = $7E; Y = 2.
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    tcd
+    lda #$FFFF
+    sta f:$7E0010
+    ldy #$0002
+    sep #$20
+    .a8
+    lda #$7E
+    pha
+    plb
+    lda ($10),y
+    ; Restore the data bank before anything else uses absolute addressing.
+    phk
+    plb
+    cmp #$5A
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; (dp),Y did not carry into the next bank — $99 means it wrapped inside the data bank
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A2.10 — PEI does not page-wrap
+; provenance: Documented (WDC datasheet; superfamicom.org addressing notes)
+.proc test_a2_10
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$34
+    sta f:$7E00FF
+    lda #$12
+    sta f:$7E0100
+    lda #$99
+    sta f:$7E0000
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    tcd
+    lda #$01FF
+    tcs
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+    pei ($FF)
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda f:$7E01FF
+    cmp #$12
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E01FE
+    cmp #$34
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; PEI page-wrapped its pointer fetch — $99 is the byte at $0000, which only an old-style wrap would read
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; PEI did not push the pointer's low byte
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; A3.01 — E=1 stack wraps pg1
 ; provenance: Documented (WDC datasheet; 6502.org 65c816opcodes)
 .proc test_a3_01
@@ -772,6 +892,151 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A3.07 — JSL escapes page 1
+; provenance: Documented (WDC datasheet; superfamicom.org escape list)
+.proc test_a3_07
+    .a16
+    .i16
+    ; The subroutine, jumped over. It does not RTL — see the note above — it leaves emulation
+    ; mode, puts the stack somewhere defined, and rejoins the test.
+    bra @body
+@sub:
+    clc
+    xce               ; -> native
+    rep #$30
+    .a16
+    .i16
+    .a16
+    .i16
+    lda f:V_SAVED_S
+    tcs
+    jmp @after
+@body:
+    ; Seed the canary at $01FF and clear $00FF, so each has a distinct 'was written' value.
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$EE
+    sta f:$7E01FF
+    lda #$00
+    sta f:$7E00FF
+    rep #$30
+    .a16
+    .i16
+    ; E=1, S=$0101: JSL pushes PB to $0101, PCH to $0100, PCL to $00FF.
+    lda #$0101
+    tcs
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+    jsl @sub
+@after:
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda f:$7E01FF
+    cmp #$EE
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; JSL wrapped its third push into page 1 and clobbered $01FF, instead of escaping to $00FF
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A3.09 — PHD escapes page 1
+; provenance: Documented (WDC datasheet; superfamicom.org escape list)
+.proc test_a3_09
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$EE
+    sta f:$7E01FF
+    rep #$30
+    .a16
+    .i16
+    lda #$1234
+    tcd
+    lda #$0100
+    tcs
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+    phd
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    rep #$30
+    .a16
+    .i16
+    ; Put D back before anything else reads a direct-page address.
+    lda #$0000
+    tcd
+    sep #$20
+    .a8
+    lda f:$7E01FF
+    cmp #$EE
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E0100
+    cmp #$12
+    beq :+
+    jmp @fail2
+  :
+    lda f:$7E00FF
+    cmp #$34
+    beq :+
+    jmp @fail3
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; PHD wrapped into page 1 and clobbered $01FF
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; PHD did not write D's high byte to $0100
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; PHD did not write D's low byte to $00FF — it must escape page 1
+    sep #$20
+    .a8
+    lda #$06
     sta f:$7EE010
     jml test_restore
 .endproc
@@ -15821,7 +16086,7 @@ apu_prog_42:
 .export _test_flags
 
 _test_count:
-    .word 193
+    .word 197
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -15835,11 +16100,15 @@ _test_entries:
     .faraddr test_a2_03
     .faraddr test_a2_04
     .faraddr test_a2_05
+    .faraddr test_a2_07
+    .faraddr test_a2_10
     .faraddr test_a3_01
     .faraddr test_a3_02
     .faraddr test_a3_03
     .faraddr test_a3_04
     .faraddr test_a3_05
+    .faraddr test_a3_07
+    .faraddr test_a3_09
     .faraddr test_a4_01
     .faraddr test_a4_02
     .faraddr test_a4_03
@@ -16031,11 +16300,15 @@ _test_flags:
     .byte $01   ; A2.03
     .byte $01   ; A2.04
     .byte $01   ; A2.05
+    .byte $01   ; A2.07
+    .byte $01   ; A2.10
     .byte $01   ; A3.01
     .byte $01   ; A3.02
     .byte $01   ; A3.03
     .byte $01   ; A3.04
     .byte $01   ; A3.05
+    .byte $01   ; A3.07
+    .byte $01   ; A3.09
     .byte $01   ; A4.01
     .byte $01   ; A4.02
     .byte $01   ; A4.03
@@ -16227,11 +16500,15 @@ _test_names:
     .addr @n_a2_03
     .addr @n_a2_04
     .addr @n_a2_05
+    .addr @n_a2_07
+    .addr @n_a2_10
     .addr @n_a3_01
     .addr @n_a3_02
     .addr @n_a3_03
     .addr @n_a3_04
     .addr @n_a3_05
+    .addr @n_a3_07
+    .addr @n_a3_09
     .addr @n_a4_01
     .addr @n_a4_02
     .addr @n_a4_03
@@ -16440,6 +16717,12 @@ _test_names:
 @n_a2_05:
     .byte 21
     .byte "[dp] never page-wraps"
+@n_a2_07:
+    .byte 19
+    .byte "(dp),Y carries bank"
+@n_a2_10:
+    .byte 22
+    .byte "PEI does not page-wrap"
 @n_a3_01:
     .byte 19
     .byte "E=1 stack wraps pg1"
@@ -16455,6 +16738,12 @@ _test_names:
 @n_a3_05:
     .byte 17
     .byte "Stack in bank $00"
+@n_a3_07:
+    .byte 18
+    .byte "JSL escapes page 1"
+@n_a3_09:
+    .byte 18
+    .byte "PHD escapes page 1"
 @n_a4_01:
     .byte 19
     .byte "JMP (a) no page bug"

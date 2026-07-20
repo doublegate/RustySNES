@@ -77,7 +77,15 @@ ran=0
 #   RAM regardless. Documented by the SNESdev Wiki and nocash fullsnes; implemented by Mesen2 and
 #   RustySNES, which agree with the cart. No game depends on it — which is exactly why it is the
 #   kind of register an emulator leaves out and a test ROM finds.
-SNES9X_KNOWN_FAILURES=3
+# snes9x, +1 test (A2.10 "PEI does not page-wrap"): PEI's POINTER FETCH page-wraps at E=1 with
+#   DL = $00. `DirectIndirectE1` in `cpuaddr.h` reads the pointer with
+#   `Registers.DL ? WRAP_BANK : WRAP_PAGE`, applying the old-instruction direct-page wrap rule, and
+#   PEI shares that helper with the genuinely old `(d),Y` modes. snes9x's own comment in `OpD4E1`
+#   ("PEI is a new instruction, and so doesn't respect the emu-mode stack bounds") shows it
+#   distinguishes new-instruction behaviour for the STACK but not for the fetch. Mesen2 and
+#   RustySNES both agree with the cart; the WDC datasheet and superfamicom.org's new-instruction
+#   list are the citation.
+SNES9X_KNOWN_FAILURES=4
 
 # --- snes9x, via the libretro host --------------------------------------------------------------
 if [[ -f $SNES9X ]]; then
