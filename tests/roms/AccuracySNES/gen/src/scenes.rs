@@ -868,6 +868,35 @@ pub const SCENES: &[Scene] = &[
         ],
     },
     Scene {
+        id: "c5-bgsc-64x32-second-map-right",
+        dossier: "C5.12",
+        what: "BG1 sized 64x32 and scrolled 256 pixels, so the display sits entirely in the second \
+               tilemap screen. A 64-wide map places that screen to the RIGHT of the first, and \
+               `scene_second_screen` fills it with a marker the canvas never uses — so the correct \
+               picture is the marker, and a core that ignores the size bits, or places the extra \
+               screen below as a 32x64 map would, wraps back into the canvas instead. The marker \
+               exists because the canvas repeats every 256 pixels: without it, scrolling into the \
+               second screen renders a picture identical to not scrolling at all. It is a fixed \
+               column-derived pattern at one palette rather than a disjoint tile range — the \
+               canvas uses overlapping tile numbers and a row-derived palette, and the two are \
+               still nothing alike as pictures.",
+        setup: &[
+            "sep #$20",
+            "stz $2105         ; BGMODE 0",
+            "lda #((MAP_BASE >> 8) | $01)",
+            "sta $2107         ; BG1SC: canvas base, size bits 01 = 64x32",
+            "jsr scene_second_screen",
+            "sep #$20",
+            "stz $210D",
+            "lda #$01",
+            "sta $210D         ; BG1HOFS = $0100 — one whole screen to the right",
+            "lda #$01",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
         id: "c5-mode7-ignores-bgsc",
         dossier: "C5.13",
         what: "The identity Mode 7 scene again, with BG1SC and BG1NBA deliberately pointed at \
@@ -1985,6 +2014,58 @@ fn mode7_vram_helper() -> String {
 /// `scene_low_tiles` records, and the same trap.
 ///
 /// Width-neutral (`php`/`plp`).
+/// Emit `scene_second_screen`, which fills the tilemap screen *after* the canvas with a marker.
+///
+/// A BG sized 64x32 or 32x64 has a second 32x32 screen of tilemap immediately after the first, and
+/// `scene_canvas` only ever fills the first. Scrolling into the second therefore shows whatever
+/// `clear_vram` left — and against a canvas whose pattern repeats every 256 pixels, that is
+/// indistinguishable from not having scrolled at all: the first attempt at a map-size scene
+/// rendered a picture hash-identical to the plain canvas.
+///
+/// The marker is a *fixed pattern*, not a disjoint tile range: tiles `$20`-`$2F` at palette 5,
+/// varying with the column and nothing else. `scene_canvas` draws 64 glyphs from `$21` upward with
+/// a row-derived palette, so the two overlap in tile numbers and are still nothing alike as
+/// pictures — which is what the hash cares about. A core that lands in this screen renders
+/// something no other scene renders; one that lands back in the canvas renders a picture the
+/// goldens already contain.
+///
+/// Width-neutral (`php`/`plp`), for the reason spelled out on `scene_low_tiles`.
+fn second_screen_helper() -> String {
+    let mut s = String::new();
+    let mut w = |line: &str| {
+        let _ = writeln!(s, "{line}");
+    };
+    w("; Fill the tilemap screen after the canvas (see scenes.rs::second_screen_helper).");
+    w(".proc scene_second_screen");
+    w("    php");
+    w("    .a16");
+    w("    .i16");
+    w("    sep #$20");
+    w("    .a8");
+    w("    lda #$80");
+    w("    sta VMAIN");
+    w("    rep #$30");
+    w("    .a16");
+    w("    .i16");
+    w("    ldx #(MAP_BASE + $400)   ; the second 32x32 screen, one screen on from the canvas");
+    w("    stx VMADDL");
+    w("    ldx #$0000");
+    w("@cell:");
+    w("    txa");
+    w("    and #$000F");
+    w("    ora #$0020        ; tiles $20-$2F, printable");
+    w("    ora #$1400        ; palette 5 for every cell -- the canvas varies its palette by row,");
+    w("                      ; so a flat one is the visible difference rather than the tile range");
+    w("    sta VMDATAL");
+    w("    inx");
+    w("    cpx #(SCREEN_COLS * 32)");
+    w("    bne @cell");
+    w("    plp");
+    w("    rts");
+    w(".endproc");
+    s
+}
+
 fn oam_reset_helper() -> String {
     let mut s = String::new();
     let mut w = |line: &str| {
@@ -2050,6 +2131,7 @@ pub fn asm() -> String {
     s.push_str(&low_tiles_helper());
     s.push_str(&opt_map_helper());
     s.push_str(&mode7_vram_helper());
+    s.push_str(&second_screen_helper());
     s.push_str(&oam_reset_helper());
 
     for sc in SCENES {

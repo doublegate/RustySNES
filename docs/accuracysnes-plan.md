@@ -14,7 +14,7 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 | | |
 |---|---|
 | Tests | **202** (190 scoring + 11 golden vectors + 1 region SKIP per image) |
-| Rendered scenes | **48**, all cross-validated (`docs/adr/0013`) |
+| Rendered scenes | **49**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but four, all recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`. Both images. |
 | Groups shipped | **A** (65C816) · **B** (5A22) · **C** (PPU, on-cart and rendered) · **D** (DMA/HDMA) · **E** (SPC700 + S-DSP) · **F** (controller ports) · **G** (cartridge/memory map) — all seven, all partial |
@@ -223,7 +223,7 @@ citation — it decides whether a handler that returns quickly re-enters immedia
 visible difference in any game using a mid-frame IRQ — but it cannot be scored against a citation
 that does not make the claim.
 
-### `C5.12` — the canvas is periodic, so scrolling into the second screen shows the same picture
+### `C5.12` — solved by giving the canvas a second screen worth looking at
 
 A 64x32 BG places its extra screen to the right of the first, and the obvious scene is to scroll 256
 pixels and look at it. That scene renders **the plain canvas**: its hash equalled
@@ -234,10 +234,14 @@ scroll is not observable no matter which screen it lands in. The same trap as th
 the 64-row offset before it: **a scene can only show a difference the canvas is capable of
 expressing.**
 
-Fixing it needs a marker written into the second screen's tilemap — a `scene_second_screen` helper
-in `runtime.s` alongside the existing canvas builders, filling `MAP_BASE + $400` with a tile the
-first screen does not use. Then the two placements (right, for 64x32; below, for 32x64) produce
-visibly different pictures and the size bits are pinned by both.
+That is what `scene_second_screen` now does: it fills `MAP_BASE + $400` with tiles `$20`-`$2F` at a
+flat palette 5, varying with the column and nothing else. The canvas draws 64 glyphs from `$21`
+upward with a row-derived palette, so the tile numbers overlap and the two are still nothing alike
+as pictures — landing in the second screen renders something no other scene renders. The shipped scene scrolls a 64x32 map 256 pixels and must show the marker.
+
+A second wrong version wrote the scroll to `$210F` — BG2HOFS, not BG1HOFS (`$210D`) — and produced
+another stable, three-way-agreed hash identical to an existing scene's. Two wrong scenes in a row,
+both caught by the same check and neither by anything else.
 
 ### `C11.02` — solved, and the two dead ends are the lesson
 
