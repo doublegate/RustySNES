@@ -2366,8 +2366,10 @@ fn e7_16() -> Test {
 /// (`E9.06`) — which is what makes a short wait enough and puts the write exactly where the marker
 /// is.
 fn e9_10() -> Test {
+    /// The page `ESA` names, well clear of the program image at `$0200`.
     const ECHO_PAGE: u8 = 0x30;
-    const ECHO_ADDR: u16 = 0x3000;
+    /// Where that page starts. Derived, so the two cannot drift apart.
+    const ECHO_ADDR: u16 = (ECHO_PAGE as u16) << 8;
 
     let mut prog = Spc::new();
     prog.mov_x_imm(0xEF).mov_sp_x();
@@ -2384,7 +2386,7 @@ fn e9_10() -> Test {
     for i in 0..4u16 {
         prog.mov_a_imm(0x5A).mov_abs_a(ECHO_ADDR + i);
     }
-    prog.delay(0x00);
+    prog.delay(0x00); // 256 iterations, not none — see `Spc::delay`
     prog.mov_a_abs(ECHO_ADDR).mov_dp_a(PORT1);
 
     // Phase 2: writes enabled. The marker must be gone.
@@ -2392,7 +2394,7 @@ fn e9_10() -> Test {
         prog.mov_a_imm(0x5A).mov_abs_a(ECHO_ADDR + i);
     }
     dsp_write(&mut prog, 0x6C, 0x00); // FLG: echo writes enabled
-    prog.delay(0x00);
+    prog.delay(0x00); // 256 iterations: long enough for many echo writes to land
     prog.mov_a_abs(ECHO_ADDR).mov_dp_a(PORT2);
 
     dsp_write(&mut prog, 0x6C, 0x20); // put the write-disable back before handing over
