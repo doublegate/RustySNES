@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Lifting forced blank mid-frame closes the VRAM window on that write (`C2.12`).** Forced blank
+  is what makes VRAM writable during the active display period, and the moment it is lifted the port
+  stops accepting writes — on the same instruction, not at the next scanline. A core that closes the
+  window lazily lets a handful of writes through after the program has turned the screen back on,
+  which is the classic way for a tile to arrive corrupted in exactly one frame out of many.
+
+  **Two wrong versions of the wait loop came first, and both are about lines rather than about the
+  window.** The first fired the moment `$4212` said "not vblank" — but line 0 is a blanking line
+  where VRAM is legitimately open, so it measured line 0 on one core and line 1 on another, and
+  RustySNES was "wrong" for a reason that had nothing to do with the assertion. The second watched
+  the V counter's **low byte** for 8-199, which on a 312-line PAL frame also matches lines 264-311:
+  vblank, where the port is open. From 64 the alias would need line 320, which does not exist.
+
 - **The sprite overflow flags clear at the end of vblank, and forced blank is not that event
   (`C7.09`).** `$213E` bit 6 latches when more than 32 sprites are in range on a scanline and is
   cleared once per frame, as rendering begins. A program that blanks the screen and reads the flag
@@ -664,10 +677,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **209 tests — 197 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **210 tests — 198 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **50 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **167 of 443** on-cart plus **50** scene-only —
-**217 of 443** in total, and **every group A-G now has shipped tests**
+framebuffer-oracle tier. Dossier coverage is **168 of 443** on-cart plus **50** scene-only —
+**218 of 443** in total, and **every group A-G now has shipped tests**
 (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
