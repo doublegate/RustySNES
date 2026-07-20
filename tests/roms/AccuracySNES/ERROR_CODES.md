@@ -986,6 +986,24 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes). Kind: sco
 | 1 | `$02` | DIV YA,X quotient is wrong ($0020 / $08 = 4) |
 | 2 | `$04` | DIV YA,X remainder is wrong |
 
+### E1.04 — DIV H = nibble compare
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | DIV left H clear although (Y & 15) >= (X & 15) — H here is a nibble compare, not a carry |
+| 2 | `$04` | DIV set H although (Y & 15) < (X & 15) |
+
+### E1.05 — DIV V is quotient bit 8
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | DIV left V clear for a quotient of 426 (bit 8 set) |
+| 2 | `$04` | DIV set V for a quotient of 153, which fits in eight bits |
+
 ### E1.06 — DIV flags from quotient
 
 Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata). Kind: scored.
@@ -994,6 +1012,15 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes — flagged
 |---|---|---|
 | 1 | `$02` | DIV YA,X left Z clear for a zero quotient — the flags come from the quotient, not the remainder |
 | 2 | `$04` | DIV YA,X set Z for a non-zero quotient |
+
+### E1.13 — ADDW H = bit-11 carry
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | ADDW left H clear for $0FFF + $0001 — H is the bit-11 carry on the word adds |
+| 2 | `$04` | ADDW set H for $0100 + $0001 |
 
 ### E1.15 — MOVW YA sets 16-bit N/Z
 

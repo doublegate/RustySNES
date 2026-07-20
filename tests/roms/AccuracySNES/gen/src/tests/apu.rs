@@ -20,7 +20,15 @@ use crate::spc::{DONE, PORT0, PORT1, PORT2, PORT3, RELEASE, Spc};
 /// Every Group E test, in menu order.
 #[must_use]
 pub fn all() -> Vec<Test> {
-    vec![e1_01(), e1_02(), e1_06(), e1_15()]
+    vec![
+        e1_01(),
+        e1_02(),
+        e1_04(),
+        e1_05(),
+        e1_06(),
+        e1_13(),
+        e1_15(),
+    ]
 }
 
 /// Emit the cart-side half: upload `prog`, wait for its done marker, leave port values readable.
@@ -297,6 +305,174 @@ fn e1_15() -> Test {
         "E1.15",
         'E',
         "MOVW YA sets 16-bit N/Z",
+        Provenance::Documented("SNESdev Wiki, SPC700 reference; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `DIV`'s H flag is a nibble comparison, not a half-carry.
+///
+/// It is set from `(Y & 15) >= (X & 15)` on the **inputs**, which has nothing to do with any carry
+/// the division produces — the name is borrowed and the behaviour is not. Two divides that differ
+/// only in which operand has the larger low nibble pin it: `Y=$05, X=$03` sets `H`, and the same
+/// pair swapped clears it. A core computing a genuine half-carry gets no consistent answer at all,
+/// because there is no half-carry in a division to compute.
+fn e1_04() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        // (Y & 15) >= (X & 15): 5 >= 3 -> H set
+        .mov_y_imm(0x05)
+        .mov_a_imm(0x00)
+        .mov_x_imm(0x03)
+        .div_ya_x()
+        .push_psw()
+        .pop_a()
+        .mov_dp_a(PORT2)
+        // 3 >= 5 is false -> H clear
+        .mov_y_imm(0x03)
+        .mov_a_imm(0x00)
+        .mov_x_imm(0x05)
+        .div_ya_x()
+        .push_psw()
+        .pop_a()
+        .mov_dp_a(PORT3)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("H is bit 3 of PSW. Y=$05 against X=$03: the low nibbles compare 5 >= 3, so H is SET.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.l("and #$08");
+    a.assert_a8(
+        0x08,
+        "DIV left H clear although (Y & 15) >= (X & 15) — H here is a nibble compare, not a carry",
+    );
+    a.c("Swap the operands and the comparison fails, so H must be CLEAR.");
+    a.l("lda f:$7E0102");
+    a.l("and #$08");
+    a.assert_a8(0x00, "DIV set H although (Y & 15) < (X & 15)");
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E1.04",
+        'E',
+        "DIV H = nibble compare",
+        Provenance::Documented("SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `DIV`'s V flag is bit 8 of the quotient.
+///
+/// The quotient can exceed 255 — the normal branch only guarantees it is under 512 — so `V` is how
+/// the caller learns the byte it was handed is not the whole answer. `$0500 / $03` is 426, which
+/// has bit 8 set; `$0300 / $05` is 153, which does not. The two together separate "V tracks the
+/// quotient's ninth bit" from "V is set whenever something overflowed", which are the same
+/// statement only for the first case.
+fn e1_05() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        // $0500 / $03 = 426: bit 8 set
+        .mov_y_imm(0x05)
+        .mov_a_imm(0x00)
+        .mov_x_imm(0x03)
+        .div_ya_x()
+        .push_psw()
+        .pop_a()
+        .mov_dp_a(PORT2)
+        // $0300 / $05 = 153: bit 8 clear
+        .mov_y_imm(0x03)
+        .mov_a_imm(0x00)
+        .mov_x_imm(0x05)
+        .div_ya_x()
+        .push_psw()
+        .pop_a()
+        .mov_dp_a(PORT3)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("V is bit 6. Quotient 426 has bit 8 set, so V must be SET.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.l("and #$40");
+    a.assert_a8(0x40, "DIV left V clear for a quotient of 426 (bit 8 set)");
+    a.c("Quotient 153 fits in a byte, so V must be CLEAR.");
+    a.l("lda f:$7E0102");
+    a.l("and #$40");
+    a.assert_a8(
+        0x00,
+        "DIV set V for a quotient of 153, which fits in eight bits",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E1.05",
+        'E',
+        "DIV V is quotient bit 8",
+        Provenance::Documented("SNESdev Wiki, SPC700 reference; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `ADDW` carries into H from bit 11, not from bit 3.
+///
+/// `H` on the 8-bit adds is the bit-3 carry; on the word adds it is the bit-11 carry, because the
+/// flag describes the high byte's low nibble. `$0FFF + $0001` crosses that boundary and `$0100 +
+/// $0001` does not. A core that reuses its 8-bit half-carry reports the low byte's carry instead,
+/// which is set in neither case here — so the first assertion catches it and the second confirms
+/// the flag is not simply stuck.
+fn e1_13() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_dp_imm(0x10, 0xFF)
+        .mov_dp_imm(0x11, 0x0F) // $10/$11 = $0FFF
+        .mov_dp_imm(0x12, 0x01)
+        .mov_dp_imm(0x13, 0x00) // $12/$13 = $0001
+        .mov_dp_imm(0x14, 0x00)
+        .mov_dp_imm(0x15, 0x01) // $14/$15 = $0100
+        .movw_ya_dp(0x10)
+        .addw_ya_dp(0x12) // $0FFF + $0001 = $1000: carries bit 11 -> 12
+        .push_psw()
+        .pop_a()
+        .mov_dp_a(PORT2)
+        .movw_ya_dp(0x14)
+        .addw_ya_dp(0x12) // $0100 + $0001 = $0101: no such carry
+        .push_psw()
+        .pop_a()
+        .mov_dp_a(PORT3)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("$0FFF + $0001 crosses bit 11, so H (bit 3 of PSW) must be SET.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.l("and #$08");
+    a.assert_a8(
+        0x08,
+        "ADDW left H clear for $0FFF + $0001 — H is the bit-11 carry on the word adds",
+    );
+    a.c("$0100 + $0001 does not, so H must be CLEAR — which also shows the flag is not stuck.");
+    a.l("lda f:$7E0102");
+    a.l("and #$08");
+    a.assert_a8(0x00, "ADDW set H for $0100 + $0001");
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E1.13",
+        'E',
+        "ADDW H = bit-11 carry",
         Provenance::Documented("SNESdev Wiki, SPC700 reference; fullsnes"),
         Kind::Scored,
         None,
