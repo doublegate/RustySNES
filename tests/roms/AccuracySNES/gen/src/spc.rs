@@ -234,6 +234,40 @@ impl Spc {
         self.push(&[0xD0, rel.to_le_bytes()[0]])
     }
 
+    /// `ADC A,#imm` — `$88`.
+    pub fn adc_a_imm(&mut self, v: u8) -> &mut Self {
+        self.push(&[0x88, v])
+    }
+
+    /// `CLRV` — `$E0`. Clears `V` **and** `H`, which is the whole point of the test that uses it.
+    pub fn clrv(&mut self) -> &mut Self {
+        self.push(&[0xE0])
+    }
+
+    /// `DAA` — `$DF`. Decimal-adjust after addition.
+    pub fn daa(&mut self) -> &mut Self {
+        self.push(&[0xDF])
+    }
+
+    /// `TSET1 !abs` — `$0E`. Sets the bits of `A` in the target, and sets `N`/`Z` from a
+    /// *comparison* of `A` against the target's old value rather than from the result.
+    pub fn tset1_abs(&mut self, addr: u16) -> &mut Self {
+        let [lo, hi] = addr.to_le_bytes();
+        self.push(&[0x0E, lo, hi])
+    }
+
+    /// `CALL !abs` — `$3F`.
+    pub fn call_abs(&mut self, addr: u16) -> &mut Self {
+        let [lo, hi] = addr.to_le_bytes();
+        self.push(&[0x3F, lo, hi])
+    }
+
+    /// `MOV A,!abs` — `$E5`. The read counterpart of [`Spc::mov_abs_a`].
+    pub fn mov_a_abs(&mut self, addr: u16) -> &mut Self {
+        let [lo, hi] = addr.to_le_bytes();
+        self.push(&[0xE5, lo, hi])
+    }
+
     /// `CMP A,#imm` — `$68`.
     pub fn cmp_a_imm(&mut self, v: u8) -> &mut Self {
         self.push(&[0x68, v])

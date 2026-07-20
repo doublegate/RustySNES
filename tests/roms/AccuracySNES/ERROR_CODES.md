@@ -1143,6 +1143,44 @@ Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes). Kind: scor
 |---|---|---|
 | 1 | `$02` | ENVX did not read back the direct GAIN value; a ramp toward it, or a missing >>4, both land somewhere else |
 
+### E1.08 — DAA adjustments
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | DAA on $0A did not apply the low-nibble adjustment, so $0A + 6 = $10 did not happen |
+| 2 | `$04` | DAA on $9A did not wrap to $00 — both adjustments apply, and $9A + $60 + 6 leaves the byte |
+| 3 | `$06` | DAA on $9A did not set the carry |
+
+### E1.10 — TSET1 is a compare
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | TSET1 set Z although A and the target differed |
+| 2 | `$04` | TSET1 did not OR A into its target |
+| 3 | `$06` | TSET1 did not set Z for equal operands, so its flags describe the result rather than a comparison against the target's old value |
+
+### E1.12 — CLRV clears H too
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | ADC $7F + $01 did not set both V and H, so the CLRV check below would be vacuous |
+| 2 | `$04` | CLRV left a flag set — it clears H as well as V, and nothing else on the SPC700 clears H |
+
+### E2.07 — CALL pushes exact addr
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the low byte of the pushed return address is wrong; one less than expected means the 65816's return-minus-one convention was applied |
+| 2 | `$04` | the high byte of the pushed return address is wrong |
+
 ### E4.01 — IPL ROM contents
 
 Provenance: **Documented** (the canonical 64-byte IPL listing; fullsnes, SNESdev Wiki). Kind: scored.
