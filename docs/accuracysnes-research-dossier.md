@@ -1046,7 +1046,7 @@ VMAIN remap permutations:
 
 | # | Assertion |
 |---|---|
-| C13.01 | **INIDISP early-read: object tile corruption** — write outside vblank with prior bus bit 7 set, **3-chip only** |
+| C13.01 | **INIDISP early-read: object tile corruption** — write outside vblank with prior bus bit 7 set, **3-chip only** · *blocked twice: sub-scanline (the compositor paints a whole line from one register snapshot) and chip-revision-dependent, so a golden would commit to one revision as though it were the behaviour. See `docs/accuracysnes-plan.md`. Applies to `C13.01`-`C13.06`.* |
 | C13.02 | **Display flash** — force-blank on + prior bus bit 7 clear → display on for one dot |
 | C13.03 | **Brightness glitch** — one-dot brightness step |
 | C13.04 | `STA $8F2100` vs `STA $0F2100` produce different artifacts |

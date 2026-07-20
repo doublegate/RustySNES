@@ -7,55 +7,52 @@
 # compare pictures rather than output conventions. Each host declares where its own picture starts
 # in its own buffer (`FIRST_ROW`): RustySNES 0, snes9x's libretro core 0, Mesen2 7.
 #
-# ADR 0013 rule 4: a golden may be blessed ONLY from a cross-validated render — a scene the
+# ADR 0013 rule 4: a golden may be blessed ONLY from a cross-validated render -- a scene the
 # reference emulators have been shown to agree on, with the agreement recorded here. A scene with
 # no entry is reported as unblessed and does not fail the gate, because an unblessed scene is not
 # yet evidence of anything.
 #
 # Separate from undisbeliever-framebuffer.tsv on purpose: these are first-party and may be
-# regenerated when WE intend a behaviour change; those are third-party and may not. Mixing them
-# invites applying the wrong rule to the wrong file.
-#
-# --- blessed 2026-07-20 ------------------------------------------------------------------------
+# regenerated when WE intend a behaviour change; those are third-party and may not.
 #
 # Cross-validated three ways on the identical image, all agreeing bit-for-bit:
-#   * RustySNES        crates/rustysnes-test-harness/tests/accuracysnes_scenes.rs
+#   * RustySNES         crates/rustysnes-test-harness/tests/accuracysnes_scenes.rs
 #   * snes9x (libretro) scripts/accuracysnes/libretro_crossval.c --scenes
 #   * Mesen2 (headless) scripts/accuracysnes/mesen_scenes.lua
 #
-# These are the first three scenes the oracle ever ran, and all three initially disagreed with the
-# references. Both causes were RustySNES bugs, not scene bugs, and both are fixed in the same
-# change (see CHANGELOG and docs/ppu.md):
-#   1. the BG vertical fetch was a line late — the first displayed line must show BG row
-#      BGnVOFS+1, not row 0;
-#   2. mosaic quantised the BG's own row rather than the screen row, so a mosaic block moved with
-#      the scroll instead of staying anchored to the picture.
-# Independent corroboration: agreement with snes9x across the 29-ROM undisbeliever suite went from
-# 2/29 to 14/29 with those two fixes in place.
-c5-mode1-bg-priority	0x4fccc3fcf1027a01
-c8-fixed-colour-add	0x313006a2eb2c3745
-c10-mosaic-4x	0xebef39df0c777605
-
-# --- blessed 2026-07-20, second batch (15 scenes) -----------------------------------------------
-#
-# Cross-validated the same three ways, all agreeing bit-for-bit on every scene. Unlike the first
-# batch this one found no divergence, which is the expected outcome once the two bugs the first
-# batch exposed were fixed — background fetch and mosaic anchoring are upstream of most of what
-# these scenes render.
-#
 # Two pairs (three scenes) are deliberately expected to hash IDENTICALLY, and the harness checks
-# that rather than only checking each against its own number. An equivalence is the stronger
-# statement: it survives a change to the canvas, and it fails for a core that gets both scenes
-# wrong in the same way, which matching a committed number does not.
+# that in its own test rather than only checking each against its own number. An equivalence is the
+# stronger statement: it survives a change to the canvas, and it fails for a core that gets both
+# scenes wrong in the same way, which matching a committed number does not.
 #
 #   c8-half-ignored-on-fixed-backdrop == c8-fixed-colour-add
 #       CGADSUB's half/div2 bit is ignored when the subscreen is the fixed backdrop (C8.03).
 #   c8-window-left-gt-right-empty == c8-both-windows-disabled-empty
 #       Crossed window bounds and no enabled window are both EMPTY masks, not full ones
 #       (C8.05, C8.07) -- so BG1 is fully visible in both.
+#
+# --- history -----------------------------------------------------------------------------------
+#
+# 2026-07-20, first batch (3 scenes). All three disagreed with the references, and all three were
+# RustySNES bugs: the BG vertical fetch was a line late, and mosaic quantised the BG's own row
+# rather than the screen row. Agreement with snes9x across the 29-ROM undisbeliever suite went from
+# 2/29 to 14/29 once both were fixed.
+#
+# 2026-07-20, second batch (15 scenes). No divergence -- expected, since both fixed bugs sit
+# upstream of most of what those scenes render.
+#
+# 2026-07-20, third batch (7 scenes: offset-per-tile and a mode-2 control). No divergence. The two
+# deep-colour scenes from the second batch were RE-BLESSED here because `scene_low_tiles` changed:
+# it now picks tiles $10-$1F (printable at 4bpp and 8bpp alike) and varies the tile with the row.
+# Both changes were forced by scenes that rendered a picture no assertion could show --
+# see the plan doc. The re-bless is a deliberate change to the input, not drift in the output.
+
+c5-mode1-bg-priority	0x4fccc3fcf1027a01
+c8-fixed-colour-add	0x313006a2eb2c3745
+c10-mosaic-4x	0xebef39df0c777605
 c5-mode0-four-bg-priority	0x4300879df7644d4d
 c5-mode0-palette-segregation	0xaccea37c1cbec40a
-c5-mode3-8bpp	0xfa61b9e133381465
+c5-mode3-8bpp	0x147d0154910befad
 c5-tilemap-flip-bits	0x8906efc348309f25
 c5-16x16-tiles	0xb252517305a12917
 c8-subtract-mode	0x756e12f3edfcaa85
@@ -67,4 +64,11 @@ c8-window-inverted-empty-is-full	0xbcb8d1c2bec08325
 c8-both-windows-disabled-empty	0x5b2489d9baa9e9f4
 c8-window-logic-xor	0x1968c1ee0e11ddb7
 c10-mosaic-screen-anchored	0xaf6951a8a0c82665
-c12-direct-colour-mode3	0x13e2696c78c29115
+c12-direct-colour-mode3	0x694b17527918b5fd
+c5-mode2-plain	0x58c16c3082232555
+c6-opt-v-alternating-columns	0x6f82890d7e7d4c41
+c6-opt-v-replaces-vofs	0xaaa433d4ccb1b76d
+c6-opt-h-keeps-fine-scroll	0xeed8f2e603cad155
+c6-opt-enable-bit-bg1	0x15a44507628f9329
+c6-opt-enable-bit-bg2	0x08d18d6f12afe809
+c6-mode4-h-vs-v-select	0x43f1a048e884fd91
