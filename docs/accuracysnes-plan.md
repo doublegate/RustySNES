@@ -13,7 +13,7 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **126** (120 scoring + 6 golden vectors) |
+| Tests | **132** (123 scoring + 9 golden vectors) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES, Mesen2, snes9x — all agree, 0 failures |
 | Groups shipped | **A** (65C816 CPU, 46 tests) · **C** partial (PPU, 30 tests) · **B** partial (5A22, 9 tests) |
@@ -30,13 +30,13 @@ flag in the status byte `BRK` pushes).
 | Group | Scope | Enumerated | Done | Left |
 |---|---|---:|---:|---:|
 | **A** | 65C816 CPU | ~55 | 69 | see coverage report |
-| **B** | 5A22 bus, clock, timing | ~30 | 14 | ~16 |
+| **B** | 5A22 bus, clock, timing | ~30 | 20 | ~10 |
 | **C** | S-PPU1 / S-PPU2 | ~85 | 30 | ~55 |
 | **D** | DMA / HDMA | ~35 | 0 | ~35 |
 | **E** | SPC700 + S-DSP | ~75 | 0 | ~75 |
 | **F** | Input | ~22 | 0 | ~22 |
 | **G** | Power-on / reset / cartridge | ~18 | 0 | ~18 |
-| | | **~320** | **126** | **~194** |
+| | | **~320** | **132** | **~188** |
 
 **These are test counts. For assertion coverage, read `docs/accuracysnes-coverage.md`** — it is
 regenerated with the ROM from the map in `gen/src/dossier.rs` and currently reports **79 of 443**

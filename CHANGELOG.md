@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES Group B, second batch — 6 tests.** `B1.03` an internal cycle costs 6 master clocks
+  (isolated by differencing `XBA` against `NOP`, which differ by exactly one internal cycle and are
+  both single-byte). `B1.04` DMA runs at a uniform rate **regardless of source region** — a
+  differential between a `MEMSEL`-fast bank and a slow one, which catches the natural bug of reusing
+  the CPU's speed map for DMA. `B4.09` an HV-IRQ requires **both** comparators to match, not either.
+  Plus three golden vectors: the `$213F` region-bit encoding (the sources conflict on bit 3 vs
+  bit 4), the interlace line count, and the H-IRQ position. Battery now **132 tests, 123 scoring,
+  100.00%, 9 golden**.
+
 - **AccuracySNES: the opcode sweep now covers every inline-measurable class (34 entries), plus
   `A9.03`.** The sweep adds direct page, absolute, absolute long, indexed, read-modify-write,
   stores and untaken branches to the implied/immediate/stack set. `A9.03` settles — or rather,
