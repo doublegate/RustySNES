@@ -1233,17 +1233,23 @@ test_restore := test_restore_impl
     .a16
     .i16
     phb
+    phd
     phk
     plb
+    ; D = 0 for the duration. The pointer is written and read through the SAME addressing mode
+    ; below, which is only meaningful if D is known: `sta a:$50` and `lda [$50],y` name the same
+    ; byte when D = 0 and different bytes otherwise, and a test is free to have moved D.
+    lda #$0000
+    tcd
 
     ; Copy the source pointer into direct page: `lda [dp],y` is the only mode that reaches an
     ; arbitrary bank with an index, and it needs the pointer there.
     lda f:V_APU_SRC
-    sta a:V_APU_PTR
+    sta z:V_APU_PTR
     sep #$20
     .a8
     lda f:V_APU_BANK
-    sta a:V_APU_PTR + 2
+    sta z:V_APU_PTR + 2
 
     ; --- wait for the IPL to announce itself with $AA/$BB ---
     ;
@@ -1365,13 +1371,9 @@ test_restore := test_restore_impl
     sep #$20
     .a8
     stz APUIO1                  ; zero: jump instead of continuing the transfer
-    rep #$20
-    .a16
-    tya
-    inc a
-    inc a
-    sep #$20
-    .a8
+    tya                         ; 8-bit: the IPL's counter is a byte, so the width buys nothing
+    clc
+    adc #$02
     sta APUIO0
     rep #$10
     .i16
@@ -1395,6 +1397,7 @@ test_restore := test_restore_impl
     .i16
     lda #$0000
     sta f:V_APU_STAGE           ; 0 = the whole handshake completed
+    pld
     plb
     plp
     clc
@@ -1407,6 +1410,7 @@ test_restore := test_restore_impl
     rep #$30
     .a16
     .i16
+    pld
     plb
     plp
     sec
