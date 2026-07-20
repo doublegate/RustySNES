@@ -1084,6 +1084,9 @@ fn c11_06b() -> Test {
 /// `tag` disambiguates the emitted cheap-local labels. ca65 resets cheap-local scope only at a
 /// non-cheap label, and a test that renders twice has none in between, so the second expansion
 /// would redefine the first's labels.
+///
+/// **Register width contract: returns with `A` 8-bit and `X`/`Y` 16-bit**, holding the sampled
+/// `$213E`. See [`enter_active_display`] for why this is documented rather than left implicit.
 fn setup_and_render(
     a: &mut Asm,
     tag: &str,
@@ -1267,6 +1270,13 @@ fn c7_08() -> Test {
 /// state; the poll then waits for vblank to end. The delay loop after it is what makes the test
 /// mean what it says: without it the writes would land on the pre-render line, and "V=0 counts as
 /// rendering" is a much weaker claim than "line ~20 counts as rendering".
+///
+/// **Register width contract: returns with `A` 8-bit and `X`/`Y` 16-bit.** Callers must set the
+/// width they need rather than assume the entry state survived. This is stated because the
+/// generator tracks widths file-globally to emit `.a8`/`.a16`, and the dangerous direction is
+/// silent: if the assembler believes `A` is 16-bit while the CPU has it 8-bit, immediate operands
+/// are assembled one byte short and everything after them shifts. An earlier timing helper in this
+/// project desynced exactly that way.
 fn enter_active_display(a: &mut Asm, tag: &str) {
     a.l("sep #$20");
     a.l("lda #$0F");
