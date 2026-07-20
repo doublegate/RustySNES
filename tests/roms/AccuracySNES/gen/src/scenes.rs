@@ -834,6 +834,40 @@ pub const SCENES: &[Scene] = &[
         ],
     },
     Scene {
+        id: "c5-mode4-two-layers",
+        dossier: "C5.05",
+        what: "Mode 4 with BG1 and BG2 both displayed. The mode's shape is unlike its neighbours: \
+               BG1 is 8bpp and BG2 is 2bpp — three bits of colour depth apart, from the same \
+               tilemap — and BG3 exists only as the offset-per-tile table, which is left inert \
+               here so this scene is about the mode's layers rather than about OPT. A core that \
+               reuses mode 3's depths, or mode 2's layer set, renders both layers at the wrong \
+               depth and the difference is not subtle.",
+        setup: &[
+            "sep #$20",
+            "lda #$04",
+            "sta $2105         ; BGMODE 4",
+            "stz $210B",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "sta $2108         ; BG1 and BG2 share the canvas map",
+            "lda #(OPT_MAP_BASE >> 8)",
+            "sta $2109         ; BG3 is mode 4's offset table",
+            "jsr scene_low_tiles",
+            "rep #$30",
+            "lda #$0000",
+            "sta f:V_OPT_H_EVEN",
+            "sta f:V_OPT_H_ODD",
+            "sta f:V_OPT_V_EVEN",
+            "sta f:V_OPT_V_ODD",
+            "jsr scene_opt_map     ; all zeroes: no entry carries an enable bit",
+            "sep #$20",
+            "lda #$03",
+            "sta $212C         ; BG1 and BG2 on the main screen",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
         id: "c5-mode7-ignores-bgsc",
         dossier: "C5.13",
         what: "The identity Mode 7 scene again, with BG1SC and BG1NBA deliberately pointed at \

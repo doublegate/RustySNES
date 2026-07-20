@@ -118,6 +118,14 @@
 # hash duplicating another is the assertion here rather than a warning -- which is the difference
 # between a declared equivalence and the accidental collisions above. An equivalence also survives
 # a change to the shared Mode 7 canvas, where a second committed hash would not.
+#
+# 2026-07-20, twelfth batch (1 scene: Mode 4, C5.05). No divergence. BG1 8bpp and BG2 2bpp from the
+# same tilemap, three bits of colour depth apart, with BG3's offset table left inert.
+#
+# A C5.12 scene (a 64x32 map scrolled 256 px into its second screen) was attempted and NOT blessed:
+# it rendered the plain canvas, hash-identical to `c8-window-left-gt-right-empty`. The canvas's
+# tilemap repeats horizontally with a period dividing 256, so the scroll is invisible whichever
+# screen it lands in. It needs a marker written into the second screen first -- see the plan doc.
 
 c5-mode1-bg-priority	0x4fccc3fcf1027a01
 c8-fixed-colour-add	0x313006a2eb2c3745
@@ -166,3 +174,4 @@ c8-obj-math-palettes-4-7	0x7696cd59bf0681e5
 c12-direct-colour-zero-is-transparent	0x5f0aa17cfe971185
 c11-org-13bit-mask	0xa65485c01b9cc065
 c5-mode7-ignores-bgsc	0x61673947271ec365
+c5-mode4-two-layers	0xedb2fcffaf97d845

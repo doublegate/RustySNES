@@ -14,7 +14,7 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 | | |
 |---|---|
 | Tests | **202** (190 scoring + 11 golden vectors + 1 region SKIP per image) |
-| Rendered scenes | **47**, all cross-validated (`docs/adr/0013`) |
+| Rendered scenes | **48**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but four, all recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`. Both images. |
 | Groups shipped | **A** (65C816) · **B** (5A22) · **C** (PPU, on-cart and rendered) · **D** (DMA/HDMA) · **E** (SPC700 + S-DSP) · **F** (controller ports) · **G** (cartridge/memory map) — all seven, all partial |
@@ -222,6 +222,22 @@ and now disarms `$4200` before looking. The stronger property deserves its own t
 citation — it decides whether a handler that returns quickly re-enters immediately, which is a
 visible difference in any game using a mid-frame IRQ — but it cannot be scored against a citation
 that does not make the claim.
+
+### `C5.12` — the canvas is periodic, so scrolling into the second screen shows the same picture
+
+A 64x32 BG places its extra screen to the right of the first, and the obvious scene is to scroll 256
+pixels and look at it. That scene renders **the plain canvas**: its hash equalled
+`c8-window-left-gt-right-empty`, which is BG1 fully visible.
+
+`scene_canvas`'s tilemap repeats horizontally with a period that divides 256 pixels, so a 256-pixel
+scroll is not observable no matter which screen it lands in. The same trap as the Mode 7 mask and
+the 64-row offset before it: **a scene can only show a difference the canvas is capable of
+expressing.**
+
+Fixing it needs a marker written into the second screen's tilemap — a `scene_second_screen` helper
+in `runtime.s` alongside the existing canvas builders, filling `MAP_BASE + $400` with a tile the
+first screen does not use. Then the two placements (right, for 64x32; below, for 32x64) produce
+visibly different pictures and the size bits are pinned by both.
 
 ### `C11.02` — solved, and the two dead ends are the lesson
 

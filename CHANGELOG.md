@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mode 4's two layers (`C5.05`).** BG1 is 8bpp and BG2 is 2bpp — three bits of colour depth
+  apart, from the same tilemap — and BG3 exists only as the offset-per-tile table, left inert here
+  so the scene is about the mode's layers rather than about OPT. A core that reuses mode 3's depths,
+  or mode 2's layer set, renders both layers at the wrong depth.
+
+  **A `C5.12` scene was attempted in the same batch and not blessed.** A 64x32 map scrolled 256
+  pixels into its second screen rendered the *plain canvas* — hash-identical to
+  `c8-window-left-gt-right-empty`. `scene_canvas`'s tilemap repeats horizontally with a period
+  dividing 256, so the scroll is invisible whichever screen it lands in. It needs a marker written
+  into the second screen first, which is a new runtime helper rather than a scene. That is the
+  third time this week the canvas has been unable to express the difference a scene was asking
+  about; the rule is in `docs/accuracysnes-plan.md`.
+
 - **Mode 7 reads neither `BG1SC` nor `BG1NBA` (`C5.13`), declared as an equivalence.** The scene
   points both registers at nonsense and must render exactly what `c11-mode7-identity` renders —
   Mode 7 has its own fixed VRAM layout, byte-interleaved with characters at `$0000`, and consults
@@ -550,9 +563,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   battery already had.
 
 **AccuracySNES totals, as of this section:** **202 tests — 190 scoring at 100.00%, 11 golden
-vectors**, plus one region-dependent SKIP per image, and **47 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **160 of 443** on-cart plus **47** scene-only —
-**207 of 443** in total, and **every group A-G now has shipped tests**
+vectors**, plus one region-dependent SKIP per image, and **48 rendered scenes** in the host
+framebuffer-oracle tier. Dossier coverage is **160 of 443** on-cart plus **48** scene-only —
+**208 of 443** in total, and **every group A-G now has shipped tests**
 (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
