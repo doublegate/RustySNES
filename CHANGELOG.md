@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mode 7 scenes (`C11`, plus `C5.08`/`C10.05`/`C12.03`) — 35 scenes total.** Identity and
+  rotate/scale transforms, all three screen-over modes, screen flip, EXTBG, direct colour, mosaic
+  and windowing. A shared `scene_mode7_vram` helper lays down the tilemap and character data in one
+  pass, which is possible precisely because Mode 7 interleaves them by byte (`C11.05`) — and is the
+  cheapest way to be sure the two halves cannot drift apart.
+
+  `scene_canvas` now fills **all 256** CGRAM entries rather than 128. An 8bpp or Mode 7 scene
+  indexes the whole palette, so the upper half was being rendered through whatever the previous
+  scene or test had left there — the same cross-scene contamination the per-scene canvas rebuild
+  exists to prevent, in the one place the rebuild was not reaching.
+
 - **Offset-per-tile scenes (`C6.01`-`C6.06`) plus a mode-2 control — 25 scenes total.** Mode 2's
   BG3 stops being a layer and becomes a table of per-column offsets; the scenes pin the enable bits
   (13 = BG1, 14 = BG2, as a *pair* — neither alone can tell a core that swapped them), mode 4's
@@ -58,9 +69,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   battery already had.
 
 **AccuracySNES totals, as of this section:** **134 tests — 124 scoring at 100.00%, 10 golden
-vectors**, plus one region-dependent SKIP per image, and **25 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **95 of 443** on-cart plus **26** scene-only —
-**121 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+vectors**, plus one region-dependent SKIP per image, and **35 rendered scenes** in the host
+framebuffer-oracle tier. Dossier coverage is **95 of 443** on-cart plus **34** scene-only —
+**129 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 
@@ -224,6 +235,21 @@ rewritten to the current number — this line is the one to read.
   confirming the goldens returned. Rationale recorded in `docs/scheduler.md` §H/V-IRQ.
 
 ### Fixed
+
+- **Mode 7 rendered one scanline low.** The identical off-by-one this release already fixed in the
+  tiled backgrounds — `render_mode7` is a separate function and was missed. Nine of the ten new
+  Mode 7 scenes moved on that one line, and all nine then matched both references exactly.
+
+- **EXTBG replaced BG1 instead of adding a layer.** Mode 7 has one background; EXTBG splits it by
+  the pixel's high bit into BG1 (full 8-bit palette) *and* BG2 (seven bits of colour, bit 7 as a
+  priority selector). RustySNES rendered one or the other, so enabling EXTBG made BG1 vanish.
+
+- **Mode 7 ignored mosaic entirely**, rendering identically with and without it — `render_mode7`
+  had no mosaic handling at all. Quantised in screen space, matching the tiled path.
+
+  All three were found by the framebuffer oracle and confirmed the same way: snes9x and Mesen2
+  agreed bit-for-bit with each other and disagreed with RustySNES, which is the signature of a real
+  bug rather than a broken test. The 29 undisbeliever goldens are unaffected (none use Mode 7).
 
 - **Backgrounds were rendering one scanline low.** The first displayed line must show BG row
   `BGnVOFS + 1`, not row `BGnVOFS` — the vertical fetch runs a line ahead of the line it appears on.

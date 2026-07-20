@@ -26,13 +26,13 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `C2` | 10 | 8 | 0 | C2.09, C2.12 |
 | `C3` | 10 | 4 | 0 | C3.03, C3.04, C3.05, C3.07, C3.09, C3.10 |
 | `C4` | 5 | 0 | 0 | C4.01, C4.02, C4.03, C4.04, C4.05 |
-| `C5` | 15 | 0 | 7 | C5.05, C5.06, C5.07, C5.08, C5.12, C5.13, C5.14, C5.15 |
+| `C5` | 15 | 0 | 8 | C5.05, C5.06, C5.07, C5.12, C5.13, C5.14, C5.15 |
 | `C6` | 7 | 0 | 6 | C6.07 |
 | `C7` | 16 | 3 | 0 | C7.03, C7.04, C7.05, C7.06, C7.07, C7.09, C7.10, C7.11, C7.12, C7.13, C7.14, C7.15, C7.16 |
 | `C8` | 12 | 0 | 9 | C8.01, C8.09, C8.12 |
 | `C9` | 8 | 1 | 0 | C9.01, C9.02, C9.03, C9.05, C9.06, C9.07, C9.08 |
-| `C10` | 5 | 0 | 2 | C10.03, C10.04, C10.05 |
-| `C11` | 12 | 1 | 0 | C11.01, C11.02, C11.03, C11.04, C11.05, C11.07, C11.08, C11.09, C11.10, C11.11, C11.12 |
+| `C10` | 5 | 0 | 3 | C10.03, C10.04 |
+| `C11` | 12 | 1 | 6 | C11.02, C11.03, C11.07, C11.08, C11.12 |
 | `C12` | 3 | 0 | 2 | C12.02 |
 | `C13` | 10 | 4 | 0 | C13.01, C13.02, C13.03, C13.04, C13.05, C13.06 |
 | `C14` | 3 | 2 | 0 | C14.03 |
@@ -52,7 +52,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `F1` | 22 | 0 | 0 | F1.01, F1.02, F1.03, F1.04, F1.05, F1.06, F1.07, F1.08, F1.09, F1.10, F1.11, F1.12, F1.13, F1.14, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
 | `G1` | 18 | 0 | 0 | G1.01, G1.02, G1.03, G1.04, G1.05, G1.06, G1.07, G1.08, G1.09, G1.10, G1.11, G1.12, G1.13, G1.14, G1.15, G1.16, G1.17, G1.18 |
 
-**95 of 443** enumerated assertion rows covered by an on-cart test, plus **26** covered only by a rendered scene (`docs/adr/0013`) — **121 of 443** in total.
+**95 of 443** enumerated assertion rows covered by an on-cart test, plus **34** covered only by a rendered scene (`docs/adr/0013`) — **129 of 443** in total.
 
 The two columns are kept apart on purpose. An on-cart result means the same thing on any emulator and on real hardware; a rendered scene needs a host holding the golden. Adding them into one figure would quietly change what the number claims.
 
@@ -98,6 +98,16 @@ Declared in `gen/src/scenes.rs`. Each is reported by the host framebuffer oracle
 - **`C6.01`** — c6-opt-enable-bit-bg1
 - **`C6.01`** — c6-opt-enable-bit-bg2
 - **`C6.02`** — c6-mode4-h-vs-v-select
+- **`C5.08,C11.05`** — c11-mode7-identity
+- **`C11.01`** — c11-mode7-rotate-scale
+- **`C11.04`** — c11-screen-over-wrap
+- **`C11.04`** — c11-screen-over-transparent
+- **`C11.04`** — c11-screen-over-char0
+- **`C11.01`** — c11-mode7-screen-flip
+- **`C11.09`** — c11-extbg-priority-split
+- **`C11.10,C12.03`** — c11-mode7-direct-colour
+- **`C10.05`** — c10-mode7-mosaic
+- **`C11.11`** — c11-mode7-window
 
 ## Tests with no enumerated assertion
 

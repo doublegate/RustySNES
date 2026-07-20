@@ -184,7 +184,7 @@ other four (`C13.07`-`C13.10`, the open-bus latches) are CPU-observable and alre
   stay in their own tier. `crossval.sh` gates on them, and per rule 4 a golden is committed only
   once the references agree.
 
-  **Status: 25 scenes blessed**, covering 26 assertions across `C5`, `C6`, `C8`, `C10` and `C12`. The
+  **Status: 35 scenes blessed**, covering 34 assertions across `C5`, `C6`, `C8`, `C10`, `C11` and `C12`. The
   first three disagreed with the references on first run, and in all three cases RustySNES was
   wrong: the BG vertical fetch was a line late, and mosaic quantised the BG row instead of the
   screen row. Both are fixed; agreement with snes9x across the third-party undisbeliever suite went
@@ -196,8 +196,9 @@ other four (`C13.07`-`C13.10`, the open-bus latches) are CPU-observable and alre
   change to the canvas, and it catches a core that gets both scenes wrong in the same way, which
   two independent hash comparisons cannot.
 
-  Remaining under this ticket: `C5.08`/`C5.12`-`C5.14` (mode 7, tilemap sizes, bitplane layouts),
-  `C6.07` (wraparound), `C8.01`/`C8.09`/`C8.12`, `C10.03`-`C10.05`, `C12.02`. `C5.06`/`C5.07`
+  Remaining under this ticket: `C5.05`/`C5.12`-`C5.14` (tilemap sizes, bitplane layouts),
+  `C6.07` (wraparound), `C8.01`/`C8.09`/`C8.12`, `C10.03`/`C10.04`, `C11.02`/`C11.03`/`C11.12`,
+  `C12.02`. `C11.07`/`C11.08` are MPY-latch behaviour and belong on-cart, not in a scene. `C5.06`/`C5.07`
   and most of `C9` are hi-res and need the scene region's 256x224 contract widened first — that
   contract exists because emulators disagree about geometry, so widening it means re-deriving each
   host's `FIRST_ROW` for 512-wide output rather than merely relaxing an assertion.
@@ -356,6 +357,9 @@ Recorded because it is the only real measure of whether the battery is worth its
 | `B5.05` | the multiply/divide latches powered up as zero instead of `$FF` / `$FFFF`. Found only because the first power-on measurement disagreed across references, which prompted the research that established the documented value | #121 |
 | `C5.02` scene | the BG vertical fetch was a line late — the first displayed line must show BG row `BGnVOFS + 1`, and `render_bg` used the framebuffer row for both. Found by the framebuffer oracle's very first scene | this branch |
 | `C10.01` scene | mosaic quantised the BG's own row instead of the screen row, so a mosaic block moved with the scroll instead of staying anchored to the picture | this branch |
+| `C11` scenes | Mode 7 rendered one scanline low — the same off-by-one as the tiled backgrounds, in the separate `render_mode7`. Nine of ten Mode 7 scenes moved on the one-line fix | this branch |
+| `C11.09` scene | EXTBG *replaced* BG1 instead of adding a second layer, so enabling it made BG1 vanish entirely | this branch |
+| `C10.05` scene | Mode 7 ignored mosaic completely, rendering identically with and without it | this branch |
 
 Both were found the same way: the test failed on RustySNES while **both** references passed it.
 The inverse pattern — a test failing identically on all three — has twice meant a broken test

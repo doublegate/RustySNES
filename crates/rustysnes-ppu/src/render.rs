@@ -554,7 +554,17 @@ impl Ppu {
             }
         };
 
-        let mut y = u32::from(self.v - 1);
+        // Mosaic, quantised in SCREEN space exactly as `render_bg` does it: the block grid is
+        // anchored to the top-left of the picture, not to whatever the transform maps there.
+        // Mode 7 had no mosaic handling at all until the framebuffer oracle rendered the same
+        // picture with and without it.
+        let mosaic = self.io.mosaic_enable[0] && self.io.mosaic_size > 1;
+        let msize = u32::from(self.io.mosaic_size);
+
+        let mut y = u32::from(self.v);
+        if mosaic {
+            y = ((y - 1) / msize) * msize + 1;
+        }
         if self.io.m7_vflip {
             y = 255 - (y & 0xff);
         }
@@ -576,6 +586,9 @@ impl Ppu {
 
         for screen_x in 0..SCREEN_WIDTH as u32 {
             let mut x = screen_x;
+            if mosaic {
+                x = (x / msize) * msize;
+            }
             if self.io.m7_hflip {
                 x = 255 - (x & 0xff);
             }
@@ -609,7 +622,44 @@ impl Ppu {
             #[cfg(not(feature = "hd-pack"))]
             let _ = tile;
 
-            // BG1 (or BG2 with EXTBG high-bit priority).
+            // BG1 always renders, with the FULL 8-bit palette. EXTBG adds a second layer from
+            // the same pixels — it does not replace the first. Treating it as an either/or made
+            // BG1 vanish the moment EXTBG was enabled, which the framebuffer oracle caught by
+            // rendering a picture both references disagreed with.
+            let palette_bg1 = palette;
+            if palette_bg1 != 0 {
+                let prio = pr.bg[0][0];
+                #[allow(unused_mut)]
+                let mut pixel = Pixel {
+                    palette: palette_bg1,
+                    priority: prio,
+                    layer: 0,
+                    palette_group: 0,
+                    opaque: true,
+                    ..Pixel::default()
+                };
+                #[cfg(feature = "hd-pack")]
+                if self.hd_pack_tagging {
+                    let tile_base = (tile << 6) & 0x7fff;
+                    pixel.tag = self.tile_tag(
+                        crate::hdtag::TileClass::Mode7,
+                        8,
+                        tile_base,
+                        0,
+                        false,
+                        false,
+                    );
+                }
+                if main1 && !self.windowed_out(0, xi, true) && prio > above[xi].priority {
+                    above[xi] = pixel;
+                }
+                if sub1 && !self.windowed_out(0, xi, false) && prio > below[xi].priority {
+                    below[xi] = pixel;
+                }
+            }
+
+            // BG2, present only under EXTBG: the same pixel, with bit 7 promoted from palette
+            // data to a priority selector and the remaining seven bits as the colour.
             if extbg {
                 let prio_hi = (palette >> 7) & 1;
                 palette &= 0x7f;
@@ -642,35 +692,6 @@ impl Ppu {
                     if sub2 && !self.windowed_out(1, xi, false) && prio > below[xi].priority {
                         below[xi] = pixel;
                     }
-                }
-            } else if palette != 0 {
-                let prio = pr.bg[0][0];
-                #[allow(unused_mut)]
-                let mut pixel = Pixel {
-                    palette,
-                    priority: prio,
-                    layer: 0,
-                    palette_group: 0,
-                    opaque: true,
-                    ..Pixel::default()
-                };
-                #[cfg(feature = "hd-pack")]
-                if self.hd_pack_tagging {
-                    let tile_base = (tile << 6) & 0x7fff;
-                    pixel.tag = self.tile_tag(
-                        crate::hdtag::TileClass::Mode7,
-                        8,
-                        tile_base,
-                        0,
-                        false,
-                        false,
-                    );
-                }
-                if main1 && !self.windowed_out(0, xi, true) && prio > above[xi].priority {
-                    above[xi] = pixel;
-                }
-                if sub1 && !self.windowed_out(0, xi, false) && prio > below[xi].priority {
-                    below[xi] = pixel;
                 }
             }
         }
@@ -1494,18 +1515,30 @@ mod tests {
         // Tile (0,0) in the 128x128 map = tile index N. Put tile #1 at map (0,0).
         // Map entry word at addr 0: low byte = tile number.
         vram_set(&mut p, 0x0000, 0x0001);
-        // Mode 7 char data: tile 1, pixel (0,0). char addr = tile<<6 | (y<<3|x).
-        // For tile 1, pixel 0: addr = 1<<6 = 0x40. Palette in high byte.
-        vram_set(&mut p, 0x0040, 0x0100); // high byte = palette index 1
+        // Mode 7 char data: char addr = tile<<6 | (y<<3 | x), palette in the high byte.
+        //
+        // The marker goes at map row **1**, not row 0, for the same reason as
+        // `mode0_bg_renders_one_tile`: the fetch runs a line ahead of the line it appears on, so
+        // the first displayed scanline shows map row 1. Row 0 is left blank to tell the two apart.
+        vram_set(&mut p, 0x0048, 0x0100); // tile 1, pixel (0,1)
         cgram_set(&mut p, 1, 0x7c00); // blue
+        cgram_set(&mut p, 2, 0x001f); // red — the row-0 marker, which must NOT appear on line 1
+        vram_set(&mut p, 0x0040, 0x0200); // tile 1, pixel (0,0)
 
         p.write_reg(0x2100, 0x0f);
         p.write_reg(0x212c, 0x01); // TM: BG1
         run_frame(&mut p);
 
         let fb = p.framebuffer();
-        // Pixel (0,0) maps to map tile (0,0) tile #1 pixel (0,0) = blue.
-        assert_eq!(fb[0], 0x7c00);
+        assert_eq!(
+            fb[0], 0x7c00,
+            "the first displayed line must show Mode 7 map row 1, not row 0"
+        );
+        // And map row 0 must appear nowhere: it is fetched for scanline 0, which is not displayed.
+        assert!(
+            !fb.contains(&0x001f),
+            "Mode 7 map row 0 was displayed; it belongs to the undisplayed scanline 0"
+        );
     }
 
     #[test]
