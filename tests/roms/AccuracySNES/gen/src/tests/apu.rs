@@ -27,7 +27,12 @@ pub fn all() -> Vec<Test> {
 ///
 /// The wait is bounded by a counter rather than spinning forever. An APU that never boots is a
 /// real failure mode — it is the one thing here the cart cannot recover from — and a test that
-/// hangs takes the whole battery with it, reporting nothing at all about the other 148 tests.
+/// hangs takes the whole battery with it, reporting nothing at all about the other tests.
+///
+/// **Register widths on exit: `A` 8-bit, `X`/`Y` 16-bit**, on the path that reaches `@ran`. The
+/// caller's `.a8`/`.a16` directives come from its own `sep`/`rep` lines and a helper call is not
+/// one of those, so an undocumented width here would have the assembler and the CPU disagreeing
+/// about the size of the next immediate — and every instruction after it shifted.
 fn upload_and_run(a: &mut Asm, prog: &Spc) {
     a.l("bra @body");
     a.label("prog");
