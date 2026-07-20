@@ -14,7 +14,7 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 | | |
 |---|---|
 | Tests | **207** (195 scoring + 11 golden vectors + 1 region SKIP per image) |
-| Rendered scenes | **49**, all cross-validated (`docs/adr/0013`) |
+| Rendered scenes | **50**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but four, all recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`. Both images. |
 | Groups shipped | **A** (65C816) · **B** (5A22) · **C** (PPU, on-cart and rendered) · **D** (DMA/HDMA) · **E** (SPC700 + S-DSP) · **F** (controller ports) · **G** (cartridge/memory map) — all seven, all partial |
@@ -264,6 +264,23 @@ Both dead ends looked like working tests: three emulators agreeing, a stable has
 Each was caught only because its hash equalled an existing scene's — the first `c11-mode7-identity`,
 the second `c8-window-inverted-empty-is-full`. **Check a new scene's hash against the committed
 goldens before blessing it.**
+
+### Interlace scenes need frame-parity control, which the scene protocol does not have
+
+`C7.12` (a 16x32 sprite under OBJ interlace renders as 16x16) was written as a scene and produced
+**three different hashes on three emulators** — the only three-way split any scene has produced.
+RustySNES rendered the non-interlaced picture exactly; snes9x and Mesen2 each rendered something
+else, and something else from each other.
+
+That is not three cores disagreeing about interlace. It is the scene asking a question whose answer
+alternates every frame: OBJ interlace draws alternate fields, so the picture depends on the *parity
+of the captured frame*, and the protocol (hash the fourth sighting of an eight-frame published
+window) does not pin parity. Each host lands on whichever field its own frame counter happens to be
+on.
+
+Any `C9`/`C7.12` interlace assertion needs the cart to publish a scene only on a known field —
+a change to `run_scenes`, not to a scene. Worth doing: it unblocks the interlace half of `C9`
+(`C9.03`, `C9.06`) as well as `C7.12`.
 
 ### `E8.03` — "clears `ENDX` even when suppressed" does not mean suppressed by `KOFF`
 
