@@ -111,10 +111,20 @@ pattern the C7 sprite tests established.
   (`C6`), colour math and windows (`C8`), mosaic (`C10`), direct colour (`C12`), the hi-res and
   interlace cases (most of `C9`), and the `C13.01`–`C13.06` INIDISP early-read artifacts.
 
-  **Decision drafted: [`docs/adr/0013`](adr/0013-accuracysnes-framebuffer-oracle.md)** — a
-  host-side framebuffer oracle as a separate tier, reusing the proven `undisbeliever_golden.rs`
-  hashing, with rendered results reported separately and never folded into the on-cart pass rate.
-  Awaiting ratification; three open questions are listed in the ADR.
+  **[`docs/adr/0013`](adr/0013-accuracysnes-framebuffer-oracle.md) is ACCEPTED and the oracle is
+  built.** The cart runs a scene loop after the battery; three hosts (the in-repo harness, snes9x
+  via `libretro_crossval.c --scenes`, Mesen2 via `mesen_scenes.lua`) hash a fixed 256x224 region of
+  canonical pixels and compare against `tests/golden/accuracysnes-scenes.tsv`. Rendered results
+  stay in their own tier. `crossval.sh` gates on them, and per rule 4 a golden is committed only
+  once the references agree.
+
+  **Status: 3 scenes blessed** (`C5.02`, `C8.10`, `C10.01`). All three disagreed with the
+  references on first run, and in all three cases RustySNES was wrong: the BG vertical fetch was a
+  line late, and mosaic quantised the BG row instead of the screen row. Both are fixed; agreement
+  with snes9x across the third-party undisbeliever suite went from 2/29 to 14/29 as a side effect.
+
+  Remaining under this ticket: the other ~39 assertions, one scene each. The mechanism is done —
+  what is left is writing scenes and cross-validating each before blessing.
 
   These decide only what appears on screen, so **they cannot be self-scored at all**. Scoring them
   means comparing pixels, which breaks the property that makes this cartridge worth having: that
@@ -263,4 +273,4 @@ The inverse pattern — a test failing identically on all three — has twice me
 5. **T-04-G** — power-on golden vectors, once the boot-path ordering is settled.
 6. **T-04-E** — the APU harness, as its own phase.
 7. **T-04-F** — input, after deciding the on-cart/host split.
-8. **T-04-H** — only if the framebuffer-oracle decision is taken.
+8. **T-04-H** — mechanism landed (ADR 0013 accepted, 3 scenes blessed); the rest is scene-writing.

@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed. Blocks the remaining ~42 Group C assertions (`C5`, `C6`, `C8`, `C10`, `C12`, most of
+**Accepted** (2026-07-20). Unblocks the remaining ~42 Group C assertions (`C5`, `C6`, `C8`, `C10`, `C12`, most of
 `C9`, and `C13.01`–`C13.06`), which are at zero coverage and cannot move without it.
 
 ## Context
@@ -95,11 +95,32 @@ cartridge's pass rate.**
   in `docs/accuracysnes-timing-oracle.md`: emulator output is a consensus, not a measurement, and
   `A5.08`/`A9.03` both showed the references disagreeing with each other.
 
-## Open questions for ratification
+## Resolutions (settled at ratification)
 
-1. **Scene count and scope.** One scene per assertion (~42) or grouped scenes testing several at
-   once? Grouped is cheaper to maintain; per-assertion gives a sharper failure.
-2. **Where goldens live.** Alongside `tests/golden/undisbeliever-framebuffer.tsv`, or a dedicated
-   `tests/golden/accuracysnes/`? The latter keeps first-party and third-party goldens separable.
-3. **Whether rendered tests gate CI at all**, or run as an informational job until a scene set has
-   proven stable across several releases.
+1. **One scene per assertion.** Consistent with the opcode sweep, which emits one test per opcode
+   "so a failure names the instruction rather than the batch" — the same argument applies with more
+   force here, because a wrong picture is harder to read than a wrong number. The usual objection to
+   per-assertion granularity is storage, and it does not apply: a golden is an 8-byte FNV-1a hash,
+   not a framebuffer, so ~42 scenes cost a few hundred bytes.
+
+2. **Goldens live in `tests/golden/accuracysnes-scenes.tsv`**, separate from
+   `undisbeliever-framebuffer.tsv`. First-party and third-party goldens have different re-bless
+   rules — ours may be regenerated when *we* intend a behaviour change, theirs may not — and mixing
+   them invites applying the wrong rule.
+
+3. **Rendered scenes gate CI from the start, but only scenes that have been cross-validated.** An
+   informational job that cannot fail gets ignored, and an unfailable check is worse than no check.
+   The safety comes from rule 4 instead: a scene's golden is only committed once the references
+   agree on it, so an ungated scene simply is not in the set yet. Start small and grow.
+
+## How a scene is captured
+
+The cart runs the whole battery before anything renders, so a scene cannot be left on screen for the
+host to find. Rather than have the host drive the cart — which would break the "runs unmodified
+anywhere" property — the cart drives itself:
+
+After the battery completes, the runtime enters a **scene loop**. For each scene it sets up the PPU
+state, holds it for a fixed number of frames, and publishes the current scene ID to the results
+block. The host steps frames, watches the scene marker, and hashes the framebuffer on the last frame
+of each hold. Wholly deterministic, and on real hardware the same loop is simply a slideshow the
+viewer can watch.

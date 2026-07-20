@@ -28,6 +28,7 @@
 //! `mapper_tier_honesty.rs` and `docs/adr/0003`.
 #![cfg(feature = "test-roms")]
 
+use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use rustysnes_core::{System, cart::Cart};
@@ -415,7 +416,7 @@ fn measurement_channel_reports_plausible_timings() {
     let mut out = String::from("\n  A5.08 raw measurements (dots):\n");
     for (slot, what) in A5_08_SLOTS {
         let v = report.meas[slot as usize];
-        out.push_str(&format!("    slot {slot}  {v:5}  {what}\n"));
+        let _ = writeln!(out, "    slot {slot}  {v:5}  {what}");
     }
     println!("{out}");
 

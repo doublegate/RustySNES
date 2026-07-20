@@ -54,6 +54,18 @@ V_PO_DIVREM     = VAR_BASE + $44      ; RDMPY (remainder) from that same divide 
 MEAS_BASE       = $7EE200
 MEAS_SLOTS      = 128
 
+; Rendered-scene pacing. A scene is set up, allowed to SETTLE for whole frames, and only THEN
+; publishes its ID for FRAMES frames before clearing it again.
+;
+; Both numbers are larger than they need to be, deliberately. A host samples WRAM at ITS frame
+; boundary, which need not be the boundary the cart's vblank poll sees, so the first and last
+; frames of the published window are both at risk of being off by one: snes9x captured scene 1
+; with a black band across the top (the frame where forced blank was released) and the in-repo
+; harness captured the previous scene entirely. The window is therefore wide enough that hosts can
+; agree to take the SECOND sighting and be well inside the steady state either way.
+SCENE_SETTLE    = 4
+SCENE_FRAMES    = 4
+
 ; --- results block ---------------------------------------------------------------------------
 RESULTS         = $7EF000
 R_MAGIC         = RESULTS + $00       ; "ACSN"
@@ -64,6 +76,8 @@ R_PASSED        = RESULTS + $0A       ; u16
 R_FAILED        = RESULTS + $0C       ; u16
 R_SKIPPED       = RESULTS + $0E       ; u16
 R_GOLDEN        = RESULTS + $10       ; u16
+R_SCENE         = RESULTS + $12       ; u8, current rendered-scene ID (0 = none/not started)
+R_SCENE_DONE    = RESULTS + $13       ; u8, $5A once every scene has been shown
 R_STATUS        = RESULTS + $20       ; one byte per test, catalog-index aligned
 
 R_FORMAT_VERSION = 1
@@ -138,4 +152,8 @@ PAD_X           = $0040
     .import _test_entries
     .import _test_flags
     .import _test_names
+.ifndef SCENES_IMPL
+.import _scene_count
+.import _scene_entries
+.endif
 .endif

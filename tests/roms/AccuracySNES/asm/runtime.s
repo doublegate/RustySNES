@@ -70,6 +70,8 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
 
     jsr run_all_tests           ; runs with the screen still blanked
 
+    jsr run_scenes              ; rendered scenes for the host framebuffer oracle (ADR 0013)
+
     jsr draw_screen
 
     sep #$20
@@ -849,6 +851,270 @@ test_restore := test_restore_impl
 :
     lda HVBJOY
     bpl :-                      ; wait for vblank to begin
+    rts
+.endproc
+
+; ---------------------------------------------------------------------------------------------
+; Rendered scenes — the host-side framebuffer oracle (docs/adr/0013).
+;
+; Some PPU behaviour decides only what appears on screen: no register reads back, no counter moves.
+; A cart cannot judge those, because there is no path from rendered pixels to the CPU. So the cart
+; renders and the HOST judges, and the results stay in their own tier — never folded into the
+; on-cart pass rate, because a rendered scene does not have the "runs unmodified anywhere" property
+; the rest of the battery does.
+;
+; The cart drives itself rather than being driven: for each scene it sets up PPU state, publishes
+; the scene ID, and holds for SCENE_FRAMES frames. The host watches R_SCENE, and hashes the
+; framebuffer on the last frame of each hold. On real hardware the same loop is a slideshow.
+; The canvas every scene renders. Set up once, before the scene loop.
+;
+; The battery's own screen is deliberately austere: two CGRAM entries (black and white) and a
+; tilemap of spaces. That is right for a text menu and useless for a framebuffer oracle — a mosaic
+; over a blank screen is a blank screen, and colour math over two colours is nearly one. The first
+; version of these scenes proved it: `c8-fixed-colour-add` and `c10-mosaic-4x` hashed *identically*,
+; because neither had anything to act on.
+;
+; So: 128 CGRAM entries spread across the colour cube, and a tilemap whose tile index, palette and
+; priority all vary per cell. Both are generated arithmetically rather than stored, which keeps the
+; ROM small and makes the content reproducible from this code alone.
+.proc scene_canvas
+    sep #$20
+    .a8
+    .i16
+
+    ; Forced blank FIRST. VRAM and CGRAM are only writable outside active display, and the battery
+    ; leaves the screen in whatever state its last test wanted — so without this the canvas is
+    ; uploaded through whatever each emulator does with a blocked write, and the two disagree about
+    ; the picture for reasons that have nothing to do with the scene.
+    lda #$8F
+    sta INIDISP
+
+    ; Rebuild VRAM from scratch rather than inheriting the boot-time upload. Tests write VRAM, and
+    ; a test that writes it during active display (or through an open-bus read) leaves DIFFERENT
+    ; contents on different emulators — so a scene rendered over the leftovers compares those
+    ; leftovers, not the scene. This cost a full round of chasing a phantom disagreement.
+    jsr clear_vram
+    jsr load_font
+    sep #$20
+    .a8
+
+    ; --- CGRAM: 128 entries, none equal, spread over red/green/blue ---
+    stz CGADD
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@pal:
+    ; entry = i*$0111 + $0421 — the multiplier puts a copy of i in each 5-bit channel, so red,
+    ; green and blue all vary; the addend keeps every channel non-zero so no entry renders as
+    ; pure black and silently drops out of the comparison.
+    txa
+    asl a
+    asl a
+    asl a
+    asl a                       ; i << 4
+    sta f:V_TMP
+    txa
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a                       ; i << 8
+    clc
+    adc f:V_TMP
+    sta f:V_TMP
+    txa
+    clc
+    adc f:V_TMP
+    clc
+    adc #$0421
+    sep #$20
+    .a8
+    sta CGDATA
+    xba
+    sta CGDATA
+    xba
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #128
+    bne @pal
+
+    ; --- BG1 tilemap: varying tile, palette and priority ---
+    sep #$20
+    .a8
+    lda #$80
+    sta VMAIN                   ; increment after the HIGH byte, so a 16-bit store writes one entry
+    rep #$30
+    .a16
+    .i16
+    ldx #MAP_BASE
+    stx VMADDL
+    ldx #$0000                  ; cell index, 0..1023
+@cell:
+    txa
+    and #$003F
+    clc
+    adc #$0021                  ; tile: 64 distinct glyphs starting at '!'
+    sta f:V_TMP
+    txa
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a                       ; row
+    clc
+    adc f:V_TMP
+    and #$00FF                  ; keep it inside the font
+    sta f:V_TMP
+    txa
+    and #$0007
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a                       ; palette -> bits 10-12
+    and #$1C00
+    ora f:V_TMP
+    sta VMDATAL                 ; 16-bit store = low byte then high byte, then increment
+    inx
+    cpx #(SCREEN_COLS * 32)
+    bne @cell
+    rts
+.endproc
+
+; Wait X whole frames. Split out because the scene loop needs it twice and the register juggling
+; around `wait_vblank` (which returns with an 8-bit accumulator) is easy to get subtly wrong.
+.proc hold_frames
+    .a16
+    .i16
+@loop:
+    phx
+    jsr wait_vblank
+    plx
+    rep #$30
+    .a16
+    .i16
+    dex
+    bne @loop
+    rts
+.endproc
+
+.proc run_scenes
+    ; The battery leaves DBR and DP wherever the last test put them — a test owns its own bank and
+    ; direct page (see the dispatch loop above, which re-establishes both before every call). So
+    ; re-establish them here too, or every absolute $21xx store in a scene setup lands somewhere
+    ; else entirely. This is not hypothetical: the first version of this loop read its own scene
+    ; count through a stale DBR and stopped after one scene.
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    tcd
+    phk
+    plb                         ; DP = $0000, DBR = $00
+
+    sep #$20
+    .a8
+    lda #$00
+    sta f:R_SCENE
+    sta f:R_SCENE_DONE
+
+    jsr scene_canvas            ; VRAM + CGRAM content, once; scenes only change PPU state
+
+    rep #$30
+    .a16
+    ldx #$0000                  ; scene index
+@next:
+    ; Every scene starts from the canonical register state. Otherwise scene N renders through
+    ; whatever scene N-1 left in CGWSEL/CGADSUB/MOSAIC, and the goldens record an accumulated
+    ; state rather than the one thing each scene is supposed to be evidence for.
+    sep #$20
+    .a8
+    lda #$8F
+    sta INIDISP                 ; forced blank while the registers are reset
+    phx
+    jsr init_registers
+    plx
+    rep #$30
+    .a16
+    .i16
+    txa
+    cmp f:_scene_count          ; long addressing: independent of DBR by construction
+    bcs @finished
+
+    phx
+    rep #$30
+    txa
+    asl a
+    tax
+    lda f:_scene_entries,x      ; setup routine address
+    sta f:V_DISPATCH
+    plx
+    phx
+    jsr @call_setup
+    plx
+
+    ; The host samples at frame boundaries and cannot see where inside a hold it is. So the ID is
+    ; published only once a whole frame has been rendered with the scene in place, and is cleared
+    ; again before anything disturbs it: every frame on which the host sees a non-zero ID is a
+    ; frame of that scene at its steady state, and the host can take the first one. Publishing the
+    ; ID immediately instead lets the host catch the setup frame or the trailing blank — which it
+    ; did, and snes9x captured an all-black scene 3 for exactly that reason.
+    rep #$30
+    .a16
+    .i16
+    phx
+    ldx #SCENE_SETTLE
+    jsr hold_frames
+    plx
+
+    sep #$20
+    .a8
+    txa
+    inc a
+    sta f:R_SCENE               ; scene IDs are 1-based; 0 means "none yet"
+
+    rep #$30
+    .a16
+    .i16
+    phx
+    ldx #SCENE_FRAMES
+    jsr hold_frames
+    plx
+
+    sep #$20
+    .a8
+    lda #$00
+    sta f:R_SCENE               ; the steady-state window is over (STZ has no long form)
+
+    rep #$30
+    .a16
+    .i16
+    inx
+    bra @next
+
+@call_setup:
+    jmp (V_DISPATCH)
+
+@finished:
+    sep #$20
+    .a8
+    lda #$5A
+    sta f:R_SCENE_DONE
+    ; leave the screen blanked again so the menu draws from a known state
+    lda #$8F
+    sta INIDISP
+    stz TM
     rts
 .endproc
 

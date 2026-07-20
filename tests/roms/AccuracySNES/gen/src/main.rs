@@ -15,6 +15,7 @@ mod dossier;
 mod dsl;
 mod emit;
 mod font;
+mod scenes;
 mod tests;
 
 use std::path::{Path, PathBuf};
@@ -40,10 +41,14 @@ fn main() {
     // --- generated sources ---
     write(&asm_dir.join("tests_group_a.s"), &emit::asm(&battery));
     write(&asm_dir.join("font.s"), &font::asm());
+    write(&asm_dir.join("scenes.s"), &scenes::asm());
 
     // --- generated data the host side consumes ---
     dossier::validate(&battery);
     write(&root.join("SOURCE_CATALOG.tsv"), &emit::catalog(&battery));
+    // Next to the ROM, not in the source tree: it describes THIS build's scene numbering, and a
+    // host that reads a manifest from a different build would key its goldens off the wrong names.
+    write(&root.join("build/scenes.tsv"), &scenes::manifest());
 
     // The coverage report is regenerated with the ROM so it cannot drift from the battery.
     let dossier_path = root
@@ -63,7 +68,7 @@ fn main() {
     write(&root.join("ERROR_CODES.md"), &emit::readme_codes(&battery));
 
     // --- assemble ---
-    let units = ["runtime", "header", "tests_group_a", "font"];
+    let units = ["runtime", "header", "tests_group_a", "font", "scenes"];
     let mut objects = Vec::new();
     for unit in units {
         let src = asm_dir.join(format!("{unit}.s"));

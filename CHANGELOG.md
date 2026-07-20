@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The AccuracySNES framebuffer oracle is live (T-04-H, `docs/adr/0013` ratified).** Part of the
+  PPU decides only what appears on screen, so a self-scoring cart cannot reach it — there is no path
+  from rendered pixels back to the CPU. The cart now renders and the *host* judges: after the
+  battery, a scene loop sets up PPU state, settles, publishes a scene ID, and holds it, and three
+  independent hosts hash a fixed 256x224 region of canonical pixels and compare against
+  `tests/golden/accuracysnes-scenes.tsv` — the in-repo harness, snes9x through the libretro host
+  (`--scenes`) and Mesen2 through `mesen_scenes.lua`. Rendered results are reported in their own
+  tier and **never** enter the on-cart pass rate, because a rendered scene lacks the property the
+  rest of the battery has: that the identical image means the same thing everywhere. Per ADR 0013
+  rule 4 a golden is blessed only from a cross-validated render, and `crossval.sh` now gates on
+  that. Three scenes to start (mode 1 priority, fixed-colour math, mosaic); all three found real
+  bugs, see Fixed.
+
 - **AccuracySNES Group B, second batch — 6 tests.** `B1.03` an internal cycle costs 6 master clocks
   (isolated by differencing `XBA` against `NOP`, which differ by exactly one internal cycle and are
   both single-byte). `B1.04` DMA runs at a uniform rate **regardless of source region** — a
@@ -136,6 +149,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   confirming the goldens returned. Rationale recorded in `docs/scheduler.md` §H/V-IRQ.
 
 ### Fixed
+
+- **Backgrounds were rendering one scanline low.** The first displayed line must show BG row
+  `BGnVOFS + 1`, not row `BGnVOFS` — the vertical fetch runs a line ahead of the line it appears on.
+  `render_bg` derived its BG row from `self.v - 1`, the same number as the framebuffer row; the two
+  are deliberately different and now are. Found by the framebuffer oracle's first scene and
+  confirmed against two independent references, snes9x and Mesen2, which agree bit-for-bit with the
+  corrected output and disagreed with the old one.
+
+- **Mosaic was anchored to the background instead of to the screen.** A mosaic block belongs to a
+  fixed grid at the top of the picture, so scrolling moves content *through* the grid; RustySNES
+  quantised the already-scrolled BG row, dragging the grid along with the scroll. Now quantised in
+  screen space and converted back. Found by the same oracle, same two references.
+
+  **Re-bless note.** These two fixes moved 25 of the 29
+  `tests/golden/undisbeliever-framebuffer.tsv` entries, which is the expected consequence rather
+  than a red flag: those goldens were blessed from our own output and so recorded the bug instead of
+  catching it — the hazard `docs/scheduler.md` records from the `hdmaen_latch_test` re-bless.
+  Independent evidence for the re-bless: hashing the same 29 third-party ROMs on snes9x through a
+  new `--fb-after=N` mode of the libretro host, agreement went from **2/29 to 14/29**. The
+  remaining 15 are the HDMA and S-CPU A-bus DMA glitch ROMs, which is separate work.
 
 - **The multiply/divide latches now power up as `$FF` / `$FFFF`.** They were defaulting to zero.
   Asserted rather than merely recorded on two independent documentation lineages that agree with
