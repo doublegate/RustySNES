@@ -30,6 +30,9 @@ reimplementation, and its instruction timing is not Ricoh's invention. Three ind
 
 - The 5A22's own pinout exposes **VDA and VPA as physical pins** — the same signals WDC's Table 5-7
   documents per cycle.
+- Nintendo's manual is consulted locally (see `ref-docs/nintendo/`, gitignored — it is Nintendo
+  confidential material, never redistributed) and its §21.1 text was read directly rather than taken
+  second-hand.
 - Nintendo's development manual states the CPU *"is operated internally with a 3.58MHz clock
   speed"* — 3.58 MHz being master/6, i.e. the core's native cycle is the 6-clock floor.
 - The community consensus from people who have probed it: the 5A22 holds the core's clock input for
@@ -73,11 +76,23 @@ Master clock 21,477,272.7 Hz (NTSC). A cycle costs 6, 8 or 12 master clocks:
 | `$7E-$7F` : all (WRAM) | 8 |
 | `$80-$BF` : `$8000-$FFFF`, and `$C0-$FF` : all | **6 if `$420D` bit 0 set, else 8** |
 
-Sources, all three agreeing: Nintendo's development manual (primary, expressed in MHz — 3.58 /
-2.68 / 1.79, which are master/6, master/8 and master/12); anomie's `memmap.txt` v1.1, whose changelog
-records *"Tested the memory access speed of all 256-byte memory blocks, and filled in the table with
-the findings"* — an exhaustive hardware sweep; and fullsnes, independently, which additionally
-documents `REFRESH` as a physical S-CPU pin.
+**What corroborates what — the distinction matters.** Nintendo's development manual (Book I,
+Ch. 21 §21.1) is primary for the *speeds* and for *`MEMSEL` semantics*, verified against the
+document: three clock speeds *"3.58MHz, 2.68MHz, and 1.79 MHz"* selected by address, switchable by
+*"D0 of register &lt;420DH&gt;"*, defaulting to 2.68 MHz. It does **not** give the per-range map in
+text — that is Figures 2-21-1/2-21-2, an image the OCR cannot read, and §21.1 merely says *"refer to
+'Frequency & Address Mapping' for the relation between the address and the clock."*
+
+So the **per-range table above comes from anomie's `memmap.txt` v1.1**, whose changelog records
+*"Tested the memory access speed of all 256-byte memory blocks, and filled in the table with the
+findings"* — an exhaustive hardware sweep — corroborated by fullsnes independently, which also
+documents `REFRESH` as a physical S-CPU pin. Nintendo corroborates the *speed values* those two
+report, not the row-by-row assignment.
+
+**The 6/8/12 master-clock framing is ours.** Nintendo expresses everything in MHz and never states
+the master clock numerically anywhere in the manual. 3.58 / 2.68 / 1.79 MHz are master/6, master/8
+and master/12 given a 21.477 MHz master — a figure that needs a separate source (the console
+schematic, or the NTSC colourburst relation 3.579545 × 6).
 
 > **Erratum — do not propagate.** anomie's `memmap.txt` says the FastROM select is **bit 1** of
 > `$420D`. It is **bit 0**. `timing.txt`, fullsnes and Nintendo's manual (*"D0 of register
@@ -97,8 +112,19 @@ own.
 **Everything the core does not own.** DMA and HDMA stalls, the per-scanline refresh pause,
 auto-joypad read, and the `$4000-$41FF` XSlow region are 5A22-external and appear nowhere in Table
 5-7. Two facts worth recording from Nintendo's manual, because they are primary and independent of
-anomie: DMA runs at 2.68 MHz *"regardless of the address"* — **8 master clocks per byte, region
-independent** — and `$420D` bit 0 defaults to 0 (slow) at power-on and reset.
+anomie: DMA runs at 2.68 MHz *"regardless of the address"*, and `$420D` bit 0 *"becomes '0'"* when
+power is applied or reset.
+
+Be careful how much weight the first carries. The manual gives a **clock rate**, not a per-cycle
+cost table — there is no "8 master cycles per byte" in it, no HDMA per-channel setup cost, and no
+DMA/CPU arbitration penalty. Reading 2.68 MHz as 8 master clocks per byte is our inference from the
+master-clock relation, and it happens to match anomie; it is not Nintendo stating a cycle count. For
+per-cycle DMA and HDMA behaviour anomie remains the only source, and he flags parts of it as
+guesswork (*"the exact timing of the read within the DMA period is not known"*).
+
+The manual contains **no refresh content whatsoever** — the word does not appear in a timing sense
+anywhere in Book I. The 40-master-clock pause is measured by anomie and corroborated physically by
+fullsnes via the `REFRESH` pin, with no primary-source documentation behind it.
 
 ## 6. Provenance verdict on anomie's `timing.txt`
 
