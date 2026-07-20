@@ -184,7 +184,7 @@ other four (`C13.07`-`C13.10`, the open-bus latches) are CPU-observable and alre
   stay in their own tier. `crossval.sh` gates on them, and per rule 4 a golden is committed only
   once the references agree.
 
-  **Status: 38 scenes blessed**, covering 39 assertions across `C4`, `C5`, `C6`, `C8`, `C10`, `C11` and `C12`. The
+  **Status: 41 scenes blessed**, covering 42 assertions across `C4`-`C8`, `C10`, `C11` and `C12`. The
   first three disagreed with the references on first run, and in all three cases RustySNES was
   wrong: the BG vertical fetch was a line late, and mosaic quantised the BG row instead of the
   screen row. Both are fixed; agreement with snes9x across the third-party undisbeliever suite went

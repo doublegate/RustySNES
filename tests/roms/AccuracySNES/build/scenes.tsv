@@ -37,3 +37,6 @@
 36	c4-shared-scroll-latch	C4.02,C4.03
 37	c4-hofs-keeps-low-three-bits	C4.01
 38	c4-210d-drives-mode7-scroll	C4.04,C4.05
+39	c7-lower-index-on-top	C7.15
+40	c7-vflip-tall-halves	C7.13
+41	c7-64px-wraps-bottom-to-top	C7.14

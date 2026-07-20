@@ -1244,6 +1244,129 @@ pub const SCENES: &[Scene] = &[
             "sta $2100",
         ],
     },
+    Scene {
+        id: "c7-lower-index-on-top",
+        dossier: "C7.15",
+        what: "Two overlapping sprites in different palettes, the lower OAM index second in the \
+               write order. Sprite priority among sprites is decided by OAM index alone — lower is \
+               always in front — regardless of the order they were written or their attribute \
+               priority bits. Writing them in the opposite order to the expected result is the \
+               point: a core that draws in write order gets this exactly backwards.",
+        setup: &[
+            "sep #$20",
+            "stz $2105         ; BGMODE 0",
+            "jsr scene_oam_reset",
+            "sep #$20",
+            "; --- sprite 1 first: palette 1, offset down-right ---",
+            "rep #$30",
+            "ldx #$0004        ; OAM byte 4 = sprite 1",
+            "stx $2102",
+            "sep #$20",
+            "lda #100",
+            "sta $2104         ; X",
+            "lda #100",
+            "sta $2104         ; Y",
+            "lda #$10",
+            "sta $2104         ; tile $10 — inside the font AND printable at 4bpp",
+            "lda #$32",
+            "sta $2104         ; attr: palette 1, priority 3",
+            "; --- sprite 0 second: palette 3, overlapping ---",
+            "rep #$30",
+            "ldx #$0000",
+            "stx $2102",
+            "sep #$20",
+            "lda #96",
+            "sta $2104",
+            "lda #96",
+            "sta $2104",
+            "lda #$10",
+            "sta $2104",
+            "lda #$36",
+            "sta $2104         ; attr: palette 3, same priority",
+            "lda #$10",
+            "sta $212C         ; OBJ on the main screen",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c7-vflip-tall-halves",
+        dossier: "C7.13",
+        what: "A 16x32 sprite with the V-flip attribute set. The errata: each 16x16 half flips \
+               INDEPENDENTLY rather than the sprite flipping as a whole, so the two halves swap \
+               their internal contents but stay in place relative to each other. A core that \
+               flips the whole sprite produces a picture that is upside-down in a different way — \
+               same pixels, different arrangement, which a hash separates and an eye might not.",
+        setup: &[
+            "sep #$20",
+            "stz $2105",
+            "jsr scene_oam_reset",
+            "sep #$20",
+            "lda #$60",
+            "sta $2101         ; OBJSEL size pair 3: 16x32 / 32x64, name base word $0000",
+            "rep #$30",
+            "ldx #$0000",
+            "stx $2102",
+            "sep #$20",
+            "lda #100",
+            "sta $2104         ; X",
+            "lda #80",
+            "sta $2104         ; Y",
+            "lda #$10",
+            "sta $2104         ; tile $10",
+            "lda #$B0",
+            "sta $2104         ; attr: V-flip set, palette 0, priority 3",
+            "; high table: sprite 0 size bit set -> the LARGE size of the pair (16x32)",
+            "rep #$30",
+            "ldx #$0100",
+            "stx $2102         ; OAMADD = $100 words = the high table",
+            "sep #$20",
+            "lda #$02",
+            "sta $2104         ; sprite 0: X bit 8 clear, size bit set",
+            "lda #$10",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c7-64px-wraps-bottom-to-top",
+        dossier: "C7.14",
+        what: "A 64-pixel-tall sprite placed near the bottom of a 224-line display. It wraps: the \
+               part that would fall past line 224 reappears at the top of the screen. A core that \
+               clips instead simply loses those rows, which is the same picture minus a band — so \
+               this is read against `c7-vflip-tall-halves`, where nothing wraps.",
+        setup: &[
+            "sep #$20",
+            "stz $2105",
+            "jsr scene_oam_reset",
+            "sep #$20",
+            "lda #$A0",
+            "sta $2101         ; OBJSEL size pair 5: 32x32 / 64x64",
+            "rep #$30",
+            "ldx #$0000",
+            "stx $2102",
+            "sep #$20",
+            "lda #120",
+            "sta $2104         ; X",
+            "lda #200",
+            "sta $2104         ; Y = 200: 64 tall runs 24 rows past the bottom",
+            "lda #$10",
+            "sta $2104",
+            "lda #$30",
+            "sta $2104         ; attr: palette 0, priority 3",
+            "rep #$30",
+            "ldx #$0100",
+            "stx $2102",
+            "sep #$20",
+            "lda #$02",
+            "sta $2104         ; sprite 0 takes the large size of the pair (64x64)",
+            "lda #$10",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
 ];
 
 /// The comment block `scene_low_tiles` carries, split out only to keep `low_tiles_helper` inside
@@ -1554,6 +1677,66 @@ fn mode7_vram_helper() -> String {
     s
 }
 
+/// Emit `scene_oam_reset`, which parks every sprite off-screen and points OBJ at the font.
+///
+/// A sprite scene has to start from an empty OAM for the same reason every scene starts from a
+/// rebuilt canvas: OAM is 544 bytes of state that nothing else clears, so a scene that places two
+/// sprites is otherwise rendering those two *plus* whatever the previous scene left. Parking means
+/// Y = 224, which is off the bottom of a 224-line display and costs no range or sliver slots.
+///
+/// OBJ character data comes from the font at word `$0000`. Sprites are 4bpp, so a tile spans two
+/// font glyphs and tiles below `$10` land on the blank ASCII control characters — the same rule
+/// `scene_low_tiles` records, and the same trap.
+///
+/// Width-neutral (`php`/`plp`).
+fn oam_reset_helper() -> String {
+    let mut s = String::new();
+    let mut w = |line: &str| {
+        let _ = writeln!(s, "{line}");
+    };
+    w("");
+    w("; Park all 128 sprites off-screen and point OBJ character data at the font.");
+    w(".proc scene_oam_reset");
+    w("    php");
+    w("    .a16");
+    w("    .i16");
+    w("    sep #$20");
+    w("    .a8");
+    w("    lda #$20");
+    w("    sta $2101         ; OBJSEL: size pair 1 (8x8 / 16x16), name base word $0000");
+    w("    rep #$10");
+    w("    .i16");
+    w("    ldx #$0000");
+    w("    stx $2102         ; OAMADD = 0");
+    w("");
+    w("    ; A stays 8-bit and X stays 16-bit for both loops. OAM is written a byte at a time and");
+    w("    ; the counters only need the index width, so flipping the accumulator inside the loop");
+    w("    ; would be 160 pointless `sep`/`rep` pairs and one more place to get a width wrong.");
+    w("    ldx #$0000");
+    w("@low:");
+    w("    lda #$00");
+    w("    sta $2104         ; X low");
+    w("    lda #224");
+    w("    sta $2104         ; Y = 224: off the bottom, so no range or sliver slot is used");
+    w("    lda #$00");
+    w("    sta $2104         ; tile");
+    w("    sta $2104         ; attributes");
+    w("    inx");
+    w("    cpx #128");
+    w("    bne @low");
+    w("    ldx #$0000");
+    w("    lda #$00");
+    w("@high:");
+    w("    sta $2104         ; high table: X bit 8 clear, size bit clear");
+    w("    inx");
+    w("    cpx #32");
+    w("    bne @high");
+    w("    plp");
+    w("    rts");
+    w(".endproc");
+    s
+}
+
 /// Emit the scene setup routines and the dispatch table the runtime walks.
 #[must_use]
 pub fn asm() -> String {
@@ -1571,6 +1754,7 @@ pub fn asm() -> String {
     s.push_str(&low_tiles_helper());
     s.push_str(&opt_map_helper());
     s.push_str(&mode7_vram_helper());
+    s.push_str(&oam_reset_helper());
 
     for sc in SCENES {
         let _ = writeln!(s, "\n; {} — {}", sc.id, sc.dossier);
