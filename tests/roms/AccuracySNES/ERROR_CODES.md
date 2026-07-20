@@ -563,6 +563,15 @@ Provenance: **Documented** (SNESdev Wiki, VRAM access; fullsnes). Kind: scored.
 | 1 | `$02` | the seed did not reach VRAM under forced blank, so nothing below means anything |
 | 2 | `$04` | a VRAM write made after forced blank was lifted mid-frame landed anyway — the window closes on that write, not at the next scanline |
 
+### C3.09 — $213F is a field flag
+
+Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | $213F bit 7 did not change across a rendered frame, so it is not toggling once per frame |
+| 2 | `$04` | $213F bit 7 did not return to its original value after two frames — it toggles more often than once per frame |
+
 ### C3.01 — CGRAM two-write commit
 
 Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.
