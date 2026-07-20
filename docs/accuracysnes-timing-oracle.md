@@ -207,7 +207,22 @@ Remaining, in order:
 1. **Three new test candidates from §8**, all of which exist because documents alone cannot settle
    them: the taken-branch internal-cycle address bus, WDC's emulation-mode R-M-W `RWB` note (17), and
    the IRQ/NMI first cycle where anomie's measurement already contradicts the datasheet (§5).
-2. **Derive per-opcode expectations** into the generator from §3 + §4, and revisit `A5.08` — its
-   `REP` mismatch is now checkable against three vendor renderings rather than against our own
-   arithmetic.
-3. Rockwell never second-sourced the 16-bit part, so three vendors is the ceiling here.
+2. **A 16-bit measurement-reporting channel — do this before anything else.** Attempting to
+   diagnose `A5.08`'s `REP` mismatch hit a hard wall: a test reports through a **one-byte** status
+   value, and a dot count does not fit. A 32-`NOP` baseline read back as "21 dots", which is
+   physically impossible (the floor is ~12 master clocks per instruction), because the true value
+   wrapped — it is `256 + 21` or more. The earlier "107" for `REP` is equally suspect for the same
+   reason: it could be 107 or 363, and the two imply completely different conclusions.
+
+   The 16-bit subtraction inside the test is fine; only the *reporting* truncates. The fix is to
+   write raw measurements into a WRAM block for the harness to read, exactly as
+   `capture_power_on` already does for power-on state. **T-04-I needs this regardless** — a
+   256-opcode sweep produces 256 measurements and there is nowhere to put them today. It is the
+   next piece of machinery, ahead of any derivation work.
+
+3. **Then derive per-opcode expectations** into the generator from §3 + §4 and settle `REP`. Note
+   what is already known: RustySNES's `REP` is opcode fetch + operand fetch + one internal cycle —
+   3 cycles, 2 memory accesses — which is exactly what the datasheets specify. So the core looks
+   right and the test looks wrong, but that cannot be confirmed until measurements can be read back
+   without truncation.
+4. Rockwell never second-sourced the 16-bit part, so three vendors is the ceiling here.
