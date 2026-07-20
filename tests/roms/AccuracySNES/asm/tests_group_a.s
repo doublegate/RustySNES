@@ -3276,6 +3276,161 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; C7.09 — Overflow flags clear
+; provenance: Documented (SNESdev Wiki, sprites; fullsnes)
+.proc test_c7_09
+    .a16
+    .i16
+    ; A known sprite size, and a high table with no size or X-bit-8 bits left in it by an
+    ; earlier test. Without both, a parked sprite can be large enough to reach the picture.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$60
+    sta $2101         ; OBJSEL pair 3: 16x16 small, 32x32 large, name base word $0000
+    rep #$30
+    .a16
+    .i16
+    ldx #$0100
+    stx $2102         ; the 32-byte high table
+    ldy #$0000
+@clearhi:
+    sep #$20
+    .a8
+    stz $2104
+    rep #$30
+    .a16
+    .i16
+    iny
+    cpy #32
+    bne @clearhi
+    ; Park all 128 sprites off-screen: a stray one left by an earlier test would set the flags
+    ; for a reason this test is not about.
+    ldx #$0000
+    stx $2102
+    ldy #$0000
+@park1:
+    sep #$20
+    .a8
+    stz $2104         ; X
+    lda #240
+    sta $2104         ; Y=240: below the visible area in 224- AND 239-line modes
+    stz $2104         ; tile
+    stz $2104         ; attr
+    rep #$30
+    .a16
+    .i16
+    iny
+    cpy #128
+    bne @park1
+    ; Now put 34 of them on one line: two past the 32-sprite range limit, and at two slivers
+    ; each, well past the 34-sliver limit as well. Both flags must latch.
+    ldx #$0000
+    stx $2102
+    ldy #$0000
+@crowd:
+    sep #$20
+    .a8
+    stz $2104         ; X
+    lda #100
+    sta $2104         ; Y, all on the same scanline
+    lda #$10
+    sta $2104         ; tile $10
+    lda #$30
+    sta $2104         ; attr: palette 0, priority 3
+    rep #$30
+    .a16
+    .i16
+    iny
+    cpy #34
+    bne @crowd
+    sep #$20
+    .a8
+    lda #$10
+    sta $212C         ; OBJ on the main screen, so they are actually evaluated
+    ; Render a frame. Range over must latch during it and survive into vblank.
+    jsr frame_step
+    sep #$20
+    .a8
+    lda $213E
+    and #$C0
+    cmp #$C0
+    beq :+
+    jmp @fail1
+  :
+    ; Park them all again — under forced blank, with no frame rendered. The flag must persist:
+    ; forced blank is not the end of vblank.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+    stx $2102
+    ldy #$0000
+@park2:
+    sep #$20
+    .a8
+    stz $2104         ; X
+    lda #240
+    sta $2104         ; Y=240: below the visible area in 224- AND 239-line modes
+    stz $2104         ; tile
+    stz $2104         ; attr
+    rep #$30
+    .a16
+    .i16
+    iny
+    cpy #128
+    bne @park2
+    sep #$20
+    .a8
+    lda $213E
+    and #$C0
+    cmp #$C0
+    beq :+
+    jmp @fail2
+  :
+    ; One more rendered frame, now with nothing in range. The end of ITS vblank clears the
+    ; flag, and nothing sets it again.
+    jsr frame_step
+    sep #$20
+    .a8
+    lda $213E
+    and #$C0
+    cmp #$00
+    beq :+
+    jmp @fail3
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; 34 sprites of 16x16 on one scanline did not set both $213E overflow flags, so the readings below say nothing
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; an overflow flag cleared without a frame boundary — forced blank is not the end of vblank, and a driver reading the flags during blanking would lose them
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; an overflow flag survived a rendered frame with nothing in range, so it is never cleared at the end of vblank
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C2.01 — VMAIN step 1 word
 ; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
 .proc test_c2_01
@@ -16946,7 +17101,7 @@ apu_prog_45:
 .export _test_flags
 
 _test_count:
-    .word 208
+    .word 209
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -17009,6 +17164,7 @@ _test_entries:
     .faraddr test_c1_05
     .faraddr test_c1_03b
     .faraddr test_c1_07
+    .faraddr test_c7_09
     .faraddr test_c2_01
     .faraddr test_c2_02
     .faraddr test_c2_03
@@ -17220,6 +17376,7 @@ _test_flags:
     .byte $01   ; C1.05
     .byte $01   ; C1.03b
     .byte $01   ; C1.07
+    .byte $01   ; C7.09
     .byte $01   ; C2.01
     .byte $01   ; C2.02
     .byte $01   ; C2.03
@@ -17431,6 +17588,7 @@ _test_names:
     .addr @n_c1_05
     .addr @n_c1_03b
     .addr @n_c1_07
+    .addr @n_c7_09
     .addr @n_c2_01
     .addr @n_c2_02
     .addr @n_c2_03
@@ -17757,6 +17915,9 @@ _test_names:
 @n_c1_07:
     .byte 22
     .byte "Blank edge reloads OAM"
+@n_c7_09:
+    .byte 20
+    .byte "Overflow flags clear"
 @n_c2_01:
     .byte 17
     .byte "VMAIN step 1 word"

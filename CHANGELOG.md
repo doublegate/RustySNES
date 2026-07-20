@@ -11,6 +11,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The sprite overflow flags clear at the end of vblank, and forced blank is not that event
+  (`C7.09`).** `$213E` bit 6 latches when more than 32 sprites are in range on a scanline and is
+  cleared once per frame, as rendering begins. A program that blanks the screen and reads the flag
+  still sees the last frame's verdict — which is what makes the flag usable at all, since a driver
+  reads it during vblank.
+
+  **Both** flags, not one: 34 sprites of 16x16 exceed the 32-sprite range limit *and*, at two
+  slivers each, the 34-sliver limit, so bit 6 and bit 7 latch together. Three readings, because each
+  is meaningless alone: after a frame with those sprites the flags are **set**; after parking every
+  sprite *without* rendering they are **still set**; after one more rendered frame with nothing in
+  range they are **clear**. A core that clears them on any `$2100` write passes the first and fails
+  the second; one that never clears them passes both and fails the third.
+
+  The test also clears the OAM high table and sets `OBJSEL` explicitly, because `C1.03b` leaves
+  `$AA` in the high table's first byte — size bits for sprites 0-3. Inheriting a large size would
+  let a parked sprite reach back into the picture and make this test depend on the order the battery
+  happens to run in.
+
+  The parked sprites sit at `Y = 240`, not 224, and that is a finding rather than a detail: the
+  visible height is not fixed. An overscan display shows 239 lines, and Mesen2's PAL run failed the
+  third reading because sprites parked at 224 were still in range there — the flag it was asked to
+  have cleared had been set again.
+
 - **The battery can render a frame now (`frame_step`), and `C1.07` is the first assertion to need
   it.** The battery runs under forced blank throughout, which is what makes VRAM, OAM and CGRAM
   freely accessible — and it is why a whole class of assertions was unreachable: the ones about
@@ -641,10 +664,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **208 tests — 196 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **209 tests — 197 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **50 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **166 of 443** on-cart plus **50** scene-only —
-**216 of 443** in total, and **every group A-G now has shipped tests**
+framebuffer-oracle tier. Dossier coverage is **167 of 443** on-cart plus **50** scene-only —
+**217 of 443** in total, and **every group A-G now has shipped tests**
 (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
