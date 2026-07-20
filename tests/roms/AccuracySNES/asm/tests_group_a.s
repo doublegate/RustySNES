@@ -5400,8 +5400,8 @@ CATALOG_IMPL = 1
 .proc test_b4_12
     .a16
     .i16
-    ; Read $4211 twice back to back at the moment it fires. The second read is still on the
-    ; same scanline, and must find the latch already released by the first.
+    ; Wait for the IRQ, acknowledging it with the same read that detects it. Then disarm, so
+    ; nothing can re-assert what the read released, and look again.
     rep #$30
     .a16
     .i16
@@ -5420,10 +5420,15 @@ CATALOG_IMPL = 1
     lda $4211
     and #$80
     beq @wirq2        ; this read both detects and acknowledges
-    lda $4211         ; immediately again, still on line 100
+    ; Disarm BEFORE looking again. The claim is that a read releases the latch; while the
+    ; comparator still matches -- a V-only IRQ matches for the whole scanline -- a core is free
+    ; to re-assert it, and a second read on the same line then says nothing about the release.
+    ; Asserting the stronger thing made this test depend on where in the scanline the polling
+    ; loop happened to catch the flag: it began failing on Mesen2 when an unrelated change
+    ; moved the battery's code by a few bytes.
+    stz $4200         ; disarm, so nothing can re-assert what the read released
+    lda $4211         ; must now read clear
     sta f:$7E0124
-    stz $4200         ; disarm before asserting
-    lda $4211
     lda f:$7E0124
     and #$80
     cmp #$00

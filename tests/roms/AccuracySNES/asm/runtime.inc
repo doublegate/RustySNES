@@ -134,6 +134,7 @@ RDNMI           = $4210
 HVBJOY          = $4212
 NMITIMEN        = $4200
 JOYSER0         = $4016
+JOYSER1         = $4017
 
 ; JMP [abs] takes its pointer from bank $00, so the dispatch slot cannot live in the
 ; long-addressed variable block. $00:0040 is inside the low-WRAM mirror and is not touched by

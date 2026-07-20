@@ -212,6 +212,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`B4.12` asserted more than its citation.** It read `$4211` to acknowledge an IRQ and then read
+  it again on the same scanline, expecting the latch released. But a V-only IRQ's comparator matches
+  for the *whole* scanline, and while it matches a core is free to re-assert what the read released
+  — so the second read said nothing about the release and everything about where in the line the
+  polling loop happened to catch the flag. It began failing on Mesen2 when an unrelated change moved
+  the battery's code by a few bytes. It now disarms `$4200` before looking again, which is the claim
+  the dossier actually makes.
+
 - **`E3.01` raced the timer it was reading.** Its two reads of `$FD` are about eight SPC700 cycles
   apart and a tick at that divider lands every 128, so a tick falling between them was uncommon
   rather than impossible — and when it did, the second read was non-zero for a reason that has

@@ -640,15 +640,23 @@ fn b4_08() -> Test {
     )
 }
 
-/// Reading `$4211` releases the IRQ latch immediately, even while the trigger line is still current.
+/// Reading `$4211` releases the IRQ latch: the flag is cleared by the read, not by anything else.
 ///
-/// The V-IRQ is a one-shot per frame, not a level held for the whole scanline: once acknowledged it
-/// stays clear even though the counter has not moved off the programmed line yet. A core that
-/// re-asserts while `V == VTIME` produces a storm of spurious interrupts for the rest of the line.
+/// A driver's interrupt handler acknowledges by reading, and a core that leaves the flag set after
+/// a read re-enters the handler forever.
+///
+/// **What this test does *not* settle is whether a core may re-assert the flag while `V == VTIME`
+/// still holds**, and an earlier version of it accidentally did. It read `$4211` twice back to
+/// back, with the trigger still armed, and expected the second read to find the latch clear —
+/// which is the stronger claim that the V-IRQ is a one-shot per frame rather than a level held for
+/// the whole scanline. RustySNES and snes9x agreed; Mesen2 reported the flag set again. The dossier
+/// says only that a read releases the latch, so the test now disarms `$4200` first and asserts
+/// exactly that. The stronger property is a real question and is worth its own test, with its own
+/// citation, once there is one.
 fn b4_12() -> Test {
     let mut a = Asm::new();
-    a.c("Read $4211 twice back to back at the moment it fires. The second read is still on the");
-    a.c("same scanline, and must find the latch already released by the first.");
+    a.c("Wait for the IRQ, acknowledging it with the same read that detects it. Then disarm, so");
+    a.c("nothing can re-assert what the read released, and look again.");
     a.l("rep #$30");
     a.l("phk");
     a.l("plb");
@@ -664,10 +672,17 @@ fn b4_12() -> Test {
     a.l("lda $4211");
     a.l("and #$80");
     a.l("beq @wirq2        ; this read both detects and acknowledges");
-    a.l("lda $4211         ; immediately again, still on line 100");
+    a.c("Disarm BEFORE looking again. The claim is that a read releases the latch; while the");
+    a.c(
+        "comparator still matches -- a V-only IRQ matches for the whole scanline -- a core is free",
+    );
+    a.c("to re-assert it, and a second read on the same line then says nothing about the release.");
+    a.c("Asserting the stronger thing made this test depend on where in the scanline the polling");
+    a.c("loop happened to catch the flag: it began failing on Mesen2 when an unrelated change");
+    a.c("moved the battery's code by a few bytes.");
+    a.l("stz $4200         ; disarm, so nothing can re-assert what the read released");
+    a.l("lda $4211         ; must now read clear");
     a.l("sta f:$7E0124");
-    a.l("stz $4200         ; disarm before asserting");
-    a.l("lda $4211");
     a.l("lda f:$7E0124");
     a.l("and #$80");
     a.assert_a8(0x00, "$4211 did not release the IRQ latch on read");

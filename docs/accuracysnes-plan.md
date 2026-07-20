@@ -210,6 +210,47 @@ Reaching it needs a read phase-locked to the sample clock, which the cart cannot
 mailbox bytes. **The rule this leaves behind: an `OUTX` assertion is only valid where the output is
 provably stationary.** Every committed one says so in its own comment.
 
+### An open question `B4.12` used to answer by accident
+
+Does the V-IRQ flag re-assert while `V == VTIME` still holds — is it a one-shot per frame, or a
+level held for the whole scanline? `B4.12` used to assert the one-shot reading, by acknowledging
+`$4211` and reading it again on the same line with the trigger still armed. **RustySNES and snes9x
+say one-shot; Mesen2 sets the flag again.**
+
+The dossier row `B4.12` says only that a read releases the latch, so the test was narrowed to that
+and now disarms `$4200` before looking. The stronger property deserves its own test and its own
+citation — it decides whether a handler that returns quickly re-enters immediately, which is a
+visible difference in any game using a mid-frame IRQ — but it cannot be scored against a citation
+that does not make the claim.
+
+### Group F — blocked on a *peripheral contract*, and now measured
+
+`F1` (22 assertions) was written down as "needs a mechanism that doesn't exist". The mechanism is
+not the hard part: `runtime.s` already reads `$4016` manually and holds `NMITIMEN` at zero for the
+whole battery, so auto-joypad read cannot clock a shift register behind a test's back. Two tests
+were written against it — `F1.02` (a standard pad drives the line high from the seventeenth read)
+and `F1.03` (the latch is shared, so a write to `$4016` re-latches port 2) — and they do not
+survive cross-validation for a reason no amount of cart-side work fixes.
+
+**The cart cannot tell "no controller" from "pad past bit 16".** Both read as 1. What each host has
+plugged in is therefore part of the expected value, and the three hosts disagree:
+
+| Host | Port 1 | Port 2 |
+|---|---|---|
+| snes9x (libretro) | standard pad | standard pad |
+| Mesen2 (`--testrunner`) | standard pad | reads 0 past bit 16 — nothing that goes high |
+| RustySNES (in-repo harness) | reads 1 for the first sixteen bits — no pad modelled | — |
+
+Not one of those is wrong as *hardware*; they are three different consoles with three different
+things plugged in. Group F needs a documented peripheral contract — "the battery is run with a
+standard pad in both ports, untouched" — asserted by each host's runner, before any of its
+assertions mean the same thing on all three. That is a change to `crossval.sh`, to the in-repo
+harness, and to the Mesen and libretro shims; it is not a test.
+
+Worth doing: 22 assertions is the largest single block left, and roughly half of them (the latch,
+the shift order, reads 17-32, the open-bus bits) need no button to be pressed once the contract
+exists.
+
 ### Bucket 4 — needs a framebuffer oracle (~35 tests)
 
 - **T-04-H · the renderer-dependent rest of Group C** — backgrounds and modes (`C5`), offset-per-tile
