@@ -1541,6 +1541,30 @@ Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DS
 |---|---|---|
 | 1 | `$02` | a fully attacked envelope did not read $7F; $FF or $FE means ENVX is not E >> 4 of an eleven-bit envelope |
 
+### E6.02 — Pitch $1000 is 1:1
+
+Provenance: **Documented** (fullsnes, S-DSP pitch; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a 384-sample voice at pitch $1000 had already finished after six waits, two short of where bisection puts its finish — so it is consuming samples faster than 1:1 |
+
+### E6.02b — Pitch $1000 does finish
+
+Provenance: **Documented** (fullsnes, S-DSP pitch; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a 384-sample voice at pitch $1000 had still not finished after sixteen waits, twice as long as it needs — so it is running far below 1:1, or not playing at all |
+
+### E6.02c — Pitch $2000 is +1 octave
+
+Provenance: **Documented** (fullsnes, S-DSP pitch; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a 384-sample voice at pitch $2000 had not finished after six waits, though the same voice at $1000 needs eight — so doubling the pitch register did not double the rate |
+
 ## Group F
 
 ### F1.02 — Pad reads 17+ are 1

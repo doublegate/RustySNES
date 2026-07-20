@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Pitch scales the sample rate, and `$2000` is an octave above `$1000` (`E6.02`).** The first
+  assertion from the S-DSP's pitch block, and the first on this cart to measure a *rate*. A single
+  reading of `ENDX` cannot do that — it says "finished" or "not finished", which bounds a rate on one
+  side only — so three tests play the same 384-sample voice and bound it on both: at `$1000` it has
+  not finished after six waits and has after sixteen, and at `$2000` the same six waits are enough.
+
+  The two finishing points were **measured by bisection rather than calculated**: the `$1000` voice
+  finishes between the seventh and eighth wait, the `$2000` voice between the fourth and fifth. Six
+  is the geometric mean, so each verdict has about a third of the elapsed time in hand either side —
+  the widest margin the construction admits, since the two finishing times differ by a factor of
+  two. All three tests agree on snes9x and Mesen2, on both images, which is what says the margin is
+  real rather than a property of one DSP implementation.
+
 - **The power-on state is now reachable, and Group G reports out of it (`G1.02`, `G1.04`, `G1.08`,
   `G1.09`).** The battery runs long after reset, through a runtime that deliberately puts every PPU
   and CPU register into a known state — so until now the whole power-on half of Group G was

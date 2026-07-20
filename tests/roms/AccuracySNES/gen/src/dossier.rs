@@ -164,6 +164,9 @@ pub const MAP: &[(&str, &[&str])] = &[
     ("E3.11c", &[]),
     ("E9.19", &["E9.19"]),
     ("F1.02", &["F1.02"]),
+    ("E6.02", &["E6.02"]),
+    ("E6.02b", &["E6.02"]),
+    ("E6.02c", &["E6.02"]),
     ("G1.02", &["G1.02"]),
     ("G1.04", &["G1.04"]),
     ("G1.08", &["G1.08"]),
@@ -276,6 +279,14 @@ pub const MAP: &[(&str, &[&str])] = &[
 /// failure code. Anything not listed here that is claimed twice is treated as an accidental
 /// duplicate and fails the build.
 pub const SPLITS: &[(&str, &str)] = &[
+    (
+        "E6.02",
+        "one row for a rate — and a single reading of ENDX cannot establish a rate, only \
+         \"finished\" or \"not finished\", which bounds it on one side. Cart E6.02 and E6.02b play \
+         the same 384-sample voice at $1000 for one wait and for twice that wait, bracketing 1:1 \
+         from above and below; E6.02c repeats the first wait at $2000 and finds it finished, which \
+         is the octave. No two of the three are redundant and no one of them means anything alone",
+    ),
     (
         "D1.01",
         "the dossier states \"transfer modes 0-7, one test each\" as a single row, so it is a \

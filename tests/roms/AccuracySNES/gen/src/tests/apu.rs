@@ -95,6 +95,9 @@ pub fn all() -> Vec<Test> {
         e7_11(),
         e7_14(),
         e7_15(),
+        e6_02(),
+        e6_02b(),
+        e6_02c(),
     ]
 }
 
@@ -3373,5 +3376,135 @@ fn e2_01() -> Test {
         Provenance::Documented("SNESdev Wiki, SPC700; fullsnes — flagged as errata"),
         Kind::Scored,
         None,
+    )
+}
+
+// ---------------------------------------------------------------------------------------------
+// E6 — pitch and the sample counter
+// ---------------------------------------------------------------------------------------------
+
+/// A 24-block sample, 384 samples long, ending without a loop so `ENDX` marks the moment it runs
+/// out.
+///
+/// The length is the measurement. `E6.02` and its two siblings all play *this* sample and differ
+/// only in the pitch and in how long they wait, so what any one of them reports is a statement
+/// about where the pointer had reached — and 384 is chosen so the three waits fall either side of
+/// the two finishing times with room to spare.
+fn pitch_ramp_sample() -> Vec<u8> {
+    let mut blocks: Vec<Vec<u8>> = (0..23).map(|_| brr_block(0x8, 0, 0b00, 0x7, 0x7)).collect();
+    blocks.push(brr_block(0x8, 0, 0b01, 0x7, 0x7)); // END without LOOP: the voice stops here
+    brr_sample(&blocks, 0)
+}
+
+/// Play `pitch_hi` for `settle` delay loops and report `ENDX`.
+///
+/// The three tests below are one experiment with two knobs, so they share the emitter rather than
+/// restating it: a difference between them should be a difference the test is about.
+fn pitch_rate_test(
+    id: &'static str,
+    name: &'static str,
+    pitch_hi: u8,
+    settle: u8,
+    want_end: bool,
+    why: &'static str,
+) -> Test {
+    let prog = voice_program(
+        &pitch_ramp_sample(),
+        Voice {
+            pitch_hi,
+            settle,
+            ..Voice::direct_gain()
+        },
+    );
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100     ; ENDX as the program read it");
+    a.l("and #$0001        ; voice 0");
+    a.assert_a16(u16::from(want_end), why);
+    apu_timeout_arm(&mut a);
+    a.finish(
+        id,
+        'E',
+        name,
+        Provenance::Documented("fullsnes, S-DSP pitch; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// At `$1000` the voice consumes **one sample per output sample**, so 384 samples are not gone in
+/// 256 output samples' time.
+///
+/// This is the upper half of a bracket, and it is worth being explicit that no single reading of
+/// `ENDX` can establish a rate — it says only "finished" or "not finished", which bounds the rate
+/// on one side. Three readings of the same 384-sample voice bound it on both:
+///
+/// | | pitch | waits | `ENDX` | what it rules out |
+/// |---|---|---|---|---|
+/// | `E6.02` | `$1000` | 6 | clear | that the voice is running fast enough to have finished |
+/// | `E6.02b` | `$1000` | 16 | set | that it is running arbitrarily slowly, or not at all |
+/// | `E6.02c` | `$2000` | 6 | set | anything short of the doubling — same wait, opposite verdict |
+///
+/// A wait is one `settle` loop of the shared `voice_program` (256 iterations of `DBNZ Y`), plus
+/// the key-on delay, which is why the counts above are one more than the `settle` values passed in.
+///
+/// **The two boundaries were measured rather than calculated.** Bisecting on this cart puts the
+/// `$1000` voice's finish between the seventh and eighth wait and the `$2000` voice's between the
+/// fourth and fifth — a ratio of about two, which is the octave showing up directly in the
+/// bisection. Six waits is the geometric mean of the two, so each verdict has about a third of the
+/// elapsed time in hand on either side. That margin is the most this construction can have: the
+/// two finishing times differ by a factor of two and nothing can place a single reading further
+/// than `sqrt(2)` from both.
+///
+/// The measurement is deterministic rather than racy — every cycle of it happens inside the
+/// uploaded SPC program, so neither the cart's own code size nor the host's speed can move it. A
+/// core modelling a different number of SPC cycles per output sample would move it, but that is
+/// `E10.01` and a different assertion; a third of the elapsed time is a wide enough margin to
+/// absorb the discrepancies the three cross-validated references actually have.
+fn e6_02() -> Test {
+    pitch_rate_test(
+        "E6.02",
+        "Pitch $1000 is 1:1",
+        0x10,
+        5,
+        false,
+        "a 384-sample voice at pitch $1000 had already finished after six waits, two short of \
+         where bisection puts its finish — so it is consuming samples faster than 1:1",
+    )
+}
+
+/// The lower half of `E6.02`'s bracket: given twice as long, the same voice **has** finished.
+///
+/// Without this a core running the voice arbitrarily slowly — or not at all — passes `E6.02` by
+/// doing nothing, which is the failure mode a "still going" assertion always has. Read the table
+/// in `E6.02`; neither test means anything alone.
+fn e6_02b() -> Test {
+    pitch_rate_test(
+        "E6.02b",
+        "Pitch $1000 does finish",
+        0x10,
+        15,
+        true,
+        "a 384-sample voice at pitch $1000 had still not finished after sixteen waits, twice as \
+         long as it needs — so it is running far below 1:1, or not playing at all",
+    )
+}
+
+/// `$2000` is one octave up: the same sample is gone in half the time.
+///
+/// Same voice, same wait as `E6.02`, one bit changed in the pitch register — and the verdict
+/// inverts. That is what makes this an assertion about the pitch scaling rather than about the
+/// sample or the timer: the two tests differ in nothing else.
+fn e6_02c() -> Test {
+    pitch_rate_test(
+        "E6.02c",
+        "Pitch $2000 is +1 octave",
+        0x20,
+        5,
+        true,
+        "a 384-sample voice at pitch $2000 had not finished after six waits, though the same voice \
+         at $1000 needs eight — so doubling the pitch register did not double the rate",
     )
 }
