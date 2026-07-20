@@ -210,6 +210,19 @@ Reaching it needs a read phase-locked to the sample clock, which the cart cannot
 mailbox bytes. **The rule this leaves behind: an `OUTX` assertion is only valid where the output is
 provably stationary.** Every committed one says so in its own comment.
 
+### An open question `B4.12` used to answer by accident
+
+Does the V-IRQ flag re-assert while `V == VTIME` still holds — is it a one-shot per frame, or a
+level held for the whole scanline? `B4.12` used to assert the one-shot reading, by acknowledging
+`$4211` and reading it again on the same line with the trigger still armed. **RustySNES and snes9x
+say one-shot; Mesen2 sets the flag again.**
+
+The dossier row `B4.12` says only that a read releases the latch, so the test was narrowed to that
+and now disarms `$4200` before looking. The stronger property deserves its own test and its own
+citation — it decides whether a handler that returns quickly re-enters immediately, which is a
+visible difference in any game using a mid-frame IRQ — but it cannot be scored against a citation
+that does not make the claim.
+
 ### Group F — blocked on a *peripheral contract*, and now measured
 
 `F1` (22 assertions) was written down as "needs a mechanism that doesn't exist". The mechanism is

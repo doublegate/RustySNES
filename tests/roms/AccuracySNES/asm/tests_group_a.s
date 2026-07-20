@@ -5400,8 +5400,8 @@ CATALOG_IMPL = 1
 .proc test_b4_12
     .a16
     .i16
-    ; Read $4211 twice back to back at the moment it fires. The second read is still on the
-    ; same scanline, and must find the latch already released by the first.
+    ; Wait for the IRQ, acknowledging it with the same read that detects it. Then disarm, so
+    ; nothing can re-assert what the read released, and look again.
     rep #$30
     .a16
     .i16
