@@ -1290,6 +1290,53 @@ pub const SCENES: &[Scene] = &[
         ],
     },
     Scene {
+        id: "c8-obj-math-palettes-4-7",
+        dossier: "C8.01",
+        what: "Two identical sprites side by side, one in palette 2 and one in palette 6, with \
+               colour math enabled for OBJ against the fixed colour. Only the palette-6 sprite \
+               blends: sprite colour math applies to palettes 4-7 and to nothing else. It is an \
+               errata rather than a rule anyone would guess, and a core that applies the maths to \
+               every sprite blends both — a picture that looks perfectly reasonable until it is \
+               compared with one that is right.",
+        setup: &[
+            "sep #$20",
+            "stz $2105         ; BGMODE 0",
+            "jsr scene_oam_reset",
+            "sep #$20",
+            "stz $2101         ; OBJSEL: 8x8 / 16x16, name base word $0000 (the font)",
+            "rep #$30",
+            "ldx #$0000",
+            "stx $2102",
+            "sep #$20",
+            "lda #60",
+            "sta $2104         ; sprite 0 X",
+            "lda #90",
+            "sta $2104         ; sprite 0 Y",
+            "lda #$10",
+            "sta $2104         ; tile $10 — printable at 4bpp",
+            "lda #$34",
+            "sta $2104         ; attr: palette 2, priority 3 — below the math threshold",
+            "lda #140",
+            "sta $2104         ; sprite 1 X",
+            "lda #90",
+            "sta $2104         ; sprite 1 Y",
+            "lda #$10",
+            "sta $2104         ; the same tile, so only the palette differs",
+            "lda #$3C",
+            "sta $2104         ; attr: palette 6, priority 3 — inside the math range",
+            "lda #$10",
+            "sta $212C         ; OBJ on the main screen",
+            "lda #$02",
+            "sta $2130         ; CGWSEL: the subscreen is the fixed colour",
+            "lda #$10",
+            "sta $2131         ; CGADSUB: add, applied to OBJ only",
+            "lda #$9F",
+            "sta $2132         ; COLDATA: blue = 31",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
         id: "c7-objsel-size-6",
         dossier: "C7.10",
         what: "OBJSEL size pair 6, which no official document lists: 16x32 small, 32x64 large. \
