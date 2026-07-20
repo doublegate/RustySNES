@@ -15751,7 +15751,7 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
-    lda #138
+    lda #150
     sta f:V_APU_LEN
     lda #$0200
     sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
@@ -17304,11 +17304,12 @@ apu_prog_35:
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
 apu_prog_36:
-    .byte $CD, $EF, $BD, $E8, $6D, $C4, $F2, $E8, $30, $C4, $F3, $E8
-    .byte $7D, $C4, $F2, $E8, $00, $C4, $F3, $E8, $4D, $C4, $F2, $E8
-    .byte $00, $C4, $F3, $E8, $2C, $C4, $F2, $E8, $00, $C4, $F3, $E8
-    .byte $3C, $C4, $F2, $E8, $00, $C4, $F3, $E8, $0D, $C4, $F2, $E8
-    .byte $00, $C4, $F3, $E8, $5A, $C5, $00, $30, $E8, $5A, $C5, $01
+    .byte $CD, $EF, $BD, $E8, $6C, $C4, $F2, $E8, $20, $C4, $F3, $E8
+    .byte $6D, $C4, $F2, $E8, $30, $C4, $F3, $E8, $7D, $C4, $F2, $E8
+    .byte $00, $C4, $F3, $E8, $4D, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $2C, $C4, $F2, $E8, $00, $C4, $F3, $E8, $3C, $C4, $F2, $E8
+    .byte $00, $C4, $F3, $E8, $0D, $C4, $F2, $E8, $00, $C4, $F3, $8D
+    .byte $00, $FE, $FE, $E8, $5A, $C5, $00, $30, $E8, $5A, $C5, $01
     .byte $30, $E8, $5A, $C5, $02, $30, $E8, $5A, $C5, $03, $30, $E8
     .byte $5A, $C5, $04, $30, $E8, $5A, $C5, $05, $30, $E8, $5A, $C5
     .byte $06, $30, $E8, $5A, $C5, $07, $30, $E8, $6C, $C4, $F2, $E8

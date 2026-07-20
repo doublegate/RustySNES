@@ -2369,12 +2369,20 @@ fn e9_06() -> Test {
 
     let mut prog = Spc::new();
     prog.mov_x_imm(0xEF).mov_sp_x();
+    // Writes off BEFORE anything else. The DSP is shared with every earlier test, and painting a
+    // marker while it is still writing would leave the buffer in a state neither reading can be
+    // trusted against -- in particular a full-size-buffer core could have its pointer past byte 4
+    // already, and byte 4 would survive for the wrong reason.
+    dsp_write(&mut prog, 0x6C, 0x20); // FLG: echo writes disabled
     dsp_write(&mut prog, 0x6D, ECHO_PAGE); // ESA
     dsp_write(&mut prog, 0x7D, 0x00); // EDL = 0
     dsp_write(&mut prog, 0x4D, 0x00); // EON
     dsp_write(&mut prog, 0x2C, 0x00); // EVOL L
     dsp_write(&mut prog, 0x3C, 0x00); // EVOL R
     dsp_write(&mut prog, 0x0D, 0x00); // EFB
+    // ESA and EDL do not take effect instantly (`E9.07`, `E9.08`); give them a moment before the
+    // buffer is painted, so the writes measured below are aimed where this test put the marker.
+    prog.delay(0x00);
     for i in 0..8u16 {
         prog.mov_a_imm(0x5A).mov_abs_a(ECHO_ADDR + i);
     }
