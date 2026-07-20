@@ -68,6 +68,7 @@ pub fn all() -> Vec<Test> {
         e3_04(),
         e3_05(),
         e3_10(),
+        e1_09(),
         e1_10(),
         e1_12(),
         e2_07(),
@@ -1635,6 +1636,70 @@ fn e1_08() -> Test {
         "E1.08",
         'E',
         "DAA adjustments",
+        Provenance::Documented("SNESdev Wiki, SPC700 reference; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `DAS` reads the *inverted* sense of `C` and `H`, which is what makes it the mirror of `DAA`.
+///
+/// `DAA` adjusts when a flag is **set**; `DAS` adjusts when one is **clear** —
+/// `if (!C || A > $99) { A -= $60; C = 0; }` then `if (!H || (A & 15) > 9) { A -= 6; }`. A core
+/// that copies `DAA`'s conditions and only flips the addition to a subtraction adjusts in exactly
+/// the wrong cases, which is invisible on the values a test-by-eye would pick and wrong on almost
+/// everything else.
+///
+/// Two runs of the same value differing only in `H`: with `H` set nothing happens to `$15`, and
+/// with `H` clear it becomes `$0F`. `C` is set in both so the first condition stays out of the way,
+/// and `$15` is chosen because it trips neither of `DAS`'s value tests — every difference between
+/// the two answers is the flag.
+///
+/// Setting `H` needs an `ADC` with a nibble carry, because nothing sets it directly; clearing it
+/// needs `CLRV` (`E1.12`), because nothing else clears it either.
+fn e1_09() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        // --- H set, C set: no adjustment ---
+        .clrv() // clears H as well as V (E1.12)
+        .mov_a_imm(0x08)
+        .clrc()
+        .adc_a_imm(0x08) // $08 + $08 = $10: a carry out of bit 3, so H is set
+        .setc()
+        .mov_a_imm(0x15) // MOV leaves C and H alone
+        .das()
+        .mov_dp_a(PORT1)
+        // --- H clear, C set: the low-nibble adjustment fires ---
+        .clrv()
+        .setc()
+        .mov_a_imm(0x15)
+        .das()
+        .mov_dp_a(PORT2)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.assert_a8(
+        0x15,
+        "DAS adjusted $15 with H and C both set — it adjusts when they are CLEAR, which is the \
+         opposite of DAA",
+    );
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x0F,
+        "DAS did not subtract 6 from $15 with H clear, so it is not reading the inverted sense of \
+         the half-carry",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E1.09",
+        'E',
+        "DAS mirrors DAA",
         Provenance::Documented("SNESdev Wiki, SPC700 reference; fullsnes"),
         Kind::Scored,
         None,
