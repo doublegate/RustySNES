@@ -196,6 +196,50 @@ fn capture_scenes() -> BTreeMap<u8, u64> {
     seen
 }
 
+/// Scene pairs that must render **identically**, and the behaviour that makes them so.
+///
+/// A stronger statement than "each matches its committed number": an equivalence survives a change
+/// to the canvas, and it catches a core that gets both scenes wrong in the same way — which two
+/// independent hash comparisons cannot, because a consistent misreading matches neither number and
+/// so produces two failures that look unrelated.
+const EQUIVALENCES: &[(&str, &str, &str)] = &[
+    (
+        "c8-half-ignored-on-fixed-backdrop",
+        "c8-fixed-colour-add",
+        "C8.03: CGADSUB's half/div2 bit is ignored when the subscreen is the fixed backdrop, so \
+         setting it must change nothing",
+    ),
+    (
+        "c8-window-left-gt-right-empty",
+        "c8-both-windows-disabled-empty",
+        "C8.05 and C8.07: crossed window bounds and no enabled window are both EMPTY masks rather \
+         than full ones, so BG1 is fully visible in both",
+    ),
+];
+
+/// The declared scene equivalences hold.
+#[test]
+fn equivalent_scenes_render_identically() {
+    let captured = capture_scenes();
+    assert!(!captured.is_empty(), "no rendered scenes were captured");
+    let names = manifest();
+    let by_name: BTreeMap<&str, u64> = names
+        .iter()
+        .filter_map(|(idx, name)| Some((name.as_str(), *captured.get(idx)?)))
+        .collect();
+
+    for (a, b, why) in EQUIVALENCES {
+        let (Some(&ha), Some(&hb)) = (by_name.get(a), by_name.get(b)) else {
+            panic!("equivalence names a scene that did not render: {a} / {b}");
+        };
+        assert_eq!(
+            ha, hb,
+            "{a} and {b} must render identically, and did not ({ha:#018x} vs {hb:#018x}).\n  {why}"
+        );
+    }
+    println!("\n  {} scene equivalence(s) hold.", EQUIVALENCES.len());
+}
+
 /// Every rendered scene matches its committed golden, and unblessed scenes are reported.
 #[test]
 fn rendered_scenes_match_goldens() {

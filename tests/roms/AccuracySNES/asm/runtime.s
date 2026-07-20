@@ -1036,21 +1036,25 @@ test_restore := test_restore_impl
     sta f:R_SCENE
     sta f:R_SCENE_DONE
 
-    jsr scene_canvas            ; VRAM + CGRAM content, once; scenes only change PPU state
-
     rep #$30
     .a16
     ldx #$0000                  ; scene index
 @next:
-    ; Every scene starts from the canonical register state. Otherwise scene N renders through
-    ; whatever scene N-1 left in CGWSEL/CGADSUB/MOSAIC, and the goldens record an accumulated
-    ; state rather than the one thing each scene is supposed to be evidence for.
+    ; Every scene starts from the canonical state — registers AND memory. Otherwise scene N
+    ; renders through whatever scene N-1 left in CGWSEL/CGADSUB/MOSAIC, and the goldens record an
+    ; accumulated state rather than the one thing each scene is supposed to be evidence for.
+    ;
+    ; The canvas is rebuilt per scene rather than once, which is what makes a scene free to rewrite
+    ; VRAM for its own purposes — the flip-bit and low-tile scenes need exactly that. Rebuilding it
+    ; once was cheaper and wrong: the first scene to rewrite the tilemap silently changed the
+    ; picture for every scene after it, and three scenes hashed identically as a result.
     sep #$20
     .a8
     lda #$8F
-    sta INIDISP                 ; forced blank while the registers are reset
+    sta INIDISP                 ; forced blank while the state is reset
     phx
     jsr init_registers
+    jsr scene_canvas
     plx
     rep #$30
     .a16

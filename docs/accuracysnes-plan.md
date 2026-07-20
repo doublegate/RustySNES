@@ -165,13 +165,34 @@ different claim, and worth writing down rather than leaving as a shrug.
   stay in their own tier. `crossval.sh` gates on them, and per rule 4 a golden is committed only
   once the references agree.
 
-  **Status: 3 scenes blessed** (`C5.02`, `C8.10`, `C10.01`). All three disagreed with the
-  references on first run, and in all three cases RustySNES was wrong: the BG vertical fetch was a
-  line late, and mosaic quantised the BG row instead of the screen row. Both are fixed; agreement
-  with snes9x across the third-party undisbeliever suite went from 2/29 to 14/29 as a side effect.
+  **Status: 18 scenes blessed**, covering 19 assertions across `C5`, `C8`, `C10` and `C12`. The
+  first three disagreed with the references on first run, and in all three cases RustySNES was
+  wrong: the BG vertical fetch was a line late, and mosaic quantised the BG row instead of the
+  screen row. Both are fixed; agreement with snes9x across the third-party undisbeliever suite went
+  from 2/29 to 14/29 as a side effect. The next fifteen found no divergence, which is what one
+  should expect — both fixed bugs sit upstream of most of what those scenes render.
 
-  Remaining under this ticket: the other ~39 assertions, one scene each. The mechanism is done —
-  what is left is writing scenes and cross-validating each before blessing.
+  Three scenes assert **equivalences** rather than numbers (`C8.03`'s ignored half bit; `C8.05` and
+  `C8.07` both producing an empty mask). An equivalence is the stronger statement: it survives a
+  change to the canvas, and it catches a core that gets both scenes wrong in the same way, which
+  two independent hash comparisons cannot.
+
+  Remaining under this ticket: `C6` (offset-per-tile, including the `C6.05` errata), the rest of
+  `C8`, `C10.03`/`C10.05`, `C12.02`, and the `C13.01`-`C13.06` INIDISP artifacts. `C5.06`/`C5.07`
+  and most of `C9` are hi-res and need the scene region's 256x224 contract widened first — that
+  contract exists because emulators disagree about geometry, so widening it means re-deriving each
+  host's `FIRST_ROW` for 512-wide output rather than merely relaxing an assertion.
+
+  Two structural lessons from the second batch, both already fixed:
+
+  - **The canvas is rebuilt per scene, not once.** A scene that rewrites VRAM for its own purposes
+    otherwise changes the picture for every scene after it. Three scenes hashed identically before
+    this was caught, which reads as an emulator agreeing with itself rather than as contamination.
+  - **A scene built on the canvas tilemap renders empty in a deep mode.** An 8bpp tile is 32 words,
+    so the canvas's glyph indices point past the end of a 512-word font and every pixel reads zero.
+    Mode 3 and direct-colour scenes call a shared `scene_low_tiles` helper instead. An empty scene
+    still produces a stable hash that all three emulators agree on, so cross-validation does **not**
+    catch this — only looking at the picture does.
 
   These decide only what appears on screen, so **they cannot be self-scored at all**. Scoring them
   means comparing pixels, which breaks the property that makes this cartridge worth having: that
@@ -322,4 +343,4 @@ The inverse pattern — a test failing identically on all three — has twice me
 5. **T-04-G** — power-on golden vectors, once the boot-path ordering is settled.
 6. **T-04-E** — the APU harness, as its own phase.
 7. **T-04-F** — input, after deciding the on-cart/host split.
-8. **T-04-H** — mechanism landed (ADR 0013 accepted, 3 scenes blessed); the rest is scene-writing.
+8. **T-04-H** — mechanism landed (ADR 0013 accepted, 18 scenes blessed); the rest is scene-writing, plus widening the region contract for the hi-res cases.

@@ -6,53 +6,55 @@ Maps `docs/accuracysnes-research-dossier.md` §5 assertions to the cart tests th
 
 Every sub-group of Part V is enumerated, so this is a **complete** statement of coverage — if an assertion has no test, it is listed here. Rows carrying a range (`A5.01-08`, `C2.03-05`, `D2.11-14`) stand for several assertions each, so the assertion total is slightly higher than the row total.
 
-| Sub-group | Enumerated | Covered | Uncovered |
-|---|---:|---:|---|
-| `A1` | 9 | 5 | A1.02, A1.03, A1.05, A1.09 |
-| `A2` | 10 | 5 | A2.05, A2.07, A2.08, A2.09, A2.10 |
-| `A3` | 10 | 6 | A3.06, A3.07, A3.08, A3.09 |
-| `A4` | 10 | 5 | A4.03, A4.04, A4.05, A4.09, A4.10 |
-| `A5` | 15 | 9 | A5.09, A5.10, A5.16, A5.18, A5.19, A5.20 |
-| `A6` | 15 | 8 | A6.02, A6.09, A6.10, A6.11, A6.12, A6.13, A6.15 |
-| `A7` | 5 | 4 | A7.04 |
-| `A8` | 6 | 2 | A8.01, A8.04, A8.05, A8.06 |
-| `A9` | 3 | 2 | A9.03 |
-| `B1` | 5 | 4 | B1.05 |
-| `B2` | 9 | 4 | B2.01, B2.02, B2.03, B2.07, B2.09 |
-| `B3` | 3 | 0 | B3.01, B3.02, B3.03 |
-| `B4` | 14 | 9 | B4.01, B4.06, B4.10, B4.11, B4.13 |
-| `B5` | 4 | 4 | — |
-| `C1` | 9 | 5 | C1.03, C1.07, C1.08, C1.09 |
-| `C2` | 10 | 8 | C2.09, C2.12 |
-| `C3` | 10 | 4 | C3.03, C3.04, C3.05, C3.07, C3.09, C3.10 |
-| `C4` | 5 | 0 | C4.01, C4.02, C4.03, C4.04, C4.05 |
-| `C5` | 15 | 0 | C5.01, C5.02, C5.03, C5.04, C5.05, C5.06, C5.07, C5.08, C5.09, C5.10, C5.11, C5.12, C5.13, C5.14, C5.15 |
-| `C6` | 7 | 0 | C6.01, C6.02, C6.03, C6.04, C6.05, C6.06, C6.07 |
-| `C7` | 16 | 3 | C7.03, C7.04, C7.05, C7.06, C7.07, C7.09, C7.10, C7.11, C7.12, C7.13, C7.14, C7.15, C7.16 |
-| `C8` | 12 | 0 | C8.01, C8.02, C8.03, C8.04, C8.05, C8.06, C8.07, C8.08, C8.09, C8.10, C8.11, C8.12 |
-| `C9` | 8 | 1 | C9.01, C9.02, C9.03, C9.05, C9.06, C9.07, C9.08 |
-| `C10` | 5 | 0 | C10.01, C10.02, C10.03, C10.04, C10.05 |
-| `C11` | 12 | 1 | C11.01, C11.02, C11.03, C11.04, C11.05, C11.07, C11.08, C11.09, C11.10, C11.11, C11.12 |
-| `C12` | 3 | 0 | C12.01, C12.02, C12.03 |
-| `C13` | 10 | 4 | C13.01, C13.02, C13.03, C13.04, C13.05, C13.06 |
-| `C14` | 3 | 2 | C14.03 |
-| `D1` | 15 | 0 | D1.01, D1.02, D1.03, D1.04, D1.05, D1.06, D1.07, D1.08, D1.09, D1.10, D1.11, D1.12, D1.13, D1.14, D1.15 |
-| `D2` | 14 | 0 | D2.01, D2.02, D2.03, D2.04, D2.05, D2.06, D2.07, D2.08, D2.09, D2.10, D2.11-14, D2.15, D2.16, D2.17 |
-| `D3` | 2 | 0 | D3.01, D3.02 |
-| `E1` | 15 | 0 | E1.01, E1.02, E1.03, E1.04, E1.05, E1.06, E1.07, E1.08, E1.09, E1.10, E1.11, E1.12, E1.13, E1.14, E1.15 |
-| `E2` | 10 | 0 | E2.01, E2.02, E2.03, E2.04, E2.05, E2.06, E2.07, E2.08, E2.09, E2.10 |
-| `E3` | 14 | 0 | E3.01, E3.02, E3.03, E3.04, E3.05, E3.06, E3.07, E3.08, E3.09, E3.10, E3.11, E3.12, E3.13, E3.14 |
-| `E4` | 11 | 0 | E4.01, E4.02, E4.03, E4.04, E4.05, E4.06, E4.07, E4.08, E4.09, E4.10, E4.11 |
-| `E5` | 13 | 0 | E5.01, E5.02, E5.03, E5.04, E5.05, E5.06, E5.07, E5.08, E5.09, E5.10, E5.11, E5.12, E5.13 |
-| `E6` | 11 | 0 | E6.01, E6.02, E6.03, E6.04, E6.05, E6.06, E6.07, E6.08, E6.09, E6.10, E6.11 |
-| `E7` | 18 | 0 | E7.01, E7.02, E7.03, E7.04, E7.05, E7.06, E7.07, E7.08, E7.09, E7.10, E7.11, E7.12, E7.13, E7.14, E7.15, E7.16, E7.17, E7.18 |
-| `E8` | 11 | 0 | E8.01, E8.02, E8.03, E8.04, E8.05, E8.06, E8.07, E8.08, E8.09, E8.10, E8.11 |
-| `E9` | 20 | 0 | E9.01, E9.02, E9.03, E9.04, E9.05, E9.06, E9.07, E9.08, E9.09, E9.10, E9.11, E9.12, E9.13, E9.14, E9.15, E9.16, E9.17, E9.18, E9.19, E9.20 |
-| `E10` | 6 | 0 | E10.01, E10.02, E10.03, E10.04, E10.05, E10.06 |
-| `F1` | 22 | 0 | F1.01, F1.02, F1.03, F1.04, F1.05, F1.06, F1.07, F1.08, F1.09, F1.10, F1.11, F1.12, F1.13, F1.14, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
-| `G1` | 18 | 0 | G1.01, G1.02, G1.03, G1.04, G1.05, G1.06, G1.07, G1.08, G1.09, G1.10, G1.11, G1.12, G1.13, G1.14, G1.15, G1.16, G1.17, G1.18 |
+| Sub-group | Enumerated | Covered (on-cart) | Covered (scene) | Uncovered |
+|---|---:|---:|---:|---|
+| `A1` | 9 | 5 | 0 | A1.02, A1.03, A1.05, A1.09 |
+| `A2` | 10 | 5 | 0 | A2.05, A2.07, A2.08, A2.09, A2.10 |
+| `A3` | 10 | 6 | 0 | A3.06, A3.07, A3.08, A3.09 |
+| `A4` | 10 | 5 | 0 | A4.03, A4.04, A4.05, A4.09, A4.10 |
+| `A5` | 15 | 9 | 0 | A5.09, A5.10, A5.16, A5.18, A5.19, A5.20 |
+| `A6` | 15 | 8 | 0 | A6.02, A6.09, A6.10, A6.11, A6.12, A6.13, A6.15 |
+| `A7` | 5 | 4 | 0 | A7.04 |
+| `A8` | 6 | 2 | 0 | A8.01, A8.04, A8.05, A8.06 |
+| `A9` | 3 | 2 | 0 | A9.03 |
+| `B1` | 5 | 4 | 0 | B1.05 |
+| `B2` | 9 | 4 | 0 | B2.01, B2.02, B2.03, B2.07, B2.09 |
+| `B3` | 3 | 0 | 0 | B3.01, B3.02, B3.03 |
+| `B4` | 14 | 9 | 0 | B4.01, B4.06, B4.10, B4.11, B4.13 |
+| `B5` | 4 | 4 | 0 | — |
+| `C1` | 9 | 5 | 0 | C1.03, C1.07, C1.08, C1.09 |
+| `C2` | 10 | 8 | 0 | C2.09, C2.12 |
+| `C3` | 10 | 4 | 0 | C3.03, C3.04, C3.05, C3.07, C3.09, C3.10 |
+| `C4` | 5 | 0 | 0 | C4.01, C4.02, C4.03, C4.04, C4.05 |
+| `C5` | 15 | 0 | 6 | C5.03, C5.05, C5.06, C5.07, C5.08, C5.12, C5.13, C5.14, C5.15 |
+| `C6` | 7 | 0 | 0 | C6.01, C6.02, C6.03, C6.04, C6.05, C6.06, C6.07 |
+| `C7` | 16 | 3 | 0 | C7.03, C7.04, C7.05, C7.06, C7.07, C7.09, C7.10, C7.11, C7.12, C7.13, C7.14, C7.15, C7.16 |
+| `C8` | 12 | 0 | 9 | C8.01, C8.09, C8.12 |
+| `C9` | 8 | 1 | 0 | C9.01, C9.02, C9.03, C9.05, C9.06, C9.07, C9.08 |
+| `C10` | 5 | 0 | 2 | C10.03, C10.04, C10.05 |
+| `C11` | 12 | 1 | 0 | C11.01, C11.02, C11.03, C11.04, C11.05, C11.07, C11.08, C11.09, C11.10, C11.11, C11.12 |
+| `C12` | 3 | 0 | 2 | C12.02 |
+| `C13` | 10 | 4 | 0 | C13.01, C13.02, C13.03, C13.04, C13.05, C13.06 |
+| `C14` | 3 | 2 | 0 | C14.03 |
+| `D1` | 15 | 0 | 0 | D1.01, D1.02, D1.03, D1.04, D1.05, D1.06, D1.07, D1.08, D1.09, D1.10, D1.11, D1.12, D1.13, D1.14, D1.15 |
+| `D2` | 14 | 0 | 0 | D2.01, D2.02, D2.03, D2.04, D2.05, D2.06, D2.07, D2.08, D2.09, D2.10, D2.11-14, D2.15, D2.16, D2.17 |
+| `D3` | 2 | 0 | 0 | D3.01, D3.02 |
+| `E1` | 15 | 0 | 0 | E1.01, E1.02, E1.03, E1.04, E1.05, E1.06, E1.07, E1.08, E1.09, E1.10, E1.11, E1.12, E1.13, E1.14, E1.15 |
+| `E2` | 10 | 0 | 0 | E2.01, E2.02, E2.03, E2.04, E2.05, E2.06, E2.07, E2.08, E2.09, E2.10 |
+| `E3` | 14 | 0 | 0 | E3.01, E3.02, E3.03, E3.04, E3.05, E3.06, E3.07, E3.08, E3.09, E3.10, E3.11, E3.12, E3.13, E3.14 |
+| `E4` | 11 | 0 | 0 | E4.01, E4.02, E4.03, E4.04, E4.05, E4.06, E4.07, E4.08, E4.09, E4.10, E4.11 |
+| `E5` | 13 | 0 | 0 | E5.01, E5.02, E5.03, E5.04, E5.05, E5.06, E5.07, E5.08, E5.09, E5.10, E5.11, E5.12, E5.13 |
+| `E6` | 11 | 0 | 0 | E6.01, E6.02, E6.03, E6.04, E6.05, E6.06, E6.07, E6.08, E6.09, E6.10, E6.11 |
+| `E7` | 18 | 0 | 0 | E7.01, E7.02, E7.03, E7.04, E7.05, E7.06, E7.07, E7.08, E7.09, E7.10, E7.11, E7.12, E7.13, E7.14, E7.15, E7.16, E7.17, E7.18 |
+| `E8` | 11 | 0 | 0 | E8.01, E8.02, E8.03, E8.04, E8.05, E8.06, E8.07, E8.08, E8.09, E8.10, E8.11 |
+| `E9` | 20 | 0 | 0 | E9.01, E9.02, E9.03, E9.04, E9.05, E9.06, E9.07, E9.08, E9.09, E9.10, E9.11, E9.12, E9.13, E9.14, E9.15, E9.16, E9.17, E9.18, E9.19, E9.20 |
+| `E10` | 6 | 0 | 0 | E10.01, E10.02, E10.03, E10.04, E10.05, E10.06 |
+| `F1` | 22 | 0 | 0 | F1.01, F1.02, F1.03, F1.04, F1.05, F1.06, F1.07, F1.08, F1.09, F1.10, F1.11, F1.12, F1.13, F1.14, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
+| `G1` | 18 | 0 | 0 | G1.01, G1.02, G1.03, G1.04, G1.05, G1.06, G1.07, G1.08, G1.09, G1.10, G1.11, G1.12, G1.13, G1.14, G1.15, G1.16, G1.17, G1.18 |
 
-**95 of 443** enumerated assertion rows covered by at least one test.
+**95 of 443** enumerated assertion rows covered by an on-cart test, plus **19** covered only by a rendered scene (`docs/adr/0013`) — **114 of 443** in total.
+
+The two columns are kept apart on purpose. An on-cart result means the same thing on any emulator and on real hardware; a rendered scene needs a host holding the golden. Adding them into one figure would quietly change what the number claims.
 
 ## Assertions split across several tests
 
@@ -66,6 +68,29 @@ Declared in `dossier.rs::SPLITS`. Each is a claim that the tests assert differen
 - **`C2.01`** — C2.01, C2.05 · cart C2.01 covers step 1, cart C2.05 the 32/128/128 steps — including that both encodings of 128 mean 128, which is its own trap
 - **`C11.06`** — C11.06, C11.06b · cart C11.06 asserts the product magnitude and that M7B's low byte cannot leak in; cart C11.06b asserts signedness on both operands and the 24-bit sign extension
 - **`C13.10`** — C13.01, C13.02 · cart C13.01 asserts $213E bit 4 tracks PPU1's latch, cart C13.02 that $213F bit 5 tracks PPU2's. The dossier states both in one line
+
+## Assertions covered by a rendered scene
+
+Declared in `gen/src/scenes.rs`. Each is reported by the host framebuffer oracle against a cross-validated golden, never scored on-cart (`docs/adr/0013`).
+
+- **`C5.02`** — c5-mode1-bg-priority
+- **`C8.11`** — c8-fixed-colour-add
+- **`C10.01`** — c10-mosaic-4x
+- **`C5.01`** — c5-mode0-four-bg-priority
+- **`C5.09`** — c5-mode0-palette-segregation
+- **`C5.04`** — c5-mode3-8bpp
+- **`C5.10`** — c5-tilemap-flip-bits
+- **`C5.11`** — c5-16x16-tiles
+- **`C8.10`** — c8-subtract-mode
+- **`C8.02`** — c8-clamp-no-wrap
+- **`C8.03`** — c8-half-ignored-on-fixed-backdrop
+- **`C8.04`** — c8-window-bounds-inclusive
+- **`C8.05`** — c8-window-left-gt-right-empty
+- **`C8.06`** — c8-window-inverted-empty-is-full
+- **`C8.07`** — c8-both-windows-disabled-empty
+- **`C8.08`** — c8-window-logic-xor
+- **`C10.02`** — c10-mosaic-screen-anchored
+- **`C12.01,C12.03`** — c12-direct-colour-mode3
 
 ## Tests with no enumerated assertion
 
