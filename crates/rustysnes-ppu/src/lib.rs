@@ -15,7 +15,7 @@
 //!
 //! Per `docs/scheduler.md` (binding): RustySNES counts **341 dots of nominally 4 master
 //! clocks** per line; the scheduler advances the PPU one dot at a time via [`Ppu::tick_dot`].
-//! H runs 0..=339 (340 wraps to a new line), V runs 0..=261 (NTSC) / 0..=311 (PAL). Active
+//! H runs 0..=340 (341 wraps to a new line), V runs 0..=261 (NTSC) / 0..=311 (PAL). Active
 //! output is dots 22..=277 on lines 1..=224 (1..=239 overscan); `VBlank` asserts at V=225
 //! (V=240 overscan). The renderer is per-scanline (it composites a whole visible line at
 //! [`RENDER_DOT`], one dot before that line's own per-line HDMA run can observe/mutate the
@@ -894,7 +894,7 @@ impl Ppu {
         } else {
             // V-only IRQ: the comparator is sampled once near the start of the line, not held
             // across it. Modelling `h_match` as unconditionally true here made `V == VTIME` a
-            // level that re-raised the IRQ on all 340 dots of the target line, so acknowledging
+            // level that re-raised the IRQ on all 341 dots of the target line, so acknowledging
             // via `$4211` was undone a few dots later and a V-only handler saw a storm instead of
             // one interrupt. ares gets this from `irqValid.raise(...)` being an edge detector
             // (`sfc/cpu/irq.cpp:26-30`); firing on a single dot is the same thing statelessly.
