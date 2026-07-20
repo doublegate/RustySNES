@@ -265,6 +265,22 @@ Each was caught only because its hash equalled an existing scene's — the first
 the second `c8-window-inverted-empty-is-full`. **Check a new scene's hash against the committed
 goldens before blessing it.**
 
+### `C1.07` — the OAM address reload is not immediate at the register write
+
+`$2100` bit 7 going 1→0 reloads the OAM address from `$2102`/`$2103`. A test wrote the two values
+back to back, moved the internal pointer off the programmed address first, and read `$2138`
+straight afterwards. **All three emulators returned the walked-to byte, not the reloaded one.**
+
+Three failing identically is a broken test. The reload is evidently tied to rendering *starting* —
+the transition arms it, and it takes effect at the next visible scanline — not to the write
+retiring. The battery runs the whole time under forced blank, so nothing in the test ever crossed
+that boundary.
+
+Reaching it means letting a frame actually render between the transition and the read, then
+re-blanking before touching `$2138` (an OAM read during active display is unreliable — `C1.08` is
+the assertion that says so). That is a frame-synchronised test rather than a straight-line one, and
+it belongs with the other frame-boundary work the interlace note above calls for.
+
 ### Interlace scenes need frame-parity control, which the scene protocol does not have
 
 `C7.12` (a 16x32 sprite under OBJ interlace renders as 16x16) was written as a scene and produced
