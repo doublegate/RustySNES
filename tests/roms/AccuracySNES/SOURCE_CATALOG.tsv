@@ -136,7 +136,7 @@
 133	E5.11	E	Directory entry address	Documented	fullsnes, S-DSP BRR; anomie's DSP doc	Scored	0x7EF0A5	E5.11
 134	E7.10	E	Direct GAIN is envelope	Documented	SNESdev Wiki, S-DSP envelopes; fullsnes	Scored	0x7EF0A6	E7.10
 135	E1.08	E	DAA adjustments	Documented	SNESdev Wiki, SPC700 reference; fullsnes	Scored	0x7EF0A7	E1.08
-136	E3.04	E	IPL overlay is read-only	Documented	SNESdev Wiki, SPC700 I/O; fullsnes	Scored	0x7EF0A8	E3.04
+136	E3.04	E	Writes pass under IPL	Documented	SNESdev Wiki, SPC700 I/O; fullsnes	Scored	0x7EF0A8	E3.04
 137	E3.05	E	TnDIV $00 means 256	Documented	SNESdev Wiki, SPC700 timers; fullsnes	Scored	0x7EF0A9	E3.05
 138	E3.10	E	TEST gates RAM writes	Documented	SNESdev Wiki, SPC700 I/O; fullsnes	Scored	0x7EF0AA	E3.10
 139	E1.10	E	TSET1 is a compare	Documented	SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata	Scored	0x7EF0AB	E1.10

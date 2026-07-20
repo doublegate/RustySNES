@@ -9795,7 +9795,7 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
-; E3.04 — IPL overlay is read-only
+; E3.04 — Writes pass under IPL
 ; provenance: Documented (SNESdev Wiki, SPC700 I/O; fullsnes)
 .proc test_e3_04
     .a16
@@ -16484,8 +16484,8 @@ _test_names:
     .byte 15
     .byte "DAA adjustments"
 @n_e3_04:
-    .byte 24
-    .byte "IPL overlay is read-only"
+    .byte 21
+    .byte "Writes pass under IPL"
 @n_e3_05:
     .byte 19
     .byte "TnDIV $00 means 256"

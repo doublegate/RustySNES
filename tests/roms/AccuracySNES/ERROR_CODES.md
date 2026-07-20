@@ -1153,7 +1153,7 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes). Kind: sco
 | 2 | `$04` | DAA on $9A did not wrap to $00 — both adjustments apply, and $9A + $60 + 6 leaves the byte |
 | 3 | `$06` | DAA on $9A did not set the carry |
 
-### E3.04 — IPL overlay is read-only
+### E3.04 — Writes pass under IPL
 
 Provenance: **Documented** (SNESdev Wiki, SPC700 I/O; fullsnes). Kind: scored.
 

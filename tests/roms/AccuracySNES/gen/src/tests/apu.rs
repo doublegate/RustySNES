@@ -1132,7 +1132,7 @@ fn e3_04() -> Test {
     a.finish(
         "E3.04",
         'E',
-        "IPL overlay is read-only",
+        "Writes pass under IPL",
         Provenance::Documented("SNESdev Wiki, SPC700 I/O; fullsnes"),
         Kind::Scored,
         None,
