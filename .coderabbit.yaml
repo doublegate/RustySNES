@@ -36,6 +36,10 @@ reviews:
   auto_review:
     enabled: true
     drafts: false
+    auto_incremental_review: true
+    ignore_title_keywords:
+      - 'WIP'
+      - 'DO NOT REVIEW'
     # Never stop re-reviewing. The default pauses automatic review after five reviewed commits,
     # and a batch here routinely takes more than five pushes while findings are adjudicated —
     # the later pushes are the ones carrying the fixes, so they are the ones worth reading.
@@ -50,6 +54,11 @@ reviews:
       enabled: false
     unit_tests:
       enabled: false
+    # Also off, for a third reason: the chip cores' hot paths (`Bus::step`, the PPU dot loop, the
+    # SPC700 dispatch) are deliberately allocation-free and abstraction-light. An automatic
+    # "simplify" suggestion is more likely to fight that than to help it.
+    simplify:
+      enabled: false
 
   path_filters:
     # --- Includes ----------------------------------------------------------------------------
@@ -58,8 +67,12 @@ reviews:
     # list that contains `**/gen/**` — which matches `tests/roms/AccuracySNES/gen/`, the test
     # generator, i.e. the most review-worthy source in this repository. The first three PRs under
     # this config had every generator file silently dropped ("Review skipped due to path filters")
-    # and the `gen/src/**` instructions below never ran. An explicit include removes a path from
-    # that block list.
+    # and the `gen/src/**` instructions below never ran.
+    #
+    # **The override has to be the identical glob.** Including `tests/**` did not rescue it — the
+    # bot's own report then read "excluded by `!**/gen/**` and included by `tests/**`", exclusion
+    # winning. Repeating the blocked pattern verbatim is what removes it from the block list, so
+    # the first entry below is deliberately `**/gen/**` and not the path it is there to reach.
     #
     # The catch is that these patterns also drive a sparse checkout, so a lone positive pattern
     # can narrow the review to *only* that path. Hence every directory worth reviewing is named
@@ -70,6 +83,7 @@ reviews:
     # `screenshots/` and `raw/` hold binaries and captures, which a text review cannot say anything
     # useful about. `ref-docs/` and `ref-proj/` are excluded explicitly below, for a different
     # reason — they are immutable, so a finding there has nowhere to go.
+    - '**/gen/**'
     - '.cargo/**'
     - '.github/**'
     - 'android/**'
@@ -102,6 +116,8 @@ reviews:
     # Immutable research and vendored study clones.
     - '!ref-docs/**'
     - '!ref-proj/**'
+    # Vendored upstream C (rcheevos). Not ours to change; findings there have nowhere to go.
+    - '!crates/rustysnes-cheevos/vendor/**'
 
   path_instructions:
     - path: 'tests/roms/AccuracySNES/gen/src/**'
@@ -164,8 +180,58 @@ reviews:
         stores into it, is the failure mode. Check the arithmetic of `VAR_BASE + $nn` offsets
         against their declared sizes and against the neighbouring definitions.
 
+    - path: 'scripts/accuracysnes/**'
+      instructions: |
+        The cross-validation harness: the same AccuracySNES image is run on snes9x (through a
+        libretro host in C) and on Mesen2 (through its test runner and a Lua script), and their
+        verdicts are compared with the cart's. Its integrity is the whole argument for the
+        battery, so flag anything that could make a reference *appear* to agree — a verdict parsed
+        loosely, a missing-file path that degrades to success, a scene comparison that skips
+        rather than fails when the golden is absent. A known reference divergence belongs in
+        `SNES9X_KNOWN_FAILURES` with a source citation, never in a widened match.
+
+    - path: '.github/workflows/**'
+      instructions: |
+        Flag third-party actions pinned to a branch rather than a tag or commit SHA, jobs without
+        a least-privilege `permissions:` block, and secrets that could reach the log. The
+        `ci-success` job is the required check and must depend on every gate it claims to
+        aggregate — a new job that is not in its `needs:` list is a gate nothing enforces.
+
+    - path: 'crates/*/Cargo.toml'
+      instructions: |
+        The frontend pins one compatible GUI tier (currently winit 0.30 / wgpu 29 / egui 0.35 and
+        its `egui-wgpu`/`egui-winit` siblings). Flag a bump to any one of those that is not
+        accompanied by matching bumps to the others. Optional features are default-off by
+        convention so shipped, no_std and wasm builds stay byte-identical; flag a new feature added
+        to a `default = [...]` list.
+
+    - path: 'android/**/*.kt'
+      instructions: |
+        Kotlin/Compose front end over the UniFFI bridge. Flag recomposition footguns (unstable
+        lambdas or parameters causing needless recomposition) and any direct file or preferences
+        access that bypasses the bridge.
+
+    - path: '**/*.swift'
+      instructions: |
+        SwiftUI/Metal front end over UniFFI-generated bindings. Flag force-unwraps (`!`) on values
+        originating from the Rust bridge or from file I/O.
+
+    - path: 'scripts/**/*.py'
+      instructions: |
+        One-off developer tooling, not shipped code. Prioritise correctness and legible failure
+        over polish; do not ask for packaging, typing or CLI-ergonomics work unless it affects
+        whether the script is right.
+
+    - path: '**/*.md'
+      instructions: |
+        Docs are the spec, not a changelog. Flag prose that has drifted from the code it describes
+        rather than style nits. The markdownlint gate is pinned to **v0.39.0** via pre-commit —
+        do not report rules that version does not have (MD060 in particular).
+
   # Encodings of gates this repository actually runs, so the bot's verdict and CI's agree.
   pre_merge_checks:
+    description:
+      mode: warning
     title:
       mode: warning
       requirements: |
@@ -200,6 +266,132 @@ reviews:
           `.sfc` images, and `asm/scenes.s` whenever a scene changed) are present in the diff,
           since a source change without them means the committed ROM does not match its generator; and the hand-maintained counts in
           `docs/accuracysnes-plan.md` moved by the same amount as the generated coverage table.
+      - name: No panic on untrusted input
+        mode: warning
+        instructions: |
+          Flag any new `.unwrap()`, `.expect()` or `panic!()` applied to data that came from
+          outside the process — ROM and save-state bytes, netplay messages, Lua or scripting
+          input, user-supplied paths — outside `#[cfg(test)]` code. Those boundaries return a
+          typed error. Pass when the value was just constructed locally or an invariant was
+          checked immediately above, and say which.
+      - name: SAFETY comment on new unsafe
+        mode: warning
+        instructions: |
+          Every new `unsafe { ... }` block or `unsafe fn` needs an adjacent `// SAFETY:` comment
+          naming the invariant relied on and who guarantees it. Fail if a new unsafe block has
+          none. `unsafe_code` is a workspace lint here, so unsafe outside the frontend and the FFI
+          shims deserves a question about why it is there at all.
+
+  # The stack, stated rather than inherited. CodeRabbit enables roughly fifty linters by default;
+  # this repository is Rust, plus Kotlin and Swift front ends, Python and Lua tooling, a little C
+  # for the libretro cross-validation host, shell, YAML, Markdown and GitHub Actions. Everything
+  # else is off — not because those tools are bad, but because a finding for an ecosystem with no
+  # files in the tree is noise that costs attention the real findings need.
+  tools:
+    clippy:
+      enabled: true
+    ast-grep:
+      essential_rules: true
+    semgrep:
+      enabled: true
+    opengrep:
+      enabled: true
+    gitleaks:
+      enabled: true
+    trufflehog:
+      enabled: true
+    osvScanner:
+      enabled: true
+    actionlint:
+      enabled: true
+    zizmor:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    shellcheck:
+      enabled: true
+    ruff:
+      enabled: true
+    luacheck:
+      enabled: true
+    clang:
+      enabled: true
+    cppcheck:
+      enabled: true
+    detekt:
+      enabled: true
+    swiftlint:
+      enabled: true
+    # Redundant with ruff — two Python linters means two findings for one defect.
+    pylint:
+      enabled: false
+    flake8:
+      enabled: false
+    # No files of this kind in the tree.
+    hadolint:
+      enabled: false
+    checkmake:
+      enabled: false
+    fbinfer:
+      enabled: false
+    pmd:
+      enabled: false
+    phpstan:
+      enabled: false
+    phpcs:
+      enabled: false
+    phpmd:
+      enabled: false
+    rubocop:
+      enabled: false
+    brakeman:
+      enabled: false
+    prismaLint:
+      enabled: false
+    sqlfluff:
+      enabled: false
+    squawk:
+      enabled: false
+    checkov:
+      enabled: false
+    tflint:
+      enabled: false
+    buf:
+      enabled: false
+    regal:
+      enabled: false
+    oasdiff:
+      enabled: false
+    circleci:
+      enabled: false
+    reactDoctor:
+      enabled: false
+    emberTemplateLint:
+      enabled: false
+    shopifyThemeCheck:
+      enabled: false
+    smartyLint:
+      enabled: false
+    htmlhint:
+      enabled: false
+    stylelint:
+      enabled: false
+    biome:
+      enabled: false
+    oxc:
+      enabled: false
+    eslint:
+      enabled: false
+    dotenvLint:
+      enabled: false
+    psscriptanalyzer:
+      enabled: false
+    blinter:
+      enabled: false
+    fortitudeLint:
+      enabled: false
 
 knowledge_base:
   # Claims in this repository cite external hardware documentation — SNESdev, fullsnes, anomie's
@@ -217,6 +409,14 @@ knowledge_base:
       - 'CLAUDE.md'
       - 'CONTRIBUTING.md'
       - 'docs/adr/*.md'
+      - 'docs/architecture.md'
+      - 'docs/testing-strategy.md'
+  learnings:
+    scope: auto
+  issues:
+    scope: auto
+  pull_requests:
+    scope: auto
 
 chat:
   auto_reply: true
