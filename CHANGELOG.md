@@ -11,19 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Two more assertions attempted, measured and parked rather than shipped.** `C1.07` (a 1→0
-  transition of `$2100` bit 7 reloads the OAM address): written as a straight-line test, all three
-  emulators returned the walked-to byte rather than the reloaded one. The reload is evidently tied
-  to rendering *starting* — the transition arms it and the next visible scanline applies it — and
-  the battery runs entirely under forced blank, so nothing in the test crossed that boundary.
-  Reaching it needs a frame to actually render between the transition and the read, then a re-blank
-  before touching `$2138`, since an OAM read during active display is unreliable (`C1.08` is the
-  assertion that says so).
+- **The battery can render a frame now (`frame_step`), and `C1.07` is the first assertion to need
+  it.** The battery runs under forced blank throughout, which is what makes VRAM, OAM and CGRAM
+  freely accessible — and it is why a whole class of assertions was unreachable: the ones about
+  things that only happen when rendering *starts*. `C1.07` is the OAM address reload on `$2100`
+  bit 7's falling edge, and a straight-line version of it returned the walked-to byte on all three
+  emulators, because the transition only *arms* the reload and the next rendered frame applies it.
 
-  It joins the interlace note as the second thing this week that needs **frame-boundary
-  machinery** the battery does not have: a scene published on a known field, and a test that can
-  let one frame render and stop. Both are in `docs/accuracysnes-plan.md`; together they unblock
-  `C1.07`, `C7.12`, `C9.03` and `C9.06`.
+  `frame_step` clears blank from inside vblank, waits for rendering to begin and then for the
+  following vblank, and blanks again before returning — which is also what makes the `$2138` read
+  afterwards safe, since an OAM read during active display is unreliable (`C1.08`). Anchoring both
+  ends matters: clearing blank mid-scanline would resume rendering somewhere unrepeatable.
+
+  It is available to the rest of that class: `C7.09` (the sprite range/time-over flags clear at the
+  end of vblank but not during forced blank) and `C9.05` (the mid-frame overscan hazard) are next.
 
 - **A sprite's name-select bit reaches a different part of VRAM (`C7.11`).** Two sprites with the
   *same tile number*, one with the attribute bit set: the character address gains
@@ -642,8 +643,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **AccuracySNES totals, as of this section:** **207 tests — 195 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **50 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **165 of 443** on-cart plus **50** scene-only —
-**215 of 443** in total, and **every group A-G now has shipped tests**
+framebuffer-oracle tier. Dossier coverage is **166 of 443** on-cart plus **50** scene-only —
+**216 of 443** in total, and **every group A-G now has shipped tests**
 (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.

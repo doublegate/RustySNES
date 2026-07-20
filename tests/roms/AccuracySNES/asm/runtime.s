@@ -1242,6 +1242,48 @@ test_restore := test_restore_impl
 ; handshake is unreadable at exactly the moment you need to read it.
 ;
 ; Parameters in V_APU_* (see runtime.inc). Clobbers A/X/Y. Returns with the program running.
+; ---------------------------------------------------------------------------------------------
+; frame_step — render exactly one frame, then force blank again.
+;
+; The battery runs under forced blank throughout, which is what makes VRAM, OAM and CGRAM freely
+; accessible. A handful of assertions are about things that only happen when rendering STARTS: the
+; OAM address reload on `$2100` bit 7's falling edge (`C1.07`), the sprite range/time-over flags
+; clearing at the end of vblank (`C7.09`), the mid-frame overscan hazard (`C9.05`). None of them
+; can be reached from a straight-line test, because nothing in one crosses a frame boundary — the
+; first attempt at `C1.07` read back the un-reloaded address on all three emulators.
+;
+; The sequence is deliberately anchored at both ends. It waits for vblank before clearing blank, so
+; rendering resumes at a known place rather than mid-scanline; then waits for vblank to END, which
+; is the transition the hardware acts on; then waits for the NEXT vblank, by which point a whole
+; frame has been drawn. Blank goes back on before returning, so the caller is handed the same
+; freely-accessible PPU it had.
+;
+; Costs about two frames per call. Width-neutral (`php`/`plp`).
+.export frame_step
+.proc frame_step
+    php
+    sep #$20
+    .a8
+@wait_vblank:
+    lda HVBJOY
+    and #$80
+    beq @wait_vblank            ; start from inside vblank, not mid-picture
+    lda #$0F
+    sta INIDISP                 ; forced blank off: the 1->0 edge some tests are about
+@wait_active:
+    lda HVBJOY
+    and #$80
+    bne @wait_active            ; rendering has begun
+@wait_vblank2:
+    lda HVBJOY
+    and #$80
+    beq @wait_vblank2           ; ...and a whole frame has been drawn
+    lda #$8F
+    sta INIDISP                 ; blank again, so the caller's PPU access is safe
+    plp
+    rts
+.endproc
+
 ; A long-callable wrapper, for test bodies that do not live in bank $00. A plain `jsr` from
 ; another bank lands at the same 16-bit address *in that bank*, which is not a subroutine — it is
 ; whatever bytes happen to be there. Group E's bodies are in bank $02, so they call this.
