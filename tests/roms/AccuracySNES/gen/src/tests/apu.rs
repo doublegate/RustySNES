@@ -60,6 +60,11 @@ pub fn all() -> Vec<Test> {
         e5_09(),
         e5_11(),
         e7_10(),
+        e5_02(),
+        e9_04(),
+        e9_18(),
+        e5_03(),
+        e5_04(),
         e7_01(),
         e7_08(),
         e7_11(),
@@ -971,10 +976,14 @@ struct Voice {
     adsr2: u8,
     /// `VxGAIN`, consulted only while `adsr1` bit 7 is clear.
     gain: u8,
+    /// `NON`: one bit per voice, replacing its sample with the noise generator.
+    non: u8,
     /// Delay loops between key-on and the read, each roughly a thousand SPC700 cycles.
     settle: u8,
-    /// Key the voice off after settling, then wait this many more delay loops before reading.
-    koff: Option<u8>,
+    /// A `(register, value, extra delay loops)` write made *after* settling — key-off, a `FLG`
+    /// reset, anything whose effect is the thing being measured. The delay is how long the effect
+    /// is given before the read.
+    late: Option<(u8, u8, u8)>,
 }
 
 impl Voice {
@@ -986,8 +995,9 @@ impl Voice {
             adsr1: 0x00,
             adsr2: 0x00,
             gain: 0x7F,
+            non: 0x00,
             settle: 4,
-            koff: None,
+            late: None,
         }
     }
 }
@@ -1022,7 +1032,7 @@ fn voice_program(sample: &[u8], v: Voice) -> Spc {
     // assumed, since a previous test's program shares the same DSP.
     dsp_write(&mut p, 0x6C, 0x20); // FLG
     dsp_write(&mut p, 0x5C, 0x00); // KOF
-    dsp_write(&mut p, 0x3D, 0x00); // NON
+    dsp_write(&mut p, 0x3D, v.non); // NON
     dsp_write(&mut p, 0x4D, 0x00); // EON
     dsp_write(&mut p, 0x2D, 0x00); // PMON
     dsp_write(&mut p, 0x5D, DIR_PAGE); // DIR
@@ -1050,8 +1060,8 @@ fn voice_program(sample: &[u8], v: Voice) -> Spc {
         p.delay(0x00);
     }
 
-    if let Some(after) = v.koff {
-        dsp_write(&mut p, 0x5C, 0x01); // KOF voice 0
+    if let Some((reg, val, after)) = v.late {
+        dsp_write(&mut p, reg, val);
         for _ in 0..after {
             p.delay(0x00);
         }
@@ -1070,6 +1080,120 @@ fn voice_program(sample: &[u8], v: Voice) -> Spc {
 /// the program that can move, which is what every envelope test below needs.
 fn looping_sample() -> Vec<u8> {
     brr_sample(&[brr_block(0x8, 0, 0b11, 0x7, 0x9)], 0)
+}
+
+/// A looping block whose every nibble is the same, so the voice's output is a constant.
+///
+/// The three BRR-arithmetic tests below all read `VxOUTX`, and a sample whose nibbles alternate
+/// gives an output that alternates with it — which of the two the read catches then depends on the
+/// exact sample the DSP is on. With every nibble identical, filter 0 decodes the same value every
+/// time and gaussian interpolation of a constant is that constant, so the reading is stable and the
+/// assertion is about the arithmetic rather than about when the cart looked.
+fn constant_sample(shift: u8, nibble: u8) -> Vec<u8> {
+    brr_sample(&[brr_block(shift, 0, 0b11, nibble, nibble)], 0)
+}
+
+/// BRR nibbles are signed: `$8` is `-8`, not `+8`.
+///
+/// Each nibble is a two's-complement four-bit value in `-8..+7`, so the top bit is a sign and a
+/// core reading them as unsigned produces a waveform that is entirely positive — audible as a DC
+/// offset and a wrong shape rather than as silence. With every nibble `$8` and the envelope at full
+/// direct gain, `VxOUTX` — the post-envelope sample's high byte — must have its sign bit set.
+///
+/// Its control is `E5.03`, which asserts the *positive* half from the same shift and the same
+/// envelope. Either test alone is satisfied by a core that always reports one sign.
+fn e5_02() -> Test {
+    let prog = voice_program(&constant_sample(0x8, 0x8), Voice::direct_gain());
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x80,
+        0xFF,
+        "a sample of $8 nibbles produced a positive output, so the nibbles were read as unsigned",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E5.02",
+        'E',
+        "BRR nibbles are signed",
+        Provenance::Documented("fullsnes, S-DSP BRR; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// A decoded BRR sample is `(nibble << shift) >> 1`, and it reaches the output.
+///
+/// The positive control for `E5.02` and the "it plays at all" control for `E5.04`: the same shift,
+/// the same envelope, nibbles of `+7`, and `VxOUTX` must be positive and non-zero. What it pins is
+/// narrow but load-bearing — that a decoded sample of this magnitude survives the envelope and the
+/// interpolator to a reading the cart can see.
+///
+/// It asserts a range rather than the exact byte on purpose. The exact value is
+/// `((nibble << shift) >> 1) * E >> 11`, high byte, and `E` here is a direct gain of `$7F0` rather
+/// than full scale — so pinning the byte would be asserting the envelope's exact value through a
+/// test about BRR decoding, and it would move if the gain in the shared setup ever changed.
+fn e5_03() -> Test {
+    let prog = voice_program(&constant_sample(0x8, 0x7), Voice::direct_gain());
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x01,
+        0x7F,
+        "a sample of $7 nibbles did not produce a positive non-zero output; zero means nothing \
+         reached the output at all, and a negative value means the nibbles were sign-confused",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E5.03",
+        'E',
+        "BRR sample arithmetic",
+        Provenance::Documented("fullsnes, S-DSP BRR; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Shifts 13, 14 and 15 do not shift: they collapse the sample to `$0000` or `$F800`.
+///
+/// The header's shift field goes to 15 but the decoder only implements 0-12; the top three are a
+/// documented special case that discards the nibble's magnitude entirely and keeps only its sign —
+/// `$0000` for a positive nibble, `$F800` for a negative one. A core that takes the shift at face
+/// value produces an enormous sample instead of a silent one, which is the difference between a
+/// quiet passage and a burst of noise.
+///
+/// The nibbles here are `+7`, so the documented output is zero. Zero is also what silence looks
+/// like, which is exactly why `E5.03` exists: it is the same sample at a legal shift, and it must
+/// read non-zero.
+fn e5_04() -> Test {
+    let prog = voice_program(&constant_sample(0xD, 0x7), Voice::direct_gain());
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0102");
+    a.assert_a8(
+        0x00,
+        "shift 13 did not collapse a positive sample to zero, so the invalid shifts are being \
+         applied as ordinary ones",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E5.04",
+        'E',
+        "Invalid shift collapses",
+        Provenance::Documented("fullsnes, S-DSP BRR; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
 }
 
 /// The envelope's full scale is `$7FF`, and `VxENVX` reports it shifted down four.
@@ -1130,7 +1254,7 @@ fn e7_08() -> Test {
     let prog = voice_program(
         &looping_sample(),
         Voice {
-            koff: Some(12),
+            late: Some((0x5C, 0x01, 12)), // KOF voice 0
             ..Voice::direct_gain()
         },
     );
@@ -1225,6 +1349,86 @@ fn e7_01() -> Test {
         'E',
         "Rate 0 never fires",
         Provenance::Documented("SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `FLG`'s reset bit keys every voice off and zeroes every envelope.
+///
+/// Setting bit 7 of `$6C` is what a driver does before it has configured anything, and it is not a
+/// gentle stop: it behaves as `KOFF = $FF` with the envelopes forced to zero rather than released.
+/// This voice is held at a direct gain of `$7F` that nothing else would move, so a reading of zero
+/// afterwards is the reset and nothing else.
+///
+/// It is the same observation as `E7.08` reached by a different route, and the pair is worth having:
+/// a core that implemented `FLG` reset as "stop the DSP" would leave the last envelope value
+/// visible, which passes neither.
+fn e9_18() -> Test {
+    let prog = voice_program(
+        &looping_sample(),
+        Voice {
+            // FLG: reset (bit 7) plus the echo-write disable the setup already uses.
+            late: Some((0x6C, 0xA0, 4)),
+            ..Voice::direct_gain()
+        },
+    );
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x00,
+        "the envelope survived a FLG reset, so the reset bit did not force the voices off",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E9.18",
+        'E',
+        "FLG reset kills voices",
+        Provenance::Documented("SNESdev Wiki, S-DSP; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// A noise voice still decodes its BRR sample, so an end-without-loop block silences it.
+///
+/// `NON` replaces a voice's *sample* with the noise generator, and it is easy to assume that leaves
+/// the sample pointer unused. It does not: the voice keeps decoding BRR underneath, which means the
+/// end-and-mute flag still reaches it and still forces the envelope to zero. A driver that parks a
+/// noise voice on whatever sample address happens to be there gets silence at an unpredictable
+/// moment, and a core that skips decoding for noise voices never reproduces it.
+///
+/// Its control is `E5.07`: the identical sample and the identical read with `NON` clear. Without
+/// that pair, "the envelope is zero" would also be what a core that simply cannot play a noise
+/// voice reports.
+fn e9_04() -> Test {
+    let sample = brr_sample(&[brr_block(0x8, 0, 0b01, 0x7, 0x9)], 0);
+    let prog = voice_program(
+        &sample,
+        Voice {
+            non: 0x01,
+            ..Voice::direct_gain()
+        },
+    );
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x00,
+        "a noise voice's envelope survived an end-without-loop block, so noise voices are not \
+         decoding BRR underneath",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E9.04",
+        'E',
+        "Noise voices decode BRR",
+        Provenance::Documented("fullsnes, S-DSP noise; anomie's DSP doc — flagged as errata"),
         Kind::Scored,
         None,
     )
