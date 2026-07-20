@@ -44,6 +44,7 @@ pub fn all() -> Vec<Test> {
         c2_05(),
         c2_06(),
         c2_12(),
+        c3_03b(),
         c3_09(),
         // --- C3: CGRAM and the H/V counters ---
         c3_01(),
@@ -1561,6 +1562,59 @@ fn c7_08() -> Test {
 // ---------------------------------------------------------------------------------------------
 // Access windows and frame geometry
 // ---------------------------------------------------------------------------------------------
+
+/// The high byte of a CGRAM read carries PPU2's open bus in bit 7, because the colour is 15 bits.
+///
+/// A palette entry stores fifteen bits; the sixteenth does not exist. What comes back in bit 7 of
+/// the second `$213B` read is therefore not stored data but whatever PPU2 last drove — and the
+/// *first* read of the pair is what drove it. So the bit mirrors the low byte's bit 7, and a core
+/// that returns a stored zero there gets the same answer for two entries that differ precisely in
+/// that bit.
+///
+/// Two entries, chosen so the low byte's top bit differs and the stored high byte does not: `$FFFF`
+/// (written) becomes `$7FFF` with a low byte of `$FF`, and `$7F00` keeps a low byte of `$00`. Both
+/// hold `$7F` in the fifteen real bits of the high byte, so any difference between the two readings
+/// is the open-bus bit and can be nothing else.
+fn c3_03b() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("Entry 0 = $FFFF. Bit 15 does not exist, so this stores $7FFF and the low byte is $FF.");
+    a.l("sep #$20");
+    a.l("stz $2121         ; CGADD = 0");
+    a.l("lda #$FF");
+    a.l("sta $2122         ; low");
+    a.l("sta $2122         ; high");
+    a.l("stz $2121");
+    a.l("lda $213B         ; low byte: $FF, and it drives PPU2's latch");
+    a.l("lda $213B         ; high byte: 15 real bits plus the latch's bit 7");
+    a.assert_a8(
+        0xFF,
+        "the second CGRAM read did not carry bit 7 from PPU2's open bus after a low byte of $FF",
+    );
+    a.c("Entry 0 = $7F00: the same fifteen stored bits in the high byte, a low byte of $00.");
+    a.l("stz $2121");
+    a.l("stz $2122         ; low = $00");
+    a.l("lda #$7F");
+    a.l("sta $2122         ; high = $7F");
+    a.l("stz $2121");
+    a.l("lda $213B         ; low byte: $00");
+    a.l("lda $213B");
+    a.assert_a8(
+        0x7F,
+        "the second CGRAM read returned bit 7 set after a low byte of $00 — bit 7 is open bus, \
+         not a sixteenth stored bit",
+    );
+    a.finish(
+        "C3.03b",
+        'C',
+        "CGRAM read bit 7 is bus",
+        Provenance::Documented("SNESdev Wiki, CGRAM; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
 
 /// `$213F` bit 7 is a field flag: it toggles once per frame and holds for the whole of one.
 ///
