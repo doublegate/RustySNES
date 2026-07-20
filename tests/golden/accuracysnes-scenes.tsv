@@ -68,6 +68,19 @@
 # 2026-07-20, sixth batch (3 scenes: sprites, C7). No divergence. OAM is 544 bytes of state that
 # nothing else clears, so `scene_oam_reset` parks all 128 sprites at Y=224 first -- a sprite scene
 # otherwise renders its own sprites PLUS whatever the previous scene left behind.
+#
+# 2026-07-20, seventh batch (2 new scenes + 1 RE-BLESSED, C7 sprite sizes). ONE RustySNES bug,
+# found by correcting a scene rather than by adding one:
+#   * `c7-vflip-tall-halves` was selecting OBJSEL pair 3 with the sprite's size bit set, which is
+#     32x32 -- a SQUARE sprite, on which C7.13's errata says nothing. Only pairs 6 and 7 have a
+#     non-square member. Pointed at a real 16x32 sprite, the scene immediately split three ways:
+#     snes9x and Mesen2 agreed and RustySNES did not.
+#   * The bug: vertical flip was computed against the sprite's HEIGHT. Hardware computes it against
+#     its WIDTH, so each square half of a rectangular sprite flips inside itself and the halves do
+#     not swap places. Identical for square sprites, which is why nothing else moved. RustySNES now
+#     matches both references bit-for-bit, and the golden below is that agreed value.
+#   * The two new scenes cover the undocumented size pairs themselves (`C7.10`), and differ from
+#     each other by one OBJSEL bit -- the large member's height, 64 against 32.
 
 c5-mode1-bg-priority	0x4fccc3fcf1027a01
 c8-fixed-colour-add	0x313006a2eb2c3745
@@ -108,5 +121,7 @@ c4-shared-scroll-latch	0x3e05fffd80255a7a
 c4-hofs-keeps-low-three-bits	0xfaada56725f5c6c6
 c4-210d-drives-mode7-scroll	0x0fda2df90aff3c65
 c7-lower-index-on-top	0x7eae95bb78035325
-c7-vflip-tall-halves	0x5a8a8ba294b40811
+c7-vflip-tall-halves	0x942eb72697166c8b
 c7-64px-wraps-bottom-to-top	0xe9ff3fd41d87f581
+c7-objsel-size-6	0xb86779b44bd801f5
+c7-objsel-size-7	0x751d88828ff52727

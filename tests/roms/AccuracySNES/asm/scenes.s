@@ -1578,8 +1578,118 @@ SCENES_IMPL = 1
     rts
 .endproc
 
+; c7-objsel-size-6 — C7.10
+; OBJSEL size pair 6, which no official document lists: 16x32 small, 32x64 large. Two sprites side by side, one of each, so the picture states both halves of the pair at once. The pairs above 5 are the only ones whose members are not square, and a core that stops its table at 5 — or repeats an earlier pair to fill the gap — draws squares here.
+.proc scene_c7_objsel_size_6
+    .a16
+    .i16
+    sep #$20
+    .a8
+    stz $2105         ; BGMODE 0
+    jsr scene_oam_reset
+    sep #$20
+    .a8
+    lda #$C0
+    sta $2101         ; OBJSEL pair 6, name base word $0000
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+    stx $2102
+    sep #$20
+    .a8
+    lda #40
+    sta $2104         ; sprite 0 X
+    lda #60
+    sta $2104         ; sprite 0 Y
+    lda #$10
+    sta $2104         ; tile $10 — printable at 4bpp
+    lda #$30
+    sta $2104         ; attr: palette 0, priority 3
+    lda #120
+    sta $2104         ; sprite 1 X
+    lda #60
+    sta $2104         ; sprite 1 Y
+    lda #$10
+    sta $2104
+    lda #$30
+    sta $2104
+    rep #$30
+    .a16
+    .i16
+    ldx #$0100
+    stx $2102         ; the high table
+    sep #$20
+    .a8
+    lda #$08
+    sta $2104         ; sprite 0 small (16x32), sprite 1 large (32x64)
+    lda #$10
+    sta $212C
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; c7-objsel-size-7 — C7.10
+; OBJSEL size pair 7 — the other undocumented one: 16x32 small, 32x32 large. The same two sprites as the pair-6 scene with a single OBJSEL bit changed, so the two scenes differ by exactly the large sprite's height and nothing else. Pairs 6 and 7 share a small member, which is why they have to be told apart by the large one.
+.proc scene_c7_objsel_size_7
+    .a16
+    .i16
+    sep #$20
+    .a8
+    stz $2105
+    jsr scene_oam_reset
+    sep #$20
+    .a8
+    lda #$E0
+    sta $2101         ; OBJSEL pair 7, name base word $0000
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+    stx $2102
+    sep #$20
+    .a8
+    lda #40
+    sta $2104
+    lda #60
+    sta $2104
+    lda #$10
+    sta $2104
+    lda #$30
+    sta $2104
+    lda #120
+    sta $2104
+    lda #60
+    sta $2104
+    lda #$10
+    sta $2104
+    lda #$30
+    sta $2104
+    rep #$30
+    .a16
+    .i16
+    ldx #$0100
+    stx $2102
+    sep #$20
+    .a8
+    lda #$08
+    sta $2104         ; sprite 0 small (16x32), sprite 1 large (32x32)
+    lda #$10
+    sta $212C
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
 ; c7-vflip-tall-halves — C7.13
-; A 16x32 sprite with the V-flip attribute set. The errata: each 16x16 half flips INDEPENDENTLY rather than the sprite flipping as a whole, so the two halves swap their internal contents but stay in place relative to each other. A core that flips the whole sprite produces a picture that is upside-down in a different way — same pixels, different arrangement, which a hash separates and an eye might not.
+; A 16x32 sprite with the V-flip attribute set. The errata: each 16x16 half flips INDEPENDENTLY rather than the sprite flipping as a whole, so the two halves swap their internal contents but stay in place relative to each other. A core that flips the whole sprite produces a picture that is upside-down in a different way — same pixels, different arrangement, which a hash separates and an eye might not. Re-blessed once: this scene originally selected OBJSEL pair 3 and set the sprite's size bit, which is 32x32 — a square sprite, on which the errata says nothing. A tall size needs pair 6 or 7, whose SMALL member is 16x32.
 .proc scene_c7_vflip_tall_halves
     .a16
     .i16
@@ -1589,8 +1699,8 @@ SCENES_IMPL = 1
     jsr scene_oam_reset
     sep #$20
     .a8
-    lda #$60
-    sta $2101         ; OBJSEL size pair 3: 16x32 / 32x64, name base word $0000
+    lda #$C0
+    sta $2101         ; OBJSEL size pair 6: 16x32 / 32x64, name base word $0000
     rep #$30
     .a16
     .i16
@@ -1614,8 +1724,8 @@ SCENES_IMPL = 1
     stx $2102         ; OAMADD = $100 words = the high table
     sep #$20
     .a8
-    lda #$02
-    sta $2104         ; sprite 0: X bit 8 clear, size bit set
+    lda #$00
+    sta $2104         ; sprite 0: X bit 8 clear, size bit CLEAR -> the small 16x32
     lda #$10
     sta $212C
     lda #$0F
@@ -1677,7 +1787,7 @@ SCENES_IMPL = 1
 .export _scene_count
 .export _scene_entries
 _scene_count:
-    .word 41
+    .word 43
 _scene_entries:
     .addr scene_c5_mode1_bg_priority
     .addr scene_c8_fixed_colour_add
@@ -1718,5 +1828,7 @@ _scene_entries:
     .addr scene_c4_hofs_keeps_low_three_bits
     .addr scene_c4_210d_drives_mode7_scroll
     .addr scene_c7_lower_index_on_top
+    .addr scene_c7_objsel_size_6
+    .addr scene_c7_objsel_size_7
     .addr scene_c7_vflip_tall_halves
     .addr scene_c7_64px_wraps_bottom_to_top
