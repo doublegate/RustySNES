@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`MOV dp,dp` is exempt from the store dummy-read (`E2.02`).** `E2.01` establishes the rule — a
+  store reads its destination first, visible against a timer counter because reading one empties it.
+  `$FA` is one of the two opcodes the rule does not apply to, so the same store through it leaves
+  the counter alone.
+
+  The two tests are **the same measurement with one instruction changed**, which is what makes this
+  an assertion about `$FA` rather than about timers: a core that applies the dummy read uniformly
+  passes `E2.01` and fails here, and one that omits it everywhere does the reverse. Timer 1 runs
+  alongside as the vacuity guard, because otherwise "timer 0 still holds a count" and "the timers
+  never started" are the same reading.
+
 - **`MOVW dp,YA` dummy-reads its low byte only (`E2.03`).** Stores read their destination before
   writing it (`E2.01`), and a sixteen-bit store might reasonably do that twice. It does not. Pointed
   at the timer counters — where a read is *destructive* — the difference is directly visible: `$FD`
@@ -780,10 +791,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **219 tests — 207 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **220 tests — 208 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **50 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **177 of 443** on-cart plus **50** scene-only —
-**227 of 443** in total, and **every group A-G now has shipped tests**
+framebuffer-oracle tier. Dossier coverage is **178 of 443** on-cart plus **50** scene-only —
+**228 of 443** in total, and **every group A-G now has shipped tests**
 (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.

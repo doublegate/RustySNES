@@ -1339,6 +1339,15 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes — flagged
 | 1 | `$02` | ADC $7F + $01 did not set both V and H, so the CLRV check below would be vacuous |
 | 2 | `$04` | CLRV left a flag set — it clears H as well as V, and nothing else on the SPC700 clears H |
 
+### E2.02 — MOV dp,dp is exempt
+
+Provenance: **Documented** (SNESdev Wiki, SPC700; fullsnes — flagged as errata). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | timer 1's counter was empty, so the timers never ran and the check below would pass on a counter that had nothing in it |
+| 2 | `$04` | timer 0's counter was consumed by MOV dp,dp — that opcode is exempt from the store dummy-read, and a core applying the rule uniformly clears it |
+
 ### E2.03 — MOVW reads the low byte
 
 Provenance: **Documented** (SNESdev Wiki, SPC700; fullsnes — flagged as errata). Kind: scored.

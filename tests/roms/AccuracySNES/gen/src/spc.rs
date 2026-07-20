@@ -244,6 +244,15 @@ impl Spc {
         self.push(&[0xE0])
     }
 
+    /// `MOV dp,dp` — `$FA`. One of the two stores that does *not* dummy-read its destination.
+    ///
+    /// **This function takes `(dst, src)`, in mnemonic order.** The reversal is in the *encoding*
+    /// only: the opcode's operand bytes are source first, then destination, which is why the `push`
+    /// below looks swapped. Call it the way you would write the instruction.
+    pub fn mov_dp_dp(&mut self, dst: u8, src: u8) -> &mut Self {
+        self.push(&[0xFA, src, dst])
+    }
+
     /// `MOVW dp,YA` — `$DA`. Writes two bytes, but dummy-reads only the **low** one, which is what
     /// makes it distinguishable from two separate stores.
     pub fn movw_dp_ya(&mut self, dp: u8) -> &mut Self {
