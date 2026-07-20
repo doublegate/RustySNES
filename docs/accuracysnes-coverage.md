@@ -28,7 +28,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `C4` | 5 | 0 | 5 | — |
 | `C5` | 15 | 0 | 8 | C5.05, C5.06, C5.07, C5.12, C5.13, C5.14, C5.15 |
 | `C6` | 7 | 0 | 6 | C6.07 |
-| `C7` | 16 | 3 | 0 | C7.03, C7.04, C7.05, C7.06, C7.07, C7.09, C7.10, C7.11, C7.12, C7.13, C7.14, C7.15, C7.16 |
+| `C7` | 16 | 3 | 3 | C7.03, C7.04, C7.05, C7.06, C7.07, C7.09, C7.10, C7.11, C7.12, C7.16 |
 | `C8` | 12 | 0 | 9 | C8.01, C8.09, C8.12 |
 | `C9` | 8 | 1 | 0 | C9.01, C9.02, C9.03, C9.05, C9.06, C9.07, C9.08 |
 | `C10` | 5 | 0 | 3 | C10.03, C10.04 |
@@ -52,7 +52,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `F1` | 22 | 0 | 0 | F1.01, F1.02, F1.03, F1.04, F1.05, F1.06, F1.07, F1.08, F1.09, F1.10, F1.11, F1.12, F1.13, F1.14, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
 | `G1` | 18 | 0 | 0 | G1.01, G1.02, G1.03, G1.04, G1.05, G1.06, G1.07, G1.08, G1.09, G1.10, G1.11, G1.12, G1.13, G1.14, G1.15, G1.16, G1.17, G1.18 |
 
-**109 of 443** enumerated assertion rows covered by an on-cart test, plus **39** covered only by a rendered scene (`docs/adr/0013`) — **148 of 443** in total.
+**109 of 443** enumerated assertion rows covered by an on-cart test, plus **42** covered only by a rendered scene (`docs/adr/0013`) — **151 of 443** in total.
 
 The two columns are kept apart on purpose. An on-cart result means the same thing on any emulator and on real hardware; a rendered scene needs a host holding the golden. Adding them into one figure would quietly change what the number claims.
 
@@ -113,6 +113,9 @@ Declared in `gen/src/scenes.rs`. Each is reported by the host framebuffer oracle
 - **`C4.02,C4.03`** — c4-shared-scroll-latch
 - **`C4.01`** — c4-hofs-keeps-low-three-bits
 - **`C4.04,C4.05`** — c4-210d-drives-mode7-scroll
+- **`C7.15`** — c7-lower-index-on-top
+- **`C7.13`** — c7-vflip-tall-halves
+- **`C7.14`** — c7-64px-wraps-bottom-to-top
 
 ## Tests with no enumerated assertion
 

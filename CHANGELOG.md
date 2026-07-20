@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sprites (`C7`) — three new scenes, bringing the blessed total to 41.** `C7.15` (sprite
+  priority is OAM index alone, so the scene writes the two in the opposite order to the expected
+  result — a core drawing in write order gets it exactly backwards), `C7.13` (the errata: V-flip
+  on a tall sprite flips each 16x16 half *independently*, giving the same pixels in a different
+  arrangement — which a hash separates and an eye might not), and `C7.14` (a 64-pixel sprite near
+  the bottom wraps to the top rather than clipping).
+
+  A new `scene_oam_reset` helper parks all 128 sprites at Y=224 first. OAM is 544 bytes of state
+  nothing else clears, so a sprite scene would otherwise render its own sprites *plus* whatever the
+  previous scene left — the same contamination the per-scene canvas rebuild exists to prevent, in
+  another place it was not reaching.
+
 - **The scroll-register write-twice latch (`C4`) — three new scenes, bringing the blessed total
   to 38.** These registers are
   write-only, so the latch is observable only through the picture. `C4.02`/`C4.03`: one `Prev`
@@ -124,9 +136,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   battery already had.
 
 **AccuracySNES totals, as of this section:** **149 tests — 137 scoring at 100.00%, 11 golden
-vectors**, plus one region-dependent SKIP per image, and **38 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **109 of 443** on-cart plus **39** scene-only —
-**148 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
+framebuffer-oracle tier. Dossier coverage is **109 of 443** on-cart plus **42** scene-only —
+**151 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 

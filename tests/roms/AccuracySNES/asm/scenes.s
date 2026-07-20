@@ -182,6 +182,53 @@ SCENES_IMPL = 1
     rts
 .endproc
 
+; Park all 128 sprites off-screen and point OBJ character data at the font.
+.proc scene_oam_reset
+    php
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$20
+    sta $2101         ; OBJSEL: size pair 1 (8x8 / 16x16), name base word $0000
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+    stx $2102         ; OAMADD = 0
+    ldx #$0000
+@low:
+    sep #$20
+    .a8
+    lda #$00
+    sta $2104         ; X low
+    lda #224
+    sta $2104         ; Y = 224: off the bottom, so no range or sliver slot is used
+    lda #$00
+    sta $2104         ; tile
+    sta $2104         ; attributes
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #128
+    bne @low
+    ldx #$0000
+@high:
+    sep #$20
+    .a8
+    lda #$00
+    sta $2104         ; high table: X bit 8 clear, size bit clear
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #32
+    bne @high
+    plp
+    rts
+.endproc
+
 ; c5-mode1-bg-priority — C5.02
 ; Mode 1 with BG1 and BG2 enabled at different priorities, each showing the font tiles already in VRAM through a distinct palette. Evidence for the mode-1 layer and priority ordering.
 .proc scene_c5_mode1_bg_priority
@@ -1485,11 +1532,159 @@ SCENES_IMPL = 1
     rts
 .endproc
 
+; c7-lower-index-on-top — C7.15
+; Two overlapping sprites in different palettes, the lower OAM index second in the write order. Sprite priority among sprites is decided by OAM index alone — lower is always in front — regardless of the order they were written or their attribute priority bits. Writing them in the opposite order to the expected result is the point: a core that draws in write order gets this exactly backwards.
+.proc scene_c7_lower_index_on_top
+    .a16
+    .i16
+    sep #$20
+    .a8
+    stz $2105         ; BGMODE 0
+    jsr scene_oam_reset
+    sep #$20
+    .a8
+    ; --- sprite 1 first: palette 1, offset down-right ---
+    rep #$30
+    .a16
+    .i16
+    ldx #$0004        ; OAM byte 4 = sprite 1
+    stx $2102
+    sep #$20
+    .a8
+    lda #100
+    sta $2104         ; X
+    lda #100
+    sta $2104         ; Y
+    lda #$10
+    sta $2104         ; tile $10 — inside the font AND printable at 4bpp
+    lda #$32
+    sta $2104         ; attr: palette 1, priority 3
+    ; --- sprite 0 second: palette 3, overlapping ---
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+    stx $2102
+    sep #$20
+    .a8
+    lda #96
+    sta $2104
+    lda #96
+    sta $2104
+    lda #$10
+    sta $2104
+    lda #$36
+    sta $2104         ; attr: palette 3, same priority
+    lda #$10
+    sta $212C         ; OBJ on the main screen
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; c7-vflip-tall-halves — C7.13
+; A 16x32 sprite with the V-flip attribute set. The errata: each 16x16 half flips INDEPENDENTLY rather than the sprite flipping as a whole, so the two halves swap their internal contents but stay in place relative to each other. A core that flips the whole sprite produces a picture that is upside-down in a different way — same pixels, different arrangement, which a hash separates and an eye might not.
+.proc scene_c7_vflip_tall_halves
+    .a16
+    .i16
+    sep #$20
+    .a8
+    stz $2105
+    jsr scene_oam_reset
+    sep #$20
+    .a8
+    lda #$60
+    sta $2101         ; OBJSEL size pair 3: 16x32 / 32x64, name base word $0000
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+    stx $2102
+    sep #$20
+    .a8
+    lda #100
+    sta $2104         ; X
+    lda #80
+    sta $2104         ; Y
+    lda #$10
+    sta $2104         ; tile $10
+    lda #$B0
+    sta $2104         ; attr: V-flip set, palette 0, priority 3
+    ; high table: sprite 0 size bit set -> the LARGE size of the pair (16x32)
+    rep #$30
+    .a16
+    .i16
+    ldx #$0100
+    stx $2102         ; OAMADD = $100 words = the high table
+    sep #$20
+    .a8
+    lda #$02
+    sta $2104         ; sprite 0: X bit 8 clear, size bit set
+    lda #$10
+    sta $212C
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; c7-64px-wraps-bottom-to-top — C7.14
+; A 64-pixel-tall sprite placed near the bottom of a 224-line display. It wraps: the part that would fall past line 224 reappears at the top of the screen. A core that clips instead simply loses those rows, which is the same picture minus a band — so this is read against `c7-vflip-tall-halves`, where nothing wraps.
+.proc scene_c7_64px_wraps_bottom_to_top
+    .a16
+    .i16
+    sep #$20
+    .a8
+    stz $2105
+    jsr scene_oam_reset
+    sep #$20
+    .a8
+    lda #$A0
+    sta $2101         ; OBJSEL size pair 5: 32x32 / 64x64
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+    stx $2102
+    sep #$20
+    .a8
+    lda #120
+    sta $2104         ; X
+    lda #200
+    sta $2104         ; Y = 200: 64 tall runs 24 rows past the bottom
+    lda #$10
+    sta $2104
+    lda #$30
+    sta $2104         ; attr: palette 0, priority 3
+    rep #$30
+    .a16
+    .i16
+    ldx #$0100
+    stx $2102
+    sep #$20
+    .a8
+    lda #$02
+    sta $2104         ; sprite 0 takes the large size of the pair (64x64)
+    lda #$10
+    sta $212C
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
 .segment "CATALOG"
 .export _scene_count
 .export _scene_entries
 _scene_count:
-    .word 38
+    .word 41
 _scene_entries:
     .addr scene_c5_mode1_bg_priority
     .addr scene_c8_fixed_colour_add
@@ -1529,3 +1724,6 @@ _scene_entries:
     .addr scene_c4_shared_scroll_latch
     .addr scene_c4_hofs_keeps_low_three_bits
     .addr scene_c4_210d_drives_mode7_scroll
+    .addr scene_c7_lower_index_on_top
+    .addr scene_c7_vflip_tall_halves
+    .addr scene_c7_64px_wraps_bottom_to_top
