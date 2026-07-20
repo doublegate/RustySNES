@@ -495,6 +495,16 @@ Provenance: **Documented** (SNESdev Wiki, OAM; fullsnes). Kind: scored.
 |---|---|---|
 | 1 | `$02` | the OAM address was not reloaded across a rendered frame — the read came from where the pointer had walked to rather than from $2102 |
 
+### C7.09 — Overflow flags clear
+
+Provenance: **Documented** (SNESdev Wiki, sprites; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | 34 sprites on one scanline did not set $213E's range-over flag, so the readings below say nothing |
+| 2 | `$04` | the range-over flag cleared without a frame boundary — forced blank is not the end of vblank, and a driver reading the flag during blanking would lose it |
+| 3 | `$06` | the range-over flag survived a rendered frame with nothing in range, so it is never cleared at the end of vblank |
+
 ### C2.01 — VMAIN step 1 word
 
 Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.

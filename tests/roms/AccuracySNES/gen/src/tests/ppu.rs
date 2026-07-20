@@ -35,6 +35,7 @@ pub fn all() -> Vec<Test> {
         c1_05(),
         c1_03b(),
         c1_07(),
+        c7_09(),
         // --- C2: VRAM port ---
         c2_01(),
         c2_02(),
@@ -374,6 +375,124 @@ fn c1_07() -> Test {
         'C',
         "Blank edge reloads OAM",
         Provenance::Documented("SNESdev Wiki, OAM; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The sprite overflow flags clear when vblank ends, and forced blank does not clear them.
+///
+/// `$213E` bit 6 (range over) latches when more than 32 sprites are in range on a scanline, and it
+/// is cleared once per frame — at the *end of vblank*, as rendering begins. Forced blank is not that
+/// event: a program that blanks the screen and reads the flag still sees the last frame's verdict,
+/// which is exactly what makes the flag usable at all, since a driver reads it during vblank.
+///
+/// Three readings, in one test, because each is meaningless alone:
+///
+/// 1. after a frame with 34 sprites on one line, the flag is **set**;
+/// 2. after parking every sprite but *without* rendering, it is **still set** — forced blank did
+///    not clear it;
+/// 3. after one more rendered frame with nothing in range, it is **clear**.
+///
+/// A core that clears the flag on any `$2100` write passes (1) and fails (2). One that never clears
+/// it passes (1) and (2) and fails (3). Only the sequence separates them.
+///
+/// Sprites are parked at `Y = 240` rather than 224 because the visible height is not fixed: an
+/// overscan display shows 239 lines, and a host whose PAL default is overscan renders sprites
+/// parked at 224. Mesen2's PAL run failed the third reading for exactly that reason — the parked
+/// sprites were still in range, and the flag it was asked to have cleared had been set again.
+fn c7_09() -> Test {
+    let mut a = Asm::new();
+    a.c("Park all 128 sprites off-screen first: OAM is 544 bytes nothing else clears, and a stray");
+    a.c("sprite left by an earlier test would set the flag for a reason this test is not about.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("ldx #$0000");
+    a.l("stx $2102");
+    a.l("ldy #$0000");
+    a.label("park1");
+    a.l("sep #$20");
+    a.l("stz $2104         ; X");
+    a.l("lda #240");
+    a.l("sta $2104         ; Y=240: below the visible area in 224- AND 239-line modes");
+    a.l("stz $2104         ; tile");
+    a.l("stz $2104         ; attr");
+    a.l("rep #$30");
+    a.l("iny");
+    a.l("cpy #128");
+    a.l("bne @park1");
+    a.c("Now put 34 of them on one line — two more than the range limit.");
+    a.l("ldx #$0000");
+    a.l("stx $2102");
+    a.l("ldy #$0000");
+    a.label("crowd");
+    a.l("sep #$20");
+    a.l("stz $2104         ; X");
+    a.l("lda #100");
+    a.l("sta $2104         ; Y, all on the same scanline");
+    a.l("lda #$10");
+    a.l("sta $2104         ; tile $10");
+    a.l("lda #$30");
+    a.l("sta $2104         ; attr: palette 0, priority 3");
+    a.l("rep #$30");
+    a.l("iny");
+    a.l("cpy #34");
+    a.l("bne @crowd");
+    a.l("sep #$20");
+    a.l("lda #$10");
+    a.l("sta $212C         ; OBJ on the main screen, so they are actually evaluated");
+    a.c("Render a frame. Range over must latch during it and survive into vblank.");
+    a.l("jsr frame_step");
+    a.l("sep #$20");
+    a.l("lda $213E");
+    a.l("and #$40");
+    a.assert_a8(
+        0x40,
+        "34 sprites on one scanline did not set $213E's range-over flag, so the readings below \
+         say nothing",
+    );
+    a.c("Park them all again — under forced blank, with no frame rendered. The flag must persist:");
+    a.c("forced blank is not the end of vblank.");
+    a.l("rep #$30");
+    a.l("ldx #$0000");
+    a.l("stx $2102");
+    a.l("ldy #$0000");
+    a.label("park2");
+    a.l("sep #$20");
+    a.l("stz $2104");
+    a.l("lda #240");
+    a.l("sta $2104");
+    a.l("stz $2104");
+    a.l("stz $2104");
+    a.l("rep #$30");
+    a.l("iny");
+    a.l("cpy #128");
+    a.l("bne @park2");
+    a.l("sep #$20");
+    a.l("lda $213E");
+    a.l("and #$40");
+    a.assert_a8(
+        0x40,
+        "the range-over flag cleared without a frame boundary — forced blank is not the end of \
+         vblank, and a driver reading the flag during blanking would lose it",
+    );
+    a.c("One more rendered frame, now with nothing in range. The end of ITS vblank clears the");
+    a.c("flag, and nothing sets it again.");
+    a.l("jsr frame_step");
+    a.l("sep #$20");
+    a.l("lda $213E");
+    a.l("and #$40");
+    a.assert_a8(
+        0x00,
+        "the range-over flag survived a rendered frame with nothing in range, so it is never \
+         cleared at the end of vblank",
+    );
+    a.finish(
+        "C7.09",
+        'C',
+        "Overflow flags clear",
+        Provenance::Documented("SNESdev Wiki, sprites; fullsnes"),
         Kind::Scored,
         None,
     )
