@@ -34,3 +34,6 @@
 33	c11-mode7-direct-colour	C11.10,C12.03
 34	c10-mode7-mosaic	C10.05
 35	c11-mode7-window	C11.11
+36	c4-shared-scroll-latch	C4.02,C4.03
+37	c4-hofs-keeps-low-three-bits	C4.01
+38	c4-210d-drives-mode7-scroll	C4.04,C4.05

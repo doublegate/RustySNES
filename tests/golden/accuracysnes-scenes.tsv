@@ -59,6 +59,11 @@
 #   samples that one sub-pixel, so a zero there made the char-0 screen-over mode render transparent
 #   and hash identically to the transparent mode -- on all three emulators, which is exactly the
 #   kind of agreement that proves nothing.
+#
+# 2026-07-20, fifth batch (3 scenes: the scroll-register write-twice latch, C4). No divergence.
+# The write-twice latch is shared across all four backgrounds AND both axes, which is only visible
+# when a register is written ONCE and the next write goes somewhere else -- so `c4-shared-scroll-
+# latch` writes one byte to $210D and one to $210E and reads the result off the V scroll.
 
 c5-mode1-bg-priority	0x4fccc3fcf1027a01
 c8-fixed-colour-add	0x313006a2eb2c3745
@@ -95,3 +100,6 @@ c11-extbg-priority-split	0x64cf43a141a1bd25
 c11-mode7-direct-colour	0x76edbfc0e31af525
 c10-mode7-mosaic	0x682dea05f07aed25
 c11-mode7-window	0x47dd6ca0efa7c52a
+c4-shared-scroll-latch	0x3e05fffd80255a7a
+c4-hofs-keeps-low-three-bits	0xfaada56725f5c6c6
+c4-210d-drives-mode7-scroll	0x0fda2df90aff3c65
