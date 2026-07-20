@@ -1339,6 +1339,16 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes — flagged
 | 1 | `$02` | ADC $7F + $01 did not set both V and H, so the CLRV check below would be vacuous |
 | 2 | `$04` | CLRV left a flag set — it clears H as well as V, and nothing else on the SPC700 clears H |
 
+### E2.06 — PSW.P selects the page
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 addressing; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a direct-page store with P set did not reach $0120, so the bit is not selecting the page |
+| 2 | `$04` | the page-0 byte changed as well, so the store went to $0020 rather than to $0120 |
+| 3 | `$06` | INC dp with P set did not increment $0120 — a read-modify-write resolves the page for both halves, and $5A means the write went elsewhere |
+
 ### E2.07 — CALL pushes exact addr
 
 Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes). Kind: scored.

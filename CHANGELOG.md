@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`PSW.P` moves the direct page, for a store and for a read-modify-write (`E2.06`).** The bit is
+  easy to implement for the obvious loads and stores and forget for the rest. A driver that sets `P`
+  to keep its variables clear of the zero page then finds half its accesses going elsewhere, and the
+  failure looks like memory corruption rather than an addressing bug.
+
+  Two kinds of access, because one proves less than it looks: a `MOV` store, and an `INC dp`, which
+  reads through `P`, modifies, and writes back through it. A core that resolves the page once at
+  decode passes both; one that resolves it separately for the read and the write can fail the second
+  while passing the first. The `[aa]+Y` pointer fetch the dossier also names is **not** covered.
+
+  Both pages are seeded with different values first, so "it went to `$0120`" and "it went to
+  `$0020`" are distinguishable answers rather than one answer and one absence — and the page-0
+  assertion catches a core that writes *both*.
+
 - **`DAS` reads the inverted sense of `C` and `H` (`E1.09`).** `DAA` adjusts when a flag is *set*;
   `DAS` adjusts when one is *clear*. A core that copies `DAA`'s conditions and merely flips the
   addition to a subtraction adjusts in exactly the wrong cases — invisible on the values anyone
@@ -756,10 +770,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **217 tests — 205 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **218 tests — 206 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **50 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **175 of 443** on-cart plus **50** scene-only —
-**225 of 443** in total, and **every group A-G now has shipped tests**
+framebuffer-oracle tier. Dossier coverage is **176 of 443** on-cart plus **50** scene-only —
+**226 of 443** in total, and **every group A-G now has shipped tests**
 (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
