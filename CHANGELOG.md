@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`KOFF` outranks `KON`, and mute is downstream of `VxOUTX` (`E8.04`, `E9.17`).** The two key
+  registers are not symmetric: `KON` is a write-triggered *edge* that starts a voice once, while
+  `KOFF` is a *level* the DSP consults every time it looks. So a driver that sets `KOFF` and then
+  writes `KON` without clearing it first gets silence — a real and confusing way to lose a note.
+  `E8.04` writes both back to back with nothing between them and asserts the envelope reaches zero;
+  its two controls are already in the battery (`E7.10`, no `KOFF` at all, reads `$7F`; `E7.08`,
+  `KOFF` alone, reads `$00`).
+
+  `E9.17`: `FLG`'s mute bit silences the *mixer*, so everything upstream carries on — the envelope
+  steps, the sample decodes, and `VxOUTX` still reads what it read before. A core that implements
+  mute by zeroing the voices makes `VxOUTX` go quiet too, and a driver watching it to decide when a
+  sound effect has finished waits forever.
+
+  `Voice::late` now takes a *slice* of register writes rather than one, because a test about two
+  registers written together depends on nothing running between them.
+
 - **Two PPU port rules that only a program can see (`C1.03`, `C3.07`).** `C1.03`: the OAM *high*
   table commits every byte as it is written — the pairing rule that buffers a lone byte belongs to
   the low table only. A core that applies it everywhere loses every odd write to the high table,
@@ -581,10 +597,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **204 tests — 192 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **206 tests — 194 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **49 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **162 of 443** on-cart plus **49** scene-only —
-**211 of 443** in total, and **every group A-G now has shipped tests**
+framebuffer-oracle tier. Dossier coverage is **164 of 443** on-cart plus **49** scene-only —
+**213 of 443** in total, and **every group A-G now has shipped tests**
 (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.

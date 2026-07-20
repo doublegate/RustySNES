@@ -74,7 +74,9 @@ pub fn all() -> Vec<Test> {
         e4_02(),
         e4_04(),
         e5_02(),
+        e8_04(),
         e9_04(),
+        e9_17(),
         e9_18(),
         e5_03(),
         e5_04(),
@@ -995,10 +997,13 @@ struct Voice {
     non: u8,
     /// Delay loops between key-on and the read, each roughly a thousand SPC700 cycles.
     settle: u8,
-    /// A `(register, value, extra delay loops)` write made *after* settling — key-off, a `FLG`
-    /// reset, anything whose effect is the thing being measured. The delay is how long the effect
-    /// is given before the read.
-    late: Option<(u8, u8, u8)>,
+    /// `(register, value)` writes made *after* settling — key-off, a `FLG` reset, anything whose
+    /// effect is the thing being measured. Applied in order, back to back: a test that needs two
+    /// registers written *together* (the key-off/key-on collapse cases, say) depends on nothing
+    /// running between them.
+    late: &'static [(u8, u8)],
+    /// Delay loops after the `late` writes, before the registers are read.
+    late_settle: u8,
 }
 
 impl Voice {
@@ -1012,7 +1017,8 @@ impl Voice {
             gain: 0x7F,
             non: 0x00,
             settle: 4,
-            late: None,
+            late: &[],
+            late_settle: 0,
         }
     }
 }
@@ -1075,11 +1081,11 @@ fn voice_program(sample: &[u8], v: Voice) -> Spc {
         p.delay(0x00);
     }
 
-    if let Some((reg, val, after)) = v.late {
+    for &(reg, val) in v.late {
         dsp_write(&mut p, reg, val);
-        for _ in 0..after {
-            p.delay(0x00);
-        }
+    }
+    for _ in 0..v.late_settle {
+        p.delay(0x00);
     }
 
     dsp_read_to(&mut p, 0x7C, PORT1); // ENDX
@@ -2154,7 +2160,8 @@ fn e7_08() -> Test {
     let prog = voice_program(
         &looping_sample(),
         Voice {
-            late: Some((0x5C, 0x01, 12)), // KOF voice 0
+            late: &[(0x5C, 0x01)], // KOF voice 0
+            late_settle: 12,
             ..Voice::direct_gain()
         },
     );
@@ -2269,7 +2276,8 @@ fn e9_18() -> Test {
         &looping_sample(),
         Voice {
             // FLG: reset (bit 7) plus the echo-write disable the setup already uses.
-            late: Some((0x6C, 0xA0, 4)),
+            late: &[(0x6C, 0xA0)],
+            late_settle: 4,
             ..Voice::direct_gain()
         },
     );
@@ -2288,6 +2296,91 @@ fn e9_18() -> Test {
         'E',
         "FLG reset kills voices",
         Provenance::Documented("SNESdev Wiki, S-DSP; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `KOFF` holds a voice off continuously; a `KON` written while it is set does not restart the voice.
+///
+/// The two registers are not symmetric. `KON` is a write-triggered edge — it starts a voice once and
+/// the bit does not linger — while `KOFF` is a level the DSP consults every time it looks. So a
+/// driver that sets `KOFF` and then writes `KON` without clearing it first gets silence, which is a
+/// real and confusing way to lose a note.
+///
+/// Its two controls are already in the battery: `E7.10` is the same voice with no `KOFF` at all,
+/// reading `$7F`, and `E7.08` is `KOFF` alone, reading `$00`. This is `KOFF` *and* `KON`, and it
+/// must read `$00` — if `KON` were the level and `KOFF` the edge, it would read `$7F`.
+fn e8_04() -> Test {
+    let prog = voice_program(
+        &looping_sample(),
+        Voice {
+            // Both writes back to back, with nothing between them: KOF first, then a KON that must
+            // not take. The settle afterwards is long enough for release to reach zero.
+            late: &[(0x5C, 0x01), (0x4C, 0x01)],
+            late_settle: 12,
+            ..Voice::direct_gain()
+        },
+    );
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x00,
+        "a KON written while KOFF was still set restarted the voice — KOFF is a level the DSP \
+         consults continuously, not an edge that KON can override",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E8.04",
+        'E',
+        "KOFF outranks KON",
+        Provenance::Documented("fullsnes, S-DSP key on/off; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `FLG`'s mute bit silences the mixer, not the voice: `VxOUTX` is upstream of it and keeps moving.
+///
+/// Mute is applied where the voices are summed, so everything before that point carries on — the
+/// envelope steps, the sample decodes, and `VxOUTX`, which reports the post-envelope pre-volume
+/// sample, still reads what it read before. A core that implements mute by zeroing the voices makes
+/// `VxOUTX` go quiet too, and a driver watching it to decide when a sound effect has finished waits
+/// forever.
+///
+/// The sample is the constant one the BRR tests use, so the reading is stationary and the assertion
+/// is about mute rather than about which sample the cart caught. `E5.03` is the same voice without
+/// mute, reading the same band.
+fn e9_17() -> Test {
+    let prog = voice_program(
+        &constant_sample(0x8, 0x7),
+        Voice {
+            late: &[(0x6C, 0x60)], // FLG: mute, echo writes still disabled, no reset
+            late_settle: 4,
+            ..Voice::direct_gain()
+        },
+    );
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x01,
+        0x7F,
+        "VxOUTX went quiet when FLG's mute bit was set — mute belongs to the mixer, and OUTX is \
+         upstream of it",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E9.17",
+        'E',
+        "Mute is after OUTX",
+        Provenance::Documented("fullsnes, S-DSP FLG; anomie's DSP doc"),
         Kind::Scored,
         None,
     )
