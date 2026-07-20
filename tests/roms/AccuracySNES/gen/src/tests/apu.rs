@@ -122,7 +122,7 @@ fn upload_and_run(a: &mut Asm, prog: &Spc) {
     a.l("sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack");
     a.l("lda #$0200");
     a.l("sta f:V_APU_ENTRY");
-    a.l("jsr apu_upload");
+    a.l("jsl apu_upload_far");
     a.c("Clear the CPU-side port 0 before the program can look at it. The previous test left the");
     a.c("release byte there, and a program whose release loop sees it immediately jumps back to");
     a.c("the IPL before the cart has read a thing — which reads as a wrong answer, not a race.");
@@ -171,7 +171,7 @@ fn apu_timeout_arm(a: &mut Asm) {
     a.l("sep #$20");
     a.l("lda #$FF");
     a.l("sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker");
-    a.l("jmp test_restore");
+    a.l("jml test_restore");
     a.label("pass");
 }
 
@@ -1866,7 +1866,7 @@ fn e4_04() -> Test {
     a.l("sep #$20");
     a.l("lda #$FF");
     a.l("sta f:V_TEST_RESULT");
-    a.l("jmp test_restore");
+    a.l("jml test_restore");
     a.label("ready");
     a.c("Port 1 is $BB, which the boot ROM writes second — so port 0 must already hold the $AA it");
     a.c("writes first. The pair is the announcement; $BB alone is a byte a core could leave");

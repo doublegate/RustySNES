@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The dispatch table is 24-bit, so a test body can live in any bank.** Bank `$00` filled up twice
+  in a week and the workarounds were running out: the SPC700 images moved to bank `$01`, then the
+  font followed, and what remained was the one thing that could not move — every test body, because
+  `_test_entries` held 16-bit addresses. It now holds `.faraddr` entries, `call_indirect` is a
+  `JMP [abs]`, and every test exits with `jml test_restore`. **Group E's bodies moved to bank
+  `$02`**, which leaves bank `$00` with about 7 KB free and group E with a bank of its own.
+
+  Group E is the group that can move: its tests reach the runtime's variables through long
+  addressing and the APU ports through `$21xx`, which LoROM mirrors into every bank. What it could
+  *not* keep was `jsr apu_upload` — a bank-local `jsr` from bank `$02` lands at the same 16-bit
+  address *in bank `$02`*, which is not a subroutine but whatever bytes are there. Every test in the
+  group reported a garbage verdict until it became `jsl apu_upload_far`. The generator now rejects a
+  bank-local `jsr`, or a `jmp` to anything but a cheap local, in an out-of-bank body: the failure is
+  silent and total, so it is a build error rather than a comment.
+
 - **The SPC700's vector table, and the port-latch strobes (`E2`, `E3`).** `E2.08`: `TCALL n`
   vectors through `[$FFDE - n*2]`, counting *down* from the top of the address space — a stride and
   a direction that are both easy to get backwards, and a driver using `TCALL` for its dispatch table

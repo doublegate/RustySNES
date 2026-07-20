@@ -63,7 +63,7 @@ fn source_from_table(a: &mut Asm, count: u16) {
 ///
 /// At the top rather than after the body, because `Asm::finish` appends the pass epilogue — the
 /// code that actually records `VERDICT_PASS` — after everything the test emits. A data table
-/// ending in `jmp test_restore` therefore jumps *over* that epilogue, and the test reports NOT RUN
+/// ending in `jml test_restore` therefore jumps *over* that epilogue, and the test reports NOT RUN
 /// however well it passed. Three of these did.
 fn data_table(a: &mut Asm) {
     a.l("bra @body");
@@ -934,7 +934,7 @@ fn d1_03() -> Test {
     a.l("sep #$20");
     a.l("lda #$01");
     a.l("sta f:V_TEST_RESULT   ; golden: the number is in the measurement channel");
-    a.l("jmp test_restore");
+    a.l("jml test_restore");
     a.finish(
         "D1.03",
         'D',

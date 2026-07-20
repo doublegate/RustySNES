@@ -757,11 +757,11 @@ fn a7_04() -> Test {
     a.l("beq :+");
     a.l("lda #$03          ; variant 1 = V observed SET   ((1<<1)|1)");
     a.l("sta f:$7EE010");
-    a.l("jmp test_restore");
+    a.l("jml test_restore");
     a.l(":");
     a.l("lda #$05          ; variant 2 = V observed CLEAR ((2<<1)|1)");
     a.l("sta f:$7EE010");
-    a.l("jmp test_restore");
+    a.l("jml test_restore");
     a.finish(
         "A7.04",
         'A',
@@ -1777,11 +1777,11 @@ fn a9_03() -> Test {
     a.l("bne @two");
     a.l("lda #$03          ; variant 1 = one write — the modify cycle did not write");
     a.l("sta f:$7EE010");
-    a.l("jmp test_restore");
+    a.l("jml test_restore");
     a.label("two");
     a.l("lda #$05          ; variant 2 = two writes — WDC note (17) holds");
     a.l("sta f:$7EE010");
-    a.l("jmp test_restore");
+    a.l("jml test_restore");
     a.finish(
         "A9.03",
         'A',
