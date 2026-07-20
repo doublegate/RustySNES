@@ -11,6 +11,7 @@
 //! place there — a test that breaks whenever an unrelated test is added.
 
 use crate::dsl::{Asm, Kind, Provenance, Test};
+use crate::tests::bus::{measure_frame_height, read_v};
 
 /// Every Group D test, in menu order.
 #[must_use]
@@ -23,6 +24,10 @@ pub fn all() -> Vec<Test> {
         d1_07_decrement(),
         d1_10(),
         d1_02(),
+        d1_05(),
+        d1_09(),
+        d2_03(),
+        d2_04(),
     ]
 }
 
@@ -400,6 +405,276 @@ fn d1_02() -> Test {
         'D',
         "DMA 8 clocks/byte",
         Provenance::Documented("SNESdev Wiki, DMA timing; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// A byte count of zero means 65536, not zero.
+///
+/// `$4305/06` is a decrementing counter, so "how many bytes" is really "how many decrements until
+/// it reaches zero" — and starting at zero takes the full 16-bit wrap. Getting this wrong is
+/// silent in the common case (games rarely program zero deliberately) and catastrophic when it
+/// happens, because the transfer either does nothing or runs 65536 bytes into somewhere.
+///
+/// Observed through TIME rather than through the destination, which is what makes it safe: 65536
+/// bytes at 8 master clocks each is 131072 dots, a little over 384 scanlines. Starting from the
+/// top of vblank, the V counter therefore lands around line 85 of the *next* frame. A core that
+/// transfers nothing leaves it near where it started. The destination is CGRAM, which the transfer
+/// overwrites 512 times over and which the next scene rebuilds anyway.
+fn d1_05() -> Test {
+    let mut a = Asm::new();
+    data_table(&mut a);
+    a.c("Wait for the top of vblank so the starting line is known, then run a count-0 transfer.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$08");
+    a.l("sta $4300         ; A->B, fixed source, mode 0");
+    a.l("lda #$22");
+    a.l("sta $4301         ; B-bus = $2122 (CGDATA): harmless, and rebuilt before any scene");
+    a.l("stz $2121         ; CGADD = 0");
+    a.l("rep #$30");
+    a.l("ldx #@data");
+    a.l("stx $4302");
+    a.l("sep #$20");
+    a.l("phk");
+    a.l("pla");
+    a.l("sta $4304");
+    a.l("rep #$30");
+    a.l("ldx #$0000");
+    a.l("stx $4305         ; count = 0, which means 65536");
+    a.l("sep #$20");
+    a.l("jsr wait_vblank   ; start from a known line");
+    a.l("lda #$01");
+    a.l("sta $420B");
+    read_v(&mut a);
+    a.l("sta f:$7E00B0     ; where the transfer left the V counter");
+    a.record(110, "D1.05 V counter after a count-0 DMA");
+    a.c("The landing line depends on FRAME LENGTH, so measure that rather than assume it: 384");
+    a.c("lines past line 225 is line 85 of the next NTSC frame and line 297 of the next PAL one.");
+    a.c("Measured, not read from the region bit — whose position B2.10 had to settle, and which a");
+    a.c("frame-length test must not lean on.");
+    measure_frame_height(&mut a);
+    a.c("Named labels, not anonymous ones: assert_a16_range emits its own `:` labels, so a `bne :+`");
+    a.c(
+        "written across one lands INSIDE the assertion rather than after it. That cost a debugging",
+    );
+    a.c("round here, with the branch silently taking the wrong arm.");
+    a.l("cmp #311");
+    a.l("bne @ntsc");
+    a.l("lda f:$7E00B0");
+    a.assert_a16_range(
+        275,
+        320,
+        "on PAL a count-0 DMA did not take ~384 scanlines, so it did not transfer 65536 bytes",
+    );
+    a.l("bra @done");
+    a.label("ntsc");
+    a.l("lda f:$7E00B0");
+    a.assert_a16_range(
+        60,
+        110,
+        "on NTSC a count-0 DMA did not take ~384 scanlines, so it did not transfer 65536 bytes",
+    );
+    a.label("done");
+    a.finish(
+        "D1.05",
+        'D',
+        "DMA count 0 = 65536",
+        Provenance::Documented("SNESdev Wiki, DMA registers; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The HDMA line-count byte: bit 7 repeats, bits 6-0 count, `$00` terminates.
+///
+/// HDMA is the one part of the DMA controller that is awkward to observe, because it runs itself
+/// once per scanline with no CPU involvement. Pointing it at `$2180` solves that completely: every
+/// transfer lands in WRAM at an auto-incrementing address, so a whole frame of HDMA activity
+/// becomes a byte sequence the CPU can read back and check exactly — how many writes happened, in
+/// what order, and that they then stopped.
+///
+/// This table is all non-repeat entries, so each `$0N` header should produce exactly ONE write and
+/// then idle for `N-1` lines. A core that treats the count as "write this many times" produces
+/// far too many bytes; one that ignores `$00` never stops.
+fn d2_03() -> Test {
+    let mut a = Asm::new();
+    a.l("bra @body");
+    a.label("table");
+    a.l(".byte $03, $11    ; non-repeat, 3 lines: one write of $11");
+    a.l(".byte $04, $22    ; non-repeat, 4 lines: one write of $22");
+    a.l(".byte $00         ; terminate");
+    a.label("body");
+    a.c("Point HDMA channel 0 at $2180 with WMADD in WRAM, run one frame, then read the trail.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    setup_hdma_to_wram(&mut a, 0x0A);
+    a.c("Two non-repeat entries: exactly two bytes, then nothing.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0A00");
+    a.assert_a16(
+        0x2211,
+        "the two non-repeat HDMA entries did not write exactly $11 then $22",
+    );
+    a.l("lda f:$7E0A02");
+    a.assert_a16(0x0000, "HDMA kept writing after the $00 terminator");
+    a.finish(
+        "D2.03",
+        'D',
+        "HDMA line-count byte",
+        Provenance::Documented("SNESdev Wiki, HDMA; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The repeat flag transfers on every line rather than once per entry.
+///
+/// The counterpart to `D2.03`, and the pair is the point: one table of non-repeat entries and one
+/// of repeat entries, differing only in bit 7 of the header bytes. A core that ignores the bit
+/// renders the two tables identically, and either test alone would not notice.
+fn d2_04() -> Test {
+    let mut a = Asm::new();
+    a.l("bra @body");
+    a.label("table");
+    a.l(".byte $83, $11, $22, $33   ; repeat, 3 lines: one write per line");
+    a.l(".byte $82, $44, $55        ; repeat, 2 lines");
+    a.l(".byte $00                  ; terminate");
+    a.label("body");
+    a.c("Same setup as D2.03; only the table's bit 7 differs.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    setup_hdma_to_wram(&mut a, 0x0B);
+    a.c("Five repeat lines: five bytes in order, then nothing.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0B00");
+    a.assert_a16(0x2211, "repeat bytes 0-1 are wrong");
+    a.l("lda f:$7E0B02");
+    a.assert_a16(0x4433, "repeat bytes 2-3 are wrong");
+    a.l("lda f:$7E0B04");
+    a.l("and #$00FF");
+    a.assert_a16(0x0055, "repeat byte 4 is wrong");
+    a.l("lda f:$7E0B05");
+    a.l("and #$00FF");
+    a.assert_a16(
+        0x0000,
+        "HDMA wrote a sixth byte; the repeat counts total five lines",
+    );
+    a.finish(
+        "D2.04",
+        'D',
+        "HDMA repeat flag",
+        Provenance::Documented("SNESdev Wiki, HDMA; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Arm HDMA channel 0 to write single bytes into WRAM page `page`, run one frame, then disarm.
+///
+/// Writing into WRAM through `$2180` is what makes HDMA self-scoring: `WMADD` auto-increments, so
+/// a frame of per-line transfers leaves an exact trail the CPU can read back. The page is cleared
+/// first so "HDMA stopped here" is distinguishable from "this byte was already zero".
+///
+/// **Register widths on exit: `A` 8-bit, `X`/`Y` 16-bit.** Stated because the caller's
+/// `.a8`/`.a16` directives come from its own `sep`/`rep` lines and a helper call is not one of
+/// those — an undocumented width change here would leave the assembler and the CPU disagreeing
+/// about the size of the next immediate.
+fn setup_hdma_to_wram(a: &mut Asm, page: u8) {
+    a.l("sep #$20");
+    a.c("Clear the landing page so a trailing zero means HDMA stopped, not that it never started.");
+    a.l("rep #$30");
+    a.l("ldx #$0000");
+    a.label("clear");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l(&format!("sta f:$7E{page:02X}00,x"));
+    a.l("rep #$30");
+    a.l("inx");
+    a.l("cpx #$0010");
+    a.l("bne @clear");
+
+    a.l("sep #$20");
+    a.l("stz $420C         ; HDMA off while it is being programmed");
+    a.l("lda #$00");
+    a.l("sta $2181");
+    a.l(&format!("lda #${page:02X}"));
+    a.l("sta $2182");
+    a.l(&format!("stz $2183         ; WMADD = $7E:{page:02X}00"));
+    a.l("stz $4300         ; A->B, direct table, mode 0 (one byte per transfer)");
+    a.l("lda #$80");
+    a.l("sta $4301         ; B-bus = $2180");
+    a.l("rep #$30");
+    a.l("ldx #@table");
+    a.l("stx $4302");
+    a.l("sep #$20");
+    a.l("phk");
+    a.l("pla");
+    a.l("sta $4304         ; table address = this bank");
+    a.c("Arm during vblank: enabling HDMA mid-frame is its own erratum (D2.09), and this test is");
+    a.c("not about that. The channel initialises at the top of the next frame.");
+    a.l("jsr wait_vblank");
+    a.l("lda #$01");
+    a.l("sta $420C         ; HDMAEN channel 0");
+    a.l("jsr wait_vblank   ; let the whole active display run");
+    a.l("stz $420C         ; disarm before reading, so nothing moves under the checks");
+}
+
+/// A WRAM source with `$2180` as the destination performs no write at all.
+///
+/// The `$2180` asymmetry, and one of the two halves that make it an asymmetry: WRAM to `$2180` is
+/// a WRAM-to-WRAM transfer through the data port, and the hardware simply does not perform the
+/// write — where the mirrored case (`$2180` as an A-bus *source*) does write, but writes garbage.
+/// A core that implements `$2180` as an ordinary port copies the bytes and looks correct until a
+/// game relies on the transfer being a no-op.
+fn d1_09() -> Test {
+    let mut a = Asm::new();
+    a.c("Seed the destination, then try to DMA WRAM->$2180 over it. Nothing must change.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$5A");
+    a.l("sta f:$7E0C00");
+    a.l("sta f:$7E0C01");
+    a.l("lda #$00");
+    a.l("sta $2181");
+    a.l("lda #$0C");
+    a.l("sta $2182");
+    a.l("stz $2183         ; WMADD = $7E:0C00 — the destination");
+    a.l("stz $4300         ; A->B, increment, mode 0");
+    a.l("lda #$80");
+    a.l("sta $4301         ; B-bus = $2180");
+    a.l("rep #$30");
+    a.l("ldx #$0D00");
+    a.l("stx $4302");
+    a.l("sep #$20");
+    a.l("lda #$7E");
+    a.l("sta $4304         ; A-bus = $7E:0D00, i.e. WRAM");
+    a.l("rep #$30");
+    a.l("ldx #$0002");
+    a.l("stx $4305");
+    a.l("sep #$20");
+    a.l("lda #$01");
+    a.l("sta $420B");
+    a.l("rep #$30");
+    a.l("lda f:$7E0C00");
+    a.assert_a16(
+        0x5A5A,
+        "a WRAM->$2180 DMA wrote to WRAM; that transfer must perform no write at all",
+    );
+    a.finish(
+        "D1.09",
+        'D',
+        "WRAM->$2180 no-write",
+        Provenance::Documented("fullsnes: \"does not cause a write to occur\""),
         Kind::Scored,
         None,
     )

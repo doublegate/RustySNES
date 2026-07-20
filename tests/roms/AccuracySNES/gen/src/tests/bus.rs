@@ -404,6 +404,33 @@ fn b5_04() -> Test {
 // B2 — frame geometry
 // ---------------------------------------------------------------------------------------------
 
+/// Emit: measure this machine's frame height, leaving the maximum V in a 16-bit accumulator.
+///
+/// 261 on NTSC, 311 on PAL. Used by tests whose expected value depends on frame length, so they
+/// can branch on what they MEASURED rather than on the region bit — whose position was itself
+/// contested (`B2.10`) and which a frame-length test must not depend on.
+///
+/// **Register width contract: returns with `A` and `X`/`Y` all 16-bit** (the polling loop ends in
+/// `rep #$30`). Costs a frame; call it once.
+pub fn measure_frame_height(a: &mut Asm) {
+    a.l("sep #$20");
+    a.l("stz $2133         ; SETINI: no interlace, which would add a line");
+    a.l("jsr wait_vblank");
+    a.l("jsr wait_vblank   ; a settled frame");
+    a.l("rep #$30");
+    a.l("lda #$0000");
+    a.l("sta f:$7E0124     ; running maximum");
+    a.label("fh_loop");
+    read_v(a);
+    a.l("cmp f:$7E0124");
+    a.l("bcc :+");
+    a.l("sta f:$7E0124");
+    a.l(":");
+    a.l("cmp #100          ; below 100 means the counter wrapped into the next frame");
+    a.l("bcs @fh_loop");
+    a.l("lda f:$7E0124");
+}
+
 /// Emit: latch the counters and leave the 9-bit V position in a 16-bit accumulator.
 ///
 /// **Register width contract: returns with `A` 16-bit; `X`/`Y` are untouched.** Entry width does
@@ -411,7 +438,7 @@ fn b5_04() -> Test {
 /// widths file-globally to decide between `.a8` and `.a16`, and the dangerous direction is silent:
 /// if the assembler believes `A` is 16-bit while the CPU has it 8-bit, immediate operands assemble
 /// one byte short and every instruction after them shifts.
-fn read_v(a: &mut Asm) {
+pub fn read_v(a: &mut Asm) {
     a.l("sep #$20");
     a.l("lda $213F         ; reset the counter read flipflops");
     a.l("lda $2137         ; latch H and V");
