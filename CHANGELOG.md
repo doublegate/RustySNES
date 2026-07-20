@@ -641,7 +641,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **207 tests — 195 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **208 tests — 196 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **50 rendered scenes** in the host
 framebuffer-oracle tier. Dossier coverage is **166 of 443** on-cart plus **50** scene-only —
 **216 of 443** in total, and **every group A-G now has shipped tests**
