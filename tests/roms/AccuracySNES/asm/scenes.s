@@ -90,9 +90,6 @@ SCENES_IMPL = 1
     ldx #$0000                ; cell index across the whole 32x32 map
 @cell:
     txa
-    and #$001F                ; column
-    lsr a                     ; carry = column parity
-    txa
     cmp #SCREEN_COLS          ; row 0?
     bcs :+
     bcc @row0
@@ -702,7 +699,7 @@ SCENES_IMPL = 1
 .endproc
 
 ; c6-opt-v-alternating-columns — C6.05,C6.06
-; Mode 2 offset-per-tile: BG3's row-1 entries give even columns a vertical offset of 64 and odd columns none. Two assertions at once — each entry moves a WHOLE tile column (C6.06), and the leftmost tile is never affected, so the first entry controls the SECOND visible column (C6.05, an errata). Alternating rather than uniform offsets is what makes the second one legible: the shifted columns come out odd-numbered, and a core without the exemption shifts the even ones instead.
+; Mode 2 offset-per-tile: BG3's row-1 entries give even columns a vertical offset of 100 and odd columns none. 100 rather than a rounder number because an offset that is a multiple of 16 is invisible against a 16-tile cycle, and one that is a multiple of 8 leaves the glyph row unchanged — the first version of this scene arranged a shift nothing could show. Two assertions at once — each entry moves a WHOLE tile column (C6.06), and the leftmost tile is never affected, so the first entry controls the SECOND visible column (C6.05, an errata). Alternating rather than uniform offsets is what makes the second one legible: the shifted columns come out odd-numbered, and a core without the exemption shifts the even ones instead.
 .proc scene_c6_opt_v_alternating_columns
     .a16
     .i16
@@ -742,7 +739,7 @@ SCENES_IMPL = 1
 .endproc
 
 ; c6-opt-v-replaces-vofs — C6.04
-; The same vertical offset, but with BG1VOFS already set to 32. An offset-per-tile V entry REPLACES the background's own scroll rather than adding to it, so the offset columns land at row 64 and not at 96. The unaffected columns still show the scroll, which is what makes the two behaviours distinguishable in one picture.
+; The same vertical offset of 100, but with BG1VOFS already set to 32. An offset-per-tile V entry REPLACES the background's own scroll rather than adding to it, so the offset columns land at row 100 and not at 132. The unaffected columns still show the scroll, which is what makes the two behaviours distinguishable in one picture.
 .proc scene_c6_opt_v_replaces_vofs
     .a16
     .i16
@@ -785,7 +782,7 @@ SCENES_IMPL = 1
 .endproc
 
 ; c6-opt-h-keeps-fine-scroll — C6.03
-; A horizontal offset-per-tile entry of 64 with BG1HOFS = 5. Unlike the vertical case, an H entry replaces only the COARSE part of the scroll — the background's own low three HOFS bits survive, so the offset columns sit at 64+5 rather than at 64. Five pixels is small, and a hash notices it where an eye would not.
+; A horizontal offset-per-tile entry of 64 with BG1HOFS = 5. Unlike the vertical case, an H entry replaces only the COARSE part of the scroll — the background's own low three HOFS bits survive, so the offset columns sit at 64+5 rather than at 64. Five pixels is small, and a hash notices it where an eye would not. (64 is fine for an H entry precisely because the low three bits are discarded anyway; only the V case needs an offset that is not a multiple of 8.)
 .proc scene_c6_opt_h_keeps_fine_scroll
     .a16
     .i16
@@ -915,7 +912,7 @@ SCENES_IMPL = 1
 .endproc
 
 ; c6-mode4-h-vs-v-select — C6.02
-; Mode 4 packs both offsets into a single row and picks between them with bit 15: clear selects horizontal, set selects vertical. Even columns get a horizontal offset and odd columns a vertical one of the same magnitude, so a core that reads the selector backwards produces a picture with the two displacements exchanged rather than one that merely looks wrong.
+; Mode 4 packs both offsets into a single row and picks between them with bit 15: clear selects horizontal, set selects vertical. Even columns get a horizontal offset of 64, odd columns a vertical one of 100 — deliberately different, because an H entry discards its low three bits while a V entry does not, so the two need different values to be equally visible. A core that reads the selector backwards displaces the columns along the wrong axis, which is unmistakable.
 .proc scene_c6_mode4_h_vs_v_select
     .a16
     .i16

@@ -101,9 +101,11 @@ Working rules that have each already cost a debugging session:
   desynchronises everything after it. Assembly helpers are **width-neutral** (`php`/`plp`).
 - Each scene starts from a rebuilt canvas *and* re-run `init_registers`. Build the canvas once and
   the first scene to touch VRAM silently changes the picture for every scene after it.
-- A scene built on the canvas tilemap renders **empty** in a deep mode (an 8bpp tile is 32 words,
-  past the end of a 512-word font). Cross-validation cannot catch that — an empty screen is a stable
-  hash all three emulators agree on. Look at the picture.
+- A scene can arrange a state **no picture can show**, and cross-validation cannot catch that class
+  at all — an unshowable scene hashes stably and every emulator agrees with it. Two instances, both
+  now handled by `scene_low_tiles`: a tile below `$10` covers only ASCII 0-31 (a 4bpp tile spans two
+  font glyphs, an 8bpp tile four), which are blank; and a vertical offset that is a multiple of 16
+  is invisible against a 16-tile cycle. Check that a scene renders what it claims to arrange.
 - `STZ` has no long-addressing form; `cop #$00` is rejected by ca65 2.19 (emit `.byte $02,$00`);
   menu labels are capped at 24 columns.
 - Three emulators failing **identically** means a broken test; RustySNES failing **alone** means a

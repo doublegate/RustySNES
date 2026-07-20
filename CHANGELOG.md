@@ -58,7 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   battery already had.
 
 **AccuracySNES totals, as of this section:** **134 tests — 124 scoring at 100.00%, 10 golden
-vectors**, plus one region-dependent SKIP per image, and **18 rendered scenes** in the host
+vectors**, plus one region-dependent SKIP per image, and **25 rendered scenes** in the host
 framebuffer-oracle tier. Dossier coverage is **95 of 443** on-cart plus **26** scene-only —
 **121 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than

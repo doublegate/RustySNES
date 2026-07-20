@@ -214,11 +214,12 @@ other four (`C13.07`-`C13.10`, the open-bus latches) are CPU-observable and alre
   - **The canvas is rebuilt per scene, not once.** A scene that rewrites VRAM for its own purposes
     otherwise changes the picture for every scene after it. Three scenes hashed identically before
     this was caught, which reads as an emulator agreeing with itself rather than as contamination.
-  - **A scene built on the canvas tilemap renders empty in a deep mode.** An 8bpp tile is 32 words,
-    so the canvas's glyph indices point past the end of a 512-word font and every pixel reads zero.
-    Mode 3 and direct-colour scenes call a shared `scene_low_tiles` helper instead. An empty scene
-    still produces a stable hash that all three emulators agree on, so cross-validation does **not**
-    catch this — only looking at the picture does.
+  - **A scene built on the canvas tilemap renders empty in a deep mode.** The canvas map indexes
+    glyphs across the whole font, and a deep-colour tile is several glyphs wide (16 words at 4bpp,
+    32 at 8bpp), so those indices run past the font entirely. Mode 3 and direct-colour scenes call a
+    shared `scene_low_tiles` helper instead. An empty scene still produces a stable hash that all
+    three emulators agree on, so cross-validation does **not** catch this — only looking at the
+    picture does.
 
   These decide only what appears on screen, so **they cannot be self-scored at all**. Scoring them
   means comparing pixels, which breaks the property that makes this cartridge worth having: that

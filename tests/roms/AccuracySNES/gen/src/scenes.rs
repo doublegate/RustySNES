@@ -577,7 +577,10 @@ pub const SCENES: &[Scene] = &[
         id: "c6-opt-v-alternating-columns",
         dossier: "C6.05,C6.06",
         what: "Mode 2 offset-per-tile: BG3's row-1 entries give even columns a vertical offset of \
-               64 and odd columns none. Two assertions at once — each entry moves a WHOLE tile \
+               100 and odd columns none. 100 rather than a rounder number because an offset that is \
+               a multiple of 16 is invisible against a 16-tile cycle, and one that is a multiple of \
+               8 leaves the glyph row unchanged — the first version of this scene arranged a shift \
+               nothing could show. Two assertions at once — each entry moves a WHOLE tile \
                column (C6.06), and the leftmost tile is never affected, so the first entry \
                controls the SECOND visible column (C6.05, an errata). Alternating rather than \
                uniform offsets is what makes the second one legible: the shifted columns come out \
@@ -613,10 +616,11 @@ pub const SCENES: &[Scene] = &[
     Scene {
         id: "c6-opt-v-replaces-vofs",
         dossier: "C6.04",
-        what: "The same vertical offset, but with BG1VOFS already set to 32. An offset-per-tile V \
-               entry REPLACES the background's own scroll rather than adding to it, so the \
-               offset columns land at row 64 and not at 96. The unaffected columns still show the \
-               scroll, which is what makes the two behaviours distinguishable in one picture.",
+        what: "The same vertical offset of 100, but with BG1VOFS already set to 32. An \
+               offset-per-tile V entry REPLACES the background's own scroll rather than adding to \
+               it, so the offset columns land at row 100 and not at 132. The unaffected columns \
+               still show the scroll, which is what makes the two behaviours distinguishable in \
+               one picture.",
         setup: &[
             "sep #$20",
             "lda #$02",
@@ -651,9 +655,11 @@ pub const SCENES: &[Scene] = &[
         id: "c6-opt-h-keeps-fine-scroll",
         dossier: "C6.03",
         what: "A horizontal offset-per-tile entry of 64 with BG1HOFS = 5. Unlike the vertical \
-               case, an H entry replaces only the COARSE part of the scroll — the background's \
-               own low three HOFS bits survive, so the offset columns sit at 64+5 rather than at \
-               64. Five pixels is small, and a hash notices it where an eye would not.",
+               case, an H entry replaces only the COARSE part of the scroll — the background's own \
+               low three HOFS bits survive, so the offset columns sit at 64+5 rather than at 64. \
+               Five pixels is small, and a hash notices it where an eye would not. (64 is fine for \
+               an H entry precisely because the low three bits are discarded anyway; only the V \
+               case needs an offset that is not a multiple of 8.)",
         setup: &[
             "sep #$20",
             "lda #$02",
@@ -763,9 +769,10 @@ pub const SCENES: &[Scene] = &[
         dossier: "C6.02",
         what: "Mode 4 packs both offsets into a single row and picks between them with bit 15: \
                clear selects horizontal, set selects vertical. Even columns get a horizontal \
-               offset and odd columns a vertical one of the same magnitude, so a core that reads \
-               the selector backwards produces a picture with the two displacements exchanged \
-               rather than one that merely looks wrong.",
+               offset of 64, odd columns a vertical one of 100 — deliberately different, because \
+               an H entry discards its low three bits while a V entry does not, so the two need \
+               different values to be equally visible. A core that reads the selector backwards \
+               displaces the columns along the wrong axis, which is unmistakable.",
         setup: &[
             "sep #$20",
             "lda #$04",
@@ -801,10 +808,11 @@ fn low_tiles_rationale() -> String {
     let mut s = String::new();
 
     // A shared helper rather than fifteen copies. The canvas fills the tilemap with glyph indices
-    // spread over the whole font, which is right for 2bpp and useless for a deeper mode: an 8bpp
-    // tile is 32 words, so tile $21 starts past the end of a 512-word font and every pixel reads
-    // as zero — transparent. A mode-3 or direct-colour scene built on the canvas map renders an
-    // empty screen and proves nothing. Two of them did, on the first run.
+    // spread over the whole font, which is right for 2bpp and useless for a deeper mode: a deeper
+    // tile is several glyphs wide (16 words at 4bpp, 32 at 8bpp), so the canvas's indices run past
+    // the font and every pixel reads as zero — transparent. A mode-3 or direct-colour scene built
+    // on the canvas map renders an empty screen and proves nothing. Two of them did, on the first
+    // run.
     let _ = writeln!(
         s,
         "\n; Rewrite the tilemap with tile indices that both EXIST and are NON-BLANK in a deep mode."
@@ -985,9 +993,6 @@ fn opt_map_helper() -> String {
     w("    stx VMADDL");
     w("    ldx #$0000                ; cell index across the whole 32x32 map");
     w("@cell:");
-    w("    txa");
-    w("    and #$001F                ; column");
-    w("    lsr a                     ; carry = column parity");
     w("    txa");
     w("    cmp #SCREEN_COLS          ; row 0?");
     w("    bcs :+");
