@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Pure black is unreachable through direct colour (`C12.02`).** Pixel value 0 is transparent in
+  every mode, direct colour included, so the backdrop shows where a naive RGB decode would render
+  black. The scene sets a loud red backdrop so a transparent pixel is legible as one.
+
+  **A second scene was written in the same batch, for `C11.02`, and dropped — and the reason is
+  worth more than the scene.** Mode 7's origin rule masks `M7HOFS - M7X` with `NOT $1C00`, and the
+  scene rendered a picture *identical to `c11-mode7-identity`* on all three emulators. `$1C00` is
+  `7 * $400`, so the mask only ever clears multiples of 1024 — and a Mode 7 map is 1024x1024 and
+  wraps, so every value the mask removes is one the wrap removes anyway. The rule is invisible by
+  construction while screen-over is set to wrap. It was caught only because the hash happened to
+  equal another scene's; three emulators agreeing, a stable hash and a plausible name are not
+  evidence that a scene shows anything.
+
 - **Sprite colour math applies to palettes 4-7 and to nothing else (`C8.01`).** A scene with two
   identical sprites side by side, one in palette 2 and one in palette 6, colour math enabled for
   OBJ against the fixed colour: only the palette-6 sprite blends. It is an errata rather than a rule
@@ -249,6 +262,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   writes a third value there first.
 
 ### Fixed
+
+- **The coverage report counted unblessed scenes as coverage.** ADR 0013 rule 4 says an unblessed
+  scene "is not yet evidence of anything" — it renders, and nothing has confirmed the picture is
+  right — but `docs/accuracysnes-coverage.md` counted a scene the moment it existed. A scene could
+  therefore claim an assertion by being written, which is precisely the gap the report exists to
+  close for the battery. It now reads the golden file and counts only blessed scenes.
 
 - **Sprite vertical flip is computed against the sprite's WIDTH, not its height** — and correcting a
   test is what found it. `c7-vflip-tall-halves` was selecting `OBJSEL` pair 3 with the size bit set,
@@ -518,8 +537,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **AccuracySNES totals, as of this section:** **202 tests — 190 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **41 rendered scenes** in the host
-framebuffer-oracle tier — **44 scenes**. Dossier coverage is **160 of 443** on-cart plus **44** scene-only —
-**204 of 443** in total. **Every group A-G now has shipped tests.** (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier — **45 scenes**. Dossier coverage is **160 of 443** on-cart plus **45** scene-only —
+**205 of 443** in total. **Every group A-G now has shipped tests.** (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 

@@ -497,9 +497,24 @@ pub fn coverage_report(tests: &[crate::dsl::Test], enumerated: &[(String, Vec<St
     /// host holding the golden. Folding them into one number would quietly redefine what the
     /// headline figure claims — the same reasoning ADR 0013 uses to keep scenes out of the pass
     /// rate. They are reported side by side and totalled separately.
+    /// **Only blessed scenes count.** ADR 0013 rule 4 says an unblessed scene "is not yet evidence
+    /// of anything" — it renders, and nothing has confirmed the picture is right. Counting one as
+    /// coverage would have let a scene claim an assertion by existing, which is exactly the gap
+    /// this report is supposed to close for the battery. The blessing list is the golden file, read
+    /// here rather than trusted from memory.
     fn scene_assertions() -> Vec<String> {
+        let goldens = std::fs::read_to_string(
+            crate::cart_root().join("../../golden/accuracysnes-scenes.tsv"),
+        )
+        .unwrap_or_default();
+        let blessed: Vec<&str> = goldens
+            .lines()
+            .filter(|l| !l.trim_start().starts_with('#') && !l.trim().is_empty())
+            .filter_map(|l| l.split('\t').next())
+            .collect();
         crate::scenes::SCENES
             .iter()
+            .filter(|sc| blessed.contains(&sc.id))
             .flat_map(|sc| sc.dossier.split(','))
             .map(|d| d.trim().to_string())
             .collect()

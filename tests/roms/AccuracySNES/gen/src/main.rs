@@ -204,7 +204,13 @@ fn patch_checksum(image: &mut [u8]) {
 }
 
 /// The `tests/roms/AccuracySNES` directory, derived from this crate's manifest path.
-fn cart_root() -> PathBuf {
+///
+/// # Panics
+///
+/// If the generator crate is not one directory below the cart root, which would mean the tree has
+/// been rearranged without this being updated.
+#[must_use]
+pub fn cart_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("gen/ has a parent")

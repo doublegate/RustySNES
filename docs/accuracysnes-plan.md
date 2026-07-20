@@ -14,7 +14,7 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 | | |
 |---|---|
 | Tests | **202** (190 scoring + 11 golden vectors + 1 region SKIP per image) |
-| Rendered scenes | **44**, all cross-validated (`docs/adr/0013`) |
+| Rendered scenes | **45**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but four, all recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`. Both images. |
 | Groups shipped | **A** (65C816) · **B** (5A22) · **C** (PPU, on-cart and rendered) · **D** (DMA/HDMA) · **E** (SPC700 + S-DSP) · **F** (controller ports) · **G** (cartridge/memory map) — all seven, all partial |
@@ -222,6 +222,22 @@ and now disarms `$4200` before looking. The stronger property deserves its own t
 citation — it decides whether a handler that returns quickly re-enters immediately, which is a
 visible difference in any game using a mid-frame IRQ — but it cannot be scored against a citation
 that does not make the claim.
+
+### `C11.02` — the 13-bit mask cannot be seen through a wrapping Mode 7 map
+
+The origin rule is `ORG.X = (M7HOFS - M7X) AND NOT $1C00`, with `$1C00` put back when the
+difference is negative. A scene was written for it and **rendered a picture identical to
+`c11-mode7-identity`** — same hash, on all three emulators. That is the useful part.
+
+`$1C00` is `7 * $400`, so the mask only ever clears **multiples of 1024**, and a Mode 7 map is
+1024x1024 and wraps. Every value the mask removes is a value the wrap removes anyway, which makes
+the rule invisible by construction whenever screen-over is set to wrap. Getting at it means setting
+`M7SEL`'s screen-over field to transparent or char-0 so that being *outside* 0-1023 is visible,
+and choosing a difference whose masked and unmasked forms fall on opposite sides of that boundary.
+
+Not hard, but not the scene that was written — and worth recording, because the first attempt
+looked like a working test: three emulators agreeing, a stable hash, a plausible name. It was
+caught only because the hash happened to equal another scene's.
 
 ### Group F — blocked on a *peripheral contract*, and now measured
 

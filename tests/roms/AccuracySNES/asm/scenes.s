@@ -1083,6 +1083,37 @@ SCENES_IMPL = 1
     rts
 .endproc
 
+; c12-direct-colour-zero-is-transparent — C12.02
+; Direct colour mode with a non-black backdrop. Pixel value 0 is transparent in every mode, direct colour included, so pure black is not reachable through it — the backdrop shows instead. A core that treats direct colour as an unconditional RGB decode renders black where the hardware renders the backdrop, which is exactly the case a picture separates and a register read cannot.
+.proc scene_c12_direct_colour_zero_is_transparent
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$03
+    sta $2105         ; BGMODE 3 — BG1 is 8bpp, which direct colour needs
+    lda #(MAP_BASE >> 8)
+    sta $2107
+    jsr scene_low_tiles
+    sep #$20
+    .a8
+    lda #$01
+    sta $2130         ; CGWSEL bit 0: direct colour for the 8bpp layer
+    ; A backdrop that is obviously not black, so a transparent pixel is legible as one.
+    stz $2121
+    lda #$1F
+    sta $2122         ; CGRAM 0 low: red = 31
+    stz $2122
+    lda #$01
+    sta $212C         ; BG1 on the main screen
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
 ; c11-mode7-rotate-scale — C11.01
 ; A rotation-and-scale matrix (A=D=$00B5, B=-$00B5, C=$00B5 — roughly 45 degrees at 0.7x) about a centre of (128,112). Evidence for the affine transform itself: a core that transposes the matrix, drops the centre subtraction, or applies the offsets in the wrong order produces a picture that is recognisably wrong rather than subtly so, because the tile grid makes the axes visible.
 .proc scene_c11_mode7_rotate_scale
@@ -1838,7 +1869,7 @@ SCENES_IMPL = 1
 .export _scene_count
 .export _scene_entries
 _scene_count:
-    .word 44
+    .word 45
 _scene_entries:
     .addr scene_c5_mode1_bg_priority
     .addr scene_c8_fixed_colour_add
@@ -1866,6 +1897,7 @@ _scene_entries:
     .addr scene_c6_opt_enable_bit_bg2
     .addr scene_c6_mode4_h_vs_v_select
     .addr scene_c11_mode7_identity
+    .addr scene_c12_direct_colour_zero_is_transparent
     .addr scene_c11_mode7_rotate_scale
     .addr scene_c11_screen_over_wrap
     .addr scene_c11_screen_over_transparent
