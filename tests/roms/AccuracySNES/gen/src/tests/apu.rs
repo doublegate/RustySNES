@@ -1219,17 +1219,23 @@ fn e2_09() -> Test {
     )
 }
 
-/// `$F1` bits 4 and 5 clear the CPU-to-APU port latches, and do not stay set.
+/// `$F1` bit 5 clears the port 3 input latch.
 ///
-/// They are strobes, not switches: writing a 1 clears the corresponding pair of input latches
-/// immediately and the bit does not persist, so a driver can clear stale commands without having to
-/// write the register twice. A core that stores them as ordinary bits either never clears anything
-/// or clears the ports on every subsequent `$F1` write — and the second failure is worse, because a
-/// driver writes `$F1` to enable timers on almost every command.
+/// The bits are strobes rather than switches: writing a 1 clears the corresponding pair of
+/// CPU-to-APU input latches immediately, so a driver can drop stale commands without a second
+/// write. A core that ignores them leaves a command the driver believed it had discarded sitting in
+/// the port.
 ///
 /// The value it clears is one the upload itself left there: `apu_upload` puts the entry address in
-/// ports 2 and 3, so port 3 holds `$02` — the high byte of `$0200`. Using what the handshake already
-/// wrote means the test needs nothing from the cart side that the mechanism does not already do.
+/// ports 2 and 3, so port 3 holds `$02`, the high byte of `$0200`. Using what the handshake already
+/// wrote means the test needs nothing the mechanism does not already do.
+///
+/// **Two thirds of the dossier row are deliberately not covered here, and both need something this
+/// test cannot reach.** Port 2's latch holds `$00` — the low byte of the same entry address — which
+/// is indistinguishable from cleared, so only port 3 is checked. And the *non-persistence* half
+/// ("the bit does not stay set") needs a second value to appear in a latch after the strobe, which
+/// only the cart can put there; that needs a mid-program cart-to-APU handshake the upload mechanism
+/// does not have. What is asserted is the immediate clear, and the failure text says so.
 fn e3_03() -> Test {
     let mut prog = Spc::new();
     prog.mov_x_imm(0xEF)
@@ -1260,7 +1266,7 @@ fn e3_03() -> Test {
     a.finish(
         "E3.03",
         'E',
-        "$F1 clears port latches",
+        "$F1 bit 5 clears port 3",
         Provenance::Documented("SNESdev Wiki, SPC700 I/O; fullsnes"),
         Kind::Scored,
         None,

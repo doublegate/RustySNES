@@ -9987,7 +9987,7 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
-; E3.03 — $F1 clears port latches
+; E3.03 — $F1 bit 5 clears port 3
 ; provenance: Documented (SNESdev Wiki, SPC700 I/O; fullsnes)
 .proc test_e3_03
     .a16
@@ -16824,7 +16824,7 @@ _test_names:
     .byte "BRK shares TCALL 0"
 @n_e3_03:
     .byte 23
-    .byte "$F1 clears port latches"
+    .byte "$F1 bit 5 clears port 3"
 @n_e3_04:
     .byte 21
     .byte "Writes pass under IPL"

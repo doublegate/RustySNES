@@ -138,7 +138,7 @@
 135	E1.08	E	DAA adjustments	Documented	SNESdev Wiki, SPC700 reference; fullsnes	Scored	0x7EF0A7	E1.08
 136	E2.08	E	TCALL vector table	Documented	SNESdev Wiki, SPC700 reference; fullsnes	Scored	0x7EF0A8	E2.08
 137	E2.09	E	BRK shares TCALL 0	Documented	SNESdev Wiki, SPC700 reference; fullsnes	Scored	0x7EF0A9	E2.09
-138	E3.03	E	$F1 clears port latches	Documented	SNESdev Wiki, SPC700 I/O; fullsnes	Scored	0x7EF0AA	E3.03
+138	E3.03	E	$F1 bit 5 clears port 3	Documented	SNESdev Wiki, SPC700 I/O; fullsnes	Scored	0x7EF0AA	E3.03
 139	E3.04	E	Writes pass under IPL	Documented	SNESdev Wiki, SPC700 I/O; fullsnes	Scored	0x7EF0AB	E3.04
 140	E3.05	E	TnDIV $00 means 256	Documented	SNESdev Wiki, SPC700 timers; fullsnes	Scored	0x7EF0AC	E3.05
 141	E3.10	E	TEST gates RAM writes	Documented	SNESdev Wiki, SPC700 I/O; fullsnes	Scored	0x7EF0AD	E3.10

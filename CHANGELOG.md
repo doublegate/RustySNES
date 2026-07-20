@@ -15,10 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   vectors through `[$FFDE - n*2]`, counting *down* from the top of the address space — a stride and
   a direction that are both easy to get backwards, and a driver using `TCALL` for its dispatch table
   lands somewhere arbitrary if either is. `E2.09`: `BRK` has no vector of its own; it shares
-  `TCALL 0`'s, so installing one handler installs both. `E3.03`: `$F1` bits 4 and 5 are *strobes*
-  that clear the CPU-to-APU port latches and do not persist — a core storing them as ordinary bits
-  either never clears anything or clears the ports on every later `$F1` write, and the second is
-  worse, because a driver writes `$F1` on almost every command.
+  `TCALL 0`'s, so installing one handler installs both. `E3.03`: `$F1` bit 5 is a *strobe*
+  that clears a CPU-to-APU input latch, so a driver can drop a stale command without a second write;
+  a core that ignores it leaves a command the driver believed it had discarded sitting in the port.
+  Only the immediate clear is asserted, and only for port 3 — port 2's latch holds `$00` here, which
+  is indistinguishable from cleared, and the non-persistence half needs a mid-program cart-to-APU
+  handshake the upload mechanism does not have. The test's doc comment says which two thirds of the
+  dossier row it does not reach.
 
   Both vector tests plant the *right* handler at the slot under test and a different one either
   side, so a miscounted vector produces a **wrong answer** rather than a hang. That distinction

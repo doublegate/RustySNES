@@ -1169,7 +1169,7 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes). Kind: sco
 |---|---|---|
 | 1 | `$02` | BRK did not vector through $FFDE, the TCALL 0 slot — the SPC700 has no break vector of its own |
 
-### E3.03 — $F1 clears port latches
+### E3.03 — $F1 bit 5 clears port 3
 
 Provenance: **Documented** (SNESdev Wiki, SPC700 I/O; fullsnes). Kind: scored.
 
