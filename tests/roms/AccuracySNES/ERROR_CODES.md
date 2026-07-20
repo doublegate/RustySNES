@@ -1082,7 +1082,9 @@ Provenance: **Documented** (SNESdev Wiki, S-DSP registers; fullsnes). Kind: scor
 
 Provenance: **Documented** (SNESdev Wiki, S-DSP registers; fullsnes). Kind: scored.
 
-No failure codes (control-flow test: reaching the end is the pass).
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | ENDX read back as $FF, so the write was stored rather than treated as a clear |
 
 ## Group A
 

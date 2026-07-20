@@ -9024,20 +9024,19 @@ CATALOG_IMPL = 1
     sta APUIO0
     ; A core storing the write returns $FF. Anything else means the write was treated as a
     ; clear, which is the documented behaviour.
-    sep #$20
-    .a8
+    rep #$30
+    .a16
+    .i16
     lda f:$7E0101
-    cmp #$FF
-    bne @ok
-    jmp @fail_stored
-@ok:
-    bra @pass
-@fail_stored:
-    sep #$20
-    .a8
-    lda #$02
-    sta f:V_TEST_RESULT
-    jmp test_restore
+    and #$00FF
+    cmp #$0000
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$00FF
+    bcc :+
+    jmp @fail1
+  :
     bra @pass
 @timeout:
     sep #$20
@@ -9049,6 +9048,13 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; ENDX read back as $FF, so the write was stored rather than treated as a clear
+    sep #$20
+    .a8
+    lda #$02
     sta f:$7EE010
     jmp test_restore
 .endproc

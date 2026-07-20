@@ -8,6 +8,13 @@
 //!
 //! The programs themselves are assembled by `gen/src/spc.rs` — `ca65` does not speak SPC700.
 //!
+//! **Never hand-write a verdict byte.** Use the assertion helpers, even when the condition does
+//! not look like an equality — `assert_a16_range` covers "must not be this value" perfectly well.
+//! A hand-written `sta V_TEST_RESULT` puts a failure code in the ROM that the generated
+//! `ERROR_CODES.md` cannot know about, so the table silently stops being a complete account of
+//! what a failure byte means. This has been got wrong twice in this file; the helpers exist
+//! precisely so it cannot be.
+//!
 //! **Reading `PSW` is the recurring trick.** Several of these assertions are about which flags an
 //! instruction sets, and the SPC700 has no "read flags" instruction. `PUSH PSW` / `POP A` does it,
 //! but only if nothing between the instruction under test and the push disturbs the flags — which
@@ -743,11 +750,11 @@ fn e9_19() -> Test {
     prog.mov_x_imm(0xEF)
         .mov_sp_x()
         .mov_a_imm(0x7C)
-        .mov_dp_a(0xF2) // ENDX
+        .mov_dp_a(0xF2) // address latch: select ENDX ($7C)
         .mov_a_imm(0xFF)
-        .mov_dp_a(0xF3) // any write clears; it must not store $FF
+        .mov_dp_a(0xF3) // data port: any write clears ENDX, so this must not store $FF
         .mov_a_imm(0x7C)
-        .mov_dp_a(0xF2)
+        .mov_dp_a(0xF2) // select it again to read back
         .mov_a_dp(0xF3)
         .mov_dp_a(PORT2)
         .mov_a_imm(DONE)
@@ -758,18 +765,14 @@ fn e9_19() -> Test {
     upload_and_run(&mut a, &prog);
     a.c("A core storing the write returns $FF. Anything else means the write was treated as a");
     a.c("clear, which is the documented behaviour.");
-    a.l("sep #$20");
+    a.l("rep #$30");
     a.l("lda f:$7E0101");
-    a.l("cmp #$FF");
-    a.l("bne @ok");
-    a.l("jmp @fail_stored");
-    a.label("ok");
-    a.l("bra @pass");
-    a.label("fail_stored");
-    a.l("sep #$20");
-    a.l("lda #$02");
-    a.l("sta f:V_TEST_RESULT");
-    a.l("jmp test_restore");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x00,
+        0xFE,
+        "ENDX read back as $FF, so the write was stored rather than treated as a clear",
+    );
     apu_timeout_arm(&mut a);
     a.finish(
         "E9.19",
