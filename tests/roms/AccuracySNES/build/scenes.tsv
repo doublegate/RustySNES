@@ -17,3 +17,10 @@
 16	c8-window-logic-xor	C8.08
 17	c10-mosaic-screen-anchored	C10.02
 18	c12-direct-colour-mode3	C12.01,C12.03
+19	c5-mode2-plain	C5.03
+20	c6-opt-v-alternating-columns	C6.05,C6.06
+21	c6-opt-v-replaces-vofs	C6.04
+22	c6-opt-h-keeps-fine-scroll	C6.03
+23	c6-opt-enable-bit-bg1	C6.01
+24	c6-opt-enable-bit-bg2	C6.01
+25	c6-mode4-h-vs-v-select	C6.02

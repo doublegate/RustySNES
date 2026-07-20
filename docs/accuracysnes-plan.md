@@ -146,11 +146,30 @@ different claim, and worth writing down rather than leaving as a shrug.
 - **"`B2.09`'s window edges aren't CPU-observable."** Correct that no register reports them, but the
   framebuffer oracle changes what counts as observable: locating a mid-line register change in the
   *rendered picture* is exactly what maps a dot to a pixel column, and the picture window's edges
-  fall out of that. It is therefore **blocked on the dot-resolution compositor**, not unreachable —
-  RustySNES composites per scanline, so a mid-line write cannot split a line at all, and a scene
-  written today would encode our own simplification rather than measure the hardware. See
-  `docs/ppu.md` §Mid-scanline/HDMA-driven register timing, where the designed fix is already
-  described and not yet landed.
+  fall out of that. It is therefore **blocked on a per-dot compositor**, not unreachable.
+
+  Precisely what blocks it, because `docs/ppu.md` is easy to misread here: the v0.8.0 work moved
+  *when* a line is composited (dot 276 rather than dot 340) so that HDMA writes land on the right
+  line. It did **not** make the renderer per-pixel — `render_scanline` still paints all 256 columns
+  from one register snapshot. A mid-line write therefore still cannot split a line, and a `B2.09`
+  scene written today would encode that simplification rather than measure the hardware.
+
+### `C13.01`-`C13.06` — blocked twice over, and not worth forcing
+
+The same blocker, plus a second one that does not go away when the first does. These are the
+INIDISP early-read artifacts: a one-dot display flash, a one-dot brightness step, a brightness
+ramp over ~72 pixels. Every one is a *sub-scanline* effect, so the whole-line compositor above
+rules them out.
+
+The second blocker is that they are **chip-revision-dependent**: `C13.01` is 3-chip only,
+`C13.05` is 1CHIP, and `C14.02` explicitly gates `C13.01` on the PPU2 version read from `$213F`.
+A golden framebuffer would therefore commit to one revision as though it were the behaviour, which
+is exactly the substitution ADR 0013 rule 4 exists to prevent — and unlike a reference-emulator
+disagreement, it would not show up as a disagreement at all, because emulators tend to pick a
+revision and stay there.
+
+So `C13.01`-`C13.06` stay uncovered on purpose, and the coverage report lists them as such. The
+other four (`C13.07`-`C13.10`, the open-bus latches) are CPU-observable and already covered on-cart.
 
 ### Bucket 4 — needs a framebuffer oracle (~35 tests)
 
@@ -165,7 +184,7 @@ different claim, and worth writing down rather than leaving as a shrug.
   stay in their own tier. `crossval.sh` gates on them, and per rule 4 a golden is committed only
   once the references agree.
 
-  **Status: 18 scenes blessed**, covering 19 assertions across `C5`, `C8`, `C10` and `C12`. The
+  **Status: 25 scenes blessed**, covering 26 assertions across `C5`, `C6`, `C8`, `C10` and `C12`. The
   first three disagreed with the references on first run, and in all three cases RustySNES was
   wrong: the BG vertical fetch was a line late, and mosaic quantised the BG row instead of the
   screen row. Both are fixed; agreement with snes9x across the third-party undisbeliever suite went
@@ -177,22 +196,30 @@ different claim, and worth writing down rather than leaving as a shrug.
   change to the canvas, and it catches a core that gets both scenes wrong in the same way, which
   two independent hash comparisons cannot.
 
-  Remaining under this ticket: `C6` (offset-per-tile, including the `C6.05` errata), the rest of
-  `C8`, `C10.03`/`C10.05`, `C12.02`, and the `C13.01`-`C13.06` INIDISP artifacts. `C5.06`/`C5.07`
+  Remaining under this ticket: `C5.08`/`C5.12`-`C5.14` (mode 7, tilemap sizes, bitplane layouts),
+  `C6.07` (wraparound), `C8.01`/`C8.09`/`C8.12`, `C10.03`-`C10.05`, `C12.02`. `C5.06`/`C5.07`
   and most of `C9` are hi-res and need the scene region's 256x224 contract widened first — that
   contract exists because emulators disagree about geometry, so widening it means re-deriving each
   host's `FIRST_ROW` for 512-wide output rather than merely relaxing an assertion.
+
+  A third lesson, from the offset-per-tile batch: **a scene can arrange a state that no picture can
+  show.** Tiles below `$10` land on the blank ASCII control characters (a 4bpp tile spans two font
+  glyphs, an 8bpp tile four), and a 64-row offset is invisible against a 16-tile cycle because 64
+  is a multiple of 16. Both produced scenes that hashed stably and that all three emulators agreed
+  on — cross-validation cannot catch this class at all, because there is nothing to disagree about.
+  Only checking that a scene renders what it claims to arrange does.
 
   Two structural lessons from the second batch, both already fixed:
 
   - **The canvas is rebuilt per scene, not once.** A scene that rewrites VRAM for its own purposes
     otherwise changes the picture for every scene after it. Three scenes hashed identically before
     this was caught, which reads as an emulator agreeing with itself rather than as contamination.
-  - **A scene built on the canvas tilemap renders empty in a deep mode.** An 8bpp tile is 32 words,
-    so the canvas's glyph indices point past the end of a 512-word font and every pixel reads zero.
-    Mode 3 and direct-colour scenes call a shared `scene_low_tiles` helper instead. An empty scene
-    still produces a stable hash that all three emulators agree on, so cross-validation does **not**
-    catch this — only looking at the picture does.
+  - **A scene built on the canvas tilemap renders empty in a deep mode.** The canvas map indexes
+    glyphs across the whole font, and a deep-colour tile is several glyphs wide (16 words at 4bpp,
+    32 at 8bpp), so those indices run past the font entirely. Mode 3 and direct-colour scenes call a
+    shared `scene_low_tiles` helper instead. An empty scene still produces a stable hash that all
+    three emulators agree on, so cross-validation does **not** catch this — only looking at the
+    picture does.
 
   These decide only what appears on screen, so **they cannot be self-scored at all**. Scoring them
   means comparing pixels, which breaks the property that makes this cartridge worth having: that

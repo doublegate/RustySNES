@@ -6,8 +6,19 @@ SCENES_IMPL = 1
 
 .segment "TESTS"
 
-; Rewrite the tilemap with tile indices low enough to exist in 8bpp
-; (32 words/tile against a 512-word font = tiles $00-$0F).
+; Rewrite the tilemap with tile indices that both EXIST and are NON-BLANK in a deep mode.
+;
+; Two constraints, and missing the second is the subtler mistake. A tile must lie inside
+; the font: 8bpp is 32 words/tile against a 1024-word font, so $00-$1F exist. It must also
+; cover PRINTABLE glyphs, and how many glyphs a tile spans depends on the depth: a 4bpp
+; tile covers glyphs 2T and 2T+1, an 8bpp tile covers 4T..4T+3. So $10-$1F is glyphs 32-63
+; at 4bpp and 64-127 at 8bpp — printable at both. Anything below $10 lands on ASCII 0-31,
+; the control characters, which are blank in this font.
+;
+; This cost two rounds. $00-$0F rendered an EMPTY screen in mode 2 while mode 4 looked
+; fine, which reads as a broken mode; $08-$0F fixed 8bpp and left 4bpp still blank, which
+; reads as a broken depth. Neither was true. An empty scene hashes stably and the
+; reference emulators agree with it, so only looking at the picture finds this.
 ;
 ; WIDTH-NEUTRAL: P is saved and restored, so the A/X/Y widths on exit are
 ; exactly what they were on entry. Deliberate rather than merely tidy: the
@@ -33,13 +44,21 @@ SCENES_IMPL = 1
     ldx #$0000
 @cell:
     txa
-    and #$000F        ; tile $00-$0F
-    sta f:V_TMP
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a             ; row
+    sta f:V_TMP2
     txa
-    lsr a
-    lsr a
-    lsr a
-    lsr a
+    clc
+    adc f:V_TMP2      ; tile varies with row AND column: a column-constant map cannot
+                      ; show a vertical shift, which is how the first OPT scenes came
+                      ; out identical to their own control.
+    and #$000F
+    ora #$0010        ; tile $10-$1F: inside the font AND printable at 4bpp and 8bpp
+    sta f:V_TMP
+    lda f:V_TMP2
     and #$0007
     .repeat 10
     asl a
@@ -50,6 +69,58 @@ SCENES_IMPL = 1
     cpx #(SCREEN_COLS * 32)
     bne @cell
     plp               ; restore the caller's register widths
+    rts
+.endproc
+
+; Fill BG3's tilemap with offset-per-tile entries (see scenes.rs::opt_map_helper).
+; Reads V_OPT_H_EVEN / V_OPT_H_ODD (row 0) and V_OPT_V_EVEN / V_OPT_V_ODD (row 1).
+.proc scene_opt_map
+    php
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$80
+    sta VMAIN
+    rep #$30
+    .a16
+    .i16
+    ldx #OPT_MAP_BASE
+    stx VMADDL
+    ldx #$0000                ; cell index across the whole 32x32 map
+@cell:
+    txa
+    cmp #SCREEN_COLS          ; row 0?
+    bcs :+
+    bcc @row0
+  :
+    cmp #(SCREEN_COLS * 2)    ; row 1?
+    bcc @row1
+    lda #$0000                ; every other row is empty
+    bra @put
+@row0:
+    txa
+    and #$0001
+    bne :+
+    lda f:V_OPT_H_EVEN
+    bra @put
+  :
+    lda f:V_OPT_H_ODD
+    bra @put
+@row1:
+    txa
+    and #$0001
+    bne :+
+    lda f:V_OPT_V_EVEN
+    bra @put
+  :
+    lda f:V_OPT_V_ODD
+@put:
+    sta VMDATAL
+    inx
+    cpx #(SCREEN_COLS * 32)
+    bne @cell
+    plp                       ; restore the caller's register widths
     rts
 .endproc
 
@@ -590,11 +661,299 @@ SCENES_IMPL = 1
     rts
 .endproc
 
+; c5-mode2-plain — C5.03
+; Mode 2 with BG1 and BG2 displayed and offset-per-tile left inert (BG3's table is all zeroes, so no entry carries an enable bit). The control for the `c6-*` scenes: if this renders and they do not, the fault is in their setup rather than in the mode. It is also `C5.03`'s own evidence, which is why it is a scene and not a scratch file.
+.proc scene_c5_mode2_plain
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$02
+    sta $2105         ; BGMODE 2
+    stz $210B
+    lda #(MAP_BASE >> 8)
+    sta $2107
+    sta $2108
+    lda #(OPT_MAP_BASE >> 8)
+    sta $2109
+    jsr scene_low_tiles ; 4bpp tiles are 16 words; the canvas map indexes past the font
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:V_OPT_H_EVEN
+    sta f:V_OPT_H_ODD
+    sta f:V_OPT_V_EVEN
+    sta f:V_OPT_V_ODD ; an all-zero table: no entry has an enable bit set
+    jsr scene_opt_map
+    sep #$20
+    .a8
+    lda #$03
+    sta $212C         ; BG1 + BG2
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; c6-opt-v-alternating-columns — C6.05,C6.06
+; Mode 2 offset-per-tile: BG3's row-1 entries give even columns a vertical offset of 100 and odd columns none. 100 rather than a rounder number because an offset that is a multiple of 16 is invisible against a 16-tile cycle, and one that is a multiple of 8 leaves the glyph row unchanged — the first version of this scene arranged a shift nothing could show. Two assertions at once — each entry moves a WHOLE tile column (C6.06), and the leftmost tile is never affected, so the first entry controls the SECOND visible column (C6.05, an errata). Alternating rather than uniform offsets is what makes the second one legible: the shifted columns come out odd-numbered, and a core without the exemption shifts the even ones instead.
+.proc scene_c6_opt_v_alternating_columns
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$02
+    sta $2105         ; BGMODE 2 — BG1/BG2 4bpp, BG3 is the offset table
+    stz $210B         ; BG1/BG2 character data at word $0000
+    lda #(MAP_BASE >> 8)
+    sta $2107         ; BG1 tilemap
+    lda #(OPT_MAP_BASE >> 8)
+    sta $2109         ; BG3 tilemap = the offset table
+    jsr scene_low_tiles ; 4bpp tiles are 16 words; the canvas map indexes past the font
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:V_OPT_H_EVEN
+    sta f:V_OPT_H_ODD ; no horizontal offsets in this scene
+    lda #($2000 | 100) ; bit 13 = applies to BG1; 100 rows down — deliberately NOT a
+                       ; multiple of 8, so the glyph row shifts too and the offset is
+                       ; visible whatever the tilemap happens to contain
+    sta f:V_OPT_V_EVEN
+    lda #$0000
+    sta f:V_OPT_V_ODD
+    jsr scene_opt_map
+    sep #$20
+    .a8
+    lda #$01
+    sta $212C         ; BG1 only — BG3 is a table here, not a layer
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; c6-opt-v-replaces-vofs — C6.04
+; The same vertical offset of 100, but with BG1VOFS already set to 32. An offset-per-tile V entry REPLACES the background's own scroll rather than adding to it, so the offset columns land at row 100 and not at 132. The unaffected columns still show the scroll, which is what makes the two behaviours distinguishable in one picture.
+.proc scene_c6_opt_v_replaces_vofs
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$02
+    sta $2105
+    stz $210B
+    lda #(MAP_BASE >> 8)
+    sta $2107
+    lda #(OPT_MAP_BASE >> 8)
+    sta $2109
+    jsr scene_low_tiles
+    sep #$20
+    .a8
+    lda #32
+    sta $210E
+    stz $210E         ; BG1VOFS = 32
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:V_OPT_H_EVEN
+    sta f:V_OPT_H_ODD
+    lda #($2000 | 100) ; not a multiple of 8 — see c6-opt-v-alternating-columns
+    sta f:V_OPT_V_EVEN
+    lda #$0000
+    sta f:V_OPT_V_ODD
+    jsr scene_opt_map
+    sep #$20
+    .a8
+    lda #$01
+    sta $212C
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; c6-opt-h-keeps-fine-scroll — C6.03
+; A horizontal offset-per-tile entry of 64 with BG1HOFS = 5. Unlike the vertical case, an H entry replaces only the COARSE part of the scroll — the background's own low three HOFS bits survive, so the offset columns sit at 64+5 rather than at 64. Five pixels is small, and a hash notices it where an eye would not. (64 is fine for an H entry precisely because the low three bits are discarded anyway; only the V case needs an offset that is not a multiple of 8.)
+.proc scene_c6_opt_h_keeps_fine_scroll
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$02
+    sta $2105
+    stz $210B
+    lda #(MAP_BASE >> 8)
+    sta $2107
+    lda #(OPT_MAP_BASE >> 8)
+    sta $2109
+    jsr scene_low_tiles
+    sep #$20
+    .a8
+    lda #5
+    sta $210D
+    stz $210D         ; BG1HOFS = 5 — the fine bits that must survive
+    rep #$30
+    .a16
+    .i16
+    lda #($2000 | 64)
+    sta f:V_OPT_H_EVEN
+    lda #$0000
+    sta f:V_OPT_H_ODD
+    sta f:V_OPT_V_EVEN
+    sta f:V_OPT_V_ODD
+    jsr scene_opt_map
+    sep #$20
+    .a8
+    lda #$01
+    sta $212C
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; c6-opt-enable-bit-bg1 — C6.01
+; Both BG1 and BG2 are displayed and the offset entries carry bit 13 only. Only BG1 moves. Paired with `c6-opt-enable-bit-bg2` this pins which bit belongs to which layer — neither scene alone can, because a core that swaps the two bits produces a picture that is equally plausible until the pair is compared.
+.proc scene_c6_opt_enable_bit_bg1
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$02
+    sta $2105
+    stz $210B
+    lda #(MAP_BASE >> 8)
+    sta $2107
+    sta $2108         ; BG2 shows the same map, so a shift is visible on either layer
+    lda #(OPT_MAP_BASE >> 8)
+    sta $2109
+    jsr scene_low_tiles
+    sep #$20
+    .a8
+    lda #8
+    sta $2110
+    stz $2110         ; BG2 scrolled down 8 so the two layers are separable
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:V_OPT_H_EVEN
+    sta f:V_OPT_H_ODD
+    lda #($2000 | 100) ; bit 13: BG1 only
+    sta f:V_OPT_V_EVEN
+    lda #$0000
+    sta f:V_OPT_V_ODD
+    jsr scene_opt_map
+    sep #$20
+    .a8
+    lda #$03
+    sta $212C         ; BG1 + BG2
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; c6-opt-enable-bit-bg2 — C6.01
+; Identical to `c6-opt-enable-bit-bg1` except that the entries carry bit 14 instead of bit 13, so BG2 moves and BG1 does not. The two scenes must NOT hash the same; a core that treats the two bits alike renders them identically.
+.proc scene_c6_opt_enable_bit_bg2
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$02
+    sta $2105
+    stz $210B
+    lda #(MAP_BASE >> 8)
+    sta $2107
+    sta $2108
+    lda #(OPT_MAP_BASE >> 8)
+    sta $2109
+    jsr scene_low_tiles
+    sep #$20
+    .a8
+    lda #8
+    sta $2110
+    stz $2110
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:V_OPT_H_EVEN
+    sta f:V_OPT_H_ODD
+    lda #($4000 | 100) ; bit 14: BG2 only
+    sta f:V_OPT_V_EVEN
+    lda #$0000
+    sta f:V_OPT_V_ODD
+    jsr scene_opt_map
+    sep #$20
+    .a8
+    lda #$03
+    sta $212C
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; c6-mode4-h-vs-v-select — C6.02
+; Mode 4 packs both offsets into a single row and picks between them with bit 15: clear selects horizontal, set selects vertical. Even columns get a horizontal offset of 64, odd columns a vertical one of 100 — deliberately different, because an H entry discards its low three bits while a V entry does not, so the two need different values to be equally visible. A core that reads the selector backwards displaces the columns along the wrong axis, which is unmistakable.
+.proc scene_c6_mode4_h_vs_v_select
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$04
+    sta $2105         ; BGMODE 4 — BG1 8bpp, BG2 2bpp, BG3 is the offset table
+    stz $210B
+    lda #(MAP_BASE >> 8)
+    sta $2107
+    lda #(OPT_MAP_BASE >> 8)
+    sta $2109
+    jsr scene_low_tiles ; 8bpp tiles are 32 words — mandatory here
+    rep #$30
+    .a16
+    .i16
+    lda #($2000 | 64) ; bit 15 clear: horizontal, applied to BG1
+    sta f:V_OPT_H_EVEN
+    lda #($A000 | 100) ; bit 15 set: vertical (not a multiple of 8)
+    sta f:V_OPT_H_ODD
+    lda #$0000
+    sta f:V_OPT_V_EVEN
+    sta f:V_OPT_V_ODD ; mode 4 reads row 0 only
+    jsr scene_opt_map
+    sep #$20
+    .a8
+    lda #$01
+    sta $212C
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
 .segment "CATALOG"
 .export _scene_count
 .export _scene_entries
 _scene_count:
-    .word 18
+    .word 25
 _scene_entries:
     .addr scene_c5_mode1_bg_priority
     .addr scene_c8_fixed_colour_add
@@ -614,3 +973,10 @@ _scene_entries:
     .addr scene_c8_window_logic_xor
     .addr scene_c10_mosaic_screen_anchored
     .addr scene_c12_direct_colour_mode3
+    .addr scene_c5_mode2_plain
+    .addr scene_c6_opt_v_alternating_columns
+    .addr scene_c6_opt_v_replaces_vofs
+    .addr scene_c6_opt_h_keeps_fine_scroll
+    .addr scene_c6_opt_enable_bit_bg1
+    .addr scene_c6_opt_enable_bit_bg2
+    .addr scene_c6_mode4_h_vs_v_select

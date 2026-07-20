@@ -11,6 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Offset-per-tile scenes (`C6.01`-`C6.06`) plus a mode-2 control — 25 scenes total.** Mode 2's
+  BG3 stops being a layer and becomes a table of per-column offsets; the scenes pin the enable bits
+  (13 = BG1, 14 = BG2, as a *pair* — neither alone can tell a core that swapped them), mode 4's
+  bit-15 H/V selector, that a V entry replaces the background's own scroll while an H entry keeps
+  its low three bits, that each entry moves a whole tile column, and the errata that the leftmost
+  tile is never affected. All three emulators agree bit-for-bit.
+
+  Getting there took three rounds against scenes that rendered pictures no assertion could show,
+  and none of them would have been caught by cross-validation — an unshowable scene hashes stably
+  and the references agree with it. `scene_low_tiles` now picks tiles `$10`-`$1F` (a 4bpp tile
+  spans two font glyphs and an 8bpp tile four, so anything lower lands on the blank ASCII control
+  characters — which made mode 2 render empty while mode 4 looked fine) and varies the tile with
+  the row as well as the column. The offsets moved from 64 to 100 rows, because 64 is a multiple of
+  both 8 and 16 and so is invisible against a 16-tile cycle no matter what the map contains.
+
+- **`C13.01`-`C13.06` are recorded as blocked, deliberately, rather than covered.** They are the
+  INIDISP early-read artifacts — a one-dot display flash, a one-dot brightness step, a ~72-pixel
+  brightness ramp — and they are blocked twice over. The compositor still paints a whole scanline
+  from one register snapshot (v0.8.0 moved *when* a line is composited, not the granularity), so a
+  sub-scanline effect cannot be rendered; and they are chip-revision-dependent (`C13.01` 3-chip,
+  `C13.05` 1CHIP, gated by `C14.02`), so a golden would commit to one revision as though it were
+  the behaviour. The second blocker survives fixing the first, and unlike a reference disagreement
+  it would never announce itself. `B2.09`'s entry is corrected the same way.
+
 - **Fifteen more rendered scenes (T-04-H) — 18 total, all cross-validated.** Mode 0 four-layer
   priority and palette segregation, Mode 3's 8bpp BG1, the tilemap flip bits, 16x16 tiles, colour
   math in subtract mode and at saturation, five window scenes (inclusive bounds, crossed bounds,
@@ -34,9 +58,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   battery already had.
 
 **AccuracySNES totals, as of this section:** **134 tests — 124 scoring at 100.00%, 10 golden
-vectors**, plus one region-dependent SKIP per image, and **18 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **95 of 443** on-cart plus **19** scene-only —
-**114 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+vectors**, plus one region-dependent SKIP per image, and **25 rendered scenes** in the host
+framebuffer-oracle tier. Dossier coverage is **95 of 443** on-cart plus **26** scene-only —
+**121 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 

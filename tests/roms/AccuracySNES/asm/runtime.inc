@@ -22,6 +22,13 @@ V_TMP           = VAR_BASE + $0E      ; scratch (u16)
 V_TEST_RESULT   = VAR_BASE + $10      ; the running test's verdict byte (u8)
 V_DIRTY         = VAR_BASE + $12      ; non-zero when the screen needs a redraw (u8)
 V_TMP2          = VAR_BASE + $14      ; second scratch word, for code that needs two at once
+; Offset-per-tile entry values handed to `scene_opt_map`: the H row (0) and the V row (1), each
+; with an even-column and an odd-column value. Alternating columns is what makes the leftmost-tile
+; exemption visible — the shifted columns come out odd-numbered rather than even.
+V_OPT_H_EVEN    = VAR_BASE + $16
+V_OPT_H_ODD     = VAR_BASE + $18
+V_OPT_V_EVEN    = VAR_BASE + $1A
+V_OPT_V_ODD     = VAR_BASE + $1C
 
 ; ---------------------------------------------------------------------------------------------
 ; Power-on capture block ($E040-$E04F).
@@ -130,6 +137,9 @@ FONT_SIZE       = 1024                ; 128 glyphs x 8 rows; asserted in font.rs
 
 ; --- screen layout ---------------------------------------------------------------------------
 MAP_BASE        = $0400               ; BG1 tilemap, VRAM word address
+; BG3's tilemap in modes 2/4/6, where it is the offset-per-tile source rather than a layer.
+; Placed clear of the font (words $0000-$01FF) and of MAP_BASE's 1024 words.
+OPT_MAP_BASE    = $0800
 SCREEN_COLS     = 32
 VISIBLE_ROWS    = 26                  ; rows 2..27 list tests; rows 0-1 are the header
 

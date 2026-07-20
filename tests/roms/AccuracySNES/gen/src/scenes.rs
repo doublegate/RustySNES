@@ -540,26 +540,321 @@ pub const SCENES: &[Scene] = &[
             "sta $2100",
         ],
     },
+    Scene {
+        id: "c5-mode2-plain",
+        dossier: "C5.03",
+        what: "Mode 2 with BG1 and BG2 displayed and offset-per-tile left inert (BG3's table is \
+               all zeroes, so no entry carries an enable bit). The control for the `c6-*` scenes: \
+               if this renders and they do not, the fault is in their setup rather than in the \
+               mode. It is also `C5.03`'s own evidence, which is why it is a scene and not a \
+               scratch file.",
+        setup: &[
+            "sep #$20",
+            "lda #$02",
+            "sta $2105         ; BGMODE 2",
+            "stz $210B",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "sta $2108",
+            "lda #(OPT_MAP_BASE >> 8)",
+            "sta $2109",
+            "jsr scene_low_tiles ; 4bpp tiles are 16 words; the canvas map indexes past the font",
+            "rep #$30",
+            "lda #$0000",
+            "sta f:V_OPT_H_EVEN",
+            "sta f:V_OPT_H_ODD",
+            "sta f:V_OPT_V_EVEN",
+            "sta f:V_OPT_V_ODD ; an all-zero table: no entry has an enable bit set",
+            "jsr scene_opt_map",
+            "sep #$20",
+            "lda #$03",
+            "sta $212C         ; BG1 + BG2",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c6-opt-v-alternating-columns",
+        dossier: "C6.05,C6.06",
+        what: "Mode 2 offset-per-tile: BG3's row-1 entries give even columns a vertical offset of \
+               100 and odd columns none. 100 rather than a rounder number because an offset that is \
+               a multiple of 16 is invisible against a 16-tile cycle, and one that is a multiple of \
+               8 leaves the glyph row unchanged — the first version of this scene arranged a shift \
+               nothing could show. Two assertions at once — each entry moves a WHOLE tile \
+               column (C6.06), and the leftmost tile is never affected, so the first entry \
+               controls the SECOND visible column (C6.05, an errata). Alternating rather than \
+               uniform offsets is what makes the second one legible: the shifted columns come out \
+               odd-numbered, and a core without the exemption shifts the even ones instead.",
+        setup: &[
+            "sep #$20",
+            "lda #$02",
+            "sta $2105         ; BGMODE 2 — BG1/BG2 4bpp, BG3 is the offset table",
+            "stz $210B         ; BG1/BG2 character data at word $0000",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107         ; BG1 tilemap",
+            "lda #(OPT_MAP_BASE >> 8)",
+            "sta $2109         ; BG3 tilemap = the offset table",
+            "jsr scene_low_tiles ; 4bpp tiles are 16 words; the canvas map indexes past the font",
+            "rep #$30",
+            "lda #$0000",
+            "sta f:V_OPT_H_EVEN",
+            "sta f:V_OPT_H_ODD ; no horizontal offsets in this scene",
+            "lda #($2000 | 100) ; bit 13 = applies to BG1; 100 rows down — deliberately NOT a",
+            "                   ; multiple of 8, so the glyph row shifts too and the offset is",
+            "                   ; visible whatever the tilemap happens to contain",
+            "sta f:V_OPT_V_EVEN",
+            "lda #$0000",
+            "sta f:V_OPT_V_ODD",
+            "jsr scene_opt_map",
+            "sep #$20",
+            "lda #$01",
+            "sta $212C         ; BG1 only — BG3 is a table here, not a layer",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c6-opt-v-replaces-vofs",
+        dossier: "C6.04",
+        what: "The same vertical offset of 100, but with BG1VOFS already set to 32. An \
+               offset-per-tile V entry REPLACES the background's own scroll rather than adding to \
+               it, so the offset columns land at row 100 and not at 132. The unaffected columns \
+               still show the scroll, which is what makes the two behaviours distinguishable in \
+               one picture.",
+        setup: &[
+            "sep #$20",
+            "lda #$02",
+            "sta $2105",
+            "stz $210B",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "lda #(OPT_MAP_BASE >> 8)",
+            "sta $2109",
+            "jsr scene_low_tiles",
+            "sep #$20",
+            "lda #32",
+            "sta $210E",
+            "stz $210E         ; BG1VOFS = 32",
+            "rep #$30",
+            "lda #$0000",
+            "sta f:V_OPT_H_EVEN",
+            "sta f:V_OPT_H_ODD",
+            "lda #($2000 | 100) ; not a multiple of 8 — see c6-opt-v-alternating-columns",
+            "sta f:V_OPT_V_EVEN",
+            "lda #$0000",
+            "sta f:V_OPT_V_ODD",
+            "jsr scene_opt_map",
+            "sep #$20",
+            "lda #$01",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c6-opt-h-keeps-fine-scroll",
+        dossier: "C6.03",
+        what: "A horizontal offset-per-tile entry of 64 with BG1HOFS = 5. Unlike the vertical \
+               case, an H entry replaces only the COARSE part of the scroll — the background's own \
+               low three HOFS bits survive, so the offset columns sit at 64+5 rather than at 64. \
+               Five pixels is small, and a hash notices it where an eye would not. (64 is fine for \
+               an H entry precisely because the low three bits are discarded anyway; only the V \
+               case needs an offset that is not a multiple of 8.)",
+        setup: &[
+            "sep #$20",
+            "lda #$02",
+            "sta $2105",
+            "stz $210B",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "lda #(OPT_MAP_BASE >> 8)",
+            "sta $2109",
+            "jsr scene_low_tiles",
+            "sep #$20",
+            "lda #5",
+            "sta $210D",
+            "stz $210D         ; BG1HOFS = 5 — the fine bits that must survive",
+            "rep #$30",
+            "lda #($2000 | 64)",
+            "sta f:V_OPT_H_EVEN",
+            "lda #$0000",
+            "sta f:V_OPT_H_ODD",
+            "sta f:V_OPT_V_EVEN",
+            "sta f:V_OPT_V_ODD",
+            "jsr scene_opt_map",
+            "sep #$20",
+            "lda #$01",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c6-opt-enable-bit-bg1",
+        dossier: "C6.01",
+        what: "Both BG1 and BG2 are displayed and the offset entries carry bit 13 only. Only BG1 \
+               moves. Paired with `c6-opt-enable-bit-bg2` this pins which bit belongs to which \
+               layer — neither scene alone can, because a core that swaps the two bits produces a \
+               picture that is equally plausible until the pair is compared.",
+        setup: &[
+            "sep #$20",
+            "lda #$02",
+            "sta $2105",
+            "stz $210B",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "sta $2108         ; BG2 shows the same map, so a shift is visible on either layer",
+            "lda #(OPT_MAP_BASE >> 8)",
+            "sta $2109",
+            "jsr scene_low_tiles",
+            "sep #$20",
+            "lda #8",
+            "sta $2110",
+            "stz $2110         ; BG2 scrolled down 8 so the two layers are separable",
+            "rep #$30",
+            "lda #$0000",
+            "sta f:V_OPT_H_EVEN",
+            "sta f:V_OPT_H_ODD",
+            "lda #($2000 | 100) ; bit 13: BG1 only",
+            "sta f:V_OPT_V_EVEN",
+            "lda #$0000",
+            "sta f:V_OPT_V_ODD",
+            "jsr scene_opt_map",
+            "sep #$20",
+            "lda #$03",
+            "sta $212C         ; BG1 + BG2",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c6-opt-enable-bit-bg2",
+        dossier: "C6.01",
+        what: "Identical to `c6-opt-enable-bit-bg1` except that the entries carry bit 14 instead \
+               of bit 13, so BG2 moves and BG1 does not. The two scenes must NOT hash the same; \
+               a core that treats the two bits alike renders them identically.",
+        setup: &[
+            "sep #$20",
+            "lda #$02",
+            "sta $2105",
+            "stz $210B",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "sta $2108",
+            "lda #(OPT_MAP_BASE >> 8)",
+            "sta $2109",
+            "jsr scene_low_tiles",
+            "sep #$20",
+            "lda #8",
+            "sta $2110",
+            "stz $2110",
+            "rep #$30",
+            "lda #$0000",
+            "sta f:V_OPT_H_EVEN",
+            "sta f:V_OPT_H_ODD",
+            "lda #($4000 | 100) ; bit 14: BG2 only",
+            "sta f:V_OPT_V_EVEN",
+            "lda #$0000",
+            "sta f:V_OPT_V_ODD",
+            "jsr scene_opt_map",
+            "sep #$20",
+            "lda #$03",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
+    Scene {
+        id: "c6-mode4-h-vs-v-select",
+        dossier: "C6.02",
+        what: "Mode 4 packs both offsets into a single row and picks between them with bit 15: \
+               clear selects horizontal, set selects vertical. Even columns get a horizontal \
+               offset of 64, odd columns a vertical one of 100 — deliberately different, because \
+               an H entry discards its low three bits while a V entry does not, so the two need \
+               different values to be equally visible. A core that reads the selector backwards \
+               displaces the columns along the wrong axis, which is unmistakable.",
+        setup: &[
+            "sep #$20",
+            "lda #$04",
+            "sta $2105         ; BGMODE 4 — BG1 8bpp, BG2 2bpp, BG3 is the offset table",
+            "stz $210B",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "lda #(OPT_MAP_BASE >> 8)",
+            "sta $2109",
+            "jsr scene_low_tiles ; 8bpp tiles are 32 words — mandatory here",
+            "rep #$30",
+            "lda #($2000 | 64) ; bit 15 clear: horizontal, applied to BG1",
+            "sta f:V_OPT_H_EVEN",
+            "lda #($A000 | 100) ; bit 15 set: vertical (not a multiple of 8)",
+            "sta f:V_OPT_H_ODD",
+            "lda #$0000",
+            "sta f:V_OPT_V_EVEN",
+            "sta f:V_OPT_V_ODD ; mode 4 reads row 0 only",
+            "jsr scene_opt_map",
+            "sep #$20",
+            "lda #$01",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
 ];
 
-/// Emit `scene_low_tiles`, the shared tilemap rewrite a deep-colour scene needs.
-///
-/// Split out of [`asm`] because it is a self-contained routine, not part of assembling the scene
-/// list — and because keeping it inline pushed `asm` past the line limit for no benefit.
-fn low_tiles_helper() -> String {
+/// The comment block `scene_low_tiles` carries, split out only to keep `low_tiles_helper` inside
+/// the workspace's function-length lint. It is long because the two constraints it records were
+/// each learned the expensive way.
+fn low_tiles_rationale() -> String {
     let mut s = String::new();
+
     // A shared helper rather than fifteen copies. The canvas fills the tilemap with glyph indices
-    // spread over the whole font, which is right for 2bpp and useless for a deeper mode: an 8bpp
-    // tile is 32 words, so tile $21 starts past the end of a 512-word font and every pixel reads
-    // as zero — transparent. A mode-3 or direct-colour scene built on the canvas map renders an
-    // empty screen and proves nothing. Two of them did, on the first run.
+    // spread over the whole font, which is right for 2bpp and useless for a deeper mode: a deeper
+    // tile is several glyphs wide (16 words at 4bpp, 32 at 8bpp), so the canvas's indices run past
+    // the font and every pixel reads as zero — transparent. A mode-3 or direct-colour scene built
+    // on the canvas map renders an empty screen and proves nothing. Two of them did, on the first
+    // run.
     let _ = writeln!(
         s,
-        "\n; Rewrite the tilemap with tile indices low enough to exist in 8bpp"
+        "\n; Rewrite the tilemap with tile indices that both EXIST and are NON-BLANK in a deep mode."
+    );
+    let _ = writeln!(s, ";");
+    let _ = writeln!(
+        s,
+        "; Two constraints, and missing the second is the subtler mistake. A tile must lie inside"
     );
     let _ = writeln!(
         s,
-        "; (32 words/tile against a 512-word font = tiles $00-$0F)."
+        "; the font: 8bpp is 32 words/tile against a 1024-word font, so $00-$1F exist. It must also"
+    );
+    let _ = writeln!(
+        s,
+        "; cover PRINTABLE glyphs, and how many glyphs a tile spans depends on the depth: a 4bpp"
+    );
+    let _ = writeln!(
+        s,
+        "; tile covers glyphs 2T and 2T+1, an 8bpp tile covers 4T..4T+3. So $10-$1F is glyphs 32-63"
+    );
+    let _ = writeln!(
+        s,
+        "; at 4bpp and 64-127 at 8bpp — printable at both. Anything below $10 lands on ASCII 0-31,"
+    );
+    let _ = writeln!(s, "; the control characters, which are blank in this font.");
+    let _ = writeln!(s, ";");
+    let _ = writeln!(
+        s,
+        "; This cost two rounds. $00-$0F rendered an EMPTY screen in mode 2 while mode 4 looked"
+    );
+    let _ = writeln!(
+        s,
+        "; fine, which reads as a broken mode; $08-$0F fixed 8bpp and left 4bpp still blank, which"
+    );
+    let _ = writeln!(
+        s,
+        "; reads as a broken depth. Neither was true. An empty scene hashes stably and the"
+    );
+    let _ = writeln!(
+        s,
+        "; reference emulators agree with it, so only looking at the picture finds this."
     );
     let _ = writeln!(s, ";");
     let _ = writeln!(
@@ -591,6 +886,15 @@ fn low_tiles_helper() -> String {
         "; size. That failure already cost this project a debugging session; see the"
     );
     let _ = writeln!(s, "; .a8/.a16 emission in `asm` below.");
+    s
+}
+
+/// Emit `scene_low_tiles`, the shared tilemap rewrite a deep-colour scene needs.
+///
+/// Split out of [`asm`] because it is a self-contained routine, not part of assembling the scene
+/// list — and because keeping it inline pushed `asm` past the line limit for no benefit.
+fn low_tiles_helper() -> String {
+    let mut s = low_tiles_rationale();
     let _ = writeln!(s, ".proc scene_low_tiles");
     let _ = writeln!(s, "    php");
     let _ = writeln!(s, "    .a16");
@@ -607,13 +911,33 @@ fn low_tiles_helper() -> String {
     let _ = writeln!(s, "    ldx #$0000");
     let _ = writeln!(s, "@cell:");
     let _ = writeln!(s, "    txa");
-    let _ = writeln!(s, "    and #$000F        ; tile $00-$0F");
-    let _ = writeln!(s, "    sta f:V_TMP");
+    let _ = writeln!(s, "    lsr a");
+    let _ = writeln!(s, "    lsr a");
+    let _ = writeln!(s, "    lsr a");
+    let _ = writeln!(s, "    lsr a");
+    let _ = writeln!(s, "    lsr a             ; row");
+    let _ = writeln!(s, "    sta f:V_TMP2");
     let _ = writeln!(s, "    txa");
-    let _ = writeln!(s, "    lsr a");
-    let _ = writeln!(s, "    lsr a");
-    let _ = writeln!(s, "    lsr a");
-    let _ = writeln!(s, "    lsr a");
+    let _ = writeln!(s, "    clc");
+    let _ = writeln!(
+        s,
+        "    adc f:V_TMP2      ; tile varies with row AND column: a column-constant map cannot"
+    );
+    let _ = writeln!(
+        s,
+        "                      ; show a vertical shift, which is how the first OPT scenes came"
+    );
+    let _ = writeln!(
+        s,
+        "                      ; out identical to their own control."
+    );
+    let _ = writeln!(s, "    and #$000F");
+    let _ = writeln!(
+        s,
+        "    ora #$0010        ; tile $10-$1F: inside the font AND printable at 4bpp and 8bpp"
+    );
+    let _ = writeln!(s, "    sta f:V_TMP");
+    let _ = writeln!(s, "    lda f:V_TMP2");
     let _ = writeln!(s, "    and #$0007");
     let _ = writeln!(s, "    .repeat 10");
     let _ = writeln!(s, "    asl a");
@@ -633,6 +957,79 @@ fn low_tiles_helper() -> String {
     s
 }
 
+/// Emit `scene_opt_map`, which fills BG3's tilemap with offset-per-tile entries.
+///
+/// In modes 2 and 6 BG3 stops being a layer and becomes a table: tile row 0 supplies each column's
+/// horizontal offset and row 1 its vertical offset, with bit 13 enabling the entry for BG1 and
+/// bit 14 for BG2. Mode 4 packs both into row 0 and picks between them with bit 15.
+///
+/// Entries are written per column *parity* — even columns take one value, odd columns another —
+/// because that is what makes the errata visible. `C6.05` says the leftmost tile is never affected
+/// and the first entry therefore controls the *second* visible column; with alternating values the
+/// shifted columns come out odd-numbered rather than even, which is a difference in the picture
+/// rather than a difference of one pixel at an edge.
+///
+/// Width-neutral (`php`/`plp`), for the reason spelled out on `scene_low_tiles`.
+fn opt_map_helper() -> String {
+    let mut s = String::new();
+    let mut w = |line: &str| {
+        let _ = writeln!(s, "{line}");
+    };
+    w("");
+    w("; Fill BG3's tilemap with offset-per-tile entries (see scenes.rs::opt_map_helper).");
+    w("; Reads V_OPT_H_EVEN / V_OPT_H_ODD (row 0) and V_OPT_V_EVEN / V_OPT_V_ODD (row 1).");
+    w(".proc scene_opt_map");
+    w("    php");
+    w("    .a16");
+    w("    .i16");
+    w("    sep #$20");
+    w("    .a8");
+    w("    lda #$80");
+    w("    sta VMAIN");
+    w("    rep #$30");
+    w("    .a16");
+    w("    .i16");
+    w("    ldx #OPT_MAP_BASE");
+    w("    stx VMADDL");
+    w("    ldx #$0000                ; cell index across the whole 32x32 map");
+    w("@cell:");
+    w("    txa");
+    w("    cmp #SCREEN_COLS          ; row 0?");
+    w("    bcs :+");
+    w("    bcc @row0");
+    w("  :");
+    w("    cmp #(SCREEN_COLS * 2)    ; row 1?");
+    w("    bcc @row1");
+    w("    lda #$0000                ; every other row is empty");
+    w("    bra @put");
+    w("@row0:");
+    w("    txa");
+    w("    and #$0001");
+    w("    bne :+");
+    w("    lda f:V_OPT_H_EVEN");
+    w("    bra @put");
+    w("  :");
+    w("    lda f:V_OPT_H_ODD");
+    w("    bra @put");
+    w("@row1:");
+    w("    txa");
+    w("    and #$0001");
+    w("    bne :+");
+    w("    lda f:V_OPT_V_EVEN");
+    w("    bra @put");
+    w("  :");
+    w("    lda f:V_OPT_V_ODD");
+    w("@put:");
+    w("    sta VMDATAL");
+    w("    inx");
+    w("    cpx #(SCREEN_COLS * 32)");
+    w("    bne @cell");
+    w("    plp                       ; restore the caller's register widths");
+    w("    rts");
+    w(".endproc");
+    s
+}
+
 /// Emit the scene setup routines and the dispatch table the runtime walks.
 #[must_use]
 pub fn asm() -> String {
@@ -648,6 +1045,7 @@ pub fn asm() -> String {
     let _ = writeln!(s, "\n.segment \"TESTS\"");
 
     s.push_str(&low_tiles_helper());
+    s.push_str(&opt_map_helper());
 
     for sc in SCENES {
         let _ = writeln!(s, "\n; {} — {}", sc.id, sc.dossier);
