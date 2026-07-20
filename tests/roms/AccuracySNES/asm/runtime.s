@@ -1213,6 +1213,211 @@ test_restore := test_restore_impl
 .endproc
 
 ; ---------------------------------------------------------------------------------------------
+; APU program upload, through the IPL boot ROM's handshake.
+;
+; Group E cannot be tested from the 65816 at all: the SPC700 is a separate processor with its own
+; RAM, and the only channel between them is four bytes. So the cart uploads a small SPC700 program,
+; lets it run, and reads its answers back through those same four ports — which is exactly what a
+; game's sound driver does at boot, and the reason the IPL ROM exists.
+;
+; The protocol is the documented one and it is unforgiving: every byte is a request/echo round
+; trip, and a single missed echo desynchronises the whole transfer with no error signal. It is
+; written out step by step here rather than compressed, because a compressed version of a
+; handshake is unreadable at exactly the moment you need to read it.
+;
+; Parameters in V_APU_* (see runtime.inc). Clobbers A/X/Y. Returns with the program running.
+.export apu_upload
+.proc apu_upload
+    php
+    rep #$30
+    .a16
+    .i16
+    phb
+    phd
+    phk
+    plb
+    ; D = 0 for the duration. The pointer is written and read through the SAME addressing mode
+    ; below, which is only meaningful if D is known: `sta a:$50` and `lda [$50],y` name the same
+    ; byte when D = 0 and different bytes otherwise, and a test is free to have moved D.
+    lda #$0000
+    tcd
+
+    ; Copy the source pointer into direct page: `lda [dp],y` is the only mode that reaches an
+    ; arbitrary bank with an index, and it needs the pointer there.
+    lda f:V_APU_SRC
+    sta z:V_APU_PTR
+    sep #$20
+    .a8
+    lda f:V_APU_BANK
+    sta z:V_APU_PTR + 2
+
+    ; --- wait for the IPL to announce itself with $AA/$BB ---
+    ;
+    ; Not optional and not merely polite: the IPL writes these only once it is ready to listen,
+    ; and everything below assumes it is.
+    rep #$30
+    .a16
+    .i16
+    lda #$0001
+    sta f:V_APU_STAGE
+    ldx #$0000
+@ready:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$AA
+    bne :+
+    lda APUIO1
+    cmp #$BB
+    beq @open
+  :
+    rep #$30
+    .a16
+    .i16
+    inx
+    bne :+
+    jmp @fail                   ; out of branch range: the bounded waits are far from the exit
+  :
+    bra @ready
+
+@open:
+    ; --- open a transfer at the destination address ---
+    rep #$30
+    .a16
+    .i16
+    lda #$0002
+    sta f:V_APU_STAGE
+    lda f:V_APU_DEST
+    sta APUIO2                  ; $2142/$2143 take the 16-bit address in one store
+    sep #$20
+    .a8
+    lda #$01
+    sta APUIO1                  ; non-zero: begin a transfer rather than jump
+    lda #$CC
+    sta APUIO0
+    rep #$10
+    .i16
+    ldx #$0000
+@kick:
+    sep #$20
+    .a8
+    cmp APUIO0                  ; the IPL echoes the kick value once it has taken it
+    beq @loop_init
+    rep #$10
+    .i16
+    inx
+    bne :+
+    jmp @fail                   ; out of branch range: the bounded waits are far from the exit
+  :
+    bra @kick
+
+@loop_init:
+    ; --- one byte per round trip ---
+    ;
+    ; Y is both the source index and the protocol counter, because they are the same number: the
+    ; IPL's acknowledgement value is "how many bytes have arrived". One variable for one concept,
+    ; so they cannot drift apart — a drift would look like a corrupted upload, not a counter bug.
+    rep #$30
+    .a16
+    .i16
+    lda #$0003
+    sta f:V_APU_STAGE
+    ldy #$0000
+@byte:
+    tya
+    cmp f:V_APU_LEN
+    beq @done
+    sep #$20
+    .a8
+    lda [V_APU_PTR],y           ; direct-page indirect long: the image may live in any bank
+    sta APUIO1                  ; the data byte
+    tya
+    sta APUIO0                  ; the counter, which is also the acknowledgement
+    rep #$10
+    .i16
+    ldx #$0000
+@echo:
+    sep #$20
+    .a8
+    cmp APUIO0
+    beq @next
+    rep #$10
+    .i16
+    inx
+    bne :+
+    jmp @fail                   ; out of branch range: the bounded waits are far from the exit
+  :
+    bra @echo
+@next:
+    rep #$30
+    .a16
+    .i16
+    iny
+    bra @byte
+
+@done:
+    ; --- close the transfer and jump ---
+    ;
+    ; The final counter is the last one plus TWO: one for the byte that was never sent, one
+    ; because the IPL treats the value as "next expected". Plus one is the classic off-by-one here,
+    ; and it hangs the handshake rather than corrupting anything — which at least fails loudly.
+    rep #$30
+    .a16
+    .i16
+    lda #$0004
+    sta f:V_APU_STAGE
+    lda f:V_APU_ENTRY
+    sta APUIO2
+    sep #$20
+    .a8
+    stz APUIO1                  ; zero: jump instead of continuing the transfer
+    tya                         ; 8-bit: the IPL's counter is a byte, so the width buys nothing
+    clc
+    adc #$02
+    sta APUIO0
+    rep #$10
+    .i16
+    ldx #$0000
+@final:
+    sep #$20
+    .a8
+    cmp APUIO0
+    beq @ok
+    rep #$10
+    .i16
+    inx
+    bne :+
+    jmp @fail                   ; out of branch range: the bounded waits are far from the exit
+  :
+    bra @final
+
+@ok:
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:V_APU_STAGE           ; 0 = the whole handshake completed
+    pld
+    plb
+    plp
+    clc
+    rts
+
+@fail:
+    ; Every wait above is bounded. An unbounded one hangs the entire battery and reports nothing
+    ; about the other 150 tests, which is a far worse outcome than one test standing down — and is
+    ; exactly what the first version of this did. V_APU_STAGE names the step that gave up.
+    rep #$30
+    .a16
+    .i16
+    pld
+    plb
+    plp
+    sec
+    rts
+.endproc
+
+; ---------------------------------------------------------------------------------------------
 ; Interrupt handlers. Nothing is enabled, but the vectors must point somewhere sane.
 ; ---------------------------------------------------------------------------------------------
 .export irq_stub

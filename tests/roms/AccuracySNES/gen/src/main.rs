@@ -16,6 +16,7 @@ mod dsl;
 mod emit;
 mod font;
 mod scenes;
+mod spc;
 mod tests;
 
 use std::path::{Path, PathBuf};

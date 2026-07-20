@@ -372,6 +372,27 @@ fix `docs/ppu.md` already documents — it wants a rendered scene, not an on-car
 the first can hang a core that gets it wrong, and the second is revision-gated in the way
 `C13.01`-`C13.06` are.
 
+### Group E — unblocked (T-04-E)
+
+The blocker was never the assertions; it was that the SPC700 is only reachable through four bytes.
+`apu_upload` in `asm/runtime.s` implements the IPL boot handshake, and `gen/src/spc.rs` assembles
+the SPC700 programs it uploads. `E1.01` is the first test through that path and is cross-validated.
+
+Two rules the machinery is built on, both learned immediately:
+
+- **Every handshake wait is bounded.** The first version was not, and it hung the whole battery —
+  reporting nothing about the other 149 tests. A test whose APU never answers reports SKIP, and
+  `V_APU_STAGE` names the step that gave up.
+- **The emitter only carries opcodes a committed test exercises.** An unexercised encoding is an
+  unverified one, and a wrong byte in it would surface as an emulator disagreement rather than as
+  an assembler bug — the most expensive way to find it. Five emitters were written for `E1.12` and
+  removed with it.
+
+`E1.12` (CLRV clears H as well as V) was written, failed, and was **withdrawn rather than
+weakened**: the `ADC` sequence meant to set `H` did not set it on RustySNES, snes9x *or* Mesen2.
+Three-way agreement against the test is the project's own signature of a broken test, so the
+premise needs re-deriving — not the assertion adjusting until it passes.
+
 ## 5. Defects this cartridge has found
 
 Recorded because it is the only real measure of whether the battery is worth its cost.

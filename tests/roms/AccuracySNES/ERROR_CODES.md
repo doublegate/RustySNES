@@ -964,6 +964,19 @@ Provenance: **Documented** (SNESdev Wiki, HDMA registers; fullsnes). Kind: score
 | 1 | `$02` | $430A does not hold the $00 terminator after the table ran out |
 | 2 | `$04` | $4308/09 did not advance past the table start; it is a working pointer, not a copy |
 
+## Group E
+
+### E1.01 — MUL YA flags from Y
+
+Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | MUL YA low byte is wrong |
+| 2 | `$04` | MUL YA high byte is wrong |
+| 3 | `$06` | MUL YA set Z although Y is non-zero — the flags come from Y alone, not from A or YA |
+| 4 | `$08` | MUL YA set N although Y is $01 |
+
 ## Group A
 
 ### A5.S01 — Sweep: CLC
