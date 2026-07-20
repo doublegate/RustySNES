@@ -36,8 +36,8 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `C12` | 3 | 0 | 2 | C12.02 |
 | `C13` | 10 | 4 | 0 | C13.01, C13.02, C13.03, C13.04, C13.05, C13.06 |
 | `C14` | 3 | 2 | 0 | C14.03 |
-| `D1` | 15 | 8 | 0 | D1.03, D1.04, D1.08, D1.11, D1.12, D1.13, D1.14 |
-| `D2` | 14 | 2 | 0 | D2.01, D2.02, D2.05, D2.06, D2.07, D2.08, D2.09, D2.10, D2.11-14, D2.15, D2.16, D2.17 |
+| `D1` | 15 | 10 | 0 | D1.08, D1.11, D1.12, D1.13, D1.14 |
+| `D2` | 14 | 4 | 0 | D2.01, D2.02, D2.07, D2.08, D2.09, D2.10, D2.11-14, D2.15, D2.16, D2.17 |
 | `D3` | 2 | 0 | 0 | D3.01, D3.02 |
 | `E1` | 15 | 0 | 0 | E1.01, E1.02, E1.03, E1.04, E1.05, E1.06, E1.07, E1.08, E1.09, E1.10, E1.11, E1.12, E1.13, E1.14, E1.15 |
 | `E2` | 10 | 0 | 0 | E2.01, E2.02, E2.03, E2.04, E2.05, E2.06, E2.07, E2.08, E2.09, E2.10 |
@@ -52,7 +52,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `F1` | 22 | 0 | 0 | F1.01, F1.02, F1.03, F1.04, F1.05, F1.06, F1.07, F1.08, F1.09, F1.10, F1.11, F1.12, F1.13, F1.14, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
 | `G1` | 18 | 0 | 0 | G1.01, G1.02, G1.03, G1.04, G1.05, G1.06, G1.07, G1.08, G1.09, G1.10, G1.11, G1.12, G1.13, G1.14, G1.15, G1.16, G1.17, G1.18 |
 
-**105 of 443** enumerated assertion rows covered by an on-cart test, plus **34** covered only by a rendered scene (`docs/adr/0013`) — **139 of 443** in total.
+**109 of 443** enumerated assertion rows covered by an on-cart test, plus **34** covered only by a rendered scene (`docs/adr/0013`) — **143 of 443** in total.
 
 The two columns are kept apart on purpose. An on-cart result means the same thing on any emulator and on real hardware; a rendered scene needs a host holding the golden. Adding them into one figure would quietly change what the number claims.
 

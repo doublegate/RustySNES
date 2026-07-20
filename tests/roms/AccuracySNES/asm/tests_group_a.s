@@ -7137,6 +7137,330 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; D1.03 — DMA startup overhead
+; provenance: Documented (SNESdev Wiki, DMA timing; fullsnes)
+.proc test_d1_03
+    .a16
+    .i16
+    bra @body
+@data:
+    .byte $11, $22, $33, $44
+@body:
+    ; A one-byte transfer: almost all of what this measures is overhead.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$08
+    sta $4300         ; fixed source, mode 0
+    lda #$22
+    sta $4301         ; CGDATA — harmless, and rebuilt before any scene
+    stz $2121
+    rep #$30
+    .a16
+    .i16
+    ldx #@data
+    stx $4302         ; A-bus address = this test's data table
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; A-bus bank = this bank
+    rep #$30
+    .a16
+    .i16
+    ldx #$0001
+    stx $4305         ; byte count
+    sep #$20
+    .a8
+    jsr hv_begin
+    lda #$01
+    sta $420B
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    ; record slot 111: D1.03 one-byte DMA, absolute (dots)
+    sta f:$7EE2DE
+    sep #$20
+    .a8
+    lda #$01
+    sta f:V_TEST_RESULT   ; golden: the number is in the measurement channel
+    jmp test_restore
+.endproc
+
+; D1.04 — DMA channel priority
+; provenance: Documented (SNESdev Wiki, DMA; fullsnes)
+.proc test_d1_04
+    .a16
+    .i16
+    bra @body
+@data:
+    .byte $11, $22
+@body:
+    ; Both channels write one byte to $2180. WMADD advances across both, so the pair in WRAM
+    ; is the execution order written down.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta $2181
+    lda #$0E
+    sta $2182
+    stz $2183         ; WMADD = $7E:0E00
+    ; --- channel 0: sources $11 ---
+    lda #$08
+    sta $4300         ; A->B, fixed, mode 0
+    lda #$80
+    sta $4301
+    rep #$30
+    .a16
+    .i16
+    ldx #@data
+    stx $4302
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304
+    rep #$30
+    .a16
+    .i16
+    ldx #$0001
+    stx $4305
+    ; --- channel 1: sources $22 ---
+    sep #$20
+    .a8
+    lda #$08
+    sta $4310
+    lda #$80
+    sta $4311
+    rep #$30
+    .a16
+    .i16
+    ldx #(@data + 1)
+    stx $4312
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4314
+    rep #$30
+    .a16
+    .i16
+    ldx #$0001
+    stx $4315
+    ; Start both in ONE write — which is the whole point; two writes would impose the order.
+    sep #$20
+    .a8
+    lda #$03
+    sta $420B
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0E00
+    cmp #$2211
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; the channels did not run in ascending order (expected $11 from ch0 then $22 from ch1)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; D2.05 — HDMA indirect mode
+; provenance: Documented (SNESdev Wiki, HDMA; fullsnes)
+.proc test_d2_05
+    .a16
+    .i16
+    bra @body
+@table:
+    .byte $02
+    .addr @ind1      ; indirect: the DATA lives at this address, not here
+    .byte $02
+    .addr @ind2
+    .byte $00        ; terminate
+@ind1:
+    .byte $77
+@ind2:
+    .byte $88
+@body:
+    ; Same $2180 trick as D2.03/D2.04, with DMAP bit 6 set and $4307 naming the data bank.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    stz $420C
+    ; Clear the landing page first.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@clear:
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0F00,x
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$0010
+    bne @clear
+    sep #$20
+    .a8
+    lda #$00
+    sta $2181
+    lda #$0F
+    sta $2182
+    stz $2183         ; WMADD = $7E:0F00
+    lda #$40
+    sta $4300         ; A->B, INDIRECT, mode 0
+    lda #$80
+    sta $4301         ; B-bus = $2180
+    rep #$30
+    .a16
+    .i16
+    ldx #@table
+    stx $4302
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; table bank
+    phk
+    pla
+    sta $4307         ; indirect DATA bank
+    jsr wait_vblank
+    lda #$01
+    sta $420C
+    jsr wait_vblank
+    stz $420C
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0F00
+    cmp #$8877
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; indirect HDMA did not fetch through the pointers (a core ignoring bit 6 writes the pointer bytes instead)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; D2.06 — HDMA $4308/$430A state
+; provenance: Documented (SNESdev Wiki, HDMA registers; fullsnes)
+.proc test_d2_06
+    .a16
+    .i16
+    bra @body
+@table:
+    .byte $02, $11
+    .byte $00
+@body:
+    ; Run one frame of HDMA to $2180, then read the channel's working registers.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    stz $420C
+    lda #$00
+    sta $2181
+    lda #$10
+    sta $2182
+    stz $2183         ; WMADD = $7E:1000
+    stz $4300
+    lda #$80
+    sta $4301
+    rep #$30
+    .a16
+    .i16
+    ldx #@table
+    stx $4302
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304
+    jsr wait_vblank
+    lda #$01
+    sta $420C
+    jsr wait_vblank
+    stz $420C
+    lda $430A
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    ; $4308/09 must have advanced past the table's start — it is a walking pointer.
+    rep #$30
+    .a16
+    .i16
+    lda $4308
+    sec
+    sbc #@table
+    cmp #$0001
+    bcs :+
+    jmp @fail2
+  :
+    cmp #$0011
+    bcc :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; $430A does not hold the $00 terminator after the table ran out
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; $4308/09 did not advance past the table start; it is a working pointer, not a copy
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 ; A5.S01 — Sweep: CLC
 ; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
 .proc test_a5_s01
@@ -10266,7 +10590,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 145
+    .word 149
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -10381,6 +10705,10 @@ _test_entries:
     .addr test_d1_09
     .addr test_d2_03
     .addr test_d2_04
+    .addr test_d1_03
+    .addr test_d1_04
+    .addr test_d2_05
+    .addr test_d2_06
     .addr test_a5_s01
     .addr test_a5_s02
     .addr test_a5_s03
@@ -10529,6 +10857,10 @@ _test_flags:
     .byte $01   ; D1.09
     .byte $01   ; D2.03
     .byte $01   ; D2.04
+    .byte $02   ; D1.03
+    .byte $01   ; D1.04
+    .byte $01   ; D2.05
+    .byte $01   ; D2.06
     .byte $01   ; A5.S01
     .byte $01   ; A5.S02
     .byte $01   ; A5.S03
@@ -10677,6 +11009,10 @@ _test_names:
     .addr @n_d1_09
     .addr @n_d2_03
     .addr @n_d2_04
+    .addr @n_d1_03
+    .addr @n_d1_04
+    .addr @n_d2_05
+    .addr @n_d2_06
     .addr @n_a5_s01
     .addr @n_a5_s02
     .addr @n_a5_s03
@@ -11044,6 +11380,18 @@ _test_names:
 @n_d2_04:
     .byte 16
     .byte "HDMA repeat flag"
+@n_d1_03:
+    .byte 20
+    .byte "DMA startup overhead"
+@n_d1_04:
+    .byte 20
+    .byte "DMA channel priority"
+@n_d2_05:
+    .byte 18
+    .byte "HDMA indirect mode"
+@n_d2_06:
+    .byte 22
+    .byte "HDMA $4308/$430A state"
 @n_a5_s01:
     .byte 10
     .byte "Sweep: CLC"

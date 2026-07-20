@@ -933,6 +933,37 @@ Provenance: **Documented** (SNESdev Wiki, HDMA; fullsnes). Kind: scored.
 | 3 | `$06` | repeat byte 4 is wrong |
 | 4 | `$08` | HDMA wrote a sixth byte; the repeat counts total five lines |
 
+### D1.03 — DMA startup overhead
+
+Provenance: **Documented** (SNESdev Wiki, DMA timing; fullsnes). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
+### D1.04 — DMA channel priority
+
+Provenance: **Documented** (SNESdev Wiki, DMA; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the channels did not run in ascending order (expected $11 from ch0 then $22 from ch1) |
+
+### D2.05 — HDMA indirect mode
+
+Provenance: **Documented** (SNESdev Wiki, HDMA; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | indirect HDMA did not fetch through the pointers (a core ignoring bit 6 writes the pointer bytes instead) |
+
+### D2.06 — HDMA $4308/$430A state
+
+Provenance: **Documented** (SNESdev Wiki, HDMA registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | $430A does not hold the $00 terminator after the table ran out |
+| 2 | `$04` | $4308/09 did not advance past the table start; it is a working pointer, not a copy |
+
 ## Group A
 
 ### A5.S01 — Sweep: CLC

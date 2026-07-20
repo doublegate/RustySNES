@@ -28,6 +28,10 @@ pub fn all() -> Vec<Test> {
         d1_09(),
         d2_03(),
         d2_04(),
+        d1_03(),
+        d1_04(),
+        d2_05(),
+        d2_06(),
     ]
 }
 
@@ -676,6 +680,267 @@ fn d1_09() -> Test {
         "WRAM->$2180 no-write",
         Provenance::Documented("fullsnes: \"does not cause a write to occur\""),
         Kind::Scored,
+        None,
+    )
+}
+
+/// A multi-channel DMA runs the lower channel number first.
+///
+/// `$420B` starts every selected channel from one write, and the order is not observable from
+/// timing alone — but it is perfectly observable from the destination when both channels write to
+/// the same auto-incrementing port. Channel 0 sources `$11` and channel 1 sources `$22`, so the
+/// byte pair in WRAM spells out the order the hardware chose.
+fn d1_04() -> Test {
+    let mut a = Asm::new();
+    a.l("bra @body");
+    a.label("data");
+    a.l(".byte $11, $22");
+    a.label("body");
+    a.c("Both channels write one byte to $2180. WMADD advances across both, so the pair in WRAM");
+    a.c("is the execution order written down.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta $2181");
+    a.l("lda #$0E");
+    a.l("sta $2182");
+    a.l("stz $2183         ; WMADD = $7E:0E00");
+
+    a.c("--- channel 0: sources $11 ---");
+    a.l("lda #$08");
+    a.l("sta $4300         ; A->B, fixed, mode 0");
+    a.l("lda #$80");
+    a.l("sta $4301");
+    a.l("rep #$30");
+    a.l("ldx #@data");
+    a.l("stx $4302");
+    a.l("sep #$20");
+    a.l("phk");
+    a.l("pla");
+    a.l("sta $4304");
+    a.l("rep #$30");
+    a.l("ldx #$0001");
+    a.l("stx $4305");
+
+    a.c("--- channel 1: sources $22 ---");
+    a.l("sep #$20");
+    a.l("lda #$08");
+    a.l("sta $4310");
+    a.l("lda #$80");
+    a.l("sta $4311");
+    a.l("rep #$30");
+    a.l("ldx #(@data + 1)");
+    a.l("stx $4312");
+    a.l("sep #$20");
+    a.l("phk");
+    a.l("pla");
+    a.l("sta $4314");
+    a.l("rep #$30");
+    a.l("ldx #$0001");
+    a.l("stx $4315");
+
+    a.c("Start both in ONE write — which is the whole point; two writes would impose the order.");
+    a.l("sep #$20");
+    a.l("lda #$03");
+    a.l("sta $420B");
+    a.l("rep #$30");
+    a.l("lda f:$7E0E00");
+    a.assert_a16(
+        0x2211,
+        "the channels did not run in ascending order (expected $11 from ch0 then $22 from ch1)",
+    );
+    a.finish(
+        "D1.04",
+        'D',
+        "DMA channel priority",
+        Provenance::Documented("SNESdev Wiki, DMA; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Indirect HDMA fetches each transfer's data through a pointer in the table.
+///
+/// With `$4300` bit 6 set, a table entry carries a 16-bit pointer instead of the data itself and
+/// the bytes come from `$4307`'s bank at that address. It is the mode almost every scrolling
+/// effect uses, and a core that ignores bit 6 transfers the pointer bytes themselves — which is
+/// exactly what this catches, since the pointer's low byte is nothing like `$77`.
+fn d2_05() -> Test {
+    let mut a = Asm::new();
+    a.l("bra @body");
+    a.label("table");
+    a.l(".byte $02");
+    a.l(".addr @ind1      ; indirect: the DATA lives at this address, not here");
+    a.l(".byte $02");
+    a.l(".addr @ind2");
+    a.l(".byte $00        ; terminate");
+    a.label("ind1");
+    a.l(".byte $77");
+    a.label("ind2");
+    a.l(".byte $88");
+    a.label("body");
+    a.c("Same $2180 trick as D2.03/D2.04, with DMAP bit 6 set and $4307 naming the data bank.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("stz $420C");
+    a.c("Clear the landing page first.");
+    a.l("rep #$30");
+    a.l("ldx #$0000");
+    a.label("clear");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta f:$7E0F00,x");
+    a.l("rep #$30");
+    a.l("inx");
+    a.l("cpx #$0010");
+    a.l("bne @clear");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta $2181");
+    a.l("lda #$0F");
+    a.l("sta $2182");
+    a.l("stz $2183         ; WMADD = $7E:0F00");
+    a.l("lda #$40");
+    a.l("sta $4300         ; A->B, INDIRECT, mode 0");
+    a.l("lda #$80");
+    a.l("sta $4301         ; B-bus = $2180");
+    a.l("rep #$30");
+    a.l("ldx #@table");
+    a.l("stx $4302");
+    a.l("sep #$20");
+    a.l("phk");
+    a.l("pla");
+    a.l("sta $4304         ; table bank");
+    a.l("phk");
+    a.l("pla");
+    a.l("sta $4307         ; indirect DATA bank");
+    a.l("jsr wait_vblank");
+    a.l("lda #$01");
+    a.l("sta $420C");
+    a.l("jsr wait_vblank");
+    a.l("stz $420C");
+    a.l("rep #$30");
+    a.l("lda f:$7E0F00");
+    a.assert_a16(
+        0x8877,
+        "indirect HDMA did not fetch through the pointers (a core ignoring bit 6 writes the \
+         pointer bytes instead)",
+    );
+    a.finish(
+        "D2.05",
+        'D',
+        "HDMA indirect mode",
+        Provenance::Documented("SNESdev Wiki, HDMA; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `$430A` is a live line counter, and it reads back zero once the table terminates.
+///
+/// The HDMA counterpart to `D1.06`. `$4308/09` and `$430A` are working state the controller
+/// updates as it walks the table, not a copy of what was programmed — so after a frame that ran to
+/// the `$00` terminator, the counter holds that terminator. A core that leaves the last real count
+/// there looks correct for a whole frame and then desynchronises on the next one.
+fn d2_06() -> Test {
+    let mut a = Asm::new();
+    a.l("bra @body");
+    a.label("table");
+    a.l(".byte $02, $11");
+    a.l(".byte $00");
+    a.label("body");
+    a.c("Run one frame of HDMA to $2180, then read the channel's working registers.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("stz $420C");
+    a.l("lda #$00");
+    a.l("sta $2181");
+    a.l("lda #$10");
+    a.l("sta $2182");
+    a.l("stz $2183         ; WMADD = $7E:1000");
+    a.l("stz $4300");
+    a.l("lda #$80");
+    a.l("sta $4301");
+    a.l("rep #$30");
+    a.l("ldx #@table");
+    a.l("stx $4302");
+    a.l("sep #$20");
+    a.l("phk");
+    a.l("pla");
+    a.l("sta $4304");
+    a.l("jsr wait_vblank");
+    a.l("lda #$01");
+    a.l("sta $420C");
+    a.l("jsr wait_vblank");
+    a.l("stz $420C");
+    a.l("lda $430A");
+    a.assert_a8(
+        0x00,
+        "$430A does not hold the $00 terminator after the table ran out",
+    );
+    a.c("$4308/09 must have advanced past the table's start — it is a walking pointer.");
+    a.l("rep #$30");
+    a.l("lda $4308");
+    a.l("sec");
+    a.l("sbc #@table");
+    a.assert_a16_range(
+        1,
+        16,
+        "$4308/09 did not advance past the table start; it is a working pointer, not a copy",
+    );
+    a.finish(
+        "D2.06",
+        'D',
+        "HDMA $4308/$430A state",
+        Provenance::Documented("SNESdev Wiki, HDMA registers; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The fixed cost of starting a DMA, measured (golden vector).
+///
+/// `D1.02` establishes the per-byte rate as a differential, which deliberately cancels everything
+/// that is not per-byte. What it cancels is this: an 8-clock startup plus an alignment cost that
+/// depends on where in the CPU's cycle the `$420B` write lands. That alignment is exactly the part
+/// no two implementations need agree on to be equally correct, so the number is recorded rather
+/// than asserted — the same treatment `B4.14` gets, for the same reason.
+fn d1_03() -> Test {
+    let mut a = Asm::new();
+    data_table(&mut a);
+    a.c("A one-byte transfer: almost all of what this measures is overhead.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$08");
+    a.l("sta $4300         ; fixed source, mode 0");
+    a.l("lda #$22");
+    a.l("sta $4301         ; CGDATA — harmless, and rebuilt before any scene");
+    a.l("stz $2121");
+    source_from_table(&mut a, 1);
+    a.measure_begin();
+    a.l("lda #$01");
+    a.l("sta $420B");
+    a.measure_end();
+    a.measure_result();
+    a.record(111, "D1.03 one-byte DMA, absolute (dots)");
+    a.l("sep #$20");
+    a.l("lda #$01");
+    a.l("sta f:V_TEST_RESULT   ; golden: the number is in the measurement channel");
+    a.l("jmp test_restore");
+    a.finish(
+        "D1.03",
+        'D',
+        "DMA startup overhead",
+        Provenance::Documented("SNESdev Wiki, DMA timing; fullsnes"),
+        Kind::Golden,
         None,
     )
 }

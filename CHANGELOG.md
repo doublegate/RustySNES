@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Four more Group D tests: channel priority, indirect HDMA, and the HDMA working registers.**
+  `D1.04` (a multi-channel start runs the lower channel first), `D2.05` (indirect mode fetches each
+  transfer through a pointer), `D2.06` (`$4308/09` and `$430A` are live working state, so the
+  counter holds the `$00` terminator once the table runs out), and `D1.03`, the DMA startup
+  overhead, recorded as a golden vector.
+
+  `D1.04` is observable only because both channels write to the same auto-incrementing port: the
+  byte pair left in WRAM spells out the order the hardware chose, where timing alone could not.
+  `D2.05` catches the specific failure of ignoring the indirect bit — such a core transfers the
+  pointer bytes themselves, which look nothing like the data behind them.
+
+  `D1.03` is a golden rather than a scored test because what it measures is an 8-clock startup plus
+  an alignment cost that depends on where in the CPU's cycle the `$420B` write lands — exactly the
+  part two implementations need not agree on to both be right. `B4.14` gets the same treatment for
+  the same reason, and `D1.02` deliberately cancels it by measuring a length differential instead.
+
 - **Group D continues: HDMA arrives, plus three more GP-DMA semantics.** `D1.05` (a byte count of
   zero means 65536), `D1.09`/`D1.15` (a WRAM source with `$2180` as the destination performs no
   write), and the first two HDMA tests — `D2.03` the line-count byte and `D2.04` the repeat flag.
@@ -96,10 +112,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **145 tests — 134 scoring at 100.00%, 10 golden
+**AccuracySNES totals, as of this section:** **149 tests — 137 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **35 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **105 of 443** on-cart plus **34** scene-only —
-**139 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier. Dossier coverage is **109 of 443** on-cart plus **34** scene-only —
+**143 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 

@@ -361,9 +361,14 @@ version next moves for another reason.
 is self-scoring when pointed at `$2180`: `WMADD` auto-increments, so a frame of per-line transfers
 leaves an exact byte trail in WRAM — how many writes, in what order, and that they stopped.
 
-Next under this ticket: `D1.13` (DMA reads update open bus, writes never do), `D1.14` (the other
-half of the `$2180` asymmetry — B->A *does* write, but writes garbage), `D1.03`/`D1.04`
-(startup overhead and channel priority), and the rest of `D2`. `D1.08`'s invalid-A-bus errata and `D3`'s two chip-revision crashes need care:
+`D1.03`, `D1.04`, `D2.05` and `D2.06` have since landed too — 11 of `D1`'s 15 rows and 4 of `D2`'s
+17. Next: `D1.13` (DMA reads update open bus, writes never do), `D1.14` (the other half of the
+`$2180` asymmetry — B->A *does* write, but writes garbage), and `D2.07`/`D2.08`/`D2.15`-`D2.17`.
+
+Three of `D2`'s remaining rows are errata that need the same care as `C13`: `D2.09` and `D2.10`
+describe states a core can be *driven into* rather than behaviours it exhibits, and `D2.16`
+(HDMA-driven register writes take effect the following line) is the Air Strike Patrol case whose
+fix `docs/ppu.md` already documents — it wants a rendered scene, not an on-cart test. `D1.08`'s invalid-A-bus errata and `D3`'s two chip-revision crashes need care:
 the first can hang a core that gets it wrong, and the second is revision-gated in the way
 `C13.01`-`C13.06` are.
 
