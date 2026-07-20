@@ -38,9 +38,16 @@ pub fn all() -> Vec<Test> {
         e3_01(),
         e3_11(),
         dsp_addressing(),
+        e2_01(),
+        e2_05(),
         e3_14(),
         dsp_global_regs(),
         e9_19(),
+        e5_07(),
+        e5_08(),
+        e5_09(),
+        e5_11(),
+        e7_10(),
     ]
 }
 
@@ -55,7 +62,9 @@ pub fn all() -> Vec<Test> {
 /// one of those, so an undocumented width here would have the assembler and the CPU disagreeing
 /// about the size of the next immediate — and every instruction after it shifted.
 fn upload_and_run(a: &mut Asm, prog: &Spc) {
-    a.l("bra @body");
+    // `jmp`, not `bra`: the image being jumped over is the SPC700 program itself, and a program
+    // that carries BRR sample data is several hundred bytes -- far past a branch's reach.
+    a.l("jmp @body");
     a.label("prog");
     for line in prog.as_ca65("    ").lines() {
         a.l(line.trim_start());
@@ -745,6 +754,15 @@ fn dsp_addressing() -> Test {
 /// there is nothing to set the bits in the first place, so requiring zero would pass on a core
 /// that had simply never implemented the register at all. What this test can prove is the narrower
 /// and still useful thing — that the write did not stick.
+///
+/// **The read waits before looking.** `ENDX`, `OUTX` and `ENVX` are written back from an internal
+/// buffer once per sample, and a CPU write landing one or two clocks before that writeback is lost
+/// (`E7.17`) — so an immediate read-back is racing a hazard the hardware documentation warns about,
+/// and its answer depends on which DSP clock the write happened to land on. That is not a detail
+/// this test is about, and it is not hypothetical: with no delay here, one added byte elsewhere in
+/// the battery was enough to move the write into the window and flip the result on snes9x at PAL
+/// timing while leaving NTSC alone. Waiting a few samples asserts the same thing about the same
+/// write, minus the coin flip.
 fn e9_19() -> Test {
     let mut prog = Spc::new();
     prog.mov_x_imm(0xEF)
@@ -753,6 +771,7 @@ fn e9_19() -> Test {
         .mov_dp_a(0xF2) // address latch: select ENDX ($7C)
         .mov_a_imm(0xFF)
         .mov_dp_a(0xF3) // data port: any write clears ENDX, so this must not store $FF
+        .delay(0x40) // let the writeback window pass -- see above
         .mov_a_imm(0x7C)
         .mov_dp_a(0xF2) // select it again to read back
         .mov_a_dp(0xF3)
@@ -826,6 +845,457 @@ fn dsp_global_regs() -> Test {
         'E',
         "DSP global registers",
         Provenance::Documented("SNESdev Wiki, S-DSP registers; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+// ---------------------------------------------------------------------------------------------
+// Voice playback: the part of the S-DSP that only moves when a sample is actually running.
+// ---------------------------------------------------------------------------------------------
+//
+// Everything above pokes DSP registers and reads them back, which proves the address latch works
+// and nothing else. The assertions below need a voice to be *playing*: `ENDX` only sets when a
+// block with the end flag is decoded, and an envelope only reaches a value by being stepped. So
+// each of these uploads a program that plants a BRR sample and a sample directory in APU RAM,
+// points a voice at it, keys it on, waits, and reports what the DSP says afterwards.
+//
+// Three details make the difference between a test and a coin flip:
+//
+// * **A sample that does not end must be surrounded.** A block whose end flag is clear does not
+//   stop; the DSP walks forward into whatever bytes follow, and some byte of the program's own
+//   code eventually decodes as a header with the end flag set -- so `ENDX` sets for a reason that
+//   has nothing to do with the test. The one test in that position pads its sample with silence
+//   AND plays at a sixteenth of the sample rate, so the padding lasts far longer than the settle.
+//   The other samples all carry an end flag, and need no padding at all: a looping sample repeats
+//   forever and an end-without-loop sample stops the voice.
+// * **The directory entry the test does not want used must be defined**, not merely absent.
+//   `E5.11` distinguishes a correct entry address from a wrong one, and "wrong" has to point at
+//   something known — here at address `$0000`, whose zero header decodes as silence forever.
+// * **`KON` is cleared after keying on.** A core that re-keys a voice for as long as the bit is
+//   set would hold the envelope at its attack value, and `E5.07` — which asserts the envelope
+//   collapses — would fail against the core rather than against the behaviour.
+
+/// Where `upload_and_run` places a program image in APU RAM.
+const IMAGE_BASE: u16 = 0x0200;
+
+/// The page the sample directory lives on, as the DSP's `DIR` register names it.
+///
+/// Page 1 is the stack page, and the entries sit at its very bottom while the stack is at its top
+/// (`SP = $EF`): far enough apart that no program here comes close. A page of its own would cost
+/// several hundred bytes of upload padding to reach, since a directory must be page-aligned.
+const DIR_PAGE: u8 = 0x01;
+
+/// Select a DSP register and write it.
+fn dsp_write(p: &mut Spc, reg: u8, val: u8) {
+    p.mov_a_imm(reg).mov_dp_a(0xF2);
+    p.mov_a_imm(val).mov_dp_a(0xF3);
+}
+
+/// Select a DSP register and park its value in one of the four ports for the cart to read.
+fn dsp_read_to(p: &mut Spc, reg: u8, port: u8) {
+    p.mov_a_imm(reg).mov_dp_a(0xF2);
+    p.mov_a_dp(0xF3).mov_dp_a(port);
+}
+
+/// One nine-byte BRR block: a header plus eight bytes of two four-bit samples each.
+///
+/// `flags` is the header's low two bits — bit 1 loop, bit 0 end — spelled that way round because
+/// the header is `ssssffle` and the pair is routinely quoted as a "code": 0 normal, 1 end+mute,
+/// 2 loop without end (which behaves as 0), 3 end+loop.
+fn brr_block(shift: u8, filter: u8, flags: u8, hi: u8, lo: u8) -> Vec<u8> {
+    let mut v = vec![(shift << 4) | (filter << 2) | flags];
+    v.extend(core::iter::repeat_n((hi << 4) | lo, 8));
+    v
+}
+
+/// `blocks`, followed by `run_out` blocks of silence for a non-looping voice to run out into.
+///
+/// `run_out` is zero for every sample that carries an end flag somewhere, which is most of them —
+/// the padding is not free, and five copies of a generous run-out overflowed the ROM bank the
+/// tests are linked into.
+fn brr_sample(blocks: &[Vec<u8>], run_out: usize) -> Vec<u8> {
+    let mut v: Vec<u8> = blocks.concat();
+    for _ in 0..run_out {
+        v.extend(brr_block(0, 0, 0, 0, 0));
+    }
+    v
+}
+
+/// Build a program that plays `sample` on voice 0 through directory entry `srcn` and reports.
+///
+/// The reports are always the same three registers, in the same three ports: `ENDX` (`$7C`),
+/// voice 0's `ENVX` (`$08`), and voice 0's `OUTX` (`$09`). Each test asserts on the one it is
+/// about; a shared shape is worth more here than a minimal one, because the setup is long and a
+/// difference between two of these programs should be a difference the test is *about*.
+///
+/// `pitch_hi` is the high byte of the voice's pitch: `$10` is one sample per output sample, `$01`
+/// is a sixteenth of that. `settle` is a count of delay loops after key-on, each roughly a thousand
+/// SPC700 cycles — a few dozen output samples. Both are deliberately coarse: these assertions are
+/// about what the DSP eventually reports, not about when.
+fn voice_program(sample: &[u8], srcn: u8, pitch_hi: u8, settle: u8) -> Spc {
+    let mut p = Spc::new();
+    let addr = p.data_first(IMAGE_BASE, sample);
+    p.mov_x_imm(0xEF).mov_sp_x();
+
+    // The directory: four bytes per entry, start address then loop address, both little-endian.
+    // Entry `srcn` gets the sample; the other of the first two entries is pointed at $0000, whose
+    // zero header decodes as silence and never sets ENDX. An entry that is merely never written
+    // would leave "wrong entry" meaning "whatever APU RAM happened to hold".
+    let dir = u16::from(DIR_PAGE) << 8;
+    for entry in 0u16..2 {
+        let src = if u8::try_from(entry).expect("two entries") == srcn {
+            addr
+        } else {
+            0x0000
+        };
+        let [lo, hi] = src.to_le_bytes();
+        let base = dir + entry * 4;
+        p.mov_a_imm(lo).mov_abs_a(base);
+        p.mov_a_imm(hi).mov_abs_a(base + 1);
+        p.mov_a_imm(lo).mov_abs_a(base + 2); // loop address: the same block, so code 3 repeats it
+        p.mov_a_imm(hi).mov_abs_a(base + 3);
+    }
+
+    // Global state. FLG $20 leaves the DSP running and unmuted with echo *writes* disabled, which
+    // is what a driver does before it has an echo buffer; the reset and mute bits are what the
+    // power-on value has set. Noise, echo and pitch modulation are cleared explicitly rather than
+    // assumed, since a previous test's program shares the same DSP.
+    dsp_write(&mut p, 0x6C, 0x20); // FLG
+    dsp_write(&mut p, 0x5C, 0x00); // KOF
+    dsp_write(&mut p, 0x3D, 0x00); // NON
+    dsp_write(&mut p, 0x4D, 0x00); // EON
+    dsp_write(&mut p, 0x2D, 0x00); // PMON
+    dsp_write(&mut p, 0x5D, DIR_PAGE); // DIR
+    dsp_write(&mut p, 0x0C, 0x7F); // MVOLL
+    dsp_write(&mut p, 0x1C, 0x7F); // MVOLR
+
+    dsp_write(&mut p, 0x00, 0x7F); // VOL L
+    dsp_write(&mut p, 0x01, 0x7F); // VOL R
+    dsp_write(&mut p, 0x02, 0x00); // PITCH low
+    dsp_write(&mut p, 0x03, pitch_hi); // PITCH high: $10 is one sample per output sample
+    dsp_write(&mut p, 0x04, srcn); // SRCN
+    dsp_write(&mut p, 0x05, 0x00); // ADSR1: ADSR disabled, so GAIN is in charge
+    dsp_write(&mut p, 0x06, 0x00); // ADSR2
+    dsp_write(&mut p, 0x07, 0x7F); // GAIN: bit 7 clear is direct gain, envelope = $7F << 4
+
+    dsp_write(&mut p, 0x7C, 0x00); // ENDX: any write clears it, so start from a known state
+    dsp_write(&mut p, 0x4C, 0x01); // KON voice 0
+    p.delay(0x00);
+    dsp_write(&mut p, 0x4C, 0x00); // and clear it — see the module comment
+
+    for _ in 0..settle {
+        p.delay(0x00);
+    }
+
+    dsp_read_to(&mut p, 0x7C, PORT1); // ENDX
+    dsp_read_to(&mut p, 0x08, PORT2); // voice 0 ENVX
+    dsp_read_to(&mut p, 0x09, PORT3); // voice 0 OUTX
+    p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+    p
+}
+
+/// A direct GAIN value *is* the envelope: `ENVX` reads back the byte that was written.
+///
+/// With `ADSR1` bit 7 clear the ADSR generator is off and `VxGAIN` governs the envelope; with
+/// `VxGAIN` bit 7 also clear the mode is direct, and the envelope is set to `G << 4` rather than
+/// ramped toward it. `VxENVX` reports `E >> 4`, so the two shifts cancel and a direct gain of `$7F`
+/// reads back as exactly `$7F` — an exact number, on a register that is otherwise only ever
+/// checked for being "about right".
+///
+/// The voice is playing a looping sample throughout, so nothing else has cause to move the
+/// envelope. That matters: the same read on a voice that had finished would report `$00` for a
+/// reason this test is not about (see `E5.07`).
+fn e7_10() -> Test {
+    // Code 3 — end and loop — so the voice repeats this block forever and never runs out.
+    let sample = brr_sample(&[brr_block(0x8, 0, 0b11, 0x7, 0x9)], 0);
+    let prog = voice_program(&sample, 0, 0x10, 4);
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x7F,
+        "ENVX did not read back the direct GAIN value; a ramp toward it, or a missing >>4, both \
+         land somewhere else",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E7.10",
+        'E',
+        "Direct GAIN is envelope",
+        Provenance::Documented("SNESdev Wiki, S-DSP envelopes; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `ENDX` sets when a block carrying the end flag is decoded.
+///
+/// The voice plays two blocks, the second of which is code 3 — end and loop — so the sample
+/// repeats and the only thing that can have set `ENDX` is the end flag itself. A core that never
+/// implemented the register, or that only sets it when a voice *stops*, reports nothing here; a
+/// driver waiting on `ENDX` to swap a sample would wait forever.
+fn e5_09() -> Test {
+    let sample = brr_sample(
+        &[
+            brr_block(0x8, 0, 0b00, 0x7, 0x9),
+            brr_block(0x8, 0, 0b11, 0x9, 0x7),
+        ],
+        0,
+    );
+    let prog = voice_program(&sample, 0, 0x10, 4);
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("Bit 0 is voice 0. Masked rather than compared whole: the other seven voices were never");
+    a.c("keyed on, but nothing in this test says what a core leaves in their bits.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$0001");
+    a.assert_a16_range(
+        1,
+        1,
+        "ENDX bit 0 never set although the voice decoded a block with the end flag",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E5.09",
+        'E',
+        "ENDX sets on end block",
+        Provenance::Documented("fullsnes, S-DSP BRR; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The loop flag alone means nothing: code 2 behaves exactly as code 0.
+///
+/// Both header bits are read as a pair, and only the end bit stops anything. A block with the loop
+/// bit set and the end bit clear is an ordinary block — the loop address is consulted when a block
+/// *ends*, and this one does not. A core that treats the loop bit as "this is the last block"
+/// sets `ENDX` here, and would then also jump back to the loop point in the middle of a sample.
+///
+/// Without an end flag the voice keeps decoding forward, so this is the one voice test that has to
+/// bound where it gets to: it plays at a sixteenth of the sample rate and pads the sample with six
+/// blocks of silence, which is minutes of settle time away rather than the two delay loops it
+/// actually waits.
+///
+/// It is the pair to `E5.09`, which sets `ENDX` from an otherwise identical program with one header
+/// bit different. Without that pairing this assertion would also pass on a voice that never
+/// started, since "did not set a bit" is what silence looks like too.
+fn e5_08() -> Test {
+    let sample = brr_sample(
+        &[
+            brr_block(0x8, 0, 0b10, 0x7, 0x9),
+            brr_block(0x8, 0, 0b10, 0x9, 0x7),
+        ],
+        6,
+    );
+    let prog = voice_program(&sample, 0, 0x01, 2);
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$0001");
+    a.assert_a16_range(
+        0,
+        0,
+        "ENDX bit 0 set although no block carried the end flag, so the loop bit was read as one",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E5.08",
+        'E',
+        "Loop flag without end",
+        Provenance::Documented("fullsnes, S-DSP BRR; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// End without loop silences the voice immediately, whatever the envelope was doing.
+///
+/// Code 1 — end set, loop clear — puts the voice into release with an envelope of zero the moment
+/// the block finishes, rather than releasing it at the configured rate. The envelope here is a
+/// direct GAIN of `$7F`, which nothing about the envelope generator would ever move on its own, so
+/// a reading of `$00` afterwards can only have come from the end-and-mute path.
+///
+/// This is the pair to `E7.10`: identical setup, identical read, one header bit different, and the
+/// answers are opposite. Neither test alone separates "the envelope works" from "the envelope is
+/// stuck at whatever was written".
+fn e5_07() -> Test {
+    let sample = brr_sample(&[brr_block(0x8, 0, 0b01, 0x7, 0x9)], 0);
+    let prog = voice_program(&sample, 0, 0x10, 4);
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x00,
+        "ENVX was not zero after an end-without-loop block, so end+mute did not force release",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E5.07",
+        'E',
+        "End+mute zeroes env",
+        Provenance::Documented("fullsnes, S-DSP BRR; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// A sample directory entry is at `DIR * $100 + SRCN * 4`.
+///
+/// The same sample as `E5.09`, reached through entry **1** instead of entry 0 — and entry 0 is
+/// pointed at address `$0000`, whose zero header decodes as silence that never ends. So a core
+/// that folds `SRCN` in with the wrong stride, or ignores it, plays silence and reports nothing;
+/// only the documented address arrives at a sample with an end flag in it.
+///
+/// The decoy matters more than it looks. With entry 0 simply left unwritten, "wrong entry" would
+/// mean "whatever APU RAM happened to hold", which is neither silence nor a sample reliably.
+fn e5_11() -> Test {
+    let sample = brr_sample(
+        &[
+            brr_block(0x8, 0, 0b00, 0x7, 0x9),
+            brr_block(0x8, 0, 0b11, 0x9, 0x7),
+        ],
+        0,
+    );
+    let prog = voice_program(&sample, 1, 0x10, 4);
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$0001");
+    a.assert_a16_range(
+        1,
+        1,
+        "ENDX never set for SRCN 1, so the directory entry was not read from DIR*$100 + SRCN*4",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E5.11",
+        'E',
+        "Directory entry address",
+        Provenance::Documented("fullsnes, S-DSP BRR; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Direct-page indexing wraps inside the page.
+///
+/// `MOV A,$FF+X` with `X = 2` reads direct-page `$01`, not `$0101`. The index is added to the
+/// 8-bit offset and the result stays in the page the `P` flag selects — it does not carry into the
+/// page above. A core that computes the address as a 16-bit sum reads a byte from the wrong page
+/// entirely, which is silent until something lives there.
+///
+/// `$0101` — where a 16-bit sum *would* land — is poisoned with a third value rather than left to
+/// whatever APU RAM holds. Otherwise the test asserts only that the wrong page did not happen to
+/// contain the expected marker, which is a weaker claim that quietly depends on power-on state.
+fn e2_05() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_dp_imm(0x01, 0x5A) // where a wrapped index must land
+        .mov_dp_imm(0xFF, 0x99) // and where the un-indexed offset points
+        .mov_a_imm(0x33)
+        .mov_abs_a(0x0101) // and where a 16-bit sum would land, poisoned so it cannot match
+        .mov_x_imm(0x02)
+        .mov_a_dp_x(0xFF) // $FF + 2 -> $01 if it wraps, $0101 if it does not
+        .mov_dp_a(PORT2)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x5A,
+        "$FF + X did not wrap within the direct page; a 16-bit sum would read $0101 instead",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E2.05",
+        'E',
+        "DP index wraps in page",
+        Provenance::Documented("SNESdev Wiki, SPC700 addressing; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// A store to a timer counter clears it, because stores dummy-read their destination.
+///
+/// `MOV $FD,A` writes nothing useful — the counter is read-only — but the instruction reads its
+/// destination first, and reading a timer counter *consumes* it. So a store to `$FD` clears
+/// Timer 0 as surely as a load does, which is a trap for any driver that "initialises" the
+/// counters by writing them.
+///
+/// Both readings are asserted directly rather than against each other. The first version of this
+/// test asked only that the post-store reading be *smaller* than a control reading taken over the
+/// same delay, and that version failed on one reference emulator while passing here — not because
+/// either core was wrong, but because a core that does not clear leaves an arbitrary value in the
+/// counter, and an arbitrary value lands inside a difference range often enough to decide the
+/// test by luck. Requiring the control to have advanced and the post-store reading to be empty is
+/// the stronger claim and the stable one.
+fn e2_01() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_dp_imm(0xFA, 0x01) // T0DIV = 1
+        .mov_dp_imm(0xF1, 0x81) // enable timer 0, and KEEP the IPL ROM mapped (bit 7)
+        // --- control: delay, then read. The counter must have advanced. ---
+        .delay(0x00)
+        .mov_a_dp(0xFD)
+        .mov_dp_a(PORT2)
+        // --- the store: delay again, store to $FD, then read. The store's dummy read cleared it. ---
+        .delay(0x00)
+        .mov_a_imm(0x00)
+        .mov_dp_a(0xFD) // MOV $FD,A — a store, whose dummy read consumes the counter
+        .mov_a_dp(0xFD)
+        .mov_dp_a(PORT3)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("Control first: without a store in the way, the counter advanced.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        2,
+        15,
+        "timer 0 did not advance over the control delay, so the check below is vacuous — it would \
+         pass on a counter that was empty the whole time",
+    );
+    a.c("And immediately after the store the counter is essentially empty. Asserted directly");
+    a.c("rather than as a difference: a core that does NOT clear leaves an arbitrary value there,");
+    a.c("and an arbitrary value lands inside a difference range often enough to pass by luck.");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0,
+        1,
+        "the counter was not empty immediately after a store to $FD, so the store's dummy read \
+         did not consume it",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E2.01",
+        'E',
+        "Store dummy-reads target",
+        Provenance::Documented("SNESdev Wiki, SPC700; fullsnes — flagged as errata"),
         Kind::Scored,
         None,
     )

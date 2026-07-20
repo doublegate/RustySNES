@@ -7466,7 +7466,7 @@ CATALOG_IMPL = 1
 .proc test_e1_01
     .a16
     .i16
-    bra @body
+    jmp @body
 @prog:
     .byte $CD, $EF, $BD, $E8, $10, $8D, $10, $CF, $C4, $F6, $CB, $F7
     .byte $0D, $AE, $C4, $F5, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5
@@ -7610,7 +7610,7 @@ CATALOG_IMPL = 1
 .proc test_e1_02
     .a16
     .i16
-    bra @body
+    jmp @body
 @prog:
     .byte $CD, $EF, $BD, $8D, $00, $E8, $20, $CD, $08, $9E, $C4, $F6
     .byte $CB, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA
@@ -7725,7 +7725,7 @@ CATALOG_IMPL = 1
 .proc test_e1_04
     .a16
     .i16
-    bra @body
+    jmp @body
 @prog:
     .byte $CD, $EF, $BD, $8D, $05, $E8, $00, $CD, $03, $9E, $0D, $AE
     .byte $C4, $F6, $8D, $03, $E8, $00, $CD, $05, $9E, $0D, $AE, $C4
@@ -7845,7 +7845,7 @@ CATALOG_IMPL = 1
 .proc test_e1_05
     .a16
     .i16
-    bra @body
+    jmp @body
 @prog:
     .byte $CD, $EF, $BD, $8D, $05, $E8, $00, $CD, $03, $9E, $0D, $AE
     .byte $C4, $F6, $8D, $03, $E8, $00, $CD, $05, $9E, $0D, $AE, $C4
@@ -7965,7 +7965,7 @@ CATALOG_IMPL = 1
 .proc test_e1_06
     .a16
     .i16
-    bra @body
+    jmp @body
 @prog:
     .byte $CD, $EF, $BD, $8D, $00, $E8, $03, $CD, $08, $9E, $0D, $AE
     .byte $C4, $F6, $8D, $00, $E8, $20, $CD, $08, $9E, $0D, $AE, $C4
@@ -8086,7 +8086,7 @@ CATALOG_IMPL = 1
 .proc test_e1_13
     .a16
     .i16
-    bra @body
+    jmp @body
 @prog:
     .byte $CD, $EF, $BD, $8F, $FF, $10, $8F, $0F, $11, $8F, $01, $12
     .byte $8F, $00, $13, $8F, $00, $14, $8F, $01, $15, $BA, $10, $7A
@@ -8207,7 +8207,7 @@ CATALOG_IMPL = 1
 .proc test_e1_15
     .a16
     .i16
-    bra @body
+    jmp @body
 @prog:
     .byte $CD, $EF, $BD, $8F, $00, $10, $8F, $01, $11, $BA, $10, $0D
     .byte $AE, $C4, $F6, $8F, $00, $12, $8F, $80, $13, $BA, $12, $0D
@@ -8327,7 +8327,7 @@ CATALOG_IMPL = 1
 .proc test_e3_01
     .a16
     .i16
-    bra @body
+    jmp @body
 @prog:
     .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $01, $F1, $8D, $00, $FE
     .byte $FE, $E4, $FD, $C4, $F6, $E4, $FD, $C4, $F7, $E8, $5A, $C4
@@ -8456,7 +8456,7 @@ CATALOG_IMPL = 1
 .proc test_e3_11
     .a16
     .i16
-    bra @body
+    jmp @body
 @prog:
     .byte $CD, $EF, $BD, $8F, $0C, $F2, $8F, $7F, $F3, $8F, $8C, $F2
     .byte $8F, $00, $F3, $8F, $0C, $F2, $E4, $F3, $C4, $F6, $8F, $0C
@@ -8576,7 +8576,7 @@ CATALOG_IMPL = 1
 .proc test_e3_11b
     .a16
     .i16
-    bra @body
+    jmp @body
 @prog:
     .byte $CD, $EF, $BD, $8F, $00, $F2, $8F, $11, $F3, $8F, $10, $F2
     .byte $8F, $22, $F3, $8F, $0C, $F2, $8F, $33, $F3, $8F, $10, $F2
@@ -8701,12 +8701,247 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; E2.01 — Store dummy-reads target
+; provenance: Documented (SNESdev Wiki, SPC700; fullsnes — flagged as errata)
+.proc test_e2_01
+    .a16
+    .i16
+    jmp @body
+@prog:
+    .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $81, $F1, $8D, $00, $FE
+    .byte $FE, $E4, $FD, $C4, $F6, $8D, $00, $FE, $FE, $E8, $00, $C4
+    .byte $FD, $E4, $FD, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68
+    .byte $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image.
+    lda #@prog
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    phk
+    pla
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #46
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    ; Control first: without a store in the way, the counter advanced.
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0101
+    and #$00FF
+    cmp #$0002
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0010
+    bcc :+
+    jmp @fail1
+  :
+    ; And immediately after the store the counter is essentially empty. Asserted directly
+    ; rather than as a difference: a core that does NOT clear leaves an arbitrary value there,
+    ; and an arbitrary value lands inside a difference range often enough to pass by luck.
+    lda f:$7E0102
+    and #$00FF
+    cmp #$0000
+    bcs :+
+    jmp @fail2
+  :
+    cmp #$0002
+    bcc :+
+    jmp @fail2
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jmp test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; timer 0 did not advance over the control delay, so the check below is vacuous — it would pass on a counter that was empty the whole time
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; the counter was not empty immediately after a store to $FD, so the store's dummy read did not consume it
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; E2.05 — DP index wraps in page
+; provenance: Documented (SNESdev Wiki, SPC700 addressing; fullsnes)
+.proc test_e2_05
+    .a16
+    .i16
+    jmp @body
+@prog:
+    .byte $CD, $EF, $BD, $8F, $5A, $01, $8F, $99, $FF, $E8, $33, $C5
+    .byte $01, $01, $CD, $02, $F4, $FF, $C4, $F6, $E8, $5A, $C4, $F4
+    .byte $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0
+    .byte $FF
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image.
+    lda #@prog
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    phk
+    pla
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #37
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    sep #$20
+    .a8
+    lda f:$7E0101
+    cmp #$5A
+    beq :+
+    jmp @fail1
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jmp test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; $FF + X did not wrap within the direct page; a 16-bit sum would read $0101 instead
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 ; E3.14 — $F8/$F9 are plain RAM
 ; provenance: Documented (SNESdev Wiki, SPC700 I/O; fullsnes)
 .proc test_e3_14
     .a16
     .i16
-    bra @body
+    jmp @body
 @prog:
     .byte $CD, $EF, $BD, $8F, $5A, $F8, $8F, $A5, $F9, $E4, $F8, $C4
     .byte $F6, $E4, $F9, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68
@@ -8821,7 +9056,7 @@ CATALOG_IMPL = 1
 .proc test_e3_11c
     .a16
     .i16
-    bra @body
+    jmp @body
 @prog:
     .byte $CD, $EF, $BD, $E8, $0C, $C4, $F2, $E8, $11, $C4, $F3, $E8
     .byte $1C, $C4, $F2, $E8, $22, $C4, $F3, $E8, $2C, $C4, $F2, $E8
@@ -8953,11 +9188,12 @@ CATALOG_IMPL = 1
 .proc test_e9_19
     .a16
     .i16
-    bra @body
+    jmp @body
 @prog:
-    .byte $CD, $EF, $BD, $E8, $7C, $C4, $F2, $E8, $FF, $C4, $F3, $E8
-    .byte $7C, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $5A, $C4, $F4, $E4
-    .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+    .byte $CD, $EF, $BD, $E8, $7C, $C4, $F2, $E8, $FF, $C4, $F3, $8D
+    .byte $40, $FE, $FE, $E8, $7C, $C4, $F2, $E4, $F3, $C4, $F6, $E8
+    .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
+    .byte $F1, $5F, $C0, $FF
 @body:
     rep #$30
     .a16
@@ -8975,7 +9211,7 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
-    lda #36
+    lda #40
     sta f:V_APU_LEN
     lda #$0200
     sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
@@ -9052,6 +9288,647 @@ CATALOG_IMPL = 1
     jmp test_restore
 @fail1:
     ; ENDX read back as $FF, so the write was stored rather than treated as a clear
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; E5.07 — End+mute zeroes env
+; provenance: Documented (fullsnes, S-DSP BRR; anomie's DSP doc)
+.proc test_e5_07
+    .a16
+    .i16
+    jmp @body
+@prog:
+    .byte $5F, $0C, $02, $81, $79, $79, $79, $79, $79, $79, $79, $79
+    .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
+    .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
+    .byte $00, $C5, $04, $01, $E8, $00, $C5, $05, $01, $E8, $00, $C5
+    .byte $06, $01, $E8, $00, $C5, $07, $01, $E8, $6C, $C4, $F2, $E8
+    .byte $20, $C4, $F3, $E8, $5C, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $3D, $C4, $F2, $E8, $00, $C4, $F3, $E8, $4D, $C4, $F2, $E8
+    .byte $00, $C4, $F3, $E8, $2D, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $5D, $C4, $F2, $E8, $01, $C4, $F3, $E8, $0C, $C4, $F2, $E8
+    .byte $7F, $C4, $F3, $E8, $1C, $C4, $F2, $E8, $7F, $C4, $F3, $E8
+    .byte $00, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $01, $C4, $F2, $E8
+    .byte $7F, $C4, $F3, $E8, $02, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $03, $C4, $F2, $E8, $10, $C4, $F3, $E8, $04, $C4, $F2, $E8
+    .byte $00, $C4, $F3, $E8, $05, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $06, $C4, $F2, $E8, $00, $C4, $F3, $E8, $07, $C4, $F2, $E8
+    .byte $7F, $C4, $F3, $E8, $7C, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $4C, $C4, $F2, $E8, $01, $C4, $F3, $8D, $00, $FE, $FE, $E8
+    .byte $4C, $C4, $F2, $E8, $00, $C4, $F3, $8D, $00, $FE, $FE, $8D
+    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $E8
+    .byte $7C, $C4, $F2, $E4, $F3, $C4, $F5, $E8, $08, $C4, $F2, $E4
+    .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
+    .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
+    .byte $F1, $5F, $C0, $FF
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image.
+    lda #@prog
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    phk
+    pla
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #268
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    sep #$20
+    .a8
+    lda f:$7E0101
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jmp test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; ENVX was not zero after an end-without-loop block, so end+mute did not force release
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; E5.08 — Loop flag without end
+; provenance: Documented (fullsnes, S-DSP BRR; anomie's DSP doc)
+.proc test_e5_08
+    .a16
+    .i16
+    jmp @body
+@prog:
+    .byte $5F, $4B, $02, $82, $79, $79, $79, $79, $79, $79, $79, $79
+    .byte $82, $97, $97, $97, $97, $97, $97, $97, $97, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8
+    .byte $02, $C5, $01, $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5
+    .byte $03, $01, $E8, $00, $C5, $04, $01, $E8, $00, $C5, $05, $01
+    .byte $E8, $00, $C5, $06, $01, $E8, $00, $C5, $07, $01, $E8, $6C
+    .byte $C4, $F2, $E8, $20, $C4, $F3, $E8, $5C, $C4, $F2, $E8, $00
+    .byte $C4, $F3, $E8, $3D, $C4, $F2, $E8, $00, $C4, $F3, $E8, $4D
+    .byte $C4, $F2, $E8, $00, $C4, $F3, $E8, $2D, $C4, $F2, $E8, $00
+    .byte $C4, $F3, $E8, $5D, $C4, $F2, $E8, $01, $C4, $F3, $E8, $0C
+    .byte $C4, $F2, $E8, $7F, $C4, $F3, $E8, $1C, $C4, $F2, $E8, $7F
+    .byte $C4, $F3, $E8, $00, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $01
+    .byte $C4, $F2, $E8, $7F, $C4, $F3, $E8, $02, $C4, $F2, $E8, $00
+    .byte $C4, $F3, $E8, $03, $C4, $F2, $E8, $01, $C4, $F3, $E8, $04
+    .byte $C4, $F2, $E8, $00, $C4, $F3, $E8, $05, $C4, $F2, $E8, $00
+    .byte $C4, $F3, $E8, $06, $C4, $F2, $E8, $00, $C4, $F3, $E8, $07
+    .byte $C4, $F2, $E8, $7F, $C4, $F3, $E8, $7C, $C4, $F2, $E8, $00
+    .byte $C4, $F3, $E8, $4C, $C4, $F2, $E8, $01, $C4, $F3, $8D, $00
+    .byte $FE, $FE, $E8, $4C, $C4, $F2, $E8, $00, $C4, $F3, $8D, $00
+    .byte $FE, $FE, $8D, $00, $FE, $FE, $E8, $7C, $C4, $F2, $E4, $F3
+    .byte $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $09
+    .byte $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
+    .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image.
+    lda #@prog
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    phk
+    pla
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #323
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0100
+    and #$0001
+    cmp #$0000
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0001
+    bcc :+
+    jmp @fail1
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jmp test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; ENDX bit 0 set although no block carried the end flag, so the loop bit was read as one
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; E5.09 — ENDX sets on end block
+; provenance: Documented (fullsnes, S-DSP BRR; anomie's DSP doc)
+.proc test_e5_09
+    .a16
+    .i16
+    jmp @body
+@prog:
+    .byte $5F, $15, $02, $80, $79, $79, $79, $79, $79, $79, $79, $79
+    .byte $83, $97, $97, $97, $97, $97, $97, $97, $97, $CD, $EF, $BD
+    .byte $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01, $01, $E8, $03
+    .byte $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8, $00, $C5, $04
+    .byte $01, $E8, $00, $C5, $05, $01, $E8, $00, $C5, $06, $01, $E8
+    .byte $00, $C5, $07, $01, $E8, $6C, $C4, $F2, $E8, $20, $C4, $F3
+    .byte $E8, $5C, $C4, $F2, $E8, $00, $C4, $F3, $E8, $3D, $C4, $F2
+    .byte $E8, $00, $C4, $F3, $E8, $4D, $C4, $F2, $E8, $00, $C4, $F3
+    .byte $E8, $2D, $C4, $F2, $E8, $00, $C4, $F3, $E8, $5D, $C4, $F2
+    .byte $E8, $01, $C4, $F3, $E8, $0C, $C4, $F2, $E8, $7F, $C4, $F3
+    .byte $E8, $1C, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $00, $C4, $F2
+    .byte $E8, $7F, $C4, $F3, $E8, $01, $C4, $F2, $E8, $7F, $C4, $F3
+    .byte $E8, $02, $C4, $F2, $E8, $00, $C4, $F3, $E8, $03, $C4, $F2
+    .byte $E8, $10, $C4, $F3, $E8, $04, $C4, $F2, $E8, $00, $C4, $F3
+    .byte $E8, $05, $C4, $F2, $E8, $00, $C4, $F3, $E8, $06, $C4, $F2
+    .byte $E8, $00, $C4, $F3, $E8, $07, $C4, $F2, $E8, $7F, $C4, $F3
+    .byte $E8, $7C, $C4, $F2, $E8, $00, $C4, $F3, $E8, $4C, $C4, $F2
+    .byte $E8, $01, $C4, $F3, $8D, $00, $FE, $FE, $E8, $4C, $C4, $F2
+    .byte $E8, $00, $C4, $F3, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE
+    .byte $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $E8, $7C, $C4, $F2
+    .byte $E4, $F3, $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6
+    .byte $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4
+    .byte $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0
+    .byte $FF
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image.
+    lda #@prog
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    phk
+    pla
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #277
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    ; Bit 0 is voice 0. Masked rather than compared whole: the other seven voices were never
+    ; keyed on, but nothing in this test says what a core leaves in their bits.
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0100
+    and #$0001
+    cmp #$0001
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0002
+    bcc :+
+    jmp @fail1
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jmp test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; ENDX bit 0 never set although the voice decoded a block with the end flag
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; E5.11 — Directory entry address
+; provenance: Documented (fullsnes, S-DSP BRR; anomie's DSP doc)
+.proc test_e5_11
+    .a16
+    .i16
+    jmp @body
+@prog:
+    .byte $5F, $15, $02, $80, $79, $79, $79, $79, $79, $79, $79, $79
+    .byte $83, $97, $97, $97, $97, $97, $97, $97, $97, $CD, $EF, $BD
+    .byte $E8, $00, $C5, $00, $01, $E8, $00, $C5, $01, $01, $E8, $00
+    .byte $C5, $02, $01, $E8, $00, $C5, $03, $01, $E8, $03, $C5, $04
+    .byte $01, $E8, $02, $C5, $05, $01, $E8, $03, $C5, $06, $01, $E8
+    .byte $02, $C5, $07, $01, $E8, $6C, $C4, $F2, $E8, $20, $C4, $F3
+    .byte $E8, $5C, $C4, $F2, $E8, $00, $C4, $F3, $E8, $3D, $C4, $F2
+    .byte $E8, $00, $C4, $F3, $E8, $4D, $C4, $F2, $E8, $00, $C4, $F3
+    .byte $E8, $2D, $C4, $F2, $E8, $00, $C4, $F3, $E8, $5D, $C4, $F2
+    .byte $E8, $01, $C4, $F3, $E8, $0C, $C4, $F2, $E8, $7F, $C4, $F3
+    .byte $E8, $1C, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $00, $C4, $F2
+    .byte $E8, $7F, $C4, $F3, $E8, $01, $C4, $F2, $E8, $7F, $C4, $F3
+    .byte $E8, $02, $C4, $F2, $E8, $00, $C4, $F3, $E8, $03, $C4, $F2
+    .byte $E8, $10, $C4, $F3, $E8, $04, $C4, $F2, $E8, $01, $C4, $F3
+    .byte $E8, $05, $C4, $F2, $E8, $00, $C4, $F3, $E8, $06, $C4, $F2
+    .byte $E8, $00, $C4, $F3, $E8, $07, $C4, $F2, $E8, $7F, $C4, $F3
+    .byte $E8, $7C, $C4, $F2, $E8, $00, $C4, $F3, $E8, $4C, $C4, $F2
+    .byte $E8, $01, $C4, $F3, $8D, $00, $FE, $FE, $E8, $4C, $C4, $F2
+    .byte $E8, $00, $C4, $F3, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE
+    .byte $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $E8, $7C, $C4, $F2
+    .byte $E4, $F3, $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6
+    .byte $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4
+    .byte $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0
+    .byte $FF
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image.
+    lda #@prog
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    phk
+    pla
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #277
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0100
+    and #$0001
+    cmp #$0001
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0002
+    bcc :+
+    jmp @fail1
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jmp test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; ENDX never set for SRCN 1, so the directory entry was not read from DIR*$100 + SRCN*4
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; E7.10 — Direct GAIN is envelope
+; provenance: Documented (SNESdev Wiki, S-DSP envelopes; fullsnes)
+.proc test_e7_10
+    .a16
+    .i16
+    jmp @body
+@prog:
+    .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
+    .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
+    .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
+    .byte $00, $C5, $04, $01, $E8, $00, $C5, $05, $01, $E8, $00, $C5
+    .byte $06, $01, $E8, $00, $C5, $07, $01, $E8, $6C, $C4, $F2, $E8
+    .byte $20, $C4, $F3, $E8, $5C, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $3D, $C4, $F2, $E8, $00, $C4, $F3, $E8, $4D, $C4, $F2, $E8
+    .byte $00, $C4, $F3, $E8, $2D, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $5D, $C4, $F2, $E8, $01, $C4, $F3, $E8, $0C, $C4, $F2, $E8
+    .byte $7F, $C4, $F3, $E8, $1C, $C4, $F2, $E8, $7F, $C4, $F3, $E8
+    .byte $00, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $01, $C4, $F2, $E8
+    .byte $7F, $C4, $F3, $E8, $02, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $03, $C4, $F2, $E8, $10, $C4, $F3, $E8, $04, $C4, $F2, $E8
+    .byte $00, $C4, $F3, $E8, $05, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $06, $C4, $F2, $E8, $00, $C4, $F3, $E8, $07, $C4, $F2, $E8
+    .byte $7F, $C4, $F3, $E8, $7C, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $4C, $C4, $F2, $E8, $01, $C4, $F3, $8D, $00, $FE, $FE, $E8
+    .byte $4C, $C4, $F2, $E8, $00, $C4, $F3, $8D, $00, $FE, $FE, $8D
+    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $E8
+    .byte $7C, $C4, $F2, $E4, $F3, $C4, $F5, $E8, $08, $C4, $F2, $E4
+    .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
+    .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
+    .byte $F1, $5F, $C0, $FF
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image.
+    lda #@prog
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    phk
+    pla
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #268
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsr apu_upload
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    sep #$20
+    .a8
+    lda f:$7E0101
+    cmp #$7F
+    beq :+
+    jmp @fail1
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jmp test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; ENVX did not read back the direct GAIN value; a ramp toward it, or a missing >>4, both land somewhere else
     sep #$20
     .a8
     lda #$02
@@ -12188,7 +13065,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 162
+    .word 169
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -12317,9 +13194,16 @@ _test_entries:
     .addr test_e3_01
     .addr test_e3_11
     .addr test_e3_11b
+    .addr test_e2_01
+    .addr test_e2_05
     .addr test_e3_14
     .addr test_e3_11c
     .addr test_e9_19
+    .addr test_e5_07
+    .addr test_e5_08
+    .addr test_e5_09
+    .addr test_e5_11
+    .addr test_e7_10
     .addr test_a5_s01
     .addr test_a5_s02
     .addr test_a5_s03
@@ -12482,9 +13366,16 @@ _test_flags:
     .byte $01   ; E3.01
     .byte $01   ; E3.11
     .byte $01   ; E3.11b
+    .byte $01   ; E2.01
+    .byte $01   ; E2.05
     .byte $01   ; E3.14
     .byte $01   ; E3.11c
     .byte $01   ; E9.19
+    .byte $01   ; E5.07
+    .byte $01   ; E5.08
+    .byte $01   ; E5.09
+    .byte $01   ; E5.11
+    .byte $01   ; E7.10
     .byte $01   ; A5.S01
     .byte $01   ; A5.S02
     .byte $01   ; A5.S03
@@ -12647,9 +13538,16 @@ _test_names:
     .addr @n_e3_01
     .addr @n_e3_11
     .addr @n_e3_11b
+    .addr @n_e2_01
+    .addr @n_e2_05
     .addr @n_e3_14
     .addr @n_e3_11c
     .addr @n_e9_19
+    .addr @n_e5_07
+    .addr @n_e5_08
+    .addr @n_e5_09
+    .addr @n_e5_11
+    .addr @n_e7_10
     .addr @n_a5_s01
     .addr @n_a5_s02
     .addr @n_a5_s03
@@ -13059,6 +13957,12 @@ _test_names:
 @n_e3_11b:
     .byte 23
     .byte "DSP register addressing"
+@n_e2_01:
+    .byte 24
+    .byte "Store dummy-reads target"
+@n_e2_05:
+    .byte 22
+    .byte "DP index wraps in page"
 @n_e3_14:
     .byte 21
     .byte "$F8/$F9 are plain RAM"
@@ -13068,6 +13972,21 @@ _test_names:
 @n_e9_19:
     .byte 20
     .byte "ENDX write clears it"
+@n_e5_07:
+    .byte 19
+    .byte "End+mute zeroes env"
+@n_e5_08:
+    .byte 21
+    .byte "Loop flag without end"
+@n_e5_09:
+    .byte 22
+    .byte "ENDX sets on end block"
+@n_e5_11:
+    .byte 23
+    .byte "Directory entry address"
+@n_e7_10:
+    .byte 23
+    .byte "Direct GAIN is envelope"
 @n_a5_s01:
     .byte 10
     .byte "Sweep: CLC"
