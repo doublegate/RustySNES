@@ -1388,6 +1388,15 @@ Provenance: **Documented** (fullsnes, S-DSP noise; anomie's DSP doc — flagged 
 |---|---|---|
 | 1 | `$02` | a noise voice's envelope survived an end-without-loop block, so noise voices are not decoding BRR underneath |
 
+### E9.10 — FLG.5 stops echo writes
+
+Provenance: **Documented** (fullsnes, S-DSP echo; anomie's DSP doc). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the echo buffer was written with FLG bit 5 set — the bit disables echo WRITES, and a driver that parks a buffer under it expects to find it intact |
+| 2 | `$04` | the echo buffer still held the marker with FLG bit 5 clear, so the DSP is not writing it at all |
+
 ### E9.17 — Mute is after OUTX
 
 Provenance: **Documented** (fullsnes, S-DSP FLG; anomie's DSP doc). Kind: scored.

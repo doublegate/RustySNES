@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`FLG` bit 5 stops the DSP *writing* the echo buffer, and nothing else (`E9.10`).** It is usually
+  described as "echo disable", and it is not: the DSP goes on reading the buffer and feeding it
+  through the FIR, it simply stops writing anything back. A driver that clears the buffer once and
+  sets the bit gets silence; one that sets the bit over a buffer full of noise gets that noise
+  **forever**, because the same samples circulate unchanged. A core that treats the bit as "echo
+  off" produces silence in both cases and sounds fine until a game does the second thing.
+
+  The test asks APU RAM rather than the ear: it paints a marker over the buffer's first bytes,
+  waits, and reads them back — with writes disabled the marker survives, with writes enabled it is
+  replaced by the zero the mixer is producing. `EDL = 0` is the smallest buffer, four bytes
+  rewritten every sample (`E9.06`), which is what makes a short wait enough and puts the write
+  exactly where the marker is.
+
 - **Bit 7 of a CGRAM read is PPU2's open bus, not a sixteenth stored bit (`C3.03`).** A palette
   entry stores fifteen bits, so what comes back in the second `$213B` read's top bit is whatever
   PPU2 last drove — and the *first* read of the pair is what drove it. The bit therefore mirrors the
@@ -695,10 +708,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **212 tests — 200 scoring at 100.00%, 11 golden
+**AccuracySNES totals, as of this section:** **213 tests — 201 scoring at 100.00%, 11 golden
 vectors**, plus one region-dependent SKIP per image, and **50 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **170 of 443** on-cart plus **50** scene-only —
-**220 of 443** in total, and **every group A-G now has shipped tests**
+framebuffer-oracle tier. Dossier coverage is **171 of 443** on-cart plus **50** scene-only —
+**221 of 443** in total, and **every group A-G now has shipped tests**
 (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
