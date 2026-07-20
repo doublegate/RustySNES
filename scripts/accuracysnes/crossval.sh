@@ -65,7 +65,13 @@ ran=0
 #   nocash fullsnes (which lists $4202-$4206 as "(FFh)" power-up); implemented by bsnes
 #   (sfc/cpu/cpu.hpp), ares, and Mesen2 (AluMulDiv::Initialize). snes9x's S9xSoftResetPPU
 #   blanket-memsets $4200-$42FF to zero and special-cases only $4201/$4213, so it reports 0 x N.
-SNES9X_KNOWN_FAILURES=1
+#
+# snes9x, +1 test (A5.S17 "Sweep: WDM"): WDM ($42) is a reserved TWO-byte no-op costing 2 cycles /
+#   2 bus accesses = 16 master clocks. undisbeliever's table gives $42 as 2 bytes / 2 cycles; the
+#   WDC, GTE and VLSI instruction-operation tables agree; Mesen2 and RustySNES both measure it.
+#   snes9x gets WDM's LENGTH right (it passes A6.08, the functional two-byte test) but not its
+#   timing, which is a narrower and more interesting bug than it first looks.
+SNES9X_KNOWN_FAILURES=2
 
 # --- snes9x, via the libretro host --------------------------------------------------------------
 if [[ -f $SNES9X ]]; then

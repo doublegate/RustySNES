@@ -224,7 +224,26 @@ Remaining, in order:
    number instead of failing. That is the worst kind of failure — indistinguishable from a real
    reading — and it was invisible until raw values could be read back.
 
-3. **Derive per-opcode expectations** into the generator from §3 + §4. The method is now proven
-   end-to-end on four instructions; what remains is the safe-operand table and the sandbox.
+3. ~~Derive per-opcode expectations~~ — **done. The sweep runs (T-04-I).**
+   `gen/src/tests/sweep.rs` carries a safe-operand table and a sandbox, and emits one test per
+   opcode so a failure names the instruction rather than the batch. Expectations come from
+   `6*cycles + 2*mem` against cycle counts all three vendor tables agree on. **22 entries, all
+   passing.**
+
+   Two things it caught on its first run, both worth recording:
+
+   - **`LDX #imm` and `PHX`+`PLX` failed** — and the bug was the sandbox, not the emulator. It set
+     `sep #$20`, narrowing only the accumulator, so the index registers stayed 16-bit while every
+     expectation in the table is stated at `x=1`. At `x=0`, `LDX #imm` is a 3-byte 3-cycle fetch and
+     `PHX`/`PLX` move two bytes rather than one. A sandbox has to establish the preconditions its
+     table claims; `sep #$30` now does.
+   - **snes9x mistimes `WDM`.** It is a reserved *two*-byte no-op costing 2 cycles / 2 accesses.
+     snes9x gets the length right — it passes `A6.08`, the functional test — but not the timing.
+     Declared in `crossval.sh` with its citation, and a narrower bug than it first appears.
+
+   Remaining for full coverage: control flow (`PC`-moving, needs a different harness than inline
+   repetition), untaken branches, and the memory-addressing modes (each needs a checked safe
+   operand, since `DBR=$00` puts absolute addresses within reach of MMIO). `STP` stays permanently
+   excluded — it halts the CPU until reset, so a self-scoring battery that runs it never reports.
 
 4. Rockwell never second-sourced the 16-bit part, so three vendors is the ceiling here.

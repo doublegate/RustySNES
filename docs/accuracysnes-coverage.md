@@ -12,7 +12,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `A2` | 10 | 5 | A2.05, A2.07, A2.08, A2.09, A2.10 |
 | `A3` | 10 | 6 | A3.06, A3.07, A3.08, A3.09 |
 | `A4` | 10 | 5 | A4.03, A4.04, A4.05, A4.09, A4.10 |
-| `A5` | 15 | 8 | A5.01-08, A5.09, A5.10, A5.16, A5.18, A5.19, A5.20 |
+| `A5` | 15 | 9 | A5.09, A5.10, A5.16, A5.18, A5.19, A5.20 |
 | `A6` | 15 | 8 | A6.02, A6.09, A6.10, A6.11, A6.12, A6.13, A6.15 |
 | `A7` | 5 | 4 | A7.04 |
 | `A8` | 6 | 2 | A8.01, A8.04, A8.05, A8.06 |
@@ -52,12 +52,13 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `F1` | 22 | 0 | F1.01, F1.02, F1.03, F1.04, F1.05, F1.06, F1.07, F1.08, F1.09, F1.10, F1.11, F1.12, F1.13, F1.14, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
 | `G1` | 18 | 0 | G1.01, G1.02, G1.03, G1.04, G1.05, G1.06, G1.07, G1.08, G1.09, G1.10, G1.11, G1.12, G1.13, G1.14, G1.15, G1.16, G1.17, G1.18 |
 
-**86 of 443** enumerated assertion rows covered by at least one test.
+**87 of 443** enumerated assertion rows covered by at least one test.
 
 ## Assertions split across several tests
 
 Declared in `dossier.rs::SPLITS`. Each is a claim that the tests assert different things about one enumerated behaviour; an undeclared double-claim fails the build.
 
+- **`A5.01-08`** — A5.S01, A5.S02, A5.S03, A5.S04, A5.S05, A5.S06, A5.S07, A5.S08, A5.S09, A5.S10, A5.S11, A5.S12, A5.S13, A5.S14, A5.S15, A5.S16, A5.S17, A5.S18, A5.S19, A5.S20, A5.S21, A5.S22 · the opcode cycle sweep (T-04-I). The dossier states the base sweep as a single ranged assertion covering all 256 opcodes; the cart implements it as one test per opcode so a failure names the instruction rather than the batch. Every A5.Sxx test is one row of it
 - **`A1.01`** — A1.01, A1.03 · cart A1.01 asserts XCE clears XH/YH; cart A1.03 asserts it forces SH=$01. One dossier line, two independent register effects
 - **`A6.01`** — A6.01, A6.02 · cart A6.01 covers the native BRK vector, cart A6.02 the separate COP vector. The dossier lists the whole native vector table as one assertion
 - **`A8.02`** — A8.01, A8.02 · cart A8.01 asserts the terminal A=$FFFF, cart A8.02 the permanent DBR=destination. A core can get either right and the other wrong

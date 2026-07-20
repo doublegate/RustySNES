@@ -769,3 +769,181 @@ Provenance: **Documented** (anomie regs.txt r1157 and nocash fullsnes, independe
 | 2 | `$04` | $4204/05 did not power up as $FFFF (the captured quotient was not $FFFF / 2) |
 | 3 | `$06` | the captured power-on divide remainder was wrong |
 
+## Group A
+
+### A5.S01 — Sweep: CLC
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S02 — Sweep: SEC
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S03 — Sweep: CLV
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S04 — Sweep: INX
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S05 — Sweep: DEX
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S06 — Sweep: TAX
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S07 — Sweep: TXY
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S08 — Sweep: ASL A
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S09 — Sweep: XBA
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S10 — Sweep: TCD
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S11 — Sweep: LDA #imm
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S12 — Sweep: LDX #imm
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S13 — Sweep: CMP #imm
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S14 — Sweep: BIT #imm
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S15 — Sweep: REP #imm
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S16 — Sweep: SEP #imm
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S17 — Sweep: WDM
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S18 — Sweep: PHA+PLA
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S19 — Sweep: PHP+PLP
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S20 — Sweep: PHB+PLB
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S21 — Sweep: PHD+PLD
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
+### A5.S22 — Sweep: PHX+PLX
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
