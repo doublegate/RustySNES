@@ -159,6 +159,31 @@ pub struct Dma {
     pub hdma_enable: u8,
 }
 
+/// Whether an A-bus-to-B-bus transfer performs no write.
+///
+/// One case, and it is an erratum rather than a rule: WRAM to `$2180` is a WRAM-to-WRAM transfer
+/// through the data port, and the hardware does not perform the write (fullsnes: "does not cause
+/// a write to occur"). The read still happens and the time is still spent. Implementing `$2180`
+/// as an ordinary port copies the bytes and looks right until a game relies on the no-op.
+///
+/// Shared by both transfer paths — GP-DMA has its own inline loop because it interleaves HDMA and
+/// accounts clocks per byte, so this cannot live in `transfer_unit` alone.
+const fn suppress_write_b(b_addr: u8, a_addr: u32) -> bool {
+    b_addr == 0x80 && is_wram_address(a_addr)
+}
+
+/// Whether a 24-bit A-bus address names WRAM — either bank `$7E`/`$7F` directly, or the low-WRAM
+/// mirror that banks `$00`-`$3F` and `$80`-`$BF` expose at `$0000`-`$1FFF`.
+///
+/// Used only by the `$2180` no-write rule, which is about the memory behind the address rather
+/// than about how it was spelled: a transfer sourced from the mirror is just as much WRAM-to-WRAM
+/// as one sourced from `$7E`.
+const fn is_wram_address(addr24: u32) -> bool {
+    let bank = (addr24 >> 16) & 0xFF;
+    let addr = addr24 & 0xFFFF;
+    matches!(bank, 0x7E | 0x7F) || (matches!(bank, 0x00..=0x3F | 0x80..=0xBF) && addr <= 0x1FFF)
+}
+
 impl Dma {
     /// Construct a power-on DMA controller (all channels open, no transfers pending).
     #[must_use]
@@ -289,7 +314,14 @@ impl Dma {
                 } else {
                     let data = bus.read_a(a);
                     bus.step(4);
-                    bus.write_b(b, data);
+                    // The `$2180` no-write rule — see `transfer_unit`, which HDMA uses. The two
+                    // paths are separate on purpose (GP-DMA interleaves HDMA and accounts clocks
+                    // per byte), so a rule that belongs to the transfer itself has to be stated
+                    // in both. Fixing only `transfer_unit` left `D1.09` failing, which is how
+                    // this second site was found.
+                    if !suppress_write_b(b, a) {
+                        bus.write_b(b, data);
+                    }
                 }
                 cost += 8; // 8 master clocks per byte
                 // HDMA preempts at scanline starts — interleave it if this byte crossed a line.
@@ -323,8 +355,16 @@ impl Dma {
             let data = bus.read_b(b_addr);
             bus.write_a(a_addr, data);
         } else {
+            // WRAM -> $2180 is a WRAM-to-WRAM transfer through the data port, and the hardware
+            // performs NO WRITE at all — the read still happens and the time is still spent, but
+            // nothing lands (fullsnes: "does not cause a write to occur"). Implementing $2180 as
+            // an ordinary port copies the bytes and looks right until a game relies on the
+            // transfer being a no-op. AccuracySNES `D1.09` asserts it; snes9x passes, and
+            // RustySNES did not until this check existed.
             let data = bus.read_a(a_addr);
-            bus.write_b(b_addr, data);
+            if !suppress_write_b(b_addr, a_addr) {
+                bus.write_b(b_addr, data);
+            }
         }
     }
 

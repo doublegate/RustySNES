@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Group D continues: HDMA arrives, plus three more GP-DMA semantics.** `D1.05` (a byte count of
+  zero means 65536), `D1.09`/`D1.15` (a WRAM source with `$2180` as the destination performs no
+  write), and the first two HDMA tests — `D2.03` the line-count byte and `D2.04` the repeat flag.
+
+  HDMA is the awkward part of the controller to observe, because it runs itself once per scanline
+  with no CPU involvement. Pointing it at `$2180` solves that outright: `WMADD` auto-increments, so
+  a whole frame of HDMA activity becomes a byte sequence the CPU can read back and check exactly —
+  how many writes happened, in what order, and that they then stopped. The two tables differ only
+  in bit 7 of their header bytes, so a core that ignores the repeat flag renders them identically
+  and neither test alone would notice.
+
+  `D1.05` is observed through **time**, not through the destination: 65536 bytes at 8 clocks each
+  is ~384 scanlines, so the V counter lands far from where it started. That makes it frame-length
+  dependent, so it measures the frame height and branches on what it measured — never on the region
+  bit, whose position `B2.10` had to settle and which a frame-length test must not lean on.
+
 - **Group D opens: seven general-purpose DMA tests (T-04-D).** Transfer modes 0 and 1, the byte
   counter reaching zero, both non-incrementing A-bus steps, the undocumented `$43xB` scratch latch,
   and the 8-clocks-per-byte rate as a length differential so startup overhead cancels. These are
@@ -80,10 +96,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
   battery already had.
 
-**AccuracySNES totals, as of this section:** **141 tests — 130 scoring at 100.00%, 10 golden
+**AccuracySNES totals, as of this section:** **145 tests — 134 scoring at 100.00%, 10 golden
 vectors**, plus one region-dependent SKIP per image, and **35 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **100 of 443** on-cart plus **34** scene-only —
-**134 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+framebuffer-oracle tier. Dossier coverage is **105 of 443** on-cart plus **34** scene-only —
+**139 of 443** in total (`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
 "Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
 rewritten to the current number — this line is the one to read.
 
@@ -247,6 +263,15 @@ rewritten to the current number — this line is the one to read.
   confirming the goldens returned. Rationale recorded in `docs/scheduler.md` §H/V-IRQ.
 
 ### Fixed
+
+- **A WRAM source with `$2180` as the DMA destination no longer writes.** It is a WRAM-to-WRAM
+  transfer through the data port, and the hardware performs no write at all — the read still
+  happens and the time is still spent. RustySNES copied the bytes, which looks right until a game
+  relies on the no-op. snes9x passes `D1.09`; RustySNES did not.
+
+  Worth noting for anyone touching this code: GP-DMA and HDMA have **separate** transfer paths
+  (GP-DMA interleaves HDMA and accounts clocks per byte), so a rule belonging to the transfer
+  itself has to be stated in both. Fixing only `transfer_unit` left the test still failing.
 
 - **The DMA `$43xB` scratch latch is now modelled**, mirrored at `$43xF` and per-channel. It is
   undocumented storage the controller never reads, but it is CPU-visible: RustySNES returned 0 from

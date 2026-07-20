@@ -896,6 +896,43 @@ Provenance: **Documented** (SNESdev Wiki, DMA timing; fullsnes). Kind: scored.
 |---|---|---|
 | 1 | `$02` | 32 extra DMA bytes did not cost 64 dots (8 clocks each) |
 
+### D1.05 — DMA count 0 = 65536
+
+Provenance: **Documented** (SNESdev Wiki, DMA registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | on PAL a count-0 DMA did not take ~384 scanlines, so it did not transfer 65536 bytes |
+| 2 | `$04` | on NTSC a count-0 DMA did not take ~384 scanlines, so it did not transfer 65536 bytes |
+
+### D1.09 — WRAM->$2180 no-write
+
+Provenance: **Documented** (fullsnes: "does not cause a write to occur"). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a WRAM->$2180 DMA wrote to WRAM; that transfer must perform no write at all |
+
+### D2.03 — HDMA line-count byte
+
+Provenance: **Documented** (SNESdev Wiki, HDMA; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the two non-repeat HDMA entries did not write exactly $11 then $22 |
+| 2 | `$04` | HDMA kept writing after the $00 terminator |
+
+### D2.04 — HDMA repeat flag
+
+Provenance: **Documented** (SNESdev Wiki, HDMA; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | repeat bytes 0-1 are wrong |
+| 2 | `$04` | repeat bytes 2-3 are wrong |
+| 3 | `$06` | repeat byte 4 is wrong |
+| 4 | `$08` | HDMA wrote a sixth byte; the repeat counts total five lines |
+
 ## Group A
 
 ### A5.S01 — Sweep: CLC

@@ -357,9 +357,13 @@ version-bump decision (`docs/adr/0006`). The latch has no effect on emulation, s
 observable cost is a `$43xB` read taken immediately after a state load. Revisit when the format
 version next moves for another reason.
 
-Next under this ticket: `D1.05` (size 0 = $10000), `D1.13` (DMA reads update open bus, writes never
-do), `D1.14`/`D1.15` (the `$2180` asymmetry, which is measurable as a clock differential), then the
-`D2` HDMA block. `D1.08`'s invalid-A-bus errata and `D3`'s two chip-revision crashes need care:
+`D1.05`, `D1.09`/`D1.15` and the first two HDMA tests (`D2.03`, `D2.04`) have since landed. HDMA
+is self-scoring when pointed at `$2180`: `WMADD` auto-increments, so a frame of per-line transfers
+leaves an exact byte trail in WRAM — how many writes, in what order, and that they stopped.
+
+Next under this ticket: `D1.13` (DMA reads update open bus, writes never do), `D1.14` (the other
+half of the `$2180` asymmetry — B->A *does* write, but writes garbage), `D1.03`/`D1.04`
+(startup overhead and channel priority), and the rest of `D2`. `D1.08`'s invalid-A-bus errata and `D3`'s two chip-revision crashes need care:
 the first can hang a core that gets it wrong, and the second is revision-gated in the way
 `C13.01`-`C13.06` are.
 
@@ -380,6 +384,7 @@ Recorded because it is the only real measure of whether the battery is worth its
 | `C11.09` scene | EXTBG *replaced* BG1 instead of adding a second layer, so enabling it made BG1 vanish entirely | this branch |
 | `C10.05` scene | Mode 7 ignored mosaic completely, rendering identically with and without it | this branch |
 | `D1.10` | the `$43xB`/`$43xF` DMA scratch latch was not modelled at all — both addresses read 0 where snes9x returned what had been written | this branch |
+| `D1.09` | a WRAM-sourced DMA to `$2180` performed the write. Hardware performs none — it is a WRAM-to-WRAM transfer through the data port. GP-DMA and HDMA have separate transfer paths, so fixing one left the test failing | this branch |
 
 Both were found the same way: the test failed on RustySNES while **both** references passed it.
 The inverse pattern — a test failing identically on all three — has twice meant a broken test
