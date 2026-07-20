@@ -393,7 +393,7 @@ Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree on t
 
 Provenance: **Contested** (WDC note (17) asserts RWB is low during the modify cycle in emulation mode; the GTE and VLSI renderings of the same table are silent). Kind: golden vector, never scored.
 
-No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ## Group C
 
@@ -568,13 +568,13 @@ Provenance: **Corroborated** (the bsnes/ares lineage and Mesen2 model two distin
 
 Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: golden vector, never scored.
 
-No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ### C14.02 — PPU2 version (golden)
 
 Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: golden vector, never scored.
 
-No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ### C11.06 — MPY is 16x8 signed
 
@@ -731,7 +731,7 @@ Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
 
 Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: golden vector, never scored.
 
-No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ### B5.01 — 8x8 unsigned multiply
 
@@ -763,7 +763,7 @@ Provenance: **Documented** (SNESdev Wiki, CPU registers; fullsnes). Kind: scored
 
 Provenance: **Contested** (SNESdev Errata states overlapping $4203/$4206 operation is undefined). Kind: golden vector, never scored.
 
-No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ### B5.05 — Mul/div power-on state
 
@@ -795,7 +795,7 @@ Provenance: **Documented** (SNES Development Manual Bk I 21.1 (DMA at 2.68MHz re
 
 Provenance: **Contested** (the dossier conditions the extra line on $213F.7 (the field), which this test does not control — sampling V across an uncontrolled field cannot assert a line count). Kind: golden vector, never scored.
 
-No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ### B2.05 — PAL frame is 312 lines
 
@@ -809,19 +809,19 @@ Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
 
 Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes — the sub-cycle poll point is not CPU-observable, so its consequence is measured instead). Kind: golden vector, never scored.
 
-No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ### B2.10 — Region bit (golden)
 
 Provenance: **Contested** (SNESdev PPU registers places the 50/60Hz bit at bit 3, which overlaps the PPU2 version field; fullsnes places it at bit 4). Kind: golden vector, never scored.
 
-No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ### B4.07 — H-IRQ position (golden)
 
 Provenance: **Contested** (the $4211 poll loop is coarser than the dot the comparator fires on, so the exact H position is not resolvable from software by polling). Kind: golden vector, never scored.
 
-No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ### B4.09 — HV-IRQ needs both
 
@@ -937,7 +937,7 @@ Provenance: **Documented** (SNESdev Wiki, HDMA; fullsnes). Kind: scored.
 
 Provenance: **Documented** (SNESdev Wiki, DMA timing; fullsnes). Kind: golden vector, never scored.
 
-No failure codes — this is a **golden vector**. It cannot fail: it reports which behaviour it observed as a variant code (`(variant << 1) | 1`) and is excluded from the pass rate. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ### D1.04 — DMA channel priority
 

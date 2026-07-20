@@ -169,11 +169,14 @@ pub fn readme_codes(tests: &[Test]) -> String {
                 "{}",
                 match t.kind {
                     crate::dsl::Kind::Golden =>
-                        "No failure codes — this is a **golden vector**. It cannot fail: it reports \
-                         which behaviour it observed as a variant code (`(variant << 1) | 1`) and \
-                         is excluded from the pass rate. See the test's entry in \
-                         `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records \
-                         rather than asserts.",
+                        "No failure codes — this is a **golden vector**. It cannot fail: it \
+                         records what it observed and is excluded from the pass rate. Where the \
+                         observation fits in a byte it goes in the verdict as a variant code \
+                         (`(variant << 1) | 1`); where it does not — a dot count, say — the \
+                         verdict is a plain pass and the value goes to the measurement channel \
+                         at `$7E:E200`, which the host harness reads and prints. See the test's \
+                         entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it \
+                         records rather than asserts.",
                     crate::dsl::Kind::Scored =>
                         "No failure codes (control-flow test: reaching the end is the pass).",
                 }
