@@ -47,9 +47,9 @@ authoritative per-subsystem state.
 - `docs/` — the spec (update in the same PR as code); `docs/STATUS.md` = single source of truth;
   `docs/adr/` — ADRs. `ref-docs/` — immutable research. `ref-proj/` — study clones (gitignored; bsnes/ares/Mesen2).
 - `tests/roms/` — committed permissive corpus + gitignored `external/` (commercial dumps + coprocessor firmware).
-- `tests/roms/AccuracySNES/` — **the first-party self-scoring test cartridge** (162 tests / 41
-  rendered scenes / 162 of 443 dossier assertions as of 2026-07-20; `docs/accuracysnes-plan.md`
-  is the live count). `gen/` is a Rust
+- `tests/roms/AccuracySNES/` — **the first-party self-scoring test cartridge**. For current
+  coverage read `docs/accuracysnes-coverage.md`, which is regenerated with the ROM and therefore
+  cannot drift; every other count in the docs is maintained by hand and eventually will. `gen/` is a Rust
   generator that emits the 65816 source, assembles it with `ca65`/`ld65`, and writes the ROM plus
   `SOURCE_CATALOG.tsv`, `docs/accuracysnes-coverage.md` and `build/scenes.tsv`. Never hand-edit
   `asm/tests_group_a.s` or `asm/scenes.s` — they are generated. `docs/accuracysnes-plan.md` is the
