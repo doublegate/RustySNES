@@ -18,10 +18,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `B4.08` — a V-IRQ fires on the programmed scanline, armed with interrupts masked and observed by
   polling `$4211`, so it measures the comparator without depending on interrupt dispatch.
   `B4.12` — reading `$4211` releases the latch immediately, asserted with a second read *on the
-  same scanline*. Battery now **89 tests, 84 scoring, 100.00%, 5 golden**.
+  same scanline*. Battery now **90 tests, 85 scoring, 100.00%, 5 golden**.
+
+- **AccuracySNES: pre-`init_registers` power-on sampling (T-04-G prerequisite).**
+  `capture_power_on` runs at the top of reset, before `init_registers` puts every register into a
+  known state, and stashes what it samples in a documented WRAM capture block. Without it no
+  power-on test can exist: the runtime deliberately erases exactly the state such a test wants.
+  This unblocks all 18 Group G assertions. `B5.05` is the first consumer.
+- **AccuracySNES `B5.05` — the multiply/divide power-on latches.** `$4202` powers up `$FF` and
+  `$4204/05` `$FFFF`. Both are write-only, so the test observes the latch *through the unit it
+  feeds*: start a multiply without writing `$4202` and the product is `$FF x N`.
 
 ### Fixed
 
+- **The multiply/divide latches now power up as `$FF` / `$FFFF`.** They were defaulting to zero.
+  Asserted rather than merely recorded on two independent documentation lineages that agree with
+  nothing contradicting them in nineteen years — anomie's `regs.txt` r1157 (*"$4202 holds the value
+  $ff on power on and is unchanged on reset"*, in a document that marks its uncertain claims with
+  `(?)` and marks neither of these) and nocash's fullsnes (`$4202`-`$4206` listed `(FFh)` at
+  power-up) — and implemented by bsnes, ares and Mesen2. **snes9x diverges** (its
+  `S9xSoftResetPPU` blanket-`memset`s `$4200-$42FF` to zero), which is a snes9x bug rather than
+  counter-evidence; the divergence is declared explicitly in `scripts/accuracysnes/crossval.sh` so
+  the cross-validation gate keeps its teeth instead of being weakened to unanimity. No hardware
+  test ROM is known to verify this, and the provenance string says so.
 - **`RDNMI` now auto-clears at the end of vblank.** The flag was cleared only by a read, so it
   stayed set through the whole active display and code polling `$4210` outside vblank saw a vblank
   that had already ended and acted a frame late. Found by AccuracySNES `B4.05`.

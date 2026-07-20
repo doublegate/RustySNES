@@ -60,6 +60,8 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     lda #$8F
     sta INIDISP                 ; forced blank while we set up
 
+    jsr capture_power_on        ; MUST precede init_registers — see below
+
     jsr init_registers
     jsr clear_vram
     jsr load_palette
@@ -86,6 +88,56 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     sta INIDISP                 ; release forced blank
 
     jmp main_loop
+.endproc
+
+; ---------------------------------------------------------------------------------------------
+; Power-on capture. Runs ONCE, before init_registers touches anything.
+;
+; init_registers puts every PPU register $2101-$2133 and every CPU register $4200-$420D into a
+; known state, because hardware does not. That is right for the battery — a test must not depend
+; on what a previous test left behind — but it destroys exactly the state a power-on test wants to
+; observe. So the handful of power-on facts we can read are read here, first, and stashed for a
+; test to report later out of the capture block ($E040-, see runtime.inc).
+;
+; The multiply/divide latches are write-only, so their power-on contents are observed through the
+; unit rather than read back: writing only $4203 runs the multiply against whatever $4202 already
+; held, and writing only $4206 divides whatever $4204/05 already held. Nothing here writes $4202
+; or $4204/05, which is the whole point.
+.proc capture_power_on
+    sep #$20
+    .a8
+    .i16
+    lda #$02
+    sta $4203                   ; multiply: $4202 (power-on) x 2
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    rep #$20
+    .a16
+    lda $4216
+    sta f:V_PO_MPY
+
+    sep #$20
+    .a8
+    lda #$02
+    sta $4206                   ; divide: $4204/05 (power-on) / 2
+    .repeat 16
+    nop
+    .endrepeat
+    rep #$20
+    .a16
+    lda $4214
+    sta f:V_PO_DIV
+    lda $4216
+    sta f:V_PO_DIVREM
+    sep #$20
+    .a8
+    rts
 .endproc
 
 ; ---------------------------------------------------------------------------------------------

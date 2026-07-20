@@ -440,12 +440,12 @@ constraints live in **`docs/accuracysnes-plan.md`**; this list is the citable ID
 | Ticket | Scope | Size | Blocked on |
 |---|---|---:|---|
 | **T-04-A** | Finish Group A (65C816) — `A5` spot checks, RMW `abs,X`, E-gated branch penalty, the `A6` gaps (`PBR`, `RTI` mode match, B flag, `WAI`) | ~12 | nothing |
-| **T-04-B** | Group B — 5A22 bus, clock, timing. **Started:** access speed, `RDNMI` mechanics, multiply/divide shipped. Left: `B2` scanline geometry, `B3` DRAM refresh (probe *position*, not frame length), `B4` IRQ timing | ~21 | nothing |
+| **T-04-B** | Group B — 5A22 bus, clock, timing. **Started:** access speed, `RDNMI` mechanics, IRQ timers, frame geometry, multiply/divide + power-on shipped (14 tests, 2 emulator defects found). Left: `B2` scanline geometry, `B3` DRAM refresh — **unblocked**, write as golden vectors per the `D3` precedent (see the plan §4) — and the rest of `B4` | ~16 | nothing |
 | **T-04-C** | The rest of register-observable Group C — `C1.07`/`C1.08`, the 9/10-bit `VMAIN` rotations, CGRAM-during-render, `C7.04`–`C7.09`, `C9.05`, `C11.07`/`C11.08` | ~20 | nothing |
 | **T-04-D** | Group D — DMA / HDMA | ~35 | **a research top-up**: the dossier's DMA/HDMA sub-agent never returned, so `D1`/`D2` are under-sourced |
 | **T-04-E** | Group E — SPC700 + S-DSP | ~75 | an **on-cart APU harness** (IPL upload, results back through `$2140`–`$2143`) |
 | **T-04-F** | Group F — input | ~22 | a decision on the **on-cart / host-driven split**: a cart cannot press its own buttons |
-| **T-04-G** | Group G — power-on / reset / cartridge, mostly golden vectors | ~18 | **boot-path ordering**: these must sample *before* `init_registers`, which deliberately erases power-on state |
+| **T-04-G** | Group G — power-on / reset / cartridge, mostly golden vectors | ~18 | ~~boot-path ordering~~ **UNBLOCKED** — `capture_power_on` samples before `init_registers` into a documented capture block; `B5.05` is the first consumer |
 | **T-04-I** | The 256-opcode cycle sweep (`A5.01`–`A5.08`) | 1 mechanism | a safe-operand table + a scratch sandbox. `STP` excluded — it halts until reset |
 | ~~**T-04-J**~~ | ~~Dossier-to-cart ID map~~ **DONE** — `gen/src/dossier.rs` maps every test to its assertion(s), the generator rejects unmapped tests / undeclared double-claims / unjustified blanks, `SOURCE_CATALOG.tsv` carries a `dossier` column, and the harness re-checks the committed artifact. Also converted the dossier's 23 prose sub-groups into per-ID tables: **443** checkable assertions across all 43 sub-groups, up from 232. Coverage lives in `docs/accuracysnes-coverage.md` (**79 / 443**) | — | — |
 | **T-04-H** | The renderer-dependent rest of Group C (`C5`, `C6`, `C8`, `C10`, `C12`, most of `C9`, `C13.01`–`C13.06`) | ~35 | a **framebuffer oracle**, and an explicit decision that these are host-harness-only and stay out of the on-cart pass rate |

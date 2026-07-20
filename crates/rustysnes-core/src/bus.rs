@@ -129,12 +129,40 @@ impl Default for Clock {
 /// relies on this (a program that hit it would already be behaving unpredictably on real
 /// hardware), so this is a **documented, intentional non-goal**, not an open gap — see
 /// `to-dos/VERSION-PLAN.md`'s `v0.5.0 "Fidelity"` hardware-gotcha list for the same reasoning.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 struct MulDiv {
     mpya: u8,
     dividend: u16,
     rddiv: u16,
     rdmpy: u16,
+}
+
+impl Default for MulDiv {
+    /// Power-on state: `WRMPYA` = `$FF`, `WRDIV` = `$FFFF`, results zeroed.
+    ///
+    /// These registers are write-only, so the values are not readable directly — but they are real
+    /// latches feeding the ALU, and the ALU output is readable, so the state is observable by
+    /// starting an operation without writing its first operand: `$4203 = 2` with `$4202` untouched
+    /// yields `$01FE`. AccuracySNES `B5.05` probes exactly that.
+    ///
+    /// Provenance, recorded because this is asserted rather than merely recorded: anomie's
+    /// `regs.txt` (r1157) states *"$4202 holds the value $ff on power on and is unchanged on
+    /// reset"* and *"WRDIV holds the value $ffff on power on and is unchanged on reset"* — in a
+    /// document that explicitly marks its uncertain claims with `(?)` and marks neither of these.
+    /// nocash's fullsnes independently lists `$4202`-`$4206` as `(FFh)` power-up under a legend
+    /// distinguishing power-up from reset. bsnes (`sfc/cpu/cpu.hpp`), ares and Mesen2
+    /// (`AluMulDiv::Initialize`) all implement it. **snes9x does not** — it blanket-`memset`s
+    /// `$4200-$42FF` to zero — which is a snes9x bug, not counter-evidence.
+    ///
+    /// No hardware test ROM is known to verify this; do not claim ROM-verified provenance for it.
+    fn default() -> Self {
+        Self {
+            mpya: 0xFF,
+            dividend: 0xFFFF,
+            rddiv: 0,
+            rdmpy: 0,
+        }
+    }
 }
 
 impl Clock {

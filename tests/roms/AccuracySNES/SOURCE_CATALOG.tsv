@@ -89,3 +89,4 @@
 86	B5.02	B	16/8 unsigned divide	Documented	SNESdev Wiki, CPU registers; fullsnes	Scored	0x7EF076	B5.02
 87	B5.03	B	Divide by zero	Documented	SNESdev Wiki, CPU registers; fullsnes	Scored	0x7EF077	-
 88	B5.04	B	Mul/div overlap (golden)	Contested	SNESdev Errata states overlapping $4203/$4206 operation is undefined	Golden	0x7EF078	B5.03
+89	B5.05	B	Mul/div power-on state	Documented	anomie regs.txt r1157 and nocash fullsnes, independently; implemented by bsnes/ares/Mesen2. No known hardware test ROM	Scored	0x7EF079	B5.04

@@ -40,6 +40,7 @@ pub fn all() -> Vec<Test> {
         b5_02(),
         b5_03(),
         b5_04(),
+        b5_05(),
     ]
 }
 
@@ -395,6 +396,12 @@ fn b5_04() -> Test {
 // ---------------------------------------------------------------------------------------------
 
 /// Emit: latch the counters and leave the 9-bit V position in a 16-bit accumulator.
+///
+/// **Register width contract: returns with `A` 16-bit; `X`/`Y` are untouched.** Entry width does
+/// not matter — the emitter sets what it needs. Stated explicitly because the generator tracks
+/// widths file-globally to decide between `.a8` and `.a16`, and the dangerous direction is silent:
+/// if the assembler believes `A` is 16-bit while the CPU has it 8-bit, immediate operands assemble
+/// one byte short and every instruction after them shifts.
 fn read_v(a: &mut Asm) {
     a.l("sep #$20");
     a.l("lda $213F         ; reset the counter read flipflops");
@@ -570,6 +577,61 @@ fn b4_12() -> Test {
         'B',
         "$4211 read releases IRQ",
         Provenance::Documented("SNESdev Wiki, Timing; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Power-on state of the multiply/divide latches: `WRMPYA` = `$FF`, `WRDIV` = `$FFFF`.
+///
+/// Both are **write-only**, so this is not a readback — it is the latch observed through the unit
+/// it feeds. The runtime writes only `$4203` (multiplying whatever `$4202` already held) and only
+/// `$4206` (dividing whatever `$4204/05` held), before `init_registers` zeroes them, and stashes
+/// the results in the capture block.
+///
+/// Scored, on two independent documentation lineages that agree and nothing contradicting them in
+/// nineteen years: anomie's `regs.txt` (r1157) states the values flatly in a document that marks
+/// its uncertain claims with `(?)` and marks neither of these; nocash's fullsnes independently
+/// lists `$4202`-`$4206` as `(FFh)` at power-up under a legend separating power-up from reset.
+/// bsnes, ares and Mesen2 all implement it.
+///
+/// **snes9x fails this test**, and that is a snes9x bug rather than counter-evidence: its
+/// `S9xSoftResetPPU` blanket-`memset`s `$4200-$42FF` to zero and special-cases only `$4201`/`$4213`.
+/// The divergence is declared in `scripts/accuracysnes/crossval.sh` so the cross-validation gate
+/// stays meaningful instead of being weakened to unanimity.
+///
+/// Deliberately **not** asserted: the power-on contents of `$4203` and `$4206`. Multiplication only
+/// starts on a write to `$4203` and division on a write to `$4206`, so their power-on values can
+/// never influence a readable result — fullsnes says `$FF`, Mesen2 uses `$00`, and nothing can tell
+/// the difference.
+fn b5_05() -> Test {
+    let mut a = Asm::new();
+    a.c(
+        "$FF x 2 = $01FE, and $FFFF / 2 = $7FFF remainder 1, read from the pre-init capture block.",
+    );
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("lda f:$7EE040     ; V_PO_MPY");
+    a.assert_a16(
+        0x01FE,
+        "$4202 did not power up as $FF (the captured product was not $FF x 2)",
+    );
+    a.l("lda f:$7EE042     ; V_PO_DIV");
+    a.assert_a16(
+        0x7FFF,
+        "$4204/05 did not power up as $FFFF (the captured quotient was not $FFFF / 2)",
+    );
+    a.l("lda f:$7EE044     ; V_PO_DIVREM");
+    a.assert_a16(0x0001, "the captured power-on divide remainder was wrong");
+    a.finish(
+        "B5.05",
+        'B',
+        "Mul/div power-on state",
+        Provenance::Documented(
+            "anomie regs.txt r1157 and nocash fullsnes, independently; implemented by \
+             bsnes/ares/Mesen2. No known hardware test ROM",
+        ),
         Kind::Scored,
         None,
     )

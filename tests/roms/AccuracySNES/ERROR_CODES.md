@@ -749,3 +749,13 @@ Provenance: **Contested** (SNESdev Errata states overlapping $4203/$4206 operati
 
 No failure codes (control-flow test: reaching the end is the pass).
 
+### B5.05 — Mul/div power-on state
+
+Provenance: **Documented** (anomie regs.txt r1157 and nocash fullsnes, independently; implemented by bsnes/ares/Mesen2. No known hardware test ROM). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | $4202 did not power up as $FF (the captured product was not $FF x 2) |
+| 2 | `$04` | $4204/05 did not power up as $FFFF (the captured quotient was not $FFFF / 2) |
+| 3 | `$06` | the captured power-on divide remainder was wrong |
+

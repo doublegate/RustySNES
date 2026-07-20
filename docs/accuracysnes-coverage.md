@@ -21,7 +21,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `B2` | 9 | 1 | B2.01, B2.02, B2.03, B2.05, B2.06, B2.07, B2.09, B2.10 |
 | `B3` | 3 | 0 | B3.01, B3.02, B3.03 |
 | `B4` | 14 | 6 | B4.01, B4.06, B4.07, B4.09, B4.10, B4.11, B4.13, B4.14 |
-| `B5` | 4 | 3 | B5.04 |
+| `B5` | 4 | 4 | — |
 | `C1` | 9 | 5 | C1.03, C1.07, C1.08, C1.09 |
 | `C2` | 10 | 8 | C2.09, C2.12 |
 | `C3` | 10 | 4 | C3.03, C3.04, C3.05, C3.07, C3.09, C3.10 |
@@ -52,7 +52,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `F1` | 22 | 0 | F1.01, F1.02, F1.03, F1.04, F1.05, F1.06, F1.07, F1.08, F1.09, F1.10, F1.11, F1.12, F1.13, F1.14, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
 | `G1` | 18 | 0 | G1.01, G1.02, G1.03, G1.04, G1.05, G1.06, G1.07, G1.08, G1.09, G1.10, G1.11, G1.12, G1.13, G1.14, G1.15, G1.16, G1.17, G1.18 |
 
-**84 of 443** enumerated assertion rows covered by at least one test.
+**85 of 443** enumerated assertion rows covered by at least one test.
 
 ## Assertions split across several tests
 

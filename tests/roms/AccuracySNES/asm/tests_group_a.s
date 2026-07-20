@@ -5164,6 +5164,60 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; B5.05 — Mul/div power-on state
+; provenance: Documented (anomie regs.txt r1157 and nocash fullsnes, independently; implemented by bsnes/ares/Mesen2. No known hardware test ROM)
+.proc test_b5_05
+    .a16
+    .i16
+    ; $FF x 2 = $01FE, and $FFFF / 2 = $7FFF remainder 1, read from the pre-init capture block.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    lda f:$7EE040     ; V_PO_MPY
+    cmp #$01FE
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7EE042     ; V_PO_DIV
+    cmp #$7FFF
+    beq :+
+    jmp @fail2
+  :
+    lda f:$7EE044     ; V_PO_DIVREM
+    cmp #$0001
+    beq :+
+    jmp @fail3
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; $4202 did not power up as $FF (the captured product was not $FF x 2)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; $4204/05 did not power up as $FFFF (the captured quotient was not $FFFF / 2)
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+@fail3:
+    ; the captured power-on divide remainder was wrong
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 .segment "CATALOG"
 .export _test_count
 .export _test_entries
@@ -5171,7 +5225,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 89
+    .word 90
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -5264,6 +5318,7 @@ _test_entries:
     .addr test_b5_02
     .addr test_b5_03
     .addr test_b5_04
+    .addr test_b5_05
 
 ; Per-test flags: bit0 = scores toward the pass rate, bit1 = golden-vector.
 _test_flags:
@@ -5356,6 +5411,7 @@ _test_flags:
     .byte $01   ; B5.02
     .byte $01   ; B5.03
     .byte $02   ; B5.04
+    .byte $01   ; B5.05
 
 ; Menu labels, each a length-prefixed ASCII string.
 _test_names:
@@ -5448,6 +5504,7 @@ _test_names:
     .addr @n_b5_02
     .addr @n_b5_03
     .addr @n_b5_04
+    .addr @n_b5_05
 @n_a1_01:
     .byte 16
     .byte "XCE clears XH/YH"
@@ -5715,3 +5772,6 @@ _test_names:
 @n_b5_04:
     .byte 24
     .byte "Mul/div overlap (golden)"
+@n_b5_05:
+    .byte 22
+    .byte "Mul/div power-on state"
