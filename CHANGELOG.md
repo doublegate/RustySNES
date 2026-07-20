@@ -81,6 +81,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pair. Port behaviour is pure register logic with no renderer dependency, so it lands before the
   sub-groups that lean on the per-scanline compositor. Battery now **56 tests, 55 scoring,
   100.00%**, still agreeing with Mesen2 and snes9x.
+- **AccuracySNES Group C continued: OAM/VRAM/counter completion, PPU open bus, version detection —
+  8 more tests.** The OAM high table mirroring every 32 bytes (`$220` decodes as `$200`); `VMAIN`
+  address translation rewriting the address **on the bus** while the register still increments
+  linearly, so register `$1503`/`$1504` drive words `$1518`/`$1520` rather than `$1518`/`$1519`;
+  `$213F` resetting the `OPHCT` read flipflop, asserted against the frozen latched value so it
+  needs no timing tolerance; PPU1 and PPU2 open bus surfacing in `$213E` bit 4 and `$213F` bit 5,
+  and the two latches being independent. Plus the PPU1/PPU2 version nibbles as **golden vectors** —
+  recorded, never scored, since the value is a property of the console a cartridge is in rather
+  than of the architecture, and PPU2 revision gates the 3-chip-only `$2100` early-read bug. Battery
+  now **64 tests, 61 scoring, 100.00%, 3 golden**, agreeing across RustySNES, Mesen2 and snes9x.
+
+### Fixed
+
+- **PPU register writes no longer clobber the PPU1 open-bus latch.** `write_reg` opened with an
+  unconditional `ppu1_mdr = val`, so a write to a *PPU2* register (`$2121`/`$2122`) overwrote
+  *PPU1*'s latch — collapsing two physically separate latches into one. Both independent reference
+  lineages refresh the latches on reads only: every `Ppu1OpenBus` assignment in Mesen2's
+  `SnesPpu.cpp` sits inside `Read`, and snes9x only ever writes `OpenBus1`/`OpenBus2` through
+  `return (PPU.OpenBusN = ...)` in `S9xGetPPU`. Found by AccuracySNES **C13.03**, which is the
+  first defect the cartridge has turned up in this emulator.
 
 ### Removed
 

@@ -2436,6 +2436,64 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; C1.05 — OAM high table mirror
+; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
+.proc test_c1_05
+    .a16
+    .i16
+    ; Write through the mirror at word $110 and read back at the real address, word $100.
+    ; The high table commits per byte, so no write-twice pairing is involved.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$10
+    sta $2102
+    lda #$01          ; OAMADDR = word $110 (byte $220), bit 7 clear
+    sta $2103
+    lda #$5C
+    sta $2104
+    lda #$C5
+    sta $2104
+    ; --- read the real high-table bytes ---
+    lda #$00
+    sta $2102
+    lda #$01          ; OAMADDR = word $100 (byte $200)
+    sta $2103
+    lda $2138
+    cmp #$5C
+    beq :+
+    jmp @fail1
+  :
+    lda $2138
+    cmp #$C5
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; OAM high table did not mirror: byte $220 -> $200
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; OAM high table did not mirror: byte $221 -> $201
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 ; C2.01 — VMAIN step 1 word
 ; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
 .proc test_c2_01
@@ -2711,6 +2769,73 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; C2.06 — VMAIN remap hits bus
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes; anomie)
+.proc test_c2_06
+    .a16
+    .i16
+    ; Two back-to-back writes with remap 01 active, then read both target words with remap off.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$84          ; VMAIN: remap 01 (8-bit), step 1, increment after the high byte
+    sta $2115
+    rep #$30
+    .a16
+    .i16
+    ldx #$1503
+    stx $2116
+    lda #$CAFE
+    sta $2118         ; register $1503 -> bus word $1518
+    lda #$B0BA
+    sta $2118         ; register $1504 -> bus word $1520
+    ; --- read both back with translation off ---
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115
+    rep #$30
+    .a16
+    .i16
+    ldx #$1518
+    stx $2116
+    lda $2139
+    cmp #$CAFE
+    beq :+
+    jmp @fail1
+  :
+    ldx #$1520
+    stx $2116
+    lda $2139
+    cmp #$B0BA
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; remap 01 did not translate register $1503 to bus word $1518
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; the remap fed back into the address register (the second write missed word $1520)
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 ; C3.01 — CGRAM two-write commit
 ; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
 .proc test_c3_01
@@ -2924,6 +3049,353 @@ CATALOG_IMPL = 1
     jmp test_restore
 .endproc
 
+; C3.05 — $213F resets flipflop
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c3_05
+    .a16
+    .i16
+    ; Latch once, then read low / high / reset / low. Nothing re-latches in between, so the
+    ; two low reads sample the same frozen value and any difference is a flipflop bug.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    cld               ; the SBC below must not run in decimal mode
+    sep #$20
+    .a8
+    lda $213F         ; reset both read flipflops
+    lda $2137         ; latch H and V
+    lda $213C         ; H low
+    sta f:$7E0100
+    lda $213C         ; H high — the flipflop is now set
+    lda $213F         ; reset both flipflops again
+    lda $213C         ; must be H low once more
+    sec
+    sbc f:$7E0100
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; $213F did not reset the OPHCT flipflop (the third read was not the low byte)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C13.01 — PPU1 open bus in $213E
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c13_01
+    .a16
+    .i16
+    ; Drive PPU1 open bus to $10 via an OAM read, check $213E bit 4, then drive it to $00 and
+    ; check again. Only bit 4 is examined: bits 7-6 are the sprite flags and 5-0 the version.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    ; --- open bus := $10 ---
+    lda #$08
+    sta $2102
+    stz $2103
+    lda #$10
+    sta $2104
+    lda #$00
+    sta $2104
+    lda #$08
+    sta $2102
+    stz $2103
+    lda $2138         ; returns $10 and refreshes PPU1 open bus with it
+    lda $213E
+    and #$10
+    cmp #$10
+    beq :+
+    jmp @fail1
+  :
+    ; --- open bus := $00 ---
+    lda #$08
+    sta $2102
+    stz $2103
+    lda #$00
+    sta $2104
+    lda #$00
+    sta $2104
+    lda #$08
+    sta $2102
+    stz $2103
+    lda $2138         ; returns $00
+    lda $213E
+    and #$10
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; $213E bit 4 did not follow PPU1 open bus set to $10
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; $213E bit 4 did not follow PPU1 open bus cleared to $00
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C13.02 — PPU2 open bus in $213F
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c13_02
+    .a16
+    .i16
+    ; Same shape as C13.01 but on the other chip: CGRAM reads go through PPU2, so a $213B read
+    ; is what refreshes this latch.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    ; --- open bus := $20 ---
+    lda #$20
+    sta $2121
+    lda #$20
+    sta $2122
+    lda #$00
+    sta $2122
+    lda #$20
+    sta $2121
+    lda $213B         ; returns $20 and refreshes PPU2 open bus with it
+    lda $213F
+    and #$20
+    cmp #$20
+    beq :+
+    jmp @fail1
+  :
+    ; --- open bus := $00 ---
+    lda #$20
+    sta $2121
+    lda #$00
+    sta $2122
+    lda #$00
+    sta $2122
+    lda #$20
+    sta $2121
+    lda $213B         ; returns $00
+    lda $213F
+    and #$20
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; $213F bit 5 did not follow PPU2 open bus set to $20
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; $213F bit 5 did not follow PPU2 open bus cleared to $00
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C13.03 — PPU1/PPU2 bus separate
+; provenance: Corroborated (the bsnes/ares lineage and Mesen2 model two distinct latches)
+.proc test_c13_03
+    .a16
+    .i16
+    ; Drive the two latches to opposite values and read both back. Then swap and repeat, so a
+    ; shared latch cannot pass by accident in one polarity.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    ; --- seed OAM byte $10 / $00 and CGRAM low byte $20 / $00 ---
+    lda #$08
+    sta $2102
+    stz $2103
+    lda #$10
+    sta $2104
+    lda #$00
+    sta $2104         ; OAM word 8 = $0010
+    ; Word 9 must be seeded too, not assumed zero: it is read below to drive PPU1 open bus to
+    ; $00, and whatever the previous tests or the power-on fill left there would otherwise
+    ; decide the result. Mesen2 and snes9x disagree on that leftover, which is not a hardware
+    ; difference — it is this test failing to control its own inputs.
+    lda #$00
+    sta $2104
+    lda #$00
+    sta $2104         ; OAM word 9 = $0000
+    lda #$20
+    sta $2121
+    lda #$20
+    sta $2122
+    lda #$00
+    sta $2122         ; colour $20 = $0020
+    lda #$00
+    sta $2122
+    lda #$00
+    sta $2122         ; colour $21 = $0000, for the same reason as OAM word 9
+    ; --- PPU1 := $10, PPU2 := $00 ---
+    lda #$08
+    sta $2102
+    stz $2103
+    lda $2138         ; PPU1 open bus := $10
+    lda #$21
+    sta $2121
+    lda $213B         ; colour $21 low byte = $00; PPU2 open bus := $00
+    lda $213E
+    and #$10
+    cmp #$10
+    beq :+
+    jmp @fail1
+  :
+    lda $213F
+    and #$20
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    ; --- PPU1 := $00, PPU2 := $20 ---
+    lda #$09
+    sta $2102
+    stz $2103
+    lda $2138         ; OAM word 9 is zero; PPU1 open bus := $00
+    lda #$20
+    sta $2121
+    lda $213B         ; PPU2 open bus := $20
+    lda $213E
+    and #$10
+    cmp #$00
+    beq :+
+    jmp @fail3
+  :
+    lda $213F
+    and #$20
+    cmp #$20
+    beq :+
+    jmp @fail4
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+@fail1:
+    ; refreshing PPU2 open bus clobbered PPU1's latch
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jmp test_restore
+@fail2:
+    ; PPU2 open bus read back as PPU1's value
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jmp test_restore
+@fail3:
+    ; PPU1 open bus read back as PPU2's value
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jmp test_restore
+@fail4:
+    ; refreshing PPU1 open bus clobbered PPU2's latch
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C14.01 — PPU1 version (golden)
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c14_01
+    .a16
+    .i16
+    ; Report the low nibble of $213E as the variant code.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda $213E
+    and #$0F          ; PPU1 version
+    asl a
+    ora #$01          ; encode as (version << 1) | 1
+    sta f:$7EE010
+    jmp test_restore
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
+; C14.02 — PPU2 version (golden)
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c14_02
+    .a16
+    .i16
+    ; Report the low nibble of $213F as the variant code.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda $213F
+    and #$0F          ; PPU2 version
+    asl a
+    ora #$01
+    sta f:$7EE010
+    jmp test_restore
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jmp test_restore
+.endproc
+
 .segment "CATALOG"
 .export _test_count
 .export _test_entries
@@ -2931,7 +3403,7 @@ CATALOG_IMPL = 1
 .export _test_flags
 
 _test_count:
-    .word 56
+    .word 64
 
 ; Entry points (16-bit; all tests live in bank $00).
 _test_entries:
@@ -2982,15 +3454,23 @@ _test_entries:
     .addr test_c1_02
     .addr test_c1_03
     .addr test_c1_04
+    .addr test_c1_05
     .addr test_c2_01
     .addr test_c2_02
     .addr test_c2_03
     .addr test_c2_04
     .addr test_c2_05
+    .addr test_c2_06
     .addr test_c3_01
     .addr test_c3_02
     .addr test_c3_03
     .addr test_c3_04
+    .addr test_c3_05
+    .addr test_c13_01
+    .addr test_c13_02
+    .addr test_c13_03
+    .addr test_c14_01
+    .addr test_c14_02
 
 ; Per-test flags: bit0 = scores toward the pass rate, bit1 = golden-vector.
 _test_flags:
@@ -3041,15 +3521,23 @@ _test_flags:
     .byte $01   ; C1.02
     .byte $01   ; C1.03
     .byte $01   ; C1.04
+    .byte $01   ; C1.05
     .byte $01   ; C2.01
     .byte $01   ; C2.02
     .byte $01   ; C2.03
     .byte $01   ; C2.04
     .byte $01   ; C2.05
+    .byte $01   ; C2.06
     .byte $01   ; C3.01
     .byte $01   ; C3.02
     .byte $01   ; C3.03
     .byte $01   ; C3.04
+    .byte $01   ; C3.05
+    .byte $01   ; C13.01
+    .byte $01   ; C13.02
+    .byte $01   ; C13.03
+    .byte $02   ; C14.01
+    .byte $02   ; C14.02
 
 ; Menu labels, each a length-prefixed ASCII string.
 _test_names:
@@ -3100,15 +3588,23 @@ _test_names:
     .addr @n_c1_02
     .addr @n_c1_03
     .addr @n_c1_04
+    .addr @n_c1_05
     .addr @n_c2_01
     .addr @n_c2_02
     .addr @n_c2_03
     .addr @n_c2_04
     .addr @n_c2_05
+    .addr @n_c2_06
     .addr @n_c3_01
     .addr @n_c3_02
     .addr @n_c3_03
     .addr @n_c3_04
+    .addr @n_c3_05
+    .addr @n_c13_01
+    .addr @n_c13_02
+    .addr @n_c13_03
+    .addr @n_c14_01
+    .addr @n_c14_02
 @n_a1_01:
     .byte 16
     .byte "XCE clears XH/YH"
@@ -3250,6 +3746,9 @@ _test_names:
 @n_c1_04:
     .byte 21
     .byte "OAM rd/wr one counter"
+@n_c1_05:
+    .byte 21
+    .byte "OAM high table mirror"
 @n_c2_01:
     .byte 17
     .byte "VMAIN step 1 word"
@@ -3265,6 +3764,9 @@ _test_names:
 @n_c2_05:
     .byte 19
     .byte "VMAIN step 32 words"
+@n_c2_06:
+    .byte 20
+    .byte "VMAIN remap hits bus"
 @n_c3_01:
     .byte 22
     .byte "CGRAM two-write commit"
@@ -3277,3 +3779,21 @@ _test_names:
 @n_c3_04:
     .byte 18
     .byte "H counter advances"
+@n_c3_05:
+    .byte 21
+    .byte "$213F resets flipflop"
+@n_c13_01:
+    .byte 22
+    .byte "PPU1 open bus in $213E"
+@n_c13_02:
+    .byte 22
+    .byte "PPU2 open bus in $213F"
+@n_c13_03:
+    .byte 22
+    .byte "PPU1/PPU2 bus separate"
+@n_c14_01:
+    .byte 21
+    .byte "PPU1 version (golden)"
+@n_c14_02:
+    .byte 21
+    .byte "PPU2 version (golden)"

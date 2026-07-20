@@ -139,7 +139,7 @@ wrote one byte over stale memory that happened to match on two emulators.
 
 ## Scope
 
-Phase A shipped **Group A (65816 CPU)**, 43 tests. Phase B adds **Group C sub-groups C1-C3** — the OAM, VRAM and CGRAM/counter *port mechanics*, 13 tests. 56 total: 55 scoring + 1 golden vector, all passing on RustySNES, Mesen2, and snes9x.
+Phase A shipped **Group A (65816 CPU)**, 43 tests. Phase B adds **Group C** — the OAM, VRAM and CGRAM/counter *port mechanics*, the PPU1/PPU2 open-bus latches, and the version nibbles — 21 tests. 64 total: 61 scoring + 3 golden vectors, all passing on RustySNES, Mesen2, and snes9x.
 
 C1-C3 come first deliberately: port behaviour is pure register logic with no renderer dependency, so it establishes a passing baseline before the sub-groups that lean on parts of the PPU this project's own docs record as simplified. Groups B-G — PPU, DMA/HDMA, SPC700/S-DSP, input, power-on
 — are enumerated per-test in `docs/accuracysnes-research-dossier.md` §5 and land in later phases.

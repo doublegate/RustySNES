@@ -395,6 +395,15 @@ Provenance: **Documented** (SNESdev Wiki, OAM). Kind: scored.
 | 1 | `$02` | shared counter: word 5 low byte wrong |
 | 2 | `$04` | shared counter: word 5 high byte wrong |
 
+### C1.05 — OAM high table mirror
+
+Provenance: **Documented** (SNESdev Wiki, OAM; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | OAM high table did not mirror: byte $220 -> $200 |
+| 2 | `$04` | OAM high table did not mirror: byte $221 -> $201 |
+
 ### C2.01 — VMAIN step 1 word
 
 Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.
@@ -435,6 +444,15 @@ Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored
 |---|---|---|
 | 1 | `$02` | VMAIN step-32 increment did not land at word $1420 |
 
+### C2.06 — VMAIN remap hits bus
+
+Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes; anomie). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | remap 01 did not translate register $1503 to bus word $1518 |
+| 2 | `$04` | the remap fed back into the address register (the second write missed word $1520) |
+
 ### C3.01 — CGRAM two-write commit
 
 Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.
@@ -468,4 +486,53 @@ Provenance: **Documented** (SNESdev Wiki, PPU registers). Kind: scored.
 | Code | Byte | Meaning |
 |---|---|---|
 | 1 | `$02` | the H counter did not advance plausibly across 16 NOPs |
+
+### C3.05 — $213F resets flipflop
+
+Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | $213F did not reset the OPHCT flipflop (the third read was not the low byte) |
+
+### C13.01 — PPU1 open bus in $213E
+
+Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | $213E bit 4 did not follow PPU1 open bus set to $10 |
+| 2 | `$04` | $213E bit 4 did not follow PPU1 open bus cleared to $00 |
+
+### C13.02 — PPU2 open bus in $213F
+
+Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | $213F bit 5 did not follow PPU2 open bus set to $20 |
+| 2 | `$04` | $213F bit 5 did not follow PPU2 open bus cleared to $00 |
+
+### C13.03 — PPU1/PPU2 bus separate
+
+Provenance: **Corroborated** (the bsnes/ares lineage and Mesen2 model two distinct latches). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | refreshing PPU2 open bus clobbered PPU1's latch |
+| 2 | `$04` | PPU2 open bus read back as PPU1's value |
+| 3 | `$06` | PPU1 open bus read back as PPU2's value |
+| 4 | `$08` | refreshing PPU1 open bus clobbered PPU2's latch |
+
+### C14.01 — PPU1 version (golden)
+
+Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: golden vector, never scored.
+
+No failure codes (control-flow test: reaching the end is the pass).
+
+### C14.02 — PPU2 version (golden)
+
+Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: golden vector, never scored.
+
+No failure codes (control-flow test: reaching the end is the pass).
 

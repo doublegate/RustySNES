@@ -25,17 +25,27 @@ pub fn all() -> Vec<Test> {
         c1_02(),
         c1_03(),
         c1_04(),
+        c1_05(),
         // --- C2: VRAM port ---
         c2_01(),
         c2_02(),
         c2_03(),
         c2_04(),
         c2_05(),
+        c2_06(),
         // --- C3: CGRAM and the H/V counters ---
         c3_01(),
         c3_02(),
         c3_03(),
         c3_04(),
+        c3_05(),
+        // --- C13: open bus ---
+        c13_01(),
+        c13_02(),
+        c13_03(),
+        // --- C14: version detection (golden) ---
+        c14_01(),
+        c14_02(),
     ]
 }
 
@@ -200,6 +210,46 @@ fn c1_04() -> Test {
         'C',
         "OAM rd/wr one counter",
         Provenance::Documented("SNESdev Wiki, OAM"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// OAM is 544 bytes behind a 1024-byte address space: the high table repeats every 32 bytes.
+///
+/// Word address `$110` is byte `$220`, which the hardware decodes as byte `$200` — the first byte
+/// of the high table. A core that allocates a flat 1024-byte OAM array and indexes it directly
+/// passes every other OAM test here and fails this one.
+fn c1_05() -> Test {
+    let mut a = Asm::new();
+    a.c("Write through the mirror at word $110 and read back at the real address, word $100.");
+    a.c("The high table commits per byte, so no write-twice pairing is involved.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$10");
+    a.l("sta $2102");
+    a.l("lda #$01          ; OAMADDR = word $110 (byte $220), bit 7 clear");
+    a.l("sta $2103");
+    a.l("lda #$5C");
+    a.l("sta $2104");
+    a.l("lda #$C5");
+    a.l("sta $2104");
+    a.c("--- read the real high-table bytes ---");
+    a.l("lda #$00");
+    a.l("sta $2102");
+    a.l("lda #$01          ; OAMADDR = word $100 (byte $200)");
+    a.l("sta $2103");
+    a.l("lda $2138");
+    a.assert_a8(0x5C, "OAM high table did not mirror: byte $220 -> $200");
+    a.l("lda $2138");
+    a.assert_a8(0xC5, "OAM high table did not mirror: byte $221 -> $201");
+    a.finish(
+        "C1.05",
+        'C',
+        "OAM high table mirror",
+        Provenance::Documented("SNESdev Wiki, OAM; fullsnes"),
         Kind::Scored,
         None,
     )
@@ -419,6 +469,62 @@ fn c2_05() -> Test {
     )
 }
 
+/// `VMAIN` address translation rewrites the address **on the bus**, not the address **register**.
+///
+/// This is the distinction that makes the feature usable: the register still increments linearly,
+/// so consecutive writes walk consecutive registers while landing on the rotated VRAM words. A
+/// core that folds the rotation back into the register produces the right first word and then
+/// diverges — which is why the second half of this test matters more than the first.
+///
+/// Remap `01` is the 8-bit rotation, `aaaaaaaa YYYxxxxx -> aaaaaaaa xxxxxYYY`. Register `$1503`
+/// therefore drives bus word `$1518`, and register `$1504` drives `$1520` — *not* `$1519`.
+fn c2_06() -> Test {
+    let mut a = Asm::new();
+    a.c(
+        "Two back-to-back writes with remap 01 active, then read both target words with remap off.",
+    );
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$84          ; VMAIN: remap 01 (8-bit), step 1, increment after the high byte");
+    a.l("sta $2115");
+    a.l("rep #$30");
+    a.l("ldx #$1503");
+    a.l("stx $2116");
+    a.l("lda #$CAFE");
+    a.l("sta $2118         ; register $1503 -> bus word $1518");
+    a.l("lda #$B0BA");
+    a.l("sta $2118         ; register $1504 -> bus word $1520");
+    a.c("--- read both back with translation off ---");
+    a.l("sep #$20");
+    a.l("lda #$80");
+    a.l("sta $2115");
+    a.l("rep #$30");
+    a.l("ldx #$1518");
+    a.l("stx $2116");
+    a.l("lda $2139");
+    a.assert_a16(
+        0xCAFE,
+        "remap 01 did not translate register $1503 to bus word $1518",
+    );
+    a.l("ldx #$1520");
+    a.l("stx $2116");
+    a.l("lda $2139");
+    a.assert_a16(
+        0xB0BA,
+        "the remap fed back into the address register (the second write missed word $1520)",
+    );
+    a.finish(
+        "C2.06",
+        'C',
+        "VMAIN remap hits bus",
+        Provenance::Documented("SNESdev Wiki, PPU registers; fullsnes; anomie"),
+        Kind::Scored,
+        None,
+    )
+}
+
 // ---------------------------------------------------------------------------------------------
 // C3 — CGRAM and the H/V counters
 // ---------------------------------------------------------------------------------------------
@@ -550,6 +656,291 @@ fn c3_04() -> Test {
         "H counter advances",
         Provenance::Documented("SNESdev Wiki, PPU registers"),
         Kind::Scored,
+        None,
+    )
+}
+
+/// Reading `$213F` resets the `OPHCT` read flipflop, so the next read is the low byte again.
+///
+/// The latched counter value itself is frozen until the next `$2137` latch, which is what makes
+/// this assertable without any timing tolerance: the first and third reads must be **byte
+/// identical**, not merely close. A core that keeps one shared flipflop, or that resets it on
+/// `$2137` instead of `$213F`, returns the high byte on the third read and fails.
+fn c3_05() -> Test {
+    let mut a = Asm::new();
+    a.c("Latch once, then read low / high / reset / low. Nothing re-latches in between, so the");
+    a.c("two low reads sample the same frozen value and any difference is a flipflop bug.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("cld               ; the SBC below must not run in decimal mode");
+    a.l("sep #$20");
+    a.l("lda $213F         ; reset both read flipflops");
+    a.l("lda $2137         ; latch H and V");
+    a.l("lda $213C         ; H low");
+    a.l("sta f:$7E0100");
+    a.l("lda $213C         ; H high — the flipflop is now set");
+    a.l("lda $213F         ; reset both flipflops again");
+    a.l("lda $213C         ; must be H low once more");
+    a.l("sec");
+    a.l("sbc f:$7E0100");
+    a.assert_a8(
+        0x00,
+        "$213F did not reset the OPHCT flipflop (the third read was not the low byte)",
+    );
+    a.finish(
+        "C3.05",
+        'C',
+        "$213F resets flipflop",
+        Provenance::Documented("SNESdev Wiki, PPU registers; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+// ---------------------------------------------------------------------------------------------
+// C13 — open bus
+// ---------------------------------------------------------------------------------------------
+
+/// `$213E` bit 4 reads back the **PPU1** open-bus latch.
+///
+/// The PPU drives only the bits it decodes; the rest of the byte comes from whatever the chip last
+/// put on its half of the bus. Driving that latch to a known value through an OAM read makes an
+/// otherwise invisible piece of state directly assertable.
+fn c13_01() -> Test {
+    let mut a = Asm::new();
+    a.c("Drive PPU1 open bus to $10 via an OAM read, check $213E bit 4, then drive it to $00 and");
+    a.c("check again. Only bit 4 is examined: bits 7-6 are the sprite flags and 5-0 the version.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.c("--- open bus := $10 ---");
+    a.l("lda #$08");
+    a.l("sta $2102");
+    a.l("stz $2103");
+    a.l("lda #$10");
+    a.l("sta $2104");
+    a.l("lda #$00");
+    a.l("sta $2104");
+    a.l("lda #$08");
+    a.l("sta $2102");
+    a.l("stz $2103");
+    a.l("lda $2138         ; returns $10 and refreshes PPU1 open bus with it");
+    a.l("lda $213E");
+    a.l("and #$10");
+    a.assert_a8(0x10, "$213E bit 4 did not follow PPU1 open bus set to $10");
+    a.c("--- open bus := $00 ---");
+    a.l("lda #$08");
+    a.l("sta $2102");
+    a.l("stz $2103");
+    a.l("lda #$00");
+    a.l("sta $2104");
+    a.l("lda #$00");
+    a.l("sta $2104");
+    a.l("lda #$08");
+    a.l("sta $2102");
+    a.l("stz $2103");
+    a.l("lda $2138         ; returns $00");
+    a.l("lda $213E");
+    a.l("and #$10");
+    a.assert_a8(
+        0x00,
+        "$213E bit 4 did not follow PPU1 open bus cleared to $00",
+    );
+    a.finish(
+        "C13.01",
+        'C',
+        "PPU1 open bus in $213E",
+        Provenance::Documented("SNESdev Wiki, PPU registers; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `$213F` bit 5 reads back the **PPU2** open-bus latch.
+fn c13_02() -> Test {
+    let mut a = Asm::new();
+    a.c("Same shape as C13.01 but on the other chip: CGRAM reads go through PPU2, so a $213B read");
+    a.c("is what refreshes this latch.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.c("--- open bus := $20 ---");
+    a.l("lda #$20");
+    a.l("sta $2121");
+    a.l("lda #$20");
+    a.l("sta $2122");
+    a.l("lda #$00");
+    a.l("sta $2122");
+    a.l("lda #$20");
+    a.l("sta $2121");
+    a.l("lda $213B         ; returns $20 and refreshes PPU2 open bus with it");
+    a.l("lda $213F");
+    a.l("and #$20");
+    a.assert_a8(0x20, "$213F bit 5 did not follow PPU2 open bus set to $20");
+    a.c("--- open bus := $00 ---");
+    a.l("lda #$20");
+    a.l("sta $2121");
+    a.l("lda #$00");
+    a.l("sta $2122");
+    a.l("lda #$00");
+    a.l("sta $2122");
+    a.l("lda #$20");
+    a.l("sta $2121");
+    a.l("lda $213B         ; returns $00");
+    a.l("lda $213F");
+    a.l("and #$20");
+    a.assert_a8(
+        0x00,
+        "$213F bit 5 did not follow PPU2 open bus cleared to $00",
+    );
+    a.finish(
+        "C13.02",
+        'C',
+        "PPU2 open bus in $213F",
+        Provenance::Documented("SNESdev Wiki, PPU registers; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// PPU1 and PPU2 keep **separate** open-bus latches.
+///
+/// They are two physically distinct chips on two halves of the bus, so refreshing one must leave
+/// the other alone. A core with a single shared `open_bus` byte — the natural first implementation
+/// — passes C13.01 and C13.02 individually and fails here, which is exactly why this is its own
+/// test rather than an extra assertion on either of them.
+fn c13_03() -> Test {
+    let mut a = Asm::new();
+    a.c("Drive the two latches to opposite values and read both back. Then swap and repeat, so a");
+    a.c("shared latch cannot pass by accident in one polarity.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.c("--- seed OAM byte $10 / $00 and CGRAM low byte $20 / $00 ---");
+    a.l("lda #$08");
+    a.l("sta $2102");
+    a.l("stz $2103");
+    a.l("lda #$10");
+    a.l("sta $2104");
+    a.l("lda #$00");
+    a.l("sta $2104         ; OAM word 8 = $0010");
+    a.c("Word 9 must be seeded too, not assumed zero: it is read below to drive PPU1 open bus to");
+    a.c("$00, and whatever the previous tests or the power-on fill left there would otherwise");
+    a.c("decide the result. Mesen2 and snes9x disagree on that leftover, which is not a hardware");
+    a.c("difference — it is this test failing to control its own inputs.");
+    a.l("lda #$00");
+    a.l("sta $2104");
+    a.l("lda #$00");
+    a.l("sta $2104         ; OAM word 9 = $0000");
+    a.l("lda #$20");
+    a.l("sta $2121");
+    a.l("lda #$20");
+    a.l("sta $2122");
+    a.l("lda #$00");
+    a.l("sta $2122         ; colour $20 = $0020");
+    a.l("lda #$00");
+    a.l("sta $2122");
+    a.l("lda #$00");
+    a.l("sta $2122         ; colour $21 = $0000, for the same reason as OAM word 9");
+    a.c("--- PPU1 := $10, PPU2 := $00 ---");
+    a.l("lda #$08");
+    a.l("sta $2102");
+    a.l("stz $2103");
+    a.l("lda $2138         ; PPU1 open bus := $10");
+    a.l("lda #$21");
+    a.l("sta $2121");
+    a.l("lda $213B         ; colour $21 low byte = $00; PPU2 open bus := $00");
+    a.l("lda $213E");
+    a.l("and #$10");
+    a.assert_a8(0x10, "refreshing PPU2 open bus clobbered PPU1's latch");
+    a.l("lda $213F");
+    a.l("and #$20");
+    a.assert_a8(0x00, "PPU2 open bus read back as PPU1's value");
+    a.c("--- PPU1 := $00, PPU2 := $20 ---");
+    a.l("lda #$09");
+    a.l("sta $2102");
+    a.l("stz $2103");
+    a.l("lda $2138         ; OAM word 9 is zero; PPU1 open bus := $00");
+    a.l("lda #$20");
+    a.l("sta $2121");
+    a.l("lda $213B         ; PPU2 open bus := $20");
+    a.l("lda $213E");
+    a.l("and #$10");
+    a.assert_a8(0x00, "PPU1 open bus read back as PPU2's value");
+    a.l("lda $213F");
+    a.l("and #$20");
+    a.assert_a8(0x20, "refreshing PPU1 open bus clobbered PPU2's latch");
+    a.finish(
+        "C13.03",
+        'C',
+        "PPU1/PPU2 bus separate",
+        Provenance::Corroborated("the bsnes/ares lineage and Mesen2 model two distinct latches"),
+        Kind::Scored,
+        None,
+    )
+}
+
+// ---------------------------------------------------------------------------------------------
+// C14 — version detection (golden vectors)
+// ---------------------------------------------------------------------------------------------
+
+/// The PPU1 version nibble in `$213E`, recorded rather than asserted.
+///
+/// Only version 1 has ever been observed in the wild, but the value is a property of the *console*
+/// a cartridge happens to be in, not of the SNES architecture. Asserting it would make the battery
+/// fail on a hypothetically-correct emulation of a machine we have not seen, so it is recorded as
+/// a variant code and kept out of the pass rate.
+fn c14_01() -> Test {
+    let mut a = Asm::new();
+    a.c("Report the low nibble of $213E as the variant code.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda $213E");
+    a.l("and #$0F          ; PPU1 version");
+    a.l("asl a");
+    a.l("ora #$01          ; encode as (version << 1) | 1");
+    a.l("sta f:$7EE010");
+    a.l("jmp test_restore");
+    a.finish(
+        "C14.01",
+        'C',
+        "PPU1 version (golden)",
+        Provenance::Documented("SNESdev Wiki, PPU registers; fullsnes"),
+        Kind::Golden,
+        None,
+    )
+}
+
+/// The PPU2 version nibble in `$213F`, recorded rather than asserted.
+///
+/// Unlike PPU1 this genuinely varies — versions 1, 2 and 3 all shipped — and it *gates* the
+/// `$2100` early-read object-corruption bug, which only reproduces on 3-chip consoles. Any future
+/// test for that bug has to read this value first rather than assume a revision.
+fn c14_02() -> Test {
+    let mut a = Asm::new();
+    a.c("Report the low nibble of $213F as the variant code.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda $213F");
+    a.l("and #$0F          ; PPU2 version");
+    a.l("asl a");
+    a.l("ora #$01");
+    a.l("sta f:$7EE010");
+    a.l("jmp test_restore");
+    a.finish(
+        "C14.02",
+        'C',
+        "PPU2 version (golden)",
+        Provenance::Documented("SNESdev Wiki, PPU registers; fullsnes"),
+        Kind::Golden,
         None,
     )
 }
