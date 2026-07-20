@@ -91,10 +91,60 @@ impl Spc {
         self.push(&[0xAE])
     }
 
-    /// `BRA rel` to itself — `$2F $FE`. How every test program ends: the cart polls the ports, so
-    /// the program's job is to publish and then stop changing anything.
-    pub fn halt(&mut self) -> &mut Self {
-        self.push(&[0x2F, 0xFE])
+    /// `DIV YA,X` — `$9E`. `A = YA / X`, `Y = YA % X`.
+    pub fn div_ya_x(&mut self) -> &mut Self {
+        self.push(&[0x9E])
+    }
+
+    /// `MOVW YA,dp` — `$BA`. Loads a 16-bit value; the flags describe all sixteen bits.
+    pub fn movw_ya_dp(&mut self, dp: u8) -> &mut Self {
+        self.push(&[0xBA, dp])
+    }
+
+    /// `MOV dp,#imm` — `$8F`, encoded **immediate first, then the direct-page address**. That
+    /// operand order is the reverse of how the mnemonic reads, and is worth stating rather than
+    /// discovering: swapping the two assembles cleanly and stores the wrong byte somewhere else.
+    pub fn mov_dp_imm(&mut self, dp: u8, v: u8) -> &mut Self {
+        self.push(&[0x8F, v, dp])
+    }
+
+    /// `MOV A,dp` — `$E4`. Reading `$F4`-`$F7` from the SPC side returns what the **CPU** wrote;
+    /// writing them sets what the CPU reads. One set of registers, two directions.
+    pub fn mov_a_dp(&mut self, dp: u8) -> &mut Self {
+        self.push(&[0xE4, dp])
+    }
+
+    /// `CMP A,#imm` — `$68`.
+    pub fn cmp_a_imm(&mut self, v: u8) -> &mut Self {
+        self.push(&[0x68, v])
+    }
+
+    /// End the program: wait for the cart's release byte, then hand the APU back to the IPL.
+    ///
+    /// **Every program must end this way, and the reason is not tidiness.** Once a program is
+    /// running, the IPL boot ROM is not — so the next test's upload has nothing to handshake with.
+    /// The first version of this group ended in `BRA *`, and every APU test after the first one
+    /// silently timed out and then read the *previous* test's leftover port values, which look
+    /// exactly like a wrong answer rather than like a test that never ran.
+    ///
+    /// The cart writes [`RELEASE`] to port 0 once it has copied the results out; this polls for it
+    /// and jumps to the IPL entry, which re-announces itself with `$AA`/`$BB` for the next upload.
+    pub fn release_to_ipl(&mut self) -> &mut Self {
+        // @wait: MOV A,$F4 / CMP A,#RELEASE / BNE @wait / JMP $FFC0
+        // Built from the individual emitters rather than as a literal byte string, so the
+        // encodings it relies on are the same ones every other program uses — an opcode spelled
+        // out twice is an opcode that can disagree with itself. The branch offset is computed for
+        // the same reason: a hand-counted `$FA` is right until an instruction moves.
+        let wait = self.bytes.len();
+        self.mov_a_dp(PORT0).cmp_a_imm(RELEASE);
+        let after_branch = self.bytes.len() + 2;
+        let rel = i64::try_from(wait).expect("program length fits i64")
+            - i64::try_from(after_branch).expect("program length fits i64");
+        let rel = i8::try_from(rel).expect("the release loop is far shorter than a branch's reach");
+        // A branch displacement IS a signed byte reinterpreted as an opcode operand; the
+        // two-s-complement bit pattern is the encoding, not a lossy conversion.
+        self.push(&[0xD0, rel.to_le_bytes()[0]]); // BNE @wait
+        self.push(&[0x5F, 0xC0, 0xFF]) // JMP $FFC0 — the IPL entry
     }
 
     /// Emit the program as a ca65 `.byte` directive block, wrapped at a readable width.
@@ -127,3 +177,7 @@ pub const PORT3: u8 = 0xF7;
 
 /// The marker a finished program writes to port 0, so the cart can tell "done" from "not started".
 pub const DONE: u8 = 0x5A;
+
+/// The byte the cart writes back to port 0 once it has copied the results out, releasing the
+/// program to hand the APU back to the IPL. See [`Spc::release_to_ipl`].
+pub const RELEASE: u8 = 0xA5;

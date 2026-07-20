@@ -15,12 +15,12 @@
 //! leave flags alone.
 
 use crate::dsl::{Asm, Kind, Provenance, Test};
-use crate::spc::{DONE, PORT0, PORT1, PORT2, PORT3, Spc};
+use crate::spc::{DONE, PORT0, PORT1, PORT2, PORT3, RELEASE, Spc};
 
 /// Every Group E test, in menu order.
 #[must_use]
 pub fn all() -> Vec<Test> {
-    vec![e1_01()]
+    vec![e1_01(), e1_02(), e1_06(), e1_15()]
 }
 
 /// Emit the cart-side half: upload `prog`, wait for its done marker, leave port values readable.
@@ -68,6 +68,35 @@ fn upload_and_run(a: &mut Asm, prog: &Spc) {
     a.l("bne @wait");
     a.l("bra @timeout");
     a.label("ran");
+    a.c(
+        "Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM",
+    );
+    a.c("overwrites ports 0 and 1 with its $AA/$BB announcement.");
+    a.l("sep #$20");
+    a.l("lda APUIO1");
+    a.l("sta f:$7E0100");
+    a.l("lda APUIO2");
+    a.l("sta f:$7E0101");
+    a.l("lda APUIO3");
+    a.l("sta f:$7E0102");
+    a.c("Release: the program hands the APU back to the IPL so the NEXT test can upload at all.");
+    a.l(&format!("lda #${RELEASE:02X}"));
+    a.l("sta APUIO0");
+}
+
+/// Emit the shared tail: jump past the timeout arm, then land where `finish`'s pass stub follows.
+///
+/// Every test in this group needs it because `upload_and_run` branches to `@timeout` when the APU
+/// never answers, and that arm has to record SKIP and leave — a test whose APU did not boot has
+/// asserted nothing, and reporting a pass would be a lie about the only thing it was measuring.
+fn apu_timeout_arm(a: &mut Asm) {
+    a.l("bra @pass");
+    a.label("timeout");
+    a.l("sep #$20");
+    a.l("lda #$FF");
+    a.l("sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker");
+    a.l("jmp test_restore");
+    a.label("pass");
 }
 
 /// `MUL YA` takes its N and Z flags from `Y` alone.
@@ -90,39 +119,180 @@ fn e1_01() -> Test {
         .mov_dp_a(PORT1) // PSW
         .mov_a_imm(DONE)
         .mov_dp_a(PORT0)
-        .halt();
+        .release_to_ipl();
 
     let mut a = Asm::new();
     upload_and_run(&mut a, &prog);
     a.c("Product first: $10 * $10 = $0100.");
     a.l("sep #$20");
-    a.l("lda APUIO2");
+    a.l("lda f:$7E0101");
     a.assert_a8(0x00, "MUL YA low byte is wrong");
-    a.l("lda APUIO3");
+    a.l("lda f:$7E0102");
     a.assert_a8(0x01, "MUL YA high byte is wrong");
     a.c("Then the flags. Z is bit 1 of PSW and must be CLEAR even though A came out $00.");
-    a.l("lda APUIO1");
+    a.l("lda f:$7E0100");
     a.l("and #$02");
     a.assert_a8(
         0x00,
         "MUL YA set Z although Y is non-zero — the flags come from Y alone, not from A or YA",
     );
     a.c("N is bit 7, and $01 is positive, so it must be clear too.");
-    a.l("lda APUIO1");
+    a.l("lda f:$7E0100");
     a.l("and #$80");
     a.assert_a8(0x00, "MUL YA set N although Y is $01");
-    a.l("bra @pass");
-    a.label("timeout");
-    a.l("sep #$20");
-    a.l("lda #$FF");
-    a.l("sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker");
-    a.l("jmp test_restore");
-    a.label("pass");
+    apu_timeout_arm(&mut a);
     a.finish(
         "E1.01",
         'E',
         "MUL YA flags from Y",
         Provenance::Documented("SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `DIV YA,X` on its normal branch: `A` is the quotient, `Y` the remainder.
+///
+/// The baseline the rest of `E1.02`-`E1.07` are read against. `$0020 / $08` is 4 remainder 0 — a
+/// case with no overflow, no odd flag behaviour, and nothing to argue about, which is exactly what
+/// makes it worth pinning first: every stranger `DIV` assertion is a deviation from this one.
+fn e1_02() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_y_imm(0x00)
+        .mov_a_imm(0x20) // YA = $0020
+        .mov_x_imm(0x08)
+        .div_ya_x()
+        .mov_dp_a(PORT2) // quotient
+        .mov_dp_y(PORT3) // remainder
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.assert_a8(0x04, "DIV YA,X quotient is wrong ($0020 / $08 = 4)");
+    a.l("lda f:$7E0102");
+    a.assert_a8(0x00, "DIV YA,X remainder is wrong");
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E1.02",
+        'E',
+        "DIV YA,X normal branch",
+        Provenance::Documented("SNESdev Wiki, SPC700 reference; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `DIV YA,X` takes N and Z from the quotient alone, not from the remainder.
+///
+/// `$0003 / $08` is quotient 0, remainder 3 — so `Z` is **set** even though `Y` came back
+/// non-zero. The errata matters because the remainder is the more interesting half of a divide,
+/// and a core that flags the pair, or flags `Y`, reports "non-zero" for a result that is zero.
+///
+/// The companion case is checked in the same program: `$0020 / $08` is quotient 4, remainder 0,
+/// where `Z` must be **clear**. One direction alone would pass on a core that never sets `Z`.
+fn e1_06() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        // quotient 0, remainder 3 -> Z set
+        .mov_y_imm(0x00)
+        .mov_a_imm(0x03)
+        .mov_x_imm(0x08)
+        .div_ya_x()
+        .push_psw()
+        .pop_a()
+        .mov_dp_a(PORT2)
+        // quotient 4, remainder 0 -> Z clear
+        .mov_y_imm(0x00)
+        .mov_a_imm(0x20)
+        .mov_x_imm(0x08)
+        .div_ya_x()
+        .push_psw()
+        .pop_a()
+        .mov_dp_a(PORT3)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("Quotient 0 with remainder 3: Z (bit 1) must be SET.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.l("and #$02");
+    a.assert_a8(
+        0x02,
+        "DIV YA,X left Z clear for a zero quotient — the flags come from the quotient, not the \
+         remainder",
+    );
+    a.c("Quotient 4 with remainder 0: Z must be CLEAR. Without this half, a core that never sets");
+    a.c("Z at all would pass the check above.");
+    a.l("lda f:$7E0102");
+    a.l("and #$02");
+    a.assert_a8(0x00, "DIV YA,X set Z for a non-zero quotient");
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E1.06",
+        'E',
+        "DIV flags from quotient",
+        Provenance::Documented("SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `MOVW YA,dp` sets N and Z from the whole 16-bit value.
+///
+/// Loading `$0100` gives `A = $00` and `Y = $01`, and `Z` must be **clear** — a core that flags
+/// the accumulator alone sets it. Loading `$8000` gives `A = $00` and `Y = $80`, and `N` must be
+/// **set** — the same core leaves it clear. The two cases together pin both flags to the 16-bit
+/// value rather than to either byte of it.
+fn e1_15() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_dp_imm(0x10, 0x00)
+        .mov_dp_imm(0x11, 0x01) // $10/$11 = $0100
+        .movw_ya_dp(0x10)
+        .push_psw()
+        .pop_a()
+        .mov_dp_a(PORT2)
+        .mov_dp_imm(0x12, 0x00)
+        .mov_dp_imm(0x13, 0x80) // $12/$13 = $8000
+        .movw_ya_dp(0x12)
+        .push_psw()
+        .pop_a()
+        .mov_dp_a(PORT3)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("$0100: A is $00, so a core flagging the accumulator alone sets Z. It must be clear.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.l("and #$02");
+    a.assert_a8(
+        0x00,
+        "MOVW YA,dp set Z for $0100 — the flags describe all sixteen bits, not the low byte",
+    );
+    a.c("$8000: A is again $00, and N must be SET from bit 15.");
+    a.l("lda f:$7E0102");
+    a.l("and #$80");
+    a.assert_a8(0x80, "MOVW YA,dp left N clear for $8000");
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E1.15",
+        'E',
+        "MOVW YA sets 16-bit N/Z",
+        Provenance::Documented("SNESdev Wiki, SPC700 reference; fullsnes"),
         Kind::Scored,
         None,
     )
