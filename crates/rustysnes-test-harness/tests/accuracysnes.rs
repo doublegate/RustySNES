@@ -235,12 +235,18 @@ fn accuracysnes_battery() {
         .iter()
         .enumerate()
         .filter(|(i, e)| {
-            e.kind == "Scored" && matches!(Verdict::decode(r.status[*i]), Verdict::Variant(_))
+            // The tier matters as much as the kind: the cart only counts a test toward `passed`
+            // when it is BOTH Scored and Documented/Corroborated. Filtering on kind alone would
+            // let a Contested-but-Scored variant inflate this past `r.passed` and underflow the
+            // subtraction below. No such test exists yet, but the DSL permits one.
+            e.kind == "Scored"
+                && (e.tier == "Documented" || e.tier == "Corroborated")
+                && matches!(Verdict::decode(r.status[*i]), Verdict::Variant(_))
         })
         .count();
     let variants = u32::try_from(variants).expect("variant count fits u32");
     let report = AccuracyReport {
-        passed: u32::from(r.passed) - variants,
+        passed: u32::from(r.passed).saturating_sub(variants),
         failed: u32::from(r.failed),
         partial: variants,
     };

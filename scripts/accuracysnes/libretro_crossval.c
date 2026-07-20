@@ -149,7 +149,13 @@ int main(int argc, char **argv) {
     long len = ftell(f);
     fseek(f, 0, SEEK_SET);
     void *buf = malloc((size_t)len);
-    if (fread(buf, 1, (size_t)len, f) != (size_t)len) { perror("read"); return 255; }
+    if (!buf) { perror("malloc"); fclose(f); return 255; }
+    if (fread(buf, 1, (size_t)len, f) != (size_t)len) {
+        perror("read");
+        fclose(f);
+        free(buf);
+        return 255;
+    }
     fclose(f);
 
     struct retro_game_info info = { argv[2], buf, (size_t)len, NULL };
@@ -160,8 +166,11 @@ int main(int argc, char **argv) {
 
     uint8_t *wram = (uint8_t *)retro_get_memory_data(RETRO_MEMORY_SYSTEM_RAM);
     size_t wram_size = retro_get_memory_size(RETRO_MEMORY_SYSTEM_RAM);
-    if (!wram || wram_size < 0x10000) {
-        fprintf(stderr, "core exposes no usable SYSTEM_RAM (%zu bytes)\n", wram_size);
+    /* The SNES has 128 KiB of WRAM; require the whole thing rather than merely "enough", so a
+     * core that under-reports cannot leave the results block partly outside the buffer. */
+    if (!wram || wram_size < 0x20000) {
+        fprintf(stderr, "core exposes no usable SYSTEM_RAM (%zu bytes, need 131072)\n", wram_size);
+        free(buf);
         return 255;
     }
     printf("core=%s wram=%zu bytes\n", argv[1], wram_size);
@@ -175,15 +184,25 @@ int main(int argc, char **argv) {
     if (wram[DONE] != 0xA5) {
         printf("ACCURACYSNES-TIMEOUT after %u frames\n", frame);
         retro_deinit();
+        free(buf);
         return 254;
     }
     if (memcmp(wram + BASE, "ACSN", 4) != 0) {
         printf("ACCURACYSNES-BADMAGIC\n");
         retro_deinit();
+        free(buf);
         return 253;
     }
 
     unsigned n = (unsigned)wram[COUNT] | ((unsigned)wram[COUNT + 1] << 8);
+    /* `n` comes out of emulated WRAM: if the ROM hung or a core mis-mapped memory it can be
+     * arbitrary, so bound it against the buffer before indexing with it. */
+    if ((size_t)STATUS + n > wram_size) {
+        fprintf(stderr, "implausible test count %u for %zu-byte WRAM\n", n, wram_size);
+        retro_deinit();
+        free(buf);
+        return 253;
+    }
     unsigned pass = 0, fail = 0, other = 0;
     printf("ACCURACYSNES-BEGIN frames=%u count=%u\n", frame, n);
     for (unsigned i = 0; i < n; i++) {
