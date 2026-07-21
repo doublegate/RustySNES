@@ -1279,3 +1279,19 @@ fn mode7_latch_sharing_is_reported() {
         report.meas[224]
     );
 }
+
+/// Report `C11.08`'s two `MPY` readings: in blank, and during a Mode 7 render.
+#[test]
+fn mode7_multiplier_during_render_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  C11.08 MPY with M7A = $0100 and M7B's high byte 2:");
+    println!(
+        "    slot 225  {:#06x}  forced blank (the guard)",
+        report.meas[225]
+    );
+    println!(
+        "    slot 226  {:#06x}  active display, Mode 7",
+        report.meas[226]
+    );
+}

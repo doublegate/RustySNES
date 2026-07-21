@@ -25389,6 +25389,107 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; C11.08 — MPY busy during render
+; provenance: Contested (fullsnes and the SNESdev Wiki agree the Mode 7 multiplier is the renderer's and is busy during active display, but neither states which intermediate it holds at a given moment, and that is the only thing a cart can observe)
+.proc test_c11_08
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Mode 7 on BG1, and a matrix pair whose product is known.
+    sep #$20
+    .a8
+    lda #$07
+    sta $2105         ; BGMODE = 7
+    lda #$01
+    sta $212C         ; BG1 on the main screen, so the transform actually runs
+    stz $211C
+    lda #$02
+    sta $211C         ; M7B high byte = 2
+    stz $211B
+    lda #$01
+    sta $211B         ; M7A = $0100
+    ; --- the guard: in blank the multiplier is the driver's ---
+    sep #$20
+    .a8
+    lda $2134         ; product, low
+    sta f:$7E0218
+    lda $2135         ; middle
+    sta f:$7E0219
+    lda $2136         ; high — read but not kept; see the doc comment
+    ; --- and during render it belongs to the transform ---
+    sep #$20
+    .a8
+    lda #$0F
+    sta $2100         ; forced blank off — the access window now depends on position
+    jsl wait_vblank_far
+    jsl wait_vblank_far   ; a full settled frame
+@wa_c1108:
+    lda $4212
+    and #$80
+    bne @wa_c1108   ; wait for vblank to end
+    rep #$10
+    .i16
+    ldx #$0400
+@burn_c1108:
+    dex
+    bne @burn_c1108 ; ~20 scanlines in, well clear of the pre-render line
+    sep #$20
+    .a8
+    lda $2134         ; product, low
+    sta f:$7E021C
+    lda $2135         ; middle
+    sta f:$7E021D
+    lda $2136         ; high — read but not kept; see the doc comment
+    sep #$20
+    .a8
+    lda #$8F
+    sta $2100         ; forced blank restored before anything is judged
+    stz $212C
+    stz $2105         ; and BGMODE back to 0, which is what init_registers leaves
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0218
+    ; record slot 225: C11.08 MPY in forced blank (the guard)
+    sta f:$7EE3C2
+    lda f:$7E021C
+    ; record slot 226: C11.08 MPY during active display with Mode 7 on BG1
+    sta f:$7EE3C4
+    ; The guard first: a setup that never took would make the render read meaningless.
+    lda f:$7E0218
+    cmp #$0200
+    beq :+
+    jmp @fail1
+  :
+    ; The render read is recorded, not asserted: which intermediate the multiplier holds is a
+    ; function of the sub-scanline pipeline, and a core without one has nothing to return.
+    lda f:$7E021C
+    cmp #$0200
+    beq :+
+    sep #$20
+    .a8
+    lda #$03          ; variant 1 = an intermediate; slot 226 says which
+    sta f:$7EE010
+    jml test_restore
+    :
+    sep #$20
+    .a8
+    lda #$05          ; variant 2 = the programmed product survived: no per-pixel pipeline
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; M7A = $0100 times M7B = 2 did not read back as $200 in forced blank, so this test's Mode 7 setup is wrong and the reading taken during render says nothing
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C7.01 — Range Over at 32 sprites
 ; provenance: Documented (SNESdev Wiki, Sprites; fullsnes)
 .proc test_c7_01
@@ -30071,7 +30172,7 @@ apu_prog_103:
 .export _test_flags
 
 _test_count:
-    .word 313
+    .word 314
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -30186,6 +30287,7 @@ _test_entries:
     .faraddr test_c11_06
     .faraddr test_c11_06b
     .faraddr test_c11_07
+    .faraddr test_c11_08
     .faraddr test_c7_01
     .faraddr test_c7_04
     .faraddr test_c7_02
@@ -30502,6 +30604,7 @@ _test_flags:
     .byte $01   ; C11.06
     .byte $01   ; C11.06b
     .byte $01   ; C11.07
+    .byte $02   ; C11.08
     .byte $01   ; C7.01
     .byte $01   ; C7.04
     .byte $01   ; C7.02
@@ -30818,6 +30921,7 @@ _test_names:
     .addr @n_c11_06
     .addr @n_c11_06b
     .addr @n_c11_07
+    .addr @n_c11_08
     .addr @n_c7_01
     .addr @n_c7_04
     .addr @n_c7_02
@@ -31353,6 +31457,9 @@ _test_names:
 @n_c11_07:
     .byte 19
     .byte "MPY latch is shared"
+@n_c11_08:
+    .byte 22
+    .byte "MPY busy during render"
 @n_c7_01:
     .byte 24
     .byte "Range Over at 32 sprites"

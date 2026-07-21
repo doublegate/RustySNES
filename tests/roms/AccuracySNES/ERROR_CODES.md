@@ -1212,6 +1212,14 @@ Provenance: **Documented** (fullsnes and the SNESdev Wiki: PPU1's write-twice re
 | 1 | `$02` | M7A = $0100 times M7B = 2 did not read back as $200 from $2134, so the write-twice order, the multiplier or the product read is wrong and phase B says nothing about the latch |
 | 2 | `$04` | writing $210D between M7A's two bytes left the product unchanged, so $210D and $211B have latches of their own — an IRQ handler or an HDMA channel touching BG1 scroll mid-update would corrupt the Mode 7 matrix on hardware and not here |
 
+### C11.08 — MPY busy during render
+
+Provenance: **Contested** (fullsnes and the SNESdev Wiki agree the Mode 7 multiplier is the renderer's and is busy during active display, but neither states which intermediate it holds at a given moment, and that is the only thing a cart can observe). Kind: golden vector, never scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | M7A = $0100 times M7B = 2 did not read back as $200 in forced blank, so this test's Mode 7 setup is wrong and the reading taken during render says nothing |
+
 ### C7.01 — Range Over at 32 sprites
 
 Provenance: **Documented** (SNESdev Wiki, Sprites; fullsnes). Kind: scored.

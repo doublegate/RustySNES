@@ -618,6 +618,18 @@ rewritten to the current number — this line is the one to read.
   nothing depending on what is plugged in, and that `NMITIMEN` is zero for the whole battery, both
   of which the input contract changed.
 
+- **`C11.08` — is the Mode 7 multiplier busy during active display?** A **golden vector**. The
+  multiplier is not a unit sitting beside the PPU; it is *the* one the renderer transforms each
+  pixel with, so a mid-frame read of `$2134`-`$2136` returns whatever step of the transform it has
+  reached rather than the programmed `M7A × M7B` — which is why it is only usable as a
+  general-purpose multiplier during blank. The blank read **is** asserted, and is not redundant with
+  `C11.07`'s: it re-establishes the same fact in this test's different register state (Mode 7
+  selected, BG1 on the main screen, matrix written in a different order).
+  **All three cores report the programmed `$0200`** during render — measured, not assumed, and
+  Mesen2 was the one worth checking since it models several intervals the other two do not.
+  Producing an intermediate at all needs the sub-scanline Mode 7 pipeline that `C13.01`-`C13.06` are
+  blocked on, so the row becomes scorable the same day `C1.08` does.
+
 - **`C11.07` — do `$210D` and `$211B` share a write-twice latch?** PPU1 holds a **single** byte
   latch for its write-twice registers, so `$211B`-`$211E` (the Mode 7 matrix) and `$210D`/`$210E`
   (BG1 scroll) pass through the same one. A driver that writes `M7A`'s low byte, is interrupted by

@@ -65,6 +65,7 @@ pub fn all() -> Vec<Test> {
         c11_06(),
         c11_06b(),
         c11_07(),
+        c11_08(),
         // --- C7: sprite evaluation flags (the only Group C tests that render) ---
         c7_01(),
         c7_04(),
@@ -1823,6 +1824,109 @@ fn c11_07_read_mpy(a: &mut Asm, dest: u32) {
     a.l("lda $2135         ; middle");
     a.l(&format!("sta f:${:06X}", dest + 1));
     a.l("lda $2136         ; high — read but not kept; see the doc comment");
+}
+
+/// During active display in Mode 7, `$2134`-`$2136` hold the renderer's working figures — a golden
+/// vector.
+///
+/// The Mode 7 multiplier is not a separate unit sitting beside the PPU; it is *the* multiplier the
+/// renderer uses to transform each pixel. While a Mode 7 background is being drawn it is busy with
+/// per-pixel products, so a read of `$2134`-`$2136` mid-frame returns whatever step of the
+/// transform it has reached rather than the `M7A × M7B` a driver programmed. This is why the
+/// multiplier is only usable as a general-purpose one during blank, and why a routine that leaves a
+/// multiply in flight across the start of rendering gets an answer belonging to a pixel.
+///
+/// | when | expected |
+/// |---|---|
+/// | forced blank | `$000200` — the programmed `M7A × M7B` |
+/// | active display, Mode 7 on BG1 | some intermediate of the transform |
+///
+/// # The blank read is the guard, and it is asserted
+///
+/// `C11.07` already establishes that this exact `M7A`/`M7B` pair reads back as `$0200`, so the
+/// guard here is not redundant with it — it re-establishes the same fact *in this test's register
+/// state*, which differs: Mode 7 is selected, BG1 is on the main screen, and the matrix registers
+/// have been written in a different order. Without it, "the render read was different" could mean
+/// the setup never took.
+///
+/// # Recorded rather than asserted, and blocked on the same thing as `C1.08`
+///
+/// Which intermediate the multiplier holds at a given moment is a function of the sub-scanline
+/// Mode 7 pipeline — how far along the line the renderer is, and which of the transform's several
+/// products it last computed. No source states it, and a core without that pipeline has nothing to
+/// return but the programmed product.
+///
+/// **All three cores report `$0200`**, the programmed product: RustySNES, snes9x and Mesen2 alike.
+/// That is measured, not assumed — Mesen2 models several intervals the other two do not (`F1.12`
+/// found one), so it was the one worth checking, and it does not model this. RustySNES computes
+/// `M7A × M7B` on *read* from the register pair, so there is no intermediate for it to report at
+/// all. The row becomes scorable for free the day the `C13.01`-`C13.06` sub-scanline blocker
+/// lifts, which is the same day `C1.08` does.
+fn c11_08() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("Mode 7 on BG1, and a matrix pair whose product is known.");
+    a.l("sep #$20");
+    a.l("lda #$07");
+    a.l("sta $2105         ; BGMODE = 7");
+    a.l("lda #$01");
+    a.l("sta $212C         ; BG1 on the main screen, so the transform actually runs");
+    a.l("stz $211C");
+    a.l("lda #$02");
+    a.l("sta $211C         ; M7B high byte = 2");
+    a.l("stz $211B");
+    a.l("lda #$01");
+    a.l("sta $211B         ; M7A = $0100");
+    a.c("--- the guard: in blank the multiplier is the driver's ---");
+    c11_07_read_mpy(&mut a, 0x7E_0218);
+    a.c("--- and during render it belongs to the transform ---");
+    enter_active_display(&mut a, "c1108");
+    c11_07_read_mpy(&mut a, 0x7E_021C);
+    a.l("sep #$20");
+    a.l("lda #$8F");
+    a.l("sta $2100         ; forced blank restored before anything is judged");
+    a.l("stz $212C");
+    a.l("stz $2105         ; and BGMODE back to 0, which is what init_registers leaves");
+    a.l("rep #$30");
+    a.l("lda f:$7E0218");
+    a.record(225, "C11.08 MPY in forced blank (the guard)");
+    a.l("lda f:$7E021C");
+    a.record(226, "C11.08 MPY during active display with Mode 7 on BG1");
+    a.c("The guard first: a setup that never took would make the render read meaningless.");
+    a.l("lda f:$7E0218");
+    a.l("cmp #$0200");
+    a.fail_if_ne(
+        "M7A = $0100 times M7B = 2 did not read back as $200 in forced blank, so this test's Mode 7 \
+         setup is wrong and the reading taken during render says nothing",
+    );
+    a.c("The render read is recorded, not asserted: which intermediate the multiplier holds is a");
+    a.c("function of the sub-scanline pipeline, and a core without one has nothing to return.");
+    a.l("lda f:$7E021C");
+    a.l("cmp #$0200");
+    a.l("beq :+");
+    a.l("sep #$20");
+    a.l("lda #$03          ; variant 1 = an intermediate; slot 226 says which");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("sep #$20");
+    a.l("lda #$05          ; variant 2 = the programmed product survived: no per-pixel pipeline");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.finish(
+        "C11.08",
+        'C',
+        "MPY busy during render",
+        Provenance::Contested(
+            "fullsnes and the SNESdev Wiki agree the Mode 7 multiplier is the renderer's and is \
+             busy during active display, but neither states which intermediate it holds at a given \
+             moment, and that is the only thing a cart can observe",
+        ),
+        Kind::Golden,
+        None,
+    )
 }
 
 /// The Mode 7 multiply is signed on **both** operands, and the product sign-extends to 24 bits.
