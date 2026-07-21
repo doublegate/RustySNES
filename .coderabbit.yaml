@@ -5,7 +5,7 @@
 # evidence, and two that disagree are a finding. Copilot has caught overstated doc comments and
 # order-dependent tests; this config tells CodeRabbit where the rest of the sharp edges are.
 
-language: en-GB
+language: en-US
 early_access: false
 
 # House style, applied to reviews and chat alike. The repository's own rule, extended to the bot.
@@ -24,7 +24,7 @@ reviews:
   high_level_summary_instructions: >-
     Say what the change claims and what would make the claim false. For an AccuracySNES change,
     name the dossier assertions added or altered and whether the coverage denominator moved. For an
-    emulator-core change, name the observable behaviour that differs. Do not restate the diff.
+    emulator-core change, name the observable behavior that differs. Do not restate the diff.
   poem: false
   review_status: true
   collapse_walkthrough: false
@@ -47,7 +47,7 @@ reviews:
 
   # Both of these open follow-up pull requests containing generated code, and both are wrong for
   # this repository. A doc comment here is the argument for why a test is not vacuous, not a
-  # restatement of the signature; and a generated unit test asserting current behaviour is the
+  # restatement of the signature; and a generated unit test asserting current behavior is the
   # precise opposite of an accuracy oracle, which asserts what the *hardware* does.
   finishing_touches:
     docstrings:
@@ -103,7 +103,7 @@ reviews:
     - '.gitignore'
     - '.markdownlintignore'
     # --- Excludes ----------------------------------------------------------------------------
-    # Generated artefacts. Reviewing them is reviewing the generator twice, and the ROM is binary.
+    # Generated artifacts. Reviewing them is reviewing the generator twice, and the ROM is binary.
     - '!tests/roms/AccuracySNES/asm/tests_group_a.s'
     - '!tests/roms/AccuracySNES/asm/scenes.s'
     - '!tests/roms/AccuracySNES/SOURCE_CATALOG.tsv'
@@ -123,14 +123,14 @@ reviews:
     - path: 'tests/roms/AccuracySNES/gen/src/**'
       instructions: |
         This generates a hardware-accuracy test cartridge. Judge each test by whether it can
-        distinguish the behaviour it names from the alternatives, not by whether it passes.
+        distinguish the behavior it names from the alternatives, not by whether it passes.
 
         Flag, specifically:
         - **Vacuity.** An assertion whose expected value is also what a broken or absent
           implementation produces (zero, "unchanged", "not $FF") needs a paired control assertion
           that would fail on that implementation. Say which alternative goes uncaught.
         - **Overstated doc comments.** The prose above a test is a claim about what it validates.
-          If it names behaviours the emitted program does not exercise, or asserts a rationale that
+          If it names behaviors the emitted program does not exercise, or asserts a rationale that
           is not true of the code, that is a defect even though the test passes.
         - **Shared state.** OAM, CGRAM, VRAM and the S-DSP registers are not reset between tests. A
           test that does not establish its own starting conditions may be measuring the previous
@@ -164,7 +164,7 @@ reviews:
       instructions: |
         Emulator core. Hot paths are allocation-free; `unsafe` requires a `// SAFETY:` comment
         naming the invariant. Any change to save-stated fields needs a `FORMAT_VERSION` bump and a
-        `docs/adr/0006` bump-log entry. Behaviour changes must update the matching `docs/<chip>.md`
+        `docs/adr/0006` bump-log entry. Behavior changes must update the matching `docs/<chip>.md`
         in the same change.
 
     - path: 'docs/**'
@@ -218,7 +218,7 @@ reviews:
 
     - path: 'scripts/**/*.py'
       instructions: |
-        One-off developer tooling, not shipped code. Prioritise correctness and legible failure
+        One-off developer tooling, not shipped code. Prioritize correctness and legible failure
         over polish; do not ask for packaging, typing or CLI-ergonomics work unless it affects
         whether the script is right.
 
@@ -243,29 +243,36 @@ reviews:
       - name: CHANGELOG entry
         mode: warning
         instructions: |
-          If the diff changes user-visible behaviour — emulator output, a frontend feature, a CLI
+          If the diff changes user-visible behavior — emulator output, a frontend feature, a CLI
           flag, a public API, or the contents of the AccuracySNES cartridge — `CHANGELOG.md` must
           be modified in the same pull request. Pass if the change is purely internal
-          (refactoring, tests of existing behaviour, comments, CI configuration).
+          (refactoring, tests of existing behavior, comments, CI configuration).
       - name: Docs-as-spec
         mode: warning
         instructions: |
-          A behaviour change under `crates/rustysnes-<chip>/` must be accompanied by an edit to
+          A behavior change under `crates/rustysnes-<chip>/` must be accompanied by an edit to
           the matching `docs/<chip>.md` in the same pull request, because those documents are the
           specification rather than a history log. Pass only if the crate change does not alter
-          observable behaviour — say what the change does instead. "The document was already
-          correct" is not a pass: if the behaviour changed, the specification of it changed, and
+          observable behavior — say what the change does instead. "The document was already
+          correct" is not a pass: if the behavior changed, the specification of it changed, and
           this check and the `crates/**` path instruction have to say the same thing.
       - name: AccuracySNES bookkeeping
         mode: warning
         instructions: |
           If the diff adds or removes a test or a scene under `tests/roms/AccuracySNES/gen/src/`,
           check three things: the test appears in `dossier.rs::MAP` (mapped to a dossier assertion
-          or to an empty slice with a matching `UNENUMERATED` entry); the regenerated artefacts
-          (`asm/tests_group_a.s`, `SOURCE_CATALOG.tsv`, `docs/accuracysnes-coverage.md`, the two
-          `.sfc` images, and `asm/scenes.s` whenever a scene changed) are present in the diff,
-          since a source change without them means the committed ROM does not match its generator; and the hand-maintained counts in
+          or to an empty slice with a matching `UNENUMERATED` entry); the regenerated artifacts
+          (`asm/tests_group_a.s`, `SOURCE_CATALOG.tsv`, `ERROR_CODES.md`,
+          `docs/accuracysnes-coverage.md`, the two `.sfc` images, and `asm/scenes.s` whenever a
+          scene changed) are present in the diff, since a source change without them means the
+          committed ROM does not match its generator; and the hand-maintained counts in
           `docs/accuracysnes-plan.md` moved by the same amount as the generated coverage table.
+
+          **Every one of those artifacts is excluded by the path filters above**, so their contents
+          are invisible to this review and their absence from the reviewed set proves nothing. Judge
+          their presence from the "files ignored due to path filters" list, which names them; a file
+          in neither list is the failure. Never report an artifact as missing on the strength of not
+          having been able to read it.
       - name: No panic on untrusted input
         mode: warning
         instructions: |

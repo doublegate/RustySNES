@@ -450,6 +450,25 @@ Provenance: **Documented** (WDC 65C816 datasheet; the Super Mario World case, SN
 | 2 | `$04` | ORA [d] did not read bank $01's signature through a pointer whose third byte is $01, so the effective address was not built from that byte |
 | 3 | `$06` | ORA [d] replaced the accumulator instead of OR-ing into it, so the two readings above were loads and say nothing about ORA |
 
+### A2.11 — (dp,X) pointer wraps
+
+Provenance: **Documented** (6502.org 65c816opcodes; superfamicom.org addressing modes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | (dp,X) fetched its pointer from bank $01 — reading $3C means the pointer address was allowed to carry out of bank $00 instead of wrapping inside it |
+
+### A7.05 — N/Z valid in decimal
+
+Provenance: **Documented** (WDC 65C816 datasheet; 6502.org 65c816opcodes decimal notes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | SED: $99 + $01 did not give $00, so the BCD addition itself is wrong |
+| 2 | `$04` | Z was clear after a decimal $99 + $01 = $00, so the flags describe the binary sum $9A — the NMOS 6502's behaviour, which the 65C816 does not have |
+| 3 | `$06` | SED: $79 + $79 did not give $58, so the BCD addition itself is wrong |
+| 4 | `$08` | N was set after a decimal $79 + $79 = $58, so the flags describe the binary sum $F2 |
+
 ## Group C
 
 ### C1.01 — OAM word write/read
