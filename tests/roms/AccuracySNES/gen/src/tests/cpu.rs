@@ -822,6 +822,23 @@ fn a3_08() -> Test {
         "JSR (a,X) wrapped its second push into page 1 and clobbered $01FF, \
          instead of escaping to $00FF",
     );
+    a.c("The canary alone is vacuous: a core that pushed one byte, or none, would also leave");
+    a.c("$01FF untouched. So check the escaped byte positively — $00FF must hold the LOW half of");
+    a.c("the pushed return address, which JSR defines as (@after - 1).");
+    a.c("");
+    a.c("S cannot serve as the control here: emulation mode forces the stack's high byte back to");
+    a.c("$01 at the next instruction boundary, so S reads $01FE whether the push escaped or not.");
+    a.c("");
+    a.c("The expected byte is computed by the assembler rather than written out, so this pins the");
+    a.c("relationship and not the ROM layout — which is why the value itself is still not named.");
+    a.l("lda f:$7E00FF");
+    a.l("sec");
+    a.l("sbc #<(@after-1)");
+    a.assert_a8(
+        0x00,
+        "the second return-address byte did not land at $00FF — JSR (a,X) pushed fewer \
+         bytes than it should, or put them elsewhere",
+    );
     a.finish(
         "A3.08",
         'A',

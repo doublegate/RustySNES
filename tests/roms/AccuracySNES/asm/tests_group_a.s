@@ -3873,6 +3873,22 @@ CATALOG_IMPL = 1
     beq :+
     jmp @fail1
   :
+    ; The canary alone is vacuous: a core that pushed one byte, or none, would also leave
+    ; $01FF untouched. So check the escaped byte positively — $00FF must hold the LOW half of
+    ; the pushed return address, which JSR defines as (@after - 1).
+    ; 
+    ; S cannot serve as the control here: emulation mode forces the stack's high byte back to
+    ; $01 at the next instruction boundary, so S reads $01FE whether the push escaped or not.
+    ; 
+    ; The expected byte is computed by the assembler rather than written out, so this pins the
+    ; relationship and not the ROM layout — which is why the value itself is still not named.
+    lda f:$7E00FF
+    sec
+    sbc #<(@after-1)
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
     sep #$20
     .a8
     lda #$01
@@ -3883,6 +3899,13 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the second return-address byte did not land at $00FF — JSR (a,X) pushed fewer bytes than it should, or put them elsewhere
+    sep #$20
+    .a8
+    lda #$04
     sta f:$7EE010
     jml test_restore
 .endproc

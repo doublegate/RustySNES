@@ -17,9 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   escaping path; `JSR (a,X)` is on the same escape list and did not.
 
   ares' `instructionCallIndexedIndirect` pushes with `pushN` and re-applies `S.h = $01` only at the
-  instruction boundary, which is what RustySNES now does. Found by the new AccuracySNES `A3.08`,
-  which snes9x and Mesen2 both passed while RustySNES failed — the diagnostic signature of a real
-  defect rather than a broken test.
+  instruction boundary, which is what RustySNES now does. Found by the new AccuracySNES `A3.08`.
+  snes9x and Mesen2 both passed it while RustySNES failed, which is what pointed at a real defect
+  rather than a broken test; the confirmation is ares' source, which pushes with `pushN` and
+  re-applies `S.h = $01` only at the instruction boundary.
 
 ### Added
 

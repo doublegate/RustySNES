@@ -570,6 +570,7 @@ Provenance: **Documented** (WDC datasheet; superfamicom.org escape list). Kind: 
 | Code | Byte | Meaning |
 |---|---|---|
 | 1 | `$02` | JSR (a,X) wrapped its second push into page 1 and clobbered $01FF, instead of escaping to $00FF |
+| 2 | `$04` | the second return-address byte did not land at $00FF — JSR (a,X) pushed fewer bytes than it should, or put them elsewhere |
 
 ### A3.06 — (d,S),Y escape + carry
 
