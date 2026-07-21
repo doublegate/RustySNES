@@ -75,6 +75,8 @@ pub fn all() -> Vec<Test> {
         c9_04(),
         c9_05(),
         c2_09(),
+        c3_10(),
+        c3_11(),
     ]
 }
 
@@ -780,6 +782,232 @@ fn c2_09() -> Test {
              the step in sfc/ppu/io.cpp, and snes9x and Mesen2 agree",
         ),
         Kind::Scored,
+        None,
+    )
+}
+
+/// `$2137` latches the H/V counters only while `$4201` bit 7 is set.
+///
+/// The software latch is not unconditional: `$4201` bit 7 drives the light-gun pin on controller
+/// port 2, and the superfamicom.org register reference is explicit that reading `$2137` latches
+/// *"if bit 7 of `$4201` is set"*, that *"when bit `a` is 0, no latching can occur"*, and that the
+/// data `$2137` returns is open bus. A core that treats `$2137` as an unconditional latch behaves
+/// correctly for every ordinary program — which always leaves the bit set — and wrongly for
+/// anything that clears it.
+///
+/// # Reading the latched counters cannot use the usual helper
+///
+/// `$213C`/`$213D` return the **latched** values, not live ones. Every other test in the battery
+/// reads them through a helper that first pokes `$2137` to refresh the latch — which is exactly the
+/// action under test here, and worse, a spin loop built on it never terminates once latching is
+/// disabled, because the position it polls stops advancing. So this test reads `$213C`/`$213D`
+/// directly, and waits on `$4212`'s vblank flag, which is not latch-derived.
+///
+/// # The transition to 0 is itself a latch
+///
+/// The same reference notes that writing 1 then 0 to the bit latches *on the transition to 0*. So
+/// clearing the gate does not freeze the counters at the previous `$2137` read — it re-latches once
+/// more, at the moment of the write. The test is built around that rather than against it: both
+/// events happen near line 50, so the gated reading is asserted to be *below 100* rather than equal
+/// to some exact earlier sample.
+///
+/// # What each assertion catches
+///
+/// | reading | expected | a core ignoring the gate | a core where `$2137` never latches |
+/// |---|---|---|---|
+/// | after the gated read, taken in vblank | `< 100` | **≈225** | `< 100` |
+/// | after re-enabling and reading `$2137` | `>= 200` | `>= 200` | **≈50** |
+///
+/// Neither wrong core can pass both, and the two failures are distinct codes.
+///
+/// **`$4201` is restored before anything is asserted.** A failure exits through `test_restore`,
+/// which deliberately does not touch `$4201` — leaving bit 7 clear there would silently break the
+/// counter latch for every test that runs afterwards, turning one failure into a cascade.
+fn c3_10() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$80");
+    a.l("sta $4201         ; latching enabled");
+    spin_to_line(&mut a, 50, "c305");
+    a.l("sep #$20");
+    a.l("lda $2137         ; latch at line 50");
+    a.l("stz $4201         ; gate off -- and the 1->0 transition latches once more, here");
+    a.c("Wait for vblank on $4212, which is not derived from the latch: a spin on $213D would");
+    a.c("never finish now that the position it reads has stopped advancing.");
+    a.label("wvb");
+    a.l("lda $4212");
+    a.l("and #$80");
+    a.l("beq @wvb");
+    a.l("lda $2137         ; gated: this must not re-latch");
+    read_latched_v(&mut a);
+    a.l("sta f:$7E018C");
+    a.l("sep #$20");
+    a.l("lda #$80");
+    a.l("sta $4201         ; gate back on; the 0->1 transition does not latch");
+    a.l("lda $2137         ; and now it must");
+    read_latched_v(&mut a);
+    a.l("sta f:$7E018E");
+    a.c(
+        "Restore WRIO before asserting anything. A failure leaves through test_restore, which does",
+    );
+    a.c("not touch $4201, so a cleared bit 7 here would break the latch for every later test.");
+    a.l("sep #$20");
+    a.l("lda #$FF");
+    a.l("sta $4201");
+    a.l("rep #$30");
+    a.l("lda f:$7E018C");
+    a.record(
+        88,
+        "C3.05 latched V after the gated $2137 read (vblank, so ~225 if ungated)",
+    );
+    a.assert_a16_range(
+        0,
+        99,
+        "reading $2137 with $4201 bit 7 clear still latched the counters: the value moved to \
+         vblank's line instead of staying where the gate was closed",
+    );
+    a.l("lda f:$7E018E");
+    a.record(
+        89,
+        "C3.05 latched V after re-enabling the gate and reading $2137",
+    );
+    a.assert_a16_range(
+        200,
+        311,
+        "with $4201 bit 7 set again, reading $2137 did not latch the current position",
+    );
+    a.finish(
+        "C3.10",
+        'C',
+        "$2137 latch is gated",
+        Provenance::Documented(
+            "superfamicom.org registers: $2137 latches the H/V counter only if $4201 bit 7 is set, \
+             and no latching can occur while it is 0; snes9x and Mesen2 both gate it. What the \
+             read returns is a separate question, split out into C3.11",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Emit: read the **latched** H/V counter's V value into a 16-bit `A`, without touching `$2137`.
+///
+/// The battery's usual counter helper pokes `$2137` first to refresh the latch. That is the exact
+/// action `C3.10` is testing, so this variant reads `$213C`/`$213D` alone. `$213F` is still read to
+/// reset the address flipflops; that clears the latch *flag* but not the latched values.
+fn read_latched_v(a: &mut Asm) {
+    a.l("sep #$20");
+    a.l("lda $213F         ; reset the counter read flipflops (does not latch)");
+    a.l("lda $213D         ; latched V, low");
+    a.l("xba");
+    a.l("lda $213D");
+    a.l("and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus");
+    a.l("xba");
+    a.l("rep #$20");
+    a.l("and #$01FF");
+}
+
+/// Which open bus does `$2137` return? A golden vector: the references disagree.
+///
+/// `$2137` drives no data of its own, so a read of it returns "open bus" — and that phrase hides a
+/// real fork. It could be **PPU1's** open-bus latch, the value PPU1 last drove and the same latch
+/// `$213E` bit 4 exposes; or it could be the **CPU's** open bus, on the reasoning that if PPU1 does
+/// not drive the pins at all then nothing does and the CPU sees its own bus capacitance. Both are
+/// defensible and the sources say only "open bus".
+///
+/// | core | returns | variant | model |
+/// |---|---|---|---|
+/// | snes9x | `$5A` | 1 | PPU1's open-bus latch |
+/// | RustySNES | `$5A` | 1 | PPU1's open-bus latch |
+/// | Mesen2 | `$21` | 3 | the CPU's open bus |
+///
+/// Mesen2's `$2137` case latches and then `break`s out of its register switch instead of returning
+/// `Ppu1OpenBus`, so the value falls through to the CPU's open bus. `$21` is what that holds here —
+/// **not** the `$A5` this test plants, because the `lda $2137` that does the reading puts its own
+/// operand on the bus first, and `$21` is that operand's high byte. Measured, not inferred: an
+/// earlier draft of this comment predicted `$A5` from reading Mesen2's source, and the cart
+/// disagreed. The variant is what carries the finding; the raw byte is in slot 90 for exactly this
+/// reason.
+///
+/// So variant 2 below describes a core whose open bus tracks *data* reads only. No core observed
+/// so far produces it, and it is kept because it is the reading the `$A5` plant was designed to
+/// catch — its absence is itself part of the record.
+///
+/// # Making the two hypotheses distinguishable
+///
+/// The obvious version cannot tell them apart. Reading `$2138` to load PPU1's latch with `$5A` also
+/// leaves `$5A` as the last byte the CPU read, so both models predict `$5A` and the test would pass
+/// on every core while proving nothing — the same shape as `C9.05`'s vacuous first draft.
+///
+/// So the two are *separated* before the read: after `$2138` sets PPU1's latch to `$5A`, a WRAM
+/// byte holding `$A5` is read. That moves the CPU's open bus to `$A5` and leaves PPU1's latch
+/// untouched, so the two hypotheses now predict different bytes and the answer names its own model.
+///
+/// `$5A` and `$A5` are each other's nibble swap, so a core that returns a half-formed value is
+/// still distinguishable from either.
+fn c3_11() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$A5");
+    a.l("sta f:$7E0196     ; the byte that will carry the CPU's open bus");
+    a.c("Load PPU1's open-bus latch with $5A through an OAM read, the way C13.01 does.");
+    a.l("lda #$08");
+    a.l("sta $2102");
+    a.l("stz $2103");
+    a.l("lda #$5A");
+    a.l("sta $2104");
+    a.l("lda #$00");
+    a.l("sta $2104         ; OAM word 8 low byte = $5A");
+    a.l("lda #$08");
+    a.l("sta $2102");
+    a.l("stz $2103");
+    a.l("lda $2138         ; returns $5A and refreshes PPU1's open-bus latch with it");
+    a.c("Now move the CPU's open bus somewhere else. Without this the two candidate models both");
+    a.c("predict $5A and the test would pass everywhere while distinguishing nothing.");
+    a.l("lda f:$7E0196     ; CPU open bus := $A5; PPU1's latch is untouched at $5A");
+    a.l("lda $2137");
+    a.l("sta f:$7E0194");
+    a.l("rep #$30");
+    a.l("lda f:$7E0194");
+    a.l("and #$00FF");
+    a.record(
+        90,
+        "C3.11 the byte $2137 returned ($5A = PPU1 latch, $A5 = CPU open bus)",
+    );
+    a.l("sep #$30");
+    a.l("lda f:$7E0194");
+    a.l("cmp #$5A");
+    a.l("bne :+");
+    a.l("lda #$03          ; variant 1 = PPU1's open-bus latch (snes9x, RustySNES)");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("lda f:$7E0194");
+    a.l("cmp #$A5");
+    a.l("bne :+");
+    a.l("lda #$05          ; variant 2 = an open bus that tracks data reads only (unobserved)");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("lda #$07          ; variant 3 = the CPU's open bus; raw byte in slot 90 (Mesen2: $21)");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.finish(
+        "C3.11",
+        'C',
+        "$2137 open bus source",
+        Provenance::Contested(
+            "the sources say only that $2137 reads back as open bus; snes9x and RustySNES present \
+             PPU1's latch while Mesen2 presents the CPU's, and nothing available decides \
+             between two physically reasonable readings",
+        ),
+        Kind::Golden,
         None,
     )
 }

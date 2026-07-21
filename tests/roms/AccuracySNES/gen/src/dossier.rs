@@ -170,6 +170,8 @@ pub const MAP: &[(&str, &[&str])] = &[
     ("B4.11", &["B4.11"]),
     ("C9.05", &["C9.05"]),
     ("C2.09", &["C2.09"]),
+    ("C3.10", &["C3.05"]),
+    ("C3.11", &["C3.05"]),
     ("D1.01", &["D1.01"]),
     ("D1.01b", &["D1.01"]),
     ("D1.02", &["D1.02"]),
@@ -321,6 +323,15 @@ pub const MAP: &[(&str, &[&str])] = &[
 /// failure code. Anything not listed here that is claimed twice is treated as an accidental
 /// duplicate and fails the build.
 pub const SPLITS: &[(&str, &str)] = &[
+    (
+        "C3.05",
+        "the row makes two claims with different provenance and opposite failure modes. That \
+         $2137 latches only while $4201 bit 7 is set is corroborated -- snes9x and Mesen2 both \
+         gate it, and RustySNES was fixed to match (C3.10, scored). What the read *returns* is \
+         not: snes9x presents PPU1's open-bus latch and Mesen2 the CPU's, so it is recorded \
+         instead (C3.11, golden). Keeping them in one test would have forced one verdict on two \
+         independent questions",
+    ),
     (
         "E6.02",
         "one row for a rate — and a single reading of ENDX cannot establish a rate, only \

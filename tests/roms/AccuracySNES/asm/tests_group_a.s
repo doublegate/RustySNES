@@ -21315,6 +21315,190 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; C3.10 — $2137 latch is gated
+; provenance: Documented (superfamicom.org registers: $2137 latches the H/V counter only if $4201 bit 7 is set, and no latching can occur while it is 0; snes9x and Mesen2 both gate it. What the read returns is a separate question, split out into C3.11)
+.proc test_c3_10
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$80
+    sta $4201         ; latching enabled
+    ; Spin until V = 50.
+    sep #$20
+    .a8
+@wlc305:
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp #50
+    sep #$20
+    .a8
+    bne @wlc305
+    sep #$20
+    .a8
+    lda $2137         ; latch at line 50
+    stz $4201         ; gate off -- and the 1->0 transition latches once more, here
+    ; Wait for vblank on $4212, which is not derived from the latch: a spin on $213D would
+    ; never finish now that the position it reads has stopped advancing.
+@wvb:
+    lda $4212
+    and #$80
+    beq @wvb
+    lda $2137         ; gated: this must not re-latch
+    sep #$20
+    .a8
+    lda $213F         ; reset the counter read flipflops (does not latch)
+    lda $213D         ; latched V, low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    sta f:$7E018C
+    sep #$20
+    .a8
+    lda #$80
+    sta $4201         ; gate back on; the 0->1 transition does not latch
+    lda $2137         ; and now it must
+    sep #$20
+    .a8
+    lda $213F         ; reset the counter read flipflops (does not latch)
+    lda $213D         ; latched V, low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    sta f:$7E018E
+    ; Restore WRIO before asserting anything. A failure leaves through test_restore, which does
+    ; not touch $4201, so a cleared bit 7 here would break the latch for every later test.
+    sep #$20
+    .a8
+    lda #$FF
+    sta $4201
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E018C
+    ; record slot 88: C3.05 latched V after the gated $2137 read (vblank, so ~225 if ungated)
+    sta f:$7EE2B0
+    cmp #$0000
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0064
+    bcc :+
+    jmp @fail1
+  :
+    lda f:$7E018E
+    ; record slot 89: C3.05 latched V after re-enabling the gate and reading $2137
+    sta f:$7EE2B2
+    cmp #$00C8
+    bcs :+
+    jmp @fail2
+  :
+    cmp #$0138
+    bcc :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; reading $2137 with $4201 bit 7 clear still latched the counters: the value moved to vblank's line instead of staying where the gate was closed
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; with $4201 bit 7 set again, reading $2137 did not latch the current position
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C3.11 — $2137 open bus source
+; provenance: Contested (the sources say only that $2137 reads back as open bus; snes9x and RustySNES present PPU1's latch while Mesen2 presents the CPU's, and nothing available decides between two physically reasonable readings)
+.proc test_c3_11
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$A5
+    sta f:$7E0196     ; the byte that will carry the CPU's open bus
+    ; Load PPU1's open-bus latch with $5A through an OAM read, the way C13.01 does.
+    lda #$08
+    sta $2102
+    stz $2103
+    lda #$5A
+    sta $2104
+    lda #$00
+    sta $2104         ; OAM word 8 low byte = $5A
+    lda #$08
+    sta $2102
+    stz $2103
+    lda $2138         ; returns $5A and refreshes PPU1's open-bus latch with it
+    ; Now move the CPU's open bus somewhere else. Without this the two candidate models both
+    ; predict $5A and the test would pass everywhere while distinguishing nothing.
+    lda f:$7E0196     ; CPU open bus := $A5; PPU1's latch is untouched at $5A
+    lda $2137
+    sta f:$7E0194
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0194
+    and #$00FF
+    ; record slot 90: C3.11 the byte $2137 returned ($5A = PPU1 latch, $A5 = CPU open bus)
+    sta f:$7EE2B4
+    sep #$30
+    .a8
+    .i8
+    lda f:$7E0194
+    cmp #$5A
+    bne :+
+    lda #$03          ; variant 1 = PPU1's open-bus latch (snes9x, RustySNES)
+    sta f:$7EE010
+    jml test_restore
+    :
+    lda f:$7E0194
+    cmp #$A5
+    bne :+
+    lda #$05          ; variant 2 = an open bus that tracks data reads only (unobserved)
+    sta f:$7EE010
+    jml test_restore
+    :
+    lda #$07          ; variant 3 = the CPU's open bus; raw byte in slot 90 (Mesen2: $21)
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 .segment "TESTSG"
 
 ; G1.02 — Reset: $4210/$4211 clear
@@ -22672,7 +22856,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 268
+    .word 270
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -22795,6 +22979,8 @@ _test_entries:
     .faraddr test_c9_04
     .faraddr test_c9_05
     .faraddr test_c2_09
+    .faraddr test_c3_10
+    .faraddr test_c3_11
     .faraddr test_b1_01
     .faraddr test_b1_02
     .faraddr test_b2_04
@@ -23066,6 +23252,8 @@ _test_flags:
     .byte $01   ; C9.04
     .byte $02   ; C9.05
     .byte $01   ; C2.09
+    .byte $01   ; C3.10
+    .byte $02   ; C3.11
     .byte $01   ; B1.01
     .byte $01   ; B1.02
     .byte $01   ; B2.04
@@ -23337,6 +23525,8 @@ _test_names:
     .addr @n_c9_04
     .addr @n_c9_05
     .addr @n_c2_09
+    .addr @n_c3_10
+    .addr @n_c3_11
     .addr @n_b1_01
     .addr @n_b1_02
     .addr @n_b2_04
@@ -23843,6 +24033,12 @@ _test_names:
 @n_c2_09:
     .byte 21
     .byte "VRAM read latch order"
+@n_c3_10:
+    .byte 20
+    .byte "$2137 latch is gated"
+@n_c3_11:
+    .byte 21
+    .byte "$2137 open bus source"
 @n_b1_01:
     .byte 22
     .byte "MEMSEL selects FastROM"

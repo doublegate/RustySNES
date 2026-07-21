@@ -24,7 +24,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `B5` | 4 | 4 | 0 | — |
 | `C1` | 9 | 7 | 0 | C1.08, C1.09 |
 | `C2` | 10 | 10 | 0 | — |
-| `C3` | 10 | 7 | 0 | C3.04, C3.05, C3.10 |
+| `C3` | 10 | 8 | 0 | C3.04, C3.10 |
 | `C4` | 5 | 0 | 5 | — |
 | `C5` | 15 | 0 | 11 | C5.06, C5.07, C5.14, C5.15 |
 | `C6` | 7 | 0 | 6 | C6.07 |
@@ -52,7 +52,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `F1` | 22 | 1 | 0 | F1.01, F1.03, F1.04, F1.05, F1.06, F1.07, F1.08, F1.09, F1.10, F1.11, F1.12, F1.13, F1.14, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
 | `G1` | 18 | 8 | 0 | G1.01, G1.03, G1.05, G1.06, G1.07, G1.13, G1.15, G1.16, G1.17, G1.18 |
 
-**225 of 443** enumerated assertion rows covered by an on-cart test, plus **50** covered only by a rendered scene (`docs/adr/0013`) — **275 of 443** in total.
+**226 of 443** enumerated assertion rows covered by an on-cart test, plus **50** covered only by a rendered scene (`docs/adr/0013`) — **276 of 443** in total.
 
 The two columns are kept apart on purpose. An on-cart result means the same thing on any emulator and on real hardware; a rendered scene needs a host holding the golden. Adding them into one figure would quietly change what the number claims.
 
@@ -60,6 +60,7 @@ The two columns are kept apart on purpose. An on-cart result means the same thin
 
 Declared in `dossier.rs::SPLITS`. Each is a claim that the tests assert different things about one enumerated behaviour; an undeclared double-claim fails the build.
 
+- **`C3.05`** — C3.10, C3.11 · the row makes two claims with different provenance and opposite failure modes. That $2137 latches only while $4201 bit 7 is set is corroborated -- snes9x and Mesen2 both gate it, and RustySNES was fixed to match (C3.10, scored). What the read *returns* is not: snes9x presents PPU1's open-bus latch and Mesen2 the CPU's, so it is recorded instead (C3.11, golden). Keeping them in one test would have forced one verdict on two independent questions
 - **`E6.02`** — E6.02, E6.02b, E6.02c, E6.02d · one row for a rate — and a single reading of ENDX cannot establish a rate, only "finished" or "not finished", which bounds it on one side. So each pitch is read twice, at waits either side of where it finishes: E6.02/E6.02b bracket $1000 to 24-64 samples per wait and E6.02c/E6.02d bracket $2000 to 64-128. Both windows contain the documented rate and the two do not overlap, which is the increase; none of the four means anything alone, and the pair-of-pairs is what the row is worth
 - **`D1.01`** — D1.01, D1.01b · the dossier states "transfer modes 0-7, one test each" as a single row, so it is a range in all but name. Cart D1.01 covers mode 0 (every byte to one register) and D1.01b mode 1 (alternating between two) — the pair is what makes either meaningful, since a core that confuses the two still writes the right bytes to the wrong places
 - **`D1.07`** — D1.07, D1.07b · one row for three address-step behaviours that share a two-bit field (0 = increment, 1 = fixed, 2 = decrement, 3 = fixed). Cart D1.07 asserts FIXED and D1.07b DECREMENT; a core that reads the field as two independent flags gets exactly one of them wrong and the other right, which either test alone would miss

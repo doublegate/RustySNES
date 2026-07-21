@@ -708,6 +708,18 @@ impl Bus {
 
     fn b_read(&mut self, low: u8) -> u8 {
         match low {
+            // $2137 (SLHV) is a *software* latch of the H/V counters, and it is gated by the same
+            // pin the light gun uses: `$4201` bit 7 drives port 2's IOBIT, and the counter latch
+            // only responds while that bit is set. superfamicom.org's register reference is
+            // explicit — reading $2137 latches "if bit 7 of $4201 is set", and "when bit a is 0,
+            // no latching can occur". `Self::set_pio` already models the falling-edge latch on the
+            // same pin; this is the other half of that wiring, and it lives here rather than in
+            // the PPU because the Bus is what owns the pin.
+            //
+            // The read itself still happens: $2137 carries no data of its own and returns PPU1
+            // open bus either way, so only the side effect is suppressed. Found by AccuracySNES
+            // C3.10; snes9x and Mesen2 both gate it and RustySNES did not.
+            0x37 if self.pio & 0x80 == 0 => self.ppu.ppu1_open_bus(),
             0x00..=0x3F => self.ppu.read_reg(0x2100 | u16::from(low)),
             // $2140-$2143 — the four CPU↔APU communication ports. A CPU read returns what the
             // SMP last wrote to that port (a one-way latch, NOT an echo of the CPU's own write).
@@ -1454,6 +1466,43 @@ mod tests {
         assert_eq!(
             ophct_lo, expected,
             "WRIO bit7 falling edge should latch OPHCT"
+        );
+    }
+
+    #[test]
+    fn slhv_read_does_not_latch_while_wrio_bit7_is_clear() {
+        let mut bus = Bus::default();
+        for _ in 0..40 {
+            bus.advance_master(1);
+        }
+        // Clearing bit 7 is itself a falling edge and latches once, here. That is the value the
+        // counters must keep: every later $2137 read is gated off and must not disturb it.
+        <Bus as CpuBus>::write24(&mut bus, 0x00_4201, 0x00);
+        let latched = <Bus as CpuBus>::read24(&mut bus, 0x00_213C);
+        for _ in 0..400 {
+            bus.advance_master(1);
+        }
+        <Bus as CpuBus>::read24(&mut bus, 0x00_2137);
+        assert_eq!(
+            <Bus as CpuBus>::read24(&mut bus, 0x00_213C),
+            latched,
+            "$2137 latched the counters with WRIO bit 7 clear, where no latching can occur"
+        );
+
+        // And with the gate open again it must latch: the 0->1 transition is not itself an edge
+        // that latches, so this isolates the read.
+        <Bus as CpuBus>::write24(&mut bus, 0x00_4201, 0x80);
+        for _ in 0..400 {
+            bus.advance_master(1);
+        }
+        let dot_before = bus.ppu.dot();
+        <Bus as CpuBus>::read24(&mut bus, 0x00_2137);
+        #[allow(clippy::cast_possible_truncation)]
+        let expected = (dot_before & 0xFF) as u8;
+        assert_eq!(
+            <Bus as CpuBus>::read24(&mut bus, 0x00_213C),
+            expected,
+            "$2137 did not latch with WRIO bit 7 set"
         );
     }
 

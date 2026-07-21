@@ -1281,6 +1281,21 @@ Provenance: **Documented** (SNESdev Wiki, PPU registers: return latch, refill la
 | 3 | `$06` | the trigger read did not return the high byte of the word already in the latch |
 | 4 | `$08` | after the trigger, the low byte came from word $1701: the core incremented the address before refilling the latch, when hardware refills from the address it is still on and steps afterwards -- that inversion removes the one-word prefetch lag |
 
+### C3.10 — $2137 latch is gated
+
+Provenance: **Documented** (superfamicom.org registers: $2137 latches the H/V counter only if $4201 bit 7 is set, and no latching can occur while it is 0; snes9x and Mesen2 both gate it. What the read returns is a separate question, split out into C3.11). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | reading $2137 with $4201 bit 7 clear still latched the counters: the value moved to vblank's line instead of staying where the gate was closed |
+| 2 | `$04` | with $4201 bit 7 set again, reading $2137 did not latch the current position |
+
+### C3.11 — $2137 open bus source
+
+Provenance: **Contested** (the sources say only that $2137 reads back as open bus; snes9x and RustySNES present PPU1's latch while Mesen2 presents the CPU's, and nothing available decides between two physically reasonable readings). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
 ## Group B
 
 ### B1.01 — MEMSEL selects FastROM

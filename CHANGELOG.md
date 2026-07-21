@@ -541,6 +541,43 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+### Fixed
+
+- **`$2137` latched the H/V counters unconditionally, ignoring the `$4201` bit 7 gate.** The
+  software latch is wired to the same pin the light gun uses: superfamicom.org's register reference
+  says reading `$2137` latches *"if bit 7 of `$4201` is set"* and that *"when bit a is 0, no latching
+  can occur"*. RustySNES already modelled the falling-edge latch on that pin (`Bus::set_pio`) but
+  latched on every `$2137` read regardless of the gate — correct for every ordinary program, which
+  leaves the bit set, and wrong for anything that clears it.
+
+  The gate now lives in the Bus, beside the `set_pio` edge handling, because the Bus is what owns
+  the pin; the PPU gained only a read-only accessor for its open-bus latch, so the save-state format
+  is untouched. Found by the new AccuracySNES `C3.10`, where snes9x and Mesen2 both gated it and
+  RustySNES did not.
+
+### Added
+
+- **`C3.10` / `C3.11` — `$2137`, split into its two independent claims.** The dossier row makes two
+  at once, and they turned out to have opposite verdicts, so they became separate tests (declared in
+  `SPLITS`).
+
+  `C3.10` asserts the **gating**, and is scored: snes9x and Mesen2 both honour it and RustySNES was
+  fixed to match. Reading the latched counters needs care — `$213C`/`$213D` return *latched* values,
+  so the battery's usual helper (which pokes `$2137` first) is both the action under test and an
+  infinite loop once latching is off; this test reads them directly and waits on `$4212` instead.
+  `$4201` is restored *before* any assertion, because a failure exits through `test_restore`, which
+  does not touch it — a cleared bit 7 there would break the counter latch for every later test.
+
+  `C3.11` records **which open bus** `$2137` presents, and is golden: snes9x and RustySNES return
+  PPU1's latch, Mesen2 returns the CPU's. Both are physically reasonable and no source decides.
+  Making the two distinguishable took a deliberate step — planting `$5A` in PPU1's latch via `$2138`
+  also leaves `$5A` as the CPU's last read, so both models predict the same byte and the test would
+  have passed everywhere while proving nothing. A WRAM read in between separates them.
+
+  Mesen2's actual answer is `$21`, not the `$A5` planted: its `lda $2137` puts its own operand on
+  the bus first. That was **measured after an earlier draft predicted `$A5` from reading Mesen2's
+  source** — which is why the raw byte is recorded alongside the variant.
+
 - **`C2.09` — a VRAM read returns the latch, and only the trigger register refills it.** The read
   port is a latch, not a window onto memory: `$2139`/`$213A` hand back what the latch holds, and the
   register selected by `VMAIN` bit 7 refills it **from the address it is still on** before stepping.

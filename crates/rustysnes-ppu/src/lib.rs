@@ -941,6 +941,16 @@ impl Ppu {
         self.irq_v = v;
     }
 
+    /// PPU1's open-bus latch (`ppu1_mdr`), as a write-only or unreadable PPU1 register returns it.
+    ///
+    /// Exposed for the Bus, which owns the `$4201` bit 7 wiring to the counter-latch pin: when that
+    /// gate is closed a `$2137` read must return open bus **without** latching, so the Bus needs
+    /// the value that [`Ppu::read_reg`] would have returned without its side effect.
+    #[must_use]
+    pub const fn ppu1_open_bus(&self) -> u8 {
+        self.io.ppu1_mdr
+    }
+
     /// Whether the PPU is currently in vertical blank.
     #[must_use]
     pub const fn in_vblank(&self) -> bool {
