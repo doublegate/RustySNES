@@ -4387,6 +4387,64 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A6.12 — WAI wake lat (golden)
+; provenance: Contested (the stated 1-cycle latency is 1.5 dots, below what a cart can resolve; recorded in buckets rather than asserted)
+.proc test_a6_12
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    sei               ; masked: WAI must wake without vectoring (A6.11)
+    lda #200
+    sta $4207
+    stz $4208         ; HTIME = 200
+    lda $4211         ; clear any stale latch
+    lda #$10
+    sta $4200         ; H-IRQ enabled
+    wai
+    ; Latch H as the very first thing after resuming — every instruction here is latency.
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213C
+    xba
+    lda $213C
+    and #$01
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    ; record slot 122: H latched immediately after WAI resumed
+    sta f:$7EE2F4
+    sec
+    sbc #200          ; minus HTIME: the wake latency in dots
+    ; record slot 123: WAI wake latency (dots)
+    sta f:$7EE2F6
+    ; Disarm before reporting; a failing path would exit immediately.
+    sep #$20
+    .a8
+    stz $4200
+    lda $4211
+    ; Report in 4-dot buckets: 1 cycle is 1.5 dots, so the exact value is not resolvable and
+    ; a variant claiming otherwise would be measuring the latch sequence, not the wake.
+    rep #$20
+    .a16
+    lda f:$7EE2F6     ; the latency recorded above
+    lsr a
+    lsr a
+    sep #$20
+    .a8
+    and #$3F
+    asl a
+    ora #$01
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C1.01 — OAM word write/read
 ; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
 .proc test_c1_01
@@ -20841,7 +20899,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 251
+    .word 252
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -20918,6 +20976,7 @@ _test_entries:
     .faraddr test_a5_10
     .faraddr test_a6_11
     .faraddr test_a8_07
+    .faraddr test_a6_12
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -21172,6 +21231,7 @@ _test_flags:
     .byte $01   ; A5.10
     .byte $01   ; A6.11
     .byte $01   ; A8.07
+    .byte $02   ; A6.12
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -21426,6 +21486,7 @@ _test_names:
     .addr @n_a5_10
     .addr @n_a6_11
     .addr @n_a8_07
+    .addr @n_a6_12
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -21823,6 +21884,9 @@ _test_names:
 @n_a8_07:
     .byte 17
     .byte "MVN interruptible"
+@n_a6_12:
+    .byte 21
+    .byte "WAI wake lat (golden)"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"

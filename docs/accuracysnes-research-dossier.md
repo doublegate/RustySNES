@@ -734,7 +734,7 @@ WDC's list of instructions escaping `$01xx` even in emulation mode: `JSL`, `JSR 
 | A6.10 | RTI must match mode (native pulls PBR, emulation does not) |
 | A6.11 | `WAI` + IRQ with I=1 resumes without vectoring |
 | A6.12 | `WAI` wake latency = 1 cycle |
-| A6.13 | `STP` halts until reset |
+| A6.13 | `STP` halts until reset **[NOT CART-MEASURABLE — a self-scoring cart must keep running to report; see `docs/accuracysnes-plan.md` §A6.13]** |
 | A6.14 | `WDM ($42)` = 2-byte NOP |
 | A6.15 | All 256 opcodes defined; only STP hangs |
 

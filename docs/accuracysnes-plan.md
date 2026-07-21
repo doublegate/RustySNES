@@ -774,6 +774,34 @@ The rate differences are small (2 and 4 clocks an access), so this row needs a t
 than the ones it has been given, not a better probe.
 
 
+### `A6.13` — `STP` halts until reset: unwritable from a self-scoring cartridge
+
+`STP` stops the CPU until a hardware reset. A self-scoring cart has to keep running to write its
+verdict byte and reach the next test. The two requirements are irreconcilable: any test that
+actually executes `STP` never reports, and the battery reports a completion-sentinel timeout with no
+per-test verdict — the same shape `A6.11`'s injected-bug check produced when `WAI` was made to hang.
+
+This is not a blocker to be lifted later. It is a property of the oracle: the row can only be
+covered by a host-side check, where the harness inspects CPU state directly rather than needing the
+cart to speak. That would not run on snes9x, Mesen2 or hardware, so it would not be an AccuracySNES
+row at all.
+
+Recorded as `[NOT CART-MEASURABLE]` in the dossier, in the same inline convention `A5.20` uses. The
+assertion stays in the 443-row denominator and shows as uncovered; what is withdrawn is the prospect
+of a cart test, not the claim.
+
+### `A6.12` — the stated latency is below the cart's resolution, so it is recorded
+
+The dossier gives the `WAI` wake latency as **1 cycle** = 6 master clocks = 1.5 dots. The cart can
+only read the H counter, the latch sequence itself costs several cycles, and `T-06-A` establishes
+that dot lengths are not uniform in the reference cores. Measured, the figure comes back at **23
+dots** on both RustySNES and snes9x — almost all of it the `$213F`/`$2137`/`$213C` latch sequence
+and the H-IRQ comparator's own ~3.5-dot lag, not the wake.
+
+So it ships as a golden vector reporting `(latched H - HTIME)` in 4-dot buckets: coarse enough to be
+stable across alignment, fine enough that a core waking a scanline late announces itself. Both cores
+report variant 5. Asserting "1 cycle" from this would be measuring the instrument.
+
 ### `D2.07` — HDMA preempts GP-DMA: design, and why the obvious test is vacuous
 
 `D2.07` says HDMA preempts a general-purpose DMA, which pauses and then resumes. The obvious test —

@@ -97,6 +97,7 @@ pub fn all() -> Vec<Test> {
         a5_10(),
         a6_11(),
         a8_07(),
+        a6_12(),
     ]
 }
 
@@ -1234,6 +1235,79 @@ fn a6_11() -> Test {
             "WDC datasheet: WAI wakes on the interrupt line; I gates the vector",
         ),
         Kind::Scored,
+        None,
+    )
+}
+
+/// How long `WAI` takes to resume once the interrupt line asserts — a golden vector, never scored.
+///
+/// The dossier states the wake latency as **1 cycle**. That is 6 master clocks, or 1.5 dots — below
+/// what this cartridge can resolve. The H counter is the only clock a cart can read, the latch
+/// sequence itself costs several cycles, and `T-06-A` establishes that dot lengths are not even
+/// uniform in the reference cores. A scored assertion at that precision would be measuring the
+/// instrument.
+///
+/// So the observation is recorded instead: arm an H-IRQ at a known `HTIME`, `SEI; WAI`, and latch H
+/// as the first thing after resumption. The reported variant is `(latched H - HTIME)` in 4-dot
+/// buckets — coarse enough to be stable across alignment, fine enough that a core waking a whole
+/// scanline late announces itself. `B4.14` does the same for interrupt *dispatch* latency and is
+/// the precedent for reporting rather than asserting here.
+///
+/// `WAI` is used with `I = 1` deliberately, so this measures the wake alone and not the wake plus a
+/// vector fetch — `A6.11` establishes that the masked case resumes in line without vectoring.
+fn a6_12() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("sei               ; masked: WAI must wake without vectoring (A6.11)");
+    a.l("lda #200");
+    a.l("sta $4207");
+    a.l("stz $4208         ; HTIME = 200");
+    a.l("lda $4211         ; clear any stale latch");
+    a.l("lda #$10");
+    a.l("sta $4200         ; H-IRQ enabled");
+    a.l("wai");
+    a.c("Latch H as the very first thing after resuming — every instruction here is latency.");
+    a.l("lda $213F         ; reset the counter read flipflops");
+    a.l("lda $2137         ; latch H and V");
+    a.l("lda $213C");
+    a.l("xba");
+    a.l("lda $213C");
+    a.l("and #$01");
+    a.l("xba");
+    a.l("rep #$20");
+    a.l("and #$01FF");
+    a.record(122, "H latched immediately after WAI resumed");
+    a.l("sec");
+    a.l("sbc #200          ; minus HTIME: the wake latency in dots");
+    a.record(123, "WAI wake latency (dots)");
+    a.c("Disarm before reporting; a failing path would exit immediately.");
+    a.l("sep #$20");
+    a.l("stz $4200");
+    a.l("lda $4211");
+    a.c("Report in 4-dot buckets: 1 cycle is 1.5 dots, so the exact value is not resolvable and");
+    a.c("a variant claiming otherwise would be measuring the latch sequence, not the wake.");
+    a.l("rep #$20");
+    a.l("lda f:$7EE2F6     ; the latency recorded above");
+    a.l("lsr a");
+    a.l("lsr a");
+    a.l("sep #$20");
+    a.l("and #$3F");
+    a.l("asl a");
+    a.l("ora #$01");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.finish(
+        "A6.12",
+        'A',
+        "WAI wake lat (golden)",
+        Provenance::Contested(
+            "the stated 1-cycle latency is 1.5 dots, below what a cart can resolve; \
+             recorded in buckets rather than asserted",
+        ),
+        Kind::Golden,
         None,
     )
 }
