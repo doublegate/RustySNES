@@ -831,6 +831,36 @@ So it ships as a golden vector reporting `(latched H - HTIME)` in 4-dot buckets:
 stable across alignment, fine enough that a core waking a scanline late announces itself. Both cores
 report variant 5. Asserting "1 cycle" from this would be measuring the instrument.
 
+### `D2.01` — attempted with a dot bracket, withdrawn: line and dot are conflated
+
+The plan called for a bracket rather than an exact dot, since fullsnes and anomie say the per-line
+HDMA transfer is at dot 278 while ares, bsnes and Mesen2 all say 276. The bracket was built: one
+HDMA table entry so exactly one byte is ever written, an HV-IRQ handler that latches H and reads the
+landing byte in the same breath, and two probes on the transfer line.
+
+**It went through three designs and none of them is sound.**
+
+1. *Two probes at fixed `HTIME` values, one either side of 276.* Three cores gave three different
+   answers, because interrupt dispatch latency is core-specific — the same `HTIME` lands on a
+   different dot in each, so the probes were not where they were aimed.
+2. *Judge each probe by the dot it actually landed on* — before 274 the transfer must not have
+   happened, after 282 it must, in between say nothing. Core-independent by construction, and it
+   still fails: **Mesen2 reports the transfer as already done before dot 274, RustySNES as still
+   not done after 282.** Those contradict the documented behaviour in opposite directions.
+3. That contradiction is the finding. The probes fire at `VTIME = 0`, and the cores do not agree
+   about **which line** the first transfer lands on relative to HDMA init at `V=0`. So a reading
+   taken at `(V=0, H=x)` is not comparing dot positions at all — it is comparing whether that
+   core has transferred on this line yet, which is a different question.
+
+**What a working version needs:** pin the *line* before bracketing the *dot*. Arm the probe on a
+line several lines into the frame, where every core is unambiguously in its steady per-line transfer
+rhythm, rather than on the init line where they demonstrably differ. The handler machinery, the
+single-entry table and the judge-by-observed-dot logic all carry over; only the line selection was
+wrong.
+
+Recorded rather than shipped, and the three-way disagreement at `V=0` is worth a row of its own:
+it is a real, reproducible divergence that no source adjudicates.
+
 ### The remaining Group D rows, and what the research decided for each
 
 `D2.07`, `D1.14`, `D1.11` and `D1.08` are shipped. The four left, with the outcome the plan's
