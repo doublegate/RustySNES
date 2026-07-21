@@ -610,6 +610,27 @@ Consequences worth carrying forward:
 Nothing is shipped either way. A test that cannot distinguish "the core is wrong" from "the
 instrument is wrong" asserts nothing.
 
+### `A8.06` — deferred: the battery has no interrupt infrastructure, by design
+
+`A8.06` ("`MVN` is interruptible mid-block — NMI + `RTI` resumes correctly") is the last unclaimed
+Group A row that is not a timing measurement, and it is deferred rather than blocked.
+
+The obstacle is a deliberate property of the runtime: **the battery runs with interrupts off.**
+`runtime.s` disables NMI/IRQ at init (`stz NMITIMEN`) and detects VBlank by polling `$4212` bit 7,
+precisely so that no test's timing can be perturbed by an interrupt it did not ask for. There is no
+NMI vector wiring, no handler, and no save/restore of interrupt state around a test.
+
+Implementing `A8.06` therefore means adding interrupt infrastructure to the runtime — installing a
+native NMI handler, enabling NMI for the duration of one test, arranging for it to fire *inside* a
+block move, and restoring the disabled state afterwards without leaving a window where a later test
+can be interrupted. That is a runtime change with a blast radius across all 243 tests, in service of
+a row the dossier already marks **UNVERIFIED** ("undocumented upstream"), which means the payoff is
+a golden vector rather than a scored assertion.
+
+The right sequencing is to take it *with* the other interrupt-dependent rows (`A6.11`/`A6.12`
+`WAI` behaviour, which need the same machinery) as a single deliberate piece of work, not as a
+bolt-on to close one row.
+
 ### Group F — blocked on a *peripheral contract*, and now measured
 
 `F1` (22 assertions) was written down as "needs a mechanism that doesn't exist". The mechanism is
