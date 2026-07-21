@@ -78,6 +78,8 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     .a16
     lda #irq_stub
     sta a:V_IRQ_VEC             ; default: the IRQ trampoline behaves exactly like the old stub
+    sta a:V_COP_VEC_E           ; and the emulation COP pointer, so a COP in a test that has
+                                ; installed no handler returns instead of jumping into RAM
     sep #$20
     .a8
 
@@ -1530,6 +1532,20 @@ test_restore := test_restore_impl
 .export cop_trampoline
 .proc cop_trampoline
     jmp (V_COP_VEC)
+.endproc
+
+; The emulation-mode COP vector ($FFF4) gets its own trampoline and its own pointer, and that
+; separation is the point rather than tidiness: while both modes' COP vectors shared a trampoline, a
+; core that fetched the NATIVE vector while in emulation mode landed in the same handler and no test
+; could see the difference.
+;
+; BRK deliberately does NOT get the same treatment. In emulation, $FFFE is shared between IRQ and
+; BRK — the hardware conflates them — so a pointer behind it could not mean "the BRK handler"
+; unambiguously, and splitting it would only invent a distinction the machine does not have. Both
+; BRK vectors therefore stay on `brk_trampoline` and `V_BRK_VEC`.
+.export cop_trampoline_e
+.proc cop_trampoline_e
+    jmp (V_COP_VEC_E)
 .endproc
 
 ; ---------------------------------------------------------------------------------------------

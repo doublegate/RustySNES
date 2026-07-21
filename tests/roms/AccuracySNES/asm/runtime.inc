@@ -163,6 +163,12 @@ V_COP_VEC       = $0044
 ; interrupt DISPATCH (rather than just the comparator through $4211) has to run its own handler.
 ; Initialised to `irq_stub` at reset, so a test that never touches it sees the old behaviour.
 V_IRQ_VEC       = $004A
+; The EMULATION-mode COP vector ($FFF4) goes through its own pointer, and that separation is the
+; point rather than tidiness: while both modes' COP vectors shared a trampoline, a core that fetched
+; the native vector in emulation mode ran the same handler and nothing could tell. Initialised to
+; `irq_stub` at reset, so a COP in a test that has installed no handler returns harmlessly instead
+; of jumping into whatever RAM held. BRK is deliberately not split — see runtime.s.
+V_COP_VEC_E     = $0052
 
 ; Cycle-measurement scratch (see hv_sync / hv_h in runtime.s).
 V_H0            = $0046

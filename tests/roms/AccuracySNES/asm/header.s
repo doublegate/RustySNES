@@ -11,6 +11,7 @@
 .import irq_stub
 .import irq_trampoline
 .import brk_trampoline
+.import cop_trampoline_e
 .import cop_trampoline
 
 .segment "HEADER"
@@ -51,9 +52,9 @@ title:
 
     ; --- emulation mode, $FFF0-$FFFF ---
     .word $0000, $0000          ; $FFF0, $FFF2  unused
-    .addr cop_trampoline        ; $FFF4  COP
+    .addr cop_trampoline_e      ; $FFF4  COP (emulation)
     .word $0000                 ; $FFF6  unused (BRK shares the IRQ vector in emulation)
     .addr irq_stub              ; $FFF8  ABORT
     .addr irq_stub              ; $FFFA  NMI
     .addr reset                 ; $FFFC  RESET — the entry point
-    .addr brk_trampoline        ; $FFFE  IRQ / BRK
+    .addr brk_trampoline        ; $FFFE  IRQ / BRK (emulation)
