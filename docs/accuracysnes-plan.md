@@ -509,22 +509,27 @@ Consequences worth carrying forward:
   Twenty dots over 24 bytes is an order of magnitude more than the instrument can account for, so
   this is not an artifact. Two things fall out of the numbers besides:
 
-  * **RustySNES sits at exactly 52.0 clocks a byte**, which is precisely what its `block_move`
-    implements — opcode and two operand bytes re-fetched from SlowROM, one WRAM read, one WRAM
-    write (5 x 8) plus two internal cycles (2 x 6). The model and the measurement agree to the
-    clock, so the core is not drifting; it is faithfully implementing one particular decomposition
-    of "7 cycles".
-  * **The constant overhead cancels as intended.** The two cores differ by 10 dots even on the
-    8-byte baseline, and that difference drops out of the delta — a small independent check that
-    the difference method is doing its job.
+  * **RustySNES measures 52.0 clocks a byte**, and its `block_move` implements exactly that —
+    opcode and two operand bytes re-fetched from SlowROM, one WRAM read, one WRAM write (5 × 8)
+    plus two internal cycles (2 × 6). The agreement is within the measurement's ±1 dot, which over
+    24 bytes is ±0.17 clocks a byte, not "to the clock"; what it supports is that the core is
+    implementing one particular decomposition of "7 cycles" rather than drifting.
+  * **The cross-core gap scales with the byte count**, which is itself evidence that it is
+    per-byte rather than fixed: 10 dots at 8 bytes, 30 at 32. (That is not an independent check on
+    the difference method — subtraction removes an additive term by construction — but a constant
+    implementation difference would have shown the same gap at both sizes, and it does not.)
 
   **What is still open is which core is right**, and it is now a documentary question rather than an
   experimental one. snes9x's 55.3 clocks a byte is not a whole number of cycles under any obvious
   decomposition: 54 would be six 8-clock accesses plus one internal, 56 would be seven 8-clock
   accesses. The next step is to establish from the WDC tables and the SNES clock model which memory
-  accesses `MVN` actually makes per byte — then the expected dot count follows, and whichever core
-  disagrees with it is the defect. Writing the assertion against a reference's measurement instead
-  would be pinning this cart to snes9x, which is the one thing it exists not to do.
+  accesses `MVN` actually makes per byte — then the expected dot count follows, and it can be
+  compared against both slopes. Three outcomes are possible and the third is not the unlikeliest:
+  the derivation matches one core (the other has the defect), matches neither (both do, or the
+  clock model this cart uses to convert cycles into dots is wrong somewhere), or turns out
+  under-determined by the sources, in which case the row is a golden vector rather than an
+  assertion. Writing the assertion against a reference's measurement instead would pin this cart to
+  snes9x, which is the one thing it exists not to do.
 
 * The earlier `MVN` "finding" is retired regardless: 13 dots was the difference of two wrapped
   readings.
