@@ -6575,6 +6575,246 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; B4.13 — Timer range is 9-bit
+; provenance: Documented (fullsnes $4207-$420A: HTIME is 0-339 and VTIME 0-261 (NTSC) / 0-311 (PAL), both held in nine bits)
+.proc test_b4_13
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    sei
+    stz $4200
+    lda $4211         ; clear any latch an earlier test left
+    ; --- control: HTIME = 100 is squarely in range and must fire ---
+    sep #$20
+    .a8
+    lda #$64
+    sta $4207
+    lda #$00
+    sta $4208         ; HTIME = 100
+    lda $4211         ; clear any stale latch
+    lda #$10
+    sta $4200         ; H-IRQ only
+    ; Bounded wait: poll $4211 while counting vblank edges.
+    sep #$30
+    .a8
+    .i8
+    lda #$00
+    sta f:$7E0170     ; the fired flag (STZ has no long form)
+    ldx #2
+@outa:
+@acta:
+    lda $4211
+    and #$80
+    bne @hita
+    lda $4212
+    and #$80
+    bne @acta     ; still in vblank; wait for active display
+@vbla:
+    lda $4211
+    and #$80
+    bne @hita
+    lda $4212
+    and #$80
+    beq @vbla     ; wait for the next vblank edge
+    dex
+    bne @outa
+    bra @donea
+@hita:
+    lda #$01
+    sta f:$7E0170
+@donea:
+    sep #$20
+    .a8
+    lda f:$7E0170
+    cmp #$01
+    beq :+
+    jmp @fail1
+  :
+    ; --- HTIME = 400 is past the end of every scanline and must never match ---
+    sep #$20
+    .a8
+    lda #$90
+    sta $4207
+    lda #$01
+    sta $4208         ; HTIME = 400
+    lda $4211         ; clear any stale latch
+    lda #$10
+    sta $4200         ; H-IRQ only
+    ; Bounded wait: poll $4211 while counting vblank edges.
+    sep #$30
+    .a8
+    .i8
+    lda #$00
+    sta f:$7E0170     ; the fired flag (STZ has no long form)
+    ldx #3
+@outb:
+@actb:
+    lda $4211
+    and #$80
+    bne @hitb
+    lda $4212
+    and #$80
+    bne @actb     ; still in vblank; wait for active display
+@vblb:
+    lda $4211
+    and #$80
+    bne @hitb
+    lda $4212
+    and #$80
+    beq @vblb     ; wait for the next vblank edge
+    dex
+    bne @outb
+    bra @doneb
+@hitb:
+    lda #$01
+    sta f:$7E0170
+@doneb:
+    sep #$20
+    .a8
+    lda f:$7E0170
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    ; --- control: VTIME = 100 is in range on both NTSC and PAL and must fire ---
+    sep #$20
+    .a8
+    lda #$64
+    sta $4209
+    lda #$00
+    sta $420A         ; VTIME = 100
+    lda $4211         ; clear any stale latch
+    lda #$20
+    sta $4200         ; V-IRQ only
+    ; Bounded wait: poll $4211 while counting vblank edges.
+    sep #$30
+    .a8
+    .i8
+    lda #$00
+    sta f:$7E0170     ; the fired flag (STZ has no long form)
+    ldx #2
+@outc:
+@actc:
+    lda $4211
+    and #$80
+    bne @hitc
+    lda $4212
+    and #$80
+    bne @actc     ; still in vblank; wait for active display
+@vblc:
+    lda $4211
+    and #$80
+    bne @hitc
+    lda $4212
+    and #$80
+    beq @vblc     ; wait for the next vblank edge
+    dex
+    bne @outc
+    bra @donec
+@hitc:
+    lda #$01
+    sta f:$7E0170
+@donec:
+    sep #$20
+    .a8
+    lda f:$7E0170
+    cmp #$01
+    beq :+
+    jmp @fail3
+  :
+    ; --- VTIME = 400 is past the last line of either region and must never match ---
+    ; 400 rather than 300: 300 is out of range on NTSC but a real line on PAL, and the battery
+    ; ships both images. 400 is beyond 261 and 311 alike, so one assertion covers both.
+    sep #$20
+    .a8
+    lda #$90
+    sta $4209
+    lda #$01
+    sta $420A         ; VTIME = 400
+    lda $4211         ; clear any stale latch
+    lda #$20
+    sta $4200         ; V-IRQ only
+    ; Bounded wait: poll $4211 while counting vblank edges.
+    sep #$30
+    .a8
+    .i8
+    lda #$00
+    sta f:$7E0170     ; the fired flag (STZ has no long form)
+    ldx #3
+@outd:
+@actd:
+    lda $4211
+    and #$80
+    bne @hitd
+    lda $4212
+    and #$80
+    bne @actd     ; still in vblank; wait for active display
+@vbld:
+    lda $4211
+    and #$80
+    bne @hitd
+    lda $4212
+    and #$80
+    beq @vbld     ; wait for the next vblank edge
+    dex
+    bne @outd
+    bra @doned
+@hitd:
+    lda #$01
+    sta f:$7E0170
+@doned:
+    sep #$20
+    .a8
+    lda f:$7E0170
+    cmp #$00
+    beq :+
+    jmp @fail4
+  :
+    sep #$20
+    .a8
+    stz $4200
+    lda $4211
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; no H-IRQ arrived with HTIME = 100, which is in range — so the out-of-range check that follows would report silence for the wrong reason
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; an H-IRQ fired with HTIME = 400, which no scanline reaches: a core keeping only the low eight bits arms at 144, one reducing modulo the line length arms at 59
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; no V-IRQ arrived with VTIME = 100, which is in range on both regions — the out-of-range check that follows would report silence for the wrong reason
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+@fail4:
+    ; a V-IRQ fired with VTIME = 400, which is past the last line of either region: a core keeping only the low eight bits arms at 144
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; D1.01 — DMA mode 0
 ; provenance: Documented (SNESdev Wiki, DMA; fullsnes)
 .proc test_d1_01
@@ -21910,7 +22150,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 264
+    .word 265
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -22056,6 +22296,7 @@ _test_entries:
     .faraddr test_b4_07
     .faraddr test_b4_09
     .faraddr test_b3_01
+    .faraddr test_b4_13
     .faraddr test_d1_01
     .faraddr test_d1_01b
     .faraddr test_d1_06
@@ -22323,6 +22564,7 @@ _test_flags:
     .byte $02   ; B4.07
     .byte $01   ; B4.09
     .byte $02   ; B3.01
+    .byte $01   ; B4.13
     .byte $01   ; D1.01
     .byte $01   ; D1.01b
     .byte $01   ; D1.06
@@ -22590,6 +22832,7 @@ _test_names:
     .addr @n_b4_07
     .addr @n_b4_09
     .addr @n_b3_01
+    .addr @n_b4_13
     .addr @n_d1_01
     .addr @n_d1_01b
     .addr @n_d1_06
@@ -23138,6 +23381,9 @@ _test_names:
 @n_b3_01:
     .byte 18
     .byte "DRAM refresh pause"
+@n_b4_13:
+    .byte 20
+    .byte "Timer range is 9-bit"
 @n_d1_01:
     .byte 10
     .byte "DMA mode 0"

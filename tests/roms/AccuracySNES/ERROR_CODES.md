@@ -1455,6 +1455,17 @@ Provenance: **Contested** (fullsnes and anomie put the pause at 40 clocks near l
 
 No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
+### B4.13 — Timer range is 9-bit
+
+Provenance: **Documented** (fullsnes $4207-$420A: HTIME is 0-339 and VTIME 0-261 (NTSC) / 0-311 (PAL), both held in nine bits). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | no H-IRQ arrived with HTIME = 100, which is in range — so the out-of-range check that follows would report silence for the wrong reason |
+| 2 | `$04` | an H-IRQ fired with HTIME = 400, which no scanline reaches: a core keeping only the low eight bits arms at 144, one reducing modulo the line length arms at 59 |
+| 3 | `$06` | no V-IRQ arrived with VTIME = 100, which is in range on both regions — the out-of-range check that follows would report silence for the wrong reason |
+| 4 | `$08` | a V-IRQ fired with VTIME = 400, which is past the last line of either region: a core keeping only the low eight bits arms at 144 |
+
 ## Group D
 
 ### D1.01 — DMA mode 0

@@ -541,6 +541,28 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`B4.13` — `HTIME`/`VTIME` are nine bits, and the surplus range is inert.** Both registers accept
+  values up to 511 while the counters they are compared against stop at 339 dots and 261 (NTSC) or
+  311 (PAL) lines. The assertion is that a value past the end simply never matches.
+
+  "Nothing happened" is the weakest kind of observation, so two things make it mean something. Each
+  half is preceded by a **positive control** at an in-range value armed through the same path, so a
+  broken timer fails the control rather than passing the silence. And both plausible wrong answers
+  are loud: a core keeping only the low eight bits arms at 144, one reducing modulo the line length
+  arms at 59, and each fires on nearly every line. The wait is frame-counted rather than a spin, so
+  "never fires" is a finite result instead of a battery timeout.
+
+  Verified by injecting each masking bug in turn — dropping `$4208` bit 8 fails at code 2, dropping
+  `$420A` bit 8 fails at code 4 — and passing again once restored.
+
+  **This found a snes9x defect.** snes9x fires an H-IRQ at `HTIME = 400`. Its register write keeps
+  all nine bits; the fault is downstream, where the beam position becomes an absolute cycle within
+  the line and nothing checks that the result exceeds the line length. 400 lands at 1600 cycles
+  against a 1364-cycle line, so rather than being rejected as unreachable it carries into the next
+  line and fires near dot 59 — the modulo-reduced answer the test's own failure message names.
+  Mesen2 and RustySNES both agree with the cart, so it is recorded as a sixth known snes9x
+  divergence rather than chased.
+
 - **`B3.01` — the DRAM refresh pause, probed by the tight H-counter loop `B3.03` names.** A **golden
   vector**, and it closes all three `B3` rows at once: the pause's size (`B3.01`), where it falls
   (`B3.02`), and that a tight H-counter loop is what makes it visible (`B3.03`).

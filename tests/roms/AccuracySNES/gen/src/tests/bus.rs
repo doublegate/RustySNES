@@ -54,6 +54,7 @@ pub fn all() -> Vec<Test> {
         b4_09(),
         // --- B3: DRAM refresh ---
         b3_01(),
+        b4_13(),
     ]
 }
 
@@ -1321,6 +1322,172 @@ fn b4_16() -> Test {
         Kind::Golden,
         None,
     )
+}
+
+/// `HTIME` and `VTIME` are 9-bit, and a value past the end of the counter simply never matches.
+///
+/// `$4207`/`$4208` hold `HTIME` and `$4209`/`$420A` hold `VTIME`, nine bits each — so both accept
+/// values up to 511 while the counters they are compared against top out at 339 dots and 261 (NTSC)
+/// or 311 (PAL) lines. The assertion is that the surplus range is *inert*: the comparator never
+/// matches, and no interrupt ever arrives.
+///
+/// # Pinning the negative
+///
+/// "No interrupt arrived" is the weakest kind of observation — a core with a broken timer, a masked
+/// enable, or a comparator that never fires produces exactly the same silence. Two things make it
+/// mean something here.
+///
+/// **A positive control precedes each half.** `HTIME = 100` and `VTIME = 100` are armed the same
+/// way through the same poll, and each must fire. If the machinery is broken the control fails
+/// first, and the silence that follows is never mistaken for evidence.
+///
+/// **Both plausible wrong answers are loud.** A core that keeps only the low eight bits of the
+/// register arms at `400 & $FF` = **144**, which every scanline and every frame reaches. A core
+/// that reduces the value modulo the line length arms at `400 - 341` = **59**. Neither is quiet:
+/// both fire, and fire often, so the failure is an interrupt that should not exist rather than a
+/// subtle position error.
+///
+/// # Why the wait is bounded
+///
+/// Every other timer test in this group spins until its interrupt appears, which is exactly wrong
+/// for an assertion whose expected outcome is *nothing*. The poll here counts vblank edges and
+/// gives up after a fixed number of frames, so "never fires" is a finite observation instead of a
+/// hang and a battery-level timeout.
+fn b4_13() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("sei");
+    a.l("stz $4200");
+    a.l("lda $4211         ; clear any latch an earlier test left");
+    a.c("--- control: HTIME = 100 is squarely in range and must fire ---");
+    arm_h_timer_raw(&mut a, 100);
+    irq_within_frames(&mut a, 2, "a");
+    a.l("sep #$20");
+    a.l("lda f:$7E0170");
+    a.assert_a8(
+        0x01,
+        "no H-IRQ arrived with HTIME = 100, which is in range — so the out-of-range check that \
+         follows would report silence for the wrong reason",
+    );
+    a.c("--- HTIME = 400 is past the end of every scanline and must never match ---");
+    arm_h_timer_raw(&mut a, 400);
+    irq_within_frames(&mut a, 3, "b");
+    a.l("sep #$20");
+    a.l("lda f:$7E0170");
+    a.assert_a8(
+        0x00,
+        "an H-IRQ fired with HTIME = 400, which no scanline reaches: a core keeping only the low \
+         eight bits arms at 144, one reducing modulo the line length arms at 59",
+    );
+    a.c("--- control: VTIME = 100 is in range on both NTSC and PAL and must fire ---");
+    arm_v_timer_raw(&mut a, 100);
+    irq_within_frames(&mut a, 2, "c");
+    a.l("sep #$20");
+    a.l("lda f:$7E0170");
+    a.assert_a8(
+        0x01,
+        "no V-IRQ arrived with VTIME = 100, which is in range on both regions — the out-of-range \
+         check that follows would report silence for the wrong reason",
+    );
+    a.c("--- VTIME = 400 is past the last line of either region and must never match ---");
+    a.c("400 rather than 300: 300 is out of range on NTSC but a real line on PAL, and the battery");
+    a.c("ships both images. 400 is beyond 261 and 311 alike, so one assertion covers both.");
+    arm_v_timer_raw(&mut a, 400);
+    irq_within_frames(&mut a, 3, "d");
+    a.l("sep #$20");
+    a.l("lda f:$7E0170");
+    a.assert_a8(
+        0x00,
+        "a V-IRQ fired with VTIME = 400, which is past the last line of either region: a core \
+         keeping only the low eight bits arms at 144",
+    );
+    a.l("sep #$20");
+    a.l("stz $4200");
+    a.l("lda $4211");
+    a.finish(
+        "B4.13",
+        'B',
+        "Timer range is 9-bit",
+        Provenance::Documented(
+            "fullsnes $4207-$420A: HTIME is 0-339 and VTIME 0-261 (NTSC) / 0-311 (PAL), both held \
+             in nine bits",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Arm the H timer at an arbitrary nine-bit `HTIME`, including values off the end of a scanline.
+///
+/// Deliberately separate from [`arm_h_irq`], which asserts its argument is a real dot and should
+/// keep doing so — every other caller wants that guard. This one exists for `B4.13`, whose whole
+/// subject is what the hardware does with a value that is *not* a real dot.
+fn arm_h_timer_raw(a: &mut Asm, htime: u16) {
+    a.l("sep #$20");
+    a.l(&format!("lda #${:02X}", htime & 0xFF));
+    a.l("sta $4207");
+    a.l(&format!("lda #${:02X}", htime >> 8));
+    a.l(&format!("sta $4208         ; HTIME = {htime}"));
+    a.l("lda $4211         ; clear any stale latch");
+    a.l("lda #$10");
+    a.l("sta $4200         ; H-IRQ only");
+}
+
+/// Arm the V timer at an arbitrary nine-bit `VTIME`, including values past the last line.
+fn arm_v_timer_raw(a: &mut Asm, vtime: u16) {
+    a.l("sep #$20");
+    a.l(&format!("lda #${:02X}", vtime & 0xFF));
+    a.l("sta $4209");
+    a.l(&format!("lda #${:02X}", vtime >> 8));
+    a.l(&format!("sta $420A         ; VTIME = {vtime}"));
+    a.l("lda $4211         ; clear any stale latch");
+    a.l("lda #$20");
+    a.l("sta $4200         ; V-IRQ only");
+}
+
+/// Emit a bounded wait for an IRQ: poll `$4211` while counting `frames` vblank edges.
+///
+/// Leaves `$7E0170` as 1 if the flag was ever seen and 0 if it was not. `tag` disambiguates the
+/// cheap-local labels, which are proc-scoped, so several waits can share one test body.
+///
+/// The frame counting is what makes a negative result reportable. Spinning until the interrupt
+/// appears — what every other timer test here does — turns "it never fires" into a battery timeout
+/// with no per-test verdict, which is a different and much less useful failure.
+fn irq_within_frames(a: &mut Asm, frames: u8, tag: &str) {
+    a.c("Bounded wait: poll $4211 while counting vblank edges.");
+    a.l("sep #$30");
+    a.l("lda #$00");
+    a.l("sta f:$7E0170     ; the fired flag (STZ has no long form)");
+    a.l(&format!("ldx #{frames}"));
+    a.label(&format!("out{tag}"));
+    a.label(&format!("act{tag}"));
+    a.l("lda $4211");
+    a.l("and #$80");
+    a.l(&format!("bne @hit{tag}"));
+    a.l("lda $4212");
+    a.l("and #$80");
+    a.l(&format!(
+        "bne @act{tag}     ; still in vblank; wait for active display"
+    ));
+    a.label(&format!("vbl{tag}"));
+    a.l("lda $4211");
+    a.l("and #$80");
+    a.l(&format!("bne @hit{tag}"));
+    a.l("lda $4212");
+    a.l("and #$80");
+    a.l(&format!(
+        "beq @vbl{tag}     ; wait for the next vblank edge"
+    ));
+    a.l("dex");
+    a.l(&format!("bne @out{tag}"));
+    a.l(&format!("bra @done{tag}"));
+    a.label(&format!("hit{tag}"));
+    a.l("lda #$01");
+    a.l("sta f:$7E0170");
+    a.label(&format!("done{tag}"));
 }
 
 /// The DRAM refresh pause, probed by the tight H-counter loop `B3.03` names -- a golden vector.

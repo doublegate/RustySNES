@@ -92,7 +92,16 @@ ran=0
 #   followed by `synchronizeStage1()` on all three timers); fullsnes documents bits 0 and 3 as the
 #   timer controls. Two tests failing on one missing switch case is the expected shape of this —
 #   the register gates several unrelated behaviours, and each one is its own assertion.
-SNES9X_KNOWN_FAILURES=5
+# snes9x, +1 test (B4.13 "Timer range is 9-bit"): an H-IRQ fires with HTIME = 400, a position no
+#   scanline reaches. The register itself is stored correctly to nine bits (`ppu.cpp`, the $4207 and
+#   $4208 cases each keep their half); the defect is downstream, in scheduling. snes9x converts the
+#   beam position into an absolute cycle within the line -- `HTimerPosition = IRQHBeamPos *
+#   ONE_DOT_CYCLE + IRQTriggerCycles` -- and never asks whether the result exceeds the line length.
+#   For HTIME = 400 it lands at 1600 cycles against an H_Max of 1364, so instead of being rejected
+#   as unreachable it is carried into the following line and fires there, at about dot 59. That is
+#   the "reduced modulo the line length" wrong answer the test's own failure message names. Mesen2
+#   and RustySNES both agree with the cart; fullsnes is the citation for the 0-339 range.
+SNES9X_KNOWN_FAILURES=6
 
 # --- snes9x, via the libretro host --------------------------------------------------------------
 if [[ -f $SNES9X ]]; then
