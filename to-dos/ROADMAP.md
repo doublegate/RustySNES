@@ -612,12 +612,21 @@ related or may not.
    dots does not move a 32-dot bucket. Adding a polling companion at an `HTIME` above 323 would
    inherit exactly the same blindness.
 
-   **The guard has to use an IRQ handler, not a poll.** The runtime already trampolines `$FFEE`
-   through `V_IRQ_VEC`, so a test can install a handler whose first instructions latch H via
-   `$2137`/`$213C` — a few cycles after the interrupt is taken rather than a poll loop's worth,
-   which is fine enough to resolve the single-dot change this ticket introduces. Fire it once below
-   323 and once above, record both raw (not bucketed) to the measurement channel, and take the
-   readings **before** touching the dot model so the pair forms a genuine before/after.
+   **The guard has to use an IRQ handler, not a poll — and `B4.14` already is one.** It arms an
+   H-IRQ, installs a handler through `V_IRQ_VEC` that latches H via `$2137`/`$213C` on entry, and
+   records the **raw** latched dot to the measurement channel (slots 100+) rather than bucketing
+   it. There is also an `arm_h_irq` helper. So the mechanism the guard needs is built, proven and
+   cross-validated.
+
+   What `B4.14` lacks is only the *placement*: it fires at `HTIME = 200`, which is below 323, so
+   every reading it takes is in the region this ticket does not move. **The guard is therefore a
+   third pass at an `HTIME` above 327** — 330 is clear of both long dots — recorded raw alongside
+   the existing low reading, so the pair straddles the boundary.
+
+   Take the readings **before** touching the dot model, so the two form a genuine before/after.
+   Make it a new golden test rather than a fourth pass inside `B4.14`: that test's subject is
+   dispatch *latency*, and folding a position probe into it would blur what a change in its numbers
+   means.
 
    Note the ordering consequence: this makes the H-IRQ guard the *first* piece of work in T-06-A,
    ahead of any change to `MASTER_PER_DOT` or `DOTS_PER_LINE`.
