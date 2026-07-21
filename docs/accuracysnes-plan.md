@@ -402,12 +402,18 @@ one cycle is one cycle out *per byte*, and a 64 KiB clear diverges by most of a 
 
 The natural measurement is a difference between two moves — sixteen bytes against eight — so that
 everything not per-byte (opcode fetch, operands, register setup, the measurement's own overhead)
-cancels. Predicted cost for the eight extra bytes: each byte is a WRAM read and a WRAM write at 8
-master clocks plus five internal cycles at 6, so `8 x (2*8 + 5*6) = 368` clocks, or **92 dots**.
+cancels.
 
-**Measured: 13 dots**, on RustySNES and snes9x alike. That is roughly 6.5 clocks per byte where the
-model predicts 46 — close to eight internal cycles total, as though the loop cost about one cycle a
-byte rather than seven.
+Three units are in play and it is worth pinning each. The documented figure is **7 CPU cycles per
+byte moved**, which decomposes into **2 memory cycles** (the source read and the destination write)
+and **5 internal cycles**. Converting to master clocks: a memory access in an 8-clock region such as
+WRAM costs 8, an internal cycle always costs 6, so one byte is `2*8 + 5*6` = **46 master clocks**.
+The H counter reads **dots**, at 4 master clocks each, so a byte is 11.5 dots and the eight extra
+bytes should cost `8 * 46 / 4` = **92 dots**.
+
+**Measured: 13 dots**, on RustySNES and snes9x alike — 1.6 dots per byte, or **6.5 master clocks per
+byte** against the 46 the model predicts. Six master clocks is one internal cycle, so the measured
+figure is close to *one CPU cycle per byte* where the documentation says seven.
 
 Two readings, and the work is to tell them apart:
 
