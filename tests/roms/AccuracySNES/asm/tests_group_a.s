@@ -27807,6 +27807,155 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; F1.12 — Auto-read result timing
+; provenance: Contested (F1.12 says results are valid by V = $E3, which does not reconcile with F1.09's 4224-cycle duration and F1.08's start window; no source says which to believe, and the cores split on whether the result appears at once or progressively)
+.proc test_f1_12
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Arm auto-read, then take the frame after next so a poll has certainly begun.
+    sep #$20
+    .a8
+    lda #$01
+    sta $4200
+    jsl wait_vblank_far
+    jsl wait_vblank_far
+    jsl wait_vblank_far   ; and land on the start of a fresh vblank
+    ; Spin until V = 225.
+    sep #$20
+    .a8
+@wv225:
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp #225
+    sep #$20
+    .a8
+    bne @wv225
+    rep #$30
+    .a16
+    .i16
+    lda $4218
+    sta f:$7E01F8
+    ; Spin until V = 227.
+    sep #$20
+    .a8
+@wv227:
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp #227
+    sep #$20
+    .a8
+    bne @wv227
+    rep #$30
+    .a16
+    .i16
+    lda $4218
+    sta f:$7E01FA
+    ; Spin until V = 230.
+    sep #$20
+    .a8
+@wv230:
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp #230
+    sep #$20
+    .a8
+    bne @wv230
+    rep #$30
+    .a16
+    .i16
+    lda $4218
+    sta f:$7E01FC
+    ; Spin until V = 240.
+    sep #$20
+    .a8
+@wv240:
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp #240
+    sep #$20
+    .a8
+    bne @wv240
+    rep #$30
+    .a16
+    .i16
+    lda $4218
+    sta f:$7E01FE
+    sep #$20
+    .a8
+    stz $4200         ; disarm before judging; the battery runs with auto-read off
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E01F8
+    ; record slot 219: F1.12 $4218 sampled at V = 225
+    sta f:$7EE3B6
+    lda f:$7E01FA
+    ; record slot 220: F1.12 $4218 sampled at V = 227
+    sta f:$7EE3B8
+    lda f:$7E01FC
+    ; record slot 221: F1.12 $4218 sampled at V = 230
+    sta f:$7EE3BA
+    lda f:$7E01FE
+    ; record slot 222: F1.12 $4218 sampled at V = 240
+    sta f:$7EE3BC
+    ; Only the last is asserted: four identical wrong values would otherwise read as a very
+    ; stable answer, and it is the settled value that makes the earlier three interpretable.
+    lda f:$7E01FE
+    cmp #PAD_CONTRACT
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$03          ; variant 1 = captured; slots 219-222 say when the value settled
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; even fifteen scanlines into vblank the automatic read had not produced the buttons the host is holding, so the three earlier samples say nothing about when a correct result appears — they are three samples of a result that never arrived
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; F1.14 — $4213 reads $4201 back
 ; provenance: Documented (fullsnes: RDIO reads the WRIO output pins, which are open-collector, so with nothing driving them low the value read is the value written)
 .proc test_f1_14
@@ -29832,7 +29981,7 @@ apu_prog_103:
 .export _test_flags
 
 _test_count:
-    .word 311
+    .word 312
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -30102,6 +30251,7 @@ _test_entries:
     .faraddr test_f1_05
     .faraddr test_f1_06
     .faraddr test_f1_11
+    .faraddr test_f1_12
     .faraddr test_f1_14
     .faraddr test_g1_02
     .faraddr test_g1_04
@@ -30416,6 +30566,7 @@ _test_flags:
     .byte $01   ; F1.05
     .byte $01   ; F1.06
     .byte $01   ; F1.11
+    .byte $02   ; F1.12
     .byte $01   ; F1.14
     .byte $01   ; G1.02
     .byte $01   ; G1.04
@@ -30730,6 +30881,7 @@ _test_names:
     .addr @n_f1_05
     .addr @n_f1_06
     .addr @n_f1_11
+    .addr @n_f1_12
     .addr @n_f1_14
     .addr @n_g1_02
     .addr @n_g1_04
@@ -31573,6 +31725,9 @@ _test_names:
 @n_f1_11:
     .byte 24
     .byte "Latch corrupts auto-read"
+@n_f1_12:
+    .byte 23
+    .byte "Auto-read result timing"
 @n_f1_14:
     .byte 22
     .byte "$4213 reads $4201 back"

@@ -2535,6 +2535,14 @@ Provenance: **Documented** (fullsnes and the SNESdev Wiki: while $4016 bit 0 is 
 | 1 | `$02` | the control auto-read did not report the buttons the host is holding, so the comparison below is against a value that is already wrong |
 | 2 | `$04` | holding $4016 bit 0 high across the automatic read left $4218 correct, so the read is not going through the ports' shift registers at all — a driver that strobes $4016 during vblank would corrupt the auto-read results on hardware and not here, which is the more dangerous way round |
 
+### F1.12 — Auto-read result timing
+
+Provenance: **Contested** (F1.12 says results are valid by V = $E3, which does not reconcile with F1.09's 4224-cycle duration and F1.08's start window; no source says which to believe, and the cores split on whether the result appears at once or progressively). Kind: golden vector, never scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | even fifteen scanlines into vblank the automatic read had not produced the buttons the host is holding, so the three earlier samples say nothing about when a correct result appears — they are three samples of a result that never arrived |
+
 ### F1.14 — $4213 reads $4201 back
 
 Provenance: **Documented** (fullsnes: RDIO reads the WRIO output pins, which are open-collector, so with nothing driving them low the value read is the value written). Kind: scored.

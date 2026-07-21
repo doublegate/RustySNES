@@ -1252,3 +1252,14 @@ fn controller_contract_is_reported() {
         report.meas[214]
     );
 }
+
+/// Report `F1.12`: when the automatic read's result becomes valid across vblank.
+#[test]
+fn auto_read_result_timing_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  F1.12 $4218 across vblank (settles at {PAD_CONTRACT:#06x}):");
+    for (slot, line) in [(219, 225), (220, 227), (221, 230), (222, 240)] {
+        println!("    slot {slot}  {:#06x}  V = {line}", report.meas[slot]);
+    }
+}

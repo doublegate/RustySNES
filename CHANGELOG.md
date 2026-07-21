@@ -610,6 +610,25 @@ rewritten to the current number — this line is the one to read.
   asserted is the hardware's order and not the runtime's agreement with itself. Verified by making
   the shift register LSB-first, which fails it.
 
+- **`f1_14`'s doc comment restored, and the module doc rewritten.** The `F1.07` withdrawal earlier
+  in this session removed a span ending at the *last* line of the following function's doc block,
+  leaving `f1_14` with a one-line `/// judged.` and its `$4213` explanation deleted — and it
+  compiled, linted clean under `missing_docs`, and shipped in four commits before a stray `grep`
+  surfaced it. The module doc had gone stale in the same way: it still said Group F could reach
+  nothing depending on what is plugged in, and that `NMITIMEN` is zero for the whole battery, both
+  of which the input contract changed.
+
+- **`F1.12` — when does the automatic read's result become valid?** A **golden vector**, because
+  the sources conflict with each other: `F1.12` says valid by `V = $E3` (227), while `F1.09`'s
+  4224-cycle duration and `F1.08`'s start window put the finish near line 228. `$4218` is sampled at
+  `V` = 225, 227, 230 and 240; only the last is asserted, since four identical wrong values would
+  otherwise read as a very stable answer.
+  The measurement favours `F1.09`. RustySNES and snes9x report `$9050` throughout — they write the
+  result in one step, so there is no interval to observe — but Mesen2 shows the fill: `$00` at 225,
+  **`$82` at 227**, `$50` from 230. On the only core that models the interval, the result is *not*
+  valid at the line `F1.12` names. Nothing asserts it either way; the numbers are published for
+  whoever settles the conflict.
+
 - **`F1.03` attempted and withdrawn.** The row — one write to `$4016` bit 0 latches both ports —
   needs a second controller held at a *different* mask, since with the same buttons on both, "port 2
   latched" and "port 2 is echoing port 1" are the same sixteen bits. The harness and the snes9x
