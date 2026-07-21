@@ -1858,6 +1858,15 @@ Provenance: **Documented** (fullsnes, S-DSP BRR; anomie's DSP doc). Kind: scored
 |---|---|---|
 | 1 | `$02` | ENDX bit 0 never set although the voice decoded a block with the end flag |
 
+### E5.10 — Released voice decodes
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: key-off begins the release ramp and does not halt BRR decoding, which continues to follow loop points and set ENDX). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the envelope was not zero after key-off, so the voice was never released and the ENDX reading below would be about an ordinary playing voice |
+| 2 | `$04` | ENDX bit 0 did not set again after the voice was released: the core stopped decoding on key-off instead of only releasing the envelope. E7.08 cannot see this — both behaviours take the envelope to zero |
+
 ### E5.11 — Directory entry address
 
 Provenance: **Documented** (fullsnes, S-DSP BRR; anomie's DSP doc). Kind: scored.

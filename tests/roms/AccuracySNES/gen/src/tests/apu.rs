@@ -64,6 +64,7 @@ pub fn all() -> Vec<Test> {
         e5_07(),
         e5_08(),
         e5_09(),
+        e5_10(),
         e5_11(),
         e7_10(),
         e1_03(),
@@ -2789,6 +2790,84 @@ fn e7_15() -> Test {
         'E',
         "ENVX is E >> 4",
         Provenance::Documented("SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// BRR decoding keeps running for a voice that has been released.
+///
+/// Key-off starts the release ramp; it does not stop the decoder. The voice goes on reading blocks,
+/// following loop points and setting `ENDX`, for as long as the DSP runs. A core that treats
+/// key-off as "switch this voice off" gets the audible result right — the envelope reaches zero
+/// either way — and the state wrong, so a driver watching `ENDX` to know when a released voice's
+/// sample has wrapped waits forever.
+///
+/// # It is the distinction `E7.08` says it cannot make
+///
+/// `E7.08` keys off the same voice and asserts the envelope reaches zero, and its own note records
+/// the gap: *"the one thing it cannot distinguish is a core that stops the voice outright on
+/// key-off instead of releasing it, since both end at zero."* This test is that distinction, and it
+/// uses the decoder rather than the envelope to make it — because the decoder is the part that
+/// keeps running.
+///
+/// # `ENDX` has to be cleared at key-off, not before it
+///
+/// The sample is one block carrying end+loop, so `ENDX` sets within a few samples of key-on — long
+/// before the key-off. Reading it at the end would then say nothing about what happened after.
+///
+/// So the late writes clear `ENDX` **and then** key off, in that order, and the settle after them is
+/// long enough for the looping block to come round again. Anything found in `ENDX` at the end was
+/// therefore set by a decode that happened after the voice was released.
+///
+/// # The guard
+///
+/// `ENVX` is asserted zero first. A core whose key-off did nothing at all would leave the decoder
+/// running for the ordinary reason — the voice is still playing — and pass the `ENDX` check without
+/// having been tested. Requiring the envelope to have released as well means the voice really was
+/// keyed off, and `ENDX` is then evidence about a released voice rather than about a running one.
+fn e5_10() -> Test {
+    let prog = voice_program(
+        &looping_sample(),
+        Voice {
+            // Order matters: clear ENDX, then release. Reversed, the clear could land after the
+            // first post-release decode and erase the very thing being looked for.
+            late: &[(0x7C, 0x00), (0x5C, 0x01)],
+            late_settle: 12,
+            ..Voice::direct_gain()
+        },
+    );
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.c("The guard first: the voice has to have actually been released.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x00,
+        "the envelope was not zero after key-off, so the voice was never released and the ENDX \
+         reading below would be about an ordinary playing voice",
+    );
+    a.c("ENDX was cleared at key-off, so anything here was set by a decode that happened after.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$0001");
+    a.assert_a16_range(
+        1,
+        1,
+        "ENDX bit 0 did not set again after the voice was released: the core stopped decoding on \
+         key-off instead of only releasing the envelope. E7.08 cannot see this — both behaviours \
+         take the envelope to zero",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E5.10",
+        'E',
+        "Released voice decodes",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: key-off begins the release ramp and does not halt BRR \
+             decoding, which continues to follow loop points and set ENDX",
+        ),
         Kind::Scored,
         None,
     )

@@ -575,6 +575,25 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E5.10` — BRR decoding keeps running for a released voice.** Key-off starts the release ramp;
+  it does not stop the decoder, which goes on reading blocks, following loop points and setting
+  `ENDX`. A core that treats key-off as "switch this voice off" gets the audible result right — the
+  envelope reaches zero either way — and the state wrong, so a driver watching `ENDX` for a released
+  voice's sample to wrap waits forever.
+
+  **It is the distinction `E7.08` documents that it cannot make.** That test keys off the same voice
+  and asserts the envelope reaches zero, noting: *"the one thing it cannot distinguish is a core
+  that stops the voice outright on key-off instead of releasing it, since both end at zero."* This
+  one uses the decoder instead of the envelope, because the decoder is the part that keeps running.
+  Verified by halting decode for released voices in the DSP: `E5.10` fails at code 2 while `E7.08`
+  still passes — the gap, demonstrated.
+
+  Two details make the reading mean what it claims. `ENDX` is cleared **at** key-off rather than
+  before it, because the single-block looping sample sets `ENDX` within a few samples of key-on, so
+  a reading taken at the end would otherwise say nothing about what happened after the release.
+  And `ENVX` is asserted zero first: a core whose key-off did nothing would leave the decoder
+  running for the ordinary reason and pass the `ENDX` check without having been tested.
+
 - **`E1.07` — `DIV YA,X` is valid only while the quotient fits in nine bits.** `V` is quotient bit 8,
   so `A` carries 0-255 and `V` the 256-511 range; ask for 512 and there is nowhere to put the
   answer. Marked `[ERRATA]` because the hardware does not wrap or saturate in the obvious way — it
