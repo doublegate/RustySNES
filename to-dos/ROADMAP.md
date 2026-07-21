@@ -571,13 +571,33 @@ related or may not.
    below 323, so neither moves — but that assertion is a useful canary that the numbering did not
    shift underneath them.
 
-4. **The H-IRQ trap.** `set_hv_irq(..., htime, vtime)` hands `$4207/8` to the PPU, which compares it
+4. **The H-IRQ trap — and it is not a warning, it is an unresolved design question.** Reading
+   `check_hv_irq` (`crates/rustysnes-ppu/src/lib.rs`): the comparison is
+   `self.h == self.irq_h + HIRQ_TRIGGER_DELAY`, **bounds-checked against `DOTS_PER_LINE`** so that
+   targets past the end of the line never fire. Two consequences the plan must settle *before* any
+   code is written:
+
+   * Changing `DOTS_PER_LINE` from 341 to 340 **changes which `HTIME` values can fire at all** —
+     the suppression boundary moves by one dot. That is a behaviour change to interrupt delivery,
+     not a bookkeeping change, and it is not covered by "no rendered scene moves".
+   * With long dots, "dot number == target" and "master clock == `4 x HTIME`" are **no longer the
+     same instant** for any target above 323, because `h` now dwells 6 clocks at 323 and 327. The
+     references deliberately compare in the clock domain. So either `HIRQ_TRIGGER_DELAY` absorbs
+     the difference, or H-IRQ needs its own uniform counter — and which of those is right depends
+     on what that constant currently encodes, which has not been established.
+
+   **Do not treat this step as mechanical.** Establish what `HIRQ_TRIGGER_DELAY` represents (a
+   clock offset expressed in dots? an ares-derived fudge?) and decide the comparison domain
+   explicitly. Getting it wrong moves every raster-effect IRQ by up to a dot, which no scene
+   golden and no existing timing test currently covers.
+
+5. **The original H-IRQ note.** `set_hv_irq(..., htime, vtime)` hands `$4207/8` to the PPU, which compares it
    against the same `h`. If `h` becomes the *corrected* dot number the comparison silently changes
    meaning. ares, bsnes and Mesen2 all compare H-IRQ against a **uniform** `4 x HTIME` in the
    master-clock domain, deliberately. H-IRQ must therefore keep a uniform counter or compare in
    clocks — it must not simply follow a corrected `h`.
 
-5. **Then re-run `B1.05`.** Two attempts at the /6-/8-/12 rate row failed with a residual that is a
+6. **Then re-run `B1.05`.** Two attempts at the /6-/8-/12 rate row failed with a residual that is a
    measurement problem rather than a probe problem (`docs/accuracysnes-plan.md`); this change is the
    likeliest thing underneath it.
 
