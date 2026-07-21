@@ -665,7 +665,15 @@ related or may not.
    master-clock domain, deliberately. H-IRQ must therefore keep a uniform counter or compare in
    clocks — it must not simply follow a corrected `h`.
 
-6. **Then re-run `B1.05`.** Two attempts at the /6-/8-/12 rate row failed with a residual that is a
+6. **Prerequisites for the short-line gate — checked, and they are met.** The short line needs
+   NTSC + interlace **off** + field 1 + `V = 240`. All four inputs exist: `Ppu::interlace`
+   (`crates/rustysnes-ppu/src/lib.rs:245`), `Ppu::field` (`:641`), `Ppu::v` and `Ppu::region`.
+   **`field` toggles unconditionally at every frame end** (`:845`, in `end_of_scanline`), not only
+   under interlace — so the short line is reachable. Note that `field`'s own doc comment says
+   *"toggles each frame when interlace is on"*, which is **stale relative to the code**; fix it in
+   the same change, or the next reader concludes the gate cannot be built.
+
+7. **Then re-run `B1.05`.** Two attempts at the /6-/8-/12 rate row failed with a residual that is a
    measurement problem rather than a probe problem (`docs/accuracysnes-plan.md`); this change is the
    likeliest thing underneath it.
 
