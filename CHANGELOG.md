@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Timer 2 counts eight times faster than timer 0 (`E3.06`), and `TEST` bit 0 halts them all
+- **Timer 2 counts eight times faster than timer 0 (`E3.06`), and `TEST` bit 0 halts timer 0
   (`E3.08`).** The first is a ratio rather than two measurements: both timers run over one interval,
   started by a single write and stopped by another, so whatever that interval was, `T2` must show
   about eight times what `T0` does. It catches the obvious mistake — one clock rate for all three
@@ -19,7 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use `T0` alone and a uniform-rate core passes every one of them.
 
   `E3.08` runs one interval twice with nothing changed but the halt bit: frozen, then running. The
-  second half is what stops the first from being satisfied by a timer that never started.
+  second half is what stops the first from being satisfied by a timer that never started. The bit
+  halts all three timers on hardware; the test enables and reads only timer 0, and claims only that.
 
   **A fifth snes9x divergence**, and it is the fourth one's twin: `apu/bapu/smp/memory.cpp` has no
   `case 0xf0` at all, so the whole `TEST` register is discarded. `E3.10` already found that through
