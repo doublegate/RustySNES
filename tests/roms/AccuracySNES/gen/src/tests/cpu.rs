@@ -78,6 +78,8 @@ pub fn all() -> Vec<Test> {
         a9_03(),
         a1_07(),
         a9_04(),
+        a2_11(),
+        a7_05(),
     ]
 }
 
@@ -2161,6 +2163,135 @@ fn a9_04() -> Test {
         'A',
         "ORA [d] is 24-bit",
         Provenance::Documented("WDC 65C816 datasheet; the Super Mario World case, SNESdev Wiki"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `(dp,X)` inherits the `d,X` rules: the **pointer fetch** wraps inside bank `$00`.
+///
+/// `A2.01` establishes that `d,X` never crosses a bank boundary. This asserts that the same is true
+/// of the address `(dp,X)` reads its *pointer* from, which is a separate piece of code in most
+/// cores and is the one place the rule is easy to forget — the pointer fetch happens before the
+/// mode looks like an indexed access at all.
+///
+/// `D = $FFFF`, `X = $8000`, operand `$06`: the sum is `$18005`, which must wrap to `$00:8005` and
+/// not reach bank `$01`. Bank `$00`'s signature there is `$A0` and bank `$01`'s is `$A1`, so the
+/// two cases fetch **different pointers** — and both of those pointers are aimed at bytes this test
+/// has planted, `$5A` at `$00:00A0` and `$3C` at `$00:00A1`. So a core that crosses the bank does
+/// not read garbage or fault; it reads `$3C`, and the failure says which mistake it made.
+///
+/// That is the whole reason the image is 128 KiB. Inside a 32 KiB ROM the two banks mirror the same
+/// bytes, both cases fetch the same pointer, and the assertion is unfalsifiable.
+fn a2_11() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("Plant the two possible destinations before touching D: $A0 -> $5A, $A1 -> $3C.");
+    a.l("sep #$20");
+    a.l("lda #$5A");
+    a.l("sta a:$00A0       ; where bank $00's pointer aims");
+    a.l("lda #$3C");
+    a.l("sta a:$00A1       ; where bank $01's pointer would aim");
+    a.c("D = $FFFF, X = $8000, operand $06: $FFFF + $06 + $8000 = $18005, wrapping to $00:8005.");
+    a.l("rep #$30");
+    a.l("lda #$FFFF");
+    a.l("tcd");
+    a.l("ldx #$8000");
+    a.l("sep #$20");
+    a.l("lda ($06,X)");
+    a.l("sta f:$7E0132     ; stash before restoring D, which needs a 16-bit A");
+    a.l("rep #$30");
+    a.l("lda #$0000");
+    a.l("tcd               ; restore D BEFORE asserting, or every later dp access is relocated");
+    a.l("sep #$20");
+    a.l("lda f:$7E0132");
+    a.assert_a8(
+        0x5A,
+        "(dp,X) fetched its pointer from bank $01 — reading $3C means the pointer address was \
+         allowed to carry out of bank $00 instead of wrapping inside it",
+    );
+    a.l("rep #$30");
+    a.finish(
+        "A2.11",
+        'A',
+        "(dp,X) pointer wraps",
+        Provenance::Documented("6502.org 65c816opcodes; superfamicom.org addressing modes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `N` and `Z` are valid in decimal mode, unlike on the NMOS 6502.
+///
+/// The 6502 left `N` and `Z` describing the *binary* sum while `A` held the decimal one; the 65C02
+/// and the 65C816 fixed it, at the cost of a cycle. A core that reuses a 6502's flag logic and
+/// bolts BCD correction on afterwards reproduces the old behaviour exactly, and the symptom is a
+/// branch taken wrongly in scorekeeping code — arithmetic that looks right in a memory dump and
+/// behaves wrongly.
+///
+/// Both readings are chosen so the two answers **differ**, which is the only way to see it:
+///
+/// * `$99 + $01` is `$9A` in binary and `$00` in decimal, so `Z` distinguishes them.
+/// * `$79 + $79` is `$F2` in binary and `$58` in decimal, so `N` does.
+///
+/// The accumulator is asserted too, since a flag that describes the right value is only meaningful
+/// if the value is right; `A7.01` already covers the arithmetic itself, and this narrows to the two
+/// readings where flags and result disagree.
+fn a7_05() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("sed");
+    a.c("$99 + $01 = $00 in decimal, $9A in binary. Z is set only for the decimal answer.");
+    a.l("clc");
+    a.l("lda #$99");
+    a.l("adc #$01");
+    a.l("php");
+    a.l("sta f:$7E0133");
+    a.l("pla");
+    a.l("and #$02          ; Z");
+    a.l("sta f:$7E0134");
+    a.c("$79 + $79 = $58 in decimal, $F2 in binary. N is clear only for the decimal answer.");
+    a.l("clc");
+    a.l("lda #$79");
+    a.l("adc #$79");
+    a.l("php");
+    a.l("sta f:$7E0135");
+    a.l("pla");
+    a.l("and #$80          ; N");
+    a.l("sta f:$7E0136");
+    a.l("cld               ; decimal off before anything else runs");
+    a.l("lda f:$7E0133");
+    a.assert_a8(
+        0x00,
+        "SED: $99 + $01 did not give $00, so the BCD addition itself is wrong",
+    );
+    a.l("lda f:$7E0134");
+    a.assert_a8(
+        0x02,
+        "Z was clear after a decimal $99 + $01 = $00, so the flags describe the binary sum $9A — \
+         the NMOS 6502's behaviour, which the 65C816 does not have",
+    );
+    a.l("lda f:$7E0135");
+    a.assert_a8(
+        0x58,
+        "SED: $79 + $79 did not give $58, so the BCD addition itself is wrong",
+    );
+    a.l("lda f:$7E0136");
+    a.assert_a8(
+        0x00,
+        "N was set after a decimal $79 + $79 = $58, so the flags describe the binary sum $F2",
+    );
+    a.l("rep #$30");
+    a.finish(
+        "A7.05",
+        'A',
+        "N/Z valid in decimal",
+        Provenance::Documented("WDC 65C816 datasheet; 6502.org 65c816opcodes decimal notes"),
         Kind::Scored,
         None,
     )

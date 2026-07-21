@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`(dp,X)`'s pointer fetch wraps inside bank `$00`, and `N`/`Z` are valid in decimal (`A2.09`,
+  `A7.04`).** The pointer fetch is a separate piece of code in most cores and is the one place the
+  `d,X` no-bank-crossing rule is easy to forget, because it happens before the mode looks like an
+  indexed access at all. `D = $FFFF` + `X = $8000` + operand `$06` sums to `$18005`, and both
+  candidate pointers — bank `$00`'s signature and bank `$01`'s — are aimed at bytes the test plants,
+  so a core that crosses the bank reads a specific wrong value rather than garbage.
+
+  The decimal-flag row is the 6502's behaviour the 65C02 fixed: `N` and `Z` describing the binary sum
+  while the accumulator holds the decimal one. Both readings are chosen where the two answers differ
+  — `$99 + $01` is `$00` decimal and `$9A` binary, so `Z` separates them; `$79 + $79` is `$58` and
+  `$F2`, so `N` does — because on any other input the two flags agree and the test would be
+  unfalsifiable.
+
 - **`TCS`/`TXS` set no flags, and `ORA [d]` reaches through a 24-bit pointer (`A1.09`, `A9.03`).**
   The stack pointer is not data, so moving a value into it does not describe that value — and a core
   routing every transfer through one flag-setting helper gets that wrong in a way nothing crashes

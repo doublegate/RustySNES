@@ -3017,6 +3017,153 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A2.11 — (dp,X) pointer wraps
+; provenance: Documented (6502.org 65c816opcodes; superfamicom.org addressing modes)
+.proc test_a2_11
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Plant the two possible destinations before touching D: $A0 -> $5A, $A1 -> $3C.
+    sep #$20
+    .a8
+    lda #$5A
+    sta a:$00A0       ; where bank $00's pointer aims
+    lda #$3C
+    sta a:$00A1       ; where bank $01's pointer would aim
+    ; D = $FFFF, X = $8000, operand $06: $FFFF + $06 + $8000 = $18005, wrapping to $00:8005.
+    rep #$30
+    .a16
+    .i16
+    lda #$FFFF
+    tcd
+    ldx #$8000
+    sep #$20
+    .a8
+    lda ($06,X)
+    sta f:$7E0132     ; stash before restoring D, which needs a 16-bit A
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    tcd               ; restore D BEFORE asserting, or every later dp access is relocated
+    sep #$20
+    .a8
+    lda f:$7E0132
+    cmp #$5A
+    beq :+
+    jmp @fail1
+  :
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; (dp,X) fetched its pointer from bank $01 — reading $3C means the pointer address was allowed to carry out of bank $00 instead of wrapping inside it
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A7.05 — N/Z valid in decimal
+; provenance: Documented (WDC 65C816 datasheet; 6502.org 65c816opcodes decimal notes)
+.proc test_a7_05
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    sed
+    ; $99 + $01 = $00 in decimal, $9A in binary. Z is set only for the decimal answer.
+    clc
+    lda #$99
+    adc #$01
+    php
+    sta f:$7E0133
+    pla
+    and #$02          ; Z
+    sta f:$7E0134
+    ; $79 + $79 = $58 in decimal, $F2 in binary. N is clear only for the decimal answer.
+    clc
+    lda #$79
+    adc #$79
+    php
+    sta f:$7E0135
+    pla
+    and #$80          ; N
+    sta f:$7E0136
+    cld               ; decimal off before anything else runs
+    lda f:$7E0133
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E0134
+    cmp #$02
+    beq :+
+    jmp @fail2
+  :
+    lda f:$7E0135
+    cmp #$58
+    beq :+
+    jmp @fail3
+  :
+    lda f:$7E0136
+    cmp #$00
+    beq :+
+    jmp @fail4
+  :
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; SED: $99 + $01 did not give $00, so the BCD addition itself is wrong
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; Z was clear after a decimal $99 + $01 = $00, so the flags describe the binary sum $9A — the NMOS 6502's behaviour, which the 65C816 does not have
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; SED: $79 + $79 did not give $58, so the BCD addition itself is wrong
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+@fail4:
+    ; N was set after a decimal $79 + $79 = $58, so the flags describe the binary sum $F2
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C1.01 — OAM word write/read
 ; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
 .proc test_c1_01
@@ -19446,7 +19593,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 231
+    .word 233
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -19504,6 +19651,8 @@ _test_entries:
     .faraddr test_a9_03
     .faraddr test_a1_07
     .faraddr test_a9_04
+    .faraddr test_a2_11
+    .faraddr test_a7_05
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -19738,6 +19887,8 @@ _test_flags:
     .byte $02   ; A9.03
     .byte $01   ; A1.07
     .byte $01   ; A9.04
+    .byte $01   ; A2.11
+    .byte $01   ; A7.05
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -19972,6 +20123,8 @@ _test_names:
     .addr @n_a9_03
     .addr @n_a1_07
     .addr @n_a9_04
+    .addr @n_a2_11
+    .addr @n_a7_05
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -20311,6 +20464,12 @@ _test_names:
 @n_a9_04:
     .byte 17
     .byte "ORA [d] is 24-bit"
+@n_a2_11:
+    .byte 20
+    .byte "(dp,X) pointer wraps"
+@n_a7_05:
+    .byte 20
+    .byte "N/Z valid in decimal"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"
