@@ -2302,6 +2302,15 @@ Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DS
 |---|---|---|
 | 1 | `$02` | the envelope was not zero well after key-off, so release did not run to silence |
 
+### E8.03 — KON restarts a voice
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: KON re-enters the key-on sequence unconditionally, resetting the BRR pointer and zeroing the envelope, whether or not the voice was already playing). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the untouched run's envelope had barely climbed, so both runs read low whatever KON does and the comparison below would hold for a core that ignores it |
+| 2 | `$04` | writing KON to a voice that was already playing left its envelope near where it had climbed to, so the write was treated as 'start if stopped' — a driver retriggering a held note would hear it continue instead of restarting from silence |
+
 ### E8.07 — KOFF pulse collapses
 
 Provenance: **Contested** (KON/KOFF are sampled every second output sample, so whether a short pulse is seen depends on where the poll falls inside it -- which makes the outcome phase-dependent rather than fixed, the same hedge E8.05 and E8.06 carry as "usually"). Kind: golden vector, never scored.

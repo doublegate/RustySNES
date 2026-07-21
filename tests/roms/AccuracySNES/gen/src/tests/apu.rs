@@ -113,6 +113,7 @@ pub fn all() -> Vec<Test> {
         e7_03(),
         e7_12(),
         e7_08(),
+        e8_03(),
         e8_07(),
         e8_10(),
         e7_11(),
@@ -3914,6 +3915,98 @@ fn e5_10() -> Test {
         Provenance::Documented(
             "fullsnes and anomie's DSP doc: key-off begins the release ramp and does not halt BRR \
              decoding, which continues to follow loop points and set ENDX",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `KON` on a voice that is already playing restarts it, zeroing the envelope on the way.
+///
+/// `KON` is not "start if stopped". Every write of a set bit re-enters the key-on sequence for that
+/// voice: the BRR decoder returns to the sample's start address, the envelope is forced to zero, and
+/// the attack begins again. That is why a driver retriggering a held note hears it restart from
+/// silence rather than continue, and why `KON` cannot be used to "refresh" a voice.
+///
+/// # The envelope is the observable, and the attack has to be slow enough to see
+///
+/// Both runs use `ADSR` mode with attack rate 8 — slow enough that the envelope is still climbing
+/// well after the key-on delay, so "restarted" and "carried on" are far apart rather than a sample
+/// or two of difference.
+///
+/// | run | late writes | `ENVX` |
+/// |---|---|---|
+/// | 1 | none | high — 24 delay blocks of climbing |
+/// | 2 | `KON` voice 0 | low — the climb started over one delay block ago |
+///
+/// # Both halves are guarded, and for different reasons
+///
+/// Run 1 must be **high**: with an attack that never got going, both runs read near zero and the
+/// comparison holds for a core that ignores `KON` entirely. Run 2 must be **low in absolute terms**
+/// rather than merely lower than run 1 — "lower" would also be satisfied by a core whose envelope
+/// happens to be decaying, which is a different phenomenon reading the same way.
+///
+/// The gap is large by construction, so neither reading is sensitive to which DSP sample the cart
+/// caught. A test of this shape that demanded the two agree, or differ exactly, would drift every
+/// time anything ahead of it in the battery moved — which is what happened to `E7.09`.
+fn e8_03() -> Test {
+    let playing = |late: &'static [(u8, u8)], late_settle: u8| Voice {
+        adsr1: 0x88, // ADSR mode, attack rate 8: still climbing after the key-on delay
+        adsr2: 0x00,
+        settle: 24,
+        late,
+        late_settle,
+        ..Voice::direct_gain()
+    };
+    let held = voice_program(&looping_sample(), playing(&[], 1));
+    let retriggered = voice_program(&looping_sample(), playing(&[(0x4C, 0x01)], 1));
+
+    let mut a = Asm::new();
+    a.c("--- left alone: the attack has been climbing for 24 delay blocks ---");
+    upload_and_run_tagged(&mut a, &held, "_held");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.l("sta f:$7E01F4     ; ENVX, before the second upload overwrites the mailbox copy");
+    a.c("--- keyed on again one delay block before the reading ---");
+    upload_and_run_tagged(&mut a, &retriggered, "_retrig");
+    a.l("rep #$30");
+    a.l("lda f:$7E01F4");
+    a.l("and #$00FF");
+    a.record(114, "E8.03 ENVX after 24 blocks of attack, left alone");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(
+        115,
+        "E8.03 ENVX one block after a second KON on the same playing voice",
+    );
+    a.c("The guard: without a climb there is nothing for a restart to undo.");
+    a.l("lda f:$7E01F4");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x20,
+        0x7F,
+        "the untouched run's envelope had barely climbed, so both runs read low whatever KON does \
+         and the comparison below would hold for a core that ignores it",
+    );
+    a.c("And the restart has to have zeroed it, not merely lowered it.");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x00,
+        0x18,
+        "writing KON to a voice that was already playing left its envelope near where it had \
+         climbed to, so the write was treated as 'start if stopped' — a driver retriggering a held \
+         note would hear it continue instead of restarting from silence",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E8.03",
+        'E',
+        "KON restarts a voice",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: KON re-enters the key-on sequence unconditionally, \
+             resetting the BRR pointer and zeroing the envelope, whether or not the voice was \
+             already playing",
         ),
         Kind::Scored,
         None,

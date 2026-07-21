@@ -1098,3 +1098,19 @@ fn oam_address_during_render_is_reported() {
     );
     println!("    slot 113  {:#04x}  active display", report.meas[113]);
 }
+
+/// Report `E8.03`'s two `ENVX` readings: the untouched climb and the retriggered one.
+#[test]
+fn kon_restart_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E8.03 ENVX with attack rate 8:");
+    println!(
+        "    slot 114  {:#04x}  left alone, 24 delay blocks",
+        report.meas[114]
+    );
+    println!(
+        "    slot 115  {:#04x}  a second KON one block earlier",
+        report.meas[115]
+    );
+}

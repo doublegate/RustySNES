@@ -575,6 +575,16 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E8.03` — does `KON` restart a voice that is already playing?** It is not "start if stopped":
+  every write of a set bit re-enters the key-on sequence, resetting the BRR pointer and zeroing the
+  envelope, which is why a driver retriggering a held note hears it restart from silence. Two runs
+  with `ADSR` attack rate 8 — slow enough that the climb is still in progress — read `ENVX` after 24
+  delay blocks: untouched `$34`, retriggered one block earlier `$02`. Both halves are guarded, and
+  for different reasons: the untouched run must be **high** or a core ignoring `KON` reads the same
+  as one honouring it, and the retriggered run must be low **in absolute terms** rather than merely
+  lower, since "lower" is also satisfied by an envelope that happens to be decaying. Verified by
+  making key-on conditional on a zero envelope, which fails the test.
+
 - **`C1.08` — is the OAM address destroyed during render?** A **golden vector**. Sprite evaluation
   drives the OAM address counter while the picture is being drawn, so a `$2138` read taken mid-frame
   returns the renderer's position rather than the address a driver programmed. The low OAM table is
