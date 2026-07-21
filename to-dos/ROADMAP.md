@@ -677,6 +677,38 @@ related or may not.
    measurement problem rather than a probe problem (`docs/accuracysnes-plan.md`); this change is the
    likeliest thing underneath it.
 
+**ATTEMPTED 2026-07-21 — it builds, the battery stays green, and it moves one framebuffer
+golden.** The full change was implemented and then reverted; what it established:
+
+* **It is implementable as specified.** `Ppu::short_line()`, `Ppu::dot_clocks(h)` and
+  `Ppu::clock_to_dot(clock)` drop in cleanly; `advance_master` queries the per-dot length from the
+  **pre-tick** dot; `DOTS_PER_LINE` goes to 340; and the H-IRQ target becomes
+  `clock_to_dot(4 * HTIME + 14)`. One correction to the plan: `interlace` lives on the `Io` struct
+  (`self.io.interlace`), not directly on `Ppu`.
+* **Everything cheap stays green.** `rustysnes-core`/`-cpu`/`-ppu` unit tests (159), and the
+  AccuracySNES battery at 242/242 scoring.
+* **`hdmaen_latch_test_2` changes.** Its framebuffer hash moves
+  (`0x1a189dc89e5f4525` -> `0xd8aca8cd47b57f25`). That test exists because HDMA is run at
+  `RENDER_DOT` = 276 specifically so a mid-line `$420C` write latches on the hardware-correct
+  scanline — so it is sensitive to line-boundary placement, and renumbering the line from 341 dots
+  to 340 moves the boundary even though dot 276 itself does not move.
+
+**So the acceptance criterion "no rendered scene changes" is not satisfiable as written, and the
+open question is whether the new picture is the correct one.** That needs adjudicating against the
+references rather than assumed: re-blessing a golden because our own change produced it is exactly
+the circularity ADR 0003 exists to prevent. Concretely, before this lands:
+
+1. Run `hdmaen_latch_test`'s ROM on bsnes/ares and Mesen2 and compare their framebuffers against
+   both hashes. Those cores implement the 340-dot model, so if the new hash matches them the change
+   is a fix and the golden is re-blessed with that evidence recorded.
+2. If they match the *old* hash, the change has a defect — most likely in where the line boundary
+   now falls relative to the HDMA run — and the dot renumbering needs separating from the
+   long-dot lengths so the two can be landed and judged independently.
+
+Everything else in the ticket is unchanged and was verified during the attempt: the guard
+(`B4.16`) is in place, the short-line inputs all exist, and `HDMA_RUN_DOT == RENDER_DOT` still
+holds.
+
 **Acceptance.** Determinism holds (seed + ROM + input produces bit-identical AV); no rendered
 scene changes (all 50 blessed scenes); existing timing tests do not regress; `OPHCT` never returns
 340 on an NTSC line. Do **not** accept on "matches snes9x and Mesen2" alone — that is agreement,
