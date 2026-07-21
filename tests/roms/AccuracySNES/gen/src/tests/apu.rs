@@ -108,6 +108,7 @@ pub fn all() -> Vec<Test> {
         e7_04(),
         e7_09(),
         e7_05(),
+        e7_06(),
         e7_08(),
         e8_07(),
         e8_10(),
@@ -1215,6 +1216,96 @@ fn e7_05() -> Test {
         Provenance::Documented(
             "fullsnes and anomie's DSP doc: the decay phase indexes the counter table at d*2+16, \
              stepping E -= 1 then E -= E>>8",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The sustain rate indexes the counter table **verbatim** — no offset, unlike decay.
+///
+/// Decay adds 16 to its field (`E7.05`); sustain does not. The difference matters most at the
+/// bottom of the range: sustain rate `0` indexes rate 0, which never fires (`E7.01`), so a voice
+/// held at sustain with `r = 0` never decays at all. Under any offset — `r+16`, `r*2+16` — that
+/// same setting becomes a real rate and the note fades. Every held instrument in a game's
+/// soundtrack depends on this, and a core with an offset here loses all of them.
+///
+/// # `r = 0` is the discriminating case
+///
+/// Comparing two fast rates would not settle anything: `r = 31` clamps to the top of the table
+/// whether or not an offset is applied, so both models agree there. It is the zero end that
+/// separates them.
+///
+/// | run | `ADSR2` | sustain rate | verbatim | with any positive offset |
+/// |---|---|---|---|---|
+/// | 1 | `$E0` | `0` | never fires — envelope parked | a real rate — envelope decays |
+/// | 2 | `$FF` | `31` | the fastest rate — well down | the same, clamped |
+///
+/// Both voices attack at rate `$F` and set **sustain level 7**, which ends the decay phase
+/// immediately at full scale and hands straight over to sustain. That is the configuration
+/// `E7.09`'s first draft used by accident and had to abandon: there the sustain phase was
+/// contamination, here it is the subject.
+///
+/// # What each assertion catches
+///
+/// Run 1 is asserted at exactly full scale, which is the whole "verbatim" claim — anything below it
+/// means rate 0 fired. Run 2 is asserted substantially lower, which rules out the opposite failure:
+/// a core that ignores the sustain rate entirely would park both runs at `$7F` and satisfy the
+/// first assertion alone.
+fn e7_06() -> Test {
+    let sustained = |adsr2: u8| Voice {
+        adsr1: 0x8F, // ADSR mode, attack $F: full scale within two samples
+        adsr2,
+        settle: 24, // long enough for a mid-table sustain rate to move the envelope
+        ..Voice::direct_gain()
+    };
+    let never = voice_program(&looping_sample(), sustained(0xE0));
+    let moderate = voice_program(&looping_sample(), sustained(0xFF));
+
+    let mut a = Asm::new();
+    a.c("--- sustain rate 0 ---");
+    upload_and_run_tagged(&mut a, &never, "_sr0");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.l("sta f:$7E01F8     ; ENVX, before the second upload overwrites the mailbox copy");
+    a.c("--- sustain rate 31 ---");
+    upload_and_run_tagged(&mut a, &moderate, "_sr31");
+    a.l("rep #$30");
+    a.l("lda f:$7E01F8");
+    a.l("and #$00FF");
+    a.record(188, "E7.06 ENVX at sustain rate 0 (verbatim: never fires)");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(189, "E7.06 ENVX at sustain rate 31");
+    a.c("Rate 0 indexed verbatim never fires, so the envelope is still exactly where it parked.");
+    a.l("sep #$20");
+    a.l("lda f:$7E01F8");
+    a.assert_a8(
+        0x7F,
+        "sustain rate 0 let the envelope decay, so the field is not being used verbatim — any \
+         positive offset turns rate 0 into a real rate and every held note fades",
+    );
+    a.c("And the fastest rate must have moved a long way, or a core ignoring the field entirely");
+    a.c("would pass on the first assertion alone. 31 rather than a mid-table rate because sustain");
+    a.c("decay is exponential: from full scale it barely moves at first, and rate 16 only reached");
+    a.c("$76 over this same window.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x00,
+        0x60,
+        "the fastest sustain rate left the envelope at or near full scale, so the sustain rate is \
+         not being consulted at all",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E7.06",
+        'E',
+        "Sustain index verbatim",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: the sustain phase indexes the counter table with the \
+             ADSR2 rate field directly, unlike decay's d*2+16",
         ),
         Kind::Scored,
         None,

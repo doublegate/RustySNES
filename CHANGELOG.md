@@ -575,6 +575,22 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E7.06` — the sustain rate indexes the counter table verbatim.** Decay adds 16 to its field
+  (`E7.05`); sustain does not, and the difference is invisible everywhere except the bottom of the
+  range. Sustain rate `0` indexes rate 0, which never fires, so a voice held at sustain never decays
+  — under any offset that same setting becomes a real rate and every held note in a soundtrack
+  fades.
+
+  **`r = 0` is the discriminating case**, and comparing two fast rates would have settled nothing:
+  `r = 31` clamps to the top of the table with or without an offset, so both models agree there.
+  Run 1 is therefore asserted at *exactly* full scale — anything below means rate 0 fired. Run 2
+  uses rate 31 purely as the anti-vacuity control, since a core ignoring the field entirely would
+  park both runs at `$7F` and satisfy the first assertion alone.
+
+  Rate 16 was the first choice for run 2 and only reached `$76`: sustain decay is exponential, so
+  from full scale it barely moves at first. Verified by offsetting the sustain index by 16, which
+  fails at code 1.
+
 - **`E7.05` — the decay rate is indexed as `d*2+16`.** Not the raw field: the offset places the
   eight decay settings in the upper half of the counter table the other phases share. A core using
   `d` verbatim decays orders of magnitude too slowly, and the envelope barely moves where hardware

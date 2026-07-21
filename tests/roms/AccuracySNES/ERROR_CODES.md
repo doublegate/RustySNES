@@ -2253,6 +2253,15 @@ Provenance: **Documented** (fullsnes and anomie's DSP doc: the decay phase index
 | 1 | `$02` | the slow decay was not caught in progress — at the bottom of its ramp or still at the top, both decay rates produce the same reading and the gap below means nothing |
 | 2 | `$04` | the two decay rates left the envelope in nearly the same place, so the rate field is not being indexed as d*2+16 — using d verbatim puts both runs in the slow half of the table |
 
+### E7.06 — Sustain index verbatim
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: the sustain phase indexes the counter table with the ADSR2 rate field directly, unlike decay's d*2+16). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | sustain rate 0 let the envelope decay, so the field is not being used verbatim — any positive offset turns rate 0 into a real rate and every held note fades |
+| 2 | `$04` | the fastest sustain rate left the envelope at or near full scale, so the sustain rate is not being consulted at all |
+
 ### E7.08 — Key-off releases to zero
 
 Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc). Kind: scored.

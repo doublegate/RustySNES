@@ -1033,3 +1033,13 @@ fn decay_rate_index_is_reported() {
         report.meas[187]
     );
 }
+
+/// `E7.06`'s two sustain readings, reported so the rate window can be judged.
+#[test]
+fn sustain_rate_index_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E7.06 ENVX during sustain:");
+    println!("    slot 188  {:#04x}  sustain rate 0", report.meas[188]);
+    println!("    slot 189  {:#04x}  sustain rate 31", report.meas[189]);
+}
