@@ -29,6 +29,7 @@ pub fn all() -> Vec<Test> {
         d2_03(),
         d2_04(),
         d2_07(),
+        d2_09(),
         d1_14(),
         d1_11(),
         d1_08(),
@@ -633,6 +634,235 @@ fn setup_hdma_to_wram(a: &mut Asm, page: u8) {
     a.l("sta $420C         ; HDMAEN channel 0");
     a.l("jsr wait_vblank   ; let the whole active display run");
     a.l("stz $420C         ; disarm before reading, so nothing moves under the checks");
+}
+
+/// Enabling HDMA outside vblank transfers from an uninitialised channel — a golden vector.
+///
+/// HDMA initialises every enabled channel once per frame, at `V = 0`: it reloads the table pointer
+/// `A2An` from `A1Tn` and fetches the first line-count byte into `NLTRn`. Enabling a channel
+/// *after* that moment does not run the init — the channel simply starts taking part in the
+/// per-line transfers, using whatever `A2An` and `NLTRn` happen to still hold from the last time it
+/// ran. The dossier marks it `[ERRATA]`; the writes it produces are real, land at the programmed
+/// destination, and carry data from wherever the stale pointer is looking.
+///
+/// # Why it is recorded rather than asserted
+///
+/// What the stale pointer *contains* is a function of exactly where the previous frame's transfers
+/// stopped, which is deterministic per core but not something any source specifies. Asserting a
+/// particular byte would be asserting this core's leftover state. So the test publishes what
+/// happened and names the three shapes it can take:
+///
+/// | variant | phase 2's first byte | reading |
+/// |---|---|---|
+/// | 1 | nothing was written | the core transfers nothing for a channel enabled mid-frame |
+/// | 2 | matches the control | whatever the core did, it started from the top of the table |
+/// | 3 | anything else | slots 148/149 say what came out and how much |
+///
+/// The variants describe the **observation**, not a mechanism, and deliberately so. Making
+/// RustySNES run the per-frame init on the `$420C` write — the obvious "no erratum" implementation
+/// — produced variant **3**, not variant 2: ten bytes starting `$C2`. Naming variant 2 "the core
+/// initialises on enable" would therefore have been a guess contradicted by the first experiment
+/// that tried it. RustySNES as it stands reports variant 1.
+///
+/// # The control is a correctly-armed frame
+///
+/// Phase 1 arms the identical channel during vblank and lets a whole frame run, so the landing page
+/// receives the table's own bytes in order. Without it, "phase 2 wrote something odd" could equally
+/// mean the table, the destination or the channel programming was wrong — and the first byte of
+/// phase 1 is asserted, not merely recorded, because everything below is read against it.
+///
+/// The table is eight one-line entries carrying `$11` through `$88`, so a landing page byte names
+/// the table entry it came from. That is what makes a phase-2 reading interpretable at all: a byte
+/// of `$55` says the stale pointer was four entries in, and a byte that is in the table at all says
+/// something quite different from one that is not.
+fn d2_09() -> Test {
+    let mut a = Asm::new();
+    a.l("bra @body");
+    a.label("table");
+    a.l(".byte $01, $11");
+    a.l(".byte $01, $22");
+    a.l(".byte $01, $33");
+    a.l(".byte $01, $44");
+    a.l(".byte $01, $55");
+    a.l(".byte $01, $66");
+    a.l(".byte $01, $77");
+    a.l(".byte $01, $88");
+    a.l(".byte $00         ; terminate after eight lines");
+    a.label("body");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("Programme channel 0 -> $2180, table in this bank. WMADD is set per phase.");
+    a.l("sep #$20");
+    a.l("stz $420C");
+    a.l("stz $4300         ; A->B, direct table, mode 0: one byte per line");
+    a.l("lda #$80");
+    a.l("sta $4301         ; B-bus = $2180");
+    a.l("rep #$30");
+    a.l("ldx #@table");
+    a.l("stx $4302");
+    a.l("sep #$20");
+    a.l("phk");
+    a.l("pla");
+    a.l("sta $4304");
+    a.c("--- phase 1: armed in vblank, so the channel initialises at the top of the frame ---");
+    d2_09_clear_and_point(&mut a, 0x13);
+    a.l("jsr wait_vblank");
+    a.l("lda #$01");
+    a.l("sta $420C");
+    a.l("jsr wait_vblank   ; a whole active display");
+    a.l("stz $420C");
+    d2_09_scan(&mut a, 0x13, 0x7E_01C4);
+    a.c("--- phase 2: armed at line 100, long after this frame's init has been and gone ---");
+    d2_09_clear_and_point(&mut a, 0x14);
+    a.l("jsr wait_vblank");
+    spin_to_line_dma(&mut a, 100, "d209");
+    a.l("sep #$20");
+    a.l("lda #$01");
+    a.l("sta $420C         ; enabled mid-frame: no init runs for it this frame");
+    a.l("jsr wait_vblank");
+    a.l("stz $420C");
+    d2_09_scan(&mut a, 0x14, 0x7E_01C8);
+    d2_09_verdict(&mut a);
+    a.finish(
+        "D2.09",
+        'D',
+        "HDMA armed mid-frame",
+        Provenance::Contested(
+            "fullsnes and the SNESdev Wiki record that enabling HDMA outside vblank produces \
+             erroneous writes from uninitialised A2An/NLTRn, but what those writes contain is a \
+             function of the previous frame's leftover state and is specified nowhere",
+        ),
+        Kind::Golden,
+        None,
+    )
+}
+
+/// Emit [`d2_09`]'s publication and verdict: record all four readings, assert the control,
+/// then classify phase 2.
+fn d2_09_verdict(a: &mut Asm) {
+    a.c("Publish both phases before judging: the control is what makes phase 2 readable.");
+    a.l("rep #$30");
+    a.l("lda f:$7E01C4");
+    a.l("and #$00FF");
+    a.record(
+        146,
+        "D2.09 phase 1 first byte written (control, expect $11)",
+    );
+    a.l("lda f:$7E01C6");
+    a.l("and #$00FF");
+    a.record(147, "D2.09 phase 1 bytes written (control, expect 8)");
+    a.l("lda f:$7E01C8");
+    a.l("and #$00FF");
+    a.record(
+        148,
+        "D2.09 phase 2 first byte written, channel enabled mid-frame",
+    );
+    a.l("lda f:$7E01CA");
+    a.l("and #$00FF");
+    a.record(149, "D2.09 phase 2 bytes written");
+    a.c("The control is asserted: a wrong table or destination would make phase 2 meaningless.");
+    a.l("sep #$20");
+    a.l("lda f:$7E01C4");
+    a.assert_a8(
+        0x11,
+        "the first byte a correctly-armed HDMA channel wrote was not the table's first data byte, \
+         so the channel programming is wrong and phase 2 says nothing about mid-frame enabling",
+    );
+    a.l("rep #$30");
+    a.l("lda f:$7E01CA");
+    a.l("and #$00FF");
+    a.l("bne :+");
+    a.l("sep #$20");
+    a.l("lda #$03          ; variant 1 = nothing transferred at all");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.c("Did it simply behave as though initialised? Compare the first byte against the control.");
+    a.l("sep #$20");
+    a.l("lda f:$7E01C8");
+    a.l("cmp f:$7E01C4");
+    a.l("bne :+");
+    a.l("lda #$05          ; variant 2 = first byte matches the control");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("lda #$07          ; variant 3 = neither; slots 148/149 say what came out");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+}
+
+/// Emit: clear [`d2_09`]'s landing page and aim `WMADD` at the top of it.
+///
+/// The pages are `$13`/`$14` and the choice is not arbitrary. The first version used `$0D`, which
+/// `D1.14` points `WMADD` at — and because `D1.14` names it through `$2182` rather than as an
+/// address literal, no grep for `$7E0D00` finds it. `D1.14` began failing the moment this test
+/// landed. WRAM scratch has the same no-allocator problem the measurement channel has; there is no
+/// gate for it, so pages here are taken from well outside the range anything else uses.
+fn d2_09_clear_and_point(a: &mut Asm, page: u8) {
+    a.l("sep #$20");
+    a.l("stz $420C");
+    a.l("rep #$30");
+    a.l("ldx #$0000");
+    a.label(&format!("clr{page:02X}"));
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l(&format!("sta f:$7E{page:02X}00,x"));
+    a.l("rep #$30");
+    a.l("inx");
+    a.l("cpx #$0020");
+    a.l(&format!("bne @clr{page:02X}"));
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta $2181");
+    a.l(&format!("lda #${page:02X}"));
+    a.l("sta $2182");
+    a.l("stz $2183");
+}
+
+/// Emit: count [`d2_09`]'s written bytes and stash the first one plus the count.
+///
+/// The page was cleared to zero and every table byte is non-zero, so "written" and "non-zero" are
+/// the same question. The count stops at the first zero rather than tallying the whole page: HDMA
+/// writes consecutively, so a gap would mean something stranger than this test is equipped to
+/// describe, and a trailing count would hide it.
+fn d2_09_scan(a: &mut Asm, page: u8, dest: u32) {
+    a.l("sep #$20");
+    a.l(&format!("lda f:$7E{page:02X}00"));
+    a.l(&format!("sta f:${dest:06X}"));
+    a.l("rep #$30");
+    a.l("ldx #$0000");
+    a.label(&format!("cnt{page:02X}"));
+    a.l("sep #$20");
+    a.l(&format!("lda f:$7E{page:02X}00,x"));
+    a.l("beq :+");
+    a.l("rep #$30");
+    a.l("inx");
+    a.l("cpx #$0020");
+    a.l(&format!("bne @cnt{page:02X}"));
+    a.l(":");
+    a.l("rep #$30");
+    a.l("txa");
+    a.l(&format!("sta f:${:06X}", dest + 2));
+}
+
+/// Emit a spin until the V counter reads `line`, for the DMA tests.
+fn spin_to_line_dma(a: &mut Asm, line: u16, tag: &str) {
+    a.c(&format!("Spin until V = {line}."));
+    a.l("sep #$20");
+    a.label(&format!("wl{tag}"));
+    a.l("lda $213F");
+    a.l("lda $2137");
+    a.l("lda $213D");
+    a.l("xba");
+    a.l("lda $213D");
+    a.l("and #$01");
+    a.l("xba");
+    a.l("rep #$20");
+    a.l("and #$01FF");
+    a.l(&format!("cmp #{line}"));
+    a.l("sep #$20");
+    a.l(&format!("bne @wl{tag}"));
 }
 
 /// HDMA preempts a general-purpose DMA, which pauses and then resumes correctly.

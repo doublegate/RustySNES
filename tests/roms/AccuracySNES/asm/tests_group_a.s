@@ -8202,6 +8202,239 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; D2.09 — HDMA armed mid-frame
+; provenance: Contested (fullsnes and the SNESdev Wiki record that enabling HDMA outside vblank produces erroneous writes from uninitialised A2An/NLTRn, but what those writes contain is a function of the previous frame's leftover state and is specified nowhere)
+.proc test_d2_09
+    .a16
+    .i16
+    bra @body
+@table:
+    .byte $01, $11
+    .byte $01, $22
+    .byte $01, $33
+    .byte $01, $44
+    .byte $01, $55
+    .byte $01, $66
+    .byte $01, $77
+    .byte $01, $88
+    .byte $00         ; terminate after eight lines
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Programme channel 0 -> $2180, table in this bank. WMADD is set per phase.
+    sep #$20
+    .a8
+    stz $420C
+    stz $4300         ; A->B, direct table, mode 0: one byte per line
+    lda #$80
+    sta $4301         ; B-bus = $2180
+    rep #$30
+    .a16
+    .i16
+    ldx #@table
+    stx $4302
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304
+    ; --- phase 1: armed in vblank, so the channel initialises at the top of the frame ---
+    sep #$20
+    .a8
+    stz $420C
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@clr13:
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E1300,x
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$0020
+    bne @clr13
+    sep #$20
+    .a8
+    lda #$00
+    sta $2181
+    lda #$13
+    sta $2182
+    stz $2183
+    jsr wait_vblank
+    lda #$01
+    sta $420C
+    jsr wait_vblank   ; a whole active display
+    stz $420C
+    sep #$20
+    .a8
+    lda f:$7E1300
+    sta f:$7E01C4
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@cnt13:
+    sep #$20
+    .a8
+    lda f:$7E1300,x
+    beq :+
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$0020
+    bne @cnt13
+    :
+    rep #$30
+    .a16
+    .i16
+    txa
+    sta f:$7E01C6
+    ; --- phase 2: armed at line 100, long after this frame's init has been and gone ---
+    sep #$20
+    .a8
+    stz $420C
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@clr14:
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E1400,x
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$0020
+    bne @clr14
+    sep #$20
+    .a8
+    lda #$00
+    sta $2181
+    lda #$14
+    sta $2182
+    stz $2183
+    jsr wait_vblank
+    ; Spin until V = 100.
+    sep #$20
+    .a8
+@wld209:
+    lda $213F
+    lda $2137
+    lda $213D
+    xba
+    lda $213D
+    and #$01
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp #100
+    sep #$20
+    .a8
+    bne @wld209
+    sep #$20
+    .a8
+    lda #$01
+    sta $420C         ; enabled mid-frame: no init runs for it this frame
+    jsr wait_vblank
+    stz $420C
+    sep #$20
+    .a8
+    lda f:$7E1400
+    sta f:$7E01C8
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@cnt14:
+    sep #$20
+    .a8
+    lda f:$7E1400,x
+    beq :+
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$0020
+    bne @cnt14
+    :
+    rep #$30
+    .a16
+    .i16
+    txa
+    sta f:$7E01CA
+    ; Publish both phases before judging: the control is what makes phase 2 readable.
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E01C4
+    and #$00FF
+    ; record slot 146: D2.09 phase 1 first byte written (control, expect $11)
+    sta f:$7EE324
+    lda f:$7E01C6
+    and #$00FF
+    ; record slot 147: D2.09 phase 1 bytes written (control, expect 8)
+    sta f:$7EE326
+    lda f:$7E01C8
+    and #$00FF
+    ; record slot 148: D2.09 phase 2 first byte written, channel enabled mid-frame
+    sta f:$7EE328
+    lda f:$7E01CA
+    and #$00FF
+    ; record slot 149: D2.09 phase 2 bytes written
+    sta f:$7EE32A
+    ; The control is asserted: a wrong table or destination would make phase 2 meaningless.
+    sep #$20
+    .a8
+    lda f:$7E01C4
+    cmp #$11
+    beq :+
+    jmp @fail1
+  :
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E01CA
+    and #$00FF
+    bne :+
+    sep #$20
+    .a8
+    lda #$03          ; variant 1 = nothing transferred at all
+    sta f:$7EE010
+    jml test_restore
+    :
+    ; Did it simply behave as though initialised? Compare the first byte against the control.
+    sep #$20
+    .a8
+    lda f:$7E01C8
+    cmp f:$7E01C4
+    bne :+
+    lda #$05          ; variant 2 = first byte matches the control
+    sta f:$7EE010
+    jml test_restore
+    :
+    lda #$07          ; variant 3 = neither; slots 148/149 say what came out
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the first byte a correctly-armed HDMA channel wrote was not the table's first data byte, so the channel programming is wrong and phase 2 says nothing about mid-frame enabling
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; D1.14 — $2180 B->A does write
 ; provenance: Documented (fullsnes: $2180->WRAM writes, but the value written is invalid)
 .proc test_d1_14
@@ -23868,7 +24101,7 @@ apu_prog_67:
 .export _test_flags
 
 _test_count:
-    .word 277
+    .word 278
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -24032,6 +24265,7 @@ _test_entries:
     .faraddr test_d2_03
     .faraddr test_d2_04
     .faraddr test_d2_07
+    .faraddr test_d2_09
     .faraddr test_d1_14
     .faraddr test_d1_11
     .faraddr test_d1_08
@@ -24312,6 +24546,7 @@ _test_flags:
     .byte $01   ; D2.03
     .byte $01   ; D2.04
     .byte $01   ; D2.07
+    .byte $02   ; D2.09
     .byte $01   ; D1.14
     .byte $01   ; D1.11
     .byte $02   ; D1.08
@@ -24592,6 +24827,7 @@ _test_names:
     .addr @n_d2_03
     .addr @n_d2_04
     .addr @n_d2_07
+    .addr @n_d2_09
     .addr @n_d1_14
     .addr @n_d1_11
     .addr @n_d1_08
@@ -25189,6 +25425,9 @@ _test_names:
 @n_d2_07:
     .byte 20
     .byte "HDMA preempts GP-DMA"
+@n_d2_09:
+    .byte 20
+    .byte "HDMA armed mid-frame"
 @n_d1_14:
     .byte 21
     .byte "$2180 B->A does write"

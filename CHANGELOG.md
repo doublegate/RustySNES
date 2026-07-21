@@ -575,6 +575,30 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`D2.09` — enabling HDMA outside vblank transfers from an uninitialised channel.** A **golden
+  vector**. HDMA initialises every enabled channel once per frame at `V = 0`, reloading `A2An` from
+  `A1Tn` and fetching the first line-count byte. Enabling a channel after that does not run the
+  init; it simply joins the per-line transfers using whatever `A2An`/`NLTRn` still hold. Marked
+  `[ERRATA]`, and what the stale pointer contains depends on where the previous frame stopped, which
+  no source specifies — so the test records rather than asserts. RustySNES reports variant 1:
+  nothing transferred.
+
+  Phase 1 is the control: the identical channel armed during vblank, running a full frame, and its
+  first written byte is **asserted** to be the table's first data byte. Without that, "phase 2 wrote
+  something odd" could equally mean the table, destination or channel programming was wrong. The
+  table is eight one-line entries carrying `$11`-`$88`, so a landing-page byte names the entry it
+  came from.
+
+  The variants describe the observation and not a mechanism, deliberately: making the `$420C` write
+  run the per-frame init — the obvious "no erratum" implementation — produced variant **3**, ten
+  bytes starting `$C2`, not the variant 2 that guess would have predicted.
+
+  It also landed on a second shared-scratch hazard. Its first landing page was `$0D`, which `D1.14`
+  points `WMADD` at — and because `D1.14` names it through `$2182` rather than as an address
+  literal, no grep for `$7E0D00` finds it. `D1.14` began failing the moment this test was added. The
+  pages are now `$13`/`$14`, taken from well outside the range anything else uses; WRAM scratch has
+  the same no-allocator problem the measurement channel has, without the gate.
+
 - **`E8.07` — a `KOFF` pulse shorter than the poll interval is never seen.** `KOFF` is sampled every
   second output sample, not acted on at the instant it is written, so `$FF` followed a few cycles
   later by `$00` collapses into one poll that reads `$00` and nothing is released. A core applying

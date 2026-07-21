@@ -1616,6 +1616,14 @@ Provenance: **Documented** (SNESdev Wiki, HDMA; anomie's timing doc; fullsnes). 
 | 2 | `$04` | channel 1's byte count did not reach zero — the GP-DMA resumed short after preemption |
 | 3 | `$06` | channel 1's source address did not advance the full 4096 bytes |
 
+### D2.09 — HDMA armed mid-frame
+
+Provenance: **Contested** (fullsnes and the SNESdev Wiki record that enabling HDMA outside vblank produces erroneous writes from uninitialised A2An/NLTRn, but what those writes contain is a function of the previous frame's leftover state and is specified nowhere). Kind: golden vector, never scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the first byte a correctly-armed HDMA channel wrote was not the table's first data byte, so the channel programming is wrong and phase 2 says nothing about mid-frame enabling |
+
 ### D1.14 — $2180 B->A does write
 
 Provenance: **Documented** (fullsnes: $2180->WRAM writes, but the value written is invalid). Kind: scored.

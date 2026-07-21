@@ -871,3 +871,31 @@ fn timer_enable_reset_is_reported() {
         report.meas[138]
     );
 }
+
+/// `D2.09`'s two HDMA phases, reported so a mid-frame enable can be compared across cores.
+#[test]
+fn hdma_mid_frame_enable_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  D2.09 HDMA enabled mid-frame:");
+    println!(
+        "    slot 146  {:#04x}  phase 1 first byte (control, expect 0x11)",
+        report.meas[146]
+    );
+    println!(
+        "    slot 147  {:4}  phase 1 bytes written (control, expect 8)",
+        report.meas[147]
+    );
+    println!(
+        "    slot 148  {:#04x}  phase 2 first byte, enabled at line 100",
+        report.meas[148]
+    );
+    println!(
+        "    slot 149  {:4}  phase 2 bytes written",
+        report.meas[149]
+    );
+    assert_eq!(
+        report.meas[146], 0x11,
+        "the control phase did not write the table's first data byte"
+    );
+}
