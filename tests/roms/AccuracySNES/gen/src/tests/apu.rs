@@ -100,6 +100,7 @@ pub fn all() -> Vec<Test> {
         e5_05(),
         e7_01(),
         e7_08(),
+        e8_07(),
         e7_11(),
         e7_14(),
         e7_15(),
@@ -1519,6 +1520,13 @@ struct Voice {
     /// registers written *together* (the key-off/key-on collapse cases, say) depends on nothing
     /// running between them.
     late: &'static [(u8, u8)],
+    /// A DSP write immediately followed by a second write of the same register, as
+    /// `(reg, first, second)`.
+    ///
+    /// Emitted as one `$F2` select and *two* `$F3` stores, so the two values are about five SPC
+    /// cycles apart instead of the twelve two full `dsp_write`s would take. `E8.07` needs the pair
+    /// to land inside a single KON/KOFF poll, and at twelve cycles it did not on every core.
+    pulse: Option<(u8, u8, u8)>,
     /// Delay loops after the `late` writes, before the registers are read.
     late_settle: u8,
 }
@@ -1536,6 +1544,7 @@ impl Voice {
             vol: 0x7F,
             settle: 4,
             late: &[],
+            pulse: None,
             late_settle: 0,
         }
     }
@@ -1601,6 +1610,12 @@ fn voice_program(sample: &[u8], v: Voice) -> Spc {
 
     for &(reg, val) in v.late {
         dsp_write(&mut p, reg, val);
+    }
+    if let Some((reg, first, second)) = v.pulse {
+        dsp_write(&mut p, reg, first);
+        // Only $F3 again: the address latch still holds `reg`, so this is the shortest gap the
+        // SPC700 can put between two values of one DSP register.
+        p.mov_a_imm(second).mov_dp_a(0xF3);
     }
     for _ in 0..v.late_settle {
         p.delay(0x00);
@@ -2867,6 +2882,81 @@ fn e5_10() -> Test {
         Provenance::Documented(
             "fullsnes and anomie's DSP doc: key-off begins the release ramp and does not halt BRR \
              decoding, which continues to follow loop points and set ENDX",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `KOFF = $FF` immediately followed by `KOFF = $00` leaves the voices playing.
+///
+/// `KOFF` is not acted on at the instant it is written: the DSP samples it on a poll that comes
+/// round every second output sample. Two writes closer together than that collapse into one
+/// reading, and the reading the poll takes is the *second* value — so setting every key-off bit and
+/// clearing it again a few cycles later is, to the DSP, a poll that saw `$00`. Nothing is released.
+///
+/// A core that applies `KOFF` at the moment of the write instead behaves entirely differently: the
+/// `$FF` releases every voice, and the `$00` that follows cannot un-release anything, because
+/// release is a state the envelope has entered rather than a level held on a register. The voice
+/// falls silent.
+///
+/// # This is the pair to `E7.08`
+///
+/// The two tests key off the same voice, from the same setup, and expect opposite outcomes.
+/// `E7.08` writes `KOFF = $01` once and asserts the envelope reaches zero — a single write is
+/// unambiguous, whenever it is sampled. This one writes `$FF` then `$00` back to back and asserts
+/// the envelope is *untouched*, still sitting at the direct gain of `$7F` that `E7.10` pins.
+///
+/// Together they bracket the mechanism: the first shows key-off works, the second shows it is
+/// sampled rather than edge-triggered. Either alone is weak — "the envelope is still `$7F`" would
+/// be satisfied by a core whose key-off never worked at all, and `E7.08` is what rules that out.
+///
+/// The gain is direct and constant, so `$7F` is the value a voice that was left alone must read.
+/// There is no ramp to time and no window to hit: any release at all, however brief, steps the
+/// envelope down by 8 per sample and cannot return.
+///
+/// # The pulse has to be short, and the first version was not short enough
+///
+/// Written as two ordinary `dsp_write`s the pair sits about twelve SPC cycles apart, and that
+/// **failed on Mesen2's PAL image while passing on its NTSC one** — the SPC is synchronised to a
+/// CPU clock that differs by region, so the same instruction sequence spans a slightly different
+/// fraction of the DSP's poll interval. A test claiming to be about the DSP that changes answer
+/// with the video standard is measuring the harness, not the hardware.
+///
+/// It now emits one `$F2` register select and two `$F3` stores, which puts the values about five
+/// cycles apart. That is both robust across all four core/region combinations and a better
+/// statement of the row, which is precisely about a pulse shorter than the poll interval.
+fn e8_07() -> Test {
+    let prog = voice_program(
+        &looping_sample(),
+        Voice {
+            // Back to back, with nothing between them: the two writes have to land inside one
+            // poll interval for the collapse to happen at all.
+            pulse: Some((0x5C, 0xFF, 0x00)),
+            late_settle: 12,
+            ..Voice::direct_gain()
+        },
+    );
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x7F,
+        "the envelope left full scale after KOFF was set to $FF and cleared to $00 a few cycles \
+         later. The pair collapses into a single poll that reads $00, so nothing should have been \
+         released — a core acting on the write itself releases on the $FF and cannot take it back",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E8.07",
+        'E',
+        "KOFF pulse collapses",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: KON/KOFF are sampled every second output sample, so a \
+             KOFF pulse shorter than the poll interval is never seen; E7.08 is the counterpart \
+             showing a single KOFF write does release",
         ),
         Kind::Scored,
         None,

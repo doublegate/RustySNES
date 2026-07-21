@@ -575,6 +575,26 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E8.07` — a `KOFF` pulse shorter than the poll interval is never seen.** `KOFF` is sampled every
+  second output sample, not acted on at the instant it is written, so `$FF` followed a few cycles
+  later by `$00` collapses into one poll that reads `$00` and nothing is released. A core applying
+  `KOFF` on the write releases every voice on the `$FF` and cannot take it back — release is a state
+  the envelope has entered, not a level held on a register.
+
+  **It is the pair to `E7.08`**, which writes a single `KOFF` and asserts the envelope reaches zero.
+  Together they bracket the mechanism: the first shows key-off works, the second that it is sampled
+  rather than edge-triggered. Either alone is weak — "the envelope is still `$7F`" would be
+  satisfied by a core whose key-off never worked at all. Verified by making `KOFF` act on the write:
+  `E8.07` fails at code 1 while `E7.08` still passes.
+
+  **The pulse has to be genuinely short, and the first version was not.** Written as two ordinary
+  `dsp_write`s the values sit about twelve SPC cycles apart, and that failed on Mesen2's **PAL**
+  image while passing on its NTSC one — the SPC is synchronised to a CPU clock that differs by
+  region, so the same sequence spans a different fraction of the poll interval. A test about the DSP
+  that changes answer with the video standard is measuring the harness. It now emits one `$F2`
+  select and two `$F3` stores, about five cycles apart: robust across all four core/region
+  combinations, and a truer statement of a row that is specifically about a short pulse.
+
 - **`E5.10` — BRR decoding keeps running for a released voice.** Key-off starts the release ramp;
   it does not stop the decoder, which goes on reading blocks, following loop points and setting
   `ENDX`. A core that treats key-off as "switch this voice off" gets the audible result right — the

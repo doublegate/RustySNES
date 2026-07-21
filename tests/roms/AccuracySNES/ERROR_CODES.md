@@ -2170,6 +2170,14 @@ Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DS
 |---|---|---|
 | 1 | `$02` | the envelope was not zero well after key-off, so release did not run to silence |
 
+### E8.07 — KOFF pulse collapses
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: KON/KOFF are sampled every second output sample, so a KOFF pulse shorter than the poll interval is never seen; E7.08 is the counterpart showing a single KOFF write does release). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the envelope left full scale after KOFF was set to $FF and cleared to $00 a few cycles later. The pair collapses into a single poll that reads $00, so nothing should have been released — a core acting on the write itself releases on the $FF and cannot take it back |
+
 ### E7.11 — GAIN linear increase
 
 Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc). Kind: scored.
