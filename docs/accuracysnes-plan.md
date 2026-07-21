@@ -774,6 +774,39 @@ The rate differences are small (2 and 4 clocks an access), so this row needs a t
 than the ones it has been given, not a better probe.
 
 
+### `D2.07` — HDMA preempts GP-DMA: design, and why the obvious test is vacuous
+
+`D2.07` says HDMA preempts a general-purpose DMA, which pauses and then resumes. The obvious test —
+run a large GP-DMA with HDMA enabled and check the destination is byte-correct — **asserts nothing**.
+A core that never preempts at all also copies the block correctly. It is the same shape as the
+withdrawn `A4.06`: verifying the right thing is present without establishing that the wrong thing
+would have been visible.
+
+**Two assertions are needed, one for each half of the claim:**
+
+1. **That preemption happened.** The HDMA landing page must contain its expected trail. HDMA writes
+   once per visible scanline, so if the GP-DMA is sized to span many lines and the HDMA trail is
+   present, HDMA necessarily ran *during* it. Without this, "resumed correctly" is unfalsifiable
+   because nothing establishes it was ever interrupted.
+2. **That the GP-DMA resumed correctly.** The destination must match the source at the first,
+   an interior, and the **last** byte. The last matters most: a core that loses the paused
+   byte-count resumes short, and only the tail shows it.
+
+**Sizing.** GP-DMA moves a byte per 8 master clocks, so a 4 KiB transfer is ~32768 clocks — about 24
+scanlines, giving HDMA two dozen chances to preempt. Start it immediately after `wait_vblank` so it
+runs through active display, where HDMA actually fires; a transfer confined to vblank would never be
+preempted and the test would silently become the vacuous version.
+
+**Reuse.** `setup_hdma_to_wram` already programs channel 0 to `$2180` with a table in the current
+bank and clears the landing page first, so a trailing zero means HDMA stopped rather than never
+started — that clearing is exactly what makes assertion 1 meaningful. Put the GP-DMA on a different
+channel (channel 1) so the two do not share registers.
+
+**Related rows now known to be writable without new research** (`T-04-D` was re-scoped after the
+blanket "under-sourced" blocker turned out to cover rows that are fully specified): `D1.08` (invalid
+A-bus addresses, with the ranges enumerated), `D1.13` (DMA reads update open bus, writes never do),
+`D1.14` (`$2180` B->A asymmetry), `D2.08` (`$420C` mid-frame starts the channel next line).
+
 ### The NMI-capable runtime — design, and it is smaller than it looks
 
 Five rows wait on this: `A6.11`/`A6.12` (`WAI` + IRQ with `I=1`, and wake latency), `A6.13` (`STP`),
