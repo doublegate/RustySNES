@@ -546,9 +546,26 @@ related or may not.
    clocks**: `338 x 4 + 2 x 6 = 1364`.
 
 2. **The stepping site is `Bus::advance_master`** (the `dot_accum >= MASTER_PER_DOT` branch). The
-   threshold becomes a function of the *current* `h` — 6 at 323 and 327, else 4. The comment above
-   that branch is load-bearing: `pre_tick_dot` is captured before the tick for HDMA ordering and
-   must stay there.
+   threshold becomes a function of the current `h` **and the line mode** — see the gating below.
+   The comment above that branch is load-bearing: `pre_tick_dot` is captured before the tick for
+   HDMA ordering and must stay there.
+
+   **The long dots must be suppressed on the short line, and gating on `h` alone is wrong.** The
+   short line (NTSC, interlace off, field 1, V=240) is **1360 clocks as 340 uniform 4-clock dots** —
+   the PPU skips a dot to shift the colour-burst phase and the irregular dots do not occur at all.
+   Applying "6 at 323 and 327" unconditionally would make it `338 x 4 + 2 x 6 = 1364`, i.e. a normal
+   line, silently deleting the short line entirely. bsnes and ares handle this by branching on the
+   line period first (`hperiod == 1360` uses a plain `hcounter >> 2`), and their comment says why.
+   So the predicate is:
+
+   | line | length | dot rule |
+   |---|---:|---|
+   | short (NTSC, non-interlace, field 1, V=240) | 1360 | all 340 dots at 4 — **no long dots** |
+   | normal | 1364 | 338 at 4, plus 323 and 327 at 6 |
+   | long (PAL, interlace, field 1, V=311) | 1368 | 341 dots; distribution **unknown**, bsnes/ares say so outright and reuse the 1364 formula |
+
+   Get the short-line suppression wrong and the error is invisible in every ordinary frame and
+   appears only on alternating NTSC fields — the hardest possible thing to notice from a test.
 
 3. **`HDMA_RUN_DOT` = `rustysnes_ppu::RENDER_DOT` = 276**, asserted equal by a unit test. 276 is
    below 323, so neither moves — but that assertion is a useful canary that the numbering did not
