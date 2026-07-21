@@ -575,6 +575,26 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E8.10` — `KOFF` and `KON` together silence a voice faster than `KOFF` alone.** `KOFF` starts
+  the release ramp, which takes about eight milliseconds; `KON` zeroes the envelope outright, and
+  since `KOFF` outranks it (`E8.04`) the attack never starts. The pair gets the zero without the
+  ramp, which is why drivers use it to cut a voice dead. Read early — one delay block, not the
+  twelve `E7.08` uses — so the ramp has started but not finished: `$68` for `KOFF` alone against
+  `$00` for the pair.
+
+  **The first version measured nothing, and the cause was a lesson already on record.** It wrote
+  `KOFF`, `KON`, then `KON = 0` back to back, which makes the key-on a ten-cycle pulse — and
+  `KON`/`KOFF` are sampled every second output sample, so the poll missed it entirely. Both runs
+  read within one of each other. That is the same mechanism `E8.07` is a whole test about, applied
+  by accident to my own setup. `Voice` gained a `post` list so the clear happens *after* the settle,
+  holding the bit across a poll and still leaving the register tidy.
+
+  Verified by skipping the envelope zeroing while `KOFF` is asserted, which fails it at code 2. Two
+  earlier injection attempts changed nothing — the first checked the wrong state (`KON` sets the
+  mode to Attack before the delay runs, so a "not Release" guard never fires). An injection that
+  does not move the verdict says nothing about the test until you find out which of the two is
+  wrong.
+
 - **`E9.13` — the echo FIR filters the two channels independently.** Each has its own eight-sample
   history and accumulator; only the `FIRx` coefficients are shared. A core keeping one history turns
   every echo to mono the moment feedback is on — and that is invisible to any test driving both

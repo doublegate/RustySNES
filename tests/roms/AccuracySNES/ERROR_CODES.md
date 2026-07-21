@@ -2222,6 +2222,15 @@ Provenance: **Contested** (KON/KOFF are sampled every second output sample, so w
 
 No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
+### E8.10 — KOFF+KON cuts faster
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: KON zeroes the envelope before its attack, and KOFF outranks KON, so the pair silences immediately where KOFF alone ramps). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the KOFF-only run had already reached silence, so the settle is too long and the comparison below cannot distinguish the two paths |
+| 2 | `$04` | KOFF and KON written together left the envelope mid-ramp, exactly as KOFF alone did — the KON's zeroing of the envelope was dropped along with its attack |
+
 ### E7.11 — GAIN linear increase
 
 Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc). Kind: scored.

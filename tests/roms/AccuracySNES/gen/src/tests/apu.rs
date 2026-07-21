@@ -105,6 +105,7 @@ pub fn all() -> Vec<Test> {
         e7_01(),
         e7_08(),
         e8_07(),
+        e8_10(),
         e7_11(),
         e7_14(),
         e7_15(),
@@ -1712,6 +1713,14 @@ struct Voice {
     /// starts from wherever the previous test left it. Two runs are only comparable if both begin
     /// from the same seed, which is what this buys.
     flg_reset: bool,
+    /// DSP writes made **after** `late_settle`, just before the result registers are read.
+    ///
+    /// For undoing something `late` set up. A bit written in `late` and cleared in `late` is a
+    /// pulse of about ten SPC cycles, which `KON`/`KOFF`'s two-sample poll will usually miss
+    /// entirely -- `E8.07` is a whole test about that. Clearing it here instead holds it across the
+    /// settle, where it is certain to be seen, and still leaves the register tidy for the next
+    /// test.
+    post: &'static [(u8, u8)],
     /// Delay loops after the `late` writes, before the registers are read.
     late_settle: u8,
 }
@@ -1731,6 +1740,7 @@ impl Voice {
             late: &[],
             pulse: None,
             flg_reset: false,
+            post: &[],
             late_settle: 0,
         }
     }
@@ -1810,6 +1820,9 @@ fn voice_program(sample: &[u8], v: Voice) -> Spc {
     }
     for _ in 0..v.late_settle {
         p.delay(0x00);
+    }
+    for &(reg, val) in v.post {
+        dsp_write(&mut p, reg, val);
     }
 
     dsp_read_to(&mut p, 0x7C, PORT1); // ENDX
@@ -3173,6 +3186,102 @@ fn e8_07() -> Test {
              rather than fixed, the same hedge E8.05 and E8.06 carry as \"usually\"",
         ),
         Kind::Golden,
+        None,
+    )
+}
+
+/// `KOFF` and `KON` written together silence a voice faster than `KOFF` alone.
+///
+/// `KOFF` starts the release ramp, which steps the envelope down by 8 every sample and takes about
+/// eight milliseconds to reach silence (`E7.08`). `KON` *zeroes* the envelope outright before its
+/// attack begins — and `E8.04` establishes that `KOFF` outranks `KON`, so the attack never starts.
+/// The combination therefore gets the zero without the ramp, which is why drivers use it to cut a
+/// voice dead rather than fade it.
+///
+/// A core that treats the pair as "`KOFF` wins, ignore the `KON` entirely" produces the ramp in
+/// both cases and is indistinguishable from one that got it right — *if* you only look after the
+/// ramp has finished. So this looks early.
+///
+/// # Two runs, read before the ramp completes
+///
+/// Both key off; only the second also keys on. The settle after them is deliberately short — one
+/// delay block rather than the twelve `E7.08` uses — so the release has visibly started but not
+/// finished:
+///
+/// | run | late writes | expected `ENVX` |
+/// |---|---|---|
+/// | 1 | `KOFF` | non-zero — mid-ramp |
+/// | 2 | `KOFF`, `KON` | `$00` — zeroed outright |
+///
+/// # The guard
+///
+/// Run 1 is asserted **non-zero** first, and it is the whole basis of the comparison. If the settle
+/// were long enough for the ramp to finish, both runs would read zero and the test would pass
+/// having demonstrated nothing — the failure mode that `C9.05` shipped with. A zero there means the
+/// window was mistimed, and says so in its own failure code rather than masquerading as a result.
+///
+/// Run 2 clears `KON` again afterwards. `KON` is write-triggered and non-persistent (`E8.04`), but
+/// leaving a bit set in a register the next test inherits is how one test's state becomes another
+/// test's mystery.
+fn e8_10() -> Test {
+    let off_only = voice_program(
+        &looping_sample(),
+        Voice {
+            late: &[(0x5C, 0x01)],
+            late_settle: 1,
+            ..Voice::direct_gain()
+        },
+    );
+    let off_and_on = voice_program(
+        &looping_sample(),
+        Voice {
+            late: &[(0x5C, 0x01), (0x4C, 0x01)],
+            post: &[(0x4C, 0x00)],
+            late_settle: 1,
+            ..Voice::direct_gain()
+        },
+    );
+
+    let mut a = Asm::new();
+    a.c("--- run 1: KOFF alone, read while the release ramp is still running ---");
+    upload_and_run_tagged(&mut a, &off_only, "_off");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.l("sta f:$7E01E0     ; ENVX, before the second upload overwrites the mailbox copy");
+    a.c("--- run 2: KOFF and KON together, same interval ---");
+    upload_and_run_tagged(&mut a, &off_and_on, "_both");
+    a.l("rep #$30");
+    a.l("lda f:$7E01E0");
+    a.l("and #$00FF");
+    a.record(176, "E8.10 ENVX after KOFF alone (must still be ramping)");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(177, "E8.10 ENVX after KOFF + KON together");
+    a.c("The guard: if the ramp already finished, both runs read zero and the comparison below");
+    a.c("would pass having compared nothing.");
+    a.l("sep #$20");
+    a.l("lda f:$7E01E0");
+    a.l("cmp #$00");
+    a.fail_if_eq(
+        "the KOFF-only run had already reached silence, so the settle is too long and the \
+         comparison below cannot distinguish the two paths",
+    );
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x00,
+        "KOFF and KON written together left the envelope mid-ramp, exactly as KOFF alone did — \
+         the KON's zeroing of the envelope was dropped along with its attack",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E8.10",
+        'E',
+        "KOFF+KON cuts faster",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: KON zeroes the envelope before its attack, and KOFF \
+             outranks KON, so the pair silences immediately where KOFF alone ramps",
+        ),
+        Kind::Scored,
         None,
     )
 }

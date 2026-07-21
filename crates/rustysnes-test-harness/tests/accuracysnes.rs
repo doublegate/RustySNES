@@ -978,3 +978,13 @@ fn echo_fir_crosstalk_is_reported() {
     println!("    slot 174  {:#04x}  byte 2, R low", report.meas[174]);
     println!("    slot 175  {:#04x}  byte 3, R high", report.meas[175]);
 }
+
+/// `E8.10`'s two envelope readings, reported so the timing window can be judged.
+#[test]
+fn koff_kon_cut_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E8.10 ENVX shortly after key-off:");
+    println!("    slot 176  {:#04x}  KOFF alone", report.meas[176]);
+    println!("    slot 177  {:#04x}  KOFF + KON", report.meas[177]);
+}
