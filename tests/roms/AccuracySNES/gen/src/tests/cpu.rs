@@ -81,6 +81,7 @@ pub fn all() -> Vec<Test> {
         a2_11(),
         a7_05(),
         a6_10(),
+        a8_04(),
     ]
 }
 
@@ -2370,6 +2371,65 @@ fn a6_10() -> Test {
         'A',
         "Emulation COP vector",
         Provenance::Documented("WDC 65C816 datasheet, vector table; SNESdev Wiki vectors"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The machine encoding is `$54 <dest> <src>` — the **destination bank byte comes first**, which is
+/// the reverse of how the mnemonic is written.
+///
+/// `MVN $00,$7E` assembles to `54 7E 00`. Assemblers hide this, so a core written against the
+/// mnemonic rather than the opcode table copies in the wrong direction and nothing in the source
+/// looks wrong. It is a one-byte mistake with no symptom short of data appearing where it should not.
+///
+/// The test emits the three bytes **by hand** rather than through `mvn`, because going through the
+/// assembler would test the assembler's convention rather than the core's decoding of the bytes.
+///
+/// Both interpretations are made to land somewhere known, so the failure names the mistake instead
+/// of producing garbage:
+///
+/// * decoded correctly, it reads bank `$00`'s signature `$A0` at `$00:8005` and writes it to
+///   `$7E:0300`;
+/// * decoded with the operands swapped, it reads `$7E:8005` — seeded `$3C` here for exactly this —
+///   and writes it to `$00:0300`, which is the same byte as `$7E:0300` through the low-WRAM mirror.
+///
+/// So one destination byte distinguishes the two, and the value found there says which way the
+/// operands were read.
+fn a8_04() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("Seed the byte a swapped decode would read, and the destination it would leave alone.");
+    a.l("sep #$20");
+    a.l("lda #$3C");
+    a.l("sta f:$7E8005     ; what `read from bank $7E` would find");
+    a.l("lda #$5A");
+    a.l("sta f:$7E0300     ; the destination, so 'untouched' is distinguishable too");
+    a.c("MVN of one byte: X = source offset, Y = destination offset, A = count - 1.");
+    a.l("rep #$30");
+    a.l("ldx #$8005");
+    a.l("ldy #$0300");
+    a.l("lda #$0000        ; one byte");
+    a.c("$54 then DESTINATION then SOURCE. Written as bytes so this tests the core's decoding");
+    a.c("rather than ca65's operand order; `mvn #$7E,#$00` would assemble to exactly these.");
+    a.l(".byte $54, $7E, $00");
+    a.l("phk");
+    a.l("plb               ; MVN leaves DBR = destination bank; restore it before reading back");
+    a.l("sep #$20");
+    a.l("lda f:$7E0300");
+    a.assert_a8(
+        0xA0,
+        "MVN read its operands in mnemonic order rather than machine order — $3C means source and \
+         destination were swapped, and $5A means the move did not happen at all",
+    );
+    a.l("rep #$30");
+    a.finish(
+        "A8.04",
+        'A',
+        "MVN encodes dest first",
+        Provenance::Documented("WDC 65C816 datasheet, opcode table; 6502.org 65c816opcodes"),
         Kind::Scored,
         None,
     )

@@ -477,6 +477,14 @@ Provenance: **Documented** (WDC 65C816 datasheet, vector table; SNESdev Wiki vec
 |---|---|---|
 | 1 | `$02` | COP in emulation mode did not vector through $FFF4 — the $B0 marker means it took the native table's $FFE4 instead, and $00 means it reached neither handler |
 
+### A8.04 — MVN encodes dest first
+
+Provenance: **Documented** (WDC 65C816 datasheet, opcode table; 6502.org 65c816opcodes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | MVN read its operands in mnemonic order rather than machine order — $3C means source and destination were swapped, and $5A means the move did not happen at all |
+
 ## Group C
 
 ### C1.01 — OAM word write/read
