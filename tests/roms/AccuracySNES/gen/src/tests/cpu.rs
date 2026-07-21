@@ -82,6 +82,10 @@ pub fn all() -> Vec<Test> {
         a7_05(),
         a6_10(),
         a8_04(),
+        a1_08(),
+        a1_09(),
+        a4_06(),
+        a8_05(),
     ]
 }
 
@@ -995,6 +999,140 @@ fn a7_04() -> Test {
              which is agreement, not authority",
         ),
         Kind::Golden,
+        None,
+    )
+}
+
+/// `CLC; XCE` in native mode changes the `E` flag and nothing else.
+///
+/// `XCE` swaps carry with `E`. Entering it native with carry clear, both end clear, so the whole
+/// instruction is a no-op — and that is the point. A core that treats any `XCE` as a mode
+/// *transition* and re-initialises on it (resetting register widths, truncating the high bytes of
+/// `A`/`X`/`Y`, forcing the stack to page 1) passes every test that only checks the flag and
+/// corrupts the machine here.
+fn a1_08() -> Test {
+    let mut a = Asm::new();
+    a.c("Plant distinguishable 16-bit values in all three registers, then execute the no-op XCE.");
+    a.l("rep #$30");
+    a.l("lda #$1234");
+    a.l("ldx #$5678");
+    a.l("ldy #$9ABC");
+    a.l("clc");
+    a.l("xce               ; C=0 in, E=0 out: nothing should change");
+    a.c("Widths first: if m or x were disturbed the comparisons below would be 8-bit and could");
+    a.c("pass on the low byte alone.");
+    a.l("php");
+    a.l("sep #$20");
+    a.l("pla");
+    a.l("and #$30");
+    a.assert_a8(0x00, "CLC/XCE in native mode disturbed the m/x width bits");
+    a.l("rep #$30");
+    a.assert_x16(0x5678, "CLC/XCE in native mode disturbed X");
+    a.assert_y16(0x9ABC, "CLC/XCE in native mode disturbed Y");
+    a.finish(
+        "A1.08",
+        'A',
+        "CLC/XCE is a no-op",
+        Provenance::Documented("WDC datasheet: XCE exchanges carry and E, nothing else"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `REP #$30` in emulation mode cannot clear `m` or `x`.
+///
+/// Hardware forces `m = x = 1` for as long as `E = 1`, and `REP` does not override it. The
+/// consequence that makes this observable is the one the DSL's `exit_emulation` warns about:
+/// leaving emulation widens nothing, because `m`/`x` were held at 1 the whole time and stay there.
+///
+/// So the test reads the width bits *after* returning to native mode. Doing it inside emulation
+/// would be much weaker — `P` bits 4 and 5 are `B` and unused there, not `x` and `m`, so the
+/// obvious in-emulation check reads a register that does not carry the answer.
+fn a1_09() -> Test {
+    let mut a = Asm::new();
+    a.c("Enter emulation, attempt to widen both registers, then leave.");
+    a.l("rep #$30");
+    a.enter_emulation();
+    a.l("rep #$30           ; must be ignored: E=1 pins m=x=1");
+    a.enter_native();
+    a.c("Native again. If REP had taken effect, m and x would now be 0.");
+    a.l("php");
+    a.l("pla");
+    a.l("and #$30");
+    a.assert_a8(0x30, "REP #$30 cleared m/x while E=1");
+    a.finish(
+        "A1.09",
+        'A',
+        "REP cannot widen in E=1",
+        Provenance::Documented("WDC datasheet; SNESdev Errata, 65C816 section"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `JMP (a,X)` forms its pointer address **within one bank**, wrapping rather than carrying.
+///
+/// `$FFFE + X` must stay in the current program bank. A core that computes the pointer address as
+/// a flat 24-bit sum reads it from the next bank instead — here that is bank `$01` ROM, so it
+/// jumps somewhere arbitrary rather than to the continuation.
+///
+/// # What this test does and does not cover
+///
+/// The rule has two halves: the pointer comes from the **program** bank, and the address **wraps**
+/// in it. Tests run from bank `$00`, where "program bank" and "bank `$00`" are indistinguishable,
+/// so only the wrap is asserted here — the same split `A4.02` makes for `JMP (a)`. The errata's
+/// worked example uses `PBR=$05, X=$04`; the wrap is the part reproducible from bank `$00`.
+///
+/// The wrapped address is `$1000` rather than the errata's `$0002` because low direct page is live
+/// scratch for other tests in this battery, and a pointer landing on another test's variable would
+/// be a collision rather than a measurement.
+fn a4_06() -> Test {
+    let mut a = Asm::new();
+    a.c("$FFFE + $1002 = $1_1000, which must wrap to $1000 in this bank.");
+    a.l("rep #$30");
+    a.l("lda #.LOWORD(@landed)");
+    a.l("sta f:$7E1000     ; low WRAM is mirrored at $00:1000");
+    a.l("ldx #$1002");
+    a.l("jmp ($FFFE,x)");
+    a.label("landed");
+    a.l("nop");
+    a.finish(
+        "A4.06",
+        'A',
+        "JMP (a,X) wraps in bank",
+        Provenance::Documented("SNESdev Errata, 65C816 section (worked example PBR=$05)"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `MVN` wraps `X` inside the source bank and `Y` inside the destination bank, independently.
+///
+/// The index registers are 16-bit offsets into their own banks; neither carries into the next one.
+/// Starting `X` at `$FFFF` and moving two bytes therefore reads `$7E:FFFF` and then `$7E:0000` —
+/// wrapping to the bottom of the *same* bank, not advancing into `$7F`.
+///
+/// `Y` is started well away from its own wrap so the two are separable: if the assertion on `X`
+/// and the assertion on `Y` could both be explained by one shared counter, the test would not show
+/// that they wrap independently.
+fn a8_05() -> Test {
+    let mut a = Asm::new();
+    a.c("X starts at the top of the source bank, Y in the middle of the destination bank.");
+    a.l("rep #$30");
+    a.l("ldx #$FFFF");
+    a.l("ldy #$1000");
+    a.l("lda #$0001        ; count-1: two bytes moved");
+    a.l("mvn #$7E,#$7E    ; literal bank numbers; `mvn $7E,$7E` would mean bank $00");
+    a.l("phk");
+    a.l("plb               ; MVN left DBR = $7E");
+    a.assert_x16(0x0001, "X did not wrap inside the source bank");
+    a.assert_y16(0x1002, "Y did not advance independently of X");
+    a.finish(
+        "A8.05",
+        'A',
+        "MVN index wrap",
+        Provenance::Documented("WDC datasheet: the block-move indices are bank offsets"),
+        Kind::Scored,
         None,
     )
 }

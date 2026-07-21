@@ -485,6 +485,39 @@ Provenance: **Documented** (WDC 65C816 datasheet, opcode table; 6502.org 65c816o
 |---|---|---|
 | 1 | `$02` | MVN read its operands in mnemonic order rather than machine order — $3C means source and destination were swapped, and $5A means the move did not happen at all |
 
+### A1.08 — CLC/XCE is a no-op
+
+Provenance: **Documented** (WDC datasheet: XCE exchanges carry and E, nothing else). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | CLC/XCE in native mode disturbed the m/x width bits |
+| 2 | `$04` | CLC/XCE in native mode disturbed X |
+| 3 | `$06` | CLC/XCE in native mode disturbed Y |
+
+### A1.09 — REP cannot widen in E=1
+
+Provenance: **Documented** (WDC datasheet; SNESdev Errata, 65C816 section). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | REP #$30 cleared m/x while E=1 |
+
+### A4.06 — JMP (a,X) wraps in bank
+
+Provenance: **Documented** (SNESdev Errata, 65C816 section (worked example PBR=$05)). Kind: scored.
+
+No failure codes (control-flow test: reaching the end is the pass).
+
+### A8.05 — MVN index wrap
+
+Provenance: **Documented** (WDC datasheet: the block-move indices are bank offsets). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | X did not wrap inside the source bank |
+| 2 | `$04` | Y did not advance independently of X |
+
 ## Group C
 
 ### C1.01 — OAM word write/read

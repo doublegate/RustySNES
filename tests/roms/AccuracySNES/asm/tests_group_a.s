@@ -3296,6 +3296,178 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A1.08 — CLC/XCE is a no-op
+; provenance: Documented (WDC datasheet: XCE exchanges carry and E, nothing else)
+.proc test_a1_08
+    .a16
+    .i16
+    ; Plant distinguishable 16-bit values in all three registers, then execute the no-op XCE.
+    rep #$30
+    .a16
+    .i16
+    lda #$1234
+    ldx #$5678
+    ldy #$9ABC
+    clc
+    xce               ; C=0 in, E=0 out: nothing should change
+    ; Widths first: if m or x were disturbed the comparisons below would be 8-bit and could
+    ; pass on the low byte alone.
+    php
+    sep #$20
+    .a8
+    pla
+    and #$30
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    rep #$30
+    .a16
+    .i16
+    cpx #$5678
+    beq :+
+    jmp @fail2
+  :
+    cpy #$9ABC
+    beq :+
+    jmp @fail3
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; CLC/XCE in native mode disturbed the m/x width bits
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; CLC/XCE in native mode disturbed X
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; CLC/XCE in native mode disturbed Y
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A1.09 — REP cannot widen in E=1
+; provenance: Documented (WDC datasheet; SNESdev Errata, 65C816 section)
+.proc test_a1_09
+    .a16
+    .i16
+    ; Enter emulation, attempt to widen both registers, then leave.
+    rep #$30
+    .a16
+    .i16
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+    rep #$30           ; must be ignored: E=1 pins m=x=1
+    .a16
+    .i16
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    ; Native again. If REP had taken effect, m and x would now be 0.
+    php
+    pla
+    and #$30
+    cmp #$30
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; REP #$30 cleared m/x while E=1
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A4.06 — JMP (a,X) wraps in bank
+; provenance: Documented (SNESdev Errata, 65C816 section (worked example PBR=$05))
+.proc test_a4_06
+    .a16
+    .i16
+    ; $FFFE + $1002 = $1_1000, which must wrap to $1000 in this bank.
+    rep #$30
+    .a16
+    .i16
+    lda #.LOWORD(@landed)
+    sta f:$7E1000     ; low WRAM is mirrored at $00:1000
+    ldx #$1002
+    jmp ($FFFE,x)
+@landed:
+    nop
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A8.05 — MVN index wrap
+; provenance: Documented (WDC datasheet: the block-move indices are bank offsets)
+.proc test_a8_05
+    .a16
+    .i16
+    ; X starts at the top of the source bank, Y in the middle of the destination bank.
+    rep #$30
+    .a16
+    .i16
+    ldx #$FFFF
+    ldy #$1000
+    lda #$0001        ; count-1: two bytes moved
+    mvn #$7E,#$7E    ; literal bank numbers; `mvn $7E,$7E` would mean bank $00
+    phk
+    plb               ; MVN left DBR = $7E
+    cpx #$0001
+    beq :+
+    jmp @fail1
+  :
+    cpy #$1002
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; X did not wrap inside the source bank
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; Y did not advance independently of X
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C1.01 — OAM word write/read
 ; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
 .proc test_c1_01
@@ -19725,7 +19897,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 235
+    .word 239
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -19787,6 +19959,10 @@ _test_entries:
     .faraddr test_a7_05
     .faraddr test_a6_10
     .faraddr test_a8_04
+    .faraddr test_a1_08
+    .faraddr test_a1_09
+    .faraddr test_a4_06
+    .faraddr test_a8_05
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -20025,6 +20201,10 @@ _test_flags:
     .byte $01   ; A7.05
     .byte $01   ; A6.10
     .byte $01   ; A8.04
+    .byte $01   ; A1.08
+    .byte $01   ; A1.09
+    .byte $01   ; A4.06
+    .byte $01   ; A8.05
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -20263,6 +20443,10 @@ _test_names:
     .addr @n_a7_05
     .addr @n_a6_10
     .addr @n_a8_04
+    .addr @n_a1_08
+    .addr @n_a1_09
+    .addr @n_a4_06
+    .addr @n_a8_05
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -20614,6 +20798,18 @@ _test_names:
 @n_a8_04:
     .byte 22
     .byte "MVN encodes dest first"
+@n_a1_08:
+    .byte 18
+    .byte "CLC/XCE is a no-op"
+@n_a1_09:
+    .byte 23
+    .byte "REP cannot widen in E=1"
+@n_a4_06:
+    .byte 23
+    .byte "JMP (a,X) wraps in bank"
+@n_a8_05:
+    .byte 14
+    .byte "MVN index wrap"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"

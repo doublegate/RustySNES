@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Four Group A mode/addressing assertions (`A1.08`, `A1.09`, `A4.06`, `A8.05`).** All four are
+  `Documented`-tier and all four pass on RustySNES and on both cross-validation references.
+
+  - `A1.08` — `CLC; XCE` entered with carry clear is a **no-op**, and the test checks the machine is
+    genuinely untouched rather than just the flag: register widths and the full 16 bits of `X`/`Y`.
+    A core that treats every `XCE` as a mode transition and re-initialises on it passes a
+    flag-only check and corrupts the machine here.
+  - `A1.09` — `REP #$30` cannot clear `m`/`x` while `E = 1`. The width bits are read **after**
+    returning to native mode, because in emulation `P` bits 4 and 5 are `B` and unused, so the
+    obvious in-emulation check reads a register that does not carry the answer.
+  - `A4.06` — `JMP (a,X)` forms its pointer address **within one bank**, wrapping rather than
+    carrying. Only the wrap half is asserted: tests run from bank `$00`, where "program bank" and
+    "bank `$00`" cannot be told apart — the same split `A4.02` already makes for `JMP (a)`.
+  - `A8.05` — `MVN` wraps `X` inside the source bank and advances `Y` in the destination bank
+    independently, with `Y` started away from its own wrap so one shared counter could not explain
+    both results.
+
+  Dossier coverage moves **241 → 245 of 443**.
+
 - **`MVN`'s machine encoding puts the destination bank first (`A8.01`).** `MVN $00,$7E` assembles to
   `54 7E 00` — the reverse of how the mnemonic reads. Assemblers hide it, so a core written against
   the mnemonic rather than the opcode table copies in the wrong direction with nothing in the source
