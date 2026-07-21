@@ -59,6 +59,7 @@ pub fn all() -> Vec<Test> {
         e2_01(),
         e2_05(),
         e10_01(),
+        e10_05(),
         e1_14(),
         e2_04(),
         e3_14(),
@@ -590,6 +591,154 @@ fn e3_02() -> Test {
              timer's stage-2 divider and stage-3 output counter",
         ),
         Kind::Scored,
+        None,
+    )
+}
+
+/// What a soft reset leaves behind — a golden vector, because the two sources disagree.
+///
+/// `FLG` bit 7 is the DSP's soft reset. While it is asserted the chip behaves as though `FLG` held
+/// `$E0`: reset, muted, echo writes disabled, every voice forced into release with a zero envelope.
+/// That much both sources agree on and it is asserted here. What they do **not** agree on is what
+/// `ENDX` reads afterwards — nocash says `$FF`, anomie says `0` — and the dossier marks the row
+/// `[CONFLICT]` and asks for a golden vector by name.
+///
+/// | slot | reading | why |
+/// |---|---|---|
+/// | 194 | `ENVX` before the reset | the guard: there has to be an envelope for the reset to clear |
+/// | 195 | `ENVX` with the reset asserted | `$00` — the "behaves as `$E0`" half, and it is asserted |
+/// | 196 | `ENDX` with the reset asserted | the contested one, recorded and scored not at all |
+///
+/// # Why the envelope half can be asserted and the `ENDX` half cannot
+///
+/// "Every voice is forced to release with a zero envelope" is a *behaviour*, stated the same way by
+/// both sources and observable without knowing which of them is right about anything else. `ENDX`
+/// is a *register value* the two sources contradict each other on, and a battery that asserted
+/// either would be picking a source rather than measuring a machine — which is the whole reason
+/// `Kind::Golden` exists.
+///
+/// The voice is keyed on and left to settle at full scale first, so slot 194 reads `$7F` and slot
+/// 195's zero means the reset cleared something. Without that, a DSP that had simply never started
+/// would report the same `$00` and look like a correct implementation.
+///
+/// # The settle after the reset is long, and the first version's was not
+///
+/// "Forced into release" is not the same claim as "zeroed on the spot". RustySNES zeroes the
+/// envelope in the cycle the latched reset bit is seen; snes9x starts the release ramp and lets it
+/// run down at the usual −8 per sample. Both end at silence; they take wildly different times to
+/// get there.
+///
+/// The first version waited about a sample and a half and asserted `$00`, which is not a test of
+/// the row at all — it is a test of *which* of those two implementations a core chose. snes9x and
+/// Mesen2 both failed it, and two independent references disagreeing is a statement about the test
+/// rather than about the emulator. The settle is now long enough that a ramped release has reached
+/// zero too, so what is asserted is the behaviour both sources describe: after the reset, the voice
+/// is silent. A core that ignores the bit still reads `$7F` and still fails.
+///
+/// # What the contested reading turned out to be
+///
+/// Neither `$FF` nor `$00`: RustySNES and snes9x both report `$01`, the bit the sample's own loop
+/// had already set. Both preserve `ENDX` across the reset rather than forcing it either way, which
+/// is a third answer to a two-way conflict — and precisely the kind of thing a golden vector exists
+/// to notice.
+///
+/// # The reset is released before the program ends
+///
+/// A DSP left in reset produces nothing for every test after this one. `voice_program` opens by
+/// writing `FLG $20`, so the battery would recover anyway — but relying on the next test to undo
+/// this one's state is how an ordering dependency gets built, and this test already has one
+/// (`E8.07`) in living memory to learn from.
+fn e10_05() -> Test {
+    let mut p = Spc::new();
+    let addr = p.data_first(IMAGE_BASE, &looping_sample());
+    p.mov_x_imm(0xEF).mov_sp_x();
+    let dir = u16::from(DIR_PAGE) << 8;
+    let [lo, hi] = addr.to_le_bytes();
+    p.mov_a_imm(lo).mov_abs_a(dir);
+    p.mov_a_imm(hi).mov_abs_a(dir + 1);
+    p.mov_a_imm(lo).mov_abs_a(dir + 2);
+    p.mov_a_imm(hi).mov_abs_a(dir + 3);
+    dsp_write(&mut p, 0x6C, 0x20); // FLG: running, unmuted, echo writes off
+    dsp_write(&mut p, 0x5C, 0x00); // KOF
+    dsp_write(&mut p, 0x3D, 0x00); // NON
+    dsp_write(&mut p, 0x4D, 0x00); // EON
+    dsp_write(&mut p, 0x2D, 0x00); // PMON
+    dsp_write(&mut p, 0x5D, DIR_PAGE);
+    dsp_write(&mut p, 0x0C, 0x7F); // MVOLL
+    dsp_write(&mut p, 0x1C, 0x7F); // MVOLR
+    dsp_write(&mut p, 0x00, 0x7F); // VOL L
+    dsp_write(&mut p, 0x01, 0x7F); // VOL R
+    dsp_write(&mut p, 0x02, 0x00); // PITCH low
+    dsp_write(&mut p, 0x03, 0x10); // PITCH high
+    dsp_write(&mut p, 0x04, 0x00); // SRCN
+    dsp_write(&mut p, 0x06, 0x00); // ADSR2
+    dsp_write(&mut p, 0x07, 0x7F); // GAIN: direct, full scale
+    dsp_write(&mut p, 0x05, 0x00); // ADSR1 bit 7 clear
+    dsp_write(&mut p, 0x7C, 0x00); // ENDX, so a set bit later is this run's
+    dsp_write(&mut p, 0x4C, 0x01); // KON voice 0
+    p.delay(0x00);
+    dsp_write(&mut p, 0x4C, 0x00);
+    p.delay(0x40); // long enough for the envelope to reach GAIN and the sample to loop
+    dsp_read_to(&mut p, 0x08, PORT1); // ENVX before the reset: the guard
+
+    dsp_write(&mut p, 0x6C, 0xE0); // soft reset, with mute and echo-write-disable alongside
+    p.delay(0xC0); // long enough for a *ramped* release to have visibly fallen, not just an instant one
+    dsp_read_to(&mut p, 0x08, PORT2); // ENVX under reset
+    dsp_read_to(&mut p, 0x7C, PORT3); // ENDX under reset: the contested reading
+    dsp_write(&mut p, 0x6C, 0x20); // release it, rather than leaving the DSP dead for later tests
+    p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &p);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(194, "E10.05 ENVX before the soft reset (the guard)");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(195, "E10.05 ENVX with FLG bit 7 asserted");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.record(
+        196,
+        "E10.05 ENDX with FLG bit 7 asserted (nocash $FF, anomie $00)",
+    );
+    a.c("The guard: a DSP that never started reads zero below without the reset doing anything.");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x7C,
+        0x7F,
+        "the envelope was not at full scale before the reset, so the zero below says nothing about \
+         what the reset did",
+    );
+    a.c("Both sources agree the reset forces every voice to release with a zero envelope.");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x00,
+        0x00,
+        "asserting FLG bit 7 left the envelope where it was, and the settle here is long enough \
+         that even a release that ramps rather than zeroing on the spot would have reached silence \
+         — so the soft reset is not forcing voices into release at all, and a driver using it to \
+         silence the chip would still hear the last note",
+    );
+    a.c("ENDX is recorded and nothing more: the two sources contradict each other outright.");
+    a.l("sep #$20");
+    a.l("lda #$03          ; variant 1 = captured; slot 196 is the contested reading");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E10.05",
+        'E',
+        "Soft reset acts as $E0",
+        Provenance::Contested(
+            "both sources agree FLG bit 7 makes the DSP behave as $E0 and force every voice into \
+             release, and contradict each other on what ENDX then reads: nocash says $FF, anomie \
+             says 0. The dossier marks the row [CONFLICT] and asks for a golden vector",
+        ),
+        Kind::Golden,
         None,
     )
 }

@@ -1137,3 +1137,20 @@ fn dsp_sample_period_is_reported() {
     );
     println!("    slot 193  {:#04x}  ticks (expect 10)", report.meas[193]);
 }
+
+/// Report `E10.05`'s soft-reset readings, including the contested `ENDX`.
+#[test]
+fn dsp_soft_reset_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E10.05 with FLG bit 7 asserted:");
+    println!(
+        "    slot 194  {:#04x}  ENVX before (the guard)",
+        report.meas[194]
+    );
+    println!("    slot 195  {:#04x}  ENVX under reset", report.meas[195]);
+    println!(
+        "    slot 196  {:#04x}  ENDX under reset (nocash $FF, anomie $00)",
+        report.meas[196]
+    );
+}

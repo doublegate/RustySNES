@@ -575,6 +575,20 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E10.05` — what does a DSP soft reset leave behind?** A **golden vector**; the dossier marks the
+  row `[CONFLICT]` and asks for one by name. Both sources agree `FLG` bit 7 makes the chip behave as
+  `$E0` and force every voice into release, and that half **is** asserted: `ENVX` reads `$7F` before
+  the reset and `$00` after. They contradict each other on what `ENDX` then reads — nocash `$FF`,
+  anomie `$00` — and RustySNES and snes9x both report `$01`, the bit the sample's own loop had
+  already set. Both preserve `ENDX` across the reset rather than forcing it either way, which is a
+  third answer to a two-way question. Verified by removing the reset's effect on the envelope, which
+  fails the test.
+  The first version of the assertion was wrong in an instructive way and the plan doc records it:
+  it waited a sample and a half and demanded `$00`, which tests *which* implementation a core chose
+  — RustySNES zeroes on the spot, snes9x runs the ordinary release ramp — rather than whether it
+  honours the bit at all. Both references failed it. The settle now gives a ramped release time to
+  reach zero as well.
+
 - **`E10.01` — is the DSP's output sample exactly 32 SPC cycles?** Release steps the envelope down
   by a fixed 8 per output sample, so a voice keyed off from `GAIN` `$7F` (envelope `$7F0` = 2032)
   takes a known 254 *samples* to go silent — and timing that with timer 0 converts it to *cycles*.

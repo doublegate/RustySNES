@@ -1832,6 +1832,15 @@ Provenance: **Documented** (fullsnes and anomie: the SPC700's 1.024 MHz clock an
 | 1 | `$02` | the envelope was not at full scale when the voice was keyed off, so the ramp below was shorter than the arithmetic assumes — or absent entirely |
 | 2 | `$04` | a full release ramp did not take the ten timer-0 ticks that 254 samples at 32 SPC cycles each come to. The envelope was full scale and the release step is fixed, so what is wrong is the sample period: 64 cycles would read 5 after wrapping, and 16 would read 5 outright |
 
+### E10.05 — Soft reset acts as $E0
+
+Provenance: **Contested** (both sources agree FLG bit 7 makes the DSP behave as $E0 and force every voice into release, and contradict each other on what ENDX then reads: nocash says $FF, anomie says 0. The dossier marks the row [CONFLICT] and asks for a golden vector). Kind: golden vector, never scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the envelope was not at full scale before the reset, so the zero below says nothing about what the reset did |
+| 2 | `$04` | asserting FLG bit 7 left the envelope where it was, and the settle here is long enough that even a release that ramps rather than zeroing on the spot would have reached silence — so the soft reset is not forcing voices into release at all, and a driver using it to silence the chip would still hear the last note |
+
 ### E1.14 — XCN costs five cycles
 
 Provenance: **Documented** (the SNESdev Wiki SPC700 reference and fullsnes both give XCN as 5 cycles, against 2 for NOP). Kind: scored.

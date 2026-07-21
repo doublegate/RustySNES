@@ -876,6 +876,30 @@ Recorded rather than fixed, because the general lesson is the useful part: **for
 compares two measurements, ask what the difference would physically be before asking whether the
 numbers match.** Here the answer was "nothing observable", and no amount of guarding fixes that.
 
+### "Silenced" and "zeroed on the spot" are different claims
+
+`E10.05` asserts that `FLG` bit 7 forces every voice into release. Its first version waited about a
+sample and a half after the reset and asserted `ENVX == $00`. snes9x and Mesen2 both failed it.
+
+Two independent references disagreeing is a statement about the test, and it was right: RustySNES
+zeroes the envelope in the cycle the latched reset bit is seen, while snes9x starts the ordinary
+release ramp and lets it run down at −8 per sample. Both reach silence; they take wildly different
+times to get there. The assertion was measuring **which implementation a core chose**, not whether
+it honoured the bit.
+
+Lengthening the settle so a ramped release has also reached zero made all three agree, and left the
+assertion testing what the sources actually say. A core that ignores the bit still reads `$7F` and
+still fails — the discrimination is unchanged, only the false precision is gone.
+
+**The rule: when a source says a state is *entered*, do not assert the state is *arrived at
+instantly*.** Give the mechanism the time the machine gives it, then assert the destination.
+
+The row's contested half came out interestingly too. The dossier records a two-way conflict over
+what `ENDX` reads after a reset — nocash `$FF`, anomie `$00` — and RustySNES and snes9x both report
+`$01`, the bit the sample's own loop had already set. Both preserve `ENDX` across the reset rather
+than forcing it either way, which is a third answer to a two-way question, and exactly what a golden
+vector is for.
+
 ### A mailbox off-by-one reads as an emulator bug
 
 `E1.14`'s first run reported 256 `NOP` costing ten timer-0 ticks — 1280 cycles, five cycles per
