@@ -4662,6 +4662,71 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A6.14 — RTI pull matches mode
+; provenance: Documented (WDC datasheet: RTI pulls PBR in native mode only)
+.proc test_a6_14
+    .a16
+    .i16
+    bra @body
+@brkh:
+    ; The handler does nothing but return: this row is about RTI's pull count, and any work
+    ; here would need its own register discipline to stay out of the way of that.
+    rti
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    rep #$20
+    .a16
+    lda #@brkh
+    sta a:V_BRK_VEC
+    ; Park the stack somewhere unambiguous inside page 1, then drop to emulation mode.
+    lda #$01F0
+    tcs
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+    tsc
+    sta f:$7E01A0     ; S before the interrupt (low byte; SH is pinned to $01 here)
+    brk
+    .byte $EA         ; BRK's signature byte, skipped by the pushed PC+2
+    tsc
+    sta f:$7E01A2     ; S after RTI returned
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    ; Equal means RTI pulled exactly what the interrupt pushed. One higher means it also took
+    ; a PBR byte that emulation mode never pushed.
+    lda f:$7E01A0
+    cmp f:$7E01A2
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; emulation-mode RTI did not restore S — it pulled a different number of bytes than the interrupt pushed
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; B1.01 — MEMSEL selects FastROM
 ; provenance: Documented (SNESdev Wiki, Memory map / timing; fullsnes)
 .proc test_b1_01
@@ -21588,7 +21653,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 260
+    .word 261
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -21669,6 +21734,7 @@ _test_entries:
     .faraddr test_a4_11
     .faraddr test_a4_12
     .faraddr test_a6_13
+    .faraddr test_a6_14
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -21932,6 +21998,7 @@ _test_flags:
     .byte $01   ; A4.11
     .byte $01   ; A4.12
     .byte $01   ; A6.13
+    .byte $01   ; A6.14
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -22195,6 +22262,7 @@ _test_names:
     .addr @n_a4_11
     .addr @n_a4_12
     .addr @n_a6_13
+    .addr @n_a6_14
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -22609,6 +22677,9 @@ _test_names:
 @n_a6_13:
     .byte 21
     .byte "IRQ handler PBR = $00"
+@n_a6_14:
+    .byte 21
+    .byte "RTI pull matches mode"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"

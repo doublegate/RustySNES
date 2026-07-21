@@ -101,6 +101,7 @@ pub fn all() -> Vec<Test> {
         a4_11(),
         a4_12(),
         a6_13(),
+        a6_14(),
     ]
 }
 
@@ -1552,6 +1553,78 @@ fn a6_13() -> Test {
         Provenance::Documented(
             "WDC datasheet: the vector is 16-bit, so the handler runs in bank 0",
         ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `RTI` pulls a number of bytes that matches the mode: native takes `PBR`, emulation does not.
+///
+/// A native interrupt pushes `PBR`, `PCH`, `PCL`, `P` — four bytes — and `RTI` pulls all four. An
+/// emulation-mode interrupt pushes three and `RTI` pulls three. A core that uses one count for both
+/// modes leaves the stack pointer off by one every time an interrupt returns, which corrupts
+/// whatever the interrupted code had below it.
+///
+/// # Why `S` is the observable, and not "did we return to the right place"
+///
+/// Pulling one byte too many still returns to the *correct* `PC`: `P`, `PCL` and `PCH` come off
+/// first and only the extra `PBR` byte is spurious. So a returned-to-the-right-place check would
+/// pass on a broken core — vacuous in the way that withdrew `A4.06`. What the extra pull actually
+/// disturbs is `S`, which ends one higher than it started.
+///
+/// So the test brackets the whole interrupt with a stack-pointer reading: `S` before the `BRK` and
+/// `S` after the `RTI` must be identical. That is also why this does not need the wrong answer to
+/// crash — unlike `A6.09`, where a mis-vectoring core executes arbitrary memory, here both a
+/// correct and a broken core return normally and differ only in a register.
+///
+/// Only the low byte of `S` is compared: emulation mode forces `m = 1`, so a 16-bit store is not
+/// available there, and the high byte is pinned to `$01` by the mode anyway. An off-by-one is
+/// entirely visible in the low byte.
+///
+/// `BRK`'s signature byte is skipped by the push of `PC + 2`, so the `RTI` lands after it — the
+/// same mechanism `A6.07` asserts directly.
+fn a6_14() -> Test {
+    let mut a = Asm::new();
+    a.l("bra @body");
+    a.label("brkh");
+    a.c("The handler does nothing but return: this row is about RTI's pull count, and any work");
+    a.c("here would need its own register discipline to stay out of the way of that.");
+    a.l("rti");
+    a.label("body");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("rep #$20");
+    a.l("lda #@brkh");
+    a.l("sta a:V_BRK_VEC");
+    a.c("Park the stack somewhere unambiguous inside page 1, then drop to emulation mode.");
+    a.l("lda #$01F0");
+    a.l("tcs");
+    a.enter_emulation();
+    a.l("tsc");
+    a.l("sta f:$7E01A0     ; S before the interrupt (low byte; SH is pinned to $01 here)");
+    a.l("brk");
+    a.l(".byte $EA         ; BRK's signature byte, skipped by the pushed PC+2");
+    a.l("tsc");
+    a.l("sta f:$7E01A2     ; S after RTI returned");
+    a.enter_native();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.c("Equal means RTI pulled exactly what the interrupt pushed. One higher means it also took");
+    a.c("a PBR byte that emulation mode never pushed.");
+    a.l("lda f:$7E01A0");
+    a.l("cmp f:$7E01A2");
+    a.fail_if_ne(
+        "emulation-mode RTI did not restore S — it pulled a different number of bytes than the \
+         interrupt pushed",
+    );
+    a.finish(
+        "A6.14",
+        'A',
+        "RTI pull matches mode",
+        Provenance::Documented("WDC datasheet: RTI pulls PBR in native mode only"),
         Kind::Scored,
         None,
     )

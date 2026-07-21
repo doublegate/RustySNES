@@ -646,6 +646,14 @@ Provenance: **Documented** (WDC datasheet: the vector is 16-bit, so the handler 
 |---|---|---|
 | 1 | `$02` | the interrupt handler did not run with PBR = $00 — $7E means the program bank was left as the interrupted code's, $FF that the handler never ran at all |
 
+### A6.14 — RTI pull matches mode
+
+Provenance: **Documented** (WDC datasheet: RTI pulls PBR in native mode only). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | emulation-mode RTI did not restore S — it pulled a different number of bytes than the interrupt pushed |
+
 ### A5.S01 — Sweep: CLC
 
 Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
