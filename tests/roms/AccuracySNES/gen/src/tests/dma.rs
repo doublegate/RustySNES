@@ -52,7 +52,7 @@ pub fn all() -> Vec<Test> {
 /// about the size of the next immediate.
 fn source_from_table(a: &mut Asm, count: u16) {
     a.l("rep #$30");
-    a.l("ldx #@data");
+    a.l("ldx #.loword(@data)");
     a.l("stx $4302         ; A-bus address = this test's data table");
     a.l("sep #$20");
     a.l("phk");
@@ -284,7 +284,7 @@ fn d1_07_decrement() -> Test {
     a.l("lda #$80");
     a.l("sta $4301");
     a.l("rep #$30");
-    a.l("ldx #(@data + 3)");
+    a.l("ldx #.loword(@data + 3)");
     a.l("stx $4302         ; start at the last byte");
     a.l("sep #$20");
     a.l("phk");
@@ -376,10 +376,10 @@ fn d1_02() -> Test {
     a.l("sta $2182");
     a.l("stz $2183");
     source_from_table(&mut a, 16);
-    a.measure_begin();
+    a.measure_begin_far();
     a.l("lda #$01");
     a.l("sta $420B");
-    a.measure_end();
+    a.measure_end_far();
     a.measure_result();
     a.l("sta f:$7E00A0");
     a.record(104, "D1.02 16-byte DMA (dots)");
@@ -392,10 +392,10 @@ fn d1_02() -> Test {
     a.l("sta $2182");
     a.l("stz $2183");
     source_from_table(&mut a, 48);
-    a.measure_begin();
+    a.measure_begin_far();
     a.l("lda #$01");
     a.l("sta $420B");
-    a.measure_end();
+    a.measure_end_far();
     a.measure_result();
     a.record(105, "D1.02 48-byte DMA (dots)");
     a.l("sec");
@@ -445,7 +445,7 @@ fn d1_05() -> Test {
     a.l("sta $4301         ; B-bus = $2122 (CGDATA): harmless, and rebuilt before any scene");
     a.l("stz $2121         ; CGADD = 0");
     a.l("rep #$30");
-    a.l("ldx #@data");
+    a.l("ldx #.loword(@data)");
     a.l("stx $4302");
     a.l("sep #$20");
     a.l("phk");
@@ -455,7 +455,7 @@ fn d1_05() -> Test {
     a.l("ldx #$0000");
     a.l("stx $4305         ; count = 0, which means 65536");
     a.l("sep #$20");
-    a.l("jsr wait_vblank   ; start from a known line");
+    a.l("jsl wait_vblank_far   ; start from a known line");
     a.l("lda #$01");
     a.l("sta $420B");
     read_v(&mut a);
@@ -621,7 +621,7 @@ fn setup_hdma_to_wram(a: &mut Asm, page: u8) {
     a.l("lda #$80");
     a.l("sta $4301         ; B-bus = $2180");
     a.l("rep #$30");
-    a.l("ldx #@table");
+    a.l("ldx #.loword(@table)");
     a.l("stx $4302");
     a.l("sep #$20");
     a.l("phk");
@@ -629,10 +629,10 @@ fn setup_hdma_to_wram(a: &mut Asm, page: u8) {
     a.l("sta $4304         ; table address = this bank");
     a.c("Arm during vblank: enabling HDMA mid-frame is its own erratum (D2.09), and this test is");
     a.c("not about that. The channel initialises at the top of the next frame.");
-    a.l("jsr wait_vblank");
+    a.l("jsl wait_vblank_far");
     a.l("lda #$01");
     a.l("sta $420C         ; HDMAEN channel 0");
-    a.l("jsr wait_vblank   ; let the whole active display run");
+    a.l("jsl wait_vblank_far   ; let the whole active display run");
     a.l("stz $420C         ; disarm before reading, so nothing moves under the checks");
 }
 
@@ -699,7 +699,7 @@ fn d2_09() -> Test {
     a.l("lda #$80");
     a.l("sta $4301         ; B-bus = $2180");
     a.l("rep #$30");
-    a.l("ldx #@table");
+    a.l("ldx #.loword(@table)");
     a.l("stx $4302");
     a.l("sep #$20");
     a.l("phk");
@@ -707,20 +707,20 @@ fn d2_09() -> Test {
     a.l("sta $4304");
     a.c("--- phase 1: armed in vblank, so the channel initialises at the top of the frame ---");
     d2_09_clear_and_point(&mut a, 0x13);
-    a.l("jsr wait_vblank");
+    a.l("jsl wait_vblank_far");
     a.l("lda #$01");
     a.l("sta $420C");
-    a.l("jsr wait_vblank   ; a whole active display");
+    a.l("jsl wait_vblank_far   ; a whole active display");
     a.l("stz $420C");
     d2_09_scan(&mut a, 0x13, 0x7E_01C4);
     a.c("--- phase 2: armed at line 100, long after this frame's init has been and gone ---");
     d2_09_clear_and_point(&mut a, 0x14);
-    a.l("jsr wait_vblank");
+    a.l("jsl wait_vblank_far");
     spin_to_line_dma(&mut a, 100, "d209");
     a.l("sep #$20");
     a.l("lda #$01");
     a.l("sta $420C         ; enabled mid-frame: no init runs for it this frame");
-    a.l("jsr wait_vblank");
+    a.l("jsl wait_vblank_far");
     a.l("stz $420C");
     d2_09_scan(&mut a, 0x14, 0x7E_01C8);
     d2_09_verdict(&mut a);
@@ -917,7 +917,7 @@ fn d2_07() -> Test {
     a.l("lda #$22");
     a.l("sta $4301         ; B-bus = $2122 (CGDATA)");
     a.l("rep #$30");
-    a.l("ldx #@table");
+    a.l("ldx #.loword(@table)");
     a.l("stx $4302");
     a.l("sep #$20");
     a.l("phk");
@@ -943,12 +943,12 @@ fn d2_07() -> Test {
     a.c("Arm HDMA in vblank, then start the GP-DMA so it runs THROUGH active display. A transfer");
     a.c("confined to vblank is never preempted and this test would assert nothing.");
     a.l("sep #$20");
-    a.l("jsr wait_vblank");
+    a.l("jsl wait_vblank_far");
     a.l("lda #$01");
     a.l("sta $420C         ; HDMAEN channel 0");
     a.l("lda #$02");
     a.l("sta $420B         ; run channel 1");
-    a.l("jsr wait_vblank   ; let the rest of the frame, and its HDMA, complete");
+    a.l("jsl wait_vblank_far   ; let the rest of the frame, and its HDMA, complete");
     a.l("stz $420C         ; disarm before reading");
     a.c("Half one: HDMA actually ran. Without this the transfer check below is satisfied just as");
     a.c("well by a core that never preempted anything. Read CGRAM back at the index the table");
@@ -1334,7 +1334,7 @@ fn d1_04() -> Test {
     a.l("lda #$80");
     a.l("sta $4301");
     a.l("rep #$30");
-    a.l("ldx #@data");
+    a.l("ldx #.loword(@data)");
     a.l("stx $4302");
     a.l("sep #$20");
     a.l("phk");
@@ -1351,7 +1351,7 @@ fn d1_04() -> Test {
     a.l("lda #$80");
     a.l("sta $4311");
     a.l("rep #$30");
-    a.l("ldx #(@data + 1)");
+    a.l("ldx #.loword(@data + 1)");
     a.l("stx $4312");
     a.l("sep #$20");
     a.l("phk");
@@ -1429,7 +1429,7 @@ fn d2_05() -> Test {
     a.l("lda #$80");
     a.l("sta $4301         ; B-bus = $2180");
     a.l("rep #$30");
-    a.l("ldx #@table");
+    a.l("ldx #.loword(@table)");
     a.l("stx $4302");
     a.l("sep #$20");
     a.l("phk");
@@ -1438,10 +1438,10 @@ fn d2_05() -> Test {
     a.l("phk");
     a.l("pla");
     a.l("sta $4307         ; indirect DATA bank");
-    a.l("jsr wait_vblank");
+    a.l("jsl wait_vblank_far");
     a.l("lda #$01");
     a.l("sta $420C");
-    a.l("jsr wait_vblank");
+    a.l("jsl wait_vblank_far");
     a.l("stz $420C");
     a.l("rep #$30");
     a.l("lda f:$7E0F00");
@@ -1488,16 +1488,16 @@ fn d2_06() -> Test {
     a.l("lda #$80");
     a.l("sta $4301");
     a.l("rep #$30");
-    a.l("ldx #@table");
+    a.l("ldx #.loword(@table)");
     a.l("stx $4302");
     a.l("sep #$20");
     a.l("phk");
     a.l("pla");
     a.l("sta $4304");
-    a.l("jsr wait_vblank");
+    a.l("jsl wait_vblank_far");
     a.l("lda #$01");
     a.l("sta $420C");
-    a.l("jsr wait_vblank");
+    a.l("jsl wait_vblank_far");
     a.l("stz $420C");
     a.l("lda $430A");
     a.assert_a8(
@@ -1508,7 +1508,7 @@ fn d2_06() -> Test {
     a.l("rep #$30");
     a.l("lda $4308");
     a.l("sec");
-    a.l("sbc #@table");
+    a.l("sbc #.loword(@table)");
     a.assert_a16_range(
         1,
         16,
@@ -1545,10 +1545,10 @@ fn d1_03() -> Test {
     a.l("sta $4301         ; CGDATA — harmless, and rebuilt before any scene");
     a.l("stz $2121");
     source_from_table(&mut a, 1);
-    a.measure_begin();
+    a.measure_begin_far();
     a.l("lda #$01");
     a.l("sta $420B");
-    a.measure_end();
+    a.measure_end_far();
     a.measure_result();
     a.record(111, "D1.03 one-byte DMA, absolute (dots)");
     a.l("sep #$20");

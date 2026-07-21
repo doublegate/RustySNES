@@ -35,10 +35,15 @@ pub const STATUS_OFFSET: u32 = 0x20;
 ///
 /// Group `C` moved once the runtime grew `_far` wrappers (`wait_vblank_far`, `frame_step_far`,
 /// `hv_begin_far`, `hv_end_far`) — the build gate below had rejected it while its bodies still
-/// used a bank-local `jsr`. Group `D` would move the same way if bank `$00` fills again.
+/// used a bank-local `jsr`. Group `D` followed it for the same reason and by the same route, when
+/// `B1.05` pushed `CATALOG` 73 bytes past the end of `ROM0`: the catalog grows with the test
+/// *count* wherever the bodies live, so the only way to make room for another entry is to move
+/// bodies out. Group `B` is the next candidate and is the one still holding the wide timing
+/// instrument in bank `$00`.
 const OUT_OF_BANK: &[(char, &str)] = &[
     ('E', "TESTSE"),
     ('C', "TESTSC"),
+    ('D', "TESTSD"),
     ('G', "TESTSG"),
     ('F', "TESTSG"),
 ];

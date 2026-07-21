@@ -284,6 +284,28 @@ impl Asm {
         self
     }
 
+    /// [`Asm::measure_begin`] for a test body that lives outside bank `$00`.
+    ///
+    /// A relocated body cannot reach the runtime with a bank-local `jsr`, and the build gate in
+    /// `emit.rs` rejects one that tries — which is how Group `D`'s move surfaced these two call
+    /// sites after every literal `jsr wait_vblank` in the group had already been converted. The
+    /// bank-local form is emitted from inside this DSL, so no amount of editing the test files
+    /// finds it.
+    ///
+    /// The extra `jsl` costs a few clocks at both ends of the span, exactly as the `jsr` does, so
+    /// it cancels in every comparison these measurements are used for.
+    pub fn measure_begin_far(&mut self) -> &mut Self {
+        self.l("jsl hv_begin_far");
+        self
+    }
+
+    /// [`Asm::measure_end`] for a test body that lives outside bank `$00`. See
+    /// [`Asm::measure_begin_far`].
+    pub fn measure_end_far(&mut self) -> &mut Self {
+        self.l("jsl hv_end_far");
+        self
+    }
+
     /// Load the elapsed dot count of the last measurement into a 16-bit `A`.
     pub fn measure_result(&mut self) -> &mut Self {
         self.l("rep #$30");

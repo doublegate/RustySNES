@@ -632,6 +632,32 @@ rewritten to the current number — this line is the one to read.
   nothing depending on what is plugged in, and that `NMITIMEN` is zero for the whole battery, both
   of which the input contract changed.
 
+- **Group D's test bodies moved out of bank `$00`.** `CATALOG` overflowed `ROM0` by 73 bytes, and
+  since the catalog grows with the test *count* wherever the bodies live, the only way to make room
+  for another entry is to relocate bodies. Group D followed Group C's route: 13 bank-local `jsr`s to
+  runtime labels became `jsl`s to the existing `_far` wrappers, and the build gate rejected each
+  remaining one until they were all gone — including two that no amount of editing the test files
+  would have found, because `Asm::measure_begin`/`measure_end` emit the bank-local form from inside
+  the DSL. Those gain `_far` variants; `measure_frame_height`, shared between Group B (still in bank
+  `$00`) and Group D, now uses the far form unconditionally since it works from either.
+  Relocation also exposed nine address immediates (`ldx #@data`, `sbc #@table`) that fitted while
+  the group was in bank `$00` and are 24-bit values elsewhere — all now `.loword(…)`. Every Group D
+  test passes unchanged afterwards, which is the point of checking.
+
+- **`B1.05` attempted a third time and withdrawn.** Built exactly as the previous post-mortem
+  prescribed — three bodies identical but for the address read, a counted loop, eight iterations so
+  every span stays inside one scanline. Spans came out 312 / 314 / 323 dots for the 6-, 8- and
+  12-clock regions, where the differences should be exactly 4 and 8 dots; they were **2 and 9**.
+  The diagnosis is now specific and supersedes the previous two: the probes are right, the
+  differential design is right, the sub-scanline bound is met, and the **instrument is
+  dot-quantised while the signal is smaller than its noise**. `hv_begin`/`hv_end` difference the H
+  counter, so a 16-clock difference is four dots only if every dot on both sides is four clocks —
+  which `T-06-A` has since established is false — and only if both spans start at the same H, which
+  a polling loop cannot arrange to better than its own ~5-dot granularity. More repeats would raise
+  the signal and are blocked from both ends, since they cross a scanline. The row needs a
+  clock-domain instrument; the cart has a dot-domain one. That is the same limit that marks `A5.20`
+  `[NOT CART-MEASURABLE]` — one obstacle, not two.
+
 - **`A5.16` — is `BRL` a flat 4 cycles?** It joins the opcode sweep, and is the one entry there
   answering a dossier row of its own rather than the composite `A5.01-08`. A *taken* branch is the
   sweep's excluded case because it moves `PC` — but `BRL` with a zero displacement falls through to

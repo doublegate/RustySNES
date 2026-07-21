@@ -788,11 +788,30 @@ WRAM = 8); **the instrument or the measurement design is.** Both spans exceed a 
 line boundaries, which is where the wide pair's 341-dot line-length approximation applies, and
 `T-06-A` establishes that the references' dot lengths are not uniform there.
 
-**Before a third attempt**: keep every span *under one scanline* so no line-length approximation is
-involved at all — 8 repeats rather than 16 — and confirm the two spans start at the same H position,
-since these two were measured at different alignments and `A5.20` showed alignment is worth ~10 dots.
-The rate differences are small (2 and 4 clocks an access), so this row needs a tighter instrument
-than the ones it has been given, not a better probe.
+**Attempt 3 — the design is right and the instrument is not.** Built exactly as the previous
+post-mortem prescribed: three bodies identical but for the address read, so the opcode fetch, the
+operand bytes and all the measurement overhead cancel; a counted loop so nothing is unrolled; eight
+iterations so every span stays inside one scanline. Measured spans **312 / 314 / 323 dots** for the
+6-, 8- and 12-clock regions.
+
+The differences should be exactly 4 and 8 dots (`8 × 2` and `8 × 4` clocks). They came out **2 and
+9**. The 12-vs-8 comparison is within a dot of right; the 6-vs-8 one is off by half.
+
+**The instrument is dot-quantised and the signal is smaller than its noise.** `hv_begin`/`hv_end`
+difference the H *counter*, so a 16-clock difference is four dots only if every dot on both sides is
+four clocks and both spans start at the same H — and neither holds. `T-06-A` has since established
+that dots 323 and 327 are six clocks, and the three measurements run sequentially so they begin at
+whatever alignment they inherit. A polling loop cannot align to better than its own ~5-dot sampling
+granularity, which is already larger than the 4-dot signal being measured.
+
+**Withdrawn a third time, and the diagnosis is now specific.** The probe choice is right, the
+differential design is right, the sub-scanline bound is met. What is missing is *resolution*: this
+row needs a clock-domain instrument, and the cart has only a dot-domain one. Raising the repeat
+count is the obvious lever and it is blocked from both ends — more repeats cross a scanline, and
+that is where the line-length non-uniformity the row is trying to see enters the measurement.
+
+Note the shape: `B1.05` cannot be measured because the cart reads dots, and the same limit is why
+`A5.20` is marked `[NOT CART-MEASURABLE]`. These are one obstacle, not two.
 
 ### `A6.15` — "all 256 opcodes defined" is a table-extension job, not a test
 

@@ -422,8 +422,11 @@ fn b5_04() -> Test {
 pub fn measure_frame_height(a: &mut Asm) {
     a.l("sep #$20");
     a.l("stz $2133         ; SETINI: no interlace, which would add a line");
-    a.l("jsr wait_vblank");
-    a.l("jsr wait_vblank   ; a settled frame");
+    // The far form unconditionally: this helper is shared between Group B, which still lives in
+    // bank $00, and Group D, which no longer does. A `jsl` works from either, where the bank-local
+    // `jsr` works only from the first — and the few extra clocks are nothing against a frame.
+    a.l("jsl wait_vblank_far");
+    a.l("jsl wait_vblank_far   ; a settled frame");
     a.l("rep #$30");
     a.l("lda #$0000");
     a.l("sta f:$7E0124     ; running maximum");

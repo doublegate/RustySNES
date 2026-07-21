@@ -6924,8 +6924,8 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     stz $2133         ; SETINI: no interlace, which would add a line
-    jsr wait_vblank
-    jsr wait_vblank   ; a settled frame
+    jsl wait_vblank_far
+    jsl wait_vblank_far   ; a settled frame
     rep #$30
     .a16
     .i16
@@ -7141,1930 +7141,6 @@ CATALOG_IMPL = 1
     jml test_restore
     :
     lda #$05          ; variant 2 = suppressed at dot 153 while both controls fired
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; D1.01 — DMA mode 0
-; provenance: Documented (SNESdev Wiki, DMA; fullsnes)
-.proc test_d1_01
-    .a16
-    .i16
-    bra @body
-@data:
-    .byte $11, $22, $33, $44
-@body:
-    ; Mode 0 into $2180 (the WRAM data port): all four bytes land at consecutive WRAM
-    ; addresses because $2180 auto-increments WMADD, not because the B-bus address moved.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$00
-    sta $2181
-    lda #$05
-    sta $2182
-    stz $2183         ; WMADD = $7E:0500, clear of every test's scratch
-    stz $4300         ; DMAP: A->B, increment, mode 0
-    lda #$80
-    sta $4301         ; B-bus = $2180
-    rep #$30
-    .a16
-    .i16
-    ldx #@data
-    stx $4302         ; A-bus address = this test's data table
-    sep #$20
-    .a8
-    phk
-    pla
-    sta $4304         ; A-bus bank = this bank
-    rep #$30
-    .a16
-    .i16
-    ldx #$0004
-    stx $4305         ; byte count
-    sep #$20
-    .a8
-    lda #$01
-    sta $420B         ; run channel 0
-    ; Read the four bytes back and fold them into one word so a single compare covers all.
-    rep #$30
-    .a16
-    .i16
-    lda f:$7E0500
-    cmp #$2211
-    beq :+
-    jmp @fail1
-  :
-    lda f:$7E0502
-    cmp #$4433
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; the first two bytes did not arrive in order at $7E:0500
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; the last two bytes did not arrive in order at $7E:0502
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; D1.01b — DMA mode 1
-; provenance: Documented (SNESdev Wiki, DMA; fullsnes)
-.proc test_d1_01b
-    .a16
-    .i16
-    bra @body
-@data:
-    .byte $11, $22, $33, $44
-@body:
-    ; Mode 1 into $2118/$2119: byte 0 -> VMDATAL, byte 1 -> VMDATAH, then repeat.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$80
-    sta $2115         ; VMAIN: step 1 word, increment after the high byte
-    rep #$30
-    .a16
-    .i16
-    ldx #$1000
-    stx $2116         ; VRAM word address $1000, clear of the font and the tilemaps
-    sep #$20
-    .a8
-    lda #$01
-    sta $4300         ; DMAP: A->B, increment, mode 1
-    lda #$18
-    sta $4301         ; B-bus = $2118
-    rep #$30
-    .a16
-    .i16
-    ldx #@data
-    stx $4302         ; A-bus address = this test's data table
-    sep #$20
-    .a8
-    phk
-    pla
-    sta $4304         ; A-bus bank = this bank
-    rep #$30
-    .a16
-    .i16
-    ldx #$0004
-    stx $4305         ; byte count
-    sep #$20
-    .a8
-    lda #$01
-    sta $420B
-    ; Read the two words back. Setting VMADDL primes the read latch, so the first 16-bit read
-    ; of $2139/$213A already returns word $1000 — no dummy read, which would consume it.
-    sep #$20
-    .a8
-    lda #$80
-    sta $2115         ; increment after the HIGH byte, so a 16-bit read is one word
-    rep #$30
-    .a16
-    .i16
-    ldx #$1000
-    stx $2116
-    lda $2139
-    cmp #$2211
-    beq :+
-    jmp @fail1
-  :
-    ; Re-set the address for the second word rather than relying on the read increment: the
-    ; prefetch latch makes successive reads a separate question, and mixing the two would
-    ; leave a failure ambiguous between the DMA and the read port.
-    ldx #$1001
-    stx $2116
-    lda $2139
-    cmp #$4433
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; VRAM word 0 is wrong: the two bytes did not split across $2118/$2119
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; VRAM word 1 is wrong
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; D1.06 — DMA count hits zero
-; provenance: Documented (SNESdev Wiki, DMA registers; fullsnes)
-.proc test_d1_06
-    .a16
-    .i16
-    bra @body
-@data:
-    .byte $11, $22, $33, $44
-@body:
-    ; Run a 4-byte transfer, then read $4305/06.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$00
-    sta $2181
-    lda #$06
-    sta $2182
-    stz $2183         ; WMADD = $7E:0600
-    stz $4300
-    lda #$80
-    sta $4301
-    rep #$30
-    .a16
-    .i16
-    ldx #@data
-    stx $4302         ; A-bus address = this test's data table
-    sep #$20
-    .a8
-    phk
-    pla
-    sta $4304         ; A-bus bank = this bank
-    rep #$30
-    .a16
-    .i16
-    ldx #$0004
-    stx $4305         ; byte count
-    sep #$20
-    .a8
-    lda #$01
-    sta $420B
-    rep #$30
-    .a16
-    .i16
-    lda $4305
-    cmp #$0000
-    beq :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; the DMA byte counter did not decrement to zero
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; D1.07 — DMA fixed A-bus
-; provenance: Documented (SNESdev Wiki, DMA registers; fullsnes)
-.proc test_d1_07
-    .a16
-    .i16
-    bra @body
-@data:
-    .byte $11, $22, $33, $44
-@body:
-    ; DMAP bits 4-3 = 1: fixed source. Four bytes from one address must all be $11.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$00
-    sta $2181
-    lda #$07
-    sta $2182
-    stz $2183         ; WMADD = $7E:0700
-    lda #$08
-    sta $4300         ; DMAP: A->B, step field = 1 (FIXED), mode 0
-    lda #$80
-    sta $4301
-    rep #$30
-    .a16
-    .i16
-    ldx #@data
-    stx $4302         ; A-bus address = this test's data table
-    sep #$20
-    .a8
-    phk
-    pla
-    sta $4304         ; A-bus bank = this bank
-    rep #$30
-    .a16
-    .i16
-    ldx #$0004
-    stx $4305         ; byte count
-    sep #$20
-    .a8
-    lda #$01
-    sta $420B
-    rep #$30
-    .a16
-    .i16
-    lda f:$7E0700
-    cmp #$1111
-    beq :+
-    jmp @fail1
-  :
-    lda f:$7E0702
-    cmp #$1111
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; bytes 0-1 are not both the fixed source byte
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; bytes 2-3 are not both the fixed source byte
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; D1.07b — DMA decrementing A-bus
-; provenance: Documented (SNESdev Wiki, DMA registers; fullsnes)
-.proc test_d1_07b
-    .a16
-    .i16
-    bra @body
-@data:
-    .byte $11, $22, $33, $44
-@body:
-    ; DMAP bits 4-3 = 2: decrement. Source the LAST byte; the transfer walks back.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$00
-    sta $2181
-    lda #$08
-    sta $2182
-    stz $2183         ; WMADD = $7E:0800
-    lda #$10
-    sta $4300         ; DMAP: A->B, step field = 2 (DECREMENT), mode 0
-    lda #$80
-    sta $4301
-    rep #$30
-    .a16
-    .i16
-    ldx #(@data + 3)
-    stx $4302         ; start at the last byte
-    sep #$20
-    .a8
-    phk
-    pla
-    sta $4304
-    rep #$30
-    .a16
-    .i16
-    ldx #$0004
-    stx $4305
-    sep #$20
-    .a8
-    lda #$01
-    sta $420B
-    rep #$30
-    .a16
-    .i16
-    lda f:$7E0800
-    cmp #$3344
-    beq :+
-    jmp @fail1
-  :
-    lda f:$7E0802
-    cmp #$1122
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; bytes 0-1 are not the table read backwards
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; bytes 2-3 are not the table read backwards
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; D1.10 — DMA $43xB scratch latch
-; provenance: Corroborated (ares and bsnes both model the latch and serialize it)
-.proc test_d1_10
-    .a16
-    .i16
-    ; Write $43xB, read it back, then read $43xF and require the same value.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$5A
-    sta $430B
-    lda $430B
-    cmp #$5A
-    beq :+
-    jmp @fail1
-  :
-    lda $430F
-    cmp #$5A
-    beq :+
-    jmp @fail2
-  :
-    ; A different channel must have its own latch, not share channel 0's.
-    lda #$A5
-    sta $431B
-    lda $430B
-    cmp #$5A
-    beq :+
-    jmp @fail3
-  :
-    lda $431F
-    cmp #$A5
-    beq :+
-    jmp @fail4
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; $430B did not read back the value written to it
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; $430F does not mirror $430B
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-@fail3:
-    ; writing $431B changed channel 0's latch — the channels are not separate
-    sep #$20
-    .a8
-    lda #$06
-    sta f:$7EE010
-    jml test_restore
-@fail4:
-    ; $431F does not mirror $431B
-    sep #$20
-    .a8
-    lda #$08
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; D1.02 — DMA 8 clocks/byte
-; provenance: Documented (SNESdev Wiki, DMA timing; fullsnes)
-.proc test_d1_02
-    .a16
-    .i16
-    bra @body
-@data:
-    .byte $11, $22, $33, $44
-@body:
-    ; Two mode-0 transfers into WRAM, 32 bytes apart in length. The difference is the rate.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$08
-    sta $4300         ; step field = 1 (fixed): the table is only 4 bytes long
-    lda #$80
-    sta $4301
-    ; --- 16 bytes ---
-    lda #$00
-    sta $2181
-    lda #$09
-    sta $2182
-    stz $2183
-    rep #$30
-    .a16
-    .i16
-    ldx #@data
-    stx $4302         ; A-bus address = this test's data table
-    sep #$20
-    .a8
-    phk
-    pla
-    sta $4304         ; A-bus bank = this bank
-    rep #$30
-    .a16
-    .i16
-    ldx #$0010
-    stx $4305         ; byte count
-    sep #$20
-    .a8
-    jsr hv_begin
-    lda #$01
-    sta $420B
-    jsr hv_end
-    rep #$30
-    .a16
-    .i16
-    lda f:$7E0048     ; V_H1 = elapsed dots
-    sta f:$7E00A0
-    ; record slot 104: D1.02 16-byte DMA (dots)
-    sta f:$7EE2D0
-    ; --- 48 bytes: 32 more ---
-    sep #$20
-    .a8
-    lda #$00
-    sta $2181
-    lda #$0A
-    sta $2182
-    stz $2183
-    rep #$30
-    .a16
-    .i16
-    ldx #@data
-    stx $4302         ; A-bus address = this test's data table
-    sep #$20
-    .a8
-    phk
-    pla
-    sta $4304         ; A-bus bank = this bank
-    rep #$30
-    .a16
-    .i16
-    ldx #$0030
-    stx $4305         ; byte count
-    sep #$20
-    .a8
-    jsr hv_begin
-    lda #$01
-    sta $420B
-    jsr hv_end
-    rep #$30
-    .a16
-    .i16
-    lda f:$7E0048     ; V_H1 = elapsed dots
-    ; record slot 105: D1.02 48-byte DMA (dots)
-    sta f:$7EE2D2
-    sec
-    sbc f:$7E00A0
-    ; record slot 106: D1.02 difference — expect 32 bytes x 8 clocks = 64 dots
-    sta f:$7EE2D4
-    cmp #$003C
-    bcs :+
-    jmp @fail1
-  :
-    cmp #$0045
-    bcc :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; 32 extra DMA bytes did not cost 64 dots (8 clocks each)
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; D1.05 — DMA count 0 = 65536
-; provenance: Documented (SNESdev Wiki, DMA registers; fullsnes)
-.proc test_d1_05
-    .a16
-    .i16
-    bra @body
-@data:
-    .byte $11, $22, $33, $44
-@body:
-    ; Wait for the top of vblank so the starting line is known, then run a count-0 transfer.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$08
-    sta $4300         ; A->B, fixed source, mode 0
-    lda #$22
-    sta $4301         ; B-bus = $2122 (CGDATA): harmless, and rebuilt before any scene
-    stz $2121         ; CGADD = 0
-    rep #$30
-    .a16
-    .i16
-    ldx #@data
-    stx $4302
-    sep #$20
-    .a8
-    phk
-    pla
-    sta $4304
-    rep #$30
-    .a16
-    .i16
-    ldx #$0000
-    stx $4305         ; count = 0, which means 65536
-    sep #$20
-    .a8
-    jsr wait_vblank   ; start from a known line
-    lda #$01
-    sta $420B
-    sep #$20
-    .a8
-    lda $213F         ; reset the counter read flipflops
-    lda $2137         ; latch H and V
-    lda $213D         ; V low
-    xba
-    lda $213D
-    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
-    xba
-    rep #$20
-    .a16
-    and #$01FF
-    sta f:$7E00B0     ; where the transfer left the V counter
-    ; record slot 110: D1.05 V counter after a count-0 DMA
-    sta f:$7EE2DC
-    ; The landing line depends on FRAME LENGTH, so measure that rather than assume it: 384
-    ; lines past line 225 is line 85 of the next NTSC frame and line 297 of the next PAL one.
-    ; Measured, not read from the region bit — whose position B2.10 had to settle, and which a
-    ; frame-length test must not lean on.
-    sep #$20
-    .a8
-    stz $2133         ; SETINI: no interlace, which would add a line
-    jsr wait_vblank
-    jsr wait_vblank   ; a settled frame
-    rep #$30
-    .a16
-    .i16
-    lda #$0000
-    sta f:$7E0124     ; running maximum
-@fh_loop:
-    sep #$20
-    .a8
-    lda $213F         ; reset the counter read flipflops
-    lda $2137         ; latch H and V
-    lda $213D         ; V low
-    xba
-    lda $213D
-    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
-    xba
-    rep #$20
-    .a16
-    and #$01FF
-    cmp f:$7E0124
-    bcc :+
-    sta f:$7E0124
-    :
-    cmp #100          ; below 100 means the counter wrapped into the next frame
-    bcs @fh_loop
-    lda f:$7E0124
-    ; Named labels, not anonymous ones: assert_a16_range emits its own `:` labels, so a `bne :+`
-    ; written across one lands INSIDE the assertion rather than after it. That cost a debugging
-    ; round here, with the branch silently taking the wrong arm.
-    cmp #311
-    bne @ntsc
-    lda f:$7E00B0
-    cmp #$0113
-    bcs :+
-    jmp @fail1
-  :
-    cmp #$0141
-    bcc :+
-    jmp @fail1
-  :
-    bra @done
-@ntsc:
-    lda f:$7E00B0
-    cmp #$003C
-    bcs :+
-    jmp @fail2
-  :
-    cmp #$006F
-    bcc :+
-    jmp @fail2
-  :
-@done:
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; on PAL a count-0 DMA did not take ~384 scanlines, so it did not transfer 65536 bytes
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; on NTSC a count-0 DMA did not take ~384 scanlines, so it did not transfer 65536 bytes
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; D1.09 — WRAM->$2180 no-write
-; provenance: Documented (fullsnes: "does not cause a write to occur")
-.proc test_d1_09
-    .a16
-    .i16
-    ; Seed the destination, then try to DMA WRAM->$2180 over it. Nothing must change.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$5A
-    sta f:$7E0C00
-    sta f:$7E0C01
-    lda #$00
-    sta $2181
-    lda #$0C
-    sta $2182
-    stz $2183         ; WMADD = $7E:0C00 — the destination
-    stz $4300         ; A->B, increment, mode 0
-    lda #$80
-    sta $4301         ; B-bus = $2180
-    rep #$30
-    .a16
-    .i16
-    ldx #$0D00
-    stx $4302
-    sep #$20
-    .a8
-    lda #$7E
-    sta $4304         ; A-bus = $7E:0D00, i.e. WRAM
-    rep #$30
-    .a16
-    .i16
-    ldx #$0002
-    stx $4305
-    sep #$20
-    .a8
-    lda #$01
-    sta $420B
-    rep #$30
-    .a16
-    .i16
-    lda f:$7E0C00
-    cmp #$5A5A
-    beq :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; a WRAM->$2180 DMA wrote to WRAM; that transfer must perform no write at all
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; D2.03 — HDMA line-count byte
-; provenance: Documented (SNESdev Wiki, HDMA; fullsnes)
-.proc test_d2_03
-    .a16
-    .i16
-    bra @body
-@table:
-    .byte $03, $11    ; non-repeat, 3 lines: one write of $11 to CGDATA
-    .byte $04, $22    ; non-repeat, 4 lines: one write of $22, completing the colour word
-    .byte $00         ; terminate
-@body:
-    ; Point HDMA channel 0 at $2180 with WMADD in WRAM, run one frame, then read the trail.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    sep #$20
-    .a8
-    ; Clear the landing page so a trailing zero means HDMA stopped, not that it never started.
-    rep #$30
-    .a16
-    .i16
-    ldx #$0000
-@clear:
-    sep #$20
-    .a8
-    lda #$00
-    sta f:$7E0A00,x
-    rep #$30
-    .a16
-    .i16
-    inx
-    cpx #$0010
-    bne @clear
-    sep #$20
-    .a8
-    stz $420C         ; HDMA off while it is being programmed
-    lda #$00
-    sta $2181
-    lda #$0A
-    sta $2182
-    stz $2183         ; WMADD = $7E:0A00
-    stz $4300         ; A->B, direct table, mode 0 (one byte per transfer)
-    lda #$80
-    sta $4301         ; B-bus = $2180
-    rep #$30
-    .a16
-    .i16
-    ldx #@table
-    stx $4302
-    sep #$20
-    .a8
-    phk
-    pla
-    sta $4304         ; table address = this bank
-    ; Arm during vblank: enabling HDMA mid-frame is its own erratum (D2.09), and this test is
-    ; not about that. The channel initialises at the top of the next frame.
-    jsr wait_vblank
-    lda #$01
-    sta $420C         ; HDMAEN channel 0
-    jsr wait_vblank   ; let the whole active display run
-    stz $420C         ; disarm before reading, so nothing moves under the checks
-    ; Two non-repeat entries: exactly two bytes, then nothing.
-    rep #$30
-    .a16
-    .i16
-    lda f:$7E0A00
-    cmp #$2211
-    beq :+
-    jmp @fail1
-  :
-    lda f:$7E0A02
-    cmp #$0000
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; the two non-repeat HDMA entries did not write exactly $11 then $22
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; HDMA kept writing after the $00 terminator
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; D2.04 — HDMA repeat flag
-; provenance: Documented (SNESdev Wiki, HDMA; fullsnes)
-.proc test_d2_04
-    .a16
-    .i16
-    bra @body
-@table:
-    .byte $83, $11, $22, $33   ; repeat, 3 lines: one write per line
-    .byte $82, $44, $55        ; repeat, 2 lines
-    .byte $00                  ; terminate
-@body:
-    ; Same setup as D2.03; only the table's bit 7 differs.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    sep #$20
-    .a8
-    ; Clear the landing page so a trailing zero means HDMA stopped, not that it never started.
-    rep #$30
-    .a16
-    .i16
-    ldx #$0000
-@clear:
-    sep #$20
-    .a8
-    lda #$00
-    sta f:$7E0B00,x
-    rep #$30
-    .a16
-    .i16
-    inx
-    cpx #$0010
-    bne @clear
-    sep #$20
-    .a8
-    stz $420C         ; HDMA off while it is being programmed
-    lda #$00
-    sta $2181
-    lda #$0B
-    sta $2182
-    stz $2183         ; WMADD = $7E:0B00
-    stz $4300         ; A->B, direct table, mode 0 (one byte per transfer)
-    lda #$80
-    sta $4301         ; B-bus = $2180
-    rep #$30
-    .a16
-    .i16
-    ldx #@table
-    stx $4302
-    sep #$20
-    .a8
-    phk
-    pla
-    sta $4304         ; table address = this bank
-    ; Arm during vblank: enabling HDMA mid-frame is its own erratum (D2.09), and this test is
-    ; not about that. The channel initialises at the top of the next frame.
-    jsr wait_vblank
-    lda #$01
-    sta $420C         ; HDMAEN channel 0
-    jsr wait_vblank   ; let the whole active display run
-    stz $420C         ; disarm before reading, so nothing moves under the checks
-    ; Five repeat lines: five bytes in order, then nothing.
-    rep #$30
-    .a16
-    .i16
-    lda f:$7E0B00
-    cmp #$2211
-    beq :+
-    jmp @fail1
-  :
-    lda f:$7E0B02
-    cmp #$4433
-    beq :+
-    jmp @fail2
-  :
-    lda f:$7E0B04
-    and #$00FF
-    cmp #$0055
-    beq :+
-    jmp @fail3
-  :
-    lda f:$7E0B05
-    and #$00FF
-    cmp #$0000
-    beq :+
-    jmp @fail4
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; repeat bytes 0-1 are wrong
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; repeat bytes 2-3 are wrong
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-@fail3:
-    ; repeat byte 4 is wrong
-    sep #$20
-    .a8
-    lda #$06
-    sta f:$7EE010
-    jml test_restore
-@fail4:
-    ; HDMA wrote a sixth byte; the repeat counts total five lines
-    sep #$20
-    .a8
-    lda #$08
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; D2.07 — HDMA preempts GP-DMA
-; provenance: Documented (SNESdev Wiki, HDMA; anomie's timing doc; fullsnes)
-.proc test_d2_07
-    .a16
-    .i16
-    bra @body
-@table:
-    .byte $03, $11    ; non-repeat, 3 lines: one write of $11
-    .byte $04, $22    ; non-repeat, 4 lines: one write of $22
-    .byte $00         ; terminate
-@body:
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    ; HDMA writes CGRAM, NOT $2180. Both HDMA and the GP-DMA would otherwise go through the
-    ; WRAM data port, which has a single shared WMADD -- they would interleave into each
-    ; other's destination and neither result would mean anything. That is what the first
-    ; version of this test did, and its trail simply never appeared.
-    sep #$20
-    .a8
-    lda #$80
-    sta $2121         ; CGADD = $80, well clear of the palettes the scenes bless
-    stz $420C
-    stz $4300         ; A->B, direct table, mode 0
-    lda #$22
-    sta $4301         ; B-bus = $2122 (CGDATA)
-    rep #$30
-    .a16
-    .i16
-    ldx #@table
-    stx $4302
-    sep #$20
-    .a8
-    phk
-    pla
-    sta $4304
-    ; GP-DMA channel 1: 4 KiB of ROM through the WRAM port at $7E:4000.
-    lda #$00
-    sta $2181
-    lda #$40
-    sta $2182
-    stz $2183         ; WMADD = $7E:4000
-    stz $4310         ; A->B, increment, mode 0
-    lda #$80
-    sta $4311         ; B-bus = $2180
-    rep #$30
-    .a16
-    .i16
-    lda #$8000
-    sta $4312         ; A-bus source $00:8000
-    sep #$20
-    .a8
-    stz $4314         ; source bank $00
-    rep #$30
-    .a16
-    .i16
-    lda #$1000
-    sta $4315         ; 4096 bytes
-    ; Arm HDMA in vblank, then start the GP-DMA so it runs THROUGH active display. A transfer
-    ; confined to vblank is never preempted and this test would assert nothing.
-    sep #$20
-    .a8
-    jsr wait_vblank
-    lda #$01
-    sta $420C         ; HDMAEN channel 0
-    lda #$02
-    sta $420B         ; run channel 1
-    jsr wait_vblank   ; let the rest of the frame, and its HDMA, complete
-    stz $420C         ; disarm before reading
-    ; Half one: HDMA actually ran. Without this the transfer check below is satisfied just as
-    ; well by a core that never preempted anything. Read CGRAM back at the index the table
-    ; wrote: $2121 selects the word, then $213B reads low then high.
-    lda #$80
-    sta $2121
-    lda $213B
-    sta f:$7E0A04
-    lda $213B
-    sta f:$7E0A05
-    rep #$20
-    .a16
-    lda f:$7E0A04
-    and #$7FFF        ; CGRAM is 15-bit; bit 15 reads back as open bus
-    cmp #$2211
-    beq :+
-    jmp @fail1
-  :
-    ; Half two: the paused transfer resumed and ran to completion. The channel's own registers
-    ; say so without needing the destination read back: DAS counts down to zero and A1T ends
-    ; at source + length. A core that resumed short leaves both short.
-    lda $4315
-    cmp #$0000
-    beq :+
-    jmp @fail2
-  :
-    lda $4312
-    cmp #$9000
-    beq :+
-    jmp @fail3
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; the HDMA trail is absent — no preemption happened, so the transfer check proves nothing
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; channel 1's byte count did not reach zero — the GP-DMA resumed short after preemption
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-@fail3:
-    ; channel 1's source address did not advance the full 4096 bytes
-    sep #$20
-    .a8
-    lda #$06
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; D2.09 — HDMA armed mid-frame
-; provenance: Contested (fullsnes and the SNESdev Wiki record that enabling HDMA outside vblank produces erroneous writes from uninitialised A2An/NLTRn, but what those writes contain is a function of the previous frame's leftover state and is specified nowhere)
-.proc test_d2_09
-    .a16
-    .i16
-    bra @body
-@table:
-    .byte $01, $11
-    .byte $01, $22
-    .byte $01, $33
-    .byte $01, $44
-    .byte $01, $55
-    .byte $01, $66
-    .byte $01, $77
-    .byte $01, $88
-    .byte $00         ; terminate after eight lines
-@body:
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    ; Programme channel 0 -> $2180, table in this bank. WMADD is set per phase.
-    sep #$20
-    .a8
-    stz $420C
-    stz $4300         ; A->B, direct table, mode 0: one byte per line
-    lda #$80
-    sta $4301         ; B-bus = $2180
-    rep #$30
-    .a16
-    .i16
-    ldx #@table
-    stx $4302
-    sep #$20
-    .a8
-    phk
-    pla
-    sta $4304
-    ; --- phase 1: armed in vblank, so the channel initialises at the top of the frame ---
-    sep #$20
-    .a8
-    stz $420C
-    rep #$30
-    .a16
-    .i16
-    ldx #$0000
-@clr13:
-    sep #$20
-    .a8
-    lda #$00
-    sta f:$7E1300,x
-    rep #$30
-    .a16
-    .i16
-    inx
-    cpx #$0020
-    bne @clr13
-    sep #$20
-    .a8
-    lda #$00
-    sta $2181
-    lda #$13
-    sta $2182
-    stz $2183
-    jsr wait_vblank
-    lda #$01
-    sta $420C
-    jsr wait_vblank   ; a whole active display
-    stz $420C
-    sep #$20
-    .a8
-    lda f:$7E1300
-    sta f:$7E01C4
-    rep #$30
-    .a16
-    .i16
-    ldx #$0000
-@cnt13:
-    sep #$20
-    .a8
-    lda f:$7E1300,x
-    beq :+
-    rep #$30
-    .a16
-    .i16
-    inx
-    cpx #$0020
-    bne @cnt13
-    :
-    rep #$30
-    .a16
-    .i16
-    txa
-    sta f:$7E01C6
-    ; --- phase 2: armed at line 100, long after this frame's init has been and gone ---
-    sep #$20
-    .a8
-    stz $420C
-    rep #$30
-    .a16
-    .i16
-    ldx #$0000
-@clr14:
-    sep #$20
-    .a8
-    lda #$00
-    sta f:$7E1400,x
-    rep #$30
-    .a16
-    .i16
-    inx
-    cpx #$0020
-    bne @clr14
-    sep #$20
-    .a8
-    lda #$00
-    sta $2181
-    lda #$14
-    sta $2182
-    stz $2183
-    jsr wait_vblank
-    ; Spin until V = 100.
-    sep #$20
-    .a8
-@wld209:
-    lda $213F
-    lda $2137
-    lda $213D
-    xba
-    lda $213D
-    and #$01
-    xba
-    rep #$20
-    .a16
-    and #$01FF
-    cmp #100
-    sep #$20
-    .a8
-    bne @wld209
-    sep #$20
-    .a8
-    lda #$01
-    sta $420C         ; enabled mid-frame: no init runs for it this frame
-    jsr wait_vblank
-    stz $420C
-    sep #$20
-    .a8
-    lda f:$7E1400
-    sta f:$7E01C8
-    rep #$30
-    .a16
-    .i16
-    ldx #$0000
-@cnt14:
-    sep #$20
-    .a8
-    lda f:$7E1400,x
-    beq :+
-    rep #$30
-    .a16
-    .i16
-    inx
-    cpx #$0020
-    bne @cnt14
-    :
-    rep #$30
-    .a16
-    .i16
-    txa
-    sta f:$7E01CA
-    ; Publish both phases before judging: the control is what makes phase 2 readable.
-    rep #$30
-    .a16
-    .i16
-    lda f:$7E01C4
-    and #$00FF
-    ; record slot 146: D2.09 phase 1 first byte written (control, expect $11)
-    sta f:$7EE324
-    lda f:$7E01C6
-    and #$00FF
-    ; record slot 147: D2.09 phase 1 bytes written (control, expect 8)
-    sta f:$7EE326
-    lda f:$7E01C8
-    and #$00FF
-    ; record slot 148: D2.09 phase 2 first byte written, channel enabled mid-frame
-    sta f:$7EE328
-    lda f:$7E01CA
-    and #$00FF
-    ; record slot 149: D2.09 phase 2 bytes written
-    sta f:$7EE32A
-    ; The control is asserted: a wrong table or destination would make phase 2 meaningless.
-    sep #$20
-    .a8
-    lda f:$7E01C4
-    cmp #$11
-    beq :+
-    jmp @fail1
-  :
-    rep #$30
-    .a16
-    .i16
-    lda f:$7E01CA
-    and #$00FF
-    bne :+
-    sep #$20
-    .a8
-    lda #$03          ; variant 1 = nothing transferred at all
-    sta f:$7EE010
-    jml test_restore
-    :
-    ; Did it simply behave as though initialised? Compare the first byte against the control.
-    sep #$20
-    .a8
-    lda f:$7E01C8
-    cmp f:$7E01C4
-    bne :+
-    lda #$05          ; variant 2 = first byte matches the control
-    sta f:$7EE010
-    jml test_restore
-    :
-    lda #$07          ; variant 3 = neither; slots 148/149 say what came out
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; the first byte a correctly-armed HDMA channel wrote was not the table's first data byte, so the channel programming is wrong and phase 2 says nothing about mid-frame enabling
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; D1.14 — $2180 B->A does write
-; provenance: Documented (fullsnes: $2180->WRAM writes, but the value written is invalid)
-.proc test_d1_14
-    .a16
-    .i16
-    ; Both destinations, seeded differently. Whatever invalid value the write deposits, it is
-    ; the same for both transfers -- so equal results mean a write, unequal means none.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$00
-    sta f:$7E0C10
-    lda #$FF
-    sta f:$7E0C11
-    ; WMADD points somewhere harmless: this direction reads no WRAM, but the port still has an
-    ; address and leaving it where a previous test left it would be sloppy rather than wrong.
-    lda #$00
-    sta $2181
-    lda #$0D
-    sta $2182
-    stz $2183         ; WMADD = $7E:0D00
-    ; --- transfer 1: $2180 -> $7E:0C10 ---
-    lda #$80
-    sta $4300         ; bit 7 = B->A, mode 0
-    lda #$80
-    sta $4301         ; B-bus = $2180
-    rep #$30
-    .a16
-    .i16
-    lda #$0C10
-    sta $4302
-    sep #$20
-    .a8
-    lda #$7E
-    sta $4304         ; A-bus = $7E:0C10
-    rep #$30
-    .a16
-    .i16
-    lda #$0001
-    sta $4305         ; one byte
-    sep #$20
-    .a8
-    lda #$01
-    sta $420B
-    ; --- transfer 2: the same, into the other seed ---
-    rep #$30
-    .a16
-    .i16
-    lda #$0C11
-    sta $4302
-    sep #$20
-    .a8
-    lda #$7E
-    sta $4304
-    rep #$30
-    .a16
-    .i16
-    lda #$0001
-    sta $4305
-    sep #$20
-    .a8
-    lda #$01
-    sta $420B
-    ; Equal means a write occurred in both; unequal means the seeds survived and it did not.
-    lda f:$7E0C10
-    sta f:$7E0C12
-    lda f:$7E0C11
-    cmp f:$7E0C12
-    beq :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; $2180 as a DMA source performed no write — both destinations still hold their seeds
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; D1.11 — DMA power-on state
-; provenance: Corroborated (fullsnes register table and the SNESdev DMA-registers page agree independently; ares and bsnes default every channel field to match)
-.proc test_d1_11
-    .a16
-    .i16
-    ; AND the eleven agreed bytes together: all $FF gives $FF, and any other value cannot.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$FF
-    and f:V_PO_DMA+0  ; $4300 DMAP
-    and f:V_PO_DMA+1  ; $4301 BBAD
-    and f:V_PO_DMA+2  ; $4302 A1T low
-    and f:V_PO_DMA+3  ; $4303 A1T high
-    ; +4 ($4304, the A1T bank) is skipped: SNESdev says $FF, fullsnes says unspecified.
-    and f:V_PO_DMA+5  ; $4305 DAS low
-    and f:V_PO_DMA+6  ; $4306 DAS high
-    and f:V_PO_DMA+7  ; $4307 DASB
-    and f:V_PO_DMA+8  ; $4308 A2A low
-    and f:V_PO_DMA+9  ; $4309 A2A high
-    and f:V_PO_DMA+10 ; $430A NLTR
-    and f:V_PO_DMA+11 ; $430B unused/scratch
-    cmp #$FF
-    beq :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; a DMA channel register did not power on as $FF (Heian Fuuunden depends on this)
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; D1.08 — Invalid A-bus (golden)
-; provenance: Contested (the errata names the ranges invalid but does not specify what is read instead; the substitute is open bus, whose content is core-specific and time-dependent)
-.proc test_d1_08
-    .a16
-    .i16
-    ; Channel 1 reads A-bus $00:4300 -- channel 0's DMAP, never armed here -- into WRAM through
-    ; $2180. Run twice with the probe register holding different values.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    stz $420C         ; no HDMA: nothing else may touch the channels mid-test
-    stz $4310         ; A->B, increment, mode 0
-    lda #$80
-    sta $4311         ; B-bus = $2180
-    sep #$20
-    .a8
-    stz $4314         ; A-bus bank $00
-    ; --- run 1: probe register = $53 ---
-    lda #$53
-    sta $4300
-    lda #$00
-    sta $2181
-    lda #$0E
-    sta $2182
-    stz $2183         ; WMADD = $7E:0E00
-    rep #$30
-    .a16
-    .i16
-    lda #$4300
-    sta $4312
-    lda #$0001
-    sta $4315
-    sep #$20
-    .a8
-    lda #$02
-    sta $420B
-    ; --- run 2: probe register = $A5, destination one byte along ---
-    lda #$A5
-    sta $4300
-    lda #$01
-    sta $2181
-    lda #$0E
-    sta $2182
-    stz $2183         ; WMADD = $7E:0E01
-    rep #$30
-    .a16
-    .i16
-    lda #$4300
-    sta $4312
-    lda #$0001
-    sta $4315
-    sep #$20
-    .a8
-    lda #$02
-    sta $420B
-    ; Record both bytes: they are the whole content of this row and the reason it is golden.
-    rep #$20
-    .a16
-    lda f:$7E0E00
-    and #$00FF
-    ; record slot 144: D1.08 run 1 byte
-    sta f:$7EE320
-    lda f:$7E0E01
-    and #$00FF
-    ; record slot 145: D1.08 run 2 byte
-    sta f:$7EE322
-    ; Variant 1 = neither run held the probe value; variant 2 = the range was read after all.
-    sep #$20
-    .a8
-    lda f:$7E0E00
-    cmp #$53
-    beq @sawit
-    lda f:$7E0E01
-    cmp #$A5
-    beq @sawit
-    lda #$03
-    sta f:$7EE010
-    jml test_restore
-    @sawit:
-    lda #$05
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; D1.03 — DMA startup overhead
-; provenance: Documented (SNESdev Wiki, DMA timing; fullsnes)
-.proc test_d1_03
-    .a16
-    .i16
-    bra @body
-@data:
-    .byte $11, $22, $33, $44
-@body:
-    ; A one-byte transfer: almost all of what this measures is overhead.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$08
-    sta $4300         ; fixed source, mode 0
-    lda #$22
-    sta $4301         ; CGDATA — harmless, and rebuilt before any scene
-    stz $2121
-    rep #$30
-    .a16
-    .i16
-    ldx #@data
-    stx $4302         ; A-bus address = this test's data table
-    sep #$20
-    .a8
-    phk
-    pla
-    sta $4304         ; A-bus bank = this bank
-    rep #$30
-    .a16
-    .i16
-    ldx #$0001
-    stx $4305         ; byte count
-    sep #$20
-    .a8
-    jsr hv_begin
-    lda #$01
-    sta $420B
-    jsr hv_end
-    rep #$30
-    .a16
-    .i16
-    lda f:$7E0048     ; V_H1 = elapsed dots
-    ; record slot 111: D1.03 one-byte DMA, absolute (dots)
-    sta f:$7EE2DE
-    sep #$20
-    .a8
-    lda #$01
-    sta f:V_TEST_RESULT   ; golden: the number is in the measurement channel
-    jml test_restore
-.endproc
-
-; D1.04 — DMA channel priority
-; provenance: Documented (SNESdev Wiki, DMA; fullsnes)
-.proc test_d1_04
-    .a16
-    .i16
-    bra @body
-@data:
-    .byte $11, $22
-@body:
-    ; Both channels write one byte to $2180. WMADD advances across both, so the pair in WRAM
-    ; is the execution order written down.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$00
-    sta $2181
-    lda #$0E
-    sta $2182
-    stz $2183         ; WMADD = $7E:0E00
-    ; --- channel 0: sources $11 ---
-    lda #$08
-    sta $4300         ; A->B, fixed, mode 0
-    lda #$80
-    sta $4301
-    rep #$30
-    .a16
-    .i16
-    ldx #@data
-    stx $4302
-    sep #$20
-    .a8
-    phk
-    pla
-    sta $4304
-    rep #$30
-    .a16
-    .i16
-    ldx #$0001
-    stx $4305
-    ; --- channel 1: sources $22 ---
-    sep #$20
-    .a8
-    lda #$08
-    sta $4310
-    lda #$80
-    sta $4311
-    rep #$30
-    .a16
-    .i16
-    ldx #(@data + 1)
-    stx $4312
-    sep #$20
-    .a8
-    phk
-    pla
-    sta $4314
-    rep #$30
-    .a16
-    .i16
-    ldx #$0001
-    stx $4315
-    ; Start both in ONE write — which is the whole point; two writes would impose the order.
-    sep #$20
-    .a8
-    lda #$03
-    sta $420B
-    rep #$30
-    .a16
-    .i16
-    lda f:$7E0E00
-    cmp #$2211
-    beq :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; the channels did not run in ascending order (expected $11 from ch0 then $22 from ch1)
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; D2.05 — HDMA indirect mode
-; provenance: Documented (SNESdev Wiki, HDMA; fullsnes)
-.proc test_d2_05
-    .a16
-    .i16
-    bra @body
-@table:
-    .byte $02
-    .addr @ind1      ; indirect: the DATA lives at this address, not here
-    .byte $02
-    .addr @ind2
-    .byte $00        ; terminate
-@ind1:
-    .byte $77
-@ind2:
-    .byte $88
-@body:
-    ; Same $2180 trick as D2.03/D2.04, with DMAP bit 6 set and $4307 naming the data bank.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    stz $420C
-    ; Clear the landing page first.
-    rep #$30
-    .a16
-    .i16
-    ldx #$0000
-@clear:
-    sep #$20
-    .a8
-    lda #$00
-    sta f:$7E0F00,x
-    rep #$30
-    .a16
-    .i16
-    inx
-    cpx #$0010
-    bne @clear
-    sep #$20
-    .a8
-    lda #$00
-    sta $2181
-    lda #$0F
-    sta $2182
-    stz $2183         ; WMADD = $7E:0F00
-    lda #$40
-    sta $4300         ; A->B, INDIRECT, mode 0
-    lda #$80
-    sta $4301         ; B-bus = $2180
-    rep #$30
-    .a16
-    .i16
-    ldx #@table
-    stx $4302
-    sep #$20
-    .a8
-    phk
-    pla
-    sta $4304         ; table bank
-    phk
-    pla
-    sta $4307         ; indirect DATA bank
-    jsr wait_vblank
-    lda #$01
-    sta $420C
-    jsr wait_vblank
-    stz $420C
-    rep #$30
-    .a16
-    .i16
-    lda f:$7E0F00
-    cmp #$8877
-    beq :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; indirect HDMA did not fetch through the pointers (a core ignoring bit 6 writes the pointer bytes instead)
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; D2.06 — HDMA $4308/$430A state
-; provenance: Documented (SNESdev Wiki, HDMA registers; fullsnes)
-.proc test_d2_06
-    .a16
-    .i16
-    bra @body
-@table:
-    .byte $02, $11
-    .byte $00
-@body:
-    ; Run one frame of HDMA to $2180, then read the channel's working registers.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    stz $420C
-    lda #$00
-    sta $2181
-    lda #$10
-    sta $2182
-    stz $2183         ; WMADD = $7E:1000
-    stz $4300
-    lda #$80
-    sta $4301
-    rep #$30
-    .a16
-    .i16
-    ldx #@table
-    stx $4302
-    sep #$20
-    .a8
-    phk
-    pla
-    sta $4304
-    jsr wait_vblank
-    lda #$01
-    sta $420C
-    jsr wait_vblank
-    stz $420C
-    lda $430A
-    cmp #$00
-    beq :+
-    jmp @fail1
-  :
-    ; $4308/09 must have advanced past the table's start — it is a walking pointer.
-    rep #$30
-    .a16
-    .i16
-    lda $4308
-    sec
-    sbc #@table
-    cmp #$0001
-    bcs :+
-    jmp @fail2
-  :
-    cmp #$0011
-    bcc :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; $430A does not hold the $00 terminator after the table ran out
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; $4308/09 did not advance past the table start; it is a working pointer, not a copy
-    sep #$20
-    .a8
-    lda #$04
     sta f:$7EE010
     jml test_restore
 .endproc
@@ -27224,6 +25300,1932 @@ CATALOG_IMPL = 1
     jml test_restore
     :
     lda #$07          ; variant 3 = the CPU's open bus; raw byte in slot 90 (Mesen2: $21)
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+.segment "TESTSD"
+
+; D1.01 — DMA mode 0
+; provenance: Documented (SNESdev Wiki, DMA; fullsnes)
+.proc test_d1_01
+    .a16
+    .i16
+    bra @body
+@data:
+    .byte $11, $22, $33, $44
+@body:
+    ; Mode 0 into $2180 (the WRAM data port): all four bytes land at consecutive WRAM
+    ; addresses because $2180 auto-increments WMADD, not because the B-bus address moved.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta $2181
+    lda #$05
+    sta $2182
+    stz $2183         ; WMADD = $7E:0500, clear of every test's scratch
+    stz $4300         ; DMAP: A->B, increment, mode 0
+    lda #$80
+    sta $4301         ; B-bus = $2180
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@data)
+    stx $4302         ; A-bus address = this test's data table
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; A-bus bank = this bank
+    rep #$30
+    .a16
+    .i16
+    ldx #$0004
+    stx $4305         ; byte count
+    sep #$20
+    .a8
+    lda #$01
+    sta $420B         ; run channel 0
+    ; Read the four bytes back and fold them into one word so a single compare covers all.
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0500
+    cmp #$2211
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E0502
+    cmp #$4433
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the first two bytes did not arrive in order at $7E:0500
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the last two bytes did not arrive in order at $7E:0502
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; D1.01b — DMA mode 1
+; provenance: Documented (SNESdev Wiki, DMA; fullsnes)
+.proc test_d1_01b
+    .a16
+    .i16
+    bra @body
+@data:
+    .byte $11, $22, $33, $44
+@body:
+    ; Mode 1 into $2118/$2119: byte 0 -> VMDATAL, byte 1 -> VMDATAH, then repeat.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115         ; VMAIN: step 1 word, increment after the high byte
+    rep #$30
+    .a16
+    .i16
+    ldx #$1000
+    stx $2116         ; VRAM word address $1000, clear of the font and the tilemaps
+    sep #$20
+    .a8
+    lda #$01
+    sta $4300         ; DMAP: A->B, increment, mode 1
+    lda #$18
+    sta $4301         ; B-bus = $2118
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@data)
+    stx $4302         ; A-bus address = this test's data table
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; A-bus bank = this bank
+    rep #$30
+    .a16
+    .i16
+    ldx #$0004
+    stx $4305         ; byte count
+    sep #$20
+    .a8
+    lda #$01
+    sta $420B
+    ; Read the two words back. Setting VMADDL primes the read latch, so the first 16-bit read
+    ; of $2139/$213A already returns word $1000 — no dummy read, which would consume it.
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115         ; increment after the HIGH byte, so a 16-bit read is one word
+    rep #$30
+    .a16
+    .i16
+    ldx #$1000
+    stx $2116
+    lda $2139
+    cmp #$2211
+    beq :+
+    jmp @fail1
+  :
+    ; Re-set the address for the second word rather than relying on the read increment: the
+    ; prefetch latch makes successive reads a separate question, and mixing the two would
+    ; leave a failure ambiguous between the DMA and the read port.
+    ldx #$1001
+    stx $2116
+    lda $2139
+    cmp #$4433
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; VRAM word 0 is wrong: the two bytes did not split across $2118/$2119
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; VRAM word 1 is wrong
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; D1.06 — DMA count hits zero
+; provenance: Documented (SNESdev Wiki, DMA registers; fullsnes)
+.proc test_d1_06
+    .a16
+    .i16
+    bra @body
+@data:
+    .byte $11, $22, $33, $44
+@body:
+    ; Run a 4-byte transfer, then read $4305/06.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta $2181
+    lda #$06
+    sta $2182
+    stz $2183         ; WMADD = $7E:0600
+    stz $4300
+    lda #$80
+    sta $4301
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@data)
+    stx $4302         ; A-bus address = this test's data table
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; A-bus bank = this bank
+    rep #$30
+    .a16
+    .i16
+    ldx #$0004
+    stx $4305         ; byte count
+    sep #$20
+    .a8
+    lda #$01
+    sta $420B
+    rep #$30
+    .a16
+    .i16
+    lda $4305
+    cmp #$0000
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the DMA byte counter did not decrement to zero
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; D1.07 — DMA fixed A-bus
+; provenance: Documented (SNESdev Wiki, DMA registers; fullsnes)
+.proc test_d1_07
+    .a16
+    .i16
+    bra @body
+@data:
+    .byte $11, $22, $33, $44
+@body:
+    ; DMAP bits 4-3 = 1: fixed source. Four bytes from one address must all be $11.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta $2181
+    lda #$07
+    sta $2182
+    stz $2183         ; WMADD = $7E:0700
+    lda #$08
+    sta $4300         ; DMAP: A->B, step field = 1 (FIXED), mode 0
+    lda #$80
+    sta $4301
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@data)
+    stx $4302         ; A-bus address = this test's data table
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; A-bus bank = this bank
+    rep #$30
+    .a16
+    .i16
+    ldx #$0004
+    stx $4305         ; byte count
+    sep #$20
+    .a8
+    lda #$01
+    sta $420B
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0700
+    cmp #$1111
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E0702
+    cmp #$1111
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; bytes 0-1 are not both the fixed source byte
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; bytes 2-3 are not both the fixed source byte
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; D1.07b — DMA decrementing A-bus
+; provenance: Documented (SNESdev Wiki, DMA registers; fullsnes)
+.proc test_d1_07b
+    .a16
+    .i16
+    bra @body
+@data:
+    .byte $11, $22, $33, $44
+@body:
+    ; DMAP bits 4-3 = 2: decrement. Source the LAST byte; the transfer walks back.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta $2181
+    lda #$08
+    sta $2182
+    stz $2183         ; WMADD = $7E:0800
+    lda #$10
+    sta $4300         ; DMAP: A->B, step field = 2 (DECREMENT), mode 0
+    lda #$80
+    sta $4301
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@data + 3)
+    stx $4302         ; start at the last byte
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304
+    rep #$30
+    .a16
+    .i16
+    ldx #$0004
+    stx $4305
+    sep #$20
+    .a8
+    lda #$01
+    sta $420B
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0800
+    cmp #$3344
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E0802
+    cmp #$1122
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; bytes 0-1 are not the table read backwards
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; bytes 2-3 are not the table read backwards
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; D1.10 — DMA $43xB scratch latch
+; provenance: Corroborated (ares and bsnes both model the latch and serialize it)
+.proc test_d1_10
+    .a16
+    .i16
+    ; Write $43xB, read it back, then read $43xF and require the same value.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$5A
+    sta $430B
+    lda $430B
+    cmp #$5A
+    beq :+
+    jmp @fail1
+  :
+    lda $430F
+    cmp #$5A
+    beq :+
+    jmp @fail2
+  :
+    ; A different channel must have its own latch, not share channel 0's.
+    lda #$A5
+    sta $431B
+    lda $430B
+    cmp #$5A
+    beq :+
+    jmp @fail3
+  :
+    lda $431F
+    cmp #$A5
+    beq :+
+    jmp @fail4
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; $430B did not read back the value written to it
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; $430F does not mirror $430B
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; writing $431B changed channel 0's latch — the channels are not separate
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+@fail4:
+    ; $431F does not mirror $431B
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; D1.02 — DMA 8 clocks/byte
+; provenance: Documented (SNESdev Wiki, DMA timing; fullsnes)
+.proc test_d1_02
+    .a16
+    .i16
+    bra @body
+@data:
+    .byte $11, $22, $33, $44
+@body:
+    ; Two mode-0 transfers into WRAM, 32 bytes apart in length. The difference is the rate.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$08
+    sta $4300         ; step field = 1 (fixed): the table is only 4 bytes long
+    lda #$80
+    sta $4301
+    ; --- 16 bytes ---
+    lda #$00
+    sta $2181
+    lda #$09
+    sta $2182
+    stz $2183
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@data)
+    stx $4302         ; A-bus address = this test's data table
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; A-bus bank = this bank
+    rep #$30
+    .a16
+    .i16
+    ldx #$0010
+    stx $4305         ; byte count
+    sep #$20
+    .a8
+    jsl hv_begin_far
+    lda #$01
+    sta $420B
+    jsl hv_end_far
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E00A0
+    ; record slot 104: D1.02 16-byte DMA (dots)
+    sta f:$7EE2D0
+    ; --- 48 bytes: 32 more ---
+    sep #$20
+    .a8
+    lda #$00
+    sta $2181
+    lda #$0A
+    sta $2182
+    stz $2183
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@data)
+    stx $4302         ; A-bus address = this test's data table
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; A-bus bank = this bank
+    rep #$30
+    .a16
+    .i16
+    ldx #$0030
+    stx $4305         ; byte count
+    sep #$20
+    .a8
+    jsl hv_begin_far
+    lda #$01
+    sta $420B
+    jsl hv_end_far
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    ; record slot 105: D1.02 48-byte DMA (dots)
+    sta f:$7EE2D2
+    sec
+    sbc f:$7E00A0
+    ; record slot 106: D1.02 difference — expect 32 bytes x 8 clocks = 64 dots
+    sta f:$7EE2D4
+    cmp #$003C
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0045
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; 32 extra DMA bytes did not cost 64 dots (8 clocks each)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; D1.05 — DMA count 0 = 65536
+; provenance: Documented (SNESdev Wiki, DMA registers; fullsnes)
+.proc test_d1_05
+    .a16
+    .i16
+    bra @body
+@data:
+    .byte $11, $22, $33, $44
+@body:
+    ; Wait for the top of vblank so the starting line is known, then run a count-0 transfer.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$08
+    sta $4300         ; A->B, fixed source, mode 0
+    lda #$22
+    sta $4301         ; B-bus = $2122 (CGDATA): harmless, and rebuilt before any scene
+    stz $2121         ; CGADD = 0
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@data)
+    stx $4302
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+    stx $4305         ; count = 0, which means 65536
+    sep #$20
+    .a8
+    jsl wait_vblank_far   ; start from a known line
+    lda #$01
+    sta $420B
+    sep #$20
+    .a8
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    sta f:$7E00B0     ; where the transfer left the V counter
+    ; record slot 110: D1.05 V counter after a count-0 DMA
+    sta f:$7EE2DC
+    ; The landing line depends on FRAME LENGTH, so measure that rather than assume it: 384
+    ; lines past line 225 is line 85 of the next NTSC frame and line 297 of the next PAL one.
+    ; Measured, not read from the region bit — whose position B2.10 had to settle, and which a
+    ; frame-length test must not lean on.
+    sep #$20
+    .a8
+    stz $2133         ; SETINI: no interlace, which would add a line
+    jsl wait_vblank_far
+    jsl wait_vblank_far   ; a settled frame
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E0124     ; running maximum
+@fh_loop:
+    sep #$20
+    .a8
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp f:$7E0124
+    bcc :+
+    sta f:$7E0124
+    :
+    cmp #100          ; below 100 means the counter wrapped into the next frame
+    bcs @fh_loop
+    lda f:$7E0124
+    ; Named labels, not anonymous ones: assert_a16_range emits its own `:` labels, so a `bne :+`
+    ; written across one lands INSIDE the assertion rather than after it. That cost a debugging
+    ; round here, with the branch silently taking the wrong arm.
+    cmp #311
+    bne @ntsc
+    lda f:$7E00B0
+    cmp #$0113
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0141
+    bcc :+
+    jmp @fail1
+  :
+    bra @done
+@ntsc:
+    lda f:$7E00B0
+    cmp #$003C
+    bcs :+
+    jmp @fail2
+  :
+    cmp #$006F
+    bcc :+
+    jmp @fail2
+  :
+@done:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; on PAL a count-0 DMA did not take ~384 scanlines, so it did not transfer 65536 bytes
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; on NTSC a count-0 DMA did not take ~384 scanlines, so it did not transfer 65536 bytes
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; D1.09 — WRAM->$2180 no-write
+; provenance: Documented (fullsnes: "does not cause a write to occur")
+.proc test_d1_09
+    .a16
+    .i16
+    ; Seed the destination, then try to DMA WRAM->$2180 over it. Nothing must change.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$5A
+    sta f:$7E0C00
+    sta f:$7E0C01
+    lda #$00
+    sta $2181
+    lda #$0C
+    sta $2182
+    stz $2183         ; WMADD = $7E:0C00 — the destination
+    stz $4300         ; A->B, increment, mode 0
+    lda #$80
+    sta $4301         ; B-bus = $2180
+    rep #$30
+    .a16
+    .i16
+    ldx #$0D00
+    stx $4302
+    sep #$20
+    .a8
+    lda #$7E
+    sta $4304         ; A-bus = $7E:0D00, i.e. WRAM
+    rep #$30
+    .a16
+    .i16
+    ldx #$0002
+    stx $4305
+    sep #$20
+    .a8
+    lda #$01
+    sta $420B
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0C00
+    cmp #$5A5A
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; a WRAM->$2180 DMA wrote to WRAM; that transfer must perform no write at all
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; D2.03 — HDMA line-count byte
+; provenance: Documented (SNESdev Wiki, HDMA; fullsnes)
+.proc test_d2_03
+    .a16
+    .i16
+    bra @body
+@table:
+    .byte $03, $11    ; non-repeat, 3 lines: one write of $11 to CGDATA
+    .byte $04, $22    ; non-repeat, 4 lines: one write of $22, completing the colour word
+    .byte $00         ; terminate
+@body:
+    ; Point HDMA channel 0 at $2180 with WMADD in WRAM, run one frame, then read the trail.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    sep #$20
+    .a8
+    ; Clear the landing page so a trailing zero means HDMA stopped, not that it never started.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@clear:
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0A00,x
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$0010
+    bne @clear
+    sep #$20
+    .a8
+    stz $420C         ; HDMA off while it is being programmed
+    lda #$00
+    sta $2181
+    lda #$0A
+    sta $2182
+    stz $2183         ; WMADD = $7E:0A00
+    stz $4300         ; A->B, direct table, mode 0 (one byte per transfer)
+    lda #$80
+    sta $4301         ; B-bus = $2180
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@table)
+    stx $4302
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; table address = this bank
+    ; Arm during vblank: enabling HDMA mid-frame is its own erratum (D2.09), and this test is
+    ; not about that. The channel initialises at the top of the next frame.
+    jsl wait_vblank_far
+    lda #$01
+    sta $420C         ; HDMAEN channel 0
+    jsl wait_vblank_far   ; let the whole active display run
+    stz $420C         ; disarm before reading, so nothing moves under the checks
+    ; Two non-repeat entries: exactly two bytes, then nothing.
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0A00
+    cmp #$2211
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E0A02
+    cmp #$0000
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the two non-repeat HDMA entries did not write exactly $11 then $22
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; HDMA kept writing after the $00 terminator
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; D2.04 — HDMA repeat flag
+; provenance: Documented (SNESdev Wiki, HDMA; fullsnes)
+.proc test_d2_04
+    .a16
+    .i16
+    bra @body
+@table:
+    .byte $83, $11, $22, $33   ; repeat, 3 lines: one write per line
+    .byte $82, $44, $55        ; repeat, 2 lines
+    .byte $00                  ; terminate
+@body:
+    ; Same setup as D2.03; only the table's bit 7 differs.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    sep #$20
+    .a8
+    ; Clear the landing page so a trailing zero means HDMA stopped, not that it never started.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@clear:
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0B00,x
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$0010
+    bne @clear
+    sep #$20
+    .a8
+    stz $420C         ; HDMA off while it is being programmed
+    lda #$00
+    sta $2181
+    lda #$0B
+    sta $2182
+    stz $2183         ; WMADD = $7E:0B00
+    stz $4300         ; A->B, direct table, mode 0 (one byte per transfer)
+    lda #$80
+    sta $4301         ; B-bus = $2180
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@table)
+    stx $4302
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; table address = this bank
+    ; Arm during vblank: enabling HDMA mid-frame is its own erratum (D2.09), and this test is
+    ; not about that. The channel initialises at the top of the next frame.
+    jsl wait_vblank_far
+    lda #$01
+    sta $420C         ; HDMAEN channel 0
+    jsl wait_vblank_far   ; let the whole active display run
+    stz $420C         ; disarm before reading, so nothing moves under the checks
+    ; Five repeat lines: five bytes in order, then nothing.
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0B00
+    cmp #$2211
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E0B02
+    cmp #$4433
+    beq :+
+    jmp @fail2
+  :
+    lda f:$7E0B04
+    and #$00FF
+    cmp #$0055
+    beq :+
+    jmp @fail3
+  :
+    lda f:$7E0B05
+    and #$00FF
+    cmp #$0000
+    beq :+
+    jmp @fail4
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; repeat bytes 0-1 are wrong
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; repeat bytes 2-3 are wrong
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; repeat byte 4 is wrong
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+@fail4:
+    ; HDMA wrote a sixth byte; the repeat counts total five lines
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; D2.07 — HDMA preempts GP-DMA
+; provenance: Documented (SNESdev Wiki, HDMA; anomie's timing doc; fullsnes)
+.proc test_d2_07
+    .a16
+    .i16
+    bra @body
+@table:
+    .byte $03, $11    ; non-repeat, 3 lines: one write of $11
+    .byte $04, $22    ; non-repeat, 4 lines: one write of $22
+    .byte $00         ; terminate
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; HDMA writes CGRAM, NOT $2180. Both HDMA and the GP-DMA would otherwise go through the
+    ; WRAM data port, which has a single shared WMADD -- they would interleave into each
+    ; other's destination and neither result would mean anything. That is what the first
+    ; version of this test did, and its trail simply never appeared.
+    sep #$20
+    .a8
+    lda #$80
+    sta $2121         ; CGADD = $80, well clear of the palettes the scenes bless
+    stz $420C
+    stz $4300         ; A->B, direct table, mode 0
+    lda #$22
+    sta $4301         ; B-bus = $2122 (CGDATA)
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@table)
+    stx $4302
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304
+    ; GP-DMA channel 1: 4 KiB of ROM through the WRAM port at $7E:4000.
+    lda #$00
+    sta $2181
+    lda #$40
+    sta $2182
+    stz $2183         ; WMADD = $7E:4000
+    stz $4310         ; A->B, increment, mode 0
+    lda #$80
+    sta $4311         ; B-bus = $2180
+    rep #$30
+    .a16
+    .i16
+    lda #$8000
+    sta $4312         ; A-bus source $00:8000
+    sep #$20
+    .a8
+    stz $4314         ; source bank $00
+    rep #$30
+    .a16
+    .i16
+    lda #$1000
+    sta $4315         ; 4096 bytes
+    ; Arm HDMA in vblank, then start the GP-DMA so it runs THROUGH active display. A transfer
+    ; confined to vblank is never preempted and this test would assert nothing.
+    sep #$20
+    .a8
+    jsl wait_vblank_far
+    lda #$01
+    sta $420C         ; HDMAEN channel 0
+    lda #$02
+    sta $420B         ; run channel 1
+    jsl wait_vblank_far   ; let the rest of the frame, and its HDMA, complete
+    stz $420C         ; disarm before reading
+    ; Half one: HDMA actually ran. Without this the transfer check below is satisfied just as
+    ; well by a core that never preempted anything. Read CGRAM back at the index the table
+    ; wrote: $2121 selects the word, then $213B reads low then high.
+    lda #$80
+    sta $2121
+    lda $213B
+    sta f:$7E0A04
+    lda $213B
+    sta f:$7E0A05
+    rep #$20
+    .a16
+    lda f:$7E0A04
+    and #$7FFF        ; CGRAM is 15-bit; bit 15 reads back as open bus
+    cmp #$2211
+    beq :+
+    jmp @fail1
+  :
+    ; Half two: the paused transfer resumed and ran to completion. The channel's own registers
+    ; say so without needing the destination read back: DAS counts down to zero and A1T ends
+    ; at source + length. A core that resumed short leaves both short.
+    lda $4315
+    cmp #$0000
+    beq :+
+    jmp @fail2
+  :
+    lda $4312
+    cmp #$9000
+    beq :+
+    jmp @fail3
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the HDMA trail is absent — no preemption happened, so the transfer check proves nothing
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; channel 1's byte count did not reach zero — the GP-DMA resumed short after preemption
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; channel 1's source address did not advance the full 4096 bytes
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; D2.09 — HDMA armed mid-frame
+; provenance: Contested (fullsnes and the SNESdev Wiki record that enabling HDMA outside vblank produces erroneous writes from uninitialised A2An/NLTRn, but what those writes contain is a function of the previous frame's leftover state and is specified nowhere)
+.proc test_d2_09
+    .a16
+    .i16
+    bra @body
+@table:
+    .byte $01, $11
+    .byte $01, $22
+    .byte $01, $33
+    .byte $01, $44
+    .byte $01, $55
+    .byte $01, $66
+    .byte $01, $77
+    .byte $01, $88
+    .byte $00         ; terminate after eight lines
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Programme channel 0 -> $2180, table in this bank. WMADD is set per phase.
+    sep #$20
+    .a8
+    stz $420C
+    stz $4300         ; A->B, direct table, mode 0: one byte per line
+    lda #$80
+    sta $4301         ; B-bus = $2180
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@table)
+    stx $4302
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304
+    ; --- phase 1: armed in vblank, so the channel initialises at the top of the frame ---
+    sep #$20
+    .a8
+    stz $420C
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@clr13:
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E1300,x
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$0020
+    bne @clr13
+    sep #$20
+    .a8
+    lda #$00
+    sta $2181
+    lda #$13
+    sta $2182
+    stz $2183
+    jsl wait_vblank_far
+    lda #$01
+    sta $420C
+    jsl wait_vblank_far   ; a whole active display
+    stz $420C
+    sep #$20
+    .a8
+    lda f:$7E1300
+    sta f:$7E01C4
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@cnt13:
+    sep #$20
+    .a8
+    lda f:$7E1300,x
+    beq :+
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$0020
+    bne @cnt13
+    :
+    rep #$30
+    .a16
+    .i16
+    txa
+    sta f:$7E01C6
+    ; --- phase 2: armed at line 100, long after this frame's init has been and gone ---
+    sep #$20
+    .a8
+    stz $420C
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@clr14:
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E1400,x
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$0020
+    bne @clr14
+    sep #$20
+    .a8
+    lda #$00
+    sta $2181
+    lda #$14
+    sta $2182
+    stz $2183
+    jsl wait_vblank_far
+    ; Spin until V = 100.
+    sep #$20
+    .a8
+@wld209:
+    lda $213F
+    lda $2137
+    lda $213D
+    xba
+    lda $213D
+    and #$01
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp #100
+    sep #$20
+    .a8
+    bne @wld209
+    sep #$20
+    .a8
+    lda #$01
+    sta $420C         ; enabled mid-frame: no init runs for it this frame
+    jsl wait_vblank_far
+    stz $420C
+    sep #$20
+    .a8
+    lda f:$7E1400
+    sta f:$7E01C8
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@cnt14:
+    sep #$20
+    .a8
+    lda f:$7E1400,x
+    beq :+
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$0020
+    bne @cnt14
+    :
+    rep #$30
+    .a16
+    .i16
+    txa
+    sta f:$7E01CA
+    ; Publish both phases before judging: the control is what makes phase 2 readable.
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E01C4
+    and #$00FF
+    ; record slot 146: D2.09 phase 1 first byte written (control, expect $11)
+    sta f:$7EE324
+    lda f:$7E01C6
+    and #$00FF
+    ; record slot 147: D2.09 phase 1 bytes written (control, expect 8)
+    sta f:$7EE326
+    lda f:$7E01C8
+    and #$00FF
+    ; record slot 148: D2.09 phase 2 first byte written, channel enabled mid-frame
+    sta f:$7EE328
+    lda f:$7E01CA
+    and #$00FF
+    ; record slot 149: D2.09 phase 2 bytes written
+    sta f:$7EE32A
+    ; The control is asserted: a wrong table or destination would make phase 2 meaningless.
+    sep #$20
+    .a8
+    lda f:$7E01C4
+    cmp #$11
+    beq :+
+    jmp @fail1
+  :
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E01CA
+    and #$00FF
+    bne :+
+    sep #$20
+    .a8
+    lda #$03          ; variant 1 = nothing transferred at all
+    sta f:$7EE010
+    jml test_restore
+    :
+    ; Did it simply behave as though initialised? Compare the first byte against the control.
+    sep #$20
+    .a8
+    lda f:$7E01C8
+    cmp f:$7E01C4
+    bne :+
+    lda #$05          ; variant 2 = first byte matches the control
+    sta f:$7EE010
+    jml test_restore
+    :
+    lda #$07          ; variant 3 = neither; slots 148/149 say what came out
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the first byte a correctly-armed HDMA channel wrote was not the table's first data byte, so the channel programming is wrong and phase 2 says nothing about mid-frame enabling
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; D1.14 — $2180 B->A does write
+; provenance: Documented (fullsnes: $2180->WRAM writes, but the value written is invalid)
+.proc test_d1_14
+    .a16
+    .i16
+    ; Both destinations, seeded differently. Whatever invalid value the write deposits, it is
+    ; the same for both transfers -- so equal results mean a write, unequal means none.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0C10
+    lda #$FF
+    sta f:$7E0C11
+    ; WMADD points somewhere harmless: this direction reads no WRAM, but the port still has an
+    ; address and leaving it where a previous test left it would be sloppy rather than wrong.
+    lda #$00
+    sta $2181
+    lda #$0D
+    sta $2182
+    stz $2183         ; WMADD = $7E:0D00
+    ; --- transfer 1: $2180 -> $7E:0C10 ---
+    lda #$80
+    sta $4300         ; bit 7 = B->A, mode 0
+    lda #$80
+    sta $4301         ; B-bus = $2180
+    rep #$30
+    .a16
+    .i16
+    lda #$0C10
+    sta $4302
+    sep #$20
+    .a8
+    lda #$7E
+    sta $4304         ; A-bus = $7E:0C10
+    rep #$30
+    .a16
+    .i16
+    lda #$0001
+    sta $4305         ; one byte
+    sep #$20
+    .a8
+    lda #$01
+    sta $420B
+    ; --- transfer 2: the same, into the other seed ---
+    rep #$30
+    .a16
+    .i16
+    lda #$0C11
+    sta $4302
+    sep #$20
+    .a8
+    lda #$7E
+    sta $4304
+    rep #$30
+    .a16
+    .i16
+    lda #$0001
+    sta $4305
+    sep #$20
+    .a8
+    lda #$01
+    sta $420B
+    ; Equal means a write occurred in both; unequal means the seeds survived and it did not.
+    lda f:$7E0C10
+    sta f:$7E0C12
+    lda f:$7E0C11
+    cmp f:$7E0C12
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; $2180 as a DMA source performed no write — both destinations still hold their seeds
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; D1.11 — DMA power-on state
+; provenance: Corroborated (fullsnes register table and the SNESdev DMA-registers page agree independently; ares and bsnes default every channel field to match)
+.proc test_d1_11
+    .a16
+    .i16
+    ; AND the eleven agreed bytes together: all $FF gives $FF, and any other value cannot.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$FF
+    and f:V_PO_DMA+0  ; $4300 DMAP
+    and f:V_PO_DMA+1  ; $4301 BBAD
+    and f:V_PO_DMA+2  ; $4302 A1T low
+    and f:V_PO_DMA+3  ; $4303 A1T high
+    ; +4 ($4304, the A1T bank) is skipped: SNESdev says $FF, fullsnes says unspecified.
+    and f:V_PO_DMA+5  ; $4305 DAS low
+    and f:V_PO_DMA+6  ; $4306 DAS high
+    and f:V_PO_DMA+7  ; $4307 DASB
+    and f:V_PO_DMA+8  ; $4308 A2A low
+    and f:V_PO_DMA+9  ; $4309 A2A high
+    and f:V_PO_DMA+10 ; $430A NLTR
+    and f:V_PO_DMA+11 ; $430B unused/scratch
+    cmp #$FF
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; a DMA channel register did not power on as $FF (Heian Fuuunden depends on this)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; D1.08 — Invalid A-bus (golden)
+; provenance: Contested (the errata names the ranges invalid but does not specify what is read instead; the substitute is open bus, whose content is core-specific and time-dependent)
+.proc test_d1_08
+    .a16
+    .i16
+    ; Channel 1 reads A-bus $00:4300 -- channel 0's DMAP, never armed here -- into WRAM through
+    ; $2180. Run twice with the probe register holding different values.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    stz $420C         ; no HDMA: nothing else may touch the channels mid-test
+    stz $4310         ; A->B, increment, mode 0
+    lda #$80
+    sta $4311         ; B-bus = $2180
+    sep #$20
+    .a8
+    stz $4314         ; A-bus bank $00
+    ; --- run 1: probe register = $53 ---
+    lda #$53
+    sta $4300
+    lda #$00
+    sta $2181
+    lda #$0E
+    sta $2182
+    stz $2183         ; WMADD = $7E:0E00
+    rep #$30
+    .a16
+    .i16
+    lda #$4300
+    sta $4312
+    lda #$0001
+    sta $4315
+    sep #$20
+    .a8
+    lda #$02
+    sta $420B
+    ; --- run 2: probe register = $A5, destination one byte along ---
+    lda #$A5
+    sta $4300
+    lda #$01
+    sta $2181
+    lda #$0E
+    sta $2182
+    stz $2183         ; WMADD = $7E:0E01
+    rep #$30
+    .a16
+    .i16
+    lda #$4300
+    sta $4312
+    lda #$0001
+    sta $4315
+    sep #$20
+    .a8
+    lda #$02
+    sta $420B
+    ; Record both bytes: they are the whole content of this row and the reason it is golden.
+    rep #$20
+    .a16
+    lda f:$7E0E00
+    and #$00FF
+    ; record slot 144: D1.08 run 1 byte
+    sta f:$7EE320
+    lda f:$7E0E01
+    and #$00FF
+    ; record slot 145: D1.08 run 2 byte
+    sta f:$7EE322
+    ; Variant 1 = neither run held the probe value; variant 2 = the range was read after all.
+    sep #$20
+    .a8
+    lda f:$7E0E00
+    cmp #$53
+    beq @sawit
+    lda f:$7E0E01
+    cmp #$A5
+    beq @sawit
+    lda #$03
+    sta f:$7EE010
+    jml test_restore
+    @sawit:
+    lda #$05
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; D1.03 — DMA startup overhead
+; provenance: Documented (SNESdev Wiki, DMA timing; fullsnes)
+.proc test_d1_03
+    .a16
+    .i16
+    bra @body
+@data:
+    .byte $11, $22, $33, $44
+@body:
+    ; A one-byte transfer: almost all of what this measures is overhead.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$08
+    sta $4300         ; fixed source, mode 0
+    lda #$22
+    sta $4301         ; CGDATA — harmless, and rebuilt before any scene
+    stz $2121
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@data)
+    stx $4302         ; A-bus address = this test's data table
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; A-bus bank = this bank
+    rep #$30
+    .a16
+    .i16
+    ldx #$0001
+    stx $4305         ; byte count
+    sep #$20
+    .a8
+    jsl hv_begin_far
+    lda #$01
+    sta $420B
+    jsl hv_end_far
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    ; record slot 111: D1.03 one-byte DMA, absolute (dots)
+    sta f:$7EE2DE
+    sep #$20
+    .a8
+    lda #$01
+    sta f:V_TEST_RESULT   ; golden: the number is in the measurement channel
+    jml test_restore
+.endproc
+
+; D1.04 — DMA channel priority
+; provenance: Documented (SNESdev Wiki, DMA; fullsnes)
+.proc test_d1_04
+    .a16
+    .i16
+    bra @body
+@data:
+    .byte $11, $22
+@body:
+    ; Both channels write one byte to $2180. WMADD advances across both, so the pair in WRAM
+    ; is the execution order written down.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta $2181
+    lda #$0E
+    sta $2182
+    stz $2183         ; WMADD = $7E:0E00
+    ; --- channel 0: sources $11 ---
+    lda #$08
+    sta $4300         ; A->B, fixed, mode 0
+    lda #$80
+    sta $4301
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@data)
+    stx $4302
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304
+    rep #$30
+    .a16
+    .i16
+    ldx #$0001
+    stx $4305
+    ; --- channel 1: sources $22 ---
+    sep #$20
+    .a8
+    lda #$08
+    sta $4310
+    lda #$80
+    sta $4311
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@data + 1)
+    stx $4312
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4314
+    rep #$30
+    .a16
+    .i16
+    ldx #$0001
+    stx $4315
+    ; Start both in ONE write — which is the whole point; two writes would impose the order.
+    sep #$20
+    .a8
+    lda #$03
+    sta $420B
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0E00
+    cmp #$2211
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the channels did not run in ascending order (expected $11 from ch0 then $22 from ch1)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; D2.05 — HDMA indirect mode
+; provenance: Documented (SNESdev Wiki, HDMA; fullsnes)
+.proc test_d2_05
+    .a16
+    .i16
+    bra @body
+@table:
+    .byte $02
+    .addr @ind1      ; indirect: the DATA lives at this address, not here
+    .byte $02
+    .addr @ind2
+    .byte $00        ; terminate
+@ind1:
+    .byte $77
+@ind2:
+    .byte $88
+@body:
+    ; Same $2180 trick as D2.03/D2.04, with DMAP bit 6 set and $4307 naming the data bank.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    stz $420C
+    ; Clear the landing page first.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@clear:
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0F00,x
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$0010
+    bne @clear
+    sep #$20
+    .a8
+    lda #$00
+    sta $2181
+    lda #$0F
+    sta $2182
+    stz $2183         ; WMADD = $7E:0F00
+    lda #$40
+    sta $4300         ; A->B, INDIRECT, mode 0
+    lda #$80
+    sta $4301         ; B-bus = $2180
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@table)
+    stx $4302
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; table bank
+    phk
+    pla
+    sta $4307         ; indirect DATA bank
+    jsl wait_vblank_far
+    lda #$01
+    sta $420C
+    jsl wait_vblank_far
+    stz $420C
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0F00
+    cmp #$8877
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; indirect HDMA did not fetch through the pointers (a core ignoring bit 6 writes the pointer bytes instead)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; D2.06 — HDMA $4308/$430A state
+; provenance: Documented (SNESdev Wiki, HDMA registers; fullsnes)
+.proc test_d2_06
+    .a16
+    .i16
+    bra @body
+@table:
+    .byte $02, $11
+    .byte $00
+@body:
+    ; Run one frame of HDMA to $2180, then read the channel's working registers.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    stz $420C
+    lda #$00
+    sta $2181
+    lda #$10
+    sta $2182
+    stz $2183         ; WMADD = $7E:1000
+    stz $4300
+    lda #$80
+    sta $4301
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@table)
+    stx $4302
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304
+    jsl wait_vblank_far
+    lda #$01
+    sta $420C
+    jsl wait_vblank_far
+    stz $420C
+    lda $430A
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    ; $4308/09 must have advanced past the table's start — it is a walking pointer.
+    rep #$30
+    .a16
+    .i16
+    lda $4308
+    sec
+    sbc #.loword(@table)
+    cmp #$0001
+    bcs :+
+    jmp @fail2
+  :
+    cmp #$0011
+    bcc :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; $430A does not hold the $00 terminator after the table ran out
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; $4308/09 did not advance past the table start; it is a working pointer, not a copy
+    sep #$20
+    .a8
+    lda #$04
     sta f:$7EE010
     jml test_restore
 .endproc
