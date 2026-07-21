@@ -932,6 +932,14 @@ Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; doc
 |---|---|---|
 | 1 | `$02` | measured cost disagrees with the manufacturer tables |
 
+### A5.S35 — Sweep: BRL flat 4
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | measured cost disagrees with the manufacturer tables |
+
 ## Group C
 
 ### C1.01 — OAM word write/read

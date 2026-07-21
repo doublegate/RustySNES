@@ -316,3 +316,4 @@
 313	A5.S32	A	Sweep: ADC dp	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF159	A5.01-08
 314	A5.S33	A	Sweep: CMP abs	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF15A	A5.01-08
 315	A5.S34	A	Sweep: BVS untaken	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF15B	A5.01-08
+316	A5.S35	A	Sweep: BRL flat 4	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF15C	A5.16

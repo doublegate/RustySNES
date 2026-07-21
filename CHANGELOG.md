@@ -632,6 +632,18 @@ rewritten to the current number — this line is the one to read.
   nothing depending on what is plugged in, and that `NMITIMEN` is zero for the whole battery, both
   of which the input contract changed.
 
+- **`A5.16` — is `BRL` a flat 4 cycles?** It joins the opcode sweep, and is the one entry there
+  answering a dossier row of its own rather than the composite `A5.01-08`. A *taken* branch is the
+  sweep's excluded case because it moves `PC` — but `BRL` with a zero displacement falls through to
+  the very next instruction, so it measures inline like any other opcode. 4 cycles / 3 accesses = 30
+  clocks, against an 8-bit branch's +1 for being taken and, in emulation mode, +1 more for crossing
+  a page; measuring exactly 4 *is* the "never penalised" claim, since a penalty would read as 5.
+  Verified by adding an idle cycle to `op_brl`.
+  The sweep's slot allocation needed fixing to take it: `slot_base = 8 + index * 2` ran past the end
+  of its reserved 8-75 block at the 35th entry and landed on `B4.09`'s slot. `dossier::check_slots`
+  caught it immediately, which is the second time that gate has paid for itself. The block is now
+  named, documented and continued into a second one rather than being an unstated convention.
+
 - **`B2.01` — does any dot above 339 exist?** The regression guard for `T-06-A`, and its design is
   the finding. Asserting "the largest H sampled is exactly 339" is **not portable**: which dots get
   sampled depends on the core's instruction timing, since the loop covers roughly every fifth dot

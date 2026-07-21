@@ -133,6 +133,9 @@ pub const MAP: &[(&str, &[&str])] = &[
     ("A5.S32", &["A5.01-08"]),
     ("A5.S33", &["A5.01-08"]),
     ("A5.S34", &["A5.01-08"]),
+    // The sweep's last entry is `BRL`, which answers `A5.16` rather than the composite row: the
+    // others establish per-opcode costs the dossier bundles, this one is a row in its own right.
+    ("A5.S35", &["A5.16"]),
     ("A6.01", &["A6.01"]),
     ("A6.02", &["A6.01"]),
     ("A6.03", &["A6.06"]),

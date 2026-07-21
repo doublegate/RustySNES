@@ -57,6 +57,30 @@ const REPS: u16 = 8;
 /// Master clocks for one `NOP`: 2 cycles, 1 access.
 const NOP_CLOCKS: u16 = 14;
 
+/// First measurement slot the sweep owns; each entry takes two, at `SWEEP_BASE + index * 2`.
+///
+/// The block runs to 75, which is 34 entries. It is invisible to any `record(` grep — nothing in
+/// this file names a slot literally — so the reservation is stated here and enforced by
+/// `dossier::check_slots`, which caught the 35th entry landing on `B4.09`'s slot the moment it was
+/// added rather than silently overwriting it.
+const SWEEP_BASE: u8 = 8;
+
+/// How many entries the first block holds before [`SWEEP_BASE_2`] takes over.
+const SWEEP_BLOCK_1: usize = 34;
+
+/// Where entry 34 onward continues, in the block freed when the channel was widened to 240.
+const SWEEP_BASE_2: u8 = 231;
+
+/// The two slots entry `index` records into.
+fn slot_base_for(index: usize) -> u8 {
+    let (base, offset) = if index < SWEEP_BLOCK_1 {
+        (SWEEP_BASE, index)
+    } else {
+        (SWEEP_BASE_2, index - SWEEP_BLOCK_1)
+    };
+    base + u8::try_from(offset).expect("sweep index fits u8") * 2
+}
+
 /// Tolerance in dots, matching the rest of the battery's timing tests.
 const TOL: u16 = 2;
 
@@ -289,6 +313,16 @@ const SAFE: &[Op] = &[
         clocks: 30,
         why: "CLV 2 cycles / 1 access = 14, plus an untaken branch at 2 cycles / 2 accesses = 16",
     },
+    // `A5.16` — the one entry here that answers a dossier row of its own rather than the
+    // composite `A5.01-08`. A *taken* branch is the sweep's excluded case because it moves PC,
+    // but `BRL` with a zero displacement falls through to the very next instruction, so it is
+    // measurable inline like any other. That is the whole reason it can be here at all.
+    Op {
+        name: "BRL flat 4",
+        body: &["brl *+3"],
+        clocks: 30,
+        why: "4 cycles / 3 accesses; taken unconditionally and never penalised, where an 8-bit               branch pays +1 for being taken and, in emulation mode, +1 more for crossing a page",
+    },
 ];
 
 /// Every sweep test, one per opcode entry.
@@ -312,7 +346,7 @@ fn one(index: usize, op: &Op) -> Test {
     );
     let iters = u16::try_from(op.body.len()).expect("body length fits u16");
     let expect = expected_dots(op.clocks, iters);
-    let slot_base = 8 + u8::try_from(index).expect("sweep index fits u8") * 2;
+    let slot_base = slot_base_for(index);
 
     let mut a = Asm::new();
     a.c(&format!(
