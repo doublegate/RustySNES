@@ -129,6 +129,7 @@ Declared in `gen/src/scenes.rs`. Each is reported by the host framebuffer oracle
 
 ## Tests with no enumerated assertion
 
+- **`B4.16`** — The before/after guard for T-06-A. It records where an H-IRQ fires at an HTIME below the long dots and one above, because nothing else covers raster-IRQ position -- so the dot-model change would pass its own acceptance criteria while shifting every H-IRQ. It implements no enumerated assertion of its own; B4.07 and B4.14 own the H-IRQ rows
 - **`E3.11c`** — DSP global-register addressing. The companion to E3.11b: the global block is decoded from the same latch by a different part of the address, so a core that gets the voice registers right and aliases the globals passes one and fails the other
 - **`E3.11b`** — DSP register addressing through the $F2/$F3 latch. Not an enumerated assertion of its own: it is the mechanism every other DSP assertion is reached through, so a core that mis-decodes it makes those tests meaningless rather than failing
 - **`A9.02`** — XBA's flag behaviour. A9 enumerates BIT and ORA [d] but not XBA, so there is no assertion to cite — the behaviour is from the WDC datasheet

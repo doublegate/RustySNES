@@ -35,10 +35,15 @@ pub const STATUS_OFFSET: u32 = 0x20;
 /// any bank — but only groups whose tests are *position-independent* may move, and the build gate
 /// below enforces that by rejecting any bank-local `jsr`/`jmp` to a runtime label in a moved body.
 ///
-/// Groups `B`, `C` and `D` are **not** movable as written: they call `hv_begin` and `frame_step`
-/// with a bank-local `jsr`. Making them movable means giving those helpers `jsl`-reachable
-/// entry points, which is a runtime change rather than a placement one.
-const OUT_OF_BANK: &[(char, &str)] = &[('E', "TESTSE"), ('G', "TESTSG"), ('F', "TESTSG")];
+/// Group `C` moved once the runtime grew `_far` wrappers (`wait_vblank_far`, `frame_step_far`,
+/// `hv_begin_far`, `hv_end_far`) — the build gate below had rejected it while its bodies still
+/// used a bank-local `jsr`. Group `D` would move the same way if bank `$00` fills again.
+const OUT_OF_BANK: &[(char, &str)] = &[
+    ('E', "TESTSE"),
+    ('C', "TESTSC"),
+    ('G', "TESTSG"),
+    ('F', "TESTSG"),
+];
 
 pub fn asm(tests: &[Test]) -> String {
     let mut s = String::new();

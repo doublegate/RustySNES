@@ -259,6 +259,11 @@ PAD_X           = $0040
     .import apu_upload
 .import frame_step
 .import apu_upload_far
+    ; Far-callable wrappers, for test bodies placed outside bank $00 (see OUT_OF_BANK in emit.rs).
+    .import wait_vblank_far
+    .import frame_step_far
+    .import hv_begin_far
+    .import hv_end_far
 .endif
 .ifndef CATALOG_IMPL
     .import _test_count

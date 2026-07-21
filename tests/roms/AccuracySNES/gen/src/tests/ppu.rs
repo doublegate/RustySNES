@@ -366,7 +366,7 @@ fn c1_07() -> Test {
     a.l("lda $2138         ; $5A, pointer now at word 6");
     a.c("Render one frame. The falling edge inside frame_step arms the reload; the frame applies");
     a.c("it; blank is back on by the time this returns.");
-    a.l("jsr frame_step");
+    a.l("jsl frame_step_far");
     a.l("sep #$20");
     a.l("lda $2138");
     a.assert_a8(
@@ -486,7 +486,7 @@ fn c7_09() -> Test {
     a.l("lda #$10");
     a.l("sta $212C         ; OBJ on the main screen, so they are actually evaluated");
     a.c("Render a frame. Range over must latch during it and survive into vblank.");
-    a.l("jsr frame_step");
+    a.l("jsl frame_step_far");
     a.l("sep #$20");
     a.l("lda $213E");
     a.l("and #$C0");
@@ -509,7 +509,7 @@ fn c7_09() -> Test {
     );
     a.c("One more rendered frame, now with nothing in range. The end of ITS vblank clears the");
     a.c("flag, and nothing sets it again.");
-    a.l("jsr frame_step");
+    a.l("jsl frame_step_far");
     a.l("sep #$20");
     a.l("lda $213E");
     a.l("and #$C0");
@@ -913,9 +913,9 @@ fn c3_04() -> Test {
     a.l("rep #$30");
     a.l("phk");
     a.l("plb");
-    a.l("jsr hv_begin");
+    a.l("jsl hv_begin_far");
     a.repeat(16, &["nop"]);
-    a.l("jsr hv_end");
+    a.l("jsl hv_end_far");
     a.l("rep #$30");
     a.l("lda f:$7E0048     ; elapsed dots");
     a.assert_a16_range(
@@ -1499,8 +1499,8 @@ fn setup_and_render(
     }
     a.l("lda #$0F");
     a.l("sta $2100         ; brightness 15, forced blank released");
-    a.l("jsr wait_vblank   ; land on a vblank boundary");
-    a.l("jsr wait_vblank   ; span one complete active period");
+    a.l("jsl wait_vblank_far   ; land on a vblank boundary");
+    a.l("jsl wait_vblank_far   ; span one complete active period");
     a.l("lda $213E");
     a.l("pha");
     a.l("lda #$8F");
@@ -1680,12 +1680,12 @@ fn c3_09() -> Test {
     a.l("lda $213F");
     a.l("and #$80");
     a.l("sta f:$7E0100");
-    a.l("jsr frame_step");
+    a.l("jsl frame_step_far");
     a.l("sep #$20");
     a.l("lda $213F");
     a.l("and #$80");
     a.l("sta f:$7E0101");
-    a.l("jsr frame_step");
+    a.l("jsl frame_step_far");
     a.l("sep #$20");
     a.l("lda $213F");
     a.l("and #$80");
@@ -1834,8 +1834,8 @@ fn enter_active_display(a: &mut Asm, tag: &str) {
     a.l("sep #$20");
     a.l("lda #$0F");
     a.l("sta $2100         ; forced blank off — the access window now depends on position");
-    a.l("jsr wait_vblank");
-    a.l("jsr wait_vblank   ; a full settled frame");
+    a.l("jsl wait_vblank_far");
+    a.l("jsl wait_vblank_far   ; a full settled frame");
     a.label(&format!("wa_{tag}"));
     a.l("lda $4212");
     a.l("and #$80");
@@ -2003,8 +2003,8 @@ fn c1_06() -> Test {
     a.c("--- render one complete frame; the reload happens as vblank begins ---");
     a.l("lda #$0F");
     a.l("sta $2100");
-    a.l("jsr wait_vblank");
-    a.l("jsr wait_vblank");
+    a.l("jsl wait_vblank_far");
+    a.l("jsl wait_vblank_far");
     a.l("lda $2138         ; read while forced blank is still off");
     a.l("sta f:$7E0102");
     a.l("lda #$8F");
@@ -2042,8 +2042,8 @@ fn c9_04() -> Test {
     a.l("plb");
     a.l("sep #$20");
     a.l("stz $2133         ; overscan off: 224 visible lines");
-    a.l("jsr wait_vblank");
-    a.l("jsr wait_vblank");
+    a.l("jsl wait_vblank_far");
+    a.l("jsl wait_vblank_far");
     a.l("lda $213F         ; reset the counter read flipflops");
     a.l("lda $2137         ; latch H and V");
     a.l("lda $213D         ; V low");
@@ -2061,8 +2061,8 @@ fn c9_04() -> Test {
     a.l("sep #$20");
     a.l("lda #$04");
     a.l("sta $2133         ; overscan on: 239 visible lines");
-    a.l("jsr wait_vblank");
-    a.l("jsr wait_vblank");
+    a.l("jsl wait_vblank_far");
+    a.l("jsl wait_vblank_far");
     a.l("lda $213F");
     a.l("lda $2137");
     a.l("lda $213D");

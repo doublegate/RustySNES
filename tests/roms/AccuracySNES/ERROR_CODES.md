@@ -1004,6 +1004,12 @@ Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
 |---|---|---|
 | 1 | `$02` | RDNMI bit 7 was not set at vblank while NMI was disabled |
 
+### B4.16 — H-IRQ position (golden)
+
+Provenance: **Contested** (no source pins the fired dot at single-dot precision; recorded as the before/after guard for T-06-A's clock-domain comparator change). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
 ### B4.04 — RDNMI is read-to-clear
 
 Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.

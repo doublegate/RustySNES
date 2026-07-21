@@ -30,6 +30,7 @@ pub fn all() -> Vec<Test> {
         b2_04(),
         // --- B4: NMI flag mechanics and the IRQ timers ---
         b4_03(),
+        b4_16(),
         b4_04(),
         b4_05(),
         b4_08(),
@@ -1028,7 +1029,7 @@ fn b4_14() -> Test {
     a.l("sep #$20");
 
     a.c("Pass 1: spin on NOPs, the shortest instruction there is.");
-    arm_h_irq(&mut a);
+    arm_h_irq(&mut a, 200);
     a.l("cli");
     a.label("spin1");
     a.repeat(4, &["nop"]);
@@ -1045,7 +1046,7 @@ fn b4_14() -> Test {
 
     a.c("Pass 2: spin on JSL/RTL. If the poll were continuous rather than at an instruction");
     a.c("boundary, this would enter the handler in the same place as pass 1.");
-    arm_h_irq(&mut a);
+    arm_h_irq(&mut a, 200);
     a.l("cli");
     a.label("spin2");
     a.l("jsl @far");
@@ -1117,16 +1118,126 @@ fn b4_14() -> Test {
 ///
 /// Shared by `B4.14`'s two passes so the only difference between them is the spin body — which is
 /// the whole experiment.
-fn arm_h_irq(a: &mut Asm) {
+fn arm_h_irq(a: &mut Asm, htime: u16) {
+    assert!(htime < 340, "HTIME {htime} is past the end of a scanline");
     a.l("sep #$20");
     a.l("lda #$00");
     a.l("sta f:$7E0134     ; rendezvous byte: the handler sets it (STZ has no long form)");
-    a.l("lda #200");
+    a.l(&format!("lda #${:02X}", htime & 0xFF));
     a.l("sta $4207");
-    a.l("stz $4208         ; HTIME = 200");
+    // HTIME is 9 bits. `stz $4208` was fine while every caller used a value under 256, but
+    // `B4.16` needs 330 — writing only the low byte would silently arm it at 74 instead.
+    a.l(&format!("lda #${:02X}", htime >> 8));
+    a.l(&format!("sta $4208         ; HTIME = {htime}"));
     a.l("lda $4211         ; clear any stale latch");
     a.l("lda #$10");
     a.l("sta $4200         ; H-IRQ enabled, NMI off, auto-joypad off");
+}
+
+/// Where an H-IRQ actually fires, measured either side of the long dots — a golden vector.
+///
+/// # This exists to guard `T-06-A`, and must be blessed before that change lands
+///
+/// `T-06-A` replaces the uniform 4-clocks-per-dot model with hardware's: 340 dots per line, of
+/// which 323 and 327 are 6 clocks. It also has to move the H-IRQ comparator into the clock domain,
+/// because `HIRQ_TRIGGER_DELAY` is a *dot-domain rounding* of ares' clock-domain compare
+/// (`hcounter(10) == (HTIME+1) << 2`, i.e. `HTIME + 3.5` dots) and is exact only while every dot is
+/// 4 clocks.
+///
+/// **Nothing currently covers raster-IRQ position**, so that change would pass its own acceptance
+/// criteria — no scene moves, no timing test regresses — while silently shifting every H-IRQ by up
+/// to a dot. This records the position at an `HTIME` below the long dots and one above, so the pair
+/// straddles the boundary and the before/after is a fact rather than a hope.
+///
+/// # Why not `B4.07`, and why a handler rather than a poll
+///
+/// `B4.07` reports H in **32-dot buckets**, and its own doc says why: *"the `$4211` poll loop is
+/// coarser than the dot the comparator fires on"*. A shift of up to 4 dots does not move a 32-dot
+/// bucket, and a polling companion would inherit the same blindness. The handler path latches H
+/// within a few cycles of the interrupt being taken, which is fine enough — it is what `B4.14`
+/// already uses to measure dispatch latency, and both readings here are recorded **raw** rather
+/// than bucketed.
+///
+/// Golden rather than scored: the exact latched dot is what `T-06-A` is about to change, and no
+/// source pins it at single-dot precision. The variant is only whether both readings arrived, so
+/// the row announces a core that stops firing at all; the numbers themselves live in the
+/// measurement channel.
+fn b4_16() -> Test {
+    let mut a = Asm::new();
+    a.l("bra @body");
+    a.label("handler");
+    a.l("rep #$30");
+    a.l("pha");
+    a.l("sep #$20");
+    a.l("lda $2137         ; latch H and V at handler entry");
+    a.l("lda $213C");
+    a.l("xba");
+    a.l("lda $213C");
+    a.l("and #$01");
+    a.l("xba");
+    a.l("rep #$20");
+    a.l("and #$01FF");
+    a.l("sta f:$7E0136");
+    a.l("sep #$20");
+    a.l("lda $4211         ; acknowledge");
+    a.l("lda #$01");
+    a.l("sta f:$7E0134     ; tell the spin loop to stop");
+    a.l("rep #$30");
+    a.l("pla");
+    a.l("rti");
+    a.label("body");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("sei");
+    a.l("rep #$20");
+    a.l("lda #@handler");
+    a.l("sta a:V_IRQ_VEC");
+    a.l("sep #$20");
+    a.c("--- below the long dots: HTIME = 100 ---");
+    arm_h_irq(&mut a, 100);
+    a.l("cli");
+    a.label("spin1");
+    a.repeat(4, &["nop"]);
+    a.l("lda f:$7E0134");
+    a.l("beq @spin1");
+    a.l("sei");
+    a.l("rep #$20");
+    a.l("lda f:$7E0136");
+    a.record(126, "B4.16 H latched, HTIME=100 (below dots 323/327)");
+    a.l("sep #$20");
+    a.c("--- above both long dots: HTIME = 330 ---");
+    arm_h_irq(&mut a, 330);
+    a.l("cli");
+    a.label("spin2");
+    a.repeat(4, &["nop"]);
+    a.l("lda f:$7E0134");
+    a.l("beq @spin2");
+    a.l("sei");
+    a.l("rep #$20");
+    a.l("lda f:$7E0136");
+    a.record(127, "B4.16 H latched, HTIME=330 (above dots 323/327)");
+    a.c("Disarm before reporting.");
+    a.l("sep #$20");
+    a.l("stz $4200");
+    a.l("lda $4211");
+    a.c("Variant 1 = both readings arrived. The numbers are the point and live in the channel;");
+    a.c("the verdict only announces a core whose H-IRQ stopped firing at one of the two.");
+    a.l("lda #$03");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.finish(
+        "B4.16",
+        'B',
+        "H-IRQ position (golden)",
+        Provenance::Contested(
+            "no source pins the fired dot at single-dot precision; recorded as the before/after \
+             guard for T-06-A's clock-domain comparator change",
+        ),
+        Kind::Golden,
+        None,
+    )
 }
 
 /// An H-IRQ fires on the programmed dot, and the horizontal comparator lags `HTIME`.

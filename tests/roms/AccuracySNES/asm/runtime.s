@@ -1573,6 +1573,40 @@ test_restore := test_restore_impl
 ; emulation-mode COP split (`V_COP_VEC_E`) exists only because a core fetching the wrong table there
 ; was otherwise unobservable. If a future row needs to tell the two NMI tables apart, split this the
 ; same way rather than reusing it.
+; Far-callable wrappers for the runtime helpers an out-of-bank test body needs.
+;
+; A test body outside bank $00 cannot reach the runtime with `jsr`: the same 16-bit address in
+; another bank is not a subroutine, it is whatever bytes are there. The generator rejects that at
+; build time, which is how group C's `jsr frame_step` and group D's `jsr hv_begin` were caught the
+; moment those groups were first moved. These wrappers are the way through -- `jsl` in, `rtl` out.
+;
+; Deliberately thin: the extra `jsr`/`rtl` costs the same on every call, so a differential timing
+; measurement that brackets it cancels the overhead exactly, which is what C7's hv_begin/hv_end
+; pair relies on.
+.export wait_vblank_far
+.proc wait_vblank_far
+    jsr wait_vblank
+    rtl
+.endproc
+
+.export frame_step_far
+.proc frame_step_far
+    jsr frame_step
+    rtl
+.endproc
+
+.export hv_begin_far
+.proc hv_begin_far
+    jsr hv_begin
+    rtl
+.endproc
+
+.export hv_end_far
+.proc hv_end_far
+    jsr hv_end
+    rtl
+.endproc
+
 .export nmi_trampoline
 .proc nmi_trampoline
     jmp (V_NMI_VEC)

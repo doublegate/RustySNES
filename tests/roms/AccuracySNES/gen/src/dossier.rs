@@ -93,6 +93,7 @@ pub const MAP: &[(&str, &[&str])] = &[
     ("D1.14", &["D1.14"]),
     ("D1.11", &["D1.11"]),
     ("D1.08", &["D1.08"]),
+    ("B4.16", &[]),
     // --- T-04-I opcode sweep: many tests, one enumerated assertion (declared in SPLITS) ---
     ("A5.S01", &["A5.01-08"]),
     ("A5.S02", &["A5.01-08"]),
@@ -379,6 +380,13 @@ pub const SPLITS: &[(&str, &str)] = &[
 
 /// Tests that implement no enumerated dossier assertion, with the reason each is legitimate.
 pub const UNENUMERATED: &[(&str, &str)] = &[
+    (
+        "B4.16",
+        "The before/after guard for T-06-A. It records where an H-IRQ fires at an HTIME below \
+         the long dots and one above, because nothing else covers raster-IRQ position -- so the \
+         dot-model change would pass its own acceptance criteria while shifting every H-IRQ. It \
+         implements no enumerated assertion of its own; B4.07 and B4.14 own the H-IRQ rows",
+    ),
     (
         "E3.11c",
         "DSP global-register addressing. The companion to E3.11b: the global block is decoded \

@@ -4549,2640 +4549,6 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
-; C1.01 — OAM word write/read
-; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
-.proc test_c1_01
-    .a16
-    .i16
-    ; OAMADDR is a WORD address. Two byte writes to $2104 fill one word, low byte first.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    stz $2102         ; OAMADDR = word 0
-    stz $2103
-    lda #$AA
-    sta $2104
-    lda #$BB
-    sta $2104         ; word 0 now committed
-    stz $2102         ; rewind to word 0 to read it back
-    stz $2103
-    lda $2138
-    cmp #$AA
-    beq :+
-    jmp @fail1
-  :
-    lda $2138
-    cmp #$BB
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; OAM low byte did not read back
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; OAM high byte did not read back
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C1.02 — OAM odd write latched
-; provenance: Documented (SNESdev Wiki, OAM; anomie)
-.proc test_c1_02
-    .a16
-    .i16
-    ; Seed word 1 with a known value, then write THREE bytes from word 0. The third byte is
-    ; latched as the low half of word 1 and must not be committed on its own.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    ; --- seed word 1 = $EEDD ---
-    lda #$01
-    sta $2102         ; OAMADDR = word 1
-    stz $2103
-    lda #$DD
-    sta $2104
-    lda #$EE
-    sta $2104
-    ; --- three bytes starting at word 0 ---
-    stz $2102
-    stz $2103
-    lda #$11
-    sta $2104
-    lda #$22
-    sta $2104         ; word 0 committed
-    lda #$33
-    sta $2104         ; latched only — must NOT reach word 1
-    ; --- read back ---
-    stz $2102
-    stz $2103
-    lda $2138
-    cmp #$11
-    beq :+
-    jmp @fail1
-  :
-    lda $2138
-    cmp #$22
-    beq :+
-    jmp @fail2
-  :
-    lda $2138
-    cmp #$DD
-    beq :+
-    jmp @fail3
-  :
-    lda $2138
-    cmp #$EE
-    beq :+
-    jmp @fail4
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; word 0 low byte wrong
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; word 0 high byte wrong
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-@fail3:
-    ; the odd trailing byte was committed (it must stay in the latch)
-    sep #$20
-    .a8
-    lda #$06
-    sta f:$7EE010
-    jml test_restore
-@fail4:
-    ; word 1 high byte was disturbed
-    sep #$20
-    .a8
-    lda #$08
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C1.03 — OAMADDR reload clears
-; provenance: Documented (SNESdev Wiki, OAM; anomie)
-.proc test_c1_03
-    .a16
-    .i16
-    ; Write an odd byte count, then reload OAMADDR: the pending latch is discarded and the
-    ; next pair starts cleanly rather than being offset by one byte.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$02
-    sta $2102         ; word 2
-    stz $2103
-    lda #$99
-    sta $2104         ; leave a byte pending in the latch
-    lda #$02
-    sta $2102         ; reload -> discard the pending byte
-    stz $2103
-    lda #$44
-    sta $2104
-    lda #$55
-    sta $2104
-    lda #$02
-    sta $2102
-    stz $2103
-    lda $2138
-    cmp #$44
-    beq :+
-    jmp @fail1
-  :
-    lda $2138
-    cmp #$55
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; reloading OAMADDR did not discard the pending latch byte
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; word high byte wrong after OAMADDR reload
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C1.04 — OAM rd/wr one counter
-; provenance: Documented (SNESdev Wiki, OAM)
-.proc test_c1_04
-    .a16
-    .i16
-    ; Write one word, then read one byte, then read again: the read pointer must have followed
-    ; the write pointer rather than tracking separately.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$04
-    sta $2102
-    stz $2103
-    lda #$5A
-    sta $2104
-    lda #$A5
-    sta $2104
-    lda #$7E
-    sta $2104
-    lda #$E7
-    sta $2104         ; words 4 and 5 written
-    lda #$05
-    sta $2102         ; point at word 5 only
-    stz $2103
-    lda $2138
-    cmp #$7E
-    beq :+
-    jmp @fail1
-  :
-    lda $2138
-    cmp #$E7
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; shared counter: word 5 low byte wrong
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; shared counter: word 5 high byte wrong
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C1.05 — OAM high table mirror
-; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
-.proc test_c1_05
-    .a16
-    .i16
-    ; Write through the mirror at word $110 and read back at the real address, word $100.
-    ; The high table commits per byte, so no write-twice pairing is involved.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$10
-    sta $2102
-    lda #$01          ; OAMADDR = word $110 (byte $220), bit 7 clear
-    sta $2103
-    lda #$5C
-    sta $2104
-    lda #$C5
-    sta $2104
-    ; --- read the real high-table bytes ---
-    lda #$00
-    sta $2102
-    lda #$01          ; OAMADDR = word $100 (byte $200)
-    sta $2103
-    lda $2138
-    cmp #$5C
-    beq :+
-    jmp @fail1
-  :
-    lda $2138
-    cmp #$C5
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; OAM high table did not mirror: byte $220 -> $200
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; OAM high table did not mirror: byte $221 -> $201
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C1.03b — High table commits bytes
-; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
-.proc test_c1_03b
-    .a16
-    .i16
-    ; Seed high-table byte 0 with $00, then write $AA into it as a single, unpaired byte.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    ldx #$0100
-    stx $2102         ; OAMADD = word $100, the high table
-    sep #$20
-    .a8
-    lda #$00
-    sta $2104
-    rep #$30
-    .a16
-    .i16
-    ldx #$0100
-    stx $2102
-    sep #$20
-    .a8
-    lda #$AA
-    sta $2104         ; one byte, no partner
-    ; Read it straight back. A core that waits for a pair still has the $00.
-    rep #$30
-    .a16
-    .i16
-    ldx #$0100
-    stx $2102
-    sep #$20
-    .a8
-    lda $2138
-    cmp #$AA
-    beq :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; a single byte written to the OAM high table did not commit — the pairing rule belongs to the low table only
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C1.07 — Blank edge reloads OAM
-; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
-.proc test_c1_07
-    .a16
-    .i16
-    ; Seed OAM word 5 with a recognisable pair, then set the address there and consume it, so
-    ; the internal pointer sits at word 6 while $2102 still says 5.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    ldx #$0005
-    stx $2102
-    sep #$20
-    .a8
-    lda #$A5
-    sta $2104
-    lda #$5A
-    sta $2104
-    rep #$30
-    .a16
-    .i16
-    ldx #$0005
-    stx $2102
-    sep #$20
-    .a8
-    lda $2138         ; $A5, pointer advances
-    lda $2138         ; $5A, pointer now at word 6
-    ; Render one frame. The falling edge inside frame_step arms the reload; the frame applies
-    ; it; blank is back on by the time this returns.
-    jsr frame_step
-    sep #$20
-    .a8
-    lda $2138
-    cmp #$A5
-    beq :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; the OAM address was not reloaded across a rendered frame — the read came from where the pointer had walked to rather than from $2102
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C7.09 — Overflow flags clear
-; provenance: Documented (SNESdev Wiki, sprites; fullsnes)
-.proc test_c7_09
-    .a16
-    .i16
-    ; A known sprite size, and a high table with no size or X-bit-8 bits left in it by an
-    ; earlier test. Without both, a parked sprite can be large enough to reach the picture.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$60
-    sta $2101         ; OBJSEL pair 3: 16x16 small, 32x32 large, name base word $0000
-    rep #$30
-    .a16
-    .i16
-    ldx #$0100
-    stx $2102         ; the 32-byte high table
-    ldy #$0000
-@clearhi:
-    sep #$20
-    .a8
-    stz $2104
-    rep #$30
-    .a16
-    .i16
-    iny
-    cpy #32
-    bne @clearhi
-    ; Park all 128 sprites off-screen: a stray one left by an earlier test would set the flags
-    ; for a reason this test is not about.
-    ldx #$0000
-    stx $2102
-    ldy #$0000
-@park1:
-    sep #$20
-    .a8
-    stz $2104         ; X
-    lda #240
-    sta $2104         ; Y=240: below the visible area in 224- AND 239-line modes
-    stz $2104         ; tile
-    stz $2104         ; attr
-    rep #$30
-    .a16
-    .i16
-    iny
-    cpy #128
-    bne @park1
-    ; Now put 34 of them on one line: two past the 32-sprite range limit, and at two slivers
-    ; each, well past the 34-sliver limit as well. Both flags must latch.
-    ldx #$0000
-    stx $2102
-    ldy #$0000
-@crowd:
-    sep #$20
-    .a8
-    stz $2104         ; X
-    lda #100
-    sta $2104         ; Y, all on the same scanline
-    lda #$10
-    sta $2104         ; tile $10
-    lda #$30
-    sta $2104         ; attr: palette 0, priority 3
-    rep #$30
-    .a16
-    .i16
-    iny
-    cpy #34
-    bne @crowd
-    sep #$20
-    .a8
-    lda #$10
-    sta $212C         ; OBJ on the main screen, so they are actually evaluated
-    ; Render a frame. Range over must latch during it and survive into vblank.
-    jsr frame_step
-    sep #$20
-    .a8
-    lda $213E
-    and #$C0
-    cmp #$C0
-    beq :+
-    jmp @fail1
-  :
-    ; Park them all again — under forced blank, with no frame rendered. The flag must persist:
-    ; forced blank is not the end of vblank.
-    rep #$30
-    .a16
-    .i16
-    ldx #$0000
-    stx $2102
-    ldy #$0000
-@park2:
-    sep #$20
-    .a8
-    stz $2104         ; X
-    lda #240
-    sta $2104         ; Y=240: below the visible area in 224- AND 239-line modes
-    stz $2104         ; tile
-    stz $2104         ; attr
-    rep #$30
-    .a16
-    .i16
-    iny
-    cpy #128
-    bne @park2
-    sep #$20
-    .a8
-    lda $213E
-    and #$C0
-    cmp #$C0
-    beq :+
-    jmp @fail2
-  :
-    ; One more rendered frame, now with nothing in range. The end of ITS vblank clears the
-    ; flag, and nothing sets it again.
-    jsr frame_step
-    sep #$20
-    .a8
-    lda $213E
-    and #$C0
-    cmp #$00
-    beq :+
-    jmp @fail3
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; 34 sprites of 16x16 on one scanline did not set both $213E overflow flags, so the readings below say nothing
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; an overflow flag cleared without a frame boundary — forced blank is not the end of vblank, and a driver reading the flags during blanking would lose them
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-@fail3:
-    ; an overflow flag survived a rendered frame with nothing in range, so it is never cleared at the end of vblank
-    sep #$20
-    .a8
-    lda #$06
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C2.01 — VMAIN step 1 word
-; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
-.proc test_c2_01
-    .a16
-    .i16
-    ; VMAIN=$80: step 1 word, increment after the HIGH byte. Three words written back to back
-    ; must land at consecutive addresses.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$80
-    sta $2115
-    rep #$30
-    .a16
-    .i16
-    ldx #$1000
-    stx $2116
-    lda #$1111
-    sta $2118
-    lda #$2222
-    sta $2118
-    lda #$3333
-    sta $2118
-    ; Read back word $1001. The first read after setting the address is the stale prefetch,
-    ; so discard it and take the second (see C2.03).
-    ldx #$1001
-    stx $2116
-    lda $2139         ; prefetch, discarded
-    ldx #$1001
-    stx $2116
-    sep #$20
-    .a8
-    lda $2139
-    cmp #$22
-    beq :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; step-1 increment did not reach word $1001
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C2.02 — VMAIN low-byte trigger
-; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
-.proc test_c2_02
-    .a16
-    .i16
-    ; VMAIN=$00 increments after $2118 (the LOW byte), so writing only low bytes fills the low
-    ; half of consecutive words and never touches the high halves. This is exactly how the
-    ; runtime uploads its 1bpp font, so it is load-bearing here.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    ; Clear two words first so the high bytes are known.
-    sep #$20
-    .a8
-    lda #$80
-    sta $2115
-    rep #$30
-    .a16
-    .i16
-    ldx #$1100
-    stx $2116
-    lda #$0000
-    sta $2118
-    sta $2118
-    ; Now low-byte-only writes.
-    sep #$20
-    .a8
-    stz $2115         ; VMAIN = $00: increment after the LOW byte
-    rep #$30
-    .a16
-    .i16
-    ldx #$1100
-    stx $2116
-    sep #$20
-    .a8
-    lda #$3C
-    sta $2118
-    lda #$C3
-    sta $2118
-    ; Read back word $1100: low $3C, high still 0.
-    rep #$30
-    .a16
-    .i16
-    ldx #$1100
-    stx $2116
-    lda $2139
-    ldx #$1100
-    stx $2116
-    lda $2139
-    cmp #$003C
-    beq :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; low-byte-only write disturbed the high byte, or did not increment
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C2.03 — VRAM read prefetch
-; provenance: Documented (SNESdev Wiki; docs/ppu.md edge case 4)
-.proc test_c2_03
-    .a16
-    .i16
-    ; Write two distinguishable words, then set the address and read TWICE. The first read is
-    ; the prefetch latched when the address was written; the second is the real value.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$80
-    sta $2115
-    rep #$30
-    .a16
-    .i16
-    ldx #$1200
-    stx $2116
-    lda #$ABCD
-    sta $2118
-    lda #$1234
-    sta $2118         ; word $1200 = $ABCD, word $1201 = $1234
-    ldx #$1200
-    stx $2116
-    lda $2139         ; prefetch of word $1200
-    and #$FFFF
-    cmp #$ABCD
-    beq :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; the read after setting VMADD did not return word $1200
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C2.04 — VRAM bit 15 unconnected
-; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
-.proc test_c2_04
-    .a16
-    .i16
-    ; VRAM is 32K words, so a 16-bit word address has one bit too many. Bit 15 is unconnected,
-    ; making $8xxx an alias of $0xxx rather than an out-of-range access.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$80
-    sta $2115
-    rep #$30
-    .a16
-    .i16
-    ldx #$1300
-    stx $2116
-    lda #$BEEF
-    sta $2118
-    ; Read the same word through the mirrored address.
-    ldx #$9300
-    stx $2116
-    lda $2139
-    ldx #$9300
-    stx $2116
-    lda $2139
-    cmp #$BEEF
-    beq :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; VRAM address bit 15 was decoded (it must be unconnected)
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C2.05 — VMAIN step 32 words
-; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
-.proc test_c2_05
-    .a16
-    .i16
-    ; Write with step=32, then read the far word back to confirm the stride.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$81          ; VMAIN: step 32 words, increment after the high byte
-    sta $2115
-    rep #$30
-    .a16
-    .i16
-    ldx #$1400
-    stx $2116
-    lda #$0F0F
-    sta $2118
-    lda #$F0F0
-    sta $2118         ; words $1400 and $1420
-    ; Read word $1420 with the plain step so the address does not run away.
-    sep #$20
-    .a8
-    lda #$80
-    sta $2115
-    rep #$30
-    .a16
-    .i16
-    ldx #$1420
-    stx $2116
-    lda $2139
-    ldx #$1420
-    stx $2116
-    lda $2139
-    cmp #$F0F0
-    beq :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; VMAIN step-32 increment did not land at word $1420
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C2.06 — VMAIN remap hits bus
-; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes; anomie)
-.proc test_c2_06
-    .a16
-    .i16
-    ; Two back-to-back writes with remap 01 active, then read both target words with remap off.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$84          ; VMAIN: remap 01 (8-bit), step 1, increment after the high byte
-    sta $2115
-    rep #$30
-    .a16
-    .i16
-    ldx #$1503
-    stx $2116
-    lda #$CAFE
-    sta $2118         ; register $1503 -> bus word $1518
-    lda #$B0BA
-    sta $2118         ; register $1504 -> bus word $1520
-    ; --- read both back with translation off ---
-    sep #$20
-    .a8
-    lda #$80
-    sta $2115
-    rep #$30
-    .a16
-    .i16
-    ldx #$1518
-    stx $2116
-    lda $2139
-    cmp #$CAFE
-    beq :+
-    jmp @fail1
-  :
-    ldx #$1520
-    stx $2116
-    lda $2139
-    cmp #$B0BA
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; remap 01 did not translate register $1503 to bus word $1518
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; the remap fed back into the address register (the second write missed word $1520)
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C2.12 — Blank off closes VRAM
-; provenance: Documented (SNESdev Wiki, VRAM access; fullsnes)
-.proc test_c2_12
-    .a16
-    .i16
-    ; Word $2000 is untouched by the font and the canvas. Seed it under forced blank, which
-    ; must work — that is the control for everything below.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$80
-    sta $2115         ; VMAIN: increment after the high byte
-    rep #$30
-    .a16
-    .i16
-    ldx #$2000
-    stx $2116
-    lda #$1234
-    sta $2118
-    ; Read it back: the port works and the seed is there.
-    ldx #$2000
-    stx $2116
-    sep #$20
-    .a8
-    lda $2139         ; prefetch discard
-    rep #$30
-    .a16
-    .i16
-    ldx #$2000
-    stx $2116
-    sep #$20
-    .a8
-    lda $2139
-    cmp #$34
-    beq :+
-    jmp @fail1
-  :
-    ; Get well inside the picture while still blanked, by watching the V counter rather than
-    ; the vblank flag. Line 0 is a blanking line where VRAM is legitimately open, so a test
-    ; that fires the moment $4212 says 'not vblank' measures line 0 on one core and line 1 on
-    ; another -- which is how the first version of this passed on two emulators and failed on
-    ; the third for a reason that had nothing to do with the window.
-    ; 
-    ; 64, not 8, because only the V counter's LOW BYTE is read here and a PAL frame has 312
-    ; lines: 8..199 also matches 264..311, which are vblank, where the port is open and the
-    ; test would measure nothing. From 64 the alias needs line 320, which does not exist.
-@wl:
-    lda $213F         ; reset the counter read flipflops
-    lda $2137         ; latch H and V
-    lda $213D         ; V low
-    cmp #64
-    bcc @wl
-    cmp #200
-    bcs @wl           ; V is in 64..199: mid-picture, and unambiguous
-    ; Lift forced blank. The window must close on this write, not on the next line.
-    lda #$0F
-    sta $2100
-    rep #$30
-    .a16
-    .i16
-    ldx #$2000
-    stx $2116
-    lda #$5678
-    sta $2118         ; must be dropped
-    sep #$20
-    .a8
-    lda #$8F
-    sta $2100         ; blank again so the read below is safe
-@wv2:
-    lda $4212
-    and #$80
-    beq @wv2          ; back in vblank, so the read below is safe
-    rep #$30
-    .a16
-    .i16
-    ldx #$2000
-    stx $2116
-    sep #$20
-    .a8
-    lda $2139         ; prefetch discard
-    rep #$30
-    .a16
-    .i16
-    ldx #$2000
-    stx $2116
-    sep #$20
-    .a8
-    lda $2139
-    cmp #$34
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; the seed did not reach VRAM under forced blank, so nothing below means anything
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; a VRAM write made after forced blank was lifted mid-frame landed anyway — the window closes on that write, not at the next scanline
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C3.03b — CGRAM read bit 7 is bus
-; provenance: Documented (SNESdev Wiki, CGRAM; fullsnes)
-.proc test_c3_03b
-    .a16
-    .i16
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    ; Entry 0 = $FFFF. Bit 15 does not exist, so this stores $7FFF and the low byte is $FF.
-    sep #$20
-    .a8
-    stz $2121         ; CGADD = 0
-    lda #$FF
-    sta $2122         ; low
-    sta $2122         ; high
-    stz $2121
-    lda $213B         ; low byte: $FF, and it drives PPU2's latch
-    lda $213B         ; high byte: 15 real bits plus the latch's bit 7
-    cmp #$FF
-    beq :+
-    jmp @fail1
-  :
-    ; Entry 0 = $7F00: the same fifteen stored bits in the high byte, a low byte of $00.
-    stz $2121
-    stz $2122         ; low = $00
-    lda #$7F
-    sta $2122         ; high = $7F
-    stz $2121
-    lda $213B         ; low byte: $00
-    lda $213B
-    cmp #$7F
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; the second CGRAM read did not carry bit 7 from PPU2's open bus after a low byte of $FF
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; the second CGRAM read returned bit 7 set after a low byte of $00 — bit 7 is open bus, not a sixteenth stored bit
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C3.09 — $213F is a field flag
-; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
-.proc test_c3_09
-    .a16
-    .i16
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    ; Three readings, one frame apart each. Only bit 7 matters; the low bits are the PPU2
-    ; version nibble and the region bit, which have nothing to do with the field.
-    lda $213F
-    and #$80
-    sta f:$7E0100
-    jsr frame_step
-    sep #$20
-    .a8
-    lda $213F
-    and #$80
-    sta f:$7E0101
-    jsr frame_step
-    sep #$20
-    .a8
-    lda $213F
-    and #$80
-    sta f:$7E0102
-    ; One frame apart: the flag must have changed.
-    lda f:$7E0100
-    eor f:$7E0101
-    cmp #$80
-    beq :+
-    jmp @fail1
-  :
-    ; Two frames apart: it must be back where it started, which a per-read or per-line toggle
-    ; would not manage.
-    lda f:$7E0100
-    eor f:$7E0102
-    cmp #$00
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; $213F bit 7 did not change across a rendered frame, so it is not toggling once per frame
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; $213F bit 7 did not return to its original value after two frames — it toggles more often than once per frame
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C3.01 — CGRAM two-write commit
-; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
-.proc test_c3_01
-    .a16
-    .i16
-    ; $2122 is written twice per colour: low byte then high. Read back through $213B.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$10
-    sta $2121         ; CGADD = colour 16
-    lda #$34
-    sta $2122
-    lda #$12
-    sta $2122         ; colour 16 = $1234
-    lda #$10
-    sta $2121
-    lda $213B
-    cmp #$34
-    beq :+
-    jmp @fail1
-  :
-    lda $213B
-    and #$7F          ; bit 7 of the second read is PPU2 open bus
-    cmp #$12
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; CGRAM low byte did not read back
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; CGRAM high byte did not read back
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C3.02 — CGADD resets flipflop
-; provenance: Documented (SNESdev Wiki, PPU registers)
-.proc test_c3_02
-    .a16
-    .i16
-    ; Leave a byte pending, reload CGADD, then write a full colour: the pending byte must be
-    ; discarded rather than pairing with the next write.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$11
-    sta $2121
-    lda #$99
-    sta $2122         ; pending
-    lda #$11
-    sta $2121         ; reload -> flipflop reset
-    lda #$78
-    sta $2122
-    lda #$56
-    sta $2122
-    lda #$11
-    sta $2121
-    lda $213B
-    cmp #$78
-    beq :+
-    jmp @fail1
-  :
-    lda $213B
-    and #$7F
-    cmp #$56
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; CGADD write did not reset the flipflop
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; CGRAM high byte wrong after flipflop reset
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C3.03 — OPHCT is a 9-bit pair
-; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
-.proc test_c3_03
-    .a16
-    .i16
-    ; $213F resets the read flipflops, $2137 latches, then two $213C reads give low byte and
-    ; (in bit 0 only) bit 8. Reconstructed, that must be a real position on the scanline.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda $213F         ; reset the OPHCT/OPVCT read flipflops
-    lda $2137         ; latch H and V
-    lda $213C         ; low 8 bits
-    xba
-    lda $213C
-    and #$01          ; bit 0 is counter bit 8; bits 1-7 are open bus
-    xba
-    rep #$20
-    .a16
-    and #$01FF
-    cmp #$0000
-    bcs :+
-    jmp @fail1
-  :
-    cmp #$0155
-    bcc :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; reconstructed H counter is outside a scanline
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C3.04 — H counter advances
-; provenance: Documented (SNESdev Wiki, PPU registers)
-.proc test_c3_04
-    .a16
-    .i16
-    ; Latch, burn a known amount of time, latch again. The elapsed dot count must be non-zero
-    ; and must not have wrapped past the end of the line.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    jsr hv_begin
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    jsr hv_end
-    rep #$30
-    .a16
-    .i16
-    lda f:$7E0048     ; elapsed dots
-    cmp #$0001
-    bcs :+
-    jmp @fail1
-  :
-    cmp #$0155
-    bcc :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; the H counter did not advance plausibly across 16 NOPs
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C3.05 — $213F resets flipflop
-; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
-.proc test_c3_05
-    .a16
-    .i16
-    ; Latch once, then read low / high / reset / low. Nothing re-latches in between, so the
-    ; two low reads sample the same frozen value and any difference is a flipflop bug.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    cld               ; the SBC below must not run in decimal mode
-    sep #$20
-    .a8
-    lda $213F         ; reset both read flipflops
-    lda $2137         ; latch H and V
-    lda $213C         ; H low
-    sta f:$7E0100
-    lda $213C         ; H high — the flipflop is now set
-    lda $213F         ; reset both flipflops again
-    lda $213C         ; must be H low once more
-    sec
-    sbc f:$7E0100
-    cmp #$00
-    beq :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; $213F did not reset the OPHCT flipflop (the third read was not the low byte)
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C3.07 — Counter flipflops differ
-; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
-.proc test_c3_07
-    .a16
-    .i16
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    ; Latch until the frozen V lands somewhere its low byte cannot be mistaken for its high.
-@retry:
-    lda $213F         ; reset both read flipflops
-    lda $2137         ; latch H and V together
-    lda $213D         ; V low
-    cmp #8
-    bcc @retry
-    cmp #200
-    bcs @retry
-    sta f:$7E0100     ; the frozen V low byte
-    ; Reset the flipflops and read H first. Nothing re-latches, so V is still the same number.
-    lda $213F
-    lda $213C         ; H low — this sets OPHCT's flipflop and must not touch OPVCT's
-    lda $213D         ; V low again, if the two are independent
-    sec
-    sbc f:$7E0100
-    cmp #$00
-    beq :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; reading $213C advanced $213D's flipflop — the two counters share one, so a read of V after a read of H returns its high byte
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C13.01 — PPU1 open bus in $213E
-; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
-.proc test_c13_01
-    .a16
-    .i16
-    ; Drive PPU1 open bus to $10 via an OAM read, check $213E bit 4, then drive it to $00 and
-    ; check again. Only bit 4 is examined: bits 7-6 are the sprite flags and 5-0 the version.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    ; --- open bus := $10 ---
-    lda #$08
-    sta $2102
-    stz $2103
-    lda #$10
-    sta $2104
-    lda #$00
-    sta $2104
-    lda #$08
-    sta $2102
-    stz $2103
-    lda $2138         ; returns $10 and refreshes PPU1 open bus with it
-    lda $213E
-    and #$10
-    cmp #$10
-    beq :+
-    jmp @fail1
-  :
-    ; --- open bus := $00 ---
-    lda #$08
-    sta $2102
-    stz $2103
-    lda #$00
-    sta $2104
-    lda #$00
-    sta $2104
-    lda #$08
-    sta $2102
-    stz $2103
-    lda $2138         ; returns $00
-    lda $213E
-    and #$10
-    cmp #$00
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; $213E bit 4 did not follow PPU1 open bus set to $10
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; $213E bit 4 did not follow PPU1 open bus cleared to $00
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C13.02 — PPU2 open bus in $213F
-; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
-.proc test_c13_02
-    .a16
-    .i16
-    ; Same shape as C13.01 but on the other chip: CGRAM reads go through PPU2, so a $213B read
-    ; is what refreshes this latch.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    ; --- open bus := $20 ---
-    lda #$20
-    sta $2121
-    lda #$20
-    sta $2122
-    lda #$00
-    sta $2122
-    lda #$20
-    sta $2121
-    lda $213B         ; returns $20 and refreshes PPU2 open bus with it
-    lda $213F
-    and #$20
-    cmp #$20
-    beq :+
-    jmp @fail1
-  :
-    ; --- open bus := $00 ---
-    lda #$20
-    sta $2121
-    lda #$00
-    sta $2122
-    lda #$00
-    sta $2122
-    lda #$20
-    sta $2121
-    lda $213B         ; returns $00
-    lda $213F
-    and #$20
-    cmp #$00
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; $213F bit 5 did not follow PPU2 open bus set to $20
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; $213F bit 5 did not follow PPU2 open bus cleared to $00
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C13.03 — PPU1/PPU2 bus separate
-; provenance: Corroborated (the bsnes/ares lineage and Mesen2 model two distinct latches)
-.proc test_c13_03
-    .a16
-    .i16
-    ; Drive the two latches to opposite values and read both back. Then swap and repeat, so a
-    ; shared latch cannot pass by accident in one polarity.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    ; --- seed OAM byte $10 / $00 and CGRAM low byte $20 / $00 ---
-    lda #$08
-    sta $2102
-    stz $2103
-    lda #$10
-    sta $2104
-    lda #$00
-    sta $2104         ; OAM word 8 = $0010
-    ; Word 9 must be seeded too, not assumed zero: it is read below to drive PPU1 open bus to
-    ; $00, and whatever the previous tests or the power-on fill left there would otherwise
-    ; decide the result. Mesen2 and snes9x disagree on that leftover, which is not a hardware
-    ; difference — it is this test failing to control its own inputs.
-    lda #$00
-    sta $2104
-    lda #$00
-    sta $2104         ; OAM word 9 = $0000
-    lda #$20
-    sta $2121
-    lda #$20
-    sta $2122
-    lda #$00
-    sta $2122         ; colour $20 = $0020
-    lda #$00
-    sta $2122
-    lda #$00
-    sta $2122         ; colour $21 = $0000, for the same reason as OAM word 9
-    ; --- PPU1 := $10, PPU2 := $00 ---
-    lda #$08
-    sta $2102
-    stz $2103
-    lda $2138         ; PPU1 open bus := $10
-    lda #$21
-    sta $2121
-    lda $213B         ; colour $21 low byte = $00; PPU2 open bus := $00
-    lda $213E
-    and #$10
-    cmp #$10
-    beq :+
-    jmp @fail1
-  :
-    lda $213F
-    and #$20
-    cmp #$00
-    beq :+
-    jmp @fail2
-  :
-    ; --- PPU1 := $00, PPU2 := $20 ---
-    lda #$09
-    sta $2102
-    stz $2103
-    lda $2138         ; OAM word 9 is zero; PPU1 open bus := $00
-    lda #$20
-    sta $2121
-    lda $213B         ; PPU2 open bus := $20
-    lda $213E
-    and #$10
-    cmp #$00
-    beq :+
-    jmp @fail3
-  :
-    lda $213F
-    and #$20
-    cmp #$20
-    beq :+
-    jmp @fail4
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; refreshing PPU2 open bus clobbered PPU1's latch
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; PPU2 open bus read back as PPU1's value
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-@fail3:
-    ; PPU1 open bus read back as PPU2's value
-    sep #$20
-    .a8
-    lda #$06
-    sta f:$7EE010
-    jml test_restore
-@fail4:
-    ; refreshing PPU1 open bus clobbered PPU2's latch
-    sep #$20
-    .a8
-    lda #$08
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C14.01 — PPU1 version (golden)
-; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
-.proc test_c14_01
-    .a16
-    .i16
-    ; Report the low nibble of $213E as the variant code.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda $213E
-    and #$0F          ; PPU1 version
-    asl a
-    ora #$01          ; encode as (version << 1) | 1
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C14.02 — PPU2 version (golden)
-; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
-.proc test_c14_02
-    .a16
-    .i16
-    ; Report the low nibble of $213F as the variant code.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda $213F
-    and #$0F          ; PPU2 version
-    asl a
-    ora #$01
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C14.03 — PPU1 mstr/slv (golden)
-; provenance: Contested (the bit reports a board wiring input, so no software-visible value is correct or incorrect; recorded rather than asserted)
-.proc test_c14_03
-    .a16
-    .i16
-    ; Isolate bit 5 of $213E and report it as a variant, asserting nothing about its value.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda $213E
-    and #$20          ; master/slave mode pin
-    beq :+
-    lda #$05          ; variant 2 = bit set
-    sta f:$7EE010
-    jml test_restore
-    :
-    lda #$03          ; variant 1 = bit clear
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C11.06 — MPY is 16x8 signed
-; provenance: Documented (SNESdev Wiki, Mode 7; fullsnes)
-.proc test_c11_06
-    .a16
-    .i16
-    ; Positive case: M7A = $0100 (256), M7B high byte = $02, so the product is 512 = $000200.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$00
-    sta $211B         ; M7A low
-    lda #$01
-    sta $211B         ; M7A high -> M7A = $0100
-    lda #$00
-    sta $211C         ; M7B low (ignored by the multiply)
-    lda #$02
-    sta $211C         ; M7B high -> multiplicand = +2
-    lda $2134
-    cmp #$00
-    beq :+
-    jmp @fail1
-  :
-    lda $2135
-    cmp #$02
-    beq :+
-    jmp @fail2
-  :
-    lda $2136
-    cmp #$00
-    beq :+
-    jmp @fail3
-  :
-    ; The low byte of M7B must not participate: rewriting it alone cannot change the product.
-    lda #$FF
-    sta $211C         ; M7B low = $FF
-    lda #$02
-    sta $211C         ; M7B high still $02
-    lda $2135
-    cmp #$02
-    beq :+
-    jmp @fail4
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; MPYL wrong for 256 * 2
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; MPYM wrong for 256 * 2
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-@fail3:
-    ; MPYH wrong for 256 * 2
-    sep #$20
-    .a8
-    lda #$06
-    sta f:$7EE010
-    jml test_restore
-@fail4:
-    ; the low byte of M7B leaked into the multiply
-    sep #$20
-    .a8
-    lda #$08
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C11.06b — MPY sign handling
-; provenance: Documented (SNESdev Wiki, Mode 7; fullsnes)
-.proc test_c11_06b
-    .a16
-    .i16
-    ; Negative multiplicand: M7A = $0002, M7B high = $FF (-1) -> -2 = $FFFFFE.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$02
-    sta $211B
-    lda #$00
-    sta $211B         ; M7A = $0002
-    lda #$00
-    sta $211C
-    lda #$FF
-    sta $211C         ; multiplicand = -1
-    lda $2134
-    cmp #$FE
-    beq :+
-    jmp @fail1
-  :
-    lda $2135
-    cmp #$FF
-    beq :+
-    jmp @fail2
-  :
-    lda $2136
-    cmp #$FF
-    beq :+
-    jmp @fail3
-  :
-    ; Negative multiplier: M7A = $FFFF (-1), M7B high = $02 -> -2 = $FFFFFE.
-    lda #$FF
-    sta $211B
-    lda #$FF
-    sta $211B         ; M7A = $FFFF
-    lda #$00
-    sta $211C
-    lda #$02
-    sta $211C
-    lda $2134
-    cmp #$FE
-    beq :+
-    jmp @fail4
-  :
-    lda $2136
-    cmp #$FF
-    beq :+
-    jmp @fail5
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; MPYL wrong for 2 * -1 (M7B high must be signed)
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; MPYM wrong for 2 * -1
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-@fail3:
-    ; the product did not sign-extend to 24 bits
-    sep #$20
-    .a8
-    lda #$06
-    sta f:$7EE010
-    jml test_restore
-@fail4:
-    ; MPYL wrong for -1 * 2 (M7A must be signed)
-    sep #$20
-    .a8
-    lda #$08
-    sta f:$7EE010
-    jml test_restore
-@fail5:
-    ; the product did not sign-extend for a negative M7A
-    sep #$20
-    .a8
-    lda #$0A
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C7.01 — Range Over at 32 sprites
-; provenance: Documented (SNESdev Wiki, Sprites; fullsnes)
-.proc test_c7_01
-    .a16
-    .i16
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    ; --- 2 sprites on the line: well under the limit, flag must stay clear ---
-    sep #$20
-    .a8
-    lda #$00
-    sta $2101         ; OBJSEL: size pair in bits 7-5, name base in bits 1-0
-    ; --- low table: `on_line` sprites on one scanline, the rest parked off-screen ---
-    stz $2102
-    stz $2103
-    rep #$10
-    .i16
-    ldx #$0000
-@fill_a:
-    lda #$00
-    sta $2104         ; X = 0
-    cpx #$0002
-    bcs @off_a
-    lda #100
-    bra @sety_a
-@off_a:
-    lda #$F0          ; below the visible area in 224-line mode
-@sety_a:
-    sta $2104         ; Y
-    lda #$00
-    sta $2104         ; tile
-    lda #$00
-    sta $2104         ; attr
-    inx
-    cpx #$0080
-    bne @fill_a
-    ; --- high table: 32 bytes, 2 bits per sprite (bit 0 = X bit 8, bit 1 = size select) ---
-    lda #$00
-    sta $2102
-    lda #$01
-    sta $2103         ; OAMADDR = word $100, the high table
-    ldx #$0000
-@hi_a:
-    lda #$00
-    sta $2104
-    inx
-    cpx #$0020
-    bne @hi_a
-    ; --- render one complete frame, then sample and restore forced blank ---
-    lda #$10
-    sta $212C         ; OBJ on the main screen
-    lda #$0F
-    sta $2100         ; brightness 15, forced blank released
-    jsr wait_vblank   ; land on a vblank boundary
-    jsr wait_vblank   ; span one complete active period
-    lda $213E
-    pha
-    lda #$8F
-    sta $2100         ; forced blank again, as the rest of the battery expects
-    stz $212C
-    pla
-    and #$40
-    cmp #$00
-    beq :+
-    jmp @fail1
-  :
-    ; --- 40 sprites on the line: over the 32-sprite limit ---
-    rep #$30
-    .a16
-    .i16
-    sep #$20
-    .a8
-    lda #$00
-    sta $2101         ; OBJSEL: size pair in bits 7-5, name base in bits 1-0
-    ; --- low table: `on_line` sprites on one scanline, the rest parked off-screen ---
-    stz $2102
-    stz $2103
-    rep #$10
-    .i16
-    ldx #$0000
-@fill_b:
-    lda #$00
-    sta $2104         ; X = 0
-    cpx #$0028
-    bcs @off_b
-    lda #100
-    bra @sety_b
-@off_b:
-    lda #$F0          ; below the visible area in 224-line mode
-@sety_b:
-    sta $2104         ; Y
-    lda #$00
-    sta $2104         ; tile
-    lda #$00
-    sta $2104         ; attr
-    inx
-    cpx #$0080
-    bne @fill_b
-    ; --- high table: 32 bytes, 2 bits per sprite (bit 0 = X bit 8, bit 1 = size select) ---
-    lda #$00
-    sta $2102
-    lda #$01
-    sta $2103         ; OAMADDR = word $100, the high table
-    ldx #$0000
-@hi_b:
-    lda #$00
-    sta $2104
-    inx
-    cpx #$0020
-    bne @hi_b
-    ; --- render one complete frame, then sample and restore forced blank ---
-    lda #$10
-    sta $212C         ; OBJ on the main screen
-    lda #$0F
-    sta $2100         ; brightness 15, forced blank released
-    jsr wait_vblank   ; land on a vblank boundary
-    jsr wait_vblank   ; span one complete active period
-    lda $213E
-    pha
-    lda #$8F
-    sta $2100         ; forced blank again, as the rest of the battery expects
-    stz $212C
-    pla
-    and #$40
-    cmp #$40
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; Range Over set with only 2 sprites on the scanline
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; Range Over did not set with 40 sprites on one scanline
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C7.02 — Time Over is slivers
-; provenance: Documented (SNESdev Wiki, Sprites; fullsnes; anomie)
-.proc test_c7_02
-    .a16
-    .i16
-    ; OBJSEL size select lives in bits 7-5, not the low bits: mode 2 ($40) pairs 8x8 with
-    ; 64x64, and the high table marks sprites 0-4 as the large member of that pair. Writing
-    ; the mode number into the low bits instead sets the tile-name base and silently leaves
-    ; the size pair at 8x8/16x16 — 10 slivers, comfortably inside the budget, no flag.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$40
-    sta $2101         ; OBJSEL: size pair in bits 7-5, name base in bits 1-0
-    ; --- low table: `on_line` sprites on one scanline, the rest parked off-screen ---
-    stz $2102
-    stz $2103
-    rep #$10
-    .i16
-    ldx #$0000
-@fill_a:
-    lda #$00
-    sta $2104         ; X = 0
-    cpx #$0005
-    bcs @off_a
-    lda #100
-    bra @sety_a
-@off_a:
-    lda #$F0          ; below the visible area in 224-line mode
-@sety_a:
-    sta $2104         ; Y
-    lda #$00
-    sta $2104         ; tile
-    lda #$00
-    sta $2104         ; attr
-    inx
-    cpx #$0080
-    bne @fill_a
-    ; --- high table: 32 bytes, 2 bits per sprite (bit 0 = X bit 8, bit 1 = size select) ---
-    lda #$00
-    sta $2102
-    lda #$01
-    sta $2103         ; OAMADDR = word $100, the high table
-    ldx #$0000
-@hi_a:
-    lda #$00
-    sta $2104
-    inx
-    cpx #$0020
-    bne @hi_a
-    ; Mark the leading sprites as the large size of the pair.
-    lda #$00
-    sta $2102
-    lda #$01
-    sta $2103
-    lda #$AA
-    sta $2104
-    lda #$02
-    sta $2104
-    ; --- render one complete frame, then sample and restore forced blank ---
-    lda #$10
-    sta $212C         ; OBJ on the main screen
-    lda #$0F
-    sta $2100         ; brightness 15, forced blank released
-    jsr wait_vblank   ; land on a vblank boundary
-    jsr wait_vblank   ; span one complete active period
-    lda $213E
-    pha
-    lda #$8F
-    sta $2100         ; forced blank again, as the rest of the battery expects
-    stz $212C
-    pla
-    pha
-    and #$80
-    cmp #$80
-    beq :+
-    jmp @fail1
-  :
-    pla
-    and #$40
-    cmp #$00
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; Time Over did not set for 40 slivers from 5 sprites
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; Range Over set for only 5 sprites (it is a sprite count, not a sliver count)
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C7.08 — Flags ignore $212C
-; provenance: Documented (SNESdev Wiki, Sprites; fullsnes)
-.proc test_c7_08
-    .a16
-    .i16
-    ; Same 40-sprite overflow as C7.01, but with OBJ left off the main screen entirely.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$00
-    sta $2101         ; OBJSEL: size pair in bits 7-5, name base in bits 1-0
-    ; --- low table: `on_line` sprites on one scanline, the rest parked off-screen ---
-    stz $2102
-    stz $2103
-    rep #$10
-    .i16
-    ldx #$0000
-@fill_a:
-    lda #$00
-    sta $2104         ; X = 0
-    cpx #$0028
-    bcs @off_a
-    lda #100
-    bra @sety_a
-@off_a:
-    lda #$F0          ; below the visible area in 224-line mode
-@sety_a:
-    sta $2104         ; Y
-    lda #$00
-    sta $2104         ; tile
-    lda #$00
-    sta $2104         ; attr
-    inx
-    cpx #$0080
-    bne @fill_a
-    ; --- high table: 32 bytes, 2 bits per sprite (bit 0 = X bit 8, bit 1 = size select) ---
-    lda #$00
-    sta $2102
-    lda #$01
-    sta $2103         ; OAMADDR = word $100, the high table
-    ldx #$0000
-@hi_a:
-    lda #$00
-    sta $2104
-    inx
-    cpx #$0020
-    bne @hi_a
-    ; --- render one complete frame, then sample and restore forced blank ---
-    stz $212C         ; deliberately leave OBJ OFF the main screen
-    lda #$0F
-    sta $2100         ; brightness 15, forced blank released
-    jsr wait_vblank   ; land on a vblank boundary
-    jsr wait_vblank   ; span one complete active period
-    lda $213E
-    pha
-    lda #$8F
-    sta $2100         ; forced blank again, as the rest of the battery expects
-    stz $212C
-    pla
-    and #$40
-    cmp #$40
-    beq :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; Range Over did not set while OBJ was off the main screen ($212C gates compositing, not evaluation)
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C2.11 — VRAM locked in render
-; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
-.proc test_c2_11
-    .a16
-    .i16
-    ; Clear three words under forced blank, then try to write two of them from active display.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$80
-    sta $2115         ; VMAIN step 1, increment after the high byte
-    rep #$30
-    .a16
-    .i16
-    ldx #$1600
-    stx $2116
-    lda #$0000
-    sta $2118
-    sta $2118
-    sta $2118         ; words $1600-$1602 cleared
-    ldx #$1600
-    stx $2116         ; aim at $1600 before the window closes
-    sep #$20
-    .a8
-    lda #$0F
-    sta $2100         ; forced blank off — the access window now depends on position
-    jsr wait_vblank
-    jsr wait_vblank   ; a full settled frame
-@wa_c211:
-    lda $4212
-    and #$80
-    bne @wa_c211   ; wait for vblank to end
-    rep #$10
-    .i16
-    ldx #$0400
-@burn_c211:
-    dex
-    bne @burn_c211 ; ~20 scanlines in, well clear of the pre-render line
-    rep #$20
-    .a16
-    lda #$AAAA
-    sta $2118         ; must be dropped
-    sta $2118         ; must be dropped
-    sep #$20
-    .a8
-    lda #$8F
-    sta $2100         ; forced blank restored
-    ; --- read back: both words must still be zero ---
-    rep #$30
-    .a16
-    .i16
-    ldx #$1600
-    stx $2116
-    lda $2139
-    cmp #$0000
-    beq :+
-    jmp @fail1
-  :
-    ldx #$1601
-    stx $2116
-    lda $2139
-    cmp #$0000
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; a VRAM write during active display was not dropped
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; the second VRAM write during active display was not dropped
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C2.10 — Dropped write still incs
-; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes; anomie)
-.proc test_c2_10
-    .a16
-    .i16
-    ; Same shape as C2.11, but the payload is the write that follows: if the two dropped writes
-    ; advanced the address, the legal third write lands at $1602 rather than back at $1600.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda #$80
-    sta $2115
-    rep #$30
-    .a16
-    .i16
-    ldx #$1610
-    stx $2116
-    lda #$0000
-    sta $2118
-    sta $2118
-    sta $2118         ; words $1610-$1612 cleared
-    ldx #$1610
-    stx $2116
-    sep #$20
-    .a8
-    lda #$0F
-    sta $2100         ; forced blank off — the access window now depends on position
-    jsr wait_vblank
-    jsr wait_vblank   ; a full settled frame
-@wa_c210:
-    lda $4212
-    and #$80
-    bne @wa_c210   ; wait for vblank to end
-    rep #$10
-    .i16
-    ldx #$0400
-@burn_c210:
-    dex
-    bne @burn_c210 ; ~20 scanlines in, well clear of the pre-render line
-    rep #$20
-    .a16
-    lda #$AAAA
-    sta $2118         ; dropped, but the address must advance to $1611
-    sta $2118         ; dropped, but the address must advance to $1612
-    sep #$20
-    .a8
-    lda #$8F
-    sta $2100         ; forced blank: the window is open again
-    rep #$20
-    .a16
-    lda #$BBBB
-    sta $2118         ; this one must land, and at $1612
-    ; --- read back ---
-    rep #$30
-    .a16
-    .i16
-    ldx #$1612
-    stx $2116
-    lda $2139
-    cmp #$BBBB
-    beq :+
-    jmp @fail1
-  :
-    ldx #$1610
-    stx $2116
-    lda $2139
-    cmp #$0000
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; the address did not advance across the dropped writes
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; the legal write landed at $1610 instead of $1612
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C1.06 — OAM addr reloads
-; provenance: Documented (SNESdev Wiki, OAM; anomie)
-.proc test_c1_06
-    .a16
-    .i16
-    ; Seed three words, set the base to word 0, then walk the internal address forward to word
-    ; 2. After a rendered frame the next read must come from word 0 again.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    stz $2102
-    stz $2103
-    lda #$11
-    sta $2104
-    lda #$22
-    sta $2104         ; word 0
-    lda #$33
-    sta $2104
-    lda #$44
-    sta $2104         ; word 1
-    lda #$55
-    sta $2104
-    lda #$66
-    sta $2104         ; word 2
-    ; --- base = word 0, then advance the internal counter to word 2 by reading ---
-    stz $2102
-    stz $2103
-    lda $2138
-    lda $2138
-    lda $2138
-    lda $2138         ; internal address now word 2
-    ; --- render one complete frame; the reload happens as vblank begins ---
-    lda #$0F
-    sta $2100
-    jsr wait_vblank
-    jsr wait_vblank
-    lda $2138         ; read while forced blank is still off
-    sta f:$7E0102
-    lda #$8F
-    sta $2100
-    lda f:$7E0102
-    cmp #$11
-    beq :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; the OAM address did not reload from its base across a frame
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; C9.04 — Overscan moves vblank
-; provenance: Documented (SNESdev Wiki, Timing; fullsnes)
-.proc test_c9_04
-    .a16
-    .i16
-    ; Sample the V counter at the instant vblank begins, with overscan off and then on. Both
-    ; samples take two wait_vblank calls so the setting has been stable for a whole frame —
-    ; toggling $2133 mid-frame is its own documented hazard and is not what this measures.
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    stz $2133         ; overscan off: 224 visible lines
-    jsr wait_vblank
-    jsr wait_vblank
-    lda $213F         ; reset the counter read flipflops
-    lda $2137         ; latch H and V
-    lda $213D         ; V low
-    xba
-    lda $213D
-    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
-    xba
-    rep #$20
-    .a16
-    and #$01FF
-    cmp #$00E1
-    bcs :+
-    jmp @fail1
-  :
-    cmp #$00E9
-    bcc :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$04
-    sta $2133         ; overscan on: 239 visible lines
-    jsr wait_vblank
-    jsr wait_vblank
-    lda $213F
-    lda $2137
-    lda $213D
-    xba
-    lda $213D
-    and #$01
-    xba
-    rep #$20
-    .a16
-    and #$01FF
-    cmp #$00F0
-    bcs :+
-    jmp @fail2
-  :
-    cmp #$00F8
-    bcc :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    stz $2133         ; restore
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; vblank did not begin near line 225 without overscan
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; overscan did not move the start of vblank to line 240
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
 ; B1.01 — MEMSEL selects FastROM
 ; provenance: Documented (SNESdev Wiki, Memory map / timing; fullsnes)
 .proc test_b1_01
@@ -7500,6 +4866,120 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; B4.16 — H-IRQ position (golden)
+; provenance: Contested (no source pins the fired dot at single-dot precision; recorded as the before/after guard for T-06-A's clock-domain comparator change)
+.proc test_b4_16
+    .a16
+    .i16
+    bra @body
+@handler:
+    rep #$30
+    .a16
+    .i16
+    pha
+    sep #$20
+    .a8
+    lda $2137         ; latch H and V at handler entry
+    lda $213C
+    xba
+    lda $213C
+    and #$01
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    sta f:$7E0136
+    sep #$20
+    .a8
+    lda $4211         ; acknowledge
+    lda #$01
+    sta f:$7E0134     ; tell the spin loop to stop
+    rep #$30
+    .a16
+    .i16
+    pla
+    rti
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    sei
+    rep #$20
+    .a16
+    lda #@handler
+    sta a:V_IRQ_VEC
+    sep #$20
+    .a8
+    ; --- below the long dots: HTIME = 100 ---
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0134     ; rendezvous byte: the handler sets it (STZ has no long form)
+    lda #$64
+    sta $4207
+    lda #$00
+    sta $4208         ; HTIME = 100
+    lda $4211         ; clear any stale latch
+    lda #$10
+    sta $4200         ; H-IRQ enabled, NMI off, auto-joypad off
+    cli
+@spin1:
+    nop
+    nop
+    nop
+    nop
+    lda f:$7E0134
+    beq @spin1
+    sei
+    rep #$20
+    .a16
+    lda f:$7E0136
+    ; record slot 126: B4.16 H latched, HTIME=100 (below dots 323/327)
+    sta f:$7EE2FC
+    sep #$20
+    .a8
+    ; --- above both long dots: HTIME = 330 ---
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0134     ; rendezvous byte: the handler sets it (STZ has no long form)
+    lda #$4A
+    sta $4207
+    lda #$01
+    sta $4208         ; HTIME = 330
+    lda $4211         ; clear any stale latch
+    lda #$10
+    sta $4200         ; H-IRQ enabled, NMI off, auto-joypad off
+    cli
+@spin2:
+    nop
+    nop
+    nop
+    nop
+    lda f:$7E0134
+    beq @spin2
+    sei
+    rep #$20
+    .a16
+    lda f:$7E0136
+    ; record slot 127: B4.16 H latched, HTIME=330 (above dots 323/327)
+    sta f:$7EE2FE
+    ; Disarm before reporting.
+    sep #$20
+    .a8
+    stz $4200
+    lda $4211
+    ; Variant 1 = both readings arrived. The numbers are the point and live in the channel;
+    ; the verdict only announces a core whose H-IRQ stopped firing at one of the two.
+    lda #$03
     sta f:$7EE010
     jml test_restore
 .endproc
@@ -8386,9 +5866,10 @@ CATALOG_IMPL = 1
     .a8
     lda #$00
     sta f:$7E0134     ; rendezvous byte: the handler sets it (STZ has no long form)
-    lda #200
+    lda #$C8
     sta $4207
-    stz $4208         ; HTIME = 200
+    lda #$00
+    sta $4208         ; HTIME = 200
     lda $4211         ; clear any stale latch
     lda #$10
     sta $4200         ; H-IRQ enabled, NMI off, auto-joypad off
@@ -8417,9 +5898,10 @@ CATALOG_IMPL = 1
     .a8
     lda #$00
     sta f:$7E0134     ; rendezvous byte: the handler sets it (STZ has no long form)
-    lda #200
+    lda #$C8
     sta $4207
-    stz $4208         ; HTIME = 200
+    lda #$00
+    sta $4208         ; HTIME = 200
     lda $4211         ; clear any stale latch
     lda #$10
     sta $4200         ; H-IRQ enabled, NMI off, auto-joypad off
@@ -20000,6 +17482,2642 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+.segment "TESTSC"
+
+; C1.01 — OAM word write/read
+; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
+.proc test_c1_01
+    .a16
+    .i16
+    ; OAMADDR is a WORD address. Two byte writes to $2104 fill one word, low byte first.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    stz $2102         ; OAMADDR = word 0
+    stz $2103
+    lda #$AA
+    sta $2104
+    lda #$BB
+    sta $2104         ; word 0 now committed
+    stz $2102         ; rewind to word 0 to read it back
+    stz $2103
+    lda $2138
+    cmp #$AA
+    beq :+
+    jmp @fail1
+  :
+    lda $2138
+    cmp #$BB
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; OAM low byte did not read back
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; OAM high byte did not read back
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C1.02 — OAM odd write latched
+; provenance: Documented (SNESdev Wiki, OAM; anomie)
+.proc test_c1_02
+    .a16
+    .i16
+    ; Seed word 1 with a known value, then write THREE bytes from word 0. The third byte is
+    ; latched as the low half of word 1 and must not be committed on its own.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    ; --- seed word 1 = $EEDD ---
+    lda #$01
+    sta $2102         ; OAMADDR = word 1
+    stz $2103
+    lda #$DD
+    sta $2104
+    lda #$EE
+    sta $2104
+    ; --- three bytes starting at word 0 ---
+    stz $2102
+    stz $2103
+    lda #$11
+    sta $2104
+    lda #$22
+    sta $2104         ; word 0 committed
+    lda #$33
+    sta $2104         ; latched only — must NOT reach word 1
+    ; --- read back ---
+    stz $2102
+    stz $2103
+    lda $2138
+    cmp #$11
+    beq :+
+    jmp @fail1
+  :
+    lda $2138
+    cmp #$22
+    beq :+
+    jmp @fail2
+  :
+    lda $2138
+    cmp #$DD
+    beq :+
+    jmp @fail3
+  :
+    lda $2138
+    cmp #$EE
+    beq :+
+    jmp @fail4
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; word 0 low byte wrong
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; word 0 high byte wrong
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; the odd trailing byte was committed (it must stay in the latch)
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+@fail4:
+    ; word 1 high byte was disturbed
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C1.03 — OAMADDR reload clears
+; provenance: Documented (SNESdev Wiki, OAM; anomie)
+.proc test_c1_03
+    .a16
+    .i16
+    ; Write an odd byte count, then reload OAMADDR: the pending latch is discarded and the
+    ; next pair starts cleanly rather than being offset by one byte.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$02
+    sta $2102         ; word 2
+    stz $2103
+    lda #$99
+    sta $2104         ; leave a byte pending in the latch
+    lda #$02
+    sta $2102         ; reload -> discard the pending byte
+    stz $2103
+    lda #$44
+    sta $2104
+    lda #$55
+    sta $2104
+    lda #$02
+    sta $2102
+    stz $2103
+    lda $2138
+    cmp #$44
+    beq :+
+    jmp @fail1
+  :
+    lda $2138
+    cmp #$55
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; reloading OAMADDR did not discard the pending latch byte
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; word high byte wrong after OAMADDR reload
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C1.04 — OAM rd/wr one counter
+; provenance: Documented (SNESdev Wiki, OAM)
+.proc test_c1_04
+    .a16
+    .i16
+    ; Write one word, then read one byte, then read again: the read pointer must have followed
+    ; the write pointer rather than tracking separately.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$04
+    sta $2102
+    stz $2103
+    lda #$5A
+    sta $2104
+    lda #$A5
+    sta $2104
+    lda #$7E
+    sta $2104
+    lda #$E7
+    sta $2104         ; words 4 and 5 written
+    lda #$05
+    sta $2102         ; point at word 5 only
+    stz $2103
+    lda $2138
+    cmp #$7E
+    beq :+
+    jmp @fail1
+  :
+    lda $2138
+    cmp #$E7
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; shared counter: word 5 low byte wrong
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; shared counter: word 5 high byte wrong
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C1.05 — OAM high table mirror
+; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
+.proc test_c1_05
+    .a16
+    .i16
+    ; Write through the mirror at word $110 and read back at the real address, word $100.
+    ; The high table commits per byte, so no write-twice pairing is involved.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$10
+    sta $2102
+    lda #$01          ; OAMADDR = word $110 (byte $220), bit 7 clear
+    sta $2103
+    lda #$5C
+    sta $2104
+    lda #$C5
+    sta $2104
+    ; --- read the real high-table bytes ---
+    lda #$00
+    sta $2102
+    lda #$01          ; OAMADDR = word $100 (byte $200)
+    sta $2103
+    lda $2138
+    cmp #$5C
+    beq :+
+    jmp @fail1
+  :
+    lda $2138
+    cmp #$C5
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; OAM high table did not mirror: byte $220 -> $200
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; OAM high table did not mirror: byte $221 -> $201
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C1.03b — High table commits bytes
+; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
+.proc test_c1_03b
+    .a16
+    .i16
+    ; Seed high-table byte 0 with $00, then write $AA into it as a single, unpaired byte.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ldx #$0100
+    stx $2102         ; OAMADD = word $100, the high table
+    sep #$20
+    .a8
+    lda #$00
+    sta $2104
+    rep #$30
+    .a16
+    .i16
+    ldx #$0100
+    stx $2102
+    sep #$20
+    .a8
+    lda #$AA
+    sta $2104         ; one byte, no partner
+    ; Read it straight back. A core that waits for a pair still has the $00.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0100
+    stx $2102
+    sep #$20
+    .a8
+    lda $2138
+    cmp #$AA
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; a single byte written to the OAM high table did not commit — the pairing rule belongs to the low table only
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C1.07 — Blank edge reloads OAM
+; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
+.proc test_c1_07
+    .a16
+    .i16
+    ; Seed OAM word 5 with a recognisable pair, then set the address there and consume it, so
+    ; the internal pointer sits at word 6 while $2102 still says 5.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ldx #$0005
+    stx $2102
+    sep #$20
+    .a8
+    lda #$A5
+    sta $2104
+    lda #$5A
+    sta $2104
+    rep #$30
+    .a16
+    .i16
+    ldx #$0005
+    stx $2102
+    sep #$20
+    .a8
+    lda $2138         ; $A5, pointer advances
+    lda $2138         ; $5A, pointer now at word 6
+    ; Render one frame. The falling edge inside frame_step arms the reload; the frame applies
+    ; it; blank is back on by the time this returns.
+    jsl frame_step_far
+    sep #$20
+    .a8
+    lda $2138
+    cmp #$A5
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the OAM address was not reloaded across a rendered frame — the read came from where the pointer had walked to rather than from $2102
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C7.09 — Overflow flags clear
+; provenance: Documented (SNESdev Wiki, sprites; fullsnes)
+.proc test_c7_09
+    .a16
+    .i16
+    ; A known sprite size, and a high table with no size or X-bit-8 bits left in it by an
+    ; earlier test. Without both, a parked sprite can be large enough to reach the picture.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$60
+    sta $2101         ; OBJSEL pair 3: 16x16 small, 32x32 large, name base word $0000
+    rep #$30
+    .a16
+    .i16
+    ldx #$0100
+    stx $2102         ; the 32-byte high table
+    ldy #$0000
+@clearhi:
+    sep #$20
+    .a8
+    stz $2104
+    rep #$30
+    .a16
+    .i16
+    iny
+    cpy #32
+    bne @clearhi
+    ; Park all 128 sprites off-screen: a stray one left by an earlier test would set the flags
+    ; for a reason this test is not about.
+    ldx #$0000
+    stx $2102
+    ldy #$0000
+@park1:
+    sep #$20
+    .a8
+    stz $2104         ; X
+    lda #240
+    sta $2104         ; Y=240: below the visible area in 224- AND 239-line modes
+    stz $2104         ; tile
+    stz $2104         ; attr
+    rep #$30
+    .a16
+    .i16
+    iny
+    cpy #128
+    bne @park1
+    ; Now put 34 of them on one line: two past the 32-sprite range limit, and at two slivers
+    ; each, well past the 34-sliver limit as well. Both flags must latch.
+    ldx #$0000
+    stx $2102
+    ldy #$0000
+@crowd:
+    sep #$20
+    .a8
+    stz $2104         ; X
+    lda #100
+    sta $2104         ; Y, all on the same scanline
+    lda #$10
+    sta $2104         ; tile $10
+    lda #$30
+    sta $2104         ; attr: palette 0, priority 3
+    rep #$30
+    .a16
+    .i16
+    iny
+    cpy #34
+    bne @crowd
+    sep #$20
+    .a8
+    lda #$10
+    sta $212C         ; OBJ on the main screen, so they are actually evaluated
+    ; Render a frame. Range over must latch during it and survive into vblank.
+    jsl frame_step_far
+    sep #$20
+    .a8
+    lda $213E
+    and #$C0
+    cmp #$C0
+    beq :+
+    jmp @fail1
+  :
+    ; Park them all again — under forced blank, with no frame rendered. The flag must persist:
+    ; forced blank is not the end of vblank.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+    stx $2102
+    ldy #$0000
+@park2:
+    sep #$20
+    .a8
+    stz $2104         ; X
+    lda #240
+    sta $2104         ; Y=240: below the visible area in 224- AND 239-line modes
+    stz $2104         ; tile
+    stz $2104         ; attr
+    rep #$30
+    .a16
+    .i16
+    iny
+    cpy #128
+    bne @park2
+    sep #$20
+    .a8
+    lda $213E
+    and #$C0
+    cmp #$C0
+    beq :+
+    jmp @fail2
+  :
+    ; One more rendered frame, now with nothing in range. The end of ITS vblank clears the
+    ; flag, and nothing sets it again.
+    jsl frame_step_far
+    sep #$20
+    .a8
+    lda $213E
+    and #$C0
+    cmp #$00
+    beq :+
+    jmp @fail3
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; 34 sprites of 16x16 on one scanline did not set both $213E overflow flags, so the readings below say nothing
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; an overflow flag cleared without a frame boundary — forced blank is not the end of vblank, and a driver reading the flags during blanking would lose them
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; an overflow flag survived a rendered frame with nothing in range, so it is never cleared at the end of vblank
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C2.01 — VMAIN step 1 word
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c2_01
+    .a16
+    .i16
+    ; VMAIN=$80: step 1 word, increment after the HIGH byte. Three words written back to back
+    ; must land at consecutive addresses.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115
+    rep #$30
+    .a16
+    .i16
+    ldx #$1000
+    stx $2116
+    lda #$1111
+    sta $2118
+    lda #$2222
+    sta $2118
+    lda #$3333
+    sta $2118
+    ; Read back word $1001. The first read after setting the address is the stale prefetch,
+    ; so discard it and take the second (see C2.03).
+    ldx #$1001
+    stx $2116
+    lda $2139         ; prefetch, discarded
+    ldx #$1001
+    stx $2116
+    sep #$20
+    .a8
+    lda $2139
+    cmp #$22
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; step-1 increment did not reach word $1001
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C2.02 — VMAIN low-byte trigger
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c2_02
+    .a16
+    .i16
+    ; VMAIN=$00 increments after $2118 (the LOW byte), so writing only low bytes fills the low
+    ; half of consecutive words and never touches the high halves. This is exactly how the
+    ; runtime uploads its 1bpp font, so it is load-bearing here.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Clear two words first so the high bytes are known.
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115
+    rep #$30
+    .a16
+    .i16
+    ldx #$1100
+    stx $2116
+    lda #$0000
+    sta $2118
+    sta $2118
+    ; Now low-byte-only writes.
+    sep #$20
+    .a8
+    stz $2115         ; VMAIN = $00: increment after the LOW byte
+    rep #$30
+    .a16
+    .i16
+    ldx #$1100
+    stx $2116
+    sep #$20
+    .a8
+    lda #$3C
+    sta $2118
+    lda #$C3
+    sta $2118
+    ; Read back word $1100: low $3C, high still 0.
+    rep #$30
+    .a16
+    .i16
+    ldx #$1100
+    stx $2116
+    lda $2139
+    ldx #$1100
+    stx $2116
+    lda $2139
+    cmp #$003C
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; low-byte-only write disturbed the high byte, or did not increment
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C2.03 — VRAM read prefetch
+; provenance: Documented (SNESdev Wiki; docs/ppu.md edge case 4)
+.proc test_c2_03
+    .a16
+    .i16
+    ; Write two distinguishable words, then set the address and read TWICE. The first read is
+    ; the prefetch latched when the address was written; the second is the real value.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115
+    rep #$30
+    .a16
+    .i16
+    ldx #$1200
+    stx $2116
+    lda #$ABCD
+    sta $2118
+    lda #$1234
+    sta $2118         ; word $1200 = $ABCD, word $1201 = $1234
+    ldx #$1200
+    stx $2116
+    lda $2139         ; prefetch of word $1200
+    and #$FFFF
+    cmp #$ABCD
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the read after setting VMADD did not return word $1200
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C2.04 — VRAM bit 15 unconnected
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c2_04
+    .a16
+    .i16
+    ; VRAM is 32K words, so a 16-bit word address has one bit too many. Bit 15 is unconnected,
+    ; making $8xxx an alias of $0xxx rather than an out-of-range access.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115
+    rep #$30
+    .a16
+    .i16
+    ldx #$1300
+    stx $2116
+    lda #$BEEF
+    sta $2118
+    ; Read the same word through the mirrored address.
+    ldx #$9300
+    stx $2116
+    lda $2139
+    ldx #$9300
+    stx $2116
+    lda $2139
+    cmp #$BEEF
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; VRAM address bit 15 was decoded (it must be unconnected)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C2.05 — VMAIN step 32 words
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c2_05
+    .a16
+    .i16
+    ; Write with step=32, then read the far word back to confirm the stride.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$81          ; VMAIN: step 32 words, increment after the high byte
+    sta $2115
+    rep #$30
+    .a16
+    .i16
+    ldx #$1400
+    stx $2116
+    lda #$0F0F
+    sta $2118
+    lda #$F0F0
+    sta $2118         ; words $1400 and $1420
+    ; Read word $1420 with the plain step so the address does not run away.
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115
+    rep #$30
+    .a16
+    .i16
+    ldx #$1420
+    stx $2116
+    lda $2139
+    ldx #$1420
+    stx $2116
+    lda $2139
+    cmp #$F0F0
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; VMAIN step-32 increment did not land at word $1420
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C2.06 — VMAIN remap hits bus
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes; anomie)
+.proc test_c2_06
+    .a16
+    .i16
+    ; Two back-to-back writes with remap 01 active, then read both target words with remap off.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$84          ; VMAIN: remap 01 (8-bit), step 1, increment after the high byte
+    sta $2115
+    rep #$30
+    .a16
+    .i16
+    ldx #$1503
+    stx $2116
+    lda #$CAFE
+    sta $2118         ; register $1503 -> bus word $1518
+    lda #$B0BA
+    sta $2118         ; register $1504 -> bus word $1520
+    ; --- read both back with translation off ---
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115
+    rep #$30
+    .a16
+    .i16
+    ldx #$1518
+    stx $2116
+    lda $2139
+    cmp #$CAFE
+    beq :+
+    jmp @fail1
+  :
+    ldx #$1520
+    stx $2116
+    lda $2139
+    cmp #$B0BA
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; remap 01 did not translate register $1503 to bus word $1518
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the remap fed back into the address register (the second write missed word $1520)
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C2.12 — Blank off closes VRAM
+; provenance: Documented (SNESdev Wiki, VRAM access; fullsnes)
+.proc test_c2_12
+    .a16
+    .i16
+    ; Word $2000 is untouched by the font and the canvas. Seed it under forced blank, which
+    ; must work — that is the control for everything below.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115         ; VMAIN: increment after the high byte
+    rep #$30
+    .a16
+    .i16
+    ldx #$2000
+    stx $2116
+    lda #$1234
+    sta $2118
+    ; Read it back: the port works and the seed is there.
+    ldx #$2000
+    stx $2116
+    sep #$20
+    .a8
+    lda $2139         ; prefetch discard
+    rep #$30
+    .a16
+    .i16
+    ldx #$2000
+    stx $2116
+    sep #$20
+    .a8
+    lda $2139
+    cmp #$34
+    beq :+
+    jmp @fail1
+  :
+    ; Get well inside the picture while still blanked, by watching the V counter rather than
+    ; the vblank flag. Line 0 is a blanking line where VRAM is legitimately open, so a test
+    ; that fires the moment $4212 says 'not vblank' measures line 0 on one core and line 1 on
+    ; another -- which is how the first version of this passed on two emulators and failed on
+    ; the third for a reason that had nothing to do with the window.
+    ; 
+    ; 64, not 8, because only the V counter's LOW BYTE is read here and a PAL frame has 312
+    ; lines: 8..199 also matches 264..311, which are vblank, where the port is open and the
+    ; test would measure nothing. From 64 the alias needs line 320, which does not exist.
+@wl:
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    cmp #64
+    bcc @wl
+    cmp #200
+    bcs @wl           ; V is in 64..199: mid-picture, and unambiguous
+    ; Lift forced blank. The window must close on this write, not on the next line.
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    ldx #$2000
+    stx $2116
+    lda #$5678
+    sta $2118         ; must be dropped
+    sep #$20
+    .a8
+    lda #$8F
+    sta $2100         ; blank again so the read below is safe
+@wv2:
+    lda $4212
+    and #$80
+    beq @wv2          ; back in vblank, so the read below is safe
+    rep #$30
+    .a16
+    .i16
+    ldx #$2000
+    stx $2116
+    sep #$20
+    .a8
+    lda $2139         ; prefetch discard
+    rep #$30
+    .a16
+    .i16
+    ldx #$2000
+    stx $2116
+    sep #$20
+    .a8
+    lda $2139
+    cmp #$34
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the seed did not reach VRAM under forced blank, so nothing below means anything
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; a VRAM write made after forced blank was lifted mid-frame landed anyway — the window closes on that write, not at the next scanline
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C3.03b — CGRAM read bit 7 is bus
+; provenance: Documented (SNESdev Wiki, CGRAM; fullsnes)
+.proc test_c3_03b
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Entry 0 = $FFFF. Bit 15 does not exist, so this stores $7FFF and the low byte is $FF.
+    sep #$20
+    .a8
+    stz $2121         ; CGADD = 0
+    lda #$FF
+    sta $2122         ; low
+    sta $2122         ; high
+    stz $2121
+    lda $213B         ; low byte: $FF, and it drives PPU2's latch
+    lda $213B         ; high byte: 15 real bits plus the latch's bit 7
+    cmp #$FF
+    beq :+
+    jmp @fail1
+  :
+    ; Entry 0 = $7F00: the same fifteen stored bits in the high byte, a low byte of $00.
+    stz $2121
+    stz $2122         ; low = $00
+    lda #$7F
+    sta $2122         ; high = $7F
+    stz $2121
+    lda $213B         ; low byte: $00
+    lda $213B
+    cmp #$7F
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the second CGRAM read did not carry bit 7 from PPU2's open bus after a low byte of $FF
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the second CGRAM read returned bit 7 set after a low byte of $00 — bit 7 is open bus, not a sixteenth stored bit
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C3.09 — $213F is a field flag
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c3_09
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    ; Three readings, one frame apart each. Only bit 7 matters; the low bits are the PPU2
+    ; version nibble and the region bit, which have nothing to do with the field.
+    lda $213F
+    and #$80
+    sta f:$7E0100
+    jsl frame_step_far
+    sep #$20
+    .a8
+    lda $213F
+    and #$80
+    sta f:$7E0101
+    jsl frame_step_far
+    sep #$20
+    .a8
+    lda $213F
+    and #$80
+    sta f:$7E0102
+    ; One frame apart: the flag must have changed.
+    lda f:$7E0100
+    eor f:$7E0101
+    cmp #$80
+    beq :+
+    jmp @fail1
+  :
+    ; Two frames apart: it must be back where it started, which a per-read or per-line toggle
+    ; would not manage.
+    lda f:$7E0100
+    eor f:$7E0102
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; $213F bit 7 did not change across a rendered frame, so it is not toggling once per frame
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; $213F bit 7 did not return to its original value after two frames — it toggles more often than once per frame
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C3.01 — CGRAM two-write commit
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c3_01
+    .a16
+    .i16
+    ; $2122 is written twice per colour: low byte then high. Read back through $213B.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$10
+    sta $2121         ; CGADD = colour 16
+    lda #$34
+    sta $2122
+    lda #$12
+    sta $2122         ; colour 16 = $1234
+    lda #$10
+    sta $2121
+    lda $213B
+    cmp #$34
+    beq :+
+    jmp @fail1
+  :
+    lda $213B
+    and #$7F          ; bit 7 of the second read is PPU2 open bus
+    cmp #$12
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; CGRAM low byte did not read back
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; CGRAM high byte did not read back
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C3.02 — CGADD resets flipflop
+; provenance: Documented (SNESdev Wiki, PPU registers)
+.proc test_c3_02
+    .a16
+    .i16
+    ; Leave a byte pending, reload CGADD, then write a full colour: the pending byte must be
+    ; discarded rather than pairing with the next write.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$11
+    sta $2121
+    lda #$99
+    sta $2122         ; pending
+    lda #$11
+    sta $2121         ; reload -> flipflop reset
+    lda #$78
+    sta $2122
+    lda #$56
+    sta $2122
+    lda #$11
+    sta $2121
+    lda $213B
+    cmp #$78
+    beq :+
+    jmp @fail1
+  :
+    lda $213B
+    and #$7F
+    cmp #$56
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; CGADD write did not reset the flipflop
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; CGRAM high byte wrong after flipflop reset
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C3.03 — OPHCT is a 9-bit pair
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c3_03
+    .a16
+    .i16
+    ; $213F resets the read flipflops, $2137 latches, then two $213C reads give low byte and
+    ; (in bit 0 only) bit 8. Reconstructed, that must be a real position on the scanline.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda $213F         ; reset the OPHCT/OPVCT read flipflops
+    lda $2137         ; latch H and V
+    lda $213C         ; low 8 bits
+    xba
+    lda $213C
+    and #$01          ; bit 0 is counter bit 8; bits 1-7 are open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp #$0000
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0155
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; reconstructed H counter is outside a scanline
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C3.04 — H counter advances
+; provenance: Documented (SNESdev Wiki, PPU registers)
+.proc test_c3_04
+    .a16
+    .i16
+    ; Latch, burn a known amount of time, latch again. The elapsed dot count must be non-zero
+    ; and must not have wrapped past the end of the line.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    jsl hv_begin_far
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    jsl hv_end_far
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; elapsed dots
+    cmp #$0001
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0155
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the H counter did not advance plausibly across 16 NOPs
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C3.05 — $213F resets flipflop
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c3_05
+    .a16
+    .i16
+    ; Latch once, then read low / high / reset / low. Nothing re-latches in between, so the
+    ; two low reads sample the same frozen value and any difference is a flipflop bug.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    cld               ; the SBC below must not run in decimal mode
+    sep #$20
+    .a8
+    lda $213F         ; reset both read flipflops
+    lda $2137         ; latch H and V
+    lda $213C         ; H low
+    sta f:$7E0100
+    lda $213C         ; H high — the flipflop is now set
+    lda $213F         ; reset both flipflops again
+    lda $213C         ; must be H low once more
+    sec
+    sbc f:$7E0100
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; $213F did not reset the OPHCT flipflop (the third read was not the low byte)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C3.07 — Counter flipflops differ
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c3_07
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    ; Latch until the frozen V lands somewhere its low byte cannot be mistaken for its high.
+@retry:
+    lda $213F         ; reset both read flipflops
+    lda $2137         ; latch H and V together
+    lda $213D         ; V low
+    cmp #8
+    bcc @retry
+    cmp #200
+    bcs @retry
+    sta f:$7E0100     ; the frozen V low byte
+    ; Reset the flipflops and read H first. Nothing re-latches, so V is still the same number.
+    lda $213F
+    lda $213C         ; H low — this sets OPHCT's flipflop and must not touch OPVCT's
+    lda $213D         ; V low again, if the two are independent
+    sec
+    sbc f:$7E0100
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; reading $213C advanced $213D's flipflop — the two counters share one, so a read of V after a read of H returns its high byte
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C13.01 — PPU1 open bus in $213E
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c13_01
+    .a16
+    .i16
+    ; Drive PPU1 open bus to $10 via an OAM read, check $213E bit 4, then drive it to $00 and
+    ; check again. Only bit 4 is examined: bits 7-6 are the sprite flags and 5-0 the version.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    ; --- open bus := $10 ---
+    lda #$08
+    sta $2102
+    stz $2103
+    lda #$10
+    sta $2104
+    lda #$00
+    sta $2104
+    lda #$08
+    sta $2102
+    stz $2103
+    lda $2138         ; returns $10 and refreshes PPU1 open bus with it
+    lda $213E
+    and #$10
+    cmp #$10
+    beq :+
+    jmp @fail1
+  :
+    ; --- open bus := $00 ---
+    lda #$08
+    sta $2102
+    stz $2103
+    lda #$00
+    sta $2104
+    lda #$00
+    sta $2104
+    lda #$08
+    sta $2102
+    stz $2103
+    lda $2138         ; returns $00
+    lda $213E
+    and #$10
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; $213E bit 4 did not follow PPU1 open bus set to $10
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; $213E bit 4 did not follow PPU1 open bus cleared to $00
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C13.02 — PPU2 open bus in $213F
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c13_02
+    .a16
+    .i16
+    ; Same shape as C13.01 but on the other chip: CGRAM reads go through PPU2, so a $213B read
+    ; is what refreshes this latch.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    ; --- open bus := $20 ---
+    lda #$20
+    sta $2121
+    lda #$20
+    sta $2122
+    lda #$00
+    sta $2122
+    lda #$20
+    sta $2121
+    lda $213B         ; returns $20 and refreshes PPU2 open bus with it
+    lda $213F
+    and #$20
+    cmp #$20
+    beq :+
+    jmp @fail1
+  :
+    ; --- open bus := $00 ---
+    lda #$20
+    sta $2121
+    lda #$00
+    sta $2122
+    lda #$00
+    sta $2122
+    lda #$20
+    sta $2121
+    lda $213B         ; returns $00
+    lda $213F
+    and #$20
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; $213F bit 5 did not follow PPU2 open bus set to $20
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; $213F bit 5 did not follow PPU2 open bus cleared to $00
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C13.03 — PPU1/PPU2 bus separate
+; provenance: Corroborated (the bsnes/ares lineage and Mesen2 model two distinct latches)
+.proc test_c13_03
+    .a16
+    .i16
+    ; Drive the two latches to opposite values and read both back. Then swap and repeat, so a
+    ; shared latch cannot pass by accident in one polarity.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    ; --- seed OAM byte $10 / $00 and CGRAM low byte $20 / $00 ---
+    lda #$08
+    sta $2102
+    stz $2103
+    lda #$10
+    sta $2104
+    lda #$00
+    sta $2104         ; OAM word 8 = $0010
+    ; Word 9 must be seeded too, not assumed zero: it is read below to drive PPU1 open bus to
+    ; $00, and whatever the previous tests or the power-on fill left there would otherwise
+    ; decide the result. Mesen2 and snes9x disagree on that leftover, which is not a hardware
+    ; difference — it is this test failing to control its own inputs.
+    lda #$00
+    sta $2104
+    lda #$00
+    sta $2104         ; OAM word 9 = $0000
+    lda #$20
+    sta $2121
+    lda #$20
+    sta $2122
+    lda #$00
+    sta $2122         ; colour $20 = $0020
+    lda #$00
+    sta $2122
+    lda #$00
+    sta $2122         ; colour $21 = $0000, for the same reason as OAM word 9
+    ; --- PPU1 := $10, PPU2 := $00 ---
+    lda #$08
+    sta $2102
+    stz $2103
+    lda $2138         ; PPU1 open bus := $10
+    lda #$21
+    sta $2121
+    lda $213B         ; colour $21 low byte = $00; PPU2 open bus := $00
+    lda $213E
+    and #$10
+    cmp #$10
+    beq :+
+    jmp @fail1
+  :
+    lda $213F
+    and #$20
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    ; --- PPU1 := $00, PPU2 := $20 ---
+    lda #$09
+    sta $2102
+    stz $2103
+    lda $2138         ; OAM word 9 is zero; PPU1 open bus := $00
+    lda #$20
+    sta $2121
+    lda $213B         ; PPU2 open bus := $20
+    lda $213E
+    and #$10
+    cmp #$00
+    beq :+
+    jmp @fail3
+  :
+    lda $213F
+    and #$20
+    cmp #$20
+    beq :+
+    jmp @fail4
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; refreshing PPU2 open bus clobbered PPU1's latch
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; PPU2 open bus read back as PPU1's value
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; PPU1 open bus read back as PPU2's value
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+@fail4:
+    ; refreshing PPU1 open bus clobbered PPU2's latch
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C14.01 — PPU1 version (golden)
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c14_01
+    .a16
+    .i16
+    ; Report the low nibble of $213E as the variant code.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda $213E
+    and #$0F          ; PPU1 version
+    asl a
+    ora #$01          ; encode as (version << 1) | 1
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C14.02 — PPU2 version (golden)
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c14_02
+    .a16
+    .i16
+    ; Report the low nibble of $213F as the variant code.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda $213F
+    and #$0F          ; PPU2 version
+    asl a
+    ora #$01
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C14.03 — PPU1 mstr/slv (golden)
+; provenance: Contested (the bit reports a board wiring input, so no software-visible value is correct or incorrect; recorded rather than asserted)
+.proc test_c14_03
+    .a16
+    .i16
+    ; Isolate bit 5 of $213E and report it as a variant, asserting nothing about its value.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda $213E
+    and #$20          ; master/slave mode pin
+    beq :+
+    lda #$05          ; variant 2 = bit set
+    sta f:$7EE010
+    jml test_restore
+    :
+    lda #$03          ; variant 1 = bit clear
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C11.06 — MPY is 16x8 signed
+; provenance: Documented (SNESdev Wiki, Mode 7; fullsnes)
+.proc test_c11_06
+    .a16
+    .i16
+    ; Positive case: M7A = $0100 (256), M7B high byte = $02, so the product is 512 = $000200.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta $211B         ; M7A low
+    lda #$01
+    sta $211B         ; M7A high -> M7A = $0100
+    lda #$00
+    sta $211C         ; M7B low (ignored by the multiply)
+    lda #$02
+    sta $211C         ; M7B high -> multiplicand = +2
+    lda $2134
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    lda $2135
+    cmp #$02
+    beq :+
+    jmp @fail2
+  :
+    lda $2136
+    cmp #$00
+    beq :+
+    jmp @fail3
+  :
+    ; The low byte of M7B must not participate: rewriting it alone cannot change the product.
+    lda #$FF
+    sta $211C         ; M7B low = $FF
+    lda #$02
+    sta $211C         ; M7B high still $02
+    lda $2135
+    cmp #$02
+    beq :+
+    jmp @fail4
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; MPYL wrong for 256 * 2
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; MPYM wrong for 256 * 2
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; MPYH wrong for 256 * 2
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+@fail4:
+    ; the low byte of M7B leaked into the multiply
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C11.06b — MPY sign handling
+; provenance: Documented (SNESdev Wiki, Mode 7; fullsnes)
+.proc test_c11_06b
+    .a16
+    .i16
+    ; Negative multiplicand: M7A = $0002, M7B high = $FF (-1) -> -2 = $FFFFFE.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$02
+    sta $211B
+    lda #$00
+    sta $211B         ; M7A = $0002
+    lda #$00
+    sta $211C
+    lda #$FF
+    sta $211C         ; multiplicand = -1
+    lda $2134
+    cmp #$FE
+    beq :+
+    jmp @fail1
+  :
+    lda $2135
+    cmp #$FF
+    beq :+
+    jmp @fail2
+  :
+    lda $2136
+    cmp #$FF
+    beq :+
+    jmp @fail3
+  :
+    ; Negative multiplier: M7A = $FFFF (-1), M7B high = $02 -> -2 = $FFFFFE.
+    lda #$FF
+    sta $211B
+    lda #$FF
+    sta $211B         ; M7A = $FFFF
+    lda #$00
+    sta $211C
+    lda #$02
+    sta $211C
+    lda $2134
+    cmp #$FE
+    beq :+
+    jmp @fail4
+  :
+    lda $2136
+    cmp #$FF
+    beq :+
+    jmp @fail5
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; MPYL wrong for 2 * -1 (M7B high must be signed)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; MPYM wrong for 2 * -1
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; the product did not sign-extend to 24 bits
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+@fail4:
+    ; MPYL wrong for -1 * 2 (M7A must be signed)
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jml test_restore
+@fail5:
+    ; the product did not sign-extend for a negative M7A
+    sep #$20
+    .a8
+    lda #$0A
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C7.01 — Range Over at 32 sprites
+; provenance: Documented (SNESdev Wiki, Sprites; fullsnes)
+.proc test_c7_01
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; --- 2 sprites on the line: well under the limit, flag must stay clear ---
+    sep #$20
+    .a8
+    lda #$00
+    sta $2101         ; OBJSEL: size pair in bits 7-5, name base in bits 1-0
+    ; --- low table: `on_line` sprites on one scanline, the rest parked off-screen ---
+    stz $2102
+    stz $2103
+    rep #$10
+    .i16
+    ldx #$0000
+@fill_a:
+    lda #$00
+    sta $2104         ; X = 0
+    cpx #$0002
+    bcs @off_a
+    lda #100
+    bra @sety_a
+@off_a:
+    lda #$F0          ; below the visible area in 224-line mode
+@sety_a:
+    sta $2104         ; Y
+    lda #$00
+    sta $2104         ; tile
+    lda #$00
+    sta $2104         ; attr
+    inx
+    cpx #$0080
+    bne @fill_a
+    ; --- high table: 32 bytes, 2 bits per sprite (bit 0 = X bit 8, bit 1 = size select) ---
+    lda #$00
+    sta $2102
+    lda #$01
+    sta $2103         ; OAMADDR = word $100, the high table
+    ldx #$0000
+@hi_a:
+    lda #$00
+    sta $2104
+    inx
+    cpx #$0020
+    bne @hi_a
+    ; --- render one complete frame, then sample and restore forced blank ---
+    lda #$10
+    sta $212C         ; OBJ on the main screen
+    lda #$0F
+    sta $2100         ; brightness 15, forced blank released
+    jsl wait_vblank_far   ; land on a vblank boundary
+    jsl wait_vblank_far   ; span one complete active period
+    lda $213E
+    pha
+    lda #$8F
+    sta $2100         ; forced blank again, as the rest of the battery expects
+    stz $212C
+    pla
+    and #$40
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    ; --- 40 sprites on the line: over the 32-sprite limit ---
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$00
+    sta $2101         ; OBJSEL: size pair in bits 7-5, name base in bits 1-0
+    ; --- low table: `on_line` sprites on one scanline, the rest parked off-screen ---
+    stz $2102
+    stz $2103
+    rep #$10
+    .i16
+    ldx #$0000
+@fill_b:
+    lda #$00
+    sta $2104         ; X = 0
+    cpx #$0028
+    bcs @off_b
+    lda #100
+    bra @sety_b
+@off_b:
+    lda #$F0          ; below the visible area in 224-line mode
+@sety_b:
+    sta $2104         ; Y
+    lda #$00
+    sta $2104         ; tile
+    lda #$00
+    sta $2104         ; attr
+    inx
+    cpx #$0080
+    bne @fill_b
+    ; --- high table: 32 bytes, 2 bits per sprite (bit 0 = X bit 8, bit 1 = size select) ---
+    lda #$00
+    sta $2102
+    lda #$01
+    sta $2103         ; OAMADDR = word $100, the high table
+    ldx #$0000
+@hi_b:
+    lda #$00
+    sta $2104
+    inx
+    cpx #$0020
+    bne @hi_b
+    ; --- render one complete frame, then sample and restore forced blank ---
+    lda #$10
+    sta $212C         ; OBJ on the main screen
+    lda #$0F
+    sta $2100         ; brightness 15, forced blank released
+    jsl wait_vblank_far   ; land on a vblank boundary
+    jsl wait_vblank_far   ; span one complete active period
+    lda $213E
+    pha
+    lda #$8F
+    sta $2100         ; forced blank again, as the rest of the battery expects
+    stz $212C
+    pla
+    and #$40
+    cmp #$40
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; Range Over set with only 2 sprites on the scanline
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; Range Over did not set with 40 sprites on one scanline
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C7.02 — Time Over is slivers
+; provenance: Documented (SNESdev Wiki, Sprites; fullsnes; anomie)
+.proc test_c7_02
+    .a16
+    .i16
+    ; OBJSEL size select lives in bits 7-5, not the low bits: mode 2 ($40) pairs 8x8 with
+    ; 64x64, and the high table marks sprites 0-4 as the large member of that pair. Writing
+    ; the mode number into the low bits instead sets the tile-name base and silently leaves
+    ; the size pair at 8x8/16x16 — 10 slivers, comfortably inside the budget, no flag.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$40
+    sta $2101         ; OBJSEL: size pair in bits 7-5, name base in bits 1-0
+    ; --- low table: `on_line` sprites on one scanline, the rest parked off-screen ---
+    stz $2102
+    stz $2103
+    rep #$10
+    .i16
+    ldx #$0000
+@fill_a:
+    lda #$00
+    sta $2104         ; X = 0
+    cpx #$0005
+    bcs @off_a
+    lda #100
+    bra @sety_a
+@off_a:
+    lda #$F0          ; below the visible area in 224-line mode
+@sety_a:
+    sta $2104         ; Y
+    lda #$00
+    sta $2104         ; tile
+    lda #$00
+    sta $2104         ; attr
+    inx
+    cpx #$0080
+    bne @fill_a
+    ; --- high table: 32 bytes, 2 bits per sprite (bit 0 = X bit 8, bit 1 = size select) ---
+    lda #$00
+    sta $2102
+    lda #$01
+    sta $2103         ; OAMADDR = word $100, the high table
+    ldx #$0000
+@hi_a:
+    lda #$00
+    sta $2104
+    inx
+    cpx #$0020
+    bne @hi_a
+    ; Mark the leading sprites as the large size of the pair.
+    lda #$00
+    sta $2102
+    lda #$01
+    sta $2103
+    lda #$AA
+    sta $2104
+    lda #$02
+    sta $2104
+    ; --- render one complete frame, then sample and restore forced blank ---
+    lda #$10
+    sta $212C         ; OBJ on the main screen
+    lda #$0F
+    sta $2100         ; brightness 15, forced blank released
+    jsl wait_vblank_far   ; land on a vblank boundary
+    jsl wait_vblank_far   ; span one complete active period
+    lda $213E
+    pha
+    lda #$8F
+    sta $2100         ; forced blank again, as the rest of the battery expects
+    stz $212C
+    pla
+    pha
+    and #$80
+    cmp #$80
+    beq :+
+    jmp @fail1
+  :
+    pla
+    and #$40
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; Time Over did not set for 40 slivers from 5 sprites
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; Range Over set for only 5 sprites (it is a sprite count, not a sliver count)
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C7.08 — Flags ignore $212C
+; provenance: Documented (SNESdev Wiki, Sprites; fullsnes)
+.proc test_c7_08
+    .a16
+    .i16
+    ; Same 40-sprite overflow as C7.01, but with OBJ left off the main screen entirely.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta $2101         ; OBJSEL: size pair in bits 7-5, name base in bits 1-0
+    ; --- low table: `on_line` sprites on one scanline, the rest parked off-screen ---
+    stz $2102
+    stz $2103
+    rep #$10
+    .i16
+    ldx #$0000
+@fill_a:
+    lda #$00
+    sta $2104         ; X = 0
+    cpx #$0028
+    bcs @off_a
+    lda #100
+    bra @sety_a
+@off_a:
+    lda #$F0          ; below the visible area in 224-line mode
+@sety_a:
+    sta $2104         ; Y
+    lda #$00
+    sta $2104         ; tile
+    lda #$00
+    sta $2104         ; attr
+    inx
+    cpx #$0080
+    bne @fill_a
+    ; --- high table: 32 bytes, 2 bits per sprite (bit 0 = X bit 8, bit 1 = size select) ---
+    lda #$00
+    sta $2102
+    lda #$01
+    sta $2103         ; OAMADDR = word $100, the high table
+    ldx #$0000
+@hi_a:
+    lda #$00
+    sta $2104
+    inx
+    cpx #$0020
+    bne @hi_a
+    ; --- render one complete frame, then sample and restore forced blank ---
+    stz $212C         ; deliberately leave OBJ OFF the main screen
+    lda #$0F
+    sta $2100         ; brightness 15, forced blank released
+    jsl wait_vblank_far   ; land on a vblank boundary
+    jsl wait_vblank_far   ; span one complete active period
+    lda $213E
+    pha
+    lda #$8F
+    sta $2100         ; forced blank again, as the rest of the battery expects
+    stz $212C
+    pla
+    and #$40
+    cmp #$40
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; Range Over did not set while OBJ was off the main screen ($212C gates compositing, not evaluation)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C2.11 — VRAM locked in render
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
+.proc test_c2_11
+    .a16
+    .i16
+    ; Clear three words under forced blank, then try to write two of them from active display.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115         ; VMAIN step 1, increment after the high byte
+    rep #$30
+    .a16
+    .i16
+    ldx #$1600
+    stx $2116
+    lda #$0000
+    sta $2118
+    sta $2118
+    sta $2118         ; words $1600-$1602 cleared
+    ldx #$1600
+    stx $2116         ; aim at $1600 before the window closes
+    sep #$20
+    .a8
+    lda #$0F
+    sta $2100         ; forced blank off — the access window now depends on position
+    jsl wait_vblank_far
+    jsl wait_vblank_far   ; a full settled frame
+@wa_c211:
+    lda $4212
+    and #$80
+    bne @wa_c211   ; wait for vblank to end
+    rep #$10
+    .i16
+    ldx #$0400
+@burn_c211:
+    dex
+    bne @burn_c211 ; ~20 scanlines in, well clear of the pre-render line
+    rep #$20
+    .a16
+    lda #$AAAA
+    sta $2118         ; must be dropped
+    sta $2118         ; must be dropped
+    sep #$20
+    .a8
+    lda #$8F
+    sta $2100         ; forced blank restored
+    ; --- read back: both words must still be zero ---
+    rep #$30
+    .a16
+    .i16
+    ldx #$1600
+    stx $2116
+    lda $2139
+    cmp #$0000
+    beq :+
+    jmp @fail1
+  :
+    ldx #$1601
+    stx $2116
+    lda $2139
+    cmp #$0000
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; a VRAM write during active display was not dropped
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the second VRAM write during active display was not dropped
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C2.10 — Dropped write still incs
+; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes; anomie)
+.proc test_c2_10
+    .a16
+    .i16
+    ; Same shape as C2.11, but the payload is the write that follows: if the two dropped writes
+    ; advanced the address, the legal third write lands at $1602 rather than back at $1600.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115
+    rep #$30
+    .a16
+    .i16
+    ldx #$1610
+    stx $2116
+    lda #$0000
+    sta $2118
+    sta $2118
+    sta $2118         ; words $1610-$1612 cleared
+    ldx #$1610
+    stx $2116
+    sep #$20
+    .a8
+    lda #$0F
+    sta $2100         ; forced blank off — the access window now depends on position
+    jsl wait_vblank_far
+    jsl wait_vblank_far   ; a full settled frame
+@wa_c210:
+    lda $4212
+    and #$80
+    bne @wa_c210   ; wait for vblank to end
+    rep #$10
+    .i16
+    ldx #$0400
+@burn_c210:
+    dex
+    bne @burn_c210 ; ~20 scanlines in, well clear of the pre-render line
+    rep #$20
+    .a16
+    lda #$AAAA
+    sta $2118         ; dropped, but the address must advance to $1611
+    sta $2118         ; dropped, but the address must advance to $1612
+    sep #$20
+    .a8
+    lda #$8F
+    sta $2100         ; forced blank: the window is open again
+    rep #$20
+    .a16
+    lda #$BBBB
+    sta $2118         ; this one must land, and at $1612
+    ; --- read back ---
+    rep #$30
+    .a16
+    .i16
+    ldx #$1612
+    stx $2116
+    lda $2139
+    cmp #$BBBB
+    beq :+
+    jmp @fail1
+  :
+    ldx #$1610
+    stx $2116
+    lda $2139
+    cmp #$0000
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the address did not advance across the dropped writes
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the legal write landed at $1610 instead of $1612
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C1.06 — OAM addr reloads
+; provenance: Documented (SNESdev Wiki, OAM; anomie)
+.proc test_c1_06
+    .a16
+    .i16
+    ; Seed three words, set the base to word 0, then walk the internal address forward to word
+    ; 2. After a rendered frame the next read must come from word 0 again.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    stz $2102
+    stz $2103
+    lda #$11
+    sta $2104
+    lda #$22
+    sta $2104         ; word 0
+    lda #$33
+    sta $2104
+    lda #$44
+    sta $2104         ; word 1
+    lda #$55
+    sta $2104
+    lda #$66
+    sta $2104         ; word 2
+    ; --- base = word 0, then advance the internal counter to word 2 by reading ---
+    stz $2102
+    stz $2103
+    lda $2138
+    lda $2138
+    lda $2138
+    lda $2138         ; internal address now word 2
+    ; --- render one complete frame; the reload happens as vblank begins ---
+    lda #$0F
+    sta $2100
+    jsl wait_vblank_far
+    jsl wait_vblank_far
+    lda $2138         ; read while forced blank is still off
+    sta f:$7E0102
+    lda #$8F
+    sta $2100
+    lda f:$7E0102
+    cmp #$11
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the OAM address did not reload from its base across a frame
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; C9.04 — Overscan moves vblank
+; provenance: Documented (SNESdev Wiki, Timing; fullsnes)
+.proc test_c9_04
+    .a16
+    .i16
+    ; Sample the V counter at the instant vblank begins, with overscan off and then on. Both
+    ; samples take two wait_vblank calls so the setting has been stable for a whole frame —
+    ; toggling $2133 mid-frame is its own documented hazard and is not what this measures.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    stz $2133         ; overscan off: 224 visible lines
+    jsl wait_vblank_far
+    jsl wait_vblank_far
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp #$00E1
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$00E9
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$04
+    sta $2133         ; overscan on: 239 visible lines
+    jsl wait_vblank_far
+    jsl wait_vblank_far
+    lda $213F
+    lda $2137
+    lda $213D
+    xba
+    lda $213D
+    and #$01
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp #$00F0
+    bcs :+
+    jmp @fail2
+  :
+    cmp #$00F8
+    bcc :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    stz $2133         ; restore
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; vblank did not begin near line 225 without overscan
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; overscan did not move the start of vblank to line 240
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 .segment "TESTSG"
 
 ; G1.02 — Reset: $4210/$4211 clear
@@ -21357,7 +21475,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 258
+    .word 259
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -21479,6 +21597,7 @@ _test_entries:
     .faraddr test_b1_02
     .faraddr test_b2_04
     .faraddr test_b4_03
+    .faraddr test_b4_16
     .faraddr test_b4_04
     .faraddr test_b4_05
     .faraddr test_b4_08
@@ -21740,6 +21859,7 @@ _test_flags:
     .byte $01   ; B1.02
     .byte $01   ; B2.04
     .byte $01   ; B4.03
+    .byte $02   ; B4.16
     .byte $01   ; B4.04
     .byte $01   ; B4.05
     .byte $01   ; B4.08
@@ -22001,6 +22121,7 @@ _test_names:
     .addr @n_b1_02
     .addr @n_b2_04
     .addr @n_b4_03
+    .addr @n_b4_16
     .addr @n_b4_04
     .addr @n_b4_05
     .addr @n_b4_08
@@ -22495,6 +22616,9 @@ _test_names:
 @n_b4_03:
     .byte 20
     .byte "RDNMI sets at vblank"
+@n_b4_16:
+    .byte 23
+    .byte "H-IRQ position (golden)"
 @n_b4_04:
     .byte 22
     .byte "RDNMI is read-to-clear"
