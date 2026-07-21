@@ -5221,6 +5221,80 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; B4.17 — NMI enable is a level
+; provenance: Documented (SNESdev Wiki NMITIMEN/RDNMI [ERRATA]; fullsnes $4200/$4210)
+.proc test_b4_17
+    .a16
+    .i16
+    bra @body
+@handler:
+    rep #$30
+    .a16
+    .i16
+    pha
+    sep #$20
+    .a8
+    .a8
+    lda #$01
+    sta f:$7E01C0     ; the handler ran
+    lda f:$004210     ; acknowledge; long, so DBR cannot matter
+    rep #$30
+    .a16
+    .i16
+    .a16
+    .i16
+    pla
+    rti
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    stz $4200         ; NMI off while this is set up
+    lda $4210         ; clear any latch left by an earlier test
+    rep #$20
+    .a16
+    lda #@handler
+    sta a:V_NMI_VEC
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E01C0
+    ; Enter vblank and leave the RDNMI latch ALONE -- reading $4210 here would clear the very
+    ; condition under test.
+    jsr wait_vblank
+    ; The vblank edge is now behind us. A core that fires only on that edge has missed it.
+    lda #$80
+    sta $4200         ; enable NMI with the latch already up
+    ; A few instructions for the interrupt to be taken; it should already have happened.
+    nop
+    nop
+    nop
+    nop
+    stz $4200         ; disarm before asserting; a failure exits immediately
+    lda $4210         ; leave the latch clean for whatever runs next
+    lda f:$7E01C0
+    cmp #$01
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; enabling NMI with RDNMI already latched did not fire an NMI — the core is treating the enable as an edge rather than a level
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; B4.04 — RDNMI is read-to-clear
 ; provenance: Documented (SNESdev Wiki, Timing; fullsnes)
 .proc test_b4_04
@@ -21712,7 +21786,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 262
+    .word 263
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -21838,6 +21912,7 @@ _test_entries:
     .faraddr test_b2_04
     .faraddr test_b4_03
     .faraddr test_b4_16
+    .faraddr test_b4_17
     .faraddr test_b4_04
     .faraddr test_b4_05
     .faraddr test_b4_08
@@ -22103,6 +22178,7 @@ _test_flags:
     .byte $01   ; B2.04
     .byte $01   ; B4.03
     .byte $02   ; B4.16
+    .byte $01   ; B4.17
     .byte $01   ; B4.04
     .byte $01   ; B4.05
     .byte $01   ; B4.08
@@ -22368,6 +22444,7 @@ _test_names:
     .addr @n_b2_04
     .addr @n_b4_03
     .addr @n_b4_16
+    .addr @n_b4_17
     .addr @n_b4_04
     .addr @n_b4_05
     .addr @n_b4_08
@@ -22874,6 +22951,9 @@ _test_names:
 @n_b4_16:
     .byte 23
     .byte "H-IRQ position (golden)"
+@n_b4_17:
+    .byte 21
+    .byte "NMI enable is a level"
 @n_b4_04:
     .byte 22
     .byte "RDNMI is read-to-clear"

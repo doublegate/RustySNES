@@ -31,6 +31,7 @@ pub fn all() -> Vec<Test> {
         // --- B4: NMI flag mechanics and the IRQ timers ---
         b4_03(),
         b4_16(),
+        b4_17(),
         b4_04(),
         b4_05(),
         b4_08(),
@@ -1132,6 +1133,86 @@ fn arm_h_irq(a: &mut Asm, htime: u16) {
     a.l("lda $4211         ; clear any stale latch");
     a.l("lda #$10");
     a.l("sta $4200         ; H-IRQ enabled, NMI off, auto-joypad off");
+}
+
+/// Enabling `$4200.7` while `RDNMI` is already set fires an NMI immediately.
+///
+/// The NMI enable is a **level**, not an edge: `$4210` bit 7 latches at the start of vblank and
+/// stays latched until read, so setting `NMITIMEN` bit 7 while that latch is already up delivers
+/// the interrupt at once rather than waiting for the next vblank. Marked `[ERRATA]` in the dossier,
+/// and it is the kind of thing a core gets wrong by modelling NMI as "fire once when vblank
+/// begins" — which is right for every ordinary program and wrong here.
+///
+/// # The shape that makes it falsifiable
+///
+/// The test enters vblank, **deliberately does not read `$4210`** (that would clear the latch), and
+/// only then installs a handler and enables NMI. The vblank edge is already past, so:
+///
+/// * a core honouring the level fires immediately and the handler sets its flag;
+/// * a core firing only on the edge has already missed it, and the flag stays clear until the next
+///   frame — which this test never waits for.
+///
+/// So "did the handler run" separates the two without needing to time anything. `$4210` is read
+/// only *after* the observation, to leave the latch clean for whatever runs next.
+///
+/// The handler preserves `A`: `RTI` restores `P`, `PC` and `PBR` but not the registers, and this
+/// one runs at an arbitrary point in the enabling code.
+fn b4_17() -> Test {
+    let mut a = Asm::new();
+    a.l("bra @body");
+    a.label("handler");
+    a.l("rep #$30");
+    a.l("pha");
+    a.l("sep #$20");
+    a.l(".a8");
+    a.l("lda #$01");
+    a.l("sta f:$7E01C0     ; the handler ran");
+    a.l("lda f:$004210     ; acknowledge; long, so DBR cannot matter");
+    a.l("rep #$30");
+    a.l(".a16");
+    a.l(".i16");
+    a.l("pla");
+    a.l("rti");
+    a.label("body");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("stz $4200         ; NMI off while this is set up");
+    a.l("lda $4210         ; clear any latch left by an earlier test");
+    a.l("rep #$20");
+    a.l("lda #@handler");
+    a.l("sta a:V_NMI_VEC");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta f:$7E01C0");
+    a.c("Enter vblank and leave the RDNMI latch ALONE -- reading $4210 here would clear the very");
+    a.c("condition under test.");
+    a.l("jsr wait_vblank");
+    a.c("The vblank edge is now behind us. A core that fires only on that edge has missed it.");
+    a.l("lda #$80");
+    a.l("sta $4200         ; enable NMI with the latch already up");
+    a.c("A few instructions for the interrupt to be taken; it should already have happened.");
+    a.l("nop");
+    a.l("nop");
+    a.l("nop");
+    a.l("nop");
+    a.l("stz $4200         ; disarm before asserting; a failure exits immediately");
+    a.l("lda $4210         ; leave the latch clean for whatever runs next");
+    a.l("lda f:$7E01C0");
+    a.assert_a8(
+        0x01,
+        "enabling NMI with RDNMI already latched did not fire an NMI — the core is treating the \
+         enable as an edge rather than a level",
+    );
+    a.finish(
+        "B4.17",
+        'B',
+        "NMI enable is a level",
+        Provenance::Documented("SNESdev Wiki NMITIMEN/RDNMI [ERRATA]; fullsnes $4200/$4210"),
+        Kind::Scored,
+        None,
+    )
 }
 
 /// Where an H-IRQ actually fires, measured either side of the long dots — a golden vector.

@@ -809,7 +809,19 @@ impl Bus {
                 self.ports[1].latch(strobe);
             }
             0x4201 => self.set_pio(val),
-            0x4200 => self.clock.nmitimen = val,
+            0x4200 => {
+                let was_enabled = self.clock.nmitimen & 0x80 != 0;
+                self.clock.nmitimen = val;
+                // The NMI enable is a LEVEL, not an edge. RDNMI's flag latches at the start of
+                // VBlank and stays latched until read, so enabling NMI while it is already up
+                // delivers the interrupt immediately rather than waiting for the next VBlank.
+                // Modelling only the VBlank edge meant a program that latched VBlank, then enabled
+                // NMI, silently lost that frame's interrupt. AccuracySNES `B4.06` [ERRATA], which
+                // snes9x and Mesen2 both passed while this failed.
+                if !was_enabled && val & 0x80 != 0 && self.clock.rdnmi_flag {
+                    self.clock.nmi_line = true;
+                }
+            }
             0x4202 => self.muldiv.mpya = val,
             0x4203 => self.muldiv.rdmpy = u16::from(self.muldiv.mpya) * u16::from(val),
             0x4204 => self.muldiv.dividend = (self.muldiv.dividend & 0xFF00) | u16::from(val),
