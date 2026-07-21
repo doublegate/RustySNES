@@ -394,6 +394,54 @@ So nothing is asserted and nothing is recorded. What is known:
 The next attempt should start from a scratch build that dumps `$213F` before and after each step
 into slots verified unused, rather than from a folded variant that hides where the discrepancy is.
 
+### `A5.20` — MVN's per-byte cost does not measure, and the number is interesting
+
+`MVN` should cost **7 cycles per byte moved**. It is the one timing row where being wrong is
+unbounded rather than fixed: a block move is a loop inside a single opcode, so a per-byte error of
+one cycle is one cycle out *per byte*, and a 64 KiB clear diverges by most of a frame.
+
+The natural measurement is a difference between two moves — sixteen bytes against eight — so that
+everything not per-byte (opcode fetch, operands, register setup, the measurement's own overhead)
+cancels.
+
+Three units are in play and it is worth pinning each. The documented figure is **7 CPU cycles per
+byte moved**, which decomposes into **2 memory cycles** (the source read and the destination write)
+and **5 internal cycles**. Converting to master clocks: a memory access in an 8-clock region such as
+WRAM costs 8, an internal cycle always costs 6, so one byte is `2*8 + 5*6` = **46 master clocks**.
+The H counter reads **dots**, at 4 master clocks each, so a byte is 11.5 dots and the eight extra
+bytes should cost `8 * 46 / 4` = **92 dots**.
+
+**Measured: 13 dots**, on RustySNES and snes9x alike — 1.6 dots per byte, or **6.5 master clocks per
+byte** against the 46 the model predicts. Six master clocks is one internal cycle, so the measured
+figure is close to *one CPU cycle per byte* where the documentation says seven.
+
+Two readings, and the work is to tell them apart:
+
+* both cores genuinely under-charge `MVN`, which would be a significant shared timing defect and
+  exactly what this row exists to catch; or
+* the H-counter harness cannot measure a **single long instruction**. Every other `A5` test measures
+  eight short instructions between `measure_begin` and `measure_end`; this is the first to put one
+  multi-hundred-clock instruction inside that window, and the latch mechanics it depends on are the
+  same `$2137`/`$213F` machinery that `C3.05` above could not pin down either.
+
+**The second is investigated first, and the reason is asymmetry rather than intuition.** The
+harness is *one* instrument, this cart's own code, shared by both measurements — so an instrument
+error is common-mode by construction and needs only one mistake. The two cores are separate
+implementations, so a shared timing defect needs the same mistake made twice. That makes the
+instrument the cheaper explanation, but it does not make it the true one: the two cores are not
+fully independent either, since both were written against the same published cycle tables, and a
+shared source can produce a shared error just as a shared instrument can.
+
+So the order is a triage order, not a verdict. The way in is a calibration test: measure a
+known-length spin — a `repeat` of instructions whose total is comparable to the sixteen-byte move —
+and check the harness returns the predicted dot count *at that scale*. If it does, the `MVN` figure
+is real and worth a defect report against both cores; if it does not, the harness needs a
+longer-window mode before any single-instruction timing can be asserted, and this row stays parked
+either way until one of the two is ruled out.
+
+Nothing is shipped either way. A test that cannot distinguish "the core is wrong" from "the
+instrument is wrong" asserts nothing.
+
 ### Group F — blocked on a *peripheral contract*, and now measured
 
 `F1` (22 assertions) was written down as "needs a mechanism that doesn't exist". The mechanism is
