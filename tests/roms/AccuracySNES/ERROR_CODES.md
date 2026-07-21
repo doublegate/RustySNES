@@ -430,6 +430,26 @@ Provenance: **Contested** (WDC note (17) asserts RWB is low during the modify cy
 
 No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
+### A1.07 — TCS/TXS set no flags
+
+Provenance: **Documented** (WDC 65C816 datasheet; 6502.org 65c816opcodes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | TCS changed N or Z, so it set flags from the value transferred — the stack pointer is not data and moving a value into it describes nothing |
+| 2 | `$04` | TXS changed N or Z, so it set flags from the value transferred |
+| 3 | `$06` | TXA did not set N and clear Z from $8000, so this core sets no transfer flags at all and the two assertions above say nothing |
+
+### A9.04 — ORA [d] is 24-bit
+
+Provenance: **Documented** (WDC 65C816 datasheet; the Super Mario World case, SNESdev Wiki). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | ORA [d] through a pointer at $00:8005 did not read bank $00's signature byte |
+| 2 | `$04` | ORA [d] did not read bank $01's signature through a pointer whose third byte is $01, so the effective address was not built from that byte |
+| 3 | `$06` | ORA [d] replaced the accumulator instead of OR-ing into it, so the two readings above were loads and say nothing about ORA |
+
 ## Group C
 
 ### C1.01 — OAM word write/read
