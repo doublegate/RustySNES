@@ -553,11 +553,56 @@ Consequences worth carrying forward:
 
   So the documentary step does not adjudicate the divergence; it establishes that **the row is
   under-determined by the sources**, which under the provenance rules makes it a golden vector
-  rather than a scored assertion. The weak evidence that exists points at RustySNES being right — it
-  matches a decomposition and snes9x matches none — but "matches an integral model" is not a
-  citation, and this cart does not score on it. Recording the two slopes as a golden vector, with
-  this table beside them, is the honest form of the row until a source decomposes the seven cycles
-  or a hardware measurement settles it.
+  rather than a scored assertion.
+
+  **Implementing that golden vector disproved the paragraph above, and most of this section with
+  it.** The test was written — wide instrument, 8- and 32-byte moves, differenced, classified into
+  a decomposition bucket — and then measured at three code alignments. The measured slope moves
+  when code *before* the measurement changes:
+
+  | alignment | RustySNES | snes9x | Mesen2 |
+  |---|---:|---:|---:|
+  | A — source region left uninitialised | 312 | 332 | 312 |
+  | B — source filled first | 312 | 322 | 322 |
+  | C — B plus three `NOP`s before the span | 312 | 322 | 322 |
+
+  Three things follow, and they retire the rest of this entry:
+
+  * **The 20-dot gap was not stable.** Alignment A is the reading every conclusion above was built
+    on, and it does not reproduce. snes9x moved 10 dots and Mesen2 moved 10 the other way, purely
+    from filling a WRAM region and adding three `NOP`s. The claim that "twenty dots is an order of
+    magnitude more than the instrument can account for, so this is not an artifact" is **wrong**;
+    the instrument accounts for it easily.
+  * **The stable reading is 2-vs-1 the other way.** At both reproducible alignments the two
+    independent references agree at **322** and RustySNES sits alone at **312**. By this
+    repository's own diagnostic rule that is the signature of a RustySNES defect, not a reference
+    one — the opposite of what alignment A suggested.
+  * **The dot domain cannot answer the question.** RustySNES advances the H counter uniformly at
+    4 clocks a dot (`crates/rustysnes-core/src/bus.rs`: *"long-dot remainder folded into the
+    1364/1360/1368 line"*), so its dot count is exactly clocks/4 and is alignment-independent by
+    construction. The references model the per-dot irregularity, so their dot counts are not a
+    fixed multiple of clocks and wobble with where a span starts. A cartridge can only read dots,
+    so **this instrument cannot measure a clock-domain quantity in a core that models long dots** —
+    and the buckets, which assume 4 clocks a dot, are meaningless for exactly the cores being
+    compared. Classified naively, both references' 322 lands in the "6 memory + 1 internal" bucket,
+    which is an artifact of the conversion and not a claim anyone should publish.
+
+  `A5.20` is therefore **withdrawn, not shipped** — the same outcome as `C3.05` and for the same
+  reason: a test that cannot distinguish "the core is wrong" from "the instrument is wrong" asserts
+  nothing. What it leaves behind is worth more than the row would have been:
+
+  * **A candidate RustySNES defect with a mechanism**: dot lengths are uniform where hardware and
+    both references make dots 323/327 irregular. That is a PPU/bus timing gap, not a `MVN` gap, and
+    it would explain the whole two-week saga — the block-move instruction may never have been the
+    subject. Worth a ticket in its own right.
+  * **ares decomposes the seven cycles** where the documentation does not.
+    `instructionBlockMove8`/`16` are two operand `fetch`es, one `read`, one `write`, two `idle`s
+    and the opcode re-fetched each iteration (`PC.w -= 3`) — **5 bus accesses + 2 internal**,
+    i.e. 52 clocks, which is what RustySNES implements. So the sources' silence is fillable from
+    implementations, and a future clock-domain test would have something to assert against.
+  * **A method note**: any future timing row must be measured at two or more code alignments before
+    it is believed. One alignment produced a confident, reproducible, and entirely wrong answer
+    three times running here.
 
 * The earlier `MVN` "finding" is retired regardless: 13 dots was the difference of two wrapped
   readings.
