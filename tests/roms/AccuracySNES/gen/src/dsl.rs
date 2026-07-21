@@ -44,7 +44,7 @@ pub const TEST_RESULT: &str = "$7EE010";
 pub const MEAS_BASE: u32 = 0x7E_E200;
 
 /// Number of `u16` slots in the measurement channel.
-pub const MEAS_SLOTS: u8 = 192;
+pub const MEAS_SLOTS: u8 = 240;
 
 /// Verdict byte meaning "the test passed with no variant".
 pub const PASS: u8 = 0x01;

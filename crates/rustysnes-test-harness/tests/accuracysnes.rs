@@ -407,7 +407,7 @@ fn header_is_detected() {
 const MEAS_BASE: u32 = 0x7E_E200;
 
 /// Number of `u16` slots in the cart's measurement channel.
-const MEAS_SLOTS: u8 = 192;
+const MEAS_SLOTS: u8 = 240;
 
 /// The measurement slots `A5.08` records, so a timing question can be answered from a full-width
 /// number rather than from a verdict byte that silently wraps.
@@ -1123,4 +1123,17 @@ fn xcn_cycle_cost_is_reported() {
     println!("\n  E1.14 timer 0 ticks over 256 one-byte instructions:");
     println!("    slot 7    {:#04x}  NOP  (expect 4)", report.meas[7]);
     println!("    slot 125  {:#04x}  XCN  (expect 10)", report.meas[125]);
+}
+
+/// Report `E10.01`'s release-ramp timing: the arming envelope and the tick count.
+#[test]
+fn dsp_sample_period_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E10.01 a full release ramp, timed off timer 0 at T0DIV = 6:");
+    println!(
+        "    slot 192  {:#04x}  ENVX before key-off (expect $7F)",
+        report.meas[192]
+    );
+    println!("    slot 193  {:#04x}  ticks (expect 10)", report.meas[193]);
 }

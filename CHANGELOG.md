@@ -575,6 +575,22 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E10.01` — is the DSP's output sample exactly 32 SPC cycles?** Release steps the envelope down
+  by a fixed 8 per output sample, so a voice keyed off from `GAIN` `$7F` (envelope `$7F0` = 2032)
+  takes a known 254 *samples* to go silent — and timing that with timer 0 converts it to *cycles*.
+  At `T0DIV = 6` (768 cycles per tick) 8128 cycles read as 10 ticks, which is where the answer was
+  put deliberately: `TnOUT` is four bits, and the competing periods land far away either side — 64
+  cycles per sample gives 21 ticks wrapping to 5, and 16 gives 5 outright. Two guards, because two
+  different things can be silently absent: `ENVX` is asserted at full scale before the key-off (a
+  voice that never keyed on exits the poll immediately) and the tick count is asserted non-zero (a
+  timer that never ran reads zero however long the ramp took). Verified by doubling the DSP's base
+  clocks per tick, which fails the test.
+
+- **The measurement channel widened from 192 to 240 slots.** `E10.01` was the first test to find it
+  full — the collision gate reported no free slots rather than a clash, which is the same gate
+  answering a different question. `$7EE200` has room to `$7EF000`, so this is a constant change in
+  four places (`runtime.inc`, the generator, the harness, the libretro cross-validator).
+
 - **`E1.14` — does `XCN` cost five cycles?** Two 256-instruction blocks, one of `NOP` and one of
   `XCN`, both one byte, timed off timer 0 at `T0DIV = 1` (one tick per 128 SPC cycles). Everything
   but the per-instruction cost cancels between them: `NOP` reads 4 ticks (512 cycles), `XCN` reads

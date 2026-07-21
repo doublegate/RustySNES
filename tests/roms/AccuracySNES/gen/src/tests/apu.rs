@@ -58,6 +58,7 @@ pub fn all() -> Vec<Test> {
         dsp_addressing(),
         e2_01(),
         e2_05(),
+        e10_01(),
         e1_14(),
         e2_04(),
         e3_14(),
@@ -587,6 +588,129 @@ fn e3_02() -> Test {
         Provenance::Documented(
             "SNESdev Wiki SPC700 timers and fullsnes: a 0->1 on a $F1 timer-enable bit resets that \
              timer's stage-2 divider and stage-3 output counter",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The DSP emits one output sample every 32 SPC cycles.
+///
+/// The SPC700 runs at 1.024 MHz and the DSP at 32 kHz, so the two are locked at exactly 32 CPU
+/// cycles per output sample. Everything the DSP does per-sample — the envelope step, the `KOFF`
+/// poll, the BRR decode — is paced by that ratio, which is why a driver counting SPC cycles can
+/// predict how many samples have gone by and why the ratio is worth pinning independently of any
+/// one of those behaviours.
+///
+/// # Turning samples into cycles with the release ramp
+///
+/// Release steps the envelope down by a fixed 8 every output sample (`E7.09`), and stops at zero.
+/// A voice keyed off from a full-scale envelope therefore takes a known number of *samples* to go
+/// silent, and timing that with timer 0 converts it to *cycles*:
+///
+/// | quantity | value |
+/// |---|---:|
+/// | envelope at `GAIN` `$7F` | `$7F0` = 2032 |
+/// | samples to reach zero at −8 | 254 |
+/// | cycles, at 32 per sample | 8128 |
+/// | timer 0 ticks at `T0DIV = 6` (768 cycles each) | 10 |
+///
+/// `T0DIV = 6` is chosen to land the answer in the middle of `TnOUT`'s **four bits**. The competing
+/// hypotheses are far outside the reading either way: 64 cycles per sample gives 21 ticks, which
+/// wraps to 5, and 16 gives 5 — and neither is mistakable for 10.
+///
+/// # Two guards, because two different things can be silently absent
+///
+/// `ENVX` is read **before** the key-off and asserted to be at full scale. A voice that never keyed
+/// on has a zero envelope, so the poll below would exit on its first pass and report a tick count
+/// that means nothing. And the tick count itself is asserted to be non-zero, which catches the
+/// opposite failure — a timer that never ran reads zero however long the ramp took.
+///
+/// The poll loop costs about fifteen cycles a pass, so it can overshoot the moment the envelope
+/// reaches zero by that much. Against 8128 that is a fifth of one tick, which is why the assertion
+/// can be a two-tick window rather than a proportional one.
+fn e10_01() -> Test {
+    let mut p = Spc::new();
+    let addr = p.data_first(IMAGE_BASE, &looping_sample());
+    p.mov_x_imm(0xEF).mov_sp_x();
+    let dir = u16::from(DIR_PAGE) << 8;
+    let [lo, hi] = addr.to_le_bytes();
+    p.mov_a_imm(lo).mov_abs_a(dir);
+    p.mov_a_imm(hi).mov_abs_a(dir + 1);
+    p.mov_a_imm(lo).mov_abs_a(dir + 2);
+    p.mov_a_imm(hi).mov_abs_a(dir + 3);
+    dsp_write(&mut p, 0x6C, 0x20); // FLG: running, unmuted, echo writes off
+    dsp_write(&mut p, 0x5C, 0x00); // KOF
+    dsp_write(&mut p, 0x3D, 0x00); // NON
+    dsp_write(&mut p, 0x4D, 0x00); // EON
+    dsp_write(&mut p, 0x2D, 0x00); // PMON
+    dsp_write(&mut p, 0x5D, DIR_PAGE);
+    dsp_write(&mut p, 0x0C, 0x7F); // MVOLL
+    dsp_write(&mut p, 0x1C, 0x7F); // MVOLR
+    dsp_write(&mut p, 0x00, 0x7F); // VOL L
+    dsp_write(&mut p, 0x01, 0x7F); // VOL R
+    dsp_write(&mut p, 0x02, 0x00); // PITCH low
+    dsp_write(&mut p, 0x03, 0x10); // PITCH high
+    dsp_write(&mut p, 0x04, 0x00); // SRCN
+    dsp_write(&mut p, 0x06, 0x00); // ADSR2
+    dsp_write(&mut p, 0x07, 0x7F); // GAIN: direct, full scale
+    dsp_write(&mut p, 0x05, 0x00); // ADSR1 bit 7 clear, so GAIN is what governs
+    dsp_write(&mut p, 0x4C, 0x01); // KON voice 0
+    p.delay(0x00);
+    dsp_write(&mut p, 0x4C, 0x00);
+    p.delay(0x20); // let the envelope settle at the GAIN value
+    dsp_read_to(&mut p, 0x08, PORT1); // ENVX before the ramp: the arming guard
+
+    p.mov_dp_imm(0xFA, 0x06); // T0DIV = 6: one tick per 768 cycles
+    p.mov_a_dp(0xFD); // drain, so the interval starts from zero
+    p.mov_dp_imm(0xF1, 0x81); // enable timer 0
+    dsp_write(&mut p, 0x5C, 0x01); // KOFF voice 0: the ramp starts here
+    let poll = p.here();
+    p.mov_a_imm(0x08).mov_dp_a(0xF2);
+    p.mov_a_dp(0xF3);
+    p.cmp_a_imm(0x00);
+    p.bne_back(poll); // spin until ENVX reads zero
+    p.mov_dp_imm(0xF1, 0x80); // stop the timer the instant it does
+    p.mov_a_dp(0xFD).mov_dp_a(PORT2);
+    p.mov_dp_imm(0xF1, 0x80);
+    p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &p);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(192, "E10.01 ENVX before key-off (the arming guard)");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(193, "E10.01 timer 0 ticks for a full release ramp");
+    a.c("The envelope has to have been at full scale, or the poll exits immediately.");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x7C,
+        0x7F,
+        "the envelope was not at full scale when the voice was keyed off, so the ramp below was \
+         shorter than the arithmetic assumes — or absent entirely",
+    );
+    a.c("254 samples at 32 cycles each is 8128 cycles, which is ten 768-cycle ticks.");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        9,
+        11,
+        "a full release ramp did not take the ten timer-0 ticks that 254 samples at 32 SPC cycles \
+         each come to. The envelope was full scale and the release step is fixed, so what is wrong \
+         is the sample period: 64 cycles would read 5 after wrapping, and 16 would read 5 outright",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E10.01",
+        'E',
+        "32 SPC cycles per sample",
+        Provenance::Documented(
+            "fullsnes and anomie: the SPC700's 1.024 MHz clock and the DSP's 32 kHz output rate \
+             fix the ratio at 32 CPU cycles per output sample",
         ),
         Kind::Scored,
         None,

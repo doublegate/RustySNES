@@ -111,7 +111,7 @@ MAX_SPAN_LINES  = 64
 ; Slots are assigned per test and documented at the test that owns them; nothing here is
 ; interpreted on-cart.
 MEAS_BASE       = $7EE200
-MEAS_SLOTS      = 192
+MEAS_SLOTS      = 240
 
 ; Rendered-scene pacing. A scene is set up, allowed to SETTLE for whole frames, and only THEN
 ; publishes its ID for FRAMES frames before clearing it again.

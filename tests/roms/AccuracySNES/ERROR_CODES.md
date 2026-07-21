@@ -1823,6 +1823,15 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 addressing; fullsnes). Kind: sc
 |---|---|---|
 | 1 | `$02` | $FF + X did not wrap within the direct page; a 16-bit sum would read $0101 instead |
 
+### E10.01 — 32 SPC cycles per sample
+
+Provenance: **Documented** (fullsnes and anomie: the SPC700's 1.024 MHz clock and the DSP's 32 kHz output rate fix the ratio at 32 CPU cycles per output sample). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the envelope was not at full scale when the voice was keyed off, so the ramp below was shorter than the arithmetic assumes — or absent entirely |
+| 2 | `$04` | a full release ramp did not take the ten timer-0 ticks that 254 samples at 32 SPC cycles each come to. The envelope was full scale and the release step is fixed, so what is wrong is the sample period: 64 cycles would read 5 after wrapping, and 16 would read 5 outright |
+
 ### E1.14 — XCN costs five cycles
 
 Provenance: **Documented** (the SNESdev Wiki SPC700 reference and fullsnes both give XCN as 5 cycles, against 2 for NOP). Kind: scored.
