@@ -19,10 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so a core that crosses the bank reads a specific wrong value rather than garbage.
 
   The decimal-flag row is the 6502's behaviour the 65C02 fixed: `N` and `Z` describing the binary sum
-  while the accumulator holds the decimal one. Both readings are chosen where the two answers differ
-  — `$99 + $01` is `$00` decimal and `$9A` binary, so `Z` separates them; `$79 + $79` is `$58` and
-  `$F2`, so `N` does — because on any other input the two flags agree and the test would be
-  unfalsifiable.
+  while the accumulator holds the decimal one. Each reading is chosen where the two answers differ —
+  `$99 + $01` is `$00` decimal and `$9A` binary, so `Z` separates them; `$79 + $79` is `$58` and
+  `$F2`, so `N` does. On an input where the two results share a sign and a zero-ness the flag models
+  agree, and a reading taken there would assert nothing.
 
 - **`TCS`/`TXS` set no flags, and `ORA [d]` reaches through a 24-bit pointer (`A1.09`, `A9.03`).**
   The stack pointer is not data, so moving a value into it does not describe that value — and a core

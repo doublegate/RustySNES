@@ -2231,7 +2231,10 @@ fn a2_11() -> Test {
 /// branch taken wrongly in scorekeeping code — arithmetic that looks right in a memory dump and
 /// behaves wrongly.
 ///
-/// Both readings are chosen so the two answers **differ**, which is the only way to see it:
+/// Both readings are chosen so the two answers **differ**, which is what a reading has to do here —
+/// on an input where the binary and decimal results share a sign and a zero-ness, the two flag
+/// models agree and the reading says nothing. These are two such inputs, one per flag, not the only
+/// two:
 ///
 /// * `$99 + $01` is `$9A` in binary and `$00` in decimal, so `Z` distinguishes them.
 /// * `$79 + $79` is `$F2` in binary and `$58` in decimal, so `N` does.
