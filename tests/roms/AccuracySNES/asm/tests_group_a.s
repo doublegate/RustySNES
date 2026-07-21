@@ -4727,6 +4727,65 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A2.13 — 16-bit dp page cross
+; provenance: Contested (superfamicom.org describes the wrap as happening "theoretically"; the dossier records the row as UNVERIFIED, so it is observed rather than asserted)
+.proc test_a2_13
+    .a16
+    .i16
+    ; Seed the shared low byte and both candidate high bytes.
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$34
+    sta f:$7E10FF     ; the low byte, agreed by every reading
+    lda #$12
+    sta f:$7E1100     ; high byte if the sum continues
+    lda #$AB
+    sta f:$7E1000     ; high byte if the offset wraps inside the page
+    ; D = $1000, then a 16-bit read from dp offset $FF.
+    rep #$30
+    .a16
+    .i16
+    lda #$1000
+    tcd
+    lda $FF
+    sta f:$7E01B0
+    ; Restore D BEFORE anything else: a moved direct page relocates every later dp access.
+    lda #$0000
+    tcd
+    phk
+    plb
+    lda f:$7E01B0
+    ; record slot 120: A2.05 the 16-bit value read across the page boundary
+    sta f:$7EE2F0
+    cmp #$1234
+    bne :+
+    sep #$20
+    .a8
+    lda #$03          ; variant 1 = continued into $1100
+    sta f:$7EE010
+    jml test_restore
+    :
+    rep #$20
+    .a16
+    lda f:$7E01B0
+    cmp #$AB34
+    bne :+
+    sep #$20
+    .a8
+    lda #$05          ; variant 2 = wrapped back to $1000
+    sta f:$7EE010
+    jml test_restore
+    :
+    sep #$20
+    .a8
+    lda #$07          ; variant 3 = neither; the raw value is in slot 120
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; B1.01 — MEMSEL selects FastROM
 ; provenance: Documented (SNESdev Wiki, Memory map / timing; fullsnes)
 .proc test_b1_01
@@ -21653,7 +21712,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 261
+    .word 262
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -21735,6 +21794,7 @@ _test_entries:
     .faraddr test_a4_12
     .faraddr test_a6_13
     .faraddr test_a6_14
+    .faraddr test_a2_13
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -21999,6 +22059,7 @@ _test_flags:
     .byte $01   ; A4.12
     .byte $01   ; A6.13
     .byte $01   ; A6.14
+    .byte $02   ; A2.13
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -22263,6 +22324,7 @@ _test_names:
     .addr @n_a4_12
     .addr @n_a6_13
     .addr @n_a6_14
+    .addr @n_a2_13
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -22680,6 +22742,9 @@ _test_names:
 @n_a6_14:
     .byte 21
     .byte "RTI pull matches mode"
+@n_a2_13:
+    .byte 20
+    .byte "16-bit dp page cross"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"

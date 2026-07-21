@@ -654,6 +654,12 @@ Provenance: **Documented** (WDC datasheet: RTI pulls PBR in native mode only). K
 |---|---|---|
 | 1 | `$02` | emulation-mode RTI did not restore S — it pulled a different number of bytes than the interrupt pushed |
 
+### A2.13 — 16-bit dp page cross
+
+Provenance: **Contested** (superfamicom.org describes the wrap as happening "theoretically"; the dossier records the row as UNVERIFIED, so it is observed rather than asserted). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
 ### A5.S01 — Sweep: CLC
 
 Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.

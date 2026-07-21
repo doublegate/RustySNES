@@ -102,6 +102,7 @@ pub fn all() -> Vec<Test> {
         a4_12(),
         a6_13(),
         a6_14(),
+        a2_13(),
     ]
 }
 
@@ -373,6 +374,85 @@ fn a2_05() -> Test {
         "[dp] never page-wraps",
         Provenance::Documented("superfamicom.org 65816 reference; WDC datasheet"),
         Kind::Scored,
+        None,
+    )
+}
+
+/// A 16-bit direct-page read whose second byte crosses the page boundary — a golden vector.
+///
+/// With `D = $1000`, `LDA $FF` in 16-bit mode wants `$10FF` and the byte after it. Whether that
+/// second byte is `$1100` (the sum simply continues) or `$1000` (the offset wraps inside the
+/// direct page) is the question, and **the sources do not settle it**: superfamicom.org's own
+/// wording is that the wrap happens *"theoretically"*, which the dossier records as `UNVERIFIED`.
+///
+/// Under the provenance rules an unverified claim cannot be scored, so the observation is recorded.
+/// Both candidate second bytes are seeded distinctly, so the variant says which address was
+/// actually read rather than merely that something unexpected happened:
+///
+/// | variant | `A` | meaning |
+/// |---|---|---|
+/// | 1 | `$1234` | the sum continued into `$1100` |
+/// | 2 | `$AB34` | the offset wrapped back to `$1000` |
+/// | 3 | anything else | neither — read the measurement channel |
+///
+/// The low byte is `$34` in both cases by construction: it comes from `$10FF`, which every reading
+/// agrees on. Only the high byte distinguishes them, which is what makes the variant unambiguous.
+///
+/// `D` is restored before the verdict is written — a test that leaves the direct page moved
+/// relocates every `dp` access in whatever runs next.
+fn a2_13() -> Test {
+    let mut a = Asm::new();
+    a.c("Seed the shared low byte and both candidate high bytes.");
+    a.l("rep #$30");
+    a.l("sep #$20");
+    a.l("lda #$34");
+    a.l("sta f:$7E10FF     ; the low byte, agreed by every reading");
+    a.l("lda #$12");
+    a.l("sta f:$7E1100     ; high byte if the sum continues");
+    a.l("lda #$AB");
+    a.l("sta f:$7E1000     ; high byte if the offset wraps inside the page");
+    a.c("D = $1000, then a 16-bit read from dp offset $FF.");
+    a.l("rep #$30");
+    a.l("lda #$1000");
+    a.l("tcd");
+    a.l("lda $FF");
+    a.l("sta f:$7E01B0");
+    a.c("Restore D BEFORE anything else: a moved direct page relocates every later dp access.");
+    a.l("lda #$0000");
+    a.l("tcd");
+    a.l("phk");
+    a.l("plb");
+    a.l("lda f:$7E01B0");
+    a.record(120, "A2.05 the 16-bit value read across the page boundary");
+    a.l("cmp #$1234");
+    a.l("bne :+");
+    a.l("sep #$20");
+    a.l("lda #$03          ; variant 1 = continued into $1100");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("rep #$20");
+    a.l("lda f:$7E01B0");
+    a.l("cmp #$AB34");
+    a.l("bne :+");
+    a.l("sep #$20");
+    a.l("lda #$05          ; variant 2 = wrapped back to $1000");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("sep #$20");
+    a.l("lda #$07          ; variant 3 = neither; the raw value is in slot 120");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.finish(
+        "A2.13",
+        'A',
+        "16-bit dp page cross",
+        Provenance::Contested(
+            "superfamicom.org describes the wrap as happening \"theoretically\"; the dossier \
+             records the row as UNVERIFIED, so it is observed rather than asserted",
+        ),
+        Kind::Golden,
         None,
     )
 }
