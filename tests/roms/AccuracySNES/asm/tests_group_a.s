@@ -23261,6 +23261,94 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; F1.14 — $4213 reads $4201 back
+; provenance: Documented (fullsnes: RDIO reads the WRIO output pins, which are open-collector, so with nothing driving them low the value read is the value written)
+.proc test_f1_14
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$FF
+    sta $4201
+    lda $4213
+    sta f:$7E01D4
+    lda #$00
+    sta $4201
+    lda $4213
+    sta f:$7E01D5
+    lda #$55
+    sta $4201
+    lda $4213
+    sta f:$7E01D6
+    ; Restore WRIO before judging anything: bit 7 gates the $2137 counter latch that a dozen
+    ; later tests use, and a failure exits without passing through here again.
+    lda #$FF
+    sta $4201
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E01D4
+    and #$00FF
+    ; record slot 159: F1.14 $4213 after writing $4201 = $FF
+    sta f:$7EE33E
+    lda f:$7E01D5
+    and #$00FF
+    ; record slot 160: F1.14 $4213 after writing $4201 = $00
+    sta f:$7EE340
+    lda f:$7E01D6
+    and #$00FF
+    ; record slot 161: F1.14 $4213 after writing $4201 = $55
+    sta f:$7EE342
+    sep #$20
+    .a8
+    lda f:$7E01D4
+    cmp #$FF
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E01D5
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    lda f:$7E01D6
+    cmp #$55
+    beq :+
+    jmp @fail3
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; $4213 did not read back the $FF written to $4201, so the output latch is not reaching the read-back path
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; $4213 did not read back the $00 written to $4201: a core returning $FF here is reporting the pull-ups rather than the latch
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; $4213 did not read back $55. Both earlier values passed, so the path works for all-ones and all-zeroes but not for a mixed pattern — the bits are not independent
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 .segment "APUDATA"
 apu_prog_0:
     .byte $CD, $EF, $BD, $E5, $00, $80, $C4, $F5, $E5, $20, $80, $C4
@@ -24235,7 +24323,7 @@ apu_prog_67:
 .export _test_flags
 
 _test_count:
-    .word 280
+    .word 281
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -24476,6 +24564,7 @@ _test_entries:
     .faraddr test_e3_08
     .faraddr test_f1_02
     .faraddr test_f1_04
+    .faraddr test_f1_14
     .faraddr test_g1_02
     .faraddr test_g1_04
     .faraddr test_g1_08
@@ -24759,6 +24848,7 @@ _test_flags:
     .byte $01   ; E3.08
     .byte $01   ; F1.02
     .byte $01   ; F1.04
+    .byte $01   ; F1.14
     .byte $01   ; G1.02
     .byte $01   ; G1.04
     .byte $01   ; G1.08
@@ -25042,6 +25132,7 @@ _test_names:
     .addr @n_e3_08
     .addr @n_f1_02
     .addr @n_f1_04
+    .addr @n_f1_14
     .addr @n_g1_02
     .addr @n_g1_04
     .addr @n_g1_08
@@ -25796,6 +25887,9 @@ _test_names:
 @n_f1_04:
     .byte 23
     .byte "$4016 bits 7-2 open bus"
+@n_f1_14:
+    .byte 22
+    .byte "$4213 reads $4201 back"
 @n_g1_02:
     .byte 24
     .byte "Reset: $4210/$4211 clear"

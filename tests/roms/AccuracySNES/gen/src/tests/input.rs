@@ -21,7 +21,7 @@ use crate::dsl::{Asm, Kind, Provenance, Test};
 /// Every Group F test, in menu order.
 #[must_use]
 pub fn all() -> Vec<Test> {
-    vec![f1_02(), f1_04()]
+    vec![f1_02(), f1_04(), f1_14()]
 }
 
 /// `$4016` bits 7-2 are CPU open bus: nothing on the controller port drives them.
@@ -108,6 +108,89 @@ fn f1_04() -> Test {
         Provenance::Corroborated(
             "RustySNES, snes9x and Mesen2 all return $41 for the absolute read and $01 for the \
              long one -- identical bytes, so bits 7-2 follow the CPU bus in all three",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `$4213` reads back the `$4201` output latch, wired-AND with whatever the pins are being driven to.
+///
+/// `$4201` (WRIO) drives two pins — bit 6 to controller port 1's IOBIT, bit 7 to port 2's. `$4213`
+/// (RDIO) reads those pins back, and the port is **open-collector**: a device on either port can
+/// pull its pin low, but nothing can pull one high. So the value read is the AND of what was
+/// written with what the outside world is doing, and with nothing driving the pins low it is simply
+/// what was written.
+///
+/// A standard pad drives neither pin, which is what makes this testable without the peripheral
+/// contract Group F otherwise needs: the assertion is about the *latch and its read-back path*, and
+/// a controller that pulled a pin low would be a different test.
+///
+/// # Three values, chosen so a stuck bit cannot hide
+///
+/// `$FF`, `$00` and `$55` in turn. The first two catch a core that returns a constant either way;
+/// `$55` catches one that returns "all bits the same" — a mask, a boolean, or the two IOBIT pins
+/// smeared across the byte. A core ignoring `$4201` entirely fails the first comparison it reaches.
+///
+/// # `$4201` is restored before anything is asserted, and that is not tidiness
+///
+/// Bit 7 gates the `$2137` counter latch (`C3.10`), which a dozen later tests depend on. A failure
+/// exits through `test_restore`, which deliberately does not touch `$4201` — so leaving it at `$00`
+/// or `$55` here would break the H/V latch for the rest of the battery and turn one failure into a
+/// cascade. The readings are taken, the register is put back to `$FF`, and only then are the values
+/// judged.
+fn f1_14() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    for (val, dest) in [(0xFFu8, 0x7E_01D4u32), (0x00, 0x7E_01D5), (0x55, 0x7E_01D6)] {
+        a.l(&format!("lda #${val:02X}"));
+        a.l("sta $4201");
+        a.l("lda $4213");
+        a.l(&format!("sta f:${dest:06X}"));
+    }
+    a.c("Restore WRIO before judging anything: bit 7 gates the $2137 counter latch that a dozen");
+    a.c("later tests use, and a failure exits without passing through here again.");
+    a.l("lda #$FF");
+    a.l("sta $4201");
+    a.l("rep #$30");
+    a.l("lda f:$7E01D4");
+    a.l("and #$00FF");
+    a.record(159, "F1.14 $4213 after writing $4201 = $FF");
+    a.l("lda f:$7E01D5");
+    a.l("and #$00FF");
+    a.record(160, "F1.14 $4213 after writing $4201 = $00");
+    a.l("lda f:$7E01D6");
+    a.l("and #$00FF");
+    a.record(161, "F1.14 $4213 after writing $4201 = $55");
+    a.l("sep #$20");
+    a.l("lda f:$7E01D4");
+    a.assert_a8(
+        0xFF,
+        "$4213 did not read back the $FF written to $4201, so the output latch is not reaching the \
+         read-back path",
+    );
+    a.l("lda f:$7E01D5");
+    a.assert_a8(
+        0x00,
+        "$4213 did not read back the $00 written to $4201: a core returning $FF here is reporting \
+         the pull-ups rather than the latch",
+    );
+    a.l("lda f:$7E01D6");
+    a.assert_a8(
+        0x55,
+        "$4213 did not read back $55. Both earlier values passed, so the path works for all-ones \
+         and all-zeroes but not for a mixed pattern — the bits are not independent",
+    );
+    a.finish(
+        "F1.14",
+        'F',
+        "$4213 reads $4201 back",
+        Provenance::Documented(
+            "fullsnes: RDIO reads the WRIO output pins, which are open-collector, so with nothing \
+             driving them low the value read is the value written",
         ),
         Kind::Scored,
         None,

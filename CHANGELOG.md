@@ -575,6 +575,24 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`F1.14` — `$4213` reads the `$4201` output latch back.** `$4201` drives controller port 1's
+  IOBIT pin from bit 6 and port 2's from bit 7; `$4213` reads those pins. The port is
+  open-collector, so a device can pull a pin low but nothing pulls one high — with nothing driving
+  them, the value read is the value written. A standard pad drives neither, which is why this needs
+  no peripheral contract: the assertion is about the latch and its read-back path.
+
+  Three values, chosen so a stuck bit cannot hide: `$FF` and `$00` catch a core returning a constant
+  either way, and `$55` catches one returning "all bits the same" — a mask, a boolean, or the two
+  IOBIT pins smeared across the byte. All three cores return all three values exactly.
+
+  `$4201` is restored to `$FF` **before anything is asserted**, and that is load-bearing rather than
+  tidy: bit 7 gates the `$2137` counter latch (`C3.10`) that a dozen later tests depend on, and a
+  failure exits through `test_restore`, which deliberately does not touch `$4201`. Leaving it at
+  `$00` would turn one failure into a cascade.
+
+  It is complementary to `G1.19` rather than overlapping: injecting "`$4213` always reads `$FF`"
+  fails `F1.14` at code 2 while `G1.19` — which only checks `$FF` at power-on — still passes.
+
 - **`F1.04` — `$4016` bits 7-2 are CPU open bus**, and it is Group F's first scored row that needed
   no peripheral contract. Only bits 1 and 0 carry controller data; the rest of the byte is driven by
   nothing and reads back as whatever the CPU last left on the bus.

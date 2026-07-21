@@ -2280,6 +2280,16 @@ Provenance: **Corroborated** (RustySNES, snes9x and Mesen2 all return $41 for th
 | 1 | `$02` | $4016 read as absolute did not return the operand high byte ($40) in bits 7-2, so those bits are not following the CPU bus |
 | 2 | `$04` | $4016 read as long did not return the operand bank byte ($00) in bits 7-2. Equal to the absolute read's $40 means the bits are manufactured rather than open bus |
 
+### F1.14 — $4213 reads $4201 back
+
+Provenance: **Documented** (fullsnes: RDIO reads the WRIO output pins, which are open-collector, so with nothing driving them low the value read is the value written). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | $4213 did not read back the $FF written to $4201, so the output latch is not reaching the read-back path |
+| 2 | `$04` | $4213 did not read back the $00 written to $4201: a core returning $FF here is reporting the pull-ups rather than the latch |
+| 3 | `$06` | $4213 did not read back $55. Both earlier values passed, so the path works for all-ones and all-zeroes but not for a mixed pattern — the bits are not independent |
+
 ## Group G
 
 ### G1.02 — Reset: $4210/$4211 clear
