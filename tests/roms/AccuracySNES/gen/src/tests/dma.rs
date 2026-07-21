@@ -29,6 +29,7 @@ pub fn all() -> Vec<Test> {
         d2_03(),
         d2_04(),
         d2_07(),
+        d1_14(),
         d1_03(),
         d1_04(),
         d2_05(),
@@ -751,6 +752,94 @@ fn d2_07() -> Test {
         'D',
         "HDMA preempts GP-DMA",
         Provenance::Documented("SNESdev Wiki, HDMA; anomie's timing doc; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `$2180` as a DMA **source** does perform the write — the other half of the asymmetry.
+///
+/// `D1.09` covers WRAM to `$2180`: no write happens at all. This is the mirrored case, and
+/// hardware does not mirror it. fullsnes: `$2180` to WRAM *"does cause a write to occur (but no
+/// read), but the value written is invalid"*. So a core that implements `$2180` symmetrically —
+/// either writing in both directions or neither — gets exactly one of the two rows wrong.
+///
+/// # Asserting a write happened without knowing what was written
+///
+/// The written value is documented as *invalid*, i.e. unspecified. Seeding the destination and
+/// asserting it changed would therefore be unsound: the invalid value could coincide with the seed,
+/// and the test would fail on a correct core.
+///
+/// The transfer is run **twice, from two different seeds** instead. Whatever the invalid value is,
+/// it is the same both times, so:
+///
+/// * if the write happens, both destinations end up holding that same value — **equal**;
+/// * if no write happens, each destination still holds its own seed — `$00` and `$FF`, **unequal**.
+///
+/// Asserting the two results are equal therefore pins "a write occurred" without naming the value,
+/// and the two seeds are chosen to differ so "no write" cannot accidentally satisfy it.
+fn d1_14() -> Test {
+    let mut a = Asm::new();
+    a.c("Both destinations, seeded differently. Whatever invalid value the write deposits, it is");
+    a.c("the same for both transfers -- so equal results mean a write, unequal means none.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta f:$7E0C10");
+    a.l("lda #$FF");
+    a.l("sta f:$7E0C11");
+    a.c("WMADD points somewhere harmless: this direction reads no WRAM, but the port still has an");
+    a.c("address and leaving it where a previous test left it would be sloppy rather than wrong.");
+    a.l("lda #$00");
+    a.l("sta $2181");
+    a.l("lda #$0D");
+    a.l("sta $2182");
+    a.l("stz $2183         ; WMADD = $7E:0D00");
+    a.c("--- transfer 1: $2180 -> $7E:0C10 ---");
+    a.l("lda #$80");
+    a.l("sta $4300         ; bit 7 = B->A, mode 0");
+    a.l("lda #$80");
+    a.l("sta $4301         ; B-bus = $2180");
+    a.l("rep #$30");
+    a.l("lda #$0C10");
+    a.l("sta $4302");
+    a.l("sep #$20");
+    a.l("lda #$7E");
+    a.l("sta $4304         ; A-bus = $7E:0C10");
+    a.l("rep #$30");
+    a.l("lda #$0001");
+    a.l("sta $4305         ; one byte");
+    a.l("sep #$20");
+    a.l("lda #$01");
+    a.l("sta $420B");
+    a.c("--- transfer 2: the same, into the other seed ---");
+    a.l("rep #$30");
+    a.l("lda #$0C11");
+    a.l("sta $4302");
+    a.l("sep #$20");
+    a.l("lda #$7E");
+    a.l("sta $4304");
+    a.l("rep #$30");
+    a.l("lda #$0001");
+    a.l("sta $4305");
+    a.l("sep #$20");
+    a.l("lda #$01");
+    a.l("sta $420B");
+    a.c("Equal means a write occurred in both; unequal means the seeds survived and it did not.");
+    a.l("lda f:$7E0C10");
+    a.l("sta f:$7E0C12");
+    a.l("lda f:$7E0C11");
+    a.l("cmp f:$7E0C12");
+    a.fail_if_ne(
+        "$2180 as a DMA source performed no write — both destinations still hold their seeds",
+    );
+    a.finish(
+        "D1.14",
+        'D',
+        "$2180 B->A does write",
+        Provenance::Documented("fullsnes: $2180->WRAM writes, but the value written is invalid"),
         Kind::Scored,
         None,
     )

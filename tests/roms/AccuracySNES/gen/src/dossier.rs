@@ -90,6 +90,7 @@ pub const MAP: &[(&str, &[&str])] = &[
     ("A4.11", &["A4.04"]),
     ("A4.12", &["A4.05"]),
     ("D2.07", &["D2.07"]),
+    ("D1.14", &["D1.14"]),
     // --- T-04-I opcode sweep: many tests, one enumerated assertion (declared in SPLITS) ---
     ("A5.S01", &["A5.01-08"]),
     ("A5.S02", &["A5.01-08"]),

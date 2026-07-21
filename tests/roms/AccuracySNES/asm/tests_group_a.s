@@ -9804,6 +9804,95 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; D1.14 — $2180 B->A does write
+; provenance: Documented (fullsnes: $2180->WRAM writes, but the value written is invalid)
+.proc test_d1_14
+    .a16
+    .i16
+    ; Both destinations, seeded differently. Whatever invalid value the write deposits, it is
+    ; the same for both transfers -- so equal results mean a write, unequal means none.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0C10
+    lda #$FF
+    sta f:$7E0C11
+    ; WMADD points somewhere harmless: this direction reads no WRAM, but the port still has an
+    ; address and leaving it where a previous test left it would be sloppy rather than wrong.
+    lda #$00
+    sta $2181
+    lda #$0D
+    sta $2182
+    stz $2183         ; WMADD = $7E:0D00
+    ; --- transfer 1: $2180 -> $7E:0C10 ---
+    lda #$80
+    sta $4300         ; bit 7 = B->A, mode 0
+    lda #$80
+    sta $4301         ; B-bus = $2180
+    rep #$30
+    .a16
+    .i16
+    lda #$0C10
+    sta $4302
+    sep #$20
+    .a8
+    lda #$7E
+    sta $4304         ; A-bus = $7E:0C10
+    rep #$30
+    .a16
+    .i16
+    lda #$0001
+    sta $4305         ; one byte
+    sep #$20
+    .a8
+    lda #$01
+    sta $420B
+    ; --- transfer 2: the same, into the other seed ---
+    rep #$30
+    .a16
+    .i16
+    lda #$0C11
+    sta $4302
+    sep #$20
+    .a8
+    lda #$7E
+    sta $4304
+    rep #$30
+    .a16
+    .i16
+    lda #$0001
+    sta $4305
+    sep #$20
+    .a8
+    lda #$01
+    sta $420B
+    ; Equal means a write occurred in both; unequal means the seeds survived and it did not.
+    lda f:$7E0C10
+    sta f:$7E0C12
+    lda f:$7E0C11
+    cmp f:$7E0C12
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; $2180 as a DMA source performed no write — both destinations still hold their seeds
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; D1.03 — DMA startup overhead
 ; provenance: Documented (SNESdev Wiki, DMA timing; fullsnes)
 .proc test_d1_03
@@ -21136,7 +21225,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 255
+    .word 256
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -21288,6 +21377,7 @@ _test_entries:
     .faraddr test_d2_03
     .faraddr test_d2_04
     .faraddr test_d2_07
+    .faraddr test_d1_14
     .faraddr test_d1_03
     .faraddr test_d1_04
     .faraddr test_d2_05
@@ -21546,6 +21636,7 @@ _test_flags:
     .byte $01   ; D2.03
     .byte $01   ; D2.04
     .byte $01   ; D2.07
+    .byte $01   ; D1.14
     .byte $02   ; D1.03
     .byte $01   ; D1.04
     .byte $01   ; D2.05
@@ -21804,6 +21895,7 @@ _test_names:
     .addr @n_d2_03
     .addr @n_d2_04
     .addr @n_d2_07
+    .addr @n_d1_14
     .addr @n_d1_03
     .addr @n_d1_04
     .addr @n_d2_05
@@ -22355,6 +22447,9 @@ _test_names:
 @n_d2_07:
     .byte 20
     .byte "HDMA preempts GP-DMA"
+@n_d1_14:
+    .byte 21
+    .byte "$2180 B->A does write"
 @n_d1_03:
     .byte 20
     .byte "DMA startup overhead"

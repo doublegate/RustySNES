@@ -1253,6 +1253,14 @@ Provenance: **Documented** (SNESdev Wiki, HDMA; anomie's timing doc; fullsnes). 
 | 2 | `$04` | channel 1's byte count did not reach zero — the GP-DMA resumed short after preemption |
 | 3 | `$06` | channel 1's source address did not advance the full 4096 bytes |
 
+### D1.14 — $2180 B->A does write
+
+Provenance: **Documented** (fullsnes: $2180->WRAM writes, but the value written is invalid). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | $2180 as a DMA source performed no write — both destinations still hold their seeds |
+
 ### D1.03 — DMA startup overhead
 
 Provenance: **Documented** (SNESdev Wiki, DMA timing; fullsnes). Kind: golden vector, never scored.
