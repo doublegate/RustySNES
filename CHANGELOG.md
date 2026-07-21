@@ -632,6 +632,26 @@ rewritten to the current number — this line is the one to read.
   nothing depending on what is plugged in, and that `NMITIMEN` is zero for the whole battery, both
   of which the input contract changed.
 
+- **Banks re-packed, one segment per group where it matters.** `TESTSE` has bank `$02` to itself —
+  it is the largest segment and Group E holds the most uncovered rows, so it is the one that will
+  need splitting first — and `TESTSD` moved to bank `$05`. `G1.11`, which walks the whole cartridge
+  byte by byte, now sweeps eight banks rather than four.
+  **Groups A and B were *not* moved, and that is deliberate**: `A4.11`/`A4.12` aim an `(a,X)`
+  indirect jump at the *program bank's* signature block to tell an in-bank wrap from a bank carry,
+  and Group B's access-speed rows depend on where they execute. Relocating either would leave the
+  tests passing while measuring something else. The build gate caught the attempt — `A4.01`'s
+  `jmp ($12FF)` is its subject, not a call to the runtime — which is the gate working as designed.
+  So bank `$00` keeps ~18 KiB of bodies it cannot shed, and the next lever there is `CATALOG` (8.5
+  KiB), which every access already reaches long-addressed; the blocker is that `draw_str` reads name
+  strings through `DBR`, so moving it needs the data bank managed around the menu's draw loop.
+
+- **Every host's frame budget raised together.** The in-repo harness (600 → 1500),
+  `mesen_scenes.lua` (2000 → 4000) and `libretro_crossval.c` (1200 → 2400) all bound the same run.
+  `G1.11` walks the entire image, so doubling the cartridge doubled it — about 320 of the battery's
+  431 frames are that one test — and Mesen2's scene run stopped reaching the scene loop. It reported
+  **"0 scenes match"**, not a timeout, which reads as a mismatch in the gate's output and cost a
+  cycle to diagnose; the constant now says to raise all three together and why.
+
 - **The cartridge image is now 256 KiB (8 banks), grown from 128.** The reason is *not* total
   space: at the time of the change bank `$03` was two-thirds empty and the image had 34 KiB free
   across banks `$01`-`$03`. It is that **a segment cannot span a bank boundary in LoROM**, so each

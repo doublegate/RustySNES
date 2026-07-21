@@ -36,7 +36,12 @@ local FIRST_ROW = 7
 -- but each host samples at its own frame boundary, so both ends of the window can be off by one.
 local CAPTURE_SIGHTING = 4
 
-local MAX_FRAMES = 2000
+-- Raised from 2000 when the cartridge grew to 256 KiB: G1.11 walks the whole image byte by byte,
+-- so it doubled with the image and the battery no longer finished before this budget ran out. The
+-- failure looked like "0 scenes match", not like a timeout, because the run never reached the
+-- scene loop at all -- worth knowing, since that reads as a mismatch in the gate's output.
+-- The in-repo harness's MAX_FRAMES and libretro_crossval.c's max_frames bound the same run.
+local MAX_FRAMES = 4000
 local frames = 0
 local battery_done = false
 local reported = false

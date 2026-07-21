@@ -207,7 +207,10 @@ int main(int argc, char **argv) {
     bool want_scenes = false;
     unsigned fb_after = 0;
     const char *dump_prefix = NULL;
-    unsigned max_frames = 1200;
+    /* Bounds the same run as the in-repo harness's MAX_FRAMES and mesen_scenes.lua's; raise all
+     * three together. Doubled when the cartridge grew to 256 KiB, since G1.11 walks the whole
+     * image byte by byte and is most of the battery's frames. */
+    unsigned max_frames = 2400;
     for (int i = 3; i < argc; i++) {
         if (strcmp(argv[i], "--scenes") == 0) {
             want_scenes = true;

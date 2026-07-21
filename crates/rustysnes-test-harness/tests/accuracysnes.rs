@@ -49,9 +49,16 @@ const R_STATUS: u32 = RESULTS + 0x20;
 const DONE_MARK: u8 = 0xA5;
 const FORMAT_VERSION: u16 = 1;
 
-/// Frame budget. The battery finishes in a handful of frames with the screen blanked; this is a
-/// generous ceiling that bounds CI time, not a timeout on a legitimate run.
-const MAX_FRAMES: u32 = 600;
+/// Frame budget for the battery, a ceiling that bounds CI time rather than a timeout on a
+/// legitimate run.
+///
+/// Raised from 600 when the cartridge image grew to 256 KiB. Most of the battery's frames are one
+/// test: `G1.11` walks the entire cartridge byte by byte to check the header checksum, so doubling
+/// the image doubled it — about 320 of the current 431 frames. The margin at 600 was 169 frames and
+/// is now comfortable again. **When this needs raising, check `mesen_scenes.lua`'s `MAX_FRAMES` and
+/// `libretro_crossval.c`'s `max_frames` in the same change**: all three bound the same run, and the
+/// Mesen2 one silently reports "no scenes" rather than "timed out" from the gate's point of view.
+const MAX_FRAMES: u32 = 1500;
 
 /// Minimum share of scoring tests that must pass.
 ///

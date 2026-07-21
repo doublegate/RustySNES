@@ -249,12 +249,19 @@ if [[ -f $MANIFEST && -f $SCENE_GOLDEN ]]; then
     fi
     if [[ -f $MESEN ]] && command -v dotnet >/dev/null; then
         echo "=== Mesen2 rendered scenes ==="
-        # 400s, not 180. The scene loop runs after the whole battery, and the battery keeps
-        # growing -- a timeout that merely fits today produces intermittent "mismatches" that are
-        # really a truncated run, and an intermittently-red gate gets ignored, which is worse than
-        # a slow one.
+        # 800s, not 400, and not 180 before that. The scene loop runs after the whole battery, and
+        # the battery keeps growing -- a timeout that merely fits today produces intermittent
+        # "mismatches" that are really a truncated run, and an intermittently-red gate gets
+        # ignored, which is worse than a slow one.
+        #
+        # The last doubling was not gradual growth: G1.11 walks the entire cartridge byte by byte
+        # to check the header checksum, so when the image went from 128 KiB to 256 the test's cost
+        # doubled with it -- about 320 of the battery's 431 frames are that one test. Summing only
+        # the four banks that hold anything would halve it again and would also stop checking the
+        # thing most worth checking about a freshly-grown image, which is that the upper banks are
+        # mapped at all.
         { dotnet "$MESEN" --testrunner "$ROM" scripts/accuracysnes/mesen_scenes.lua \
-            --timeout=400 2>/dev/null || true; } | check_scenes "Mesen2" || rc=1
+            --timeout=800 2>/dev/null || true; } | check_scenes "Mesen2" || rc=1
     fi
 else
     echo "skip rendered scenes: build the cart first (cargo run -p accuracysnes-gen)" >&2

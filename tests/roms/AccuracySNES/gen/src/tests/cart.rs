@@ -238,8 +238,13 @@ fn g1_10() -> Test {
 ///   misunderstanding would agree with itself. What is validated is that an emulator presents the
 ///   whole image, correctly mapped, to a program that reads it byte by byte.
 /// * **The non-power-of-two rule** (largest prefix plus mirrored remainder), which this image
-///   cannot exercise: it is exactly 128 KiB. Reaching that needs a second, deliberately odd-sized
+///   cannot exercise: it is exactly 256 KiB. Reaching that needs a second, deliberately odd-sized
 ///   image, which is a build-system change rather than a test.
+///
+/// The bank count here is the image's, and it is the second thing that has to be changed in step
+/// with the header's size byte — `G1.12` is the first. Both failed when the image grew to 256 KiB
+/// and only `lorom.cfg`, `header.s` and the generator had been updated, which is what they are for:
+/// a size carried in five places needs something that objects when one of them is stale.
 fn g1_11() -> Test {
     const SUM: &str = "$7E0110";
 
@@ -247,9 +252,9 @@ fn g1_11() -> Test {
     a.l("rep #$30");
     a.l("lda #$0000");
     a.l(&format!("sta f:{SUM}"));
-    a.c("Four banks of 32 KiB, each walked with long indexed addressing so the data bank never");
+    a.c("Eight banks of 32 KiB, each walked with long indexed addressing so the data bank never");
     a.c("comes into it. Unrolled because the bank is part of the address, not a variable.");
-    for bank in 0u8..4 {
+    for bank in 0u8..8 {
         a.l("ldx #$0000");
         a.label(&format!("bank{bank}"));
         a.l("sep #$20");

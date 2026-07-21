@@ -27411,7 +27411,7 @@ CATALOG_IMPL = 1
     .i16
     lda #$0000
     sta f:$7E0110
-    ; Four banks of 32 KiB, each walked with long indexed addressing so the data bank never
+    ; Eight banks of 32 KiB, each walked with long indexed addressing so the data bank never
     ; comes into it. Unrolled because the bank is part of the address, not a variable.
     ldx #$0000
 @bank0:
@@ -27469,6 +27469,62 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @bank3
+    ldx #$0000
+@bank4:
+    sep #$20
+    .a8
+    lda f:$048000,x
+    rep #$20
+    .a16
+    and #$00FF
+    clc
+    adc f:$7E0110
+    sta f:$7E0110
+    inx
+    cpx #$8000
+    bne @bank4
+    ldx #$0000
+@bank5:
+    sep #$20
+    .a8
+    lda f:$058000,x
+    rep #$20
+    .a16
+    and #$00FF
+    clc
+    adc f:$7E0110
+    sta f:$7E0110
+    inx
+    cpx #$8000
+    bne @bank5
+    ldx #$0000
+@bank6:
+    sep #$20
+    .a8
+    lda f:$068000,x
+    rep #$20
+    .a16
+    and #$00FF
+    clc
+    adc f:$7E0110
+    sta f:$7E0110
+    inx
+    cpx #$8000
+    bne @bank6
+    ldx #$0000
+@bank7:
+    sep #$20
+    .a8
+    lda f:$078000,x
+    rep #$20
+    .a16
+    and #$00FF
+    clc
+    adc f:$7E0110
+    sta f:$7E0110
+    inx
+    cpx #$8000
+    bne @bank7
     ; Correct the two header fields out of the total: take away the four bytes that are
     ; actually there and put back the $0000 complement and $FFFF checksum the algorithm counts.
     sep #$20
