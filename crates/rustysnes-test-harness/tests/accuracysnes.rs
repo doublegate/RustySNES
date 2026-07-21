@@ -1197,3 +1197,19 @@ fn voice_mix_saturation_is_reported() {
     );
     println!("    slot 208  {:#04x}  two voices", report.meas[208]);
 }
+
+/// Report `E5.12`'s two `OUTX` readings across the loop point.
+#[test]
+fn srcn_change_source_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E5.12 OUTX, entry 1 start = ~$3F and entry 1 loop = ~$1F:");
+    println!(
+        "    slot 209  {:#04x}  control, SRCN untouched (expect ~$6E)",
+        report.meas[209]
+    );
+    println!(
+        "    slot 210  {:#04x}  after the write (loop address, expect ~$1F)",
+        report.meas[210]
+    );
+}

@@ -2161,6 +2161,15 @@ Provenance: **Documented** (fullsnes, SNESdev Wiki, APU boot handshake). Kind: s
 |---|---|---|
 | 1 | `$02` | port 1 announced $BB but port 0 does not read $AA, so the ready word is not $BBAA — or the two bytes are written in the wrong order |
 
+### E5.12 — SRCN change source
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: a mid-playback SRCN change takes the new entry's start address, or its loop address if the voice has already passed a loop point). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the voice was not playing entry 0 after the same delays with SRCN untouched, so it moved on its own and the phase below cannot be attributed to the write |
+| 2 | `$04` | a mid-note SRCN change did not land on the new entry's loop address. Around $6E means the write never took effect at all; around $3F means the entry's start address was taken instead, which is what a voice still inside its key-on delay would do and this one is long past that |
+
 ### E5.02 — BRR nibbles are signed
 
 Provenance: **Documented** (fullsnes, S-DSP BRR; anomie's DSP doc). Kind: scored.

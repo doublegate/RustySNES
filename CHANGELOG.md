@@ -575,6 +575,20 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E5.12` — where does a mid-note `SRCN` change land?** A running voice re-reads its directory
+  entry's *loop* address every sample, so writing `SRCN` under a held note changes nothing until the
+  current sample reaches a loop point — and what plays then is the new entry's **loop** address, not
+  its start. A driver swapping instruments under a held note hears the change arrive late, and hears
+  the tail of the new sample rather than its attack. Entry 1's two addresses point at *different*
+  constant samples, which is the whole apparatus: with the usual arrangement, where an entry loops
+  back to its own start, the row has no observable at all. Control `$6E`, changed `$1F`, with `$3F`
+  reserved for the start address so the assertion distinguishes all three outcomes. Verified by
+  making the directory read take the start address, which moves the reading to exactly `$3F`.
+  The row's other clause — that a change landing *before* the voice has looped takes the start
+  address — is left uncovered and said so in the doc comment. In the pipeline that clause is about
+  the key-on delay, a window five output samples wide; the cart's only timing lever is a `DBNZ` loop
+  with six-cycle granularity and an upload-dependent phase, so it is not reliably hittable.
+
 - **`C7.04` — does a sprite at `X = $100` still consume a range slot?** The X field is nine bits
   signed, so `$100` is `-256`: an 8x8 sprite there sits a full screen width to the left and cannot
   contribute a pixel. Sprite evaluation does not care — it selects on Y alone, which is why parking

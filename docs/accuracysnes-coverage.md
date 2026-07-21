@@ -43,7 +43,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `E2` | 10 | 9 | 0 | E2.10 |
 | `E3` | 14 | 10 | 0 | E3.07, E3.09, E3.12, E3.13 |
 | `E4` | 11 | 5 | 0 | E4.05, E4.06, E4.07, E4.08, E4.09, E4.10 |
-| `E5` | 13 | 10 | 0 | E5.06, E5.12, E5.13 |
+| `E5` | 13 | 11 | 0 | E5.06, E5.13 |
 | `E6` | 11 | 3 | 0 | E6.01, E6.03, E6.04, E6.05, E6.06, E6.07, E6.08, E6.10 |
 | `E7` | 18 | 14 | 0 | E7.02, E7.13, E7.17, E7.18 |
 | `E8` | 11 | 4 | 0 | E8.01, E8.02, E8.05, E8.06, E8.08, E8.09, E8.11 |
@@ -52,7 +52,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `F1` | 22 | 3 | 0 | F1.01, F1.03, F1.05, F1.06, F1.07, F1.08, F1.09, F1.10, F1.11, F1.12, F1.13, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
 | `G1` | 18 | 11 | 0 | G1.05, G1.06, G1.13, G1.15, G1.16, G1.17, G1.18 |
 
-**261 of 443** enumerated assertion rows covered by an on-cart test, plus **50** covered only by a rendered scene (`docs/adr/0013`) — **311 of 443** in total.
+**262 of 443** enumerated assertion rows covered by an on-cart test, plus **50** covered only by a rendered scene (`docs/adr/0013`) — **312 of 443** in total.
 
 The two columns are kept apart on purpose. An on-cart result means the same thing on any emulator and on real hardware; a rendered scene needs a host holding the golden. Adding them into one figure would quietly change what the number claims.
 

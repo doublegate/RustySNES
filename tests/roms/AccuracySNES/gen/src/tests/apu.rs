@@ -95,6 +95,7 @@ pub fn all() -> Vec<Test> {
         e4_02(),
         e4_03(),
         e4_04(),
+        e5_12(),
         e5_02(),
         e7_16(),
         e8_04(),
@@ -4183,6 +4184,164 @@ fn constant_sample(shift: u8, nibble: u8) -> Vec<u8> {
 /// filter's own formula decides rather than at the input.
 fn filtered_sample(shift: u8, filter: u8, nibble: u8) -> Vec<u8> {
     brr_sample(&[brr_block(shift, filter, 0b11, nibble, nibble)], 0)
+}
+
+/// A mid-note `SRCN` change takes effect at the next loop point, and takes the new entry's **loop**
+/// address.
+///
+/// A directory entry holds two addresses: where the sample begins and where it returns to when a
+/// block's header says loop. A voice that is already running re-reads its entry's *loop* address
+/// every sample, so writing `SRCN` under a held note does not switch the waveform immediately —
+/// nothing happens until the current sample reaches a loop point, and what plays then is the new
+/// entry's loop address rather than its start. A driver swapping instruments under a held note
+/// therefore hears the change arrive late, and hears the tail of the new sample rather than its
+/// attack.
+///
+/// # Three constant samples, so the reading names which one is playing
+///
+/// Every sample is constant at shift 12, differing only in nibble, so `VxOUTX` identifies the
+/// source outright rather than by inference — and gaussian interpolation, which mixes four
+/// consecutive samples, has nothing to contribute when all four are equal.
+///
+/// | entry | address | nibble | `OUTX` |
+/// |---|---|---:|---|
+/// | 0 | start and loop | `+7` | `$6E` — what is playing when the change happens |
+/// | 1 | start | `+4` | `$3F` — what a core taking the *start* address would give |
+/// | 1 | loop | `+2` | `$1F` — what hardware gives |
+///
+/// The three readings are far enough apart that the assertion distinguishes all of them: `$6E` says
+/// the write never took effect, `$3F` says the wrong address was taken, `$1F` says it worked.
+/// Entry 1's two addresses pointing at *different* samples is the whole apparatus — with the usual
+/// arrangement, where an entry loops back to its own start, this row has no observable at all.
+///
+/// # The control is the same timing without the write
+///
+/// Phase 1 runs the identical delays and never touches `SRCN`, so it reads `$6E`. Without it,
+/// "phase 2 reads `$1F`" could mean the voice had wandered somewhere on its own — and the settles
+/// here are long, deliberately, so that is not an idle worry.
+///
+/// # What this does not cover
+///
+/// The row also says a change that lands *before* the voice has looped takes the new entry's
+/// **start** address. In the pipeline that clause is really about the key-on delay: the start
+/// address is read only while `keyon_delay` is non-zero, a window five output samples wide — about
+/// 160 SPC cycles. The cart's only timing lever is a `DBNZ` delay loop with a granularity of six
+/// cycles and an upload-dependent phase, so hitting that window reliably is not something this
+/// battery can do. It is left uncovered rather than approximated.
+fn e5_12() -> Test {
+    /// The sample directory, on the stack page well below the stack itself.
+    const DIR_ADDR: u16 = (DIR_PAGE as u16) << 8;
+
+    // Four blocks, so entry 0 runs for about 64 output samples before it loops.
+    let held: Vec<u8> = (0..4)
+        .flat_map(|i| brr_block(0xC, 0, if i == 3 { 0b11 } else { 0 }, 0x7, 0x7))
+        .collect();
+    let start_sample = brr_sample(&[brr_block(0xC, 0, 0b11, 0x4, 0x4)], 0);
+    let loop_sample = brr_sample(&[brr_block(0xC, 0, 0b11, 0x2, 0x2)], 0);
+
+    // One blob, because `data_first` places the program's whole data area and can only run once.
+    // The three samples' addresses are then offsets into it, computed from the same lengths that
+    // built it so they cannot drift apart.
+    let mut blob = held;
+    let off_start = u16::try_from(blob.len()).expect("the data area is far smaller than APU RAM");
+    blob.extend_from_slice(&start_sample);
+    let off_loop = u16::try_from(blob.len()).expect("the data area is far smaller than APU RAM");
+    blob.extend_from_slice(&loop_sample);
+
+    let mut prog = Spc::new();
+    let a_held = prog.data_first(IMAGE_BASE, &blob);
+    let a_start = a_held + off_start;
+    let a_loop = a_held + off_loop;
+    prog.mov_x_imm(0xEF).mov_sp_x();
+    for (i, addr) in [a_held, a_held, a_start, a_loop].into_iter().enumerate() {
+        let [lo, hi] = addr.to_le_bytes();
+        let at = DIR_ADDR + u16::try_from(i).expect("four directory words") * 2;
+        prog.mov_a_imm(lo).mov_abs_a(at);
+        prog.mov_a_imm(hi).mov_abs_a(at + 1);
+    }
+
+    dsp_write(&mut prog, 0x6C, 0x20); // FLG: running, unmuted, echo writes off
+    dsp_write(&mut prog, 0x5C, 0x00); // KOF
+    dsp_write(&mut prog, 0x3D, 0x00); // NON
+    dsp_write(&mut prog, 0x4D, 0x00); // EON
+    dsp_write(&mut prog, 0x2D, 0x00); // PMON
+    dsp_write(&mut prog, 0x5D, DIR_PAGE); // DIR
+    dsp_write(&mut prog, 0x0C, 0x7F); // MVOLL
+    dsp_write(&mut prog, 0x1C, 0x7F); // MVOLR
+    dsp_write(&mut prog, 0x00, 0x7F); // VOL L
+    dsp_write(&mut prog, 0x01, 0x7F); // VOL R
+    dsp_write(&mut prog, 0x02, 0x00); // PITCH low
+    dsp_write(&mut prog, 0x03, 0x10); // PITCH high: one sample per output sample
+    dsp_write(&mut prog, 0x06, 0x00); // ADSR2
+    dsp_write(&mut prog, 0x07, 0x7F); // GAIN: direct, full scale
+    dsp_write(&mut prog, 0x05, 0x00); // ADSR1: GAIN is in charge
+
+    e5_12_phase(&mut prog, false, PORT1); // the control: identical timing, SRCN left alone
+    e5_12_phase(&mut prog, true, PORT2); // and the same again, with the mid-note write
+    prog.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(209, "E5.12 OUTX with SRCN left alone (the control)");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(210, "E5.12 OUTX after a mid-note SRCN change");
+    a.c("The control: the same delays, no write, so entry 0 is still playing.");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x68,
+        0x76,
+        "the voice was not playing entry 0 after the same delays with SRCN untouched, so it moved \
+         on its own and the phase below cannot be attributed to the write",
+    );
+    a.c("And with the write, entry 1's loop address: nibble +2, so around $1F.");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x18,
+        0x26,
+        "a mid-note SRCN change did not land on the new entry's loop address. Around $6E means the \
+         write never took effect at all; around $3F means the entry's start address was taken \
+         instead, which is what a voice still inside its key-on delay would do and this one is \
+         long past that",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E5.12",
+        'E',
+        "SRCN change source",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: a mid-playback SRCN change takes the new entry's start \
+             address, or its loop address if the voice has already passed a loop point",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Emit one of [`e5_12`]'s two phases: key on entry 0, wait `blocks` delay blocks, swap to entry 1.
+///
+/// The key-off and the settle after it are what make the two phases independent. Without keying the
+/// voice off between them the second phase would inherit the first's already-looped state, and both
+/// readings would be the loop address — a test that agrees with itself and means nothing.
+fn e5_12_phase(prog: &mut Spc, change: bool, port: u8) {
+    dsp_write(prog, 0x5C, 0x01); // KOFF, so this phase starts from a stopped voice
+    prog.delay(0x40);
+    dsp_write(prog, 0x5C, 0x00);
+    dsp_write(prog, 0x04, 0x00); // SRCN: entry 0, the four-block sample
+    dsp_write(prog, 0x4C, 0x01); // KON
+    prog.delay(0x00);
+    dsp_write(prog, 0x4C, 0x00);
+    prog.delay(0x00); // the voice is well established and has passed at least one loop point
+    if change {
+        dsp_write(prog, 0x04, 0x01); // SRCN: entry 1, whose two addresses differ
+    }
+    prog.delay(0x00); // long enough for the next loop point to have come round
+    dsp_read_to(prog, 0x09, port); // OUTX names which sample is playing
 }
 
 /// BRR nibbles are signed: `$8` is `-8`, not `+8`.
