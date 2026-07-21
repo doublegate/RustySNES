@@ -6451,6 +6451,130 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; B3.01 — DRAM refresh pause
+; provenance: Contested (fullsnes and anomie put the pause at 40 clocks near line-clock 536, but ares' own source calls its refresh pattern technically wrong and only right on average, and docs/accuracy-ledger.md scopes refresh out of RustySNES on the measurement that its frame length is already correct without one)
+.proc test_b3_01
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    sei
+    stz $4200         ; no NMI and no timer IRQs
+    stz $420C         ; no HDMA -- the only other thing that steals CPU cycles per line
+    ; Settle on a frame boundary, then walk forward until H is near the start of a line, so
+    ; the window that follows has a whole scanline in front of it.
+    jsr wait_vblank
+    sep #$20
+    .a8
+    rep #$10
+    .i16
+@sync:
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213C         ; H low
+    sta f:$7E0160
+    lda $213C         ; H high
+    and #$01
+    bne @sync         ; H >= 256: no room left in this line
+    lda f:$7E0160
+    cmp #16
+    bcs @sync
+    ; Four samples of the full 9-bit counter, into $7E0160..$7E0167 as 16-bit words.
+    ldx #$0000
+@sloop:
+    lda $2137         ; latch
+    lda $213C         ; H low
+    sta f:$7E0160,x
+    lda $213C         ; H high
+    and #$01          ; bits 1-7 are PPU2 open bus
+    sta f:$7E0161,x
+    inx
+    inx
+    cpx #$0008
+    bne @sloop
+    ; Difference the samples.
+    rep #$30
+    .a16
+    .i16
+    lda #$FFFF
+    sta f:$7E0168     ; running minimum
+    lda #$0000
+    sta f:$7E016A     ; running maximum
+    sta f:$7E016C     ; H at the start of the longest interval
+    ldx #$0000
+@dloop:
+    lda f:$7E0162,x
+    sec
+    sbc f:$7E0160,x
+    cmp f:$7E0168
+    bcs :+
+    sta f:$7E0168
+    :
+    cmp f:$7E016A
+    bcc :+
+    beq :+
+    sta f:$7E016A
+    lda f:$7E0160,x   ; the sample the longest interval starts from
+    sta f:$7E016C
+    :
+    inx
+    inx
+    cpx #$0006
+    bne @dloop
+    ; The window bounds are recorded too: without them a reader cannot tell whether the pause
+    ; was inside the sampled span or never had a chance to appear.
+    lda f:$7E0168
+    ; record slot 106: B3 shortest interval in dots (the stall-free loop period)
+    sta f:$7EE2D4
+    lda f:$7E016A
+    ; record slot 107: B3 longest interval in dots
+    sta f:$7EE2D6
+    lda f:$7E016C
+    ; record slot 108: B3 H at the start of the longest interval
+    sta f:$7EE2D8
+    lda f:$7E0160
+    ; record slot 109: B3 H at the first sample (window start)
+    sta f:$7EE2DA
+    lda f:$7E0166
+    ; record slot 124: B3 H at the last sample (window end)
+    sta f:$7EE2F8
+    lda f:$7E016A
+    cmp #200
+    bcc :+
+    ; No loop iteration takes 200 dots. A delta that large means the window crossed a line
+    ; boundary and the samples ran backwards -- say so rather than report a giant pause.
+    sep #$20
+    .a8
+    lda #$07          ; variant 3 = window left the scanline, measurement invalid
+    sta f:$7EE010
+    jml test_restore
+    :
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E016A
+    sec
+    sbc f:$7E0168
+    cmp #4
+    bcs :+
+    sep #$20
+    .a8
+    lda #$03          ; variant 1 = the intervals are flat; no per-line pause is modelled
+    sta f:$7EE010
+    jml test_restore
+    :
+    sep #$20
+    .a8
+    lda #$05          ; variant 2 = one interval stands out; slots 106/107 size it
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; D1.01 — DMA mode 0
 ; provenance: Documented (SNESdev Wiki, DMA; fullsnes)
 .proc test_d1_01
@@ -21786,7 +21910,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 263
+    .word 264
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -21931,6 +22055,7 @@ _test_entries:
     .faraddr test_b2_10
     .faraddr test_b4_07
     .faraddr test_b4_09
+    .faraddr test_b3_01
     .faraddr test_d1_01
     .faraddr test_d1_01b
     .faraddr test_d1_06
@@ -22197,6 +22322,7 @@ _test_flags:
     .byte $02   ; B2.10
     .byte $02   ; B4.07
     .byte $01   ; B4.09
+    .byte $02   ; B3.01
     .byte $01   ; D1.01
     .byte $01   ; D1.01b
     .byte $01   ; D1.06
@@ -22463,6 +22589,7 @@ _test_names:
     .addr @n_b2_10
     .addr @n_b4_07
     .addr @n_b4_09
+    .addr @n_b3_01
     .addr @n_d1_01
     .addr @n_d1_01b
     .addr @n_d1_06
@@ -23008,6 +23135,9 @@ _test_names:
 @n_b4_09:
     .byte 17
     .byte "HV-IRQ needs both"
+@n_b3_01:
+    .byte 18
+    .byte "DRAM refresh pause"
 @n_d1_01:
     .byte 10
     .byte "DMA mode 0"

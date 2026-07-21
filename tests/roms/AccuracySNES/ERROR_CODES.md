@@ -1449,6 +1449,12 @@ Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
 |---|---|---|
 | 1 | `$02` | the HV-IRQ did not require both comparators to match |
 
+### B3.01 — DRAM refresh pause
+
+Provenance: **Contested** (fullsnes and anomie put the pause at 40 clocks near line-clock 536, but ares' own source calls its refresh pattern technically wrong and only right on average, and docs/accuracy-ledger.md scopes refresh out of RustySNES on the measurement that its frame length is already correct without one). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
 ## Group D
 
 ### D1.01 — DMA mode 0

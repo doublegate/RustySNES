@@ -705,3 +705,56 @@ fn irq_dispatch_latency_is_reported() {
         "both latency slots are zero: the handler never ran, so nothing was measured"
     );
 }
+
+/// `B3.01`'s DRAM-refresh probe, reported for cross-emulator comparison.
+///
+/// The cart samples the H counter six times inside one scanline and differences the readings. A
+/// core that models the 5A22's per-line refresh pause shows one interval about ten dots longer
+/// than the rest; a core that models none shows a flat sequence. RustySNES is deliberately in the
+/// second class — `docs/accuracy-ledger.md` scopes refresh out on the measurement that frame
+/// length is already correct without it — so this reports rather than asserts, and the number worth
+/// carrying to another emulator is the excess, not the absolute period.
+///
+/// What *is* asserted is that the measurement is a measurement: the window has to have opened near
+/// the start of a line, stayed inside it, and produced intervals that could physically be loop
+/// iterations. A wrapped H reading looks exactly like an enormous pause, which is the one failure
+/// that would turn this from evidence into a false positive.
+#[test]
+fn dram_refresh_probe_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+
+    let (shortest, longest) = (report.meas[106], report.meas[107]);
+    let (at_longest, start, end) = (report.meas[108], report.meas[109], report.meas[124]);
+    let excess = longest.saturating_sub(shortest);
+
+    println!("\n  B3 DRAM refresh probe (dots):");
+    println!("    slot 109  {start:5}  H at the first sample");
+    println!("    slot 124  {end:5}  H at the last sample");
+    println!("    slot 106  {shortest:5}  shortest interval — the stall-free loop period");
+    println!("    slot 107  {longest:5}  longest interval");
+    println!("    slot 108  {at_longest:5}  H the longest interval starts from");
+    println!("    excess    {excess:5}  longest - shortest (a 40-clock pause is 10 dots)");
+
+    assert!(
+        start < 128,
+        "the first sample landed at dot {start}. The sync loop releases below dot 16 and one \
+         iteration follows before the first sample, so anything this late means the loop is not \
+         running at the speed the window was sized for"
+    );
+    assert!(
+        end > start && end < 341,
+        "the window runs {start}..{end}, which is not a forward span inside one scanline — the \
+         samples crossed a line boundary and the intervals derived from them mean nothing"
+    );
+    assert!(
+        shortest > 0 && longest < 200,
+        "intervals of {shortest}..{longest} dots are not loop iterations: zero means the samples \
+         never advanced, and 200 or more means the window left the scanline"
+    );
+    assert!(
+        at_longest >= start && at_longest <= end,
+        "the longest interval is said to start at dot {at_longest}, outside the sampled window \
+         {start}..{end}"
+    );
+}

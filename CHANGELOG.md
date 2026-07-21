@@ -541,6 +541,32 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`B3.01` — the DRAM refresh pause, probed by the tight H-counter loop `B3.03` names.** A **golden
+  vector**, and it closes all three `B3` rows at once: the pause's size (`B3.01`), where it falls
+  (`B3.02`), and that a tight H-counter loop is what makes it visible (`B3.03`).
+
+  The cart samples the full 9-bit H counter four times inside one scanline and differences the
+  readings. A core that models the 5A22's per-line refresh shows one interval about ten dots longer
+  than the others; a core that models none shows a flat sequence. **snes9x reports 64/75 dots — an
+  11-dot excess starting at dot 80 — and RustySNES reports 63/65, flat.**
+
+  Recorded rather than scored, deliberately. `docs/accuracy-ledger.md` scopes refresh out of
+  RustySNES on the measurement that frame length is *already* the correct ~357,368 clocks without
+  one, so adding a stall would make frame length wrong; and ares' own source says its refresh
+  pattern is technically incorrect and only right on average. A reference that disclaims itself is
+  not an oracle. The numbers go to the measurement channel and the verdict only names the shape.
+
+  The probe was verified by injecting a synthetic 40-clock per-line stall into the emulator: the
+  test flipped from variant 1 to variant 2 with an 11-dot excess in exactly the interval spanning
+  the injected dot, and back again when the injection was removed. Without that check "flat" would
+  have been indistinguishable from a probe too coarse to see anything.
+
+  Two things it deliberately does not claim. Its resolution is one loop iteration — about 60 dots —
+  so it brackets the pause rather than confirming `B3.02`'s multiple-of-8 rule. And a first version
+  that stored only the low byte of H had its window run past dot 255, where the wrap looked exactly
+  like a large pause; the full 9-bit reading turns that into a decreasing sample, which the test
+  reports as an invalid measurement instead of as evidence.
+
 - **`C14.03` — `$213E` bit 5, PPU1's master/slave mode pin.** A **golden vector**, never scored:
   the bit reports a board wiring input rather than emulator state, so a cart cannot distinguish
   "models the pin" from "returns zero here and always would". Recorded as a variant, the same call

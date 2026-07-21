@@ -830,6 +830,45 @@ So it ships as a golden vector reporting `(latched H - HTIME)` in 4-dot buckets:
 stable across alignment, fine enough that a core waking a scanline late announces itself. Both cores
 report variant 5. Asserting "1 cycle" from this would be measuring the instrument.
 
+### `B3` — the refresh pause is measured and recorded, and RustySNES does not model one
+
+All three `B3` rows are about one mechanism: the 5A22 stops the CPU once per scanline to refresh
+WRAM. `B3.01` sizes it at 40 master clocks, `B3.02` places it near line-clock 536, and `B3.03` says
+a tight H-counter loop is how you see it. One test covers all three, as a **golden vector**.
+
+**Why it cannot be scored.** Two independent reasons, either sufficient. `docs/accuracy-ledger.md`
+scopes refresh out of RustySNES on a measurement, not a preference: across 500 frames and 3 ROMs the
+CPU-driven model already produces the correct ~357,368-clock NTSC frame, so an added stall would
+make frame length *wrong*. And ares' own source (`sfc/cpu/timing.cpp:23`) says its refresh pattern is
+technically incorrect and merely averages out. A reference that disclaims itself is not an oracle,
+and the diagnostic rule needs cores that agree for the right reason.
+
+**What it measures.** Four samples of the full 9-bit H counter inside one scanline, differenced.
+Three intervals; a modelled pause lands entirely in one of them.
+
+| core | shortest | longest | excess | interval starts at |
+|---|---:|---:|---:|---:|
+| snes9x | 64 | 75 | **11** | dot 80 |
+| RustySNES | 63 | 65 | 2 | dot 68 |
+
+snes9x models the pause and RustySNES does not — visible only in the measurement channel, since a
+golden passes everywhere and cross-validation compares verdicts rather than numbers. That is what
+the harness-side reporter (`dram_refresh_probe_is_reported`) exists to surface.
+
+**Verified by breaking it.** A flat reading is worthless unless the probe could have seen a pause.
+A synthetic 40-clock per-line stall was injected into the emulator's per-access cost; the test moved
+to variant 2 with an 11-dot excess in exactly the interval spanning the injected dot, and returned
+to variant 1 when the injection was removed. The instrument works; RustySNES has nothing for it to
+find.
+
+**Two limits stated on the record.** The loop's period is ~60 dots, so the result brackets the pause
+rather than confirming `B3.02`'s multiple-of-8 rule — the position column above is an interval
+start, not a pause position. And a first version storing only H's low byte had its window run past
+dot 255, where the wrap read as a large positive delta indistinguishable from a pause; carrying the
+ninth bit turns that into a decreasing sample, which the test reports as an invalid measurement
+rather than as evidence. That failure mode is why the window bounds are recorded alongside the
+intervals.
+
 ### `D2.01` and `D2.08` share one working design — a window read at a pinned line
 
 Both rows were attempted and withdrawn above, for different reasons. Working through both

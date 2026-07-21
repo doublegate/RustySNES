@@ -52,6 +52,8 @@ pub fn all() -> Vec<Test> {
         b2_10(),
         b4_07(),
         b4_09(),
+        // --- B3: DRAM refresh ---
+        b3_01(),
     ]
 }
 
@@ -1319,6 +1321,192 @@ fn b4_16() -> Test {
         Kind::Golden,
         None,
     )
+}
+
+/// The DRAM refresh pause, probed by the tight H-counter loop `B3.03` names -- a golden vector.
+///
+/// The 5A22 stops the CPU once per scanline to refresh WRAM. `B3.01` puts the pause at 40 master
+/// clocks, `B3.02` at clock 538 on the first line and thereafter at the multiple of 8 nearest 536
+/// after the previous one, and `B3.03` says the way to see it is a tight loop reading the H
+/// counter. This test is that loop.
+///
+/// # Why it records rather than asserts
+///
+/// Three separate reasons, any one of which would be enough:
+///
+/// * `docs/accuracy-ledger.md` scopes refresh out of RustySNES *empirically* -- measured over 500
+///   frames across 3 ROMs, the CPU-driven model already produces the correct ~357,368-clock NTSC
+///   frame, so bolting on an extra stall would make frame length wrong.
+/// * ares says in its own source that its refresh pattern is "technically" wrong and only averages
+///   out (`sfc/cpu/timing.cpp:23`). A reference that disclaims itself is not an oracle.
+/// * The loop's own period is far coarser than the pause. Each iteration costs four bus accesses
+///   from an 8-clock bank plus the index work -- about 60 dots -- so with three intervals the
+///   pause is resolved as an outlier, nowhere near the multiple-of-8 precision `B3.02` states.
+///
+/// So the numbers go to the measurement channel and the verdict only says which shape was seen.
+/// What makes that worth having: **the shape is discriminating even though the position is not.**
+/// A core modelling the pause shows one interval about ten dots longer than the others; a core
+/// modelling none shows a flat sequence. That is a yes/no about a whole subsystem, from three
+/// subtractions.
+///
+/// # The window has to stay inside one line
+///
+/// A first version stored only the low byte of H, which is a whole access cheaper per sample. It
+/// did not survive contact: the window is ~60 dots per sample, so it reached past dot 255, the low
+/// byte wrapped, and one delta came back as a large positive number that looked exactly like a
+/// pause. Storing the full 9-bit counter turns that failure into a **decreasing** sample and hence
+/// an impossible delta, which the test reports as variant 3 -- measurement invalid -- rather than
+/// as evidence. The sync loop reads both bytes for the same reason: the low byte alone cannot tell
+/// dot 8 from dot 264.
+fn b3_01() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("sei");
+    a.l("stz $4200         ; no NMI and no timer IRQs");
+    a.l("stz $420C         ; no HDMA -- the only other thing that steals CPU cycles per line");
+    refresh_sync_to_line_start(&mut a);
+    refresh_sample_window(&mut a);
+    refresh_reduce(&mut a);
+    a.c("The window bounds are recorded too: without them a reader cannot tell whether the pause");
+    a.c("was inside the sampled span or never had a chance to appear.");
+    a.l("lda f:$7E0168");
+    a.record(
+        106,
+        "B3 shortest interval in dots (the stall-free loop period)",
+    );
+    a.l("lda f:$7E016A");
+    a.record(107, "B3 longest interval in dots");
+    a.l("lda f:$7E016C");
+    a.record(108, "B3 H at the start of the longest interval");
+    a.l("lda f:$7E0160");
+    a.record(109, "B3 H at the first sample (window start)");
+    a.l("lda f:$7E0166");
+    a.record(124, "B3 H at the last sample (window end)");
+    a.l("lda f:$7E016A");
+    a.l("cmp #200");
+    a.l("bcc :+");
+    a.c("No loop iteration takes 200 dots. A delta that large means the window crossed a line");
+    a.c("boundary and the samples ran backwards -- say so rather than report a giant pause.");
+    a.l("sep #$20");
+    a.l("lda #$07          ; variant 3 = window left the scanline, measurement invalid");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("rep #$30");
+    a.l("lda f:$7E016A");
+    a.l("sec");
+    a.l("sbc f:$7E0168");
+    a.l("cmp #4");
+    a.l("bcs :+");
+    a.l("sep #$20");
+    a.l("lda #$03          ; variant 1 = the intervals are flat; no per-line pause is modelled");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("sep #$20");
+    a.l("lda #$05          ; variant 2 = one interval stands out; slots 106/107 size it");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.finish(
+        "B3.01",
+        'B',
+        "DRAM refresh pause",
+        Provenance::Contested(
+            "fullsnes and anomie put the pause at 40 clocks near line-clock 536, but ares' own \
+             source calls its refresh pattern technically wrong and only right on average, and \
+             docs/accuracy-ledger.md scopes refresh out of RustySNES on the measurement that its \
+             frame length is already correct without one",
+        ),
+        Kind::Golden,
+        None,
+    )
+}
+
+/// Emit [`b3_01`]'s sync: spin until the H counter is near the start of a line.
+///
+/// Both H bytes are read. The low byte alone cannot tell dot 8 from dot 264, and a window opened
+/// at 264 would spend most of its length in the *next* scanline — where a second refresh pause
+/// waits, which would make two intervals long and neither of them interpretable.
+fn refresh_sync_to_line_start(a: &mut Asm) {
+    a.c("Settle on a frame boundary, then walk forward until H is near the start of a line, so");
+    a.c("the window that follows has a whole scanline in front of it.");
+    a.l("jsr wait_vblank");
+    a.l("sep #$20");
+    a.l("rep #$10");
+    a.label("sync");
+    a.l("lda $213F         ; reset the counter read flipflops");
+    a.l("lda $2137         ; latch H and V");
+    a.l("lda $213C         ; H low");
+    a.l("sta f:$7E0160");
+    a.l("lda $213C         ; H high");
+    a.l("and #$01");
+    a.l("bne @sync         ; H >= 256: no room left in this line");
+    a.l("lda f:$7E0160");
+    a.l("cmp #16");
+    a.l("bcs @sync");
+}
+
+/// Emit [`b3_01`]'s sampling loop: four readings of the full 9-bit H counter, ~60 dots apart.
+///
+/// Storing only the low byte would save an access per iteration, and was tried. It does not work:
+/// the window reaches past dot 255, the low byte wraps, and the wrapped delta comes back as a
+/// large positive number indistinguishable from a pause. Keeping the high bit makes an overrun
+/// show up as a *decreasing* sample instead, which [`b3_01`] reports as an invalid measurement.
+///
+/// `$213C` is read twice per sample; the second read is what returns the address flipflop to the
+/// low byte for the next iteration, so it costs nothing beyond the access it already needs.
+fn refresh_sample_window(a: &mut Asm) {
+    a.c("Four samples of the full 9-bit counter, into $7E0160..$7E0167 as 16-bit words.");
+    a.l("ldx #$0000");
+    a.label("sloop");
+    a.l("lda $2137         ; latch");
+    a.l("lda $213C         ; H low");
+    a.l("sta f:$7E0160,x");
+    a.l("lda $213C         ; H high");
+    a.l("and #$01          ; bits 1-7 are PPU2 open bus");
+    a.l("sta f:$7E0161,x");
+    a.l("inx");
+    a.l("inx");
+    a.l("cpx #$0008");
+    a.l("bne @sloop");
+}
+
+/// Emit [`b3_01`]'s reduction: the shortest interval, the longest, and where the longest starts.
+///
+/// A stall-free loop gives three identical intervals, so the pause — if the core models one — adds
+/// its whole length to exactly one of them. `max - min` is therefore the pause and the sample the
+/// longest interval starts from is as close to its position as this method can get.
+fn refresh_reduce(a: &mut Asm) {
+    a.c("Difference the samples.");
+    a.l("rep #$30");
+    a.l("lda #$FFFF");
+    a.l("sta f:$7E0168     ; running minimum");
+    a.l("lda #$0000");
+    a.l("sta f:$7E016A     ; running maximum");
+    a.l("sta f:$7E016C     ; H at the start of the longest interval");
+    a.l("ldx #$0000");
+    a.label("dloop");
+    a.l("lda f:$7E0162,x");
+    a.l("sec");
+    a.l("sbc f:$7E0160,x");
+    a.l("cmp f:$7E0168");
+    a.l("bcs :+");
+    a.l("sta f:$7E0168");
+    a.l(":");
+    a.l("cmp f:$7E016A");
+    a.l("bcc :+");
+    a.l("beq :+");
+    a.l("sta f:$7E016A");
+    a.l("lda f:$7E0160,x   ; the sample the longest interval starts from");
+    a.l("sta f:$7E016C");
+    a.l(":");
+    a.l("inx");
+    a.l("inx");
+    a.l("cpx #$0006");
+    a.l("bne @dloop");
 }
 
 /// An H-IRQ fires on the programmed dot, and the horizontal comparator lags `HTIME`.
