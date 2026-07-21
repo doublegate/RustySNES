@@ -9893,6 +9893,50 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; D1.11 — DMA power-on state
+; provenance: Corroborated (fullsnes register table and the SNESdev DMA-registers page agree independently; ares and bsnes default every channel field to match)
+.proc test_d1_11
+    .a16
+    .i16
+    ; AND the eleven agreed bytes together: all $FF gives $FF, and any other value cannot.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$FF
+    and f:V_PO_DMA+0  ; $4300 DMAP
+    and f:V_PO_DMA+1  ; $4301 BBAD
+    and f:V_PO_DMA+2  ; $4302 A1T low
+    and f:V_PO_DMA+3  ; $4303 A1T high
+    ; +4 ($4304, the A1T bank) is skipped: SNESdev says $FF, fullsnes says unspecified.
+    and f:V_PO_DMA+5  ; $4305 DAS low
+    and f:V_PO_DMA+6  ; $4306 DAS high
+    and f:V_PO_DMA+7  ; $4307 DASB
+    and f:V_PO_DMA+8  ; $4308 A2A low
+    and f:V_PO_DMA+9  ; $4309 A2A high
+    and f:V_PO_DMA+10 ; $430A NLTR
+    and f:V_PO_DMA+11 ; $430B unused/scratch
+    cmp #$FF
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; a DMA channel register did not power on as $FF (Heian Fuuunden depends on this)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; D1.03 — DMA startup overhead
 ; provenance: Documented (SNESdev Wiki, DMA timing; fullsnes)
 .proc test_d1_03
@@ -21225,7 +21269,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 256
+    .word 257
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -21378,6 +21422,7 @@ _test_entries:
     .faraddr test_d2_04
     .faraddr test_d2_07
     .faraddr test_d1_14
+    .faraddr test_d1_11
     .faraddr test_d1_03
     .faraddr test_d1_04
     .faraddr test_d2_05
@@ -21637,6 +21682,7 @@ _test_flags:
     .byte $01   ; D2.04
     .byte $01   ; D2.07
     .byte $01   ; D1.14
+    .byte $01   ; D1.11
     .byte $02   ; D1.03
     .byte $01   ; D1.04
     .byte $01   ; D2.05
@@ -21896,6 +21942,7 @@ _test_names:
     .addr @n_d2_04
     .addr @n_d2_07
     .addr @n_d1_14
+    .addr @n_d1_11
     .addr @n_d1_03
     .addr @n_d1_04
     .addr @n_d2_05
@@ -22450,6 +22497,9 @@ _test_names:
 @n_d1_14:
     .byte 21
     .byte "$2180 B->A does write"
+@n_d1_11:
+    .byte 18
+    .byte "DMA power-on state"
 @n_d1_03:
     .byte 20
     .byte "DMA startup overhead"

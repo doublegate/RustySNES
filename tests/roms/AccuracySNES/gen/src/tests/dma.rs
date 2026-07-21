@@ -30,6 +30,7 @@ pub fn all() -> Vec<Test> {
         d2_04(),
         d2_07(),
         d1_14(),
+        d1_11(),
         d1_03(),
         d1_04(),
         d2_05(),
@@ -752,6 +753,68 @@ fn d2_07() -> Test {
         'D',
         "HDMA preempts GP-DMA",
         Provenance::Documented("SNESdev Wiki, HDMA; anomie's timing doc; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The DMA channel registers power on as `$FF` across the board.
+///
+/// SNESdev's *Tricky-to-emulate games* lists *"DMA controller power on state is invalid"* against
+/// **Heian Fuuunden**, whose title screen corrupts when the opening is skipped: the game relies on
+/// the reset contents of `$43xx` rather than writing every field itself. fullsnes' register table
+/// and the SNESdev DMA-registers page independently give the same power-on values, and ares and
+/// bsnes default every channel field to match.
+///
+/// # Why this is captured rather than read
+///
+/// `init_registers` leaves `$43xx` alone, but *every DMA test writes them*. By the time any test
+/// body runs, the channel registers hold whatever the last DMA test left, so reading them from a
+/// test would measure the battery rather than the machine. `capture_power_on` therefore snapshots
+/// `$4300-$430B` at the very top of reset, the same mechanism `B5.05` and the `G1` rows use.
+///
+/// # `$43x4` is excluded, deliberately
+///
+/// SNESdev pins the A1T bank byte to `$FF`; fullsnes prints it as `xx`, i.e. unspecified. One
+/// source is not enough to score against, so the check ANDs the other eleven bytes together and
+/// leaves `$4304` out. The AND is the whole assertion: if every byte is `$FF` the result is `$FF`,
+/// and any byte that is not contributes a zero bit that cannot be masked back.
+///
+/// Reset behaviour is **not** asserted. fullsnes says `$43xx` is left unchanged by reset, SNESdev
+/// is silent, ares and bsnes re-default the channels unconditionally, and Mesen2 does not — a
+/// genuine three-way split, and a cart cannot drive a reset to look anyway.
+fn d1_11() -> Test {
+    let mut a = Asm::new();
+    a.c("AND the eleven agreed bytes together: all $FF gives $FF, and any other value cannot.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$FF");
+    a.l("and f:V_PO_DMA+0  ; $4300 DMAP");
+    a.l("and f:V_PO_DMA+1  ; $4301 BBAD");
+    a.l("and f:V_PO_DMA+2  ; $4302 A1T low");
+    a.l("and f:V_PO_DMA+3  ; $4303 A1T high");
+    a.c("+4 ($4304, the A1T bank) is skipped: SNESdev says $FF, fullsnes says unspecified.");
+    a.l("and f:V_PO_DMA+5  ; $4305 DAS low");
+    a.l("and f:V_PO_DMA+6  ; $4306 DAS high");
+    a.l("and f:V_PO_DMA+7  ; $4307 DASB");
+    a.l("and f:V_PO_DMA+8  ; $4308 A2A low");
+    a.l("and f:V_PO_DMA+9  ; $4309 A2A high");
+    a.l("and f:V_PO_DMA+10 ; $430A NLTR");
+    a.l("and f:V_PO_DMA+11 ; $430B unused/scratch");
+    a.assert_a8(
+        0xFF,
+        "a DMA channel register did not power on as $FF (Heian Fuuunden depends on this)",
+    );
+    a.finish(
+        "D1.11",
+        'D',
+        "DMA power-on state",
+        Provenance::Corroborated(
+            "fullsnes register table and the SNESdev DMA-registers page agree independently; \
+             ares and bsnes default every channel field to match",
+        ),
         Kind::Scored,
         None,
     )

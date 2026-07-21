@@ -181,6 +181,22 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     sta f:V_PO_DIV
     lda $4216
     sta f:V_PO_DIVREM
+
+    ; DMA channel 0's registers, before any test can write them. init_registers clears $420B/$420C
+    ; but leaves $43xx alone, so what is here is what reset left -- and every source says that is
+    ; $FF across the board (D1.11, the row Heian Fuuunden depends on).
+    sep #$20
+    .a8
+    rep #$10
+    .i16
+    ldx #$0000
+@po_dma:
+    lda f:$004300,x
+    sta f:V_PO_DMA,x
+    inx
+    cpx #$000C
+    bne @po_dma
+
     sep #$20
     .a8
     rts

@@ -1261,6 +1261,14 @@ Provenance: **Documented** (fullsnes: $2180->WRAM writes, but the value written 
 |---|---|---|
 | 1 | `$02` | $2180 as a DMA source performed no write — both destinations still hold their seeds |
 
+### D1.11 — DMA power-on state
+
+Provenance: **Corroborated** (fullsnes register table and the SNESdev DMA-registers page agree independently; ares and bsnes default every channel field to match). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a DMA channel register did not power on as $FF (Heian Fuuunden depends on this) |
+
 ### D1.03 — DMA startup overhead
 
 Provenance: **Documented** (SNESdev Wiki, DMA timing; fullsnes). Kind: golden vector, never scored.

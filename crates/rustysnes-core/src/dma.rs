@@ -80,7 +80,11 @@ impl Default for Channel {
             indirect_bank: 0xFF,
             hdma_addr: 0xFFFF,
             line_counter: 0xFF,
-            scratch: 0,
+            // $43xB powers on as $FF like every other channel register, not as zero. fullsnes'
+            // register table and the SNESdev DMA-registers page both give $FF, and ares and bsnes
+            // default their equivalent field (`unknown`) to $FF too. Found by AccuracySNES `D1.11`,
+            // which snes9x and Mesen2 both passed while this failed.
+            scratch: 0xFF,
             hdma_completed: false,
             hdma_do_transfer: false,
         }

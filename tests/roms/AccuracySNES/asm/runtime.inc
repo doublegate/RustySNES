@@ -42,7 +42,7 @@ V_APU_STAGE     = VAR_BASE + $28      ; which handshake step failed, if one did
 V_APU_PTR       = $0050
 
 ; ---------------------------------------------------------------------------------------------
-; Power-on capture block ($E040-$E04F).
+; Power-on capture block ($E040-$E04F, plus the DMA snapshot at $E060-$E06B).
 ;
 ; Sampled by `capture_power_on` at the very top of reset, BEFORE `init_registers` runs. This
 ; exists because `init_registers` deliberately puts every PPU and CPU register into a known state
@@ -58,6 +58,12 @@ V_PO_DIVREM     = VAR_BASE + $44      ; RDMPY (remainder) from that same divide 
 V_PO_EMU        = VAR_BASE + $46      ; 1 if the CPU was in emulation mode at reset, 0 if not (u8)
 V_PO_RDNMI      = VAR_BASE + $47      ; $4210 as first read after reset (u8) — bit 7 and version
 V_PO_TIMEUP     = VAR_BASE + $48      ; $4211 as first read after reset (u8) — bit 7
+; DMA channel 0's registers ($4300-$430B) as they were at power-on, captured before any test can
+; write them. The runtime clears $420B/$420C at init but never touches $43xx, so the only thing that
+; would destroy these is an earlier test -- which is exactly why they are sampled in
+; capture_power_on rather than read from a test body. 12 bytes, $60-$6B; the previous highest
+; VAR_BASE offset in use is $50.
+V_PO_DMA        = VAR_BASE + $60      ; $4300-$430B at power-on (12 bytes)
 
 ; ---------------------------------------------------------------------------------------------
 ; Wide (frame-relative) cycle measurement. See `hv_latch_wide` in runtime.s.
