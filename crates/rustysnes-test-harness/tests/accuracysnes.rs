@@ -1059,3 +1059,19 @@ fn sustain_boundary_is_reported() {
         report.meas[191]
     );
 }
+
+/// `E7.03`'s two mid-attack readings, reported so the window can be judged.
+#[test]
+fn attack_rate_index_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E7.03 ENVX mid-attack:");
+    println!(
+        "    slot 141  {:#04x}  attack rate $8 (index 17)",
+        report.meas[141]
+    );
+    println!(
+        "    slot 142  {:#04x}  attack rate $C (index 25)",
+        report.meas[142]
+    );
+}

@@ -110,6 +110,7 @@ pub fn all() -> Vec<Test> {
         e7_05(),
         e7_06(),
         e7_07(),
+        e7_03(),
         e7_08(),
         e8_07(),
         e8_10(),
@@ -1399,6 +1400,93 @@ fn e7_07() -> Test {
         Provenance::Documented(
             "fullsnes and anomie's DSP doc: the decay phase ends when (E >> 8) equals the ADSR2 \
              sustain level, giving a boundary of $100 per level",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The attack rate indexes the counter table at `a*2+1`, stepping `+32`.
+///
+/// `E7.04` covers the one exception — rate `$F`, which fires every sample with a `+1024` step. This
+/// covers the other fifteen, where the field is doubled and offset by one before it reaches the
+/// table. A core using `a` verbatim indexes the slow half of the table for every setting, so every
+/// attack is far too gradual while decay, sustain and release stay correct.
+///
+/// # Two rates from the middle of the range
+///
+/// `$8` and `$C`, giving indices 17 and 25 — both well away from `$F`, so this test says nothing
+/// about the special case and `E7.04` says nothing about this one. Both voices hold sustain level 7
+/// with rate 0, so whichever finishes its attack parks at full scale instead of decaying back and
+/// muddying the comparison.
+///
+/// | run | `ADSR1` | attack | index | expected |
+/// |---|---|---|---|---|
+/// | 1 | `$88` | `$8` | 17 | partway up |
+/// | 2 | `$8C` | `$C` | 25 | substantially higher |
+///
+/// # The guard
+///
+/// Run 1 is asserted to be genuinely mid-attack, not merely non-zero. At the top both rates read
+/// `$7F` and the comparison is empty; at the bottom both read `$00` and the same is true. A core
+/// indexing with `a` verbatim lands in the slow half of the table for both settings and fails that
+/// bound rather than the comparison — which is the more informative failure, since it says the
+/// indexing is wrong rather than that two numbers disagreed.
+fn e7_03() -> Test {
+    let attacking = |adsr1: u8| Voice {
+        adsr1,
+        adsr2: 0xE0, // sustain level 7, rate 0: park at the top rather than decay back
+        settle: 4,
+        ..Voice::direct_gain()
+    };
+    let slow = voice_program(&looping_sample(), attacking(0x88));
+    let fast = voice_program(&looping_sample(), attacking(0x8C));
+
+    let mut a = Asm::new();
+    a.c("--- attack rate $8, index 17 ---");
+    upload_and_run_tagged(&mut a, &slow, "_a8");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.l("sta f:$7E0200     ; ENVX, before the second upload overwrites the mailbox copy");
+    a.c("--- attack rate $C, index 25 ---");
+    upload_and_run_tagged(&mut a, &fast, "_ac");
+    a.l("rep #$30");
+    a.l("lda f:$7E0200");
+    a.l("and #$00FF");
+    a.record(141, "E7.03 ENVX mid-attack at rate $8 (index 17)");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(142, "E7.03 ENVX mid-attack at rate $C (index 25)");
+    a.c("The guard: run 1 has to be mid-attack. At either end both rates read the same.");
+    a.l("lda f:$7E0200");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x01,
+        0x7E,
+        "the slower attack was not caught in progress — at full scale or still at zero, both \
+         rates read alike and the comparison below is empty. A core indexing with `a` verbatim \
+         lands here, in the slow half of the table for both settings",
+    );
+    a.c("And the faster rate must have climbed substantially further over the same interval.");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.l("sec");
+    a.l("sbc f:$7E0200");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x08,
+        0x7F,
+        "the two attack rates left the envelope in nearly the same place, so the field is not \
+         being doubled before it indexes the table",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E7.03",
+        'E',
+        "Attack index a*2+1",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: the attack phase indexes the counter table at a*2+1 \
+             and steps the envelope by +32",
         ),
         Kind::Scored,
         None,

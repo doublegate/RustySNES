@@ -575,6 +575,19 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E7.03` — the attack rate indexes the counter table at `a*2+1`.** `E7.04` covers the one
+  exception, rate `$F`; this covers the other fifteen, where the field is doubled and offset before
+  it reaches the table. A core using `a` verbatim indexes the slow half for every setting, so every
+  attack is far too gradual while decay, sustain and release stay correct.
+
+  Rates `$8` and `$C` (indices 17 and 25), both well away from `$F` so the two tests stay disjoint,
+  read at `$08` and `$3A` mid-attack. Verified by indexing with `a` verbatim, which fails at code 1
+  — the **guard**, not the comparison, and that is the more informative failure: it says the
+  indexing is wrong rather than that two numbers disagreed.
+
+  The measurement channel filled up again at 192 slots; this test uses gaps freed by earlier moves
+  rather than widening it a second time.
+
 - **`E7.07` — decay hands over to sustain on the `$100*(l+1)` boundary.** With the sustain rate at
   zero the envelope freezes where decay stops, so the parking level *is* the boundary and is
   readable directly. Levels 3 and 5 park at `$40` and `$60`; snes9x reports the same two values.

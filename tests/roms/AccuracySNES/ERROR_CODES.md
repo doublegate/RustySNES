@@ -2271,6 +2271,15 @@ Provenance: **Documented** (fullsnes and anomie's DSP doc: the decay phase ends 
 | 1 | `$02` | sustain level 3 did not park the envelope on its $100*(l+1) boundary — anywhere else means a different field is being compared, or the comparison fires after the decrement rather than before it |
 | 2 | `$04` | sustain level 5 did not park the envelope on its $100*(l+1) boundary, so the boundary does not track the level |
 
+### E7.03 — Attack index a*2+1
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: the attack phase indexes the counter table at a*2+1 and steps the envelope by +32). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the slower attack was not caught in progress — at full scale or still at zero, both rates read alike and the comparison below is empty. A core indexing with `a` verbatim lands here, in the slow half of the table for both settings |
+| 2 | `$04` | the two attack rates left the envelope in nearly the same place, so the field is not being doubled before it indexes the table |
+
 ### E7.08 — Key-off releases to zero
 
 Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc). Kind: scored.
