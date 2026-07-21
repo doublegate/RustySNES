@@ -1815,6 +1815,15 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 addressing; fullsnes). Kind: sc
 |---|---|---|
 | 1 | `$02` | $FF + X did not wrap within the direct page; a 16-bit sum would read $0101 instead |
 
+### E2.04 — DBNZ dp is an RMW
+
+Provenance: **Documented** (SNESdev Wiki SPC700 reference and fullsnes: DBNZ dp,rel reads its operand, decrements it and writes it back, and $FD-$FF are read-to-clear). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | timer 0 did not accumulate a usable number of ticks over this interval, so the check below would pass against nothing |
+| 2 | `$04` | the counter still held its count after DBNZ addressed it, so DBNZ never read its target: it is being implemented as a decrement rather than as a read-modify-write |
+
 ### E3.14 — $F8/$F9 are plain RAM
 
 Provenance: **Documented** (SNESdev Wiki, SPC700 I/O; fullsnes). Kind: scored.
@@ -2180,11 +2189,9 @@ Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DS
 
 ### E8.07 — KOFF pulse collapses
 
-Provenance: **Documented** (fullsnes and anomie's DSP doc: KON/KOFF are sampled every second output sample, so a KOFF pulse shorter than the poll interval is never seen; E7.08 is the counterpart showing a single KOFF write does release). Kind: scored.
+Provenance: **Contested** (KON/KOFF are sampled every second output sample, so whether a short pulse is seen depends on where the poll falls inside it -- which makes the outcome phase-dependent rather than fixed, the same hedge E8.05 and E8.06 carry as "usually"). Kind: golden vector, never scored.
 
-| Code | Byte | Meaning |
-|---|---|---|
-| 1 | `$02` | the envelope left full scale after KOFF was set to $FF and cleared to $00 a few cycles later. The pair collapses into a single poll that reads $00, so nothing should have been released — a core acting on the write itself releases on the $FF and cannot take it back |
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
 ### E7.11 — GAIN linear increase
 

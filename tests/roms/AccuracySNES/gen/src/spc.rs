@@ -114,6 +114,15 @@ impl Spc {
         self.push(&[0xE4, dp])
     }
 
+    /// `DBNZ dp,rel` — `$6E`. Decrements the direct-page byte and branches if it is not zero.
+    ///
+    /// `rel` is the displacement from the byte after the instruction, so `0` falls through whether
+    /// or not the branch is taken — which is what `E2.04` wants: it is testing the *access
+    /// pattern*, and a branch that went anywhere would be a second variable.
+    pub fn dbnz_dp(&mut self, dp: u8, rel: i8) -> &mut Self {
+        self.push(&[0x6E, dp, rel.to_le_bytes()[0]])
+    }
+
     /// `MOV (X),A` — `$C6`. Stores `A` at the direct-page address `X` points at.
     ///
     /// The counterpart to [`Spc::or_a_x_ind`], and it exists for the same test: `E4.03` has to

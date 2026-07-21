@@ -575,6 +575,17 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E2.04` — `DBNZ dp,rel` is a read-modify-write.** The access pattern is invisible on ordinary
+  RAM, where read-decrement-write leaves exactly what a bare decrement would. It becomes visible on
+  a target whose *read* has a side effect, and the SPC700 has three: the timer counters at
+  `$FD`-`$FF` are read-to-clear. Pointed at one, `DBNZ`'s read clears it whatever the arithmetic
+  then does; a core implementing `DBNZ` as a plain decrement leaves the count in place.
+
+  The control is the same interval timed without the `DBNZ`, and it doubles as the drain — reading
+  the counter is what clears it, so phase 2 starts from a known zero for free. The displacement is
+  `0` so the branch falls through either way; `DBNZ`'s branch is not what this is about. Verified by
+  removing the read from the instruction, which fails it at code 2.
+
 - **`F1.14` — `$4213` reads the `$4201` output latch back.** `$4201` drives controller port 1's
   IOBIT pin from bit 6 and port 2's from bit 7; `$4213` reads those pins. The port is
   open-collector, so a device can pull a pin low but nothing pulls one high — with nothing driving
@@ -1625,6 +1636,18 @@ rewritten to the current number — this line is the one to read.
   because the change is externally corroborated (ares' edge detector; Mesen2 and snes9x both pass
   `B4.08`/`B4.12`, which RustySNES failed). Isolated by reverting the IRQ change alone and
   confirming the goldens returned. Rationale recorded in `docs/scheduler.md` §H/V-IRQ.
+
+- **`E8.07` is now a golden vector, because its outcome is phase-dependent.** It shipped scored, and
+  should not have. The `KOFF` pulse is about five SPC cycles wide against a poll interval of about
+  sixty-four, so a poll falls *inside* it roughly one time in twelve — and which way that goes
+  depends on where the DSP happens to be when the test runs. Adding an unrelated test earlier in the
+  battery shifted the phase and the assertion failed, with nothing about the emulator having
+  changed.
+
+  The row states its outcome flatly, but the mechanism it describes is the one `E8.05` and `E8.06`
+  hedge as *"usually"* — and a claim that is usually true is not one a battery can score. It now
+  records the envelope and names the two shapes. `E7.08` remains the counterpart that separates "a
+  poll saw the `$FF`" from "the core acts on the write".
 
 ## [1.20.0] "Aperture" - 2026-07-15
 

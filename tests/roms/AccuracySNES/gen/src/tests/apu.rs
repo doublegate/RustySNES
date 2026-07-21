@@ -58,6 +58,7 @@ pub fn all() -> Vec<Test> {
         dsp_addressing(),
         e2_01(),
         e2_05(),
+        e2_04(),
         e3_14(),
         dsp_global_regs(),
         e9_19(),
@@ -571,6 +572,98 @@ fn e3_02() -> Test {
         Provenance::Documented(
             "SNESdev Wiki SPC700 timers and fullsnes: a 0->1 on a $F1 timer-enable bit resets that \
              timer's stage-2 divider and stage-3 output counter",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `DBNZ dp,rel` is a read-modify-write, so it *reads* its target before decrementing it.
+///
+/// The access pattern is invisible on ordinary RAM: read, subtract one, write back leaves the same
+/// value a bare decrement would. It becomes visible on a target whose read has a side effect — and
+/// the SPC700 has three, the timer counters at `$FD`-`$FF`, which are **read-to-clear**. Point
+/// `DBNZ` at one of those and the read clears it, whatever the arithmetic then does. A core that
+/// implements `DBNZ` as a decrement without the read leaves the counter holding its count.
+///
+/// # The control is the same interval measured without the `DBNZ`
+///
+/// "The counter reads zero" proves nothing on its own — a timer that never ran reads zero too. So
+/// the program times the same interval twice:
+///
+/// | phase | sequence | expected |
+/// |---|---|---|
+/// | 1 | enable, delay, stop, **read `$FD`** | several ticks — proves the interval counts |
+/// | 2 | enable, delay, stop, **`DBNZ $FD`**, then read `$FD` | `$00` — the RMW's read cleared it |
+///
+/// Phase 1 doubles as the drain: reading the counter is what clears it, so phase 2 starts from a
+/// known zero without needing a separate step.
+///
+/// The displacement is `0`, so the branch falls through whether or not it is taken. `DBNZ`'s branch
+/// is not what this is about, and a branch that went anywhere would be a second variable in a test
+/// with one question.
+///
+/// The write-back lands on a read-only register and is discarded, which is fine: the claim is that
+/// the instruction *reads*, and the read is what leaves a mark.
+fn e2_04() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF).mov_sp_x();
+    prog.mov_dp_imm(0xFA, 0x01); // T0DIV = 1, the fastest timer 0 runs
+    prog.mov_a_dp(0xFD); // drain before the first interval
+    // --- phase 1: the control ---
+    prog.mov_dp_imm(0xF1, 0x81);
+    prog.delay(0x60);
+    prog.mov_dp_imm(0xF1, 0x80);
+    prog.mov_a_dp(0xFD).mov_dp_a(PORT1); // reading it here also clears it for phase 2
+    // --- phase 2: the same interval, then DBNZ on the counter ---
+    prog.mov_dp_imm(0xF1, 0x81);
+    prog.delay(0x60);
+    prog.mov_dp_imm(0xF1, 0x80);
+    prog.dbnz_dp(0xFD, 0);
+    prog.mov_a_dp(0xFD).mov_dp_a(PORT2);
+    prog.mov_dp_imm(0xF1, 0x80);
+    prog.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(
+        162,
+        "E2.04 timer 0 ticks over the interval, read directly (the control)",
+    );
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(
+        163,
+        "E2.04 the same interval, read after DBNZ touched the counter",
+    );
+    a.c("The control first: the interval has to count, or 'it reads zero' below means nothing.");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        3,
+        15,
+        "timer 0 did not accumulate a usable number of ticks over this interval, so the check \
+         below would pass against nothing",
+    );
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0,
+        1,
+        "the counter still held its count after DBNZ addressed it, so DBNZ never read its target: \
+         it is being implemented as a decrement rather than as a read-modify-write",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E2.04",
+        'E',
+        "DBNZ dp is an RMW",
+        Provenance::Documented(
+            "SNESdev Wiki SPC700 reference and fullsnes: DBNZ dp,rel reads its operand, decrements \
+             it and writes it back, and $FD-$FF are read-to-clear",
         ),
         Kind::Scored,
         None,
@@ -2915,6 +3008,19 @@ fn e5_10() -> Test {
 /// There is no ramp to time and no window to hit: any release at all, however brief, steps the
 /// envelope down by 8 per sample and cannot return.
 ///
+/// # Recorded, not scored: the outcome is phase-dependent
+///
+/// This shipped as a scored assertion and should not have. The pulse is about five SPC cycles wide
+/// and the poll interval is about sixty-four, so a poll falls *inside* the pulse roughly one time
+/// in twelve — and which way it goes depends on where the DSP happens to be when the test runs.
+/// Adding an unrelated test earlier in the battery shifted that phase and the assertion failed,
+/// with nothing about the emulator having changed.
+///
+/// So it records. The row states the outcome flatly, but the mechanism it describes is the same one
+/// `E8.05` and `E8.06` hedge as *"usually"*, and a claim that is usually true is not one a battery
+/// can score. Variant 1 is the documented outcome; variant 2 is a poll landing inside the pulse —
+/// or a core acting on the write, which `E7.08` is what separates.
+///
 /// # The pulse has to be short, and the first version was not short enough
 ///
 /// Written as two ordinary `dsp_write`s the pair sits about twelve SPC cycles apart, and that
@@ -2940,25 +3046,35 @@ fn e8_07() -> Test {
 
     let mut a = Asm::new();
     upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(
+        164,
+        "E8.07 envelope after a KOFF $FF/$00 pulse ($7F = the pulse was missed)",
+    );
     a.l("sep #$20");
     a.l("lda f:$7E0101");
-    a.assert_a8(
-        0x7F,
-        "the envelope left full scale after KOFF was set to $FF and cleared to $00 a few cycles \
-         later. The pair collapses into a single poll that reads $00, so nothing should have been \
-         released — a core acting on the write itself releases on the $FF and cannot take it back",
-    );
+    a.l("cmp #$7F");
+    a.l("bne :+");
+    a.l("lda #$03          ; variant 1 = full scale: no poll fell inside the pulse");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("lda #$05          ; variant 2 = released: a poll saw the $FF, or the core acts on writes");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
     apu_timeout_arm(&mut a);
     a.finish(
         "E8.07",
         'E',
         "KOFF pulse collapses",
-        Provenance::Documented(
-            "fullsnes and anomie's DSP doc: KON/KOFF are sampled every second output sample, so a \
-             KOFF pulse shorter than the poll interval is never seen; E7.08 is the counterpart \
-             showing a single KOFF write does release",
+        Provenance::Contested(
+            "KON/KOFF are sampled every second output sample, so whether a short pulse is seen \
+             depends on where the poll falls inside it -- which makes the outcome phase-dependent \
+             rather than fixed, the same hedge E8.05 and E8.06 carry as \"usually\"",
         ),
-        Kind::Scored,
+        Kind::Golden,
         None,
     )
 }
