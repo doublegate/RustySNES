@@ -876,6 +876,27 @@ Recorded rather than fixed, because the general lesson is the useful part: **for
 compares two measurements, ask what the difference would physically be before asking whether the
 numbers match.** Here the answer was "nothing observable", and no amount of guarding fixes that.
 
+### Reading `$4218` at the start of vblank samples a register mid-write
+
+`F1.06` passed on RustySNES and snes9x and failed on Mesen2, which reported `$4219` as `$00` while
+`F1.05` — reading the same register a few instructions earlier — reported it correctly.
+
+The cause is not a Mesen2 bug. `wait_vblank_far` returns at the *start* of vblank, which is exactly
+when the automatic read begins, and the read takes about three scanlines to clock thirty-two bits
+out of the ports. Mesen2 clears the result registers when the read starts and fills them as it goes;
+RustySNES and snes9x write the result in one step. Both are defensible models of an interval nobody
+observes directly — and a cart that reads inside that interval is sampling a documented transient,
+which `F1.12` names outright ("results valid by `V = $E3`").
+
+Fixed by burning about seven scanlines after the last vblank wait before reading. Two of three cores
+agreeing is not what makes the third wrong; the test was reading at a time the sources say the
+answer is not yet valid.
+
+**The general form: when a source states when a result becomes valid, waiting for that moment is
+part of the measurement, not a robustness tweak.** This is the same shape as `E10.05`'s settle —
+there, a state that is *entered* rather than arrived at instantly; here, a result that is *finished*
+rather than produced instantly.
+
 ### The host input contract, and the defect it immediately found
 
 Group F was blocked on one thing, and it was not research. With nothing plugged in and no button

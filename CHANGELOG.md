@@ -601,6 +601,28 @@ rewritten to the current number — this line is the one to read.
   asserted is the hardware's order and not the runtime's agreement with itself. Verified by making
   the shift register LSB-first, which fails it.
 
+- **`F1.05` — is a standard pad's signature nibble `0000`?** The four bits after the twelve buttons
+  identify what is plugged in — a mouse reports `0001`, an NTT Data keypad `0100` — so software
+  distinguishes peripherals by reading a nibble rather than guessing from behaviour. The guard
+  deliberately masks the nibble out and checks only bits 15-4 against the held mask: comparing the
+  whole word would be strictly stronger and would make the nibble assertion unable to ever fire,
+  which is the same vacuity this battery keeps finding, from the other direction. It was found that
+  way too — the first injection failed the guard and left the named assertion untouched.
+
+- **`F1.06` — is the first bit clocked out `B`, in bit 15?** Auto-read shifts the same sixteen bits
+  a manual read would, in the same order; `F1.01` asserts that for the manual path, and a core could
+  implement the two independently and have exactly one backwards. Bit 15 (`B`, held) and bit 14
+  (`Y`, not held) are both checked, because bit 15 alone passes on a core reporting `$FF` for the
+  high byte — which is what an unimplemented auto-read looks like where the line idles high.
+
+- **Group F now settles past the auto-read window before reading `$4218`.** `wait_vblank_far`
+  returns at the start of vblank, which is exactly when the automatic read begins, and it takes
+  about three scanlines. Mesen2 clears the result registers when the read starts and fills them as
+  it goes, so `F1.06` read `$4219` as `$00` there while passing on RustySNES and snes9x, which write
+  the result in one step. Both are defensible models of an interval nobody observes directly, and
+  the cart was reading inside it — `F1.12` says results are valid by `V = $E3`. The tests now burn
+  about seven scanlines first.
+
 - **`F1.07` — does `$4218`-`$421F` stop being written with `$4200` bit 0 clear?** Restored after its
   earlier withdrawal, which the contract makes possible: `$4218` reads `$0000` before auto-read is
   ever armed, `$9050` once armed, and `$9050` still after disarming. The guard is that the first two

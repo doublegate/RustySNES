@@ -21,7 +21,18 @@ use crate::dsl::{Asm, Kind, Provenance, Test};
 /// Every Group F test, in menu order.
 #[must_use]
 pub fn all() -> Vec<Test> {
-    vec![f1_01(), f1_02(), f1_04(), f1_07(), f1_14()]
+    vec![
+        f1_01(),
+        f1_02(),
+        f1_04(),
+        // F1.07 must precede F1.05 and F1.06: its first phase reads $4218 before anything has
+        // armed auto-read, and those two arm it. Its guard catches the mistake rather than
+        // hiding it, which is how this ordering was found.
+        f1_07(),
+        f1_05(),
+        f1_06(),
+        f1_14(),
+    ]
 }
 
 /// With `$4200` bit 0 clear, `$4218`-`$421F` stop being written.
@@ -55,6 +66,15 @@ pub fn all() -> Vec<Test> {
 /// test left auto-read armed, phase A would already read `$9050` and this test would say so rather
 /// than quietly measuring nothing.
 ///
+/// # This test must run before anything else arms auto-read
+///
+/// Phase A's whole value is that `$4218` has never been written, so `F1.07` is ordered ahead of
+/// `F1.05` and `F1.06`, which arm auto-read to read the result. Putting them first made phase A
+/// read `$9050` and the guard fired — correctly, and with the message that names this exact
+/// hazard. The ordering is a real constraint on the group, not a preference, and the guard is what
+/// keeps it from becoming a silent one: a future test that arms auto-read earlier turns this into
+/// a failure rather than into a test that quietly compares two identical readings.
+///
 /// # `$4200` is put back before anything is judged
 ///
 /// The battery reads pads by hand through `$4016` and runs with `$4200 = $00`. A failure exits
@@ -74,7 +94,7 @@ fn f1_07() -> Test {
     a.l("sta $4200         ; auto-joypad enable, and nothing else");
     a.l("jsl wait_vblank_far");
     a.l("jsl wait_vblank_far");
-    a.l("rep #$30");
+    f1_settle_auto_read(&mut a, "armed");
     a.l("lda $4218");
     a.l("sta f:$7E01EC");
     a.c("--- C: disarmed for two more; nothing should write $4218 now ---");
@@ -82,7 +102,7 @@ fn f1_07() -> Test {
     a.l("stz $4200");
     a.l("jsl wait_vblank_far");
     a.l("jsl wait_vblank_far");
-    a.l("rep #$30");
+    f1_settle_auto_read(&mut a, "off");
     a.l("lda $4218");
     a.l("sta f:$7E01EE");
     a.c("Put $4200 back before judging: the battery expects it zero and a failure leaves through");
@@ -124,6 +144,180 @@ fn f1_07() -> Test {
         Kind::Scored,
         None,
     )
+}
+
+/// A standard pad's signature nibble is `0000` — the four bits after its twelve buttons.
+///
+/// The controller shifts out sixteen bits: twelve buttons, then four more that identify what is
+/// plugged in. A standard pad drives all four low. Everything else on the port announces itself
+/// there instead — a mouse reports `0001`, an NTT Data keypad `0100` — so software distinguishes
+/// peripherals by reading a nibble rather than by guessing from behaviour.
+///
+/// # Two halves, and the guard is the interesting one
+///
+/// The signature is the bottom four bits of `$4218`, and "they are zero" is satisfied by a core
+/// that reports nothing at all. So the twelve button bits are checked first, against the host input
+/// contract: `$9050` has `B`, `Start`, `X` and `R` held, and its bottom nibble is zero *because a
+/// standard pad's signature is zero*, which is exactly the arrangement that lets one reading serve
+/// both purposes.
+///
+/// | assertion | checks | catches |
+/// |---|---|---|
+/// | bits 15-4 == `$905` | the twelve button bits | a poll that never ran, or reported wrongly |
+/// | bits 3-0 == `0000` | the signature nibble | an invented peripheral, or floating bits |
+///
+/// The guard deliberately **masks the signature nibble out**. Comparing the whole word against
+/// `$9050` would be a strictly stronger check that happens to include the nibble — and then the
+/// nibble assertion below could never fire, because anything that broke it would break the guard
+/// first. An assertion that cannot fail is the same vacuity this battery keeps finding, arrived at
+/// from a different direction, and it was arrived at here: injecting a false signature into the
+/// core failed the guard and left the assertion the test is named for untouched.
+fn f1_05() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    f1_auto_read(&mut a, "sig");
+    a.l("lda $4218");
+    a.l("sta f:$7E01F0");
+    a.l("sep #$20");
+    a.l("stz $4200         ; disarm before judging: the battery runs with auto-read off");
+    a.l("rep #$30");
+    a.l("lda f:$7E01F0");
+    a.record(215, "F1.05 JOY1 after an armed auto-read");
+    a.c("The guard: the twelve button bits only. Masking the nibble out is what leaves the");
+    a.c("assertion below something of its own to catch.");
+    a.l("lda f:$7E01F0");
+    a.l("and #$FFF0");
+    a.l("cmp #PAD_CONTRACT & $FFF0");
+    a.fail_if_ne(
+        "an armed auto-read did not report the buttons the host is holding, so the signature \
+         nibble below is being read out of a register nothing wrote",
+    );
+    a.c("And the signature itself: four zeroes say 'standard pad' and nothing else.");
+    a.l("lda f:$7E01F0");
+    a.l("and #$000F");
+    a.assert_a16_range(
+        0x00,
+        0x00,
+        "a standard pad's four signature bits did not read as 0000 — a core reporting a non-zero \
+         nibble is announcing a peripheral that is not there, and software that switches on the \
+         signature would decode the pad as a mouse or a keypad",
+    );
+    a.finish(
+        "F1.05",
+        'F',
+        "Pad signature is 0000",
+        Provenance::Documented(
+            "fullsnes and the SNESdev Wiki: bits 3-0 of the auto-read result identify the device, \
+             and a standard controller reports 0000",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The first bit clocked out is `B`, and it lands in bit 15 of `$4219`.
+///
+/// Auto-read shifts the same sixteen bits a manual read would, in the same order, into the same
+/// place: the first bit out is the most significant bit of the sixteen-bit result. `F1.01` asserts
+/// that order for a *manual* read; this asserts that the hardware's own read agrees with it, which
+/// is not the same claim — a core could implement the two paths independently and have exactly one
+/// of them backwards.
+///
+/// # Adjacent bits, so "stuck" and "correct" are distinguishable
+///
+/// The host contract holds `B` and does not hold `Y`, and they are the top two bits of the result.
+/// Checking both means a byte of all ones fails as loudly as a byte of all zeroes:
+///
+/// | bit | button | held | expected |
+/// |---|---|---|---|
+/// | 15 | `B` | yes | 1 |
+/// | 14 | `Y` | no | 0 |
+///
+/// Bit 15 alone would pass on a core that reports `$FF` for the high byte, which is precisely what
+/// an unimplemented auto-read looks like on hardware where the line idles high.
+fn f1_06() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    f1_auto_read(&mut a, "first");
+    a.l("sep #$20");
+    a.l("lda $4219");
+    a.l("sta f:$7E01F2");
+    a.l("stz $4200         ; disarm before judging");
+    a.l("rep #$30");
+    a.l("lda f:$7E01F2");
+    a.l("and #$00FF");
+    a.record(216, "F1.06 JOY1 high byte after an armed auto-read");
+    a.c("B is held and is the first bit clocked, so it is the top bit of the result.");
+    a.l("sep #$20");
+    a.l("lda f:$7E01F2");
+    a.l("and #$80");
+    a.assert_a8(
+        0x80,
+        "bit 15 of the auto-read result was clear although the host is holding B, so the first bit \
+         clocked is not landing in the most significant position",
+    );
+    a.c("And Y, the second bit and the one next to it, is not held — so the byte is not stuck.");
+    a.l("lda f:$7E01F2");
+    a.l("and #$40");
+    a.assert_a8(
+        0x00,
+        "bit 14 was set although Y is not held. Bit 15 passed, so what this catches is a high byte \
+         reading as all ones — an unimplemented auto-read on hardware whose line idles high looks \
+         exactly like a correct one if only the top bit is checked",
+    );
+    a.finish(
+        "F1.06",
+        'F',
+        "First bit clocked is B",
+        Provenance::Documented(
+            "fullsnes and the SNESdev Wiki: the auto-read result holds the sixteen shifted bits in \
+             clock order, most significant first, so B is bit 15",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Emit: arm auto-read and let two whole frames pass, so a poll has certainly run.
+///
+/// Two rather than one because a single frame can be entered part-way through — the test body
+/// starts wherever the previous test left the beam — and a poll that has already happened this
+/// frame will not happen again. `$4200` is written with bit 0 and nothing else, so no interrupt is
+/// enabled as a side effect.
+fn f1_auto_read(a: &mut Asm, tag: &str) {
+    a.c(&format!("Arm auto-read and give it two frames ({tag})."));
+    a.l("sep #$20");
+    a.l("lda #$01");
+    a.l("sta $4200");
+    a.l("jsl wait_vblank_far");
+    a.l("jsl wait_vblank_far");
+    f1_settle_auto_read(a, tag);
+}
+
+/// Emit: burn well past the start of vblank, so the automatic read has finished writing.
+///
+/// `wait_vblank_far` returns at the *start* of vblank, which is exactly when the automatic read
+/// begins — and it takes about three scanlines to clock thirty-two bits out of the ports. Reading
+/// `$4218` immediately therefore samples a register the hardware is in the middle of filling.
+///
+/// This is not hypothetical. Mesen2 clears the result registers when the read starts and fills them
+/// as it goes, so `F1.06` read `$4219` as `$00` there while passing on RustySNES and snes9x, both of
+/// which write the result in one step. Two of three cores agreeing is not what makes the third
+/// right — `F1.12` says results are valid by `V = $E3`, and a test that reads before then is
+/// sampling a documented transient.
+///
+/// The burn is roughly ten thousand cycles, about seven scanlines: comfortably past the read and
+/// comfortably inside vblank, which is thirty-eight lines even in 224-line NTSC.
+fn f1_settle_auto_read(a: &mut Asm, tag: &str) {
+    a.l("rep #$30");
+    a.l("ldx #$0800");
+    a.label(&format!("ar_{tag}"));
+    a.l("dex");
+    a.l(&format!("bne @ar_{tag}"));
 }
 
 /// `$4016` bits 7-2 are CPU open bus: nothing on the controller port drives them.

@@ -2508,6 +2508,24 @@ Provenance: **Documented** (fullsnes and the SNESdev Wiki: bit 0 of $4200 arms t
 | 1 | `$02` | arming auto-read did not change $4218, so there is no sentinel for phase C to preserve and 'it did not change' would be true of a core that polls regardless. Either the poll is not running, or something earlier in the battery left auto-read armed and phase A already held a polled value |
 | 2 | `$04` | $4218 changed over two frames with $4200 bit 0 clear, so auto-read is running whether or not it is armed — software that disarms it to hand-poll the ports would find its own reads fighting the hardware's |
 
+### F1.05 — Pad signature is 0000
+
+Provenance: **Documented** (fullsnes and the SNESdev Wiki: bits 3-0 of the auto-read result identify the device, and a standard controller reports 0000). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | an armed auto-read did not report the buttons the host is holding, so the signature nibble below is being read out of a register nothing wrote |
+| 2 | `$04` | a standard pad's four signature bits did not read as 0000 — a core reporting a non-zero nibble is announcing a peripheral that is not there, and software that switches on the signature would decode the pad as a mouse or a keypad |
+
+### F1.06 — First bit clocked is B
+
+Provenance: **Documented** (fullsnes and the SNESdev Wiki: the auto-read result holds the sixteen shifted bits in clock order, most significant first, so B is bit 15). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | bit 15 of the auto-read result was clear although the host is holding B, so the first bit clocked is not landing in the most significant position |
+| 2 | `$04` | bit 14 was set although Y is not held. Bit 15 passed, so what this catches is a high byte reading as all ones — an unimplemented auto-read on hardware whose line idles high looks exactly like a correct one if only the top bit is checked |
+
 ### F1.14 — $4213 reads $4201 back
 
 Provenance: **Documented** (fullsnes: RDIO reads the WRIO output pins, which are open-collector, so with nothing driving them low the value read is the value written). Kind: scored.

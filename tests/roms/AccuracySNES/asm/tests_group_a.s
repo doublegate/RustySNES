@@ -27489,6 +27489,10 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
+    ldx #$0800
+@ar_armed:
+    dex
+    bne @ar_armed
     lda $4218
     sta f:$7E01EC
     ; --- C: disarmed for two more; nothing should write $4218 now ---
@@ -27500,6 +27504,10 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
+    ldx #$0800
+@ar_off:
+    dex
+    bne @ar_off
     lda $4218
     sta f:$7E01EE
     ; Put $4200 back before judging: the battery expects it zero and a failure leaves through
@@ -27545,6 +27553,154 @@ CATALOG_IMPL = 1
     jml test_restore
 @fail2:
     ; $4218 changed over two frames with $4200 bit 0 clear, so auto-read is running whether or not it is armed — software that disarms it to hand-poll the ports would find its own reads fighting the hardware's
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; F1.05 — Pad signature is 0000
+; provenance: Documented (fullsnes and the SNESdev Wiki: bits 3-0 of the auto-read result identify the device, and a standard controller reports 0000)
+.proc test_f1_05
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Arm auto-read and give it two frames (sig).
+    sep #$20
+    .a8
+    lda #$01
+    sta $4200
+    jsl wait_vblank_far
+    jsl wait_vblank_far
+    rep #$30
+    .a16
+    .i16
+    ldx #$0800
+@ar_sig:
+    dex
+    bne @ar_sig
+    lda $4218
+    sta f:$7E01F0
+    sep #$20
+    .a8
+    stz $4200         ; disarm before judging: the battery runs with auto-read off
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E01F0
+    ; record slot 215: F1.05 JOY1 after an armed auto-read
+    sta f:$7EE3AE
+    ; The guard: the twelve button bits only. Masking the nibble out is what leaves the
+    ; assertion below something of its own to catch.
+    lda f:$7E01F0
+    and #$FFF0
+    cmp #PAD_CONTRACT & $FFF0
+    beq :+
+    jmp @fail1
+  :
+    ; And the signature itself: four zeroes say 'standard pad' and nothing else.
+    lda f:$7E01F0
+    and #$000F
+    cmp #$0000
+    bcs :+
+    jmp @fail2
+  :
+    cmp #$0001
+    bcc :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; an armed auto-read did not report the buttons the host is holding, so the signature nibble below is being read out of a register nothing wrote
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; a standard pad's four signature bits did not read as 0000 — a core reporting a non-zero nibble is announcing a peripheral that is not there, and software that switches on the signature would decode the pad as a mouse or a keypad
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; F1.06 — First bit clocked is B
+; provenance: Documented (fullsnes and the SNESdev Wiki: the auto-read result holds the sixteen shifted bits in clock order, most significant first, so B is bit 15)
+.proc test_f1_06
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Arm auto-read and give it two frames (first).
+    sep #$20
+    .a8
+    lda #$01
+    sta $4200
+    jsl wait_vblank_far
+    jsl wait_vblank_far
+    rep #$30
+    .a16
+    .i16
+    ldx #$0800
+@ar_first:
+    dex
+    bne @ar_first
+    sep #$20
+    .a8
+    lda $4219
+    sta f:$7E01F2
+    stz $4200         ; disarm before judging
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E01F2
+    and #$00FF
+    ; record slot 216: F1.06 JOY1 high byte after an armed auto-read
+    sta f:$7EE3B0
+    ; B is held and is the first bit clocked, so it is the top bit of the result.
+    sep #$20
+    .a8
+    lda f:$7E01F2
+    and #$80
+    cmp #$80
+    beq :+
+    jmp @fail1
+  :
+    ; And Y, the second bit and the one next to it, is not held — so the byte is not stuck.
+    lda f:$7E01F2
+    and #$40
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; bit 15 of the auto-read result was clear although the host is holding B, so the first bit clocked is not landing in the most significant position
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; bit 14 was set although Y is not held. Bit 15 passed, so what this catches is a high byte reading as all ones — an unimplemented auto-read on hardware whose line idles high looks exactly like a correct one if only the top bit is checked
     sep #$20
     .a8
     lda #$04
@@ -29577,7 +29733,7 @@ apu_prog_103:
 .export _test_flags
 
 _test_count:
-    .word 308
+    .word 310
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -29844,6 +30000,8 @@ _test_entries:
     .faraddr test_f1_02
     .faraddr test_f1_04
     .faraddr test_f1_07
+    .faraddr test_f1_05
+    .faraddr test_f1_06
     .faraddr test_f1_14
     .faraddr test_g1_02
     .faraddr test_g1_04
@@ -30155,6 +30313,8 @@ _test_flags:
     .byte $01   ; F1.02
     .byte $01   ; F1.04
     .byte $01   ; F1.07
+    .byte $01   ; F1.05
+    .byte $01   ; F1.06
     .byte $01   ; F1.14
     .byte $01   ; G1.02
     .byte $01   ; G1.04
@@ -30466,6 +30626,8 @@ _test_names:
     .addr @n_f1_02
     .addr @n_f1_04
     .addr @n_f1_07
+    .addr @n_f1_05
+    .addr @n_f1_06
     .addr @n_f1_14
     .addr @n_g1_02
     .addr @n_g1_04
@@ -31300,6 +31462,12 @@ _test_names:
 @n_f1_07:
     .byte 23
     .byte "Auto-read needs $4200.0"
+@n_f1_05:
+    .byte 21
+    .byte "Pad signature is 0000"
+@n_f1_06:
+    .byte 22
+    .byte "First bit clocked is B"
 @n_f1_14:
     .byte 22
     .byte "$4213 reads $4201 back"
