@@ -708,12 +708,26 @@ the circularity ADR 0003 exists to prevent. Concretely, before this lands:
    `0xcbf29ce484222325`, prime `0x100000001b3`, one `u64` xor-then-multiply per pixel, in
    framebuffer order.
 
-   **The existing crossval host cannot do this.** `scripts/accuracysnes/libretro_crossval.c` looks
-   for AccuracySNES's results block and hashes scene-keyed regions; an undisbeliever ROM has
-   neither. What is needed is a small generic host — load a libretro core, run 60 frames, hash the
-   frame with the function above — which is a strict subset of what that file already does, so it
-   is a cut-down copy rather than new plumbing. Mesen2's side can reuse `mesen_scenes.lua`'s
-   framebuffer access the same way.
+   **The existing crossval host cannot do this**, and neither can a naive copy of it.
+   `scripts/accuracysnes/libretro_crossval.c` looks for AccuracySNES's results block and hashes
+   scene-keyed regions; an undisbeliever ROM has neither.
+
+   **The harder obstacle is that the two hashes are not computed over the same thing.** The in-repo
+   golden hashes `Bus::framebuffer()`, which is RustySNES's **native 15-bit SNES colour** (`BGR555`,
+   one `u16` per pixel, `visible_width() * SCREEN_HEIGHT` entries). A libretro core hands back
+   `RGB565` (or `XRGB8888`) at its own pitch and geometry. Hashing that directly produces a number
+   that *looks* comparable and is meaningless — the same trap as the withdrawn `A5.20`, one layer up.
+
+   So the host must convert the core's output back to `BGR555` **exactly** as RustySNES represents
+   it and crop to the same region before hashing, or the comparison proves nothing. `RGB565 ->
+   BGR555` is lossy in the green channel (6 bits to 5), so the conversion has to be pinned and
+   justified rather than improvised — and if it cannot be made exact, the adjudication needs a
+   different observable than a whole-frame hash (for example comparing the specific scanlines
+   `hdmaen_latch_test` is about, which is what the test is really asserting).
+
+   The rendered-scene gate (`docs/adr/0013`, `accuracysnes_scenes.rs` + `mesen_scenes.lua`) already
+   solved this problem once for AccuracySNES's own scenes; whatever it does to make cross-core
+   pixel comparison valid is the precedent to follow here.
 2. If they match the *old* hash, the change has a defect — most likely in where the line boundary
    now falls relative to the HDMA run — and the dot renumbering needs separating from the
    long-dot lengths so the two can be landed and judged independently.
