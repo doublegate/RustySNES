@@ -23261,6 +23261,63 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; G1.07 — WRAM power-on fill
+; provenance: Contested (the dossier marks the row [UNDEFINED] and asks for a golden vector by name: no canonical WRAM fill exists and real consoles disagree)
+.proc test_g1_07
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda f:$7F8000
+    sta f:$7E01D8
+    lda f:$7F8020
+    sta f:$7E01D9
+    lda f:$7F8040
+    sta f:$7E01DA
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E01D8
+    and #$00FF
+    ; record slot 165: G1.07 WRAM $7F8000 at power-on
+    sta f:$7EE34A
+    lda f:$7E01D9
+    and #$00FF
+    ; record slot 166: G1.07 WRAM $7F8020 at power-on
+    sta f:$7EE34C
+    lda f:$7E01DA
+    and #$00FF
+    ; record slot 167: G1.07 WRAM $7F8040 at power-on
+    sta f:$7EE34E
+    ; Do the three agree? That separates a uniform fill from a pattern or a randomised one.
+    sep #$20
+    .a8
+    lda f:$7E01D8
+    cmp f:$7E01D9
+    bne :+
+    cmp f:$7E01DA
+    bne :+
+    ; All equal. Zero is common enough to be worth its own variant.
+    cmp #$00
+    bne :++
+    lda #$03          ; variant 1 = uniformly zero
+    sta f:$7EE010
+    jml test_restore
+    :
+    lda #$07          ; variant 3 = the three bytes differ: a pattern, or randomised
+    sta f:$7EE010
+    jml test_restore
+    :
+    lda #$05          ; variant 2 = uniform and non-zero; slot 165 has the value
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 .segment "TESTSG"
 
 ; F1.02 — Pad reads 17+ are 1
@@ -24462,7 +24519,7 @@ apu_prog_68:
 .export _test_flags
 
 _test_count:
-    .word 282
+    .word 283
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -24714,6 +24771,7 @@ _test_entries:
     .faraddr test_g1_14
     .faraddr test_g1_19
     .faraddr test_g1_20
+    .faraddr test_g1_07
     .faraddr test_a5_s01
     .faraddr test_a5_s02
     .faraddr test_a5_s03
@@ -24999,6 +25057,7 @@ _test_flags:
     .byte $01   ; G1.14
     .byte $01   ; G1.19
     .byte $02   ; G1.20
+    .byte $02   ; G1.07
     .byte $01   ; A5.S01
     .byte $01   ; A5.S02
     .byte $01   ; A5.S03
@@ -25284,6 +25343,7 @@ _test_names:
     .addr @n_g1_14
     .addr @n_g1_19
     .addr @n_g1_20
+    .addr @n_g1_07
     .addr @n_a5_s01
     .addr @n_a5_s02
     .addr @n_a5_s03
@@ -26062,6 +26122,9 @@ _test_names:
 @n_g1_20:
     .byte 22
     .byte "Power-on indeterminate"
+@n_g1_07:
+    .byte 18
+    .byte "WRAM power-on fill"
 @n_a5_s01:
     .byte 10
     .byte "Sweep: CLC"

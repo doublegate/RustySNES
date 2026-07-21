@@ -33,6 +33,7 @@ pub fn all() -> Vec<Test> {
         g1_14(),
         g1_19(),
         g1_20(),
+        g1_07(),
     ]
 }
 
@@ -433,6 +434,95 @@ fn g1_20() -> Test {
         Provenance::Contested(
             "the dossier marks the whole row [UNDEFINED] and says to report it and never assert \
              it; half the registers it names are write-only and cannot be reported at all",
+        ),
+        Kind::Golden,
+        None,
+    )
+}
+
+/// What does WRAM power up holding? A golden vector — the row says no canonical answer exists.
+///
+/// `G1.07` is marked `[UNDEFINED]` and calls for a golden vector by name: real consoles do not
+/// agree, so there is nothing to assert and everything to record. It is the WRAM counterpart of
+/// `E4.11`, which does the same for APU RAM, and between them they cover both memories a core has
+/// to invent a power-on state for.
+///
+/// # Reading memory nothing has written
+///
+/// The battery writes a great deal of WRAM — the runtime's variables, the measurement channel, and
+/// every test's scratch — so most of it says more about the battery than the console. Bank `$7F` is
+/// used only below `$2000`, so `$7F:8000` and up have never been touched by the time this runs, and
+/// three bytes are read from there: `$7F8000`, `$7F8020` and `$7F8040`.
+///
+/// Three rather than one, spaced 32 bytes apart, so a *pattern* is distinguishable from a uniform
+/// fill. A single byte cannot tell `$00` everywhere from `$00` at that address and something else
+/// nearby, and "32 bytes of one value then 32 of another" is exactly the shape `E4.11`'s row
+/// documents for APU RAM.
+///
+/// | variant | reading | measured |
+/// |---|---|---|
+/// | 1 | all three zero | **RustySNES** |
+/// | 2 | all three equal and non-zero | **snes9x** — `$55` throughout |
+/// | 3 | they differ | **Mesen2** — `$E8`, `$47`, `$2C`, and different every run |
+///
+/// One core per variant, which is about as complete a demonstration of `[UNDEFINED]` as a row can
+/// get. It also explains `G1.20`: that test reads WRAM through `$2180` at an indeterminate address
+/// and got `$00`/`$55`/`$33` from the three cores — the `$33` was simply one of Mesen2's random
+/// bytes, not a third fill convention.
+///
+/// The raw bytes are published either way, because "they differ" does not say *how*, and the
+/// difference between a repeating pattern and per-run randomness is visible only in the numbers
+/// across runs — which is exactly how Mesen2's fill was identified as random rather than patterned.
+fn g1_07() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda f:$7F8000");
+    a.l("sta f:$7E01D8");
+    a.l("lda f:$7F8020");
+    a.l("sta f:$7E01D9");
+    a.l("lda f:$7F8040");
+    a.l("sta f:$7E01DA");
+    a.l("rep #$30");
+    a.l("lda f:$7E01D8");
+    a.l("and #$00FF");
+    a.record(165, "G1.07 WRAM $7F8000 at power-on");
+    a.l("lda f:$7E01D9");
+    a.l("and #$00FF");
+    a.record(166, "G1.07 WRAM $7F8020 at power-on");
+    a.l("lda f:$7E01DA");
+    a.l("and #$00FF");
+    a.record(167, "G1.07 WRAM $7F8040 at power-on");
+    a.c("Do the three agree? That separates a uniform fill from a pattern or a randomised one.");
+    a.l("sep #$20");
+    a.l("lda f:$7E01D8");
+    a.l("cmp f:$7E01D9");
+    a.l("bne :+");
+    a.l("cmp f:$7E01DA");
+    a.l("bne :+");
+    a.c("All equal. Zero is common enough to be worth its own variant.");
+    a.l("cmp #$00");
+    a.l("bne :++");
+    a.l("lda #$03          ; variant 1 = uniformly zero");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("lda #$07          ; variant 3 = the three bytes differ: a pattern, or randomised");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("lda #$05          ; variant 2 = uniform and non-zero; slot 165 has the value");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.finish(
+        "G1.07",
+        'G',
+        "WRAM power-on fill",
+        Provenance::Contested(
+            "the dossier marks the row [UNDEFINED] and asks for a golden vector by name: no \
+             canonical WRAM fill exists and real consoles disagree",
         ),
         Kind::Golden,
         None,

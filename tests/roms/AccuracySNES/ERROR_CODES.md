@@ -2376,3 +2376,9 @@ Provenance: **Documented** (fullsnes and the SNESdev Wiki power-on table: $4201 
 Provenance: **Contested** (the dossier marks the whole row [UNDEFINED] and says to report it and never assert it; half the registers it names are write-only and cannot be reported at all). Kind: golden vector, never scored.
 
 No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
+### G1.07 — WRAM power-on fill
+
+Provenance: **Contested** (the dossier marks the row [UNDEFINED] and asks for a golden vector by name: no canonical WRAM fill exists and real consoles disagree). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.

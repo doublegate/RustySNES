@@ -575,6 +575,27 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`G1.07` — what WRAM powers up holding.** The row is marked `[UNDEFINED]` and asks for a golden
+  vector by name, and the measurement is about as complete a demonstration of that as a row can get
+  — **one core per variant**:
+
+  | core | `$7F8000` | `$7F8020` | `$7F8040` | variant |
+  |---|---|---|---|---|
+  | RustySNES | `$00` | `$00` | `$00` | 1 — uniformly zero |
+  | snes9x | `$55` | `$55` | `$55` | 2 — uniform, non-zero |
+  | Mesen2 | `$E8` | `$47` | `$2C` | 3 — randomised, different every run |
+
+  Three bytes rather than one, spaced 32 apart, so a *pattern* is distinguishable from a uniform
+  fill — a single byte cannot tell `$00` everywhere from `$00` here and something else nearby, and
+  "32 of one value then 32 of another" is exactly the shape `E4.11`'s row documents for APU RAM.
+  They are read from bank `$7F` above `$8000`, which the battery never writes; most of WRAM would
+  say more about the battery than the console.
+
+  It also explains `G1.20`, which reads WRAM through `$2180` at an indeterminate address and got
+  `$00`/`$55`/`$33`: the `$33` was one of Mesen2's random bytes, not a third fill convention. With
+  `E4.11` doing the same for APU RAM, both memories a core must invent a power-on state for are now
+  recorded.
+
 - **`E2.04` — `DBNZ dp,rel` is a read-modify-write.** The access pattern is invisible on ordinary
   RAM, where read-decrement-write leaves exactly what a bare decrement would. It becomes visible on
   a target whose *read* has a side effect, and the SPC700 has three: the timer counters at

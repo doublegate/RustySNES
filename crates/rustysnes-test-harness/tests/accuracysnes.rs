@@ -938,3 +938,18 @@ fn joyser_open_bus_is_reported() {
         report.meas[158]
     );
 }
+
+/// `G1.07`'s three untouched WRAM bytes, reported for cross-emulator comparison.
+///
+/// Nothing is asserted — the row is `[UNDEFINED]` and asks for a golden vector by name. Measured,
+/// the three cores land on three different variants: RustySNES uniformly zero, snes9x uniformly
+/// `$55`, Mesen2 randomised per run.
+#[test]
+fn wram_power_on_fill_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  G1.07 WRAM power-on fill (bank $7F, untouched):");
+    for (slot, addr) in [(165usize, "$7F8000"), (166, "$7F8020"), (167, "$7F8040")] {
+        println!("    slot {slot}  {:#04x}  {addr}", report.meas[slot]);
+    }
+}
