@@ -630,6 +630,14 @@ Provenance: **Documented** (SNESdev Errata, 65C816 section (worked example PBR=$
 |---|---|---|
 | 1 | `$02` | JMP (a,X) did not take its pointer from the program bank: $01 = carried into bank $01, $FF = neither stub ran |
 
+### A4.12 — JSR (a,X) ptr bank
+
+Provenance: **Documented** (SNESdev Errata, 65C816 section). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | JSR (a,X) did not take its pointer from the program bank: $01 = carried into bank $01, $FF = neither stub ran |
+
 ## Group C
 
 ### C1.01 — OAM word write/read

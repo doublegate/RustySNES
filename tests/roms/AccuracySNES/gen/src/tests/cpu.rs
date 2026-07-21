@@ -99,6 +99,7 @@ pub fn all() -> Vec<Test> {
         a8_07(),
         a6_12(),
         a4_11(),
+        a4_12(),
     ]
 }
 
@@ -1367,6 +1368,58 @@ fn a4_11() -> Test {
         'A',
         "JMP (a,X) ptr bank",
         Provenance::Documented("SNESdev Errata, 65C816 section (worked example PBR=$05)"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `JSR (a,X)` takes its pointer from the program bank too, exactly as `JMP (a,X)` does.
+///
+/// The companion to `A4.11`, and not a restatement of it: `JSR` and `JMP` are separate opcodes with
+/// separate address-formation paths in most cores, and the push makes `JSR` the more intricate of
+/// the pair — so a bank rule fixed in one is routinely missed in the other.
+///
+/// Uses the same bank-probe fixture: `ldx #$800A` puts `$FFFE + X` at `$8008`, which holds
+/// `bankprobe_0` in bank `$00` and `bankprobe_1` in bank `$01`, and each stub records which one ran
+/// before returning through `V_BANKPROBE_RET`.
+///
+/// **The pushed return address is abandoned on purpose.** The stubs exit with `jml`, not `RTS`, so
+/// the stack is left unbalanced — `test_restore` re-establishes `S` from `V_SAVED_S`, which is what
+/// makes a test free to corrupt it. `A3.08` records why returning normally is not an option after a
+/// push that escapes its page, and the same reasoning applies to any probe reached this way.
+fn a4_12() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("Install the continuation both stubs return through, as a 24-bit pointer.");
+    a.l("lda #.LOWORD(@landed)");
+    a.l("sta a:V_BANKPROBE_RET");
+    a.l("sep #$20");
+    a.l("lda #^@landed");
+    a.l("sta a:V_BANKPROBE_RET+2");
+    a.c("Poison the result so 'neither stub ran' stays distinguishable from either answer.");
+    a.l("lda #$FF");
+    a.l("sta a:V_BANKPROBE");
+    a.l("rep #$30");
+    a.l("ldx #$800A        ; $FFFE + $800A = $1_8008, wrapping to $8008 in the program bank");
+    a.l("jsr ($FFFE,x)");
+    a.label("landed");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda a:V_BANKPROBE");
+    a.assert_a8(
+        0x00,
+        "JSR (a,X) did not take its pointer from the program bank: $01 = carried into bank $01, \
+         $FF = neither stub ran",
+    );
+    a.finish(
+        "A4.12",
+        'A',
+        "JSR (a,X) ptr bank",
+        Provenance::Documented("SNESdev Errata, 65C816 section"),
         Kind::Scored,
         None,
     )

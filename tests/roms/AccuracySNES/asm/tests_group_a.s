@@ -4497,6 +4497,58 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A4.12 — JSR (a,X) ptr bank
+; provenance: Documented (SNESdev Errata, 65C816 section)
+.proc test_a4_12
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Install the continuation both stubs return through, as a 24-bit pointer.
+    lda #.LOWORD(@landed)
+    sta a:V_BANKPROBE_RET
+    sep #$20
+    .a8
+    lda #^@landed
+    sta a:V_BANKPROBE_RET+2
+    ; Poison the result so 'neither stub ran' stays distinguishable from either answer.
+    lda #$FF
+    sta a:V_BANKPROBE
+    rep #$30
+    .a16
+    .i16
+    ldx #$800A        ; $FFFE + $800A = $1_8008, wrapping to $8008 in the program bank
+    jsr ($FFFE,x)
+@landed:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda a:V_BANKPROBE
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; JSR (a,X) did not take its pointer from the program bank: $01 = carried into bank $01, $FF = neither stub ran
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C1.01 — OAM word write/read
 ; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
 .proc test_c1_01
@@ -9943,471 +9995,6 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; F1.02 — Pad reads 17+ are 1
-; provenance: Documented (SNESdev Wiki, controller protocol; fullsnes)
-.proc test_f1_02
-    .a16
-    .i16
-    sep #$20
-    .a8
-    ; Latch, then clock out the sixteen data bits, ORing them together. Nothing is pressed, so
-    ; the OR must be 0 — without this a core that returns 1 to every read would pass below.
-    lda #$01
-    sta JOYSER0
-    lda #$00
-    sta JOYSER0
-    lda #$00
-    sta f:$7E0100         ; the OR of the first sixteen reads
-    ldx #$10
-@data:
-    lda JOYSER0
-    and #$01
-    ora f:$7E0100
-    sta f:$7E0100
-    dex
-    bne @data
-    lda f:$7E0100
-    cmp #$00
-    beq :+
-    jmp @fail1
-  :
-    ; Reads 17-20. Every one must be 1: the pad has nothing left to send.
-    lda #$01
-    sta f:$7E0100         ; the AND of the next four reads
-    ldx #$04
-@ones:
-    lda JOYSER0
-    and #$01
-    and f:$7E0100
-    sta f:$7E0100
-    dex
-    bne @ones
-    lda f:$7E0100
-    cmp #$01
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; a button read as pressed during the sixteen data bits, so the reads below say nothing about what follows them
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; a read past the sixteenth returned 0 — an official pad drives the line high once its data bits are exhausted, and peripherals are identified by not doing so
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; G1.02 — Reset: $4210/$4211 clear
-; provenance: Documented (SNESdev Wiki, power-on state; fullsnes)
-.proc test_g1_02
-    .a16
-    .i16
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda f:$7EE047     ; V_PO_RDNMI, the first read of $4210 after reset
-    and #$80
-    cmp #$00
-    beq :+
-    jmp @fail1
-  :
-    lda f:$7EE048     ; V_PO_TIMEUP, the first read of $4211 after reset
-    and #$80
-    cmp #$00
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; $4210 bit 7 (NMI pending) was already set when the machine started
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; $4211 bit 7 (IRQ pending) was already set when the machine started
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; G1.04 — Reset: emulation mode
-; provenance: Documented (SNESdev Wiki, power-on state; WDC 65C816 datasheet, XCE)
-.proc test_g1_04
-    .a16
-    .i16
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    lda f:$7EE046     ; V_PO_EMU, the carry XCE left at the top of reset
-    cmp #$01
-    beq :+
-    jmp @fail1
-  :
-    ; Follow the reset vector: bank $00, and the byte there is reset's opening SEI.
-    rep #$30
-    .a16
-    .i16
-    lda f:$00FFFC
-    tax
-    sep #$20
-    .a8
-    lda f:$000000,x
-    cmp #$78
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; the CPU was not in emulation mode at reset — XCE's carry said E was already clear
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; the word at $00FFFC does not point at code beginning with SEI, so the reset vector is not where LoROM puts it
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; G1.08 — Write-only read: openbus
-; provenance: Documented (SNESdev Wiki, open bus; fullsnes, memory map notes)
-.proc test_g1_08
-    .a16
-    .i16
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    ; Absolute: the operand's high byte is the last thing fetched, so the bus holds $42.
-    lda a:$4200
-    cmp #$42
-    beq :+
-    jmp @fail1
-  :
-    ; Long: the BANK byte comes last, so the same register now reads back as $00.
-    lda f:$004200
-    cmp #$00
-    beq :+
-    jmp @fail2
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; reading write-only $4200 with absolute addressing did not return the open-bus value $42 — a core answering $00 or $FF is not modelling the bus at all
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; reading write-only $4200 with long addressing did not return $00, the bank byte the CPU fetched last — so the value returned is fixed rather than whatever was last on the bus
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; G1.10 — Checksum XOR complement
-; provenance: Documented (SNESdev Wiki, cartridge header; fullsnes)
-.proc test_g1_10
-    .a16
-    .i16
-    rep #$30
-    .a16
-    .i16
-    lda f:$00FFDC        ; the complement
-    eor f:$00FFDE        ; XOR the checksum
-    cmp #$FFFF
-    beq :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; the header's checksum and complement do not XOR to $FFFF — the pair every emulator uses to recognise a header at all
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; G1.11 — Checksum over the image
-; provenance: Documented (SNESdev Wiki, cartridge header checksum; fullsnes)
-.proc test_g1_11
-    .a16
-    .i16
-    rep #$30
-    .a16
-    .i16
-    lda #$0000
-    sta f:$7E0110
-    ; Four banks of 32 KiB, each walked with long indexed addressing so the data bank never
-    ; comes into it. Unrolled because the bank is part of the address, not a variable.
-    ldx #$0000
-@bank0:
-    sep #$20
-    .a8
-    lda f:$008000,x
-    rep #$20
-    .a16
-    and #$00FF
-    clc
-    adc f:$7E0110
-    sta f:$7E0110
-    inx
-    cpx #$8000
-    bne @bank0
-    ldx #$0000
-@bank1:
-    sep #$20
-    .a8
-    lda f:$018000,x
-    rep #$20
-    .a16
-    and #$00FF
-    clc
-    adc f:$7E0110
-    sta f:$7E0110
-    inx
-    cpx #$8000
-    bne @bank1
-    ldx #$0000
-@bank2:
-    sep #$20
-    .a8
-    lda f:$028000,x
-    rep #$20
-    .a16
-    and #$00FF
-    clc
-    adc f:$7E0110
-    sta f:$7E0110
-    inx
-    cpx #$8000
-    bne @bank2
-    ldx #$0000
-@bank3:
-    sep #$20
-    .a8
-    lda f:$038000,x
-    rep #$20
-    .a16
-    and #$00FF
-    clc
-    adc f:$7E0110
-    sta f:$7E0110
-    inx
-    cpx #$8000
-    bne @bank3
-    ; Correct the two header fields out of the total: take away the four bytes that are
-    ; actually there and put back the $0000 complement and $FFFF checksum the algorithm counts.
-    sep #$20
-    .a8
-    lda f:$00FFDC
-    rep #$20
-    .a16
-    and #$00FF
-    sta f:$7E0110+2         ; scratch: the running correction
-    sep #$20
-    .a8
-    lda f:$00FFDD         ; complement high
-    rep #$20
-    .a16
-    and #$00FF
-    clc
-    adc f:$7E0110+2
-    sta f:$7E0110+2
-    sep #$20
-    .a8
-    lda f:$00FFDE         ; checksum low
-    rep #$20
-    .a16
-    and #$00FF
-    clc
-    adc f:$7E0110+2
-    sta f:$7E0110+2
-    sep #$20
-    .a8
-    lda f:$00FFDF         ; checksum high
-    rep #$20
-    .a16
-    and #$00FF
-    clc
-    adc f:$7E0110+2
-    sta f:$7E0110+2
-    lda f:$7E0110
-    sec
-    sbc f:$7E0110+2         ; the four header bytes are not part of the sum
-    clc
-    adc #$01FE             ; ...and $FF + $FF + $00 + $00 goes back in their place
-    eor f:$00FFDE
-    cmp #$0000
-    beq :+
-    jmp @fail1
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; the sum of all 131,072 bytes does not match the checksum in the header — an image that is short, mirrored, or mapped with the wrong bank stride sums differently
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; G1.12 — LoROM header location
-; provenance: Documented (SNESdev Wiki, cartridge header; fullsnes)
-.proc test_g1_12
-    .a16
-    .i16
-    sep #$20
-    .a8
-    lda f:$00FFD5
-    cmp #$20
-    beq :+
-    jmp @fail1
-  :
-    lda f:$00FFD7
-    cmp #$07
-    beq :+
-    jmp @fail2
-  :
-    ; And the title, whose first byte is the one thing a human recognises in a hex dump.
-    lda f:$00FFC0
-    cmp #$41
-    beq :+
-    jmp @fail3
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; the map-mode byte at $FFD5 is not $20 (LoROM, SlowROM), so the header is not where LoROM puts it
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; the ROM-size byte at $FFD7 is not 7 (128 KiB), so the header was read from the right address of the wrong image
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-@fail3:
-    ; the title does not begin at $FFC0 with ACCURACYSNES's first letter
-    sep #$20
-    .a8
-    lda #$06
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; G1.14 — LoROM bank decode
-; provenance: Documented (SNESdev Wiki, memory map; fullsnes)
-.proc test_g1_14
-    .a16
-    .i16
-    sep #$20
-    .a8
-    lda f:$008005
-    cmp #$A0
-    beq :+
-    jmp @fail1
-  :
-    ; Bank $01 is a DIFFERENT 32 KiB. A core using a 64 KiB stride reads bank $00's byte here.
-    lda f:$018005
-    cmp #$A1
-    beq :+
-    jmp @fail2
-  :
-    ; And $80 mirrors $00, because the decode masks the top bit off the bank number.
-    lda f:$808005
-    cmp #$A0
-    beq :+
-    jmp @fail3
-  :
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; bank $00's signature is wrong — the image is not mapped as expected
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; bank $01 did not map its own 32 KiB — reading $A0 means the bank stride is 64 KiB, not 32
-    sep #$20
-    .a8
-    lda #$04
-    sta f:$7EE010
-    jml test_restore
-@fail3:
-    ; bank $80 did not mirror bank $00 — the LoROM decode masks the bank with $7F
-    sep #$20
-    .a8
-    lda #$06
     sta f:$7EE010
     jml test_restore
 .endproc
@@ -20063,6 +19650,475 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+.segment "TESTSG"
+
+; G1.02 — Reset: $4210/$4211 clear
+; provenance: Documented (SNESdev Wiki, power-on state; fullsnes)
+.proc test_g1_02
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda f:$7EE047     ; V_PO_RDNMI, the first read of $4210 after reset
+    and #$80
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7EE048     ; V_PO_TIMEUP, the first read of $4211 after reset
+    and #$80
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; $4210 bit 7 (NMI pending) was already set when the machine started
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; $4211 bit 7 (IRQ pending) was already set when the machine started
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; G1.04 — Reset: emulation mode
+; provenance: Documented (SNESdev Wiki, power-on state; WDC 65C816 datasheet, XCE)
+.proc test_g1_04
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda f:$7EE046     ; V_PO_EMU, the carry XCE left at the top of reset
+    cmp #$01
+    beq :+
+    jmp @fail1
+  :
+    ; Follow the reset vector: bank $00, and the byte there is reset's opening SEI.
+    rep #$30
+    .a16
+    .i16
+    lda f:$00FFFC
+    tax
+    sep #$20
+    .a8
+    lda f:$000000,x
+    cmp #$78
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the CPU was not in emulation mode at reset — XCE's carry said E was already clear
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the word at $00FFFC does not point at code beginning with SEI, so the reset vector is not where LoROM puts it
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; G1.08 — Write-only read: openbus
+; provenance: Documented (SNESdev Wiki, open bus; fullsnes, memory map notes)
+.proc test_g1_08
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    ; Absolute: the operand's high byte is the last thing fetched, so the bus holds $42.
+    lda a:$4200
+    cmp #$42
+    beq :+
+    jmp @fail1
+  :
+    ; Long: the BANK byte comes last, so the same register now reads back as $00.
+    lda f:$004200
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; reading write-only $4200 with absolute addressing did not return the open-bus value $42 — a core answering $00 or $FF is not modelling the bus at all
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; reading write-only $4200 with long addressing did not return $00, the bank byte the CPU fetched last — so the value returned is fixed rather than whatever was last on the bus
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; G1.10 — Checksum XOR complement
+; provenance: Documented (SNESdev Wiki, cartridge header; fullsnes)
+.proc test_g1_10
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    lda f:$00FFDC        ; the complement
+    eor f:$00FFDE        ; XOR the checksum
+    cmp #$FFFF
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the header's checksum and complement do not XOR to $FFFF — the pair every emulator uses to recognise a header at all
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; G1.11 — Checksum over the image
+; provenance: Documented (SNESdev Wiki, cartridge header checksum; fullsnes)
+.proc test_g1_11
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E0110
+    ; Four banks of 32 KiB, each walked with long indexed addressing so the data bank never
+    ; comes into it. Unrolled because the bank is part of the address, not a variable.
+    ldx #$0000
+@bank0:
+    sep #$20
+    .a8
+    lda f:$008000,x
+    rep #$20
+    .a16
+    and #$00FF
+    clc
+    adc f:$7E0110
+    sta f:$7E0110
+    inx
+    cpx #$8000
+    bne @bank0
+    ldx #$0000
+@bank1:
+    sep #$20
+    .a8
+    lda f:$018000,x
+    rep #$20
+    .a16
+    and #$00FF
+    clc
+    adc f:$7E0110
+    sta f:$7E0110
+    inx
+    cpx #$8000
+    bne @bank1
+    ldx #$0000
+@bank2:
+    sep #$20
+    .a8
+    lda f:$028000,x
+    rep #$20
+    .a16
+    and #$00FF
+    clc
+    adc f:$7E0110
+    sta f:$7E0110
+    inx
+    cpx #$8000
+    bne @bank2
+    ldx #$0000
+@bank3:
+    sep #$20
+    .a8
+    lda f:$038000,x
+    rep #$20
+    .a16
+    and #$00FF
+    clc
+    adc f:$7E0110
+    sta f:$7E0110
+    inx
+    cpx #$8000
+    bne @bank3
+    ; Correct the two header fields out of the total: take away the four bytes that are
+    ; actually there and put back the $0000 complement and $FFFF checksum the algorithm counts.
+    sep #$20
+    .a8
+    lda f:$00FFDC
+    rep #$20
+    .a16
+    and #$00FF
+    sta f:$7E0110+2         ; scratch: the running correction
+    sep #$20
+    .a8
+    lda f:$00FFDD         ; complement high
+    rep #$20
+    .a16
+    and #$00FF
+    clc
+    adc f:$7E0110+2
+    sta f:$7E0110+2
+    sep #$20
+    .a8
+    lda f:$00FFDE         ; checksum low
+    rep #$20
+    .a16
+    and #$00FF
+    clc
+    adc f:$7E0110+2
+    sta f:$7E0110+2
+    sep #$20
+    .a8
+    lda f:$00FFDF         ; checksum high
+    rep #$20
+    .a16
+    and #$00FF
+    clc
+    adc f:$7E0110+2
+    sta f:$7E0110+2
+    lda f:$7E0110
+    sec
+    sbc f:$7E0110+2         ; the four header bytes are not part of the sum
+    clc
+    adc #$01FE             ; ...and $FF + $FF + $00 + $00 goes back in their place
+    eor f:$00FFDE
+    cmp #$0000
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the sum of all 131,072 bytes does not match the checksum in the header — an image that is short, mirrored, or mapped with the wrong bank stride sums differently
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; G1.12 — LoROM header location
+; provenance: Documented (SNESdev Wiki, cartridge header; fullsnes)
+.proc test_g1_12
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda f:$00FFD5
+    cmp #$20
+    beq :+
+    jmp @fail1
+  :
+    lda f:$00FFD7
+    cmp #$07
+    beq :+
+    jmp @fail2
+  :
+    ; And the title, whose first byte is the one thing a human recognises in a hex dump.
+    lda f:$00FFC0
+    cmp #$41
+    beq :+
+    jmp @fail3
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the map-mode byte at $FFD5 is not $20 (LoROM, SlowROM), so the header is not where LoROM puts it
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the ROM-size byte at $FFD7 is not 7 (128 KiB), so the header was read from the right address of the wrong image
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; the title does not begin at $FFC0 with ACCURACYSNES's first letter
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; G1.14 — LoROM bank decode
+; provenance: Documented (SNESdev Wiki, memory map; fullsnes)
+.proc test_g1_14
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda f:$008005
+    cmp #$A0
+    beq :+
+    jmp @fail1
+  :
+    ; Bank $01 is a DIFFERENT 32 KiB. A core using a 64 KiB stride reads bank $00's byte here.
+    lda f:$018005
+    cmp #$A1
+    beq :+
+    jmp @fail2
+  :
+    ; And $80 mirrors $00, because the decode masks the top bit off the bank number.
+    lda f:$808005
+    cmp #$A0
+    beq :+
+    jmp @fail3
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; bank $00's signature is wrong — the image is not mapped as expected
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; bank $01 did not map its own 32 KiB — reading $A0 means the bank stride is 64 KiB, not 32
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; bank $80 did not mirror bank $00 — the LoROM decode masks the bank with $7F
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+.segment "TESTSG"
+
+; F1.02 — Pad reads 17+ are 1
+; provenance: Documented (SNESdev Wiki, controller protocol; fullsnes)
+.proc test_f1_02
+    .a16
+    .i16
+    sep #$20
+    .a8
+    ; Latch, then clock out the sixteen data bits, ORing them together. Nothing is pressed, so
+    ; the OR must be 0 — without this a core that returns 1 to every read would pass below.
+    lda #$01
+    sta JOYSER0
+    lda #$00
+    sta JOYSER0
+    lda #$00
+    sta f:$7E0100         ; the OR of the first sixteen reads
+    ldx #$10
+@data:
+    lda JOYSER0
+    and #$01
+    ora f:$7E0100
+    sta f:$7E0100
+    dex
+    bne @data
+    lda f:$7E0100
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    ; Reads 17-20. Every one must be 1: the pad has nothing left to send.
+    lda #$01
+    sta f:$7E0100         ; the AND of the next four reads
+    ldx #$04
+@ones:
+    lda JOYSER0
+    and #$01
+    and f:$7E0100
+    sta f:$7E0100
+    dex
+    bne @ones
+    lda f:$7E0100
+    cmp #$01
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; a button read as pressed during the sixteen data bits, so the reads below say nothing about what follows them
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; a read past the sixteenth returned 0 — an official pad drives the line high once its data bits are exhausted, and peripherals are identified by not doing so
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 .segment "APUDATA"
 apu_prog_0:
     .byte $CD, $EF, $BD, $E8, $10, $8D, $10, $CF, $C4, $F6, $CB, $F7
@@ -20951,7 +21007,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 253
+    .word 254
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -21030,6 +21086,7 @@ _test_entries:
     .faraddr test_a8_07
     .faraddr test_a6_12
     .faraddr test_a4_11
+    .faraddr test_a4_12
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -21286,6 +21343,7 @@ _test_flags:
     .byte $01   ; A8.07
     .byte $02   ; A6.12
     .byte $01   ; A4.11
+    .byte $01   ; A4.12
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -21542,6 +21600,7 @@ _test_names:
     .addr @n_a8_07
     .addr @n_a6_12
     .addr @n_a4_11
+    .addr @n_a4_12
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -21945,6 +22004,9 @@ _test_names:
 @n_a4_11:
     .byte 18
     .byte "JMP (a,X) ptr bank"
+@n_a4_12:
+    .byte 18
+    .byte "JSR (a,X) ptr bank"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"
