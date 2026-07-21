@@ -92,6 +92,7 @@ pub fn all() -> Vec<Test> {
         a4_10(),
         a8_06(),
         a3_08(),
+        a3_06(),
     ]
 }
 
@@ -823,6 +824,69 @@ fn a3_08() -> Test {
         "A3.08",
         'A',
         "JSR (a,X) escapes page 1",
+        Provenance::Documented("WDC datasheet; superfamicom.org escape list"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `(d,S),Y` escapes page 1 for its pointer read, and bank-carries for its data read.
+///
+/// Two independent claims, and the test seeds a **distinct wrong answer for each** so a failure
+/// says which one broke:
+///
+/// * **Escape.** The pointer address is `S + d` as a full 16-bit sum, with no page-1 masking —
+///   ares' `readStack` is `read(n16(S.w + address))`. From `S = $01FE` and `d = $04` that is
+///   `$0202`. A core applying the 6502's page-1 confinement computes `($FE + $04) & $FF = $02` and
+///   reads `$0102` instead.
+/// * **Bank carry.** The data address is `DBR:pointer + Y` as a 24-bit sum. With the pointer at
+///   `$FFFF`, `DBR = $7E` and `Y = 2`, that is `$7F:0001` — a core masking to 16 bits reads
+///   `$7E:0001`.
+///
+/// The three outcomes are seeded `$5A` (both right), `$99` (escaped but masked the bank carry) and
+/// `$77` (confined the pointer read), so the assertion distinguishes correct behaviour from each
+/// broken alternative rather than from "not `$5A`".
+///
+/// `DBR` is set before `S` is moved, because loading it costs a `PHA`/`PLB` pair and doing that
+/// with the stack pointer parked one byte below the page boundary would push through the very
+/// boundary under test.
+fn a3_06() -> Test {
+    let mut a = Asm::new();
+    a.c("Seed all three candidate results distinctly.");
+    a.l("rep #$30");
+    a.l("sep #$20");
+    a.l("lda #$5A");
+    a.l("sta f:$7F0001     ; escaped pointer + bank carry: the documented answer");
+    a.l("lda #$99");
+    a.l("sta f:$7E0001     ; escaped pointer, but the bank carry masked away");
+    a.l("lda #$77");
+    a.l("sta f:$7E0302     ; pointer read confined to page 1, then + Y");
+    a.c("Two pointers: the one at the escaped address, and the one a confined core would find.");
+    a.l("rep #$30");
+    a.l("lda #$FFFF");
+    a.l("sta f:$7E0202     ; at S+d = $01FE+$04, escaping page 1");
+    a.l("lda #$0300");
+    a.l("sta f:$7E0102     ; at ($FE+$04) & $FF, inside page 1");
+    a.c("DBR first — PHA/PLB uses the stack, so do it before S is parked at the boundary.");
+    a.l("sep #$20");
+    a.l("lda #$7E");
+    a.l("pha");
+    a.l("plb");
+    a.l("rep #$30");
+    a.l("lda #$01FE");
+    a.l("tcs");
+    a.enter_emulation();
+    a.l("ldy #$02");
+    a.l("lda ($04,s),y");
+    a.enter_native();
+    a.assert_a8(
+        0x5A,
+        "(d,S),Y misread: $77 = pointer confined to page 1, $99 = bank carry masked to 16 bits",
+    );
+    a.finish(
+        "A3.06",
+        'A',
+        "(d,S),Y escape + carry",
         Provenance::Documented("WDC datasheet; superfamicom.org escape list"),
         Kind::Scored,
         None,

@@ -3887,6 +3887,70 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A3.06 — (d,S),Y escape + carry
+; provenance: Documented (WDC datasheet; superfamicom.org escape list)
+.proc test_a3_06
+    .a16
+    .i16
+    ; Seed all three candidate results distinctly.
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$5A
+    sta f:$7F0001     ; escaped pointer + bank carry: the documented answer
+    lda #$99
+    sta f:$7E0001     ; escaped pointer, but the bank carry masked away
+    lda #$77
+    sta f:$7E0302     ; pointer read confined to page 1, then + Y
+    ; Two pointers: the one at the escaped address, and the one a confined core would find.
+    rep #$30
+    .a16
+    .i16
+    lda #$FFFF
+    sta f:$7E0202     ; at S+d = $01FE+$04, escaping page 1
+    lda #$0300
+    sta f:$7E0102     ; at ($FE+$04) & $FF, inside page 1
+    ; DBR first — PHA/PLB uses the stack, so do it before S is parked at the boundary.
+    sep #$20
+    .a8
+    lda #$7E
+    pha
+    plb
+    rep #$30
+    .a16
+    .i16
+    lda #$01FE
+    tcs
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+    ldy #$02
+    lda ($04,s),y
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    cmp #$5A
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; (d,S),Y misread: $77 = pointer confined to page 1, $99 = bank carry masked to 16 bits
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C1.01 — OAM word write/read
 ; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
 .proc test_c1_01
@@ -20316,7 +20380,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 245
+    .word 246
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -20388,6 +20452,7 @@ _test_entries:
     .faraddr test_a4_10
     .faraddr test_a8_06
     .faraddr test_a3_08
+    .faraddr test_a3_06
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -20636,6 +20701,7 @@ _test_flags:
     .byte $02   ; A4.10
     .byte $01   ; A8.06
     .byte $01   ; A3.08
+    .byte $01   ; A3.06
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -20884,6 +20950,7 @@ _test_names:
     .addr @n_a4_10
     .addr @n_a8_06
     .addr @n_a3_08
+    .addr @n_a3_06
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -21265,6 +21332,9 @@ _test_names:
 @n_a3_08:
     .byte 24
     .byte "JSR (a,X) escapes page 1"
+@n_a3_06:
+    .byte 22
+    .byte "(d,S),Y escape + carry"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"

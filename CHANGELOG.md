@@ -23,6 +23,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`A3.06` — `(d,S),Y` escapes page 1 for its pointer read and bank-carries for its data read.**
+  Two independent claims, so the test seeds a **distinct wrong answer for each**: `$5A` when both
+  are right, `$99` when the pointer escaped but the bank carry was masked to 16 bits, and `$77` when
+  the pointer read was confined to page 1. The failure message names which one broke, rather than
+  reporting "not `$5A`".
+
+  `DBR` is loaded before `S` is moved, because the `PHA`/`PLB` pair that sets it would otherwise
+  push through the very page boundary under test. **`A3` is now complete.**
+
 - **`A3.08` — `JSR (a,X)` escapes page 1.** The companion to `A3.07` and not a duplicate: `JSL`
   pushes three bytes and `JSR (a,X)` two, so they cross the page-1 floor from different alignments
   through different opcodes, and a core special-casing the escape per instruction can get one right
@@ -70,7 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     vouches for the row. All three cores currently report variant 1 (the wrap). Both candidate
     landing sites are seeded with a jump home so either answer returns.
 
-  Dossier coverage moves **244 → 251 of 443**.
+  Dossier coverage moves **244 → 252 of 443**.
 
   Also `A8.06` — in emulation mode `E = 1` forces `x = 1`, so the block-move offsets are 8-bit and
   confined to `$00xx`: an offset stepping past `$FF` wraps inside page 0 rather than advancing to

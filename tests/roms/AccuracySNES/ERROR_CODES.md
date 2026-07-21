@@ -571,6 +571,14 @@ Provenance: **Documented** (WDC datasheet; superfamicom.org escape list). Kind: 
 |---|---|---|
 | 1 | `$02` | JSR (a,X) wrapped its second push into page 1 and clobbered $01FF, instead of escaping to $00FF |
 
+### A3.06 — (d,S),Y escape + carry
+
+Provenance: **Documented** (WDC datasheet; superfamicom.org escape list). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | (d,S),Y misread: $77 = pointer confined to page 1, $99 = bank carry masked to 16 bits |
+
 ## Group C
 
 ### C1.01 — OAM word write/read
