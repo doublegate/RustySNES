@@ -454,10 +454,13 @@ finding instead of an artifact.
 
 Consequences worth carrying forward:
 
-* **The `A5` tests that exist are unaffected**, and it is worth being explicit about why: each one
-  measures eight *short* instructions and compares two such measurements, so both stay far inside a
-  scanline. The cap only bites when a single instruction, or a long unrolled run, is put inside the
-  window.
+* **The `A5` tests that exist are unaffected**, and it is worth stating the invariant that makes
+  them safe rather than a count. Each measures a short unrolled run — fifteen of them repeat an
+  instruction eight times and three repeat one sixteen times — and the property that matters is that
+  the *window* stays well below the 341-dot wrap, not the number of instructions in it. Sixteen
+  two-cycle instructions is 48 dots; the largest of them is nowhere near the cap. Anything added
+  later has to be checked against the wrap, not against these counts: **the safe quantity is the
+  measured span, and there is no guard on it.**
 * **`A5.20` needs a wider instrument**, one that counts dots since the top of the frame rather than
   within a line — V as well as H. A first attempt at exactly that (`hv_read_wide`, reading `$213D`
   alongside `$213C` and folding `V * 341 + H` through the hardware multiplier) was written and
