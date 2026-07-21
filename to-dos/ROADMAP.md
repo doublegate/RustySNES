@@ -536,6 +536,34 @@ block-move divergence is **still unexplained** and this ticket should not be clo
 otherwise. What is established independently of it is that our dot model is wrong; the two may be
 related or may not.
 
+**Implementation plan** (from reading the code, 2026-07-21 — this is not a one-line change):
+
+1. **`DOTS_PER_LINE` and the dot length are coupled and must move together.**
+   `crates/rustysnes-ppu/src/lib.rs` has `DOTS_PER_LINE = 341`; `crates/rustysnes-core/src/bus.rs`
+   has `MASTER_PER_DOT = 4`. Today `341 x 4 = 1364` — the right line length by construction, which
+   is why nothing has noticed. Changing only the count gives `340 x 4 = 1360`, which is the *short*
+   line and would break every line. The correct pair is **340 dots** with **323 and 327 at 6
+   clocks**: `338 x 4 + 2 x 6 = 1364`.
+
+2. **The stepping site is `Bus::advance_master`** (the `dot_accum >= MASTER_PER_DOT` branch). The
+   threshold becomes a function of the *current* `h` — 6 at 323 and 327, else 4. The comment above
+   that branch is load-bearing: `pre_tick_dot` is captured before the tick for HDMA ordering and
+   must stay there.
+
+3. **`HDMA_RUN_DOT` = `rustysnes_ppu::RENDER_DOT` = 276**, asserted equal by a unit test. 276 is
+   below 323, so neither moves — but that assertion is a useful canary that the numbering did not
+   shift underneath them.
+
+4. **The H-IRQ trap.** `set_hv_irq(..., htime, vtime)` hands `$4207/8` to the PPU, which compares it
+   against the same `h`. If `h` becomes the *corrected* dot number the comparison silently changes
+   meaning. ares, bsnes and Mesen2 all compare H-IRQ against a **uniform** `4 x HTIME` in the
+   master-clock domain, deliberately. H-IRQ must therefore keep a uniform counter or compare in
+   clocks — it must not simply follow a corrected `h`.
+
+5. **Then re-run `B1.05`.** Two attempts at the /6-/8-/12 rate row failed with a residual that is a
+   measurement problem rather than a probe problem (`docs/accuracysnes-plan.md`); this change is the
+   likeliest thing underneath it.
+
 **Acceptance.** Determinism holds (seed + ROM + input produces bit-identical AV); no rendered
 scene changes (all 50 blessed scenes); existing timing tests do not regress; `OPHCT` never returns
 340 on an NTSC line. Do **not** accept on "matches snes9x and Mesen2" alone — that is agreement,
