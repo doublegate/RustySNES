@@ -632,6 +632,19 @@ rewritten to the current number — this line is the one to read.
   nothing depending on what is plugged in, and that `NMITIMEN` is zero for the whole battery, both
   of which the input contract changed.
 
+- **The SPC700 program images now pack across two banks.** They total ~22 KiB over 106 programs and
+  grow ~240 bytes per APU test, so one 32 KiB bank runs out partway through finishing Group E — and
+  a segment cannot span a bank boundary. `apu_upload` already reads them through a 24-bit pointer,
+  so which bank a program lands in is invisible to every test. Verified by forcing a split with a
+  reduced budget and confirming the battery still passes 284/284 with programs in two banks; at the
+  real budget the mechanism is inert, and inert machinery that has never run is worth nothing.
+  **Deduplication was measured and rejected.** Across the 106 programs the longest common prefix is
+  **0 bytes** — `data_first` puts each test's sample at the head, so programs diverge immediately —
+  though 28 share a 128-byte prologue and a shared library would save ~4,864 bytes (22%). It was
+  rejected on failure mode, not size: a library at a fixed APU RAM address that a later program
+  overwrites yields a *wrong measurement* rather than a crash, on a cart whose purpose is to be
+  believed about small numbers. Splitting removes the ceiling outright and risks nothing.
+
 - **`CATALOG` moved out of bank `$00`** (to bank `$04`), which takes bank `$00` from 3,268 bytes
   free to **11,686**. It was the last movable thing there and it grows ~27 bytes per test, so it was
   the segment that would have hit the wall first.

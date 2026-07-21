@@ -30588,7 +30588,6 @@ apu_prog_104:
     .byte $0A, $F0, $8F, $81, $F1, $8D, $00, $FE, $FE, $8F, $80, $F1
     .byte $E4, $FD, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5
     .byte $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-
 .segment "CATALOG"
 .export _test_count
 .export _test_entries

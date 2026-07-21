@@ -941,6 +941,39 @@ Worth separating from the row itself: **this is the first Group F blocker that i
 rather than about the machine.** `F1.15`-`F1.22` (multitap, mouse, Super Scope, NTT keypad) need
 real emulated peripherals in all three runners, which is a much larger version of the same problem.
 
+### Deduplicating the SPC images was measured, costed, and rejected for a better option
+
+The SPC700 program images are the second-largest thing in the cartridge and grow with every APU
+test, so the obvious saving is that they repeat themselves: every `voice_program` emits the same DSP
+setup. Measured across the 106 programs actually in the ROM:
+
+| quantity | value |
+|---|---|
+| total | 21,964 bytes, median program 268 |
+| longest common prefix across **all** programs | **0 bytes** |
+| largest cluster sharing a 128-byte prefix | 28 programs |
+| saving from one shared 128-byte prologue | ~4,864 bytes, **22%** |
+
+The zero is the interesting number: `data_first` places each test's *sample* at the head of its
+program, so two programs diverge in their first bytes even when everything after is identical. Any
+dedup scheme has to reorder the image, not just factor a prefix out.
+
+**Rejected on failure mode rather than on size.** Uploading a shared library once and having each
+test call into it needs the library to survive at a fixed APU RAM address across uploads. Every
+program ends in `release_to_ipl`, which re-enters the boot ROM, and the whole battery's correctness
+rests on each test starting from a known APU state. A later program overwriting the library would
+not crash — it would produce a *wrong measurement*, on a cart whose entire purpose is to be believed
+about small numbers. That is the one class of bug this battery is structurally worst at noticing,
+and 22% of one segment does not buy it.
+
+**What was done instead: the images pack across two banks.** `apu_upload` already reads them through
+a 24-bit pointer, so which bank a program lands in is invisible to every test; the only rule is that
+a segment cannot span a bank boundary, so the split happens where the images are laid out
+(`emit_apu_images`). It costs nothing at runtime, removes the ceiling outright rather than deferring
+it, and was verified by forcing a split with a reduced budget and confirming the battery still
+passes 284/284 with programs in two different banks — the mechanism is inert at the real budget, and
+inert machinery that has never run is worth nothing.
+
 ### The interactive menu's list never renders — pre-existing, found by moving the catalog
 
 Moving `CATALOG` out of bank `$00` meant rewriting `draw_str`, and verifying that meant looking at

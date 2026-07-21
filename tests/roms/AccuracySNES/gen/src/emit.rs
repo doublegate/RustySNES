@@ -104,14 +104,22 @@ pub fn asm(tests: &[Test]) -> String {
         }
     }
 
-    // Out-of-bank read-only data: the SPC700 program images. They are pure data, they are read
-    // through a 24-bit pointer by `apu_upload`, and they are large enough that keeping them in
-    // bank $00 alongside every test body overflowed it.
-    let data: String = tests.iter().map(|t| t.data.as_str()).collect();
-    if !data.is_empty() {
-        let _ = writeln!(s, ".segment \"APUDATA\"");
-        let _ = writeln!(s, "{data}");
-    }
+    // Out-of-bank read-only data: the SPC700 program images. They are pure data, read through a
+    // 24-bit pointer by `apu_upload`, and they are large enough that keeping them in bank $00
+    // alongside every test body overflowed it.
+    //
+    // **Packed across two banks, because one will not hold them.** They total ~22 KiB across ~106
+    // programs and grow by roughly 240 bytes per APU test, and Group E has the most uncovered
+    // dossier rows left — so a single 32 KiB bank runs out partway through finishing the group. A
+    // segment cannot span a bank boundary, so the split has to happen here, at the point the
+    // programs are laid out.
+    //
+    // The alternative considered and rejected was deduplication: 28 of the programs share a
+    // 128-byte prologue and a shared library would save about 22%. It needs the library to live at
+    // a fixed APU RAM address across uploads, and a later program overwriting it produces *wrong
+    // measurements* rather than a failure — the one class of bug this battery is least able to
+    // notice. Splitting costs nothing at runtime and removes the ceiling outright.
+    emit_apu_images(&mut s, tests);
 
     // The dispatch table: one entry per test, walked by the runtime.
     let _ = writeln!(s, ".segment \"CATALOG\"");
@@ -160,6 +168,49 @@ pub fn asm(tests: &[Test]) -> String {
         let _ = writeln!(s, "    .byte \"{name}\"");
     }
     s
+}
+
+/// Lay the SPC700 program images out across the `APUDATA` segments, filling each before the next.
+///
+/// `apu_upload` reads them through a 24-bit pointer, so which bank a program lands in is invisible
+/// to every test — the only thing that matters is that no segment outgrows its bank.
+///
+/// The budget is deliberately below a full bank. A segment sharing a bank with nothing else could
+/// in principle use all 32,752 bytes, but leaving a margin means the per-bank headroom gate in
+/// `main.rs` reports the pressure before the linker refuses, which is the difference between a
+/// warning and a wall.
+fn emit_apu_images(s: &mut String, tests: &[crate::dsl::Test]) {
+    /// Bytes to put in one segment before moving to the next.
+    const BUDGET: usize = 28 * 1024;
+    /// The segments available, in fill order. Add one here and in `lorom.cfg` together.
+    const SEGMENTS: &[&str] = &["APUDATA", "APUDATA2"];
+
+    let mut seg = 0;
+    let mut used = 0usize;
+    let mut open = false;
+    for t in tests {
+        if t.data.is_empty() {
+            continue;
+        }
+        // The emitted text is `.byte $xx, $xx, ...`; each byte is one `$` and nothing else in the
+        // data blocks is. Counting them beats threading a length through `Test` for a figure only
+        // this function wants.
+        let bytes = t.data.bytes().filter(|&b| b == b'$').count();
+        if !open || (used + bytes > BUDGET && seg + 1 < SEGMENTS.len()) {
+            if open {
+                seg += 1;
+                used = 0;
+            }
+            let _ = writeln!(s, ".segment \"{}\"", SEGMENTS[seg]);
+            open = true;
+        }
+        used += bytes;
+        let _ = write!(s, "{}", t.data);
+    }
+    assert!(
+        used <= BUDGET || seg + 1 == SEGMENTS.len(),
+        "the APU images overflowed the last segment; add another to SEGMENTS and lorom.cfg"
+    );
 }
 
 /// Generate `SOURCE_CATALOG.tsv`, the machine-readable manifest the harness `include_str!`s.
