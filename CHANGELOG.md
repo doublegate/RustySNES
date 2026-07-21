@@ -557,6 +557,24 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E1.07` — `DIV YA,X` is valid only while the quotient fits in nine bits.** `V` is quotient bit 8,
+  so `A` carries 0-255 and `V` the 256-511 range; ask for 512 and there is nowhere to put the
+  answer. Marked `[ERRATA]` because the hardware does not wrap or saturate in the obvious way — it
+  silently switches to `E1.03`'s overflow algorithm and both halves of the result go wrong together.
+
+  Two divisions with the same divisor, one step apart: `$03FE / 2` (quotient 511) returns `A = $FF`,
+  `Y = $00`, and `$0400 / 2` (quotient 512) returns `A = $FF`, `Y = $02`. **`A` is `$FF` in both**,
+  which is the trap — a test checking only the quotient sees the same byte on either side of the
+  boundary and concludes nothing happened. The remainder is what moves: 1024 / 2 leaves none, and
+  the hardware reports 2.
+
+  The negative is pinned in both bytes: a core computing `YA / X` and `YA % X` and truncating
+  returns `$00`/`$00` for the second division, so the failure cannot be a rounding difference. The
+  first division is the control — same instruction, same divisor, one step below the boundary — so a
+  core failing it has a broken `DIV` rather than a boundary bug. Verified by deleting the overflow
+  branch from the SPC700 core: `E1.07` fails at code 3 and `E1.03` alongside it, while `E1.02`'s
+  normal branch keeps passing.
+
 - **`E4.11` — what pattern does APU RAM power up holding?** A **golden vector**: the dossier records
   a repeating `32x$00, 32x$FF` fill and marks it chip-dependent and informational, and the three
   cores do three different things, none of them that.

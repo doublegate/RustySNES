@@ -46,6 +46,7 @@ pub fn all() -> Vec<Test> {
         e4_11(),
         e1_01(),
         e1_02(),
+        e1_07(),
         e1_04(),
         e1_05(),
         e1_06(),
@@ -521,6 +522,122 @@ fn e1_01() -> Test {
         'E',
         "MUL YA flags from Y",
         Provenance::Documented("SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `DIV YA,X` is only valid while the quotient fits in nine bits, and 511 is the last one that does.
+///
+/// The SPC700's divide is a 9-bit-quotient machine: `V` is quotient bit 8 (`E1.05`), so `A` can
+/// carry 0-255 and `V` the 256-511 range. Ask it for 512 and there is nowhere to put the answer.
+/// The dossier marks the row `[ERRATA]` because what happens then is not "wraps" or "saturates in
+/// the obvious way" — the hardware silently changes algorithm, and both halves of the result go
+/// wrong together.
+///
+/// # The pair that shows it
+///
+/// Both divisions use `X = 2`, and differ only in the dividend:
+///
+/// | `YA` | true quotient | branch | `A` | `Y` |
+/// |---:|---:|---|---|---|
+/// | `$03FE` (1022) | **511** | normal (`Y < X<<1`) | `$FF` | `$00` |
+/// | `$0400` (1024) | 512 | overflow | `$FF` | **`$02`** |
+///
+/// `A` is `$FF` in *both* rows, which is the trap: a test checking only the quotient sees the same
+/// byte either side of the boundary and concludes nothing happened. **The remainder is what moves.**
+/// 1024 / 2 leaves no remainder, and the hardware reports 2 — because past the boundary it is
+/// running `E1.03`'s overflow formula, `Y = X + (YA - (X<<9)) % (256 - X)`, which is not a
+/// remainder at all.
+///
+/// # Pinning the negative
+///
+/// A core that simply computes `YA / X` and `YA % X` and truncates gives `A = $00`, `Y = $00` for
+/// the second division — 512 truncated to eight bits. So the wrong answer differs from the right
+/// one in *both* reported bytes, and the failure cannot be produced by a rounding difference or an
+/// off-by-one. The first division is the control: it is the same instruction with the same divisor
+/// one step below the boundary, so a core failing it has a broken `DIV` rather than a boundary bug.
+///
+/// Two uploads rather than two divisions in one program: each division needs its own `A`/`Y`/`X`
+/// setup and reports two bytes, and the three mailbox ports do not hold four values.
+fn e1_07() -> Test {
+    // Quotient 511 — the last one that fits.
+    let mut ok = Spc::new();
+    ok.mov_x_imm(0xEF).mov_sp_x();
+    ok.mov_a_imm(0xFE).mov_y_imm(0x03).mov_x_imm(0x02);
+    ok.div_ya_x().mov_dp_a(PORT1).mov_dp_y(PORT2);
+    ok.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    // Quotient 512 — one past it.
+    let mut over = Spc::new();
+    over.mov_x_imm(0xEF).mov_sp_x();
+    over.mov_a_imm(0x00).mov_y_imm(0x04).mov_x_imm(0x02);
+    over.div_ya_x().mov_dp_a(PORT1).mov_dp_y(PORT2);
+    over.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    a.c("--- $03FE / 2: quotient 511, the last value the 9-bit result can hold ---");
+    upload_and_run_tagged(&mut a, &ok, "_ok");
+    a.c("Stash it: the second upload overwrites the same three mailbox bytes.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.l("sta f:$7E01B4");
+    a.l("lda f:$7E0101");
+    a.l("sta f:$7E01B5");
+    a.c("--- $0400 / 2: quotient 512, one past the boundary ---");
+    upload_and_run_tagged(&mut a, &over, "_ov");
+    a.l("rep #$30");
+    a.l("lda f:$7E01B4");
+    a.l("and #$00FF");
+    a.record(99, "E1.07 quotient of $03FE / 2 (true 511)");
+    a.l("lda f:$7E01B5");
+    a.l("and #$00FF");
+    a.record(103, "E1.07 remainder of $03FE / 2 (true 0)");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(
+        104,
+        "E1.07 quotient of $0400 / 2 (true 512 — cannot be represented)",
+    );
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(105, "E1.07 remainder of $0400 / 2 (true 0)");
+    a.c("The control first: at 511 the division is still exact.");
+    a.l("sep #$20");
+    a.l("lda f:$7E01B4");
+    a.assert_a8(
+        0xFF,
+        "$03FE / 2 did not give a quotient of 511 (low byte $FF) — the divide is wrong below the \
+         boundary, so nothing can be concluded about what happens above it",
+    );
+    a.l("lda f:$7E01B5");
+    a.assert_a8(
+        0x00,
+        "$03FE / 2 did not give a remainder of 0, so the control division is wrong",
+    );
+    a.c("And one step past it, where both halves go wrong together.");
+    a.l("lda f:$7E0100");
+    a.assert_a8(
+        0xFF,
+        "$0400 / 2 returned a quotient other than $FF: a core computing YA/X and truncating gives \
+         $00 here, which is the documented-invalid case behaving as though it were valid",
+    );
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x02,
+        "$0400 / 2 did not return the overflow branch's Y = X + (YA - (X<<9)) % (256 - X) = 2. A \
+         core computing a true remainder returns 0 — correct arithmetic, and not what the hardware \
+         does past a quotient of 511",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E1.07",
+        'E',
+        "DIV valid to Q<=511",
+        Provenance::Documented(
+            "SNESdev Wiki SPC700 reference and fullsnes, both flagging DIV as valid only for \
+             quotients up to 511; the values past it follow E1.03's overflow formula",
+        ),
         Kind::Scored,
         None,
     )

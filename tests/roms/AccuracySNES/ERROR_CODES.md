@@ -1697,6 +1697,17 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes). Kind: sco
 | 1 | `$02` | DIV YA,X quotient is wrong ($0020 / $08 = 4) |
 | 2 | `$04` | DIV YA,X remainder is wrong |
 
+### E1.07 — DIV valid to Q<=511
+
+Provenance: **Documented** (SNESdev Wiki SPC700 reference and fullsnes, both flagging DIV as valid only for quotients up to 511; the values past it follow E1.03's overflow formula). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | $03FE / 2 did not give a quotient of 511 (low byte $FF) — the divide is wrong below the boundary, so nothing can be concluded about what happens above it |
+| 2 | `$04` | $03FE / 2 did not give a remainder of 0, so the control division is wrong |
+| 3 | `$06` | $0400 / 2 returned a quotient other than $FF: a core computing YA/X and truncating gives $00 here, which is the documented-invalid case behaving as though it were valid |
+| 4 | `$08` | $0400 / 2 did not return the overflow branch's Y = X + (YA - (X<<9)) % (256 - X) = 2. A core computing a true remainder returns 0 — correct arithmetic, and not what the hardware does past a quotient of 511 |
+
 ### E1.04 — DIV H = nibble compare
 
 Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata). Kind: scored.
