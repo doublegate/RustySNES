@@ -575,6 +575,25 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E9.13` — the echo FIR filters the two channels independently.** Each has its own eight-sample
+  history and accumulator; only the `FIRx` coefficients are shared. A core keeping one history turns
+  every echo to mono the moment feedback is on — and that is invisible to any test driving both
+  channels equally.
+
+  Feedback is what makes this about the *filter*. `E9.05` already shows an all-left voice writes
+  zeroes into the right half of the buffer, so the input mix is separate; but with `EFB = 0` the
+  buffer never reaches the FIR at all. This enables feedback and one non-zero tap, writing every
+  coefficient explicitly — the DSP is shared between programs, and a leftover tap set inside a
+  feedback loop is the difference between a filter and an oscillator.
+
+  **It was first written asserting the right channel is exactly zero, and all three cores returned
+  `$FFFE`** — minus two. Three implementations agreeing is a wrong expectation, not a shared defect,
+  and the magnitudes agreed: the left sits near `$0900` and the right is nine bits below it, which
+  is arithmetic residue rather than a channel leaking. The assertion is now about orders of
+  magnitude — the left substantial, the right within one high-byte step of silence either side.
+  Verified by sharing one history between the channels, which lifts the right to `$024A` and fails
+  it at code 3.
+
 - **`E9.05` — the echo buffer stores four bytes per entry, left channel first.** `L` low, `L` high,
   `R` low, `R` high. `E9.12` already pins what goes *in* each sample; this pins the layout around
   them, which is what a driver reading the buffer back has to know.

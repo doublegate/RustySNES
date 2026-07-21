@@ -95,6 +95,7 @@ pub fn all() -> Vec<Test> {
         e9_06(),
         e9_12(),
         e9_05(),
+        e9_13(),
         e9_10(),
         e9_17(),
         e9_18(),
@@ -3501,6 +3502,182 @@ fn e9_05() -> Test {
         Provenance::Documented(
             "fullsnes and anomie's DSP doc: the echo buffer holds four bytes per sample, a 16-bit \
              left sample followed by a 16-bit right one",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Emit [`e9_13`]'s DSP configuration: a left-only voice, echo feedback on, and one FIR tap.
+///
+/// Every FIR coefficient is written explicitly rather than assumed. The DSP is shared between
+/// programs, so a previous test's taps would become part of this test's feedback loop — which
+/// with `EFB` on is the difference between a filter and an oscillator.
+fn e9_13_configure(prog: &mut Spc, echo_page: u8) {
+    dsp_write(prog, 0x6C, 0x20); // FLG: echo writes off during setup
+    dsp_write(prog, 0x6D, echo_page); // ESA
+    dsp_write(prog, 0x7D, 0x00); // EDL = 0: one four-byte entry
+    dsp_write(prog, 0x2C, 0x00); // EVOL L — measured, not heard
+    dsp_write(prog, 0x3C, 0x00); // EVOL R
+    dsp_write(prog, 0x0D, 0x40); // EFB: feedback on, so the buffer reaches the FIR
+    // Every tap explicitly: a previous program's coefficients would be part of this feedback loop.
+    dsp_write(prog, 0x0F, 0x40); // FIR0
+    for reg in [0x1F, 0x2F, 0x3F, 0x4F, 0x5F, 0x6F, 0x7F] {
+        dsp_write(prog, reg, 0x00); // FIR1-FIR7
+    }
+    dsp_write(prog, 0x5D, DIR_PAGE); // DIR
+    dsp_write(prog, 0x0C, 0x7F); // MVOLL
+    dsp_write(prog, 0x1C, 0x7F); // MVOLR
+    dsp_write(prog, 0x3D, 0x00); // NON
+    dsp_write(prog, 0x2D, 0x00); // PMON
+    dsp_write(prog, 0x00, 0x7F); // voice 0 VOL L — full scale
+    dsp_write(prog, 0x01, 0x00); // voice 0 VOL R — silent
+    dsp_write(prog, 0x02, 0x00); // PITCH low
+    dsp_write(prog, 0x03, 0x10); // PITCH high
+    dsp_write(prog, 0x04, 0x00); // SRCN
+    dsp_write(prog, 0x06, 0x00); // ADSR2
+    dsp_write(prog, 0x07, 0x7F); // GAIN: direct, full scale
+    dsp_write(prog, 0x05, 0x00); // ADSR1
+    dsp_write(prog, 0x4D, 0x01); // EON: voice 0 feeds the echo
+}
+
+/// The echo FIR filters the two channels independently — nothing crosses between them.
+///
+/// Each channel has its own eight-sample history and its own accumulator; the `FIRx` coefficients
+/// are shared, but the samples they multiply are not. A core keeping one history, or summing both
+/// channels into one accumulator, turns every echo into mono the moment feedback is switched on —
+/// audible, and invisible to any test that drives both channels equally.
+///
+/// # Feedback is what makes this about the FIR
+///
+/// `E9.05` already shows that an all-left voice writes zeroes into the right half of the buffer, so
+/// the *input* mix is separate. That says nothing about the filter: with `EFB = 0` the buffer's
+/// contents never reach the FIR at all.
+///
+/// So this test enables feedback and a single non-zero tap, and lets the echo run. The buffer's
+/// right-channel bytes are now the output of the right FIR, fed from the right history, which has
+/// only ever seen zeroes. If any of that is shared with the left, the right half stops being zero.
+///
+/// | register | value | why |
+/// |---|---|---|
+/// | `VOL L` / `VOL R` | `$7F` / `$00` | the signal exists only on the left |
+/// | `EFB` | `$40` | feedback on, so the buffer reaches the FIR |
+/// | `FIR0` | `$40` | one tap, at half scale — enough to propagate, short of blowing up |
+/// | `FIR1`-`FIR7` | `$00` | written explicitly; a previous test's taps would be feedback too |
+///
+/// The taps are set explicitly rather than assumed. The DSP is shared between programs, and a
+/// leftover tap set would make the feedback path something this test did not choose — which with
+/// `EFB` on is the difference between a filter and an oscillator.
+///
+/// # The right channel is *near* silence, not exactly zero
+///
+/// This was first written asserting a flat zero, and all three cores returned `$FFFE` — minus two.
+/// Three implementations agreeing is the signature of a wrong expectation rather than a shared
+/// defect, and the magnitudes say the same thing: the left channel sits around `$0900` and the
+/// right is nine bits below it. That is arithmetic residue in the echo path, not a channel leaking
+/// into another.
+///
+/// So the assertion is about **orders of magnitude**: the left's high byte must be substantial, and
+/// the right's must be `$00` or `$FF` — within one step of silence either side. Crosstalk from a
+/// left channel this large would land in the same magnitude as the left, not nine bits under it.
+///
+/// # The guard
+///
+/// The left half is checked first and must not still hold the `$FF` marker. If echo never wrote,
+/// the right half would be `$FF` too and would pass the magnitude check for a reason that has
+/// nothing to do with crosstalk; the guard turns that into its own failure code.
+fn e9_13() -> Test {
+    /// The page `ESA` names, well clear of the program image at `$0200`.
+    const ECHO_PAGE: u8 = 0x30;
+    /// Where that page starts. Derived, so the two cannot drift apart.
+    const ECHO_ADDR: u16 = (ECHO_PAGE as u16) << 8;
+    /// The sample directory, on the stack page well below the stack itself.
+    const DIR_ADDR: u16 = (DIR_PAGE as u16) << 8;
+
+    let sample = constant_sample(0x8, 0x7);
+    let mut prog = Spc::new();
+    let addr = prog.data_first(IMAGE_BASE, &sample);
+    prog.mov_x_imm(0xEF).mov_sp_x();
+    let [lo, hi] = addr.to_le_bytes();
+    prog.mov_a_imm(lo).mov_abs_a(DIR_ADDR);
+    prog.mov_a_imm(hi).mov_abs_a(DIR_ADDR + 1);
+    prog.mov_a_imm(lo).mov_abs_a(DIR_ADDR + 2);
+    prog.mov_a_imm(hi).mov_abs_a(DIR_ADDR + 3);
+
+    e9_13_configure(&mut prog, ECHO_PAGE);
+    dsp_write(&mut prog, 0x4C, 0x01); // KON
+    prog.delay(0x00);
+    dsp_write(&mut prog, 0x4C, 0x00);
+    prog.delay(0x00);
+
+    for i in 0..4u16 {
+        prog.mov_a_imm(0xFF).mov_abs_a(ECHO_ADDR + i);
+    }
+    dsp_write(&mut prog, 0x6C, 0x00); // FLG: echo writes on
+    prog.delay(0x00);
+    prog.delay(0x00); // long enough for feedback to go round several times
+    dsp_write(&mut prog, 0x6C, 0x20); // and off again, so the reads below are stable
+    prog.mov_a_abs(ECHO_ADDR + 1).mov_dp_a(PORT1); // L high
+    prog.mov_a_abs(ECHO_ADDR + 2).mov_dp_a(PORT2); // R low
+    prog.mov_a_abs(ECHO_ADDR + 3).mov_dp_a(PORT3); // R high
+    prog.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(
+        173,
+        "E9.13 echo byte 1 (L high) with feedback on — $FF means nothing was written",
+    );
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(174, "E9.13 echo byte 2 (R low)");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.record(
+        175,
+        "E9.13 echo byte 3 (R high) — $00 or $FF is near-silence",
+    );
+    a.c("The guard: if echo never wrote, the right half is still $FF and would fail below for a");
+    a.c("reason that has nothing to do with crosstalk.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.l("cmp #$FF");
+    a.fail_if_eq(
+        "the echo buffer's left half still held the $FF marker, so nothing was written and the \
+         right-channel checks below would be about the paint rather than about the filter",
+    );
+    a.c("The left channel has to be substantial, or 'the right is small' is trivially true.");
+    a.l("lda f:$7E0100");
+    a.l("cmp #$01");
+    a.l("bcs :+");
+    a.l("cmp #$00");
+    a.fail_if_ne(
+        "the left echo channel's high byte is zero, so the signal this test is checking for \
+         leakage of is itself too small for the comparison below to mean anything",
+    );
+    a.l(":");
+    a.c("And the right must stay within one high-byte step of silence: crosstalk from a left");
+    a.c("channel this large would land in the same magnitude, not nine bits below it.");
+    a.l("lda f:$7E0102");
+    a.l("cmp #$FF");
+    a.l("beq :+");
+    a.l("cmp #$00");
+    a.fail_if_ne(
+        "the right echo channel's magnitude reached the left's, although only the left was ever \
+         fed and feedback is on — the FIR is sharing history or accumulator between the channels",
+    );
+    a.l(":");
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E9.13",
+        'E',
+        "L/R FIR independent",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: the echo FIR keeps a separate eight-sample history and \
+             accumulator per channel; only the coefficients are shared",
         ),
         Kind::Scored,
         None,

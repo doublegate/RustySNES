@@ -967,3 +967,14 @@ fn noise_pitch_independence_is_reported() {
         "the noise voice was silent, so the test compared two silences"
     );
 }
+
+/// `E9.13`'s echo bytes with feedback on, reported so crosstalk can be seen rather than inferred.
+#[test]
+fn echo_fir_crosstalk_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E9.13 echo buffer with EFB on, left-only input:");
+    println!("    slot 173  {:#04x}  byte 1, L high", report.meas[173]);
+    println!("    slot 174  {:#04x}  byte 2, R low", report.meas[174]);
+    println!("    slot 175  {:#04x}  byte 3, R high", report.meas[175]);
+}

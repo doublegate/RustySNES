@@ -2141,6 +2141,16 @@ Provenance: **Documented** (fullsnes and anomie's DSP doc: the echo buffer holds
 | 2 | `$04` | echo buffer byte 2 is not the right channel's low byte: a core writing two bytes per entry leaves the $FF marker here, and one writing right-then-left leaves the signal |
 | 3 | `$06` | echo buffer byte 3 is not the right channel's high byte, so the entry is not four bytes of left-then-right |
 
+### E9.13 — L/R FIR independent
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: the echo FIR keeps a separate eight-sample history and accumulator per channel; only the coefficients are shared). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the echo buffer's left half still held the $FF marker, so nothing was written and the right-channel checks below would be about the paint rather than about the filter |
+| 2 | `$04` | the left echo channel's high byte is zero, so the signal this test is checking for leakage of is itself too small for the comparison below to mean anything |
+| 3 | `$06` | the right echo channel's magnitude reached the left's, although only the left was ever fed and feedback is on — the FIR is sharing history or accumulator between the channels |
+
 ### E9.10 — FLG.5 stops echo writes
 
 Provenance: **Documented** (fullsnes, S-DSP echo; anomie's DSP doc). Kind: scored.
