@@ -115,11 +115,63 @@ Working rules that have each already cost a debugging session:
   equality — `assert_a16_range` expresses "must not be X" fine. A hand-written `sta V_TEST_RESULT`
   puts a code in the ROM that the generated `ERROR_CODES.md` cannot know about, so the table stops
   being the complete account of failure bytes that it exists to be. Got wrong twice.
+- **A guard must not subsume the assertion it protects.** `F1.05` first guarded on the whole
+  auto-read word and then asserted the signature nibble within it — arithmetically the guard could
+  never pass while the assertion failed, so the assertion was dead. Mask the guard down to the part
+  the assertion does not cover, and confirm by injecting the named bug and checking *which* code
+  fails.
+- **Inject at the site the test names, not at any site that moves the reading.** `E6.08` (BRR
+  15-bit decode overflow) passed on a reading produced entirely by the *gaussian* accumulator one
+  row away: injecting into the BRR clamp moved nothing, injecting into the interpolator flipped it.
+  Two real 16-bit overflows, one row apart, same observable sign flip. If the injection at the named
+  site does not move the verdict, the attribution is wrong even when the test passes.
+- **A verdict that encodes a timing phase will change for reasons unrelated to its subject.** Adding
+  a PPU test shifted the DSP poll phase and broke two APU tests that had not changed. If the phase
+  *is* the subject, record it and score nothing (`E8.07`); if it is not, widen the comparison by one
+  sampling interval (`E7.09`). The NTSC/PAL drift gate is the tripwire for this, not only a region
+  check.
+- **When a source says when a result becomes valid, waiting for it is part of the measurement.**
+  `wait_vblank_far` returns at vblank start, which is exactly when the automatic joypad read begins;
+  Group F burns ~7 scanlines before reading `$4218` because the read takes ~3 and `F1.12` says
+  results are valid by `V = $E3`. Same shape as `E10.05`, where "forced into release" is not
+  "zeroed on the spot".
+- **The measurement channel (`MEAS_BASE`, 240 slots) has no allocator**, and `dossier::check_slots`
+  fails the build on a collision — it prints the free list, and prints an empty one when the channel
+  is full (widen it; `$7EE200` has room to `$7EF000`). The opcode sweep owns 8-75 invisibly to grep.
 - Three emulators failing **identically** usually means a broken test; RustySNES failing **alone**
   means a real bug. Both have happened repeatedly — check which before investigating. But the first
   is a **heuristic, not a proof**: a harness bug upstream of every implementation produces the same
   signature, and one did — it cost a published finding that had to be retracted (see the `$F8`/`$F9`
   correction in the CHANGELOG).
+
+### Group F — the host input contract
+
+Group F is untestable without one. With nothing plugged in and no button held, **every controller
+observable the cart can reach is `$0000`** — the manual shift register, the auto-read results, the
+power-on state — so a test of the read order, of the signature nibble, or of what a disarmed
+auto-read preserves has nothing to distinguish from anything else. `F1.07` was written and withdrawn
+for exactly this before the contract existed.
+
+**Every runner holds both controllers for the whole run**: the in-repo harness (`set_joypad`), the
+snes9x libretro driver (`input_state`), and the Mesen2 script (`emu.setInput` inside an
+`inputPolled` callback, which Mesen2's docs require). The masks are declared in `runtime.inc`:
+
+- `PAD_CONTRACT = $9050` — B + Start + X + R on controller 1.
+- `PAD2_CONTRACT = $60A0` — Y + Select + A + L on controller 2.
+
+Each is chosen against the same three requirements, and all three have caught something: **no
+d-pad** (the post-battery menu scrolls on Up/Down), **bits in both bytes** (so a host reporting one
+half is visibly wrong rather than accidentally right), and **asymmetric under bit reversal** (so an
+LSB-first read cannot pass by accident). The two masks additionally **share no set bit**, which is
+what makes "port 2 latched" distinguishable from "port 2 is echoing port 1".
+
+Adding the contract found two RustySNES defects immediately: `$4218`-`$421F` reported the live pad
+rather than the automatic read's result, and the read ignored the `$4016` latch line. Both were
+invisible with nothing held, because both wrong models produce `$0000` in every phase.
+
+`F1.07` must run **before** anything else arms auto-read — its first phase reads `$4218` while it
+has never been written. Its guard catches a violation rather than hiding it, which is how the
+ordering was found.
 
 ### Group E — the APU, reached through four bytes
 

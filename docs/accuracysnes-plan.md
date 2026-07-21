@@ -897,6 +897,31 @@ part of the measurement, not a robustness tweak.** This is the same shape as `E1
 there, a state that is *entered* rather than arrived at instantly; here, a result that is *finished*
 rather than produced instantly.
 
+### `F1.03` attempted and withdrawn — Mesen2's runner has no second controller
+
+`F1.03` (one write to `$4016` bit 0 latches **both** ports) needs a *second* controller held at a
+**different** mask: with the same buttons on both, "port 2 latched" and "port 2 is echoing port 1"
+are the same sixteen bits and the row has no observable. So the contract was extended with
+`PAD2_CONTRACT = $60A0`, sharing no set bit with port 1's `$9050`.
+
+The harness and the snes9x driver both handled it — snes9x reported `$9050` and `$60A0` correctly
+and the test passed there. **Mesen2 went from 0 failing tests to 5**, and the five were every
+contract-dependent test in the group: adding `emu.setInput(…, 1)` cost port *1* its input.
+
+Two experiments narrowed it. A `pcall` guard changed nothing, so the call is not raising. Reversing
+the order — port 1 first, port 0 second — dropped the failures from 5 to 1, leaving only `F1.03`
+itself. So the calls are not independent: with no device in port 2, Mesen2's headless runner lets
+the second call clobber the first's pending state rather than failing.
+
+**Withdrawn** rather than shipped green on two references out of three. The ROM returned to the same
+battery count and both references agree again. Re-adding needs a way to attach a second controller
+in Mesen2's `--testrunner`, which is a runner-configuration problem and not a test problem —
+`runtime.inc` records that where the constant would go.
+
+Worth separating from the row itself: **this is the first Group F blocker that is about a *runner*
+rather than about the machine.** `F1.15`-`F1.22` (multitap, mouse, Super Scope, NTT keypad) need
+real emulated peripherals in all three runners, which is a much larger version of the same problem.
+
 ### The host input contract, and the defect it immediately found
 
 Group F was blocked on one thing, and it was not research. With nothing plugged in and no button

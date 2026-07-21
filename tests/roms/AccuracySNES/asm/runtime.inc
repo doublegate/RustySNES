@@ -133,6 +133,14 @@ MAX_SPAN_LINES  = 64
 ; the two Group F tests that predate the contract mask off the data bits they would see.
 PAD_CONTRACT    = $9050
 
+; A *second* controller, held at a different mask, is what `F1.03` (one $4016 write latches both
+; ports) needs — with the same buttons on both, "port 2 latched" and "port 2 is echoing port 1"
+; are the same sixteen bits. It was built and withdrawn: Mesen2's headless --testrunner has no
+; device in port 2, and calling emu.setInput on it clobbers port 1's pending state rather than
+; failing, which silently cost every contract-dependent test its input. The harness and the snes9x
+; driver both handled it fine. Re-adding needs a way to attach a second controller in Mesen2's
+; test runner; until then F1.03 stays uncovered rather than green on two references out of three.
+
 MEAS_BASE       = $7EE200
 MEAS_SLOTS      = 240
 

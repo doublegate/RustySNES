@@ -610,6 +610,17 @@ rewritten to the current number — this line is the one to read.
   asserted is the hardware's order and not the runtime's agreement with itself. Verified by making
   the shift register LSB-first, which fails it.
 
+- **`F1.03` attempted and withdrawn.** The row — one write to `$4016` bit 0 latches both ports —
+  needs a second controller held at a *different* mask, since with the same buttons on both, "port 2
+  latched" and "port 2 is echoing port 1" are the same sixteen bits. The harness and the snes9x
+  driver both handled the extended contract and the test passed on snes9x; **Mesen2 went from 0
+  failing tests to 5**, losing port *1*'s input to the port-2 call. A `pcall` guard changed nothing
+  (so the call is not raising) and reversing the order dropped it to 1 (so the calls are not
+  independent) — with no device in port 2, Mesen2's headless runner lets the second call clobber the
+  first's pending state. Withdrawn rather than shipped green on two references out of three;
+  `runtime.inc` records what re-adding needs. This is the first Group F blocker about a *runner*
+  rather than about the machine, and `F1.15`-`F1.22` need a much larger version of it.
+
 - **`F1.11` — does holding the `$4016` latch corrupt the automatic read?** Two phases differing only
   in the latch line: the control reads `$9050`, the latched run must not. Both halves of the input
   contract are load-bearing — the control has to be exactly `$9050` or "phase B differs" could mean
