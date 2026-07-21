@@ -575,6 +575,21 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E7.05` — the decay rate is indexed as `d*2+16`.** Not the raw field: the offset places the
+  eight decay settings in the upper half of the counter table the other phases share. A core using
+  `d` verbatim decays orders of magnitude too slowly, and the envelope barely moves where hardware
+  would have crossed most of its range.
+
+  Two voices differing only in the decay field (`0` → index 16, `7` → index 30), both attacking at
+  rate `$F` and holding **sustain level 0** so the decay phase runs the whole way and never hands
+  over to sustain — the same isolation `E7.09` needed, applied in reverse.
+
+  The window took tuning and the guard is what showed it. Decay is exponential and `ENVX` is `E>>4`,
+  so the top of the range compresses: at `settle: 0` neither rate had moved and the guard fired
+  correctly; at `settle: 4` the slow rate read `$7D`, one step from the guard's own upper bound.
+  `settle: 24` puts it at `$76` against `$10` — a gap of 102 with headroom at both ends. Verified by
+  indexing the decay with `d` verbatim, which fails at code 1.
+
 - **`E7.09` — the release rate is fixed and consults no register.** Release steps the envelope down
   by 8 every sample; the four `ADSR` rates cover attack, decay and sustain and none reaches the
   release phase, which is why a custom fade has to be built from `GAIN` instead — the `[ERRATA]` the

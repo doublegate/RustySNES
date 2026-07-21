@@ -107,6 +107,7 @@ pub fn all() -> Vec<Test> {
         e7_01(),
         e7_04(),
         e7_09(),
+        e7_05(),
         e7_08(),
         e8_07(),
         e8_10(),
@@ -1123,6 +1124,97 @@ fn e7_09() -> Test {
         Provenance::Documented(
             "fullsnes and anomie's DSP doc: release steps -8 per sample regardless of ADSR, which \
              is why a custom release has to be built from GAIN",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The decay rate comes from `ADSR1` bits 6-4, indexed as `d*2+16`.
+///
+/// Decay's rate is not the raw field: it is `d*2+16`, which places the eight decay settings in the
+/// upper half of the same counter table the other phases index into. A core using `d` verbatim, or
+/// `d*2` without the offset, decays orders of magnitude too slowly — the envelope barely moves
+/// where hardware would have crossed most of its range.
+///
+/// # Two decay rates, the same interval
+///
+/// Both voices attack at rate `$F` (full scale within two samples, `E7.04`) and set **sustain level
+/// 0**, so the decay phase runs the whole way down and never hands over to sustain. That isolation
+/// matters: `E7.09` first measured a sustain-rate effect and nearly attributed it to release, and
+/// the same trap is available here in reverse. The only difference between the runs is the decay
+/// field:
+///
+/// | run | `ADSR1` | decay | rate index |
+/// |---|---|---|---|
+/// | 1 | `$8F` | `0` | 16 |
+/// | 2 | `$FF` | `7` | 30 |
+///
+/// Rate 30 is far faster than 16, so over the same interval run 2 must be well below run 1.
+///
+/// # The guard
+///
+/// Run 1 is asserted to be *mid*-decay rather than merely non-zero. If it had already reached the
+/// bottom, both runs would read zero and the difference would vanish; if it had not started, both
+/// would read full scale. Only between those does "run 2 is much lower" mean the rates differ, and
+/// the assertion on the gap is what turns that into a number rather than an impression.
+fn e7_05() -> Test {
+    let decaying = |adsr1: u8| Voice {
+        adsr1,
+        adsr2: 0x00, // sustain level 0: decay runs the whole way, sustain is never entered
+        // Long enough that the slow rate has visibly moved. Decay is exponential and ENVX is
+        // E>>4, so the top of the range compresses -- index 16 needs a long window to leave full
+        // scale at all, and at settle 4 it read $7D, one step from the guard's own bound.
+        settle: 24,
+        ..Voice::direct_gain()
+    };
+    let slow = voice_program(&looping_sample(), decaying(0x8F));
+    let fast = voice_program(&looping_sample(), decaying(0xFF));
+
+    let mut a = Asm::new();
+    a.c("--- decay rate 0, index 16 ---");
+    upload_and_run_tagged(&mut a, &slow, "_d0");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.l("sta f:$7E01F4     ; ENVX, before the second upload overwrites the mailbox copy");
+    a.c("--- decay rate 7, index 30: much faster ---");
+    upload_and_run_tagged(&mut a, &fast, "_d7");
+    a.l("rep #$30");
+    a.l("lda f:$7E01F4");
+    a.l("and #$00FF");
+    a.record(186, "E7.05 ENVX mid-decay at decay rate 0 (index 16)");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(187, "E7.05 ENVX mid-decay at decay rate 7 (index 30)");
+    a.c("The guard: run 1 has to be mid-decay. At the bottom or the top, both rates look alike.");
+    a.l("lda f:$7E01F4");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x10,
+        0x7E,
+        "the slow decay was not caught in progress — at the bottom of its ramp or still at the \
+         top, both decay rates produce the same reading and the gap below means nothing",
+    );
+    a.c("And the fast rate must have got substantially further down over the same interval.");
+    a.l("lda f:$7E01F4");
+    a.l("and #$00FF");
+    a.l("sec");
+    a.l("sbc f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x10,
+        0x7F,
+        "the two decay rates left the envelope in nearly the same place, so the rate field is not \
+         being indexed as d*2+16 — using d verbatim puts both runs in the slow half of the table",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E7.05",
+        'E',
+        "Decay index d*2+16",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: the decay phase indexes the counter table at d*2+16, \
+             stepping E -= 1 then E -= E>>8",
         ),
         Kind::Scored,
         None,

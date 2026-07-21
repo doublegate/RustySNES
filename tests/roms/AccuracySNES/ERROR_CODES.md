@@ -2244,6 +2244,15 @@ Provenance: **Documented** (fullsnes and anomie's DSP doc: release steps -8 per 
 | 1 | `$02` | the sustain-rate-0 run was not caught mid-release, so the comparison below would hold for any release rate at all |
 | 2 | `$04` | changing the ADSR sustain rate changed how far the release ramp had got — release runs at a fixed -8 per sample and consults no rate register, which is exactly why a custom fade has to be done with GAIN instead |
 
+### E7.05 — Decay index d*2+16
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: the decay phase indexes the counter table at d*2+16, stepping E -= 1 then E -= E>>8). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the slow decay was not caught in progress — at the bottom of its ramp or still at the top, both decay rates produce the same reading and the gap below means nothing |
+| 2 | `$04` | the two decay rates left the envelope in nearly the same place, so the rate field is not being indexed as d*2+16 — using d verbatim puts both runs in the slow half of the table |
+
 ### E7.08 — Key-off releases to zero
 
 Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc). Kind: scored.

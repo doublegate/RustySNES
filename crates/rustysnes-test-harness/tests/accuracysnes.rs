@@ -1017,3 +1017,19 @@ fn release_rate_is_reported() {
     println!("    slot 184  {:#04x}  sustain rate 0", report.meas[184]);
     println!("    slot 185  {:#04x}  sustain rate 31", report.meas[185]);
 }
+
+/// `E7.05`'s two mid-decay readings, reported so the window can be judged.
+#[test]
+fn decay_rate_index_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E7.05 ENVX mid-decay:");
+    println!(
+        "    slot 186  {:#04x}  decay rate 0 (index 16)",
+        report.meas[186]
+    );
+    println!(
+        "    slot 187  {:#04x}  decay rate 7 (index 30)",
+        report.meas[187]
+    );
+}
