@@ -18155,6 +18155,244 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; E3.06 — T2 is eight times T0
+; provenance: Documented (SNESdev Wiki, SPC700 timers; fullsnes)
+.proc test_e3_06
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image, which lives in another bank.
+    lda #.loword(apu_prog_58)
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    lda #^apu_prog_58
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #48
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsl apu_upload_far
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    ; Timer 0 first: one tick, maybe two. Zero would make the ratio below unmeasurable.
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0101
+    and #$00FF
+    cmp #$0001
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0004
+    bcc :+
+    jmp @fail1
+  :
+    ; Timer 2 over the SAME interval: eight times the rate, so eight or more ticks.
+    lda f:$7E0102
+    and #$00FF
+    cmp #$0008
+    bcs :+
+    jmp @fail2
+  :
+    cmp #$0010
+    bcc :+
+    jmp @fail2
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jml test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; timer 0 did not tick once over this interval, or ticked more than three times — either way the interval is not the one this test needs and the ratio below means nothing
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; timer 2 did not count roughly eight times what timer 0 did over the same interval, so it is not running from the 64 kHz stage — a core reading $01 here runs every timer at 8 kHz
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; E3.08 — TEST bit 0 halts timers
+; provenance: Documented (fullsnes, SPC700 TEST register; ares and bsnes smp/timing)
+.proc test_e3_08
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image, which lives in another bank.
+    lda #.loword(apu_prog_59)
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    lda #^apu_prog_59
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #57
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsl apu_upload_far
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    bra @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    ; Halted: enabled, at the fastest divider, over a delay that is several ticks long.
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0101
+    and #$00FF
+    cmp #$0000
+    beq :+
+    jmp @fail1
+  :
+    ; Running: the control, and without it the reading above would pass on a dead timer.
+    lda f:$7E0102
+    and #$00FF
+    cmp #$0001
+    bcs :+
+    jmp @fail2
+  :
+    cmp #$0010
+    bcc :+
+    jmp @fail2
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jml test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; timer 0 advanced while TEST bit 0 was set, so the halt bit is being modelled as ordinary storage rather than as a control
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; timer 0 did not advance with TEST back at its reset value, so the halted reading above says nothing about the halt bit
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 .segment "APUDATA"
 apu_prog_0:
     .byte $CD, $EF, $BD, $E8, $10, $8D, $10, $CF, $C4, $F6, $CB, $F7
@@ -19024,6 +19262,17 @@ apu_prog_57:
     .byte $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $09
     .byte $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
     .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+apu_prog_58:
+    .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $01, $FC, $E4, $FD, $E4
+    .byte $FF, $8F, $85, $F1, $8D, $18, $FE, $FE, $8F, $80, $F1, $E4
+    .byte $FD, $C4, $F6, $E4, $FF, $C4, $F7, $E8, $5A, $C4, $F4, $E4
+    .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+apu_prog_59:
+    .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $0B, $F0, $8F, $81, $F1
+    .byte $8D, $00, $FE, $FE, $8F, $80, $F1, $E4, $FD, $C4, $F6, $8F
+    .byte $0A, $F0, $8F, $81, $F1, $8D, $00, $FE, $FE, $8F, $80, $F1
+    .byte $E4, $FD, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5
+    .byte $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
 
 .segment "CATALOG"
 .export _test_count
@@ -19032,7 +19281,7 @@ apu_prog_57:
 .export _test_flags
 
 _test_count:
-    .word 227
+    .word 229
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -19221,6 +19470,8 @@ _test_entries:
     .faraddr test_e6_02b
     .faraddr test_e6_02c
     .faraddr test_e6_02d
+    .faraddr test_e3_06
+    .faraddr test_e3_08
     .faraddr test_f1_02
     .faraddr test_g1_02
     .faraddr test_g1_04
@@ -19451,6 +19702,8 @@ _test_flags:
     .byte $01   ; E6.02b
     .byte $01   ; E6.02c
     .byte $01   ; E6.02d
+    .byte $01   ; E3.06
+    .byte $01   ; E3.08
     .byte $01   ; F1.02
     .byte $01   ; G1.02
     .byte $01   ; G1.04
@@ -19681,6 +19934,8 @@ _test_names:
     .addr @n_e6_02b
     .addr @n_e6_02c
     .addr @n_e6_02d
+    .addr @n_e3_06
+    .addr @n_e3_08
     .addr @n_f1_02
     .addr @n_g1_02
     .addr @n_g1_04
@@ -20278,6 +20533,12 @@ _test_names:
 @n_e6_02d:
     .byte 23
     .byte "Pitch $2000 upper bound"
+@n_e3_06:
+    .byte 20
+    .byte "T2 is eight times T0"
+@n_e3_08:
+    .byte 23
+    .byte "TEST bit 0 halts timers"
 @n_f1_02:
     .byte 19
     .byte "Pad reads 17+ are 1"

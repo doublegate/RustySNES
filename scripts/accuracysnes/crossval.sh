@@ -85,7 +85,14 @@ ran=0
 #   distinguishes new-instruction behaviour for the STACK but not for the fetch. Mesen2 and
 #   RustySNES both agree with the cart; the WDC datasheet and superfamicom.org's new-instruction
 #   list are the citation.
-SNES9X_KNOWN_FAILURES=4
+# snes9x, +1 test (E3.08 "TEST bit 0 halts timers"): the same missing `case 0xf0` as E3.10 above,
+#   showing up one bit over. With the TEST register unimplemented, bit 0 cannot halt the timers, so
+#   snes9x's timer 0 advances over an interval where the cart, Mesen2 and RustySNES all report it
+#   frozen. ares implements it explicitly (`sfc/smp/io.cpp`: `io.timersDisable = data.bit(0)`,
+#   followed by `synchronizeStage1()` on all three timers); fullsnes documents bits 0 and 3 as the
+#   timer controls. Two tests failing on one missing switch case is the expected shape of this —
+#   the register gates several unrelated behaviours, and each one is its own assertion.
+SNES9X_KNOWN_FAILURES=5
 
 # --- snes9x, via the libretro host --------------------------------------------------------------
 if [[ -f $SNES9X ]]; then
