@@ -1007,3 +1007,13 @@ fn noise_lfsr_seed_is_reported() {
     println!("\n  E9.01 noise OUTX with the LFSR frozen:");
     println!("    slot 180  {:#04x}", report.meas[180]);
 }
+
+/// `E7.09`'s two mid-release readings, reported so the window can be judged.
+#[test]
+fn release_rate_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E7.09 ENVX mid-release:");
+    println!("    slot 184  {:#04x}  sustain rate 0", report.meas[184]);
+    println!("    slot 185  {:#04x}  sustain rate 31", report.meas[185]);
+}

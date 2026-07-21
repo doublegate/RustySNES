@@ -575,6 +575,23 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E7.09` — the release rate is fixed and consults no register.** Release steps the envelope down
+  by 8 every sample; the four `ADSR` rates cover attack, decay and sustain and none reaches the
+  release phase, which is why a custom fade has to be built from `GAIN` instead — the `[ERRATA]` the
+  row records. Two voices differing only in their sustain rate (`0` against `31`, as far apart as
+  the table goes) are keyed off and read mid-ramp; equal readings mean release ignored the field.
+
+  **The first version reported a difference that was entirely legitimate, and would have libelled a
+  correct core.** With sustain level 7 the decay phase ends immediately at full scale, so the voice
+  spends the whole pre-key-off interval in *sustain* — where the sustain rate decays it, exactly as
+  it should. The two runs read `$67` and `$17`, and run 2 was simply starting its release from much
+  lower down. The measurement was real; the inference would have been a defect filed against correct
+  behaviour.
+
+  Sustain level **0** fixes it: the decay phase never completes, sustain is never entered, the rate
+  has nothing to act on, and both runs enter release from the same place. Verified by scaling the
+  release step by the sustain rate, which fails it at code 2.
+
 - **`E7.04` — attack rate `$F` steps every sample, by `+1024`.** Every other rate advances the
   envelope by 32 on a counter tick; `$F` does neither part of that, crossing the full `$7FF` range in
   two samples. A core folding it into the general `a*2+1` formula gets an attack that is merely

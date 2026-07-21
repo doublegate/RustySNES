@@ -106,6 +106,7 @@ pub fn all() -> Vec<Test> {
         e5_05(),
         e7_01(),
         e7_04(),
+        e7_09(),
         e7_08(),
         e8_07(),
         e8_10(),
@@ -1019,6 +1020,109 @@ fn e7_04() -> Test {
         Provenance::Documented(
             "fullsnes and anomie's DSP doc: attack rate $F fires every sample with a step of \
              +1024, rather than the +32 on a counter tick every other rate uses",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The release rate is fixed: no `ADSR` setting changes it.
+///
+/// Release steps the envelope down by 8 every sample and there is no register that alters it — the
+/// four `ADSR` rates cover attack, decay and sustain, and none of them reaches the release phase.
+/// That is why a driver wanting a custom fade has to leave `ADSR` mode entirely and ramp with
+/// `GAIN`, which is the `[ERRATA]` the row records. A core that reuses the sustain rate for release
+/// gives every instrument a different tail depending on a field that should not matter.
+///
+/// # Two envelopes that differ only in a rate release must ignore
+///
+/// Both voices run in `ADSR` mode with attack `$F` — full scale in two samples (`E7.04`) — and
+/// **sustain level 0**, so the decay phase runs the whole way down and the sustain phase is never
+/// entered at all. The only difference is the sustain **rate**:
+///
+/// | run | `ADSR2` | sustain rate |
+/// |---|---|---|
+/// | 1 | `$00` | `0` — never fires |
+/// | 2 | `$1F` | `31` — every sample, the fastest there is |
+///
+/// Both are then keyed off and read after the same short interval. Equal readings mean release did
+/// not consult the field; a core that did would show run 2 far below run 1, because rate 31 is as
+/// far from rate 0 as the table goes.
+///
+/// # Sustain level 0 is what makes the comparison fair, and the first version got it wrong
+///
+/// Written with sustain level **7** the two runs read `$67` and `$17`, and that difference was
+/// entirely legitimate: level 7 ends the decay phase immediately at full scale, so the voice sits
+/// in *sustain* for the whole interval before key-off, and the sustain rate decays it there. Run 2
+/// was simply starting its release from much lower down. The reading was real and the inference
+/// would have been wrong — a defect reported against a core doing exactly the right thing.
+///
+/// With level 0 the decay never completes, sustain is never reached, the rate has nothing to act
+/// on, and both runs enter release from the same place.
+///
+/// # The guard: the reading has to be mid-ramp
+///
+/// `late_settle` is one block, so the release has started and not finished. That matters in both
+/// directions and the test asserts both bounds: at `$00` the ramp is over and every rate looks
+/// identical, at `$7F` it has not begun and the same is true. Only between them does "the two runs
+/// agree" say anything, and `E8.10` is the test that establishes this window shows a partial ramp
+/// rather than a completed one.
+fn e7_09() -> Test {
+    let released = |adsr2: u8| Voice {
+        adsr1: 0x8F, // ADSR mode, attack $F: at full scale within two samples
+        adsr2,
+        late: &[(0x5C, 0x01)], // KOFF
+        late_settle: 1,        // short: catch the ramp in progress
+        ..Voice::direct_gain()
+    };
+    // Sustain level 0, so the decay phase never ends and the sustain phase is never entered.
+    // With sustain level 7 the decay finishes immediately at full scale and the sustain rate then
+    // decays the envelope *before* key-off -- which is a real effect, and not this row's.
+    let slow = voice_program(&looping_sample(), released(0x00));
+    let fast = voice_program(&looping_sample(), released(0x1F));
+
+    let mut a = Asm::new();
+    a.c("--- sustain rate 0 ---");
+    upload_and_run_tagged(&mut a, &slow, "_sr0");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.l("sta f:$7E01F0     ; ENVX, before the second upload overwrites the mailbox copy");
+    a.c("--- sustain rate 31, the fastest in the table ---");
+    upload_and_run_tagged(&mut a, &fast, "_sr31");
+    a.l("rep #$30");
+    a.l("lda f:$7E01F0");
+    a.l("and #$00FF");
+    a.record(184, "E7.09 ENVX mid-release with sustain rate 0");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(185, "E7.09 ENVX mid-release with sustain rate 31");
+    a.c("The guard: the reading has to be mid-ramp. At $00 the ramp is over and at $7F it has not");
+    a.c("begun, and in both cases every release rate looks the same.");
+    a.l("lda f:$7E01F0");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x01,
+        0x7E,
+        "the sustain-rate-0 run was not caught mid-release, so the comparison below would hold for \
+         any release rate at all",
+    );
+    a.c("Release ignores the field, so the two runs must agree.");
+    a.l("sep #$20");
+    a.l("lda f:$7E01F0");
+    a.l("cmp f:$7E0101");
+    a.fail_if_ne(
+        "changing the ADSR sustain rate changed how far the release ramp had got — release runs at \
+         a fixed -8 per sample and consults no rate register, which is exactly why a custom fade \
+         has to be done with GAIN instead",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E7.09",
+        'E',
+        "Release rate is fixed",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: release steps -8 per sample regardless of ADSR, which \
+             is why a custom release has to be built from GAIN",
         ),
         Kind::Scored,
         None,

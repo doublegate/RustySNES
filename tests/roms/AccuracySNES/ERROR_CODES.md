@@ -2235,6 +2235,15 @@ Provenance: **Documented** (fullsnes and anomie's DSP doc: attack rate $F fires 
 | 1 | `$02` | attack rate $F did not reach full scale: it steps +1024 every sample and crosses the envelope's whole range in two, so a core applying the ordinary a*2+1 rate lands short |
 | 2 | `$04` | attack rate $0 climbed a long way over an interval rate $F needs two samples for — the two rates are not being distinguished at all |
 
+### E7.09 — Release rate is fixed
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: release steps -8 per sample regardless of ADSR, which is why a custom release has to be built from GAIN). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the sustain-rate-0 run was not caught mid-release, so the comparison below would hold for any release rate at all |
+| 2 | `$04` | changing the ADSR sustain rate changed how far the release ramp had got — release runs at a fixed -8 per sample and consults no rate register, which is exactly why a custom fade has to be done with GAIN instead |
+
 ### E7.08 — Key-off releases to zero
 
 Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc). Kind: scored.
