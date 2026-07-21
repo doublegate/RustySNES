@@ -498,11 +498,111 @@ Consequences worth carrying forward:
   cycle is exactly what this instrument's remaining approximation (not every line is 341 dots)
   could also produce over a five-line span.
 
-  So the next step is to decide between those two before writing an assertion or a defect report:
-  measure the same difference over a span short enough to cross **one** line boundary, where the
-  approximation is worth at most a dot. If the 1.7 clocks survive that, it is a real per-access
-  difference and a defect; if it collapses, the expected value needs deriving from the clock model
-  rather than from a reference's measurement.
+  **That experiment has been run, and the divergence is real.** Measuring 8-byte and 32-byte moves —
+  a 24-byte difference spanning about one line, where the approximation is worth at most a dot:
+
+  | | 8 bytes | 32 bytes | delta (24 bytes) | per byte |
+  |---|---:|---:|---:|---:|
+  | RustySNES | 390 | 702 | **312 dots** | 13.00 dots = **52.0 clocks** |
+  | snes9x | 400 | 732 | **332 dots** | 13.83 dots = **55.3 clocks** |
+
+  Twenty dots over 24 bytes is an order of magnitude more than the instrument can account for, so
+  this is not an artifact. Two things fall out of the numbers besides:
+
+  * **RustySNES measures 52.0 clocks a byte**, and its `block_move` implements exactly that —
+    opcode and two operand bytes re-fetched from SlowROM, one WRAM read, one WRAM write (5 × 8)
+    plus two internal cycles (2 × 6). The agreement is within the measurement's ±1 dot, which over
+    24 bytes is ±0.17 clocks a byte, not "to the clock"; what it supports is that the core is
+    implementing one particular decomposition of "7 cycles" rather than drifting.
+  * **The cross-core gap scales with the byte count**, which is itself evidence that it is
+    per-byte rather than fixed: 10 dots at 8 bytes, 30 at 32. (That is not an independent check on
+    the difference method — subtraction removes an additive term by construction — but a constant
+    implementation difference would have shown the same gap at both sizes, and it does not.)
+
+  **What is still open is which core is right**, and it is now a documentary question rather than an
+  experimental one. snes9x's 55.3 clocks a byte is not a whole number of cycles under any obvious
+  decomposition: 54 would be six 8-clock accesses plus one internal, 56 would be seven 8-clock
+  accesses. The next step is to establish from the WDC tables and the SNES clock model which memory
+  accesses `MVN` actually makes per byte. **That has been checked, and the answer is that the sources
+  do not say** — the third of the three possible outcomes, and the one that decides what this row
+  can be.
+
+  undisbeliever's table, the corpus's primary timing source, leaves the `Cycles` cell for `$54` and
+  `$44` **empty**; the entire timing statement is `7 per byte moved` in the `Extra` column
+  (`ref-docs/2026-07-20-undisbeliever-65816-timing.md`, note 2). Nothing in the frozen corpus
+  decomposes those seven into memory cycles and internal cycles, and on this machine that
+  distinction is 2 master clocks apiece — the difference between every candidate reading:
+
+  | decomposition | clocks/byte | dots/byte |
+  |---|---:|---:|
+  | 4 memory + 3 internal | 50 | 12.50 |
+  | **5 memory + 2 internal** | **52** | **13.00** |
+  | 6 memory + 1 internal | 54 | 13.50 |
+  | 7 memory + 0 internal | 56 | 14.00 |
+
+  Measured: RustySNES **13.00 dots a byte (52.0 clocks)**, snes9x **13.83 dots (55.3 clocks)**.
+  RustySNES lands exactly on an integral decomposition — five accesses (opcode plus two operand
+  bytes re-fetched, one source read, one destination write) and two internal cycles.
+
+  snes9x lands on none of them, and the measurement is precise enough to say so — but only if the
+  units are kept straight, because the buckets above are 12 dots apart in the 24-byte difference and
+  the uncertainty is quoted per byte. The instrument is good to **±2 dots over the whole 24-byte
+  difference**, which is **±0.083 dots a byte**, i.e. **±0.33 clocks a byte**. So snes9x's slope is
+  confined to **13.75-13.92 dots a byte (54.97-55.63 clocks)**, an interval containing neither 13.50
+  dots (54 clocks) nor 14.00 (56).
+
+  So the documentary step does not adjudicate the divergence; it establishes that **the row is
+  under-determined by the sources**, which under the provenance rules makes it a golden vector
+  rather than a scored assertion.
+
+  **Implementing that golden vector disproved the paragraph above, and most of this section with
+  it.** The test was written — wide instrument, 8- and 32-byte moves, differenced, classified into
+  a decomposition bucket — and then measured at three code alignments. The measured slope moves
+  when code *before* the measurement changes:
+
+  | alignment | RustySNES | snes9x | Mesen2 |
+  |---|---:|---:|---:|
+  | A — source region left uninitialised | 312 | 332 | 312 |
+  | B — source filled first | 312 | 322 | 322 |
+  | C — B plus three `NOP`s before the span | 312 | 322 | 322 |
+
+  Three things follow, and they retire the rest of this entry:
+
+  * **The 20-dot gap was not stable.** Alignment A is the reading every conclusion above was built
+    on, and it does not reproduce. snes9x moved 10 dots and Mesen2 moved 10 the other way, purely
+    from filling a WRAM region and adding three `NOP`s. The claim that "twenty dots is an order of
+    magnitude more than the instrument can account for, so this is not an artifact" is **wrong**;
+    the instrument accounts for it easily.
+  * **The stable reading is 2-vs-1 the other way.** At both reproducible alignments the two
+    independent references agree at **322** and RustySNES sits alone at **312**. By this
+    repository's own diagnostic rule that is the signature of a RustySNES defect, not a reference
+    one — the opposite of what alignment A suggested.
+  * **The dot domain cannot answer the question.** RustySNES advances the H counter uniformly at
+    4 clocks a dot (`crates/rustysnes-core/src/bus.rs`: *"long-dot remainder folded into the
+    1364/1360/1368 line"*), so its dot count is exactly clocks/4 and is alignment-independent by
+    construction. The references model the per-dot irregularity, so their dot counts are not a
+    fixed multiple of clocks and wobble with where a span starts. A cartridge can only read dots,
+    so **this instrument cannot measure a clock-domain quantity in a core that models long dots** —
+    and the buckets, which assume 4 clocks a dot, are meaningless for exactly the cores being
+    compared. Classified naively, both references' 322 lands in the "6 memory + 1 internal" bucket,
+    which is an artifact of the conversion and not a claim anyone should publish.
+
+  `A5.20` is therefore **withdrawn, not shipped** — the same outcome as `C3.05` and for the same
+  reason: a test that cannot distinguish "the core is wrong" from "the instrument is wrong" asserts
+  nothing. What it leaves behind is worth more than the row would have been:
+
+  * **A candidate RustySNES defect with a mechanism**: dot lengths are uniform where hardware and
+    both references make dots 323/327 irregular. That is a PPU/bus timing gap, not a `MVN` gap, and
+    it would explain the whole two-week saga — the block-move instruction may never have been the
+    subject. Worth a ticket in its own right.
+  * **ares decomposes the seven cycles** where the documentation does not.
+    `instructionBlockMove8`/`16` are two operand `fetch`es, one `read`, one `write`, two `idle`s
+    and the opcode re-fetched each iteration (`PC.w -= 3`) — **5 bus accesses + 2 internal**,
+    i.e. 52 clocks, which is what RustySNES implements. So the sources' silence is fillable from
+    implementations, and a future clock-domain test would have something to assert against.
+  * **A method note**: any future timing row must be measured at two or more code alignments before
+    it is believed. One alignment produced a confident, reproducible, and entirely wrong answer
+    three times running here.
 
 * The earlier `MVN` "finding" is retired regardless: 13 dots was the difference of two wrapped
   readings.
