@@ -1270,6 +1270,17 @@ Provenance: **Contested** (RustySNES and snes9x re-close the VRAM window on a mi
 
 No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
+### C2.09 — VRAM read latch order
+
+Provenance: **Documented** (SNESdev Wiki, PPU registers: return latch, refill latch, then increment, with VMAIN bit 7 selecting which of $2139/$213A triggers it; bsnes and ares both refill before the step in sfc/ppu/io.cpp, and snes9x and Mesen2 agree). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the first read did not return the low byte of the prefetched word $1700 |
+| 2 | `$04` | reading $2139 twice returned two different bytes: the non-trigger register advanced the address, which belongs to $213A alone |
+| 3 | `$06` | the trigger read did not return the high byte of the word already in the latch |
+| 4 | `$08` | after the trigger, the low byte came from word $1701: the core incremented the address before refilling the latch, when hardware refills from the address it is still on and steps afterwards -- that inversion removes the one-word prefetch lag |
+
 ## Group B
 
 ### B1.01 — MEMSEL selects FastROM

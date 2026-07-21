@@ -74,6 +74,7 @@ pub fn all() -> Vec<Test> {
         c1_06(),
         c9_04(),
         c9_05(),
+        c2_09(),
     ]
 }
 
@@ -659,6 +660,125 @@ fn c2_03() -> Test {
         'C',
         "VRAM read prefetch",
         Provenance::Documented("SNESdev Wiki; docs/ppu.md edge case 4"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// A VRAM read returns the latch, and only the trigger register increments and refills it.
+///
+/// The read port is a latch, not a window onto memory. `$2139`/`$213A` return what the latch
+/// already holds; the *trigger* register — selected by `VMAIN` bit 7, here `$213A` — is what
+/// advances the address and refills the latch behind it. Two things follow, and this test pins
+/// both:
+///
+/// * reading the **non-trigger** register twice returns the same byte twice, because nothing moved
+///   between them; and
+/// * the trigger refills the latch from the address it is **still on**, and only then increments —
+///   which is what produces the documented one-word prefetch lag.
+///
+/// # The order is refill-then-increment, and this test originally asserted the inverse
+///
+/// It was first written expecting read 4 to come from the *following* word, on the reasoning that
+/// refilling before the step would re-read the same word forever. All three cores rejected it
+/// identically, which is the signature of a wrong expectation rather than a wrong core — and the
+/// reference source settles it: bsnes and ares both do `latch = readVRAM()` and *then*
+/// `vramAddress += vramIncrementSize` (`sfc/ppu/io.cpp`, the `$2139`/`$213A` cases). snes9x, Mesen2
+/// and RustySNES agree. The dossier's phrasing — "return latch → refill latch → increment" — says
+/// exactly this, and the test now asserts it in that direction.
+///
+/// # Pinning the negatives
+///
+/// Two words are seeded with bytes distinct in both halves, `$1234` then `$ABCD`, so every wrong
+/// answer names itself:
+///
+/// | read | correct | a core that also increments on `$2139` | a core that steps before refilling |
+/// |---|---|---|---|
+/// | 1 — `$2139` | `$34` | `$34` | `$34` |
+/// | 2 — `$2139` | `$34` | **`$CD`** | `$34` |
+/// | 3 — `$213A` | `$12` | `$AB` | `$12` |
+/// | 4 — `$2139` | `$34` | — | **`$CD`** |
+///
+/// Read 2 catches an increment on the wrong register; read 4 catches the inverted order. Neither
+/// failure is silent, and neither can be produced by the other bug.
+///
+/// This is about the read path only, so it runs in the battery's forced blank, where the port is
+/// open by definition — there is no access-window claim here to be made vacuous by it.
+fn c2_09() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$80");
+    a.l("sta $2115         ; VMAIN: +1 word, and $2119/$213A is the trigger");
+    a.c("Seed two words whose halves are all different, so any wrong byte identifies its own bug.");
+    a.l("rep #$30");
+    a.l("ldx #$1700");
+    a.l("stx $2116");
+    a.l("lda #$1234");
+    a.l("sta $2118");
+    a.l("lda #$ABCD");
+    a.l("sta $2118         ; word $1700 = $1234, word $1701 = $ABCD");
+    a.l("ldx #$1700");
+    a.l("stx $2116         ; the address write prefetches word $1700 into the latch");
+    a.l("sep #$20");
+    a.l("lda $2139");
+    a.l("sta f:$7E0186     ; read 1: the latch's low byte");
+    a.l("lda $2139");
+    a.l("sta f:$7E0187     ; read 2: the non-trigger register again -- nothing may have moved");
+    a.l("lda $213A");
+    a.l("sta f:$7E0188     ; read 3: the high byte, and the trigger for increment + refill");
+    a.l("lda $2139");
+    a.l("sta f:$7E0189     ; read 4: whichever word the refill actually fetched");
+    a.c("Publish all four bytes before judging any of them: a wrong expectation and a wrong core");
+    a.c("produce the same failure code, and only the values tell them apart.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0186");
+    a.l("and #$00FF");
+    a.record(84, "C2.09 read 1: $2139 after the address write");
+    a.l("lda f:$7E0187");
+    a.l("and #$00FF");
+    a.record(85, "C2.09 read 2: $2139 again, no trigger in between");
+    a.l("lda f:$7E0188");
+    a.l("and #$00FF");
+    a.record(86, "C2.09 read 3: $213A, the trigger");
+    a.l("lda f:$7E0189");
+    a.l("and #$00FF");
+    a.record(87, "C2.09 read 4: $2139 after the trigger");
+    a.l("sep #$20");
+    a.l("lda f:$7E0186");
+    a.assert_a8(
+        0x34,
+        "the first read did not return the low byte of the prefetched word $1700",
+    );
+    a.l("lda f:$7E0187");
+    a.assert_a8(
+        0x34,
+        "reading $2139 twice returned two different bytes: the non-trigger register advanced the \
+         address, which belongs to $213A alone",
+    );
+    a.l("lda f:$7E0188");
+    a.assert_a8(
+        0x12,
+        "the trigger read did not return the high byte of the word already in the latch",
+    );
+    a.l("lda f:$7E0189");
+    a.assert_a8(
+        0x34,
+        "after the trigger, the low byte came from word $1701: the core incremented the address \
+         before refilling the latch, when hardware refills from the address it is still on and \
+         steps afterwards -- that inversion removes the one-word prefetch lag",
+    );
+    a.finish(
+        "C2.09",
+        'C',
+        "VRAM read latch order",
+        Provenance::Documented(
+            "SNESdev Wiki, PPU registers: return latch, refill latch, then increment, with VMAIN \
+             bit 7 selecting which of $2139/$213A triggers it; bsnes and ares both refill before \
+             the step in sfc/ppu/io.cpp, and snes9x and Mesen2 agree",
+        ),
         Kind::Scored,
         None,
     )

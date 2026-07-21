@@ -21201,6 +21201,120 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; C2.09 — VRAM read latch order
+; provenance: Documented (SNESdev Wiki, PPU registers: return latch, refill latch, then increment, with VMAIN bit 7 selecting which of $2139/$213A triggers it; bsnes and ares both refill before the step in sfc/ppu/io.cpp, and snes9x and Mesen2 agree)
+.proc test_c2_09
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$80
+    sta $2115         ; VMAIN: +1 word, and $2119/$213A is the trigger
+    ; Seed two words whose halves are all different, so any wrong byte identifies its own bug.
+    rep #$30
+    .a16
+    .i16
+    ldx #$1700
+    stx $2116
+    lda #$1234
+    sta $2118
+    lda #$ABCD
+    sta $2118         ; word $1700 = $1234, word $1701 = $ABCD
+    ldx #$1700
+    stx $2116         ; the address write prefetches word $1700 into the latch
+    sep #$20
+    .a8
+    lda $2139
+    sta f:$7E0186     ; read 1: the latch's low byte
+    lda $2139
+    sta f:$7E0187     ; read 2: the non-trigger register again -- nothing may have moved
+    lda $213A
+    sta f:$7E0188     ; read 3: the high byte, and the trigger for increment + refill
+    lda $2139
+    sta f:$7E0189     ; read 4: whichever word the refill actually fetched
+    ; Publish all four bytes before judging any of them: a wrong expectation and a wrong core
+    ; produce the same failure code, and only the values tell them apart.
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0186
+    and #$00FF
+    ; record slot 84: C2.09 read 1: $2139 after the address write
+    sta f:$7EE2A8
+    lda f:$7E0187
+    and #$00FF
+    ; record slot 85: C2.09 read 2: $2139 again, no trigger in between
+    sta f:$7EE2AA
+    lda f:$7E0188
+    and #$00FF
+    ; record slot 86: C2.09 read 3: $213A, the trigger
+    sta f:$7EE2AC
+    lda f:$7E0189
+    and #$00FF
+    ; record slot 87: C2.09 read 4: $2139 after the trigger
+    sta f:$7EE2AE
+    sep #$20
+    .a8
+    lda f:$7E0186
+    cmp #$34
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E0187
+    cmp #$34
+    beq :+
+    jmp @fail2
+  :
+    lda f:$7E0188
+    cmp #$12
+    beq :+
+    jmp @fail3
+  :
+    lda f:$7E0189
+    cmp #$34
+    beq :+
+    jmp @fail4
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the first read did not return the low byte of the prefetched word $1700
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; reading $2139 twice returned two different bytes: the non-trigger register advanced the address, which belongs to $213A alone
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; the trigger read did not return the high byte of the word already in the latch
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+@fail4:
+    ; after the trigger, the low byte came from word $1701: the core incremented the address before refilling the latch, when hardware refills from the address it is still on and steps afterwards -- that inversion removes the one-word prefetch lag
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 .segment "TESTSG"
 
 ; G1.02 — Reset: $4210/$4211 clear
@@ -22558,7 +22672,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 267
+    .word 268
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -22680,6 +22794,7 @@ _test_entries:
     .faraddr test_c1_06
     .faraddr test_c9_04
     .faraddr test_c9_05
+    .faraddr test_c2_09
     .faraddr test_b1_01
     .faraddr test_b1_02
     .faraddr test_b2_04
@@ -22950,6 +23065,7 @@ _test_flags:
     .byte $01   ; C1.06
     .byte $01   ; C9.04
     .byte $02   ; C9.05
+    .byte $01   ; C2.09
     .byte $01   ; B1.01
     .byte $01   ; B1.02
     .byte $01   ; B2.04
@@ -23220,6 +23336,7 @@ _test_names:
     .addr @n_c1_06
     .addr @n_c9_04
     .addr @n_c9_05
+    .addr @n_c2_09
     .addr @n_b1_01
     .addr @n_b1_02
     .addr @n_b2_04
@@ -23723,6 +23840,9 @@ _test_names:
 @n_c9_05:
     .byte 23
     .byte "Mid-frame overscan lock"
+@n_c2_09:
+    .byte 21
+    .byte "VRAM read latch order"
 @n_b1_01:
     .byte 22
     .byte "MEMSEL selects FastROM"

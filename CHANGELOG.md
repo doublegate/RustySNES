@@ -541,6 +541,23 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`C2.09` — a VRAM read returns the latch, and only the trigger register refills it.** The read
+  port is a latch, not a window onto memory: `$2139`/`$213A` hand back what the latch holds, and the
+  register selected by `VMAIN` bit 7 refills it **from the address it is still on** before stepping.
+  Two words seeded `$1234`/`$ABCD` make every wrong answer name itself — reading the non-trigger
+  register twice must return the same byte, and the byte after the trigger must still come from the
+  first word.
+
+  **The test's first expectation was wrong, and all three cores said so.** It was written expecting
+  the post-trigger read to come from the *following* word, reasoning that refilling before the step
+  would re-read one word forever. Every core rejected it identically — the signature of a wrong
+  expectation, not a wrong core — and the reference source settles it: bsnes and ares both
+  `latch = readVRAM()` and only then `vramAddress += vramIncrementSize`. That ordering is precisely
+  what produces the documented one-word prefetch lag, and it is what the dossier's "return latch →
+  refill latch → increment" says. The assertion now pins that direction, so it catches the
+  inversion instead of demanding it — verified by inverting the two statements in the PPU, which
+  fails at code 4 and passes again once restored.
+
 - **`C9.05` — does enabling overscan mid-vblank re-close the VRAM window?** A **golden vector**,
   because the references split: RustySNES and snes9x drop a write issued just after the toggle,
   Mesen2 lets it land. One reference each way is `Contested` under ADR 0003, and the dossier's own

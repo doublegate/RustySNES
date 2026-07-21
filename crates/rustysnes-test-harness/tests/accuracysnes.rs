@@ -822,3 +822,22 @@ fn overscan_vram_window_is_reported() {
          unrelated reason and the reading below is not evidence"
     );
 }
+
+/// `C2.09`'s four VRAM reads, reported so a wrong expectation and a wrong core can be told apart.
+#[test]
+fn vram_read_latch_order_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  C2.09 VRAM read latch order (words $1700 = $1234, $1701 = $ABCD):");
+    for (slot, what) in [
+        (84u8, "read 1: $2139 after the address write"),
+        (85, "read 2: $2139 again, no trigger between"),
+        (86, "read 3: $213A, the trigger"),
+        (87, "read 4: $2139 after the trigger"),
+    ] {
+        println!(
+            "    slot {slot}  {:#04x}  {what}",
+            report.meas[usize::from(slot)]
+        );
+    }
+}
