@@ -40,6 +40,10 @@ fn next_prog_id() -> usize {
 #[must_use]
 pub fn all() -> Vec<Test> {
     vec![
+        // E4.11 MUST stay first: APU RAM's power-on contents survive only until something writes
+        // over them, so this is a once-only observation. It is a golden vector precisely so that a
+        // mis-ordered run reports a strange recording rather than failing the battery.
+        e4_11(),
         e1_01(),
         e1_02(),
         e1_04(),
@@ -246,15 +250,20 @@ fn apu_timeout_arm(a: &mut Asm) {
 /// # The obvious version of this test cannot fail, and that is the whole story here
 ///
 /// It was first written as "upload a program, check the zero page is zero", placed first in the
-/// group so no other program could have dirtied it. It passed everywhere — and proved nothing.
-/// **RustySNES, snes9x and Mesen2 all boot APU RAM as all-zero**, so a core that never ran the
-/// zero-fill at all would produce exactly the same reading. An armed-ness probe added at `$0420`
-/// (outside the filled range) read `$00` on all three, confirming the assertions could not fail.
+/// group so no other program could have dirtied it. It passed everywhere — and on two of the three
+/// cores it proved nothing. **RustySNES and snes9x both boot APU RAM as all-zero**, so a core that
+/// never ran the zero-fill at all would produce exactly the same reading there. An armed-ness probe
+/// added at `$0420` (outside the filled range) read `$00` on both, confirming the assertions could
+/// not fail.
 ///
 /// The fix came from reading `release_to_ipl`: it jumps to **`$FFC0`**, the IPL's *reset* entry,
 /// and the zero-fill is the first thing there. So the fill runs again before every upload — which
 /// means the way to make this falsifiable is not to run *before* anything else, but to dirty the
 /// range deliberately and then go back through the IPL.
+///
+/// (`E4.11` later measured the power-on state properly and found Mesen2 *randomises* APU RAM, so
+/// the original test would in fact have been discriminating there — but not on the other two, and
+/// a test that only works on one core is not one this battery can score.)
 ///
 /// So the test uploads two programs. The first fills `$02-$EF` with `$FF` and releases; the second
 /// sweeps the same range and reports it. A core that does not zero-fill returns `$FF`, and the
@@ -353,6 +362,114 @@ fn e4_03() -> Test {
              carry it",
         ),
         Kind::Scored,
+        None,
+    )
+}
+
+/// What pattern does APU RAM power up holding? A golden vector: no core models one.
+///
+/// The dossier records the hardware pattern as repeating **32 bytes of `$00` then 32 of `$FF`**,
+/// and marks it chip-dependent and informational — so it is recorded, never scored. What makes the
+/// recording worth having is that the three cores do three different things, and **none of them
+/// reproduces the documented pattern**:
+///
+/// | core | `$8000` | `$8020` | `$8040` | variant |
+/// |---|---|---|---|---|
+/// | RustySNES | `$00` | `$00` | `$00` | 1 — uniformly zero |
+/// | snes9x | `$00` | `$00` | `$00` | 1 — uniformly zero |
+/// | Mesen2 | *random* | *random* | *random* | 3 — neither |
+///
+/// Mesen2 **randomises** APU RAM: four consecutive runs returned `$62`, `$18`, `$F2`, `$85` at
+/// `$8000`. So its bytes here are not reproducible, and that irreproducibility is the finding
+/// rather than a defect in the measurement — which is also why this is a golden vector. A scored
+/// test would flap on Mesen2 every run.
+///
+/// That difference is not a curiosity: it is why `E4.03` dirties the zero page itself instead of
+/// trusting the power-on state. On RustySNES and snes9x a "is the zero page zero?" test cannot
+/// fail, because the RAM was already zero; on Mesen2 the same test would have been discriminating.
+/// Writing one test that works on all three meant not depending on any of it.
+///
+/// # Three bytes, chosen so the pattern would be unmistakable
+///
+/// The pattern's period is 64 bytes, so addresses are picked one per half-period:
+///
+/// | address | offset mod 64 | expected under the pattern |
+/// |---|---:|---|
+/// | `$8000` | 0 | `$00` |
+/// | `$8020` | 32 | **`$FF`** |
+/// | `$8040` | 0 | `$00` |
+///
+/// A core reproducing the pattern reads `$00`, `$FF`, `$00`; one booting all-zero reads three
+/// zeroes; anything else — including a randomising core — is reported raw. The middle byte alone
+/// separates the two structured hypotheses, and the outer two guard against a core that fills ARAM
+/// with `$FF` uniformly.
+///
+/// # Why the addresses are high, and why this runs first
+///
+/// Power-on state survives only until something writes over it, so the observation is inherently
+/// once-only — the same shape as `capture_power_on` on the CPU side. Two things protect it. The
+/// addresses sit at `$8000`, far above both the `$0200` upload area and the `$3000` echo buffer the
+/// `E9` tests use, so no other test's data reaches them. And this is the **first** entry in
+/// [`all`], before any program has run at all.
+///
+/// Being a golden vector rather than a scored one is what makes that ordering safe to depend on: if
+/// it ever does run late, the result is a recording that looks wrong rather than a battery failure,
+/// and the raw bytes in the channel say exactly what was seen.
+fn e4_11() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF).mov_sp_x();
+    prog.mov_a_abs(0x8000).mov_dp_a(PORT1);
+    prog.mov_a_abs(0x8020).mov_dp_a(PORT2);
+    prog.mov_a_abs(0x8040).mov_dp_a(PORT3);
+    prog.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(96, "E4.11 ARAM $8000 at power-on (pattern predicts $00)");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(97, "E4.11 ARAM $8020 at power-on (pattern predicts $FF)");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.record(98, "E4.11 ARAM $8040 at power-on (pattern predicts $00)");
+    a.c("The middle byte is what separates the two live answers; the outer two rule out a core");
+    a.c("that filled everything with $FF.");
+    a.l("sep #$30");
+    a.l("lda f:$7E0100");
+    a.l("ora f:$7E0101");
+    a.l("ora f:$7E0102");
+    a.l("bne :+");
+    a.l("lda #$03          ; variant 1 = uniformly zero; no power-on pattern modelled");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("lda f:$7E0100");
+    a.l("bne :+");
+    a.l("lda f:$7E0102");
+    a.l("bne :+");
+    a.l("lda f:$7E0101");
+    a.l("cmp #$FF");
+    a.l("bne :+");
+    a.l("lda #$05          ; variant 2 = the documented 32x$00 / 32x$FF pattern");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("lda #$07          ; variant 3 = neither; the raw bytes are in slots 96-98");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E4.11",
+        'E',
+        "ARAM power-on pattern",
+        Provenance::Contested(
+            "the dossier records a repeating 32x$00 / 32x$FF fill and marks it chip-dependent and \
+             informational; RustySNES, snes9x and Mesen2 all boot APU RAM uniformly zero instead",
+        ),
+        Kind::Golden,
         None,
     )
 }

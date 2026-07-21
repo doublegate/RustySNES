@@ -1671,6 +1671,12 @@ Provenance: **Documented** (SNESdev Wiki, HDMA registers; fullsnes). Kind: score
 
 ## Group E
 
+### E4.11 — ARAM power-on pattern
+
+Provenance: **Contested** (the dossier records a repeating 32x$00 / 32x$FF fill and marks it chip-dependent and informational; RustySNES, snes9x and Mesen2 all boot APU RAM uniformly zero instead). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
 ### E1.01 — MUL YA flags from Y
 
 Provenance: **Documented** (SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata). Kind: scored.

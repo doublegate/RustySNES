@@ -557,14 +557,37 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E4.11` — what pattern does APU RAM power up holding?** A **golden vector**: the dossier records
+  a repeating `32x$00, 32x$FF` fill and marks it chip-dependent and informational, and the three
+  cores do three different things, none of them that.
+
+  | core | `$8000` | `$8020` | `$8040` | variant |
+  |---|---|---|---|---|
+  | RustySNES | `$00` | `$00` | `$00` | 1 — uniformly zero |
+  | snes9x | `$00` | `$00` | `$00` | 1 — uniformly zero |
+  | Mesen2 | *random* | *random* | *random* | 3 — neither |
+
+  **Mesen2 randomises APU RAM**: four consecutive runs returned `$62`, `$18`, `$F2`, `$85` at
+  `$8000`. Its bytes here are therefore not reproducible, which is the finding rather than a defect
+  in the measurement — and is why this is golden. A scored test would flap on Mesen2 every run.
+
+  Addresses are one per half-period of the documented 64-byte cycle so the pattern would be
+  unmistakable, and they sit at `$8000`, clear of both the `$0200` upload area and the `$3000` echo
+  buffer the `E9` tests use. Verified by injecting the documented pattern into RustySNES's power-on
+  fill: the test reports variant 2, and — worth noting — the rest of the battery stayed at 250/250,
+  so nothing else depends on ARAM booting zeroed.
+
 - **`E4.03` — the IPL boot ROM zero-fills APU RAM `$0000-$00EF`.** The first version of this test
   could not fail, and finding out why is most of what it is worth reporting.
 
   Written the obvious way — upload a program, check the zero page is zero, and place it first in the
-  group so nothing else could have dirtied it — it passed on every core. It also proved nothing:
-  **RustySNES, snes9x and Mesen2 all boot APU RAM as all-zero**, so a core that never ran the fill
-  produces an identical reading. An armed-ness probe at `$0420`, outside the filled range, read
-  `$00` on all three and confirmed the assertions were unfalsifiable.
+  group so nothing else could have dirtied it — it passed on every core, and on two of the three it
+  proved nothing: **RustySNES and snes9x both boot APU RAM as all-zero**, so a core that never ran
+  the fill produces an identical reading there. An armed-ness probe at `$0420`, outside the filled
+  range, read `$00` on both and confirmed the assertions were unfalsifiable. (`E4.11` below later
+  measured this properly and found Mesen2 *randomises* APU RAM, where the original test would in
+  fact have discriminated — but a test that only works on one of three cores is not one this
+  battery can score.)
 
   The fix came from reading `release_to_ipl`: it jumps to **`$FFC0`**, the IPL's *reset* entry, and
   the zero-fill is the first thing there — so the fill runs again before every upload. The way to
