@@ -3242,6 +3242,60 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A8.04 — MVN encodes dest first
+; provenance: Documented (WDC 65C816 datasheet, opcode table; 6502.org 65c816opcodes)
+.proc test_a8_04
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Seed the byte a swapped decode would read, and the destination it would leave alone.
+    sep #$20
+    .a8
+    lda #$3C
+    sta f:$7E8005     ; what `read from bank $7E` would find
+    lda #$5A
+    sta f:$7E0300     ; the destination, so 'untouched' is distinguishable too
+    ; MVN of one byte: X = source offset, Y = destination offset, A = count - 1.
+    rep #$30
+    .a16
+    .i16
+    ldx #$8005
+    ldy #$0300
+    lda #$0000        ; one byte
+    ; $54 then DESTINATION then SOURCE. Written as bytes so this tests the core's decoding
+    ; rather than ca65's operand order — which is `mvn <src>,<dest>`, so `mvn #$00,#$7E`
+    ; assembles to exactly these three bytes. Checked by assembling it, not assumed.
+    .byte $54, $7E, $00
+    phk
+    plb               ; MVN leaves DBR = destination bank; restore it before reading back
+    sep #$20
+    .a8
+    lda f:$7E0300
+    cmp #$A0
+    beq :+
+    jmp @fail1
+  :
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; MVN read its operands in mnemonic order rather than machine order — $3C means source and destination were swapped, and $5A means the move did not happen at all
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C1.01 — OAM word write/read
 ; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
 .proc test_c1_01
@@ -19671,7 +19725,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 234
+    .word 235
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -19732,6 +19786,7 @@ _test_entries:
     .faraddr test_a2_11
     .faraddr test_a7_05
     .faraddr test_a6_10
+    .faraddr test_a8_04
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -19969,6 +20024,7 @@ _test_flags:
     .byte $01   ; A2.11
     .byte $01   ; A7.05
     .byte $01   ; A6.10
+    .byte $01   ; A8.04
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -20206,6 +20262,7 @@ _test_names:
     .addr @n_a2_11
     .addr @n_a7_05
     .addr @n_a6_10
+    .addr @n_a8_04
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -20554,6 +20611,9 @@ _test_names:
 @n_a6_10:
     .byte 20
     .byte "Emulation COP vector"
+@n_a8_04:
+    .byte 22
+    .byte "MVN encodes dest first"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"

@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`MVN`'s machine encoding puts the destination bank first (`A8.01`).** `MVN $00,$7E` assembles to
+  `54 7E 00` — the reverse of how the mnemonic reads. Assemblers hide it, so a core written against
+  the mnemonic rather than the opcode table copies in the wrong direction with nothing in the source
+  looking wrong.
+
+  The three bytes are emitted **by hand** rather than through `mvn`, because going through the
+  assembler would test ca65's operand convention instead of the core's decoding. Both readings are
+  made to land somewhere seeded: decoded correctly the move copies bank `$00`'s signature, decoded
+  swapped it copies a byte planted at `$7E:8005`, and the two land on the same destination byte
+  through the low-WRAM mirror. So the value found there says which way the operands were read, and
+  a third seeded value distinguishes "did not move at all".
+
 - **Emulation mode uses its own vector table (`A6.02`).** `COP` goes through `$FFF4`, sixteen bytes
   from the native `$FFE4`, and a core that keeps one set of vectors — or picks the table from
   something other than the E flag — lands in the wrong handler. Nothing about that is visible in
