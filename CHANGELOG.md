@@ -541,6 +541,28 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`B4.11` — no IRQ triggers for dot 153 on the last scanline of a frame.** A **golden vector**.
+  superfamicom.org's timing page states the exception outright and gives no mechanism; its timing
+  text derives from fullsnes, so what reads like two sources is one, and no test ROM verifies it.
+  ares, bsnes, Mesen2 and snes9x were each searched for the exception and **none of the four
+  implements it** — which matches the dossier's own list of behaviours with no public test-ROM
+  coverage. All three cross-validated cores report the interrupt firing.
+
+  Recorded rather than scored, and RustySNES was deliberately *not* changed to match. Honouring a
+  single-source claim no hardware test confirms would make this core the only one suppressing the
+  interrupt, and the cost of being wrong is a missing interrupt in real games — the expensive
+  direction. The recording covers the row honestly and is the evidence that would justify the
+  change if someone confirms it on hardware.
+
+  Two controls run alongside the reading and both must fire: dot 153 one line earlier, and dot 100
+  on the same last line. Without them a core that cannot raise an HV-IRQ at all would report
+  "suppressed" for free, so an inconclusive run gets its own variant rather than being folded in
+  with a real observation. The last line is measured, not assumed — it is 261 on NTSC and 311 on
+  PAL, and `B2.10` establishes the region bit is too contested to branch on.
+
+  Verified by implementing the exception in the PPU comparator: the test moved to variant 2 with
+  both controls still firing, and back to variant 1 once removed.
+
 - **`B4.13` — `HTIME`/`VTIME` are nine bits, and the surplus range is inert.** Both registers accept
   values up to 511 while the counters they are compared against stop at 339 dots and 261 (NTSC) or
   311 (PAL) lines. The assertion is that a value past the end simply never matches.

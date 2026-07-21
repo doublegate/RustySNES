@@ -6815,6 +6815,247 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; B4.11 — Dot 153, last line
+; provenance: Contested (superfamicom.org's timing page states the exception and gives no mechanism; its timing text derives from fullsnes, so the two are one source, and no test ROM verifies it. ares, bsnes, Mesen2 and snes9x were each searched and none implements it)
+.proc test_b4_11
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    sei
+    stz $4200
+    lda $4211
+    ; Measure the last line rather than assuming it: 261 on NTSC, 311 on PAL, and the region
+    ; bit is too contested (B2.10) to branch on.
+    sep #$20
+    .a8
+    stz $2133         ; SETINI: no interlace, which would add a line
+    jsr wait_vblank
+    jsr wait_vblank   ; a settled frame
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E0124     ; running maximum
+@fh_loop:
+    sep #$20
+    .a8
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp f:$7E0124
+    bcc :+
+    sta f:$7E0124
+    :
+    cmp #100          ; below 100 means the counter wrapped into the next frame
+    bcs @fh_loop
+    lda f:$7E0124
+    sta f:$7E0172     ; the last line of a frame
+    dec a
+    sta f:$7E0174     ; and the one before it, for the control
+    ; --- the assertion: dot 153 on the last scanline ---
+    sep #$20
+    .a8
+    lda #$99
+    sta $4207
+    lda #$00
+    sta $4208         ; HTIME = 153
+    lda f:$7E0172
+    sta $4209
+    lda f:$7E0173
+    and #$01
+    sta $420A         ; VTIME from the measured line
+    lda $4211         ; clear any stale latch
+    lda #$30
+    sta $4200         ; both comparators, so the match is one dot on one line
+    ; Bounded wait: poll $4211 while counting vblank edges.
+    sep #$30
+    .a8
+    .i8
+    lda #$00
+    sta f:$7E0170     ; the fired flag (STZ has no long form)
+    ldx #3
+@oute:
+@acte:
+    lda $4211
+    and #$80
+    bne @hite
+    lda $4212
+    and #$80
+    bne @acte     ; still in vblank; wait for active display
+@vble:
+    lda $4211
+    and #$80
+    bne @hite
+    lda $4212
+    and #$80
+    beq @vble     ; wait for the next vblank edge
+    dex
+    bne @oute
+    bra @donee
+@hite:
+    lda #$01
+    sta f:$7E0170
+@donee:
+    sep #$20
+    .a8
+    lda f:$7E0170
+    sta f:$7E0177
+    ; --- control: the same dot one line earlier must fire ---
+    sep #$20
+    .a8
+    lda #$99
+    sta $4207
+    lda #$00
+    sta $4208         ; HTIME = 153
+    lda f:$7E0174
+    sta $4209
+    lda f:$7E0175
+    and #$01
+    sta $420A         ; VTIME from the measured line
+    lda $4211         ; clear any stale latch
+    lda #$30
+    sta $4200         ; both comparators, so the match is one dot on one line
+    ; Bounded wait: poll $4211 while counting vblank edges.
+    sep #$30
+    .a8
+    .i8
+    lda #$00
+    sta f:$7E0170     ; the fired flag (STZ has no long form)
+    ldx #3
+@outf:
+@actf:
+    lda $4211
+    and #$80
+    bne @hitf
+    lda $4212
+    and #$80
+    bne @actf     ; still in vblank; wait for active display
+@vblf:
+    lda $4211
+    and #$80
+    bne @hitf
+    lda $4212
+    and #$80
+    beq @vblf     ; wait for the next vblank edge
+    dex
+    bne @outf
+    bra @donef
+@hitf:
+    lda #$01
+    sta f:$7E0170
+@donef:
+    sep #$20
+    .a8
+    lda f:$7E0170
+    sta f:$7E0178
+    ; --- control: a different dot on the same last line must fire ---
+    sep #$20
+    .a8
+    lda #$64
+    sta $4207
+    lda #$00
+    sta $4208         ; HTIME = 100
+    lda f:$7E0172
+    sta $4209
+    lda f:$7E0173
+    and #$01
+    sta $420A         ; VTIME from the measured line
+    lda $4211         ; clear any stale latch
+    lda #$30
+    sta $4200         ; both comparators, so the match is one dot on one line
+    ; Bounded wait: poll $4211 while counting vblank edges.
+    sep #$30
+    .a8
+    .i8
+    lda #$00
+    sta f:$7E0170     ; the fired flag (STZ has no long form)
+    ldx #3
+@outg:
+@actg:
+    lda $4211
+    and #$80
+    bne @hitg
+    lda $4212
+    and #$80
+    bne @actg     ; still in vblank; wait for active display
+@vblg:
+    lda $4211
+    and #$80
+    bne @hitg
+    lda $4212
+    and #$80
+    beq @vblg     ; wait for the next vblank edge
+    dex
+    bne @outg
+    bra @doneg
+@hitg:
+    lda #$01
+    sta f:$7E0170
+@doneg:
+    sep #$20
+    .a8
+    lda f:$7E0170
+    sta f:$7E0179
+    sep #$20
+    .a8
+    stz $4200
+    lda $4211
+    ; Publish all three readings: the verdict compresses them, the channel keeps them.
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0172
+    ; record slot 77: B4.11 the measured last line of a frame
+    sta f:$7EE29A
+    lda f:$7E0177
+    and #$00FF
+    ; record slot 78: B4.11 fired at dot 153 on the last line (0 = suppressed)
+    sta f:$7EE29C
+    lda f:$7E0178
+    and #$00FF
+    ; record slot 79: B4.11 control: fired at dot 153 one line earlier
+    sta f:$7EE29E
+    lda f:$7E0179
+    and #$00FF
+    ; record slot 80: B4.11 control: fired at dot 100 on the last line
+    sta f:$7EE2A0
+    ; Either control staying silent means the HV-IRQ path never worked here, and the reading
+    ; above is not evidence of a suppression.
+    sep #$30
+    .a8
+    .i8
+    lda f:$7E0178
+    beq :+
+    lda f:$7E0179
+    beq :+
+    lda f:$7E0177
+    beq :++
+    lda #$03          ; variant 1 = it fired; the exception is not modelled here
+    sta f:$7EE010
+    jml test_restore
+    :
+    lda #$07          ; variant 3 = a control did not fire; inconclusive
+    sta f:$7EE010
+    jml test_restore
+    :
+    lda #$05          ; variant 2 = suppressed at dot 153 while both controls fired
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; D1.01 — DMA mode 0
 ; provenance: Documented (SNESdev Wiki, DMA; fullsnes)
 .proc test_d1_01
@@ -22150,7 +22391,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 265
+    .word 266
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -22297,6 +22538,7 @@ _test_entries:
     .faraddr test_b4_09
     .faraddr test_b3_01
     .faraddr test_b4_13
+    .faraddr test_b4_11
     .faraddr test_d1_01
     .faraddr test_d1_01b
     .faraddr test_d1_06
@@ -22565,6 +22807,7 @@ _test_flags:
     .byte $01   ; B4.09
     .byte $02   ; B3.01
     .byte $01   ; B4.13
+    .byte $02   ; B4.11
     .byte $01   ; D1.01
     .byte $01   ; D1.01b
     .byte $01   ; D1.06
@@ -22833,6 +23076,7 @@ _test_names:
     .addr @n_b4_09
     .addr @n_b3_01
     .addr @n_b4_13
+    .addr @n_b4_11
     .addr @n_d1_01
     .addr @n_d1_01b
     .addr @n_d1_06
@@ -23384,6 +23628,9 @@ _test_names:
 @n_b4_13:
     .byte 20
     .byte "Timer range is 9-bit"
+@n_b4_11:
+    .byte 18
+    .byte "Dot 153, last line"
 @n_d1_01:
     .byte 10
     .byte "DMA mode 0"

@@ -1466,6 +1466,12 @@ Provenance: **Documented** (fullsnes $4207-$420A: HTIME is 0-339 and VTIME 0-261
 | 3 | `$06` | no V-IRQ arrived with VTIME = 100, which is in range on both regions — the out-of-range check that follows would report silence for the wrong reason |
 | 4 | `$08` | a V-IRQ fired with VTIME = 400, which is past the last line of either region: a core keeping only the low eight bits arms at 144 |
 
+### B4.11 — Dot 153, last line
+
+Provenance: **Contested** (superfamicom.org's timing page states the exception and gives no mechanism; its timing text derives from fullsnes, so the two are one source, and no test ROM verifies it. ares, bsnes, Mesen2 and snes9x were each searched and none implements it). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
 ## Group D
 
 ### D1.01 — DMA mode 0

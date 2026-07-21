@@ -55,6 +55,7 @@ pub fn all() -> Vec<Test> {
         // --- B3: DRAM refresh ---
         b3_01(),
         b4_13(),
+        b4_11(),
     ]
 }
 
@@ -1322,6 +1323,148 @@ fn b4_16() -> Test {
         Kind::Golden,
         None,
     )
+}
+
+/// No IRQ triggers for dot 153 on the last scanline of a frame — a golden vector.
+///
+/// superfamicom.org's timing page states it outright: *"no IRQ will trigger for dot 153 on the
+/// short scanline in non-interlace mode, and no IRQ will trigger for dot 153 on the last scanline
+/// of any frame."* It gives no mechanism, and neither does fullsnes, which is where the wiki's
+/// timing text comes from — so despite reading like two sources this is **one**.
+///
+/// # Why it is recorded and not scored, and why the emulator was not changed to match
+///
+/// Nothing implements it. ares, bsnes, Mesen2 and snes9x were all searched for the exception and
+/// none of the four carries it; the dossier independently lists "the two no-IRQ-at-dot-153
+/// exceptions" among the behaviours with no public test-ROM coverage. So a scored assertion would
+/// fail on every core including this one, and the diagnostic rule says a result like that is either
+/// a broken test or a behaviour nobody models — here, the second.
+///
+/// Making RustySNES honour it was the other option and was rejected. It would rest on a
+/// single-source claim that no hardware test verifies, it would make this core the only one
+/// suppressing the interrupt, and the cost of being wrong is a *missing* interrupt in real games —
+/// the expensive direction to get wrong. Recording the observation costs nothing, covers the row
+/// honestly, and is exactly the evidence that would justify the change if someone confirms it on
+/// hardware.
+///
+/// # The controls are what make the recording mean something
+///
+/// "No interrupt at (last line, dot 153)" is worthless on its own — a core that cannot raise an
+/// HV-IRQ at all produces the same silence. Two controls run alongside it, both of which must fire:
+///
+/// * **dot 153 one line earlier**, which proves dot 153 is not itself unreachable; and
+/// * **dot 100 on the last line**, which proves the last line is not simply inert.
+///
+/// Only when both fire does the first reading say anything, and the verdict reports that as its own
+/// variant rather than folding an inconclusive run in with a real observation.
+///
+/// The last line is *measured*, not assumed: it is 261 on NTSC and 311 on PAL, the battery ships
+/// both images, and `B2.10` establishes that the region bit is too contested to branch on.
+fn b4_11() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("sei");
+    a.l("stz $4200");
+    a.l("lda $4211");
+    a.c("Measure the last line rather than assuming it: 261 on NTSC, 311 on PAL, and the region");
+    a.c("bit is too contested (B2.10) to branch on.");
+    measure_frame_height(&mut a);
+    a.l("sta f:$7E0172     ; the last line of a frame");
+    a.l("dec a");
+    a.l("sta f:$7E0174     ; and the one before it, for the control");
+    a.c("--- the assertion: dot 153 on the last scanline ---");
+    arm_hv_irq_var(&mut a, 153, 0x7E_0172);
+    irq_within_frames(&mut a, 3, "e");
+    a.l("sep #$20");
+    a.l("lda f:$7E0170");
+    a.l("sta f:$7E0177");
+    a.c("--- control: the same dot one line earlier must fire ---");
+    arm_hv_irq_var(&mut a, 153, 0x7E_0174);
+    irq_within_frames(&mut a, 3, "f");
+    a.l("sep #$20");
+    a.l("lda f:$7E0170");
+    a.l("sta f:$7E0178");
+    a.c("--- control: a different dot on the same last line must fire ---");
+    arm_hv_irq_var(&mut a, 100, 0x7E_0172);
+    irq_within_frames(&mut a, 3, "g");
+    a.l("sep #$20");
+    a.l("lda f:$7E0170");
+    a.l("sta f:$7E0179");
+    a.l("sep #$20");
+    a.l("stz $4200");
+    a.l("lda $4211");
+    a.c("Publish all three readings: the verdict compresses them, the channel keeps them.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0172");
+    a.record(77, "B4.11 the measured last line of a frame");
+    a.l("lda f:$7E0177");
+    a.l("and #$00FF");
+    a.record(
+        78,
+        "B4.11 fired at dot 153 on the last line (0 = suppressed)",
+    );
+    a.l("lda f:$7E0178");
+    a.l("and #$00FF");
+    a.record(79, "B4.11 control: fired at dot 153 one line earlier");
+    a.l("lda f:$7E0179");
+    a.l("and #$00FF");
+    a.record(80, "B4.11 control: fired at dot 100 on the last line");
+    a.c("Either control staying silent means the HV-IRQ path never worked here, and the reading");
+    a.c("above is not evidence of a suppression.");
+    a.l("sep #$30");
+    a.l("lda f:$7E0178");
+    a.l("beq :+");
+    a.l("lda f:$7E0179");
+    a.l("beq :+");
+    a.l("lda f:$7E0177");
+    a.l("beq :++");
+    a.l("lda #$03          ; variant 1 = it fired; the exception is not modelled here");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("lda #$07          ; variant 3 = a control did not fire; inconclusive");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("lda #$05          ; variant 2 = suppressed at dot 153 while both controls fired");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.finish(
+        "B4.11",
+        'B',
+        "Dot 153, last line",
+        Provenance::Contested(
+            "superfamicom.org's timing page states the exception and gives no mechanism; its \
+             timing text derives from fullsnes, so the two are one source, and no test ROM \
+             verifies it. ares, bsnes, Mesen2 and snes9x were each searched and none implements it",
+        ),
+        Kind::Golden,
+        None,
+    )
+}
+
+/// Arm an HV-IRQ at a constant `HTIME` and a `VTIME` held in a 24-bit variable.
+///
+/// `VTIME` comes from memory because the line under test is the *measured* last line of a frame,
+/// which differs by region and which `B2.10` forbids deriving from the region bit.
+fn arm_hv_irq_var(a: &mut Asm, htime: u16, vtime_addr: u32) {
+    assert!(htime < 340, "HTIME {htime} is past the end of a scanline");
+    a.l("sep #$20");
+    a.l(&format!("lda #${:02X}", htime & 0xFF));
+    a.l("sta $4207");
+    a.l(&format!("lda #${:02X}", htime >> 8));
+    a.l(&format!("sta $4208         ; HTIME = {htime}"));
+    a.l(&format!("lda f:${vtime_addr:06X}"));
+    a.l("sta $4209");
+    a.l(&format!("lda f:${:06X}", vtime_addr + 1));
+    a.l("and #$01");
+    a.l("sta $420A         ; VTIME from the measured line");
+    a.l("lda $4211         ; clear any stale latch");
+    a.l("lda #$30");
+    a.l("sta $4200         ; both comparators, so the match is one dot on one line");
 }
 
 /// `HTIME` and `VTIME` are 9-bit, and a value past the end of the counter simply never matches.

@@ -758,3 +758,37 @@ fn dram_refresh_probe_is_reported() {
          {start}..{end}"
     );
 }
+
+/// `B4.11`'s dot-153 readings, reported for cross-emulator comparison.
+///
+/// superfamicom.org says no IRQ triggers for dot 153 on the last scanline of a frame. No emulator
+/// searched implements it, so the interesting number is not RustySNES's own answer but whether any
+/// core's differs — which is why the three readings are published rather than asserted.
+///
+/// The controls are asserted, though, and they are the whole basis for reading anything into the
+/// first number. An HV-IRQ that never fires produces "suppressed at dot 153" for free.
+#[test]
+fn dot_153_exception_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+
+    let last_line = report.meas[77];
+    let (at_153, ctl_line, ctl_dot) = (report.meas[78], report.meas[79], report.meas[80]);
+
+    println!("\n  B4.11 dot 153 on the last scanline:");
+    println!("    slot 77  {last_line:5}  the measured last line of a frame");
+    println!("    slot 78  {at_153:5}  fired at dot 153 on the last line (0 = suppressed)");
+    println!("    slot 79  {ctl_line:5}  control: dot 153, one line earlier");
+    println!("    slot 80  {ctl_dot:5}  control: dot 100, same last line");
+
+    assert!(
+        last_line == 261 || last_line == 311,
+        "the last line measured {last_line}, which is neither NTSC's 261 nor PAL's 311 — the \
+         frame-height measurement this test arms from is wrong, so nothing below means anything"
+    );
+    assert!(
+        ctl_line == 1 && ctl_dot == 1,
+        "a control did not fire (dot 153 one line earlier: {ctl_line}, dot 100 on the last line: \
+         {ctl_dot}). Without both, a silent dot-153 reading is just an HV-IRQ that never works"
+    );
+}
