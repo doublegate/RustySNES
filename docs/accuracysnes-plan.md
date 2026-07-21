@@ -1149,6 +1149,27 @@ The right sequencing is to take it *with* the other interrupt-dependent rows (`A
 `WAI` behaviour, which need the same machinery) as a single deliberate piece of work, not as a
 bolt-on to close one row.
 
+### Group F is only blocked in bits 1 and 0, which is a much smaller blocker
+
+The section below is right that the cart cannot tell "no controller" from "pad past bit 16", and
+that what each host has plugged in therefore becomes part of the expected value. But that is a
+statement about **bits 1 and 0** — the two data lines a controller actually drives. It says nothing
+about the rest of the byte.
+
+`F1.04` is scored on that basis. It reads `$4016` twice through addressing modes whose operand
+fetches end on different bytes, masks off bits 1-0, and asserts that bits 7-2 follow the CPU bus.
+All three cores return exactly `$41` and `$01`, so it is `Corroborated` and scored — with no
+peripheral contract, because nothing it asserts is driven by a peripheral.
+
+The same reasoning reaches further into the group. Rows about the register's undriven bits, the
+shared latch's *mechanism*, and open-bus behaviour can all be written to avoid bits 1-0. What
+genuinely needs the contract is the subset whose expected value is the pad's own data: the read
+order (`F1.01`), the seventeenth-bit behaviour on port 2 (`F1.03`, `F1.17`), the auto-read result
+registers, and everything about mice, multitaps and the Super Scope.
+
+So the contract is still worth building — but it gates perhaps half of what this section assumed,
+and the other half is reachable now.
+
 ### Group F — blocked on a *peripheral contract*, and now measured
 
 `F1` (22 assertions) was written down as "needs a mechanism that doesn't exist". The mechanism is

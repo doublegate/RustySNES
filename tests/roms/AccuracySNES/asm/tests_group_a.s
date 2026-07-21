@@ -23195,6 +23195,72 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; F1.04 — $4016 bits 7-2 open bus
+; provenance: Corroborated (RustySNES, snes9x and Mesen2 all return $41 for the absolute read and $01 for the long one -- identical bytes, so bits 7-2 follow the CPU bus in all three)
+.proc test_f1_04
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Two reads of the same register, differing only in the addressing mode. The operand bytes
+    ; are the last thing on the bus before each data cycle, and they end differently.
+    sep #$20
+    .a8
+    lda $4016         ; AD 16 40 — last operand byte $40
+    sta f:$7E01D0
+    lda f:$004016     ; AF 16 40 00 — last operand byte $00
+    sta f:$7E01D1
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E01D0
+    and #$00FF
+    ; record slot 157: F1.04 $4016 read as absolute (operand high byte $40)
+    sta f:$7EE33A
+    lda f:$7E01D1
+    and #$00FF
+    ; record slot 158: F1.04 $4016 read as long (operand bank byte $00)
+    sta f:$7EE33C
+    ; Bits 7-2 only. Bits 1-0 are the controller's, and what is plugged in is a property of the
+    ; host rather than of the hardware -- masking them off is what lets this be scored at all.
+    sep #$20
+    .a8
+    lda f:$7E01D0
+    and #$FC
+    cmp #$40
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E01D1
+    and #$FC
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; $4016 read as absolute did not return the operand high byte ($40) in bits 7-2, so those bits are not following the CPU bus
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; $4016 read as long did not return the operand bank byte ($00) in bits 7-2. Equal to the absolute read's $40 means the bits are manufactured rather than open bus
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 .segment "APUDATA"
 apu_prog_0:
     .byte $CD, $EF, $BD, $E5, $00, $80, $C4, $F5, $E5, $20, $80, $C4
@@ -24169,7 +24235,7 @@ apu_prog_67:
 .export _test_flags
 
 _test_count:
-    .word 279
+    .word 280
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -24409,6 +24475,7 @@ _test_entries:
     .faraddr test_e3_06
     .faraddr test_e3_08
     .faraddr test_f1_02
+    .faraddr test_f1_04
     .faraddr test_g1_02
     .faraddr test_g1_04
     .faraddr test_g1_08
@@ -24691,6 +24758,7 @@ _test_flags:
     .byte $01   ; E3.06
     .byte $01   ; E3.08
     .byte $01   ; F1.02
+    .byte $01   ; F1.04
     .byte $01   ; G1.02
     .byte $01   ; G1.04
     .byte $01   ; G1.08
@@ -24973,6 +25041,7 @@ _test_names:
     .addr @n_e3_06
     .addr @n_e3_08
     .addr @n_f1_02
+    .addr @n_f1_04
     .addr @n_g1_02
     .addr @n_g1_04
     .addr @n_g1_08
@@ -25724,6 +25793,9 @@ _test_names:
 @n_f1_02:
     .byte 19
     .byte "Pad reads 17+ are 1"
+@n_f1_04:
+    .byte 23
+    .byte "$4016 bits 7-2 open bus"
 @n_g1_02:
     .byte 24
     .byte "Reset: $4210/$4211 clear"

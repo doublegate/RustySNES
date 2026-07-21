@@ -922,3 +922,19 @@ fn power_on_indeterminate_is_reported() {
         println!("    slot {slot}  {:#04x}  {what}", report.meas[slot]);
     }
 }
+
+/// `F1.04`'s two `$4016` reads, reported so the open-bus models can be compared.
+#[test]
+fn joyser_open_bus_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  F1.04 $4016 read two ways:");
+    println!(
+        "    slot 157  {:#04x}  absolute (last operand byte 0x40)",
+        report.meas[157]
+    );
+    println!(
+        "    slot 158  {:#04x}  long     (last operand byte 0x00)",
+        report.meas[158]
+    );
+}

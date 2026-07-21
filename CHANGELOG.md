@@ -575,6 +575,24 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`F1.04` — `$4016` bits 7-2 are CPU open bus**, and it is Group F's first scored row that needed
+  no peripheral contract. Only bits 1 and 0 carry controller data; the rest of the byte is driven by
+  nothing and reads back as whatever the CPU last left on the bus.
+
+  The claim is checked without settling any open-bus model: the register is read twice, once as
+  `lda $4016` (`AD 16 40`) and once as `lda f:$004016` (`AF 16 40 00`), so the last byte fetched
+  before each data cycle differs. A core whose bits 7-2 are open bus returns the operand byte each
+  time; one that manufactures them returns the same value twice. **All three cores return exactly
+  `$41` and `$01`**, so this is `Corroborated` and scored rather than recorded. Verified by
+  hardcoding the bits to zero, which fails it at code 1.
+
+  **It also narrows Group F's blocker.** `docs/accuracysnes-plan.md` recorded the whole group as
+  waiting on a documented peripheral contract, because the cart cannot tell "no controller" from
+  "pad past bit 16". That is true of bits 1 and 0 — and only of them. This test masks them off, and
+  the same move reaches the group's other undriven-bit and mechanism rows. The contract is still
+  needed for the read order, port 2's seventeenth bit, the auto-read registers and the exotic
+  peripherals; it is not needed for roughly half the group.
+
 - **`G1.20` — the registers power-on leaves indeterminate.** A **golden vector by instruction**:
   `G1.03` lists `APUIOn`, `WMDATA`, `WMADD*`, `JOYSER`, `HDMAEN`, `MDMAEN` and `JOY1-4` as undefined
   and says to *report, never assert*. Half of them are write-only and have nothing to report at all,

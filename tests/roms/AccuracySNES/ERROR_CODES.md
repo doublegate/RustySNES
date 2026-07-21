@@ -2271,6 +2271,15 @@ Provenance: **Documented** (SNESdev Wiki, controller protocol; fullsnes). Kind: 
 | 1 | `$02` | a button read as pressed during the sixteen data bits, so the reads below say nothing about what follows them |
 | 2 | `$04` | a read past the sixteenth returned 0 — an official pad drives the line high once its data bits are exhausted, and peripherals are identified by not doing so |
 
+### F1.04 — $4016 bits 7-2 open bus
+
+Provenance: **Corroborated** (RustySNES, snes9x and Mesen2 all return $41 for the absolute read and $01 for the long one -- identical bytes, so bits 7-2 follow the CPU bus in all three). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | $4016 read as absolute did not return the operand high byte ($40) in bits 7-2, so those bits are not following the CPU bus |
+| 2 | `$04` | $4016 read as long did not return the operand bank byte ($00) in bits 7-2. Equal to the absolute read's $40 means the bits are manufactured rather than open bus |
+
 ## Group G
 
 ### G1.02 — Reset: $4210/$4211 clear
