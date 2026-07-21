@@ -671,6 +671,34 @@ This is the third slot collision in this cart's history (`C3.05` took slot 112, 
 the first two were found by the value looking wrong. Here the assertion passed and only the *raw
 record* disagreed — which is why the raw numbers are recorded at all.
 
+### `B1.05` — attempted and withdrawn: `$4218` is not in the 12-clock region
+
+`B1.05` enumerates all three derived access rates (/6, /8, /12). `B1.01` already establishes the
+6-vs-8 boundary through `MEMSEL`, so the missing piece is the **12-clock** class, and an attempt was
+made to add it as a second differential in the same test.
+
+It does not work as written, and two separate things went wrong — both worth recording because
+both are easy to repeat:
+
+1. **Wrong register.** The 12-clock region is **`$4000-$41FF`** — the controller ports `$4016`/`$4017`
+   and the joypad-enable block. `$4218` was chosen to avoid `$4016`'s serial-latch side effect, but
+   `$4218` is **above `$41FF`** and therefore sits in the ordinary 8-clock I/O range. The test was
+   comparing 8 clocks against 8 clocks and calling the difference the /12 rate.
+2. **The narrow instrument wrapped.** Its two absolute spans read back as `65530` and `65522` —
+   negative, i.e. both had crossed a scanline. The difference was still correct, but only because
+   both wrapped the same number of times; a span straddling the boundary would have been off by a
+   whole line with nothing in the result to say so. Switching to the wide pair fixed that and is
+   what made the register mistake visible.
+
+The measured difference was **23 dots on RustySNES, snes9x and Mesen2 alike** — three cores agreeing
+against the test's expectation, which is this repository's signature for a broken test, and it was.
+Note that 23 dots over 16 accesses is 5.75 clocks each, not a whole number, so the reading was never
+a coherent access-cost difference in the first place.
+
+**What a working version needs**: a 12-clock probe inside `$4000-$41FF` whose read has no side
+effects, or `$4016` with its serial-latch effect accounted for and restored. The FastROM half of the
+test measured cleanly at 8 dots and can be reused as-is.
+
 ### `A8.06` — deferred: the battery has no interrupt infrastructure, by design
 
 `A8.06` ("`MVN` is interruptible mid-block — NMI + `RTI` resumes correctly") is the last unclaimed
