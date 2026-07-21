@@ -13,7 +13,7 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **234** (222 scoring + 11 golden vectors + 1 region SKIP per image) |
+| Tests | **234** (222 scoring + 11 golden vectors + 1 region SKIP per image) — *tests, not assertions; see the note below the table* |
 | Rendered scenes | **50**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but five, all recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`. Both images. |
@@ -22,6 +22,12 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 These counts are maintained by hand and will drift. **`docs/accuracysnes-coverage.md` is the
 authority**: it is regenerated with the ROM, so it cannot.
+
+**The test count and the assertion count are different numbers and neither bounds the other.** One
+test routinely carries several assertions with distinct failure codes, and several tests routinely
+share one enumerated assertion (`E6.02` is four tests for one row). Reading the coverage figure off
+the test count, or the reverse, has now been done once by a human and once by a review bot in the
+same fortnight, so it is written here as well as in §2.
 
 Phase A shipped Group A. Phase B has so far shipped the register-observable half of Group C — the
 OAM/VRAM/CGRAM port mechanics, the H/V counters, the two open-bus latches, the version nibbles, the
