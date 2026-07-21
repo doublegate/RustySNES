@@ -1860,6 +1860,15 @@ Provenance: **Documented** (fullsnes and anomie's DSP doc: the noise generator's
 | 1 | `$02` | the noise voice produced no output at all, so the comparison below would be between two silences rather than between two noise streams |
 | 2 | `$04` | the two runs produced different noise output, and they differ only in VxPITCH — so the voice's pitch is reaching the noise generator, whose rate comes from FLG bits 0-4 alone |
 
+### E9.01 — Noise LFSR seed
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: the noise shift register resets to $4000, with taps bit0 XOR bit1 feeding bit 14). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the frozen noise output is not negative, so the LFSR was not seeded with $4000: a seed of zero gives silence and any small seed gives a small positive or negative value |
+| 2 | `$04` | the frozen noise output is negative but nowhere near full scale, so the seed has the right sign and the wrong magnitude |
+
 ### E5.07 — End+mute zeroes env
 
 Provenance: **Documented** (fullsnes, S-DSP BRR; anomie's DSP doc). Kind: scored.

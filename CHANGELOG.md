@@ -575,6 +575,24 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E9.01` — the noise LFSR starts at `$4000`.** A wrong seed produces a different noise sequence
+  from the first sample onward, which no amount of listening distinguishes from correct noise and
+  which any bit-exact audio comparison fails immediately.
+
+  Freezing the register is what makes the seed observable. The noise rate comes from `FLG` bits 0-4
+  through the counter table the envelopes use, and **rate 0 never fires** (`E7.01`) — so with those
+  bits clear the register is seeded and never advances, and a voice in noise mode outputs a direct
+  function of the seed. The arithmetic checks out exactly: `$4000 << 1` is `$8000`, scaled by the
+  direct gain's `$7F0` envelope gives `$8100`, and `VxOUTX` is that top byte. All three cores report
+  `$81`. Verified by seeding `$0001` instead, which gives `$00` and fails at code 1.
+
+  One thing the test explicitly does *not* claim: every program in this group leaves `FLG` at `$20`,
+  so the noise rate is zero throughout the whole battery and the LFSR never advances anywhere. What
+  is read is the **power-on** seed. RustySNES's `$6C` write sets the mute and reset flags without
+  touching the shift register, so whether a *soft reset* re-seeds it is a separate question this
+  test does not answer, and the doc says so rather than letting the `flg_reset` in its configuration
+  imply otherwise.
+
 - **`E5.01` — the BRR header is `ssssffle`.** The other three fields are already pinned:
   `E5.03`/`E5.05` decode through both filters, `E5.04` drives the shift into its invalid range,
   `E5.08`/`E5.09` separate the loop bit from the end bit. What none establishes is *where the shift

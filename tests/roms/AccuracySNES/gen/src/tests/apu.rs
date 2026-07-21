@@ -63,6 +63,7 @@ pub fn all() -> Vec<Test> {
         dsp_global_regs(),
         e9_19(),
         e9_03(),
+        e9_01(),
         e5_07(),
         e5_08(),
         e5_09(),
@@ -845,6 +846,92 @@ fn e5_01() -> Test {
         Provenance::Documented(
             "fullsnes and anomie's DSP doc: the BRR header is ssssffle, shift in bits 7-4, and a \
              nibble decodes as (nibble << shift) >> 1",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The noise LFSR starts at `$4000`.
+///
+/// A soft reset seeds the shift register with `$4000` — not zero, which is the value it would be
+/// stuck at forever, and not `$7FFF`. A core seeding it wrongly produces a different noise sequence
+/// from the very first sample, which no amount of listening distinguishes from correct noise but
+/// which any bit-exact audio comparison fails immediately.
+///
+/// # Freezing the register is what makes the seed observable
+///
+/// Normally the LFSR steps every few samples and its value depends on how long the cart waited,
+/// which the cart cannot know precisely. But the noise rate is taken from `FLG` bits 0-4 through
+/// the same counter table the envelopes use, and **rate 0 never fires** (`E7.01`). So with those
+/// bits clear the register is seeded and then never advances, and the voice's output is a direct
+/// function of the seed for as long as anyone cares to look.
+///
+/// Every program in this group leaves `FLG` at `$20`, so the noise rate is zero throughout the
+/// battery and the LFSR never advances *anywhere*. What this test reads is therefore the
+/// **power-on** seed. The `flg_reset` in its configuration is harmless and correct in intent, but
+/// it does no work here: RustySNES's `$6C` write sets the mute and reset flags without touching the
+/// shift register, so whether a soft reset re-seeds it is a separate question this test does not
+/// answer.
+///
+/// The arithmetic checks out exactly: `$4000` shifted left one is `$8000`, scaled by the direct
+/// gain's `$7F0` envelope gives `$8100`, and `VxOUTX` is that value's top byte — `$81`, which is
+/// what all of RustySNES, snes9x and Mesen2 report.
+///
+/// The voice reads that value because `NON` puts it in noise mode: its output is the LFSR's
+/// contents rather than anything decoded from BRR. `$4000` shifted left one is `$8000` — full-scale
+/// negative — so `VxOUTX` is strongly negative, and its top bit is set.
+///
+/// # What the assertion pins, and what it does not
+///
+/// It asserts the output is negative and near full scale. That separates `$4000` from the two
+/// plausible wrong seeds: `$0000` gives silence, and a small seed gives a small output. It does not
+/// pin the exact byte, because `VxOUTX` is the envelope-scaled top eight bits and the scaling is
+/// `E7.15`'s business rather than this row's.
+fn e9_01() -> Test {
+    let prog = voice_program(
+        &looping_sample(),
+        Voice {
+            non: 0x01,       // noise mode: the voice outputs the LFSR
+            flg_reset: true, // seed it, and FLG's noise rate stays 0 so it never advances
+            settle: 6,
+            ..Voice::direct_gain()
+        },
+    );
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.record(180, "E9.01 noise OUTX with the LFSR frozen at its seed");
+    a.c("$4000 shifted left one is $8000 — full-scale negative — so the top bit must be set.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0102");
+    a.l("and #$80");
+    a.assert_a8(
+        0x80,
+        "the frozen noise output is not negative, so the LFSR was not seeded with $4000: a seed \
+         of zero gives silence and any small seed gives a small positive or negative value",
+    );
+    a.c("And near full scale, which a small seed would not be.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x80,
+        0x8F,
+        "the frozen noise output is negative but nowhere near full scale, so the seed has the \
+         right sign and the wrong magnitude",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E9.01",
+        'E',
+        "Noise LFSR seed",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: the noise shift register resets to $4000, with taps \
+             bit0 XOR bit1 feeding bit 14",
         ),
         Kind::Scored,
         None,

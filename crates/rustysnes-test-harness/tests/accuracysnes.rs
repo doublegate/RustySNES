@@ -998,3 +998,12 @@ fn brr_shift_field_is_reported() {
     println!("    slot 178  {:#04x}  shift $8", report.meas[178]);
     println!("    slot 179  {:#04x}  shift $9", report.meas[179]);
 }
+
+/// `E9.01`'s frozen noise output, reported so the seed can be read directly.
+#[test]
+fn noise_lfsr_seed_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E9.01 noise OUTX with the LFSR frozen:");
+    println!("    slot 180  {:#04x}", report.meas[180]);
+}
