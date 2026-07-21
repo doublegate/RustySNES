@@ -86,6 +86,12 @@ pub fn all() -> Vec<Test> {
         a1_09(),
         a4_06(),
         a8_05(),
+        a1_10(),
+        a4_07(),
+        a4_08(),
+        a2_12(),
+        a4_09(),
+        a4_10(),
     ]
 }
 
@@ -1133,6 +1139,281 @@ fn a8_05() -> Test {
         "MVN index wrap",
         Provenance::Documented("WDC datasheet: the block-move indices are bank offsets"),
         Kind::Scored,
+        None,
+    )
+}
+
+/// The `m`/`x` bits resist `PLP` in emulation mode too — the third of three paths.
+///
+/// `A1.09` covers the `REP` path and the mode-entry path is covered by every emulation test in the
+/// group. This is the one left: pulling a processor status byte whose `m`/`x` bits are clear.
+///
+/// It is worth its own test because the mechanism is different. `REP` is an instruction the core
+/// can special-case; `PLP` writes `P` wholesale from memory, so a core that implements the
+/// emulation-mode pin as a mask applied in `REP`/`SEP` rather than as a property of `P` itself will
+/// pass `A1.09` and fail here. As with `A1.09`, the bits are read after returning to native mode,
+/// because in emulation `P` bits 4 and 5 are `B` and unused.
+///
+/// The pulled byte keeps `I` set. Clearing it would enable interrupts inside a test that is not
+/// about interrupts.
+fn a1_10() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.enter_emulation();
+    a.c("Pull a P with m/x clear (bits 5 and 4) but I still set.");
+    a.l("lda #$04");
+    a.l("pha");
+    a.l("plp               ; must not widen anything: E=1 pins m=x=1");
+    a.enter_native();
+    a.l("php");
+    a.l("pla");
+    a.l("and #$30");
+    a.assert_a8(0x30, "PLP cleared m/x while E=1");
+    a.finish(
+        "A1.10",
+        'A',
+        "PLP cannot widen in E=1",
+        Provenance::Documented("WDC datasheet: m/x are forced while E=1, whatever writes P"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `JML [a]` takes a full 24-bit destination, including the bank byte.
+///
+/// The third byte of the pointer is the whole point of the long-indirect form, and a core that
+/// loads only the low word lands at the right offset in the *wrong* bank — which, in code that
+/// happens to be bank-agnostic, then runs correctly and hides the bug.
+///
+/// # Making the bank byte observable
+///
+/// The destination bank is `$80`, which in this LoROM image mirrors bank `$00`, so both a correct
+/// core and a bank-ignoring one execute the same instructions and neither crashes. What separates
+/// them is `PBR` afterwards: pushed with `PHK`, it reads `$80` only if the bank byte was actually
+/// taken. Landing somewhere that behaves identically and then asking where we are is what makes
+/// this a clean assertion rather than a crash test.
+fn a4_07() -> Test {
+    let mut a = Asm::new();
+    a.c("Build a 24-bit pointer at $00:1000 (low WRAM mirror): offset = @landed, bank = $80.");
+    a.l("rep #$30");
+    a.l("lda #.LOWORD(@landed)");
+    a.l("sta f:$7E1000");
+    a.l("sep #$20");
+    a.l("lda #$80");
+    a.l("sta f:$7E1002");
+    a.l("jml [$1000]");
+    a.label("landed");
+    a.c("PHK reports the bank actually being executed from.");
+    a.l("phk");
+    a.l("pla");
+    a.assert_a8(0x80, "JML [a] ignored the pointer's bank byte");
+    a.finish(
+        "A4.07",
+        'A',
+        "JML [a] 24-bit dest",
+        Provenance::Documented("WDC datasheet; SNESdev Errata, 65C816 section"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `JSR (a,X)` forms its pointer address within one bank, exactly as `JMP (a,X)` does.
+///
+/// The companion to `A4.06`. It is not redundant: `JSR` and `JMP` are separate opcodes with
+/// separate address-formation paths in most cores, and the push makes `JSR` the more intricate of
+/// the two, so a wrap fixed in one is routinely missed in the other.
+///
+/// The return address pushed here is never used — control falls through the landing site into the
+/// assertions — and the stack is left unbalanced on purpose. `test_restore` re-establishes `S` from
+/// `SAVED_S`, which is what makes a test free to corrupt the stack.
+fn a4_08() -> Test {
+    let mut a = Asm::new();
+    a.c("$FFFE + $1002 = $1_1000, which must wrap to $1000 in this bank.");
+    a.l("rep #$30");
+    a.l("lda #.LOWORD(@landed)");
+    a.l("sta f:$7E1000     ; low WRAM is mirrored at $00:1000");
+    a.l("ldx #$1002");
+    a.l("jsr ($FFFE,x)");
+    a.label("landed");
+    a.l("nop");
+    a.finish(
+        "A4.08",
+        'A',
+        "JSR (a,X) wraps in bank",
+        Provenance::Documented("SNESdev Errata, 65C816 section"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `[dp],Y` carries out of the pointer's bank.
+///
+/// The long-indirect indexed form takes its bank from the third byte of the direct-page pointer,
+/// not from `DBR`, and adding `Y` may carry past the end of that bank into the next one. A core
+/// that masks the sum to 16 bits reads from the bottom of the same bank instead.
+///
+/// Both candidate addresses are seeded with distinguishable bytes, so the failure says which way
+/// the core went rather than merely that it was wrong.
+fn a2_12() -> Test {
+    let mut a = Asm::new();
+    a.c("$7F:0001 is where the bank carry must land; $7E:0001 is where a masking core looks.");
+    a.l("rep #$30");
+    a.l("sep #$20");
+    a.l("lda #$3C");
+    a.l("sta f:$7F0001");
+    a.l("lda #$C3");
+    a.l("sta f:$7E0001");
+    a.c("Direct page $10..$12 holds the 24-bit pointer $7E:FFFF; Y = 2.");
+    a.l("rep #$30");
+    a.l("lda #$0000");
+    a.l("tcd");
+    a.l("lda #$FFFF");
+    a.l("sta f:$7E0010");
+    a.l("sep #$20");
+    a.l("lda #$7E");
+    a.l("sta f:$7E0012");
+    a.l("rep #$10");
+    a.l("ldy #$0002");
+    a.c("DBR is deliberately left alone: [dp],Y must ignore it and use the pointer's bank.");
+    a.l("lda [$10],y");
+    a.assert_a8(
+        0x3C,
+        "[dp],Y did not carry into the next bank — $C3 means it masked to 16 bits",
+    );
+    a.finish(
+        "A2.12",
+        'A',
+        "[dp],Y bank carry",
+        Provenance::Documented("SNESdev Errata, 65C816 section; anomie's addressing notes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `PC` wraps inside its bank on an operand fetch — it does not carry into the next one.
+///
+/// An instruction whose opcode sits at `$xx:FFFF` takes its operand from `$xx:0000`, back at the
+/// bottom of the *same* bank. A core holding `PC` as a flat 24-bit value fetches from `$xx+1:0000`
+/// instead and executes a different instruction stream entirely.
+///
+/// # Why this one runs from WRAM
+///
+/// The test has to execute at a bank boundary, and bank `$00`'s boundary is unavailable: `$00:FFE0`
+/// upward is the vector table. So the instruction stream is assembled **as data** into bank `$7E`
+/// and jumped to. Both banks of WRAM are writable, which also makes the wrong answer observable:
+/// `$7F:0000` is seeded with a different immediate, so a carrying core loads a distinguishable
+/// value rather than crashing.
+///
+/// Layout, with the wrap falling between the opcode and its operand:
+///
+/// ```text
+///   $7E:FFFF  A9        LDA #imm      <- opcode, last byte of the bank
+///   $7E:0000  5A        the immediate <- operand, only reachable by wrapping
+///   $7E:0001  5C ...    JML back to bank $00
+///   $7F:0000  A5        what a carrying core would take as the immediate
+/// ```
+fn a4_09() -> Test {
+    let mut a = Asm::new();
+    a.c("Assemble the wrapped instruction stream into bank $7E as data.");
+    a.l("rep #$30");
+    a.l("sep #$20");
+    a.l("lda #$A9          ; LDA #imm");
+    a.l("sta f:$7EFFFF");
+    a.l("lda #$5A          ; the immediate, at the WRAPPED address");
+    a.l("sta f:$7E0000");
+    a.l("lda #$A5          ; what a bank-carrying core would fetch instead");
+    a.l("sta f:$7F0000");
+    a.c("JML back to bank $00, assembled by hand: 5C lo hi bank.");
+    a.l("lda #$5C");
+    a.l("sta f:$7E0001");
+    a.l("rep #$20");
+    a.l("lda #.LOWORD(@landed)");
+    a.l("sta f:$7E0002");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta f:$7E0004");
+    a.c("Enter the stream. A is 8-bit, so the LDA there takes a one-byte operand.");
+    a.l("jml $7EFFFF");
+    a.label("landed");
+    a.assert_a8(
+        0x5A,
+        "PC carried into the next bank on the operand fetch — $A5 means it read $7F:0000",
+    );
+    a.finish(
+        "A4.09",
+        'A',
+        "PC wraps in bank",
+        Provenance::Documented("WDC datasheet; SNESdev Errata, 65C816 section"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Where a branch lands when its target crosses the end of a bank — a golden vector, never scored.
+///
+/// The documented rule is that the target wraps inside the bank, like every other `PC` arithmetic
+/// on this core (`A4.09`). The reason this one records instead of asserting is upstream's own
+/// hedge: the timing/behaviour table marks the relative addressing modes `r`/`rl` **"XXX:
+/// untested"**, in as many words. That is a source declining to vouch for its own row, and this
+/// cart does not convert an untested claim into a pass rate — the same call already made for
+/// decimal-mode `V` (`A7.04`).
+///
+/// # Both outcomes are made survivable
+///
+/// A golden vector has to come back from either answer, so both candidate landing sites are seeded
+/// with a `JML` home rather than leaving one of them to run whatever happens to be in memory:
+///
+/// ```text
+///   $7E:FFFD  80 10     BRA +$10   -> PC after operand is $7E:FFFF, target $FFFF+$10
+///   $7E:000F  5C ...    JML @wrapped   <- where wrapping lands
+///   $7F:000F  5C ...    JML @carried   <- where a 24-bit-flat core lands
+/// ```
+///
+/// Variant 1 is the wrap (what the documentation predicts); variant 2 is the bank carry. A core
+/// that changes its mind about this announces itself immediately, which is the point of recording
+/// it at all.
+fn a4_10() -> Test {
+    let mut a = Asm::new();
+    a.c("BRA at the top of bank $7E, displacement +$10.");
+    a.l("rep #$30");
+    a.l("sep #$20");
+    a.l("lda #$80          ; BRA");
+    a.l("sta f:$7EFFFD");
+    a.l("lda #$10          ; +16 from $FFFF");
+    a.l("sta f:$7EFFFE");
+    a.c("Seed both landing sites with a long jump home.");
+    a.l("lda #$5C");
+    a.l("sta f:$7E000F");
+    a.l("sta f:$7F000F");
+    a.l("rep #$20");
+    a.l("lda #.LOWORD(@wrapped)");
+    a.l("sta f:$7E0010");
+    a.l("lda #.LOWORD(@carried)");
+    a.l("sta f:$7F0010");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta f:$7E0012");
+    a.l("sta f:$7F0012");
+    a.l("jml $7EFFFD");
+    a.l("@wrapped:");
+    a.l("sep #$20");
+    a.l("lda #$03          ; variant 1 = wrapped inside the bank (documented)");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l("@carried:");
+    a.l("sep #$20");
+    a.l("lda #$05          ; variant 2 = carried into the next bank");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.finish(
+        "A4.10",
+        'A',
+        "Branch wrap (golden)",
+        Provenance::Contested(
+            "upstream marks the relative addressing modes r/rl \"XXX: untested\"; \
+             no source vouches for the bank-boundary case",
+        ),
+        Kind::Golden,
         None,
     )
 }

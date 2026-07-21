@@ -518,6 +518,50 @@ Provenance: **Documented** (WDC datasheet: the block-move indices are bank offse
 | 1 | `$02` | X did not wrap inside the source bank |
 | 2 | `$04` | Y did not advance independently of X |
 
+### A1.10 — PLP cannot widen in E=1
+
+Provenance: **Documented** (WDC datasheet: m/x are forced while E=1, whatever writes P). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | PLP cleared m/x while E=1 |
+
+### A4.07 — JML [a] 24-bit dest
+
+Provenance: **Documented** (WDC datasheet; SNESdev Errata, 65C816 section). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | JML [a] ignored the pointer's bank byte |
+
+### A4.08 — JSR (a,X) wraps in bank
+
+Provenance: **Documented** (SNESdev Errata, 65C816 section). Kind: scored.
+
+No failure codes (control-flow test: reaching the end is the pass).
+
+### A2.12 — [dp],Y bank carry
+
+Provenance: **Documented** (SNESdev Errata, 65C816 section; anomie's addressing notes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | [dp],Y did not carry into the next bank — $C3 means it masked to 16 bits |
+
+### A4.09 — PC wraps in bank
+
+Provenance: **Documented** (WDC datasheet; SNESdev Errata, 65C816 section). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | PC carried into the next bank on the operand fetch — $A5 means it read $7F:0000 |
+
+### A4.10 — Branch wrap (golden)
+
+Provenance: **Contested** (upstream marks the relative addressing modes r/rl "XXX: untested"; no source vouches for the bank-boundary case). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
 ## Group C
 
 ### C1.01 — OAM word write/read

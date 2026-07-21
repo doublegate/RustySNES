@@ -30,6 +30,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Dossier coverage moves **241 → 245 of 443**.
 
+- **Six more Group A addressing and mode assertions (`A1.10`, `A2.12`, `A4.07`–`A4.10`).** This
+  closes every remaining reachable Group A row.
+
+  - `A1.10` — `PLP` cannot clear `m`/`x` while `E = 1`, the third of the three paths the dossier
+    requires to behave identically. Not redundant with the `REP` path (`A1.09`): a core that
+    implements the emulation-mode pin as a mask inside `REP`/`SEP`, rather than as a property of
+    `P`, passes that one and fails this.
+  - `A2.12` — `[dp],Y` takes its bank from the pointer's third byte and carries out of it, ignoring
+    `DBR`. Both candidate addresses are seeded so a failure says which way the core went.
+  - `A4.07` — `JML [a]` uses the full 24-bit destination. The target bank is `$80`, which mirrors
+    bank `$00` in this LoROM image, so a bank-ignoring core runs the same instructions and does not
+    crash; `PHK` afterwards is what separates them.
+  - `A4.08` — `JSR (a,X)` wraps its pointer address in-bank, the companion to `A4.06`. Separate
+    opcodes with separate address-formation paths, so a wrap fixed in one is routinely missed in
+    the other.
+  - `A4.09` — `PC` wraps inside its bank on an operand fetch. The instruction stream is assembled
+    as data into WRAM and jumped to, because bank `$00`'s boundary is occupied by the vector table.
+  - `A4.10` — **golden vector**, never scored: where a branch lands when its target crosses a bank
+    boundary. Upstream marks the relative addressing modes `r`/`rl` *"XXX: untested"*, so no source
+    vouches for the row. All three cores currently report variant 1 (the wrap). Both candidate
+    landing sites are seeded with a jump home so either answer returns.
+
+  Dossier coverage moves **245 → 251 of 443**.
+
 - **`MVN`'s machine encoding puts the destination bank first (`A8.01`).** `MVN $00,$7E` assembles to
   `54 7E 00` — the reverse of how the mnemonic reads. Assemblers hide it, so a core written against
   the mnemonic rather than the opcode table copies in the wrong direction with nothing in the source

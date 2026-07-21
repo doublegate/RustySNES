@@ -3468,6 +3468,251 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A1.10 — PLP cannot widen in E=1
+; provenance: Documented (WDC datasheet: m/x are forced while E=1, whatever writes P)
+.proc test_a1_10
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+    ; Pull a P with m/x clear (bits 5 and 4) but I still set.
+    lda #$04
+    pha
+    plp               ; must not widen anything: E=1 pins m=x=1
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    php
+    pla
+    and #$30
+    cmp #$30
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; PLP cleared m/x while E=1
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A4.07 — JML [a] 24-bit dest
+; provenance: Documented (WDC datasheet; SNESdev Errata, 65C816 section)
+.proc test_a4_07
+    .a16
+    .i16
+    ; Build a 24-bit pointer at $00:1000 (low WRAM mirror): offset = @landed, bank = $80.
+    rep #$30
+    .a16
+    .i16
+    lda #.LOWORD(@landed)
+    sta f:$7E1000
+    sep #$20
+    .a8
+    lda #$80
+    sta f:$7E1002
+    jml [$1000]
+@landed:
+    ; PHK reports the bank actually being executed from.
+    phk
+    pla
+    cmp #$80
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; JML [a] ignored the pointer's bank byte
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A4.08 — JSR (a,X) wraps in bank
+; provenance: Documented (SNESdev Errata, 65C816 section)
+.proc test_a4_08
+    .a16
+    .i16
+    ; $FFFE + $1002 = $1_1000, which must wrap to $1000 in this bank.
+    rep #$30
+    .a16
+    .i16
+    lda #.LOWORD(@landed)
+    sta f:$7E1000     ; low WRAM is mirrored at $00:1000
+    ldx #$1002
+    jsr ($FFFE,x)
+@landed:
+    nop
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A2.12 — [dp],Y bank carry
+; provenance: Documented (SNESdev Errata, 65C816 section; anomie's addressing notes)
+.proc test_a2_12
+    .a16
+    .i16
+    ; $7F:0001 is where the bank carry must land; $7E:0001 is where a masking core looks.
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$3C
+    sta f:$7F0001
+    lda #$C3
+    sta f:$7E0001
+    ; Direct page $10..$12 holds the 24-bit pointer $7E:FFFF; Y = 2.
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    tcd
+    lda #$FFFF
+    sta f:$7E0010
+    sep #$20
+    .a8
+    lda #$7E
+    sta f:$7E0012
+    rep #$10
+    .i16
+    ldy #$0002
+    ; DBR is deliberately left alone: [dp],Y must ignore it and use the pointer's bank.
+    lda [$10],y
+    cmp #$3C
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; [dp],Y did not carry into the next bank — $C3 means it masked to 16 bits
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A4.09 — PC wraps in bank
+; provenance: Documented (WDC datasheet; SNESdev Errata, 65C816 section)
+.proc test_a4_09
+    .a16
+    .i16
+    ; Assemble the wrapped instruction stream into bank $7E as data.
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$A9          ; LDA #imm
+    sta f:$7EFFFF
+    lda #$5A          ; the immediate, at the WRAPPED address
+    sta f:$7E0000
+    lda #$A5          ; what a bank-carrying core would fetch instead
+    sta f:$7F0000
+    ; JML back to bank $00, assembled by hand: 5C lo hi bank.
+    lda #$5C
+    sta f:$7E0001
+    rep #$20
+    .a16
+    lda #.LOWORD(@landed)
+    sta f:$7E0002
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0004
+    ; Enter the stream. A is 8-bit, so the LDA there takes a one-byte operand.
+    jml $7EFFFF
+@landed:
+    cmp #$5A
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; PC carried into the next bank on the operand fetch — $A5 means it read $7F:0000
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A4.10 — Branch wrap (golden)
+; provenance: Contested (upstream marks the relative addressing modes r/rl "XXX: untested"; no source vouches for the bank-boundary case)
+.proc test_a4_10
+    .a16
+    .i16
+    ; BRA at the top of bank $7E, displacement +$10.
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$80          ; BRA
+    sta f:$7EFFFD
+    lda #$10          ; +16 from $FFFF
+    sta f:$7EFFFE
+    ; Seed both landing sites with a long jump home.
+    lda #$5C
+    sta f:$7E000F
+    sta f:$7F000F
+    rep #$20
+    .a16
+    lda #.LOWORD(@wrapped)
+    sta f:$7E0010
+    lda #.LOWORD(@carried)
+    sta f:$7F0010
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0012
+    sta f:$7F0012
+    jml $7EFFFD
+    @wrapped:
+    sep #$20
+    .a8
+    lda #$03          ; variant 1 = wrapped inside the bank (documented)
+    sta f:$7EE010
+    jml test_restore
+    @carried:
+    sep #$20
+    .a8
+    lda #$05          ; variant 2 = carried into the next bank
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C1.01 — OAM word write/read
 ; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
 .proc test_c1_01
@@ -19897,7 +20142,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 239
+    .word 245
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -19963,6 +20208,12 @@ _test_entries:
     .faraddr test_a1_09
     .faraddr test_a4_06
     .faraddr test_a8_05
+    .faraddr test_a1_10
+    .faraddr test_a4_07
+    .faraddr test_a4_08
+    .faraddr test_a2_12
+    .faraddr test_a4_09
+    .faraddr test_a4_10
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -20205,6 +20456,12 @@ _test_flags:
     .byte $01   ; A1.09
     .byte $01   ; A4.06
     .byte $01   ; A8.05
+    .byte $01   ; A1.10
+    .byte $01   ; A4.07
+    .byte $01   ; A4.08
+    .byte $01   ; A2.12
+    .byte $01   ; A4.09
+    .byte $02   ; A4.10
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -20447,6 +20704,12 @@ _test_names:
     .addr @n_a1_09
     .addr @n_a4_06
     .addr @n_a8_05
+    .addr @n_a1_10
+    .addr @n_a4_07
+    .addr @n_a4_08
+    .addr @n_a2_12
+    .addr @n_a4_09
+    .addr @n_a4_10
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -20810,6 +21073,24 @@ _test_names:
 @n_a8_05:
     .byte 14
     .byte "MVN index wrap"
+@n_a1_10:
+    .byte 23
+    .byte "PLP cannot widen in E=1"
+@n_a4_07:
+    .byte 19
+    .byte "JML [a] 24-bit dest"
+@n_a4_08:
+    .byte 23
+    .byte "JSR (a,X) wraps in bank"
+@n_a2_12:
+    .byte 17
+    .byte "[dp],Y bank carry"
+@n_a4_09:
+    .byte 16
+    .byte "PC wraps in bank"
+@n_a4_10:
+    .byte 20
+    .byte "Branch wrap (golden)"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"
