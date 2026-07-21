@@ -68,6 +68,15 @@ V_PO_DMA        = VAR_BASE + $60      ; $4300-$430B at power-on (12 bytes)
 ; that observe them: $4213 (RDIO) reflects $4201's output pins, and an IRQ armed on the untouched
 ; HTIME/VTIME comparators tests whether those really power on at $1FF -- a value no counter reaches.
 ; Both must be sampled before init_registers, which overwrites the whole $4200-$420D block.
+; G1.03's readable half. The row lists APUIOn, WMDATA, WMADD*, JOYSER, HDMAEN, MDMAEN and JOY1-4 as
+; indeterminate at power-on and says to report them, never assert. Most of that list is write-only
+; and has nothing to report: WMADD, JOYSER's output, HDMAEN and MDMAEN cannot be read back at all.
+; What can be sampled is captured here, before init_registers writes over it.
+;
+; $2180 is included and its read *increments WMADD* -- which is harmless only because the address it
+; increments is itself one of the indeterminate values this row is about, and init_registers sets it
+; before anything depends on it.
+V_PO_MISC       = VAR_BASE + $70      ; $2140-43, $2180, $4218, $4219 at power-on (7 bytes)
 V_PO_RDIO       = VAR_BASE + $6C      ; $4213 as first read after reset (u8)
 V_PO_TFIRED     = VAR_BASE + $6D      ; 1 if an IRQ fired on the power-on comparators (u8)
 

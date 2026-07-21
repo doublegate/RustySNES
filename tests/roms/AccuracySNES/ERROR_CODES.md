@@ -2344,3 +2344,9 @@ Provenance: **Documented** (fullsnes and the SNESdev Wiki power-on table: $4201 
 |---|---|---|
 | 1 | `$02` | $4213 did not read back as $FF at power-on, so $4201's output pins were not left high |
 | 2 | `$04` | an IRQ fired with HTIME/VTIME left at their power-on values: those are $1FF, which is past the end of both the line and the frame, so no comparator can ever match. $0000 matches every frame and an 8-bit $FF is a real dot and a real line |
+
+### G1.20 — Power-on indeterminate
+
+Provenance: **Contested** (the dossier marks the whole row [UNDEFINED] and says to report it and never assert it; half the registers it names are write-only and cannot be reported at all). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.

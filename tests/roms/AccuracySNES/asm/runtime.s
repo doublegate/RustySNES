@@ -197,6 +197,26 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     cpx #$000C
     bne @po_dma
 
+    ; G1.03: the readable part of the "everything else is indeterminate" list, sampled before
+    ; init_registers writes over it. Reported, never asserted -- that is what the row asks for.
+    sep #$20
+    .a8
+    rep #$10
+    .i16
+    ldx #$0000
+@po_misc:
+    lda f:$002140,x
+    sta f:V_PO_MISC,x
+    inx
+    cpx #$0004
+    bne @po_misc                ; $2140-$2143, the four APU ports
+    lda $2180
+    sta f:V_PO_MISC + 4         ; WMDATA; this read also increments WMADD, which is itself
+    lda $4218
+    sta f:V_PO_MISC + 5         ; one of the indeterminate values this row is about
+    lda $4219
+    sta f:V_PO_MISC + 6
+
     ; G1.01, part 1: $4213 (RDIO) reflects $4201's output pins, and $4201 powers on at $FF.
     sep #$20
     .a8

@@ -575,6 +575,21 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`G1.20` — the registers power-on leaves indeterminate.** A **golden vector by instruction**:
+  `G1.03` lists `APUIOn`, `WMDATA`, `WMADD*`, `JOYSER`, `HDMAEN`, `MDMAEN` and `JOY1-4` as undefined
+  and says to *report, never assert*. Half of them are write-only and have nothing to report at all,
+  which is a property of the bus rather than a gap in the test; the rest are sampled in
+  `capture_power_on` before `init_registers` writes over them.
+
+  The row earns its place on one byte. `$2180` reads WRAM through the port at whatever indeterminate
+  address `WMADD` held, so it reports each core's **WRAM power-on fill** — and the three
+  implementations disagree completely: RustySNES `$00`, snes9x `$55`, Mesen2 `$33`. None is wrong;
+  `G1.07` says no canonical fill exists, and this is the measurement behind that claim.
+
+  All four APU ports read `$00` on all three cores, so none has run the IPL's announcement by the
+  time the cart's reset handler gets there. Every other test hides that by waiting for the
+  announcement first.
+
 - **`D2.09` — enabling HDMA outside vblank transfers from an uninitialised channel.** A **golden
   vector**. HDMA initialises every enabled channel once per frame at `V = 0`, reloading `A2An` from
   `A1Tn` and fetching the first line-count byte. Enabling a channel after that does not run the

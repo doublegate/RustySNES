@@ -32,6 +32,7 @@ pub fn all() -> Vec<Test> {
         g1_12(),
         g1_14(),
         g1_19(),
+        g1_20(),
     ]
 }
 
@@ -346,6 +347,94 @@ fn g1_12() -> Test {
         "LoROM header location",
         Provenance::Documented("SNESdev Wiki, cartridge header; fullsnes"),
         Kind::Scored,
+        None,
+    )
+}
+
+/// The registers the power-on state leaves indeterminate — a golden vector, by instruction.
+///
+/// `G1.03` lists `APUIOn`, `WMDATA`, `WMADD*`, `JOYSER`, `HDMAEN`, `MDMAEN` and `JOY1-4` as holding
+/// nothing defined after power-on, and says in as many words: **report, never assert**. So this
+/// records them and scores nothing. It exists because "indeterminate" is a claim like any other and
+/// a battery that simply omits the row cannot tell the difference between a core that models the
+/// indeterminacy and one that quietly zeroes everything.
+///
+/// # Half the list has nothing to report
+///
+/// `WMADD`, `JOYSER`'s output latch, `HDMAEN` and `MDMAEN` are **write-only**. There is no read that
+/// observes them, so the cart cannot report what they held — and that is a property of the bus, not
+/// a gap in this test. What remains is sampled in `capture_power_on`, before `init_registers` writes
+/// the machine into a known state:
+///
+/// | slot | register | note |
+/// |---|---|---|
+/// | 150-153 | `$2140`-`$2143` | the four APU ports, before the IPL has necessarily announced |
+/// | 154 | `$2180` | `WMDATA`; reading it also increments `WMADD` |
+/// | 155-156 | `$4218`/`$4219` | `JOY1`, before auto-read has ever run |
+///
+/// Reading `$2180` moving `WMADD` would matter if `WMADD` were being measured — and it is exactly
+/// one of the values this row calls indeterminate and which cannot be read anyway, so the
+/// disturbance lands on something already unobservable. `init_registers` sets it before anything
+/// depends on it.
+///
+/// # What the reading is actually good for
+///
+/// The APU ports are the only window in the battery onto *when* the IPL announces relative to the
+/// CPU's first instructions: a core that has already run the boot ROM by the time the cart's reset
+/// handler reaches here reports `$AA`/`$BB`, one that has not reports whatever it powers up with.
+/// Every other test hides this by waiting for the announcement before doing anything. Measured, all
+/// three cores report `$00` — none has announced this early.
+///
+/// `$2180` turned out to be the one that separates them, and it separates them completely:
+///
+/// | core | `$2180` at power-on |
+/// |---|---|
+/// | RustySNES | `$00` |
+/// | snes9x | `$55` |
+/// | Mesen2 | `$33` |
+///
+/// That byte is WRAM, read through the port at whatever indeterminate address `WMADD` held, so what
+/// it actually reports is each core's **WRAM power-on fill** — three implementations, three
+/// different answers, none of them wrong. `G1.07` says exactly that: no canonical fill exists. This
+/// is the measurement behind that row's claim, and the reason a test like this is worth having even
+/// though it asserts nothing.
+fn g1_20() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    for (i, (slot, what)) in [
+        (150u8, "$2140 APUIO0"),
+        (151, "$2141 APUIO1"),
+        (152, "$2142 APUIO2"),
+        (153, "$2143 APUIO3"),
+        (154, "$2180 WMDATA"),
+        (155, "$4218 JOY1 low"),
+        (156, "$4219 JOY1 high"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        a.l("rep #$30");
+        a.l(&format!("lda f:V_PO_MISC + {i}"));
+        a.l("and #$00FF");
+        a.record(slot, &format!("G1.03 {what} at power-on"));
+    }
+    a.c("Nothing is asserted: the row's whole content is that these are undefined. The verdict");
+    a.c("only says the capture ran, which is the one thing that could silently not happen.");
+    a.l("sep #$20");
+    a.l("lda #$03          ; variant 1 = captured; the numbers are in slots 150-156");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.finish(
+        "G1.20",
+        'G',
+        "Power-on indeterminate",
+        Provenance::Contested(
+            "the dossier marks the whole row [UNDEFINED] and says to report it and never assert \
+             it; half the registers it names are write-only and cannot be reported at all",
+        ),
+        Kind::Golden,
         None,
     )
 }

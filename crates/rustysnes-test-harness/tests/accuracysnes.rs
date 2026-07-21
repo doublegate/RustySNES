@@ -899,3 +899,26 @@ fn hdma_mid_frame_enable_is_reported() {
         "the control phase did not write the table's first data byte"
     );
 }
+
+/// `G1.03`'s readable power-on registers, reported for cross-emulator comparison.
+///
+/// Nothing here is asserted — the row is `[UNDEFINED]` and says to report and never assert. The
+/// APU ports are the interesting ones: they show whether the IPL has announced by the time the
+/// cart's reset handler runs, which every other test hides by waiting for the announcement first.
+#[test]
+fn power_on_indeterminate_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  G1.03 registers left indeterminate at power-on:");
+    for (slot, what) in [
+        (150usize, "$2140 APUIO0"),
+        (151, "$2141 APUIO1"),
+        (152, "$2142 APUIO2"),
+        (153, "$2143 APUIO3"),
+        (154, "$2180 WMDATA"),
+        (155, "$4218 JOY1 low"),
+        (156, "$4219 JOY1 high"),
+    ] {
+        println!("    slot {slot}  {:#04x}  {what}", report.meas[slot]);
+    }
+}

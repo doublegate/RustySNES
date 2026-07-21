@@ -23060,6 +23060,74 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; G1.20 — Power-on indeterminate
+; provenance: Contested (the dossier marks the whole row [UNDEFINED] and says to report it and never assert it; half the registers it names are write-only and cannot be reported at all)
+.proc test_g1_20
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    rep #$30
+    .a16
+    .i16
+    lda f:V_PO_MISC + 0
+    and #$00FF
+    ; record slot 150: G1.03 $2140 APUIO0 at power-on
+    sta f:$7EE32C
+    rep #$30
+    .a16
+    .i16
+    lda f:V_PO_MISC + 1
+    and #$00FF
+    ; record slot 151: G1.03 $2141 APUIO1 at power-on
+    sta f:$7EE32E
+    rep #$30
+    .a16
+    .i16
+    lda f:V_PO_MISC + 2
+    and #$00FF
+    ; record slot 152: G1.03 $2142 APUIO2 at power-on
+    sta f:$7EE330
+    rep #$30
+    .a16
+    .i16
+    lda f:V_PO_MISC + 3
+    and #$00FF
+    ; record slot 153: G1.03 $2143 APUIO3 at power-on
+    sta f:$7EE332
+    rep #$30
+    .a16
+    .i16
+    lda f:V_PO_MISC + 4
+    and #$00FF
+    ; record slot 154: G1.03 $2180 WMDATA at power-on
+    sta f:$7EE334
+    rep #$30
+    .a16
+    .i16
+    lda f:V_PO_MISC + 5
+    and #$00FF
+    ; record slot 155: G1.03 $4218 JOY1 low at power-on
+    sta f:$7EE336
+    rep #$30
+    .a16
+    .i16
+    lda f:V_PO_MISC + 6
+    and #$00FF
+    ; record slot 156: G1.03 $4219 JOY1 high at power-on
+    sta f:$7EE338
+    ; Nothing is asserted: the row's whole content is that these are undefined. The verdict
+    ; only says the capture ran, which is the one thing that could silently not happen.
+    sep #$20
+    .a8
+    lda #$03          ; variant 1 = captured; the numbers are in slots 150-156
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 .segment "TESTSG"
 
 ; F1.02 — Pad reads 17+ are 1
@@ -24101,7 +24169,7 @@ apu_prog_67:
 .export _test_flags
 
 _test_count:
-    .word 278
+    .word 279
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -24349,6 +24417,7 @@ _test_entries:
     .faraddr test_g1_12
     .faraddr test_g1_14
     .faraddr test_g1_19
+    .faraddr test_g1_20
     .faraddr test_a5_s01
     .faraddr test_a5_s02
     .faraddr test_a5_s03
@@ -24630,6 +24699,7 @@ _test_flags:
     .byte $01   ; G1.12
     .byte $01   ; G1.14
     .byte $01   ; G1.19
+    .byte $02   ; G1.20
     .byte $01   ; A5.S01
     .byte $01   ; A5.S02
     .byte $01   ; A5.S03
@@ -24911,6 +24981,7 @@ _test_names:
     .addr @n_g1_12
     .addr @n_g1_14
     .addr @n_g1_19
+    .addr @n_g1_20
     .addr @n_a5_s01
     .addr @n_a5_s02
     .addr @n_a5_s03
@@ -25677,6 +25748,9 @@ _test_names:
 @n_g1_19:
     .byte 21
     .byte "Power-on $4201/timers"
+@n_g1_20:
+    .byte 22
+    .byte "Power-on indeterminate"
 @n_a5_s01:
     .byte 10
     .byte "Sweep: CLC"
