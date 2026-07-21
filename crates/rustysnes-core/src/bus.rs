@@ -242,6 +242,16 @@ pub struct Bus {
     /// manual read corrupt the auto-read result — both invisible to a frontend that rewrites the
     /// state every frame, and both found by AccuracySNES `F1.02`.
     joypad_shift: [u16; 2],
+    /// The automatic-read *result* latched into `$4218`-`$421F`, which is a different thing from
+    /// the live controller state in [`Self::joypad`].
+    ///
+    /// Hardware copies the ports into these registers once per frame, at the start of vblank, and
+    /// **only when `$4200` bit 0 is set**. Reporting [`Self::joypad`] directly instead makes
+    /// `$4218` track the pad continuously, so software that disarms auto-read to poll `$4016` by
+    /// hand still sees the hardware's answer appear underneath it. AccuracySNES `F1.07` — which
+    /// could not detect this until the battery gained a host input contract, because with nothing
+    /// held both behaviours report `$0000`.
+    joypad_auto: [u16; 2],
     joypad_strobe: bool,
     /// Per-port peripheral state (`v0.9.0`, Phase 7 niche peripherals) — Mouse/Super Scope/Super
     /// Multitap. Idle (and touching nothing on `$4016`/`$4017`'s `data1` bit) unless a port's
@@ -314,6 +324,7 @@ impl Bus {
             wram_addr: 0,
             joypad: [0; 2],
             joypad_shift: [0; 2],
+            joypad_auto: [0; 2],
             joypad_strobe: false,
             ports: [PortState::default(), PortState::default()],
             pio: 0xFF,
@@ -690,6 +701,14 @@ impl Bus {
             if self.clock.nmitimen & 0x80 != 0 {
                 self.clock.nmi_line = true;
             }
+            // The automatic joypad read, which runs at the start of vblank and only while armed.
+            // Sharing this hook with the NMI is exact enough for everything the cart can observe:
+            // hardware starts the read a few dozen cycles into the first vblank line and takes
+            // about three scanlines over it, and `F1.08`-`F1.10` — the rows about *when* it runs
+            // and the race that window creates — are not covered by this battery.
+            if self.clock.nmitimen & 0x01 != 0 {
+                self.joypad_auto = self.joypad;
+            }
         }
         // RDNMI's VBlank flag is cleared by a read *and*, independently, at the end of VBlank.
         // Modelling only the read left it set through the whole active display, so code that
@@ -791,9 +810,9 @@ impl Bus {
                 // Auto-joypad read result: $4218/9 = pad1, $421A/B = pad2.
                 let pad = usize::from(addr >= 0x421A);
                 if addr & 1 == 0 {
-                    self.joypad[pad] as u8
+                    self.joypad_auto[pad] as u8
                 } else {
-                    (self.joypad[pad] >> 8) as u8
+                    (self.joypad_auto[pad] >> 8) as u8
                 }
             }
             _ => self.open_bus,
@@ -1044,6 +1063,8 @@ impl Bus {
             s.write_u16(self.joypad[1]);
             s.write_u16(self.joypad_shift[0]);
             s.write_u16(self.joypad_shift[1]);
+            s.write_u16(self.joypad_auto[0]);
+            s.write_u16(self.joypad_auto[1]);
             s.write_bool(self.joypad_strobe);
             s.write_u8(self.open_bus);
             s.write_u16(self.last_hdma_line);
@@ -1086,6 +1107,8 @@ impl Bus {
         self.joypad[1] = s.read_u16()?;
         self.joypad_shift[0] = s.read_u16()?;
         self.joypad_shift[1] = s.read_u16()?;
+        self.joypad_auto[0] = s.read_u16()?;
+        self.joypad_auto[1] = s.read_u16()?;
         self.joypad_strobe = s.read_bool()?;
         self.open_bus = s.read_u8()?;
         self.last_hdma_line = s.read_u16()?;
@@ -1378,6 +1401,8 @@ mod tests {
     fn manual_read_does_not_consume_the_auto_read_result() {
         let mut bus = Bus::default();
         bus.set_joypad(0, 0x1234);
+        // Stand in for the vblank poll: `$4218` reports the auto-read *result*, not the live pad.
+        bus.joypad_auto = bus.joypad;
         bus.write_cpu_reg(0x4016, 0x01);
         bus.write_cpu_reg(0x4016, 0x00);
         for _ in 0..16 {
@@ -1385,6 +1410,32 @@ mod tests {
         }
         assert_eq!(bus.read_cpu_reg(0x4218), 0x34);
         assert_eq!(bus.read_cpu_reg(0x4219), 0x12);
+    }
+
+    /// `$4218` reports only what an *armed* automatic read put there.
+    ///
+    /// With `$4200` bit 0 clear the registers hold their previous contents indefinitely, so
+    /// software that disarms auto-read to poll `$4016` by hand does not find the hardware's answer
+    /// appearing underneath it. AccuracySNES `F1.07`.
+    #[test]
+    fn auto_read_result_only_updates_while_armed() {
+        let mut bus = Bus::default();
+        bus.set_joypad(0, 0x9050);
+        assert_eq!(bus.read_cpu_reg(0x4218), 0x00, "nothing has polled yet");
+
+        bus.write_cpu_reg(0x4200, 0x01);
+        bus.joypad_auto = bus.joypad; // the poll this arming would perform at the next vblank
+        assert_eq!(bus.read_cpu_reg(0x4218), 0x50);
+        assert_eq!(bus.read_cpu_reg(0x4219), 0x90);
+
+        bus.write_cpu_reg(0x4200, 0x00);
+        bus.set_joypad(0, 0x0000); // the pad changes, but nothing is armed to notice
+        assert_eq!(
+            bus.read_cpu_reg(0x4218),
+            0x50,
+            "a disarmed read must not update"
+        );
+        assert_eq!(bus.read_cpu_reg(0x4219), 0x90);
     }
 
     #[test]

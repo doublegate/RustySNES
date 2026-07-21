@@ -79,4 +79,16 @@ local function onFrame()
     emu.stop(fail)
 end
 
+-- The host input contract (tests/roms/AccuracySNES/asm/runtime.inc, PAD_CONTRACT = $9050):
+-- B + Start + X + R held on controller 1 for the whole run. Group F has no observable at all with
+-- nothing held, so every runner holds the same mask and the cart asserts against it. Mesen2's docs
+-- are explicit that setInput belongs in an inputPolled callback, since otherwise the state may not
+-- be applied before the ROM reads it.
+local function onInput()
+    emu.setInput({ b = true, start = true, x = true, r = true,
+                   y = false, select = false, a = false, l = false,
+                   up = false, down = false, left = false, right = false }, 0)
+end
+
+emu.addEventCallback(onInput, emu.eventType.inputPolled)
 emu.addEventCallback(onFrame, emu.eventType.endFrame)

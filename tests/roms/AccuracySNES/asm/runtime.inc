@@ -110,6 +110,29 @@ MAX_SPAN_LINES  = 64
 ;
 ; Slots are assigned per test and documented at the test that owns them; nothing here is
 ; interpreted on-cart.
+; --- host input contract ----------------------------------------------------------------------
+;
+; Every host that runs this cart holds controller 1 at PAD_CONTRACT for the whole run: the in-repo
+; harness, the snes9x libretro driver, and the Mesen2 test-runner script. Group F is otherwise
+; almost entirely untestable — with nothing plugged in and no button held, every controller
+; observable the cart can reach is $0000, so a test of the read order, of the auto-read signature,
+; or of what a disabled auto-read preserves has no value to distinguish from any other. `F1.07` was
+; written and withdrawn for exactly that reason before this existed.
+;
+; $9050 is B + Start + X + R, chosen against three requirements:
+;
+;   * No d-pad. The post-battery menu scrolls on Up/Down, and although it acts on newly-pressed
+;     rather than held bits -- so a held direction would move the cursor once and then stop -- a
+;     contract that cannot disturb the menu at all is one less thing to reason about.
+;   * Bits in both bytes ($90 high, $50 low), so a host or core that reports only one half, or
+;     swaps them, is visibly wrong rather than accidentally right.
+;   * Asymmetric under reversal ($9050 reversed bit-wise is $0A09), so reading the shift register
+;     LSB-first instead of MSB-first does not produce the same answer.
+;
+; Holding buttons does not affect any test outside Group F: nothing else reads $4016 or $4218, and
+; the two Group F tests that predate the contract mask off the data bits they would see.
+PAD_CONTRACT    = $9050
+
 MEAS_BASE       = $7EE200
 MEAS_SLOTS      = 240
 

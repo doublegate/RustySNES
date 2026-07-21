@@ -150,9 +150,22 @@ static void video_refresh(const void *d, unsigned w, unsigned h, size_t p) {
 static void audio_sample(int16_t l, int16_t r) { (void)l; (void)r; }
 static size_t audio_batch(const int16_t *d, size_t f) { (void)d; return f; }
 static void input_poll(void) {}
-static int16_t input_state(unsigned a, unsigned b, unsigned c, unsigned d) {
-    (void)a; (void)b; (void)c; (void)d;
-    return 0;
+/* The host input contract (tests/roms/AccuracySNES/asm/runtime.inc, PAD_CONTRACT = $9050):
+ * B + Start + X + R held on controller 1 for the whole run. Group F has no observable at all
+ * with nothing held -- an unconnected, unpressed pad reads $0000 through every register the cart
+ * can reach -- so every runner holds the same mask and the cart asserts against it. */
+static int16_t input_state(unsigned port, unsigned dev, unsigned idx, unsigned id) {
+    (void)dev; (void)idx;
+    if (port != 0) return 0;
+    switch (id) {
+        case 0:  /* B     */
+        case 3:  /* START */
+        case 9:  /* X     */
+        case 11: /* R     */
+            return 1;
+        default:
+            return 0;
+    }
 }
 
 /* One typedef per entry point: a function-pointer type cannot be passed positionally to a

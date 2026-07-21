@@ -876,6 +876,41 @@ Recorded rather than fixed, because the general lesson is the useful part: **for
 compares two measurements, ask what the difference would physically be before asking whether the
 numbers match.** Here the answer was "nothing observable", and no amount of guarding fixes that.
 
+### The host input contract, and the defect it immediately found
+
+Group F was blocked on one thing, and it was not research. With nothing plugged in and no button
+held, **every controller observable the cart can reach is `$0000`** — the manual shift register, the
+auto-read results, the power-on state. A test of the read order, of the auto-read signature, or of
+what a disarmed auto-read preserves has nothing to distinguish from anything else. `F1.07` was
+written and withdrawn earlier in this session for exactly that reason.
+
+The fix is a contract, not an emulator change: **every runner holds controller 1 at `PAD_CONTRACT`
+= `$9050` for the whole run** — the in-repo harness, the snes9x libretro driver, and the Mesen2
+test-runner script. `runtime.inc` documents the choice of value:
+
+- **No d-pad.** The post-battery menu scrolls on Up/Down. It acts on newly-pressed rather than held
+  bits, so a held direction would move the cursor once and stop — but a contract that cannot disturb
+  the menu at all is one less thing to reason about.
+- **Bits in both bytes** (`$90` high, `$50` low), so a host or core reporting only one half, or
+  swapping them, is visibly wrong rather than accidentally right.
+- **Asymmetric under bit reversal** (`$9050` reversed is `$0A09`), so reading the shift register
+  LSB-first cannot produce the same answer.
+
+**It found a RustySNES defect on its first run.** `F1.07`'s phase A — `$4218` before auto-read has
+ever been armed — read `$9050` instead of `$0000`. `Bus::read_cpu_reg` returned `self.joypad[pad]`
+for `$4218`-`$421F`: the *live* latched controller state, with no auto-read result buffer and no
+`$4200` bit 0 gate at all. Software that disarms auto-read to poll `$4016` by hand would find the
+hardware's answer appearing underneath its own reads.
+
+Fixed by adding `joypad_auto`, copied from `joypad` at vblank entry and only while `$4200` bit 0 is
+set, with `$4218`-`$421F` reading the buffer. Two unit tests pin it in `bus.rs`.
+
+**The defect was undetectable before the contract existed** — with nothing held, a correct auto-read
+buffer and a live passthrough both report `$0000`, in every phase, forever. That is the same
+vacuity that this document already records twice, seen from the other side: not a test that asserts
+nothing, but a *whole subsystem* that cannot be asserted about until the environment supplies a
+distinguishable input.
+
 ### `F1.07` withdrawn — every phase reads `$0000`
 
 `F1.07` says `$4218`-`$421F` are not written while `$4200` bit 0 is clear. Proving a *non*-update

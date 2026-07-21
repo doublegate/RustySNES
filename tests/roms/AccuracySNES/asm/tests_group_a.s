@@ -27275,6 +27275,64 @@ CATALOG_IMPL = 1
 
 .segment "TESTSG"
 
+; F1.01 — Manual pad read order
+; provenance: Documented (fullsnes and the SNESdev Wiki controller protocol: the shift register presents B, Y, Select, Start, Up, Down, Left, Right, A, X, L, R and then four zero bits)
+.proc test_f1_01
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Latch the pad, then clock sixteen bits into a 16-bit accumulator, MSB first.
+    sep #$20
+    .a8
+    lda #$01
+    sta JOYSER0
+    lda #$00
+    sta JOYSER0
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E01E8
+    ldx #$0010
+@bit:
+    sep #$20
+    .a8
+    lda JOYSER0
+    lsr               ; data bit into carry
+    rep #$20
+    .a16
+    lda f:$7E01E8
+    rol               ; and into the accumulator, most significant first
+    sta f:$7E01E8
+    dex
+    bne @bit
+    lda f:$7E01E8
+    ; record slot 211: F1.01 the sixteen manual pad bits, MSB first
+    sta f:$7EE3A6
+    ; The host contract holds B, Start, X and R — four buttons in four different positions.
+    lda f:$7E01E8
+    cmp #PAD_CONTRACT
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the sixteen manually-clocked pad bits did not match the buttons the host is holding. $0A09 means the shift register is being read least-significant-bit first, $9000 that only the first byte is reported, $5090 that the two bytes are swapped, and $FFFF that the line is stuck high
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; F1.02 — Pad reads 17+ are 1
 ; provenance: Documented (SNESdev Wiki, controller protocol; fullsnes)
 .proc test_f1_02
@@ -27282,19 +27340,21 @@ CATALOG_IMPL = 1
     .i16
     sep #$20
     .a8
-    ; Latch, then clock out the sixteen data bits, ORing them together. Nothing is pressed, so
-    ; the OR must be 0 — without this a core that returns 1 to every read would pass below.
+    ; Latch, then clock out the sixteen data bits, ANDing them together. The host input
+    ; contract holds four buttons and not the other eight, so at least one data bit must read
+    ; 0 — which is the one thing that has to be true for 'the reads after them are all 1' to
+    ; say anything. Without it a core that returns 1 to every read passes below trivially.
     lda #$01
     sta JOYSER0
     lda #$00
     sta JOYSER0
-    lda #$00
-    sta f:$7E0100         ; the OR of the first sixteen reads
+    lda #$01
+    sta f:$7E0100         ; the AND of the first sixteen reads
     ldx #$10
 @data:
     lda JOYSER0
     and #$01
-    ora f:$7E0100
+    and f:$7E0100
     sta f:$7E0100
     dex
     bne @data
@@ -27325,7 +27385,7 @@ CATALOG_IMPL = 1
     sta f:$7EE010
     jml test_restore
 @fail1:
-    ; a button read as pressed during the sixteen data bits, so the reads below say nothing about what follows them
+    ; every one of the sixteen data bits read as 1, so the line is stuck high and the reads below would report that rather than the pad running out of data
     sep #$20
     .a8
     lda #$02
@@ -27399,6 +27459,92 @@ CATALOG_IMPL = 1
     jml test_restore
 @fail2:
     ; $4016 read as long did not return the operand bank byte ($00) in bits 7-2. Equal to the absolute read's $40 means the bits are manufactured rather than open bus
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; F1.07 — Auto-read needs $4200.0
+; provenance: Documented (fullsnes and the SNESdev Wiki: bit 0 of $4200 arms the automatic joypad read, and with it clear $4218-$421F are not written)
+.proc test_f1_07
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; --- A: auto-read has never been armed, so $4218 is still whatever power-on left ---
+    lda $4218
+    sta f:$7E01EA
+    ; --- B: armed for two whole frames, so a poll has certainly run ---
+    sep #$20
+    .a8
+    lda #$01
+    sta $4200         ; auto-joypad enable, and nothing else
+    jsl wait_vblank_far
+    jsl wait_vblank_far
+    rep #$30
+    .a16
+    .i16
+    lda $4218
+    sta f:$7E01EC
+    ; --- C: disarmed for two more; nothing should write $4218 now ---
+    sep #$20
+    .a8
+    stz $4200
+    jsl wait_vblank_far
+    jsl wait_vblank_far
+    rep #$30
+    .a16
+    .i16
+    lda $4218
+    sta f:$7E01EE
+    ; Put $4200 back before judging: the battery expects it zero and a failure leaves through
+    ; test_restore, which does not touch it.
+    sep #$20
+    .a8
+    stz $4200
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E01EA
+    ; record slot 212: F1.07 $4218 before auto-read was ever armed
+    sta f:$7EE3A8
+    lda f:$7E01EC
+    ; record slot 213: F1.07 $4218 after two frames with auto-read armed
+    sta f:$7EE3AA
+    lda f:$7E01EE
+    ; record slot 214: F1.07 $4218 after two more with it disarmed
+    sta f:$7EE3AC
+    ; The guard: without a change to hold onto, phase C proves nothing.
+    lda f:$7E01EA
+    cmp f:$7E01EC
+    bne :+
+    jmp @fail1
+  :
+    ; And with the enable clear, nothing writes those registers at all.
+    lda f:$7E01EE
+    cmp f:$7E01EC
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; arming auto-read did not change $4218, so there is no sentinel for phase C to preserve and 'it did not change' would be true of a core that polls regardless. Either the poll is not running, or something earlier in the battery left auto-read armed and phase A already held a polled value
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; $4218 changed over two frames with $4200 bit 0 clear, so auto-read is running whether or not it is armed — software that disarms it to hand-poll the ports would find its own reads fighting the hardware's
     sep #$20
     .a8
     lda #$04
@@ -29431,7 +29577,7 @@ apu_prog_103:
 .export _test_flags
 
 _test_count:
-    .word 306
+    .word 308
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -29694,8 +29840,10 @@ _test_entries:
     .faraddr test_e6_02d
     .faraddr test_e3_06
     .faraddr test_e3_08
+    .faraddr test_f1_01
     .faraddr test_f1_02
     .faraddr test_f1_04
+    .faraddr test_f1_07
     .faraddr test_f1_14
     .faraddr test_g1_02
     .faraddr test_g1_04
@@ -30003,8 +30151,10 @@ _test_flags:
     .byte $01   ; E6.02d
     .byte $01   ; E3.06
     .byte $01   ; E3.08
+    .byte $01   ; F1.01
     .byte $01   ; F1.02
     .byte $01   ; F1.04
+    .byte $01   ; F1.07
     .byte $01   ; F1.14
     .byte $01   ; G1.02
     .byte $01   ; G1.04
@@ -30312,8 +30462,10 @@ _test_names:
     .addr @n_e6_02d
     .addr @n_e3_06
     .addr @n_e3_08
+    .addr @n_f1_01
     .addr @n_f1_02
     .addr @n_f1_04
+    .addr @n_f1_07
     .addr @n_f1_14
     .addr @n_g1_02
     .addr @n_g1_04
@@ -31136,12 +31288,18 @@ _test_names:
 @n_e3_08:
     .byte 23
     .byte "TEST bit 0 halts timers"
+@n_f1_01:
+    .byte 21
+    .byte "Manual pad read order"
 @n_f1_02:
     .byte 19
     .byte "Pad reads 17+ are 1"
 @n_f1_04:
     .byte 23
     .byte "$4016 bits 7-2 open bus"
+@n_f1_07:
+    .byte 23
+    .byte "Auto-read needs $4200.0"
 @n_f1_14:
     .byte 22
     .byte "$4213 reads $4201 back"

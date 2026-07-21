@@ -172,6 +172,10 @@ fn run_image(path: &std::path::Path) -> Option<Report> {
     let mut sys = System::new(0);
     sys.bus.cart = Some(cart);
     sys.reset();
+    // The host input contract (`runtime.inc`, PAD_CONTRACT). Every runner holds the same mask for
+    // the whole run, because Group F has no observable at all with nothing held: an unconnected,
+    // unpressed pad reads $0000 through every register the cart can reach.
+    sys.bus.set_joypad(0, PAD_CONTRACT);
 
     let mut frames = 0;
     while frames < MAX_FRAMES {
@@ -326,6 +330,10 @@ fn results_block_is_well_formed() {
     let mut sys = System::new(0);
     sys.bus.cart = Some(cart);
     sys.reset();
+    // The host input contract (`runtime.inc`, PAD_CONTRACT). Every runner holds the same mask for
+    // the whole run, because Group F has no observable at all with nothing held: an unconnected,
+    // unpressed pad reads $0000 through every register the cart can reach.
+    sys.bus.set_joypad(0, PAD_CONTRACT);
     for _ in 0..MAX_FRAMES {
         sys.run_frame();
         if sys.bus.peek_wram(R_DONE) == DONE_MARK {
@@ -404,6 +412,13 @@ fn header_is_detected() {
 }
 
 /// Base of the cart's raw measurement channel — must match `gen/src/dsl.rs` and `runtime.inc`.
+/// The controller-1 state every runner holds for the whole run — `runtime.inc`'s `PAD_CONTRACT`.
+///
+/// `B + Start + X + R`, in the standard `BYsSUDLR` bit order with `B` at bit 15. No d-pad, so the
+/// post-battery menu cannot be disturbed; bits in both bytes, so a host reporting one half is
+/// visibly wrong; and asymmetric under bit reversal, so an LSB-first read cannot pass by accident.
+const PAD_CONTRACT: u16 = 0x9050;
+
 const MEAS_BASE: u32 = 0x7E_E200;
 
 /// Number of `u16` slots in the cart's measurement channel.
@@ -1211,5 +1226,29 @@ fn srcn_change_source_is_reported() {
     println!(
         "    slot 210  {:#04x}  after the write (loop address, expect ~$1F)",
         report.meas[210]
+    );
+}
+
+/// Report `F1.01`'s manual read and `F1.07`'s three `$4218` readings.
+#[test]
+fn controller_contract_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  Host input contract: PAD_CONTRACT = {PAD_CONTRACT:#06x} (B + Start + X + R)");
+    println!(
+        "    slot 211  {:#06x}  F1.01 sixteen manual bits, MSB first",
+        report.meas[211]
+    );
+    println!(
+        "    slot 212  {:#06x}  F1.07 $4218 before auto-read was armed",
+        report.meas[212]
+    );
+    println!(
+        "    slot 213  {:#06x}  F1.07 $4218 with it armed",
+        report.meas[213]
+    );
+    println!(
+        "    slot 214  {:#06x}  F1.07 $4218 after disarming",
+        report.meas[214]
     );
 }

@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`$4218`-`$421F` reported the live controller state rather than the automatic read's result.**
+  `Bus::read_cpu_reg` returned `joypad[pad]` directly, with no result buffer and no `$4200` bit 0
+  gate, so the registers tracked the pad continuously — software that disarms auto-read to poll
+  `$4016` by hand would find the hardware's answer appearing underneath its own reads. Fixed by
+  adding `joypad_auto`, copied at vblank entry and only while armed, with `$4218`-`$421F` reading
+  the buffer; two unit tests in `bus.rs` pin it. Found by AccuracySNES `F1.07`, which could not
+  detect it until the battery gained a host input contract: with nothing held, a correct buffer and
+  a live passthrough both report `$0000` in every phase.
+
 - **Fourteen measurement-channel slot collisions, and a build gate so there cannot be more.** The
   channel has no allocator — a slot is claimed by writing to it — so two tests picking the same
   number silently overwrite each other, and every reader of the earlier one starts reporting the
@@ -575,6 +584,30 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **A host input contract, unblocking Group F.** Every runner — the in-repo harness, the snes9x
+  libretro driver, and the Mesen2 test-runner script — now holds controller 1 at `PAD_CONTRACT` =
+  `$9050` (B + Start + X + R) for the whole run. Group F was otherwise almost entirely untestable:
+  with nothing held, every controller observable the cart can reach is `$0000`, so a test of the
+  read order or of what a disarmed auto-read preserves has nothing to distinguish from anything
+  else. The value is chosen to use no d-pad (the post-battery menu scrolls on Up/Down), to put bits
+  in both bytes (so a host reporting one half is visibly wrong), and to be asymmetric under bit
+  reversal (so an LSB-first read cannot pass by accident). Documented in `runtime.inc`.
+
+- **`F1.01` — is the manual read order `B Y Select Start Up Down Left Right A X L R`?** Sixteen bits
+  clocked out of `$4016` MSB-first must equal the held mask. The order is what every hand-polling
+  driver depends on, and a core with it wrong produces a game where the buttons are simply the wrong
+  buttons — obvious to a player, invisible to a test that only checks whether *something* was
+  pressed. The reads are open-coded rather than calling the runtime's `read_pad`, so what is
+  asserted is the hardware's order and not the runtime's agreement with itself. Verified by making
+  the shift register LSB-first, which fails it.
+
+- **`F1.07` — does `$4218`-`$421F` stop being written with `$4200` bit 0 clear?** Restored after its
+  earlier withdrawal, which the contract makes possible: `$4218` reads `$0000` before auto-read is
+  ever armed, `$9050` once armed, and `$9050` still after disarming. The guard is that the first two
+  differ — without a change to preserve, "it did not change" is equally true of a core that never
+  stopped polling, and the guard also catches the ordering hazard where an earlier test left
+  auto-read armed. This test found the `$4218` defect above on its first run.
+
 - **`E5.12` — where does a mid-note `SRCN` change land?** A running voice re-reads its directory
   entry's *loop* address every sample, so writing `SRCN` under a held note changes nothing until the
   current sample reaches a loop point — and what plays then is the new entry's **loop** address, not
@@ -675,6 +708,11 @@ rewritten to the current number — this line is the one to read.
   full — the collision gate reported no free slots rather than a clash, which is the same gate
   answering a different question. `$7EE200` has room to `$7EF000`, so this is a constant change in
   four places (`runtime.inc`, the generator, the harness, the libretro cross-validator).
+
+- **`F1.02`'s guard rewritten for the input contract.** It ORed the sixteen data bits and asserted
+  the result was zero — "nothing is pressed" — which the contract makes false. Its actual purpose is
+  catching a core that returns 1 to every read, which an AND over the same bits does directly and
+  without depending on what is held.
 
 - **`E1.14` — does `XCN` cost five cycles?** Two 256-instruction blocks, one of `NOP` and one of
   `XCN`, both one byte, timed off timer 0 at `T0DIV = 1` (one tick per 128 SPC cycles). Everything

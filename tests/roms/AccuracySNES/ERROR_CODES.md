@@ -2473,13 +2473,21 @@ Provenance: **Documented** (fullsnes, SPC700 TEST register; ares and bsnes smp/t
 
 ## Group F
 
+### F1.01 — Manual pad read order
+
+Provenance: **Documented** (fullsnes and the SNESdev Wiki controller protocol: the shift register presents B, Y, Select, Start, Up, Down, Left, Right, A, X, L, R and then four zero bits). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the sixteen manually-clocked pad bits did not match the buttons the host is holding. $0A09 means the shift register is being read least-significant-bit first, $9000 that only the first byte is reported, $5090 that the two bytes are swapped, and $FFFF that the line is stuck high |
+
 ### F1.02 — Pad reads 17+ are 1
 
 Provenance: **Documented** (SNESdev Wiki, controller protocol; fullsnes). Kind: scored.
 
 | Code | Byte | Meaning |
 |---|---|---|
-| 1 | `$02` | a button read as pressed during the sixteen data bits, so the reads below say nothing about what follows them |
+| 1 | `$02` | every one of the sixteen data bits read as 1, so the line is stuck high and the reads below would report that rather than the pad running out of data |
 | 2 | `$04` | a read past the sixteenth returned 0 — an official pad drives the line high once its data bits are exhausted, and peripherals are identified by not doing so |
 
 ### F1.04 — $4016 bits 7-2 open bus
@@ -2490,6 +2498,15 @@ Provenance: **Corroborated** (RustySNES, snes9x and Mesen2 all return $41 for th
 |---|---|---|
 | 1 | `$02` | $4016 read as absolute did not return the operand high byte ($40) in bits 7-2, so those bits are not following the CPU bus |
 | 2 | `$04` | $4016 read as long did not return the operand bank byte ($00) in bits 7-2. Equal to the absolute read's $40 means the bits are manufactured rather than open bus |
+
+### F1.07 — Auto-read needs $4200.0
+
+Provenance: **Documented** (fullsnes and the SNESdev Wiki: bit 0 of $4200 arms the automatic joypad read, and with it clear $4218-$421F are not written). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | arming auto-read did not change $4218, so there is no sentinel for phase C to preserve and 'it did not change' would be true of a core that polls regardless. Either the poll is not running, or something earlier in the battery left auto-read armed and phase A already held a polled value |
+| 2 | `$04` | $4218 changed over two frames with $4200 bit 0 clear, so auto-read is running whether or not it is armed — software that disarms it to hand-poll the ports would find its own reads fighting the hardware's |
 
 ### F1.14 — $4213 reads $4201 back
 
