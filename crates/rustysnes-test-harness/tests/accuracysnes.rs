@@ -1075,3 +1075,13 @@ fn attack_rate_index_is_reported() {
         report.meas[142]
     );
 }
+
+/// `E7.12`'s two park levels, reported so the boundary's source can be seen.
+#[test]
+fn gain_sustain_boundary_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E7.12 sustain park level with ADSR2 fixed at level 3:");
+    println!("    slot 143  {:#04x}  GAIN bits 7-5 = 0", report.meas[143]);
+    println!("    slot 181  {:#04x}  GAIN bits 7-5 = 5", report.meas[181]);
+}

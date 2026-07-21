@@ -111,6 +111,7 @@ pub fn all() -> Vec<Test> {
         e7_06(),
         e7_07(),
         e7_03(),
+        e7_12(),
         e7_08(),
         e8_07(),
         e8_10(),
@@ -1489,6 +1490,85 @@ fn e7_03() -> Test {
              and steps the envelope by +32",
         ),
         Kind::Scored,
+        None,
+    )
+}
+
+/// Does the decay→sustain boundary come from `VxGAIN` instead of `VxADSR2`? A golden vector.
+///
+/// The dossier records an `[ERRATA]`: the comparison that ends the decay phase reads its boundary
+/// from `VxGAIN` bits 7-5 rather than from `VxADSR2`'s sustain level — even in `ADSR` mode, where
+/// `GAIN` is supposed to be ignored entirely. A driver that leaves a stale `GAIN` value behind
+/// would then get a sustain level it never asked for.
+///
+/// `E7.07` establishes the other half of this: with `GAIN` untouched, the boundary sits exactly
+/// where `ADSR2` says. This test holds `ADSR2` fixed and moves `GAIN` instead, which is the only
+/// arrangement that can tell the two sources apart.
+///
+/// | run | `ADSR2` | `GAIN` bits 7-5 | if the boundary is `ADSR2`'s | if it is `GAIN`'s |
+/// |---|---|---|---|---|
+/// | 1 | `$60` (level 3) | 0 | `$40` | near `$00` |
+/// | 2 | `$60` (level 3) | 5 | `$40` | `$60` |
+///
+/// Both voices are in `ADSR` mode — `ADSR1` bit 7 set — so `GAIN` has no legitimate role at all and
+/// any difference between the runs is the erratum showing through.
+///
+/// # Recorded, not scored
+///
+/// Whether a core models this is not something the dossier settles, and RustySNES demonstrably does
+/// not: `E7.07` passes, which means its boundary tracks `ADSR2`. Asserting either behaviour would
+/// be asserting an implementation choice. So the test names the two shapes and publishes both park
+/// levels; variant 1 is "the boundary came from `ADSR2`", which is what every core measured here
+/// reports.
+fn e7_12() -> Test {
+    let gained = |gain: u8| Voice {
+        adsr1: 0xFF, // ADSR mode, attack $F, decay 7
+        adsr2: 0x60, // sustain level 3, rate 0: park and freeze
+        gain,        // ignored in ADSR mode -- unless the erratum is real
+        settle: 24,
+        ..Voice::direct_gain()
+    };
+    let low = voice_program(&looping_sample(), gained(0x00));
+    let high = voice_program(&looping_sample(), gained(0xA0));
+
+    let mut a = Asm::new();
+    a.c("--- GAIN bits 7-5 = 0 ---");
+    upload_and_run_tagged(&mut a, &low, "_g0");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.l("sta f:$7E0204     ; ENVX, before the second upload overwrites the mailbox copy");
+    a.c("--- GAIN bits 7-5 = 5, with ADSR2 unchanged ---");
+    upload_and_run_tagged(&mut a, &high, "_g5");
+    a.l("rep #$30");
+    a.l("lda f:$7E0204");
+    a.l("and #$00FF");
+    a.record(143, "E7.12 park level with GAIN bits 7-5 = 0");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(181, "E7.12 park level with GAIN bits 7-5 = 5");
+    a.c("Equal means the boundary came from ADSR2, which is what the register is for. Different");
+    a.c("means GAIN reached a comparison it has no business in.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0204");
+    a.l("cmp f:$7E0101");
+    a.l("bne :+");
+    a.l("lda #$03          ; variant 1 = same level both times; the boundary is ADSR2's");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("lda #$05          ; variant 2 = the level followed GAIN; the erratum is modelled");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E7.12",
+        'E',
+        "GAIN sustain boundary",
+        Provenance::Contested(
+            "the dossier records the GAIN-sourced boundary as [ERRATA]; RustySNES takes it from \
+             ADSR2 instead, which E7.07 asserts, so which behaviour is right is not settled here",
+        ),
+        Kind::Golden,
         None,
     )
 }

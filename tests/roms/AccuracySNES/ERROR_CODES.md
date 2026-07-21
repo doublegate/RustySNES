@@ -2280,6 +2280,12 @@ Provenance: **Documented** (fullsnes and anomie's DSP doc: the attack phase inde
 | 1 | `$02` | the slower attack was not caught in progress — at full scale or still at zero, both rates read alike and the comparison below is empty. A core indexing with `a` verbatim lands here, in the slow half of the table for both settings |
 | 2 | `$04` | the two attack rates left the envelope in nearly the same place, so the field is not being doubled before it indexes the table |
 
+### E7.12 — GAIN sustain boundary
+
+Provenance: **Contested** (the dossier records the GAIN-sourced boundary as [ERRATA]; RustySNES takes it from ADSR2 instead, which E7.07 asserts, so which behaviour is right is not settled here). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
 ### E7.08 — Key-off releases to zero
 
 Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc). Kind: scored.

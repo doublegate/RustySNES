@@ -575,6 +575,21 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E7.12` — does the decay→sustain boundary come from `VxGAIN`?** A **golden vector**. The dossier
+  records an `[ERRATA]` that the comparison ending the decay phase reads its boundary from `VxGAIN`
+  bits 7-5 rather than `VxADSR2`'s sustain level — even in `ADSR` mode, where `GAIN` should be
+  ignored entirely.
+
+  `E7.07` pins the other half: with `GAIN` untouched, the boundary sits exactly where `ADSR2` says.
+  This holds `ADSR2` fixed at level 3 and moves `GAIN` instead, which is the only arrangement that
+  can tell the two sources apart. **Both runs park at `$40` on RustySNES and on snes9x** — the
+  boundary is `ADSR2`'s, and the erratum is unmodelled.
+
+  Recorded rather than asserted: whether a core should model it is not something the dossier settles,
+  and asserting either behaviour would be asserting an implementation choice. Verified by sourcing
+  the boundary from `VxGAIN`, which moves the readings apart and reports variant 2 — so the test can
+  see the erratum if a core ever implements it.
+
 - **`E7.03` — the attack rate indexes the counter table at `a*2+1`.** `E7.04` covers the one
   exception, rate `$F`; this covers the other fifteen, where the field is doubled and offset before
   it reaches the table. A core using `a` verbatim indexes the slow half for every setting, so every
