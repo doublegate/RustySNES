@@ -851,6 +851,31 @@ So it ships as a golden vector reporting `(latched H - HTIME)` in 4-dot buckets:
 stable across alignment, fine enough that a core waking a scanline late announces itself. Both cores
 report variant 5. Asserting "1 cycle" from this would be measuring the instrument.
 
+### `E6.04` — attempted and withdrawn: pitch modulation has no amplitude to observe
+
+`PMON` bit 0 must do nothing, because pitch modulation drives voice *n* from voice *n-1* and voice 0
+has no source. The test wrote itself easily: two runs identical but for `PMON`, compare `VxOUTX`,
+assert they match. It passed, with a non-zero guard, and it was **vacuous**.
+
+The injection is what said so. Giving voice 0 a modulation source that is never silent — so that a
+core honouring bit 0 would definitely modulate it — left the verdict completely unchanged.
+
+The reason was already written in the test's own doc comment, as a *virtue*: it used a constant
+sample so that "the reading does not depend on which sample the cart caught". Pitch modulation
+changes **when** a sample is read and nothing else. Against a constant waveform there is no when —
+every sample is the same value, so any pitch is the same output. The property that made the reading
+stable is exactly the property that made the phenomenon invisible.
+
+**What a working version would need, and why it is not obviously worth it.** The observable has to
+be something pitch actually moves: a varying sample, so the reading depends on the position in the
+waveform. But then the reading depends on *when the cart looked*, which is the phase-dependence that
+demoted `E8.07` to a golden. A two-block sample with opposite signs and a settle tuned to land
+mid-block would work, and would be exactly as fragile.
+
+Recorded rather than fixed, because the general lesson is the useful part: **for any test that
+compares two measurements, ask what the difference would physically be before asking whether the
+numbers match.** Here the answer was "nothing observable", and no amount of guarding fixes that.
+
 ### The forced-blank vacuity trap, and the armed-ness guard that catches it
 
 The battery leaves `$2100` at `$8F` — **forced blank** — between tests. `Ppu::vram_accessible()` is
