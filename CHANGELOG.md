@@ -575,6 +575,22 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E7.04` — attack rate `$F` steps every sample, by `+1024`.** Every other rate advances the
+  envelope by 32 on a counter tick; `$F` does neither part of that, crossing the full `$7FF` range in
+  two samples. A core folding it into the general `a*2+1` formula gets an attack that is merely
+  fast, and every percussive instrument softens.
+
+  Both runs park the envelope once it arrives — sustain level 7 with sustain rate 0, so decay ends
+  immediately and rate 0 never fires — otherwise the reading depends on how far decay has since
+  pulled it back.
+
+  **The settle length is the load-bearing part, and the first version got it wrong.** With the
+  default four settle blocks the test passed its own injection: over that long an interval `+32`
+  every sample *also* reaches full scale, so the reading distinguished only "the rate index is
+  large" and not the step size. Dropping to `settle: 0` puts the read about thirty samples after
+  key-on — long enough for `+1024` to have crossed the range twice, far short of the sixty-four
+  samples `+32` needs. The same injection now fails at code 1.
+
 - **`E9.01` — the noise LFSR starts at `$4000`.** A wrong seed produces a different noise sequence
   from the first sample onward, which no amount of listening distinguishes from correct noise and
   which any bit-exact audio comparison fails immediately.

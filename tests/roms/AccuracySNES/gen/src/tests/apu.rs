@@ -105,6 +105,7 @@ pub fn all() -> Vec<Test> {
         e5_04(),
         e5_05(),
         e7_01(),
+        e7_04(),
         e7_08(),
         e8_07(),
         e8_10(),
@@ -932,6 +933,92 @@ fn e9_01() -> Test {
         Provenance::Documented(
             "fullsnes and anomie's DSP doc: the noise shift register resets to $4000, with taps \
              bit0 XOR bit1 feeding bit 14",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Attack rate `$F` is the special case: it steps every sample, by `+1024`.
+///
+/// Every other attack rate advances the envelope by 32 on a counter tick. Rate `$F` does neither
+/// part of that — it fires on *every* sample and adds `1024`, so an envelope crosses its full
+/// `$7FF` range in two samples rather than the milliseconds any other rate takes. A core folding
+/// `$F` into the general `a*2+1` formula gets an attack that is merely fast, and every percussive
+/// instrument in a game's soundtrack softens.
+///
+/// # Two rates, the same interval, an envelope that stays put once it arrives
+///
+/// The comparison is only stable if the envelope stops moving after the attack, otherwise the
+/// reading depends on how far decay has since pulled it back. So both runs set the sustain **level**
+/// to its maximum (`ADSR2` bits 7-5 = 7) and the sustain **rate** to zero: the decay phase ends
+/// immediately because `E >> 8` already equals 7, and rate 0 never fires (`E7.01`), so the envelope
+/// parks at full scale and stays there.
+///
+/// | run | `ADSR1` | attack rate | expected `ENVX` |
+/// |---|---|---|---|
+/// | 1 | `$8F` | `$F` — every sample, `+1024` | `$7F`, parked at full scale |
+/// | 2 | `$80` | `$0` — the slowest rate there is | near zero, barely started |
+///
+/// Both bounds are asserted, so neither run can pass by being silent: run 1 must have climbed and
+/// run 2 must not have. A core that treats `$F` as an ordinary rate fails run 1; one that treats
+/// every rate as instant fails run 2.
+fn e7_04() -> Test {
+    let parked = |adsr1: u8| Voice {
+        adsr1,
+        adsr2: 0xE0, // sustain level 7, sustain rate 0: park at full scale once the attack lands
+        // No extra settle: the read lands about thirty samples after key-on, which is long enough
+        // for a +1024 step to have crossed the range twice over and far short of the sixty-four
+        // samples a +32 step needs. A longer wait reaches full scale either way and measures only
+        // that the rate index is large -- which is how the first version of this test passed its
+        // own injection.
+        settle: 0,
+        ..Voice::direct_gain()
+    };
+    let fast = voice_program(&looping_sample(), parked(0x8F));
+    let slow = voice_program(&looping_sample(), parked(0x80));
+
+    let mut a = Asm::new();
+    a.c("--- attack rate $F ---");
+    upload_and_run_tagged(&mut a, &fast, "_fast");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.l("sta f:$7E01EC     ; ENVX, before the second upload overwrites the mailbox copy");
+    a.c("--- attack rate $0, the same interval ---");
+    upload_and_run_tagged(&mut a, &slow, "_slow");
+    a.l("rep #$30");
+    a.l("lda f:$7E01EC");
+    a.l("and #$00FF");
+    a.record(182, "E7.04 ENVX after attack rate $F");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(183, "E7.04 ENVX after attack rate $0");
+    a.c("Rate $F crosses the whole range in two samples, so by any settle at all it is parked.");
+    a.l("lda f:$7E01EC");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x70,
+        0x7F,
+        "attack rate $F did not reach full scale: it steps +1024 every sample and crosses the \
+         envelope's whole range in two, so a core applying the ordinary a*2+1 rate lands short",
+    );
+    a.c("And rate $0 is the slowest there is, so over the same interval it has barely moved.");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x00,
+        0x0F,
+        "attack rate $0 climbed a long way over an interval rate $F needs two samples for — the \
+         two rates are not being distinguished at all",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E7.04",
+        'E',
+        "Attack $F is instant",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: attack rate $F fires every sample with a step of \
+             +1024, rather than the +32 on a counter tick every other rate uses",
         ),
         Kind::Scored,
         None,
