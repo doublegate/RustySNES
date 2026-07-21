@@ -774,6 +774,35 @@ The rate differences are small (2 and 4 clocks an access), so this row needs a t
 than the ones it has been given, not a better probe.
 
 
+### `A6.15` — "all 256 opcodes defined" is a table-extension job, not a test
+
+The 65816 has no illegal opcodes: all 256 encodings are defined, and only `STP` halts. What a core
+can get wrong is treating some encoding as a no-op, an unimplemented trap, or the wrong length.
+
+**The existing sweep is the mechanism and it covers 34 opcodes.** `gen/src/tests/sweep.rs` holds a
+`SAFE` table of 34 `Op` entries, each with a hand-chosen body and a derived cycle expectation, run
+differentially against a `NOP` baseline (`A5.S01`-`A5.S34`, all mapped to the enumerated
+`A5.01-08`). Extending that table to full coverage is what `A6.15` actually requires — roughly 222
+more entries.
+
+**Why it is curation rather than typing.** Every entry needs an operand that is safe to execute
+inside a running battery: no branch or jump that leaves the test body, no stack operation that
+unbalances `S` beyond what `test_restore` repairs, no write to a register with side effects, and
+nothing that changes `E`/`M`/`X` without restoring it. That is exactly why the table stopped at 34.
+Four cases need individual handling rather than a table row:
+
+- `STP` — excluded; see the `A6.13` entry above.
+- `WAI` — halts until an interrupt, so it needs the arm-an-IRQ scaffolding `A6.11`/`A6.12` now
+  provide rather than a plain body.
+- `BRK`/`COP` — trap through `V_BRK_VEC`/`V_COP_VEC`; runnable, but the entry must install a
+  handler.
+
+**Sizing it honestly:** ~222 entries at a few lines each, each needing its safe operand chosen and
+its expected cost derived from `docs/accuracysnes-timing-oracle.md`. Mechanical but not small, and
+it lands one enumerated assertion. Left out of the current infrastructure pass deliberately: the
+mechanism it needs already exists, so it is throughput work rather than a blocker, and it competes
+poorly against rows that need no new table at all.
+
 ### `A6.13` — `STP` halts until reset: unwritable from a self-scoring cartridge
 
 `STP` stops the CPU until a hardware reset. A self-scoring cart has to keep running to write its
