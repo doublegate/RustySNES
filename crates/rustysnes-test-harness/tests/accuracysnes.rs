@@ -1416,18 +1416,41 @@ fn the_menu_still_draws_after_the_battery() {
             char::from(c)
         })
         .collect();
+    // The title lives in RODATA in bank $00; the test *names* live in the catalog, in another bank
+    // entirely, and are the reason `V_STR_PTR` had to become 24-bit. Asserting a name is what gives
+    // that path runtime evidence.
+    let list: String = (0..SCREEN_COLS * 4)
+        .map(|i| char::from((sys.bus.ppu.vram_word(MAP_BASE + SCREEN_COLS * 3 + i) & 0xFF) as u8))
+        .collect();
     assert!(
-        row.contains("ACCURACYSNES"),
-        "the menu's title row does not contain the cartridge name — draw_str is writing the wrong \
-         bank, or nothing at all. Row read back as {row:?}"
+        list.contains("XCE clears XH/YH"),
+        "the menu's list does not show the first test's name. The title drew, so draw_str works \
+         for a bank-$00 string — what failed is reading a name out of the catalog's own bank. \
+         Rows read back as {list:?}"
     );
 
-    // What this cannot cover, and why. The only strings that live in the catalog are the test
-    // names, drawn by `draw_list` — and `draw_list` does not render: rows 2 and below still hold
-    // the last scene's canvas, and the tally digits read `000` where the battery passed 284. That
-    // is **pre-existing and independent of the catalog's move**: the same ROM built before it
-    // behaves identically, byte for byte, which is the control that was run rather than assumed.
-    // Recorded in `docs/accuracysnes-plan.md`; until it is fixed, the name-drawing path is
-    // unexercised and this test covers the header path alone.
+    // The rendered tally against the results block it is drawn from. Comparing the menu with the
+    // machine rather than with a remembered number means this never needs re-blessing when the
+    // battery grows, and it catches the whole `draw_dec3` path: a digit drawn at the wrong column,
+    // or from an 8-bit read of a 16-bit counter, stops matching immediately.
+    let rd16 = |a: u32| -> u16 {
+        u16::from(sys.bus.peek_wram(a)) | (u16::from(sys.bus.peek_wram(a + 1)) << 8)
+    };
+    let tally: String = (0..SCREEN_COLS)
+        .map(|i| char::from((sys.bus.ppu.vram_word(MAP_BASE + SCREEN_COLS + i) & 0xFF) as u8))
+        .collect();
+    let expect = format!(
+        "P:{:03} F:{:03} G:{:03} OF:{:03}",
+        rd16(R_PASSED),
+        rd16(R_FAILED),
+        rd16(R_GOLDEN),
+        rd16(R_COUNT),
+    );
+    assert!(
+        tally.starts_with(&expect),
+        "the menu's tally row does not match the results block it is drawn from.\n  \
+         rendered: {tally:?}\n  expected: {expect:?}"
+    );
     eprintln!("menu title row: {row:?}");
+    eprintln!("menu tally row: {tally:?}");
 }

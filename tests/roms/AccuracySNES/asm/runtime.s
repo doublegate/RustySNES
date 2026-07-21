@@ -108,6 +108,27 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
 
     jsr run_scenes              ; rendered scenes for the host framebuffer oracle (ADR 0013)
 
+    ; The menu's own state, which nothing else initialises.
+    ;
+    ; WRAM powers up holding garbage -- `G1.07` records that as undefined and measures it -- and
+    ; these are read before they are ever written. A garbage `V_SCROLL` is not a cosmetic problem:
+    ; `draw_list` adds it to the row counter and compares the sum against `R_COUNT`, so any large
+    ; value bails out before the first row and the whole test list silently fails to render. That
+    ; is what it did, on every emulator and on hardware, for as long as the menu has existed.
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:V_CURSOR
+    sta f:V_SCROLL
+    sep #$20
+    .a8
+    lda #$00
+    sta f:V_DIRTY               ; STZ has no long addressing mode
+    rep #$30
+    .a16
+    .i16
+
     jsr draw_screen
 
     sep #$20
@@ -693,6 +714,13 @@ test_restore := test_restore_impl
     .a8
     bra @loop
 @done:
+    ; Return with A and the index registers 16-bit. draw_screen calls this between `lda f:R_PASSED`
+    ; loads and `draw_dec3`, all of which want 16 bits; leaving A 8-bit made every tally read only
+    ; the low byte of its counter and, further on, made draw_list compute its row bounds from an
+    ; 8-bit accumulator and bail before the first row.
+    rep #$30
+    .a16
+    .i16
     rts
 .endproc
 
@@ -733,6 +761,11 @@ test_restore := test_restore_impl
     rep #$30
     .a16
     .i16
+    ; The three header rows, before anything is written into them.
+    ldx #MAP_BASE
+    ldy #(3 * SCREEN_COLS)
+    jsr blank_rows
+
     ldy #str_title
     jsr str_ptr_bank0
     ldx #MAP_BASE
@@ -743,25 +776,68 @@ test_restore := test_restore_impl
     jsr str_ptr_bank0
     ldx #(MAP_BASE + SCREEN_COLS)
     jsr draw_str
+    ; Columns 2, 8, 14 and 21 are where `str_tally`'s own "000" placeholders sit: it reads
+    ; "P:000 F:000 G:000 OF:000", so the digits start after "P:", after "F:" at 6, after "G:" at 12
+    ; and after "OF:" at 18. They were 2/9/16/23, which put three of the four counters one or two
+    ; columns right of their labels and overwrote the neighbouring text.
     lda f:R_PASSED
     ldx #(MAP_BASE + SCREEN_COLS + 2)
     jsr draw_dec3
     lda f:R_FAILED
-    ldx #(MAP_BASE + SCREEN_COLS + 9)
+    ldx #(MAP_BASE + SCREEN_COLS + 8)
     jsr draw_dec3
     lda f:R_GOLDEN
-    ldx #(MAP_BASE + SCREEN_COLS + 16)
+    ldx #(MAP_BASE + SCREEN_COLS + 14)
     jsr draw_dec3
     lda f:R_COUNT
-    ldx #(MAP_BASE + SCREEN_COLS + 23)
+    ldx #(MAP_BASE + SCREEN_COLS + 21)
     jsr draw_dec3
 
     jsr draw_list
     rts
 .endproc
 
+; Blank a run of tilemap words to spaces. X = first VRAM word address, Y = count.
+;
+; The rendered scenes leave their own tilemap behind and the drawing routines write only as many
+; columns as their text needs, so without this the leftovers show through: a tail of the last
+; scene's canvas after every name, and whole rows of it past the end of the list. `@blank_rest` in
+; `draw_list` is an alias for `@done` and has never blanked anything.
+.proc blank_rows
+    sep #$20
+    .a8
+    stz VMAIN                   ; advance after the low byte only
+    rep #$30
+    .a16
+    .i16
+    stx VMADDL
+    sep #$20
+    .a8
+    lda #' '
+@lp:
+    sta VMDATAL
+    rep #$10
+    .i16
+    dey
+    beq @done
+    sep #$20
+    .a8
+    bra @lp
+@done:
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
 ; Draw the scrollable test list starting at V_SCROLL.
 .proc draw_list
+    rep #$30
+    .a16
+    .i16
+    ldx #(MAP_BASE + 3 * SCREEN_COLS)
+    ldy #(VISIBLE_ROWS * SCREEN_COLS)
+    jsr blank_rows
     rep #$30
     .a16
     .i16
@@ -923,10 +999,12 @@ test_restore := test_restore_impl
     adc #'0'
     plx
     phx
-    pha
+    ; Narrow A rather than round-tripping it through the stack. `pha` with A 16-bit pushes two
+    ; bytes and the `pla` after `sep #$20` pulled one, leaking a byte per digit -- so the `plx`
+    ; that followed picked up a misaligned VRAM address and the tens and units were drawn at
+    ; whatever it happened to be. The digit is already in A's low byte; `sep` is all that is needed.
     sep #$20
     .a8
-    pla
     jsr draw_char
     rep #$30
     .a16
@@ -951,10 +1029,12 @@ test_restore := test_restore_impl
     adc #'0'
     plx
     phx
-    pha
+    ; Narrow A rather than round-tripping it through the stack. `pha` with A 16-bit pushes two
+    ; bytes and the `pla` after `sep #$20` pulled one, leaking a byte per digit -- so the `plx`
+    ; that followed picked up a misaligned VRAM address and the tens and units were drawn at
+    ; whatever it happened to be. The digit is already in A's low byte; `sep` is all that is needed.
     sep #$20
     .a8
-    pla
     jsr draw_char
     rep #$30
     .a16
@@ -965,10 +1045,12 @@ test_restore := test_restore_impl
     lda f:V_TMP
     clc
     adc #'0'
-    pha
+    ; Narrow A rather than round-tripping it through the stack. `pha` with A 16-bit pushes two
+    ; bytes and the `pla` after `sep #$20` pulled one, leaking a byte per digit -- so the `plx`
+    ; that followed picked up a misaligned VRAM address and the tens and units were drawn at
+    ; whatever it happened to be. The digit is already in A's low byte; `sep` is all that is needed.
     sep #$20
     .a8
-    pla
     jsr draw_char
     rep #$30
     .a16

@@ -974,7 +974,7 @@ it, and was verified by forcing a split with a reduced budget and confirming the
 passes 284/284 with programs in two different banks — the mechanism is inert at the real budget, and
 inert machinery that has never run is worth nothing.
 
-### The interactive menu's list never renders — pre-existing, found by moving the catalog
+### The interactive menu was broken by three width bugs — fixed, and it took a gate to see them
 
 Moving `CATALOG` out of bank `$00` meant rewriting `draw_str`, and verifying that meant looking at
 the menu for the first time. The menu is drawn by code **no gate observes**: the battery reports
@@ -1002,9 +1002,36 @@ Two consequences worth separating:
   the test names, and only `draw_list` draws them. So the 24-bit `V_STR_PTR` rework is correct by
   construction and by the header path, but its catalog-bank branch has no runtime evidence yet.
 
-Not chased further here because it is cosmetic and orthogonal to the dossier, but it is a real
-defect in the cartridge's own UI and the menu test now pins the part that does work, so a future fix
-has somewhere to land.
+**All three causes were width bugs, and they compounded.**
+
+1. **`draw_str` returned with `A` 8-bit.** `draw_screen` calls it between `lda f:R_PASSED` loads, so
+   every tally counter was read as its low byte only. It now returns 16-bit.
+2. **`draw_dec3` pushed 16 bits and pulled 8.** `pha` with `A` 16-bit pushes two bytes; the `pla`
+   after `sep #$20` pulled one. Each digit leaked a byte of stack, so the `plx` that followed picked
+   up a misaligned VRAM address and the tens and units landed wherever it pointed. The round-trip is
+   not needed at all — narrowing `A` already leaves the digit in place.
+3. **The tally columns did not match their own label.** `str_tally` reads `P:000 F:000 G:000
+   OF:000`, whose placeholders start at columns 2, 8, 14 and 21; the code drew at 2, 9, 16 and 23.
+
+Two more things were wrong and are fixed with them: `@blank_rest` in `draw_list` is an alias for
+`@done` and never blanked anything, so the rendered scenes' tilemap showed through behind every row
+— there is now a `blank_rows` helper the header and the list both use. And `V_CURSOR`/`V_SCROLL`/
+`V_DIRTY` were never initialised; RustySNES happens to zero WRAM so they read 0, but `G1.07` records
+power-on WRAM as undefined, so on hardware the menu's scroll position was whatever was there.
+
+The menu now renders its title, a tally that matches the results block (`P:284 F:000 G:032 OF:317`),
+and the test list with names, cursor and verdicts.
+
+**What made this findable.** The menu is drawn by code no gate observed — the battery reports
+through WRAM and the scenes draw their own tilemaps — so it had been broken since it was written and
+nothing said so. It surfaced only because moving `CATALOG` out of bank `$00` forced a look at
+`draw_str`, and the first instinct was that the move had caused it. The control that disproved that
+(building the ROM from the previous commit and getting identical output) is also what proved the
+bugs were pre-existing.
+
+**And the fix closed a real verification gap.** The catalog-bank branch of the 24-bit `V_STR_PTR`
+rework had no runtime evidence while `draw_list` was dead, because test names are the only strings
+in the catalog. The menu test now asserts one renders.
 
 ### The host input contract, and the defect it immediately found
 

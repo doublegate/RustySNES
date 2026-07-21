@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The interactive menu never drew its test list, and its tallies read zero.** Three width bugs,
+  compounding. `draw_str` returned with `A` 8-bit, so `draw_screen`'s `lda f:R_PASSED` loads
+  following it read only a low byte. `draw_dec3` did `pha` with `A` 16-bit and `pla` with `A` 8-bit,
+  leaking one byte of stack per digit, so the `plx` after it picked up a misaligned VRAM address and
+  the tens and units were drawn wherever it pointed. And the tally columns (2, 9, 16, 23) did not
+  match `str_tally`'s own placeholders (2, 8, 14, 21).
+  Also fixed with them: `@blank_rest` in `draw_list` was an alias for `@done` and never blanked
+  anything, so the rendered scenes' tilemap showed through behind every row — there is now a
+  `blank_rows` helper the header and list share; and `V_CURSOR`/`V_SCROLL`/`V_DIRTY` were never
+  initialised, which is harmless where WRAM powers up zeroed and is not on hardware, where `G1.07`
+  records it as undefined. The menu now shows its title, a tally matching the results block, and the
+  list with names, cursor and verdicts.
+  It had been broken since it was written, because the menu is drawn by code **no gate observed**.
+  It surfaced only when moving `CATALOG` forced a look at `draw_str`, and the obvious reading was
+  that the move had broken it — the control that disproved that also proved the bugs pre-existing.
+
 - **The PPU dot model was uniform and one dot too long (`T-06-A`).** A scanline is 1364 master
   clocks, and both `341 × 4` and `338 × 4 + 2 × 6` satisfy that — which is why the wrong one kept
   perfect frame timing while reporting an `OPHCT` value hardware never produces. fullsnes' *PPU
@@ -667,12 +683,11 @@ rewritten to the current number — this line is the one to read.
   `run_scenes`, not after the battery, so waiting on the battery's sentinel lands mid-scene-loop with
   the tilemap still holding a scene; and the run needs its own frame budget, larger than
   `MAX_FRAMES`, because it is the only check that waits for the whole cartridge.
-  It also found a **pre-existing defect**: `draw_list` does not render at all — rows 2+ still hold
-  the last scene's canvas — and the tally digits read `000` where the battery passed 284. Verified
-  against the ROM built immediately before the catalog moved, which behaves identically, so it is
-  not a regression. Recorded in `docs/accuracysnes-plan.md`; it also means the catalog-bank branch of
-  the new `draw_str` has no runtime evidence yet, since test names are the only catalog strings and
-  only `draw_list` draws them.
+  It also found a **pre-existing defect**, since fixed (see *Fixed*): `draw_list` did not render at
+  all and the tally digits read `000` where the battery passed 284. With that fixed the gate now
+  asserts a test name renders — which is what gives the catalog-bank branch of the new `draw_str` its
+  runtime evidence — and that the rendered tally matches the results block it is drawn from, a
+  comparison against the machine rather than a remembered number, so it never needs re-blessing.
 
 - **The build now reports per-bank headroom and fails before a bank runs out.** A segment overflow
   is an `ld65` error with no warning beforehand, it lands mid-change rather than at a moment anyone
