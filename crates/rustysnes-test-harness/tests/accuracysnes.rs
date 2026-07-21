@@ -988,3 +988,13 @@ fn koff_kon_cut_is_reported() {
     println!("    slot 176  {:#04x}  KOFF alone", report.meas[176]);
     println!("    slot 177  {:#04x}  KOFF + KON", report.meas[177]);
 }
+
+/// `E5.01`'s two amplitudes, reported so the shift ratio can be judged.
+#[test]
+fn brr_shift_field_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E5.01 OUTX across one step of the header's shift nibble:");
+    println!("    slot 178  {:#04x}  shift $8", report.meas[178]);
+    println!("    slot 179  {:#04x}  shift $9", report.meas[179]);
+}

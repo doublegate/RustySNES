@@ -66,6 +66,7 @@ pub fn all() -> Vec<Test> {
         e5_07(),
         e5_08(),
         e5_09(),
+        e5_01(),
         e5_10(),
         e5_11(),
         e7_10(),
@@ -751,6 +752,99 @@ fn e9_03() -> Test {
         Provenance::Documented(
             "fullsnes and anomie's DSP doc: the noise generator's step rate is set by FLG bits \
              0-4, and a voice's pitch register does not participate",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The BRR header is `ssssffle`: shift in bits 7-4, filter in 3-2, loop in 1, end in 0.
+///
+/// The other three fields are already pinned elsewhere — `E5.03`/`E5.05` decode through both
+/// filters, `E5.04` drives the shift into its invalid range, `E5.08`/`E5.09` separate the loop bit
+/// from the end bit. What none of them establishes is *where the shift lives*, and a core reading
+/// it from the wrong nibble decodes every sample at the wrong amplitude while still honouring the
+/// flags, which looks like a volume bug rather than a header bug.
+///
+/// # Two blocks differing in one nibble
+///
+/// A BRR nibble decodes as `(nibble << shift) >> 1`, so raising the shift by one doubles the
+/// sample. Two constant samples are played, identical but for the shift field — `$8` then `$9` —
+/// and the second's output must be twice the first's.
+///
+/// That is a claim about the *position* of the field, not just its effect: a core taking the shift
+/// from bits 3-0 would read `0` from both headers (the filter and flag bits are zero here) and
+/// return the same amplitude twice. One taking it from bits 7-4, as documented, returns a factor of
+/// two.
+///
+/// A constant sample is used because gaussian interpolation of a constant is that constant, so the
+/// reading does not depend on which sample the cart happened to catch — the same reasoning
+/// `constant_sample` carries for the arithmetic tests.
+///
+/// # Roughly double, not exactly
+///
+/// Written as an exact `x2` it failed: the readings are `$06` and `$0D`, and twice six is twelve.
+/// `VxOUTX` is the top eight bits of a fifteen-bit sample after gaussian interpolation, so the
+/// low-order rounding does not survive the truncation intact — the amplitude doubles, the *reported
+/// byte* doubles to within one. The assertion therefore allows a tolerance of two, which is far
+/// tighter than the factor of two that separates it from "the shift field was ignored".
+///
+/// # The guard
+///
+/// The first reading is asserted non-zero before the two are compared. Zero doubles to zero, so a
+/// silent voice would satisfy the ratio without having decoded anything.
+fn e5_01() -> Test {
+    let low = voice_program(&constant_sample(0x8, 0x7), Voice::direct_gain());
+    let high = voice_program(&constant_sample(0x9, 0x7), Voice::direct_gain());
+
+    let mut a = Asm::new();
+    a.c("--- shift $8 ---");
+    upload_and_run_tagged(&mut a, &low, "_s8");
+    a.l("sep #$20");
+    a.l("lda f:$7E0102");
+    a.l("sta f:$7E01E4     ; OUTX, before the second upload overwrites the mailbox copy");
+    a.c("--- shift $9: the same block with one nibble changed ---");
+    upload_and_run_tagged(&mut a, &high, "_s9");
+    a.l("rep #$30");
+    a.l("lda f:$7E01E4");
+    a.l("and #$00FF");
+    a.record(178, "E5.01 OUTX with header shift $8");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.record(179, "E5.01 OUTX with header shift $9");
+    a.c("The guard: zero doubles to zero, so a silent voice would satisfy the ratio below without");
+    a.c("having decoded anything.");
+    a.l("sep #$20");
+    a.l("lda f:$7E01E4");
+    a.l("cmp #$00");
+    a.fail_if_eq(
+        "the shift-$8 block produced no output, so the comparison below would be between two \
+         silences rather than between two amplitudes",
+    );
+    a.c("Raising the shift by one doubles the sample. A core reading the shift from bits 3-0 sees");
+    a.c("zero in both headers and returns the same amplitude twice.");
+    a.l("rep #$30");
+    a.l("lda f:$7E01E4");
+    a.l("and #$00FF");
+    a.l("asl a             ; twice the shift-$8 amplitude");
+    a.l("sta f:$7E01E6");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.l("sec");
+    a.l("sbc f:$7E01E6     ; how far the shift-$9 reading is from exactly double");
+    a.assert_abs_le(
+        2,
+        "raising the header's shift nibble by one did not roughly double the decoded amplitude — \
+         an unchanged reading means the shift is being taken from a different part of the header",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E5.01",
+        'E',
+        "BRR header layout",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: the BRR header is ssssffle, shift in bits 7-4, and a \
+             nibble decodes as (nibble << shift) >> 1",
         ),
         Kind::Scored,
         None,

@@ -575,6 +575,28 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E5.01` — the BRR header is `ssssffle`.** The other three fields are already pinned:
+  `E5.03`/`E5.05` decode through both filters, `E5.04` drives the shift into its invalid range,
+  `E5.08`/`E5.09` separate the loop bit from the end bit. What none establishes is *where the shift
+  lives* — and a core reading it from the wrong nibble decodes every sample at the wrong amplitude
+  while still honouring the flags, which looks like a volume bug rather than a header bug.
+
+  Two constant samples identical but for the shift nibble, `$8` then `$9`. A nibble decodes as
+  `(nibble << shift) >> 1`, so the second must be twice the first — a claim about the field's
+  *position*, since a core reading bits 3-0 sees zero in both headers and returns the same
+  amplitude twice.
+
+  **Written as an exact doubling it failed**: the readings are `$06` and `$0D`, and twice six is
+  twelve. `VxOUTX` is the top eight bits of a fifteen-bit sample after gaussian interpolation, so
+  the low-order rounding does not survive truncation — the amplitude doubles, the reported byte
+  doubles to within one. The tolerance is two, still far tighter than the factor separating it from
+  "the shift was ignored".
+
+  The guard turned out to be load-bearing in the literal sense: injecting the wrong-nibble read
+  makes both headers decode at shift 0, so both readings are `$00` — and zero doubles to zero.
+  Without the non-zero check the test would have **passed** under exactly the bug it exists to
+  catch; with it, the injection fails at code 1.
+
 - **`E8.10` — `KOFF` and `KON` together silence a voice faster than `KOFF` alone.** `KOFF` starts
   the release ramp, which takes about eight milliseconds; `KON` zeroes the envelope outright, and
   since `KOFF` outranks it (`E8.04`) the attack never starts. The pair gets the zero without the

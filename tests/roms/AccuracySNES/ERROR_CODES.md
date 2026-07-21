@@ -1884,6 +1884,15 @@ Provenance: **Documented** (fullsnes, S-DSP BRR; anomie's DSP doc). Kind: scored
 |---|---|---|
 | 1 | `$02` | ENDX bit 0 never set although the voice decoded a block with the end flag |
 
+### E5.01 — BRR header layout
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: the BRR header is ssssffle, shift in bits 7-4, and a nibble decodes as (nibble << shift) >> 1). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the shift-$8 block produced no output, so the comparison below would be between two silences rather than between two amplitudes |
+| 2 | `$04` | raising the header's shift nibble by one did not roughly double the decoded amplitude — an unchanged reading means the shift is being taken from a different part of the header |
+
 ### E5.10 — Released voice decodes
 
 Provenance: **Documented** (fullsnes and anomie's DSP doc: key-off begins the release ramp and does not halt BRR decoding, which continues to follow loop points and set ENDX). Kind: scored.
