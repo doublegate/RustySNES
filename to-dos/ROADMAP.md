@@ -586,10 +586,28 @@ related or may not.
      the difference, or H-IRQ needs its own uniform counter — and which of those is right depends
      on what that constant currently encodes, which has not been established.
 
-   **Do not treat this step as mechanical.** Establish what `HIRQ_TRIGGER_DELAY` represents (a
-   clock offset expressed in dots? an ares-derived fudge?) and decide the comparison domain
-   explicitly. Getting it wrong moves every raster-effect IRQ by up to a dot, which no scene
-   golden and no existing timing test currently covers.
+   **Resolved 2026-07-21 — the answer is in the constant's own doc comment.** `HIRQ_TRIGGER_DELAY`
+   is documented as *"modelling the SNES hardware communication delay between the counter unit and
+   the CPU's interrupt logic (ares `hcounter(10) == (HTIME+1)<<2` => fire at dot `HTIME + 3.5`)"* —
+   i.e. it is a **dot-domain rounding of a clock-domain comparison**, `3.5` rounded to `4`. It is
+   exact only while every dot is 4 clocks, which is precisely the assumption this ticket removes.
+
+   **So H-IRQ must move to the clock domain, not keep a dot compare.** ares, bsnes and Mesen2 all
+   compare a within-line master-clock counter against `(HTIME+1) << 2`; RustySNES approximated that
+   in dots because, under a uniform dot, the two are the same thing. Once 323 and 327 are six
+   clocks they diverge for every target past 323, and the `3.5 -> 4` rounding stops being a
+   half-dot approximation and becomes a variable error.
+
+   Concretely: replace the `self.h == irq_h + HIRQ_TRIGGER_DELAY` test with a comparison against
+   the line's master-clock offset, and drop `HIRQ_TRIGGER_DELAY` in favour of ares' exact form. The
+   `DOTS_PER_LINE` bounds check becomes a clock-domain bound (the line period, which is already the
+   1364/1360/1368 value the short/long-line gating needs), which also removes the boundary shift
+   that changing 341 to 340 would otherwise cause.
+
+   This is the step most likely to pass its own acceptance criteria while being wrong: no scene
+   golden and no existing timing test covers raster-IRQ position, so **add one** — an H-IRQ fired
+   at an `HTIME` above 323 and one below, checked against the clock-domain expectation — before
+   changing the dot model, so the test exists to catch the regression it is meant to catch.
 
 5. **The original H-IRQ note.** `set_hv_irq(..., htime, vtime)` hands `$4207/8` to the PPU, which compares it
    against the same `h`. If `h` becomes the *corrected* dot number the comparison silently changes
