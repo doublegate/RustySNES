@@ -3545,7 +3545,7 @@ fn e6_02d() -> Test {
 
 /// Timer 2 counts **eight times faster** than timer 0 at the same divider.
 ///
-/// The two timers are fed from different taps of the same clock: `T0` and `T1` from a 8 kHz stage,
+/// The two timers are fed from different taps of the same clock: `T0` and `T1` from an 8 kHz stage,
 /// `T2` from a 64 kHz one, so `TnDIV` means eight times as much wall time on `T0` as on `T2`. A
 /// core that runs all three timers off one rate is the obvious mistake, and it is invisible to
 /// every other timer test on this cart — `E3.01`, `E3.05` and `E2.01` all use `T0` alone, and a
