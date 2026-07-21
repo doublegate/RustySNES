@@ -28,7 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Dossier coverage moves **241 → 244 of 443**.
 
 - **Five more Group A addressing and mode assertions (`A1.10`, `A2.12`, `A4.07`, `A4.09`,
-  `A4.10`).** This closes every remaining reachable Group A row.
+  `A4.10`).** `A1`, `A7` and `A9` are now complete. `A4` is not: two further tests were withdrawn
+  on review (below), reopening `A4.04`/`A4.05`.
 
   - `A1.10` — `PLP` cannot clear `m`/`x` while `E = 1`, the third of the three paths the dossier
     requires to behave identically. Not redundant with the `REP` path (`A1.09`): a core that

@@ -3736,6 +3736,48 @@ CATALOG_IMPL = 1
     beq :+
     jmp @fail2
   :
+    ; --- the destination index, which the move above never takes past $FF ---
+    ; Without this half a core with a 16-bit Y passes on the source assertion alone: Y only ran
+    ; from $50 to $52 there and never reached its own boundary.
+    lda #$44
+    sta f:$7E0060
+    lda #$55
+    sta f:$7E0061
+    lda #$00
+    sta f:$7E0000     ; cleared: this is where a confined destination offset wraps to
+    sta f:$7E0100     ; and this is where an unconfined one would write
+    rep #$30
+    .a16
+    .i16
+    lda #$0001        ; count-1: two bytes
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+    ldx #$60
+    ldy #$FF          ; one byte short of the page end
+    mvn #$7E,#$7E
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    phk
+    plb
+    lda f:$7E00FF
+    cmp #$44
+    beq :+
+    jmp @fail3
+  :
+    lda f:$7E0000
+    cmp #$55
+    beq :+
+    jmp @fail4
+  :
+    lda f:$7E0100
+    cmp #$00
+    beq :+
+    jmp @fail5
+  :
     sep #$20
     .a8
     lda #$01
@@ -3749,10 +3791,31 @@ CATALOG_IMPL = 1
     sta f:$7EE010
     jml test_restore
 @fail2:
-    ; the offset was not confined to $00xx — $33 means it advanced to $0100
+    ; the source offset was not confined to $00xx — $33 means it advanced to $0100
     sep #$20
     .a8
     lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; the first destination byte did not arrive
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+@fail4:
+    ; the destination offset was not confined to $00xx — it wrote past the page instead
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jml test_restore
+@fail5:
+    ; the destination offset advanced to $0100 instead of wrapping inside page 0
+    sep #$20
+    .a8
+    lda #$0A
     sta f:$7EE010
     jml test_restore
 .endproc

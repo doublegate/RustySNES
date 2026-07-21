@@ -1504,7 +1504,40 @@ fn a8_06() -> Test {
     a.l("lda f:$7E0051");
     a.assert_a8(
         0x22,
-        "the offset was not confined to $00xx — $33 means it advanced to $0100",
+        "the source offset was not confined to $00xx — $33 means it advanced to $0100",
+    );
+    a.c("--- the destination index, which the move above never takes past $FF ---");
+    a.c(
+        "Without this half a core with a 16-bit Y passes on the source assertion alone: Y only ran",
+    );
+    a.c("from $50 to $52 there and never reached its own boundary.");
+    a.l("lda #$44");
+    a.l("sta f:$7E0060");
+    a.l("lda #$55");
+    a.l("sta f:$7E0061");
+    a.l("lda #$00");
+    a.l("sta f:$7E0000     ; cleared: this is where a confined destination offset wraps to");
+    a.l("sta f:$7E0100     ; and this is where an unconfined one would write");
+    a.l("rep #$30");
+    a.l("lda #$0001        ; count-1: two bytes");
+    a.enter_emulation();
+    a.l("ldx #$60");
+    a.l("ldy #$FF          ; one byte short of the page end");
+    a.l("mvn #$7E,#$7E");
+    a.enter_native();
+    a.l("phk");
+    a.l("plb");
+    a.l("lda f:$7E00FF");
+    a.assert_a8(0x44, "the first destination byte did not arrive");
+    a.l("lda f:$7E0000");
+    a.assert_a8(
+        0x55,
+        "the destination offset was not confined to $00xx — it wrote past the page instead",
+    );
+    a.l("lda f:$7E0100");
+    a.assert_a8(
+        0x00,
+        "the destination offset advanced to $0100 instead of wrapping inside page 0",
     );
     a.finish(
         "A8.06",

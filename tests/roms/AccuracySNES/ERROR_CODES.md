@@ -558,7 +558,10 @@ Provenance: **Documented** (WDC datasheet: E=1 forces x=1, so the indices are 8-
 | Code | Byte | Meaning |
 |---|---|---|
 | 1 | `$02` | the first block-move byte did not arrive |
-| 2 | `$04` | the offset was not confined to $00xx — $33 means it advanced to $0100 |
+| 2 | `$04` | the source offset was not confined to $00xx — $33 means it advanced to $0100 |
+| 3 | `$06` | the first destination byte did not arrive |
+| 4 | `$08` | the destination offset was not confined to $00xx — it wrote past the page instead |
+| 5 | `$0A` | the destination offset advanced to $0100 instead of wrapping inside page 0 |
 
 ## Group C
 
