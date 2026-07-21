@@ -84,6 +84,18 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     lda #$8F
     sta INIDISP                 ; forced blank while we set up
 
+    ; Power-on path: this is a real reset, not a menu restart. `restart_entry` is below and does
+    ; NOT pass through here, so a Select restart leaves V_RESTARTED at the 1 its handler wrote.
+    lda #$00
+    sta f:V_RESTARTED
+
+    ; V_MENU_MODE gates every test's verdict path (test_restore_target reads it to decide whether to
+    ; tally or bounce to the menu), so it MUST be zero before the battery runs. WRAM powers up zeroed
+    ; on some cores and with garbage on others -- snes9x hung the whole battery here, taking the
+    ; menu branch after the first test, until this landed. Cross-validation caught it; the in-repo
+    ; harness could not, because RustySNES zeroes WRAM. Same class as the cursor variables below.
+    sta f:V_MENU_MODE
+
     rep #$20
     .a16
     lda #irq_stub
@@ -98,6 +110,11 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
 
     jsr capture_power_on        ; MUST precede init_registers — see below
 
+    ; Start, from the menu, restarts the whole battery -- but re-enters HERE, after the power-on
+    ; capture, not at reset. The V_PO_* values are only meaningful in the first instructions after a
+    ; real reset; re-capturing them from a fully-initialised machine would fill the Group G power-on
+    ; rows with garbage. init_registers onward is safe to repeat.
+restart_entry:
     jsr init_registers
     jsr clear_vram
     jsr load_palette
@@ -556,6 +573,21 @@ test_restore_target:            ; every test returns or jumps here
     lda f:V_TEST_RESULT
     sta f:R_STATUS,x
 
+    ; A menu re-run records the one verdict and stops here: no re-tally (the counters describe the
+    ; whole battery and the verdict is deterministic anyway), no advance to the next index. Control
+    ; returns to the menu, which redraws.
+    lda f:V_MENU_MODE
+    beq @batch
+    lda #$00
+    sta f:V_MENU_MODE           ; STZ has no long addressing mode
+    lda #$01
+    sta f:V_DIRTY
+    rep #$30
+    .a16
+    .i16
+    jmp main_loop
+@batch:
+
     ; --- tally ---
     ldy #$0000
     lda f:V_TEST_IDX            ; low byte is enough: the battery is far under 256 tests
@@ -806,24 +838,26 @@ test_restore := test_restore_impl
 .proc blank_rows
     sep #$20
     .a8
-    stz VMAIN                   ; advance after the low byte only
+    lda #$80
+    sta VMAIN                   ; advance after the HIGH byte: full words are written here
     rep #$30
     .a16
     .i16
     stx VMADDL
-    sep #$20
-    .a8
-    lda #' '
+    ; A full tilemap word, not just the tile index. The high byte carries the palette, priority and
+    ; flip bits, and every drawing routine after this writes only VMDATAL -- so whatever palette is
+    ; left in the high byte is the palette the text is drawn in. The rendered scenes leave their
+    ; own there, per-tile, which is why the results list came out in two colours alternating
+    ; character by character. Blanking to a *word* of $0020 sets tile = space and palette = 0 for
+    ; the whole area, and the low-byte-only writes that follow inherit it.
+    lda #$0020
 @lp:
-    sta VMDATAL
-    rep #$10
-    .i16
+    sta VMDATAL                 ; 16-bit store: low byte then high byte, then VMADDL advances
     dey
-    beq @done
+    bne @lp
     sep #$20
     .a8
-    bra @lp
-@done:
+    stz VMAIN                   ; back to low-byte-only advance for the text routines
     rep #$30
     .a16
     .i16
@@ -1414,14 +1448,94 @@ test_restore := test_restore_impl
     beq :+
     jsr cursor_down
 :
+    ; A re-runs the highlighted test. It dispatches exactly as the batch does -- same pointer setup,
+    ; same canonical entry state, same call_indirect -- but with V_MENU_MODE set, so the verdict
+    ; path records R_STATUS and returns here rather than tallying and advancing. Control does not
+    ; come back from call_indirect: the test exits through test_restore to test_restore_target,
+    ; which jmps back to main_loop.
+    lda f:V_PAD_NEW
+    bit #PAD_A
+    beq @no_a
+    sep #$20
+    .a8
+    lda #$01
+    sta f:V_MENU_MODE
+    lda #VERDICT_NOTRUN
+    sta f:V_TEST_RESULT
+    rep #$30
+    .a16
+    .i16
+    lda f:V_CURSOR
+    sta f:V_TEST_IDX
+    tsc
+    sta f:V_SAVED_S
+    lda f:V_TEST_IDX
+    sta a:V_DISPATCH_TMP
+    asl
+    clc
+    adc a:V_DISPATCH_TMP
+    tax
+    lda f:_test_entries,x
+    sta a:V_DISPATCH
+    sep #$20
+    .a8
+    lda f:_test_entries+2,x
+    sta a:V_DISPATCH+2
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    tcd
+    phk
+    plb
+    jsr call_indirect           ; never returns here; lands at test_restore_target
+@no_a:
+
+    ; Select restarts the whole battery from restart_entry (after the power-on capture). Reset the
+    ; stack first: the menu has been jsr-ing around, and the restart runs the full battery again.
+    ;
+    ; Select rather than Start deliberately: PAD_CONTRACT is B+Start+X+R, so a host holding the
+    ; input contract holds Start continuously, and a restart bound to Start would fire whenever the
+    ; contract is held. The menu's action buttons all avoid the four contract buttons for that
+    ; reason -- Up/Down, A and Select are all outside $9050.
+    lda f:V_PAD_NEW
+    bit #PAD_SELECT
+    beq @no_start
+    sei
+    sep #$20
+    .a8
+    lda #$01
+    sta f:V_RESTARTED           ; tell the power-on-dependent tests this is not a power-on
+    rep #$30
+    .a16
+    .i16
+    ldx #$1FFF
+    txs
+    jmp reset::restart_entry
+@no_start:
+
     lda f:V_DIRTY
     and #$00FF
-    beq @frame
+    bne @redraw
+    jmp @frame                  ; long: the A/Start handlers pushed @frame out of branch range
+@redraw:
     sep #$20
     .a8
     lda #$00
     sta f:V_DIRTY               ; STZ has no long addressing mode
-    jsr draw_list               ; still inside vblank: VRAM writes are legal here
+
+    ; Redraw under forced blank. The list is 26 rows of 32 words plus a name and a verdict on each,
+    ; which is far more VRAM traffic than the remainder of a vblank holds -- and a write during
+    ; active display is simply dropped, so the old comment claiming this ran "still inside vblank"
+    ; was wrong twice over. Blanking costs one frame of black and makes the write unconditional.
+    lda #$80
+    sta INIDISP
+    jsr draw_list
+    lda #$0F
+    sta INIDISP
+    rep #$30
+    .a16
+    .i16
     jmp @frame
 .endproc
 
@@ -1441,6 +1555,13 @@ test_restore := test_restore_impl
     .a8
     lda #$01
     sta f:V_DIRTY
+    ; Restore the 16-bit width the caller was assembled for. `main_loop` continues with
+    ; `bit #PAD_DOWN`, which ca65 emits as a 16-bit immediate because its own `.a16` is still in
+    ; force -- so returning in 8-bit mode left the immediate's high byte to be executed as an
+    ; opcode. That is what turned a press of Up or Down into a blank screen and a dead ROM.
+    rep #$30
+    .a16
+    .i16
 @done:
     rts
 .endproc
@@ -1467,6 +1588,13 @@ test_restore := test_restore_impl
     .a8
     lda #$01
     sta f:V_DIRTY
+    ; Restore the 16-bit width the caller was assembled for. `main_loop` continues with
+    ; `bit #PAD_DOWN`, which ca65 emits as a 16-bit immediate because its own `.a16` is still in
+    ; force -- so returning in 8-bit mode left the immediate's high byte to be executed as an
+    ; opcode. That is what turned a press of Up or Down into a blank screen and a dead ROM.
+    rep #$30
+    .a16
+    .i16
 @done:
     rts
 .endproc

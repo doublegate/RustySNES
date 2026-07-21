@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The interactive menu is now navigable and self-correcting, after a real cartridge showed three
+  more defects.** The D-pad blanked the screen and killed the ROM: `cursor_up`/`cursor_down`
+  returned `A` 8-bit while `main_loop` continued `.a16`, so ca65 emitted a 16-bit `bit #PAD_DOWN`
+  the CPU decoded 8-bit and ran the immediate's high byte as an opcode. The results list came out in
+  two colours alternating per character, because the drawing routines write only `VMDATAL` and the
+  tilemap word's high byte — the palette — held whatever the last scene left; `blank_rows` now
+  clears full words. And the redraw ran during active display where writes are dropped; it now
+  blanks the screen for the one frame it takes.
+- **`V_MENU_MODE` was uninitialised, which hung the whole battery on snes9x.** `test_restore_target`
+  reads it after every test to decide whether to tally or return to the menu, and snes9x fills WRAM
+  with garbage where RustySNES zeroes it — so the first test bounced to the menu and the battery
+  never finished. The in-repo harness could not catch it; cross-validation did. Same class as the
+  cursor variables, now initialised beside them at reset.
+
 - **The interactive menu never drew its test list, and its tallies read zero.** Three width bugs,
   compounding. `draw_str` returned with `A` 8-bit, so `draw_screen`'s `lda f:R_PASSED` loads
   following it read only a low byte. `draw_dec3` did `pha` with `A` 16-bit and `pla` with `A` 8-bit,
@@ -622,6 +636,18 @@ rewritten to the current number — this line is the one to read.
   AccuracySNES `B4.12`, with `B4.08` pinning the firing line.
 
 ### Added
+
+- **The results menu scrolls and can re-run tests and restart the battery.** Up/Down move the
+  cursor and scroll the 26-row window; **A** re-runs the highlighted test through the same dispatch
+  the batch uses, rewriting only its verdict; **Select** restarts the battery from `restart_entry`
+  (after the power-on capture, so it does not re-read power-on registers as garbage). Select rather
+  than Start because `PAD_CONTRACT` holds Start, so every menu action button avoids the four
+  contract buttons. `F1.07` stands down as SKIP on a restart — its phase A needs the power-on value
+  of `$4218`, which a soft restart cannot reproduce — gated on a new `V_RESTARTED` flag.
+- **Group F skips when the host is not holding the input contract.** The six contract-dependent
+  tests asserted against buttons nobody was holding when the cart ran outside the cross-validation
+  harness — six FAILs on a real emulator or on hardware with an untouched pad. A test that depends
+  on host configuration must detect its absence and SKIP; `f1_require_contract` is that guard.
 
 - **A host input contract, unblocking Group F.** Every runner — the in-repo harness, the snes9x
   libretro driver, and the Mesen2 test-runner script — now holds controller 1 at `PAD_CONTRACT` =

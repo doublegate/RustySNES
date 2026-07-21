@@ -20,7 +20,11 @@ V_SAVED_S       = VAR_BASE + $0A      ; stack pointer captured before a test run
 V_TEST_IDX      = VAR_BASE + $0C      ; index of the test currently running (u16)
 V_TMP           = VAR_BASE + $0E      ; scratch (u16)
 V_TEST_RESULT   = VAR_BASE + $10      ; the running test's verdict byte (u8)
+V_RESTARTED     = VAR_BASE + $11      ; 0 on a genuine power-on, 1 after a menu (Select) restart;
+                                      ; power-on-dependent tests skip when it is set (u8)
 V_DIRTY         = VAR_BASE + $12      ; non-zero when the screen needs a redraw (u8)
+V_MENU_MODE     = VAR_BASE + $13      ; 1 while the menu re-runs one test, so the verdict path
+                                      ; records R_STATUS without re-tallying (u8)
 V_TMP2          = VAR_BASE + $14      ; second scratch word, for code that needs two at once
 ; Offset-per-tile entry values handed to `scene_opt_map`: the H row (0) and the V row (1), each
 ; with an even-column and an odd-column value. Alternating columns is what makes the leftmost-tile

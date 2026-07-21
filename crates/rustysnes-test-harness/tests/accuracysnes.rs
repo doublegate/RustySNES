@@ -433,6 +433,20 @@ const PAD_CONTRACT: u16 = 0x9050;
 /// runtime draws the interactive menu.
 const SCENE_DONE_MARK: u8 = 0x5A;
 
+/// `V_CURSOR` in low WRAM — `runtime.inc`'s `VAR_BASE + $00`.
+const V_CURSOR: u32 = 0x7E_E000;
+
+/// The Down bit of the 16-bit `BYsSUDLR` controller word.
+const PAD_UP: u16 = 0x0800;
+const PAD_DOWN: u16 = 0x0400;
+
+/// The A and Select bits of the `BYsSUDLR????AXLR`-ordered controller word.
+const PAD_A: u16 = 0x0080;
+const PAD_SELECT: u16 = 0x2000;
+
+/// `R_STATUS` — one verdict byte per test, at `RESULTS + $20`.
+const R_STATUS_BASE: u32 = 0x7E_F020;
+
 const MEAS_BASE: u32 = 0x7E_E200;
 
 /// Number of `u16` slots in the cart's measurement channel.
@@ -1453,4 +1467,172 @@ fn the_menu_still_draws_after_the_battery() {
     );
     eprintln!("menu title row: {row:?}");
     eprintln!("menu tally row: {tally:?}");
+}
+
+/// The D-pad scrolls the list instead of killing the ROM.
+///
+/// Pressing Up or Down used to blank the screen and stop the cartridge dead. `cursor_up` and
+/// `cursor_down` returned with `A` 8-bit, while `main_loop` continues in `.a16` — so ca65 emitted a
+/// 16-bit `bit #PAD_DOWN` that the CPU decoded 8-bit, and the immediate's high byte was executed as
+/// an opcode. Nothing in the battery could see it: the menu runs after every gate has finished.
+///
+/// The check is that the cursor *moved* and the machine is *still running the menu* afterwards —
+/// the second half is the one that matters, since a desynchronised instruction stream shows up as a
+/// screen that stops changing rather than as a wrong value anywhere.
+#[test]
+fn the_dpad_scrolls_the_list() {
+    if !rom_path().is_file() {
+        eprintln!("SKIP accuracysnes: ROM absent");
+        return;
+    }
+    let rom = std::fs::read(rom_path()).expect("read rom");
+    let cart = Cart::from_rom(&rom).expect("AccuracySNES header must be detectable");
+    let mut sys = System::new(0);
+    sys.bus.cart = Some(cart);
+    sys.reset();
+    sys.bus.set_joypad(0, PAD_CONTRACT);
+
+    const MENU_FRAMES: u32 = 3000;
+    let mut frames = 0;
+    while frames < MENU_FRAMES && sys.bus.peek_wram(R_SCENE_DONE) != SCENE_DONE_MARK {
+        sys.run_frame();
+        frames += 1;
+    }
+    assert_eq!(
+        sys.bus.peek_wram(R_SCENE_DONE),
+        SCENE_DONE_MARK,
+        "menu never reached"
+    );
+    for _ in 0..4 {
+        sys.run_frame();
+    }
+    let rd16 = |s: &System, a: u32| -> u16 {
+        u16::from(s.bus.peek_wram(a)) | (u16::from(s.bus.peek_wram(a + 1)) << 8)
+    };
+    let before = rd16(&sys, V_CURSOR);
+
+    // Down, held for a few frames then released: `read_pad` derives "newly pressed" from the
+    // previous frame, so the press has to be an edge.
+    sys.bus.set_joypad(0, PAD_CONTRACT | PAD_DOWN);
+    for _ in 0..3 {
+        sys.run_frame();
+    }
+    sys.bus.set_joypad(0, PAD_CONTRACT);
+    for _ in 0..6 {
+        sys.run_frame();
+    }
+
+    let after = rd16(&sys, V_CURSOR);
+    assert_eq!(
+        after,
+        before + 1,
+        "pressing Down did not move the cursor (was {before}, now {after})"
+    );
+
+    // Up moves it back. Same width bug hit both directions, so proving one is not proving the other.
+    sys.bus.set_joypad(0, PAD_CONTRACT | PAD_UP);
+    for _ in 0..3 {
+        sys.run_frame();
+    }
+    sys.bus.set_joypad(0, PAD_CONTRACT);
+    for _ in 0..6 {
+        sys.run_frame();
+    }
+    assert_eq!(
+        rd16(&sys, V_CURSOR),
+        before,
+        "pressing Up did not move the cursor back"
+    );
+
+    // Still alive: the header is intact and the list still holds a real name. A ROM that fell off
+    // the rails leaves the last drawn frame on screen, so checking the tilemap is not enough on its
+    // own — the cursor moving above is what proves it is still executing the menu loop.
+    const MAP_BASE: u16 = 0x0400;
+    let title: String = (0..12)
+        .map(|i| char::from((sys.bus.ppu.vram_word(MAP_BASE + i) & 0xFF) as u8))
+        .collect();
+    assert_eq!(title, "ACCURACYSNES", "the header did not survive a redraw");
+
+    // A re-runs the highlighted test: its verdict byte is rewritten (deterministic, so unchanged)
+    // and the ROM keeps running. A crash in the re-run path would freeze the menu.
+    let idx_before = rd16(&sys, V_CURSOR);
+    let status_before = sys.bus.peek_wram(R_STATUS_BASE + u32::from(idx_before));
+    let cursor_before = idx_before;
+    sys.bus.set_joypad(0, PAD_CONTRACT | PAD_A);
+    for _ in 0..3 {
+        sys.run_frame();
+    }
+    sys.bus.set_joypad(0, PAD_CONTRACT);
+    for _ in 0..600 {
+        sys.run_frame();
+    }
+    assert_eq!(
+        rd16(&sys, V_CURSOR),
+        cursor_before,
+        "re-running a test moved the cursor — the menu did not resume where it was"
+    );
+    assert_eq!(
+        sys.bus.peek_wram(R_STATUS_BASE + u32::from(idx_before)),
+        status_before,
+        "re-running a deterministic test changed its verdict"
+    );
+    let title_after_a: String = (0..12)
+        .map(|i| char::from((sys.bus.ppu.vram_word(MAP_BASE + i) & 0xFF) as u8))
+        .collect();
+    assert_eq!(
+        title_after_a, "ACCURACYSNES",
+        "the menu did not survive an A re-run"
+    );
+
+    // Select restarts the whole battery from restart_entry. R_DONE clears while it re-runs, then the
+    // scene loop must complete again and the menu return.
+    sys.bus.set_joypad(0, PAD_CONTRACT | PAD_SELECT);
+    for _ in 0..3 {
+        sys.run_frame();
+    }
+    sys.bus.set_joypad(0, PAD_CONTRACT);
+    // `run_all_tests` clears R_DONE at its very start, well before the scene loop clears
+    // R_SCENE_DONE ~430 frames later, so R_DONE is the prompt signal that a restart began.
+    let mut cleared = false;
+    for _ in 0..30 {
+        sys.run_frame();
+        if sys.bus.peek_wram(R_DONE) != DONE_MARK {
+            cleared = true;
+            break;
+        }
+    }
+    assert!(
+        cleared,
+        "Select did not restart the battery — R_DONE never cleared"
+    );
+    // And that the restarted battery runs to completion — R_DONE set again — rather than hanging.
+    // R_SCENE_DONE is no use here: it is still set from the previous run until the scene loop
+    // clears it ~430 frames in, so waiting on it would read R_PASSED mid-restart.
+    let mut frames = 0;
+    while frames < MENU_FRAMES && sys.bus.peek_wram(R_DONE) != DONE_MARK {
+        sys.run_frame();
+        frames += 1;
+    }
+    assert_eq!(
+        sys.bus.peek_wram(R_DONE),
+        DONE_MARK,
+        "the restarted battery never finished"
+    );
+    // 283, not 284: F1.07 stands down as SKIP on a restart because its phase A needs the power-on
+    // value of $4218, which a soft restart cannot reproduce (the previous run armed auto-read). Its
+    // verdict byte is $FF (skip), not a fail code — that distinction is the whole point of the flag.
+    assert_eq!(
+        rd16(&sys, R_PASSED),
+        283,
+        "the restarted battery did not reproduce its result (minus the power-on-only F1.07)"
+    );
+    let f107_idx = catalog()
+        .iter()
+        .position(|t| t.id == "F1.07")
+        .expect("F1.07 is in the catalog");
+    assert_eq!(
+        sys.bus.peek_wram(R_STATUS_BASE + f107_idx as u32),
+        0xFF,
+        "F1.07 did not stand down as SKIP on the restart — it must not report a failure"
+    );
 }

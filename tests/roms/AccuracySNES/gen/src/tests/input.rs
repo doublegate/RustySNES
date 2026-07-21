@@ -99,6 +99,19 @@ fn f1_07() -> Test {
     a.l("rep #$30");
     a.l("phk");
     a.l("plb");
+    f1_require_contract(&mut a, "c07");
+    // Phase A reads $4218 as power-on leaves it, before anything arms auto-read. A menu Select
+    // restart re-runs the battery without a real power-on, and the previous run's F1.05/F1.06 have
+    // by then armed auto-read and left the pad state in $4218 -- so phase A can no longer read the
+    // unwritten value and the "arming changed something" guard cannot fire. This is a genuine
+    // power-on dependency, the same class as the Group G rows, so on a restart it stands down as
+    // SKIP rather than reporting a failure that only means "this was not a cold boot".
+    a.l("sep #$20");
+    a.l("lda f:V_RESTARTED");
+    a.l("beq :+");
+    a.skip("phase A needs power-on $4218; a menu restart is not a power-on");
+    a.l(":");
+    a.l("rep #$30");
     a.c("--- A: auto-read has never been armed, so $4218 is still whatever power-on left ---");
     a.l("lda $4218");
     a.l("sta f:$7E01EA");
@@ -191,6 +204,7 @@ fn f1_05() -> Test {
     a.l("rep #$30");
     a.l("phk");
     a.l("plb");
+    f1_require_contract(&mut a, "c05");
     f1_auto_read(&mut a, "sig");
     a.l("lda $4218");
     a.l("sta f:$7E01F0");
@@ -256,6 +270,7 @@ fn f1_06() -> Test {
     a.l("rep #$30");
     a.l("phk");
     a.l("plb");
+    f1_require_contract(&mut a, "c06");
     f1_auto_read(&mut a, "first");
     a.l("sep #$20");
     a.l("lda $4219");
@@ -370,6 +385,7 @@ fn f1_11() -> Test {
     a.l("rep #$30");
     a.l("phk");
     a.l("plb");
+    f1_require_contract(&mut a, "c11");
     a.c("--- A: the control. Latch low throughout, so the read is the ordinary one ---");
     a.l("sep #$20");
     a.l("stz $4016");
@@ -569,6 +585,7 @@ fn f1_12() -> Test {
     a.l("rep #$30");
     a.l("phk");
     a.l("plb");
+    f1_require_contract(&mut a, "c12");
     a.c("Arm auto-read, then take the frame after next so a poll has certainly begun.");
     a.l("sep #$20");
     a.l("lda #$01");
@@ -733,6 +750,50 @@ fn f1_14() -> Test {
     )
 }
 
+/// Emit: stand the test down as SKIP unless the host is holding [`PAD_CONTRACT`].
+///
+/// **Every Group F test that asserts against the contract must call this first.** The contract is a
+/// property of the *host*, not of the machine, and the three cross-validation runners are the only
+/// hosts that implement it. Run the cartridge in an ordinary emulator, or on hardware with a pad
+/// sitting untouched, and those tests were asserting against buttons nobody was holding — six of
+/// them reported FAIL, on a cart whose entire value is that a failure means something.
+///
+/// A test that depends on host configuration has to *detect its absence*, exactly like the
+/// armed-ness guards elsewhere in the battery. This is that guard, and it was missing from the
+/// contract's own tests until the cartridge was run outside the harness for the first time.
+///
+/// The read is open-coded rather than reusing `read_pad`: the runtime's copy runs once per frame in
+/// the menu, and a test asking "is the contract held *now*" should look now.
+fn f1_require_contract(a: &mut Asm, tag: &str) {
+    a.c("Skip unless the host holds the input contract — see f1_require_contract.");
+    a.l("sep #$20");
+    a.l("lda #$01");
+    a.l("sta $4016");
+    a.l("lda #$00");
+    a.l("sta $4016");
+    a.l("rep #$30");
+    a.l("lda #$0000");
+    a.l("sta f:$7E01E6");
+    a.l("ldx #$0010");
+    a.label(&format!("rq_{tag}"));
+    a.l("sep #$20");
+    a.l("lda $4016");
+    a.l("lsr");
+    a.l("rep #$20");
+    a.l("lda f:$7E01E6");
+    a.l("rol");
+    a.l("sta f:$7E01E6");
+    a.l("dex");
+    a.l(&format!("bne @rq_{tag}"));
+    a.l("lda f:$7E01E6");
+    a.l("cmp #PAD_CONTRACT");
+    a.l("beq :+");
+    a.skip(
+        "the host is not holding PAD_CONTRACT, so there is nothing for this row to assert against",
+    );
+    a.l(":");
+}
+
 /// The manual read order is `B Y Select Start Up Down Left Right A X L R`, MSB first.
 ///
 /// Writing `1` then `0` to `$4016` latches the pad and starts the shift register; each subsequent
@@ -767,6 +828,7 @@ fn f1_01() -> Test {
     a.l("rep #$30");
     a.l("phk");
     a.l("plb");
+    f1_require_contract(&mut a, "c01");
     a.c("Latch the pad, then clock sixteen bits into a 16-bit accumulator, MSB first.");
     a.l("sep #$20");
     a.l("lda #$01");

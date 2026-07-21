@@ -27872,6 +27872,44 @@ CATALOG_IMPL = 1
     .i16
     phk
     plb
+    ; Skip unless the host holds the input contract — see f1_require_contract.
+    sep #$20
+    .a8
+    lda #$01
+    sta $4016
+    lda #$00
+    sta $4016
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E01E6
+    ldx #$0010
+@rq_c01:
+    sep #$20
+    .a8
+    lda $4016
+    lsr
+    rep #$20
+    .a16
+    lda f:$7E01E6
+    rol
+    sta f:$7E01E6
+    dex
+    bne @rq_c01
+    lda f:$7E01E6
+    cmp #PAD_CONTRACT
+    beq :+
+    ; SKIP: the host is not holding PAD_CONTRACT, so there is nothing for this row to assert against
+    sep #$20
+    .a8
+    lda #VERDICT_SKIP
+    sta f:V_TEST_RESULT
+    jml test_restore
+    ; unreachable — restores the assembler's width belief only
+    .a16
+    .i16
+    :
     ; Latch the pad, then clock sixteen bits into a 16-bit accumulator, MSB first.
     sep #$20
     .a8
@@ -28063,6 +28101,61 @@ CATALOG_IMPL = 1
     .i16
     phk
     plb
+    ; Skip unless the host holds the input contract — see f1_require_contract.
+    sep #$20
+    .a8
+    lda #$01
+    sta $4016
+    lda #$00
+    sta $4016
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E01E6
+    ldx #$0010
+@rq_c07:
+    sep #$20
+    .a8
+    lda $4016
+    lsr
+    rep #$20
+    .a16
+    lda f:$7E01E6
+    rol
+    sta f:$7E01E6
+    dex
+    bne @rq_c07
+    lda f:$7E01E6
+    cmp #PAD_CONTRACT
+    beq :+
+    ; SKIP: the host is not holding PAD_CONTRACT, so there is nothing for this row to assert against
+    sep #$20
+    .a8
+    lda #VERDICT_SKIP
+    sta f:V_TEST_RESULT
+    jml test_restore
+    ; unreachable — restores the assembler's width belief only
+    .a16
+    .i16
+    :
+    sep #$20
+    .a8
+    lda f:V_RESTARTED
+    beq :+
+    ; SKIP: phase A needs power-on $4218; a menu restart is not a power-on
+    sep #$20
+    .a8
+    lda #VERDICT_SKIP
+    sta f:V_TEST_RESULT
+    jml test_restore
+    ; unreachable — restores the assembler's width belief only
+    .a16
+    .i16
+    :
+    rep #$30
+    .a16
+    .i16
     ; --- A: auto-read has never been armed, so $4218 is still whatever power-on left ---
     lda $4218
     sta f:$7E01EA
@@ -28157,6 +28250,44 @@ CATALOG_IMPL = 1
     .i16
     phk
     plb
+    ; Skip unless the host holds the input contract — see f1_require_contract.
+    sep #$20
+    .a8
+    lda #$01
+    sta $4016
+    lda #$00
+    sta $4016
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E01E6
+    ldx #$0010
+@rq_c05:
+    sep #$20
+    .a8
+    lda $4016
+    lsr
+    rep #$20
+    .a16
+    lda f:$7E01E6
+    rol
+    sta f:$7E01E6
+    dex
+    bne @rq_c05
+    lda f:$7E01E6
+    cmp #PAD_CONTRACT
+    beq :+
+    ; SKIP: the host is not holding PAD_CONTRACT, so there is nothing for this row to assert against
+    sep #$20
+    .a8
+    lda #VERDICT_SKIP
+    sta f:V_TEST_RESULT
+    jml test_restore
+    ; unreachable — restores the assembler's width belief only
+    .a16
+    .i16
+    :
     ; Arm auto-read and give it two frames (sig).
     sep #$20
     .a8
@@ -28232,6 +28363,44 @@ CATALOG_IMPL = 1
     .i16
     phk
     plb
+    ; Skip unless the host holds the input contract — see f1_require_contract.
+    sep #$20
+    .a8
+    lda #$01
+    sta $4016
+    lda #$00
+    sta $4016
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E01E6
+    ldx #$0010
+@rq_c06:
+    sep #$20
+    .a8
+    lda $4016
+    lsr
+    rep #$20
+    .a16
+    lda f:$7E01E6
+    rol
+    sta f:$7E01E6
+    dex
+    bne @rq_c06
+    lda f:$7E01E6
+    cmp #PAD_CONTRACT
+    beq :+
+    ; SKIP: the host is not holding PAD_CONTRACT, so there is nothing for this row to assert against
+    sep #$20
+    .a8
+    lda #VERDICT_SKIP
+    sta f:V_TEST_RESULT
+    jml test_restore
+    ; unreachable — restores the assembler's width belief only
+    .a16
+    .i16
+    :
     ; Arm auto-read and give it two frames (first).
     sep #$20
     .a8
@@ -28305,6 +28474,44 @@ CATALOG_IMPL = 1
     .i16
     phk
     plb
+    ; Skip unless the host holds the input contract — see f1_require_contract.
+    sep #$20
+    .a8
+    lda #$01
+    sta $4016
+    lda #$00
+    sta $4016
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E01E6
+    ldx #$0010
+@rq_c11:
+    sep #$20
+    .a8
+    lda $4016
+    lsr
+    rep #$20
+    .a16
+    lda f:$7E01E6
+    rol
+    sta f:$7E01E6
+    dex
+    bne @rq_c11
+    lda f:$7E01E6
+    cmp #PAD_CONTRACT
+    beq :+
+    ; SKIP: the host is not holding PAD_CONTRACT, so there is nothing for this row to assert against
+    sep #$20
+    .a8
+    lda #VERDICT_SKIP
+    sta f:V_TEST_RESULT
+    jml test_restore
+    ; unreachable — restores the assembler's width belief only
+    .a16
+    .i16
+    :
     ; --- A: the control. Latch low throughout, so the read is the ordinary one ---
     sep #$20
     .a8
@@ -28404,6 +28611,44 @@ CATALOG_IMPL = 1
     .i16
     phk
     plb
+    ; Skip unless the host holds the input contract — see f1_require_contract.
+    sep #$20
+    .a8
+    lda #$01
+    sta $4016
+    lda #$00
+    sta $4016
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E01E6
+    ldx #$0010
+@rq_c12:
+    sep #$20
+    .a8
+    lda $4016
+    lsr
+    rep #$20
+    .a16
+    lda f:$7E01E6
+    rol
+    sta f:$7E01E6
+    dex
+    bne @rq_c12
+    lda f:$7E01E6
+    cmp #PAD_CONTRACT
+    beq :+
+    ; SKIP: the host is not holding PAD_CONTRACT, so there is nothing for this row to assert against
+    sep #$20
+    .a8
+    lda #VERDICT_SKIP
+    sta f:V_TEST_RESULT
+    jml test_restore
+    ; unreachable — restores the assembler's width belief only
+    .a16
+    .i16
+    :
     ; Arm auto-read, then take the frame after next so a poll has certainly begun.
     sep #$20
     .a8
