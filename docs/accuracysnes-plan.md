@@ -646,6 +646,35 @@ is a linker-layout change, which is why the tests are withdrawn rather than patc
 
 `A4.04` and `A4.05` are reopened in `T-04-A` with that note attached.
 
+### `A5.09`/`A5.10` — written, passing, and held back: the measurement channel does not reconcile
+
+The `+1 m` and `+1 x` width penalties are the natural next timing rows, and unlike `A5.20` they are
+measurable in principle: both spans stay inside one scanline, so the narrow instrument never reaches
+the long dots at `H >= 323` or the line-length approximation behind `T-06-A`.
+
+Both tests were written, both passed on RustySNES, and `A5.09` and `A5.10` both passed on snes9x
+too. **They are still not shipped**, because the raw measurement channel says something that cannot
+be reconciled with the assertions:
+
+* `A5.10` asserts its difference is `32 +/- 2` and passes, while the slot it records that same
+  difference into reads **12**.
+* Slots 8 through 28 all read an identical **203**, which looks like a fill pattern rather than a
+  set of independent measurements.
+* Slots 0-6 read exactly `A5.08`'s documented values (24, 32, 76 for the three differentials), so
+  the host's slot mapping is demonstrably correct — the anomaly is not an off-by-N in the reader.
+
+An assertion that passes while its own recorded number disagrees with it is the `A5.20` failure mode
+with the polarity reversed: there, a coherent-looking number was wrong; here, a passing test is
+accompanied by an incoherent one. Either the `record` calls are not writing where they are read
+from, or the assertion is passing for a reason other than the one claimed. Shipping before knowing
+which would put a number in the pass rate that nothing has actually verified.
+
+**What to check first when this is picked up**: whether `record` and the stash address `$7E0096`
+survive `measure_result`'s `rep #$30` as expected; whether any earlier test writes into
+`$7EE210-$7EE23A`; and whether the 203s predate the battery (dump the channel before the first test
+runs). The tests themselves are straightforward and can be restored from this PR's history once the
+channel is trusted.
+
 ### `A8.06` — deferred: the battery has no interrupt infrastructure, by design
 
 `A8.06` ("`MVN` is interruptible mid-block — NMI + `RTI` resumes correctly") is the last unclaimed
