@@ -698,9 +698,22 @@ open question is whether the new picture is the correct one.** That needs adjudi
 references rather than assumed: re-blessing a golden because our own change produced it is exactly
 the circularity ADR 0003 exists to prevent. Concretely, before this lands:
 
-1. Run `hdmaen_latch_test`'s ROM on bsnes/ares and Mesen2 and compare their framebuffers against
-   both hashes. Those cores implement the 340-dot model, so if the new hash matches them the change
-   is a fix and the golden is re-blessed with that evidence recorded.
+1. Run `tests/roms/undisbeliever/hdmaen_latch_test_2.sfc` on snes9x and Mesen2 and compare their
+   framebuffers against both hashes. Those cores implement the 340-dot model, so if the new hash
+   matches them the change is a fix and the golden is re-blessed with that evidence recorded.
+
+   **The comparison is only valid if the hash is computed identically**, so match the in-repo
+   contract exactly (`crates/rustysnes-test-harness/tests/undisbeliever_golden.rs`):
+   boot, run **60 frames**, then **FNV-1a over the 15-bit-per-pixel framebuffer** — offset basis
+   `0xcbf29ce484222325`, prime `0x100000001b3`, one `u64` xor-then-multiply per pixel, in
+   framebuffer order.
+
+   **The existing crossval host cannot do this.** `scripts/accuracysnes/libretro_crossval.c` looks
+   for AccuracySNES's results block and hashes scene-keyed regions; an undisbeliever ROM has
+   neither. What is needed is a small generic host — load a libretro core, run 60 frames, hash the
+   frame with the function above — which is a strict subset of what that file already does, so it
+   is a cut-down copy rather than new plumbing. Mesen2's side can reuse `mesen_scenes.lua`'s
+   framebuffer access the same way.
 2. If they match the *old* hash, the change has a defect — most likely in where the line boundary
    now falls relative to the HDMA run — and the dot renumbering needs separating from the
    long-dot lengths so the two can be landed and judged independently.
