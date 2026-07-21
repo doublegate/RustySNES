@@ -432,12 +432,43 @@ instrument the cheaper explanation, but it does not make it the true one: the tw
 fully independent either, since both were written against the same published cycle tables, and a
 shared source can produce a shared error just as a shared instrument can.
 
-So the order is a triage order, not a verdict. The way in is a calibration test: measure a
-known-length spin — a `repeat` of instructions whose total is comparable to the sixteen-byte move —
-and check the harness returns the predicted dot count *at that scale*. If it does, the `MVN` figure
-is real and worth a defect report against both cores; if it does not, the harness needs a
-longer-window mode before any single-instruction timing can be asserted, and this row stays parked
-either way until one of the two is ruled out.
+So the order was a triage order, not a verdict — and the triage has since been run. **It is the
+instrument.**
+
+The calibration measured two `MVN`s and two `NOP` spins through the ordinary `measure_begin` /
+`measure_end` pair:
+
+| what | measured | predicted |
+|---|---:|---:|
+| `MVN`, 8 bytes | 326 dots | 92 + overhead |
+| `MVN`, 32 bytes | 327 dots | 368 + overhead |
+| 32 `NOP`s | 287 dots | 96 + overhead |
+| 64 `NOP`s | **58 dots** | 192 + overhead |
+
+Twenty-four extra moved bytes cost one dot, and **sixty-four `NOP`s measure less than thirty-two of
+them**. That last line is the proof, and it needs no model of the SNES at all: the instrument is not
+monotonic in the work it measures, so it is out of range. `hv_read_raw` returns the **9-bit H
+counter**, which wraps every scanline, and a measurement that overruns simply comes back small —
+nothing in the result says "out of range", which is why the first `MVN` reading looked like a
+finding instead of an artifact.
+
+Consequences worth carrying forward:
+
+* **The `A5` tests that exist are unaffected**, and it is worth stating the invariant that makes
+  them safe rather than a count. Each measures a short unrolled run — fifteen of them repeat an
+  instruction eight times and three repeat one sixteen times — and the property that matters is that
+  the *window* stays well below the 341-dot wrap, not the number of instructions in it. Sixteen
+  two-cycle instructions is 48 dots; the largest of them is nowhere near the cap. Anything added
+  later has to be checked against the wrap, not against these counts: **the safe quantity is the
+  measured span, and there is no guard on it.**
+* **`A5.20` needs a wider instrument**, one that counts dots since the top of the frame rather than
+  within a line — V as well as H. A first attempt at exactly that (`hv_read_wide`, reading `$213D`
+  alongside `$213C` and folding `V * 341 + H` through the hardware multiplier) was written and
+  **also produced non-monotonic numbers**, so it is not in the tree. Latching H and V from two
+  separate `$2137` reads is the likeliest culprit — they must come from one latch — and whoever
+  picks this up should start there rather than from scratch.
+* Until then, **no single-instruction timing can be asserted on this cart**, which retires the
+  `MVN` "finding" completely: 13 dots was the difference of two wrapped readings.
 
 Nothing is shipped either way. A test that cannot distinguish "the core is wrong" from "the
 instrument is wrong" asserts nothing.
