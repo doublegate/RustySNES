@@ -841,3 +841,17 @@ fn vram_read_latch_order_is_reported() {
         );
     }
 }
+
+/// `E4.03`'s two zero-page halves, reported so a failure can be read.
+#[test]
+fn ipl_zero_fill_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E4.03 APU zero page after IPL boot:");
+    println!(
+        "    slot 93  {:#04x}  $01, the IPL's transfer pointer high byte",
+        report.meas[93]
+    );
+    println!("    slot 94  {:#04x}  OR of $02-$1F", report.meas[94]);
+    println!("    slot 95  {:#04x}  OR of $20-$EF", report.meas[95]);
+}

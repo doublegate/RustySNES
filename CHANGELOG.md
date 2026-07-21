@@ -557,6 +557,34 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E4.03` — the IPL boot ROM zero-fills APU RAM `$0000-$00EF`.** The first version of this test
+  could not fail, and finding out why is most of what it is worth reporting.
+
+  Written the obvious way — upload a program, check the zero page is zero, and place it first in the
+  group so nothing else could have dirtied it — it passed on every core. It also proved nothing:
+  **RustySNES, snes9x and Mesen2 all boot APU RAM as all-zero**, so a core that never ran the fill
+  produces an identical reading. An armed-ness probe at `$0420`, outside the filled range, read
+  `$00` on all three and confirmed the assertions were unfalsifiable.
+
+  The fix came from reading `release_to_ipl`: it jumps to **`$FFC0`**, the IPL's *reset* entry, and
+  the zero-fill is the first thing there — so the fill runs again before every upload. The way to
+  make the test falsifiable was therefore not to run before anything else, but to dirty the range
+  deliberately and go back through the IPL. It now uploads two programs: one fills `$02-$EF` with
+  `$FF` and releases, the second sweeps and reports. Verified by NOPing the `MOV (X),A` in the IPL
+  ROM's fill loop — both halves come back `$FF` and the test fails. Being self-arming, it also no
+  longer depends on its position in the group.
+
+  `$00`/`$01` are excluded and reported instead of asserted: they are the IPL's own transfer-
+  destination pointer, measured as `$01 = $02`, the high byte of the `$0200` upload address.
+
+  It also surfaced a latent coupling: **`E4.04` depends on the preceding program having overwritten
+  port 1.** It polls port 1 for the boot ROM's `$BB` and then asserts port 0 reads `$AA`, which is
+  only sound if a stale `$BB` is not already sitting there — otherwise the poll matches instantly
+  and port 0 is read while the SMP is still working through the fill. Every other program happens to
+  write `PORT1` with a result; the first version of `E4.03` did not, and `E4.04` failed immediately
+  after it. `E4.03` now reports `$01` there, restoring the invariant deliberately rather than by
+  accident.
+
 - **`G1.19` — the documented power-on register state, for the parts a cartridge can observe.**
   `$4200-$420D` are write-only, so "what did reset leave here" cannot be answered by reading them
   back; each register needs its own indirect channel. Two more are now sampled in

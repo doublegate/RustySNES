@@ -11923,7 +11923,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -12060,7 +12060,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -12168,7 +12168,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -12280,7 +12280,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -12392,7 +12392,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -12505,7 +12505,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -12617,7 +12617,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -12729,7 +12729,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -12850,7 +12850,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -12961,7 +12961,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -13082,7 +13082,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -13205,7 +13205,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -13301,7 +13301,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -13409,7 +13409,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -13530,7 +13530,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -13634,7 +13634,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -13730,7 +13730,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -13832,7 +13832,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -13936,7 +13936,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -14038,7 +14038,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -14134,7 +14134,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -14256,7 +14256,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -14379,7 +14379,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -14475,7 +14475,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -14571,7 +14571,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -14681,7 +14681,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -14789,7 +14789,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -14908,7 +14908,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -15016,7 +15016,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -15124,7 +15124,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -15249,7 +15249,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -15361,7 +15361,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -15483,7 +15483,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -15605,7 +15605,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -15727,7 +15727,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -15835,7 +15835,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -15944,7 +15944,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -16024,6 +16024,195 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; E4.03 — IPL zerofills $00-$EF
+; provenance: Documented (the canonical 64-byte IPL listing zero-fills $0000-$00EF as the first thing it does at $FFC0, before entering its transfer loop; fullsnes and the SNESdev Wiki both carry it)
+.proc test_e4_03
+    .a16
+    .i16
+    ; Phase 1: dirty APU RAM $02-$EF with $FF, then hand back to the IPL.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image, which lives in another bank.
+    lda #.loword(apu_prog_37)
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    lda #^apu_prog_37
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #30
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsl apu_upload_far
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait_d:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran_d
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait_d
+    jmp @timeout
+@ran_d:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    ; Phase 2: the release above re-entered the IPL at $FFC0, whose first act is the zero-fill.
+    ; Anything still $FF here was not cleaned.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image, which lives in another bank.
+    lda #.loword(apu_prog_38)
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    lda #^apu_prog_38
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #48
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsl apu_upload_far
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait_c:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran_c
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait_c
+    jmp @timeout
+@ran_c:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    ; Record everything before judging: which half fails changes what the failure means.
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0100
+    and #$00FF
+    ; record slot 93: E4.03 APU RAM $01 — the IPL transfer pointer, high byte of the upload address
+    sta f:$7EE2BA
+    lda f:$7E0101
+    and #$00FF
+    ; record slot 94: E4.03 OR of APU RAM $02-$1F after the IPL re-entry
+    sta f:$7EE2BC
+    lda f:$7E0102
+    and #$00FF
+    ; record slot 95: E4.03 OR of APU RAM $20-$EF after the IPL re-entry
+    sta f:$7EE2BE
+    sep #$20
+    .a8
+    lda f:$7E0101
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E0102
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jml test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; APU RAM $02-$1F still held the $FF this test wrote before handing back to the IPL: the boot ROM's zero-fill did not run, or did not reach this far
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; APU RAM $20-$EF still held the $FF this test wrote before handing back to the IPL: the zero-fill stopped short of the documented $00EF
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; E4.04 — IPL ready announcement
 ; provenance: Documented (fullsnes, SNESdev Wiki, APU boot handshake)
 .proc test_e4_04
@@ -16088,11 +16277,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_37)
+    lda #.loword(apu_prog_39)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_37
+    lda #^apu_prog_39
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -16129,7 +16318,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -16190,11 +16379,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_38)
+    lda #.loword(apu_prog_40)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_38
+    lda #^apu_prog_40
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -16231,7 +16420,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -16292,11 +16481,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_39)
+    lda #.loword(apu_prog_41)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_39
+    lda #^apu_prog_41
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -16333,7 +16522,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -16388,11 +16577,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_40)
+    lda #.loword(apu_prog_42)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_40
+    lda #^apu_prog_42
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -16429,7 +16618,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -16484,11 +16673,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_41)
+    lda #.loword(apu_prog_43)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_41
+    lda #^apu_prog_43
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -16525,7 +16714,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -16593,11 +16782,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_42)
+    lda #.loword(apu_prog_44)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_42
+    lda #^apu_prog_44
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -16634,7 +16823,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -16691,11 +16880,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_43)
+    lda #.loword(apu_prog_45)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_43
+    lda #^apu_prog_45
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -16732,7 +16921,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -16801,11 +16990,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_44)
+    lda #.loword(apu_prog_46)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_44
+    lda #^apu_prog_46
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -16842,7 +17031,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -16903,11 +17092,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_45)
+    lda #.loword(apu_prog_47)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_45
+    lda #^apu_prog_47
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -16944,7 +17133,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -16999,11 +17188,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_46)
+    lda #.loword(apu_prog_48)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_46
+    lda #^apu_prog_48
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -17040,7 +17229,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -17101,11 +17290,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_47)
+    lda #.loword(apu_prog_49)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_47
+    lda #^apu_prog_49
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -17142,7 +17331,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -17197,11 +17386,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_48)
+    lda #.loword(apu_prog_50)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_48
+    lda #^apu_prog_50
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -17238,7 +17427,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -17299,11 +17488,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_49)
+    lda #.loword(apu_prog_51)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_49
+    lda #^apu_prog_51
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -17340,7 +17529,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -17395,11 +17584,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_50)
+    lda #.loword(apu_prog_52)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_50
+    lda #^apu_prog_52
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -17436,7 +17625,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -17491,11 +17680,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_51)
+    lda #.loword(apu_prog_53)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_51
+    lda #^apu_prog_53
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -17532,7 +17721,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -17587,11 +17776,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_52)
+    lda #.loword(apu_prog_54)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_52
+    lda #^apu_prog_54
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -17628,7 +17817,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -17683,11 +17872,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_53)
+    lda #.loword(apu_prog_55)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_53
+    lda #^apu_prog_55
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -17724,7 +17913,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -17779,11 +17968,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_54)
+    lda #.loword(apu_prog_56)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_54
+    lda #^apu_prog_56
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -17820,7 +18009,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -17877,11 +18066,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_55)
+    lda #.loword(apu_prog_57)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_55
+    lda #^apu_prog_57
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -17918,7 +18107,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -17975,11 +18164,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_56)
+    lda #.loword(apu_prog_58)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_56
+    lda #^apu_prog_58
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -18016,7 +18205,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -18073,11 +18262,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_57)
+    lda #.loword(apu_prog_59)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_57
+    lda #^apu_prog_59
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -18114,7 +18303,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -18171,11 +18360,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_58)
+    lda #.loword(apu_prog_60)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_58
+    lda #^apu_prog_60
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -18212,7 +18401,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -18292,11 +18481,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_59)
+    lda #.loword(apu_prog_61)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_59
+    lda #^apu_prog_61
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -18333,7 +18522,7 @@ CATALOG_IMPL = 1
     inx
     cpx #$8000
     bne @wait
-    bra @timeout
+    jmp @timeout
 @ran:
     ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
     ; overwrites ports 0 and 1 with its $AA/$BB announcement.
@@ -22316,6 +22505,15 @@ apu_prog_36:
     .byte $F7, $CD, $EF, $BD, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5
     .byte $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
 apu_prog_37:
+    .byte $CD, $EF, $BD, $E8, $FF, $CD, $02, $C6, $3D, $C8, $F0, $D0
+    .byte $FA, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8
+    .byte $80, $C4, $F1, $5F, $C0, $FF
+apu_prog_38:
+    .byte $CD, $EF, $BD, $E4, $01, $C4, $F5, $E8, $00, $CD, $02, $06
+    .byte $3D, $C8, $20, $D0, $FA, $C4, $F6, $E8, $00, $CD, $20, $06
+    .byte $3D, $C8, $F0, $D0, $FA, $C4, $F7, $E8, $5A, $C4, $F4, $E4
+    .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+apu_prog_39:
     .byte $5F, $0C, $02, $83, $88, $88, $88, $88, $88, $88, $88, $88
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -22339,7 +22537,7 @@ apu_prog_37:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_38:
+apu_prog_40:
     .byte $5F, $0C, $02, $83, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -22363,7 +22561,7 @@ apu_prog_38:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_39:
+apu_prog_41:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -22392,7 +22590,7 @@ apu_prog_39:
     .byte $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4
     .byte $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0
     .byte $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_40:
+apu_prog_42:
     .byte $5F, $0C, $02, $81, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -22416,7 +22614,7 @@ apu_prog_40:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_41:
+apu_prog_43:
     .byte $CD, $EF, $BD, $E8, $6C, $C4, $F2, $E8, $20, $C4, $F3, $E8
     .byte $6D, $C4, $F2, $E8, $30, $C4, $F3, $E8, $7D, $C4, $F2, $E8
     .byte $00, $C4, $F3, $E8, $4D, $C4, $F2, $E8, $00, $C4, $F3, $E8
@@ -22430,7 +22628,7 @@ apu_prog_41:
     .byte $20, $C4, $F3, $E5, $00, $30, $C4, $F5, $E5, $04, $30, $C4
     .byte $F6, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8
     .byte $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_42:
+apu_prog_44:
     .byte $5F, $0C, $02, $83, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -22455,7 +22653,7 @@ apu_prog_42:
     .byte $6C, $C4, $F2, $E8, $20, $C4, $F3, $E5, $00, $30, $C4, $F5
     .byte $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80
     .byte $C4, $F1, $5F, $C0, $FF
-apu_prog_43:
+apu_prog_45:
     .byte $CD, $EF, $BD, $E8, $6D, $C4, $F2, $E8, $30, $C4, $F3, $E8
     .byte $7D, $C4, $F2, $E8, $00, $C4, $F3, $E8, $4D, $C4, $F2, $E8
     .byte $00, $C4, $F3, $E8, $2C, $C4, $F2, $E8, $00, $C4, $F3, $E8
@@ -22469,7 +22667,7 @@ apu_prog_43:
     .byte $E5, $00, $30, $C4, $F6, $E8, $6C, $C4, $F2, $E8, $20, $C4
     .byte $F3, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8
     .byte $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_44:
+apu_prog_46:
     .byte $5F, $0C, $02, $83, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -22495,7 +22693,7 @@ apu_prog_44:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_45:
+apu_prog_47:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -22521,7 +22719,7 @@ apu_prog_45:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_46:
+apu_prog_48:
     .byte $5F, $0C, $02, $83, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -22545,7 +22743,7 @@ apu_prog_46:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_47:
+apu_prog_49:
     .byte $5F, $0C, $02, $D3, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -22569,7 +22767,7 @@ apu_prog_47:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_48:
+apu_prog_50:
     .byte $5F, $0C, $02, $87, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -22593,7 +22791,7 @@ apu_prog_48:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_49:
+apu_prog_51:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -22617,7 +22815,7 @@ apu_prog_49:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_50:
+apu_prog_52:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -22645,7 +22843,7 @@ apu_prog_50:
     .byte $F3, $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8
     .byte $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4
     .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_51:
+apu_prog_53:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -22669,7 +22867,7 @@ apu_prog_51:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_52:
+apu_prog_54:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -22693,7 +22891,7 @@ apu_prog_52:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_53:
+apu_prog_55:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -22717,7 +22915,7 @@ apu_prog_53:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_54:
+apu_prog_56:
     .byte $5F, $DB, $02, $80, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $80, $77, $77, $77, $77, $77, $77, $77, $77, $80, $77, $77
     .byte $77, $77, $77, $77, $77, $77, $80, $77, $77, $77, $77, $77
@@ -22758,7 +22956,7 @@ apu_prog_54:
     .byte $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $09
     .byte $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
     .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_55:
+apu_prog_57:
     .byte $5F, $DB, $02, $80, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $80, $77, $77, $77, $77, $77, $77, $77, $77, $80, $77, $77
     .byte $77, $77, $77, $77, $77, $77, $80, $77, $77, $77, $77, $77
@@ -22803,7 +23001,7 @@ apu_prog_55:
     .byte $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A
     .byte $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1
     .byte $5F, $C0, $FF
-apu_prog_56:
+apu_prog_58:
     .byte $5F, $DB, $02, $80, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $80, $77, $77, $77, $77, $77, $77, $77, $77, $80, $77, $77
     .byte $77, $77, $77, $77, $77, $77, $80, $77, $77, $77, $77, $77
@@ -22844,7 +23042,7 @@ apu_prog_56:
     .byte $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $09
     .byte $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
     .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_57:
+apu_prog_59:
     .byte $5F, $DB, $02, $80, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $80, $77, $77, $77, $77, $77, $77, $77, $77, $80, $77, $77
     .byte $77, $77, $77, $77, $77, $77, $80, $77, $77, $77, $77, $77
@@ -22884,12 +23082,12 @@ apu_prog_57:
     .byte $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $09
     .byte $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
     .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_58:
+apu_prog_60:
     .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $01, $FC, $E4, $FD, $E4
     .byte $FF, $8F, $85, $F1, $8D, $18, $FE, $FE, $8F, $80, $F1, $E4
     .byte $FD, $C4, $F6, $E4, $FF, $C4, $F7, $E8, $5A, $C4, $F4, $E4
     .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_59:
+apu_prog_61:
     .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $0B, $F0, $8F, $81, $F1
     .byte $8D, $00, $FE, $FE, $8F, $80, $F1, $E4, $FD, $C4, $F6, $8F
     .byte $0A, $F0, $8F, $81, $F1, $8D, $00, $FE, $FE, $8F, $80, $F1
@@ -22903,7 +23101,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 271
+    .word 272
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -23111,6 +23309,7 @@ _test_entries:
     .faraddr test_e2_07
     .faraddr test_e4_01
     .faraddr test_e4_02
+    .faraddr test_e4_03
     .faraddr test_e4_04
     .faraddr test_e5_02
     .faraddr test_e7_16
@@ -23385,6 +23584,7 @@ _test_flags:
     .byte $01   ; E2.07
     .byte $01   ; E4.01
     .byte $01   ; E4.02
+    .byte $01   ; E4.03
     .byte $01   ; E4.04
     .byte $01   ; E5.02
     .byte $01   ; E7.16
@@ -23659,6 +23859,7 @@ _test_names:
     .addr @n_e2_07
     .addr @n_e4_01
     .addr @n_e4_02
+    .addr @n_e4_03
     .addr @n_e4_04
     .addr @n_e5_02
     .addr @n_e7_16
@@ -24338,6 +24539,9 @@ _test_names:
 @n_e4_02:
     .byte 17
     .byte "IPL handoff state"
+@n_e4_03:
+    .byte 21
+    .byte "IPL zerofills $00-$EF"
 @n_e4_04:
     .byte 22
     .byte "IPL ready announcement"

@@ -114,6 +114,23 @@ impl Spc {
         self.push(&[0xE4, dp])
     }
 
+    /// `MOV (X),A` — `$C6`. Stores `A` at the direct-page address `X` points at.
+    ///
+    /// The counterpart to [`Spc::or_a_x_ind`], and it exists for the same test: `E4.03` has to
+    /// *dirty* the zero page before it can prove the IPL cleans it.
+    pub fn mov_x_ind_a(&mut self) -> &mut Self {
+        self.push(&[0xC6])
+    }
+
+    /// `OR A,(X)` — `$06`. Ors `A` with the direct-page byte `X` points at.
+    ///
+    /// The indirect form rather than `OR A,dp+X` because the index *is* the address here: `E4.03`
+    /// sweeps the whole zero page accumulating a single OR, and only backward branches exist in
+    /// this builder, so a loop that cannot exit early is the shape that fits.
+    pub fn or_a_x_ind(&mut self) -> &mut Self {
+        self.push(&[0x06])
+    }
+
     /// `MOV A,dp+X` — `$F4`. The index wraps **within the direct page**, so `$FF + 2` is `$01`,
     /// not `$0101`.
     pub fn mov_a_dp_x(&mut self, dp: u8) -> &mut Self {

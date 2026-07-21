@@ -77,6 +77,7 @@ pub fn all() -> Vec<Test> {
         e2_07(),
         e4_01(),
         e4_02(),
+        e4_03(),
         e4_04(),
         e5_02(),
         e7_16(),
@@ -115,6 +116,15 @@ pub fn all() -> Vec<Test> {
 /// one of those, so an undocumented width here would have the assembler and the CPU disagreeing
 /// about the size of the next immediate — and every instruction after it shifted.
 fn upload_and_run(a: &mut Asm, prog: &Spc) {
+    upload_and_run_tagged(a, prog, "");
+}
+
+/// [`upload_and_run`] with a suffix on its cheap-local labels, so one test can run two programs.
+///
+/// `E4.03` needs exactly that: one program to dirty the APU zero page and a second to observe that
+/// the IPL cleaned it on the way back in. Without distinct labels the second upload redefines
+/// `@wait` and `@ran` and the assembler rejects the file.
+fn upload_and_run_tagged(a: &mut Asm, prog: &Spc, tag: &str) {
     // The image goes in the out-of-bank data segment, not inline in the test body: these are
     // several hundred bytes each and bank $00 is finite. `apu_upload` takes a 24-bit pointer
     // anyway, so nothing about the upload cares where it lives.
@@ -150,17 +160,19 @@ fn upload_and_run(a: &mut Asm, prog: &Spc) {
     a.c("otherwise hang the whole battery and report nothing about any other test.");
     a.l("rep #$30");
     a.l("ldx #$0000");
-    a.label("wait");
+    a.label(&format!("wait{tag}"));
     a.l("sep #$20");
     a.l("lda APUIO0");
     a.l(&format!("cmp #${DONE:02X}"));
-    a.l("beq @ran");
+    a.l(&format!("beq @ran{tag}"));
     a.l("rep #$30");
     a.l("inx");
     a.l("cpx #$8000");
-    a.l("bne @wait");
-    a.l("bra @timeout");
-    a.label("ran");
+    a.l(&format!("bne @wait{tag}"));
+    // `jmp`, not `bra`: a test that runs two programs (E4.03) puts the whole second upload
+    // between this branch and the shared timeout arm, which is well past a branch's reach.
+    a.l("jmp @timeout");
+    a.label(&format!("ran{tag}"));
     a.c(
         "Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM",
     );
@@ -190,6 +202,159 @@ fn apu_timeout_arm(a: &mut Asm) {
     a.l("sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker");
     a.l("jml test_restore");
     a.label("pass");
+}
+
+/// The IPL boot ROM zero-fills APU RAM `$0000-$00EF` before handing control to a program.
+///
+/// A driver may assume its zero page starts clear, and on a core that skips the fill it instead
+/// starts with whatever the RAM powered up holding — which `E4.11` records as a repeating
+/// `32x$00, 32x$FF` pattern, so half of it is `$FF`. That is the difference between a silent driver
+/// and a screaming one.
+///
+/// # This test must run before any other APU program, and the reason is mechanical
+///
+/// The fill happens once, at APU **reset**. Releasing a program back to the IPL re-enters its
+/// transfer loop, not its reset path, so the zero page is never refilled for the rest of the
+/// session. Every later program in this group runs with its direct page at `$00` and writes
+/// variables there — `$01`, `$10`-`$15` and `$20` are all in use across `E1`-`E9`. By the time any
+/// of them has run, "is the zero page clear?" has a different and uninteresting answer.
+///
+/// So this is the **first** entry in [`all`], and that placement is load-bearing rather than
+/// cosmetic. The same coupling `E4.02` documents for the `PSW` handoff, one step earlier.
+///
+/// # It reports two halves so a failure says which kind it is
+///
+/// The range is swept in two loops and reported separately: `$00-$1F`, which is exactly where the
+/// other programs in this group keep their variables, and `$20-$EF`, which nothing in the battery
+/// touches. A failure confined to the low half is almost certainly a test-ordering accident — this
+/// test running after something else — and the failure message says so. A failure in the high half
+/// cannot be that, and means the fill genuinely did not happen.
+///
+/// # Shape
+///
+/// Only backward branches exist in the `Spc` builder, deliberately, so there is no early exit: each
+/// loop ORs every byte in its range into `A` and the accumulated value is reported at the end. A
+/// single non-zero bit anywhere in a range shows up in that range's OR. The program touches no
+/// direct-page address itself — its prologue only sets `SP`, and its results go to the port
+/// registers at `$F4`-`$F7`, which are not RAM.
+/// The IPL boot ROM zero-fills APU RAM `$0000-$00EF` every time it is entered at `$FFC0`.
+///
+/// A driver may assume its zero page starts clear, and on a core that skips the fill it instead
+/// starts with whatever the RAM held before — which is the difference between a silent driver and a
+/// screaming one.
+///
+/// # The obvious version of this test cannot fail, and that is the whole story here
+///
+/// It was first written as "upload a program, check the zero page is zero", placed first in the
+/// group so no other program could have dirtied it. It passed everywhere — and proved nothing.
+/// **RustySNES, snes9x and Mesen2 all boot APU RAM as all-zero**, so a core that never ran the
+/// zero-fill at all would produce exactly the same reading. An armed-ness probe added at `$0420`
+/// (outside the filled range) read `$00` on all three, confirming the assertions could not fail.
+///
+/// The fix came from reading `release_to_ipl`: it jumps to **`$FFC0`**, the IPL's *reset* entry,
+/// and the zero-fill is the first thing there. So the fill runs again before every upload — which
+/// means the way to make this falsifiable is not to run *before* anything else, but to dirty the
+/// range deliberately and then go back through the IPL.
+///
+/// So the test uploads two programs. The first fills `$02-$EF` with `$FF` and releases; the second
+/// sweeps the same range and reports it. A core that does not zero-fill returns `$FF`, and the
+/// assertion has something to catch. Being self-arming, it also no longer depends on its position
+/// in the group.
+///
+/// `$00`/`$01` are excluded rather than asserted: they are the IPL's own transfer-destination
+/// pointer, so it necessarily leaves them holding the upload address — measured as `$01 = $02`,
+/// the high byte of the `$0200` destination, and reported rather than asserted. A test demanding
+/// the whole range be zero would be asserting against the mechanism that does the filling.
+///
+/// # It must write `PORT1`, and that is `E4.04`'s requirement rather than this test's
+///
+/// `E4.04` polls port 1 for the boot ROM's `$BB` and then asserts port 0 reads `$AA`. That is only
+/// sound if port 1 does *not* already hold `$BB` from an earlier announcement — otherwise the poll
+/// matches instantly and port 0 is read while the SMP is still working through the zero-fill.
+/// Every other program in this group happens to write `PORT1` with a result and so clears it. The
+/// first version of this test did not, and `E4.04` failed immediately after it. Reporting `$01`
+/// there restores the invariant deliberately instead of by accident.
+///
+/// # Shape
+///
+/// Only backward branches exist in the `Spc` builder, deliberately, so neither loop can exit early;
+/// each ORs every byte in its range into `A` and reports the accumulated value. The range is swept
+/// in two halves so a partial fill says where it stopped.
+fn e4_03() -> Test {
+    // Phase 1: fill $02-$EF with $FF, so the range is unambiguously dirty. $00/$01 are left alone
+    // -- they are the IPL's own transfer pointer and it rewrites them on the next upload anyway.
+    let mut dirty = Spc::new();
+    dirty.mov_x_imm(0xEF).mov_sp_x();
+    dirty.mov_a_imm(0xFF).mov_x_imm(0x02);
+    let fill = dirty.here();
+    dirty.mov_x_ind_a().inc_x().cmp_x_imm(0xF0).bne_back(fill);
+    dirty.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    // Phase 2: after the release has taken the SMP back through $FFC0, sweep the same range.
+    let mut check = Spc::new();
+    check.mov_x_imm(0xEF).mov_sp_x();
+    // $01 is the IPL's own transfer-destination pointer, so it necessarily holds the upload
+    // address rather than zero. Reported for its own sake -- and reporting it also writes PORT1,
+    // which E4.04 depends on: see the note in this test's doc comment.
+    check.mov_a_dp(0x01).mov_dp_a(PORT1);
+    check.mov_a_imm(0x00).mov_x_imm(0x02);
+    let low = check.here();
+    check.or_a_x_ind().inc_x().cmp_x_imm(0x20).bne_back(low);
+    check.mov_dp_a(PORT2);
+    check.mov_a_imm(0x00).mov_x_imm(0x20);
+    let high = check.here();
+    check.or_a_x_ind().inc_x().cmp_x_imm(0xF0).bne_back(high);
+    check.mov_dp_a(PORT3);
+    check.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    a.c("Phase 1: dirty APU RAM $02-$EF with $FF, then hand back to the IPL.");
+    upload_and_run_tagged(&mut a, &dirty, "_d");
+    a.c(
+        "Phase 2: the release above re-entered the IPL at $FFC0, whose first act is the zero-fill.",
+    );
+    a.c("Anything still $FF here was not cleaned.");
+    upload_and_run_tagged(&mut a, &check, "_c");
+    a.c("Record everything before judging: which half fails changes what the failure means.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(
+        93,
+        "E4.03 APU RAM $01 — the IPL transfer pointer, high byte of the upload address",
+    );
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(94, "E4.03 OR of APU RAM $02-$1F after the IPL re-entry");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.record(95, "E4.03 OR of APU RAM $20-$EF after the IPL re-entry");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x00,
+        "APU RAM $02-$1F still held the $FF this test wrote before handing back to the IPL: the \
+         boot ROM's zero-fill did not run, or did not reach this far",
+    );
+    a.l("lda f:$7E0102");
+    a.assert_a8(
+        0x00,
+        "APU RAM $20-$EF still held the $FF this test wrote before handing back to the IPL: the \
+         zero-fill stopped short of the documented $00EF",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E4.03",
+        'E',
+        "IPL zerofills $00-$EF",
+        Provenance::Documented(
+            "the canonical 64-byte IPL listing zero-fills $0000-$00EF as the first thing it does \
+             at $FFC0, before entering its transfer loop; fullsnes and the SNESdev Wiki both \
+             carry it",
+        ),
+        Kind::Scored,
+        None,
+    )
 }
 
 /// `MUL YA` takes its N and Z flags from `Y` alone.

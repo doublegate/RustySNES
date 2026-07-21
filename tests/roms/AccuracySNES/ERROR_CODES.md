@@ -2004,6 +2004,15 @@ Provenance: **Documented** (fullsnes, SNESdev Wiki, APU boot handshake). Kind: s
 | 2 | `$04` | the IPL handed over with X non-zero |
 | 3 | `$06` | the IPL handed over with A or Y non-zero (they are reported ORed together) |
 
+### E4.03 — IPL zerofills $00-$EF
+
+Provenance: **Documented** (the canonical 64-byte IPL listing zero-fills $0000-$00EF as the first thing it does at $FFC0, before entering its transfer loop; fullsnes and the SNESdev Wiki both carry it). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | APU RAM $02-$1F still held the $FF this test wrote before handing back to the IPL: the boot ROM's zero-fill did not run, or did not reach this far |
+| 2 | `$04` | APU RAM $20-$EF still held the $FF this test wrote before handing back to the IPL: the zero-fill stopped short of the documented $00EF |
+
 ### E4.04 — IPL ready announcement
 
 Provenance: **Documented** (fullsnes, SNESdev Wiki, APU boot handshake). Kind: scored.
