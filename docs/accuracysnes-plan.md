@@ -831,6 +831,34 @@ So it ships as a golden vector reporting `(latched H - HTIME)` in 4-dot buckets:
 stable across alignment, fine enough that a core waking a scanline late announces itself. Both cores
 report variant 5. Asserting "1 cycle" from this would be measuring the instrument.
 
+### `D2.08` — attempted by counting transfers, withdrawn: the count measures the wrong thing
+
+The claim is that writing `$420C` mid-frame starts the channel on the **next** line, which is worth
+exactly one transfer — so the test has to count to a resolution of one, without depending on where
+the visible region ends.
+
+The design solved that part. Two passes, differenced: arm during vblank (transfers on every visible
+line, `L + 1`) against arm at line 50 (`L - 50` if it starts next line, `L - 49` if immediately).
+`A - B` is 51 or 50 and the unknown `L` cancels. `WMADD` auto-increments per `$2180` write, so the
+count is just the offset of the first byte still zero in a cleared page, and a two-entry repeat
+table covers 254 lines without a per-line table.
+
+**It measures something else.** Measured on snes9x: pass A counted **225** transfers, which is
+exactly right for a 224-line visible region — but pass B counted **28**, not the expected 174.
+
+The reason is the thing this row sits next to. **A channel enabled mid-frame never runs its
+per-frame init**, which happens at `V = 0` and is what loads the table pointer and line counter.
+Arming at line 50 therefore starts a channel whose table state is whatever it was left as, and it
+terminates early when that stale line counter runs out. The transfer count is dominated by the
+stale state, not by which line the channel started on. `setup_hdma_to_wram` already carries the
+warning — *"enabling HDMA mid-frame is its own erratum (D2.09)"* — and this is that erratum
+swallowing the row next to it.
+
+**What a working version needs:** observe the *first transfer's line* directly rather than counting
+transfers. An HV-IRQ handler armed on successive candidate lines, reading the landing byte the way
+`D2.01`'s probes do, answers "did line N carry a transfer" without depending on how many followed
+it. That also keeps `D2.08` separable from `D2.09` instead of measuring their product.
+
 ### `D2.01` — attempted with a dot bracket, withdrawn: line and dot are conflated
 
 The plan called for a bracket rather than an exact dot, since fullsnes and anomie say the per-line
