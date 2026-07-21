@@ -1184,3 +1184,16 @@ fn brr_15_bit_overflow_is_reported() {
         report.meas[206]
     );
 }
+
+/// Report `E9.15`'s one-voice and two-voice mix readings.
+#[test]
+fn voice_mix_saturation_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E9.15 echo byte 1 (left high) at shift 12, nibble +7:");
+    println!(
+        "    slot 207  {:#04x}  one voice (the guard)",
+        report.meas[207]
+    );
+    println!("    slot 208  {:#04x}  two voices", report.meas[208]);
+}

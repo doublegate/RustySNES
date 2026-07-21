@@ -575,6 +575,17 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E9.15` — does the per-voice mix saturate after each addition?** Two voices each near the
+  positive limit come out *at* the limit, not at their arithmetic sum reinterpreted as a negative
+  number. The mix is not readable, so `EON` routes both voices into the echo buffer — ordinary APU
+  RAM the program reads back — with `EVOL` and `EFB` at zero so what lands there is the summed voice
+  output and nothing else. A constant `+7` nibble at shift 12 decodes to `$7000`: high enough that
+  two exceed the limit, low enough that one does not. One voice reads `$6E`, two read `$7F`.
+  The one-voice reading is asserted first and bounded on *both* sides — a single voice that was
+  already silent, negative, or already saturated makes the two-voice reading uninterpretable.
+  Verified by replacing the per-voice clamp with a 16-bit wrap, which leaves the one-voice reading
+  untouched at `$6E` and flips the two-voice one to `$DC`.
+
 - **`E6.09` — does the gaussian accumulator wrap or saturate?** Interpolation sums four weighted
   taps in a 16-bit intermediate, and the row says the second addition wraps. A constant `$8` nibble
   at shift 12 gives four identical maximally-negative taps, so interpolation has no shape to

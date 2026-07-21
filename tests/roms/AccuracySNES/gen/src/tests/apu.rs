@@ -101,6 +101,7 @@ pub fn all() -> Vec<Test> {
         e9_04(),
         e9_06(),
         e9_12(),
+        e9_15(),
         e9_05(),
         e9_13(),
         e9_10(),
@@ -4962,6 +4963,150 @@ fn e7_16() -> Test {
         Kind::Scored,
         None,
     )
+}
+
+/// Two loud voices summed into one mix **saturate**; they do not wrap round to the other sign.
+///
+/// The DSP adds each voice's contribution into the mix one at a time and clamps after every
+/// addition. Two voices each near the positive limit therefore come out at the limit, not at their
+/// arithmetic sum reinterpreted as a negative number. A driver that mixes several loud voices
+/// hears distortion on hardware; a core that wraps produces a loud sign-inverted crack instead,
+/// which is far more audible and quite wrong.
+///
+/// # Reading the mix through the echo buffer
+///
+/// The mix itself is not readable, but `EON` routes voices into the echo buffer and the echo buffer
+/// is ordinary APU RAM the program can read back. With `EVOL` and `EFB` at zero nothing is heard
+/// and nothing is fed back, so what lands in the buffer is the summed voice output and nothing
+/// else.
+///
+/// | phase | voices keyed on | buffer byte 1 |
+/// |---|---|---|
+/// | 1 | voice 0 | large and positive — the guard |
+/// | 2 | voices 0 **and** 1 | still positive if the mix saturates; negative if it wraps |
+///
+/// # Choosing a sample loud enough to overflow and quiet enough to be legible
+///
+/// Every nibble is `+7` at shift 12, decoding to `$7000` — high enough that two of them exceed the
+/// positive limit, low enough that one of them does not. One voice alone therefore has to read back
+/// large and positive, and that is asserted first: if a single voice were already at the limit, or
+/// already silent, phase 2 would say nothing about addition.
+///
+/// A constant sample also keeps gaussian interpolation out of it — all four taps carry the same
+/// value, so the reading does not depend on which sample the cart caught. `E6.11` is what happens
+/// when that is not arranged.
+fn e9_15() -> Test {
+    /// The page `ESA` names, well clear of the program image at `$0200`.
+    const ECHO_PAGE: u8 = 0x30;
+    /// Where that page starts. Derived, so the two cannot drift apart.
+    const ECHO_ADDR: u16 = (ECHO_PAGE as u16) << 8;
+    /// The sample directory, on the stack page well below the stack itself.
+    const DIR_ADDR: u16 = (DIR_PAGE as u16) << 8;
+
+    let mut prog = Spc::new();
+    let addr = prog.data_first(IMAGE_BASE, &constant_sample(0xC, 0x7));
+    prog.mov_x_imm(0xEF).mov_sp_x();
+    let [lo, hi] = addr.to_le_bytes();
+    prog.mov_a_imm(lo).mov_abs_a(DIR_ADDR);
+    prog.mov_a_imm(hi).mov_abs_a(DIR_ADDR + 1);
+    prog.mov_a_imm(lo).mov_abs_a(DIR_ADDR + 2);
+    prog.mov_a_imm(hi).mov_abs_a(DIR_ADDR + 3);
+
+    dsp_write(&mut prog, 0x6C, 0x20); // FLG: echo writes off during setup
+    dsp_write(&mut prog, 0x6D, ECHO_PAGE); // ESA
+    dsp_write(&mut prog, 0x7D, 0x00); // EDL = 0: one four-byte entry at the buffer start
+    dsp_write(&mut prog, 0x2C, 0x00); // EVOL L — the echo is measured, never heard
+    dsp_write(&mut prog, 0x3C, 0x00); // EVOL R
+    dsp_write(&mut prog, 0x0D, 0x00); // EFB — no feedback, so the buffer holds the mix alone
+    dsp_write(&mut prog, 0x5D, DIR_PAGE); // DIR
+    dsp_write(&mut prog, 0x0C, 0x7F); // MVOLL
+    dsp_write(&mut prog, 0x1C, 0x7F); // MVOLR
+    dsp_write(&mut prog, 0x3D, 0x00); // NON
+    dsp_write(&mut prog, 0x2D, 0x00); // PMON
+    for v in [0x00u8, 0x10] {
+        dsp_write(&mut prog, v, 0x7F); // VOL L
+        dsp_write(&mut prog, v | 0x01, 0x00); // VOL R — one channel is enough to read
+        dsp_write(&mut prog, v | 0x02, 0x00); // PITCH low
+        dsp_write(&mut prog, v | 0x03, 0x10); // PITCH high: one sample per output sample
+        dsp_write(&mut prog, v | 0x04, 0x00); // SRCN: both voices play the same block
+        dsp_write(&mut prog, v | 0x06, 0x00); // ADSR2
+        dsp_write(&mut prog, v | 0x07, 0x7F); // GAIN: direct, full scale
+        dsp_write(&mut prog, v | 0x05, 0x00); // ADSR1: GAIN is in charge
+    }
+    dsp_write(&mut prog, 0x4D, 0x03); // EON: both voices feed the echo
+
+    // --- phase 1: voice 0 alone, which has to be loud and positive for phase 2 to mean anything ---
+    dsp_write(&mut prog, 0x4C, 0x01);
+    prog.delay(0x00);
+    dsp_write(&mut prog, 0x4C, 0x00);
+    prog.delay(0x00);
+    e9_15_sample_echo(&mut prog, ECHO_ADDR, PORT1);
+
+    // --- phase 2: voice 1 as well, so two near-limit contributions are added ---
+    dsp_write(&mut prog, 0x4C, 0x02);
+    prog.delay(0x00);
+    dsp_write(&mut prog, 0x4C, 0x00);
+    prog.delay(0x00);
+    e9_15_sample_echo(&mut prog, ECHO_ADDR, PORT2);
+    prog.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(207, "E9.15 echo byte 1 with one voice (the guard)");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(208, "E9.15 echo byte 1 with two voices at the same level");
+    a.c("One voice has to be loud and positive but not already at the limit, or adding a second");
+    a.c("says nothing about how the addition behaves.");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x40,
+        0x7E,
+        "one voice alone did not read back as a large positive value below the limit — it was \
+         silent, negative, or already saturated, and in every one of those cases the two-voice \
+         reading below is uninterpretable",
+    );
+    a.c("And two of them must clamp at the limit rather than summing past it into the other sign.");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x40,
+        0x7F,
+        "two voices summed to a negative value, so the per-voice mix is wrapping instead of \
+         saturating after each addition — several loud voices at once would produce a \
+         sign-inverted crack where hardware distorts",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E9.15",
+        'E',
+        "Voice mix saturates",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: the per-voice mix clamps to 16 bits after each \
+             addition rather than accumulating and clamping once",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Emit: mark [`e9_15`]'s echo window, open echo writes briefly, and read byte 1 back to `port`.
+///
+/// The window is filled with `$FF` first so "nothing was written" is distinguishable from "a zero
+/// was written" — the same reason `E9.05` marks it, and the reason a bare read of an untouched
+/// buffer cannot serve as a measurement.
+fn e9_15_sample_echo(prog: &mut Spc, echo_addr: u16, port: u8) {
+    for i in 0..4u16 {
+        prog.mov_a_imm(0xFF).mov_abs_a(echo_addr + i);
+    }
+    dsp_write(prog, 0x6C, 0x00); // FLG: echo writes on
+    prog.delay(0x00);
+    dsp_write(prog, 0x6C, 0x20); // and off again, so the read below is of a settled buffer
+    prog.mov_a_abs(echo_addr + 1).mov_dp_a(port); // byte 1: the left channel's high byte
 }
 
 /// The echo buffer stores **four bytes per entry**, left channel first.

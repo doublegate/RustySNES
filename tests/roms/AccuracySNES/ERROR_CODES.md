@@ -2201,6 +2201,15 @@ Provenance: **Documented** (fullsnes, S-DSP echo; anomie's DSP doc). Kind: score
 |---|---|---|
 | 1 | `$02` | the echo buffer's low byte kept its bottom bit — either nothing was written over the $FF marker, or the sample was stored without the & $FFFE mask |
 
+### E9.15 — Voice mix saturates
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: the per-voice mix clamps to 16 bits after each addition rather than accumulating and clamping once). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | one voice alone did not read back as a large positive value below the limit — it was silent, negative, or already saturated, and in every one of those cases the two-voice reading below is uninterpretable |
+| 2 | `$04` | two voices summed to a negative value, so the per-voice mix is wrapping instead of saturating after each addition — several loud voices at once would produce a sign-inverted crack where hardware distorts |
+
 ### E9.05 — Echo entry is 4 bytes
 
 Provenance: **Documented** (fullsnes and anomie's DSP doc: the echo buffer holds four bytes per sample, a 16-bit left sample followed by a 16-bit right one). Kind: scored.
