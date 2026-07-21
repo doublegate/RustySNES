@@ -598,8 +598,36 @@ related or may not.
    clocks they diverge for every target past 323, and the `3.5 -> 4` rounding stops being a
    half-dot approximation and becomes a variable error.
 
-   Concretely: replace the `self.h == irq_h + HIRQ_TRIGGER_DELAY` test with a comparison against
-   the line's master-clock offset, and drop `HIRQ_TRIGGER_DELAY` in favour of ares' exact form. The
+   **Corrected 2026-07-21 after reading `tick_dot`: "move it to the clock domain" is not
+   implementable as written, and is not what is needed.** `Ppu::tick_dot` runs **once per dot**, so
+   the PPU has no sub-dot resolution to compare in — ares can do the exact compare only because it
+   ticks its counter by 2 clocks. Giving RustySNES that resolution would change the tick
+   granularity of the whole PPU, which is far larger than this ticket.
+
+   And the current constant is **not wrong today**. The true trigger is line-clock `4*HTIME + 14`,
+   which lies *inside* dot `HTIME + 3` (that dot spans `4H+12`..`4H+16`). At dot granularity the
+   only choices are `HTIME + 3` (2 clocks early) or `HTIME + 4` (2 clocks late), and
+   `HIRQ_TRIGGER_DELAY = 4` is the nearest boundary at or after the target. Under a uniform dot
+   that is the best available answer, which is why nothing has ever measured wrong here.
+
+   **What actually breaks at step 3c** is the *mapping*, not the domain. Once dots 323 and 327 are
+   six clocks, "the dot containing clock `4*HTIME + 14`" stops being `HTIME + 3` for targets past
+   323 — the long dots shift it. So the fix is:
+
+   ```text
+   irq_dot = clock_to_dot(4 * HTIME + 14)     // using 3c's own long-dot-aware mapping
+   ```
+
+   i.e. keep the dot compare, and derive the dot from the clock target with the same table 3c
+   introduces, instead of adding a constant. That is implementable at the existing granularity, it
+   is a no-op for every `HTIME` below 320 (which is why `B4.16` measures one target either side),
+   and it removes `HIRQ_TRIGGER_DELAY` as a hardcoded rounding.
+
+   The `DOTS_PER_LINE` bound becomes a bound on the mapped dot rather than on `HTIME + 4`.
+
+   *(Superseded plan text follows for context.)* Replace the `self.h == irq_h + HIRQ_TRIGGER_DELAY`
+   test with a comparison against the line's master-clock offset, and drop `HIRQ_TRIGGER_DELAY` in
+   favour of ares' exact form. The
    `DOTS_PER_LINE` bounds check becomes a clock-domain bound (the line period, which is already the
    1364/1360/1368 value the short/long-line gating needs), which also removes the boundary shift
    that changing 341 to 340 would otherwise cause.
