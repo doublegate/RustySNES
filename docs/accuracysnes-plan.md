@@ -671,33 +671,39 @@ This is the third slot collision in this cart's history (`C3.05` took slot 112, 
 the first two were found by the value looking wrong. Here the assertion passed and only the *raw
 record* disagreed — which is why the raw numbers are recorded at all.
 
-### `B1.05` — attempted and withdrawn: `$4218` is not in the 12-clock region
+### `B1.05` — attempted twice, withdrawn twice; the region map is right and the measurement is not
 
 `B1.05` enumerates all three derived access rates (/6, /8, /12). `B1.01` already establishes the
-6-vs-8 boundary through `MEMSEL`, so the missing piece is the **12-clock** class, and an attempt was
-made to add it as a second differential in the same test.
+6-vs-8 boundary through `MEMSEL`, so only the region map is missing. Two attempts have failed, in
+different ways, and the second is the more interesting.
 
-It does not work as written, and two separate things went wrong — both worth recording because
-both are easy to repeat:
+**Attempt 1 — wrong probe.** `$4218` was chosen to avoid `$4016`'s serial-latch side effect. It is
+above `$41FF`, so it is not in the 12-clock joypad region at all. Worse, the assumption that it was
+*8*-clock was also wrong: `Bus::access_speed` puts `$4200-$5FFF` at **6** clocks, alongside
+`$2000-$3FFF`. The test compared 6 against 8 while claiming to measure /12.
 
-1. **Wrong register.** The 12-clock region is **`$4000-$41FF`** — the controller ports `$4016`/`$4017`
-   and the joypad-enable block. `$4218` was chosen to avoid `$4016`'s serial-latch side effect, but
-   `$4218` is **above `$41FF`** and therefore sits in the ordinary 8-clock I/O range. The test was
-   comparing 8 clocks against 8 clocks and calling the difference the /12 rate.
-2. **The narrow instrument wrapped.** Its two absolute spans read back as `65530` and `65522` —
-   negative, i.e. both had crossed a scanline. The difference was still correct, but only because
-   both wrapped the same number of times; a span straddling the boundary would have been off by a
-   whole line with nothing in the result to say so. Switching to the wide pair fixed that and is
-   what made the register mistake visible.
+Also in attempt 1: the narrow instrument wrapped, its spans reading `65530` and `65522` — both had
+crossed a scanline, and the difference survived only because both wrapped equally. The wide pair
+fixes that and is what made the probe mistake visible.
 
-The measured difference was **23 dots on RustySNES, snes9x and Mesen2 alike** — three cores agreeing
-against the test's expectation, which is this repository's signature for a broken test, and it was.
-Note that 23 dots over 16 accesses is 5.75 clocks each, not a whole number, so the reading was never
-a coherent access-cost difference in the first place.
+**Attempt 2 — correct probes, incoherent numbers.** With the map read out of `bus.rs` first
+(`$4200` = 6, `$0000` = 8, `$4100` = 12, the last being unmapped-but-in-region so the read is
+open-bus and side-effect free), the measurement came back **backwards**: 16 reads of the 6-clock
+`$4200` spanned **426** dots against **392** for the 8-clock `$0000`. The faster region measured 34
+dots *slower*, which is 8.5 clocks per access in the wrong direction — not a tolerance problem and
+not any integral access cost.
 
-**What a working version needs**: a 12-clock probe inside `$4000-$41FF` whose read has no side
-effects, or `$4016` with its serial-latch effect accounted for and restored. The FastROM half of the
-test measured cleanly at 8 dots and can be reused as-is.
+So the region map in `bus.rs` is not in doubt (its own unit test asserts `$4016` = 12, `$4200` = 6,
+WRAM = 8); **the instrument or the measurement design is.** Both spans exceed a scanline and cross
+line boundaries, which is where the wide pair's 341-dot line-length approximation applies, and
+`T-06-A` establishes that the references' dot lengths are not uniform there.
+
+**Before a third attempt**: keep every span *under one scanline* so no line-length approximation is
+involved at all — 8 repeats rather than 16 — and confirm the two spans start at the same H position,
+since these two were measured at different alignments and `A5.20` showed alignment is worth ~10 dots.
+The rate differences are small (2 and 4 clocks an access), so this row needs a tighter instrument
+than the ones it has been given, not a better probe.
+
 
 ### `A8.06` — deferred: the battery has no interrupt infrastructure, by design
 
