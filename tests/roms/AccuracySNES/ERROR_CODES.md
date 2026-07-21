@@ -2262,6 +2262,15 @@ Provenance: **Documented** (fullsnes and anomie's DSP doc: the sustain phase ind
 | 1 | `$02` | sustain rate 0 let the envelope decay, so the field is not being used verbatim — any positive offset turns rate 0 into a real rate and every held note fades |
 | 2 | `$04` | the fastest sustain rate left the envelope at or near full scale, so the sustain rate is not being consulted at all |
 
+### E7.07 — Sustain boundary
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: the decay phase ends when (E >> 8) equals the ADSR2 sustain level, giving a boundary of $100 per level). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | sustain level 3 did not park the envelope on its $100*(l+1) boundary — anywhere else means a different field is being compared, or the comparison fires after the decrement rather than before it |
+| 2 | `$04` | sustain level 5 did not park the envelope on its $100*(l+1) boundary, so the boundary does not track the level |
+
 ### E7.08 — Key-off releases to zero
 
 Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc). Kind: scored.

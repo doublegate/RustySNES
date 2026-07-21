@@ -1043,3 +1043,19 @@ fn sustain_rate_index_is_reported() {
     println!("    slot 188  {:#04x}  sustain rate 0", report.meas[188]);
     println!("    slot 189  {:#04x}  sustain rate 31", report.meas[189]);
 }
+
+/// `E7.07`'s two parking levels, reported so the sustain bands can be seen.
+#[test]
+fn sustain_boundary_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E7.07 ENVX parked at the sustain boundary:");
+    println!(
+        "    slot 190  {:#04x}  sustain level 3 (expect $40-$4F)",
+        report.meas[190]
+    );
+    println!(
+        "    slot 191  {:#04x}  sustain level 5 (expect $60-$6F)",
+        report.meas[191]
+    );
+}

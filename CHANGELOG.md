@@ -575,6 +575,22 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E7.07` — decay hands over to sustain on the `$100*(l+1)` boundary.** With the sustain rate at
+  zero the envelope freezes where decay stops, so the parking level *is* the boundary and is
+  readable directly. Levels 3 and 5 park at `$40` and `$60`; snes9x reports the same two values.
+
+  **The row states its boundary twice and the two statements are not obviously the same.** It gives
+  `$100*(l+1)` and also "compare `(E>>8) == SL`" — and reading only the comparison suggests the
+  envelope parks *inside* the level's band, `$30`-`$3F` for level 3. This test was written against
+  that reading and failed. Measured, it parks one band higher, exactly on `$100*(l+1)`: the
+  comparison fires on the value before the decrement, so the envelope comes to rest *on* the
+  boundary rather than below it. The row's first clause is the one that holds, and the doc now says
+  which and why.
+
+  No separate guard is needed here, unusually: the two bands do not overlap and neither touches the
+  ends of the range, so a stuck envelope at `$00` or `$7F` fails both assertions rather than
+  satisfying either. Verified by comparing `E>>4` instead of `E>>8`, which fails at code 1.
+
 - **`E7.06` — the sustain rate indexes the counter table verbatim.** Decay adds 16 to its field
   (`E7.05`); sustain does not, and the difference is invisible everywhere except the bottom of the
   range. Sustain rate `0` indexes rate 0, which never fires, so a voice held at sustain never decays

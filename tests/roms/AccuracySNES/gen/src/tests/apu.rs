@@ -109,6 +109,7 @@ pub fn all() -> Vec<Test> {
         e7_09(),
         e7_05(),
         e7_06(),
+        e7_07(),
         e7_08(),
         e8_07(),
         e8_10(),
@@ -1306,6 +1307,98 @@ fn e7_06() -> Test {
         Provenance::Documented(
             "fullsnes and anomie's DSP doc: the sustain phase indexes the counter table with the \
              ADSR2 rate field directly, unlike decay's d*2+16",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Decay hands over to sustain when `E >> 8` equals the sustain level.
+///
+/// The boundary is a comparison on the envelope's **top three bits**, not a subtraction or a
+/// threshold on the whole value: decay runs until `(E >> 8) == SL` and stops there. With the
+/// sustain rate at zero the envelope then freezes, so where it parks *is* the boundary, readable
+/// directly.
+///
+/// A core comparing the wrong field — `E >> 4`, or the raw `E` against `SL << 8` — parks the
+/// envelope somewhere else entirely, and every instrument's sustain level comes out wrong while
+/// attack, decay and release all still behave.
+///
+/// # Two levels, read where they park
+///
+/// Both voices attack at rate `$F` and decay at rate 7 (index 30, fast enough to reach either
+/// boundary well inside the window — `E7.05` measured that rate crossing most of the range). The
+/// sustain **rate** is 0, which never fires, so nothing moves once decay stops.
+///
+/// | run | `ADSR2` | sustain level | boundary `$100*(l+1)` | `ENVX` = `E >> 4` |
+/// |---|---|---|---|---|
+/// | 1 | `$60` | 3 | `$400` | `$40`-`$4F` |
+/// | 2 | `$A0` | 5 | `$600` | `$60`-`$6F` |
+///
+/// **The row states the boundary twice and the two statements are not obviously the same.** It
+/// gives both `$100*(l+1)` and "compare `(E>>8) == SL`", and reading only the comparison suggests
+/// the envelope parks *inside* the level's own band — `$300`-`$3FF` for level 3. Measured, it parks
+/// at `$40` and `$60`, which is `$100*(l+1)` exactly: the comparison fires on the value before the
+/// decrement, so the envelope comes to rest on the boundary rather than below it. This test was
+/// first written against the band reading and failed; the arithmetic in the row's own first clause
+/// is the one that holds.
+///
+/// The two bands do not overlap and neither touches the ends of the range, so the assertions cannot
+/// be satisfied by a stuck envelope: full scale is outside both, and zero is outside both. That is
+/// what removes the need for a separate guard here — the ranges are the guard.
+fn e7_07() -> Test {
+    let parked_at = |adsr2: u8| Voice {
+        adsr1: 0xFF, // ADSR mode, attack $F, decay 7: reach the boundary quickly
+        adsr2,       // sustain level in bits 7-5, sustain rate 0 so it freezes on arrival
+        settle: 24,
+        ..Voice::direct_gain()
+    };
+    let low = voice_program(&looping_sample(), parked_at(0x60));
+    let high = voice_program(&looping_sample(), parked_at(0xA0));
+
+    let mut a = Asm::new();
+    a.c("--- sustain level 3 ---");
+    upload_and_run_tagged(&mut a, &low, "_sl3");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.l("sta f:$7E01FC     ; ENVX, before the second upload overwrites the mailbox copy");
+    a.c("--- sustain level 5 ---");
+    upload_and_run_tagged(&mut a, &high, "_sl5");
+    a.l("rep #$30");
+    a.l("lda f:$7E01FC");
+    a.l("and #$00FF");
+    a.record(190, "E7.07 ENVX parked at sustain level 3");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(191, "E7.07 ENVX parked at sustain level 5");
+    a.c("Level 3 parks on the $100*(l+1) boundary, which is $400, so ENVX is in $40-$4F.");
+    a.l("lda f:$7E01FC");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x40,
+        0x4F,
+        "sustain level 3 did not park the envelope on its $100*(l+1) boundary — anywhere else \
+         means a different field is being compared, or the comparison fires after the decrement \
+         rather than before it",
+    );
+    a.c("And level 5 on $600. The bands do not overlap and neither reaches the ends of the range,");
+    a.c("so a stuck envelope cannot satisfy both.");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x60,
+        0x6F,
+        "sustain level 5 did not park the envelope on its $100*(l+1) boundary, so the boundary \
+         does not track the level",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E7.07",
+        'E',
+        "Sustain boundary",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: the decay phase ends when (E >> 8) equals the ADSR2 \
+             sustain level, giving a boundary of $100 per level",
         ),
         Kind::Scored,
         None,
