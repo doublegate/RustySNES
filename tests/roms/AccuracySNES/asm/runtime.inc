@@ -189,6 +189,16 @@ V_IRQ_VEC       = $004A
 ; first draft of this put the COP vector on top of its bank byte.
 V_COP_VEC_E     = $0054
 
+; The NMI vector ($FFEA native / $FFFA emulation), through RAM for the same reason as IRQ. The
+; battery never enables NMI — `init_registers` clears NMITIMEN and VBlank is polled from $4212 —
+; so this is unreachable until a test opts in; it is initialised to `irq_stub` at reset so a test
+; that enables NMI without installing a handler is harmless rather than jumping into RAM.
+;
+; $0056 is the next free word: the low-RAM map is $0040 PAD_X/V_DISPATCH_TMP, $0042 V_BRK_VEC,
+; $0044 V_COP_VEC, $0046 V_H0, $0048 V_H1, $004A V_IRQ_VEC, $004C V_DISPATCH, $0050-$0052
+; V_APU_PTR (24-bit, owns three bytes), $0054 V_COP_VEC_E, $0080 PAD_A.
+V_NMI_VEC       = $0056
+
 ; Cycle-measurement scratch (see hv_sync / hv_h in runtime.s).
 V_H0            = $0046
 V_H1            = $0048

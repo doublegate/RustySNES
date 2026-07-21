@@ -4166,6 +4166,79 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A6.11 — WAI wakes, no vector
+; provenance: Documented (WDC datasheet: WAI wakes on the interrupt line; I gates the vector)
+.proc test_a6_11
+    .a16
+    .i16
+    ; The handler must NOT run. It sets a flag so its running is observable.
+    bra @body
+@handler:
+    sep #$20
+    .a8
+    .a8
+    lda #$01
+    sta f:$7E0142
+    lda $4211        ; acknowledge so the line drops
+    rti
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    rep #$20
+    .a16
+    lda #@handler
+    sta a:V_IRQ_VEC
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0142     ; handler-ran flag, clear
+    lda #200
+    sta $4207
+    stz $4208         ; HTIME = 200
+    lda $4211         ; clear any stale latch
+    sei               ; I = 1: the IRQ is masked, so it must not vector
+    lda #$10
+    sta $4200         ; H-IRQ enabled
+    wai
+    ; --- resumed in line, or we never got here ---
+    lda $4211
+    sta f:$7E0144     ; stash: reading $4211 clears the latch
+    stz $4200         ; disarm before asserting; a failure exits immediately
+    lda f:$7E0144
+    and #$80
+    cmp #$80
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E0142
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; WAI returned with no IRQ pending — it fell through instead of waiting
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; WAI with I=1 vectored to the handler instead of resuming in line
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C1.01 — OAM word write/read
 ; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
 .proc test_c1_01
@@ -20620,7 +20693,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 249
+    .word 250
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -20695,6 +20768,7 @@ _test_entries:
     .faraddr test_a3_06
     .faraddr test_a5_09
     .faraddr test_a5_10
+    .faraddr test_a6_11
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -20947,6 +21021,7 @@ _test_flags:
     .byte $01   ; A3.06
     .byte $01   ; A5.09
     .byte $01   ; A5.10
+    .byte $01   ; A6.11
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -21199,6 +21274,7 @@ _test_names:
     .addr @n_a3_06
     .addr @n_a5_09
     .addr @n_a5_10
+    .addr @n_a6_11
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -21590,6 +21666,9 @@ _test_names:
 @n_a5_10:
     .byte 18
     .byte "+1 x width penalty"
+@n_a6_11:
+    .byte 20
+    .byte "WAI wakes, no vector"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"

@@ -596,6 +596,15 @@ Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables; docs/accu
 |---|---|---|
 | 1 | `$02` | LDX abs did not cost one extra 8-clock access with x=0 |
 
+### A6.11 — WAI wakes, no vector
+
+Provenance: **Documented** (WDC datasheet: WAI wakes on the interrupt line; I gates the vector). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | WAI returned with no IRQ pending — it fell through instead of waiting |
+| 2 | `$04` | WAI with I=1 vectored to the handler instead of resuming in line |
+
 ## Group C
 
 ### C1.01 — OAM word write/read

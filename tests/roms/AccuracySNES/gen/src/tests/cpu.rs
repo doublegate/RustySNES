@@ -95,6 +95,7 @@ pub fn all() -> Vec<Test> {
         a3_06(),
         a5_09(),
         a5_10(),
+        a6_11(),
     ]
 }
 
@@ -1148,6 +1149,88 @@ fn a5_10() -> Test {
         "+1 x width penalty",
         Provenance::Documented(
             "WDC/GTE/VLSI instruction-operation tables; docs/accuracysnes-timing-oracle.md",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `WAI` wakes on a **masked** IRQ and resumes in line rather than vectoring.
+///
+/// `WAI` stops the CPU until an interrupt line asserts. The `I` flag does not gate the *wake* —
+/// only the *vector*. So `SEI; WAI` is a legitimate "sync to the interrupt line" primitive: the
+/// CPU resumes at the instruction after `WAI` and no handler runs. A core that gates the wake on
+/// `I` hangs forever here, and a core that vectors anyway runs the handler.
+///
+/// # Both halves are pinned
+///
+/// Asserting only "the handler did not run" would be vacuous — a `WAI` implemented as a no-op also
+/// never runs the handler. So the test checks two things:
+///
+/// * `$4211` bit 7 is **set** on resumption, proving an IRQ actually fired and therefore that
+///   `WAI` waited for it rather than falling straight through;
+/// * the handler's flag is still clear, proving it woke without vectoring.
+///
+/// `$4211` is read once and stashed, because reading it clears the latch.
+///
+/// # How the two failure modes present
+///
+/// Verified by injecting each bug rather than assumed. A core that **vectors anyway** fails
+/// cleanly with this test's second code. A core that **gates the wake on `I`** does not fail this
+/// test at all — it hangs, and the harness reports *"battery did not reach its completion sentinel
+/// within 600 frames"*. That is still a hard failure, but it is a battery-level one with no
+/// per-test verdict, because a CPU that never resumes cannot write a result byte. `A3.07` records
+/// the same shape from the other direction, where a wrong `RTL` hung all three cores.
+fn a6_11() -> Test {
+    let mut a = Asm::new();
+    a.c("The handler must NOT run. It sets a flag so its running is observable.");
+    a.l("bra @body");
+    a.label("handler");
+    a.l("sep #$20");
+    a.l(".a8");
+    a.l("lda #$01");
+    a.l("sta f:$7E0142");
+    a.l("lda $4211        ; acknowledge so the line drops");
+    a.l("rti");
+    a.label("body");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("rep #$20");
+    a.l("lda #@handler");
+    a.l("sta a:V_IRQ_VEC");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta f:$7E0142     ; handler-ran flag, clear");
+    a.l("lda #200");
+    a.l("sta $4207");
+    a.l("stz $4208         ; HTIME = 200");
+    a.l("lda $4211         ; clear any stale latch");
+    a.l("sei               ; I = 1: the IRQ is masked, so it must not vector");
+    a.l("lda #$10");
+    a.l("sta $4200         ; H-IRQ enabled");
+    a.l("wai");
+    a.c("--- resumed in line, or we never got here ---");
+    a.l("lda $4211");
+    a.l("sta f:$7E0144     ; stash: reading $4211 clears the latch");
+    a.l("stz $4200         ; disarm before asserting; a failure exits immediately");
+    a.l("lda f:$7E0144");
+    a.l("and #$80");
+    a.assert_a8(
+        0x80,
+        "WAI returned with no IRQ pending — it fell through instead of waiting",
+    );
+    a.l("lda f:$7E0142");
+    a.assert_a8(
+        0x00,
+        "WAI with I=1 vectored to the handler instead of resuming in line",
+    );
+    a.finish(
+        "A6.11",
+        'A',
+        "WAI wakes, no vector",
+        Provenance::Documented(
+            "WDC datasheet: WAI wakes on the interrupt line; I gates the vector",
         ),
         Kind::Scored,
         None,

@@ -10,6 +10,7 @@
 .import reset
 .import irq_stub
 .import irq_trampoline
+.import nmi_trampoline
 .import brk_trampoline
 .import cop_trampoline_e
 .import cop_trampoline
@@ -46,7 +47,7 @@ title:
     .addr cop_trampoline        ; $FFE4  COP
     .addr brk_trampoline        ; $FFE6  BRK
     .addr irq_stub              ; $FFE8  ABORT
-    .addr irq_stub              ; $FFEA  NMI
+    .addr nmi_trampoline        ; $FFEA  NMI (through RAM, see V_NMI_VEC)
     .word $0000                 ; $FFEC  unused (the CPU always boots in emulation mode)
     .addr irq_trampoline        ; $FFEE  IRQ (through RAM, see V_IRQ_VEC)
 
@@ -55,6 +56,6 @@ title:
     .addr cop_trampoline_e      ; $FFF4  COP (emulation)
     .word $0000                 ; $FFF6  unused (BRK shares the IRQ vector in emulation)
     .addr irq_stub              ; $FFF8  ABORT
-    .addr irq_stub              ; $FFFA  NMI
+    .addr nmi_trampoline        ; $FFFA  NMI (emulation; same RAM pointer as native)
     .addr reset                 ; $FFFC  RESET — the entry point
     .addr brk_trampoline        ; $FFFE  IRQ / BRK (emulation)

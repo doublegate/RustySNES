@@ -80,6 +80,9 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     sta a:V_IRQ_VEC             ; default: the IRQ trampoline behaves exactly like the old stub
     sta a:V_COP_VEC_E           ; and the emulation COP pointer, so a COP in a test that has
                                 ; installed no handler returns instead of jumping into RAM
+    sta a:V_NMI_VEC             ; and NMI, for the same reason: the battery keeps NMITIMEN clear,
+                                ; so this is unreachable until a test opts in, but a test that
+                                ; enables NMI without installing a handler must not jump into RAM
     sep #$20
     .a8
 
@@ -533,6 +536,17 @@ rt_finished:
 .proc test_restore_impl
     clc
     xce                         ; force native regardless of what the test left
+    ; Disarm interrupts unconditionally. A test that enables NMI or IRQ and then FAILS leaves
+    ; through the failure path, so leaving the disable to the test body would arm interrupts for
+    ; every test after it — one failure becoming a cascade, and results depending on test order.
+    ; This is the only reason the NMI vector can be wired at all.
+    ;
+    ; 8-bit deliberately: `stz $4200` with a 16-bit accumulator writes TWO bytes and would clobber
+    ; $4201 (WRIO), whose bit 7 gates the H/V counter latch that C3.07 and the wide timing
+    ; instrument depend on.
+    sep #$20
+    .a8
+    stz NMITIMEN
     rep #$30
     .a16
     .i16
@@ -1520,6 +1534,22 @@ test_restore := test_restore_impl
 .export irq_trampoline
 .proc irq_trampoline
     jmp (V_IRQ_VEC)
+.endproc
+
+; The NMI trampoline, shared by the native ($FFEA) and emulation ($FFFA) vectors.
+;
+; Unlike BRK/COP/IRQ this one is unreachable in the ordinary battery: `init_registers` clears
+; NMITIMEN and VBlank is detected by polling $4212 bit 7, so no NMI is ever generated. It exists
+; for the `WAI`/`STP` and mid-block-move rows, which cannot be written without a real interrupt.
+;
+; The two modes share a trampoline because, unlike COP, nothing distinguishes them: hardware routes
+; native and emulation NMI to different vectors but the handler's job is identical, and the
+; emulation-mode COP split (`V_COP_VEC_E`) exists only because a core fetching the wrong table there
+; was otherwise unobservable. If a future row needs to tell the two NMI tables apart, split this the
+; same way rather than reusing it.
+.export nmi_trampoline
+.proc nmi_trampoline
+    jmp (V_NMI_VEC)
 .endproc
 
 ; BRK / COP trampolines. The vectors are fixed at link time; these jump through a RAM pointer so
