@@ -28,6 +28,7 @@ pub fn all() -> Vec<Test> {
         d1_09(),
         d2_03(),
         d2_04(),
+        d2_07(),
         d1_03(),
         d1_04(),
         d2_05(),
@@ -508,8 +509,8 @@ fn d2_03() -> Test {
     let mut a = Asm::new();
     a.l("bra @body");
     a.label("table");
-    a.l(".byte $03, $11    ; non-repeat, 3 lines: one write of $11");
-    a.l(".byte $04, $22    ; non-repeat, 4 lines: one write of $22");
+    a.l(".byte $03, $11    ; non-repeat, 3 lines: one write of $11 to CGDATA");
+    a.l(".byte $04, $22    ; non-repeat, 4 lines: one write of $22, completing the colour word");
     a.l(".byte $00         ; terminate");
     a.label("body");
     a.c("Point HDMA channel 0 at $2180 with WMADD in WRAM, run one frame, then read the trail.");
@@ -629,6 +630,130 @@ fn setup_hdma_to_wram(a: &mut Asm, page: u8) {
     a.l("sta $420C         ; HDMAEN channel 0");
     a.l("jsr wait_vblank   ; let the whole active display run");
     a.l("stz $420C         ; disarm before reading, so nothing moves under the checks");
+}
+
+/// HDMA preempts a general-purpose DMA, which pauses and then resumes correctly.
+///
+/// # The obvious version of this test asserts nothing
+///
+/// Running a large GP-DMA with HDMA enabled and checking the destination is byte-correct is
+/// **vacuous**: a core that never preempts at all copies the block correctly too. That is the same
+/// shape as the withdrawn `A4.06` — verifying the right thing is present without establishing that
+/// the wrong thing would have been visible.
+///
+/// So both halves are asserted:
+///
+/// * **that preemption happened** — the HDMA landing page carries its trail. `setup_hdma_to_wram`
+///   clears that page first, so a present trail means HDMA ran, and it ran during the frame the
+///   GP-DMA occupied. Without this, "resumed correctly" is unfalsifiable.
+/// * **that the GP-DMA resumed correctly** — first and **last** byte both match the source. The
+///   last matters most: a core that loses the paused byte count resumes short, and only the tail
+///   shows it.
+///
+/// # Sizing and placement
+///
+/// GP-DMA moves a byte per 8 master clocks, so 4 KiB is ~32768 clocks — about 24 scanlines, giving
+/// HDMA two dozen chances to preempt. It is started immediately after the HDMA channel is armed so
+/// it runs through active display, where HDMA fires. **A transfer confined to vblank would never be
+/// preempted and the test would silently become the vacuous version.**
+///
+/// The source is ROM, not WRAM: a WRAM source with `$2180` as the destination performs no write at
+/// all (`D1.09`), so the copy would be a no-op and the check meaningless. The expected bytes are
+/// read back from the same ROM rather than hardcoded, so this pins the transfer and not the image
+/// layout.
+fn d2_07() -> Test {
+    let mut a = Asm::new();
+    a.l("bra @body");
+    a.label("table");
+    a.l(".byte $03, $11    ; non-repeat, 3 lines: one write of $11");
+    a.l(".byte $04, $22    ; non-repeat, 4 lines: one write of $22");
+    a.l(".byte $00         ; terminate");
+    a.label("body");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("HDMA writes CGRAM, NOT $2180. Both HDMA and the GP-DMA would otherwise go through the");
+    a.c("WRAM data port, which has a single shared WMADD -- they would interleave into each");
+    a.c("other's destination and neither result would mean anything. That is what the first");
+    a.c("version of this test did, and its trail simply never appeared.");
+    a.l("sep #$20");
+    a.l("lda #$80");
+    a.l("sta $2121         ; CGADD = $80, well clear of the palettes the scenes bless");
+    a.l("stz $420C");
+    a.l("stz $4300         ; A->B, direct table, mode 0");
+    a.l("lda #$22");
+    a.l("sta $4301         ; B-bus = $2122 (CGDATA)");
+    a.l("rep #$30");
+    a.l("ldx #@table");
+    a.l("stx $4302");
+    a.l("sep #$20");
+    a.l("phk");
+    a.l("pla");
+    a.l("sta $4304");
+    a.c("GP-DMA channel 1: 4 KiB of ROM through the WRAM port at $7E:4000.");
+    a.l("lda #$00");
+    a.l("sta $2181");
+    a.l("lda #$40");
+    a.l("sta $2182");
+    a.l("stz $2183         ; WMADD = $7E:4000");
+    a.l("stz $4310         ; A->B, increment, mode 0");
+    a.l("lda #$80");
+    a.l("sta $4311         ; B-bus = $2180");
+    a.l("rep #$30");
+    a.l("lda #$8000");
+    a.l("sta $4312         ; A-bus source $00:8000");
+    a.l("sep #$20");
+    a.l("stz $4314         ; source bank $00");
+    a.l("rep #$30");
+    a.l("lda #$1000");
+    a.l("sta $4315         ; 4096 bytes");
+    a.c("Arm HDMA in vblank, then start the GP-DMA so it runs THROUGH active display. A transfer");
+    a.c("confined to vblank is never preempted and this test would assert nothing.");
+    a.l("sep #$20");
+    a.l("jsr wait_vblank");
+    a.l("lda #$01");
+    a.l("sta $420C         ; HDMAEN channel 0");
+    a.l("lda #$02");
+    a.l("sta $420B         ; run channel 1");
+    a.l("jsr wait_vblank   ; let the rest of the frame, and its HDMA, complete");
+    a.l("stz $420C         ; disarm before reading");
+    a.c("Half one: HDMA actually ran. Without this the transfer check below is satisfied just as");
+    a.c("well by a core that never preempted anything. Read CGRAM back at the index the table");
+    a.c("wrote: $2121 selects the word, then $213B reads low then high.");
+    a.l("lda #$80");
+    a.l("sta $2121");
+    a.l("lda $213B");
+    a.l("sta f:$7E0A04");
+    a.l("lda $213B");
+    a.l("sta f:$7E0A05");
+    a.l("rep #$20");
+    a.l("lda f:$7E0A04");
+    a.l("and #$7FFF        ; CGRAM is 15-bit; bit 15 reads back as open bus");
+    a.assert_a16(
+        0x2211,
+        "the HDMA trail is absent — no preemption happened, so the transfer check proves nothing",
+    );
+    a.c("Half two: the paused transfer resumed and ran to completion. The channel's own registers");
+    a.c("say so without needing the destination read back: DAS counts down to zero and A1T ends");
+    a.c("at source + length. A core that resumed short leaves both short.");
+    a.l("lda $4315");
+    a.assert_a16(
+        0x0000,
+        "channel 1's byte count did not reach zero — the GP-DMA resumed short after preemption",
+    );
+    a.l("lda $4312");
+    a.assert_a16(
+        0x9000,
+        "channel 1's source address did not advance the full 4096 bytes",
+    );
+    a.finish(
+        "D2.07",
+        'D',
+        "HDMA preempts GP-DMA",
+        Provenance::Documented("SNESdev Wiki, HDMA; anomie's timing doc; fullsnes"),
+        Kind::Scored,
+        None,
+    )
 }
 
 /// A WRAM source with `$2180` as the destination performs no write at all.

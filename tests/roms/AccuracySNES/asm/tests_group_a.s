@@ -9456,8 +9456,8 @@ CATALOG_IMPL = 1
     .i16
     bra @body
 @table:
-    .byte $03, $11    ; non-repeat, 3 lines: one write of $11
-    .byte $04, $22    ; non-repeat, 4 lines: one write of $22
+    .byte $03, $11    ; non-repeat, 3 lines: one write of $11 to CGDATA
+    .byte $04, $22    ; non-repeat, 4 lines: one write of $22, completing the colour word
     .byte $00         ; terminate
 @body:
     ; Point HDMA channel 0 at $2180 with WMADD in WRAM, run one frame, then read the trail.
@@ -9671,6 +9671,135 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     lda #$08
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; D2.07 — HDMA preempts GP-DMA
+; provenance: Documented (SNESdev Wiki, HDMA; anomie's timing doc; fullsnes)
+.proc test_d2_07
+    .a16
+    .i16
+    bra @body
+@table:
+    .byte $03, $11    ; non-repeat, 3 lines: one write of $11
+    .byte $04, $22    ; non-repeat, 4 lines: one write of $22
+    .byte $00         ; terminate
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; HDMA writes CGRAM, NOT $2180. Both HDMA and the GP-DMA would otherwise go through the
+    ; WRAM data port, which has a single shared WMADD -- they would interleave into each
+    ; other's destination and neither result would mean anything. That is what the first
+    ; version of this test did, and its trail simply never appeared.
+    sep #$20
+    .a8
+    lda #$80
+    sta $2121         ; CGADD = $80, well clear of the palettes the scenes bless
+    stz $420C
+    stz $4300         ; A->B, direct table, mode 0
+    lda #$22
+    sta $4301         ; B-bus = $2122 (CGDATA)
+    rep #$30
+    .a16
+    .i16
+    ldx #@table
+    stx $4302
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304
+    ; GP-DMA channel 1: 4 KiB of ROM through the WRAM port at $7E:4000.
+    lda #$00
+    sta $2181
+    lda #$40
+    sta $2182
+    stz $2183         ; WMADD = $7E:4000
+    stz $4310         ; A->B, increment, mode 0
+    lda #$80
+    sta $4311         ; B-bus = $2180
+    rep #$30
+    .a16
+    .i16
+    lda #$8000
+    sta $4312         ; A-bus source $00:8000
+    sep #$20
+    .a8
+    stz $4314         ; source bank $00
+    rep #$30
+    .a16
+    .i16
+    lda #$1000
+    sta $4315         ; 4096 bytes
+    ; Arm HDMA in vblank, then start the GP-DMA so it runs THROUGH active display. A transfer
+    ; confined to vblank is never preempted and this test would assert nothing.
+    sep #$20
+    .a8
+    jsr wait_vblank
+    lda #$01
+    sta $420C         ; HDMAEN channel 0
+    lda #$02
+    sta $420B         ; run channel 1
+    jsr wait_vblank   ; let the rest of the frame, and its HDMA, complete
+    stz $420C         ; disarm before reading
+    ; Half one: HDMA actually ran. Without this the transfer check below is satisfied just as
+    ; well by a core that never preempted anything. Read CGRAM back at the index the table
+    ; wrote: $2121 selects the word, then $213B reads low then high.
+    lda #$80
+    sta $2121
+    lda $213B
+    sta f:$7E0A04
+    lda $213B
+    sta f:$7E0A05
+    rep #$20
+    .a16
+    lda f:$7E0A04
+    and #$7FFF        ; CGRAM is 15-bit; bit 15 reads back as open bus
+    cmp #$2211
+    beq :+
+    jmp @fail1
+  :
+    ; Half two: the paused transfer resumed and ran to completion. The channel's own registers
+    ; say so without needing the destination read back: DAS counts down to zero and A1T ends
+    ; at source + length. A core that resumed short leaves both short.
+    lda $4315
+    cmp #$0000
+    beq :+
+    jmp @fail2
+  :
+    lda $4312
+    cmp #$9000
+    beq :+
+    jmp @fail3
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the HDMA trail is absent — no preemption happened, so the transfer check proves nothing
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; channel 1's byte count did not reach zero — the GP-DMA resumed short after preemption
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; channel 1's source address did not advance the full 4096 bytes
+    sep #$20
+    .a8
+    lda #$06
     sta f:$7EE010
     jml test_restore
 .endproc
@@ -21007,7 +21136,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 254
+    .word 255
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -21158,6 +21287,7 @@ _test_entries:
     .faraddr test_d1_09
     .faraddr test_d2_03
     .faraddr test_d2_04
+    .faraddr test_d2_07
     .faraddr test_d1_03
     .faraddr test_d1_04
     .faraddr test_d2_05
@@ -21415,6 +21545,7 @@ _test_flags:
     .byte $01   ; D1.09
     .byte $01   ; D2.03
     .byte $01   ; D2.04
+    .byte $01   ; D2.07
     .byte $02   ; D1.03
     .byte $01   ; D1.04
     .byte $01   ; D2.05
@@ -21672,6 +21803,7 @@ _test_names:
     .addr @n_d1_09
     .addr @n_d2_03
     .addr @n_d2_04
+    .addr @n_d2_07
     .addr @n_d1_03
     .addr @n_d1_04
     .addr @n_d2_05
@@ -22220,6 +22352,9 @@ _test_names:
 @n_d2_04:
     .byte 16
     .byte "HDMA repeat flag"
+@n_d2_07:
+    .byte 20
+    .byte "HDMA preempts GP-DMA"
 @n_d1_03:
     .byte 20
     .byte "DMA startup overhead"

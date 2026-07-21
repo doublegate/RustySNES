@@ -1243,6 +1243,16 @@ Provenance: **Documented** (SNESdev Wiki, HDMA; fullsnes). Kind: scored.
 | 3 | `$06` | repeat byte 4 is wrong |
 | 4 | `$08` | HDMA wrote a sixth byte; the repeat counts total five lines |
 
+### D2.07 — HDMA preempts GP-DMA
+
+Provenance: **Documented** (SNESdev Wiki, HDMA; anomie's timing doc; fullsnes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the HDMA trail is absent — no preemption happened, so the transfer check proves nothing |
+| 2 | `$04` | channel 1's byte count did not reach zero — the GP-DMA resumed short after preemption |
+| 3 | `$06` | channel 1's source address did not advance the full 4096 bytes |
+
 ### D1.03 — DMA startup overhead
 
 Provenance: **Documented** (SNESdev Wiki, DMA timing; fullsnes). Kind: golden vector, never scored.

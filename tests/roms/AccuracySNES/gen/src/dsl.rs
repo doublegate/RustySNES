@@ -331,7 +331,14 @@ impl Asm {
     ///
     /// Uses `beq :+ / jmp` rather than a bare `bne` so the failure stub is reachable from
     /// anywhere in the test regardless of the ±127-byte branch range.
-    fn fail_if_ne(&mut self, why: &str) -> &mut Self {
+    /// Fail unless the last comparison was equal.
+    ///
+    /// Public because the `assert_*` family compares against a **constant**, and some assertions
+    /// are between two values only known at run time — `D2.07` compares a DMA destination against
+    /// the ROM bytes the DMA read, so that it pins the transfer rather than the image layout.
+    /// Prefer the `assert_*` helpers whenever the expected value is a constant; they allocate the
+    /// failure code and read better.
+    pub fn fail_if_ne(&mut self, why: &str) -> &mut Self {
         let code = self.alloc(why);
         self.lines.push("    beq :+".into());
         self.lines.push(format!("    jmp @fail{code}"));
