@@ -432,8 +432,8 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
 
 AccuracySNES (`tests/roms/AccuracySNES/`) closed ticket **T-04** — the monolithic all-in-one
 oracle ROM that no publicly available SNES ROM provided, so we wrote one. The battery currently
-stands at **248 tests — 236 scoring + 12 golden — with 235 passing, 1 skipped, 100.00%**,
-cross-validated against Mesen2 and snes9x. Coverage is **254 of 443** enumerated assertions (`docs/accuracysnes-coverage.md`). The tickets below carry the rest of the enumeration in
+stands at **249 tests — 236 scoring + 13 golden — with 235 passing, 1 skipped, 100.00%**,
+cross-validated against Mesen2 and snes9x. Coverage is **255 of 443** enumerated assertions (`docs/accuracysnes-coverage.md`). The tickets below carry the rest of the enumeration in
 `docs/accuracysnes-research-dossier.md` §5. Full rationale, blocker analysis, and the ordering
 constraints live in **`docs/accuracysnes-plan.md`**; this list is the citable ID index.
 

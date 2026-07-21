@@ -837,6 +837,12 @@ Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: golden
 
 No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
+### C14.03 — PPU1 mstr/slv (golden)
+
+Provenance: **Contested** (the bit reports a board wiring input, so no software-visible value is correct or incorrect; recorded rather than asserted). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
 ### C11.06 — MPY is 16x8 signed
 
 Provenance: **Documented** (SNESdev Wiki, Mode 7; fullsnes). Kind: scored.

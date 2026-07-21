@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`C14.03` — `$213E` bit 5, PPU1's master/slave mode pin.** A **golden vector**, never scored:
+  the bit reports a board wiring input rather than emulator state, so a cart cannot distinguish
+  "models the pin" from "returns zero here and always would". Recorded as a variant, the same call
+  as `C14.01`/`C14.02` beside it. All three cores report variant 1 (clear). Isolating the bit also
+  keeps it decoupled from `$213E`'s time-over, range-over and version bits, which *are* asserted
+  elsewhere.
+
 - **`A5.09`/`A5.10` — the `+1 m` and `+1 x` width penalties.** A memory operation costs one extra
   8-clock access when its operand class is 16-bit, measured as a differential over 16 repeats (32
   dots) with the *other* width bit held constant, so a core deriving one width from the other fails
@@ -89,7 +96,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     vouches for the row. All three cores currently report variant 1 (the wrap). Both candidate
     landing sites are seeded with a jump home so either answer returns.
 
-  Dossier coverage moves **244 → 254 of 443**.
+  Dossier coverage moves **244 → 255 of 443**.
 
   Also `A8.06` — in emulation mode `E = 1` forces `x = 1`, so the block-move offsets are 8-bit and
   confined to `$00xx`: an offset stepping past `$FF` wraps inside page 0 rather than advancing to

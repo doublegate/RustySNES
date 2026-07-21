@@ -60,6 +60,7 @@ pub fn all() -> Vec<Test> {
         // --- C14: version detection (golden) ---
         c14_01(),
         c14_02(),
+        c14_03(),
         // --- C11: Mode 7 hardware multiply ---
         c11_06(),
         c11_06b(),
@@ -1261,6 +1262,49 @@ fn c14_02() -> Test {
         'C',
         "PPU2 version (golden)",
         Provenance::Documented("SNESdev Wiki, PPU registers; fullsnes"),
+        Kind::Golden,
+        None,
+    )
+}
+
+/// `$213E` bit 5 — PPU1's master/slave mode pin — a golden vector, never scored.
+///
+/// The bit reflects a hardware configuration input, not emulator state, so there is no "correct"
+/// value for software to assert: on a retail console it reads back one way because of how the
+/// board is wired, and a cart cannot distinguish "the emulator models the pin" from "the emulator
+/// returns zero here and always would". That is a recorded observation, not an assertion — the same
+/// call as `C14.01`/`C14.02` for the version nibbles beside it.
+///
+/// It is worth recording because a core that changes its mind announces itself immediately, and
+/// because `$213E`'s other bits (time-over, range-over, version) *are* asserted elsewhere: pinning
+/// the whole byte would have coupled this untestable bit to those.
+///
+/// Variant 1 = bit clear, variant 2 = bit set.
+fn c14_03() -> Test {
+    let mut a = Asm::new();
+    a.c("Isolate bit 5 of $213E and report it as a variant, asserting nothing about its value.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda $213E");
+    a.l("and #$20          ; master/slave mode pin");
+    a.l("beq :+");
+    a.l("lda #$05          ; variant 2 = bit set");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("lda #$03          ; variant 1 = bit clear");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.finish(
+        "C14.03",
+        'C',
+        "PPU1 mstr/slv (golden)",
+        Provenance::Contested(
+            "the bit reports a board wiring input, so no software-visible value is \
+             correct or incorrect; recorded rather than asserted",
+        ),
         Kind::Golden,
         None,
     )

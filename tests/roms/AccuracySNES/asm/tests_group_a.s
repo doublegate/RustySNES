@@ -5894,6 +5894,31 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; C14.03 — PPU1 mstr/slv (golden)
+; provenance: Contested (the bit reports a board wiring input, so no software-visible value is correct or incorrect; recorded rather than asserted)
+.proc test_c14_03
+    .a16
+    .i16
+    ; Isolate bit 5 of $213E and report it as a variant, asserting nothing about its value.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda $213E
+    and #$20          ; master/slave mode pin
+    beq :+
+    lda #$05          ; variant 2 = bit set
+    sta f:$7EE010
+    jml test_restore
+    :
+    lda #$03          ; variant 1 = bit clear
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C11.06 — MPY is 16x8 signed
 ; provenance: Documented (SNESdev Wiki, Mode 7; fullsnes)
 .proc test_c11_06
@@ -20567,7 +20592,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 248
+    .word 249
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -20670,6 +20695,7 @@ _test_entries:
     .faraddr test_c13_03
     .faraddr test_c14_01
     .faraddr test_c14_02
+    .faraddr test_c14_03
     .faraddr test_c11_06
     .faraddr test_c11_06b
     .faraddr test_c7_01
@@ -20921,6 +20947,7 @@ _test_flags:
     .byte $01   ; C13.03
     .byte $02   ; C14.01
     .byte $02   ; C14.02
+    .byte $02   ; C14.03
     .byte $01   ; C11.06
     .byte $01   ; C11.06b
     .byte $01   ; C7.01
@@ -21172,6 +21199,7 @@ _test_names:
     .addr @n_c13_03
     .addr @n_c14_01
     .addr @n_c14_02
+    .addr @n_c14_03
     .addr @n_c11_06
     .addr @n_c11_06b
     .addr @n_c7_01
@@ -21618,6 +21646,9 @@ _test_names:
 @n_c14_02:
     .byte 21
     .byte "PPU2 version (golden)"
+@n_c14_03:
+    .byte 22
+    .byte "PPU1 mstr/slv (golden)"
 @n_c11_06:
     .byte 18
     .byte "MPY is 16x8 signed"
