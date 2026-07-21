@@ -779,7 +779,7 @@ fn b1_03() -> Test {
     a.measure_end();
     a.measure_result();
     a.l("sta f:$7E0098");
-    a.record(70, "16 NOP, absolute");
+    a.record(128, "16 NOP, absolute");
     a.l("sep #$30");
     a.measure_begin();
     a.repeat(16, &["xba"]);
@@ -787,7 +787,7 @@ fn b1_03() -> Test {
     a.measure_result();
     a.l("sec");
     a.l("sbc f:$7E0098");
-    a.record(71, "16 XBA - 16 NOP = 16 internal cycles");
+    a.record(129, "16 XBA - 16 NOP = 16 internal cycles");
     a.assert_a16_range(
         24 - TOL,
         24 + TOL,
@@ -850,7 +850,7 @@ fn b1_04() -> Test {
     a.measure_end();
     a.measure_result();
     a.l("sta f:$7E009A");
-    a.record(72, "DMA 32B from a MEMSEL-fast bank");
+    a.record(130, "DMA 32B from a MEMSEL-fast bank");
     a.c("--- transfer 2: identical, but sourced from bank $00 (always 8 clocks for the CPU) ---");
     a.l("rep #$30");
     a.l("ldx #$1900");
@@ -868,7 +868,7 @@ fn b1_04() -> Test {
     a.l("sta $420B");
     a.measure_end();
     a.measure_result();
-    a.record(73, "DMA 32B from a slow bank");
+    a.record(131, "DMA 32B from a slow bank");
     a.c("--- restore MEMSEL before asserting; a failing path exits immediately ---");
     a.l("sep #$20");
     a.l("stz $420D");
@@ -921,7 +921,7 @@ fn b2_06() -> Test {
     a.l("stz $2133         ; restore before asserting");
     a.l("rep #$20");
     a.l("lda f:$7E0126");
-    a.record(74, "V counter maximum with interlace enabled");
+    a.record(132, "V counter maximum with interlace enabled");
     a.c("Report which line count was seen: variant 1 = 261 (no extra line), 2 = 262, 3 = other.");
     a.c("Both comparisons run while A is still 16-bit and the answer is staged in X; narrowing on");
     a.c("one branch would leave the generator's width tracker wrong for the other path's `cmp`.");
@@ -1684,11 +1684,11 @@ fn b3_01() -> Test {
     a.c("was inside the sampled span or never had a chance to appear.");
     a.l("lda f:$7E0168");
     a.record(
-        106,
+        139,
         "B3 shortest interval in dots (the stall-free loop period)",
     );
     a.l("lda f:$7E016A");
-    a.record(107, "B3 longest interval in dots");
+    a.record(140, "B3 longest interval in dots");
     a.l("lda f:$7E016C");
     a.record(108, "B3 H at the start of the longest interval");
     a.l("lda f:$7E0160");
@@ -1855,7 +1855,7 @@ fn b4_07() -> Test {
     a.l("rep #$20");
     a.l("and #$01FF");
     a.l("sta f:$7E012A");
-    a.record(75, "H position when the H-IRQ was observed");
+    a.record(133, "H position when the H-IRQ was observed");
     a.c("--- disarm before asserting ---");
     a.l("sep #$20");
     a.l("stz $4200");

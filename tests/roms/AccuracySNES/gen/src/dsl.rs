@@ -44,7 +44,7 @@ pub const TEST_RESULT: &str = "$7EE010";
 pub const MEAS_BASE: u32 = 0x7E_E200;
 
 /// Number of `u16` slots in the measurement channel.
-pub const MEAS_SLOTS: u8 = 128;
+pub const MEAS_SLOTS: u8 = 192;
 
 /// Verdict byte meaning "the test passed with no variant".
 pub const PASS: u8 = 0x01;
@@ -138,6 +138,14 @@ pub struct Test {
     pub data: String,
     /// `(code, description)` for every failure code this test can emit, for the README.
     pub codes: Vec<(u8, String)>,
+    /// Measurement-channel slots this test writes, for the generator's uniqueness check.
+    ///
+    /// The channel has no allocator: a slot is claimed by writing to it, so two tests picking the
+    /// same number silently overwrite each other and every reader of the older one starts
+    /// reporting the newer one's numbers. That happened — `E3.02` was written against 106/107,
+    /// which `B3.01` already owned — and nothing failed; the harness simply began printing the
+    /// wrong values under the right labels. [`crate::check_slots`] turns it into a build error.
+    pub slots: Vec<u8>,
 }
 
 impl Test {
@@ -158,6 +166,7 @@ pub struct Asm {
     data: Vec<String>,
     next_code: u8,
     codes: Vec<(u8, String)>,
+    slots: Vec<u8>,
 }
 
 impl Default for Asm {
@@ -175,6 +184,7 @@ impl Asm {
             data: Vec::new(),
             next_code: 1,
             codes: Vec::new(),
+            slots: Vec::new(),
         }
     }
 
@@ -364,6 +374,7 @@ impl Asm {
             "measurement slot {slot} is outside the block"
         );
         let addr = MEAS_BASE + u32::from(slot) * 2;
+        self.slots.push(slot);
         self.c(&format!("record slot {slot}: {why}"));
         self.l(&format!("sta f:${addr:06X}"))
     }
@@ -549,6 +560,7 @@ impl Asm {
             body,
             data,
             codes,
+            slots: core::mem::take(&mut self.slots),
         }
     }
 }

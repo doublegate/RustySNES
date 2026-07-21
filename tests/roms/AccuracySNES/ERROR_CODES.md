@@ -1762,6 +1762,15 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 I/O; fullsnes). Kind: scored.
 | 1 | `$02` | the first read of $FD was zero or wider than four bits — a timer counter is a 4-bit value, and a zero here would make the clear check below vacuous |
 | 2 | `$04` | the second read of $FD was non-zero — reading a timer counter must clear it |
 
+### E3.02 — Timer enable 0->1 resets
+
+Provenance: **Documented** (SNESdev Wiki SPC700 timers and fullsnes: a 0->1 on a $F1 timer-enable bit resets that timer's stage-2 divider and stage-3 output counter). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | timer 0 did not accumulate a usable number of ticks over this interval, so the reset check below would pass against nothing — a zero here would also mean disabling the timer clears the counter, which phase 1 is arranged to detect |
+| 2 | `$04` | the counter did not read zero after the enable bit went 0->1. A core treating the bit as pause/resume returns the control's count here instead, so compare slots 113 and 114: equal means the transition was ignored |
+
 ### E3.11 — $F2 bit 7 blocks writes
 
 Provenance: **Documented** (SNESdev Wiki, S-DSP; fullsnes). Kind: scored.

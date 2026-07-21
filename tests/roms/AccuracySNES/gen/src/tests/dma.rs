@@ -839,10 +839,10 @@ fn d1_08() -> Test {
     a.l("rep #$20");
     a.l("lda f:$7E0E00");
     a.l("and #$00FF");
-    a.record(122, "D1.08 run 1 byte");
+    a.record(144, "D1.08 run 1 byte");
     a.l("lda f:$7E0E01");
     a.l("and #$00FF");
-    a.record(123, "D1.08 run 2 byte");
+    a.record(145, "D1.08 run 2 byte");
     a.c("Variant 1 = neither run held the probe value; variant 2 = the range was read after all.");
     a.l("sep #$20");
     a.l("lda f:$7E0E00");

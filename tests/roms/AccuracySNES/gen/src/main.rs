@@ -54,6 +54,7 @@ fn main() {
 
     // --- generated data the host side consumes ---
     dossier::validate(&battery);
+    dossier::check_slots(&battery);
     write(&root.join("SOURCE_CATALOG.tsv"), &emit::catalog(&battery));
     // Next to the ROM, not in the source tree: it describes THIS build's scene numbering, and a
     // host that reads a manifest from a different build would key its goldens off the wrong names.

@@ -11,6 +11,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Fourteen measurement-channel slot collisions, and a build gate so there cannot be more.** The
+  channel has no allocator — a slot is claimed by writing to it — so two tests picking the same
+  number silently overwrite each other, and every reader of the earlier one starts reporting the
+  later one's values *under the earlier one's labels*. A wrong number with a confident caption.
+
+  Writing `E3.02` against slots 106/107 collided with `B3.01`, which surfaced it; a check added to
+  the generator then found **twelve more that were already there**. Six were the trap the plan
+  document already warned about — the opcode sweep owns slots 8-75 and is invisible to any
+  `record(N` grep, so `B1.03`, `B1.04`, `B2.06` and `B4.07` had all been silently overwritten by
+  it. The rest were `A5.10`/`A2.13` on 120, `A6.12`/`D1.08` on 122-123, and `D1.02` against both
+  `B3.01` and `E1.07`.
+
+  The corruption was real and visible once fixed: `B3.01` had been publishing a 2-dot excess
+  between its shortest and longest sampled interval, because `D1.02` was overwriting one of the two
+  values. With the slots separated it reads 65 and 65 — a perfectly flat sequence, which is the
+  correct answer for a core that models no refresh pause.
+
+  `dossier::check_slots` now fails the build on any duplicate, listing every clash at once together
+  with the free slots, since fixing them one build at a time would be miserable. The channel is
+  widened from 128 slots to 192 to make room, which touches the four places that know its size:
+  `runtime.inc`, the generator, the harness and the libretro cross-validation host.
+
+- **`$2137` latched the H/V counters unconditionally, ignoring the `$4201` bit 7 gate.** The
+  software latch is wired to the same pin the light gun uses: superfamicom.org's register reference
+  says reading `$2137` latches *"if bit 7 of `$4201` is set"* and that *"when bit a is 0, no latching
+  can occur"*. RustySNES already modelled the falling-edge latch on that pin (`Bus::set_pio`) but
+  latched on every `$2137` read regardless of the gate — correct for every ordinary program, which
+  leaves the bit set, and wrong for anything that clears it.
+
+  The gate now lives in the Bus, beside the `set_pio` edge handling, because the Bus is what owns
+  the pin; the PPU gained only a read-only accessor for its open-bus latch, so the save-state format
+  is untouched. Found by the new AccuracySNES `C3.10`, where snes9x and Mesen2 both gated it and
+  RustySNES did not.
+
 - **`JSR (a,X)` did not escape page 1 in emulation mode.** Its return-address pushes went through
   the page-1-confined stack path, so from `S = $0100` the second pushed byte wrapped to `$01FF` and
   corrupted the top of the stack page instead of escaping to `$00FF`. `JSL` already used the
@@ -538,22 +572,6 @@ rewritten to the current number — this line is the one to read.
   sampled at a single dot (`VIRQ_TRIGGER_DOT`, the documented `H ~ 2.5`). ares reaches the same
   behaviour from the other direction — its `irqValid.raise(...)` is an *edge* detector. Found by
   AccuracySNES `B4.12`, with `B4.08` pinning the firing line.
-
-### Added
-
-### Fixed
-
-- **`$2137` latched the H/V counters unconditionally, ignoring the `$4201` bit 7 gate.** The
-  software latch is wired to the same pin the light gun uses: superfamicom.org's register reference
-  says reading `$2137` latches *"if bit 7 of `$4201` is set"* and that *"when bit a is 0, no latching
-  can occur"*. RustySNES already modelled the falling-edge latch on that pin (`Bus::set_pio`) but
-  latched on every `$2137` read regardless of the gate — correct for every ordinary program, which
-  leaves the bit set, and wrong for anything that clears it.
-
-  The gate now lives in the Bus, beside the `set_pio` edge handling, because the Bus is what owns
-  the pin; the PPU gained only a read-only accessor for its open-bus latch, so the save-state format
-  is untouched. Found by the new AccuracySNES `C3.10`, where snes9x and Mesen2 both gated it and
-  RustySNES did not.
 
 ### Added
 

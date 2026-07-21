@@ -53,6 +53,7 @@ pub fn all() -> Vec<Test> {
         e1_13(),
         e1_15(),
         e3_01(),
+        e3_02(),
         e3_11(),
         dsp_addressing(),
         e2_01(),
@@ -475,6 +476,105 @@ fn e4_11() -> Test {
     )
 }
 
+/// A 0→1 transition on a timer's enable bit resets that timer's divider and its output counter.
+///
+/// `$F1` bits 0-2 are the three timer enables, and turning one on is not merely "resume": the
+/// documented behaviour is that the transition clears the timer's stage-2 divider and its stage-3
+/// output counter. A core that treats the bit as a pause/resume gate keeps whatever had already
+/// accumulated, and a driver that stops and restarts a timer to re-zero it — which is the normal
+/// way to do it, since the counter is read-to-clear and reading has side effects — silently gets a
+/// stale count on the first read.
+///
+/// # The control is the same interval without the restart
+///
+/// "The counter reads zero" is worthless on its own: a timer that never ran reads zero too. So the
+/// program measures the same interval twice.
+///
+/// | phase | sequence | expected |
+/// |---|---|---|
+/// | 1 | drain, enable, delay, **disable**, read | several ticks — proves the interval counts |
+/// | 2 | drain, enable, delay, disable, **re-enable**, read | `$00` — the transition reset it |
+///
+/// Phase 1 also settles a second question the test would otherwise be exposed to: it reads the
+/// counter *after* disabling and still sees the accumulated value, so disabling alone does not
+/// clear it. If it did, phase 1 would read zero and the control assertion fails rather than phase 2
+/// passing for the wrong reason.
+///
+/// A core treating the enable as pause/resume returns phase 1's count again in phase 2, so the two
+/// readings are equal instead of differing by everything — and both are published, so the failure
+/// says which of the two it is.
+///
+/// The counter is only four bits, so the delay is sized to land the control in the middle of its
+/// range: long enough to be unambiguously non-zero, short enough not to wrap past 15 and alias
+/// back down toward zero, which would look exactly like the reset this test is trying to observe.
+fn e3_02() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF).mov_sp_x();
+    prog.mov_dp_imm(0xFA, 0x01); // T0DIV = 1, the fastest timer 0 can run
+    // --- phase 1: how much does this interval accumulate? ---
+    prog.mov_a_dp(0xFD); // drain: the counter is read-to-clear
+    prog.mov_dp_imm(0xF1, 0x81); // enable timer 0; bit 7 keeps the IPL mapped
+    prog.delay(0x60);
+    prog.mov_dp_imm(0xF1, 0x80); // stop it, but do not read it yet
+    prog.mov_a_dp(0xFD).mov_dp_a(PORT1); // read after the stop: the value survives disabling
+    // --- phase 2: the same interval, then a 0->1 transition before reading ---
+    prog.mov_a_dp(0xFD); // drain again
+    prog.mov_dp_imm(0xF1, 0x81);
+    prog.delay(0x60);
+    prog.mov_dp_imm(0xF1, 0x80);
+    prog.mov_dp_imm(0xF1, 0x81); // the transition under test
+    prog.mov_a_dp(0xFD).mov_dp_a(PORT2);
+    prog.mov_dp_imm(0xF1, 0x80); // leave the timer off for whatever runs next
+    prog.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(
+        137,
+        "E3.02 timer 0 ticks over the interval, with no restart (the control)",
+    );
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(
+        138,
+        "E3.02 the same interval, read after a 0->1 on the enable bit",
+    );
+    a.c("The control first: the interval has to count, or 'it reads zero' below means nothing.");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        3,
+        15,
+        "timer 0 did not accumulate a usable number of ticks over this interval, so the reset \
+         check below would pass against nothing — a zero here would also mean disabling the timer \
+         clears the counter, which phase 1 is arranged to detect",
+    );
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0,
+        1,
+        "the counter did not read zero after the enable bit went 0->1. A core treating the bit as \
+         pause/resume returns the control's count here instead, so compare slots 113 and 114: \
+         equal means the transition was ignored",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E3.02",
+        'E',
+        "Timer enable 0->1 resets",
+        Provenance::Documented(
+            "SNESdev Wiki SPC700 timers and fullsnes: a 0->1 on a $F1 timer-enable bit resets that \
+             timer's stage-2 divider and stage-3 output counter",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
 /// `MUL YA` takes its N and Z flags from `Y` alone.
 ///
 /// With `Y = $10` and `A = $10` the product is `$0100`, so `A` ends at `$00` — and yet `Z` is
@@ -596,12 +696,12 @@ fn e1_07() -> Test {
     a.l("lda f:$7E0100");
     a.l("and #$00FF");
     a.record(
-        104,
+        135,
         "E1.07 quotient of $0400 / 2 (true 512 — cannot be represented)",
     );
     a.l("lda f:$7E0101");
     a.l("and #$00FF");
-    a.record(105, "E1.07 remainder of $0400 / 2 (true 0)");
+    a.record(136, "E1.07 remainder of $0400 / 2 (true 0)");
     a.c("The control first: at 511 the division is still exact.");
     a.l("sep #$20");
     a.l("lda f:$7E01B4");

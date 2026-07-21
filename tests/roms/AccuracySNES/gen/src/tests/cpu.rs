@@ -423,7 +423,7 @@ fn a2_13() -> Test {
     a.l("phk");
     a.l("plb");
     a.l("lda f:$7E01B0");
-    a.record(120, "A2.05 the 16-bit value read across the page boundary");
+    a.record(134, "A2.05 the 16-bit value read across the page boundary");
     a.l("cmp #$1234");
     a.l("bne :+");
     a.l("sep #$20");

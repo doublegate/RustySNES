@@ -176,6 +176,7 @@ pub const MAP: &[(&str, &[&str])] = &[
     ("E4.03", &["E4.03"]),
     ("E4.11", &["E4.11"]),
     ("E1.07", &["E1.07"]),
+    ("E3.02", &["E3.02"]),
     ("D1.01", &["D1.01"]),
     ("D1.01b", &["D1.01"]),
     ("D1.02", &["D1.02"]),
@@ -464,6 +465,49 @@ pub fn for_test(id: &str) -> Vec<&'static str> {
         },
         |(_, d)| d.to_vec(),
     )
+}
+
+/// Every measurement slot must be claimed by exactly one test.
+///
+/// The channel has no allocator: a slot is claimed by writing to it. Two tests choosing the same
+/// number therefore overwrite each other silently, and every reader of the older one begins
+/// reporting the newer one's values under the older one's labels — a wrong number with a
+/// confident caption, which is worse than a missing one.
+///
+/// This is not hypothetical. `E3.02` was written against slots 106 and 107, which `B3.01` already
+/// owned; nothing failed, and the DRAM-refresh reporter simply started printing timer counts. The
+/// battery was green throughout. Hence a build error rather than a convention.
+///
+/// # Panics
+/// If two tests write the same slot.
+pub fn check_slots(tests: &[crate::dsl::Test]) {
+    let mut owner: [Option<&str>; crate::dsl::MEAS_SLOTS as usize] =
+        [None; crate::dsl::MEAS_SLOTS as usize];
+    let mut clashes: Vec<String> = Vec::new();
+    for t in tests {
+        for &slot in &t.slots {
+            let i = usize::from(slot);
+            match owner[i] {
+                Some(first) if first != t.id => {
+                    clashes.push(format!("  slot {slot}: {first} and {}", t.id));
+                }
+                Some(_) => {}
+                None => owner[i] = Some(t.id),
+            }
+        }
+    }
+    // Every clash at once. Reporting them one per build turns a five-minute fix into five builds,
+    // and the free-slot list below is only correct if the whole picture is in front of you.
+    assert!(
+        clashes.is_empty(),
+        "measurement slots are written by more than one test:\n{}\n\nThe channel has no \
+         allocator, so the later writer silently overwrites the earlier one and every reader of \
+         the earlier test starts reporting the later one's numbers. Free slots: {:?}",
+        clashes.join("\n"),
+        (0..crate::dsl::MEAS_SLOTS)
+            .filter(|i| owner[usize::from(*i)].is_none())
+            .collect::<Vec<_>>()
+    );
 }
 
 /// Enforce the three map rules, then write the coverage report.

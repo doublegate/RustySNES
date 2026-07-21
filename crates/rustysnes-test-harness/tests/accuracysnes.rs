@@ -407,7 +407,7 @@ fn header_is_detected() {
 const MEAS_BASE: u32 = 0x7E_E200;
 
 /// Number of `u16` slots in the cart's measurement channel.
-const MEAS_SLOTS: u8 = 128;
+const MEAS_SLOTS: u8 = 192;
 
 /// The measurement slots `A5.08` records, so a timing question can be answered from a full-width
 /// number rather than from a verdict byte that silently wraps.
@@ -724,15 +724,15 @@ fn dram_refresh_probe_is_reported() {
     let report = run().expect("battery must run");
     assert!(report.done, "battery did not finish");
 
-    let (shortest, longest) = (report.meas[106], report.meas[107]);
+    let (shortest, longest) = (report.meas[139], report.meas[140]);
     let (at_longest, start, end) = (report.meas[108], report.meas[109], report.meas[124]);
     let excess = longest.saturating_sub(shortest);
 
     println!("\n  B3 DRAM refresh probe (dots):");
     println!("    slot 109  {start:5}  H at the first sample");
     println!("    slot 124  {end:5}  H at the last sample");
-    println!("    slot 106  {shortest:5}  shortest interval — the stall-free loop period");
-    println!("    slot 107  {longest:5}  longest interval");
+    println!("    slot 139  {shortest:5}  shortest interval — the stall-free loop period");
+    println!("    slot 140  {longest:5}  longest interval");
     println!("    slot 108  {at_longest:5}  H the longest interval starts from");
     println!("    excess    {excess:5}  longest - shortest (a 40-clock pause is 10 dots)");
 
@@ -854,4 +854,20 @@ fn ipl_zero_fill_is_reported() {
     );
     println!("    slot 94  {:#04x}  OR of $02-$1F", report.meas[94]);
     println!("    slot 95  {:#04x}  OR of $20-$EF", report.meas[95]);
+}
+
+/// `E3.02`'s two timer readings, reported so a failure says which way it went.
+#[test]
+fn timer_enable_reset_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E3.02 timer 0 across an enable transition:");
+    println!(
+        "    slot 137  {:2}  ticks over the interval, no restart (control)",
+        report.meas[137]
+    );
+    println!(
+        "    slot 138  {:2}  same interval, read after a 0->1 on the enable",
+        report.meas[138]
+    );
 }

@@ -715,6 +715,27 @@ is a linker-layout change, which is why the tests are withdrawn rather than patc
 
 `A4.04` and `A4.05` are reopened in `T-04-A` with that note attached.
 
+### Slot collisions are now a build error, and there were fourteen of them
+
+The section above warned that the sweep owns slots 8-75 and that the range is invisible to a
+`record(N` grep. The warning was not enough: `B1.03`, `B1.04`, `B2.06` and `B4.07` had each been
+written against slots in that range and silently overwritten by the sweep, and five more collisions
+existed elsewhere. Nothing failed — the battery was green throughout, and the harness simply printed
+one test's numbers under another's labels.
+
+`dossier::check_slots` now fails generation on any duplicate. It reports every clash in one pass
+along with the list of free slots, because fixing them one build at a time is miserable and because
+the free-slot list is only correct when the whole picture is visible.
+
+What the corruption actually cost, as a worked example: `B3.01` publishes the shortest and longest
+interval between its H-counter samples, and `D1.02` was overwriting the first of them. The pair read
+63 and 65 — an apparent 2-dot excess, which is exactly the shape a small refresh pause would have.
+Separated, they read 65 and 65. The published measurement had been wrong, in the direction of the
+hypothesis being tested, for as long as both tests had existed.
+
+The channel was widened from 128 to 192 slots to make room. Four files know its size and all four
+must agree: `asm/runtime.inc`, `gen/src/dsl.rs`, the harness, and `scripts/accuracysnes/libretro_crossval.c`.
+
 ### The measurement channel has no allocator, and the opcode sweep owns slots 8-75
 
 `A5.09`/`A5.10` were written, passed on RustySNES and snes9x, and then read back raw numbers that

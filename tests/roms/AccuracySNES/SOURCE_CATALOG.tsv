@@ -177,100 +177,101 @@
 174	E1.13	E	ADDW H = bit-11 carry	Documented	SNESdev Wiki, SPC700 reference; fullsnes	Scored	0x7EF0CE	E1.13
 175	E1.15	E	MOVW YA sets 16-bit N/Z	Documented	SNESdev Wiki, SPC700 reference; fullsnes	Scored	0x7EF0CF	E1.15
 176	E3.01	E	Timer read clears it	Documented	SNESdev Wiki, SPC700 I/O; fullsnes	Scored	0x7EF0D0	E3.01
-177	E3.11	E	$F2 bit 7 blocks writes	Documented	SNESdev Wiki, S-DSP; fullsnes	Scored	0x7EF0D1	E3.11
-178	E3.11b	E	DSP register addressing	Documented	SNESdev Wiki, S-DSP registers; fullsnes	Scored	0x7EF0D2	-
-179	E2.01	E	Store dummy-reads target	Documented	SNESdev Wiki, SPC700; fullsnes — flagged as errata	Scored	0x7EF0D3	E2.01
-180	E2.05	E	DP index wraps in page	Documented	SNESdev Wiki, SPC700 addressing; fullsnes	Scored	0x7EF0D4	E2.05
-181	E3.14	E	$F8/$F9 are plain RAM	Documented	SNESdev Wiki, SPC700 I/O; fullsnes	Scored	0x7EF0D5	E3.14
-182	E3.11c	E	DSP global registers	Documented	SNESdev Wiki, S-DSP registers; fullsnes	Scored	0x7EF0D6	-
-183	E9.19	E	ENDX write clears it	Documented	SNESdev Wiki, S-DSP registers; fullsnes	Scored	0x7EF0D7	E9.19
-184	E5.07	E	End+mute zeroes env	Documented	fullsnes, S-DSP BRR; anomie's DSP doc	Scored	0x7EF0D8	E5.07
-185	E5.08	E	Loop flag without end	Documented	fullsnes, S-DSP BRR; anomie's DSP doc	Scored	0x7EF0D9	E5.08
-186	E5.09	E	ENDX sets on end block	Documented	fullsnes, S-DSP BRR; anomie's DSP doc	Scored	0x7EF0DA	E5.09
-187	E5.11	E	Directory entry address	Documented	fullsnes, S-DSP BRR; anomie's DSP doc	Scored	0x7EF0DB	E5.11
-188	E7.10	E	Direct GAIN is envelope	Documented	SNESdev Wiki, S-DSP envelopes; fullsnes	Scored	0x7EF0DC	E7.10
-189	E1.03	E	DIV overflow branch	Documented	SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata	Scored	0x7EF0DD	E1.03
-190	E1.08	E	DAA adjustments	Documented	SNESdev Wiki, SPC700 reference; fullsnes	Scored	0x7EF0DE	E1.08
-191	E2.08	E	TCALL vector table	Documented	SNESdev Wiki, SPC700 reference; fullsnes	Scored	0x7EF0DF	E2.08
-192	E2.09	E	BRK shares TCALL 0	Documented	SNESdev Wiki, SPC700 reference; fullsnes	Scored	0x7EF0E0	E2.09
-193	E3.03	E	$F1 bit 5 clears port 3	Documented	SNESdev Wiki, SPC700 I/O; fullsnes	Scored	0x7EF0E1	E3.03
-194	E3.04	E	Writes pass under IPL	Documented	SNESdev Wiki, SPC700 I/O; fullsnes	Scored	0x7EF0E2	E3.04
-195	E3.05	E	TnDIV $00 means 256	Documented	SNESdev Wiki, SPC700 timers; fullsnes	Scored	0x7EF0E3	E3.05
-196	E3.10	E	TEST gates RAM writes	Documented	SNESdev Wiki, SPC700 I/O; fullsnes	Scored	0x7EF0E4	E3.10
-197	E1.09	E	DAS mirrors DAA	Documented	SNESdev Wiki, SPC700 reference; fullsnes	Scored	0x7EF0E5	E1.09
-198	E1.10	E	TSET1 is a compare	Documented	SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata	Scored	0x7EF0E6	E1.10
-199	E1.12	E	CLRV clears H too	Documented	SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata	Scored	0x7EF0E7	E1.12
-200	E2.02	E	MOV dp,dp is exempt	Documented	SNESdev Wiki, SPC700; fullsnes — flagged as errata	Scored	0x7EF0E8	E2.02
-201	E2.03	E	MOVW reads the low byte	Documented	SNESdev Wiki, SPC700; fullsnes — flagged as errata	Scored	0x7EF0E9	E2.03
-202	E2.06	E	PSW.P selects the page	Documented	SNESdev Wiki, SPC700 addressing; fullsnes	Scored	0x7EF0EA	E2.06
-203	E2.07	E	CALL pushes exact addr	Documented	SNESdev Wiki, SPC700 reference; fullsnes	Scored	0x7EF0EB	E2.07
-204	E4.01	E	IPL ROM contents	Documented	the canonical 64-byte IPL listing; fullsnes, SNESdev Wiki	Scored	0x7EF0EC	E4.01
-205	E4.02	E	IPL handoff state	Documented	fullsnes, SNESdev Wiki, APU boot handshake	Scored	0x7EF0ED	E4.02
-206	E4.03	E	IPL zerofills $00-$EF	Documented	the canonical 64-byte IPL listing zero-fills $0000-$00EF as the first thing it does at $FFC0, before entering its transfer loop; fullsnes and the SNESdev Wiki both carry it	Scored	0x7EF0EE	E4.03
-207	E4.04	E	IPL ready announcement	Documented	fullsnes, SNESdev Wiki, APU boot handshake	Scored	0x7EF0EF	E4.04
-208	E5.02	E	BRR nibbles are signed	Documented	fullsnes, S-DSP BRR; anomie's DSP doc	Scored	0x7EF0F0	E5.02
-209	E7.16	E	OUTX is pre-volume	Documented	fullsnes, S-DSP envelopes; anomie's DSP doc	Scored	0x7EF0F1	E7.16
-210	E8.04	E	KOFF outranks KON	Documented	fullsnes, S-DSP key on/off; anomie's DSP doc	Scored	0x7EF0F2	E8.04
-211	E9.04	E	Noise voices decode BRR	Documented	fullsnes, S-DSP noise; anomie's DSP doc — flagged as errata	Scored	0x7EF0F3	E9.04
-212	E9.06	E	EDL 0 is a 4-byte buffer	Documented	fullsnes, S-DSP echo — flagged as errata; anomie's DSP doc	Scored	0x7EF0F4	E9.06
-213	E9.12	E	Echo writes are masked	Documented	fullsnes, S-DSP echo; anomie's DSP doc	Scored	0x7EF0F5	E9.12
-214	E9.10	E	FLG.5 stops echo writes	Documented	fullsnes, S-DSP echo; anomie's DSP doc	Scored	0x7EF0F6	E9.10
-215	E9.17	E	Mute is after OUTX	Documented	fullsnes, S-DSP FLG; anomie's DSP doc	Scored	0x7EF0F7	E9.17
-216	E9.18	E	FLG reset kills voices	Documented	SNESdev Wiki, S-DSP; fullsnes	Scored	0x7EF0F8	E9.18
-217	E5.03	E	BRR sample arithmetic	Documented	fullsnes, S-DSP BRR; anomie's DSP doc	Scored	0x7EF0F9	E5.03
-218	E5.04	E	Invalid shift collapses	Documented	fullsnes, S-DSP BRR; anomie's DSP doc	Scored	0x7EF0FA	E5.04
-219	E5.05	E	BRR filter 1	Documented	fullsnes, S-DSP BRR filters; anomie's DSP doc	Scored	0x7EF0FB	E5.05
-220	E7.01	E	Rate 0 never fires	Documented	SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc	Scored	0x7EF0FC	E7.01
-221	E7.08	E	Key-off releases to zero	Documented	SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc	Scored	0x7EF0FD	E7.08
-222	E7.11	E	GAIN linear increase	Documented	SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc	Scored	0x7EF0FE	E7.11
-223	E7.14	E	GAIN decrease clamps	Documented	SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc	Scored	0x7EF0FF	E7.14
-224	E7.15	E	ENVX is E >> 4	Documented	SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc	Scored	0x7EF100	E7.15
-225	E6.02	E	Pitch $1000 is 1:1	Documented	fullsnes, S-DSP pitch; anomie's DSP doc	Scored	0x7EF101	E6.02
-226	E6.02b	E	Pitch $1000 does finish	Documented	fullsnes, S-DSP pitch; anomie's DSP doc	Scored	0x7EF102	E6.02
-227	E6.02c	E	Pitch $2000 is +1 octave	Documented	fullsnes, S-DSP pitch; anomie's DSP doc	Scored	0x7EF103	E6.02
-228	E6.02d	E	Pitch $2000 upper bound	Documented	fullsnes, S-DSP pitch; anomie's DSP doc	Scored	0x7EF104	E6.02
-229	E3.06	E	T2 is eight times T0	Documented	SNESdev Wiki, SPC700 timers; fullsnes	Scored	0x7EF105	E3.06
-230	E3.08	E	TEST bit 0 halts timers	Documented	fullsnes, SPC700 TEST register; ares and bsnes smp/timing	Scored	0x7EF106	E3.08
-231	F1.02	F	Pad reads 17+ are 1	Documented	SNESdev Wiki, controller protocol; fullsnes	Scored	0x7EF107	F1.02
-232	G1.02	G	Reset: $4210/$4211 clear	Documented	SNESdev Wiki, power-on state; fullsnes	Scored	0x7EF108	G1.02
-233	G1.04	G	Reset: emulation mode	Documented	SNESdev Wiki, power-on state; WDC 65C816 datasheet, XCE	Scored	0x7EF109	G1.04
-234	G1.08	G	Write-only read: openbus	Documented	SNESdev Wiki, open bus; fullsnes, memory map notes	Scored	0x7EF10A	G1.08
-235	G1.10	G	Checksum XOR complement	Documented	SNESdev Wiki, cartridge header; fullsnes	Scored	0x7EF10B	G1.10
-236	G1.11	G	Checksum over the image	Documented	SNESdev Wiki, cartridge header checksum; fullsnes	Scored	0x7EF10C	G1.11
-237	G1.12	G	LoROM header location	Documented	SNESdev Wiki, cartridge header; fullsnes	Scored	0x7EF10D	G1.12
-238	G1.14	G	LoROM bank decode	Documented	SNESdev Wiki, memory map; fullsnes	Scored	0x7EF10E	G1.14
-239	G1.19	G	Power-on $4201/timers	Documented	fullsnes and the SNESdev Wiki power-on table: $4201 = $FF, HTIME and VTIME = $1FF; the other registers in the row are observed by B5.05 and B1.01	Scored	0x7EF10F	G1.01
-240	A5.S01	A	Sweep: CLC	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF110	A5.01-08
-241	A5.S02	A	Sweep: SEC	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF111	A5.01-08
-242	A5.S03	A	Sweep: CLV	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF112	A5.01-08
-243	A5.S04	A	Sweep: INX	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF113	A5.01-08
-244	A5.S05	A	Sweep: DEX	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF114	A5.01-08
-245	A5.S06	A	Sweep: TAX	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF115	A5.01-08
-246	A5.S07	A	Sweep: TXY	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF116	A5.01-08
-247	A5.S08	A	Sweep: ASL A	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF117	A5.01-08
-248	A5.S09	A	Sweep: XBA	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF118	A5.01-08
-249	A5.S10	A	Sweep: TCD	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF119	A5.01-08
-250	A5.S11	A	Sweep: LDA #imm	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF11A	A5.01-08
-251	A5.S12	A	Sweep: LDX #imm	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF11B	A5.01-08
-252	A5.S13	A	Sweep: CMP #imm	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF11C	A5.01-08
-253	A5.S14	A	Sweep: BIT #imm	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF11D	A5.01-08
-254	A5.S15	A	Sweep: REP #imm	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF11E	A5.01-08
-255	A5.S16	A	Sweep: SEP #imm	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF11F	A5.01-08
-256	A5.S17	A	Sweep: WDM	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF120	A5.01-08
-257	A5.S18	A	Sweep: PHA+PLA	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF121	A5.01-08
-258	A5.S19	A	Sweep: PHP+PLP	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF122	A5.01-08
-259	A5.S20	A	Sweep: PHB+PLB	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF123	A5.01-08
-260	A5.S21	A	Sweep: PHD+PLD	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF124	A5.01-08
-261	A5.S22	A	Sweep: PHX+PLX	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF125	A5.01-08
-262	A5.S23	A	Sweep: LDA dp	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF126	A5.01-08
-263	A5.S24	A	Sweep: LDA abs	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF127	A5.01-08
-264	A5.S25	A	Sweep: LDA long	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF128	A5.01-08
-265	A5.S26	A	Sweep: STA dp	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF129	A5.01-08
-266	A5.S27	A	Sweep: STA abs	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF12A	A5.01-08
-267	A5.S28	A	Sweep: LDA dp,X	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF12B	A5.01-08
-268	A5.S29	A	Sweep: LDA abs,X	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF12C	A5.01-08
-269	A5.S30	A	Sweep: INC dp	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF12D	A5.01-08
-270	A5.S31	A	Sweep: INC abs	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF12E	A5.01-08
-271	A5.S32	A	Sweep: ADC dp	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF12F	A5.01-08
-272	A5.S33	A	Sweep: CMP abs	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF130	A5.01-08
-273	A5.S34	A	Sweep: BVS untaken	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF131	A5.01-08
+177	E3.02	E	Timer enable 0->1 resets	Documented	SNESdev Wiki SPC700 timers and fullsnes: a 0->1 on a $F1 timer-enable bit resets that timer's stage-2 divider and stage-3 output counter	Scored	0x7EF0D1	E3.02
+178	E3.11	E	$F2 bit 7 blocks writes	Documented	SNESdev Wiki, S-DSP; fullsnes	Scored	0x7EF0D2	E3.11
+179	E3.11b	E	DSP register addressing	Documented	SNESdev Wiki, S-DSP registers; fullsnes	Scored	0x7EF0D3	-
+180	E2.01	E	Store dummy-reads target	Documented	SNESdev Wiki, SPC700; fullsnes — flagged as errata	Scored	0x7EF0D4	E2.01
+181	E2.05	E	DP index wraps in page	Documented	SNESdev Wiki, SPC700 addressing; fullsnes	Scored	0x7EF0D5	E2.05
+182	E3.14	E	$F8/$F9 are plain RAM	Documented	SNESdev Wiki, SPC700 I/O; fullsnes	Scored	0x7EF0D6	E3.14
+183	E3.11c	E	DSP global registers	Documented	SNESdev Wiki, S-DSP registers; fullsnes	Scored	0x7EF0D7	-
+184	E9.19	E	ENDX write clears it	Documented	SNESdev Wiki, S-DSP registers; fullsnes	Scored	0x7EF0D8	E9.19
+185	E5.07	E	End+mute zeroes env	Documented	fullsnes, S-DSP BRR; anomie's DSP doc	Scored	0x7EF0D9	E5.07
+186	E5.08	E	Loop flag without end	Documented	fullsnes, S-DSP BRR; anomie's DSP doc	Scored	0x7EF0DA	E5.08
+187	E5.09	E	ENDX sets on end block	Documented	fullsnes, S-DSP BRR; anomie's DSP doc	Scored	0x7EF0DB	E5.09
+188	E5.11	E	Directory entry address	Documented	fullsnes, S-DSP BRR; anomie's DSP doc	Scored	0x7EF0DC	E5.11
+189	E7.10	E	Direct GAIN is envelope	Documented	SNESdev Wiki, S-DSP envelopes; fullsnes	Scored	0x7EF0DD	E7.10
+190	E1.03	E	DIV overflow branch	Documented	SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata	Scored	0x7EF0DE	E1.03
+191	E1.08	E	DAA adjustments	Documented	SNESdev Wiki, SPC700 reference; fullsnes	Scored	0x7EF0DF	E1.08
+192	E2.08	E	TCALL vector table	Documented	SNESdev Wiki, SPC700 reference; fullsnes	Scored	0x7EF0E0	E2.08
+193	E2.09	E	BRK shares TCALL 0	Documented	SNESdev Wiki, SPC700 reference; fullsnes	Scored	0x7EF0E1	E2.09
+194	E3.03	E	$F1 bit 5 clears port 3	Documented	SNESdev Wiki, SPC700 I/O; fullsnes	Scored	0x7EF0E2	E3.03
+195	E3.04	E	Writes pass under IPL	Documented	SNESdev Wiki, SPC700 I/O; fullsnes	Scored	0x7EF0E3	E3.04
+196	E3.05	E	TnDIV $00 means 256	Documented	SNESdev Wiki, SPC700 timers; fullsnes	Scored	0x7EF0E4	E3.05
+197	E3.10	E	TEST gates RAM writes	Documented	SNESdev Wiki, SPC700 I/O; fullsnes	Scored	0x7EF0E5	E3.10
+198	E1.09	E	DAS mirrors DAA	Documented	SNESdev Wiki, SPC700 reference; fullsnes	Scored	0x7EF0E6	E1.09
+199	E1.10	E	TSET1 is a compare	Documented	SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata	Scored	0x7EF0E7	E1.10
+200	E1.12	E	CLRV clears H too	Documented	SNESdev Wiki, SPC700 reference; fullsnes — flagged as errata	Scored	0x7EF0E8	E1.12
+201	E2.02	E	MOV dp,dp is exempt	Documented	SNESdev Wiki, SPC700; fullsnes — flagged as errata	Scored	0x7EF0E9	E2.02
+202	E2.03	E	MOVW reads the low byte	Documented	SNESdev Wiki, SPC700; fullsnes — flagged as errata	Scored	0x7EF0EA	E2.03
+203	E2.06	E	PSW.P selects the page	Documented	SNESdev Wiki, SPC700 addressing; fullsnes	Scored	0x7EF0EB	E2.06
+204	E2.07	E	CALL pushes exact addr	Documented	SNESdev Wiki, SPC700 reference; fullsnes	Scored	0x7EF0EC	E2.07
+205	E4.01	E	IPL ROM contents	Documented	the canonical 64-byte IPL listing; fullsnes, SNESdev Wiki	Scored	0x7EF0ED	E4.01
+206	E4.02	E	IPL handoff state	Documented	fullsnes, SNESdev Wiki, APU boot handshake	Scored	0x7EF0EE	E4.02
+207	E4.03	E	IPL zerofills $00-$EF	Documented	the canonical 64-byte IPL listing zero-fills $0000-$00EF as the first thing it does at $FFC0, before entering its transfer loop; fullsnes and the SNESdev Wiki both carry it	Scored	0x7EF0EF	E4.03
+208	E4.04	E	IPL ready announcement	Documented	fullsnes, SNESdev Wiki, APU boot handshake	Scored	0x7EF0F0	E4.04
+209	E5.02	E	BRR nibbles are signed	Documented	fullsnes, S-DSP BRR; anomie's DSP doc	Scored	0x7EF0F1	E5.02
+210	E7.16	E	OUTX is pre-volume	Documented	fullsnes, S-DSP envelopes; anomie's DSP doc	Scored	0x7EF0F2	E7.16
+211	E8.04	E	KOFF outranks KON	Documented	fullsnes, S-DSP key on/off; anomie's DSP doc	Scored	0x7EF0F3	E8.04
+212	E9.04	E	Noise voices decode BRR	Documented	fullsnes, S-DSP noise; anomie's DSP doc — flagged as errata	Scored	0x7EF0F4	E9.04
+213	E9.06	E	EDL 0 is a 4-byte buffer	Documented	fullsnes, S-DSP echo — flagged as errata; anomie's DSP doc	Scored	0x7EF0F5	E9.06
+214	E9.12	E	Echo writes are masked	Documented	fullsnes, S-DSP echo; anomie's DSP doc	Scored	0x7EF0F6	E9.12
+215	E9.10	E	FLG.5 stops echo writes	Documented	fullsnes, S-DSP echo; anomie's DSP doc	Scored	0x7EF0F7	E9.10
+216	E9.17	E	Mute is after OUTX	Documented	fullsnes, S-DSP FLG; anomie's DSP doc	Scored	0x7EF0F8	E9.17
+217	E9.18	E	FLG reset kills voices	Documented	SNESdev Wiki, S-DSP; fullsnes	Scored	0x7EF0F9	E9.18
+218	E5.03	E	BRR sample arithmetic	Documented	fullsnes, S-DSP BRR; anomie's DSP doc	Scored	0x7EF0FA	E5.03
+219	E5.04	E	Invalid shift collapses	Documented	fullsnes, S-DSP BRR; anomie's DSP doc	Scored	0x7EF0FB	E5.04
+220	E5.05	E	BRR filter 1	Documented	fullsnes, S-DSP BRR filters; anomie's DSP doc	Scored	0x7EF0FC	E5.05
+221	E7.01	E	Rate 0 never fires	Documented	SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc	Scored	0x7EF0FD	E7.01
+222	E7.08	E	Key-off releases to zero	Documented	SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc	Scored	0x7EF0FE	E7.08
+223	E7.11	E	GAIN linear increase	Documented	SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc	Scored	0x7EF0FF	E7.11
+224	E7.14	E	GAIN decrease clamps	Documented	SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc	Scored	0x7EF100	E7.14
+225	E7.15	E	ENVX is E >> 4	Documented	SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc	Scored	0x7EF101	E7.15
+226	E6.02	E	Pitch $1000 is 1:1	Documented	fullsnes, S-DSP pitch; anomie's DSP doc	Scored	0x7EF102	E6.02
+227	E6.02b	E	Pitch $1000 does finish	Documented	fullsnes, S-DSP pitch; anomie's DSP doc	Scored	0x7EF103	E6.02
+228	E6.02c	E	Pitch $2000 is +1 octave	Documented	fullsnes, S-DSP pitch; anomie's DSP doc	Scored	0x7EF104	E6.02
+229	E6.02d	E	Pitch $2000 upper bound	Documented	fullsnes, S-DSP pitch; anomie's DSP doc	Scored	0x7EF105	E6.02
+230	E3.06	E	T2 is eight times T0	Documented	SNESdev Wiki, SPC700 timers; fullsnes	Scored	0x7EF106	E3.06
+231	E3.08	E	TEST bit 0 halts timers	Documented	fullsnes, SPC700 TEST register; ares and bsnes smp/timing	Scored	0x7EF107	E3.08
+232	F1.02	F	Pad reads 17+ are 1	Documented	SNESdev Wiki, controller protocol; fullsnes	Scored	0x7EF108	F1.02
+233	G1.02	G	Reset: $4210/$4211 clear	Documented	SNESdev Wiki, power-on state; fullsnes	Scored	0x7EF109	G1.02
+234	G1.04	G	Reset: emulation mode	Documented	SNESdev Wiki, power-on state; WDC 65C816 datasheet, XCE	Scored	0x7EF10A	G1.04
+235	G1.08	G	Write-only read: openbus	Documented	SNESdev Wiki, open bus; fullsnes, memory map notes	Scored	0x7EF10B	G1.08
+236	G1.10	G	Checksum XOR complement	Documented	SNESdev Wiki, cartridge header; fullsnes	Scored	0x7EF10C	G1.10
+237	G1.11	G	Checksum over the image	Documented	SNESdev Wiki, cartridge header checksum; fullsnes	Scored	0x7EF10D	G1.11
+238	G1.12	G	LoROM header location	Documented	SNESdev Wiki, cartridge header; fullsnes	Scored	0x7EF10E	G1.12
+239	G1.14	G	LoROM bank decode	Documented	SNESdev Wiki, memory map; fullsnes	Scored	0x7EF10F	G1.14
+240	G1.19	G	Power-on $4201/timers	Documented	fullsnes and the SNESdev Wiki power-on table: $4201 = $FF, HTIME and VTIME = $1FF; the other registers in the row are observed by B5.05 and B1.01	Scored	0x7EF110	G1.01
+241	A5.S01	A	Sweep: CLC	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF111	A5.01-08
+242	A5.S02	A	Sweep: SEC	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF112	A5.01-08
+243	A5.S03	A	Sweep: CLV	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF113	A5.01-08
+244	A5.S04	A	Sweep: INX	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF114	A5.01-08
+245	A5.S05	A	Sweep: DEX	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF115	A5.01-08
+246	A5.S06	A	Sweep: TAX	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF116	A5.01-08
+247	A5.S07	A	Sweep: TXY	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF117	A5.01-08
+248	A5.S08	A	Sweep: ASL A	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF118	A5.01-08
+249	A5.S09	A	Sweep: XBA	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF119	A5.01-08
+250	A5.S10	A	Sweep: TCD	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF11A	A5.01-08
+251	A5.S11	A	Sweep: LDA #imm	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF11B	A5.01-08
+252	A5.S12	A	Sweep: LDX #imm	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF11C	A5.01-08
+253	A5.S13	A	Sweep: CMP #imm	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF11D	A5.01-08
+254	A5.S14	A	Sweep: BIT #imm	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF11E	A5.01-08
+255	A5.S15	A	Sweep: REP #imm	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF11F	A5.01-08
+256	A5.S16	A	Sweep: SEP #imm	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF120	A5.01-08
+257	A5.S17	A	Sweep: WDM	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF121	A5.01-08
+258	A5.S18	A	Sweep: PHA+PLA	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF122	A5.01-08
+259	A5.S19	A	Sweep: PHP+PLP	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF123	A5.01-08
+260	A5.S20	A	Sweep: PHB+PLB	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF124	A5.01-08
+261	A5.S21	A	Sweep: PHD+PLD	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF125	A5.01-08
+262	A5.S22	A	Sweep: PHX+PLX	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF126	A5.01-08
+263	A5.S23	A	Sweep: LDA dp	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF127	A5.01-08
+264	A5.S24	A	Sweep: LDA abs	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF128	A5.01-08
+265	A5.S25	A	Sweep: LDA long	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF129	A5.01-08
+266	A5.S26	A	Sweep: STA dp	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF12A	A5.01-08
+267	A5.S27	A	Sweep: STA abs	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF12B	A5.01-08
+268	A5.S28	A	Sweep: LDA dp,X	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF12C	A5.01-08
+269	A5.S29	A	Sweep: LDA abs,X	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF12D	A5.01-08
+270	A5.S30	A	Sweep: INC dp	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF12E	A5.01-08
+271	A5.S31	A	Sweep: INC abs	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF12F	A5.01-08
+272	A5.S32	A	Sweep: ADC dp	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF130	A5.01-08
+273	A5.S33	A	Sweep: CMP abs	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF131	A5.01-08
+274	A5.S34	A	Sweep: BVS untaken	Documented	WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md	Scored	0x7EF132	A5.01-08
