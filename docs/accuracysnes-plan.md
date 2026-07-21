@@ -13,7 +13,7 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **235** (222 scoring + 12 golden vectors + 1 region SKIP per image) — *tests, not assertions; see the note below the table* |
+| Tests | **234** (222 scoring + 11 golden vectors + 1 region SKIP per image) — *tests, not assertions; see the note below the table* |
 | Rendered scenes | **50**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but five, all recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`. Both images. |
@@ -358,30 +358,41 @@ a wider window it can defend on three emulators than a precise one that flips wh
 grows a line.** If the exact factor becomes worth having, the way in is a longer sample, not a
 narrower wait.
 
-### `C3.05` — documented, and implemented by nobody
+### `C3.05` — attempted twice, parked, and the second attempt is the lesson
 
-`$2137` is supposed to latch the H/V counters only while `$4201` bit 7 is set. `WRIO` bit 7 drives
+`$2137` is supposed to latch the H/V counters only while `$4201` bit 7 is set: `WRIO` bit 7 drives
 pin 6 of controller port 2, the counters latch on that line's falling edge, and reading `$2137`
-pulls it low only if software left it high. SNESdev, fullsnes and anomie's `regs.txt` all say so
-independently, and it is why a light gun works at all.
+pulls it low only if software left it high. SNESdev, fullsnes and anomie's `regs.txt` say so
+independently.
 
-**All three cross-validated emulators latch unconditionally.** RustySNES admits it in its own source
-(*"gated by the CPU's I/O-enable in HW; we latch always"*), and snes9x and Mesen2 do the same. The
-cart measures variant **3** — latched with the gate open and with it shut — on every one of them.
+**The first attempt measured the wrong thing.** It raised `$4201`, cleared the latch flag by reading
+`$213F`, then dropped `$4201` and read `$2137`. But dropping `$4201` *is itself* the falling edge the
+counters latch on, so the flag afterwards could not distinguish the write from the read. Every
+reference reported "latched while disabled", and the write-up nearly shipped as *"documented and
+implemented by nobody"*.
 
-Three references agreeing against the documentation is this repository's signature for "suspect the
-test", so `C3.11` reports rather than asserts. The reading looks solid, but the cart cannot check it
-against hardware, and promoting it to a scored assertion would put the battery at 0/3 on a row where
-the only evidence against every existing implementation is a wiring description.
+**Reordering it inverted the result.** With `$4201` lowered first and the flag cleared afterwards —
+so nothing touches `$4201` between the clear and the `$2137` read — all three references report the
+opposite: not latched while disabled, latched while enabled, exactly as documented.
 
-**Why not simply fix RustySNES.** It would be a real accuracy improvement and the change is small.
-The obstacle is the golden itself: cross-validation compares result bytes, so a RustySNES that
-reported variant 1 while snes9x and Mesen2 reported 3 would fail the gate on this row every run.
-Making that work needs per-reference expected values for golden vectors — a harness change, and a
-meaningful one, since it is the general shape of "this emulator is deliberately ahead of its
-references". Until then the honest state is recorded: the observation is in the battery, the
-divergence from the documentation is written down here, and a core that fixes the gating announces
-itself as a 1 the moment it runs.
+**And that reading does not survive checking either.** A direct probe of this emulator's own `Bus`
+(construct, `write24($4201, $00)`, read `$213F`, read `$2137`, read `$213F`) returns bit 6 **set**,
+matching RustySNES's own source comment — *"gated by the CPU's I/O-enable in HW; we latch always"* —
+and contradicting what the cart measures through the same code. The cart and a direct probe of the
+same emulator disagree about the same register, and until that is explained neither number is worth
+shipping.
+
+So nothing is asserted and nothing is recorded. What is known:
+
+* the ordering of the `$4201` write relative to the flag-clearing `$213F` read changes the answer,
+  which means any future test has to fix that ordering explicitly and say why;
+* RustySNES latches unconditionally at the `Bus` level, whatever the cart reports;
+* an on-cart probe of this needs a **measurement slot that is genuinely free**. The first probe used
+  slot 112, which another test already owns, so the value read back belonged to that test — the
+  hazard `runtime.inc` warns about, encountered live.
+
+The next attempt should start from a scratch build that dumps `$213F` before and after each step
+into slots verified unused, rather than from a folded variant that hides where the discrepancy is.
 
 ### Group F — blocked on a *peripheral contract*, and now measured
 

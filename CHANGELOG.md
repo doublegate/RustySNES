@@ -11,20 +11,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Whether `$2137` is gated by `$4201` bit 7, recorded as a golden vector (`C3.05`).** The
-  documentation is not ambiguous — `WRIO` bit 7 drives pin 6 of controller port 2, the counters latch
-  on that line's falling edge, and reading `$2137` pulls it low only if software left it high — and
-  **no cross-validated emulator implements it**. RustySNES says as much in its own source; snes9x and
-  Mesen2 behave identically. All three measure variant 3, latching with the gate open and with it
-  shut.
-
-  Three references agreeing against the documentation is this repository's signature for "suspect the
-  test", so this reports rather than asserts: the cart cannot check the claim against hardware and
-  will not promote its own reading to a pass rate every existing emulator would fail. A core that
-  fixes the gating announces itself as a variant 1 the moment it runs.
-  `docs/accuracysnes-plan.md` records why fixing RustySNES alone is blocked on the golden needing
-  per-reference expectations.
-
 - **Emulation mode uses its own vector table (`A6.02`).** `COP` goes through `$FFF4`, sixteen bytes
   from the native `$FFE4`, and a core that keeps one set of vectors — or picks the table from
   something other than the E flag — lands in the wrong handler. Nothing about that is visible in

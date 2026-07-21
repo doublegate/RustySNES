@@ -678,12 +678,6 @@ Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored
 |---|---|---|
 | 1 | `$02` | reading $213C advanced $213D's flipflop — the two counters share one, so a read of V after a read of H returns its high byte |
 
-### C3.11 — $2137 I/O gate (golden)
-
-Provenance: **Contested** (SNESdev, fullsnes and anomie all describe $2137 as gated by WRIO bit 7, and no cross-validated emulator implements it — RustySNES, snes9x and Mesen2 all latch unconditionally). Kind: golden vector, never scored.
-
-No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
-
 ### C13.01 — PPU1 open bus in $213E
 
 Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.

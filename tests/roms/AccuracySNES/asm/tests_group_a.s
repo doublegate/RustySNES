@@ -4703,59 +4703,6 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
-; C3.11 — $2137 I/O gate (golden)
-; provenance: Contested (SNESdev, fullsnes and anomie all describe $2137 as gated by WRIO bit 7, and no cross-validated emulator implements it — RustySNES, snes9x and Mesen2 all latch unconditionally)
-.proc test_c3_11
-    .a16
-    .i16
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    sep #$20
-    .a8
-    ; --- I/O enable OFF: does the read latch anyway? ---
-    lda #$FF
-    sta $4201
-    lda $213F         ; clears the latch flag and both counter flipflops
-    lda #$00
-    sta $4201
-    lda a:$2137
-    lda $213F
-    and #$40          ; the counter-latched flag
-    sta f:$7E013C
-    ; --- and ON: the control, so a core that never latches is distinguishable ---
-    lda #$FF
-    sta $4201
-    lda $213F         ; clear it once more, so what follows is this read's doing
-    lda a:$2137
-    lda $213F
-    and #$40
-    sta f:$7E013D
-    ; Fold the two into one variant: bit 1 = latched while disabled, bit 0 = latched while
-    ; enabled. 3 = latches regardless (every reference today), 1 = gated as documented.
-    lda f:$7E013C
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    lsr a           ; $40 -> $02
-    sta f:$7E013E
-    lda f:$7E013D
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    lsr a           ; $40 -> $01
-    ora f:$7E013E
-    asl a
-    ora #$01          ; the DSL's (variant << 1) | 1 pass byte
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
 ; C13.01 — PPU1 open bus in $213E
 ; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
 .proc test_c13_01
@@ -19724,7 +19671,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 235
+    .word 234
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -19808,7 +19755,6 @@ _test_entries:
     .faraddr test_c3_04
     .faraddr test_c3_05
     .faraddr test_c3_07
-    .faraddr test_c3_11
     .faraddr test_c13_01
     .faraddr test_c13_02
     .faraddr test_c13_03
@@ -20046,7 +19992,6 @@ _test_flags:
     .byte $01   ; C3.04
     .byte $01   ; C3.05
     .byte $01   ; C3.07
-    .byte $02   ; C3.11
     .byte $01   ; C13.01
     .byte $01   ; C13.02
     .byte $01   ; C13.03
@@ -20284,7 +20229,6 @@ _test_names:
     .addr @n_c3_04
     .addr @n_c3_05
     .addr @n_c3_07
-    .addr @n_c3_11
     .addr @n_c13_01
     .addr @n_c13_02
     .addr @n_c13_03
@@ -20679,9 +20623,6 @@ _test_names:
 @n_c3_07:
     .byte 24
     .byte "Counter flipflops differ"
-@n_c3_11:
-    .byte 23
-    .byte "$2137 I/O gate (golden)"
 @n_c13_01:
     .byte 22
     .byte "PPU1 open bus in $213E"

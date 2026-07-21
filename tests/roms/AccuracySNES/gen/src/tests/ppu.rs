@@ -53,7 +53,6 @@ pub fn all() -> Vec<Test> {
         c3_04(),
         c3_05(),
         c3_07(),
-        c3_11(),
         // --- C13: open bus ---
         c13_01(),
         c13_02(),
@@ -2042,88 +2041,6 @@ fn c9_04() -> Test {
         "Overscan moves vblank",
         Provenance::Documented("SNESdev Wiki, Timing; fullsnes"),
         Kind::Scored,
-        None,
-    )
-}
-
-/// Whether `$2137` is gated by `$4201` bit 7 — **a golden vector, because no reference gates it**.
-///
-/// The documentation is not ambiguous. `WRIO` bit 7 drives pin 6 of controller port 2, the counters
-/// latch on that line's falling edge, and reading `$2137` pulls it low only if software has left it
-/// high; SNESdev, fullsnes and anomie's `regs.txt` all describe it that way. It is why a light gun
-/// works, and it predicts that a game which clears `WRIO` for its own purposes silently loses its
-/// raster timing.
-///
-/// **All three cross-validated emulators latch unconditionally.** RustySNES says so in its own
-/// source — *"gated by the CPU's I/O-enable in HW; we latch always"* — and snes9x and Mesen2 behave
-/// identically. Three references agreeing against the documentation is the repository's signature
-/// for "suspect the test", and while the reading here looks solid, this cart cannot check it
-/// against hardware and will not promote its own reading to a pass rate that every existing
-/// emulator would fail.
-///
-/// So it reports instead of asserting. Variant = `(latched while disabled) << 1 | (latched while
-/// enabled)`: **3** is what all three references produce today, and **1** is what the documentation
-/// predicts hardware does. A core that fixed the gating would show up here as a 1 the moment it
-/// ran, which is the whole value of recording it — and `docs/accuracysnes-plan.md` carries the
-/// argument for why fixing RustySNES alone is not currently the right move.
-///
-/// `$213F` is read before each measurement, because reading it is what clears the latch flag —
-/// without that, a latch left over from `hv_sync` in an earlier test would still be showing.
-fn c3_11() -> Test {
-    let mut a = Asm::new();
-    a.l("rep #$30");
-    a.l("phk");
-    a.l("plb");
-    a.l("sep #$20");
-    a.c("--- I/O enable OFF: does the read latch anyway? ---");
-    a.l("lda #$FF");
-    a.l("sta $4201");
-    a.l("lda $213F         ; clears the latch flag and both counter flipflops");
-    a.l("lda #$00");
-    a.l("sta $4201");
-    a.l("lda a:$2137");
-    a.l("lda $213F");
-    a.l("and #$40          ; the counter-latched flag");
-    a.l("sta f:$7E013C");
-    a.c("--- and ON: the control, so a core that never latches is distinguishable ---");
-    a.l("lda #$FF");
-    a.l("sta $4201");
-    a.l("lda $213F         ; clear it once more, so what follows is this read's doing");
-    a.l("lda a:$2137");
-    a.l("lda $213F");
-    a.l("and #$40");
-    a.l("sta f:$7E013D");
-    a.c("Fold the two into one variant: bit 1 = latched while disabled, bit 0 = latched while");
-    a.c("enabled. 3 = latches regardless (every reference today), 1 = gated as documented.");
-    a.l("lda f:$7E013C");
-    a.l("lsr a");
-    a.l("lsr a");
-    a.l("lsr a");
-    a.l("lsr a");
-    a.l("lsr a           ; $40 -> $02");
-    a.l("sta f:$7E013E");
-    a.l("lda f:$7E013D");
-    a.l("lsr a");
-    a.l("lsr a");
-    a.l("lsr a");
-    a.l("lsr a");
-    a.l("lsr a");
-    a.l("lsr a           ; $40 -> $01");
-    a.l("ora f:$7E013E");
-    a.l("asl a");
-    a.l("ora #$01          ; the DSL's (variant << 1) | 1 pass byte");
-    a.l("sta f:$7EE010");
-    a.l("jml test_restore");
-    a.finish(
-        "C3.11",
-        'C',
-        "$2137 I/O gate (golden)",
-        Provenance::Contested(
-            "SNESdev, fullsnes and anomie all describe $2137 as gated by WRIO bit 7, and no \
-             cross-validated emulator implements it — RustySNES, snes9x and Mesen2 all latch \
-             unconditionally",
-        ),
-        Kind::Golden,
         None,
     )
 }
