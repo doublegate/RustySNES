@@ -31,6 +31,7 @@ pub fn all() -> Vec<Test> {
         g1_11(),
         g1_12(),
         g1_14(),
+        g1_19(),
     ]
 }
 
@@ -344,6 +345,75 @@ fn g1_12() -> Test {
         'G',
         "LoROM header location",
         Provenance::Documented("SNESdev Wiki, cartridge header; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The documented power-on register state, for the parts a cartridge can actually observe.
+///
+/// `$4200-$420D` are **write-only**, so "what did they hold at reset" cannot be answered by reading
+/// them back. The dossier's row lists seven registers; each needs its own indirect channel, and
+/// they are split across the battery by which channel that is:
+///
+/// | register | power-on | how it is observed | where |
+/// |---|---|---|---|
+/// | `$4202` | `$FF` | multiply by 2 and read `RDMPY` | `B5.05` |
+/// | `$4204/05` | `$FFFF` | divide by 2 and read `RDDIV`/`RDMPY` | `B5.05` |
+/// | `$4201` | `$FF` | `$4213` (RDIO) reflects the output pins | here |
+/// | `$4207/08`, `$4209/0A` | `$1FF` | arm the timers and watch nothing happen | here |
+/// | `$4200` | `$00` | — | not separable from the above |
+/// | `$420D` | `$00` | access timing | `B1.01` owns the mechanism |
+///
+/// # Both samples are taken before `init_registers`
+///
+/// `init_registers` writes the whole `$4200-$420D` block into a known state — which is the right
+/// thing for a test battery to do and destroys every value this row is about. So the sampling lives
+/// in `capture_power_on`, the same pre-init hook `B5.05` and `D1.11` already use.
+///
+/// # Why "no IRQ fired" means `$1FF` here, and is not the weak claim it looks like
+///
+/// `HTIME`/`VTIME` at `$1FF` is 511, past both the 340-dot line and the 262- or 312-line frame, so
+/// the comparators can never match. Three frames are watched, which is several hundred thousand
+/// comparator evaluations — a core powering the registers up at anything reachable fires almost
+/// immediately, and the common wrong answers are all reachable: `$0000` matches on the first line
+/// of every frame, and any 8-bit truncation of `$1FF` gives `$FF` = 255, which is a real line and a
+/// real dot.
+///
+/// The one thing this cannot separate is `$4200 = $00`: the probe enables the timer interrupts
+/// itself, so a machine that powered up with them already enabled is indistinguishable. That is
+/// stated rather than quietly folded in.
+fn g1_19() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda f:V_PO_RDIO");
+    a.record(91, "G1.01 $4213 (RDIO) as first read after reset");
+    a.assert_a8(
+        0xFF,
+        "$4213 did not read back as $FF at power-on, so $4201's output pins were not left high",
+    );
+    a.l("lda f:V_PO_TFIRED");
+    a.record(
+        92,
+        "G1.01 whether an IRQ fired on the power-on HTIME/VTIME (0 = none, correct)",
+    );
+    a.assert_a8(
+        0x00,
+        "an IRQ fired with HTIME/VTIME left at their power-on values: those are $1FF, which is \
+         past the end of both the line and the frame, so no comparator can ever match. $0000 \
+         matches every frame and an 8-bit $FF is a real dot and a real line",
+    );
+    a.finish(
+        "G1.19",
+        'G',
+        "Power-on $4201/timers",
+        Provenance::Documented(
+            "fullsnes and the SNESdev Wiki power-on table: $4201 = $FF, HTIME and VTIME = $1FF; \
+             the other registers in the row are observed by B5.05 and B1.01",
+        ),
         Kind::Scored,
         None,
     )

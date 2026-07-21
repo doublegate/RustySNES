@@ -197,8 +197,51 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     cpx #$000C
     bne @po_dma
 
+    ; G1.01, part 1: $4213 (RDIO) reflects $4201's output pins, and $4201 powers on at $FF.
     sep #$20
     .a8
+    lda $4213
+    sta f:V_PO_RDIO
+
+    ; G1.01, part 2: HTIME and VTIME power on at $1FF. Nothing here writes $4207-$420A, so arming
+    ; the timers now tests the values reset left. 511 is past both the 340-dot line and the
+    ; 262/312-line frame, so a correct machine never fires. This has to happen before
+    ; init_registers, which writes the whole $4200-$420D block and destroys the evidence.
+    lda #$00
+    sta f:V_PO_TFIRED
+    lda $4211                   ; clear any latch
+    lda #$30                    ; H-IRQ and V-IRQ, both on the untouched comparators
+    sta $4200
+    rep #$10
+    .i16
+    ldx #$0003                  ; three frames is many thousands of comparator matches, if any
+@po_frame:
+@po_active:
+    lda $4211
+    and #$80
+    bne @po_fired
+    lda $4212
+    and #$80
+    bne @po_active              ; still in vblank; wait for active display
+@po_vbl:
+    lda $4211
+    and #$80
+    bne @po_fired
+    lda $4212
+    and #$80
+    beq @po_vbl                 ; wait for the next vblank edge
+    dex
+    bne @po_frame
+    bra @po_done
+@po_fired:
+    lda #$01
+    sta f:V_PO_TFIRED
+@po_done:
+    sep #$20
+    .a8
+    stz $4200                   ; disarm; init_registers will set the real state next
+    lda $4211
+
     rts
 .endproc
 

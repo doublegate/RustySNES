@@ -2275,3 +2275,12 @@ Provenance: **Documented** (SNESdev Wiki, memory map; fullsnes). Kind: scored.
 | 1 | `$02` | bank $00's signature is wrong — the image is not mapped as expected |
 | 2 | `$04` | bank $01 did not map its own 32 KiB — reading $A0 means the bank stride is 64 KiB, not 32 |
 | 3 | `$06` | bank $80 did not mirror bank $00 — the LoROM decode masks the bank with $7F |
+
+### G1.19 — Power-on $4201/timers
+
+Provenance: **Documented** (fullsnes and the SNESdev Wiki power-on table: $4201 = $FF, HTIME and VTIME = $1FF; the other registers in the row are observed by B5.05 and B1.01). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | $4213 did not read back as $FF at power-on, so $4201's output pins were not left high |
+| 2 | `$04` | an IRQ fired with HTIME/VTIME left at their power-on values: those are $1FF, which is past the end of both the line and the frame, so no comparator can ever match. $0000 matches every frame and an 8-bit $FF is a real dot and a real line |

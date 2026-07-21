@@ -21901,6 +21901,53 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; G1.19 — Power-on $4201/timers
+; provenance: Documented (fullsnes and the SNESdev Wiki power-on table: $4201 = $FF, HTIME and VTIME = $1FF; the other registers in the row are observed by B5.05 and B1.01)
+.proc test_g1_19
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda f:V_PO_RDIO
+    ; record slot 91: G1.01 $4213 (RDIO) as first read after reset
+    sta f:$7EE2B6
+    cmp #$FF
+    beq :+
+    jmp @fail1
+  :
+    lda f:V_PO_TFIRED
+    ; record slot 92: G1.01 whether an IRQ fired on the power-on HTIME/VTIME (0 = none, correct)
+    sta f:$7EE2B8
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; $4213 did not read back as $FF at power-on, so $4201's output pins were not left high
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; an IRQ fired with HTIME/VTIME left at their power-on values: those are $1FF, which is past the end of both the line and the frame, so no comparator can ever match. $0000 matches every frame and an 8-bit $FF is a real dot and a real line
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 .segment "TESTSG"
 
 ; F1.02 — Pad reads 17+ are 1
@@ -22856,7 +22903,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 270
+    .word 271
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -23096,6 +23143,7 @@ _test_entries:
     .faraddr test_g1_11
     .faraddr test_g1_12
     .faraddr test_g1_14
+    .faraddr test_g1_19
     .faraddr test_a5_s01
     .faraddr test_a5_s02
     .faraddr test_a5_s03
@@ -23369,6 +23417,7 @@ _test_flags:
     .byte $01   ; G1.11
     .byte $01   ; G1.12
     .byte $01   ; G1.14
+    .byte $01   ; G1.19
     .byte $01   ; A5.S01
     .byte $01   ; A5.S02
     .byte $01   ; A5.S03
@@ -23642,6 +23691,7 @@ _test_names:
     .addr @n_g1_11
     .addr @n_g1_12
     .addr @n_g1_14
+    .addr @n_g1_19
     .addr @n_a5_s01
     .addr @n_a5_s02
     .addr @n_a5_s03
@@ -24384,6 +24434,9 @@ _test_names:
 @n_g1_14:
     .byte 17
     .byte "LoROM bank decode"
+@n_g1_19:
+    .byte 21
+    .byte "Power-on $4201/timers"
 @n_a5_s01:
     .byte 10
     .byte "Sweep: CLC"

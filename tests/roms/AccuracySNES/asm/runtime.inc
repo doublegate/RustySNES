@@ -64,6 +64,12 @@ V_PO_TIMEUP     = VAR_BASE + $48      ; $4211 as first read after reset (u8) —
 ; capture_power_on rather than read from a test body. 12 bytes, $60-$6B; the previous highest
 ; VAR_BASE offset in use is $50.
 V_PO_DMA        = VAR_BASE + $60      ; $4300-$430B at power-on (12 bytes)
+; G1.01's remaining power-on registers. $4200-$420D are write-only, so these are the two channels
+; that observe them: $4213 (RDIO) reflects $4201's output pins, and an IRQ armed on the untouched
+; HTIME/VTIME comparators tests whether those really power on at $1FF -- a value no counter reaches.
+; Both must be sampled before init_registers, which overwrites the whole $4200-$420D block.
+V_PO_RDIO       = VAR_BASE + $6C      ; $4213 as first read after reset (u8)
+V_PO_TFIRED     = VAR_BASE + $6D      ; 1 if an IRQ fired on the power-on comparators (u8)
 
 ; ---------------------------------------------------------------------------------------------
 ; Wide (frame-relative) cycle measurement. See `hv_latch_wide` in runtime.s.

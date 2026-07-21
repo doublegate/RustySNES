@@ -557,6 +557,25 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`G1.19` — the documented power-on register state, for the parts a cartridge can observe.**
+  `$4200-$420D` are write-only, so "what did reset leave here" cannot be answered by reading them
+  back; each register needs its own indirect channel. Two more are now sampled in
+  `capture_power_on`, the pre-`init_registers` hook `B5.05` and `D1.11` already use, because
+  `init_registers` deliberately overwrites the whole block:
+
+  - `$4201 = $FF`, observed through `$4213` (RDIO), which reflects its output pins.
+  - `HTIME`/`VTIME` `= $1FF`, observed by arming both timers on the untouched comparators and
+    watching three frames produce no interrupt at all. 511 is past both the 340-dot line and the
+    262/312-line frame, so a correct machine can never match — while every likely wrong answer is
+    reachable and fires almost immediately: `$0000` matches on the first line of every frame, and an
+    8-bit truncation gives 255, a real dot and a real line.
+
+  Verified by injecting each: powering the timers up at `$0000` fails at code 2, powering WRIO up at
+  `$00` fails at code 1. The row's remaining registers stay where their mechanism already lives —
+  `$4202` and `$4204/05` with `B5.05`'s multiply/divide probes, `$420D` with `B1.01`'s access
+  timing. `$4200 = $00` is explicitly **not** claimed: the probe enables the timer interrupts
+  itself, so a machine that powered up with them already enabled is indistinguishable.
+
 - **`C3.10` / `C3.11` — `$2137`, split into its two independent claims.** The dossier row makes two
   at once, and they turned out to have opposite verdicts, so they became separate tests (declared in
   `SPLITS`).
