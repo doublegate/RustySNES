@@ -973,6 +973,34 @@ the peripheral contract the rest of Group F needs, specifically a pad reporting 
 Removing the test returned the ROM to checksum `$BD42`, byte-identical to the build before it — the
 same completeness check `E6.04`'s withdrawal used.
 
+### `E9.11` analysed and not written — the discriminating coefficients would be fitted
+
+`E9.11` says only the final FIR addition saturates and the first seven wrap. RustySNES implements
+exactly that shape (`dsp.rs`, `echo25`): taps 0-6 accumulate in an `i32`, then `l as i16` wraps the
+running sum, then tap 7 is added and the whole thing is `sclamp16`'d. So the row is modelled and a
+test would be checking a real distinction.
+
+The observable exists too. `echo.output` — what lands in the echo buffer, and what `E9.05`/`E9.15`
+already read back — is the voice sum plus `(FIR result × EFB) >> 7`, so with `EFB` high the buffer's
+sign follows the FIR result's.
+
+**What does not work is choosing coefficients that separate the two models.** Worked through with
+the history value `E9.15` measures (`h ≈ $6E00`) and all seven taps at `$7F`:
+
+| step | wrapping (hardware) | saturating |
+|---|---:|---:|
+| sum of taps 0-6 | 391,160 → wraps to −2,056 | clamps to +32,767 |
+| plus tap 7 at `$80` | +7,160 | +32,767 → clamped |
+
+Both positive, and the same for every simple coefficient pattern tried. Landing them on opposite
+sides of zero means solving for the exact history value and tap set that straddle the boundary —
+which is **computing the expected answer from RustySNES's own arithmetic and then asserting it**.
+That is fitting the test to the implementation, the thing `E5.12` had to be pulled back from.
+
+Not attempted as a golden either: a recorded pair of numbers whose difference is not interpretable
+without that same arithmetic tells a later reader nothing they could not get from the source. The
+row stays uncovered with its reasoning written down, which is more useful than a green tick.
+
 ### The gaussian interpolator masks the BRR decode overflow
 
 `E6.08` — the `$801` overflow, where `-8 << 12` cannot fit the 15-bit decode path — was written as a
