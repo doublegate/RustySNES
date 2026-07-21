@@ -424,11 +424,20 @@ Two readings, and the work is to tell them apart:
   multi-hundred-clock instruction inside that window, and the latch mechanics it depends on are the
   same `$2137`/`$213F` machinery that `C3.05` above could not pin down either.
 
-The second is the more likely of the two and has to be excluded first. The way in is a calibration
-test: measure a known-length spin — a `repeat` of instructions whose total is comparable to the
-sixteen-byte move — and check the harness returns the predicted dot count at that scale. If it does,
-the `MVN` figure is real and worth a defect report; if it does not, the harness needs a
-longer-window mode before any single-instruction timing can be asserted.
+**The second is investigated first, and the reason is asymmetry rather than intuition.** The
+harness is *one* instrument, this cart's own code, shared by both measurements — so an instrument
+error is common-mode by construction and needs only one mistake. The two cores are separate
+implementations, so a shared timing defect needs the same mistake made twice. That makes the
+instrument the cheaper explanation, but it does not make it the true one: the two cores are not
+fully independent either, since both were written against the same published cycle tables, and a
+shared source can produce a shared error just as a shared instrument can.
+
+So the order is a triage order, not a verdict. The way in is a calibration test: measure a
+known-length spin — a `repeat` of instructions whose total is comparable to the sixteen-byte move —
+and check the harness returns the predicted dot count *at that scale*. If it does, the `MVN` figure
+is real and worth a defect report against both cores; if it does not, the harness needs a
+longer-window mode before any single-instruction timing can be asserted, and this row stays parked
+either way until one of the two is ruled out.
 
 Nothing is shipped either way. A test that cannot distinguish "the core is wrong" from "the
 instrument is wrong" asserts nothing.
