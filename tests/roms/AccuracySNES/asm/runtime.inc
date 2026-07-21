@@ -267,6 +267,13 @@ V_NMI_VEC       = $0056
 V_BANKPROBE     = $0058
 V_BANKPROBE_RET = $005A
 
+; A 24-bit pointer to the length-prefixed string `draw_str` is drawing.
+;
+; It is 24-bit because the catalog -- which holds every test's name -- lives outside bank $00, and
+; a 16-bit pointer plus an implicit bank cannot reach it. `draw_str` reads through `lda [ptr],y`,
+; so the caller says which bank it means and the routine no longer cares where strings live.
+V_STR_PTR       = $005C
+
 ; Cycle-measurement scratch (see hv_sync / hv_h in runtime.s).
 V_H0            = $0046
 V_H1            = $0048

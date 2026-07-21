@@ -44,6 +44,7 @@ const R_PASSED: u32 = RESULTS + 0x0A;
 const R_FAILED: u32 = RESULTS + 0x0C;
 const R_SKIPPED: u32 = RESULTS + 0x0E;
 const R_GOLDEN: u32 = RESULTS + 0x10;
+const R_SCENE_DONE: u32 = RESULTS + 0x13;
 const R_STATUS: u32 = RESULTS + 0x20;
 
 const DONE_MARK: u8 = 0xA5;
@@ -427,6 +428,10 @@ fn header_is_detected() {
 /// post-battery menu cannot be disturbed; bits in both bytes, so a host reporting one half is
 /// visibly wrong; and asymmetric under bit reversal, so an LSB-first read cannot pass by accident.
 const PAD_CONTRACT: u16 = 0x9050;
+
+/// `$5A` in [`R_SCENE_DONE`] once every rendered scene has been shown — the point after which the
+/// runtime draws the interactive menu.
+const SCENE_DONE_MARK: u8 = 0x5A;
 
 const MEAS_BASE: u32 = 0x7E_E200;
 
@@ -1346,4 +1351,83 @@ fn max_dot_is_reported() {
         "\n  B2.01 largest H ever latched: {} (hardware: 339)",
         report.meas[230]
     );
+}
+
+/// The interactive menu still renders after the battery finishes.
+///
+/// This is the only gate that looks at the menu at all, and it exists because nothing else can. The
+/// battery reports through WRAM and the rendered scenes draw their own tilemaps, so `draw_str` —
+/// which writes every header and every test name — is exercised on a code path **no other check
+/// observes**. It was rewritten when the catalog moved out of bank `$00`: a 16-bit pointer plus an
+/// implicit data bank cannot reach a string in another bank, so it now reads through a 24-bit
+/// `V_STR_PTR`. A mistake there leaves a blank or garbled menu and every other gate green.
+///
+/// What is asserted is deliberately shallow — that the title row contains the letters of
+/// "AccuracySNES" — because the alternative is a golden tilemap that has to be re-blessed whenever
+/// a tally digit changes. A blank row, a row of the wrong bank's bytes, or a row that never got
+/// written all fail it; a cosmetic change does not.
+///
+/// It also has to wait for the *whole* cartridge. `draw_screen` runs after `run_scenes`, not after
+/// the battery, so waiting on the battery's sentinel and a few frames lands in the middle of the
+/// scene loop with the tilemap still holding a scene — which is exactly what the first version of
+/// this test measured, and reported as a broken menu.
+#[test]
+fn the_menu_still_draws_after_the_battery() {
+    if !rom_path().is_file() {
+        eprintln!("SKIP accuracysnes: ROM absent");
+        return;
+    }
+    let rom = std::fs::read(rom_path()).expect("read rom");
+    let cart = Cart::from_rom(&rom).expect("AccuracySNES header must be detectable");
+    let mut sys = System::new(0);
+    sys.bus.cart = Some(cart);
+    sys.reset();
+    sys.bus.set_joypad(0, PAD_CONTRACT);
+
+    // `draw_screen` runs after `run_scenes`, not after the battery — about 700 frames later, since
+    // each of the 50 scenes is settled and held. Waiting on the battery's sentinel and then a
+    // handful of frames lands in the middle of the scene loop, with the tilemap still cleared.
+    // A budget of its own, larger than `MAX_FRAMES`: this is the only check that waits for the
+    // *whole* cartridge — battery, then every rendered scene settled and held, and only then the
+    // menu. Everything else stops at the battery's sentinel.
+    const MENU_FRAMES: u32 = 3000;
+    let mut frames = 0;
+    while frames < MENU_FRAMES && sys.bus.peek_wram(R_SCENE_DONE) != SCENE_DONE_MARK {
+        sys.run_frame();
+        frames += 1;
+    }
+    assert_eq!(
+        sys.bus.peek_wram(R_SCENE_DONE),
+        SCENE_DONE_MARK,
+        "the scene loop never finished within {MENU_FRAMES} frames, so the menu was never drawn"
+    );
+    for _ in 0..4 {
+        sys.run_frame();
+    }
+
+    // BG1's tilemap starts at word $0400; the title is row 0. Tile indices are ASCII-derived, so
+    // the row's low bytes spell the title back.
+    const MAP_BASE: u16 = 0x0400;
+    /// Tilemap stride, matching `runtime.inc`'s `SCREEN_COLS`.
+    const SCREEN_COLS: u16 = 32;
+    let row: String = (0..24)
+        .map(|i| {
+            let c = (sys.bus.ppu.vram_word(MAP_BASE + i) & 0xFF) as u8;
+            char::from(c)
+        })
+        .collect();
+    assert!(
+        row.contains("ACCURACYSNES"),
+        "the menu's title row does not contain the cartridge name — draw_str is writing the wrong \
+         bank, or nothing at all. Row read back as {row:?}"
+    );
+
+    // What this cannot cover, and why. The only strings that live in the catalog are the test
+    // names, drawn by `draw_list` — and `draw_list` does not render: rows 2 and below still hold
+    // the last scene's canvas, and the tally digits read `000` where the battery passed 284. That
+    // is **pre-existing and independent of the catalog's move**: the same ROM built before it
+    // behaves identically, byte for byte, which is the control that was run rather than assumed.
+    // Recorded in `docs/accuracysnes-plan.md`; until it is fixed, the name-drawing path is
+    // unexercised and this test covers the header path alone.
+    eprintln!("menu title row: {row:?}");
 }

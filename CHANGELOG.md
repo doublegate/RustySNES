@@ -632,6 +632,28 @@ rewritten to the current number — this line is the one to read.
   nothing depending on what is plugged in, and that `NMITIMEN` is zero for the whole battery, both
   of which the input contract changed.
 
+- **`CATALOG` moved out of bank `$00`** (to bank `$04`), which takes bank `$00` from 3,268 bytes
+  free to **11,686**. It was the last movable thing there and it grows ~27 bytes per test, so it was
+  the segment that would have hit the wall first.
+  Every access to it was already long-addressed; what had to change was `draw_str`, which read
+  length-prefixed strings with `lda a:0,y` — through `DBR`, so it could only ever see one bank. It
+  now reads through a 24-bit `V_STR_PTR` and no longer cares where strings live, with the catalog's
+  bank taken from `^_test_names` so it follows the segment automatically. The two header strings go
+  through a `str_ptr_bank0` helper that says out loud which bank it assumes.
+
+- **A gate on the interactive menu**, which until now was drawn by code *no check observed* — the
+  battery reports through WRAM and scenes draw their own tilemaps. It asserts the title row renders
+  after a full run. Getting it right took two corrections worth recording: `draw_screen` runs after
+  `run_scenes`, not after the battery, so waiting on the battery's sentinel lands mid-scene-loop with
+  the tilemap still holding a scene; and the run needs its own frame budget, larger than
+  `MAX_FRAMES`, because it is the only check that waits for the whole cartridge.
+  It also found a **pre-existing defect**: `draw_list` does not render at all — rows 2+ still hold
+  the last scene's canvas — and the tally digits read `000` where the battery passed 284. Verified
+  against the ROM built immediately before the catalog moved, which behaves identically, so it is
+  not a regression. Recorded in `docs/accuracysnes-plan.md`; it also means the catalog-bank branch of
+  the new `draw_str` has no runtime evidence yet, since test names are the only catalog strings and
+  only `draw_list` draws them.
+
 - **The build now reports per-bank headroom and fails before a bank runs out.** A segment overflow
   is an `ld65` error with no warning beforehand, it lands mid-change rather than at a moment anyone
   chose, and it names a *segment* when the fix is always to move a different one — it has happened

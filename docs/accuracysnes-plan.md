@@ -941,6 +941,38 @@ Worth separating from the row itself: **this is the first Group F blocker that i
 rather than about the machine.** `F1.15`-`F1.22` (multitap, mouse, Super Scope, NTT keypad) need
 real emulated peripherals in all three runners, which is a much larger version of the same problem.
 
+### The interactive menu's list never renders — pre-existing, found by moving the catalog
+
+Moving `CATALOG` out of bank `$00` meant rewriting `draw_str`, and verifying that meant looking at
+the menu for the first time. The menu is drawn by code **no gate observes**: the battery reports
+through WRAM and the rendered scenes draw their own tilemaps, so nothing had ever checked it.
+
+What the tilemap holds after a full run:
+
+| row | content |
+|---|---|
+| 0 | `ACCURACYSNES` — the title, drawn correctly |
+| 1 | `P:000 F:000 G:000 OF:000` — the tally *labels*, with every digit zero |
+| 2+ | the last rendered scene's canvas, untouched |
+
+So `draw_list` does not draw, and the tally digits read zero where the battery passed 284. **This is
+not a regression from the catalog move**: the ROM built immediately before it behaves identically,
+which was checked rather than assumed — the first version of the menu test failed on both images
+before it failed on either.
+
+Two consequences worth separating:
+
+- **The catalog move is safe.** Everything the battery needs from the catalog — `_test_count`,
+  `_test_entries`, `_test_flags` — is read long-addressed and the battery dispatches through
+  `_test_entries` on every one of its 284 tests. It running at all is the verification.
+- **The name-drawing path is unexercised**, before and after. The only strings in the catalog are
+  the test names, and only `draw_list` draws them. So the 24-bit `V_STR_PTR` rework is correct by
+  construction and by the header path, but its catalog-bank branch has no runtime evidence yet.
+
+Not chased further here because it is cosmetic and orthogonal to the dossier, but it is a real
+defect in the cartridge's own UI and the menu test now pins the part that does work, so a future fix
+has somewhere to land.
+
 ### The host input contract, and the defect it immediately found
 
 Group F was blocked on one thing, and it was not research. With nothing plugged in and no button

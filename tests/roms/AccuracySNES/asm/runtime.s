@@ -655,7 +655,13 @@ test_restore := test_restore_impl
 ; Drawing
 ; ---------------------------------------------------------------------------------------------
 
-; X = VRAM word address, Y = pointer to a length-prefixed ASCII string in bank $00.
+; X = VRAM word address. V_STR_PTR = 24-bit pointer to a length-prefixed ASCII string, anywhere.
+;
+; It reads through `lda [V_STR_PTR],y` rather than `lda a:0,y` because the catalog holding every
+; test's name moved out of bank $00, and a data-bank-relative read can only see one bank at a time.
+; Making the pointer explicit means the routine works for the header strings in bank $00 and the
+; names in the catalog's bank without knowing which is which -- and it keeps working if either
+; moves again.
 .proc draw_str
     sep #$20
     .a8
@@ -664,9 +670,10 @@ test_restore := test_restore_impl
     .a16
     .i16
     stx VMADDL
+    ldy #$0000
     sep #$20
     .a8
-    lda a:0,y                   ; length
+    lda [V_STR_PTR],y           ; length, at offset 0
     beq @done
     rep #$20
     .a16
@@ -674,11 +681,10 @@ test_restore := test_restore_impl
     tax                         ; X = remaining characters
     sep #$20
     .a8
-    iny
 @loop:
-    lda a:0,y
-    sta VMDATAL
     iny
+    lda [V_STR_PTR],y
+    sta VMDATAL
     rep #$10
     .i16
     dex
@@ -687,6 +693,24 @@ test_restore := test_restore_impl
     .a8
     bra @loop
 @done:
+    rts
+.endproc
+
+; Point V_STR_PTR at a bank-$00 string whose 16-bit address is in Y. Leaves A 16-bit.
+;
+; The two header strings live in RODATA and the catalog's names do not, so only this path can
+; assume a bank -- and it says so rather than leaving it implicit in `draw_str`.
+.proc str_ptr_bank0
+    rep #$20
+    .a16
+    tya
+    sta f:V_STR_PTR
+    sep #$20
+    .a8
+    lda #$00
+    sta f:V_STR_PTR+2
+    rep #$20
+    .a16
     rts
 .endproc
 
@@ -709,13 +733,15 @@ test_restore := test_restore_impl
     rep #$30
     .a16
     .i16
-    ldx #MAP_BASE
     ldy #str_title
+    jsr str_ptr_bank0
+    ldx #MAP_BASE
     jsr draw_str
 
     ; Row 1: the tallies.
-    ldx #(MAP_BASE + SCREEN_COLS)
     ldy #str_tally
+    jsr str_ptr_bank0
+    ldx #(MAP_BASE + SCREEN_COLS)
     jsr draw_str
     lda f:R_PASSED
     ldx #(MAP_BASE + SCREEN_COLS + 2)
@@ -772,8 +798,16 @@ test_restore := test_restore_impl
     asl
     phx
     tax
-    lda f:_test_names,x         ; pointer to the length-prefixed name
-    tay
+    ; The name's 16-bit address, plus the catalog's own bank. `^_test_names` is resolved by the
+    ; linker, so this follows the segment wherever lorom.cfg puts it.
+    lda f:_test_names,x
+    sta f:V_STR_PTR
+    sep #$20
+    .a8
+    lda #^_test_names
+    sta f:V_STR_PTR+2
+    rep #$20
+    .a16
     plx
     txa
     clc
