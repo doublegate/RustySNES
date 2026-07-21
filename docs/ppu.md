@@ -72,9 +72,10 @@ Per `ref-docs/2026-06-24-ppu.md` §3 (SNESdev Sprites, Fullsnes):
 ## Dot-clock timeline & H/V counters
 
 Per `ref-docs/2026-06-24-ppu.md` §4 and `docs/scheduler.md` (which is binding for the
-numbering convention — **341 dots / line, dots nominally 4 master clocks**):
+numbering convention — **340 dots / line (`0..=339`), dots 323 and 327 six master clocks and
+the rest four**; see `docs/scheduler.md` "Convention (binding)"):
 
-- Normal line = 1364 clocks = 341 dots; short = 1360 (NTSC non-interlace, V=240 alt frames);
+- Normal line = 1364 clocks = 340 dots (`338 × 4 + 2 × 6`); short = 1360 (NTSC non-interlace, V=240 alt frames);
   long = 1368 (PAL interlace field=1 V=311). 262/312 lines (NTSC/PAL), +1 interlaced.
 - Active output dots 22–277 on lines 1–224 (or 1–239 overscan). **VBlank** at V=225 (or V=240
   overscan). **HBlank** H=274→H=1.
@@ -258,7 +259,7 @@ that changes the landing decision (see below).
 ### The bug (the "Air Strike Patrol BG3 scroll" case)
 
 RustySNES's compositor renders scanline `V` at the very end of that line's own dot loop
-(`Ppu::end_of_scanline`, called when `h` wraps `DOTS_PER_LINE → 0`, i.e. after all 341 dots of
+(`Ppu::end_of_scanline`, called when `h` wraps `DOTS_PER_LINE → 0`, i.e. after all 340 dots of
 line `V` — including line `V`'s own HDMA run — have already been processed by
 `Bus::advance_master`). HDMA's per-visible-line *run* fires at dot 276 (`HDMA_RUN_DOT`,
 `docs/scheduler.md` §DMA/HDMA bus-steal), which is *before* dot 340 where `end_of_scanline` runs.

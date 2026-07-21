@@ -439,7 +439,7 @@ constraints live in **`docs/accuracysnes-plan.md`**; this list is the citable ID
 
 | Ticket | Scope | Size | Blocked on |
 |---|---|---:|---|
-| **T-04-A** | Finish Group A (65C816). **`A1`, `A3`, `A7`, `A9` complete; `A8` complete except the interrupt row.** `A4` reached complete and then regressed — `A4.06`/`A4.08` were withdrawn as vacuous, so `A4.04`/`A4.05` are open again. Left: `A2.05` and `A4.10`-class *UNVERIFIED* rows (golden vectors at best), the `A5` timing rows — **blocked, see T-06-A**: `A5.16`/`A5.18`-`A5.20` are clock-domain quantities this cart can only measure in dots — the `A6` interrupt gaps (`A6.11`-`A6.13`, `A6.15`) and `A8.06`, which does need runtime interrupt infrastructure the battery deliberately lacks. `A4.04`/`A4.05` are **reopened and UNBLOCKED**: the low-WRAM mirror makes a bank carry unobservable there, but `lorom.cfg` already builds a 128 KiB image with a per-bank signature block at `$xx:8000` for exactly this, each with ten reserved bytes — see the plan's `A4.06`/`A4.08` entry | ~14 | `A6.11`/`A6.12`/`A8.06` need an NMI-capable runtime (plan §3) |
+| **T-04-A** | Finish Group A (65C816). **`A1`, `A3`, `A7`, `A9` complete; `A8` complete except the interrupt row.** `A4` reached complete and then regressed — `A4.06`/`A4.08` were withdrawn as vacuous, so `A4.04`/`A4.05` are open again. Left: `A2.05` and `A4.10`-class *UNVERIFIED* rows (golden vectors at best), the `A5` timing rows — **blocked, see T-06-A**: `A5.16`/`A5.18`-`A5.20` are clock-domain quantities this cart can only measure in dots — note T-06-A's dot-model half is now fixed, but these need the H-IRQ clock-domain conversion that was deliberately left out of it — the `A6` interrupt gaps (`A6.11`-`A6.13`, `A6.15`) and `A8.06`, which does need runtime interrupt infrastructure the battery deliberately lacks. `A4.04`/`A4.05` are **reopened and UNBLOCKED**: the low-WRAM mirror makes a bank carry unobservable there, but `lorom.cfg` already builds a 128 KiB image with a per-bank signature block at `$xx:8000` for exactly this, each with ten reserved bytes — see the plan's `A4.06`/`A4.08` entry | ~14 | `A6.11`/`A6.12`/`A8.06` need an NMI-capable runtime (plan §3) |
 | **T-04-B** | Group B — 5A22 bus, clock, timing. **Started:** access speed, `RDNMI` mechanics, IRQ timers, frame geometry, multiply/divide + power-on shipped (14 tests, 2 emulator defects found). Left: `B2` scanline geometry, `B3` DRAM refresh — **unblocked**, write as golden vectors per the `D3` precedent (see the plan §4) — and the rest of `B4` | ~16 | nothing |
 | **T-04-C** | The rest of register-observable Group C — `C1.07`/`C1.08`, the 9/10-bit `VMAIN` rotations, CGRAM-during-render, `C7.04`–`C7.09`, `C9.05`, `C11.07`/`C11.08` | ~20 | nothing |
 | **T-04-D** | Group D — DMA / HDMA. **Started:** 15 tests — GP-DMA (`D1.01`-`D1.07`, `D1.09`/`D1.15`, `D1.10`) and HDMA (`D2.03`-`D2.06`). Found two defects: the unmodelled `$43xB` scratch latch and a WRAM->`$2180` transfer that wrote when hardware does not. **The blocker below is over-broad — re-scoped 2026-07-21.** Most uncovered rows carry specific, actionable content and need no new research: `D1.08` (invalid A-bus addresses, `[ERRATA]`, with the address list enumerated), `D1.13` (DMA reads update open bus, writes never do), `D1.14` (`$2180` B->A asymmetry, quoted verbatim with its +4 clocks), `D2.07` (HDMA preempts GP-DMA, which pauses and resumes), `D2.08` (`$420C` mid-frame starts the channel next line). **Genuinely thin and still needing sources:** `D1.11` (power-on state — names a game, not a mechanism), `D1.12` (CPU timing before DMA start), `D2.01` (init at "H~6", an approximation no test can assert). | ~20 | **partial** — only `D1.11`/`D1.12`/`D2.01` are actually source-blocked; the rest are writable now |
@@ -462,8 +462,24 @@ change RustySNES.
 
 ### T-06-A — the PPU dot model is uniform and one dot too long
 
-**Status:** open, unstarted. **Size:** the change is small and well-specified; the verification is
-the work.
+**Status: FIXED 2026-07-21** for the normal line. `rustysnes-ppu`'s `DOTS_PER_LINE` is 340 and
+`rustysnes-core` carries `LONG_DOTS`/`dot_length`, making dots 323 and 327 six master clocks and the
+rest four: `338 × 4 + 2 × 6 = 1364`, unchanged in total. AccuracySNES `B2.01` is the regression
+guard; `docs/scheduler.md` §Convention and `docs/ppu.md` were updated with it.
+
+**The verification came out exactly as predicted, which is the interesting part.** Both long dots
+sit at `H ≥ 323`, past the visible window, past hblank's start and past `HDMA_RUN_DOT`, so nothing
+that consumes dots `0..=322` moved: all 50 blessed scenes, both `hdmaen_latch_test` goldens, the
+whole battery and `B4.16`'s recorded H-IRQ positions were byte-identical before and after.
+
+**Still open, and now the only part left:** `B2.02` (short line, 1360 clocks, all 340 dots at 4) and
+`B2.03` (long line, 1368 clocks, 341 dots) are not modelled at all — neither before this change nor
+after. Both are line-length exceptions the scheduler does not currently express.
+
+**Not done, deliberately:** the H-IRQ comparator still compares in the dot domain. Converting it to
+a line-clock comparison against ares' `4 × HTIME + 14` would shift IRQ timing by ~2 clocks and is
+the kind of change that re-blesses framebuffer goldens, so it wants its own ticket and its own
+adjudication rather than riding along with a change that provably moved nothing.
 
 Two related defects in the same model:
 

@@ -79,10 +79,26 @@ Per `ref-docs/research-report.md` §2 and `ref-docs/2026-06-24-ppu.md` §4:
 
 ### Convention (binding)
 
-RustySNES counts **341 dots of nominally 4 master clocks**, treating the long dots as the
-remainder needed to reach 1364/1360/1368. Code, comments, and `docs/ppu.md` use this
-convention exclusively. The two source descriptions are the same silicon
+RustySNES counts **340 dots, numbered `0..=339`**, of which **323 and 327 are 6 master clocks** and
+the rest 4: `338 × 4 + 2 × 6 = 1364`. `rustysnes-core`'s `LONG_DOTS`/`dot_length` own the
+distribution and `rustysnes-ppu`'s `DOTS_PER_LINE` just counts. Code, comments and `docs/ppu.md`
+use this convention exclusively.
+
+**This replaced a uniform `341 × 4` model (T-06-A).** Both reach 1364, which is why the old one kept
+perfect frame timing while reporting an `OPHCT` value — dot 340 — that hardware never produces.
+fullsnes' *PPU H-Counter-Latch Quantities* histogram is the oracle: sampling `$2137` once per master
+clock across a line, dots 323 and 327 latch six times, dot 340 never. bsnes, ares and Mesen2 all
+implement it; snes9x uses 322/326 and is the outlier. AccuracySNES `B2.01` is the regression guard.
+
+Both long dots sit at `H ≥ 323`, past the visible window (22-277), past hblank's start at 274 and
+past `HDMA_RUN_DOT` (276), so dots `0..=322` kept their exact previous clock alignment — no rendered
+pixel and no HDMA transfer moved, and all 50 blessed scenes and both `hdmaen_latch_test` goldens
+were unchanged by the switch. The two source descriptions are the same silicon
 (`ref-docs/2026-06-24-ppu.md` "Note on a flagged discrepancy").
+
+**Still unmodelled**, and unchanged by this: the short line (NTSC, non-interlace, field 1, V=240 —
+1360 clocks, all 340 dots at 4) and the long line (PAL interlace, field 1, V=311 — 1368 clocks, 341
+dots, distribution unknown upstream). `B2.02` and `B2.03` remain uncovered.
 
 ## DMA / HDMA bus-steal
 

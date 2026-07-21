@@ -1364,6 +1364,15 @@ Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
 |---|---|---|
 | 1 | `$02` | RDNMI bit 7 was not set at vblank while NMI was disabled |
 
+### B2.01 — No dot above 339
+
+Provenance: **Corroborated** (fullsnes' PPU H-Counter-Latch Quantities histogram, a direct hardware measurement: dots 323 and 327 latch six times, dot 340 never. bsnes, ares and Mesen2 all implement it; snes9x uses 322/326 and is the outlier). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the largest H latched over two thousand samples was below 300, so the sampling never reached hblank and says nothing about which dots exist |
+| 2 | `$04` | the H counter latched a value above 339, so the model has a dot hardware never reports — fullsnes' latch histogram records dot 340 latching zero times — and the line's 1364 clocks are being spread over 341 uniform dots instead of 340 with 323 and 327 taking six |
+
 ### B4.16 — H-IRQ position (golden)
 
 Provenance: **Contested** (no source pins the fired dot at single-dot precision; recorded as the before/after guard for T-06-A's clock-domain comparator change). Kind: golden vector, never scored.

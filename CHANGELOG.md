@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The PPU dot model was uniform and one dot too long (`T-06-A`).** A scanline is 1364 master
+  clocks, and both `341 × 4` and `338 × 4 + 2 × 6` satisfy that — which is why the wrong one kept
+  perfect frame timing while reporting an `OPHCT` value hardware never produces. fullsnes' *PPU
+  H-Counter-Latch Quantities* histogram settles it by measurement: sampling `$2137` once per master
+  clock across a line, dots 323 and 327 latch **six** times each and dot 340 **never**. bsnes, ares
+  and Mesen2 all implement it; snes9x uses 322/326 and is the outlier. `DOTS_PER_LINE` is now 340
+  and `rustysnes-core` carries `LONG_DOTS`/`dot_length`.
+  Both long dots sit at `H ≥ 323` — past the visible window, past hblank's start at 274 and past
+  `HDMA_RUN_DOT` — so dots `0..=322` kept their exact clock alignment and **nothing moved**: all 50
+  blessed scenes, both `hdmaen_latch_test` goldens, the whole battery and `B4.16`'s recorded H-IRQ
+  positions were identical before and after. The short (1360) and long (1368) lines remain
+  unmodelled, and the H-IRQ comparator deliberately stays in the dot domain — converting it would
+  shift IRQ timing and re-bless framebuffer goldens, which wants its own adjudication.
+
 - **The automatic joypad read ignored the `$4016` latch line.** On hardware the read clocks the
   ports' shift registers, and while `$4016` bit 0 is held high those registers reload rather than
   shift — so all sixteen clocks return the first bit and the result is uniform, not merely stale.
@@ -617,6 +631,20 @@ rewritten to the current number — this line is the one to read.
   surfaced it. The module doc had gone stale in the same way: it still said Group F could reach
   nothing depending on what is plugged in, and that `NMITIMEN` is zero for the whole battery, both
   of which the input contract changed.
+
+- **`B2.01` — does any dot above 339 exist?** The regression guard for `T-06-A`, and its design is
+  the finding. Asserting "the largest H sampled is exactly 339" is **not portable**: which dots get
+  sampled depends on the core's instruction timing, since the loop covers roughly every fifth dot
+  and relies on its phase drifting between lines — and 1364 factors as `2² × 11 × 31`, so a loop
+  period sharing a large factor with it covers a sparse lattice forever. Measured: RustySNES reaches
+  339, Mesen2 338, snes9x 332, from three cores that agree about the dot count.
+  So the assertion is one-sided — **no sample may exceed 339**. Reaching 340 proves an extra dot
+  exists; failing to reach 339 proves nothing. That matches the defect, which can only ever show up
+  as a reading too *high*. The lower guard is loose (300) and bounded only from below, because a
+  `335..=339` guard would make the assertion unable to fire — a core reporting 340 would trip the
+  guard instead, and the injection said exactly that before it was fixed. The loop also jitters, one
+  iteration in two taking an extra `NOP`; without it the period was evidently a divisor of 1364 and
+  the maximum came back 336.
 
 - **`E8.02` — does key-on take five output samples to reach the envelope?** A `KON` write is held
   while the DSP reads the directory, fetches the first BRR block and primes the interpolator, which

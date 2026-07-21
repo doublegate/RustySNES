@@ -1311,3 +1311,30 @@ fn key_on_delay_is_reported() {
         report.meas[228]
     );
 }
+
+/// Report `B4.16`'s two latched H positions — the before/after guard for `T-06-A`.
+#[test]
+fn h_irq_position_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  B4.16 H latched on entry to the IRQ handler:");
+    println!(
+        "    slot 126  {:>4}  HTIME = 100 (below the long dots)",
+        report.meas[126]
+    );
+    println!(
+        "    slot 127  {:>4}  HTIME = 330 (above them)",
+        report.meas[127]
+    );
+}
+
+/// Report `B2.01`'s largest latched H — the acceptance measurement for `T-06-A`.
+#[test]
+fn max_dot_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!(
+        "\n  B2.01 largest H ever latched: {} (hardware: 339)",
+        report.meas[230]
+    );
+}

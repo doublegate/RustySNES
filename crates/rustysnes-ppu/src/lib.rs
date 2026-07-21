@@ -71,8 +71,13 @@ pub use bus::VideoBus;
 /// just counts dots. See `docs/scheduler.md` "Convention (binding)".
 pub const MASTER_CLOCKS_PER_DOT: u32 = 4;
 
-/// Dots per scanline (the RustySNES convention: 341 dots of nominally 4 master clocks).
-pub const DOTS_PER_LINE: u16 = 341;
+/// Dots per scanline: **340**, numbered `0..=339`.
+///
+/// Hardware has no dot 340 — fullsnes' H-counter-latch histogram reports it latching *never*, where
+/// every real dot latches four times and dots 323 and 327 latch six. The line is still 1364 master
+/// clocks; the scheduler owns the distribution (`rustysnes-core`'s `LONG_DOTS`) and this crate just
+/// counts dots. `T-06-A`.
+pub const DOTS_PER_LINE: u16 = 340;
 
 /// The dot at which a visible scanline's composited output becomes final for that line.
 ///

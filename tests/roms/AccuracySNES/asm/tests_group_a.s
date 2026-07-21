@@ -5107,6 +5107,95 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; B2.01 — No dot above 339
+; provenance: Corroborated (fullsnes' PPU H-Counter-Latch Quantities histogram, a direct hardware measurement: dots 323 and 327 latch six times, dot 340 never. bsnes, ares and Mesen2 all implement it; snes9x uses 322/326 and is the outlier)
+.proc test_b2_01
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Sample H repeatedly and keep the largest value seen. The loop period does not divide a
+    ; line, so the phase drifts and every dot is reached within a few lines.
+    lda #$0000
+    sta f:$7E0220     ; the running maximum
+    ldy #$0800        ; 2048 samples, spanning well over a hundred lines
+@smax:
+    sep #$20
+    .a8
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213C         ; H low
+    xba
+    lda $213C
+    and #$01          ; bit 0 is H bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp f:$7E0220
+    bcc :+
+    sta f:$7E0220
+    :
+    ; Jitter the loop. A fixed period is a hazard here: 1364 factors as 2^2 x 11 x 31, and the
+    ; first version's period was evidently one of its divisors -- the phase never drifted, dots
+    ; 337-339 were never sampled, and the maximum came back 336. Alternating two periods makes
+    ; the two-iteration period land off every divisor whatever the one-iteration period is.
+    tya
+    and #$0001
+    beq :+
+    nop
+    :
+    dey
+    bne @smax
+    lda f:$7E0220
+    ; record slot 230: B2.01 the largest H the counter ever latched
+    sta f:$7EE3CC
+    ; The guard: a run that never sampled the end of a line would report a small maximum and
+    ; pass the assertion below for entirely the wrong reason.
+    lda f:$7E0220
+    cmp #$012C
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0200
+    bcc :+
+    jmp @fail1
+  :
+    ; And nothing may exceed 339. Reaching 340 proves a dot hardware never reports; not
+    ; reaching 339 proves nothing, which is why this is asserted in one direction only.
+    lda f:$7E0220
+    cmp #$0000
+    bcs :+
+    jmp @fail2
+  :
+    cmp #$0154
+    bcc :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the largest H latched over two thousand samples was below 300, so the sampling never reached hblank and says nothing about which dots exist
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the H counter latched a value above 339, so the model has a dot hardware never reports — fullsnes' latch histogram records dot 340 latching zero times — and the line's 1364 clocks are being spread over 341 uniform dots instead of 340 with 323 and 327 taking six
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; B4.16 — H-IRQ position (golden)
 ; provenance: Contested (no source pins the fired dot at single-dot precision; recorded as the before/after guard for T-06-A's clock-domain comparator change)
 .proc test_b4_16
@@ -30360,7 +30449,7 @@ apu_prog_104:
 .export _test_flags
 
 _test_count:
-    .word 315
+    .word 316
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -30493,6 +30582,7 @@ _test_entries:
     .faraddr test_b1_02
     .faraddr test_b2_04
     .faraddr test_b4_03
+    .faraddr test_b2_01
     .faraddr test_b4_16
     .faraddr test_b4_17
     .faraddr test_b4_04
@@ -30811,6 +30901,7 @@ _test_flags:
     .byte $01   ; B1.02
     .byte $01   ; B2.04
     .byte $01   ; B4.03
+    .byte $01   ; B2.01
     .byte $02   ; B4.16
     .byte $01   ; B4.17
     .byte $01   ; B4.04
@@ -31129,6 +31220,7 @@ _test_names:
     .addr @n_b1_02
     .addr @n_b2_04
     .addr @n_b4_03
+    .addr @n_b2_01
     .addr @n_b4_16
     .addr @n_b4_17
     .addr @n_b4_04
@@ -31702,6 +31794,9 @@ _test_names:
 @n_b4_03:
     .byte 20
     .byte "RDNMI sets at vblank"
+@n_b2_01:
+    .byte 16
+    .byte "No dot above 339"
 @n_b4_16:
     .byte 23
     .byte "H-IRQ position (golden)"

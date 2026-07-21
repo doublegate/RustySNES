@@ -30,6 +30,7 @@ pub fn all() -> Vec<Test> {
         b2_04(),
         // --- B4: NMI flag mechanics and the IRQ timers ---
         b4_03(),
+        b2_01(),
         b4_16(),
         b4_17(),
         b4_04(),
@@ -1214,6 +1215,137 @@ fn b4_17() -> Test {
         'B',
         "NMI enable is a level",
         Provenance::Documented("SNESdev Wiki NMITIMEN/RDNMI [ERRATA]; fullsnes $4200/$4210"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// A scanline has **340** dots, numbered `0..=339`. There is no dot 340.
+///
+/// The line is 1364 master clocks, and two different models satisfy that: `341 × 4`, and
+/// `338 × 4 + 2 × 6` with dots 323 and 327 taking six clocks. Frame timing cannot tell them apart —
+/// both give the same total — which is why a core can carry the wrong one indefinitely and pass
+/// every refresh-rate test. What separates them is the H counter itself: the uniform model has a
+/// dot 340 that hardware never reports.
+///
+/// fullsnes settles it by measurement rather than prose. Its *PPU H-Counter-Latch Quantities*
+/// histogram samples `$2137` once per master clock across a whole line and reports dots 323 and 327
+/// latching **six** times each, every other dot four, and dot 340 **never**. bsnes, ares and Mesen2
+/// implement exactly that; snes9x uses 322/326 and is the outlier, so it is not the oracle here.
+///
+/// # What a cart can and cannot see
+///
+/// The six-clock dots are **not** cart-observable. Distinguishing a four-clock dot from a six-clock
+/// one needs sampling at a rate faster than the dot itself, and the tightest `$2137`/`$213C` loop
+/// the 65816 can write is some tens of clocks — the excess is four master clocks in 1364, well
+/// under one sample. That half of the row rests on the line still totalling 1364, which the
+/// region and refresh-rate tests already pin from the other side.
+///
+/// The dot *count* is observable, and directly: latch H often enough, across enough lines, and the
+/// largest value seen is the last dot that exists.
+///
+/// | model | maximum `OPHCT` |
+/// |---|---:|
+/// | uniform `341 × 4` | 340 |
+/// | **hardware** | **339** |
+///
+/// # What is assertable is one-sided, and finding that out cost a design
+///
+/// The obvious test — sample H a few thousand times and assert the maximum is exactly 339 — is not
+/// portable, because **which dots get sampled depends on the core's instruction timing**. The loop
+/// samples roughly every fifth dot and relies on its phase drifting between lines to cover the
+/// rest; the drift is `1364 mod (loop period)`, and 1364 factors as `2² × 11 × 31`, so a period
+/// that shares a large factor with it covers only a sparse lattice forever. Measured: RustySNES
+/// reaches 339, Mesen2 338, snes9x 332 — three different answers from three cores that agree about
+/// the dot count.
+///
+/// So the assertion is one-sided: **no sample may ever exceed 339**. Reaching 340 proves a dot 340
+/// exists; failing to reach 339 proves nothing either way. That asymmetry is real rather than a
+/// concession — the defect this guards against is an extra dot, and an extra dot can only ever show
+/// up as a reading that is too *high*.
+///
+/// | model | can this test see it? |
+/// |---|---|
+/// | uniform `341 × 4` | yes — a sample lands on 340 and the assertion fails |
+/// | hardware `338 × 4 + 2 × 6` | passes, at whatever maximum the lattice reaches |
+///
+/// The loop still jitters, one iteration in two executing an extra `NOP`, because wider coverage
+/// makes the *positive* detection more likely even though it cannot be guaranteed. The first
+/// version did not, its period was evidently a divisor of 1364, and the maximum came back 336.
+///
+/// The lower guard is deliberately loose — 300, not 335 — and bounded only from below. It exists to
+/// catch a run that never reached hblank at all, not to pin the maximum, and a guard of `335..=339`
+/// would make the assertion below unable to fire: a core reporting 340 would trip the *guard*, and
+/// the failure would read as "the sampling never reached the end of a line" when the sampling was
+/// fine and the model was not. The injection said exactly that before this was fixed.
+fn b2_01() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("Sample H repeatedly and keep the largest value seen. The loop period does not divide a");
+    a.c("line, so the phase drifts and every dot is reached within a few lines.");
+    a.l("lda #$0000");
+    a.l("sta f:$7E0220     ; the running maximum");
+    a.l("ldy #$0800        ; 2048 samples, spanning well over a hundred lines");
+    a.label("smax");
+    a.l("sep #$20");
+    a.l("lda $213F         ; reset the counter read flipflops");
+    a.l("lda $2137         ; latch H and V");
+    a.l("lda $213C         ; H low");
+    a.l("xba");
+    a.l("lda $213C");
+    a.l("and #$01          ; bit 0 is H bit 8; bits 1-7 are PPU2 open bus");
+    a.l("xba");
+    a.l("rep #$20");
+    a.l("and #$01FF");
+    a.l("cmp f:$7E0220");
+    a.l("bcc :+");
+    a.l("sta f:$7E0220");
+    a.l(":");
+    a.c("Jitter the loop. A fixed period is a hazard here: 1364 factors as 2^2 x 11 x 31, and the");
+    a.c(
+        "first version's period was evidently one of its divisors -- the phase never drifted, dots",
+    );
+    a.c("337-339 were never sampled, and the maximum came back 336. Alternating two periods makes");
+    a.c("the two-iteration period land off every divisor whatever the one-iteration period is.");
+    a.l("tya");
+    a.l("and #$0001");
+    a.l("beq :+");
+    a.l("nop");
+    a.l(":");
+    a.l("dey");
+    a.l("bne @smax");
+    a.l("lda f:$7E0220");
+    a.record(230, "B2.01 the largest H the counter ever latched");
+    a.c("The guard: a run that never sampled the end of a line would report a small maximum and");
+    a.c("pass the assertion below for entirely the wrong reason.");
+    a.l("lda f:$7E0220");
+    a.assert_a16_range(
+        300,
+        0x1FF,
+        "the largest H latched over two thousand samples was below 300, so the sampling never \
+         reached hblank and says nothing about which dots exist",
+    );
+    a.c("And nothing may exceed 339. Reaching 340 proves a dot hardware never reports; not");
+    a.c("reaching 339 proves nothing, which is why this is asserted in one direction only.");
+    a.l("lda f:$7E0220");
+    a.assert_a16_range(
+        0,
+        339,
+        "the H counter latched a value above 339, so the model has a dot hardware never reports — \
+         fullsnes' latch histogram records dot 340 latching zero times — and the line's 1364 \
+         clocks are being spread over 341 uniform dots instead of 340 with 323 and 327 taking six",
+    );
+    a.finish(
+        "B2.01",
+        'B',
+        "No dot above 339",
+        Provenance::Corroborated(
+            "fullsnes' PPU H-Counter-Latch Quantities histogram, a direct hardware measurement: \
+             dots 323 and 327 latch six times, dot 340 never. bsnes, ares and Mesen2 all implement \
+             it; snes9x uses 322/326 and is the outlier",
+        ),
         Kind::Scored,
         None,
     )
