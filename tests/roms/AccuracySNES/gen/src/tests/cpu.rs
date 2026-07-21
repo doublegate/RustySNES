@@ -2332,8 +2332,11 @@ fn a6_10() -> Test {
     a.l("sta f:$7E0094");
     a.l("rti");
     a.c("And the native handler, installed and reachable, so taking the wrong table is a wrong");
-    a.c("ANSWER rather than a hang. It cannot return correctly from an emulation-mode interrupt,");
-    a.c("so it writes its marker and stands the test down through the runtime instead.");
+    a.c("ANSWER rather than a hang. It is entered in emulation mode too — the mode is decided by");
+    a.c(
+        "the COP, not by which vector was used — so its RTI returns just as cleanly; the marker it",
+    );
+    a.c("leaves behind is the whole of its job.");
     a.label("handler_n");
     a.l("lda #$B0");
     a.l("sta f:$7E0094");

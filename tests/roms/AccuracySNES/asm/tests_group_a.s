@@ -3183,8 +3183,9 @@ CATALOG_IMPL = 1
     sta f:$7E0094
     rti
     ; And the native handler, installed and reachable, so taking the wrong table is a wrong
-    ; ANSWER rather than a hang. It cannot return correctly from an emulation-mode interrupt,
-    ; so it writes its marker and stands the test down through the runtime instead.
+    ; ANSWER rather than a hang. It is entered in emulation mode too — the mode is decided by
+    ; the COP, not by which vector was used — so its RTI returns just as cleanly; the marker it
+    ; leaves behind is the whole of its job.
 @handler_n:
     lda #$B0
     sta f:$7E0094

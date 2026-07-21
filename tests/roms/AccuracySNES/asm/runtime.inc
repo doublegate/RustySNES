@@ -168,7 +168,10 @@ V_IRQ_VEC       = $004A
 ; the native vector in emulation mode ran the same handler and nothing could tell. Initialised to
 ; `irq_stub` at reset, so a COP in a test that has installed no handler returns harmlessly instead
 ; of jumping into whatever RAM held. BRK is deliberately not split — see runtime.s.
-V_COP_VEC_E     = $0052
+;
+; $0054 and not $0052: V_APU_PTR at $0050 is a 24-bit pointer, so it owns $0050-$0052, and the
+; first draft of this put the COP vector on top of its bank byte.
+V_COP_VEC_E     = $0054
 
 ; Cycle-measurement scratch (see hv_sync / hv_h in runtime.s).
 V_H0            = $0046
