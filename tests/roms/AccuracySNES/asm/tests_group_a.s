@@ -4549,6 +4549,119 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A6.13 — IRQ handler PBR = $00
+; provenance: Documented (WDC datasheet: the vector is 16-bit, so the handler runs in bank 0)
+.proc test_a6_13
+    .a16
+    .i16
+    bra @body
+@handler:
+    rep #$30
+    .a16
+    .i16
+    pha
+    sep #$20
+    .a8
+    .a8
+    ; PHK pushes the CURRENT program bank, which is the whole question.
+    phk
+    pla
+    sta f:$7E0190
+    lda $4211         ; acknowledge
+    lda #$01
+    sta f:$7E0192     ; release the spin loop
+    rep #$30
+    .a16
+    .i16
+    .a16
+    .i16
+    pla
+    rti
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    sei
+    rep #$20
+    .a16
+    lda #@handler
+    sta a:V_IRQ_VEC
+    ; Poison the result: $FF distinguishes 'the handler never ran' from either bank.
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:$7E0190
+    lda #$00
+    sta f:$7E0192
+    ; Assemble the spin stub into bank $7E. It must live outside bank $00 for this test to
+    ; mean anything -- see the note above.
+    lda #$AF
+    sta f:$7E3000     ; LDA long
+    lda #$92
+    sta f:$7E3001
+    lda #$01
+    sta f:$7E3002
+    lda #$7E
+    sta f:$7E3003     ; ...$7E0192, the rendezvous flag
+    lda #$F0
+    sta f:$7E3004     ; BEQ
+    lda #$FA
+    sta f:$7E3005     ; -6: back to the LDA
+    lda #$5C
+    sta f:$7E3006     ; JML
+    rep #$20
+    .a16
+    lda #.LOWORD(@after)
+    sta f:$7E3007
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E3009     ; ...back into bank $00
+    ; Arm an H-IRQ, unmask, and run the stub. The interrupt lands with PBR = $7E.
+    lda #200
+    sta $4207
+    stz $4208         ; HTIME = 200
+    lda $4211         ; clear any stale latch
+    lda #$10
+    sta $4200         ; H-IRQ enabled
+    cli
+    jml $7E3000
+@after:
+    sep #$20
+    .a8
+    sei
+    stz $4200
+    lda $4211
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda f:$7E0190
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the interrupt handler did not run with PBR = $00 — $7E means the program bank was left as the interrupted code's, $FF that the handler never ran at all
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; B1.01 — MEMSEL selects FastROM
 ; provenance: Documented (SNESdev Wiki, Memory map / timing; fullsnes)
 .proc test_b1_01
@@ -21475,7 +21588,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 259
+    .word 260
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -21555,6 +21668,7 @@ _test_entries:
     .faraddr test_a6_12
     .faraddr test_a4_11
     .faraddr test_a4_12
+    .faraddr test_a6_13
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -21817,6 +21931,7 @@ _test_flags:
     .byte $02   ; A6.12
     .byte $01   ; A4.11
     .byte $01   ; A4.12
+    .byte $01   ; A6.13
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -22079,6 +22194,7 @@ _test_names:
     .addr @n_a6_12
     .addr @n_a4_11
     .addr @n_a4_12
+    .addr @n_a6_13
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -22490,6 +22606,9 @@ _test_names:
 @n_a4_12:
     .byte 18
     .byte "JSR (a,X) ptr bank"
+@n_a6_13:
+    .byte 21
+    .byte "IRQ handler PBR = $00"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"

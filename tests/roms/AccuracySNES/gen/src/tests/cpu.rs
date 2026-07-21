@@ -100,6 +100,7 @@ pub fn all() -> Vec<Test> {
         a6_12(),
         a4_11(),
         a4_12(),
+        a6_13(),
     ]
 }
 
@@ -1420,6 +1421,137 @@ fn a4_12() -> Test {
         'A',
         "JSR (a,X) ptr bank",
         Provenance::Documented("SNESdev Errata, 65C816 section"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// An interrupt handler runs with `PBR = $00`, whatever bank was executing.
+///
+/// The vector table lives at `$00:FFxx` and the fetched vector is a 16-bit address, so taking an
+/// interrupt forces the program bank to `$00`. A core that leaves `PBR` alone jumps to the right
+/// offset in the *wrong* bank — and in ordinary code, where everything already runs in bank `$00`,
+/// that is completely invisible.
+///
+/// # Which is why the interrupted code has to run somewhere else
+///
+/// Every test body in this group executes in bank `$00`, so an interrupt taken from one would
+/// report `PBR = $00` whether or not the core forces it. The test would pass on a broken core: the
+/// vacuity that withdrew `A4.06`.
+///
+/// So the interrupted code is a ten-byte stub assembled **into WRAM** and jumped to with `JML`, the
+/// same technique `A4.09` uses to reach a bank boundary. It spins on a flag the handler sets, so
+/// `PBR` is `$7E` at the moment the IRQ arrives and a core that does not force `$00` reports `$7E`.
+///
+/// ```text
+///   $7E:3000  AF 92 01 7E   LDA $7E0192   ; the handler's rendezvous flag
+///   $7E:3004  F0 FA         BEQ -6        ; spin until it is set
+///   $7E:3006  5C .. .. 00   JML @after    ; back to bank $00
+/// ```
+///
+/// # How the failure presents, which is not always a clean code
+///
+/// Verified by injecting the bug — deleting `self.regs.pbr = 0` from the hardware-interrupt path
+/// in `rustysnes-cpu`. A core that does not force the bank does not merely report `$7E`: it
+/// **never reaches this handler at all**, because it jumps to the handler's 16-bit offset inside
+/// bank `$7E`, which is WRAM. What runs there is arbitrary, so the observed verdict was a spurious
+/// `variant 1` rather than this test's failure code — which would not have dropped the pass rate.
+///
+/// That is a property of the defect, not a fixable weakness of the test: once a core mis-vectors,
+/// no code this test placed anywhere can be relied on to run. `A6.11` records the same shape from
+/// the other direction, where gating `WAI`'s wake hangs the battery instead of failing a test. The
+/// honest reading is that a broken core here shows up as a battery *anomaly* — wrong verdict, hang
+/// or clean failure depending on what the stray execution touches — rather than as a tidy red row,
+/// and the `$FF` poison exists so that "the handler never ran" is at least distinguishable when
+/// the verdict does survive.
+fn a6_13() -> Test {
+    let mut a = Asm::new();
+    a.l("bra @body");
+    a.label("handler");
+    a.l("rep #$30");
+    a.l("pha");
+    a.l("sep #$20");
+    a.l(".a8");
+    a.c("PHK pushes the CURRENT program bank, which is the whole question.");
+    a.l("phk");
+    a.l("pla");
+    a.l("sta f:$7E0190");
+    a.l("lda $4211         ; acknowledge");
+    a.l("lda #$01");
+    a.l("sta f:$7E0192     ; release the spin loop");
+    a.l("rep #$30");
+    a.l(".a16");
+    a.l(".i16");
+    a.l("pla");
+    a.l("rti");
+    a.label("body");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("sei");
+    a.l("rep #$20");
+    a.l("lda #@handler");
+    a.l("sta a:V_IRQ_VEC");
+    a.c("Poison the result: $FF distinguishes 'the handler never ran' from either bank.");
+    a.l("sep #$20");
+    a.l("lda #$FF");
+    a.l("sta f:$7E0190");
+    a.l("lda #$00");
+    a.l("sta f:$7E0192");
+    a.c("Assemble the spin stub into bank $7E. It must live outside bank $00 for this test to");
+    a.c("mean anything -- see the note above.");
+    a.l("lda #$AF");
+    a.l("sta f:$7E3000     ; LDA long");
+    a.l("lda #$92");
+    a.l("sta f:$7E3001");
+    a.l("lda #$01");
+    a.l("sta f:$7E3002");
+    a.l("lda #$7E");
+    a.l("sta f:$7E3003     ; ...$7E0192, the rendezvous flag");
+    a.l("lda #$F0");
+    a.l("sta f:$7E3004     ; BEQ");
+    a.l("lda #$FA");
+    a.l("sta f:$7E3005     ; -6: back to the LDA");
+    a.l("lda #$5C");
+    a.l("sta f:$7E3006     ; JML");
+    a.l("rep #$20");
+    a.l("lda #.LOWORD(@after)");
+    a.l("sta f:$7E3007");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta f:$7E3009     ; ...back into bank $00");
+    a.c("Arm an H-IRQ, unmask, and run the stub. The interrupt lands with PBR = $7E.");
+    a.l("lda #200");
+    a.l("sta $4207");
+    a.l("stz $4208         ; HTIME = 200");
+    a.l("lda $4211         ; clear any stale latch");
+    a.l("lda #$10");
+    a.l("sta $4200         ; H-IRQ enabled");
+    a.l("cli");
+    a.l("jml $7E3000");
+    a.label("after");
+    a.l("sep #$20");
+    a.l("sei");
+    a.l("stz $4200");
+    a.l("lda $4211");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda f:$7E0190");
+    a.assert_a8(
+        0x00,
+        "the interrupt handler did not run with PBR = $00 — $7E means the program bank was left \
+         as the interrupted code's, $FF that the handler never ran at all",
+    );
+    a.finish(
+        "A6.13",
+        'A',
+        "IRQ handler PBR = $00",
+        Provenance::Documented(
+            "WDC datasheet: the vector is 16-bit, so the handler runs in bank 0",
+        ),
         Kind::Scored,
         None,
     )

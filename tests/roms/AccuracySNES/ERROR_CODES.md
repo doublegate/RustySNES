@@ -638,6 +638,14 @@ Provenance: **Documented** (SNESdev Errata, 65C816 section). Kind: scored.
 |---|---|---|
 | 1 | `$02` | JSR (a,X) did not take its pointer from the program bank: $01 = carried into bank $01, $FF = neither stub ran |
 
+### A6.13 — IRQ handler PBR = $00
+
+Provenance: **Documented** (WDC datasheet: the vector is 16-bit, so the handler runs in bank 0). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the interrupt handler did not run with PBR = $00 — $7E means the program bank was left as the interrupted code's, $FF that the handler never ran at all |
+
 ### A5.S01 — Sweep: CLC
 
 Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.
