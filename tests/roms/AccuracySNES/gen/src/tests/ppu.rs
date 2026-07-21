@@ -64,6 +64,7 @@ pub fn all() -> Vec<Test> {
         // --- C11: Mode 7 hardware multiply ---
         c11_06(),
         c11_06b(),
+        c11_07(),
         // --- C7: sprite evaluation flags (the only Group C tests that render) ---
         c7_01(),
         c7_04(),
@@ -1709,6 +1710,119 @@ fn c11_06() -> Test {
         Kind::Scored,
         None,
     )
+}
+
+/// `$210D` and `$211B` share one write-twice latch, so a scroll write between two `M7A` bytes
+/// corrupts the multiplicand.
+///
+/// PPU1 holds a **single** byte latch for its write-twice registers. `$211B`-`$211E` (the Mode 7
+/// matrix) and `$210D`/`$210E` (BG1's scroll) all pass through it: the first write to any of them
+/// loads the latch, and the second combines the latch with the new byte. They do not each have one.
+///
+/// So a driver that writes `M7A`'s low byte, is interrupted by something that touches BG1 scroll,
+/// and then writes `M7A`'s high byte does not get the value it wrote — it gets the *interrupt's*
+/// byte in the low half. The dossier marks it `[ERRATA]` and names the interrupting write as an
+/// IRQ handler or an HDMA channel, both of which routinely write scroll registers.
+///
+/// # Reading it back through the multiplier
+///
+/// `M7A` is not readable, but `$2134`-`$2136` report `M7A × M7B` as a 24-bit signed product, which
+/// makes the multiplicand observable. With `M7B`'s high byte at `2` the product is just `M7A`
+/// doubled, so the reading names the multiplicand directly rather than through arithmetic worth
+/// getting wrong.
+///
+/// | phase | writes | `M7A` | `MPY` |
+/// |---|---|---|---|
+/// | A | `$211B` = `$00`, `$211B` = `$01` | `$0100` | `$000200` |
+/// | B | `$211B` = `$00`, **`$210D` = `$FF`**, `$211B` = `$01` | `$01FF` | `$0003FE` |
+///
+/// # The control is asserted exactly; the corruption only has to differ
+///
+/// Phase A pins the whole apparatus — the write-twice order, the multiplier, and the 24-bit read —
+/// to one exact value, because "phase B differs from phase A" is worth nothing if phase A is
+/// already wrong. Phase B is asserted only to differ: `$0003FE` is what a shared latch produces and
+/// is published in the channel, but asserting it would be asserting *which* byte the interposed
+/// write leaves behind, and the row's claim is that the multiplicand is corrupted at all.
+///
+/// `$210D` is written back to zero before anything is judged. It is BG1's horizontal scroll, and a
+/// failure exits through `test_restore`, which does not touch it — leaving it at `$FF00` would
+/// shift the picture for every rendered scene that follows.
+fn c11_07() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("M7B's high byte is the multiplier: 2, so the product is the multiplicand doubled.");
+    a.l("sep #$20");
+    a.l("stz $211C");
+    a.l("lda #$02");
+    a.l("sta $211C");
+    a.c("--- A: the two M7A writes back to back ---");
+    a.l("stz $211B");
+    a.l("lda #$01");
+    a.l("sta $211B         ; M7A = $0100");
+    c11_07_read_mpy(&mut a, 0x7E_0210);
+    a.c("--- B: the same two writes, with a BG1 scroll write between them ---");
+    a.l("sep #$20");
+    a.l("stz $211B");
+    a.l("lda #$FF");
+    a.l("sta $210D         ; BG1HOFS — same latch, and it lands in M7A's low half");
+    a.l("lda #$01");
+    a.l("sta $211B");
+    c11_07_read_mpy(&mut a, 0x7E_0214);
+    a.c("Put BG1's scroll back before judging: a failure exits without passing through here, and");
+    a.c("every rendered scene after this one would be shifted.");
+    a.l("sep #$20");
+    a.l("stz $210D");
+    a.l("stz $210D");
+    a.l("rep #$30");
+    a.l("lda f:$7E0210");
+    a.record(
+        223,
+        "C11.07 MPY with the two M7A writes adjacent (the control)",
+    );
+    a.l("lda f:$7E0214");
+    a.record(224, "C11.07 MPY with a $210D write between them");
+    a.c("The control is exact: $0100 doubled, and a wrong one makes the comparison meaningless.");
+    a.l("lda f:$7E0210");
+    a.l("cmp #$0200");
+    a.fail_if_ne(
+        "M7A = $0100 times M7B = 2 did not read back as $200 from $2134, so the write-twice order, \
+         the multiplier or the product read is wrong and phase B says nothing about the latch",
+    );
+    a.c("And the interposed write must have got into the multiplicand.");
+    a.l("lda f:$7E0214");
+    a.l("cmp f:$7E0210");
+    a.fail_if_eq(
+        "writing $210D between M7A's two bytes left the product unchanged, so $210D and $211B have \
+         latches of their own — an IRQ handler or an HDMA channel touching BG1 scroll mid-update \
+         would corrupt the Mode 7 matrix on hardware and not here",
+    );
+    a.finish(
+        "C11.07",
+        'C',
+        "MPY latch is shared",
+        Provenance::Documented(
+            "fullsnes and the SNESdev Wiki: PPU1's write-twice registers share one byte latch, so \
+             $210D/$210E and $211B-$211E interfere with each other",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Emit: read the 24-bit signed product from `$2134`-`$2136` into a 16-bit word at `dest`.
+///
+/// Only the low sixteen bits are kept. The products here are small and positive, so the third byte
+/// carries nothing — and reading it anyway matters, because `$2134`-`$2136` are three views of one
+/// latched value and leaving a byte unread is not something this test should be quietly relying on.
+fn c11_07_read_mpy(a: &mut Asm, dest: u32) {
+    a.l("sep #$20");
+    a.l("lda $2134         ; product, low");
+    a.l(&format!("sta f:${dest:06X}"));
+    a.l("lda $2135         ; middle");
+    a.l(&format!("sta f:${:06X}", dest + 1));
+    a.l("lda $2136         ; high — read but not kept; see the doc comment");
 }
 
 /// The Mode 7 multiply is signed on **both** operands, and the product sign-extends to 24 bits.

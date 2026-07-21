@@ -1263,3 +1263,19 @@ fn auto_read_result_timing_is_reported() {
         println!("    slot {slot}  {:#06x}  V = {line}", report.meas[slot]);
     }
 }
+
+/// Report `C11.07`'s two `MPY` readings across the shared write-twice latch.
+#[test]
+fn mode7_latch_sharing_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  C11.07 MPY with M7A = $0100 and M7B's high byte 2:");
+    println!(
+        "    slot 223  {:#06x}  writes adjacent (expect $0200)",
+        report.meas[223]
+    );
+    println!(
+        "    slot 224  {:#06x}  $210D between them (expect $03FE)",
+        report.meas[224]
+    );
+}

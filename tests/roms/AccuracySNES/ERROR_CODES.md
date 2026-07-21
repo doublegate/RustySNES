@@ -1203,6 +1203,15 @@ Provenance: **Documented** (SNESdev Wiki, Mode 7; fullsnes). Kind: scored.
 | 4 | `$08` | MPYL wrong for -1 * 2 (M7A must be signed) |
 | 5 | `$0A` | the product did not sign-extend for a negative M7A |
 
+### C11.07 — MPY latch is shared
+
+Provenance: **Documented** (fullsnes and the SNESdev Wiki: PPU1's write-twice registers share one byte latch, so $210D/$210E and $211B-$211E interfere with each other). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | M7A = $0100 times M7B = 2 did not read back as $200 from $2134, so the write-twice order, the multiplier or the product read is wrong and phase B says nothing about the latch |
+| 2 | `$04` | writing $210D between M7A's two bytes left the product unchanged, so $210D and $211B have latches of their own — an IRQ handler or an HDMA channel touching BG1 scroll mid-update would corrupt the Mode 7 matrix on hardware and not here |
+
 ### C7.01 — Range Over at 32 sprites
 
 Provenance: **Documented** (SNESdev Wiki, Sprites; fullsnes). Kind: scored.

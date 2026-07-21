@@ -618,6 +618,18 @@ rewritten to the current number — this line is the one to read.
   nothing depending on what is plugged in, and that `NMITIMEN` is zero for the whole battery, both
   of which the input contract changed.
 
+- **`C11.07` — do `$210D` and `$211B` share a write-twice latch?** PPU1 holds a **single** byte
+  latch for its write-twice registers, so `$211B`-`$211E` (the Mode 7 matrix) and `$210D`/`$210E`
+  (BG1 scroll) pass through the same one. A driver that writes `M7A`'s low byte, is interrupted by
+  something touching BG1 scroll, and then writes `M7A`'s high byte gets the *interrupt's* byte in
+  the low half — the dossier names an IRQ handler or an HDMA channel, both of which routinely write
+  scroll registers. `M7A` is not readable, but `$2134`-`$2136` report `M7A × M7B`, so with `M7B`'s
+  high byte at 2 the product is the multiplicand doubled and names it directly: `$0200` with the
+  writes adjacent, `$03FE` with a `$210D` = `$FF` between them. The control is asserted exactly and
+  the corruption only has to differ — `$03FE` is published but asserting it would be asserting
+  *which* byte the interposed write leaves behind, where the row's claim is that the multiplicand is
+  corrupted at all. Verified by dropping the latch update from the BG1HOFS path.
+
 - **`F1.12` — when does the automatic read's result become valid?** A **golden vector**, because
   the sources conflict with each other: `F1.12` says valid by `V = $E3` (227), while `F1.09`'s
   4224-cycle duration and `F1.08`'s start window put the finish near line 228. `$4218` is sampled at

@@ -25299,6 +25299,96 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; C11.07 — MPY latch is shared
+; provenance: Documented (fullsnes and the SNESdev Wiki: PPU1's write-twice registers share one byte latch, so $210D/$210E and $211B-$211E interfere with each other)
+.proc test_c11_07
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; M7B's high byte is the multiplier: 2, so the product is the multiplicand doubled.
+    sep #$20
+    .a8
+    stz $211C
+    lda #$02
+    sta $211C
+    ; --- A: the two M7A writes back to back ---
+    stz $211B
+    lda #$01
+    sta $211B         ; M7A = $0100
+    sep #$20
+    .a8
+    lda $2134         ; product, low
+    sta f:$7E0210
+    lda $2135         ; middle
+    sta f:$7E0211
+    lda $2136         ; high — read but not kept; see the doc comment
+    ; --- B: the same two writes, with a BG1 scroll write between them ---
+    sep #$20
+    .a8
+    stz $211B
+    lda #$FF
+    sta $210D         ; BG1HOFS — same latch, and it lands in M7A's low half
+    lda #$01
+    sta $211B
+    sep #$20
+    .a8
+    lda $2134         ; product, low
+    sta f:$7E0214
+    lda $2135         ; middle
+    sta f:$7E0215
+    lda $2136         ; high — read but not kept; see the doc comment
+    ; Put BG1's scroll back before judging: a failure exits without passing through here, and
+    ; every rendered scene after this one would be shifted.
+    sep #$20
+    .a8
+    stz $210D
+    stz $210D
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0210
+    ; record slot 223: C11.07 MPY with the two M7A writes adjacent (the control)
+    sta f:$7EE3BE
+    lda f:$7E0214
+    ; record slot 224: C11.07 MPY with a $210D write between them
+    sta f:$7EE3C0
+    ; The control is exact: $0100 doubled, and a wrong one makes the comparison meaningless.
+    lda f:$7E0210
+    cmp #$0200
+    beq :+
+    jmp @fail1
+  :
+    ; And the interposed write must have got into the multiplicand.
+    lda f:$7E0214
+    cmp f:$7E0210
+    bne :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; M7A = $0100 times M7B = 2 did not read back as $200 from $2134, so the write-twice order, the multiplier or the product read is wrong and phase B says nothing about the latch
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; writing $210D between M7A's two bytes left the product unchanged, so $210D and $211B have latches of their own — an IRQ handler or an HDMA channel touching BG1 scroll mid-update would corrupt the Mode 7 matrix on hardware and not here
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C7.01 — Range Over at 32 sprites
 ; provenance: Documented (SNESdev Wiki, Sprites; fullsnes)
 .proc test_c7_01
@@ -29981,7 +30071,7 @@ apu_prog_103:
 .export _test_flags
 
 _test_count:
-    .word 312
+    .word 313
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -30095,6 +30185,7 @@ _test_entries:
     .faraddr test_c14_03
     .faraddr test_c11_06
     .faraddr test_c11_06b
+    .faraddr test_c11_07
     .faraddr test_c7_01
     .faraddr test_c7_04
     .faraddr test_c7_02
@@ -30410,6 +30501,7 @@ _test_flags:
     .byte $02   ; C14.03
     .byte $01   ; C11.06
     .byte $01   ; C11.06b
+    .byte $01   ; C11.07
     .byte $01   ; C7.01
     .byte $01   ; C7.04
     .byte $01   ; C7.02
@@ -30725,6 +30817,7 @@ _test_names:
     .addr @n_c14_03
     .addr @n_c11_06
     .addr @n_c11_06b
+    .addr @n_c11_07
     .addr @n_c7_01
     .addr @n_c7_04
     .addr @n_c7_02
@@ -31257,6 +31350,9 @@ _test_names:
 @n_c11_06b:
     .byte 17
     .byte "MPY sign handling"
+@n_c11_07:
+    .byte 19
+    .byte "MPY latch is shared"
 @n_c7_01:
     .byte 24
     .byte "Range Over at 32 sprites"
