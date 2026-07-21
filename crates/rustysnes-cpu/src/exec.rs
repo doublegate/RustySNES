@@ -2414,9 +2414,15 @@ impl Cpu {
     }
     fn op_jsr_abs_x_ind(&mut self, bus: &mut impl Bus) {
         // JSR (abs,X): push return, then read pointer at PBR:(operand+X).
+        //
+        // The pushes **escape page 1 in emulation mode**, like `JSL`'s and unlike plain `JSR`'s.
+        // ares' `instructionCallIndexedIndirect` uses `pushN` and re-applies `S.h = 0x01` only at
+        // the instruction boundary; using the page-1-confined `push16` here wrapped the second
+        // pushed byte to `$01FF` and corrupted the top of the stack page. Found by AccuracySNES
+        // `A3.08`, which snes9x and Mesen2 both passed while this failed.
         let base = self.fetch16(bus);
         let ret = self.regs.pc.wrapping_sub(1);
-        self.push16(bus, ret);
+        self.push_n16(bus, ret);
         self.io(bus);
         let ptr = base.wrapping_add(self.regs.x_val());
         let lo = self.bus_read8(bus, (u32::from(self.regs.pbr) << 16) | u32::from(ptr));

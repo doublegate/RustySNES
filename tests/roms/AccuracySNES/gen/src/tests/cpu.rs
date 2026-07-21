@@ -91,6 +91,7 @@ pub fn all() -> Vec<Test> {
         a4_09(),
         a4_10(),
         a8_06(),
+        a3_08(),
     ]
 }
 
@@ -753,6 +754,76 @@ fn a3_05() -> Test {
         'A',
         "Stack in bank $00",
         Provenance::Documented("WDC datasheet"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `JSR (a,X)` escapes page 1: the second pushed byte lands below `$0100`.
+///
+/// The companion to `A3.07`, and not a duplicate of it: `JSL` pushes three bytes and `JSR (a,X)`
+/// pushes two, so they cross the page-1 floor from different starting alignments and through
+/// different opcodes. A core that special-cases the escape per instruction — which is exactly how
+/// this gets implemented — can get one right and the other wrong.
+///
+/// From `S = $0100` the first push lands at `$0100`, the last byte of the stack page, and the
+/// second escapes to `$00FF`. A core applying the 6502's page-1 confinement uniformly wraps that
+/// second push to `$01FF` instead.
+///
+/// The canary at `$01FF` is the discriminator: untouched if the push escaped, overwritten if it
+/// wrapped. As in `A3.07`, what landed at `$00FF` is deliberately not asserted — it is half of a
+/// return address, so its value would pin where in the ROM this test is assembled.
+///
+/// **The subroutine does not `RTS`,** for the reason `A3.07` records the hard way: after an
+/// escaping push `S` is below `$0100`, emulation mode forces the stack's high byte back to `$01`,
+/// and there is no return address left to pull. It rebuilds the stack and jumps back instead.
+///
+/// The pointer is read from `$00:0210` and no claim is made about *which bank* it comes from —
+/// banks `$00-$3F` alias the same WRAM below `$2000`, so a bank claim there would be unfalsifiable
+/// (see the plan's `A4.06`/`A4.08` entry). This test is about the pushes.
+fn a3_08() -> Test {
+    let mut a = Asm::new();
+    a.c("The subroutine, jumped over. It leaves emulation, rebuilds the stack, and rejoins.");
+    a.l("bra @body");
+    a.label("sub");
+    a.l("clc");
+    a.l("xce               ; -> native");
+    a.l("rep #$30");
+    a.l(".a16");
+    a.l(".i16");
+    a.l("lda f:V_SAVED_S");
+    a.l("tcs");
+    a.l("jmp @after");
+    a.label("body");
+    a.c("Canary at the top of the stack page: a wrapped second push lands exactly here.");
+    a.l("rep #$30");
+    a.l("sep #$20");
+    a.l("lda #$EE");
+    a.l("sta f:$7E01FF");
+    a.c("Pointer for the indirect jump, in low WRAM (mirrored at $00:0210).");
+    a.l("rep #$30");
+    a.l("lda #.LOWORD(@sub)");
+    a.l("sta f:$7E0210");
+    a.c("E=1, S=$0100: the first push lands at $0100, the second must escape to $00FF.");
+    a.l("lda #$0100");
+    a.l("tcs");
+    a.enter_emulation();
+    a.l("ldx #$00");
+    a.l("jsr ($0210,x)");
+    a.label("after");
+    a.l("rep #$30");
+    a.l("sep #$20");
+    a.l("lda f:$7E01FF");
+    a.assert_a8(
+        0xEE,
+        "JSR (a,X) wrapped its second push into page 1 and clobbered $01FF, \
+         instead of escaping to $00FF",
+    );
+    a.finish(
+        "A3.08",
+        'A',
+        "JSR (a,X) escapes page 1",
+        Provenance::Documented("WDC datasheet; superfamicom.org escape list"),
         Kind::Scored,
         None,
     )

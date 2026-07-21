@@ -563,6 +563,14 @@ Provenance: **Documented** (WDC datasheet: E=1 forces x=1, so the indices are 8-
 | 4 | `$08` | the destination offset was not confined to $00xx — it wrote past the page instead |
 | 5 | `$0A` | the destination offset advanced to $0100 instead of wrapping inside page 0 |
 
+### A3.08 — JSR (a,X) escapes page 1
+
+Provenance: **Documented** (WDC datasheet; superfamicom.org escape list). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | JSR (a,X) wrapped its second push into page 1 and clobbered $01FF, instead of escaping to $00FF |
+
 ## Group C
 
 ### C1.01 — OAM word write/read

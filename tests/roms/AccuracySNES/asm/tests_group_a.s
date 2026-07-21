@@ -3820,6 +3820,73 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A3.08 — JSR (a,X) escapes page 1
+; provenance: Documented (WDC datasheet; superfamicom.org escape list)
+.proc test_a3_08
+    .a16
+    .i16
+    ; The subroutine, jumped over. It leaves emulation, rebuilds the stack, and rejoins.
+    bra @body
+@sub:
+    clc
+    xce               ; -> native
+    rep #$30
+    .a16
+    .i16
+    .a16
+    .i16
+    lda f:V_SAVED_S
+    tcs
+    jmp @after
+@body:
+    ; Canary at the top of the stack page: a wrapped second push lands exactly here.
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$EE
+    sta f:$7E01FF
+    ; Pointer for the indirect jump, in low WRAM (mirrored at $00:0210).
+    rep #$30
+    .a16
+    .i16
+    lda #.LOWORD(@sub)
+    sta f:$7E0210
+    ; E=1, S=$0100: the first push lands at $0100, the second must escape to $00FF.
+    lda #$0100
+    tcs
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+    ldx #$00
+    jsr ($0210,x)
+@after:
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda f:$7E01FF
+    cmp #$EE
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; JSR (a,X) wrapped its second push into page 1 and clobbered $01FF, instead of escaping to $00FF
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C1.01 — OAM word write/read
 ; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
 .proc test_c1_01
@@ -20249,7 +20316,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 244
+    .word 245
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -20320,6 +20387,7 @@ _test_entries:
     .faraddr test_a4_09
     .faraddr test_a4_10
     .faraddr test_a8_06
+    .faraddr test_a3_08
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -20567,6 +20635,7 @@ _test_flags:
     .byte $01   ; A4.09
     .byte $02   ; A4.10
     .byte $01   ; A8.06
+    .byte $01   ; A3.08
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -20814,6 +20883,7 @@ _test_names:
     .addr @n_a4_09
     .addr @n_a4_10
     .addr @n_a8_06
+    .addr @n_a3_08
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -21192,6 +21262,9 @@ _test_names:
 @n_a8_06:
     .byte 24
     .byte "E=1 confines MVN offsets"
+@n_a3_08:
+    .byte 24
+    .byte "JSR (a,X) escapes page 1"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"

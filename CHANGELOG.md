@@ -9,7 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`JSR (a,X)` did not escape page 1 in emulation mode.** Its return-address pushes went through
+  the page-1-confined stack path, so from `S = $0100` the second pushed byte wrapped to `$01FF` and
+  corrupted the top of the stack page instead of escaping to `$00FF`. `JSL` already used the
+  escaping path; `JSR (a,X)` is on the same escape list and did not.
+
+  ares' `instructionCallIndexedIndirect` pushes with `pushN` and re-applies `S.h = $01` only at the
+  instruction boundary, which is what RustySNES now does. Found by the new AccuracySNES `A3.08`,
+  which snes9x and Mesen2 both passed while RustySNES failed — the diagnostic signature of a real
+  defect rather than a broken test.
+
 ### Added
+
+- **`A3.08` — `JSR (a,X)` escapes page 1.** The companion to `A3.07` and not a duplicate: `JSL`
+  pushes three bytes and `JSR (a,X)` two, so they cross the page-1 floor from different alignments
+  through different opcodes, and a core special-casing the escape per instruction can get one right
+  and the other wrong. RustySNES did exactly that — see *Fixed* above.
+
+  The canary at `$01FF` is the discriminator. The subroutine rebuilds the stack and jumps back
+  rather than returning, for the reason `A3.07` records: after an escaping push `S` is below
+  `$0100` and emulation mode forces the stack's high byte back to `$01`, leaving no return address
+  to pull. No claim is made about which bank the pointer is read from, since banks `$00-$3F` alias
+  the same WRAM below `$2000` and such a claim would be unfalsifiable.
 
 - **Three Group A mode/addressing assertions (`A1.08`, `A1.09`, `A8.05`).** All four are
   `Documented`-tier and all four pass on RustySNES and on both cross-validation references.
@@ -47,7 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     vouches for the row. All three cores currently report variant 1 (the wrap). Both candidate
     landing sites are seeded with a jump home so either answer returns.
 
-  Dossier coverage moves **244 → 250 of 443**.
+  Dossier coverage moves **244 → 251 of 443**.
 
   Also `A8.06` — in emulation mode `E = 1` forces `x = 1`, so the block-move offsets are 8-bit and
   confined to `$00xx`: an offset stepping past `$FF` wraps inside page 0 rather than advancing to
