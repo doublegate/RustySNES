@@ -90,6 +90,7 @@ pub fn all() -> Vec<Test> {
         a2_12(),
         a4_09(),
         a4_10(),
+        a8_06(),
     ]
 }
 
@@ -1453,6 +1454,63 @@ fn a8_03() -> Test {
         'A',
         "MVP copies backward",
         Provenance::Documented("WDC datasheet"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// In emulation mode the block-move offsets are confined to `$00xx`.
+///
+/// `E = 1` forces `x = 1`, so `X` and `Y` are 8-bit and their high bytes read as zero. A block move
+/// therefore addresses only the bottom page of each bank, and incrementing an offset past `$FF`
+/// wraps to `$00` inside that page rather than advancing to `$0100`.
+///
+/// # Making the wrong answer visible
+///
+/// The count comes from the full 16-bit `C`, which cannot be loaded once `E = 1`, so it is set in
+/// native mode before the switch — `C` survives `XCE`, only the index width changes.
+///
+/// `X` starts at `$FF` and two bytes are moved, so the source addresses are `$7E:00FF` and then
+/// either `$7E:0000` (confined, correct) or `$7E:0100` (a core that let the offset grow to 16
+/// bits). All three addresses are seeded with distinct bytes, so the second destination byte says
+/// which of the two happened rather than merely that something was wrong.
+fn a8_06() -> Test {
+    let mut a = Asm::new();
+    a.c("Seed the two candidate second-source bytes distinctly, and clear the destination.");
+    a.l("rep #$30");
+    a.l("sep #$20");
+    a.l("lda #$11");
+    a.l("sta f:$7E00FF     ; first source byte");
+    a.l("lda #$22");
+    a.l("sta f:$7E0000     ; second source IF the offset wraps inside page 0");
+    a.l("lda #$33");
+    a.l("sta f:$7E0100     ; second source if the offset grew past $FF");
+    a.l("lda #$00");
+    a.l("sta f:$7E0050");
+    a.l("sta f:$7E0051");
+    a.c("The count lives in the full 16-bit C, which cannot be loaded in emulation mode, so set");
+    a.c("it first: XCE changes the index width, not C.");
+    a.l("rep #$30");
+    a.l("lda #$0001        ; count-1: two bytes");
+    a.enter_emulation();
+    a.l("ldx #$FF          ; one byte short of the page end");
+    a.l("ldy #$50");
+    a.l("mvn #$7E,#$7E    ; literal bank numbers; `mvn $7E,$7E` would mean bank $00");
+    a.enter_native();
+    a.l("phk");
+    a.l("plb               ; MVN left DBR = $7E");
+    a.l("lda f:$7E0050");
+    a.assert_a8(0x11, "the first block-move byte did not arrive");
+    a.l("lda f:$7E0051");
+    a.assert_a8(
+        0x22,
+        "the offset was not confined to $00xx — $33 means it advanced to $0100",
+    );
+    a.finish(
+        "A8.06",
+        'A',
+        "E=1 confines MVN offsets",
+        Provenance::Documented("WDC datasheet: E=1 forces x=1, so the indices are 8-bit"),
         Kind::Scored,
         None,
     )

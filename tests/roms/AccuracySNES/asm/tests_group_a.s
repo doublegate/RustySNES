@@ -3687,6 +3687,76 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A8.06 — E=1 confines MVN offsets
+; provenance: Documented (WDC datasheet: E=1 forces x=1, so the indices are 8-bit)
+.proc test_a8_06
+    .a16
+    .i16
+    ; Seed the two candidate second-source bytes distinctly, and clear the destination.
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$11
+    sta f:$7E00FF     ; first source byte
+    lda #$22
+    sta f:$7E0000     ; second source IF the offset wraps inside page 0
+    lda #$33
+    sta f:$7E0100     ; second source if the offset grew past $FF
+    lda #$00
+    sta f:$7E0050
+    sta f:$7E0051
+    ; The count lives in the full 16-bit C, which cannot be loaded in emulation mode, so set
+    ; it first: XCE changes the index width, not C.
+    rep #$30
+    .a16
+    .i16
+    lda #$0001        ; count-1: two bytes
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+    ldx #$FF          ; one byte short of the page end
+    ldy #$50
+    mvn #$7E,#$7E    ; literal bank numbers; `mvn $7E,$7E` would mean bank $00
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    phk
+    plb               ; MVN left DBR = $7E
+    lda f:$7E0050
+    cmp #$11
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E0051
+    cmp #$22
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the first block-move byte did not arrive
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the offset was not confined to $00xx — $33 means it advanced to $0100
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C1.01 — OAM word write/read
 ; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
 .proc test_c1_01
@@ -20116,7 +20186,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 243
+    .word 244
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -20186,6 +20256,7 @@ _test_entries:
     .faraddr test_a2_12
     .faraddr test_a4_09
     .faraddr test_a4_10
+    .faraddr test_a8_06
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -20432,6 +20503,7 @@ _test_flags:
     .byte $01   ; A2.12
     .byte $01   ; A4.09
     .byte $02   ; A4.10
+    .byte $01   ; A8.06
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -20678,6 +20750,7 @@ _test_names:
     .addr @n_a2_12
     .addr @n_a4_09
     .addr @n_a4_10
+    .addr @n_a8_06
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -21053,6 +21126,9 @@ _test_names:
 @n_a4_10:
     .byte 20
     .byte "Branch wrap (golden)"
+@n_a8_06:
+    .byte 24
+    .byte "E=1 confines MVN offsets"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"

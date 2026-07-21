@@ -46,7 +46,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     vouches for the row. All three cores currently report variant 1 (the wrap). Both candidate
     landing sites are seeded with a jump home so either answer returns.
 
-  Dossier coverage moves **244 → 249 of 443**.
+  Dossier coverage moves **244 → 250 of 443**.
+
+  Also `A8.06` — in emulation mode `E = 1` forces `x = 1`, so the block-move offsets are 8-bit and
+  confined to `$00xx`: an offset stepping past `$FF` wraps inside page 0 rather than advancing to
+  `$0100`. The count is loaded before the mode switch, since the full 16-bit `C` cannot be written
+  once `E = 1` but survives `XCE` unchanged. All three candidate source addresses are seeded
+  distinctly, so the destination says which behaviour occurred.
 
   Two further tests (`A4.06`/`A4.08`, the `(a,X)` in-bank pointer wrap) were written and then
   **withdrawn on review**: banks `$00-$3F` mirror the same WRAM below `$2000`, so the wrapped and
