@@ -575,6 +575,17 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`C1.08` — is the OAM address destroyed during render?** A **golden vector**. Sprite evaluation
+  drives the OAM address counter while the picture is being drawn, so a `$2138` read taken mid-frame
+  returns the renderer's position rather than the address a driver programmed. The low OAM table is
+  filled so that byte *n* holds *n*, which makes a reading name the address it came from instead of
+  merely being "different". The blank read at the same address **is** asserted, as the guard: without
+  it, an odd mid-render answer could equally mean the fill or the port never worked.
+  The mid-render half is recorded because no source says which byte evaluation has reached at a
+  given moment, and producing an answer at all needs the sub-scanline sprite pipeline that
+  `C13.01`-`C13.06` are already blocked on. RustySNES and snes9x return the programmed address;
+  Mesen2 models the counter. The row becomes scorable for free once the `C13` blocker lifts.
+
 - **`E7.12` — does the decay→sustain boundary come from `VxGAIN`?** A **golden vector**. The dossier
   records an `[ERRATA]` that the comparison ending the decay phase reads its boundary from `VxGAIN`
   bits 7-5 rather than `VxADSR2`'s sustain level — even in `ADSR` mode, where `GAIN` should be
@@ -1869,6 +1880,16 @@ rewritten to the current number — this line is the one to read.
   writes a third value there first.
 
 ### Changed
+
+- **`E7.09` and `E8.07` no longer drift when anything ahead of them in the battery moves.** Adding
+  `C1.08` — a PPU test — shifted the DSP poll phase for every APU test after it, turning `E7.09`
+  from pass to fail and making `E8.07` report a different variant on the PAL image than on the NTSC
+  one. `E7.09` compared two separately-uploaded `ENVX` readings for exact equality; two uploads'
+  key-off-to-read windows can land one DSP sample apart, so it now allows the one sample (±8 at the
+  fixed release step) and still fails when a rate-consulting release is injected. `E8.07`'s variant
+  was a phase sample by construction — the row's own subject is that a short `KOFF` pulse is seen or
+  missed depending where the poll falls — so it now reports only that the measurement was taken and
+  lets its recorded reading speak. The NTSC/PAL drift gate is what caught the second one.
 
 - **`hdmaen_latch_test` / `hdmaen_latch_test_2` golden framebuffers re-blessed** as a direct,
   intended consequence of the V-IRQ fix: both ROMs gate their `STA $420C` on a V-only IRQ, so

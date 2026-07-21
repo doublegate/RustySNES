@@ -1085,3 +1085,16 @@ fn gain_sustain_boundary_is_reported() {
     println!("    slot 143  {:#04x}  GAIN bits 7-5 = 0", report.meas[143]);
     println!("    slot 181  {:#04x}  GAIN bits 7-5 = 5", report.meas[181]);
 }
+
+/// Report `C1.08`'s two `$2138` readings: the blank guard and the mid-render read.
+#[test]
+fn oam_address_during_render_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  C1.08 $2138 at OAM byte $80:");
+    println!(
+        "    slot 107  {:#04x}  forced blank (the guard)",
+        report.meas[107]
+    );
+    println!("    slot 113  {:#04x}  active display", report.meas[113]);
+}

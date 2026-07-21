@@ -19688,12 +19688,28 @@ CATALOG_IMPL = 1
     bcc :+
     jmp @fail1
   :
-    ; Release ignores the field, so the two runs must agree.
-    sep #$20
-    .a8
+    ; Release ignores the field, so the two runs must agree — to within the sample the reading
+    ; was taken on. The two runs are separate uploads and their key-off-to-read windows can land
+    ; one DSP sample apart, which at -8 per sample is a difference of 8 that says nothing about
+    ; the rate. A rate-consulting release would differ by tens: rate 31 empties a full-scale
+    ; envelope in a handful of samples where rate 0 never moves it at all.
+    rep #$30
+    .a16
+    .i16
     lda f:$7E01F0
-    cmp f:$7E0101
-    beq :+
+    and #$00FF
+    sta f:$7E01F2
+    lda f:$7E0101
+    and #$00FF
+    sec
+    sbc f:$7E01F2
+    cmp #$8000
+    bcc :+
+    eor #$FFFF
+    inc a             ; negate: take the magnitude
+  :
+    cmp #$0009
+    bcc :+
     jmp @fail2
   :
     bra @pass
@@ -19717,7 +19733,7 @@ CATALOG_IMPL = 1
     sta f:$7EE010
     jml test_restore
 @fail2:
-    ; changing the ADSR sustain rate changed how far the release ramp had got — release runs at a fixed -8 per sample and consults no rate register, which is exactly why a custom fade has to be done with GAIN instead
+    ; changing the ADSR sustain rate moved the release ramp by more than the one sample the two uploads can differ by — release runs at a fixed -8 per sample and consults no rate register, which is exactly why a custom fade has to be done with GAIN instead
     sep #$20
     .a8
     lda #$04
@@ -20868,16 +20884,13 @@ CATALOG_IMPL = 1
     and #$00FF
     ; record slot 164: E8.07 envelope after a KOFF $FF/$00 pulse ($7F = the pulse was missed)
     sta f:$7EE348
+    ; The verdict deliberately says only that the measurement was taken. Which way the pulse
+    ; fell is in slot 164, and classifying on it would make this test's verdict change every
+    ; time anything ahead of it in the battery shifts the DSP poll phase -- including a region
+    ; switch, which is how the NTSC/PAL drift gate first caught it.
     sep #$20
     .a8
-    lda f:$7E0101
-    cmp #$7F
-    bne :+
-    lda #$03          ; variant 1 = full scale: no poll fell inside the pulse
-    sta f:$7EE010
-    jml test_restore
-    :
-    lda #$05          ; variant 2 = released: a poll saw the $FF, or the core acts on writes
+    lda #$03          ; variant 1 = captured; $7F in slot 164 means no poll saw the pulse
     sta f:$7EE010
     jml test_restore
     bra @pass
@@ -24396,6 +24409,114 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; C1.08 — OAM addr lost in render
+; provenance: Contested (fullsnes and the SNESdev Wiki agree the renderer drives the OAM address during active display, but neither states which byte evaluation has reached at a given moment, and the cores split: Mesen2 models it, RustySNES and snes9x return the programmed address)
+.proc test_c1_08
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Fill the low table so byte n holds n: the read below then names its own address.
+    sep #$20
+    .a8
+    lda #$8F
+    sta $2100         ; forced blank while OAM is written
+    stz $2102
+    stz $2103         ; OAMADDR = 0
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@fill:
+    sep #$20
+    .a8
+    txa
+    sta $2104         ; the low byte of the index, so byte n holds n & $FF
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$0200
+    bne @fill
+    ; --- the guard: in blank, the port returns the byte that was asked for ---
+    sep #$20
+    .a8
+    lda #$40
+    sta $2102
+    stz $2103         ; OAMADDR = word $40, byte $80
+    lda $2138
+    sta f:$7E0208
+    ; --- and during render, where the renderer owns the counter ---
+    sep #$20
+    .a8
+    lda #$0F
+    sta $2100         ; forced blank off — the access window now depends on position
+    jsl wait_vblank_far
+    jsl wait_vblank_far   ; a full settled frame
+@wa_c108:
+    lda $4212
+    and #$80
+    bne @wa_c108   ; wait for vblank to end
+    rep #$10
+    .i16
+    ldx #$0400
+@burn_c108:
+    dex
+    bne @burn_c108 ; ~20 scanlines in, well clear of the pre-render line
+    sep #$20
+    .a8
+    lda #$40
+    sta $2102
+    stz $2103         ; ask for the same address again
+    lda $2138
+    sta f:$7E0209
+    lda #$8F
+    sta $2100         ; forced blank restored before anything is judged
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0208
+    and #$00FF
+    ; record slot 107: C1.08 $2138 at byte $80 during forced blank (the guard)
+    sta f:$7EE2D6
+    lda f:$7E0209
+    and #$00FF
+    ; record slot 113: C1.08 $2138 at the same address during active display
+    sta f:$7EE2E2
+    ; The guard first: without it, 'the render read was different' could just mean the fill or
+    ; the port never worked.
+    sep #$20
+    .a8
+    lda f:$7E0208
+    cmp #$80
+    beq :+
+    jmp @fail1
+  :
+    ; The mid-render read is recorded, not asserted. Which byte evaluation has reached is a
+    ; function of the sub-scanline sprite pipeline, and a core without one has nothing to
+    ; return but the programmed address.
+    lda f:$7E0209
+    cmp #$80
+    beq :+
+    lda #$03          ; variant 1 = the counter was taken over; slot 113 says where to
+    sta f:$7EE010
+    jml test_restore
+    :
+    lda #$05          ; variant 2 = the programmed address survived: no evaluation counter
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; reading $2138 in forced blank did not return the byte at the programmed address, so the fill or the port is wrong and the render read below proves nothing
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C2.10 — Dropped write still incs
 ; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes; anomie)
 .proc test_c2_10
@@ -27491,7 +27612,7 @@ apu_prog_91:
 .export _test_flags
 
 _test_count:
-    .word 296
+    .word 297
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -27609,6 +27730,7 @@ _test_entries:
     .faraddr test_c7_02
     .faraddr test_c7_08
     .faraddr test_c2_11
+    .faraddr test_c1_08
     .faraddr test_c2_10
     .faraddr test_c1_06
     .faraddr test_c9_04
@@ -27908,6 +28030,7 @@ _test_flags:
     .byte $01   ; C7.02
     .byte $01   ; C7.08
     .byte $01   ; C2.11
+    .byte $02   ; C1.08
     .byte $01   ; C2.10
     .byte $01   ; C1.06
     .byte $01   ; C9.04
@@ -28207,6 +28330,7 @@ _test_names:
     .addr @n_c7_02
     .addr @n_c7_08
     .addr @n_c2_11
+    .addr @n_c1_08
     .addr @n_c2_10
     .addr @n_c1_06
     .addr @n_c9_04
@@ -28731,6 +28855,9 @@ _test_names:
 @n_c2_11:
     .byte 21
     .byte "VRAM locked in render"
+@n_c1_08:
+    .byte 23
+    .byte "OAM addr lost in render"
 @n_c2_10:
     .byte 24
     .byte "Dropped write still incs"

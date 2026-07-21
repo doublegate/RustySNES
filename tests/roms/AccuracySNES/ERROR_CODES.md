@@ -1238,6 +1238,14 @@ Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored
 | 1 | `$02` | a VRAM write during active display was not dropped |
 | 2 | `$04` | the second VRAM write during active display was not dropped |
 
+### C1.08 — OAM addr lost in render
+
+Provenance: **Contested** (fullsnes and the SNESdev Wiki agree the renderer drives the OAM address during active display, but neither states which byte evaluation has reached at a given moment, and the cores split: Mesen2 models it, RustySNES and snes9x return the programmed address). Kind: golden vector, never scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | reading $2138 in forced blank did not return the byte at the programmed address, so the fill or the port is wrong and the render read below proves nothing |
+
 ### C2.10 — Dropped write still incs
 
 Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes; anomie). Kind: scored.
@@ -2242,7 +2250,7 @@ Provenance: **Documented** (fullsnes and anomie's DSP doc: release steps -8 per 
 | Code | Byte | Meaning |
 |---|---|---|
 | 1 | `$02` | the sustain-rate-0 run was not caught mid-release, so the comparison below would hold for any release rate at all |
-| 2 | `$04` | changing the ADSR sustain rate changed how far the release ramp had got — release runs at a fixed -8 per sample and consults no rate register, which is exactly why a custom fade has to be done with GAIN instead |
+| 2 | `$04` | changing the ADSR sustain rate moved the release ramp by more than the one sample the two uploads can differ by — release runs at a fixed -8 per sample and consults no rate register, which is exactly why a custom fade has to be done with GAIN instead |
 
 ### E7.05 — Decay index d*2+16
 

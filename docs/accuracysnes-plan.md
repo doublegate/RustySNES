@@ -876,6 +876,36 @@ Recorded rather than fixed, because the general lesson is the useful part: **for
 compares two measurements, ask what the difference would physically be before asking whether the
 numbers match.** Here the answer was "nothing observable", and no amount of guarding fixes that.
 
+### Phase-dependent verdicts drift on *any* reordering, not just on region
+
+Adding `C1.08` — a PPU test, nowhere near the APU — turned `E7.09` from pass to fail and made
+`E8.07` report a different variant on the PAL image than on the NTSC one. Neither test had changed.
+`C1.08` spends two settled frames in active display, and that shifted the DSP poll phase for every
+APU test after it.
+
+Two different faults, with two different fixes:
+
+- **`E7.09` was measuring correctly and comparing too strictly.** It reads `ENVX` mid-release from
+  two separate uploads and required them *equal*. Two uploads' key-off-to-read windows can land one
+  DSP sample apart, and at the fixed −8 per sample that is a difference of 8 which says nothing
+  about the rate. Loosened to `assert_abs_le(8, ..)`. Discrimination is untouched — a
+  rate-consulting release differs by tens, and injecting one (`envelope -= 0x8 + rate * 4`) still
+  fails the test.
+- **`E8.07`'s verdict was a phase sample by construction.** The row is *"whether a short `KOFF`
+  pulse is seen depends on where the poll falls inside it"* — so its variant is a coin flip on
+  exactly the thing any reordering perturbs. It was already unscored, and the variant carried no
+  information its recorded reading (slot 164) did not. It now always reports "captured" and lets the
+  number speak. The alternative — adding it to `REGION_DEPENDENT` — would have described the
+  symptom while leaving it free to drift on every future insertion.
+
+**The general rule: a verdict that encodes a timing phase is a verdict that will change for reasons
+unrelated to the thing under test.** If the phase *is* the subject, record it and score nothing. If
+it is not, guard the comparison by the width of one sampling interval.
+
+The NTSC/PAL drift gate is what caught the second one, which is a reminder of what that gate is
+actually for: it is not only a region check, it is the battery's tripwire for any verdict that
+depends on when it ran.
+
 ### The forced-blank vacuity trap, and the armed-ness guard that catches it
 
 The battery leaves `$2100` at `$8F` — **forced blank** — between tests. `Ppu::vram_accessible()` is

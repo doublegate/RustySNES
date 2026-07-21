@@ -22,7 +22,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `B3` | 3 | 3 | 0 | — |
 | `B4` | 14 | 12 | 0 | B4.01, B4.10 |
 | `B5` | 4 | 4 | 0 | — |
-| `C1` | 9 | 7 | 0 | C1.08, C1.09 |
+| `C1` | 9 | 8 | 0 | C1.09 |
 | `C2` | 10 | 10 | 0 | — |
 | `C3` | 10 | 8 | 0 | C3.04, C3.10 |
 | `C4` | 5 | 0 | 5 | — |
@@ -52,7 +52,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `F1` | 22 | 3 | 0 | F1.01, F1.03, F1.05, F1.06, F1.07, F1.08, F1.09, F1.10, F1.11, F1.12, F1.13, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
 | `G1` | 18 | 11 | 0 | G1.05, G1.06, G1.13, G1.15, G1.16, G1.17, G1.18 |
 
-**252 of 443** enumerated assertion rows covered by an on-cart test, plus **50** covered only by a rendered scene (`docs/adr/0013`) — **302 of 443** in total.
+**253 of 443** enumerated assertion rows covered by an on-cart test, plus **50** covered only by a rendered scene (`docs/adr/0013`) — **303 of 443** in total.
 
 The two columns are kept apart on purpose. An on-cart result means the same thing on any emulator and on real hardware; a rendered scene needs a host holding the golden. Adding them into one figure would quietly change what the number claims.
 

@@ -1111,14 +1111,26 @@ fn e7_09() -> Test {
         "the sustain-rate-0 run was not caught mid-release, so the comparison below would hold for \
          any release rate at all",
     );
-    a.c("Release ignores the field, so the two runs must agree.");
-    a.l("sep #$20");
+    a.c("Release ignores the field, so the two runs must agree — to within the sample the reading");
+    a.c("was taken on. The two runs are separate uploads and their key-off-to-read windows can land");
+    a.c(
+        "one DSP sample apart, which at -8 per sample is a difference of 8 that says nothing about",
+    );
+    a.c("the rate. A rate-consulting release would differ by tens: rate 31 empties a full-scale");
+    a.c("envelope in a handful of samples where rate 0 never moves it at all.");
+    a.l("rep #$30");
     a.l("lda f:$7E01F0");
-    a.l("cmp f:$7E0101");
-    a.fail_if_ne(
-        "changing the ADSR sustain rate changed how far the release ramp had got — release runs at \
-         a fixed -8 per sample and consults no rate register, which is exactly why a custom fade \
-         has to be done with GAIN instead",
+    a.l("and #$00FF");
+    a.l("sta f:$7E01F2");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.l("sec");
+    a.l("sbc f:$7E01F2");
+    a.assert_abs_le(
+        8,
+        "changing the ADSR sustain rate moved the release ramp by more than the one sample the two \
+         uploads can differ by — release runs at a fixed -8 per sample and consults no rate \
+         register, which is exactly why a custom fade has to be done with GAIN instead",
     );
     apu_timeout_arm(&mut a);
     a.finish(
@@ -3980,15 +3992,12 @@ fn e8_07() -> Test {
         164,
         "E8.07 envelope after a KOFF $FF/$00 pulse ($7F = the pulse was missed)",
     );
+    a.c("The verdict deliberately says only that the measurement was taken. Which way the pulse");
+    a.c("fell is in slot 164, and classifying on it would make this test's verdict change every");
+    a.c("time anything ahead of it in the battery shifts the DSP poll phase -- including a region");
+    a.c("switch, which is how the NTSC/PAL drift gate first caught it.");
     a.l("sep #$20");
-    a.l("lda f:$7E0101");
-    a.l("cmp #$7F");
-    a.l("bne :+");
-    a.l("lda #$03          ; variant 1 = full scale: no poll fell inside the pulse");
-    a.l("sta f:$7EE010");
-    a.l("jml test_restore");
-    a.l(":");
-    a.l("lda #$05          ; variant 2 = released: a poll saw the $FF, or the core acts on writes");
+    a.l("lda #$03          ; variant 1 = captured; $7F in slot 164 means no poll saw the pulse");
     a.l("sta f:$7EE010");
     a.l("jml test_restore");
     apu_timeout_arm(&mut a);

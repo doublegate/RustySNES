@@ -70,6 +70,7 @@ pub fn all() -> Vec<Test> {
         c7_08(),
         // --- access windows and frame geometry, also requiring a rendered frame ---
         c2_11(),
+        c1_08(),
         c2_10(),
         c1_06(),
         c9_04(),
@@ -2196,6 +2197,131 @@ fn enter_active_display(a: &mut Asm, tag: &str) {
     a.l(&format!(
         "bne @burn_{tag} ; ~20 scanlines in, well clear of the pre-render line"
     ));
+}
+
+/// During active display the OAM address counter is the *renderer's*, not the one you programmed.
+///
+/// Sprite evaluation walks OAM every scanline using the same address counter `$2102`/`$2103` feed,
+/// so a `$2138` read taken while the picture is being drawn returns a byte from wherever the
+/// renderer has got to — not from the address a driver set. That is why OAM is only safely readable
+/// in blank, and why a driver that polls it mid-frame gets sprite data belonging to no sprite it
+/// asked about.
+///
+/// # Every byte names its own address
+///
+/// The low table is filled so that byte *n* holds *n* — 512 writes through the auto-incrementing
+/// port. A `$2138` read then reports the address it came from rather than merely "some data", which
+/// is what turns "the value is different" into "the counter moved, and here is where to".
+///
+/// | variant | active-display read | means |
+/// |---|---|---|
+/// | 1 | anything but `$80` | the counter was taken over, and slot 113 says how far it had got |
+/// | 2 | `$80` | the programmed address survived: no evaluation counter is modelled |
+///
+/// # The guard is the blank read, and it comes first
+///
+/// "The mid-frame read returned something unexpected" is worthless on its own: a core whose OAM
+/// read is broken outright, or whose fill never landed, returns something unexpected too. The blank
+/// read establishes that the port, the fill and the address all work — only then does a *different*
+/// answer during render mean the counter was taken away. That half **is** asserted.
+///
+/// The active-display read is deliberately taken well inside the picture, twenty-odd scanlines in,
+/// rather than on the pre-render line where "the renderer owns the counter" is a much weaker claim.
+///
+/// # Why the interesting half is recorded rather than asserted
+///
+/// The sources agree the renderer drives the address; none says which byte evaluation has reached
+/// at a given moment, and that is the only thing a cart can observe. Producing an answer at all
+/// needs the sub-scanline sprite pipeline that `C13.01`-`C13.06` are already blocked on — RustySNES
+/// evaluates sprites as a bulk per-scanline operation and never advances `oam_address`, so there is
+/// no position to report. snes9x is in the same position; Mesen2 models it and reports one.
+///
+/// Asserting "not `$80`" would therefore be asserting that a core has that pipeline, which is a
+/// different claim from the row's, and satisfying it would mean inventing a counter position with
+/// no oracle behind it. The reading is published instead, and the row becomes scorable for free the
+/// day the `C13` blocker lifts.
+fn c1_08() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("Fill the low table so byte n holds n: the read below then names its own address.");
+    a.l("sep #$20");
+    a.l("lda #$8F");
+    a.l("sta $2100         ; forced blank while OAM is written");
+    a.l("stz $2102");
+    a.l("stz $2103         ; OAMADDR = 0");
+    a.l("rep #$30");
+    a.l("ldx #$0000");
+    a.label("fill");
+    a.l("sep #$20");
+    a.l("txa");
+    a.l("sta $2104         ; the low byte of the index, so byte n holds n & $FF");
+    a.l("rep #$30");
+    a.l("inx");
+    a.l("cpx #$0200");
+    a.l("bne @fill");
+    a.c("--- the guard: in blank, the port returns the byte that was asked for ---");
+    a.l("sep #$20");
+    a.l("lda #$40");
+    a.l("sta $2102");
+    a.l("stz $2103         ; OAMADDR = word $40, byte $80");
+    a.l("lda $2138");
+    a.l("sta f:$7E0208");
+    a.c("--- and during render, where the renderer owns the counter ---");
+    enter_active_display(&mut a, "c108");
+    a.l("sep #$20");
+    a.l("lda #$40");
+    a.l("sta $2102");
+    a.l("stz $2103         ; ask for the same address again");
+    a.l("lda $2138");
+    a.l("sta f:$7E0209");
+    a.l("lda #$8F");
+    a.l("sta $2100         ; forced blank restored before anything is judged");
+    a.l("rep #$30");
+    a.l("lda f:$7E0208");
+    a.l("and #$00FF");
+    a.record(
+        107,
+        "C1.08 $2138 at byte $80 during forced blank (the guard)",
+    );
+    a.l("lda f:$7E0209");
+    a.l("and #$00FF");
+    a.record(113, "C1.08 $2138 at the same address during active display");
+    a.c("The guard first: without it, 'the render read was different' could just mean the fill or");
+    a.c("the port never worked.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0208");
+    a.assert_a8(
+        0x80,
+        "reading $2138 in forced blank did not return the byte at the programmed address, so the \
+         fill or the port is wrong and the render read below proves nothing",
+    );
+    a.c("The mid-render read is recorded, not asserted. Which byte evaluation has reached is a");
+    a.c("function of the sub-scanline sprite pipeline, and a core without one has nothing to");
+    a.c("return but the programmed address.");
+    a.l("lda f:$7E0209");
+    a.l("cmp #$80");
+    a.l("beq :+");
+    a.l("lda #$03          ; variant 1 = the counter was taken over; slot 113 says where to");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("lda #$05          ; variant 2 = the programmed address survived: no evaluation counter");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.finish(
+        "C1.08",
+        'C',
+        "OAM addr lost in render",
+        Provenance::Contested(
+            "fullsnes and the SNESdev Wiki agree the renderer drives the OAM address during active \
+             display, but neither states which byte evaluation has reached at a given moment, and \
+             the cores split: Mesen2 models it, RustySNES and snes9x return the programmed address",
+        ),
+        Kind::Golden,
+        None,
+    )
 }
 
 /// VRAM writes are dropped during active display.
