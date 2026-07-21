@@ -579,6 +579,22 @@ Provenance: **Documented** (WDC datasheet; superfamicom.org escape list). Kind: 
 |---|---|---|
 | 1 | `$02` | (d,S),Y misread: $77 = pointer confined to page 1, $99 = bank carry masked to 16 bits |
 
+### A5.09 — +1 m width penalty
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | LDA abs did not cost one extra 8-clock access with m=0 |
+
+### A5.10 — +1 x width penalty
+
+Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | LDX abs did not cost one extra 8-clock access with x=0 |
+
 ## Group C
 
 ### C1.01 — OAM word write/read

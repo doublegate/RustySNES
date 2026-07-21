@@ -675,6 +675,31 @@ survive `measure_result`'s `rep #$30` as expected; whether any earlier test writ
 runs). The tests themselves are straightforward and can be restored from this PR's history once the
 channel is trusted.
 
+### The measurement channel has no allocator, and the opcode sweep owns slots 8-75
+
+`A5.09`/`A5.10` were written, passed on RustySNES and snes9x, and then read back raw numbers that
+contradicted them: `A5.10` asserted its difference was `32 +/- 2` and passed while the slot holding
+that difference read **12**, and slots 8 through 28 all held an identical **203**.
+
+**Cause: a slot collision with the opcode sweep.** `sweep.rs` computes
+`slot_base = 8 + index * 2` across 34 sweep tests, so it owns **slots 8 through 75** — none of
+which appear as a literal in any `record(...)` call. The first draft used slots 20-25; the 203s were
+sweep baseline spans, written after the width tests ran.
+
+Moving to slots 116-121 reconciled everything immediately: `271` and `303` for the two spans and
+exactly `32` for the difference, on RustySNES and snes9x alike, with both spans clear of the 341-dot
+wrap.
+
+**The rule this establishes**: a free slot must be checked against every *writer*, not against the
+`record` calls that happen to use literal indices. Two of the channel's writers compute their slot
+at generation time (`sweep.rs`), so grepping for `record(N` finds neither them nor the collision.
+Currently claimed: **0-6** (`A5.08`), **8-75** (the opcode sweep), **100-105** and **110-112**, and
+now **116-121**. Slots **7**, **76-99**, **106-109** and **122-127** are free.
+
+This is the third slot collision in this cart's history (`C3.05` took slot 112, this took 20-25), and
+the first two were found by the value looking wrong. Here the assertion passed and only the *raw
+record* disagreed — which is why the raw numbers are recorded at all.
+
 ### `A8.06` — deferred: the battery has no interrupt infrastructure, by design
 
 `A8.06` ("`MVN` is interruptible mid-block — NMI + `RTI` resumes correctly") is the last unclaimed

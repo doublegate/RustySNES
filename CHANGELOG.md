@@ -23,6 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`A5.09`/`A5.10` — the `+1 m` and `+1 x` width penalties.** A memory operation costs one extra
+  8-clock access when its operand class is 16-bit, measured as a differential over 16 repeats (32
+  dots) with the *other* width bit held constant, so a core deriving one width from the other fails
+  the one it gets wrong. Unlike `A5.20` these are measurable: both spans stay inside one scanline,
+  clear of the long dots and the line-length approximation behind `T-06-A`.
+
+  Their first draft recorded into slots 20-25 and read back the opcode sweep's baseline spans — the
+  sweep computes `slot_base = 8 + index * 2` and owns slots 8-75, which no `record(...)` literal
+  reveals. The channel's claimed ranges are now documented in `docs/accuracysnes-plan.md`.
+
 - **`A3.06` — `(d,S),Y` escapes page 1 for its pointer read and bank-carries for its data read.**
   Two independent claims, so the test seeds a **distinct wrong answer for each**: `$5A` when both
   are right, `$99` when the pointer escaped but the bank carry was masked to 16 bits, and `$77` when
@@ -79,7 +89,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     vouches for the row. All three cores currently report variant 1 (the wrap). Both candidate
     landing sites are seeded with a jump home so either answer returns.
 
-  Dossier coverage moves **244 → 252 of 443**.
+  Dossier coverage moves **244 → 254 of 443**.
 
   Also `A8.06` — in emulation mode `E = 1` forces `x = 1`, so the block-move offsets are 8-bit and
   confined to `$00xx`: an offset stepping past `$FF` wraps inside page 0 rather than advancing to

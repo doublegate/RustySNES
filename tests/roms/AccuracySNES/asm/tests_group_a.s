@@ -3951,6 +3951,193 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A5.09 — +1 m width penalty
+; provenance: Documented (WDC/GTE/VLSI instruction-operation tables; docs/accuracysnes-timing-oracle.md)
+.proc test_a5_09
+    .a16
+    .i16
+    ; Same instruction, same address, twice: once 8-bit, once 16-bit.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; --- m=1: LDA abs moves one byte ---
+    sep #$20
+    .a8
+    jsr hv_begin
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0096
+    ; record slot 116: 16x LDA abs, m=1
+    sta f:$7EE2E8
+    ; --- m=0: the same LDA moves two ---
+    rep #$20
+    .a16
+    jsr hv_begin
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    lda $0000
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    ; record slot 117: 16x LDA abs, m=0
+    sta f:$7EE2EA
+    sec
+    sbc f:$7E0096
+    ; record slot 118: 16x (m=0 - m=1), expect 32
+    sta f:$7EE2EC
+    cmp #$001E
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0023
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; LDA abs did not cost one extra 8-clock access with m=0
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A5.10 — +1 x width penalty
+; provenance: Documented (WDC/GTE/VLSI instruction-operation tables; docs/accuracysnes-timing-oracle.md)
+.proc test_a5_10
+    .a16
+    .i16
+    ; m is held 8-bit throughout, so only the x bit differs between the two spans.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; --- x=1: LDX abs moves one byte ---
+    sep #$30
+    .a8
+    .i8
+    jsr hv_begin
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0096
+    ; record slot 119: 16x LDX abs, x=1
+    sta f:$7EE2EE
+    ; --- x=0: the same LDX moves two ---
+    sep #$20
+    .a8
+    rep #$10
+    .i16
+    jsr hv_begin
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    ldx $0000
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    ; record slot 120: 16x LDX abs, x=0
+    sta f:$7EE2F0
+    sec
+    sbc f:$7E0096
+    ; record slot 121: 16x (x=0 - x=1), expect 32
+    sta f:$7EE2F2
+    cmp #$001E
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0023
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; LDX abs did not cost one extra 8-clock access with x=0
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C1.01 — OAM word write/read
 ; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
 .proc test_c1_01
@@ -20380,7 +20567,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 246
+    .word 248
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -20453,6 +20640,8 @@ _test_entries:
     .faraddr test_a8_06
     .faraddr test_a3_08
     .faraddr test_a3_06
+    .faraddr test_a5_09
+    .faraddr test_a5_10
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -20702,6 +20891,8 @@ _test_flags:
     .byte $01   ; A8.06
     .byte $01   ; A3.08
     .byte $01   ; A3.06
+    .byte $01   ; A5.09
+    .byte $01   ; A5.10
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -20951,6 +21142,8 @@ _test_names:
     .addr @n_a8_06
     .addr @n_a3_08
     .addr @n_a3_06
+    .addr @n_a5_09
+    .addr @n_a5_10
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -21335,6 +21528,12 @@ _test_names:
 @n_a3_06:
     .byte 22
     .byte "(d,S),Y escape + carry"
+@n_a5_09:
+    .byte 18
+    .byte "+1 m width penalty"
+@n_a5_10:
+    .byte 18
+    .byte "+1 x width penalty"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"

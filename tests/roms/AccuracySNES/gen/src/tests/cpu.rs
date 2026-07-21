@@ -93,6 +93,8 @@ pub fn all() -> Vec<Test> {
         a8_06(),
         a3_08(),
         a3_06(),
+        a5_09(),
+        a5_10(),
     ]
 }
 
@@ -1012,6 +1014,119 @@ fn a4_05() -> Test {
         'A',
         "long,X carries bank",
         Provenance::Documented("WDC datasheet"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The `+1 m` penalty: a memory operation costs one extra access when the accumulator is 16-bit.
+///
+/// `REP #$20` clears `m`, and every load that moves the accumulator then transfers two bytes
+/// instead of one. On this machine that extra access is 8 master clocks, so sixteen of them is 32
+/// dots and comfortably resolvable.
+///
+/// # Why this is measurable when `A5.20` was not
+///
+/// Both spans stay **inside a single scanline**, so this uses the narrow instrument and never
+/// reaches the long dots at `H >= 323` or the line-length approximation that made the block-move
+/// measurement alignment-dependent (`T-06-A`). The differential cancels the instrument's own
+/// overhead, and the only thing changing between the two measurements is the `m` bit — same
+/// opcodes, same address, same alignment.
+///
+/// # Slot choice is not arbitrary
+///
+/// The recording slots are in the 116+ range because **the opcode sweep owns slots 8 through 75**
+/// (`sweep.rs`: `slot_base = 8 + index * 2`, 34 tests). The first draft of this test used 20-25 and
+/// its raw numbers came back as the sweep's baseline spans — a passing assertion sitting next to a
+/// recorded value that contradicted it. The channel has no allocator, so a slot has to be checked
+/// against every writer, not just against the `record` calls that happen to use literals.
+fn a5_09() -> Test {
+    let mut a = Asm::new();
+    a.c("Same instruction, same address, twice: once 8-bit, once 16-bit.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("--- m=1: LDA abs moves one byte ---");
+    a.l("sep #$20");
+    a.measure_begin();
+    a.repeat(16, &["lda $0000"]);
+    a.measure_end();
+    a.measure_result();
+    a.l("sta f:$7E0096");
+    a.record(116, "16x LDA abs, m=1");
+    a.c("--- m=0: the same LDA moves two ---");
+    a.l("rep #$20");
+    a.measure_begin();
+    a.repeat(16, &["lda $0000"]);
+    a.measure_end();
+    a.measure_result();
+    a.record(117, "16x LDA abs, m=0");
+    a.l("sec");
+    a.l("sbc f:$7E0096");
+    a.record(118, "16x (m=0 - m=1), expect 32");
+    a.assert_a16_range(
+        32 - TOL,
+        32 + TOL,
+        "LDA abs did not cost one extra 8-clock access with m=0",
+    );
+    a.finish(
+        "A5.09",
+        'A',
+        "+1 m width penalty",
+        Provenance::Documented(
+            "WDC/GTE/VLSI instruction-operation tables; docs/accuracysnes-timing-oracle.md",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The `+1 x` penalty: an index-register operation costs one extra access when `x` is clear.
+///
+/// The `A5.09` argument with the other width bit. `REP #$10` widens `X`/`Y`, and `LDX abs` then
+/// loads two bytes rather than one.
+///
+/// It is a separate assertion rather than a restatement: `m` and `x` are independent bits and the
+/// penalty applies per operand class, so a core deriving one width from the other — or applying the
+/// accumulator's penalty to index operations — passes `A5.09` and fails here. `m` is held 8-bit
+/// across both spans for exactly that reason, leaving the `x` bit as the only difference.
+fn a5_10() -> Test {
+    let mut a = Asm::new();
+    a.c("m is held 8-bit throughout, so only the x bit differs between the two spans.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("--- x=1: LDX abs moves one byte ---");
+    a.l("sep #$30");
+    a.measure_begin();
+    a.repeat(16, &["ldx $0000"]);
+    a.measure_end();
+    a.measure_result();
+    a.l("sta f:$7E0096");
+    a.record(119, "16x LDX abs, x=1");
+    a.c("--- x=0: the same LDX moves two ---");
+    a.l("sep #$20");
+    a.l("rep #$10");
+    a.measure_begin();
+    a.repeat(16, &["ldx $0000"]);
+    a.measure_end();
+    a.measure_result();
+    a.record(120, "16x LDX abs, x=0");
+    a.l("sec");
+    a.l("sbc f:$7E0096");
+    a.record(121, "16x (x=0 - x=1), expect 32");
+    a.assert_a16_range(
+        32 - TOL,
+        32 + TOL,
+        "LDX abs did not cost one extra 8-clock access with x=0",
+    );
+    a.finish(
+        "A5.10",
+        'A',
+        "+1 x width penalty",
+        Provenance::Documented(
+            "WDC/GTE/VLSI instruction-operation tables; docs/accuracysnes-timing-oracle.md",
+        ),
         Kind::Scored,
         None,
     )
