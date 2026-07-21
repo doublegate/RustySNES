@@ -363,6 +363,30 @@ impl Bus {
         self.ppu.set_region(ppu_region);
     }
 
+    /// Perform the automatic joypad read: latch the ports into [`Self::joypad_auto`].
+    ///
+    /// Called at vblank entry while `$4200` bit 0 is set. Split out from the caller so the unit
+    /// tests exercise the same definition the scheduler does rather than a hand-written stand-in.
+    fn poll_auto_joypad(&mut self) {
+        self.joypad_auto = if self.joypad_strobe {
+            core::array::from_fn(|i| {
+                if self.joypad[i] & 0x8000 == 0 {
+                    0x0000
+                } else {
+                    0xFFFF
+                }
+            })
+        } else {
+            self.joypad
+        };
+    }
+
+    /// [`Self::poll_auto_joypad`], reachable from the unit tests without running a whole frame.
+    #[cfg(test)]
+    fn poll_auto_joypad_for_test(&mut self) {
+        self.poll_auto_joypad();
+    }
+
     /// Set the latched controller state for a player (`0` = P1, `1` = P2). 12-bit `BYsSUDLR....`.
     pub fn set_joypad(&mut self, player: usize, state: u16) {
         if let Some(slot) = self.joypad.get_mut(player) {
@@ -707,7 +731,13 @@ impl Bus {
             // about three scanlines over it, and `F1.08`-`F1.10` — the rows about *when* it runs
             // and the race that window creates — are not covered by this battery.
             if self.clock.nmitimen & 0x01 != 0 {
-                self.joypad_auto = self.joypad;
+                // The read clocks the ports' shift registers, so it is subject to the latch line.
+                // While `$4016` bit 0 is held high the registers reload continuously instead of
+                // shifting, and all sixteen clocks return the first bit — the result is uniform,
+                // not merely stale. Software that hand-polls `$4016` must disarm auto-read or keep
+                // its strobing out of vblank. AccuracySNES `F1.11`; Mesen2 models this, snes9x
+                // does not.
+                self.poll_auto_joypad();
             }
         }
         // RDNMI's VBlank flag is cleared by a read *and*, independently, at the end of VBlank.
@@ -1402,7 +1432,9 @@ mod tests {
         let mut bus = Bus::default();
         bus.set_joypad(0, 0x1234);
         // Stand in for the vblank poll: `$4218` reports the auto-read *result*, not the live pad.
-        bus.joypad_auto = bus.joypad;
+        bus.write_cpu_reg(0x4200, 0x01);
+        bus.poll_auto_joypad_for_test();
+        bus.write_cpu_reg(0x4200, 0x00);
         bus.write_cpu_reg(0x4016, 0x01);
         bus.write_cpu_reg(0x4016, 0x00);
         for _ in 0..16 {
@@ -1410,6 +1442,28 @@ mod tests {
         }
         assert_eq!(bus.read_cpu_reg(0x4218), 0x34);
         assert_eq!(bus.read_cpu_reg(0x4219), 0x12);
+    }
+
+    /// A latch held high across the automatic read makes every bit of the result the same.
+    ///
+    /// The read clocks the ports' shift registers, and while `$4016` bit 0 is high those registers
+    /// reload rather than shift — so all sixteen clocks return the first bit. AccuracySNES `F1.11`.
+    #[test]
+    fn auto_read_is_corrupted_by_a_held_latch() {
+        let mut bus = Bus::default();
+        bus.set_joypad(0, 0x9050); // B is held, so the repeated bit is 1
+        bus.write_cpu_reg(0x4200, 0x01);
+        bus.write_cpu_reg(0x4016, 0x01); // latch high, and left there
+
+        bus.poll_auto_joypad_for_test();
+        assert_eq!(bus.read_cpu_reg(0x4218), 0xFF);
+        assert_eq!(bus.read_cpu_reg(0x4219), 0xFF);
+
+        // Released, the same poll reports the buttons.
+        bus.write_cpu_reg(0x4016, 0x00);
+        bus.poll_auto_joypad_for_test();
+        assert_eq!(bus.read_cpu_reg(0x4218), 0x50);
+        assert_eq!(bus.read_cpu_reg(0x4219), 0x90);
     }
 
     /// `$4218` reports only what an *armed* automatic read put there.
@@ -1424,7 +1478,7 @@ mod tests {
         assert_eq!(bus.read_cpu_reg(0x4218), 0x00, "nothing has polled yet");
 
         bus.write_cpu_reg(0x4200, 0x01);
-        bus.joypad_auto = bus.joypad; // the poll this arming would perform at the next vblank
+        bus.poll_auto_joypad_for_test(); // the poll this arming performs at the next vblank
         assert_eq!(bus.read_cpu_reg(0x4218), 0x50);
         assert_eq!(bus.read_cpu_reg(0x4219), 0x90);
 

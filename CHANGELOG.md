@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The automatic joypad read ignored the `$4016` latch line.** On hardware the read clocks the
+  ports' shift registers, and while `$4016` bit 0 is held high those registers reload rather than
+  shift — so all sixteen clocks return the first bit and the result is uniform, not merely stale.
+  RustySNES copied the latched pad state regardless, so a driver that strobes `$4016` during vblank
+  would corrupt the auto-read results on hardware and not here, which is the more dangerous
+  direction. Found by AccuracySNES `F1.11`, and adjudicated by the references rather than by
+  reading: Mesen2 corrupts (`$FFFF` with `B` held) and snes9x does not, so snes9x gains a seventh
+  documented divergence.
+
 - **`$4218`-`$421F` reported the live controller state rather than the automatic read's result.**
   `Bus::read_cpu_reg` returned `joypad[pad]` directly, with no result buffer and no `$4200` bit 0
   gate, so the registers tracked the pad continuously — software that disarms auto-read to poll
@@ -600,6 +609,15 @@ rewritten to the current number — this line is the one to read.
   pressed. The reads are open-coded rather than calling the runtime's `read_pad`, so what is
   asserted is the hardware's order and not the runtime's agreement with itself. Verified by making
   the shift register LSB-first, which fails it.
+
+- **`F1.11` — does holding the `$4016` latch corrupt the automatic read?** Two phases differing only
+  in the latch line: the control reads `$9050`, the latched run must not. Both halves of the input
+  contract are load-bearing — the control has to be exactly `$9050` or "phase B differs" could mean
+  the poll never ran, and the corruption is only *visible* because a button is held, since with
+  nothing pressed a correct uniform-`$0000` corruption and a correct `$0000` read are the same
+  sixteen bits. What is asserted is "differs", not a particular corrupt value: which uniform value
+  appears depends on how a core models a shift register reloaded while clocked, which no source
+  pins down.
 
 - **`F1.05` — is a standard pad's signature nibble `0000`?** The four bits after the twelve buttons
   identify what is plugged in — a mouse reports `0001`, an NTT Data keypad `0100` — so software

@@ -101,7 +101,15 @@ ran=0
 #   as unreachable it is carried into the following line and fires there, at about dot 59. That is
 #   the "reduced modulo the line length" wrong answer the test's own failure message names. Mesen2
 #   and RustySNES both agree with the cart; fullsnes is the citation for the 0-339 range.
-SNES9X_KNOWN_FAILURES=6
+# snes9x, +1 test (F1.11 "Latch corrupts auto-read"): holding $4016 bit 0 high across the automatic
+#   read leaves $4218-$421F correct there. On hardware the read clocks the ports' shift registers,
+#   and while the latch line is high those registers reload rather than shift, so all sixteen clocks
+#   return the first bit and the result is uniform. snes9x fills the auto-read result from its
+#   latched pad state without consulting the strobe, so a driver that strobes $4016 during vblank
+#   corrupts the results on hardware and not there — the more dangerous direction, since code that
+#   works under snes9x can be silently wrong on a console. Mesen2 models it (its result reads $FFFF
+#   with B held); RustySNES did not either until this row was written, and now does.
+SNES9X_KNOWN_FAILURES=7
 
 # --- snes9x, via the libretro host --------------------------------------------------------------
 if [[ -f $SNES9X ]]; then

@@ -27708,6 +27708,105 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; F1.11 — Latch corrupts auto-read
+; provenance: Documented (fullsnes and the SNESdev Wiki: while $4016 bit 0 is high the shift registers reload continuously rather than shifting, so an automatic read taken across it returns the same bit in every position)
+.proc test_f1_11
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; --- A: the control. Latch low throughout, so the read is the ordinary one ---
+    sep #$20
+    .a8
+    stz $4016
+    ; Arm auto-read and give it two frames (clean).
+    sep #$20
+    .a8
+    lda #$01
+    sta $4200
+    jsl wait_vblank_far
+    jsl wait_vblank_far
+    rep #$30
+    .a16
+    .i16
+    ldx #$0800
+@ar_clean:
+    dex
+    bne @ar_clean
+    lda $4218
+    sta f:$7E01F4
+    ; --- B: latch held high across the whole window ---
+    sep #$20
+    .a8
+    lda #$01
+    sta $4016
+    ; Arm auto-read and give it two frames (latched).
+    sep #$20
+    .a8
+    lda #$01
+    sta $4200
+    jsl wait_vblank_far
+    jsl wait_vblank_far
+    rep #$30
+    .a16
+    .i16
+    ldx #$0800
+@ar_latched:
+    dex
+    bne @ar_latched
+    lda $4218
+    sta f:$7E01F6
+    ; Release the latch and disarm before judging: the battery hand-polls $4016 and expects
+    ; $4200 to be zero, and a failure leaves through test_restore, which touches neither.
+    sep #$20
+    .a8
+    stz $4016
+    stz $4200
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E01F4
+    ; record slot 217: F1.11 JOY1 with the latch low across the auto-read (the control)
+    sta f:$7EE3B2
+    lda f:$7E01F6
+    ; record slot 218: F1.11 JOY1 with the latch held high across it
+    sta f:$7EE3B4
+    ; The control first: without a correct read to compare against, 'differs' means nothing.
+    lda f:$7E01F4
+    cmp #PAD_CONTRACT
+    beq :+
+    jmp @fail1
+  :
+    ; And with the latch up, the shift register never shifts: the result must not survive.
+    lda f:$7E01F6
+    cmp #PAD_CONTRACT
+    bne :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the control auto-read did not report the buttons the host is holding, so the comparison below is against a value that is already wrong
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; holding $4016 bit 0 high across the automatic read left $4218 correct, so the read is not going through the ports' shift registers at all — a driver that strobes $4016 during vblank would corrupt the auto-read results on hardware and not here, which is the more dangerous way round
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; F1.14 — $4213 reads $4201 back
 ; provenance: Documented (fullsnes: RDIO reads the WRIO output pins, which are open-collector, so with nothing driving them low the value read is the value written)
 .proc test_f1_14
@@ -29733,7 +29832,7 @@ apu_prog_103:
 .export _test_flags
 
 _test_count:
-    .word 310
+    .word 311
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -30002,6 +30101,7 @@ _test_entries:
     .faraddr test_f1_07
     .faraddr test_f1_05
     .faraddr test_f1_06
+    .faraddr test_f1_11
     .faraddr test_f1_14
     .faraddr test_g1_02
     .faraddr test_g1_04
@@ -30315,6 +30415,7 @@ _test_flags:
     .byte $01   ; F1.07
     .byte $01   ; F1.05
     .byte $01   ; F1.06
+    .byte $01   ; F1.11
     .byte $01   ; F1.14
     .byte $01   ; G1.02
     .byte $01   ; G1.04
@@ -30628,6 +30729,7 @@ _test_names:
     .addr @n_f1_07
     .addr @n_f1_05
     .addr @n_f1_06
+    .addr @n_f1_11
     .addr @n_f1_14
     .addr @n_g1_02
     .addr @n_g1_04
@@ -31468,6 +31570,9 @@ _test_names:
 @n_f1_06:
     .byte 22
     .byte "First bit clocked is B"
+@n_f1_11:
+    .byte 24
+    .byte "Latch corrupts auto-read"
 @n_f1_14:
     .byte 22
     .byte "$4213 reads $4201 back"

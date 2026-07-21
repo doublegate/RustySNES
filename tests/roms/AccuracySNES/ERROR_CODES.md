@@ -2526,6 +2526,15 @@ Provenance: **Documented** (fullsnes and the SNESdev Wiki: the auto-read result 
 | 1 | `$02` | bit 15 of the auto-read result was clear although the host is holding B, so the first bit clocked is not landing in the most significant position |
 | 2 | `$04` | bit 14 was set although Y is not held. Bit 15 passed, so what this catches is a high byte reading as all ones — an unimplemented auto-read on hardware whose line idles high looks exactly like a correct one if only the top bit is checked |
 
+### F1.11 — Latch corrupts auto-read
+
+Provenance: **Documented** (fullsnes and the SNESdev Wiki: while $4016 bit 0 is high the shift registers reload continuously rather than shifting, so an automatic read taken across it returns the same bit in every position). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the control auto-read did not report the buttons the host is holding, so the comparison below is against a value that is already wrong |
+| 2 | `$04` | holding $4016 bit 0 high across the automatic read left $4218 correct, so the read is not going through the ports' shift registers at all — a driver that strobes $4016 during vblank would corrupt the auto-read results on hardware and not here, which is the more dangerous way round |
+
 ### F1.14 — $4213 reads $4201 back
 
 Provenance: **Documented** (fullsnes: RDIO reads the WRIO output pins, which are open-collector, so with nothing driving them low the value read is the value written). Kind: scored.

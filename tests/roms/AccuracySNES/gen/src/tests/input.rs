@@ -31,6 +31,7 @@ pub fn all() -> Vec<Test> {
         f1_07(),
         f1_05(),
         f1_06(),
+        f1_11(),
         f1_14(),
     ]
 }
@@ -318,6 +319,98 @@ fn f1_settle_auto_read(a: &mut Asm, tag: &str) {
     a.label(&format!("ar_{tag}"));
     a.l("dex");
     a.l(&format!("bne @ar_{tag}"));
+}
+
+/// `$4016` bit 0 must stay low during the automatic read, or the result is corrupt.
+///
+/// Bit 0 of `$4016` is the ports' latch line. While it is high the shift registers do not shift —
+/// they continuously reload from the button lines — so the automatic read, which clocks the line
+/// thirty-two times during vblank, gets the *same* bit thirty-two times instead of sixteen
+/// different ones. The result is not merely stale, it is uniform: every position holds whatever
+/// `B` was.
+///
+/// This is why software that hand-polls `$4016` must either disarm auto-read first (`F1.07`) or
+/// confine its strobing to outside the vblank window. A driver that strobes at the wrong moment
+/// corrupts a register it is not even reading.
+///
+/// | phase | `$4016.0` during the read | `$4218` |
+/// |---|---|---|
+/// | A | 0 | `$9050` — the host contract, the control |
+/// | B | **1** | uniform: `$FFFF` with `B` held, `$0000` without |
+///
+/// # Both halves of the contract are doing work here
+///
+/// The control has to be `$9050` exactly, or "phase B differs" could mean the poll never ran. And
+/// the corruption is only *visible* because a button is held: with nothing pressed, a correct
+/// uniform-`$0000` corruption and a correct `$0000` read are the same sixteen bits. That is the
+/// same wall `F1.07` hit before the contract existed, and it is why this row is reachable now and
+/// was not before.
+///
+/// # What is asserted is "differs", not a particular corruption
+///
+/// Which uniform value appears depends on which bit the latch happens to freeze and on how a core
+/// models a shift register that is being reloaded while clocked — detail no source pins down. The
+/// row's claim is that the result is wrong, so that is what is checked, with the raw value
+/// published for comparison.
+fn f1_11() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("--- A: the control. Latch low throughout, so the read is the ordinary one ---");
+    a.l("sep #$20");
+    a.l("stz $4016");
+    f1_auto_read(&mut a, "clean");
+    a.l("lda $4218");
+    a.l("sta f:$7E01F4");
+    a.c("--- B: latch held high across the whole window ---");
+    a.l("sep #$20");
+    a.l("lda #$01");
+    a.l("sta $4016");
+    f1_auto_read(&mut a, "latched");
+    a.l("lda $4218");
+    a.l("sta f:$7E01F6");
+    a.c("Release the latch and disarm before judging: the battery hand-polls $4016 and expects");
+    a.c("$4200 to be zero, and a failure leaves through test_restore, which touches neither.");
+    a.l("sep #$20");
+    a.l("stz $4016");
+    a.l("stz $4200");
+    a.l("rep #$30");
+    a.l("lda f:$7E01F4");
+    a.record(
+        217,
+        "F1.11 JOY1 with the latch low across the auto-read (the control)",
+    );
+    a.l("lda f:$7E01F6");
+    a.record(218, "F1.11 JOY1 with the latch held high across it");
+    a.c("The control first: without a correct read to compare against, 'differs' means nothing.");
+    a.l("lda f:$7E01F4");
+    a.l("cmp #PAD_CONTRACT");
+    a.fail_if_ne(
+        "the control auto-read did not report the buttons the host is holding, so the comparison \
+         below is against a value that is already wrong",
+    );
+    a.c("And with the latch up, the shift register never shifts: the result must not survive.");
+    a.l("lda f:$7E01F6");
+    a.l("cmp #PAD_CONTRACT");
+    a.fail_if_eq(
+        "holding $4016 bit 0 high across the automatic read left $4218 correct, so the read is not \
+         going through the ports' shift registers at all — a driver that strobes $4016 during \
+         vblank would corrupt the auto-read results on hardware and not here, which is the more \
+         dangerous way round",
+    );
+    a.finish(
+        "F1.11",
+        'F',
+        "Latch corrupts auto-read",
+        Provenance::Documented(
+            "fullsnes and the SNESdev Wiki: while $4016 bit 0 is high the shift registers reload \
+             continuously rather than shifting, so an automatic read taken across it returns the \
+             same bit in every position",
+        ),
+        Kind::Scored,
+        None,
+    )
 }
 
 /// `$4016` bits 7-2 are CPU open bus: nothing on the controller port drives them.
