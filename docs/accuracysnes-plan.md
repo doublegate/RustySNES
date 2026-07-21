@@ -540,11 +540,16 @@ Consequences worth carrying forward:
   | 6 memory + 1 internal | 54 | 13.50 |
   | 7 memory + 0 internal | 56 | 14.00 |
 
-  Measured: RustySNES **13.00**, snes9x **13.83**. RustySNES lands exactly on an integral
-  decomposition — five accesses (opcode plus two operand bytes re-fetched, one source read, one
-  destination write) and two internal cycles. snes9x lands on none of them, and the measurement's
-  uncertainty (±2 dots of quantisation over 24 bytes, ±0.33 clocks a byte) is not enough to reach
-  either 54 or 56.
+  Measured: RustySNES **13.00 dots a byte (52.0 clocks)**, snes9x **13.83 dots (55.3 clocks)**.
+  RustySNES lands exactly on an integral decomposition — five accesses (opcode plus two operand
+  bytes re-fetched, one source read, one destination write) and two internal cycles.
+
+  snes9x lands on none of them, and the measurement is precise enough to say so — but only if the
+  units are kept straight, because the buckets above are 12 dots apart in the 24-byte difference and
+  the uncertainty is quoted per byte. The instrument is good to **±2 dots over the whole 24-byte
+  difference**, which is **±0.083 dots a byte**, i.e. **±0.33 clocks a byte**. So snes9x's slope is
+  confined to **13.75-13.92 dots a byte (54.97-55.63 clocks)**, an interval containing neither 13.50
+  dots (54 clocks) nor 14.00 (56).
 
   So the documentary step does not adjudicate the divergence; it establishes that **the row is
   under-determined by the sources**, which under the provenance rules makes it a golden vector
