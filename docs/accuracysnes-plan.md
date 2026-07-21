@@ -394,6 +394,39 @@ So nothing is asserted and nothing is recorded. What is known:
 The next attempt should start from a scratch build that dumps `$213F` before and after each step
 into slots verified unused, rather than from a folded variant that hides where the discrepancy is.
 
+### `A5.20` — MVN's per-byte cost does not measure, and the number is interesting
+
+`MVN` should cost **7 cycles per byte moved**. It is the one timing row where being wrong is
+unbounded rather than fixed: a block move is a loop inside a single opcode, so a per-byte error of
+one cycle is one cycle out *per byte*, and a 64 KiB clear diverges by most of a frame.
+
+The natural measurement is a difference between two moves — sixteen bytes against eight — so that
+everything not per-byte (opcode fetch, operands, register setup, the measurement's own overhead)
+cancels. Predicted cost for the eight extra bytes: each byte is a WRAM read and a WRAM write at 8
+master clocks plus five internal cycles at 6, so `8 x (2*8 + 5*6) = 368` clocks, or **92 dots**.
+
+**Measured: 13 dots**, on RustySNES and snes9x alike. That is roughly 6.5 clocks per byte where the
+model predicts 46 — close to eight internal cycles total, as though the loop cost about one cycle a
+byte rather than seven.
+
+Two readings, and the work is to tell them apart:
+
+* both cores genuinely under-charge `MVN`, which would be a significant shared timing defect and
+  exactly what this row exists to catch; or
+* the H-counter harness cannot measure a **single long instruction**. Every other `A5` test measures
+  eight short instructions between `measure_begin` and `measure_end`; this is the first to put one
+  multi-hundred-clock instruction inside that window, and the latch mechanics it depends on are the
+  same `$2137`/`$213F` machinery that `C3.05` above could not pin down either.
+
+The second is the more likely of the two and has to be excluded first. The way in is a calibration
+test: measure a known-length spin — a `repeat` of instructions whose total is comparable to the
+sixteen-byte move — and check the harness returns the predicted dot count at that scale. If it does,
+the `MVN` figure is real and worth a defect report; if it does not, the harness needs a
+longer-window mode before any single-instruction timing can be asserted.
+
+Nothing is shipped either way. A test that cannot distinguish "the core is wrong" from "the
+instrument is wrong" asserts nothing.
+
 ### Group F — blocked on a *peripheral contract*, and now measured
 
 `F1` (22 assertions) was written down as "needs a mechanism that doesn't exist". The mechanism is
