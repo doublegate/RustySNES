@@ -1443,6 +1443,15 @@ fn the_menu_still_draws_after_the_battery() {
          Rows read back as {list:?}"
     );
 
+    // The results screen is drawn in green ($03E0): the font's "on" pixels index CGRAM colour 1 of
+    // palette 0, which `load_palette` sets and `draw_screen` reloads so the last scene's palette
+    // does not bleed in. A regression here is the orange/mixed text the menu showed before.
+    assert_eq!(
+        sys.bus.ppu.cgram_word(1),
+        0x03E0,
+        "the menu font colour is not green — the palette was not reloaded before draw_screen"
+    );
+
     // The rendered tally against the results block it is drawn from. Comparing the menu with the
     // machine rather than with a remembered number means this never needs re-blessing when the
     // battery grows, and it catches the whole `draw_dec3` path: a digit drawn at the wrong column,

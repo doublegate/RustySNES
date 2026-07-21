@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Pressing Down (or any navigation key) blanked the results menu and hung the ROM.** The menu
+  redraw blanks the screen, calls `draw_list`, then un-blanks — but `draw_list` returns with `A`
+  16-bit while the assembler was still `.a8`, so `lda #$0F` assembled one byte where the CPU read
+  two, ate the `sta INIDISP` opcode, and the un-blank never ran: the display stayed forced-blank and
+  the instruction stream desynced. The headless test missed it because it read VRAM directly (intact
+  even when the display is off); it now asserts `display_brightness` recovers. The cursor was moving
+  correctly the whole time — only the display was dead.
+- **The results menu is now drawn in green, not the last scene's leftover palette.** The font's "on"
+  pixels index CGRAM colour 1, and nothing reloaded the palette after the rendered scenes overwrote
+  CGRAM — so the menu inherited whatever colours the final scene left (orange, or a per-tile
+  green/orange mix). `load_palette` now sets colour 1 to `$03E0` (green) and `draw_screen` reloads it
+  first.
+
 - **The interactive menu is now navigable and self-correcting, after a real cartridge showed three
   more defects.** The D-pad blanked the screen and killed the ROM: `cursor_up`/`cursor_down`
   returned `A` 8-bit while `main_loop` continued `.a16`, so ca65 emitted a 16-bit `bit #PAD_DOWN`

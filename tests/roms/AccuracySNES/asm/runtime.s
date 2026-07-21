@@ -125,6 +125,10 @@ restart_entry:
 
     jsr run_scenes              ; rendered scenes for the host framebuffer oracle (ADR 0013)
 
+    ; Reload the menu palette: the rendered scenes just overwrote CGRAM, and draw_screen must draw
+    ; the results in the menu's own green rather than whatever the last scene left behind.
+    jsr load_palette
+
     ; The menu's own state, which nothing else initialises.
     ;
     ; WRAM powers up holding garbage -- `G1.07` records that as undefined and measures it -- and
@@ -416,12 +420,17 @@ restart_entry:
     sep #$20
     .a8
     stz CGADD
-    stz CGDATA                  ; colour 0 = $0000, black
+    stz CGDATA                  ; colour 0 = $0000, black (the background)
     stz CGDATA
-    lda #$FF
-    sta CGDATA                  ; colour 1 = $7FFF, white
-    lda #$7F
-    sta CGDATA
+    ; Colour 1 = $03E0, bright green: the font's "on" pixels index colour 1 of palette 0, and this
+    ; is the colour the results screen is drawn in. It is reloaded right before draw_screen because
+    ; the rendered scenes overwrite CGRAM with their own palettes -- without the reload the menu
+    ; inherited whatever the last scene left, which is why the text came out orange (or, on an
+    ; earlier build, a per-tile mix of green and orange bleeding through from the scene).
+    lda #$E0
+    sta CGDATA                  ; colour 1 low  ($E0)
+    lda #$03
+    sta CGDATA                  ; colour 1 high ($03) -> BGR555 $03E0, green
     rts
 .endproc
 
@@ -1531,6 +1540,15 @@ test_restore := test_restore_impl
     lda #$80
     sta INIDISP
     jsr draw_list
+    ; draw_list returns with A 16-bit (its @done falls through the loop, which is .a16). The
+    ; assembler is still .a8 here, so without this re-assertion `lda #$0F` would assemble as a
+    ; one-byte immediate while the CPU reads two -- eating the `sta INIDISP` opcode, so the screen
+    ; never un-blanks and the instruction stream desyncs. That was the whole "pressing Down blanks
+    ; the screen and hangs" symptom: the cursor moved, the redraw ran, and then the unblank never
+    ; executed. The initial draw_screen call is followed only by `rts`, which is width-independent,
+    ; which is why it was invisible there.
+    sep #$20
+    .a8
     lda #$0F
     sta INIDISP
     rep #$30
