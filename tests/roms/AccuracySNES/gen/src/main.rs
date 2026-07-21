@@ -111,6 +111,7 @@ fn main() {
         link.arg(obj);
     }
     run(&mut link, "ld65");
+    report_bank_headroom(&build_dir.join("accuracysnes.map"));
 
     // --- patch the header checksum ---
     let mut image = std::fs::read(&sfc).expect("read linked image");
@@ -210,6 +211,93 @@ pub(crate) fn cart_root() -> PathBuf {
         .parent()
         .expect("gen/ has a parent")
         .to_path_buf()
+}
+
+/// Report how much room is left in each bank, and fail the build before one of them runs out.
+///
+/// A segment overflow is an `ld65` error with no warning beforehand, and it lands in the middle of
+/// writing a test rather than at a moment anyone chose. It has now happened four times: three times
+/// in bank `$00` and once when `B1.05` pushed `CATALOG` 73 bytes past the end. Each cost a
+/// debugging cycle to recognise, because the error names a *segment* and the fix is always to move
+/// a different one.
+///
+/// So the layout is measured every build. The map file gives each segment's start and end; the bank
+/// is the top byte of the address, and what is left is the distance from the last segment in that
+/// bank to the end of it. Bank `$00` stops at `$FFB0`, where the header begins.
+///
+/// **The threshold is deliberately generous.** Failing at 512 bytes free means the build breaks
+/// while there is still room to land the change in hand and move something afterwards, rather than
+/// at the moment there is none. That is the whole point: the same reasoning as
+/// `dossier::check_slots`, which prints the free list on a collision instead of merely refusing.
+fn report_bank_headroom(map: &Path) {
+    /// Bank `$00` ends where the header starts, not at `$FFFF`.
+    const BANK0_END: u32 = 0x00_FFB0;
+    /// Free bytes below which the build fails rather than warns.
+    const MIN_FREE: u32 = 512;
+
+    let Ok(text) = std::fs::read_to_string(map) else {
+        return; // no map, nothing to check — the link would have failed first
+    };
+    let mut last_end: std::collections::BTreeMap<u32, (u32, String)> =
+        std::collections::BTreeMap::new();
+    let mut in_list = false;
+    for line in text.lines() {
+        if line.starts_with("Segment list:") {
+            in_list = true;
+            continue;
+        }
+        if in_list && line.trim().is_empty() {
+            break;
+        }
+        let mut f = line.split_whitespace();
+        let (Some(name), Some(start), Some(end)) = (f.next(), f.next(), f.next()) else {
+            continue;
+        };
+        let (Ok(start), Ok(end)) = (u32::from_str_radix(start, 16), u32::from_str_radix(end, 16))
+        else {
+            continue;
+        };
+        if start < 0x8000 {
+            continue; // RAM areas: nothing of theirs reaches the file
+        }
+        let bank = start >> 16;
+        if bank == 0 && start >= BANK0_END {
+            // HEADER and VECTORS are pinned at the top of bank $00 by the hardware, not stacked
+            // after the growing segments. Counting them as "last" makes the bank look full when
+            // what matters is the gap below them, which is where the catalog grows into.
+            continue;
+        }
+        let slot = last_end.entry(bank).or_insert((0, String::new()));
+        if end >= slot.0 {
+            *slot = (end, name.to_owned());
+        }
+    }
+
+    let mut tight = Vec::new();
+    println!("accuracysnes-gen: bank headroom");
+    for (bank, (end, name)) in &last_end {
+        // One past the last usable byte. `|` rather than `+` here was wrong in a way that only
+        // showed on odd banks, since `bank << 16` already has the bit that `0x1_0000` would set.
+        let bank_end = if *bank == 0 {
+            BANK0_END
+        } else {
+            (bank << 16) + 0x0001_0000
+        };
+        let free = bank_end.saturating_sub(end + 1);
+        println!("  bank ${bank:02X}  {free:>6} bytes free  (last: {name})");
+        if free < MIN_FREE {
+            tight.push(format!(
+                "bank ${bank:02X} has {free} bytes free after {name}"
+            ));
+        }
+    }
+    assert!(
+        tight.is_empty(),
+        "a bank is nearly full and the next test to land will overflow it:\n  {}\n\
+         Move a segment to an empty bank in lorom.cfg, or relocate a group's bodies via \
+         emit.rs's OUT_OF_BANK — bank $00 can only be relieved by the latter.",
+        tight.join("\n  ")
+    );
 }
 
 fn write(path: &Path, contents: &str) {

@@ -632,6 +632,25 @@ rewritten to the current number — this line is the one to read.
   nothing depending on what is plugged in, and that `NMITIMEN` is zero for the whole battery, both
   of which the input contract changed.
 
+- **The build now reports per-bank headroom and fails before a bank runs out.** A segment overflow
+  is an `ld65` error with no warning beforehand, it lands mid-change rather than at a moment anyone
+  chose, and it names a *segment* when the fix is always to move a different one — it has happened
+  four times. The generator now parses its own map file after linking and prints how much room each
+  bank has left, failing at **512 bytes free** so the build breaks while there is still space to
+  land the change in hand and move something afterwards. Same reasoning as `dossier::check_slots`,
+  which prints the free list rather than merely refusing.
+  Two arithmetic mistakes in the gate itself, both caught by the numbers being obviously wrong:
+  `(bank << 16) | 0x1_0000` for the bank end is only correct on *even* banks, and bank `$00`'s
+  `HEADER`/`VECTORS` are pinned at the top by the hardware rather than stacked after the growing
+  segments, so counting them as "last" made the bank read as full when what matters is the gap
+  below them.
+
+- **`APUDATA` given a bank to itself** (`$06`). The SPC700 program images grow at ~240 bytes per APU
+  test and Group E holds the most uncovered rows left, so after `TESTSE` this is the next segment a
+  single bank will not hold. `apu_upload` reads them through a 24-bit pointer, so the move costs
+  nothing. Headroom after it: `$00` 3,268 B (~122 tests), `$02` 13,570 B (~63 E tests), `$06` 11,121
+  B (~45 APU tests).
+
 - **Banks re-packed, one segment per group where it matters.** `TESTSE` has bank `$02` to itself —
   it is the largest segment and Group E holds the most uncovered rows, so it is the one that will
   need splitting first — and `TESTSD` moved to bank `$05`. `G1.11`, which walks the whole cartridge
