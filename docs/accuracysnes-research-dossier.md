@@ -714,7 +714,7 @@ WDC's list of instructions escaping `$01xx` even in emulation mode: `JSL`, `JSR 
 | A5.17 | **16-bit RMW is +2, not +1.** Not a transcription error since corrected, as this table previously said — undisbeliever's published table is **internally inconsistent to this day**: `ASL`/`INC`/`DEC`/`TRB`/`TSB` say `+2 if m=0` while `LSR`/`ROL`/`ROR` say `+1`, twelve rows disagreeing with the rest of their own instruction class. Verified 2026-07-20 against `ref-docs/2026-07-20-undisbeliever-65816-timing.md`. Commit `de84e932` (2021-03-13) fixed a *different* RMW bug (a bogus page-cross penalty on absolute-indexed forms) and did not touch this |
 | A5.18 | `BRK` 8 native / 7 emulation |
 | A5.19 | `RTI` 7 native / 6 emulation |
-| A5.20 | `MVN`/`MVP` 7 cycles per byte |
+| A5.20 | `MVN`/`MVP` 7 cycles per byte **[NOT CART-MEASURABLE — the sources do not decompose the 7 cycles into bus vs internal, and a cartridge reads dots rather than clocks; see `docs/accuracysnes-plan.md` §A5.20 and ticket T-06-A]** |
 | A5.21 | **Decimal mode adds ZERO cycles** (unlike 65C02) |
 | A5.22 | Spot checks: PHD=4, PLD=5, PEA=5, PEI=6+w, PER=6, REP/SEP=3, XBA=3 |
 

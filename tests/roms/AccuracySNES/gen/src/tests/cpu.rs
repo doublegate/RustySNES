@@ -1009,10 +1009,10 @@ fn a7_04() -> Test {
     )
 }
 
-/// `CLC; XCE` in native mode changes the `E` flag and nothing else.
+/// `CLC; XCE` entered native with carry clear is a complete no-op.
 ///
-/// `XCE` swaps carry with `E`. Entering it native with carry clear, both end clear, so the whole
-/// instruction is a no-op — and that is the point. A core that treats any `XCE` as a mode
+/// `XCE` swaps carry with `E`. Entered native (`E = 0`) with carry clear, both bits end clear, so
+/// nothing changes at all — not `E`, not carry, not the registers. That is the point. A core that treats any `XCE` as a mode
 /// *transition* and re-initialises on it (resetting register widths, truncating the high bytes of
 /// `A`/`X`/`Y`, forcing the stack to page 1) passes every test that only checks the flag and
 /// corrupts the machine here.
@@ -1025,7 +1025,11 @@ fn a1_08() -> Test {
     a.l("ldy #$9ABC");
     a.l("clc");
     a.l("xce               ; C=0 in, E=0 out: nothing should change");
-    a.c("Widths first: if m or x were disturbed the comparisons below would be 8-bit and could");
+    a.c("Stash A before the status check, because reading P costs a PLA into the accumulator. A");
+    a.c("core that truncated A to its low byte would otherwise be invisible: the PLA overwrites");
+    a.c("the evidence before anything compares it.");
+    a.l("sta f:$7E0094");
+    a.c("Widths next: if m or x were disturbed the comparisons below would be 8-bit and could");
     a.c("pass on the low byte alone.");
     a.l("php");
     a.l("sep #$20");
@@ -1033,6 +1037,8 @@ fn a1_08() -> Test {
     a.l("and #$30");
     a.assert_a8(0x00, "CLC/XCE in native mode disturbed the m/x width bits");
     a.l("rep #$30");
+    a.l("lda f:$7E0094");
+    a.assert_a16(0x1234, "CLC/XCE in native mode disturbed A");
     a.assert_x16(0x5678, "CLC/XCE in native mode disturbed X");
     a.assert_y16(0x9ABC, "CLC/XCE in native mode disturbed Y");
     a.finish(

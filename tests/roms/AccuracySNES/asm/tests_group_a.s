@@ -3310,7 +3310,11 @@ CATALOG_IMPL = 1
     ldy #$9ABC
     clc
     xce               ; C=0 in, E=0 out: nothing should change
-    ; Widths first: if m or x were disturbed the comparisons below would be 8-bit and could
+    ; Stash A before the status check, because reading P costs a PLA into the accumulator. A
+    ; core that truncated A to its low byte would otherwise be invisible: the PLA overwrites
+    ; the evidence before anything compares it.
+    sta f:$7E0094
+    ; Widths next: if m or x were disturbed the comparisons below would be 8-bit and could
     ; pass on the low byte alone.
     php
     sep #$20
@@ -3324,13 +3328,18 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
-    cpx #$5678
+    lda f:$7E0094
+    cmp #$1234
     beq :+
     jmp @fail2
   :
-    cpy #$9ABC
+    cpx #$5678
     beq :+
     jmp @fail3
+  :
+    cpy #$9ABC
+    beq :+
+    jmp @fail4
   :
     sep #$20
     .a8
@@ -3345,17 +3354,24 @@ CATALOG_IMPL = 1
     sta f:$7EE010
     jml test_restore
 @fail2:
-    ; CLC/XCE in native mode disturbed X
+    ; CLC/XCE in native mode disturbed A
     sep #$20
     .a8
     lda #$04
     sta f:$7EE010
     jml test_restore
 @fail3:
-    ; CLC/XCE in native mode disturbed Y
+    ; CLC/XCE in native mode disturbed X
     sep #$20
     .a8
     lda #$06
+    sta f:$7EE010
+    jml test_restore
+@fail4:
+    ; CLC/XCE in native mode disturbed Y
+    sep #$20
+    .a8
+    lda #$08
     sta f:$7EE010
     jml test_restore
 .endproc

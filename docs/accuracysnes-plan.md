@@ -396,6 +396,14 @@ into slots verified unused, rather than from a folded variant that hides where t
 
 ### `A5.20` — MVN's per-byte cost does not measure, and the number is interesting
 
+> **Read the conclusion first.** `A5.20` is **withdrawn**; no test ships. Everything from here to
+> *"Implementing that golden vector disproved the paragraph above"* is a **superseded narrative**,
+> kept because the wrong turns are the instructive part and the next person should not have to
+> rediscover them. It is **not normative**: in particular the intermediate claims that the
+> divergence is real, that it is too large to be an instrument artifact, and that RustySNES's
+> 52-clock decomposition is thereby supported, are all **disproved further down**. The binding
+> statements are the final bullets and `to-dos/ROADMAP.md` **T-06-A**.
+
 `MVN` should cost **7 cycles per byte moved**. It is the one timing row where being wrong is
 unbounded rather than fixed: a block move is a loop inside a single opcode, so a per-byte error of
 one cycle is one cycle out *per byte*, and a 64 KiB clear diverges by most of a frame.

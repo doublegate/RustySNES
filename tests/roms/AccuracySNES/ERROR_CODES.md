@@ -492,8 +492,9 @@ Provenance: **Documented** (WDC datasheet: XCE exchanges carry and E, nothing el
 | Code | Byte | Meaning |
 |---|---|---|
 | 1 | `$02` | CLC/XCE in native mode disturbed the m/x width bits |
-| 2 | `$04` | CLC/XCE in native mode disturbed X |
-| 3 | `$06` | CLC/XCE in native mode disturbed Y |
+| 2 | `$04` | CLC/XCE in native mode disturbed A |
+| 3 | `$06` | CLC/XCE in native mode disturbed X |
+| 4 | `$08` | CLC/XCE in native mode disturbed Y |
 
 ### A1.09 — REP cannot widen in E=1
 
