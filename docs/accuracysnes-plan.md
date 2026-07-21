@@ -830,6 +830,36 @@ So it ships as a golden vector reporting `(latched H - HTIME)` in 4-dot buckets:
 stable across alignment, fine enough that a core waking a scanline late announces itself. Both cores
 report variant 5. Asserting "1 cycle" from this would be measuring the instrument.
 
+### The forced-blank vacuity trap, and the armed-ness guard that catches it
+
+The battery leaves `$2100` at `$8F` — **forced blank** — between tests. `Ppu::vram_accessible()` is
+`display_disable || v == 0 || v > visible_height()`, so under forced blank the VRAM/CGRAM/OAM port is
+open unconditionally, regardless of line or screen height.
+
+Any test about the access window that does not release forced blank therefore asserts **nothing**.
+`C9.05` shipped in that state: both its writes landed on RustySNES, snes9x and Mesen2 alike, and the
+result read as three independent cores agreeing. They were agreeing about nothing.
+
+**Cross-validation is structurally incapable of catching this.** A vacuous test passes identically
+everywhere, which is exactly what agreement looks like. This is the same failure as `A4.06`/`A4.08`
+(bank tests below `$2000`, where the banks alias the same WRAM) reached by a different mechanism.
+
+**What caught it** was the inject-the-bug check. A fix was injected into the emulator expecting the
+verdict to flip, and it did not move — and *that mismatch is the signal*. If injecting the bug a test
+names does not change its verdict, the test is not measuring what it claims.
+
+Two rules follow:
+
+1. **Release forced blank** in any access-window test — `enter_active_display()` exists for this, and
+   `C2.10`, `C2.11` and `C2.12` all use it or an inline equivalent. An audit confirmed those three
+   are correctly armed and `C9.05` was the only vacuous one.
+2. **Prefer a guard over remembering.** `C9.05` now writes a third word from a position where the
+   port is unambiguously closed and requires *that* write to be dropped; if it lands, the test
+   reports a distinct "not armed" variant instead of a result. A guard survives the next author.
+
+With the guard in place the same cart, otherwise unchanged, produced the opposite reading and
+revealed a real reference split the vacuous version had hidden entirely.
+
 ### `B3` — the refresh pause is measured and recorded, and RustySNES does not model one
 
 All three `B3` rows are about one mechanism: the 5A22 stops the CPU once per scanline to refresh
