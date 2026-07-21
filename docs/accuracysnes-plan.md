@@ -831,6 +831,39 @@ So it ships as a golden vector reporting `(latched H - HTIME)` in 4-dot buckets:
 stable across alignment, fine enough that a core waking a scanline late announces itself. Both cores
 report variant 5. Asserting "1 cycle" from this would be measuring the instrument.
 
+### `D2.01` and `D2.08` share one working design — a window read at a pinned line
+
+Both rows were attempted and withdrawn above, for different reasons. Working through both
+post-mortems, the corrections converge on a single mechanism, which is worth writing down once.
+
+**The common problem.** Every failed design read *one* byte and asked "has the transfer happened".
+That question is unanswerable without knowing which line the transfers started on, and the three
+cores demonstrably disagree about the init line (`D2.01`'s post-mortem). Indexing the landing page
+by line number inherits the same ambiguity — line 50's byte is at offset 50 or 49 depending on the
+core.
+
+**The fix: read a window and find the boundary, don't index by line.** With `WMADD`
+auto-incrementing, the landing page is written strictly sequentially, so at any instant it is a run
+of written bytes followed by zeroes. The **offset of that boundary is the transfer count so far**,
+and it needs no assumption about where counting began.
+
+An HV-IRQ handler on a pinned line reads a short window — say offsets 45..55 — and stashes it. The
+boundary is computed afterwards, outside timing pressure. A full 256-byte scan **cannot** be done in
+the handler: at roughly 8 clocks a byte it would take ~2048 clocks and run into the next line's
+transfer, so the window has to be short and positioned by a calibration pass.
+
+From two probes on the **same** line:
+
+* **`D2.01`** — the bracket. `boundary_late == boundary_early + 1` means exactly one transfer
+  happened between the two observations; combined with the latched dots straddling 274 and 282,
+  that places the transfer inside hblank without naming 276 or 278.
+* **`D2.08`** — the ±1. The same boundary arithmetic, comparing a channel armed in vblank against
+  one armed mid-frame, answers which line the channel started on **without counting to the end of
+  the frame** — which is what let `D2.09`'s missing mid-frame init swallow the previous attempt.
+
+Pin the line several lines into the frame, never at `V = 0`. Judge by the **latched** dot, never the
+armed `HTIME`: dispatch latency is core-specific and was what sank the first `D2.01`.
+
 ### `D2.08` — attempted by counting transfers, withdrawn: the count measures the wrong thing
 
 The claim is that writing `$420C` mid-frame starts the channel on the **next** line, which is worth
