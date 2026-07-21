@@ -76,6 +76,8 @@ pub fn all() -> Vec<Test> {
         a6_09(),
         a5_08(),
         a9_03(),
+        a1_07(),
+        a9_04(),
     ]
 }
 
@@ -2009,6 +2011,147 @@ fn a9_03() -> Test {
              the GTE and VLSI renderings of the same table are silent",
         ),
         Kind::Golden,
+        None,
+    )
+}
+
+/// `TCS` and `TXS` set **no flags**, where every other transfer sets N and Z.
+///
+/// The stack pointer is not data, so moving a value into it does not describe that value — and a
+/// core that routes all the transfers through one flag-setting helper gets this wrong in a way
+/// nothing crashes on. It changes which branch is taken after a `TXS`, which is the sort of bug
+/// that produces one wrong branch a frame in code nobody suspects.
+///
+/// **Both instructions are given the value the stack pointer already holds**, so `S` is written
+/// with what was in it and the stack survives the test. That matters more than it looks: `TXS` in
+/// native mode is a full 16-bit write, so a test that put anything else there would be pushing its
+/// own `PHP` into ROM.
+///
+/// The flag that has to survive is planted with `BIT #imm`, which affects `Z` alone (`A9.01`) and
+/// therefore does not disturb the accumulator the transfer is about to move. If `TCS` set flags
+/// from `$1FFF`, `Z` would come back clear.
+///
+/// The third part is the control, and without it the first two are satisfied by a core that never
+/// sets any flags at all: `TXA` moving `$8000` **must** set `N` and clear `Z`.
+fn a1_07() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c(
+        "TCS: hand it the stack pointer's own value, so S is unchanged and PHP still lands in RAM.",
+    );
+    a.l("tsc               ; A = S");
+    a.l("bit #$0000        ; Z = 1, and BIT #imm touches nothing else");
+    a.l("tcs               ; the instruction under test");
+    a.l("php");
+    a.l("sep #$20");
+    a.l("pla");
+    a.l("and #$02          ; the Z flag");
+    a.assert_a8(
+        0x02,
+        "TCS cleared Z, so it set flags from the value transferred — the stack pointer is not \
+         data and moving a value into it describes nothing",
+    );
+    a.c("TXS, the same way: X gets S's own value first.");
+    a.l("rep #$30");
+    a.l("tsx               ; X = S");
+    a.l("bit #$0000        ; Z = 1 again");
+    a.l("txs               ; the instruction under test");
+    a.l("php");
+    a.l("sep #$20");
+    a.l("pla");
+    a.l("and #$02");
+    a.assert_a8(
+        0x02,
+        "TXS cleared Z, so it set flags from the value transferred",
+    );
+    a.c("The control: TXA is an ordinary transfer and MUST set N and clear Z.");
+    a.l("rep #$30");
+    a.l("ldx #$8000");
+    a.l("bit #$0000        ; Z = 1, so a transfer that sets flags has to clear it");
+    a.l("txa               ; A = $8000: negative, non-zero");
+    a.l("php");
+    a.l("sep #$20");
+    a.l("pla");
+    a.l("and #$82          ; N and Z together");
+    a.assert_a8(
+        0x80,
+        "TXA did not set N and clear Z from $8000, so this core sets no transfer flags at all and \
+         the two assertions above say nothing",
+    );
+    a.finish(
+        "A1.07",
+        'A',
+        "TCS/TXS set no flags",
+        Provenance::Documented("WDC 65C816 datasheet; 6502.org 65c816opcodes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `ORA [d]` reaches through a **24-bit** pointer — the Super Mario World case.
+///
+/// Direct-page indirect long is the addressing mode a core is most likely to implement as its
+/// 16-bit sibling with the data bank glued on, because for a pointer that happens to live in bank
+/// `$00` the two are identical. This image is 128 KiB precisely so they are not: each bank carries
+/// its own signature byte at `$xx:8005`, so a pointer whose stored bank is `$01` reads `$A1` where
+/// a `(d)`-style fetch would read `$A0`.
+///
+/// Three parts, and the middle one is the assertion:
+///
+/// 1. the pointer aimed at bank `$00` reads `$A0` — the mode works at all;
+/// 2. the same pointer with `$01` in its third byte reads `$A1` — **the bank byte is honoured**;
+/// 3. `$0F` already in the accumulator comes back as `$AF` — it is an `ORA` and not a load.
+///
+/// Part 3 is not padding. Parts 1 and 2 both start from `A = $00`, where `ORA` and `LDA` are
+/// indistinguishable, so without it the test would say nothing about the operation it names.
+fn a9_04() -> Test {
+    const PTR: &str = "$60";
+
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("lda #$0000");
+    a.l("tcd               ; DP = 0, so the pointer lives at $00:0060");
+    a.c("Pointer -> $00:8005, bank $00's signature byte.");
+    a.l("lda #$8005");
+    a.l(&format!("sta {PTR}"));
+    a.l("sep #$30");
+    a.l("lda #$00");
+    a.l(&format!("sta {PTR}+2      ; the bank byte"));
+    a.l("lda #$00");
+    a.l(&format!("ora [{PTR}]"));
+    a.assert_a8(
+        0xA0,
+        "ORA [d] through a pointer at $00:8005 did not read bank $00's signature byte",
+    );
+    a.c("Now the same pointer with bank $01. A (d)-style fetch through DBR still reads $A0 here.");
+    a.l("lda #$01");
+    a.l(&format!("sta {PTR}+2"));
+    a.l("lda #$00");
+    a.l(&format!("ora [{PTR}]"));
+    a.assert_a8(
+        0xA1,
+        "ORA [d] ignored the pointer's bank byte — reading $A0 means the effective address was \
+         built from the data bank rather than from the third byte of the pointer",
+    );
+    a.c("And it really is an OR: $0F in the accumulator survives into the result.");
+    a.l("lda #$0F");
+    a.l(&format!("ora [{PTR}]"));
+    a.assert_a8(
+        0xAF,
+        "ORA [d] replaced the accumulator instead of OR-ing into it, so the two readings above \
+         were loads and say nothing about ORA",
+    );
+    a.l("rep #$30");
+    a.finish(
+        "A9.04",
+        'A',
+        "ORA [d] is 24-bit",
+        Provenance::Documented("WDC 65C816 datasheet; the Super Mario World case, SNESdev Wiki"),
+        Kind::Scored,
         None,
     )
 }

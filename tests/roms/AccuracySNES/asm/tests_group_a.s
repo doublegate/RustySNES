@@ -2852,6 +2852,162 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A1.07 — TCS/TXS set no flags
+; provenance: Documented (WDC 65C816 datasheet; 6502.org 65c816opcodes)
+.proc test_a1_07
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; TCS: hand it the stack pointer's own value, so S is unchanged and PHP still lands in RAM.
+    tsc               ; A = S
+    bit #$0000        ; Z = 1, and BIT #imm touches nothing else
+    tcs               ; the instruction under test
+    php
+    sep #$20
+    .a8
+    pla
+    and #$02          ; the Z flag
+    cmp #$02
+    beq :+
+    jmp @fail1
+  :
+    ; TXS, the same way: X gets S's own value first.
+    rep #$30
+    .a16
+    .i16
+    tsx               ; X = S
+    bit #$0000        ; Z = 1 again
+    txs               ; the instruction under test
+    php
+    sep #$20
+    .a8
+    pla
+    and #$02
+    cmp #$02
+    beq :+
+    jmp @fail2
+  :
+    ; The control: TXA is an ordinary transfer and MUST set N and clear Z.
+    rep #$30
+    .a16
+    .i16
+    ldx #$8000
+    bit #$0000        ; Z = 1, so a transfer that sets flags has to clear it
+    txa               ; A = $8000: negative, non-zero
+    php
+    sep #$20
+    .a8
+    pla
+    and #$82          ; N and Z together
+    cmp #$80
+    beq :+
+    jmp @fail3
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; TCS cleared Z, so it set flags from the value transferred — the stack pointer is not data and moving a value into it describes nothing
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; TXS cleared Z, so it set flags from the value transferred
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; TXA did not set N and clear Z from $8000, so this core sets no transfer flags at all and the two assertions above say nothing
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A9.04 — ORA [d] is 24-bit
+; provenance: Documented (WDC 65C816 datasheet; the Super Mario World case, SNESdev Wiki)
+.proc test_a9_04
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    lda #$0000
+    tcd               ; DP = 0, so the pointer lives at $00:0060
+    ; Pointer -> $00:8005, bank $00's signature byte.
+    lda #$8005
+    sta $60
+    sep #$30
+    .a8
+    .i8
+    lda #$00
+    sta $60+2      ; the bank byte
+    lda #$00
+    ora [$60]
+    cmp #$A0
+    beq :+
+    jmp @fail1
+  :
+    ; Now the same pointer with bank $01. A (d)-style fetch through DBR still reads $A0 here.
+    lda #$01
+    sta $60+2
+    lda #$00
+    ora [$60]
+    cmp #$A1
+    beq :+
+    jmp @fail2
+  :
+    ; And it really is an OR: $0F in the accumulator survives into the result.
+    lda #$0F
+    ora [$60]
+    cmp #$AF
+    beq :+
+    jmp @fail3
+  :
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; ORA [d] through a pointer at $00:8005 did not read bank $00's signature byte
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; ORA [d] ignored the pointer's bank byte — reading $A0 means the effective address was built from the data bank rather than from the third byte of the pointer
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; ORA [d] replaced the accumulator instead of OR-ing into it, so the two readings above were loads and say nothing about ORA
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C1.01 — OAM word write/read
 ; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
 .proc test_c1_01
@@ -19281,7 +19437,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 229
+    .word 231
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -19337,6 +19493,8 @@ _test_entries:
     .faraddr test_a6_09
     .faraddr test_a5_08
     .faraddr test_a9_03
+    .faraddr test_a1_07
+    .faraddr test_a9_04
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -19569,6 +19727,8 @@ _test_flags:
     .byte $01   ; A6.09
     .byte $01   ; A5.08
     .byte $02   ; A9.03
+    .byte $01   ; A1.07
+    .byte $01   ; A9.04
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -19801,6 +19961,8 @@ _test_names:
     .addr @n_a6_09
     .addr @n_a5_08
     .addr @n_a9_03
+    .addr @n_a1_07
+    .addr @n_a9_04
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -20134,6 +20296,12 @@ _test_names:
 @n_a9_03:
     .byte 22
     .byte "E=1 R-M-W modify write"
+@n_a1_07:
+    .byte 20
+    .byte "TCS/TXS set no flags"
+@n_a9_04:
+    .byte 17
+    .byte "ORA [d] is 24-bit"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"

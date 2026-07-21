@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`TCS`/`TXS` set no flags, and `ORA [d]` reaches through a 24-bit pointer (`A1.09`, `A9.03`).**
+  The stack pointer is not data, so moving a value into it does not describe that value — and a core
+  routing every transfer through one flag-setting helper gets that wrong in a way nothing crashes
+  on. Both instructions are handed the value the stack pointer already holds, so `S` is written with
+  what was in it: a native-mode `TXS` is a full 16-bit write, and a test that put anything else there
+  would be pushing its own `PHP` into ROM. `TXA` moving `$8000` is the control, without which a core
+  that sets no transfer flags at all passes.
+
+  `ORA [d]` is the addressing mode most likely to be implemented as its 16-bit sibling with the data
+  bank glued on, because for a pointer in bank `$00` the two are identical. This image is 128 KiB so
+  they are not: the same pointer with `$01` in its third byte reads bank `$01`'s signature where a
+  `(d)`-style fetch reads bank `$00`'s. A third reading with `$0F` already in the accumulator is
+  what makes it an assertion about `ORA` rather than about a load — the first two start from zero,
+  where the two instructions are indistinguishable.
+
 - **Timer 2 counts eight times faster than timer 0 (`E3.06`), and `TEST` bit 0 halts timer 0
   (`E3.08`).** The first is a ratio rather than two measurements: both timers run over one interval,
   started by a single write and stopped by another, so whatever that interval was, `T2` must show
