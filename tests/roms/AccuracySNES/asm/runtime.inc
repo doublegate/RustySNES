@@ -69,6 +69,11 @@ V_HW_H          = VAR_BASE + $4A      ; H from the most recent wide latch (u16)
 V_HW_V          = VAR_BASE + $4C      ; V from that same latch (u16)
 V_HW_V0         = VAR_BASE + $4E      ; V at hv_begin_wide (u16)
 V_HW_DV         = VAR_BASE + $50      ; scratch: lines crossed, counted down (u16)
+; The longest span hv_end_wide will report. Beyond this the varying line length has accumulated past
+; usefulness, and far beyond it V wraps the field and the delta goes negative — so both are refused
+; with $FFFF rather than returned as a plausible number. 64 lines is ~21,800 dots, two orders of
+; magnitude more than anything measured here.
+MAX_SPAN_LINES  = 64
 
 ; ---------------------------------------------------------------------------------------------
 ; Raw measurement channel ($E200-$E2FF) — 128 u16 slots.

@@ -1695,6 +1695,14 @@ test_restore := test_restore_impl
     lda f:V_HW_V
     sec
     sbc f:V_HW_V0
+    ; A span that wraps the field, or simply runs too long, must not come back looking like data —
+    ; that failure mode is the entire reason this routine exists. V1 < V0 means V wrapped past the
+    ; end of the field (the borrow leaves carry clear); more than MAX_SPAN_LINES means the
+    ; line-length approximation has accumulated past usefulness. Either way, return $FFFF, which no
+    ; real span can produce and which fails any range assertion loudly.
+    bcc @overrun
+    cmp #MAX_SPAN_LINES + 1
+    bcs @overrun
     sta f:V_HW_DV               ; lines crossed
     lda f:V_HW_H
     sec
@@ -1711,6 +1719,12 @@ test_restore := test_restore_impl
     sta f:V_H1
     bra @lines
 @done:
+    pla
+    plp
+    rts
+@overrun:
+    lda #$FFFF
+    sta f:V_H1
     pla
     plp
     rts

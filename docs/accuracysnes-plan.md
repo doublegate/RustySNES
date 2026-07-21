@@ -473,9 +473,13 @@ Consequences worth carrying forward:
      block move reads WRAM at `$7E:213F`, not the PPU. The counters came back as whatever bytes
      were there and the line-countdown ran thousands of times — an 8-byte move reported 11,464
      dots. The latch is long-addressed throughout now.
-  3. **No V window.** A span starting near the end of a field let V wrap to zero, making
-     `V1 - V0` hugely negative. `hv_begin_wide` waits for `V < 150`, which also keeps the span
-     inside active display where every line really is 341 dots.
+  3. **No V window, and no overrun check.** A span starting near the end of a field let V wrap to
+     zero, making `V1 - V0` hugely negative and running the line-countdown sixty-five thousand
+     times. `hv_begin_wide` now waits for `V < 150`, which keeps the span inside active display
+     where every line really is 341 dots — but a start window bounds only the *start*, so
+     `hv_end_wide` also refuses any span whose V went backwards or which crossed more than
+     `MAX_SPAN_LINES`, returning `$FFFF`. That is the point of the whole exercise applied to the
+     instrument itself: **an out-of-range measurement must not come back looking like data.**
   4. **`A` was not preserved.** `MVN` takes its byte count in `A`. Clobbering it made 8-, 32- and
      64-byte moves all measure the *same* instruction — three identical numbers across two
      rebuilds, which read as "the instrument is saturating" rather than "the operand is wrong".
