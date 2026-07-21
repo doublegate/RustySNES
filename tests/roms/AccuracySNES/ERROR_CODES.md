@@ -605,6 +605,17 @@ Provenance: **Documented** (WDC datasheet: WAI wakes on the interrupt line; I ga
 | 1 | `$02` | WAI returned with no IRQ pending — it fell through instead of waiting |
 | 2 | `$04` | WAI with I=1 vectored to the handler instead of resuming in line |
 
+### A8.07 — MVN interruptible
+
+Provenance: **Documented** (WDC datasheet: MVN rewinds PC by 3 per iteration, so RTI re-enters). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | no NMI fired during the block move — the copy check below proves nothing without it |
+| 2 | `$04` | the first byte of the block move did not arrive |
+| 3 | `$06` | the middle of the block move did not arrive |
+| 4 | `$08` | the LAST byte did not arrive — MVN resumed short after the interrupt |
+
 ## Group C
 
 ### C1.01 — OAM word write/read

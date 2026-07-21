@@ -96,6 +96,7 @@ pub fn all() -> Vec<Test> {
         a5_09(),
         a5_10(),
         a6_11(),
+        a8_07(),
     ]
 }
 
@@ -1899,6 +1900,131 @@ fn a8_06() -> Test {
         'A',
         "E=1 confines MVN offsets",
         Provenance::Documented("WDC datasheet: E=1 forces x=1, so the indices are 8-bit"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `MVN` is interruptible mid-block: an NMI during a long block move resumes it correctly.
+///
+/// A block move is a loop *inside a single opcode* — it decrements `A` and rewinds `PC` by 3 until
+/// the count exhausts. Hardware takes interrupts between iterations, and the pushed `PC` points at
+/// the `MVN` itself, so `RTI` re-enters it and the remaining bytes copy. A core that treats the
+/// whole move as atomic delays the interrupt; one that resumes with a corrupted count copies the
+/// wrong number of bytes.
+///
+/// # Why this needs the NMI runtime, and both halves pinned
+///
+/// This is the row the NMI vector wiring was built for: nothing else in the battery generates a
+/// real interrupt mid-instruction. The handler counts its invocations, and **that count is half
+/// the assertion** — checking only that the block copied correctly would be vacuous, because a
+/// core where the NMI never fires at all copies it correctly too. That is the same trap `D2.07`
+/// carries and the one that withdrew `A4.06`.
+///
+/// The move is **8192 bytes**, which at roughly 52 clocks a byte is about 426,000 master clocks —
+/// longer than one 357,368-clock frame, so a VBlank NMI must land inside it. Only three source
+/// bytes are seeded and three destination bytes checked (first, middle, **last**); the last is the
+/// one that matters, because a core that loses its place on resumption finishes short and only the
+/// tail shows it.
+fn a8_07() -> Test {
+    let mut a = Asm::new();
+    a.c("The NMI handler counts invocations and acknowledges RDNMI.");
+    a.l("bra @body");
+    a.label("nmi");
+    a.c("Preserve A/X/Y. RTI restores P, PC and PBR — NOT the registers — and for THIS test that");
+    a.c("is load-bearing rather than hygiene: MVN keeps its remaining byte count in A and its");
+    a.c("offsets in X and Y, so a handler that clobbers them makes the move resume wrong. The");
+    a.c("first version of this test omitted the pushes and lost the tail of the block, which read");
+    a.c("exactly like the resume-short defect the test exists to detect.");
+    a.l("rep #$30");
+    a.l(".a16");
+    a.l(".i16");
+    a.l("pha");
+    a.l("phx");
+    a.l("phy");
+    a.l("sep #$20");
+    a.l(".a8");
+    a.l("lda f:$7E0150");
+    a.l("inc a");
+    a.l("sta f:$7E0150");
+    a.c("LONG addressing, and this is not tidiness: MVN sets DBR to its DESTINATION bank while it");
+    a.c("runs, so an interrupt taken mid-move enters the handler with DBR = $7F. Absolute `lda");
+    a.c("$4210` would read WRAM at $7F:4210 instead of acknowledging RDNMI, the NMI line would");
+    a.c("stay asserted, and the handler would re-enter until the move starved.");
+    a.l("lda f:$004210     ; acknowledge RDNMI");
+    a.l("rep #$30");
+    a.l(".a16");
+    a.l(".i16");
+    a.l("ply");
+    a.l("plx");
+    a.l("pla");
+    a.l("rti");
+    a.label("body");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("rep #$20");
+    a.l("lda #@nmi");
+    a.l("sta a:V_NMI_VEC");
+    a.c("Seed only the three source bytes that get checked, and clear their destinations so");
+    a.c("'arrived' is distinguishable from 'was already there'.");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta f:$7E0150     ; NMI count");
+    a.l("lda #$A1");
+    a.l("sta f:$7E2000     ; source offset 0");
+    a.l("lda #$B2");
+    a.l("sta f:$7E3000     ; source offset 4096");
+    a.l("lda #$C3");
+    a.l("sta f:$7E3FFF     ; source offset 8191 — the last byte moved");
+    a.l("lda #$00");
+    a.l("sta f:$7F0000");
+    a.l("sta f:$7F1000");
+    a.l("sta f:$7F1FFF");
+    a.c("Arm VBlank NMI. NMI ignores the I flag, so no CLI is needed.");
+    a.l("lda #$80");
+    a.l("sta $4200");
+    a.c("8192 bytes from $7E:2000 to $7F:0000. Emitted raw: the machine encoding is");
+    a.c("54 <dest> <src>, the reverse of how the mnemonic reads (A8.04 asserts exactly this).");
+    a.l("rep #$30");
+    a.l("ldx #$2000");
+    a.l("ldy #$0000");
+    a.l("lda #$1FFF        ; count-1");
+    a.l(".byte $54, $7F, $7E");
+    a.l("phk");
+    a.l("plb               ; MVN left DBR = $7F");
+    a.l("sep #$20");
+    a.l("stz $4200         ; disarm before asserting; a failure exits immediately");
+    a.l("lda $4210         ; clear any pending RDNMI latch");
+    a.c("Half one: the interrupt actually happened. Without this the copy check below is");
+    a.c("satisfied just as well by a core that never took an NMI at all.");
+    a.c("Normalise any non-zero count to 1: how MANY NMIs land depends on where in the frame the");
+    a.c("move started, which is not something the cart fixes, so only 'at least one' is asserted.");
+    a.l("lda f:$7E0150");
+    a.l("beq :+");
+    a.l("lda #$01");
+    a.l(":");
+    a.assert_a8(
+        0x01,
+        "no NMI fired during the block move — the copy check below proves nothing without it",
+    );
+    a.c("Half two: every part of the block arrived, the last byte most of all.");
+    a.l("lda f:$7F0000");
+    a.assert_a8(0xA1, "the first byte of the block move did not arrive");
+    a.l("lda f:$7F1000");
+    a.assert_a8(0xB2, "the middle of the block move did not arrive");
+    a.l("lda f:$7F1FFF");
+    a.assert_a8(
+        0xC3,
+        "the LAST byte did not arrive — MVN resumed short after the interrupt",
+    );
+    a.finish(
+        "A8.07",
+        'A',
+        "MVN interruptible",
+        Provenance::Documented(
+            "WDC datasheet: MVN rewinds PC by 3 per iteration, so RTI re-enters",
+        ),
         Kind::Scored,
         None,
     )

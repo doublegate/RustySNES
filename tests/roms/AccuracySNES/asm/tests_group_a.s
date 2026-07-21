@@ -4239,6 +4239,154 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A8.07 — MVN interruptible
+; provenance: Documented (WDC datasheet: MVN rewinds PC by 3 per iteration, so RTI re-enters)
+.proc test_a8_07
+    .a16
+    .i16
+    ; The NMI handler counts invocations and acknowledges RDNMI.
+    bra @body
+@nmi:
+    ; Preserve A/X/Y. RTI restores P, PC and PBR — NOT the registers — and for THIS test that
+    ; is load-bearing rather than hygiene: MVN keeps its remaining byte count in A and its
+    ; offsets in X and Y, so a handler that clobbers them makes the move resume wrong. The
+    ; first version of this test omitted the pushes and lost the tail of the block, which read
+    ; exactly like the resume-short defect the test exists to detect.
+    rep #$30
+    .a16
+    .i16
+    .a16
+    .i16
+    pha
+    phx
+    phy
+    sep #$20
+    .a8
+    .a8
+    lda f:$7E0150
+    inc a
+    sta f:$7E0150
+    ; LONG addressing, and this is not tidiness: MVN sets DBR to its DESTINATION bank while it
+    ; runs, so an interrupt taken mid-move enters the handler with DBR = $7F. Absolute `lda
+    ; $4210` would read WRAM at $7F:4210 instead of acknowledging RDNMI, the NMI line would
+    ; stay asserted, and the handler would re-enter until the move starved.
+    lda f:$004210     ; acknowledge RDNMI
+    rep #$30
+    .a16
+    .i16
+    .a16
+    .i16
+    ply
+    plx
+    pla
+    rti
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    rep #$20
+    .a16
+    lda #@nmi
+    sta a:V_NMI_VEC
+    ; Seed only the three source bytes that get checked, and clear their destinations so
+    ; 'arrived' is distinguishable from 'was already there'.
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0150     ; NMI count
+    lda #$A1
+    sta f:$7E2000     ; source offset 0
+    lda #$B2
+    sta f:$7E3000     ; source offset 4096
+    lda #$C3
+    sta f:$7E3FFF     ; source offset 8191 — the last byte moved
+    lda #$00
+    sta f:$7F0000
+    sta f:$7F1000
+    sta f:$7F1FFF
+    ; Arm VBlank NMI. NMI ignores the I flag, so no CLI is needed.
+    lda #$80
+    sta $4200
+    ; 8192 bytes from $7E:2000 to $7F:0000. Emitted raw: the machine encoding is
+    ; 54 <dest> <src>, the reverse of how the mnemonic reads (A8.04 asserts exactly this).
+    rep #$30
+    .a16
+    .i16
+    ldx #$2000
+    ldy #$0000
+    lda #$1FFF        ; count-1
+    .byte $54, $7F, $7E
+    phk
+    plb               ; MVN left DBR = $7F
+    sep #$20
+    .a8
+    stz $4200         ; disarm before asserting; a failure exits immediately
+    lda $4210         ; clear any pending RDNMI latch
+    ; Half one: the interrupt actually happened. Without this the copy check below is
+    ; satisfied just as well by a core that never took an NMI at all.
+    ; Normalise any non-zero count to 1: how MANY NMIs land depends on where in the frame the
+    ; move started, which is not something the cart fixes, so only 'at least one' is asserted.
+    lda f:$7E0150
+    beq :+
+    lda #$01
+    :
+    cmp #$01
+    beq :+
+    jmp @fail1
+  :
+    ; Half two: every part of the block arrived, the last byte most of all.
+    lda f:$7F0000
+    cmp #$A1
+    beq :+
+    jmp @fail2
+  :
+    lda f:$7F1000
+    cmp #$B2
+    beq :+
+    jmp @fail3
+  :
+    lda f:$7F1FFF
+    cmp #$C3
+    beq :+
+    jmp @fail4
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; no NMI fired during the block move — the copy check below proves nothing without it
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the first byte of the block move did not arrive
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; the middle of the block move did not arrive
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+@fail4:
+    ; the LAST byte did not arrive — MVN resumed short after the interrupt
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C1.01 — OAM word write/read
 ; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
 .proc test_c1_01
@@ -20693,7 +20841,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 250
+    .word 251
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -20769,6 +20917,7 @@ _test_entries:
     .faraddr test_a5_09
     .faraddr test_a5_10
     .faraddr test_a6_11
+    .faraddr test_a8_07
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -21022,6 +21171,7 @@ _test_flags:
     .byte $01   ; A5.09
     .byte $01   ; A5.10
     .byte $01   ; A6.11
+    .byte $01   ; A8.07
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -21275,6 +21425,7 @@ _test_names:
     .addr @n_a5_09
     .addr @n_a5_10
     .addr @n_a6_11
+    .addr @n_a8_07
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -21669,6 +21820,9 @@ _test_names:
 @n_a6_11:
     .byte 20
     .byte "WAI wakes, no vector"
+@n_a8_07:
+    .byte 17
+    .byte "MVN interruptible"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"
