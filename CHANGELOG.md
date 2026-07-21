@@ -16,8 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   routing every transfer through one flag-setting helper gets that wrong in a way nothing crashes
   on. Both instructions are handed the value the stack pointer already holds, so `S` is written with
   what was in it: a native-mode `TXS` is a full 16-bit write, and a test that put anything else there
-  would be pushing its own `PHP` into ROM. `TXA` moving `$8000` is the control, without which a core
-  that sets no transfer flags at all passes.
+  would be pushing its own `PHP` into ROM. `N` and `Z` are both checked, and both are planted at the
+  value a flag-setting transfer would have to change — `$1FFF` has bit 15 clear, so checking `Z`
+  alone would have been satisfied by a core that wrongly updates `N`. `TXA` moving `$8000` is the
+  control, without which a core that sets no transfer flags at all passes.
 
   `ORA [d]` is the addressing mode most likely to be implemented as its 16-bit sibling with the data
   bank glued on, because for a pointer in bank `$00` the two are identical. This image is 128 KiB so

@@ -2863,31 +2863,35 @@ CATALOG_IMPL = 1
     phk
     plb
     ; TCS: hand it the stack pointer's own value, so S is unchanged and PHP still lands in RAM.
-    tsc               ; A = S
+    tsc               ; A = S, which is $1FFF: bit 15 clear, non-zero
+    sep #$80          ; N = 1, and SEP writes P directly without touching A
     bit #$0000        ; Z = 1, and BIT #imm touches nothing else
     tcs               ; the instruction under test
     php
     sep #$20
     .a8
     pla
-    and #$02          ; the Z flag
-    cmp #$02
+    and #$82          ; N and Z together
+    cmp #$82
     beq :+
     jmp @fail1
   :
+    ; Both flags, not just Z: S is $1FFF, whose own flags are N clear and Z clear, so each of
+    ; the two is planted at the value a flag-setting transfer would have to change.
     ; TXS, the same way: X gets S's own value first.
     rep #$30
     .a16
     .i16
     tsx               ; X = S
-    bit #$0000        ; Z = 1 again
+    sep #$80          ; N = 1
+    bit #$0000        ; Z = 1
     txs               ; the instruction under test
     php
     sep #$20
     .a8
     pla
-    and #$02
-    cmp #$02
+    and #$82
+    cmp #$82
     beq :+
     jmp @fail2
   :
@@ -2896,6 +2900,7 @@ CATALOG_IMPL = 1
     .a16
     .i16
     ldx #$8000
+    rep #$80          ; N = 0, so a transfer that sets flags has to set it
     bit #$0000        ; Z = 1, so a transfer that sets flags has to clear it
     txa               ; A = $8000: negative, non-zero
     php
@@ -2907,20 +2912,24 @@ CATALOG_IMPL = 1
     beq :+
     jmp @fail3
   :
+    rep #$30
+    .a16
+    .i16
+    rep #$80          ; leave N as the battery found it
     sep #$20
     .a8
     lda #$01
     sta f:$7EE010
     jml test_restore
 @fail1:
-    ; TCS cleared Z, so it set flags from the value transferred — the stack pointer is not data and moving a value into it describes nothing
+    ; TCS changed N or Z, so it set flags from the value transferred — the stack pointer is not data and moving a value into it describes nothing
     sep #$20
     .a8
     lda #$02
     sta f:$7EE010
     jml test_restore
 @fail2:
-    ; TXS cleared Z, so it set flags from the value transferred
+    ; TXS changed N or Z, so it set flags from the value transferred
     sep #$20
     .a8
     lda #$04
@@ -2993,7 +3002,7 @@ CATALOG_IMPL = 1
     sta f:$7EE010
     jml test_restore
 @fail2:
-    ; ORA [d] ignored the pointer's bank byte — reading $A0 means the effective address was built from the data bank rather than from the third byte of the pointer
+    ; ORA [d] did not read bank $01's signature through a pointer whose third byte is $01, so the effective address was not built from that byte
     sep #$20
     .a8
     lda #$04

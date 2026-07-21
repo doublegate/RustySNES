@@ -2027,9 +2027,12 @@ fn a9_03() -> Test {
 /// native mode is a full 16-bit write, so a test that put anything else there would be pushing its
 /// own `PHP` into ROM.
 ///
-/// The flag that has to survive is planted with `BIT #imm`, which affects `Z` alone (`A9.01`) and
-/// therefore does not disturb the accumulator the transfer is about to move. If `TCS` set flags
-/// from `$1FFF`, `Z` would come back clear.
+/// **Both flags are checked, and both are planted at the value a flag-setting transfer would have
+/// to change.** `S` is `$1FFF`, whose own flags are `N` clear and `Z` clear — so `Z` is set with
+/// `BIT #imm` (which affects `Z` alone, per `A9.01`, and therefore leaves the accumulator the
+/// transfer is about to move) and `N` is set with `SEP #$80`, which writes `P` directly and touches
+/// no register at all. Checking `Z` alone would have been satisfied by a core that wrongly updates
+/// `N`: `$1FFF` has bit 15 clear, so `N` would have been clear before and after.
 ///
 /// The third part is the control, and without it the first two are satisfied by a core that never
 /// sets any flags at all: `TXA` moving `$8000` **must** set `N` and clear `Z`.
@@ -2041,34 +2044,39 @@ fn a1_07() -> Test {
     a.c(
         "TCS: hand it the stack pointer's own value, so S is unchanged and PHP still lands in RAM.",
     );
-    a.l("tsc               ; A = S");
+    a.l("tsc               ; A = S, which is $1FFF: bit 15 clear, non-zero");
+    a.l("sep #$80          ; N = 1, and SEP writes P directly without touching A");
     a.l("bit #$0000        ; Z = 1, and BIT #imm touches nothing else");
     a.l("tcs               ; the instruction under test");
     a.l("php");
     a.l("sep #$20");
     a.l("pla");
-    a.l("and #$02          ; the Z flag");
+    a.l("and #$82          ; N and Z together");
     a.assert_a8(
-        0x02,
-        "TCS cleared Z, so it set flags from the value transferred — the stack pointer is not \
-         data and moving a value into it describes nothing",
+        0x82,
+        "TCS changed N or Z, so it set flags from the value transferred — the stack pointer is \
+         not data and moving a value into it describes nothing",
     );
+    a.c("Both flags, not just Z: S is $1FFF, whose own flags are N clear and Z clear, so each of");
+    a.c("the two is planted at the value a flag-setting transfer would have to change.");
     a.c("TXS, the same way: X gets S's own value first.");
     a.l("rep #$30");
     a.l("tsx               ; X = S");
-    a.l("bit #$0000        ; Z = 1 again");
+    a.l("sep #$80          ; N = 1");
+    a.l("bit #$0000        ; Z = 1");
     a.l("txs               ; the instruction under test");
     a.l("php");
     a.l("sep #$20");
     a.l("pla");
-    a.l("and #$02");
+    a.l("and #$82");
     a.assert_a8(
-        0x02,
-        "TXS cleared Z, so it set flags from the value transferred",
+        0x82,
+        "TXS changed N or Z, so it set flags from the value transferred",
     );
     a.c("The control: TXA is an ordinary transfer and MUST set N and clear Z.");
     a.l("rep #$30");
     a.l("ldx #$8000");
+    a.l("rep #$80          ; N = 0, so a transfer that sets flags has to set it");
     a.l("bit #$0000        ; Z = 1, so a transfer that sets flags has to clear it");
     a.l("txa               ; A = $8000: negative, non-zero");
     a.l("php");
@@ -2080,6 +2088,8 @@ fn a1_07() -> Test {
         "TXA did not set N and clear Z from $8000, so this core sets no transfer flags at all and \
          the two assertions above say nothing",
     );
+    a.l("rep #$30");
+    a.l("rep #$80          ; leave N as the battery found it");
     a.finish(
         "A1.07",
         'A',
@@ -2134,8 +2144,8 @@ fn a9_04() -> Test {
     a.l(&format!("ora [{PTR}]"));
     a.assert_a8(
         0xA1,
-        "ORA [d] ignored the pointer's bank byte — reading $A0 means the effective address was \
-         built from the data bank rather than from the third byte of the pointer",
+        "ORA [d] did not read bank $01's signature through a pointer whose third byte is $01, so \
+         the effective address was not built from that byte",
     );
     a.c("And it really is an OR: $0F in the accumulator survives into the result.");
     a.l("lda #$0F");

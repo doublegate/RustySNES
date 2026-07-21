@@ -436,8 +436,8 @@ Provenance: **Documented** (WDC 65C816 datasheet; 6502.org 65c816opcodes). Kind:
 
 | Code | Byte | Meaning |
 |---|---|---|
-| 1 | `$02` | TCS cleared Z, so it set flags from the value transferred — the stack pointer is not data and moving a value into it describes nothing |
-| 2 | `$04` | TXS cleared Z, so it set flags from the value transferred |
+| 1 | `$02` | TCS changed N or Z, so it set flags from the value transferred — the stack pointer is not data and moving a value into it describes nothing |
+| 2 | `$04` | TXS changed N or Z, so it set flags from the value transferred |
 | 3 | `$06` | TXA did not set N and clear Z from $8000, so this core sets no transfer flags at all and the two assertions above say nothing |
 
 ### A9.04 — ORA [d] is 24-bit
@@ -447,7 +447,7 @@ Provenance: **Documented** (WDC 65C816 datasheet; the Super Mario World case, SN
 | Code | Byte | Meaning |
 |---|---|---|
 | 1 | `$02` | ORA [d] through a pointer at $00:8005 did not read bank $00's signature byte |
-| 2 | `$04` | ORA [d] ignored the pointer's bank byte — reading $A0 means the effective address was built from the data bank rather than from the third byte of the pointer |
+| 2 | `$04` | ORA [d] did not read bank $01's signature through a pointer whose third byte is $01, so the effective address was not built from that byte |
 | 3 | `$06` | ORA [d] replaced the accumulator instead of OR-ing into it, so the two readings above were loads and say nothing about ORA |
 
 ## Group C
