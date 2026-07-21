@@ -247,9 +247,17 @@ reviews:
           flag, a public API, or the contents of the AccuracySNES cartridge — `CHANGELOG.md` must
           be modified in the same pull request. Pass if the change is purely internal
           (refactoring, tests of existing behavior, comments, CI configuration).
+
+          **Evaluate the whole pull request against its base branch, never the latest commit.** A
+          batch here is routinely several pushes: the entry lands with the first, and later commits
+          carry review fixes. A head commit with no `CHANGELOG.md` hunk therefore says nothing about
+          whether the pull request has one. Report a failure only if the entry is absent from the
+          full PR diff.
       - name: Docs-as-spec
         mode: warning
         instructions: |
+          Evaluate the whole pull request against its base branch, never the latest commit.
+
           A behavior change under `crates/rustysnes-<chip>/` must be accompanied by an edit to
           the matching `docs/<chip>.md` in the same pull request, because those documents are the
           specification rather than a history log. Pass only if the crate change does not alter
@@ -259,6 +267,8 @@ reviews:
       - name: AccuracySNES bookkeeping
         mode: warning
         instructions: |
+          Evaluate the whole pull request against its base branch, never the latest commit.
+
           If the diff adds or removes a test or a scene under `tests/roms/AccuracySNES/gen/src/`,
           check three things: the test appears in `dossier.rs::MAP` (mapped to a dossier assertion
           or to an empty slice with a matching `UNENUMERATED` entry); the regenerated artifacts
