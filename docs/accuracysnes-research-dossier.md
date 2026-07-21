@@ -741,7 +741,6 @@ WDC's list of instructions escaping `$01xx` even in emulation mode: `JSL`, `JSR 
 **Note:** ABORT is not wired on the 5A22 — its vectors are unused. Reset always forces E=1, so the
 "native RESET" slot `$FFEC` some references list does not exist in practice.
 
-
 #### A7. Decimal mode (5)
 
 | # | Assertion |
@@ -751,6 +750,7 @@ WDC's list of instructions escaping `$01xx` even in emulation mode: `JSL`, `JSR 
 | A7.03 | 8/16-bit `SBC` |
 | A7.04 | **N/Z valid in decimal** (65C02-like) |
 | A7.05 | **V is meaningless → golden vector, never asserted** **[UNDEFINED]** |
+
 #### A8. Block move (6)
 
 | # | Assertion |
@@ -762,7 +762,6 @@ WDC's list of instructions escaping `$01xx` even in emulation mode: `JSL`, `JSR 
 | A8.05 | E=1 confines offsets to `$00xx` |
 | A8.06 | **Interruptible mid-block** — NMI + RTI mid-MVN resumes correctly **[UNVERIFIED — undocumented upstream]** |
 
-
 #### A9. Misc (3)
 
 | # | Assertion |
@@ -772,7 +771,6 @@ WDC's list of instructions escaping `$01xx` even in emulation mode: `JSL`, `JSR 
 | A9.03 | `ORA [d]` (the Super Mario World case) |
 
 ### 5.B Group B — 5A22 bus, clock, timing (~30 tests)
-
 
 #### B1. Memory access speed (5)
 
@@ -794,6 +792,7 @@ WDC's list of instructions escaping `$01xx` even in emulation mode: `JSL`, `JSR 
 | B1.03 | internal cycles always 6 |
 | B1.04 | **DMA is 8 clocks/byte, region-independent** |
 | B1.05 | Derived rates: /6 = 3.579545 MHz, /8 = 2.684658 MHz, /12 = 1.789772 MHz |
+
 #### B2. Scanline / frame geometry (10 assertions in 9 rows)
 
 | # | Assertion |
@@ -812,7 +811,6 @@ Master clocks: NTSC 945/44 MHz = 21,477,272.7 Hz; PAL 21,281,370 Hz. VBlank budg
 NTSC/224 = 37 lines / 48,988 clocks / 6,123 DMA bytes; NTSC/239 = 22 / 29,128 / 3,641;
 PAL/224 = 87 / 115,188 / 14,398; PAL/239 = 72 / 95,328 / 11,916.
 
-
 #### B3. DRAM refresh (3)
 
 | # | Assertion |
@@ -827,6 +825,7 @@ reproduces the correct ≈357,368-clock NTSC frame, so an additive stall would b
 ares independently notes its own refresh pattern is *"technically"* wrong but averages out
 (`sfc/cpu/timing.cpp:23`, the "5-3, 5-3" logic-analyzer note). B3 tests should therefore probe
 **position**, not aggregate frame length.
+
 #### B4. Interrupt timing (14)
 
 | # | Assertion |
@@ -849,7 +848,6 @@ ares independently notes its own refresh pattern is *"technically"* wrong but av
 `$4200 NMITIMEN` = `n-yx ---a`: n = VBlank NMI, yx = IRQ mode (00 none / 01 V / 10 H / 11 both),
 a = auto-joypad enable. `$4212 HVBJOY` = `vh.. ...a`: v = VBlank, **h = HBlank (bit 6)
 [CONFLICT — Mesen prose says bit 4; its own diagram and fullsnes say bit 6]**, a = auto-read busy.
-
 
 #### B5. Multiply / divide (4)
 
@@ -899,7 +897,6 @@ VMAIN remap permutations:
 10-bit : aaaaaa YYYxxxxxPP  -> aaaaaa xxxxxxPPYYY   (256-colour, 4 words/plane)
 ```
 
-
 #### C3. CGRAM and counters (10)
 
 | # | Assertion |
@@ -919,8 +916,8 @@ VMAIN remap permutations:
 
 | # | Assertion |
 |---|---|
-| C4.01 | `BGnHOFS = (Cur<<8) | (Prev & ~7) | ((Reg>>8) & 7)` |
-| C4.02 | `BGnVOFS = (Cur<<8) | Prev` |
+| C4.01 | `BGnHOFS = (Cur<<8) \| (Prev & ~7) \| ((Reg>>8) & 7)` |
+| C4.02 | `BGnVOFS = (Cur<<8) \| Prev` |
 | C4.03 | **one shared `Prev` latch across BG1-BG4, H and V** |
 | C4.04 | Mode 7 latch separate |
 | C4.05 | `$210D` writes both BG1HOFS and M7HOFS |
@@ -956,6 +953,7 @@ VMAIN remap permutations:
 | C6.05 | **the leftmost tile is NEVER affected [ERRATA]** — the first entry controls the *second* visible column |
 | C6.06 | each entry affects a whole column |
 | C6.07 | wraparound (the Super Famista 5 case) |
+
 #### C7. Sprites (16)
 
 | # | Assertion |
@@ -977,7 +975,6 @@ VMAIN remap permutations:
 | C7.15 | Lower OAM index always on top |
 | C7.16 | OAM write timing during render (the Uniracers case) |
 
-
 #### C8. Color math and windows (12)
 
 | # | Assertion |
@@ -994,6 +991,7 @@ VMAIN remap permutations:
 | C8.10 | subtract mode `$2131.7` |
 | C8.11 | COLDATA per-channel select bits |
 | C8.12 | color window + DMA B-bus (the Krusty's case) |
+
 #### C9. Hi-res, interlace, overscan (8)
 
 | # | Assertion |
@@ -1007,7 +1005,6 @@ VMAIN remap permutations:
 | C9.07 | Modes 5/6 color math restriction |
 | C9.08 | Subscreen color math in hi-res (the Jurassic Park case) |
 
-
 #### C10. Mosaic (5)
 
 | # | Assertion |
@@ -1017,6 +1014,7 @@ VMAIN remap permutations:
 | C10.03 | **mid-frame `$2106` write re-anchors the start line to the current scanline** |
 | C10.04 | 1x1 = 2x1 half-pixels in true hi-res |
 | C10.05 | Mode 7 BG2 uses bits A and B separately for V and H |
+
 #### C11. Mode 7 (12)
 
 | # | Assertion |
@@ -1034,7 +1032,6 @@ VMAIN remap permutations:
 | C11.11 | Mode 7 window logic (the Atlas / MechWarrior case) |
 | C11.12 | Scroll latch timing (the NHL '94 case) |
 
-
 #### C12. Direct color (3)
 
 | # | Assertion |
@@ -1042,6 +1039,7 @@ VMAIN remap permutations:
 | C12.01 | `RRRr0 GGGg0 BBb00` — pixel bits supply the high bits, tilemap attribute bits one extra per channel (blue gets 2+1) |
 | C12.02 | **pure black is unreachable** (pixel value 0 is always transparent) |
 | C12.03 | available on Mode 3/4 BG1 and Mode 7 BG1 only |
+
 #### C13. INIDISP and open bus (10)
 
 | # | Assertion |
@@ -1057,7 +1055,6 @@ VMAIN remap permutations:
 | C13.09 | **PPU1 and PPU2 open bus are SEPARATE latches** |
 | C13.10 | `$213E` bit 4 = PPU1 open bus; `$213F` bit 5 = PPU2 open bus |
 
-
 #### C14. Version detection (3)
 
 | # | Assertion |
@@ -1067,7 +1064,6 @@ VMAIN remap permutations:
 | C14.03 | `$213E` bit 5 = master/slave |
 
 ### 5.D Group D — DMA / HDMA (~35 tests)
-
 
 #### D1. General-purpose DMA (15)
 
@@ -1093,6 +1089,7 @@ decrement, bits 2-0 mode.
 | D1.15 | **`$2180` asymmetry, A→B**: WRAM→`$2180` *"does not cause a write to occur"* (+8 clocks, no access) |
 
 The `$2180` asymmetry is Mesen2's `SnesDmaController.cpp:53,62`.
+
 #### D2. HDMA (17 assertions in 14 rows)
 
 | # | Assertion |
@@ -1123,7 +1120,6 @@ graphical glitches in some games (Aladdin, Super Ghouls and Ghosts)."*
 **Unresolved in the lineage:** the HDMA indirect high-byte on a partial write carries an identical
 `//todo: should 0x00 be indirectAddress >> 8 ?` in **both** ares (`sfc/cpu/dma.cpp:164`) and bsnes
 (`:163`).
-
 
 #### D3. Revision-gated (auto-skip by `$4210.3-0`) (2)
 
@@ -1157,7 +1153,6 @@ should therefore report them as **variants**, not failures.
 | E1.13 | `ADDW`/`SUBW` H = bit11→12 carry, Z = true 16-bit zero |
 | E1.14 | `XCN` is 5 cycles |
 | E1.15 | `MOVW YA,aa` sets N/Z on the 16-bit value |
-
 
 #### E2. Memory-access side effects (10)
 
@@ -1211,7 +1206,7 @@ are not affected.**"* Hence two tables: `cycleWaitStates[4] = {2,4,10,20}` vs
 | E4.02 | handoff state `A=0, X=0, Y=0, SP=$EF, PSW=$02` |
 | E4.03 | zerofills `$0000-$00EF` |
 | E4.04 | ready = `Word[$2140] == $BBAA` |
-| E4.05 | first kick `$CC`; subsequent `((index+2) & $FF) | 1`, strictly > last index+1 and non-zero |
+| E4.05 | first kick `$CC`; subsequent `((index+2) & $FF) \| 1`, strictly > last index+1 and non-zero |
 | E4.06 | `$2141 == 0` execute, non-zero transfer |
 | E4.07 | **the final data-byte ack window is only a few cycles wide** |
 | E4.08 | transfer address `$00F2` lets the IPL loop poke DSP registers as (reg#, value) pairs |
@@ -1332,6 +1327,7 @@ obscure quirk` (`sfc/dsp/dsp.hpp:128`). RustySNES already fixed the correspondin
 
 ares and bsnes both flag global muting as unresolved: `//todo: global muting isn't this simple`
 (`sfc/dsp/echo.cpp:96`).
+
 #### E10. Cycle-level pipeline (6)
 
 | # | Assertion |

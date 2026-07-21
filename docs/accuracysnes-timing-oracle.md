@@ -300,4 +300,4 @@ noise floor for one occurrence, and interrupt entry cannot be repeated inline th
 can. It needs a harness that arms and services many interrupts inside one measurement window —
 related to, but distinct from, the control-flow batch.
 
-4. Rockwell never second-sourced the 16-bit part, so three vendors is the ceiling here.
+1. Rockwell never second-sourced the 16-bit part, so three vendors is the ceiling here.

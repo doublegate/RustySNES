@@ -234,7 +234,7 @@ determinism checks; the assembled `Apu` is covered by `tests/dsp_unit.rs`.
   ADR 0004). Because the SMP advances at master-clock granularity, a CPU port access already
   observes every SMP write up to that instant, so the once-per-scanline forced sync is subsumed
   by the continuous lockstep. **Verified bit-deterministic**: a booted frame's framebuffer + ARAM
-  + ports hash identically across runs (`tests/blargg_spc.rs`).
+  - ports hash identically across runs (`tests/blargg_spc.rs`).
 
 ### The cycle-exact SMP step (T-31-004, done)
 
@@ -292,6 +292,7 @@ deferred SMP→CPU port latch onto that access's micro-op so the CPU↔SMP hands
 unchanged). Reads were already correct (`record()` precedes `read_io`, so a `TnOUT` read at
 `$FD-$FF` clears *after* the access's clock). The SPC700 oracle is untouched (it replays against a
 flat bus with no timers); the change is confined to the integrated recording bus.
+
 - **SMP wait-state / clock model (corrected for `spc_*`):** the SMP runs on the ares base clock
   `apuFrequency/12 ≈ 2.05 MHz`; a normal bus access is `SMP_WAIT = 2` base clocks (ares
   `cycleWaitStates[0]`), the three timers tick on the same base, and the S-DSP emits one 32 kHz

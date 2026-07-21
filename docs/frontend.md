@@ -287,6 +287,7 @@ uses it everywhere the old hardcoded `MAX_TEXTURE_DIM` constant used to be check
 (`ensure_texture_capacity`, `upload`, and a new defensive clamp in `resize` and the initial
 `SurfaceConfiguration`) — so the real backstop is now "whatever this device actually supports,"
 not a fixed 2048 that was only ever correct for the WebGL2 downlevel case.
+
 - **Not yet done**: a user-configurable upscale factor (fixed at 2x for now) — an honestly
   tracked scope cut, see `docs/adr/0010`. `emu-thread`-build compositing landed in
   `v1.10.0 "Atelier"`: `emu_thread::drive_one` now composites an active pack into its own
@@ -701,7 +702,7 @@ build's emulation output is unaffected.
 
 **Disassembly + PC breakpoints + step controls (`v0.9.0`, T-81-001 PR B):** the 65C816 panel's
 `docs/frontend.md`-tracked follow-up, now landed. Entirely frontend-side (`emu.rs`) — no new
-`rustysnes-core` API beyond one addition, [`Bus::peek`](#bus-peek), needed because the debugger's
+`rustysnes-core` API beyond one addition, `Bus::peek`, needed because the debugger's
 own disassembly reads must never perturb the open-bus latch or trip watchpoints the way the live
 `CpuBus::read24` a real CPU access uses would. `EmuCore::disassembly_window` walks
 `rustysnes_cpu::disasm::disassemble_one` forward from PC (a linear byte-walk, not flow-tracing,

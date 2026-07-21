@@ -2,7 +2,7 @@
 //! rendering only. Owns no emulation state: the Kotlin shell drives `rustysnes-mobile`'s
 //! `MobileCore` (ROM load, `run_frame`, input, save state) through its own `UniFFI` bindings, then
 //! hands this crate exactly `(RGBA8 framebuffer bytes, width, height)` once per frame via
-//! [`Java_com_doublegate_rustysnes_NativeRenderer_nativePresentFrame`] — the same separation of
+//! `Java_com_doublegate_rustysnes_NativeRenderer_nativePresentFrame` — the same separation of
 //! concerns `rustysnes-core`/`rustysnes-frontend` already have on desktop, just across a JNI
 //! boundary instead of an in-process crate boundary.
 //!
@@ -15,12 +15,25 @@
 //! # Surface lifecycle
 //!
 //! Android's `SurfaceView` can destroy and recreate its `Surface` at any point (app backgrounded,
-//! screen rotated, window resized) — [`nativeSurfaceCreated`]/[`nativeSurfaceChanged`]/
-//! [`nativeSurfaceDestroyed`] mirror `SurfaceHolder.Callback`'s own three lifecycle methods
+//! screen rotated, window resized) — `nativeSurfaceCreated`/`nativeSurfaceChanged`/
+//! `nativeSurfaceDestroyed` mirror `SurfaceHolder.Callback`'s own three lifecycle methods
 //! exactly, called from Kotlin in that order. The renderer is `None` outside a created/valid
 //! surface, so a frame presented while backgrounded is silently dropped rather than crashing.
+//!
+//! The JNI entry points are named in plain code spans rather than intra-doc links: the whole
+//! surface is `cfg(target_os = "android")`, so on a host doc build the items do not exist and a
+//! link to them is an error. This is the same convention the repository already applies to
+//! feature-gated items.
 
 #![allow(unsafe_code)]
+// The whole JNI surface is Android-only: `ndk-sys` refuses to compile for any other target, so
+// without this the crate turned `cargo clippy --workspace` permanently red on every host. On a
+// real Android triple this is a no-op and everything below compiles exactly as before.
+//
+// The WGSL validation that used to live here has moved to `tests/blit_wgsl.rs`, so it still runs
+// on the host: it only ever checked the shader, which has nothing Android about it, and gating it
+// away would have quietly dropped that coverage from every non-Android CI job.
+#![cfg(target_os = "android")]
 
 use std::sync::Mutex;
 
@@ -582,20 +595,5 @@ pub unsafe extern "system" fn Java_com_doublegate_rustysnes_NativeRenderer_nativ
             width.max(0).cast_unsigned(),
             height.max(0).cast_unsigned(),
         );
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn blit_wgsl_validates() {
-        let module = naga::front::wgsl::parse_str(BLIT_WGSL).expect("WGSL parses");
-        let mut validator = naga::valid::Validator::new(
-            naga::valid::ValidationFlags::all(),
-            naga::valid::Capabilities::all(),
-        );
-        validator.validate(&module).expect("WGSL validates");
     }
 }

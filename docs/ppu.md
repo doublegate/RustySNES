@@ -212,7 +212,7 @@ The crate is a working dual-chip model. Public API the scheduler/bus call:
   EXTBG high-bit priority), the 128-sprite OAM pipeline with the 32-sprite range / 34-tile time
   limits (reverse-order fetch → low index survives → STAT77 bits 6/7), color math (add/sub/half,
   per-layer enable, fixed-color/subscreen addend, direct color), windows (W1/W2 OR/AND/XOR/XNOR
-  + per-layer enable + the CGWSEL color-math regions), and INIDISP master brightness all work.
+  - per-layer enable + the CGWSEL color-math regions), and INIDISP master brightness all work.
   Hi-res Modes 5/6 (and pseudo-hires, `SETINI` bit 3) render true 512-px dual-column output
   (`v0.7.0 "Resolution"` — see §Hi-res (Modes 5/6) color-math precision below for the mechanism
   and verification status). Still not wired to dot resolution: offset-per-tile (Modes 2/4/6) and
@@ -397,7 +397,7 @@ fresh runs.
 bit 3) is now real: `Ppu::compose_dac` emits two output columns per PPU pixel clock in hi-res,
 mirroring ares' `PPU::DAC::run()`/`above()`/`below()` (`ref-proj/ares/ares/sfc/ppu/dac.cpp`) —
 
-```
+```text
 *line++ = hires ? belowColor : aboveColor;  // the "even" 512-wide column
 *line++ = aboveColor;                        // the "odd" 512-wide column (always the normal path)
 ```

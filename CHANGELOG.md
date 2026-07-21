@@ -22,6 +22,523 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rather than a broken test; the confirmation is ares' source, which pushes with `pushN` and
   re-applies `S.h = $01` only at the instruction boundary.
 
+- **The coverage report counted unblessed scenes as coverage.** ADR 0013 rule 4 says an unblessed
+  scene "is not yet evidence of anything" — it renders, and nothing has confirmed the picture is
+  right — but `docs/accuracysnes-coverage.md` counted a scene the moment it existed. A scene could
+  therefore claim an assertion by being written, which is precisely the gap the report exists to
+  close for the battery. It now reads the golden file and counts only blessed scenes.
+
+- **Sprite vertical flip is computed against the sprite's WIDTH, not its height** — and correcting a
+  test is what found it. `c7-vflip-tall-halves` was selecting `OBJSEL` pair 3 with the size bit set,
+  which is **32x32**: a square sprite, on which `C7.13`'s errata says nothing. Pointed at a real
+  16x32 sprite, the scene split three ways — snes9x and Mesen2 agreed, RustySNES did not.
+
+  On hardware each square half of a rectangular sprite flips *inside itself* and the halves do not
+  swap places, which falls out of using the width. For square sprites the two are the same number,
+  which is why nothing else in the corpus moved. RustySNES now matches both references bit-for-bit,
+  and the re-blessed golden is that agreed value.
+
+- **The gamepad's shift register was the button word itself, so a strobe never reloaded it.** The
+  SNES pad is a *parallel-load* shift register: `$4016.0` high loads it from the button lines and
+  low starts clocking, so a program may strobe and re-read as often as it likes within a frame and
+  get the same answer each time. RustySNES shifted the button state in place — so the first manual
+  read of a frame consumed the buttons, every later one returned all-ones, and a manual read also
+  corrupted the auto-read result at `$4218-$421F`. **A frontend rewrites the button state every
+  frame, which hid both**; a game that polls twice in one frame would not have been so lucky. The
+  shift registers are now separate state, reloaded while the strobe is high *and* on its falling
+  edge — a program that raises the strobe, changes the buttons, and lowers it must capture what is
+  held at the fall, not at the rise — and a read taken while the strobe is still high returns the
+  first bit without advancing, because a continuously reloading register never moves on. Saved as
+  state (save-state `FORMAT_VERSION` 3 → 4, with the reason in `docs/adr/0006`).
+
+- **`B4.12` asserted more than its citation.** It read `$4211` to acknowledge an IRQ and then read
+  it again on the same scanline, expecting the latch released. But a V-only IRQ's comparator matches
+  for the *whole* scanline, and while it matches a core is free to re-assert what the read released
+  — so the second read said nothing about the release and everything about where in the line the
+  polling loop happened to catch the flag. It began failing on Mesen2 when an unrelated change moved
+  the battery's code by a few bytes. It now disarms `$4200` before looking again, which is the claim
+  the dossier actually makes.
+
+- **`E3.01` raced the timer it was reading.** Its two reads of `$FD` are about eight SPC700 cycles
+  apart and a tick at that divider lands every 128, so a tick falling between them was uncommon
+  rather than impossible — and when it did, the second read was non-zero for a reason that has
+  nothing to do with whether the first one cleared it. It surfaced as Mesen2 failing the test on the
+  PAL image only, after an unrelated change shifted the battery's timing. The timer is now stopped
+  before the pair of reads.
+
+- **The cross-validation gate could report a silent pass on zero rendered scenes.** The snes9x
+  scene run has a frame budget that has to cover the battery *and* the scene loop after it, and the
+  battery keeps growing; run short, the cart never reaches the scenes, the host reports none, and
+  "0 mismatched" read as success. `check_scenes` now fails when it sees no scenes at all, and the
+  budgets were raised.
+
+- **SPC700 memory-access side effects (`E2`).** `E2.05`: direct-page indexing wraps *inside* the
+  page, so `$FF + X` with `X = 2` reads `$01` and not `$0101` — a core computing a 16-bit sum reads
+  from the wrong page entirely, which is silent until something lives there. `E2.01`: a store
+  dummy-reads its destination, so `MOV $FD,A` **clears Timer 0** even though the counter is
+  read-only — a trap for any driver that "initialises" the counters by writing them.
+
+  `E2.01` first asserted the store's effect as a *difference* from a control reading, and that
+  version failed on snes9x. The core was right and the assertion was weak: a core that does not
+  clear leaves an arbitrary value there, and an arbitrary value lands inside a difference range
+  often enough to pass or fail by luck. Asserting the post-store reading directly (empty, against a
+  control that must have advanced) is both stronger and stable on all three.
+
+- **First S-DSP behaviour tests, now that the DSP is reachable.** `E9.19`: writing `ENDX` clears
+  it — any write, regardless of value — so a core modelling it as ordinary storage returns what was
+  written, and a driver polling for sample-end sees "every voice finished" forever. The assertion
+  is deliberately "not `$FF`" rather than "exactly `$00`": with no sample playing there is nothing
+  to set the bits, so demanding zero would pass on a core that never implemented the register at
+  all.
+
+  Plus a global-register addressing test to sit beside the voice-register one. The two blocks are
+  decoded from the same latch by different parts of the address, so a core that gets voices right
+  and aliases the globals passes one and fails the other. Both write low-to-high and read back
+  high-to-low, so returning the last value written cannot pass either.
+
+- **The S-DSP is reachable, and the blocker was never the DSP.** `E3.11` (`$F2` bit 7 disables
+  writing through `$F3`) and a foundational DSP register-addressing test both land, which unblocks
+  `E5`-`E9` (~73 assertions).
+
+  The cause was one bit. `E3.01` writes `$F1` to enable a timer, and `$F1` bit 7 also controls
+  whether `$FFC0`-`$FFFF` reads as the IPL boot ROM or as RAM — so clearing it meant the release
+  path's `JMP $FFC0` landed in zeroed RAM, the SMP wandered off, and **every APU upload after that
+  test silently died**. It presented as "the DSP is unreachable" because the DSP tests happened to
+  run later in the battery. `release_to_ipl` now re-maps the ROM before jumping, so a program that
+  touches `$F1` for its own reasons cannot break the ones after it.
+
+- **Correction: `E3.14` was briefly published as a Contested golden, and that was wrong.** The
+  claim was that neither snes9x nor Mesen2 returns what was written to `$F8`/`$F9`, contradicting
+  the documentation. All three return it correctly; the apparent failure was the IPL bug above.
+  It is a Scored test again.
+
+  Worth stating plainly because the reasoning that produced the false finding is otherwise sound:
+  three-way agreement against a test really is this project's signature of a broken test. It is a
+  good heuristic, not a proof — **a harness bug upstream of every implementation produces exactly
+  the same signature**, and this one did.
+
+- **The SPC700's I/O block: `E3.01` and `E3.14`, both scored.** `E3.01` pins that reading a timer
+  counter returns four bits **and clears it** — `$FD`-`$FF` are not registers holding a value, they
+  are counters a read consumes, and a core treating them as storage lets a driver double-count
+  every tick it sees. The first read is only required to be non-zero, because how far the timer
+  advanced depends on the delay loop's exact cost and asserting a count would be asserting the loop.
+
+- **Three more SPC700 flag tests — `E1` is now 7 of 15.** `E1.04` (`DIV`'s H flag is a nibble
+  comparison of the *inputs*, `(Y & 15) >= (X & 15)`, with nothing to do with any carry the
+  division produces — the name is borrowed and the behaviour is not), `E1.05` (`DIV`'s V flag is
+  bit 8 of the quotient, which is how a caller learns the byte it was handed is not the whole
+  answer), and `E1.13` (`ADDW`'s H is the bit-11 carry, not the bit-3 one a reused 8-bit
+  half-carry would give).
+
+  Each checks both directions in one program, for the reason the earlier pair did: a flag that is
+  never set passes any test that only looks for it being set.
+
+- **Three more SPC700 tests, and the fix that makes more than one of them possible.** `E1.02`
+  (`DIV YA,X` on its normal branch, the baseline every stranger `DIV` assertion deviates from),
+  `E1.06` (the errata that `DIV` takes N and Z from the **quotient** alone — a zero quotient sets
+  `Z` even with a non-zero remainder, and the reverse case is checked in the same program so a core
+  that never sets `Z` cannot pass), and `E1.15` (`MOVW YA,dp` flags all sixteen bits, checked from
+  both sides: `$0100` must not set `Z`, `$8000` must set `N`, and a core flagging the accumulator
+  alone gets both wrong).
+
+  **Every uploaded program now hands the APU back to the IPL when the cart releases it.** Once a
+  program is running the boot ROM is not, so the next test's upload has nothing to handshake with.
+  The first version ended in `BRA *`, and every APU test after the first silently timed out and
+  then read the *previous* test's leftover port values — which looks exactly like a wrong answer
+  rather than like a test that never ran. The cart now copies the results out, writes a release
+  byte, and the program jumps to the IPL entry, which re-announces itself for the next upload.
+
+- **Group E is unblocked: the APU is now reachable from the cart (T-04-E).** The SPC700 is a
+  separate processor with its own RAM, and the only channel between it and the 65816 is four bytes
+  — so nothing about it was testable at all. The cart now uploads a small SPC700 program through
+  the IPL boot ROM's handshake (`apu_upload`), lets it run, and reads its answers back through
+  those same four ports, which is exactly what a game's sound driver does at boot.
+
+  The programs are assembled by a new `gen/src/spc.rs`, because `ca65` does not speak SPC700. It
+  is deliberately minimal — one emitter per instruction a committed test actually uses, since an
+  unexercised encoding is an unverified one, and a wrong byte in it would surface as an emulator
+  disagreement rather than as an assembler bug.
+
+  First test: `E1.01`, the errata that `MUL YA` takes N and Z from `Y` alone. With `Y = A = $10`
+  the product is `$0100`, so `A` ends at `$00` and `Z` is nonetheless **clear**. Reading `PSW` at
+  all is the recurring trick here — the SPC700 has no instruction for it, so `PUSH PSW`/`POP A`
+  does the job, which only works because the results are captured first with the two moves that
+  leave flags alone.
+
+  **Every wait in the handshake is bounded.** The first version was not, and it hung the whole
+  battery — reporting nothing about the other 149 tests, which is a far worse failure than one
+  test standing down. `V_APU_STAGE` names the step that gave up, and a test whose APU never
+  answers reports SKIP.
+
+- **Sprites (`C7`) — three new scenes, bringing the blessed total to 41.** `C7.15` (sprite
+  priority is OAM index alone, so the scene writes the two in the opposite order to the expected
+  result — a core drawing in write order gets it exactly backwards), `C7.13` (the errata: V-flip
+  on a tall sprite flips each 16x16 half *independently*, giving the same pixels in a different
+  arrangement — which a hash separates and an eye might not), and `C7.14` (a 64-pixel sprite near
+  the bottom wraps to the top rather than clipping).
+
+  A new `scene_oam_reset` helper parks all 128 sprites at Y=224 first. OAM is 544 bytes of state
+  nothing else clears, so a sprite scene would otherwise render its own sprites *plus* whatever the
+  previous scene left — the same contamination the per-scene canvas rebuild exists to prevent, in
+  another place it was not reaching.
+
+- **The scroll-register write-twice latch (`C4`) — three new scenes, bringing the blessed total
+  to 38.** These registers are
+  write-only, so the latch is observable only through the picture. `C4.02`/`C4.03`: one `Prev`
+  latch is shared across all four backgrounds *and* both axes, which shows up only when a register
+  is written **once** and the next write goes somewhere else — so the scene writes one byte to
+  `$210D` and one to `$210E` and reads the answer off the V scroll. A core with a per-register
+  latch lands 128 rows away. `C4.01`: the H formula masks the previous byte's low three bits and
+  takes them from the register instead, so `$47` then `$00` scrolls by `$40` — the asymmetry with
+  the V formula, which keeps all eight bits of the same latch. `C4.04`/`C4.05`: `$210D` drives
+  `M7HOFS` as well as `BG1HOFS`, through Mode 7's own 13-bit path.
+
+- **Four more Group D tests: channel priority, indirect HDMA, and the HDMA working registers.**
+  `D1.04` (a multi-channel start runs the lower channel first), `D2.05` (indirect mode fetches each
+  transfer through a pointer), `D2.06` (`$4308/09` and `$430A` are live working state, so the
+  counter holds the `$00` terminator once the table runs out), and `D1.03`, the DMA startup
+  overhead, recorded as a golden vector.
+
+  `D1.04` is observable only because both channels write to the same auto-incrementing port: the
+  byte pair left in WRAM spells out the order the hardware chose, where timing alone could not.
+  `D2.05` catches the specific failure of ignoring the indirect bit — such a core transfers the
+  pointer bytes themselves, which look nothing like the data behind them.
+
+  `D1.03` is a golden rather than a scored test because what it measures is an 8-clock startup plus
+  an alignment cost that depends on where in the CPU's cycle the `$420B` write lands — exactly the
+  part two implementations need not agree on to both be right. `B4.14` gets the same treatment for
+  the same reason, and `D1.02` deliberately cancels it by measuring a length differential instead.
+
+- **Group D continues: HDMA arrives, plus three more GP-DMA semantics.** `D1.05` (a byte count of
+  zero means 65536), `D1.09`/`D1.15` (a WRAM source with `$2180` as the destination performs no
+  write), and the first two HDMA tests — `D2.03` the line-count byte and `D2.04` the repeat flag.
+
+  HDMA is the awkward part of the controller to observe, because it runs itself once per scanline
+  with no CPU involvement. Pointing it at `$2180` solves that outright: `WMADD` auto-increments, so
+  a whole frame of HDMA activity becomes a byte sequence the CPU can read back and check exactly —
+  how many writes happened, in what order, and that they then stopped. The two tables differ only
+  in bit 7 of their header bytes, so a core that ignores the repeat flag renders them identically
+  and neither test alone would notice.
+
+  `D1.05` is observed through **time**, not through the destination: 65536 bytes at 8 clocks each
+  is ~384 scanlines, so the V counter lands far from where it started. That makes it frame-length
+  dependent, so it measures the frame height and branches on what it measured — never on the region
+  bit, whose position `B2.10` had to settle and which a frame-length test must not lean on.
+
+- **Group D opens: seven general-purpose DMA tests (T-04-D).** Transfer modes 0 and 1, the byte
+  counter reaching zero, both non-incrementing A-bus steps, the undocumented `$43xB` scratch latch,
+  and the 8-clocks-per-byte rate as a length differential so startup overhead cancels. These are
+  self-scoring on-cart — DMA moves bytes into memory the CPU can read back, which is why the group
+  leads with behaviour rather than with timing.
+
+  Three of the seven were **wrong on their first run and both emulators said so**, which is the
+  signature of a broken test rather than a broken core. The interesting one: `$4300` bits 4-3 are a
+  two-bit *field* (0 = increment, 1 = fixed, 2 = decrement, 3 = fixed), not two independent flags —
+  the exact confusion `D1.07`/`D1.07b` exist to catch, made while writing them. They are declared
+  as a split so neither can be deleted as a duplicate of the other.
+
+- **Mode 7 scenes (`C11`, plus `C5.08`/`C10.05`/`C12.03`) — 35 scenes total.** Identity and
+  rotate/scale transforms, all three screen-over modes, screen flip, EXTBG, direct colour, mosaic
+  and windowing. A shared `scene_mode7_vram` helper lays down the tilemap and character data in one
+  pass, which is possible precisely because Mode 7 interleaves them by byte (`C11.05`) — and is the
+  cheapest way to be sure the two halves cannot drift apart.
+
+  `scene_canvas` now fills **all 256** CGRAM entries rather than 128. An 8bpp or Mode 7 scene
+  indexes the whole palette, so the upper half was being rendered through whatever the previous
+  scene or test had left there — the same cross-scene contamination the per-scene canvas rebuild
+  exists to prevent, in the one place the rebuild was not reaching.
+
+- **Offset-per-tile scenes (`C6.01`-`C6.06`) plus a mode-2 control — 25 scenes total.** Mode 2's
+  BG3 stops being a layer and becomes a table of per-column offsets; the scenes pin the enable bits
+  (13 = BG1, 14 = BG2, as a *pair* — neither alone can tell a core that swapped them), mode 4's
+  bit-15 H/V selector, that a V entry replaces the background's own scroll while an H entry keeps
+  its low three bits, that each entry moves a whole tile column, and the errata that the leftmost
+  tile is never affected. All three emulators agree bit-for-bit.
+
+  Getting there took three rounds against scenes that rendered pictures no assertion could show,
+  and none of them would have been caught by cross-validation — an unshowable scene hashes stably
+  and the references agree with it. `scene_low_tiles` now picks tiles `$10`-`$1F` (a 4bpp tile
+  spans two font glyphs and an 8bpp tile four, so anything lower lands on the blank ASCII control
+  characters — which made mode 2 render empty while mode 4 looked fine) and varies the tile with
+  the row as well as the column. The offsets moved from 64 to 100 rows, because 64 is a multiple of
+  both 8 and 16 and so is invisible against a 16-tile cycle no matter what the map contains.
+
+- **`C13.01`-`C13.06` are recorded as blocked, deliberately, rather than covered.** They are the
+  INIDISP early-read artifacts — a one-dot display flash, a one-dot brightness step, a ~72-pixel
+  brightness ramp — and they are blocked twice over. The compositor still paints a whole scanline
+  from one register snapshot (v0.8.0 moved *when* a line is composited, not the granularity), so a
+  sub-scanline effect cannot be rendered; and they are chip-revision-dependent (`C13.01` 3-chip,
+  `C13.05` 1CHIP, gated by `C14.02`), so a golden would commit to one revision as though it were
+  the behaviour. The second blocker survives fixing the first, and unlike a reference disagreement
+  it would never announce itself. `B2.09`'s entry is corrected the same way.
+
+- **Fifteen more rendered scenes (T-04-H) — 18 total, all cross-validated.** Mode 0 four-layer
+  priority and palette segregation, Mode 3's 8bpp BG1, the tilemap flip bits, 16x16 tiles, colour
+  math in subtract mode and at saturation, five window scenes (inclusive bounds, crossed bounds,
+  inverted-empty, both-windows-disabled, XOR combination), screen-anchored mosaic, and direct
+  colour. RustySNES, snes9x and Mesen2 agree bit-for-bit on every one — no divergence this time,
+  which is the expected outcome now that the background-fetch and mosaic-anchoring bugs the first
+  batch exposed are fixed, since both sit upstream of most of what these render.
+
+  Three of them assert **equivalences** rather than numbers, and the harness gates on those
+  separately: `c8-half-ignored-on-fixed-backdrop` must hash identically to `c8-fixed-colour-add`
+  (CGADSUB's half bit is ignored when the subscreen is the fixed backdrop, `C8.03`), and
+  `c8-window-left-gt-right-empty` must equal `c8-both-windows-disabled-empty` (crossed bounds and
+  no enabled window are both *empty* masks, not full ones, `C8.05`/`C8.07`). An equivalence is the
+  stronger statement: it survives a change to the canvas, and it catches a core that gets both
+  scenes wrong the same way — which two independent hash comparisons cannot.
+
+  Scene coverage now appears in `docs/accuracysnes-coverage.md` as its **own column**, never added
+  into the on-cart figure: an on-cart result means the same thing on any emulator and on real
+  hardware, a rendered scene needs a host holding the golden, and one number cannot mean both. A
+  scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
+  battery already had.
+
+**AccuracySNES totals, as of this section:** **220 tests — 208 scoring at 100.00%, 11 golden
+vectors**, plus one region-dependent SKIP per image, and **50 rendered scenes** in the host
+framebuffer-oracle tier. Dossier coverage is **178 of 443** on-cart plus **50** scene-only —
+**228 of 443** in total, and **every group A-G now has shipped tests**
+(`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
+"Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
+rewritten to the current number — this line is the one to read.
+
+- **AccuracySNES ships a PAL image, and it settled a contested assertion.** "This needs a PAL
+  console" was only half true: a console's region fixes the timing, but which timing an emulator
+  boots is decided by the cart header's country code. The generator now emits
+  `build/accuracysnes-pal.sfc` by patching one header byte of the linked NTSC image and recomputing
+  the checksum, so the two images are provably identical apart from the region — any behavioural
+  difference between them is the region and cannot be anything else. `B2.04` (262 lines) and the new
+  `B2.05` (312 lines) are mirrors, each standing down as SKIP on the machine it does not describe,
+  and the skip predicate is the *measured* frame height rather than the region bit, because a
+  frame-height test must not depend on the thing it is evidence for. **`B2.10` is settled**: the bit
+  that moves between the two images is **bit 4**, so fullsnes is right and the SNESdev wiki's bit 3
+  is wrong — settled by measurement rather than by picking a source.
+
+- **`B4.14`: interrupt dispatch latency, measured (golden).** The dossier's claim — the poll occurs
+  just before the final CPU cycle — is sub-cycle and not CPU-observable; the finest clock a cart can
+  read is the H counter at four master clocks per dot, and reading it costs more than the interval.
+  So the cart measures the consequence: with its own IRQ handler installed through a new
+  RAM-indirect IRQ vector, it times handler entry while spinning on `NOP`s and again while spinning
+  on `JSL`/`RTL`. **The three references split on the sign** — RustySNES +3 dots, snes9x +2, Mesen2
+  −2 — which is exactly why it is recorded rather than scored. The
+  libretro cross-validation host dumps the whole measurement channel so any golden timing vector is
+  comparable across emulators.
+
+- **The AccuracySNES framebuffer oracle is live (T-04-H, `docs/adr/0013` ratified).** Part of the
+  PPU decides only what appears on screen, so a self-scoring cart cannot reach it — there is no path
+  from rendered pixels back to the CPU. The cart now renders and the *host* judges: after the
+  battery, a scene loop sets up PPU state, settles, publishes a scene ID, and holds it, and three
+  independent hosts hash a fixed 256x224 region of canonical pixels and compare against
+  `tests/golden/accuracysnes-scenes.tsv` — the in-repo harness, snes9x through the libretro host
+  (`--scenes`) and Mesen2 through `mesen_scenes.lua`. Rendered results are reported in their own
+  tier and **never** enter the on-cart pass rate, because a rendered scene lacks the property the
+  rest of the battery has: that the identical image means the same thing everywhere. Per ADR 0013
+  rule 4 a golden is blessed only from a cross-validated render, and `crossval.sh` now gates on
+  that. Three scenes to start (mode 1 priority, fixed-colour math, mosaic); all three found real
+  bugs, see Fixed.
+
+- **AccuracySNES Group B, second batch — 6 tests.** `B1.03` an internal cycle costs 6 master clocks
+  (isolated by differencing `XBA` against `NOP`, which differ by exactly one internal cycle and are
+  both single-byte). `B1.04` DMA runs at a uniform rate **regardless of source region** — a
+  differential between a `MEMSEL`-fast bank and a slow one, which catches the natural bug of reusing
+  the CPU's speed map for DMA. `B4.09` an HV-IRQ requires **both** comparators to match, not either.
+  Plus three golden vectors: the `$213F` region-bit encoding (the sources conflict on bit 3 vs
+  bit 4), the interlace line count, and the H-IRQ position. Battery now **132 tests, 123 scoring,
+  100.00%, 9 golden**.
+
+- **AccuracySNES: the opcode sweep now covers every inline-measurable class (34 entries), plus
+  `A9.03`.** The sweep adds direct page, absolute, absolute long, indexed, read-modify-write,
+  stores and untaken branches to the implied/immediate/stack set. `A9.03` settles — or rather,
+  records — WDC's single-vendor note (17) on emulation-mode read-modify-write, by probing `$2104`
+  whose address counter auto-increments per write and so counts writes directly. **The emulators
+  split three ways**: Mesen2 sees two writes (WDC's note holds), RustySNES and snes9x see one.
+  Recorded as a golden vector rather than scored, since the one document asserting it is the one
+  two other vendors decline to corroborate. Battery now **126 tests, 120 scoring, 100.00%,
+  6 golden**.
+
+- **AccuracySNES: the opcode cycle sweep runs (T-04-I) — 22 tests.** A safe-operand table and
+  sandbox in `gen/src/tests/sweep.rs`, emitting one test per opcode so a failure names the
+  instruction rather than the batch. Expectations are derived from `clocks = 6*cycles + 2*mem`
+  against cycle counts the WDC, GTE and VLSI instruction-operation tables all agree on — no
+  emulator anywhere in the chain. Covers the opcodes whose operands and safety are unambiguous:
+  implied, immediate at `m=1`/`x=1`, and balanced push/pull pairs. Battery now **113 tests, 108
+  scoring, 100.00%, 5 golden**.
+
+- **A full-width measurement channel for AccuracySNES.** A test's verdict is one byte, which cannot
+  carry a dot count — a value above 255 wraps and becomes indistinguishable from a real reading.
+  Timing tests now write raw measurements to `$7E:E200` (64 `u16` slots) and the harness prints and
+  sanity-checks them, bounding both the physical floor and the 341-dot scanline wrap. T-04-I's
+  256-opcode sweep needs this regardless: it produces 256 numbers and the status array has nowhere
+  to put them.
+
+- **T-04-J: coverage is now measured instead of estimated.** `gen/src/dossier.rs` maps every cart
+  test to the dossier assertion(s) it implements, because the two numbering schemes look identical
+  and are not — cart `A1.04` is dossier `A1.06`. The generator refuses to build if a test is
+  unmapped, if an assertion is claimed by two tests without a declared reason, or if a test maps to
+  nothing without a justification; both failure modes were verified to actually fire. The mapping
+  is emitted as a `dossier` column in `SOURCE_CATALOG.tsv` and re-checked by the harness against
+  the committed artifact, and `docs/accuracysnes-coverage.md` is regenerated with the ROM.
+
+- **The dossier's 23 prose sub-groups are now per-ID tables.** Content preserved verbatim, only
+  restructured, plus `E10` which had been missed. The enumeration goes from 232 checkable
+  assertions to **443** across all 43 sub-groups, so the coverage report is a *complete* statement:
+  an assertion with no test is listed there by name. Previously coverage could only be reported for
+  whichever assertions happened to sit in a table — which is exactly where an untested behaviour
+  could hide. Current coverage: **79 of 443**.
+
+- **The AccuracySNES research corpus is in the repository.** The 938-line hardware-behaviour and
+  test-list design report that `docs/accuracysnes-research-dossier.md` distils was cited at a path
+  under `~/.claude/`, outside version control. It is now
+  `ref-docs/2026-07-19-accuracysnes-hardware-test-design.md`, under the immutable-corpus rules in
+  `ref-docs/README.md`.
+
+- **AccuracySNES opens Group B — the 5A22 (T-04-B, first batch, 9 tests).** Memory access speed:
+  `MEMSEL` switching banks `$80`+ between 8 and 6 master clocks (measured through a long read so
+  the timed access is the subject, while the measuring loop keeps running from always-slow bank
+  `$00`), and the joypad ports being the slowest region on the bus at 12 clocks against CPU MMIO's
+  6. `RDNMI` mechanics: bit 7 setting at vblank *independently of whether NMI is enabled* — the
+  flag tracks the event, not the interrupt — and clearing on read, split into two tests because
+  the failure modes are opposite. The multiply/divide unit: 8x8 unsigned multiply, 16/8 divide
+  with the remainder sharing `RDMPY`, and divide-by-zero saturating to `$FFFF` with the dividend
+  left as the remainder. Plus two golden vectors: the CPU revision nibble, and the **undefined**
+  mul/div overlap, which the SNESdev Errata explicitly declines to define and which is therefore
+  recorded rather than asserted.
+
+- **`docs/accuracysnes-plan.md` — the AccuracySNES phase plan**, plus follow-on tickets
+  **T-04-A**–**T-04-J** in `to-dos/ROADMAP.md`. Frames the ~235 remaining tests by *what blocks
+  them* rather than by group: reachable now (Groups B, G, the rest of register-observable C, the
+  rest of A), needs its own mechanism (D's research top-up, E's on-cart APU harness), cannot be
+  fully self-scoring (F — a cart cannot press its own buttons), and needs a framebuffer oracle
+  (the renderer-dependent rest of C, which would break the property that the same image runs on
+  real hardware). Also records the constraints worth settling before the affected group starts.
+
+- **AccuracySNES: three Group A gaps closed (T-04-A, first batch).** `A1.06` — `TCD`/`TDC` move
+  all 16 bits regardless of `m`, so an 8-bit accumulator must not narrow a register that has no
+  8-bit form. `A5.07` — read-modify-write `abs,X` pays a flat cost with no page-cross penalty,
+  measured 8-deep against the same instruction without a cross. `A6.09` — `BRK` sets the `B` flag
+  in the status byte it pushes, which in emulation mode is the *only* thing distinguishing a
+  software `BRK` from a hardware IRQ arriving at the same `$FFFE`. Battery now **76 tests, 73
+  scoring, 100.00%, 3 golden**. Battery after both batches: **85 tests, 80 scoring, 100.00%, 5 golden**.
+
+- **AccuracySNES Group B continued (T-04-B): frame geometry and the IRQ timers — 4 tests.**
+  `B2.04` — an NTSC frame is 262 lines, sampled by polling `OPVCT` from vblank until the counter
+  wraps and keeping the maximum, so it measures the counter rather than trusting a constant.
+  `B4.05` — `RDNMI` auto-clears at the end of vblank, the counterpart to `B4.04`'s clear-on-read.
+  `B4.08` — a V-IRQ fires on the programmed scanline, armed with interrupts masked and observed by
+  polling `$4211`, so it measures the comparator without depending on interrupt dispatch.
+  `B4.12` — reading `$4211` releases the latch immediately, asserted with a second read *on the
+  same scanline*. Battery now **90 tests, 85 scoring, 100.00%, 5 golden**.
+
+- **AccuracySNES `A5.08` — the `A5.22` cycle spot checks, as a golden vector, and the measured
+  blocker for T-04-I.** Converts cited cycle counts into measurable time via
+  `clocks = 6*cycles + 2*mem` (`mem` = instruction length plus data/stack accesses) — the term a
+  naive "cycles x constant" conversion misses, and why `NOP` and `LDA #imm`, both 2 cycles, do not
+  cost the same. Written scored first; it failed on **all three** references at **different**
+  sub-assertions (snes9x on `XBA`, RustySNES on `REP`), which is the signature of the references
+  disagreeing with each other rather than of a broken test. It therefore reports a bitmask of which
+  expectations matched — RustySNES `101`, snes9x `100` — and stays out of the pass rate. The
+  consequence for the planned 256-opcode sweep is recorded in `docs/accuracysnes-plan.md`: the
+  blocker is sourcing an **external** per-opcode timing table, not writing the sweep.
+
+- **AccuracySNES: pre-`init_registers` power-on sampling (T-04-G prerequisite).**
+  `capture_power_on` runs at the top of reset, before `init_registers` puts every register into a
+  known state, and stashes what it samples in a documented WRAM capture block. Without it no
+  power-on test can exist: the runtime deliberately erases exactly the state such a test wants.
+  This unblocks all 18 Group G assertions. `B5.05` is the first consumer.
+
+- **AccuracySNES `B5.05` — the multiply/divide power-on latches.** `$4202` powers up `$FF` and
+  `$4204/05` `$FFFF`. Both are write-only, so the test observes the latch *through the unit it
+  feeds*: start a multiply without writing `$4202` and the product is `$FF x N`.
+
+- **The rendered-scene gate had become intermittently red, and the cause was the oracle, not the
+  emulators.** Two separate faults, both surfaced by the battery growing longer:
+
+  1. Mesen2'''s report block could run on more than one frame before `emu.stop` took effect, printing
+     the whole scene list twice. It stayed hidden while only one frame elapsed; a longer battery
+     made it two, and the duplicated list read as a scene mismatch rather than as a duplicated
+     report.
+  2. The capture window (4 settle frames, 4 published) was too tight once the phase between the
+     cart'''s vblank polling and a host'''s frame callback shifted. "Take the second sighting"
+     occasionally landed on a transition frame, and the gate failed on a different scene each run.
+     Widened to 6 and 8, capturing the fourth — all 41 goldens are unchanged, which is the evidence
+     that the window moved and the steady state did not.
+
+  An intermittently-red gate is worse than a slow one, because it gets ignored.
+
+- **A WRAM source with `$2180` as the DMA destination no longer writes.** It is a WRAM-to-WRAM
+  transfer through the data port, and the hardware performs no write at all — the read still
+  happens and the time is still spent. RustySNES copied the bytes, which looks right until a game
+  relies on the no-op. snes9x passes `D1.09`; RustySNES did not.
+
+  Worth noting for anyone touching this code: GP-DMA and HDMA have **separate** transfer paths
+  (GP-DMA interleaves HDMA and accounts clocks per byte), so a rule belonging to the transfer
+  itself has to be stated in both. Fixing only `transfer_unit` left the test still failing.
+
+- **The DMA `$43xB` scratch latch is now modelled**, mirrored at `$43xF` and per-channel. It is
+  undocumented storage the controller never reads, but it is CPU-visible: RustySNES returned 0 from
+  both addresses while snes9x returned what was written, which is how `D1.10` found it. It is
+  deliberately **not** added to the save state — ares and bsnes serialise theirs, but changing the
+  `DMA0` section's length is a format-version decision (`docs/adr/0006`) and the latch has no
+  effect on emulation; the reasoning is recorded rather than left implicit.
+
+- **Mode 7 rendered one scanline low.** The identical off-by-one this release already fixed in the
+  tiled backgrounds — `render_mode7` is a separate function and was missed. Nine of the ten new
+  Mode 7 scenes moved on that one line, and all nine then matched both references exactly.
+
+- **EXTBG replaced BG1 instead of adding a layer.** Mode 7 has one background; EXTBG splits it by
+  the pixel's high bit into BG1 (full 8-bit palette) *and* BG2 (seven bits of colour, bit 7 as a
+  priority selector). RustySNES rendered one or the other, so enabling EXTBG made BG1 vanish.
+
+- **Mode 7 ignored mosaic entirely**, rendering identically with and without it — `render_mode7`
+  had no mosaic handling at all. Quantised in screen space, matching the tiled path.
+
+  All three were found by the framebuffer oracle and confirmed the same way: snes9x and Mesen2
+  agreed bit-for-bit with each other and disagreed with RustySNES, which is the signature of a real
+  bug rather than a broken test. The 29 undisbeliever goldens are unaffected (none use Mode 7).
+
+- **Backgrounds were rendering one scanline low.** The first displayed line must show BG row
+  `BGnVOFS + 1`, not row `BGnVOFS` — the vertical fetch runs a line ahead of the line it appears on.
+  `render_bg` derived its BG row from `self.v - 1`, the same number as the framebuffer row; the two
+  are deliberately different and now are. Found by the framebuffer oracle's first scene and
+  confirmed against two independent references, snes9x and Mesen2, which agree bit-for-bit with the
+  corrected output and disagreed with the old one.
+
+- **Mosaic was anchored to the background instead of to the screen.** A mosaic block belongs to a
+  fixed grid at the top of the picture, so scrolling moves content *through* the grid; RustySNES
+  quantised the already-scrolled BG row, dragging the grid along with the scroll. Now quantised in
+  screen space and converted back. Found by the same oracle, same two references.
+
+  **Re-bless note.** These two fixes moved 25 of the 29
+  `tests/golden/undisbeliever-framebuffer.tsv` entries, which is the expected consequence rather
+  than a red flag: those goldens were blessed from our own output and so recorded the bug instead of
+  catching it — the hazard `docs/scheduler.md` records from the `hdmaen_latch_test` re-bless.
+  Independent evidence for the re-bless: hashing the same 29 third-party ROMs on snes9x through a
+  new `--fb-after=N` mode of the libretro host, agreement went from **2/29 to 14/29**. The
+  remaining 15 are the HDMA and S-CPU A-bus DMA glitch ROMs, which is separate work.
+
+- **The multiply/divide latches now power up as `$FF` / `$FFFF`.** They were defaulting to zero.
+  Asserted rather than merely recorded on two independent documentation lineages that agree with
+  nothing contradicting them in nineteen years — anomie's `regs.txt` r1157 (*"$4202 holds the value
+  $ff on power on and is unchanged on reset"*, in a document that marks its uncertain claims with
+  `(?)` and marks neither of these) and nocash's fullsnes (`$4202`-`$4206` listed `(FFh)` at
+  power-up) — and implemented by bsnes, ares and Mesen2. **snes9x diverges** (its
+  `S9xSoftResetPPU` blanket-`memset`s `$4200-$42FF` to zero), which is a snes9x bug rather than
+  counter-evidence; the divergence is declared explicitly in `scripts/accuracysnes/crossval.sh` so
+  the cross-validation gate keeps its teeth instead of being weakened to unanimity. No hardware
+  test ROM is known to verify this, and the provenance string says so.
+
+- **`RDNMI` now auto-clears at the end of vblank.** The flag was cleared only by a read, so it
+  stayed set through the whole active display and code polling `$4210` outside vblank saw a vblank
+  that had already ended and acted a frame late. Found by AccuracySNES `B4.05`.
+
+- **A V-only IRQ no longer re-asserts on every dot of its scanline.** With H-IRQ disabled the
+  horizontal half of the comparator was treated as unconditionally matching, which made
+  `V == VTIME` a *level* held across all 341 dots: acknowledging via `$4211` was undone a few dots
+  later, and a V-only handler saw a storm instead of one interrupt per frame. The comparator is now
+  sampled at a single dot (`VIRQ_TRIGGER_DOT`, the documented `H ~ 2.5`). ares reaches the same
+  behaviour from the other direction — its `irqValid.raise(...)` is an *edge* detector. Found by
+  AccuracySNES `B4.12`, with `B4.08` pinning the firing line.
+
 ### Added
 
 - **`C14.03` — `$213E` bit 5, PPU1's master/slave mode pin.** A **golden vector**, never scored:
@@ -735,436 +1252,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   correct address, which is a weaker claim that quietly depends on APU RAM's power-on state. It now
   writes a third value there first.
 
-### Fixed
-
-- **The coverage report counted unblessed scenes as coverage.** ADR 0013 rule 4 says an unblessed
-  scene "is not yet evidence of anything" — it renders, and nothing has confirmed the picture is
-  right — but `docs/accuracysnes-coverage.md` counted a scene the moment it existed. A scene could
-  therefore claim an assertion by being written, which is precisely the gap the report exists to
-  close for the battery. It now reads the golden file and counts only blessed scenes.
-
-- **Sprite vertical flip is computed against the sprite's WIDTH, not its height** — and correcting a
-  test is what found it. `c7-vflip-tall-halves` was selecting `OBJSEL` pair 3 with the size bit set,
-  which is **32x32**: a square sprite, on which `C7.13`'s errata says nothing. Pointed at a real
-  16x32 sprite, the scene split three ways — snes9x and Mesen2 agreed, RustySNES did not.
-
-  On hardware each square half of a rectangular sprite flips *inside itself* and the halves do not
-  swap places, which falls out of using the width. For square sprites the two are the same number,
-  which is why nothing else in the corpus moved. RustySNES now matches both references bit-for-bit,
-  and the re-blessed golden is that agreed value.
-
-- **The gamepad's shift register was the button word itself, so a strobe never reloaded it.** The
-  SNES pad is a *parallel-load* shift register: `$4016.0` high loads it from the button lines and
-  low starts clocking, so a program may strobe and re-read as often as it likes within a frame and
-  get the same answer each time. RustySNES shifted the button state in place — so the first manual
-  read of a frame consumed the buttons, every later one returned all-ones, and a manual read also
-  corrupted the auto-read result at `$4218-$421F`. **A frontend rewrites the button state every
-  frame, which hid both**; a game that polls twice in one frame would not have been so lucky. The
-  shift registers are now separate state, reloaded while the strobe is high *and* on its falling
-  edge — a program that raises the strobe, changes the buttons, and lowers it must capture what is
-  held at the fall, not at the rise — and a read taken while the strobe is still high returns the
-  first bit without advancing, because a continuously reloading register never moves on. Saved as
-  state (save-state `FORMAT_VERSION` 3 → 4, with the reason in `docs/adr/0006`).
-
-- **`B4.12` asserted more than its citation.** It read `$4211` to acknowledge an IRQ and then read
-  it again on the same scanline, expecting the latch released. But a V-only IRQ's comparator matches
-  for the *whole* scanline, and while it matches a core is free to re-assert what the read released
-  — so the second read said nothing about the release and everything about where in the line the
-  polling loop happened to catch the flag. It began failing on Mesen2 when an unrelated change moved
-  the battery's code by a few bytes. It now disarms `$4200` before looking again, which is the claim
-  the dossier actually makes.
-
-- **`E3.01` raced the timer it was reading.** Its two reads of `$FD` are about eight SPC700 cycles
-  apart and a tick at that divider lands every 128, so a tick falling between them was uncommon
-  rather than impossible — and when it did, the second read was non-zero for a reason that has
-  nothing to do with whether the first one cleared it. It surfaced as Mesen2 failing the test on the
-  PAL image only, after an unrelated change shifted the battery's timing. The timer is now stopped
-  before the pair of reads.
-
-- **The cross-validation gate could report a silent pass on zero rendered scenes.** The snes9x
-  scene run has a frame budget that has to cover the battery *and* the scene loop after it, and the
-  battery keeps growing; run short, the cart never reaches the scenes, the host reports none, and
-  "0 mismatched" read as success. `check_scenes` now fails when it sees no scenes at all, and the
-  budgets were raised.
-
-- **SPC700 memory-access side effects (`E2`).** `E2.05`: direct-page indexing wraps *inside* the
-  page, so `$FF + X` with `X = 2` reads `$01` and not `$0101` — a core computing a 16-bit sum reads
-  from the wrong page entirely, which is silent until something lives there. `E2.01`: a store
-  dummy-reads its destination, so `MOV $FD,A` **clears Timer 0** even though the counter is
-  read-only — a trap for any driver that "initialises" the counters by writing them.
-
-  `E2.01` first asserted the store's effect as a *difference* from a control reading, and that
-  version failed on snes9x. The core was right and the assertion was weak: a core that does not
-  clear leaves an arbitrary value there, and an arbitrary value lands inside a difference range
-  often enough to pass or fail by luck. Asserting the post-store reading directly (empty, against a
-  control that must have advanced) is both stronger and stable on all three.
-
-- **First S-DSP behaviour tests, now that the DSP is reachable.** `E9.19`: writing `ENDX` clears
-  it — any write, regardless of value — so a core modelling it as ordinary storage returns what was
-  written, and a driver polling for sample-end sees "every voice finished" forever. The assertion
-  is deliberately "not `$FF`" rather than "exactly `$00`": with no sample playing there is nothing
-  to set the bits, so demanding zero would pass on a core that never implemented the register at
-  all.
-
-  Plus a global-register addressing test to sit beside the voice-register one. The two blocks are
-  decoded from the same latch by different parts of the address, so a core that gets voices right
-  and aliases the globals passes one and fails the other. Both write low-to-high and read back
-  high-to-low, so returning the last value written cannot pass either.
-
-- **The S-DSP is reachable, and the blocker was never the DSP.** `E3.11` (`$F2` bit 7 disables
-  writing through `$F3`) and a foundational DSP register-addressing test both land, which unblocks
-  `E5`-`E9` (~73 assertions).
-
-  The cause was one bit. `E3.01` writes `$F1` to enable a timer, and `$F1` bit 7 also controls
-  whether `$FFC0`-`$FFFF` reads as the IPL boot ROM or as RAM — so clearing it meant the release
-  path's `JMP $FFC0` landed in zeroed RAM, the SMP wandered off, and **every APU upload after that
-  test silently died**. It presented as "the DSP is unreachable" because the DSP tests happened to
-  run later in the battery. `release_to_ipl` now re-maps the ROM before jumping, so a program that
-  touches `$F1` for its own reasons cannot break the ones after it.
-
-- **Correction: `E3.14` was briefly published as a Contested golden, and that was wrong.** The
-  claim was that neither snes9x nor Mesen2 returns what was written to `$F8`/`$F9`, contradicting
-  the documentation. All three return it correctly; the apparent failure was the IPL bug above.
-  It is a Scored test again.
-
-  Worth stating plainly because the reasoning that produced the false finding is otherwise sound:
-  three-way agreement against a test really is this project's signature of a broken test. It is a
-  good heuristic, not a proof — **a harness bug upstream of every implementation produces exactly
-  the same signature**, and this one did.
-
-- **The SPC700's I/O block: `E3.01` and `E3.14`, both scored.** `E3.01` pins that reading a timer
-  counter returns four bits **and clears it** — `$FD`-`$FF` are not registers holding a value, they
-  are counters a read consumes, and a core treating them as storage lets a driver double-count
-  every tick it sees. The first read is only required to be non-zero, because how far the timer
-  advanced depends on the delay loop's exact cost and asserting a count would be asserting the loop.
-
-- **Three more SPC700 flag tests — `E1` is now 7 of 15.** `E1.04` (`DIV`'s H flag is a nibble
-  comparison of the *inputs*, `(Y & 15) >= (X & 15)`, with nothing to do with any carry the
-  division produces — the name is borrowed and the behaviour is not), `E1.05` (`DIV`'s V flag is
-  bit 8 of the quotient, which is how a caller learns the byte it was handed is not the whole
-  answer), and `E1.13` (`ADDW`'s H is the bit-11 carry, not the bit-3 one a reused 8-bit
-  half-carry would give).
-
-  Each checks both directions in one program, for the reason the earlier pair did: a flag that is
-  never set passes any test that only looks for it being set.
-
-- **Three more SPC700 tests, and the fix that makes more than one of them possible.** `E1.02`
-  (`DIV YA,X` on its normal branch, the baseline every stranger `DIV` assertion deviates from),
-  `E1.06` (the errata that `DIV` takes N and Z from the **quotient** alone — a zero quotient sets
-  `Z` even with a non-zero remainder, and the reverse case is checked in the same program so a core
-  that never sets `Z` cannot pass), and `E1.15` (`MOVW YA,dp` flags all sixteen bits, checked from
-  both sides: `$0100` must not set `Z`, `$8000` must set `N`, and a core flagging the accumulator
-  alone gets both wrong).
-
-  **Every uploaded program now hands the APU back to the IPL when the cart releases it.** Once a
-  program is running the boot ROM is not, so the next test's upload has nothing to handshake with.
-  The first version ended in `BRA *`, and every APU test after the first silently timed out and
-  then read the *previous* test's leftover port values — which looks exactly like a wrong answer
-  rather than like a test that never ran. The cart now copies the results out, writes a release
-  byte, and the program jumps to the IPL entry, which re-announces itself for the next upload.
-
-- **Group E is unblocked: the APU is now reachable from the cart (T-04-E).** The SPC700 is a
-  separate processor with its own RAM, and the only channel between it and the 65816 is four bytes
-  — so nothing about it was testable at all. The cart now uploads a small SPC700 program through
-  the IPL boot ROM's handshake (`apu_upload`), lets it run, and reads its answers back through
-  those same four ports, which is exactly what a game's sound driver does at boot.
-
-  The programs are assembled by a new `gen/src/spc.rs`, because `ca65` does not speak SPC700. It
-  is deliberately minimal — one emitter per instruction a committed test actually uses, since an
-  unexercised encoding is an unverified one, and a wrong byte in it would surface as an emulator
-  disagreement rather than as an assembler bug.
-
-  First test: `E1.01`, the errata that `MUL YA` takes N and Z from `Y` alone. With `Y = A = $10`
-  the product is `$0100`, so `A` ends at `$00` and `Z` is nonetheless **clear**. Reading `PSW` at
-  all is the recurring trick here — the SPC700 has no instruction for it, so `PUSH PSW`/`POP A`
-  does the job, which only works because the results are captured first with the two moves that
-  leave flags alone.
-
-  **Every wait in the handshake is bounded.** The first version was not, and it hung the whole
-  battery — reporting nothing about the other 149 tests, which is a far worse failure than one
-  test standing down. `V_APU_STAGE` names the step that gave up, and a test whose APU never
-  answers reports SKIP.
-
-- **Sprites (`C7`) — three new scenes, bringing the blessed total to 41.** `C7.15` (sprite
-  priority is OAM index alone, so the scene writes the two in the opposite order to the expected
-  result — a core drawing in write order gets it exactly backwards), `C7.13` (the errata: V-flip
-  on a tall sprite flips each 16x16 half *independently*, giving the same pixels in a different
-  arrangement — which a hash separates and an eye might not), and `C7.14` (a 64-pixel sprite near
-  the bottom wraps to the top rather than clipping).
-
-  A new `scene_oam_reset` helper parks all 128 sprites at Y=224 first. OAM is 544 bytes of state
-  nothing else clears, so a sprite scene would otherwise render its own sprites *plus* whatever the
-  previous scene left — the same contamination the per-scene canvas rebuild exists to prevent, in
-  another place it was not reaching.
-
-- **The scroll-register write-twice latch (`C4`) — three new scenes, bringing the blessed total
-  to 38.** These registers are
-  write-only, so the latch is observable only through the picture. `C4.02`/`C4.03`: one `Prev`
-  latch is shared across all four backgrounds *and* both axes, which shows up only when a register
-  is written **once** and the next write goes somewhere else — so the scene writes one byte to
-  `$210D` and one to `$210E` and reads the answer off the V scroll. A core with a per-register
-  latch lands 128 rows away. `C4.01`: the H formula masks the previous byte's low three bits and
-  takes them from the register instead, so `$47` then `$00` scrolls by `$40` — the asymmetry with
-  the V formula, which keeps all eight bits of the same latch. `C4.04`/`C4.05`: `$210D` drives
-  `M7HOFS` as well as `BG1HOFS`, through Mode 7's own 13-bit path.
-
-- **Four more Group D tests: channel priority, indirect HDMA, and the HDMA working registers.**
-  `D1.04` (a multi-channel start runs the lower channel first), `D2.05` (indirect mode fetches each
-  transfer through a pointer), `D2.06` (`$4308/09` and `$430A` are live working state, so the
-  counter holds the `$00` terminator once the table runs out), and `D1.03`, the DMA startup
-  overhead, recorded as a golden vector.
-
-  `D1.04` is observable only because both channels write to the same auto-incrementing port: the
-  byte pair left in WRAM spells out the order the hardware chose, where timing alone could not.
-  `D2.05` catches the specific failure of ignoring the indirect bit — such a core transfers the
-  pointer bytes themselves, which look nothing like the data behind them.
-
-  `D1.03` is a golden rather than a scored test because what it measures is an 8-clock startup plus
-  an alignment cost that depends on where in the CPU's cycle the `$420B` write lands — exactly the
-  part two implementations need not agree on to both be right. `B4.14` gets the same treatment for
-  the same reason, and `D1.02` deliberately cancels it by measuring a length differential instead.
-
-- **Group D continues: HDMA arrives, plus three more GP-DMA semantics.** `D1.05` (a byte count of
-  zero means 65536), `D1.09`/`D1.15` (a WRAM source with `$2180` as the destination performs no
-  write), and the first two HDMA tests — `D2.03` the line-count byte and `D2.04` the repeat flag.
-
-  HDMA is the awkward part of the controller to observe, because it runs itself once per scanline
-  with no CPU involvement. Pointing it at `$2180` solves that outright: `WMADD` auto-increments, so
-  a whole frame of HDMA activity becomes a byte sequence the CPU can read back and check exactly —
-  how many writes happened, in what order, and that they then stopped. The two tables differ only
-  in bit 7 of their header bytes, so a core that ignores the repeat flag renders them identically
-  and neither test alone would notice.
-
-  `D1.05` is observed through **time**, not through the destination: 65536 bytes at 8 clocks each
-  is ~384 scanlines, so the V counter lands far from where it started. That makes it frame-length
-  dependent, so it measures the frame height and branches on what it measured — never on the region
-  bit, whose position `B2.10` had to settle and which a frame-length test must not lean on.
-
-- **Group D opens: seven general-purpose DMA tests (T-04-D).** Transfer modes 0 and 1, the byte
-  counter reaching zero, both non-incrementing A-bus steps, the undocumented `$43xB` scratch latch,
-  and the 8-clocks-per-byte rate as a length differential so startup overhead cancels. These are
-  self-scoring on-cart — DMA moves bytes into memory the CPU can read back, which is why the group
-  leads with behaviour rather than with timing.
-
-  Three of the seven were **wrong on their first run and both emulators said so**, which is the
-  signature of a broken test rather than a broken core. The interesting one: `$4300` bits 4-3 are a
-  two-bit *field* (0 = increment, 1 = fixed, 2 = decrement, 3 = fixed), not two independent flags —
-  the exact confusion `D1.07`/`D1.07b` exist to catch, made while writing them. They are declared
-  as a split so neither can be deleted as a duplicate of the other.
-
-- **Mode 7 scenes (`C11`, plus `C5.08`/`C10.05`/`C12.03`) — 35 scenes total.** Identity and
-  rotate/scale transforms, all three screen-over modes, screen flip, EXTBG, direct colour, mosaic
-  and windowing. A shared `scene_mode7_vram` helper lays down the tilemap and character data in one
-  pass, which is possible precisely because Mode 7 interleaves them by byte (`C11.05`) — and is the
-  cheapest way to be sure the two halves cannot drift apart.
-
-  `scene_canvas` now fills **all 256** CGRAM entries rather than 128. An 8bpp or Mode 7 scene
-  indexes the whole palette, so the upper half was being rendered through whatever the previous
-  scene or test had left there — the same cross-scene contamination the per-scene canvas rebuild
-  exists to prevent, in the one place the rebuild was not reaching.
-
-- **Offset-per-tile scenes (`C6.01`-`C6.06`) plus a mode-2 control — 25 scenes total.** Mode 2's
-  BG3 stops being a layer and becomes a table of per-column offsets; the scenes pin the enable bits
-  (13 = BG1, 14 = BG2, as a *pair* — neither alone can tell a core that swapped them), mode 4's
-  bit-15 H/V selector, that a V entry replaces the background's own scroll while an H entry keeps
-  its low three bits, that each entry moves a whole tile column, and the errata that the leftmost
-  tile is never affected. All three emulators agree bit-for-bit.
-
-  Getting there took three rounds against scenes that rendered pictures no assertion could show,
-  and none of them would have been caught by cross-validation — an unshowable scene hashes stably
-  and the references agree with it. `scene_low_tiles` now picks tiles `$10`-`$1F` (a 4bpp tile
-  spans two font glyphs and an 8bpp tile four, so anything lower lands on the blank ASCII control
-  characters — which made mode 2 render empty while mode 4 looked fine) and varies the tile with
-  the row as well as the column. The offsets moved from 64 to 100 rows, because 64 is a multiple of
-  both 8 and 16 and so is invisible against a 16-tile cycle no matter what the map contains.
-
-- **`C13.01`-`C13.06` are recorded as blocked, deliberately, rather than covered.** They are the
-  INIDISP early-read artifacts — a one-dot display flash, a one-dot brightness step, a ~72-pixel
-  brightness ramp — and they are blocked twice over. The compositor still paints a whole scanline
-  from one register snapshot (v0.8.0 moved *when* a line is composited, not the granularity), so a
-  sub-scanline effect cannot be rendered; and they are chip-revision-dependent (`C13.01` 3-chip,
-  `C13.05` 1CHIP, gated by `C14.02`), so a golden would commit to one revision as though it were
-  the behaviour. The second blocker survives fixing the first, and unlike a reference disagreement
-  it would never announce itself. `B2.09`'s entry is corrected the same way.
-
-- **Fifteen more rendered scenes (T-04-H) — 18 total, all cross-validated.** Mode 0 four-layer
-  priority and palette segregation, Mode 3's 8bpp BG1, the tilemap flip bits, 16x16 tiles, colour
-  math in subtract mode and at saturation, five window scenes (inclusive bounds, crossed bounds,
-  inverted-empty, both-windows-disabled, XOR combination), screen-anchored mosaic, and direct
-  colour. RustySNES, snes9x and Mesen2 agree bit-for-bit on every one — no divergence this time,
-  which is the expected outcome now that the background-fetch and mosaic-anchoring bugs the first
-  batch exposed are fixed, since both sit upstream of most of what these render.
-
-  Three of them assert **equivalences** rather than numbers, and the harness gates on those
-  separately: `c8-half-ignored-on-fixed-backdrop` must hash identically to `c8-fixed-colour-add`
-  (CGADSUB's half bit is ignored when the subscreen is the fixed backdrop, `C8.03`), and
-  `c8-window-left-gt-right-empty` must equal `c8-both-windows-disabled-empty` (crossed bounds and
-  no enabled window are both *empty* masks, not full ones, `C8.05`/`C8.07`). An equivalence is the
-  stronger statement: it survives a change to the canvas, and it catches a core that gets both
-  scenes wrong the same way — which two independent hash comparisons cannot.
-
-  Scene coverage now appears in `docs/accuracysnes-coverage.md` as its **own column**, never added
-  into the on-cart figure: an on-cart result means the same thing on any emulator and on real
-  hardware, a rendered scene needs a host holding the golden, and one number cannot mean both. A
-  scene naming an assertion the dossier does not enumerate now fails the build, the same gate the
-  battery already had.
-
-**AccuracySNES totals, as of this section:** **220 tests — 208 scoring at 100.00%, 11 golden
-vectors**, plus one region-dependent SKIP per image, and **50 rendered scenes** in the host
-framebuffer-oracle tier. Dossier coverage is **178 of 443** on-cart plus **50** scene-only —
-**228 of 443** in total, and **every group A-G now has shipped tests**
-(`docs/accuracysnes-coverage.md`, regenerated with the ROM). The per-entry
-"Battery now N" tallies below are each batch's state *as it landed*, kept as written rather than
-rewritten to the current number — this line is the one to read.
-
-- **AccuracySNES ships a PAL image, and it settled a contested assertion.** "This needs a PAL
-  console" was only half true: a console's region fixes the timing, but which timing an emulator
-  boots is decided by the cart header's country code. The generator now emits
-  `build/accuracysnes-pal.sfc` by patching one header byte of the linked NTSC image and recomputing
-  the checksum, so the two images are provably identical apart from the region — any behavioural
-  difference between them is the region and cannot be anything else. `B2.04` (262 lines) and the new
-  `B2.05` (312 lines) are mirrors, each standing down as SKIP on the machine it does not describe,
-  and the skip predicate is the *measured* frame height rather than the region bit, because a
-  frame-height test must not depend on the thing it is evidence for. **`B2.10` is settled**: the bit
-  that moves between the two images is **bit 4**, so fullsnes is right and the SNESdev wiki's bit 3
-  is wrong — settled by measurement rather than by picking a source.
-
-- **`B4.14`: interrupt dispatch latency, measured (golden).** The dossier's claim — the poll occurs
-  just before the final CPU cycle — is sub-cycle and not CPU-observable; the finest clock a cart can
-  read is the H counter at four master clocks per dot, and reading it costs more than the interval.
-  So the cart measures the consequence: with its own IRQ handler installed through a new
-  RAM-indirect IRQ vector, it times handler entry while spinning on `NOP`s and again while spinning
-  on `JSL`/`RTL`. **The three references split on the sign** — RustySNES +3 dots, snes9x +2, Mesen2
-  −2 — which is exactly why it is recorded rather than scored. The
-  libretro cross-validation host dumps the whole measurement channel so any golden timing vector is
-  comparable across emulators.
-
-- **The AccuracySNES framebuffer oracle is live (T-04-H, `docs/adr/0013` ratified).** Part of the
-  PPU decides only what appears on screen, so a self-scoring cart cannot reach it — there is no path
-  from rendered pixels back to the CPU. The cart now renders and the *host* judges: after the
-  battery, a scene loop sets up PPU state, settles, publishes a scene ID, and holds it, and three
-  independent hosts hash a fixed 256x224 region of canonical pixels and compare against
-  `tests/golden/accuracysnes-scenes.tsv` — the in-repo harness, snes9x through the libretro host
-  (`--scenes`) and Mesen2 through `mesen_scenes.lua`. Rendered results are reported in their own
-  tier and **never** enter the on-cart pass rate, because a rendered scene lacks the property the
-  rest of the battery has: that the identical image means the same thing everywhere. Per ADR 0013
-  rule 4 a golden is blessed only from a cross-validated render, and `crossval.sh` now gates on
-  that. Three scenes to start (mode 1 priority, fixed-colour math, mosaic); all three found real
-  bugs, see Fixed.
-
-- **AccuracySNES Group B, second batch — 6 tests.** `B1.03` an internal cycle costs 6 master clocks
-  (isolated by differencing `XBA` against `NOP`, which differ by exactly one internal cycle and are
-  both single-byte). `B1.04` DMA runs at a uniform rate **regardless of source region** — a
-  differential between a `MEMSEL`-fast bank and a slow one, which catches the natural bug of reusing
-  the CPU's speed map for DMA. `B4.09` an HV-IRQ requires **both** comparators to match, not either.
-  Plus three golden vectors: the `$213F` region-bit encoding (the sources conflict on bit 3 vs
-  bit 4), the interlace line count, and the H-IRQ position. Battery now **132 tests, 123 scoring,
-  100.00%, 9 golden**.
-
-- **AccuracySNES: the opcode sweep now covers every inline-measurable class (34 entries), plus
-  `A9.03`.** The sweep adds direct page, absolute, absolute long, indexed, read-modify-write,
-  stores and untaken branches to the implied/immediate/stack set. `A9.03` settles — or rather,
-  records — WDC's single-vendor note (17) on emulation-mode read-modify-write, by probing `$2104`
-  whose address counter auto-increments per write and so counts writes directly. **The emulators
-  split three ways**: Mesen2 sees two writes (WDC's note holds), RustySNES and snes9x see one.
-  Recorded as a golden vector rather than scored, since the one document asserting it is the one
-  two other vendors decline to corroborate. Battery now **126 tests, 120 scoring, 100.00%,
-  6 golden**.
-
-- **AccuracySNES: the opcode cycle sweep runs (T-04-I) — 22 tests.** A safe-operand table and
-  sandbox in `gen/src/tests/sweep.rs`, emitting one test per opcode so a failure names the
-  instruction rather than the batch. Expectations are derived from `clocks = 6*cycles + 2*mem`
-  against cycle counts the WDC, GTE and VLSI instruction-operation tables all agree on — no
-  emulator anywhere in the chain. Covers the opcodes whose operands and safety are unambiguous:
-  implied, immediate at `m=1`/`x=1`, and balanced push/pull pairs. Battery now **113 tests, 108
-  scoring, 100.00%, 5 golden**.
-
-- **A full-width measurement channel for AccuracySNES.** A test's verdict is one byte, which cannot
-  carry a dot count — a value above 255 wraps and becomes indistinguishable from a real reading.
-  Timing tests now write raw measurements to `$7E:E200` (64 `u16` slots) and the harness prints and
-  sanity-checks them, bounding both the physical floor and the 341-dot scanline wrap. T-04-I's
-  256-opcode sweep needs this regardless: it produces 256 numbers and the status array has nowhere
-  to put them.
-
-- **T-04-J: coverage is now measured instead of estimated.** `gen/src/dossier.rs` maps every cart
-  test to the dossier assertion(s) it implements, because the two numbering schemes look identical
-  and are not — cart `A1.04` is dossier `A1.06`. The generator refuses to build if a test is
-  unmapped, if an assertion is claimed by two tests without a declared reason, or if a test maps to
-  nothing without a justification; both failure modes were verified to actually fire. The mapping
-  is emitted as a `dossier` column in `SOURCE_CATALOG.tsv` and re-checked by the harness against
-  the committed artifact, and `docs/accuracysnes-coverage.md` is regenerated with the ROM.
-
-- **The dossier's 23 prose sub-groups are now per-ID tables.** Content preserved verbatim, only
-  restructured, plus `E10` which had been missed. The enumeration goes from 232 checkable
-  assertions to **443** across all 43 sub-groups, so the coverage report is a *complete* statement:
-  an assertion with no test is listed there by name. Previously coverage could only be reported for
-  whichever assertions happened to sit in a table — which is exactly where an untested behaviour
-  could hide. Current coverage: **79 of 443**.
-
-- **The AccuracySNES research corpus is in the repository.** The 938-line hardware-behaviour and
-  test-list design report that `docs/accuracysnes-research-dossier.md` distils was cited at a path
-  under `~/.claude/`, outside version control. It is now
-  `ref-docs/2026-07-19-accuracysnes-hardware-test-design.md`, under the immutable-corpus rules in
-  `ref-docs/README.md`.
-
-- **AccuracySNES opens Group B — the 5A22 (T-04-B, first batch, 9 tests).** Memory access speed:
-  `MEMSEL` switching banks `$80`+ between 8 and 6 master clocks (measured through a long read so
-  the timed access is the subject, while the measuring loop keeps running from always-slow bank
-  `$00`), and the joypad ports being the slowest region on the bus at 12 clocks against CPU MMIO's
-  6. `RDNMI` mechanics: bit 7 setting at vblank *independently of whether NMI is enabled* — the
-  flag tracks the event, not the interrupt — and clearing on read, split into two tests because
-  the failure modes are opposite. The multiply/divide unit: 8x8 unsigned multiply, 16/8 divide
-  with the remainder sharing `RDMPY`, and divide-by-zero saturating to `$FFFF` with the dividend
-  left as the remainder. Plus two golden vectors: the CPU revision nibble, and the **undefined**
-  mul/div overlap, which the SNESdev Errata explicitly declines to define and which is therefore
-  recorded rather than asserted.
-
-- **`docs/accuracysnes-plan.md` — the AccuracySNES phase plan**, plus follow-on tickets
-  **T-04-A**–**T-04-J** in `to-dos/ROADMAP.md`. Frames the ~235 remaining tests by *what blocks
-  them* rather than by group: reachable now (Groups B, G, the rest of register-observable C, the
-  rest of A), needs its own mechanism (D's research top-up, E's on-cart APU harness), cannot be
-  fully self-scoring (F — a cart cannot press its own buttons), and needs a framebuffer oracle
-  (the renderer-dependent rest of C, which would break the property that the same image runs on
-  real hardware). Also records the constraints worth settling before the affected group starts.
-
-- **AccuracySNES: three Group A gaps closed (T-04-A, first batch).** `A1.06` — `TCD`/`TDC` move
-  all 16 bits regardless of `m`, so an 8-bit accumulator must not narrow a register that has no
-  8-bit form. `A5.07` — read-modify-write `abs,X` pays a flat cost with no page-cross penalty,
-  measured 8-deep against the same instruction without a cross. `A6.09` — `BRK` sets the `B` flag
-  in the status byte it pushes, which in emulation mode is the *only* thing distinguishing a
-  software `BRK` from a hardware IRQ arriving at the same `$FFFE`. Battery now **76 tests, 73
-  scoring, 100.00%, 3 golden**. Battery after both batches: **85 tests, 80 scoring, 100.00%, 5 golden**.
-
-- **AccuracySNES Group B continued (T-04-B): frame geometry and the IRQ timers — 4 tests.**
-  `B2.04` — an NTSC frame is 262 lines, sampled by polling `OPVCT` from vblank until the counter
-  wraps and keeping the maximum, so it measures the counter rather than trusting a constant.
-  `B4.05` — `RDNMI` auto-clears at the end of vblank, the counterpart to `B4.04`'s clear-on-read.
-  `B4.08` — a V-IRQ fires on the programmed scanline, armed with interrupts masked and observed by
-  polling `$4211`, so it measures the comparator without depending on interrupt dispatch.
-  `B4.12` — reading `$4211` releases the latch immediately, asserted with a second read *on the
-  same scanline*. Battery now **90 tests, 85 scoring, 100.00%, 5 golden**.
-
-- **AccuracySNES `A5.08` — the `A5.22` cycle spot checks, as a golden vector, and the measured
-  blocker for T-04-I.** Converts cited cycle counts into measurable time via
-  `clocks = 6*cycles + 2*mem` (`mem` = instruction length plus data/stack accesses) — the term a
-  naive "cycles x constant" conversion misses, and why `NOP` and `LDA #imm`, both 2 cycles, do not
-  cost the same. Written scored first; it failed on **all three** references at **different**
-  sub-assertions (snes9x on `XBA`, RustySNES on `REP`), which is the signature of the references
-  disagreeing with each other rather than of a broken test. It therefore reports a bitmask of which
-  expectations matched — RustySNES `101`, snes9x `100` — and stays out of the pass rate. The
-  consequence for the planned 256-opcode sweep is recorded in `docs/accuracysnes-plan.md`: the
-  blocker is sourcing an **external** per-opcode timing table, not writing the sweep.
-
-- **AccuracySNES: pre-`init_registers` power-on sampling (T-04-G prerequisite).**
-  `capture_power_on` runs at the top of reset, before `init_registers` puts every register into a
-  known state, and stashes what it samples in a documented WRAM capture block. Without it no
-  power-on test can exist: the runtime deliberately erases exactly the state such a test wants.
-  This unblocks all 18 Group G assertions. `B5.05` is the first consumer.
-
-- **AccuracySNES `B5.05` — the multiply/divide power-on latches.** `$4202` powers up `$FF` and
-  `$4204/05` `$FFFF`. Both are write-only, so the test observes the latch *through the unit it
-  feeds*: start a multiply without writing `$4202` and the product is `$FF x N`.
-
 ### Changed
 
 - **`hdmaen_latch_test` / `hdmaen_latch_test_2` golden framebuffers re-blessed** as a direct,
@@ -1175,97 +1262,6 @@ rewritten to the current number — this line is the one to read.
   because the change is externally corroborated (ares' edge detector; Mesen2 and snes9x both pass
   `B4.08`/`B4.12`, which RustySNES failed). Isolated by reverting the IRQ change alone and
   confirming the goldens returned. Rationale recorded in `docs/scheduler.md` §H/V-IRQ.
-
-### Fixed
-
-- **The rendered-scene gate had become intermittently red, and the cause was the oracle, not the
-  emulators.** Two separate faults, both surfaced by the battery growing longer:
-
-  1. Mesen2'''s report block could run on more than one frame before `emu.stop` took effect, printing
-     the whole scene list twice. It stayed hidden while only one frame elapsed; a longer battery
-     made it two, and the duplicated list read as a scene mismatch rather than as a duplicated
-     report.
-  2. The capture window (4 settle frames, 4 published) was too tight once the phase between the
-     cart'''s vblank polling and a host'''s frame callback shifted. "Take the second sighting"
-     occasionally landed on a transition frame, and the gate failed on a different scene each run.
-     Widened to 6 and 8, capturing the fourth — all 41 goldens are unchanged, which is the evidence
-     that the window moved and the steady state did not.
-
-  An intermittently-red gate is worse than a slow one, because it gets ignored.
-
-- **A WRAM source with `$2180` as the DMA destination no longer writes.** It is a WRAM-to-WRAM
-  transfer through the data port, and the hardware performs no write at all — the read still
-  happens and the time is still spent. RustySNES copied the bytes, which looks right until a game
-  relies on the no-op. snes9x passes `D1.09`; RustySNES did not.
-
-  Worth noting for anyone touching this code: GP-DMA and HDMA have **separate** transfer paths
-  (GP-DMA interleaves HDMA and accounts clocks per byte), so a rule belonging to the transfer
-  itself has to be stated in both. Fixing only `transfer_unit` left the test still failing.
-
-- **The DMA `$43xB` scratch latch is now modelled**, mirrored at `$43xF` and per-channel. It is
-  undocumented storage the controller never reads, but it is CPU-visible: RustySNES returned 0 from
-  both addresses while snes9x returned what was written, which is how `D1.10` found it. It is
-  deliberately **not** added to the save state — ares and bsnes serialise theirs, but changing the
-  `DMA0` section's length is a format-version decision (`docs/adr/0006`) and the latch has no
-  effect on emulation; the reasoning is recorded rather than left implicit.
-
-- **Mode 7 rendered one scanline low.** The identical off-by-one this release already fixed in the
-  tiled backgrounds — `render_mode7` is a separate function and was missed. Nine of the ten new
-  Mode 7 scenes moved on that one line, and all nine then matched both references exactly.
-
-- **EXTBG replaced BG1 instead of adding a layer.** Mode 7 has one background; EXTBG splits it by
-  the pixel's high bit into BG1 (full 8-bit palette) *and* BG2 (seven bits of colour, bit 7 as a
-  priority selector). RustySNES rendered one or the other, so enabling EXTBG made BG1 vanish.
-
-- **Mode 7 ignored mosaic entirely**, rendering identically with and without it — `render_mode7`
-  had no mosaic handling at all. Quantised in screen space, matching the tiled path.
-
-  All three were found by the framebuffer oracle and confirmed the same way: snes9x and Mesen2
-  agreed bit-for-bit with each other and disagreed with RustySNES, which is the signature of a real
-  bug rather than a broken test. The 29 undisbeliever goldens are unaffected (none use Mode 7).
-
-- **Backgrounds were rendering one scanline low.** The first displayed line must show BG row
-  `BGnVOFS + 1`, not row `BGnVOFS` — the vertical fetch runs a line ahead of the line it appears on.
-  `render_bg` derived its BG row from `self.v - 1`, the same number as the framebuffer row; the two
-  are deliberately different and now are. Found by the framebuffer oracle's first scene and
-  confirmed against two independent references, snes9x and Mesen2, which agree bit-for-bit with the
-  corrected output and disagreed with the old one.
-
-- **Mosaic was anchored to the background instead of to the screen.** A mosaic block belongs to a
-  fixed grid at the top of the picture, so scrolling moves content *through* the grid; RustySNES
-  quantised the already-scrolled BG row, dragging the grid along with the scroll. Now quantised in
-  screen space and converted back. Found by the same oracle, same two references.
-
-  **Re-bless note.** These two fixes moved 25 of the 29
-  `tests/golden/undisbeliever-framebuffer.tsv` entries, which is the expected consequence rather
-  than a red flag: those goldens were blessed from our own output and so recorded the bug instead of
-  catching it — the hazard `docs/scheduler.md` records from the `hdmaen_latch_test` re-bless.
-  Independent evidence for the re-bless: hashing the same 29 third-party ROMs on snes9x through a
-  new `--fb-after=N` mode of the libretro host, agreement went from **2/29 to 14/29**. The
-  remaining 15 are the HDMA and S-CPU A-bus DMA glitch ROMs, which is separate work.
-
-- **The multiply/divide latches now power up as `$FF` / `$FFFF`.** They were defaulting to zero.
-  Asserted rather than merely recorded on two independent documentation lineages that agree with
-  nothing contradicting them in nineteen years — anomie's `regs.txt` r1157 (*"$4202 holds the value
-  $ff on power on and is unchanged on reset"*, in a document that marks its uncertain claims with
-  `(?)` and marks neither of these) and nocash's fullsnes (`$4202`-`$4206` listed `(FFh)` at
-  power-up) — and implemented by bsnes, ares and Mesen2. **snes9x diverges** (its
-  `S9xSoftResetPPU` blanket-`memset`s `$4200-$42FF` to zero), which is a snes9x bug rather than
-  counter-evidence; the divergence is declared explicitly in `scripts/accuracysnes/crossval.sh` so
-  the cross-validation gate keeps its teeth instead of being weakened to unanimity. No hardware
-  test ROM is known to verify this, and the provenance string says so.
-
-- **`RDNMI` now auto-clears at the end of vblank.** The flag was cleared only by a read, so it
-  stayed set through the whole active display and code polling `$4210` outside vblank saw a vblank
-  that had already ended and acted a frame late. Found by AccuracySNES `B4.05`.
-
-- **A V-only IRQ no longer re-asserts on every dot of its scanline.** With H-IRQ disabled the
-  horizontal half of the comparator was treated as unconditionally matching, which made
-  `V == VTIME` a *level* held across all 341 dots: acknowledging via `$4211` was undone a few dots
-  later, and a V-only handler saw a storm instead of one interrupt per frame. The comparator is now
-  sampled at a single dot (`VIRQ_TRIGGER_DOT`, the documented `H ~ 2.5`). ares reaches the same
-  behaviour from the other direction — its `irqValid.raise(...)` is an *edge* detector. Found by
-  AccuracySNES `B4.12`, with `B4.08` pinning the firing line.
 
 ## [1.20.0] "Aperture" - 2026-07-15
 
@@ -1291,6 +1287,15 @@ closing several gaps found in a systematic audit against RustyNES's own frontend
   page" section for the full disposition and `to-dos/ROADMAP.md`/the approved UI/UX-parity plan
   for what fixing those three would actually require.
 
+- **A real, separate finding surfaced while scoping the above**: `docs/frontend.md`'s own "Status"
+  line claimed controller port 1 had "keyboard + gilrs gamepad" input, but `gilrs::Gilrs` is never
+  actually instantiated anywhere in `rustysnes-frontend` — confirmed via `input::gamepad_button`
+  (the gilrs-button-name mapping function) having zero callers. Port 1 is keyboard-only today.
+  Corrected the doc; wiring real gamepad support is a genuinely separate, larger prerequisite
+  (a live `Gilrs` instance + per-frame event polling), not something silently expanded into this
+  fix — it's also what blocks Super Multitap sub-pad 1-3 host input specifically, tracked
+  separately in the UI/UX-parity plan's backlog.
+
 ### Added
 
 - **Live host-input capture for Mouse/Super Scope** (Phase A.2 of the UI/UX-parity ladder, new
@@ -1305,19 +1310,6 @@ closing several gaps found in a systematic audit against RustyNES's own frontend
   platform-agnostic, so the hosted demo gets this too. 5 real unit tests cover the pure
   coordinate-mapping math directly (centered/corner/pillarboxed/off-window cases), not just
   "compiles."
-
-### Fixed
-
-- **A real, separate finding surfaced while scoping the above**: `docs/frontend.md`'s own "Status"
-  line claimed controller port 1 had "keyboard + gilrs gamepad" input, but `gilrs::Gilrs` is never
-  actually instantiated anywhere in `rustysnes-frontend` — confirmed via `input::gamepad_button`
-  (the gilrs-button-name mapping function) having zero callers. Port 1 is keyboard-only today.
-  Corrected the doc; wiring real gamepad support is a genuinely separate, larger prerequisite
-  (a live `Gilrs` instance + per-frame event polling), not something silently expanded into this
-  fix — it's also what blocks Super Multitap sub-pad 1-3 host input specifically, tracked
-  separately in the UI/UX-parity plan's backlog.
-
-### Added
 
 - **View → Hide Overscan** (Phase A.3 of the UI/UX-parity ladder). Crops the trailing "overscan"
   scanlines a real 4:3 CRT wouldn't reliably show — the SNES's own `SETINI` register extends the
@@ -2908,7 +2900,8 @@ low-risk, self-contained wins ready ahead of schedule. See `to-dos/VERSION-PLAN.
 **Oracle/golden suites: all held, no regressions.** The full workspace test suite (339 tests
 across 39 suites, including `--features test-roms`), the `no_std` gate, and
 `RUSTDOCFLAGS="-D warnings" cargo doc` are all green. The new `security.yml` gate (`cargo audit`
-+ `cargo deny check`) is also green, its first real end-to-end run.
+
+- `cargo deny check`) is also green, its first real end-to-end run.
 
 This release landed across PRs #33-34, each independently reviewed by Gemini + Copilot,
 human-reviewed, and adjudicated before merge.

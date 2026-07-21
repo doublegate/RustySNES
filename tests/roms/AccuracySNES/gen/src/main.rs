@@ -212,6 +212,11 @@ pub(crate) fn cart_root() -> PathBuf {
 }
 
 fn write(path: &Path, contents: &str) {
+    // Normalise the trailing newline. The emitters end each section with a blank line, which
+    // leaves the file ending in two — a markdownlint MD012 failure on a file nobody edits by hand,
+    // so it can only be fixed here.
+    let contents = format!("{}\n", contents.trim_end_matches('\n'));
+    let contents = contents.as_str();
     std::fs::write(path, contents).unwrap_or_else(|e| panic!("write {}: {e}", path.display()));
 }
 

@@ -207,6 +207,7 @@ the main bus IRQ line; the S-CPU→SA-1 IRQ/NMI drive the second CPU's `poll_irq
 `Coprocessor::Sa1` routes through `board::select` to this board (the base board is never built —
 SA-1 owns its own Super-MMC decode). Tier stays **Curated** and is in the honesty oracle set.
 Validated by the `sa1_oncart` harness gate (18 staged commercial SA-1 carts: per-ROM SA-1 detection
+
 + S-CPU↔SA-1 register traffic, an aggregate "the SA-1 CPU executed millions of cycles" liveness
 floor — Super Mario RPG, both Kirby titles, PGA Tour 96, Power Rangers Zeo, … — and a deterministic
 golden framebuffer) plus board unit tests (decode regions, reset+vector handshake, arithmetic unit,
@@ -234,42 +235,42 @@ as open bus, the game wedges on its first DSP poll — it is never silently degr
 
 ### Per-chip notes (the load-bearing ones)
 
-- **DSP-1** (`Core/Curated`): NEC µPD77C25, Mode-7 3D math; 15+ games (Super Mario Kart,
++ **DSP-1** (`Core/Curated`): NEC µPD77C25, Mode-7 3D math; 15+ games (Super Mario Kart,
   Pilotwings); memory-mapped DR/SR command ports.
-- **Super FX / GSU** (`Core/Curated`, **implemented** — `coproc::gsu` + `coproc::superfx`):
++ **Super FX / GSU** (`Core/Curated`, **implemented** — `coproc::gsu` + `coproc::superfx`):
   Argonaut RISC plotting into bitmap RAM; 10.74 MHz (Mario Chip 1) or 21.47 MHz (CLSR); 32/64/128
   KB cart RAM arbitrated with the SNES CPU (not simultaneous, the snooze-vector/open-bus model);
   runs its program from cart ROM (no chip dump); host-synced on the Go flag; Star Fox, Yoshi's
   Island (GSU-2), Doom. See "The GSU core + the Super FX board" above.
-- **SA-1** (`Core/Curated`): a second 65C816 @ 10.74 MHz — the most complex coprocessor.
++ **SA-1** (`Core/Curated`): a second 65C816 @ 10.74 MHz — the most complex coprocessor.
   Registers $2200–$230E; I-RAM $3000–$37FF; shared BW-RAM (8-bit half-speed, 1-cycle stall per
   access); Character-Conversion DMA + arithmetic unit; ~35 games (Super Mario RPG, Kirby Super
   Star). Reuses the 65C816 core from `rustysnes-cpu`.
-- **RTC chips** (S-RTC, SPC7110's RTC-4513): the **determinism hazard** — HLE backed by
++ **RTC chips** (S-RTC, SPC7110's RTC-4513): the **determinism hazard** — HLE backed by
   **frozen / seeded** host time, never live wall-clock (`docs/adr/0004`). The RTC-4513
   (`coproc::epsonrtc::EpsonRtc`) is implemented as a 3-register (`$4840` chip-select/`$4841`
   data/`$4842` ready) handshake over a 16-nibble register file, seeded to an all-zero epoch and
   never advanced except by explicit register writes.
-- **DSP-2 / DSP-4** (`BestEffort`, **implemented** — `coproc::necdsp_variant`): the same
++ **DSP-2 / DSP-4** (`BestEffort`, **implemented** — `coproc::necdsp_variant`): the same
   µPD77C25 LLE engine as DSP-1, title-detected and wired via `NecDspVariantBoard`. DSP-2 uses the
   generic bit-0 DR/SR split; DSP-4 needed a DSP-1-style half-window-boundary split instead (found
   by tracing a real Top Gear 3000 boot-time hardware check that expects both bytes of a 16-bit
   compare to come from the same port). Validated against real Dungeon Master / Top Gear 3000.
-- **ST010 / ST011** (`BestEffort`, **implemented** — `coproc::necdsp_variant`): the µPD96050 LLE
++ **ST010 / ST011** (`BestEffort`, **implemented** — `coproc::necdsp_variant`): the µPD96050 LLE
   engine (also `coproc::upd77c25`), bit-0 DR/SR split + the DP battery data-RAM window. Validated
   against real F1 ROC II.
-- **S-DD1** (`BestEffort`, **implemented** — `coproc::sdd1`): a Golomb-code + adaptive-binary-
++ **S-DD1** (`BestEffort`, **implemented** — `coproc::sdd1`): a Golomb-code + adaptive-binary-
   probability decompressor that streams during a fixed-address DMA transfer (a new
   `Board::notify_dma_channel` hook lets the cart snoop `$43n2-$43n6` DMA-register writes, since
   `rustysnes-core::Dma` owns those registers directly). No chip dump — decompresses the cart's own
   ROM. Validated against real Star Ocean / Street Fighter Alpha 2.
-- **CX4** (`BestEffort`/`Curated`, **implemented** — `coproc::hg51b` + `coproc::cx4`): a
++ **CX4** (`BestEffort`/`Curated`, **implemented** — `coproc::hg51b` + `coproc::cx4`): a
   clean-room Hitachi HG51B S169 core (sequential mask/value opcode decode transcribed from ares'
   `pattern(...)` strings). No chip dump for the program (runs from cart ROM); only a 3 KiB data-ROM
   constant table (`cx4.rom`) needs external supply. Validated against real Mega Man X2 / X3.
-- **OBC1** (`BestEffort`, **implemented** — `coproc::obc1`): dedicated 8 KiB RAM behind a
++ **OBC1** (`BestEffort`, **implemented** — `coproc::obc1`): dedicated 8 KiB RAM behind a
   reprogrammable cursor register. Validated against real Metal Combat: Falcon's Revenge.
-- **SPC7110** (`BestEffort`, **implemented; the local ROM dump used to test it turned out to be a
++ **SPC7110** (`BestEffort`, **implemented; the local ROM dump used to test it turned out to be a
   fan-translation, not the original cartridge — see below** — `coproc::spc7110`): a decompression unit (Hudson adaptive binary
   range coder over 1/2/4bpp planes), data-port unit, ALU, and memory-control unit (four
   independently-bankable 1 MiB data-ROM windows). Paired with the RTC-4513 above on its one
@@ -330,7 +331,7 @@ as open bus, the game wedges on its first DSP poll — it is never silently degr
   `docs/audit/spc7110-boot-crash-2026-07-08.md`, which every fix above (root cause #1, the DCU/ALU
   timing, the `$40-$7D` mapping, the DROM-size fix, and the systemic open-bus fix) remains a real,
   independently-verified accuracy improvement regardless of this finding.
-- **S-RTC** (`BestEffort`, **implemented** — `coproc::sharprtc`): a standalone Sharp S-RTC
++ **S-RTC** (`BestEffort`, **implemented** — `coproc::sharprtc`): a standalone Sharp S-RTC
   real-time clock (Daikaijuu Monogatari II, an ExHiROM title; ares board
   `EXHIROM-RAM-SHARPRTC`). A DIFFERENT chip/protocol from SPC7110's paired Epson RTC-4513 despite
   the similar name: a 2-register (`$2800` data, `$2801` unused) handshake that walks a 13-slot
@@ -344,7 +345,7 @@ as open bus, the game wedges on its first DSP poll — it is never silently degr
   coverage only, not golden-framebuffer validation (`docs/adr/0003`); header detection is a
   best-effort title match (`"DAIKAIJUU MONOGATARI"` / `"DAIKAIJU MONOGATARI"`), the same posture
   already carried openly for CX4/SPC7110's own `$F`-nibble disambiguation.
-- **ST018** (`BestEffort`, **implemented** — `coproc::armv3`): a full ARMv3 (ARM6-class,
++ **ST018** (`BestEffort`, **implemented** — `coproc::armv3`): a full ARMv3 (ARM6-class,
   pre-Thumb) CPU core, comparable in scope to `rustysnes-cpu`'s 65C816, not a small register-file
   port like this project's other BestEffort coprocessors. Clean-room port of Mesen2's `ArmV3Cpu`
   (`Core/SNES/Coprocessors/ST018/`), chosen over ares' `sfc/coprocessor/armdsp` (which instead
@@ -397,12 +398,12 @@ pub trait Cart {
 
 ## Test plan
 
-- **Memory map / header:** gilyon + undisbeliever ROMs boot under each map model; auto-detect
++ **Memory map / header:** gilyon + undisbeliever ROMs boot under each map model; auto-detect
   picks the right one for the canonical commercial set.
-- **Coprocessors:** Krom/PeterLemon GSU ROMs (reference-only); commercial dumps booted locally
++ **Coprocessors:** Krom/PeterLemon GSU ROMs (reference-only); commercial dumps booted locally
   with committed screenshots / `.snap` only (never the ROM — `tests/roms/external/` is
   gitignored). Tier each board and assert the honesty gate (`docs/adr/0003`).
-- **Super FX (`superfx_oncart`, feature `test-roms`):** boots the staged Krom GSU test ROMs
++ **Super FX (`superfx_oncart`, feature `test-roms`):** boots the staged Krom GSU test ROMs
   (`tests/roms/external/krom/CHIP/GSU/`, CC0/homebrew, gitignored) — the `2/4/8 bpp`
   PlotPixel/PlotLine/FillPoly demos + the per-instruction `GSUTest` suite — on the full System and
   asserts (a) `Coprocessor::SuperFx` detection, (b) the GSU actually executed its program out of
@@ -414,7 +415,7 @@ pub trait Cart {
   and (d) a deterministic committed golden framebuffer hash. A 4 bpp `FillPoly` polygon also
   reaches the framebuffer; full PPU BG-mode coverage for 2/8 bpp is a PPU concern. The GSU
   instruction set is additionally exercised by the `GSUTest` per-opcode ROMs.
-- **DSP-1 (`dsp1_oncart`, feature `test-roms`):** boots the staged DSP-1 dumps on the full System
++ **DSP-1 (`dsp1_oncart`, feature `test-roms`):** boots the staged DSP-1 dumps on the full System
   with the user-supplied (gitignored) `dsp1*.rom`, asserting (a) `Coprocessor::Dsp` detection, (b)
   a non-zero RQM-handshake access count on **both** the LoROM (Pilotwings) and HiROM (Super Mario
   Kart) windows — only possible if the window is mapped right *and* the µPD77C25 returns RQM, (c)
@@ -424,6 +425,6 @@ pub trait Cart {
 
 ## Open questions
 
-- Per-board SRAM / coprocessor bus windows (no canonical table) — Phase 4 build-out.
-- DSP nominal clock range (~7.6–8 MHz) — gated by test ROMs, not the number
++ Per-board SRAM / coprocessor bus windows (no canonical table) — Phase 4 build-out.
++ DSP nominal clock range (~7.6–8 MHz) — gated by test ROMs, not the number
   (`ref-docs/2026-06-24-coprocessors.md` "Flagged discrepancies").

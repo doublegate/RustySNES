@@ -507,9 +507,9 @@ access-cost table or the scheduler's speed map.
 
 Two specific traps:
 
-* **H-IRQ must keep comparing against a uniform `4 x HTIME`.** ares, bsnes and Mesen2 all do, and
+- **H-IRQ must keep comparing against a uniform `4 x HTIME`.** ares, bsnes and Mesen2 all do, and
   Mesen2's source says why. "Correcting" the IRQ path with the long-dot table would be a new bug.
-* Both long dots sit at H >= 323, deep in hblank — **outside the visible window (dots 22-277) and
+- Both long dots sit at H >= 323, deep in hblank — **outside the visible window (dots 22-277) and
   after hblank start (274) and the HDMA run dot (276)**. Dots `0..322` are already bit-exact. So
   this fix should change **no rendered pixel and no HDMA timing**; if it does, something else moved.
 
@@ -577,10 +577,10 @@ related or may not.
    targets past the end of the line never fire. Two consequences the plan must settle *before* any
    code is written:
 
-   * Changing `DOTS_PER_LINE` from 341 to 340 **changes which `HTIME` values can fire at all** —
+   - Changing `DOTS_PER_LINE` from 341 to 340 **changes which `HTIME` values can fire at all** —
      the suppression boundary moves by one dot. That is a behaviour change to interrupt delivery,
      not a bookkeeping change, and it is not covered by "no rendered scene moves".
-   * With long dots, "dot number == target" and "master clock == `4 x HTIME`" are **no longer the
+   - With long dots, "dot number == target" and "master clock == `4 x HTIME`" are **no longer the
      same instant** for any target above 323, because `h` now dwells 6 clocks at 323 and 327. The
      references deliberately compare in the clock domain. So either `HIRQ_TRIGGER_DELAY` absorbs
      the difference, or H-IRQ needs its own uniform counter — and which of those is right depends
@@ -680,14 +680,14 @@ related or may not.
 **ATTEMPTED 2026-07-21 — it builds, the battery stays green, and it moves one framebuffer
 golden.** The full change was implemented and then reverted; what it established:
 
-* **It is implementable as specified.** `Ppu::short_line()`, `Ppu::dot_clocks(h)` and
+- **It is implementable as specified.** `Ppu::short_line()`, `Ppu::dot_clocks(h)` and
   `Ppu::clock_to_dot(clock)` drop in cleanly; `advance_master` queries the per-dot length from the
   **pre-tick** dot; `DOTS_PER_LINE` goes to 340; and the H-IRQ target becomes
   `clock_to_dot(4 * HTIME + 14)`. One correction to the plan: `interlace` lives on the `Io` struct
   (`self.io.interlace`), not directly on `Ppu`.
-* **Everything cheap stays green.** `rustysnes-core`/`-cpu`/`-ppu` unit tests (159), and the
+- **Everything cheap stays green.** `rustysnes-core`/`-cpu`/`-ppu` unit tests (159), and the
   AccuracySNES battery at 242/242 scoring.
-* **`hdmaen_latch_test_2` changes.** Its framebuffer hash moves
+- **`hdmaen_latch_test_2` changes.** Its framebuffer hash moves
   (`0x1a189dc89e5f4525` -> `0xd8aca8cd47b57f25`). That test exists because HDMA is run at
   `RENDER_DOT` = 276 specifically so a mid-line `$420C` write latches on the hardware-correct
   scanline — so it is sensitive to line-boundary placement, and renumbering the line from 341 dots

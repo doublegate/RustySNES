@@ -17,6 +17,7 @@
 @/home/parobek/.claude/master-core/modules/95-named-pattern-library.md
 
 <<< MC-PROJECT-START >>>
+
 ## Project: RustySNES
 
 A cycle-accurate Super Nintendo / Super Famicom emulator in Rust at the Mesen2 / ares / higan bar.
@@ -148,4 +149,3 @@ commercial ROMs** (only derived screenshots/hashes); never `--all-features`. Rus
 engine-lineage" anchors are NOT this project's releases.
 
 <<< MC-PROJECT-END >>>
-

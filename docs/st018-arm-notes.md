@@ -31,7 +31,7 @@ scope to port.
 
 From `ref-proj/bsnes/bsnes/target-bsnes/resource/system/boards.bml`, `board: ARM-LOROM-RAM`:
 
-```
+```text
 board: ARM-LOROM-RAM
   memory type=ROM content=Program
     map address=00-7d,80-ff:8000-ffff mask=0x8000

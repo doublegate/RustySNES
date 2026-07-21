@@ -384,10 +384,10 @@ shipping.
 
 So nothing is asserted and nothing is recorded. What is known:
 
-* the ordering of the `$4201` write relative to the flag-clearing `$213F` read changes the answer,
+- the ordering of the `$4201` write relative to the flag-clearing `$213F` read changes the answer,
   which means any future test has to fix that ordering explicitly and say why;
-* RustySNES latches unconditionally at the `Bus` level, whatever the cart reports;
-* an on-cart probe of this needs a **measurement slot that is genuinely free**. The first probe used
+- RustySNES latches unconditionally at the `Bus` level, whatever the cart reports;
+- an on-cart probe of this needs a **measurement slot that is genuinely free**. The first probe used
   slot 112, which another test already owns, so the value read back belonged to that test — the
   hazard `runtime.inc` warns about, encountered live.
 
@@ -427,9 +427,9 @@ figure is close to *one CPU cycle per byte* where the documentation says seven.
 
 Two readings, and the work is to tell them apart:
 
-* both cores genuinely under-charge `MVN`, which would be a significant shared timing defect and
+- both cores genuinely under-charge `MVN`, which would be a significant shared timing defect and
   exactly what this row exists to catch; or
-* the H-counter harness cannot measure a **single long instruction**. Every other `A5` test measures
+- the H-counter harness cannot measure a **single long instruction**. Every other `A5` test measures
   eight short instructions between `measure_begin` and `measure_end`; this is the first to put one
   multi-hundred-clock instruction inside that window, and the latch mechanics it depends on are the
   same `$2137`/`$213F` machinery that `C3.05` above could not pin down either.
@@ -464,14 +464,14 @@ finding instead of an artifact.
 
 Consequences worth carrying forward:
 
-* **The `A5` tests that exist are unaffected**, and it is worth stating the invariant that makes
+- **The `A5` tests that exist are unaffected**, and it is worth stating the invariant that makes
   them safe rather than a count. Each measures a short unrolled run — fifteen of them repeat an
   instruction eight times and three repeat one sixteen times — and the property that matters is that
   the *window* stays well below the 341-dot wrap, not the number of instructions in it. Sixteen
   two-cycle instructions is 48 dots; the largest of them is nowhere near the cap. Anything added
   later has to be checked against the wrap, not against these counts: **the safe quantity is the
   measured span, and there is no guard on it.**
-* **The wider instrument now exists and is validated.** `hv_begin_wide` / `hv_end_wide` in
+- **The wider instrument now exists and is validated.** `hv_begin_wide` / `hv_end_wide` in
   `runtime.s` latch H and V together and count dots from the top of the field, so a span may cross
   line boundaries. Getting there took four separate bugs, and every one of them produced
   plausible-looking numbers rather than an error:
@@ -496,7 +496,7 @@ Consequences worth carrying forward:
 
   Validated against a known quantity before being trusted: `NOP` spins come back linear at **3.5
   dots each**, exactly one 8-clock ROM fetch plus one 6-clock internal cycle.
-* **`A5.20` is measurable but not yet settled.** Through the fixed instrument, `MVN` costs
+- **`A5.20` is measurable but not yet settled.** Through the fixed instrument, `MVN` costs
   **13.42 and 13.39 dots per byte** across two independent size pairings — agreeing to 0.2%, where
   the narrow instrument had produced 326 and 327 dots for moves differing by 24 bytes. snes9x and
   Mesen2 both put the 120-byte difference at exactly **1610 dots**.
@@ -519,12 +519,12 @@ Consequences worth carrying forward:
   Twenty dots over 24 bytes is an order of magnitude more than the instrument can account for, so
   this is not an artifact. Two things fall out of the numbers besides:
 
-  * **RustySNES measures 52.0 clocks a byte**, and its `block_move` implements exactly that —
+  - **RustySNES measures 52.0 clocks a byte**, and its `block_move` implements exactly that —
     opcode and two operand bytes re-fetched from SlowROM, one WRAM read, one WRAM write (5 × 8)
     plus two internal cycles (2 × 6). The agreement is within the measurement's ±1 dot, which over
     24 bytes is ±0.17 clocks a byte, not "to the clock"; what it supports is that the core is
     implementing one particular decomposition of "7 cycles" rather than drifting.
-  * **The cross-core gap scales with the byte count**, which is itself evidence that it is
+  - **The cross-core gap scales with the byte count**, which is itself evidence that it is
     per-byte rather than fixed: 10 dots at 8 bytes, 30 at 32. (That is not an independent check on
     the difference method — subtraction removes an additive term by construction — but a constant
     implementation difference would have shown the same gap at both sizes, and it does not.)
@@ -578,16 +578,16 @@ Consequences worth carrying forward:
 
   Three things follow, and they retire the rest of this entry:
 
-  * **The 20-dot gap was not stable.** Alignment A is the reading every conclusion above was built
+  - **The 20-dot gap was not stable.** Alignment A is the reading every conclusion above was built
     on, and it does not reproduce. snes9x moved 10 dots and Mesen2 moved 10 the other way, purely
     from filling a WRAM region and adding three `NOP`s. The claim that "twenty dots is an order of
     magnitude more than the instrument can account for, so this is not an artifact" is **wrong**;
     the instrument accounts for it easily.
-  * **The stable reading is 2-vs-1 the other way.** At both reproducible alignments the two
+  - **The stable reading is 2-vs-1 the other way.** At both reproducible alignments the two
     independent references agree at **322** and RustySNES sits alone at **312**. By this
     repository's own diagnostic rule that is the signature of a RustySNES defect, not a reference
     one — the opposite of what alignment A suggested.
-  * **The dot domain cannot answer the question.** RustySNES advances the H counter uniformly at
+  - **The dot domain cannot answer the question.** RustySNES advances the H counter uniformly at
     4 clocks a dot (`crates/rustysnes-core/src/bus.rs`: *"long-dot remainder folded into the
     1364/1360/1368 line"*), so its dot count is exactly clocks/4 and is alignment-independent by
     construction. The references model the per-dot irregularity, so their dot counts are not a
@@ -601,20 +601,20 @@ Consequences worth carrying forward:
   reason: a test that cannot distinguish "the core is wrong" from "the instrument is wrong" asserts
   nothing. What it leaves behind is worth more than the row would have been:
 
-  * **A candidate RustySNES defect with a mechanism**: dot lengths are uniform where hardware and
+  - **A candidate RustySNES defect with a mechanism**: dot lengths are uniform where hardware and
     both references make dots 323/327 irregular. That is a PPU/bus timing gap, not a `MVN` gap, and
     it would explain the whole two-week saga — the block-move instruction may never have been the
     subject. Worth a ticket in its own right.
-  * **ares decomposes the seven cycles** where the documentation does not.
+  - **ares decomposes the seven cycles** where the documentation does not.
     `instructionBlockMove8`/`16` are two operand `fetch`es, one `read`, one `write`, two `idle`s
     and the opcode re-fetched each iteration (`PC.w -= 3`) — **5 bus accesses + 2 internal**,
     i.e. 52 clocks, which is what RustySNES implements. So the sources' silence is fillable from
     implementations, and a future clock-domain test would have something to assert against.
-  * **A method note**: any future timing row must be measured at two or more code alignments before
+  - **A method note**: any future timing row must be measured at two or more code alignments before
     it is believed. One alignment produced a confident, reproducible, and entirely wrong answer
     three times running here.
 
-* The earlier `MVN` "finding" is retired regardless: 13 dots was the difference of two wrapped
+- The earlier `MVN` "finding" is retired regardless: 13 dots was the difference of two wrapped
   readings.
 
 Nothing is shipped either way. A test that cannot distinguish "the core is wrong" from "the
@@ -653,11 +653,11 @@ already read across banks through it — `lda $00FFFF,X` with `X = $8006` reache
 
 So `A4.04`/`A4.05` need only two of those reserved bytes in each of two banks:
 
-* put a pointer to `@landed` at `$00:8008` (in `SIG0`) and one to `@carried` at `$01:8008` (in
+- put a pointer to `@landed` at `$00:8008` (in `SIG0`) and one to `@carried` at `$01:8008` (in
   `BANK1`);
-* `ldx #$800A`, so `$FFFE + X` wraps to `$8008` in the program bank and carries to `$01:8008`
+- `ldx #$800A`, so `$FFFE + X` wraps to `$8008` in the program bank and carries to `$01:8008`
   otherwise;
-* both outcomes then land somewhere controlled and report which happened, instead of one of them
+- both outcomes then land somewhere controlled and report which happened, instead of one of them
   jumping into arbitrary ROM.
 
 That also fixes the flaw that withdrew `A4.06`/`A4.08`: the wrapped and carried addresses now differ
@@ -773,7 +773,6 @@ since these two were measured at different alignments and `A5.20` showed alignme
 The rate differences are small (2 and 4 clocks an access), so this row needs a tighter instrument
 than the ones it has been given, not a better probe.
 
-
 ### `A6.15` — "all 256 opcodes defined" is a table-extension job, not a test
 
 The 65816 has no illegal opcodes: all 256 encodings are defined, and only `STP` halts. What a core
@@ -854,10 +853,10 @@ transfer, so the window has to be short and positioned by a calibration pass.
 
 From two probes on the **same** line:
 
-* **`D2.01`** — the bracket. `boundary_late == boundary_early + 1` means exactly one transfer
+- **`D2.01`** — the bracket. `boundary_late == boundary_early + 1` means exactly one transfer
   happened between the two observations; combined with the latched dots straddling 274 and 282,
   that places the transfer inside hblank without naming 276 or 278.
-* **`D2.08`** — the ±1. The same boundary arithmetic, comparing a channel armed in vblank against
+- **`D2.08`** — the ±1. The same boundary arithmetic, comparing a channel armed in vblank against
   one armed mid-frame, answers which line the channel started on **without counting to the end of
   the frame** — which is what let `D2.09`'s missing mid-frame init swallow the previous attempt.
 

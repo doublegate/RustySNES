@@ -198,6 +198,7 @@ bug — fixing the RAM-ownership gap has zero measurable effect on this regressi
 prototype-patched code paths run in the same test binary and be diffed instruction-for-instruction;
 the instrumentation itself was not landed, per this project's "build it, use it, delete it"
 diagnostic discipline):
+
 - **The `$4016`/`$4017` joypad-read open-bus blend** (`read_cpu_reg`'s `(self.open_bus & mask) |
   ...` arms) — only 1 total access across a 30-frame run of the smallest failing ROM
   (`GSU2BPP256x128PlotPixel.sfc`), no divergence at that single access. Not the mechanism.
@@ -379,6 +380,8 @@ once. Found by AccuracySNES **B4.12**; **B4.08** pins the firing line.
 > corroborated externally (ares' edge detector; Mesen2 and snes9x both pass B4.08/B4.12, which
 > RustySNES failed before the fix). A golden that tracked an external oracle would mean the
 > opposite: that the change was wrong.
+
+---
 
 > **On `hdmaen_latch_test` (ROM 1) determinism.** undisbeliever documents `hdmaen_latch_test.sfc`
 > as *not a stable test* — its exact bands differ on every power-cycle on real hardware, because

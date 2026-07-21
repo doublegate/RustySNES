@@ -1,5 +1,8 @@
 ref-docs/
 ref-proj/
+# Reference dumps, same rule as ref-docs/: transcribed upstream material that is cited rather than
+# authored here, so reformatting it to house style would break the citation and gain nothing.
+raw/
 docs/archive/
 to-dos/archive/
 target/

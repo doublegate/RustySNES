@@ -2092,31 +2092,20 @@ fn a8_06() -> Test {
     )
 }
 
-/// `MVN` is interruptible mid-block: an NMI during a long block move resumes it correctly.
+/// The register-preserving, invocation-counting NMI handler `A8.06` uses.
 ///
-/// A block move is a loop *inside a single opcode* — it decrements `A` and rewinds `PC` by 3 until
-/// the count exhausts. Hardware takes interrupts between iterations, and the pushed `PC` points at
-/// the `MVN` itself, so `RTI` re-enters it and the remaining bytes copy. A core that treats the
-/// whole move as atomic delays the interrupt; one that resumes with a corrupted count copies the
-/// wrong number of bytes.
+/// Two details are load-bearing rather than hygiene, and both cost a debugging round when they were
+/// missing:
 ///
-/// # Why this needs the NMI runtime, and both halves pinned
-///
-/// This is the row the NMI vector wiring was built for: nothing else in the battery generates a
-/// real interrupt mid-instruction. The handler counts its invocations, and **that count is half
-/// the assertion** — checking only that the block copied correctly would be vacuous, because a
-/// core where the NMI never fires at all copies it correctly too. That is the same trap `D2.07`
-/// carries and the one that withdrew `A4.06`.
-///
-/// The move is **8192 bytes**, which at roughly 52 clocks a byte is about 426,000 master clocks —
-/// longer than one 357,368-clock frame, so a VBlank NMI must land inside it. Only three source
-/// bytes are seeded and three destination bytes checked (first, middle, **last**); the last is the
-/// one that matters, because a core that loses its place on resumption finishes short and only the
-/// tail shows it.
-fn a8_07() -> Test {
-    let mut a = Asm::new();
-    a.c("The NMI handler counts invocations and acknowledges RDNMI.");
-    a.l("bra @body");
+/// * **`A`/`X`/`Y` are preserved.** `RTI` restores `P`, `PC` and `PBR` — not the registers — and a
+///   block move keeps its remaining count in `A` and its offsets in `X`/`Y`. A handler that
+///   clobbers them makes the move resume wrong, which reads exactly like the resume-short defect
+///   `A8.06` exists to detect.
+/// * **`$4210` is read long.** `MVN` sets `DBR` to its destination bank while it runs, so an
+///   interrupt taken mid-move enters here with `DBR = $7F`; absolute `lda $4210` would read WRAM
+///   instead of acknowledging `RDNMI`, the NMI line would stay asserted, and the handler would
+///   re-enter until the move starved.
+fn emit_nmi_counting_handler(a: &mut Asm) {
     a.label("nmi");
     a.c("Preserve A/X/Y. RTI restores P, PC and PBR — NOT the registers — and for THIS test that");
     a.c("is load-bearing rather than hygiene: MVN keeps its remaining byte count in A and its");
@@ -2146,6 +2135,34 @@ fn a8_07() -> Test {
     a.l("plx");
     a.l("pla");
     a.l("rti");
+}
+
+/// `MVN` is interruptible mid-block: an NMI during a long block move resumes it correctly.
+///
+/// A block move is a loop *inside a single opcode* — it decrements `A` and rewinds `PC` by 3 until
+/// the count exhausts. Hardware takes interrupts between iterations, and the pushed `PC` points at
+/// the `MVN` itself, so `RTI` re-enters it and the remaining bytes copy. A core that treats the
+/// whole move as atomic delays the interrupt; one that resumes with a corrupted count copies the
+/// wrong number of bytes.
+///
+/// # Why this needs the NMI runtime, and both halves pinned
+///
+/// This is the row the NMI vector wiring was built for: nothing else in the battery generates a
+/// real interrupt mid-instruction. The handler counts its invocations, and **that count is half
+/// the assertion** — checking only that the block copied correctly would be vacuous, because a
+/// core where the NMI never fires at all copies it correctly too. That is the same trap `D2.07`
+/// carries and the one that withdrew `A4.06`.
+///
+/// The move is **8192 bytes**, which at roughly 52 clocks a byte is about 426,000 master clocks —
+/// longer than one 357,368-clock frame, so a `VBlank` NMI must land inside it. Only three source
+/// bytes are seeded and three destination bytes checked (first, middle, **last**); the last is the
+/// one that matters, because a core that loses its place on resumption finishes short and only the
+/// tail shows it.
+fn a8_07() -> Test {
+    let mut a = Asm::new();
+    a.c("The NMI handler counts invocations and acknowledges RDNMI.");
+    a.l("bra @body");
+    emit_nmi_counting_handler(&mut a);
     a.label("body");
     a.l("rep #$30");
     a.l("phk");
