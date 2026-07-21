@@ -637,8 +637,34 @@ behaviour it claims from the broken alternative — and it survived local runs, 
 references and both images, because *every* implementation passes it. Cross-validation cannot catch
 a test that is vacuous; only reading it can.
 
-**What a real test needs.** The wrapped and carried addresses must land in memory that actually
-differs between banks `$00` and `$01`. Below `$2000` is shared WRAM and `$2000-$7FFF` is I/O and
+**Correction, 2026-07-21: the mechanism already exists and this was never blocked.** The paragraph
+below said a discriminating test needs a ROM-resident pointer placed at link time, and called that a
+linker-layout change. **The linker layout already does this, deliberately, and says so.**
+`lorom.cfg`'s own header comment:
+
+> *"several 65816 addressing tests must distinguish 'the effective address wrapped within bank
+> `$00`' from 'it crossed into bank `$01`'. Inside a 32 KiB image every bank mirrors the same data,
+> so the two outcomes are indistinguishable and the test proves nothing. With four distinct 32 KiB
+> LoROM banks, each carries its own signature byte and the difference is observable."*
+
+`runtime.s` places a 16-byte signature block at every bank's `$xx:8000` (`SIG0`/`BANK1`/`BANK2`/
+`BANK3`), each holding `"SIGn", $00, $An` followed by **ten reserved `$00` bytes**. Existing tests
+already read across banks through it — `lda $00FFFF,X` with `X = $8006` reaches `$01:8005`.
+
+So `A4.04`/`A4.05` need only two of those reserved bytes in each of two banks:
+
+* put a pointer to `@landed` at `$00:8008` (in `SIG0`) and one to `@carried` at `$01:8008` (in
+  `BANK1`);
+* `ldx #$800A`, so `$FFFE + X` wraps to `$8008` in the program bank and carries to `$01:8008`
+  otherwise;
+* both outcomes then land somewhere controlled and report which happened, instead of one of them
+  jumping into arbitrary ROM.
+
+That also fixes the flaw that withdrew `A4.06`/`A4.08`: the wrapped and carried addresses now differ
+in content by construction, because the banks are not mirrors. **Reopened as unblocked.**
+
+**What a real test needs (superseded).** The wrapped and carried addresses must land in memory that
+actually differs between banks `$00` and `$01`. Below `$2000` is shared WRAM and `$2000-$7FFF` is I/O and
 open bus, mirrored identically across `$00-$3F` — so the only discriminating region is
 `$8000-$FFFF`, which is ROM, and different ROM in each bank. That means the pointer has to be
 **ROM-resident and placed at a known address at link time**, not written into WRAM at run time. It
