@@ -831,6 +831,49 @@ So it ships as a golden vector reporting `(latched H - HTIME)` in 4-dot buckets:
 stable across alignment, fine enough that a core waking a scanline late announces itself. Both cores
 report variant 5. Asserting "1 cycle" from this would be measuring the instrument.
 
+### The remaining Group D rows, and what the research decided for each
+
+`D2.07`, `D1.14`, `D1.11` and `D1.08` are shipped. The four left, with the outcome the plan's
+decision rule fixes in advance so the result cannot be rationalised afterwards:
+
+**`D1.12` — CPU timing before DMA start: GOLDEN, not scored.** The delay is not a constant. anomie:
+one more CPU cycle after the `$420B` write (6/8/12 clocks, set by the *next* access's speed), then
+2-8 clocks aligning to a multiple of 8, then 8 clocks whole-transfer overhead, then 8 per channel.
+Mesen2 (`SnesDmaController.cpp:206-211`, quoting anomie verbatim in a comment), ares
+(`sfc/cpu/timing.cpp:120-128`) and bsnes implement exactly that — but all three are downstream of
+the same document, so they are **not independent corroboration**. The cited game is *Mighty Morphin
+Power Rangers – The Fighting Edge* (*"CPU doesn't run an extra cycle before starting DMA"*). Record
+the measured aggregate; assert nothing. Also blocked in practice until `T-06-A`: the aggregate is a
+clock-domain quantity and the cart reads dots.
+
+**`D2.01` — HDMA init position: BRACKET, not an exact dot.** The two source families disagree by a
+definitional gap. fullsnes and anomie say init at `V=0, H=6` and the per-line transfer at **dot
+278**; ares (`hdmaSetupPosition = 12 + dmaCounter()`, `status.hdmaPosition = 1104`), bsnes and
+Mesen2 (`_nextEventClock = 276 * 4`) all say **dot 276** and 12-19 master clocks for init. The gap
+is trigger-versus-first-bus-activity and **no source states that reconciliation** — it is inference.
+So assert a bracket (the transfer lands after hblank start at 274 and before 282) plus the cleanly
+sourced parts: init happens once per frame at `V=0`, transfers occur on visible lines `0..224` or
+`0..239` per `$2133` bit 3. Do **not** build on fullsnes' mid-frame-HDMA-start case, which it marks
+*"may need more research, and isn't yet accurately emulated in no$sns"*. ares and bsnes also make
+the init position CPU-revision-dependent (`12 + 8 - dmaCounter()` on version 1); that variant is
+**code-only, no doc found**.
+
+**`D1.13` — DMA reads update open bus, writes never do: needs a different instrument.** `D1.08`
+established the hazard the hard way: open bus on this machine tracks recent CPU fetches, so its
+content is core-specific and moves with the surrounding code. Mesen2 returned `$A9` and `$C2` —
+instruction opcodes — where RustySNES and snes9x returned a stable value. A row *about* open bus
+therefore cannot be asserted by reading open bus and comparing; it needs a probe whose expected
+value is fixed by something other than the bus history, and no such probe is obvious. Left
+unwritten deliberately rather than attempted a fourth way.
+
+**`D2.08` — `$420C` mid-frame starts the channel next line: writable, needs line-resolution.** The
+difference between "starts this line" and "starts next line" is exactly one HDMA transfer, so the
+test must count transfers to a resolution of one. That is doable with a repeat-mode table into an
+auto-incrementing `$2180` destination — the final `WMADD` counts the writes directly — but it needs
+the enable to land at a *known* scanline, which the cart can only arrange by synchronising against
+`$213D` first. Straightforward, and not attempted here only for want of room to verify it by
+injection.
+
 ### `D2.07` — HDMA preempts GP-DMA: design, and why the obvious test is vacuous
 
 `D2.07` says HDMA preempts a general-purpose DMA, which pauses and then resumes. The obvious test —
