@@ -469,6 +469,14 @@ Provenance: **Documented** (WDC 65C816 datasheet; 6502.org 65c816opcodes decimal
 | 3 | `$06` | SED: $79 + $79 did not give $58, so the BCD addition itself is wrong |
 | 4 | `$08` | N was set after a decimal $79 + $79 = $58, so the flags describe the binary sum $F2 |
 
+### A6.10 — Emulation COP vector
+
+Provenance: **Documented** (WDC 65C816 datasheet, vector table; SNESdev Wiki vectors). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | COP in emulation mode did not vector through $FFF4 — the $B0 marker means it took the native table's $FFE4 instead, and $00 means it reached neither handler |
+
 ## Group C
 
 ### C1.01 — OAM word write/read

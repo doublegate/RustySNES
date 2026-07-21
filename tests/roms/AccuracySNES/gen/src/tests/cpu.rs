@@ -80,6 +80,7 @@ pub fn all() -> Vec<Test> {
         a9_04(),
         a2_11(),
         a7_05(),
+        a6_10(),
     ]
 }
 
@@ -2295,6 +2296,80 @@ fn a7_05() -> Test {
         'A',
         "N/Z valid in decimal",
         Provenance::Documented("WDC 65C816 datasheet; 6502.org 65c816opcodes decimal notes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Emulation mode uses its **own** vector table: `COP` goes through `$FFF4`, not `$FFE4`.
+///
+/// The two tables sit sixteen bytes apart and a core that keeps one set of vectors, or that picks
+/// the table from something other than the E flag, lands in the wrong handler. Nothing about that
+/// is visible in ordinary code — a game's `COP` handler is usually the same routine either way —
+/// which is exactly why it survives.
+///
+/// **The cart could not see it either until this test**: `$FFE4` and `$FFF4` both pointed at the
+/// same trampoline, so a core taking the native vector in emulation mode ran the same handler and
+/// passed. The runtime now gives the emulation vectors their own trampolines and their own RAM
+/// pointers, which is what makes the two distinguishable at all.
+///
+/// Both handlers are installed and both are live, so a core that takes the wrong table does not
+/// hang or fault: it runs the *other* handler, writes the other marker, and the failure says which
+/// vector it used. A test whose only failure mode is a crash reports nothing.
+fn a6_10() -> Test {
+    let mut a = Asm::new();
+    a.l("jmp @start");
+    a.c("Both handlers run in EMULATION mode, so ca65 has to be told the registers are 8 bits");
+    a.c("wide here. Without it the test body's own `.a16` state is still in force, `lda #$E0`");
+    a.c("assembles as three bytes, the CPU takes two, and the third ($00) is executed as a BRK.");
+    a.c("The first draft of this test did exactly that and reported neither handler.");
+    a.l(".a8");
+    a.l(".i8");
+    a.c("The emulation handler: the one that must run. RTI here is an emulation-mode RTI, pulling");
+    a.c("three bytes, which is correct because the interrupt was taken in emulation mode.");
+    a.label("handler_e");
+    a.l("lda #$E0");
+    a.l("sta f:$7E0094");
+    a.l("rti");
+    a.c("And the native handler, installed and reachable, so taking the wrong table is a wrong");
+    a.c("ANSWER rather than a hang. It is entered in emulation mode too — the mode is decided by");
+    a.c(
+        "the COP, not by which vector was used — so its RTI returns just as cleanly; the marker it",
+    );
+    a.c("leaves behind is the whole of its job.");
+    a.label("handler_n");
+    a.l("lda #$B0");
+    a.l("sta f:$7E0094");
+    a.l("rti");
+    a.l(".a16");
+    a.l(".i16");
+    a.label("start");
+    a.l("rep #$30");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta f:$7E0094");
+    a.l("rep #$30");
+    a.l("lda #.LOWORD(@handler_e)");
+    a.l("sta a:V_COP_VEC_E   ; reached through $FFF4");
+    a.l("lda #.LOWORD(@handler_n)");
+    a.l("sta a:V_COP_VEC     ; reached through $FFE4 — the wrong one from emulation mode");
+    a.enter_emulation();
+    a.c("Raw bytes rather than `cop #$00`: ca65 2.19, which CI installs, rejects the immediate");
+    a.c("form as an illegal addressing mode. See A6.02.");
+    a.l(".byte $02, $00    ; cop #$00");
+    a.enter_native();
+    a.l("rep #$30");
+    a.assert_mem8(
+        0x7E_0094,
+        0xE0,
+        "COP in emulation mode did not vector through $FFF4 — the $B0 marker means it took the \
+         native table's $FFE4 instead, and $00 means it reached neither handler",
+    );
+    a.finish(
+        "A6.10",
+        'A',
+        "Emulation COP vector",
+        Provenance::Documented("WDC 65C816 datasheet, vector table; SNESdev Wiki vectors"),
         Kind::Scored,
         None,
     )

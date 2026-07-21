@@ -3164,6 +3164,84 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A6.10 — Emulation COP vector
+; provenance: Documented (WDC 65C816 datasheet, vector table; SNESdev Wiki vectors)
+.proc test_a6_10
+    .a16
+    .i16
+    jmp @start
+    ; Both handlers run in EMULATION mode, so ca65 has to be told the registers are 8 bits
+    ; wide here. Without it the test body's own `.a16` state is still in force, `lda #$E0`
+    ; assembles as three bytes, the CPU takes two, and the third ($00) is executed as a BRK.
+    ; The first draft of this test did exactly that and reported neither handler.
+    .a8
+    .i8
+    ; The emulation handler: the one that must run. RTI here is an emulation-mode RTI, pulling
+    ; three bytes, which is correct because the interrupt was taken in emulation mode.
+@handler_e:
+    lda #$E0
+    sta f:$7E0094
+    rti
+    ; And the native handler, installed and reachable, so taking the wrong table is a wrong
+    ; ANSWER rather than a hang. It is entered in emulation mode too — the mode is decided by
+    ; the COP, not by which vector was used — so its RTI returns just as cleanly; the marker it
+    ; leaves behind is the whole of its job.
+@handler_n:
+    lda #$B0
+    sta f:$7E0094
+    rti
+    .a16
+    .i16
+@start:
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0094
+    rep #$30
+    .a16
+    .i16
+    lda #.LOWORD(@handler_e)
+    sta a:V_COP_VEC_E   ; reached through $FFF4
+    lda #.LOWORD(@handler_n)
+    sta a:V_COP_VEC     ; reached through $FFE4 — the wrong one from emulation mode
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+    ; Raw bytes rather than `cop #$00`: ca65 2.19, which CI installs, rejects the immediate
+    ; form as an illegal addressing mode. See A6.02.
+    .byte $02, $00    ; cop #$00
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda f:$7E0094
+    cmp #$E0
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; COP in emulation mode did not vector through $FFF4 — the $B0 marker means it took the native table's $FFE4 instead, and $00 means it reached neither handler
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C1.01 — OAM word write/read
 ; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
 .proc test_c1_01
@@ -19593,7 +19671,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 233
+    .word 234
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -19653,6 +19731,7 @@ _test_entries:
     .faraddr test_a9_04
     .faraddr test_a2_11
     .faraddr test_a7_05
+    .faraddr test_a6_10
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -19889,6 +19968,7 @@ _test_flags:
     .byte $01   ; A9.04
     .byte $01   ; A2.11
     .byte $01   ; A7.05
+    .byte $01   ; A6.10
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -20125,6 +20205,7 @@ _test_names:
     .addr @n_a9_04
     .addr @n_a2_11
     .addr @n_a7_05
+    .addr @n_a6_10
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -20470,6 +20551,9 @@ _test_names:
 @n_a7_05:
     .byte 20
     .byte "N/Z valid in decimal"
+@n_a6_10:
+    .byte 20
+    .byte "Emulation COP vector"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"

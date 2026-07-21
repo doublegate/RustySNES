@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Emulation mode uses its own vector table (`A6.02`).** `COP` goes through `$FFF4`, sixteen bytes
+  from the native `$FFE4`, and a core that keeps one set of vectors — or picks the table from
+  something other than the E flag — lands in the wrong handler. Nothing about that is visible in
+  ordinary code, since a game's `COP` handler is usually the same routine either way.
+
+  **The cart could not see it either.** Both vectors pointed at the same trampoline, so a core taking
+  the native table in emulation mode ran the same handler and passed. The runtime now gives the
+  emulation `COP` vector its own trampoline and its own RAM pointer, which is what makes the two
+  distinguishable at all. Both handlers are installed and live, so taking the wrong table is a wrong
+  answer rather than a hang, and the failure code says which vector was used.
+
+  `BRK` deliberately does not get the same treatment: in emulation, `$FFFE` is shared between `IRQ`
+  and `BRK`, so a pointer behind it could not mean "the BRK handler" unambiguously, and splitting it
+  would invent a distinction the machine does not have.
+
 - **`(dp,X)`'s pointer fetch wraps inside bank `$00`, and `N`/`Z` are valid in decimal (`A2.09`,
   `A7.04`).** The pointer fetch is a separate piece of code in most cores and is the one place the
   `d,X` no-bank-crossing rule is easy to forget, because it happens before the mode looks like an
