@@ -66,6 +66,7 @@ pub fn all() -> Vec<Test> {
         c11_06b(),
         // --- C7: sprite evaluation flags (the only Group C tests that render) ---
         c7_01(),
+        c7_04(),
         c7_02(),
         c7_08(),
         // --- access windows and frame geometry, also requiring a rendered frame ---
@@ -1781,6 +1782,12 @@ fn c11_06b() -> Test {
 /// non-cheap label, and a test that renders twice has none in between, so the second expansion
 /// would redefine the first's labels.
 ///
+/// `high_fill` is the byte written to every one of the high table's 32 entries. Zero puts every
+/// sprite's X bit 8 clear and every size bit at the pair's small option, which is what most callers
+/// want; `$55` sets bit 0 of all four sprites in each entry, putting the whole table at `X = $100`.
+/// `high_table` then overwrites the first two entries if a caller needs the leading sprites
+/// different from the rest.
+///
 /// **Register width contract: returns with `A` 8-bit and `X`/`Y` 16-bit**, holding the sampled
 /// `$213E`. See [`enter_active_display`] for why this is documented rather than left implicit.
 fn setup_and_render(
@@ -1790,6 +1797,7 @@ fn setup_and_render(
     on_line: u16,
     high_table: Option<(u8, u8)>,
     obj_on_main: bool,
+    high_fill: u8,
 ) {
     a.l("sep #$20");
     a.l(&format!("lda #${obsel:02X}"));
@@ -1824,7 +1832,7 @@ fn setup_and_render(
     a.l("sta $2103         ; OAMADDR = word $100, the high table");
     a.l("ldx #$0000");
     a.label(&format!("hi_{tag}"));
-    a.l("lda #$00");
+    a.l(&format!("lda #${high_fill:02X}"));
     a.l("sta $2104");
     a.l("inx");
     a.l("cpx #$0020");
@@ -1859,6 +1867,64 @@ fn setup_and_render(
     a.l("pla");
 }
 
+/// A sprite at `X = $100` is entirely off-screen and still consumes its range slot.
+///
+/// The X field is nine bits signed, so `$100` is `-256`: an 8x8 sprite there sits a full screen
+/// width to the left of the display and cannot contribute a single pixel. Sprite evaluation does
+/// not care. It walks OAM by Y coordinate alone, and a sprite whose Y puts it on the current
+/// scanline takes one of the 32 range slots whatever its X says — which is why a driver that parks
+/// unused sprites off-screen *horizontally* still loses them to Range Over, and why the convention
+/// is to park them below the visible area instead.
+///
+/// | phase | sprites on the line | `X` | Range Over |
+/// |---|---:|---|---|
+/// | 1 | 2 | `$100` | clear — the guard |
+/// | 2 | 40 | `$100` | **set** — they were counted despite being invisible |
+///
+/// # The guard is the same configuration with fewer sprites
+///
+/// Phase 2 alone cannot distinguish "off-screen sprites are counted" from "the flag is stuck set",
+/// and a stuck flag is a real failure mode: `$213E` is cleared by reading it, so a core that clears
+/// at the wrong moment leaves it set from a previous test. Phase 1 uses the identical off-screen X
+/// and the identical everything else, differing only in how many sprites are on the line — so the
+/// two readings between them isolate the count as the sole cause.
+///
+/// The whole high table is filled with `$55`, which sets bit 0 — X bit 8 — for all four sprites in
+/// each entry. Setting it only for the leading sprites would leave the parked ones at `X = 0`,
+/// where they are on-screen but harmless, and the test would then be about a mixture rather than
+/// about off-screen sprites.
+fn c7_04() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("--- 2 sprites, all the way off-screen to the left: nothing to overflow ---");
+    setup_and_render(&mut a, "a", 0x00, 2, None, true, 0x55);
+    a.l("and #$40");
+    a.assert_a8(
+        0x00,
+        "Range Over was already set with only 2 sprites on the scanline, so the flag is stuck and          phase 2 below would report it as a count",
+    );
+    a.c("--- 40 of them, in exactly the same place: invisible, and still over the limit ---");
+    a.l("rep #$30");
+    setup_and_render(&mut a, "b", 0x00, 40, None, true, 0x55);
+    a.l("and #$40");
+    a.assert_a8(
+        0x40,
+        "Range Over did not set with 40 sprites on one scanline at X = $100, so evaluation is          skipping sprites it judges off-screen — a driver parking unused sprites to the left would          see more of them survive than hardware allows",
+    );
+    a.finish(
+        "C7.04",
+        'C',
+        "Offscreen X takes a slot",
+        Provenance::Documented(
+            "fullsnes and the SNESdev Wiki: sprite range evaluation selects on Y alone, so a              sprite at X = $100 occupies a range slot despite being entirely off-screen",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
 /// Range Over (`$213E` bit 6) sets when more than 32 sprites fall on one scanline, and only then.
 ///
 /// The negative half matters as much as the positive one: a core that simply never clears the flag
@@ -1869,12 +1935,12 @@ fn c7_01() -> Test {
     a.l("phk");
     a.l("plb");
     a.c("--- 2 sprites on the line: well under the limit, flag must stay clear ---");
-    setup_and_render(&mut a, "a", 0x00, 2, None, true);
+    setup_and_render(&mut a, "a", 0x00, 2, None, true, 0x00);
     a.l("and #$40");
     a.assert_a8(0x00, "Range Over set with only 2 sprites on the scanline");
     a.c("--- 40 sprites on the line: over the 32-sprite limit ---");
     a.l("rep #$30");
-    setup_and_render(&mut a, "b", 0x00, 40, None, true);
+    setup_and_render(&mut a, "b", 0x00, 40, None, true, 0x00);
     a.l("and #$40");
     a.assert_a8(
         0x40,
@@ -1904,7 +1970,7 @@ fn c7_02() -> Test {
     a.l("rep #$30");
     a.l("phk");
     a.l("plb");
-    setup_and_render(&mut a, "a", 0x40, 5, Some((0xAA, 0x02)), true);
+    setup_and_render(&mut a, "a", 0x40, 5, Some((0xAA, 0x02)), true, 0x00);
     a.l("pha");
     a.l("and #$80");
     a.assert_a8(0x80, "Time Over did not set for 40 slivers from 5 sprites");
@@ -1936,7 +2002,7 @@ fn c7_08() -> Test {
     a.l("rep #$30");
     a.l("phk");
     a.l("plb");
-    setup_and_render(&mut a, "a", 0x00, 40, None, false);
+    setup_and_render(&mut a, "a", 0x00, 40, None, false, 0x00);
     a.l("and #$40");
     a.assert_a8(
         0x40,

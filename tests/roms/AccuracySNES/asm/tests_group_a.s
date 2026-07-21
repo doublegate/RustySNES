@@ -25322,6 +25322,158 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; C7.04 — Offscreen X takes a slot
+; provenance: Documented (fullsnes and the SNESdev Wiki: sprite range evaluation selects on Y alone, so a              sprite at X = $100 occupies a range slot despite being entirely off-screen)
+.proc test_c7_04
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; --- 2 sprites, all the way off-screen to the left: nothing to overflow ---
+    sep #$20
+    .a8
+    lda #$00
+    sta $2101         ; OBJSEL: size pair in bits 7-5, name base in bits 1-0
+    ; --- low table: `on_line` sprites on one scanline, the rest parked off-screen ---
+    stz $2102
+    stz $2103
+    rep #$10
+    .i16
+    ldx #$0000
+@fill_a:
+    lda #$00
+    sta $2104         ; X = 0
+    cpx #$0002
+    bcs @off_a
+    lda #100
+    bra @sety_a
+@off_a:
+    lda #$F0          ; below the visible area in 224-line mode
+@sety_a:
+    sta $2104         ; Y
+    lda #$00
+    sta $2104         ; tile
+    lda #$00
+    sta $2104         ; attr
+    inx
+    cpx #$0080
+    bne @fill_a
+    ; --- high table: 32 bytes, 2 bits per sprite (bit 0 = X bit 8, bit 1 = size select) ---
+    lda #$00
+    sta $2102
+    lda #$01
+    sta $2103         ; OAMADDR = word $100, the high table
+    ldx #$0000
+@hi_a:
+    lda #$55
+    sta $2104
+    inx
+    cpx #$0020
+    bne @hi_a
+    ; --- render one complete frame, then sample and restore forced blank ---
+    lda #$10
+    sta $212C         ; OBJ on the main screen
+    lda #$0F
+    sta $2100         ; brightness 15, forced blank released
+    jsl wait_vblank_far   ; land on a vblank boundary
+    jsl wait_vblank_far   ; span one complete active period
+    lda $213E
+    pha
+    lda #$8F
+    sta $2100         ; forced blank again, as the rest of the battery expects
+    stz $212C
+    pla
+    and #$40
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    ; --- 40 of them, in exactly the same place: invisible, and still over the limit ---
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$00
+    sta $2101         ; OBJSEL: size pair in bits 7-5, name base in bits 1-0
+    ; --- low table: `on_line` sprites on one scanline, the rest parked off-screen ---
+    stz $2102
+    stz $2103
+    rep #$10
+    .i16
+    ldx #$0000
+@fill_b:
+    lda #$00
+    sta $2104         ; X = 0
+    cpx #$0028
+    bcs @off_b
+    lda #100
+    bra @sety_b
+@off_b:
+    lda #$F0          ; below the visible area in 224-line mode
+@sety_b:
+    sta $2104         ; Y
+    lda #$00
+    sta $2104         ; tile
+    lda #$00
+    sta $2104         ; attr
+    inx
+    cpx #$0080
+    bne @fill_b
+    ; --- high table: 32 bytes, 2 bits per sprite (bit 0 = X bit 8, bit 1 = size select) ---
+    lda #$00
+    sta $2102
+    lda #$01
+    sta $2103         ; OAMADDR = word $100, the high table
+    ldx #$0000
+@hi_b:
+    lda #$55
+    sta $2104
+    inx
+    cpx #$0020
+    bne @hi_b
+    ; --- render one complete frame, then sample and restore forced blank ---
+    lda #$10
+    sta $212C         ; OBJ on the main screen
+    lda #$0F
+    sta $2100         ; brightness 15, forced blank released
+    jsl wait_vblank_far   ; land on a vblank boundary
+    jsl wait_vblank_far   ; span one complete active period
+    lda $213E
+    pha
+    lda #$8F
+    sta $2100         ; forced blank again, as the rest of the battery expects
+    stz $212C
+    pla
+    and #$40
+    cmp #$40
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; Range Over was already set with only 2 sprites on the scanline, so the flag is stuck and          phase 2 below would report it as a count
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; Range Over did not set with 40 sprites on one scanline at X = $100, so evaluation is          skipping sprites it judges off-screen — a driver parking unused sprites to the left would          see more of them survive than hardware allows
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C7.02 — Time Over is slivers
 ; provenance: Documented (SNESdev Wiki, Sprites; fullsnes; anomie)
 .proc test_c7_02
@@ -29117,7 +29269,7 @@ apu_prog_102:
 .export _test_flags
 
 _test_count:
-    .word 304
+    .word 305
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -29232,6 +29384,7 @@ _test_entries:
     .faraddr test_c11_06
     .faraddr test_c11_06b
     .faraddr test_c7_01
+    .faraddr test_c7_04
     .faraddr test_c7_02
     .faraddr test_c7_08
     .faraddr test_c2_11
@@ -29539,6 +29692,7 @@ _test_flags:
     .byte $01   ; C11.06
     .byte $01   ; C11.06b
     .byte $01   ; C7.01
+    .byte $01   ; C7.04
     .byte $01   ; C7.02
     .byte $01   ; C7.08
     .byte $01   ; C2.11
@@ -29846,6 +30000,7 @@ _test_names:
     .addr @n_c11_06
     .addr @n_c11_06b
     .addr @n_c7_01
+    .addr @n_c7_04
     .addr @n_c7_02
     .addr @n_c7_08
     .addr @n_c2_11
@@ -30372,6 +30527,9 @@ _test_names:
 @n_c7_01:
     .byte 24
     .byte "Range Over at 32 sprites"
+@n_c7_04:
+    .byte 24
+    .byte "Offscreen X takes a slot"
 @n_c7_02:
     .byte 20
     .byte "Time Over is slivers"

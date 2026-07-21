@@ -1212,6 +1212,15 @@ Provenance: **Documented** (SNESdev Wiki, Sprites; fullsnes). Kind: scored.
 | 1 | `$02` | Range Over set with only 2 sprites on the scanline |
 | 2 | `$04` | Range Over did not set with 40 sprites on one scanline |
 
+### C7.04 — Offscreen X takes a slot
+
+Provenance: **Documented** (fullsnes and the SNESdev Wiki: sprite range evaluation selects on Y alone, so a              sprite at X = $100 occupies a range slot despite being entirely off-screen). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | Range Over was already set with only 2 sprites on the scanline, so the flag is stuck and          phase 2 below would report it as a count |
+| 2 | `$04` | Range Over did not set with 40 sprites on one scanline at X = $100, so evaluation is          skipping sprites it judges off-screen — a driver parking unused sprites to the left would          see more of them survive than hardware allows |
+
 ### C7.02 — Time Over is slivers
 
 Provenance: **Documented** (SNESdev Wiki, Sprites; fullsnes; anomie). Kind: scored.

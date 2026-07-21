@@ -575,6 +575,17 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`C7.04` — does a sprite at `X = $100` still consume a range slot?** The X field is nine bits
+  signed, so `$100` is `-256`: an 8x8 sprite there sits a full screen width to the left and cannot
+  contribute a pixel. Sprite evaluation does not care — it selects on Y alone, which is why parking
+  unused sprites off-screen *horizontally* still loses them to Range Over and why the convention is
+  to park them below the visible area instead. Two phases in the identical configuration, differing
+  only in how many sprites share the line: 2 leaves Range Over clear, 40 sets it. The guard matters
+  because a stuck flag is a real failure mode — `$213E` clears on read, so a core that clears at the
+  wrong moment carries it in from an earlier test. Verified by making evaluation skip sprites at
+  `X >= 256`, which fails the test. `setup_and_render` gains a `high_fill` byte so the whole high
+  table can be put at `X = $100` rather than just the leading sprites.
+
 - **`E9.15` — does the per-voice mix saturate after each addition?** Two voices each near the
   positive limit come out *at* the limit, not at their arithmetic sum reinterpreted as a negative
   number. The mix is not readable, so `EON` routes both voices into the echo buffer — ordinary APU
