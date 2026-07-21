@@ -73,6 +73,7 @@ pub fn all() -> Vec<Test> {
         c2_10(),
         c1_06(),
         c9_04(),
+        c9_05(),
     ]
 }
 
@@ -2022,6 +2023,223 @@ fn c1_06() -> Test {
         Kind::Scored,
         None,
     )
+}
+
+/// Does enabling overscan mid-vblank re-close the VRAM window? The references split.
+///
+/// With overscan off the active display is 224 lines, so line 230 sits in vblank and the VRAM port
+/// is open. Setting `$2133` bit 2 makes the display 239 lines, and line 230 is then *inside* it. If
+/// the port's open/closed state is recomputed from the live height, the window shuts immediately
+/// and a write issued after the toggle is dropped as though rendering had never stopped. The
+/// dossier records this as "setting too late leaves VRAM locked as if still rendering".
+///
+/// # The measured answer
+///
+/// | core | write after the toggle | so the window state is |
+/// |---|---|---|
+/// | RustySNES | dropped | recomputed from the live height |
+/// | snes9x | dropped | recomputed from the live height |
+/// | Mesen2 | **landed** | latched when vblank began |
+///
+/// One reference each way, which is `Contested` under ADR 0003 and therefore recorded rather than
+/// scored. The dossier's own repro cannot break the tie: it is `STA $2118 / LDA $2133 / STA $2133 /
+/// STA $2118`, and `$2133` is **write-only**, so the `LDA` returns open bus and the `STA` writes it
+/// back — which bits moved is not knowable from the sequence, and the row does not say which
+/// direction the height changed either.
+///
+/// # The first version of this test was vacuous, and that is why the guard exists
+///
+/// The battery runs its tests under **forced blank**, which opens the VRAM port unconditionally,
+/// regardless of line or screen height. The original test never released it, so both writes landed
+/// on all three cores and it read as unanimous agreement that the window stays open. They were
+/// agreeing about nothing — the port was never shut, so no write could be dropped by anything, and
+/// the real split above was completely hidden.
+///
+/// Cross-validation cannot catch that: a vacuous test passes identically everywhere, which is
+/// exactly what agreement looks like. What catches it is a **guard proving the mechanism is
+/// armed** — the test releases forced blank, writes to a third word from the middle of active
+/// display, and requires *that* write to be dropped. If it lands, the port is open for an unrelated
+/// reason and the test reports itself unarmed instead of reporting a result.
+///
+/// # What is recorded
+///
+/// Three words, seeded to a value none of the writes produce:
+///
+/// | word | written from | expected | meaning |
+/// |---|---|---|---|
+/// | `$1302` | active display, line 100 | `$AAAA` | the guard: the port really does close |
+/// | `$1300` | line 230, overscan off | `$2211` | the control: the port really is open there |
+/// | `$1301` | line 230, overscan just enabled | either | the observation |
+///
+/// The address is set once and the port's own increment carries it from `$1300` to `$1301`, so the
+/// second write cannot land somewhere harmless by accident. Line 230 is reached by spinning on the
+/// V counter rather than by counting cycles.
+fn c9_05() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    c9_05_seed_and_arm(&mut a);
+    a.c("--- guard: a write from the middle of active display must be dropped ---");
+    spin_to_line(&mut a, 100, "c905g");
+    a.l("rep #$30");
+    a.l("ldx #$1302");
+    a.l("stx $2116");
+    a.l("lda #$5566");
+    a.l("sta $2118         ; line 100 is inside the picture; this must not land");
+    a.c("--- the experiment, on a line that is in vblank until the toggle moves the height ---");
+    spin_to_line(&mut a, 230, "c905");
+    a.l("rep #$30");
+    a.l("ldx #$1300");
+    a.l("stx $2116");
+    a.l("lda #$2211");
+    a.l("sta $2118         ; lands, and the port's increment carries the address to $1301");
+    a.l("sep #$20");
+    a.l("lda #$04");
+    a.l("sta $2133         ; overscan on: line 230 is now inside a 239-line active display");
+    a.l("rep #$30");
+    a.l("lda #$4433");
+    a.l("sta $2118         ; dropped only if the window re-closed under it");
+    a.c("Restore the height and the blank before reading anything back.");
+    a.l("sep #$20");
+    a.l("stz $2133");
+    a.l("lda #$8F");
+    a.l("sta $2100");
+    a.l("jsl wait_vblank_far");
+    c9_05_readback(&mut a);
+    c9_05_verdict(&mut a);
+    a.finish(
+        "C9.05",
+        'C',
+        "Mid-frame overscan lock",
+        Provenance::Contested(
+            "RustySNES and snes9x re-close the VRAM window on a mid-frame overscan enable and \
+             Mesen2 does not, so the references split one each way; the dossier's repro cannot \
+             break the tie because it read-modify-writes the write-only $2133",
+        ),
+        Kind::Golden,
+        None,
+    )
+}
+
+/// Emit [`c9_05`]'s setup: seed the three words under forced blank, then release it.
+///
+/// The release is the load-bearing line. Forced blank opens the VRAM port unconditionally, so
+/// without it every write in this test lands no matter what the screen height is doing.
+fn c9_05_seed_and_arm(a: &mut Asm) {
+    a.c("Seed under forced blank, where the port is open by definition.");
+    a.l("sep #$20");
+    a.l("lda #$8F");
+    a.l("sta $2100         ; forced blank");
+    a.l("stz $2133         ; overscan off: 224 visible lines");
+    a.l("lda #$80");
+    a.l("sta $2115         ; VMAIN: +1 word, increment on the high byte");
+    a.l("rep #$30");
+    a.l("ldx #$1300");
+    a.l("stx $2116");
+    a.l("lda #$AAAA");
+    a.l("sta $2118");
+    a.l("sta $2118");
+    a.l("sta $2118         ; words $1300, $1301 and $1302 all $AAAA");
+    a.c("Release forced blank -- without this the port is open everywhere and the whole test is");
+    a.c("vacuous, which is exactly how the first version of it failed.");
+    a.l("sep #$20");
+    a.l("lda #$0F");
+    a.l("sta $2100");
+    a.l("jsl wait_vblank_far");
+    a.l("jsl wait_vblank_far   ; a settled frame at the 224-line height");
+}
+
+/// Emit [`c9_05`]'s readback of the three words, into WRAM and the measurement channel.
+fn c9_05_readback(a: &mut Asm) {
+    a.c("Read all three back through the prefetch, the way C2.03 pins.");
+    a.l("rep #$30");
+    a.l("ldx #$1302");
+    a.l("stx $2116");
+    a.l("lda $2139");
+    a.l("sta f:$7E0184");
+    a.record(
+        83,
+        "C9.05 guard word $1302, written from active display ($AAAA = dropped)",
+    );
+    a.l("ldx #$1300");
+    a.l("stx $2116");
+    a.l("lda $2139");
+    a.l("sta f:$7E0180");
+    a.record(
+        81,
+        "C9.05 word $1300, written before the toggle ($2211 = landed)",
+    );
+    a.l("ldx #$1301");
+    a.l("stx $2116");
+    a.l("lda $2139");
+    a.l("sta f:$7E0182");
+    a.record(
+        82,
+        "C9.05 word $1301, written after the toggle ($AAAA = dropped)",
+    );
+}
+
+/// Emit [`c9_05`]'s verdict: guard, then control, then the observation.
+///
+/// The order matters. Either of the first two failing means the port was not behaving as this test
+/// needs it to, and the third reading is then not evidence of anything — so each gets its own
+/// variant rather than being folded in with a real result.
+fn c9_05_verdict(a: &mut Asm) {
+    a.c("The guard first. If active-display writes are landing, the port is open for a reason");
+    a.c("that has nothing to do with overscan and no reading below is evidence.");
+    a.l("lda f:$7E0184");
+    a.l("cmp #$AAAA");
+    a.l("beq :+");
+    a.l("sep #$20");
+    a.l("lda #$09          ; variant 4 = the port never closed; the test is not armed");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("rep #$30");
+    a.l("lda f:$7E0180");
+    a.l("cmp #$2211");
+    a.l("beq :+");
+    a.l("sep #$20");
+    a.l("lda #$07          ; variant 3 = the control did not land; inconclusive");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("rep #$30");
+    a.l("lda f:$7E0182");
+    a.l("cmp #$AAAA");
+    a.l("bne :+");
+    a.l("sep #$20");
+    a.l("lda #$05          ; variant 2 = dropped: the window re-closed (RustySNES, snes9x)");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l(":");
+    a.l("sep #$20");
+    a.l("lda #$03          ; variant 1 = landed: the window stayed open (Mesen2)");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+}
+
+/// Emit a spin until the V counter reads `line`.
+///
+/// `tag` disambiguates the cheap-local label, which is proc-scoped. The loop costs far less than a
+/// scanline per iteration, so it cannot step over the line it is waiting for.
+fn spin_to_line(a: &mut Asm, line: u16, tag: &str) {
+    a.c(&format!("Spin until V = {line}."));
+    a.l("sep #$20");
+    a.label(&format!("wl{tag}"));
+    a.l("lda $213F         ; reset the counter read flipflops");
+    a.l("lda $2137         ; latch H and V");
+    a.l("lda $213D         ; V low");
+    a.l("xba");
+    a.l("lda $213D");
+    a.l("and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus");
+    a.l("xba");
+    a.l("rep #$20");
+    a.l("and #$01FF");
+    a.l(&format!("cmp #{line}"));
+    a.l("sep #$20");
+    a.l(&format!("bne @wl{tag}"));
 }
 
 /// Overscan moves the start of vblank from line 225 to line 240.

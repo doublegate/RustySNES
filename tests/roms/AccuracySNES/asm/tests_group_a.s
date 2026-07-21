@@ -21034,6 +21034,173 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; C9.05 — Mid-frame overscan lock
+; provenance: Contested (RustySNES and snes9x re-close the VRAM window on a mid-frame overscan enable and Mesen2 does not, so the references split one each way; the dossier's repro cannot break the tie because it read-modify-writes the write-only $2133)
+.proc test_c9_05
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Seed under forced blank, where the port is open by definition.
+    sep #$20
+    .a8
+    lda #$8F
+    sta $2100         ; forced blank
+    stz $2133         ; overscan off: 224 visible lines
+    lda #$80
+    sta $2115         ; VMAIN: +1 word, increment on the high byte
+    rep #$30
+    .a16
+    .i16
+    ldx #$1300
+    stx $2116
+    lda #$AAAA
+    sta $2118
+    sta $2118
+    sta $2118         ; words $1300, $1301 and $1302 all $AAAA
+    ; Release forced blank -- without this the port is open everywhere and the whole test is
+    ; vacuous, which is exactly how the first version of it failed.
+    sep #$20
+    .a8
+    lda #$0F
+    sta $2100
+    jsl wait_vblank_far
+    jsl wait_vblank_far   ; a settled frame at the 224-line height
+    ; --- guard: a write from the middle of active display must be dropped ---
+    ; Spin until V = 100.
+    sep #$20
+    .a8
+@wlc905g:
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp #100
+    sep #$20
+    .a8
+    bne @wlc905g
+    rep #$30
+    .a16
+    .i16
+    ldx #$1302
+    stx $2116
+    lda #$5566
+    sta $2118         ; line 100 is inside the picture; this must not land
+    ; --- the experiment, on a line that is in vblank until the toggle moves the height ---
+    ; Spin until V = 230.
+    sep #$20
+    .a8
+@wlc905:
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp #230
+    sep #$20
+    .a8
+    bne @wlc905
+    rep #$30
+    .a16
+    .i16
+    ldx #$1300
+    stx $2116
+    lda #$2211
+    sta $2118         ; lands, and the port's increment carries the address to $1301
+    sep #$20
+    .a8
+    lda #$04
+    sta $2133         ; overscan on: line 230 is now inside a 239-line active display
+    rep #$30
+    .a16
+    .i16
+    lda #$4433
+    sta $2118         ; dropped only if the window re-closed under it
+    ; Restore the height and the blank before reading anything back.
+    sep #$20
+    .a8
+    stz $2133
+    lda #$8F
+    sta $2100
+    jsl wait_vblank_far
+    ; Read all three back through the prefetch, the way C2.03 pins.
+    rep #$30
+    .a16
+    .i16
+    ldx #$1302
+    stx $2116
+    lda $2139
+    sta f:$7E0184
+    ; record slot 83: C9.05 guard word $1302, written from active display ($AAAA = dropped)
+    sta f:$7EE2A6
+    ldx #$1300
+    stx $2116
+    lda $2139
+    sta f:$7E0180
+    ; record slot 81: C9.05 word $1300, written before the toggle ($2211 = landed)
+    sta f:$7EE2A2
+    ldx #$1301
+    stx $2116
+    lda $2139
+    sta f:$7E0182
+    ; record slot 82: C9.05 word $1301, written after the toggle ($AAAA = dropped)
+    sta f:$7EE2A4
+    ; The guard first. If active-display writes are landing, the port is open for a reason
+    ; that has nothing to do with overscan and no reading below is evidence.
+    lda f:$7E0184
+    cmp #$AAAA
+    beq :+
+    sep #$20
+    .a8
+    lda #$09          ; variant 4 = the port never closed; the test is not armed
+    sta f:$7EE010
+    jml test_restore
+    :
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0180
+    cmp #$2211
+    beq :+
+    sep #$20
+    .a8
+    lda #$07          ; variant 3 = the control did not land; inconclusive
+    sta f:$7EE010
+    jml test_restore
+    :
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0182
+    cmp #$AAAA
+    bne :+
+    sep #$20
+    .a8
+    lda #$05          ; variant 2 = dropped: the window re-closed (RustySNES, snes9x)
+    sta f:$7EE010
+    jml test_restore
+    :
+    sep #$20
+    .a8
+    lda #$03          ; variant 1 = landed: the window stayed open (Mesen2)
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 .segment "TESTSG"
 
 ; G1.02 — Reset: $4210/$4211 clear
@@ -22391,7 +22558,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 266
+    .word 267
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -22512,6 +22679,7 @@ _test_entries:
     .faraddr test_c2_10
     .faraddr test_c1_06
     .faraddr test_c9_04
+    .faraddr test_c9_05
     .faraddr test_b1_01
     .faraddr test_b1_02
     .faraddr test_b2_04
@@ -22781,6 +22949,7 @@ _test_flags:
     .byte $01   ; C2.10
     .byte $01   ; C1.06
     .byte $01   ; C9.04
+    .byte $02   ; C9.05
     .byte $01   ; B1.01
     .byte $01   ; B1.02
     .byte $01   ; B2.04
@@ -23050,6 +23219,7 @@ _test_names:
     .addr @n_c2_10
     .addr @n_c1_06
     .addr @n_c9_04
+    .addr @n_c9_05
     .addr @n_b1_01
     .addr @n_b1_02
     .addr @n_b2_04
@@ -23550,6 +23720,9 @@ _test_names:
 @n_c9_04:
     .byte 21
     .byte "Overscan moves vblank"
+@n_c9_05:
+    .byte 23
+    .byte "Mid-frame overscan lock"
 @n_b1_01:
     .byte 22
     .byte "MEMSEL selects FastROM"

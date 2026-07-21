@@ -1264,6 +1264,12 @@ Provenance: **Documented** (SNESdev Wiki, Timing; fullsnes). Kind: scored.
 | 1 | `$02` | vblank did not begin near line 225 without overscan |
 | 2 | `$04` | overscan did not move the start of vblank to line 240 |
 
+### C9.05 — Mid-frame overscan lock
+
+Provenance: **Contested** (RustySNES and snes9x re-close the VRAM window on a mid-frame overscan enable and Mesen2 does not, so the references split one each way; the dossier's repro cannot break the tie because it read-modify-writes the write-only $2133). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
 ## Group B
 
 ### B1.01 — MEMSEL selects FastROM

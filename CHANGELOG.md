@@ -541,6 +541,25 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`C9.05` — does enabling overscan mid-vblank re-close the VRAM window?** A **golden vector**,
+  because the references split: RustySNES and snes9x drop a write issued just after the toggle,
+  Mesen2 lets it land. One reference each way is `Contested` under ADR 0003, and the dossier's own
+  repro cannot break the tie — it read-modify-writes the **write-only** `$2133`, so which bits moved
+  is unknowable from it, and the row does not fix which direction the height changed.
+
+  **The first version of this test was vacuous, and cross-validation certified it.** The battery
+  runs its tests under forced blank, which opens the VRAM port unconditionally regardless of line or
+  screen height. The test never released it, so both writes landed on all three cores — and that
+  read as unanimous agreement that the window stays open. It was unanimous agreement about nothing:
+  no write could be dropped by anything, and the real split was completely hidden. A vacuous test
+  passes identically everywhere, which is exactly what agreement looks like.
+
+  What catches it is a guard that proves the mechanism is armed. The test now releases forced blank
+  and writes a third word from the middle of active display, requiring *that* write to be dropped;
+  if it lands, the test reports itself unarmed rather than reporting a result. With the guard in
+  place the same cart, unchanged in every other respect, immediately produced the opposite reading —
+  which is the whole argument for the guard.
+
 - **`B4.11` — no IRQ triggers for dot 153 on the last scanline of a frame.** A **golden vector**.
   superfamicom.org's timing page states the exception outright and gives no mechanism; its timing
   text derives from fullsnes, so what reads like two sources is one, and no test ROM verifies it.

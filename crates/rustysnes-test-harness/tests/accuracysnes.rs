@@ -792,3 +792,33 @@ fn dot_153_exception_is_reported() {
          {ctl_dot}). Without both, a silent dot-153 reading is just an HV-IRQ that never works"
     );
 }
+
+/// `C9.05`'s two VRAM words, reported for cross-emulator comparison.
+///
+/// Slot 81 is the control — the write issued before the overscan toggle, which must read back as
+/// `$2211` or nothing below means anything. Slot 82 is the word under test: `$AAAA` means the
+/// window re-closed and the write was dropped, `$4433` means it stayed open.
+#[test]
+fn overscan_vram_window_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+
+    let (control, under_test, guard) = (report.meas[81], report.meas[82], report.meas[83]);
+    println!("\n  C9.05 mid-frame overscan and the VRAM window:");
+    println!("    slot 83  {guard:#06x}  guard: written from active display (0xaaaa = dropped)");
+    println!("    slot 81  {control:#06x}  before the toggle (expect 0x2211)");
+    println!("    slot 82  {under_test:#06x}  after the toggle (0xaaaa = dropped)");
+
+    assert_eq!(
+        guard, 0xaaaa,
+        "a VRAM write from the middle of active display landed, so the port is open for a reason \
+         unrelated to overscan and neither reading below is evidence. This is the exact failure \
+         the first version of this test shipped with: forced blank was still on, so nothing could \
+         ever be dropped and all three cores agreed about nothing"
+    );
+    assert_eq!(
+        control, 0x2211,
+        "the write issued before the overscan toggle did not land, so the port was shut for an \
+         unrelated reason and the reading below is not evidence"
+    );
+}
