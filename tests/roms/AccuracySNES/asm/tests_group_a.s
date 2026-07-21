@@ -3296,6 +3296,530 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A1.08 — CLC/XCE is a no-op
+; provenance: Documented (WDC datasheet: XCE exchanges carry and E, nothing else)
+.proc test_a1_08
+    .a16
+    .i16
+    ; Plant distinguishable 16-bit values in all three registers, then execute the no-op XCE.
+    rep #$30
+    .a16
+    .i16
+    lda #$1234
+    ldx #$5678
+    ldy #$9ABC
+    clc
+    xce               ; C=0 in, E=0 out: nothing should change
+    ; Stash A before the status check, because reading P costs a PLA into the accumulator. A
+    ; core that truncated A to its low byte would otherwise be invisible: the PLA overwrites
+    ; the evidence before anything compares it.
+    sta f:$7E0094
+    ; Widths next: if m or x were disturbed the comparisons below would be 8-bit and could
+    ; pass on the low byte alone.
+    php
+    sep #$20
+    .a8
+    pla
+    ; Keep bit 0: the carry is half of what XCE exchanges, so discarding it would let a core
+    ; that leaves C set pass a test whose entire claim is that nothing changed.
+    and #$31
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0094
+    cmp #$1234
+    beq :+
+    jmp @fail2
+  :
+    cpx #$5678
+    beq :+
+    jmp @fail3
+  :
+    cpy #$9ABC
+    beq :+
+    jmp @fail4
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; CLC/XCE in native mode disturbed the m/x width bits or the carry
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; CLC/XCE in native mode disturbed A
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; CLC/XCE in native mode disturbed X
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+@fail4:
+    ; CLC/XCE in native mode disturbed Y
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A1.09 — REP cannot widen in E=1
+; provenance: Documented (WDC datasheet; SNESdev Errata, 65C816 section)
+.proc test_a1_09
+    .a16
+    .i16
+    ; Enter emulation, attempt to widen both registers, then leave.
+    rep #$30
+    .a16
+    .i16
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+    rep #$30           ; must be ignored: E=1 pins m=x=1
+    .a16
+    .i16
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    ; Native again. If REP had taken effect, m and x would now be 0.
+    php
+    pla
+    and #$30
+    cmp #$30
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; REP #$30 cleared m/x while E=1
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A8.05 — MVN index wrap
+; provenance: Documented (WDC datasheet: the block-move indices are bank offsets)
+.proc test_a8_05
+    .a16
+    .i16
+    ; X starts at the top of the source bank, Y in the middle of the destination bank.
+    rep #$30
+    .a16
+    .i16
+    ldx #$FFFF
+    ldy #$1000
+    lda #$0001        ; count-1: two bytes moved
+    mvn #$7E,#$7E    ; literal bank numbers; `mvn $7E,$7E` would mean bank $00
+    phk
+    plb               ; MVN left DBR = $7E
+    cpx #$0001
+    beq :+
+    jmp @fail1
+  :
+    cpy #$1002
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; X did not wrap inside the source bank
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; Y did not advance independently of X
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A1.10 — PLP cannot widen in E=1
+; provenance: Documented (WDC datasheet: m/x are forced while E=1, whatever writes P)
+.proc test_a1_10
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+    ; Pull a P with m/x clear (bits 5 and 4) but I still set.
+    lda #$04
+    pha
+    plp               ; must not widen anything: E=1 pins m=x=1
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    php
+    pla
+    and #$30
+    cmp #$30
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; PLP cleared m/x while E=1
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A4.07 — JML [a] 24-bit dest
+; provenance: Documented (WDC datasheet; SNESdev Errata, 65C816 section)
+.proc test_a4_07
+    .a16
+    .i16
+    ; Build a 24-bit pointer at $00:1000 (low WRAM mirror): offset = @landed, bank = $80.
+    rep #$30
+    .a16
+    .i16
+    lda #.LOWORD(@landed)
+    sta f:$7E1000
+    sep #$20
+    .a8
+    lda #$80
+    sta f:$7E1002
+    jml [$1000]
+@landed:
+    ; PHK reports the bank actually being executed from.
+    phk
+    pla
+    cmp #$80
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; JML [a] ignored the pointer's bank byte
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A2.12 — [dp],Y bank carry
+; provenance: Documented (SNESdev Errata, 65C816 section; anomie's addressing notes)
+.proc test_a2_12
+    .a16
+    .i16
+    ; $7F:0001 is where the bank carry must land; $7E:0001 is where a masking core looks.
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$3C
+    sta f:$7F0001
+    lda #$C3
+    sta f:$7E0001
+    ; Direct page $10..$12 holds the 24-bit pointer $7E:FFFF; Y = 2.
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    tcd
+    lda #$FFFF
+    sta f:$7E0010
+    sep #$20
+    .a8
+    lda #$7E
+    sta f:$7E0012
+    rep #$10
+    .i16
+    ldy #$0002
+    ; DBR is deliberately left alone: [dp],Y must ignore it and use the pointer's bank.
+    lda [$10],y
+    cmp #$3C
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; [dp],Y did not carry into the next bank — $C3 means it masked to 16 bits
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A4.09 — PC wraps in bank
+; provenance: Documented (WDC datasheet; SNESdev Errata, 65C816 section)
+.proc test_a4_09
+    .a16
+    .i16
+    ; Assemble the wrapped instruction stream into bank $7E as data.
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$A9          ; LDA #imm
+    sta f:$7EFFFF
+    lda #$5A          ; the immediate, at the WRAPPED address
+    sta f:$7E0000
+    lda #$A5          ; what a bank-carrying core would fetch instead
+    sta f:$7F0000
+    ; JML back to bank $00, assembled by hand: 5C lo hi bank.
+    lda #$5C
+    sta f:$7E0001
+    rep #$20
+    .a16
+    lda #.LOWORD(@landed)
+    sta f:$7E0002
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0004
+    ; Enter the stream. A is 8-bit, so the LDA there takes a one-byte operand.
+    jml $7EFFFF
+@landed:
+    cmp #$5A
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; PC carried into the next bank on the operand fetch — $A5 means it read $7F:0000
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A4.10 — Branch wrap (golden)
+; provenance: Contested (upstream marks the relative addressing modes r/rl "XXX: untested"; no source vouches for the bank-boundary case)
+.proc test_a4_10
+    .a16
+    .i16
+    ; BRA at the top of bank $7E, displacement +$10.
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$80          ; BRA
+    sta f:$7EFFFD
+    lda #$10          ; +16 from $FFFF
+    sta f:$7EFFFE
+    ; Seed both landing sites with a long jump home.
+    lda #$5C
+    sta f:$7E000F
+    sta f:$7F000F
+    rep #$20
+    .a16
+    lda #.LOWORD(@wrapped)
+    sta f:$7E0010
+    lda #.LOWORD(@carried)
+    sta f:$7F0010
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E0012
+    sta f:$7F0012
+    jml $7EFFFD
+    @wrapped:
+    sep #$20
+    .a8
+    lda #$03          ; variant 1 = wrapped inside the bank (documented)
+    sta f:$7EE010
+    jml test_restore
+    @carried:
+    sep #$20
+    .a8
+    lda #$05          ; variant 2 = carried into the next bank
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; A8.06 — E=1 confines MVN offsets
+; provenance: Documented (WDC datasheet: E=1 forces x=1, so the indices are 8-bit)
+.proc test_a8_06
+    .a16
+    .i16
+    ; Seed the two candidate second-source bytes distinctly, and clear the destination.
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$11
+    sta f:$7E00FF     ; first source byte
+    lda #$22
+    sta f:$7E0000     ; second source IF the offset wraps inside page 0
+    lda #$33
+    sta f:$7E0100     ; second source if the offset grew past $FF
+    lda #$00
+    sta f:$7E0050
+    sta f:$7E0051
+    ; The count lives in the full 16-bit C, which cannot be loaded in emulation mode, so set
+    ; it first: XCE changes the index width, not C.
+    rep #$30
+    .a16
+    .i16
+    lda #$0001        ; count-1: two bytes
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+    ldx #$FF          ; one byte short of the page end
+    ldy #$50
+    mvn #$7E,#$7E    ; literal bank numbers; `mvn $7E,$7E` would mean bank $00
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    phk
+    plb               ; MVN left DBR = $7E
+    lda f:$7E0050
+    cmp #$11
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E0051
+    cmp #$22
+    beq :+
+    jmp @fail2
+  :
+    ; --- the destination index, which the move above never takes past $FF ---
+    ; Without this half a core with a 16-bit Y passes on the source assertion alone: Y only ran
+    ; from $50 to $52 there and never reached its own boundary.
+    lda #$44
+    sta f:$7E0060
+    lda #$55
+    sta f:$7E0061
+    lda #$00
+    sta f:$7E0000     ; cleared: this is where a confined destination offset wraps to
+    sta f:$7E0100     ; and this is where an unconfined one would write
+    rep #$30
+    .a16
+    .i16
+    lda #$0001        ; count-1: two bytes
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+    ldx #$60
+    ldy #$FF          ; one byte short of the page end
+    mvn #$7E,#$7E
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    phk
+    plb
+    lda f:$7E00FF
+    cmp #$44
+    beq :+
+    jmp @fail3
+  :
+    lda f:$7E0000
+    cmp #$55
+    beq :+
+    jmp @fail4
+  :
+    lda f:$7E0100
+    cmp #$00
+    beq :+
+    jmp @fail5
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the first block-move byte did not arrive
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the source offset was not confined to $00xx — $33 means it advanced to $0100
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; the first destination byte did not arrive
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+@fail4:
+    ; the destination offset was not confined to $00xx — it wrote past the page instead
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jml test_restore
+@fail5:
+    ; the destination offset advanced to $0100 instead of wrapping inside page 0
+    sep #$20
+    .a8
+    lda #$0A
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C1.01 — OAM word write/read
 ; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
 .proc test_c1_01
@@ -19725,7 +20249,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 235
+    .word 244
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -19787,6 +20311,15 @@ _test_entries:
     .faraddr test_a7_05
     .faraddr test_a6_10
     .faraddr test_a8_04
+    .faraddr test_a1_08
+    .faraddr test_a1_09
+    .faraddr test_a8_05
+    .faraddr test_a1_10
+    .faraddr test_a4_07
+    .faraddr test_a2_12
+    .faraddr test_a4_09
+    .faraddr test_a4_10
+    .faraddr test_a8_06
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -20025,6 +20558,15 @@ _test_flags:
     .byte $01   ; A7.05
     .byte $01   ; A6.10
     .byte $01   ; A8.04
+    .byte $01   ; A1.08
+    .byte $01   ; A1.09
+    .byte $01   ; A8.05
+    .byte $01   ; A1.10
+    .byte $01   ; A4.07
+    .byte $01   ; A2.12
+    .byte $01   ; A4.09
+    .byte $02   ; A4.10
+    .byte $01   ; A8.06
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -20263,6 +20805,15 @@ _test_names:
     .addr @n_a7_05
     .addr @n_a6_10
     .addr @n_a8_04
+    .addr @n_a1_08
+    .addr @n_a1_09
+    .addr @n_a8_05
+    .addr @n_a1_10
+    .addr @n_a4_07
+    .addr @n_a2_12
+    .addr @n_a4_09
+    .addr @n_a4_10
+    .addr @n_a8_06
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -20614,6 +21165,33 @@ _test_names:
 @n_a8_04:
     .byte 22
     .byte "MVN encodes dest first"
+@n_a1_08:
+    .byte 18
+    .byte "CLC/XCE is a no-op"
+@n_a1_09:
+    .byte 23
+    .byte "REP cannot widen in E=1"
+@n_a8_05:
+    .byte 14
+    .byte "MVN index wrap"
+@n_a1_10:
+    .byte 23
+    .byte "PLP cannot widen in E=1"
+@n_a4_07:
+    .byte 19
+    .byte "JML [a] 24-bit dest"
+@n_a2_12:
+    .byte 17
+    .byte "[dp],Y bank carry"
+@n_a4_09:
+    .byte 16
+    .byte "PC wraps in bank"
+@n_a4_10:
+    .byte 20
+    .byte "Branch wrap (golden)"
+@n_a8_06:
+    .byte 24
+    .byte "E=1 confines MVN offsets"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"

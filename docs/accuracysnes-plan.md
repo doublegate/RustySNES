@@ -396,6 +396,16 @@ into slots verified unused, rather than from a folded variant that hides where t
 
 ### `A5.20` — MVN's per-byte cost does not measure, and the number is interesting
 
+> **Read the conclusion first.** The `A5.20` **cart test** is withdrawn; no test ships. The
+> dossier *assertion* is untouched and still counts in the 443-row denominator — it is simply
+> **uncovered**, and annotated there as not cart-measurable. Everything from here to
+> *"Implementing that golden vector disproved the paragraph above"* is a **superseded narrative**,
+> kept because the wrong turns are the instructive part and the next person should not have to
+> rediscover them. It is **not normative**: in particular the intermediate claims that the
+> divergence is real, that it is too large to be an instrument artifact, and that RustySNES's
+> 52-clock decomposition is thereby supported, are all **disproved further down**. The binding
+> statements are the final bullets and `to-dos/ROADMAP.md` **T-06-A**.
+
 `MVN` should cost **7 cycles per byte moved**. It is the one timing row where being wrong is
 unbounded rather than fixed: a block move is a loop inside a single opcode, so a per-byte error of
 one cycle is one cycle out *per byte*, and a 64 KiB clear diverges by most of a frame.
@@ -609,6 +619,53 @@ Consequences worth carrying forward:
 
 Nothing is shipped either way. A test that cannot distinguish "the core is wrong" from "the
 instrument is wrong" asserts nothing.
+
+### `A4.06` / `A4.08` — written, shipped, and withdrawn on review: the mirror hides the bug
+
+Two tests asserted that `JMP (a,X)` and `JSR (a,X)` form their pointer address **within one bank**:
+`jmp ($FFFE,x)` with `X = $1002`, pointer seeded at `$00:1000`, landing site reached only if the
+sum wrapped rather than carrying into bank `$01`.
+
+**They cannot fail.** `crates/rustysnes-core/src/bus.rs` maps banks `$00-$3F` (and `$80-$BF`) below
+`$2000` to the same 8 KiB of WRAM. `$00:1000` and `$01:1000` are therefore *the same bytes*, so a
+core that carried the pointer bank read the identical pointer and landed in the identical place.
+Both tests asserted only that indexed-indirect jumps work at all, which `A4.01`/`A4.02` already
+cover.
+
+This is the failure mode the review instructions name — a test that does not distinguish the
+behaviour it claims from the broken alternative — and it survived local runs, both cross-validation
+references and both images, because *every* implementation passes it. Cross-validation cannot catch
+a test that is vacuous; only reading it can.
+
+**What a real test needs.** The wrapped and carried addresses must land in memory that actually
+differs between banks `$00` and `$01`. Below `$2000` is shared WRAM and `$2000-$7FFF` is I/O and
+open bus, mirrored identically across `$00-$3F` — so the only discriminating region is
+`$8000-$FFFF`, which is ROM, and different ROM in each bank. That means the pointer has to be
+**ROM-resident and placed at a known address at link time**, not written into WRAM at run time. It
+is a linker-layout change, which is why the tests are withdrawn rather than patched in place.
+
+`A4.04` and `A4.05` are reopened in `T-04-A` with that note attached.
+
+### `A8.06` — deferred: the battery has no interrupt infrastructure, by design
+
+`A8.06` ("`MVN` is interruptible mid-block — NMI + `RTI` resumes correctly") is the last unclaimed
+Group A row that is not a timing measurement, and it is deferred rather than blocked.
+
+The obstacle is a deliberate property of the runtime: **the battery runs with interrupts off.**
+`runtime.s` disables NMI/IRQ at init (`stz NMITIMEN`) and detects VBlank by polling `$4212` bit 7,
+precisely so that no test's timing can be perturbed by an interrupt it did not ask for. There is no
+NMI vector wiring, no handler, and no save/restore of interrupt state around a test.
+
+Implementing `A8.06` therefore means adding interrupt infrastructure to the runtime — installing a
+native NMI handler, enabling NMI for the duration of one test, arranging for it to fire *inside* a
+block move, and restoring the disabled state afterwards without leaving a window where a later test
+can be interrupted. That is a runtime change with a blast radius across all 243 tests, in service of
+a row the dossier already marks **UNVERIFIED** ("undocumented upstream"), which means the payoff is
+a golden vector rather than a scored assertion.
+
+The right sequencing is to take it *with* the other interrupt-dependent rows (`A6.11`/`A6.12`
+`WAI` behaviour, which need the same machinery) as a single deliberate piece of work, not as a
+bolt-on to close one row.
 
 ### Group F — blocked on a *peripheral contract*, and now measured
 

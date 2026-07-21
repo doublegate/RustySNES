@@ -485,6 +485,84 @@ Provenance: **Documented** (WDC 65C816 datasheet, opcode table; 6502.org 65c816o
 |---|---|---|
 | 1 | `$02` | MVN read its operands in mnemonic order rather than machine order — $3C means source and destination were swapped, and $5A means the move did not happen at all |
 
+### A1.08 — CLC/XCE is a no-op
+
+Provenance: **Documented** (WDC datasheet: XCE exchanges carry and E, nothing else). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | CLC/XCE in native mode disturbed the m/x width bits or the carry |
+| 2 | `$04` | CLC/XCE in native mode disturbed A |
+| 3 | `$06` | CLC/XCE in native mode disturbed X |
+| 4 | `$08` | CLC/XCE in native mode disturbed Y |
+
+### A1.09 — REP cannot widen in E=1
+
+Provenance: **Documented** (WDC datasheet; SNESdev Errata, 65C816 section). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | REP #$30 cleared m/x while E=1 |
+
+### A8.05 — MVN index wrap
+
+Provenance: **Documented** (WDC datasheet: the block-move indices are bank offsets). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | X did not wrap inside the source bank |
+| 2 | `$04` | Y did not advance independently of X |
+
+### A1.10 — PLP cannot widen in E=1
+
+Provenance: **Documented** (WDC datasheet: m/x are forced while E=1, whatever writes P). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | PLP cleared m/x while E=1 |
+
+### A4.07 — JML [a] 24-bit dest
+
+Provenance: **Documented** (WDC datasheet; SNESdev Errata, 65C816 section). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | JML [a] ignored the pointer's bank byte |
+
+### A2.12 — [dp],Y bank carry
+
+Provenance: **Documented** (SNESdev Errata, 65C816 section; anomie's addressing notes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | [dp],Y did not carry into the next bank — $C3 means it masked to 16 bits |
+
+### A4.09 — PC wraps in bank
+
+Provenance: **Documented** (WDC datasheet; SNESdev Errata, 65C816 section). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | PC carried into the next bank on the operand fetch — $A5 means it read $7F:0000 |
+
+### A4.10 — Branch wrap (golden)
+
+Provenance: **Contested** (upstream marks the relative addressing modes r/rl "XXX: untested"; no source vouches for the bank-boundary case). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
+### A8.06 — E=1 confines MVN offsets
+
+Provenance: **Documented** (WDC datasheet: E=1 forces x=1, so the indices are 8-bit). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the first block-move byte did not arrive |
+| 2 | `$04` | the source offset was not confined to $00xx — $33 means it advanced to $0100 |
+| 3 | `$06` | the first destination byte did not arrive |
+| 4 | `$08` | the destination offset was not confined to $00xx — it wrote past the page instead |
+| 5 | `$0A` | the destination offset advanced to $0100 instead of wrapping inside page 0 |
+
 ## Group C
 
 ### C1.01 — OAM word write/read

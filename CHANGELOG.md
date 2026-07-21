@@ -11,6 +11,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Three Group A mode/addressing assertions (`A1.08`, `A1.09`, `A8.05`).** All four are
+  `Documented`-tier and all four pass on RustySNES and on both cross-validation references.
+
+  - `A1.08` — `CLC; XCE` entered with carry clear is a **no-op**, and the test checks the machine is
+    genuinely untouched rather than just the flag: register widths and the full 16 bits of `X`/`Y`.
+    A core that treats every `XCE` as a mode transition and re-initialises on it passes a
+    flag-only check and corrupts the machine here.
+  - `A1.09` — `REP #$30` cannot clear `m`/`x` while `E = 1`. The width bits are read **after**
+    returning to native mode, because in emulation `P` bits 4 and 5 are `B` and unused, so the
+    obvious in-emulation check reads a register that does not carry the answer.
+  - `A8.05` — `MVN` wraps `X` inside the source bank and advances `Y` in the destination bank
+    independently, with `Y` started away from its own wrap so one shared counter could not explain
+    both results.
+
+  Dossier coverage moves **241 → 244 of 443**.
+
+- **Five more Group A addressing and mode assertions (`A1.10`, `A2.12`, `A4.07`, `A4.09`,
+  `A4.10`).** `A1`, `A7` and `A9` are now complete. `A4` is not: two further tests were withdrawn
+  on review (below), reopening `A4.04`/`A4.05`.
+
+  - `A1.10` — `PLP` cannot clear `m`/`x` while `E = 1`, the third of the three paths the dossier
+    requires to behave identically. Not redundant with the `REP` path (`A1.09`): a core that
+    implements the emulation-mode pin as a mask inside `REP`/`SEP`, rather than as a property of
+    `P`, passes that one and fails this.
+  - `A2.12` — `[dp],Y` takes its bank from the pointer's third byte and carries out of it, ignoring
+    `DBR`. Both candidate addresses are seeded so a failure says which way the core went.
+  - `A4.07` — `JML [a]` uses the full 24-bit destination. The target bank is `$80`, which mirrors
+    bank `$00` in this LoROM image, so a bank-ignoring core runs the same instructions and does not
+    crash; `PHK` afterwards is what separates them.
+  - `A4.09` — `PC` wraps inside its bank on an operand fetch. The instruction stream is assembled
+    as data into WRAM and jumped to, because bank `$00`'s boundary is occupied by the vector table.
+  - `A4.10` — **golden vector**, never scored: where a branch lands when its target crosses a bank
+    boundary. Upstream marks the relative addressing modes `r`/`rl` *"XXX: untested"*, so no source
+    vouches for the row. All three cores currently report variant 1 (the wrap). Both candidate
+    landing sites are seeded with a jump home so either answer returns.
+
+  Dossier coverage moves **244 → 250 of 443**.
+
+  Also `A8.06` — in emulation mode `E = 1` forces `x = 1`, so the block-move offsets are 8-bit and
+  confined to `$00xx`: an offset stepping past `$FF` wraps inside page 0 rather than advancing to
+  `$0100`. The count is loaded before the mode switch, since the full 16-bit `C` cannot be written
+  once `E = 1` but survives `XCE` unchanged. All three candidate source addresses are seeded
+  distinctly, so the destination says which behaviour occurred.
+
+  Two further tests (`A4.06`/`A4.08`, the `(a,X)` in-bank pointer wrap) were written and then
+  **withdrawn on review**: banks `$00-$3F` mirror the same WRAM below `$2000`, so the wrapped and
+  carried pointer addresses were literally the same bytes and every implementation passed. A
+  discriminating test needs a ROM-resident pointer, which is a linker-layout change; recorded in
+  `docs/accuracysnes-plan.md` and reopened in `T-04-A`.
+
 - **`MVN`'s machine encoding puts the destination bank first (`A8.01`).** `MVN $00,$7E` assembles to
   `54 7E 00` — the reverse of how the mnemonic reads. Assemblers hide it, so a core written against
   the mnemonic rather than the opcode table copies in the wrong direction with nothing in the source

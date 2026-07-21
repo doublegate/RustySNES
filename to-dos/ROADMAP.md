@@ -432,14 +432,14 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
 
 AccuracySNES (`tests/roms/AccuracySNES/`) closed ticket **T-04** — the monolithic all-in-one
 oracle ROM that no publicly available SNES ROM provided, so we wrote one. The battery currently
-stands at **85 tests (80 scoring + 5 golden), 100.00%**, cross-validated against Mesen2 and
-snes9x. The tickets below carry the rest of the enumeration in
+stands at **244 tests — 232 scoring + 12 golden — with 231 passing, 1 skipped, 100.00%**,
+cross-validated against Mesen2 and snes9x. Coverage is **250 of 443** enumerated assertions (`docs/accuracysnes-coverage.md`). The tickets below carry the rest of the enumeration in
 `docs/accuracysnes-research-dossier.md` §5. Full rationale, blocker analysis, and the ordering
 constraints live in **`docs/accuracysnes-plan.md`**; this list is the citable ID index.
 
 | Ticket | Scope | Size | Blocked on |
 |---|---|---:|---|
-| **T-04-A** | Finish Group A (65C816) — `A5` spot checks, RMW `abs,X`, E-gated branch penalty, the `A6` gaps (`PBR`, `RTI` mode match, B flag, `WAI`) | ~12 | nothing |
+| **T-04-A** | Finish Group A (65C816). **`A1`, `A7`, `A9` complete; `A8` complete except the interrupt row.** `A4` reached complete and then regressed — `A4.06`/`A4.08` were withdrawn as vacuous, so `A4.04`/`A4.05` are open again. Left: `A2.05` and `A4.10`-class *UNVERIFIED* rows (golden vectors at best), `A3.06`/`A3.08` stack-relative escapes, the `A5` timing rows — **blocked, see T-06-A**: `A5.16`/`A5.18`-`A5.20` are clock-domain quantities this cart can only measure in dots — `A5.09`/`A5.10` width sweeps, the `A6` interrupt gaps (`A6.11`-`A6.13`, `A6.15`) and `A8.06`, which does need runtime interrupt infrastructure the battery deliberately lacks. `A4.04`/`A4.05` are **reopened**: see the plan's `A4.06`/`A4.08` entry — the low-WRAM mirror makes a bank carry unobservable, so a discriminating test needs a ROM-resident pointer | ~14 | `A6.11`/`A6.12`/`A8.06` need an NMI-capable runtime (plan §3) |
 | **T-04-B** | Group B — 5A22 bus, clock, timing. **Started:** access speed, `RDNMI` mechanics, IRQ timers, frame geometry, multiply/divide + power-on shipped (14 tests, 2 emulator defects found). Left: `B2` scanline geometry, `B3` DRAM refresh — **unblocked**, write as golden vectors per the `D3` precedent (see the plan §4) — and the rest of `B4` | ~16 | nothing |
 | **T-04-C** | The rest of register-observable Group C — `C1.07`/`C1.08`, the 9/10-bit `VMAIN` rotations, CGRAM-during-render, `C7.04`–`C7.09`, `C9.05`, `C11.07`/`C11.08` | ~20 | nothing |
 | **T-04-D** | Group D — DMA / HDMA. **Started:** 15 tests — GP-DMA (`D1.01`-`D1.07`, `D1.09`/`D1.15`, `D1.10`) and HDMA (`D2.03`-`D2.06`). Found two defects: the unmodelled `$43xB` scratch latch and a WRAM->`$2180` transfer that wrote when hardware does not. Left: `D1.13`/`D1.14`, most of `D2`, and `D1.08`/`D2.09`/`D2.10`/`D3` which need care | ~20 | **a research top-up**: the dossier's DMA/HDMA sub-agent never returned, so `D1`/`D2` are under-sourced |
@@ -447,12 +447,103 @@ constraints live in **`docs/accuracysnes-plan.md`**; this list is the citable ID
 | **T-04-F** | Group F — input | ~22 | a decision on the **on-cart / host-driven split**: a cart cannot press its own buttons |
 | **T-04-G** | Group G — power-on / reset / cartridge, mostly golden vectors | ~18 | ~~boot-path ordering~~ **UNBLOCKED** — `capture_power_on` samples before `init_registers` into a documented capture block; `B5.05` is the first consumer |
 | **T-04-I** | The 256-opcode cycle sweep (`A5.01`–`A5.08`) | 1 mechanism | ~~an external timing table~~ **ORACLE ESTABLISHED** — `docs/accuracysnes-timing-oracle.md`. The 5A22 is a stock WDC core plus a wait-state generator, so WDC Table 5-7 (VDA/VPA cycle classification) + the SNES speed map is emulator-independent and sufficient. Remaining: safe-operand table + sandbox. `STP` excluded — it halts until reset |
-| ~~**T-04-J**~~ | ~~Dossier-to-cart ID map~~ **DONE** — `gen/src/dossier.rs` maps every test to its assertion(s), the generator rejects unmapped tests / undeclared double-claims / unjustified blanks, `SOURCE_CATALOG.tsv` carries a `dossier` column, and the harness re-checks the committed artifact. Also converted the dossier's 23 prose sub-groups into per-ID tables: **443** checkable assertions across all 43 sub-groups, up from 232. Coverage lives in `docs/accuracysnes-coverage.md` (**79 / 443**) | — | — |
+| ~~**T-04-J**~~ | ~~Dossier-to-cart ID map~~ **DONE** — `gen/src/dossier.rs` maps every test to its assertion(s), the generator rejects unmapped tests / undeclared double-claims / unjustified blanks, `SOURCE_CATALOG.tsv` carries a `dossier` column, and the harness re-checks the committed artifact. Also converted the dossier's 23 prose sub-groups into per-ID tables: **443** checkable assertions across all 43 sub-groups, up from 232. Coverage lives in `docs/accuracysnes-coverage.md` | — | — |
 | **T-04-H** | The renderer-dependent rest of Group C (`C5`, `C6`, `C8`, `C10`, `C12`, most of `C9`, `C13.01`–`C13.06`) | ~42 | ~~a framebuffer oracle~~ **UNBLOCKED — MECHANISM LANDED.** `docs/adr/0013` accepted; cart scene loop + three hosts (in-repo, snes9x `--scenes`, Mesen2 `mesen_scenes.lua`) hashing a canonical 256x224 region against `tests/golden/accuracysnes-scenes.tsv`, gated by `crossval.sh`. **41 scenes blessed** covering 42 assertions across `C4`-`C8`/`C10`/`C11`/`C12`, three of them asserting equivalences rather than numbers; `C13.01`-`C13.06` recorded as blocked (sub-scanline *and* chip-revision-dependent). The first three found real RustySNES bugs (BG vertical fetch a line late; mosaic anchored to the BG instead of the screen). Remaining: `C5.05`/`C5.12`-`C5.14`, `C6.07`, `C8.01`/`C8.09`/`C8.12`, `C10.03`/`C10.04`, `C11.02`/`C11.03`/`C11.12`, `C12.02`; the hi-res cases need the 256x224 region contract widened first |
 
 Suggested order: A → B → C → D → G → E → F, with H taken only if the framebuffer-oracle decision
 is taken. Real-hardware validation is the standing ceiling on all of it: every result so far is
 three emulators agreeing, and ares/bsnes are one lineage rather than two opinions.
+
+## Accuracy defect tickets (T-06-*)
+
+Emulator defects found by AccuracySNES but fixed in the **emulator**, not the cartridge. Kept
+separate from the `T-04-*` list because the work is a different kind: those tickets add tests, these
+change RustySNES.
+
+### T-06-A — the PPU dot model is uniform and one dot too long
+
+**Status:** open, unstarted. **Size:** the change is small and well-specified; the verification is
+the work.
+
+Two related defects in the same model:
+
+1. **`DOTS_PER_LINE = 341`** (`crates/rustysnes-ppu/src/lib.rs`) — hardware has **340** dots per
+   scanline, numbered `0..339`. RustySNES has a dot 340 that hardware never reports. This is the
+   most directly observable of the two: latch `OPHCT` there and we return a value real silicon
+   cannot produce.
+2. **`MASTER_PER_DOT = 4`** (`crates/rustysnes-core/src/bus.rs`), which says so in its own comment
+   — *"nominal; long-dot remainder folded into the 1364/1360/1368 line"*. Hardware does not
+   distribute the remainder: **dots 323 and 327 are 6 master clocks**, every other dot is 4.
+   `338 x 4 + 2 x 6 = 1364`.
+
+The strongest citation is a direct hardware measurement, not prose: fullsnes' *PPU H-Counter-Latch
+Quantities* histogram samples `$2137` once per master clock across a whole line and reports dots
+323 and 327 latching **6 times** each, dot 340 **never**, everything else 4. bsnes, ares and Mesen2
+all implement exactly this. (snes9x uses dots **322/326** instead and is the outlier; do not use it
+as the oracle here.)
+
+**Source conflict, recorded rather than resolved:** fullsnes' *prose* and the SNESdev wiki table
+both say "four dots are 5 cycles long" (`336 x 4 + 4 x 5 = 1364`, also self-consistent), but
+neither names which four, and fullsnes' own measurement table contradicts its prose. The 6-clock
+323/327 model is the one that is both measured and implementable.
+
+**Line-length exceptions**, which the fix must keep:
+
+| Case | Condition | Clocks | Dots |
+|---|---|---:|---|
+| Normal | — | 1364 | 340 (`0..339`), 323/327 at 6 clocks |
+| Short | NTSC, interlace **off**, field 1, V=240 | 1360 | 340, **all 4 clocks — the long dots vanish** |
+| Long | PAL, interlace **on**, field 1, V=311 | 1368 | 341 (`0..340`); distribution **unknown** — bsnes/ares say so outright and reuse the 1364 formula |
+
+The short line is not "the normal line minus 4 clocks": the PPU skips a dot to shift the colour
+burst phase and the long dots are removed entirely, giving a clean uniform `340 x 4`. Our current
+uniform model gets the short line accidentally right and the normal line wrong.
+
+**Scope — where the fix does *not* go.** The long dots are a dot-clock and H-counter phenomenon
+only. CPU cycle costs (6 internal / 6, 8, 12 by region), DMA at 8 clocks a byte, and the 40-clock
+DRAM refresh are **not** dot-dependent in any source. So this is a change to the H-counter
+derivation and to anything converting a dot number back to a clock offset — **not** to the
+access-cost table or the scheduler's speed map.
+
+Two specific traps:
+
+* **H-IRQ must keep comparing against a uniform `4 x HTIME`.** ares, bsnes and Mesen2 all do, and
+  Mesen2's source says why. "Correcting" the IRQ path with the long-dot table would be a new bug.
+* Both long dots sit at H >= 323, deep in hblank — **outside the visible window (dots 22-277) and
+  after hblank start (274) and the HDMA run dot (276)**. Dots `0..322` are already bit-exact. So
+  this fix should change **no rendered pixel and no HDMA timing**; if it does, something else moved.
+
+**What is observably wrong today:** the `OPHCT`/`$213C` latch value for H >= 323 (up to 4 master
+clocks, one full dot, early), the nonexistent dot 340, and the Super Scope / Justifier latch
+position, which lands around dot X+40 and so can fall in the affected range.
+
+**Evidence that opened this**, from AccuracySNES's wide timing instrument — a 24-byte block move at
+three code alignments:
+
+| alignment | RustySNES | snes9x | Mesen2 |
+|---|---:|---:|---:|
+| A | 312 | 332 | 312 |
+| B | 312 | 322 | 322 |
+| C | 312 | 322 | 322 |
+
+RustySNES returns 312 at every alignment because a uniform dot makes its H delta exactly clocks/4,
+which cannot depend on where a span starts. Both references move with alignment.
+
+**Honest limit on that evidence:** the dot model above does **not** fully explain the 10-dot gap.
+A span crossing both long dots once is worth 4 master clocks (one dot), and the `341`-vs-`340`
+line multiplier is worth about another dot per line crossed — call it 1-2 dots, not 10. So the
+block-move divergence is **still unexplained** and this ticket should not be closed by asserting
+otherwise. What is established independently of it is that our dot model is wrong; the two may be
+related or may not.
+
+**Acceptance.** Determinism holds (seed + ROM + input produces bit-identical AV); no rendered
+scene changes (all 50 blessed scenes); existing timing tests do not regress; `OPHCT` never returns
+340 on an NTSC line. Do **not** accept on "matches snes9x and Mesen2" alone — that is agreement,
+not authority, and snes9x is already known to be the outlier on the exact dot numbers.
+
+**References.** `docs/accuracysnes-plan.md` §`A5.20` for the experimental history, including why
+the earlier 20-dot "MVN divergence" was an artifact. Primary sources: fullsnes (H-V Counters;
+PPU H-Counter-Latch Quantities), anomie's SNES timing doc, the SNESdev and Super Famicom wikis.
 
 ## Cross-phase dependencies
 
