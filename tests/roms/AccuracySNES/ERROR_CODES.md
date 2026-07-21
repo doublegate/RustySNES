@@ -2649,7 +2649,7 @@ Provenance: **Documented** (SNESdev Wiki, cartridge header; fullsnes). Kind: sco
 | Code | Byte | Meaning |
 |---|---|---|
 | 1 | `$02` | the map-mode byte at $FFD5 is not $20 (LoROM, SlowROM), so the header is not where LoROM puts it |
-| 2 | `$04` | the ROM-size byte at $FFD7 is not 7 (128 KiB), so the header was read from the right address of the wrong image |
+| 2 | `$04` | the ROM-size byte at $FFD7 is not 8 (256 KiB), so the header was read from the right address of the wrong image |
 | 3 | `$06` | the title does not begin at $FFC0 with ACCURACYSNES's first letter |
 
 ### G1.14 — LoROM bank decode

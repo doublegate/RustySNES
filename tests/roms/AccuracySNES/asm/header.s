@@ -33,7 +33,7 @@ title:
 
     .byte $20                   ; $FFD5  map mode: LoROM, SlowROM
     .byte $00                   ; $FFD6  cartridge type: ROM only, no coprocessor, no SRAM
-    .byte $07                   ; $FFD7  ROM size: log2(131072) - 10 = 7  (128 KiB)
+    .byte $08                   ; $FFD7  ROM size: log2(262144) - 10 = 8  (256 KiB)
     .byte $00                   ; $FFD8  RAM size: none
     .byte $01                   ; $FFD9  country: NTSC / US
     .byte $33                   ; $FFDA  developer ID: use the $FFB0 maker code

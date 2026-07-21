@@ -406,7 +406,9 @@ fn header_is_detected() {
         return;
     }
     let rom = std::fs::read(rom_path()).expect("read rom");
-    assert_eq!(rom.len(), 128 * 1024, "expected a 128 KiB image");
+    // 256 KiB (8 banks). Grown from 128 not for total space but because a segment cannot span a
+    // bank boundary in LoROM, so each group's bodies must fit one 32 KiB bank — see lorom.cfg.
+    assert_eq!(rom.len(), 256 * 1024, "expected a 256 KiB image");
     let cart = Cart::from_rom(&rom).expect("AccuracySNES header must be detectable");
     eprintln!("AccuracySNES detected as {:?}", cart.header.map_mode);
 }

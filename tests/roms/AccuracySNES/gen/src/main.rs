@@ -36,7 +36,7 @@ const COUNTRY_NTSC: u8 = 0x01;
 const COUNTRY_PAL: u8 = 0x02;
 
 /// Expected image size: 128 KiB (four 32 KiB LoROM banks).
-const ROM_SIZE: usize = 128 * 1024;
+const ROM_SIZE: usize = 256 * 1024;
 
 fn main() {
     let root = cart_root();

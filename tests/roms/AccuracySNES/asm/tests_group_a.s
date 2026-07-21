@@ -27542,7 +27542,7 @@ CATALOG_IMPL = 1
     jmp @fail1
   :
     lda f:$00FFD7
-    cmp #$07
+    cmp #$08
     beq :+
     jmp @fail2
   :
@@ -27565,7 +27565,7 @@ CATALOG_IMPL = 1
     sta f:$7EE010
     jml test_restore
 @fail2:
-    ; the ROM-size byte at $FFD7 is not 7 (128 KiB), so the header was read from the right address of the wrong image
+    ; the ROM-size byte at $FFD7 is not 8 (256 KiB), so the header was read from the right address of the wrong image
     sep #$20
     .a8
     lda #$04

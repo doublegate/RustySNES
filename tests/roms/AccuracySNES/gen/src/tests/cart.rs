@@ -318,7 +318,7 @@ fn g1_11() -> Test {
 /// a title of garbage — which is why the map-mode byte is checked here from *inside* a running
 /// LoROM image: if the guess were wrong, this test would not be executing.
 ///
-/// `$FFD5 = $20` is LoROM, SlowROM. `$FFD7 = $07` is `log2(131072) - 10`, the 128 KiB this image
+/// `$FFD5 = $20` is LoROM, SlowROM. `$FFD7 = $08` is `log2(262144) - 10`, the 256 KiB this image
 /// actually is — a second, independent statement about the same header, and the one that catches a
 /// map-mode byte read from the right place in the wrong image.
 fn g1_12() -> Test {
@@ -332,8 +332,8 @@ fn g1_12() -> Test {
     );
     a.l("lda f:$00FFD7");
     a.assert_a8(
-        0x07,
-        "the ROM-size byte at $FFD7 is not 7 (128 KiB), so the header was read from the right \
+        0x08,
+        "the ROM-size byte at $FFD7 is not 8 (256 KiB), so the header was read from the right \
          address of the wrong image",
     );
     a.c("And the title, whose first byte is the one thing a human recognises in a hex dump.");

@@ -632,6 +632,22 @@ rewritten to the current number — this line is the one to read.
   nothing depending on what is plugged in, and that `NMITIMEN` is zero for the whole battery, both
   of which the input contract changed.
 
+- **The cartridge image is now 256 KiB (8 banks), grown from 128.** The reason is *not* total
+  space: at the time of the change bank `$03` was two-thirds empty and the image had 34 KiB free
+  across banks `$01`-`$03`. It is that **a segment cannot span a bank boundary in LoROM**, so each
+  group's test bodies must fit inside one 32 KiB bank — and `TESTSE` was already 19 KiB with Group E
+  holding by far the most uncovered dossier rows. Growing gives a group somewhere to split into when
+  it outgrows a bank, which Group E will.
+  Worth stating plainly because it is the opposite of the intuition: **bank `$00` is 32 KiB whatever
+  the cart size**, since LoROM maps only its `$8000-$FFFF` and the vectors, header and everything
+  the runtime reaches with a bank-local `jsr` must live there. The overflow that prompted this was
+  in bank `$00`, and a bigger image would not have given it one byte. That is relieved by moving
+  bodies out, never by a larger cart.
+  Three places carry the size: `lorom.cfg`'s memory areas, the header's `$FFD7` byte (`$07` → `$08`)
+  and the generator's `ROM_SIZE`. `G1.12` asserts the header's own size byte from inside the running
+  image and was updated with them — a test that would have caught the change being made in two of
+  the three places, which is what it is for.
+
 - **Group D's test bodies moved out of bank `$00`.** `CATALOG` overflowed `ROM0` by 73 bytes, and
   since the catalog grows with the test *count* wherever the bodies live, the only way to make room
   for another entry is to relocate bodies. Group D followed Group C's route: 13 bank-local `jsr`s to
