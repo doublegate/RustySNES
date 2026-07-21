@@ -372,6 +372,22 @@ impl Spc {
         self.push(&[0x7A, dp])
     }
 
+    /// `XCN` (`$9F`) — exchange the two nibbles of `A`.
+    ///
+    /// One byte, and by far the most expensive register-only operation the SPC700 has at five
+    /// cycles. `E1.14` measures that cost against [`Self::nop`].
+    pub fn xcn(&mut self) -> &mut Self {
+        self.push(&[0x9F])
+    }
+
+    /// `NOP` (`$00`) — two cycles, and the cheapest one-byte instruction there is.
+    ///
+    /// Used as the baseline a timed instruction is measured against: two blocks of the same length
+    /// differ only by the per-instruction cost, so the loop and the timer plumbing cancel out.
+    pub fn nop(&mut self) -> &mut Self {
+        self.push(&[0x00])
+    }
+
     /// Burn roughly `iters * 6` SPC700 cycles with a `DBNZ Y` loop (`$FE`).
     ///
     /// Used only where a test needs *time to pass* rather than a specific number of cycles — a

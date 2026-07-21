@@ -876,6 +876,26 @@ Recorded rather than fixed, because the general lesson is the useful part: **for
 compares two measurements, ask what the difference would physically be before asking whether the
 numbers match.** Here the answer was "nothing observable", and no amount of guarding fixes that.
 
+### A mailbox off-by-one reads as an emulator bug
+
+`E1.14`'s first run reported 256 `NOP` costing ten timer-0 ticks — 1280 cycles, five cycles per
+`NOP`. That is a striking, specific, entirely wrong emulator-defect claim, and it was one address
+away from being filed as one.
+
+The APU mailbox lands `PORT1` at `$7E0100`, `PORT2` at `$7E0101`, `PORT3` at `$7E0102`. The test
+read `$7E0101` and `$7E0102`, so the "`NOP`" reading was the `XCN` block — which was in fact exactly
+the predicted ten — and the "`XCN`" reading was a port the program never writes.
+
+What caught it was not the implausible `NOP` figure but the *second* number: an unwritten port read
+`$00`, and a block of `XCN` cannot cost less than a block of `NOP`. **Two measurements whose
+relative order is known constrain each other; one measurement constrains nothing.** The same
+guard-first discipline that catches vacuity catches misaddressing, for the same reason — a reading
+with nothing to check it against will be believed.
+
+The near-miss is worth recording because the failure mode is silent in the other direction: had the
+off-by-one landed on two ports that both happened to be written, the test would have passed while
+measuring the wrong pair.
+
 ### Phase-dependent verdicts drift on *any* reordering, not just on region
 
 Adding `C1.08` — a PPU test, nowhere near the APU — turned `E7.09` from pass to fail and made

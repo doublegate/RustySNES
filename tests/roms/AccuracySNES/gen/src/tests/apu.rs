@@ -58,6 +58,7 @@ pub fn all() -> Vec<Test> {
         dsp_addressing(),
         e2_01(),
         e2_05(),
+        e1_14(),
         e2_04(),
         e3_14(),
         dsp_global_regs(),
@@ -586,6 +587,106 @@ fn e3_02() -> Test {
         Provenance::Documented(
             "SNESdev Wiki SPC700 timers and fullsnes: a 0->1 on a $F1 timer-enable bit resets that \
              timer's stage-2 divider and stage-3 output counter",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `XCN` costs five cycles — measured against `NOP`, which costs two.
+///
+/// `XCN` swaps `A`'s two nibbles and touches nothing else, yet it is the most expensive
+/// register-only instruction the SPC700 has. Both it and `NOP` are one byte, so two blocks of 256
+/// of each differ in nothing but the per-instruction cost, and every other variable — the upload,
+/// the timer plumbing, the enable and stop writes — cancels between them.
+///
+/// # Reading the cost off timer 0
+///
+/// `T0DIV = 1` makes timer 0 tick once every 128 SPC cycles, and the counter at `$FD` is read to
+/// clear, so each block's cost can be taken cleanly straight after it:
+///
+/// | block | cycles | ticks |
+/// |---|---:|---:|
+/// | 256 × `NOP` | 512 | 4 |
+/// | 256 × `XCN` | 1280 | 10 |
+///
+/// 256 is not arbitrary in either direction. Fewer and the difference disappears into the one tick
+/// of quantisation either reading can carry; more and the `XCN` block overflows `TnOUT`, which is
+/// **four bits wide** — at 512 iterations it would read 4 and be indistinguishable from the `NOP`
+/// block. This is the widest window in which both numbers are unambiguous.
+///
+/// # What a wrong cost would look like
+///
+/// The tick count is the cycle count divided by 128, so a one-cycle error moves it by two:
+///
+/// | if `XCN` were | cycles | ticks | verdict |
+/// |---|---:|---:|---|
+/// | 4 | 1024 | 8 | fails low |
+/// | **5** | **1280** | **10** | passes |
+/// | 6 | 1536 | 12 | fails high |
+///
+/// The `NOP` block is the guard, and it is asserted first. Its four ticks establish that the timer
+/// ran, that `T0DIV` took, and that the enable/stop pair bracket the block — without it, an `XCN`
+/// reading of 10 could as easily come from a timer running at some other rate as from the
+/// instruction costing what it should.
+fn e1_14() -> Test {
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF).mov_sp_x();
+    prog.mov_dp_imm(0xFA, 0x01); // T0DIV = 1: one tick per 128 cycles, the fastest T0 runs
+    prog.mov_a_dp(0xFD); // drain, so the first block starts from zero
+    // --- the baseline ---
+    prog.mov_dp_imm(0xF1, 0x81);
+    for _ in 0..256 {
+        prog.nop();
+    }
+    prog.mov_dp_imm(0xF1, 0x80);
+    prog.mov_a_dp(0xFD).mov_dp_a(PORT1); // reading it also clears it for the next block
+    // --- the same block length, of the instruction under test ---
+    prog.mov_dp_imm(0xF1, 0x81);
+    for _ in 0..256 {
+        prog.xcn();
+    }
+    prog.mov_dp_imm(0xF1, 0x80);
+    prog.mov_a_dp(0xFD).mov_dp_a(PORT2);
+    prog.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(7, "E1.14 timer 0 ticks over 256 NOP (the baseline)");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(125, "E1.14 timer 0 ticks over 256 XCN");
+    a.c("The baseline first: it says the timer ran at the rate the arithmetic below assumes.");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        3,
+        5,
+        "256 NOP did not cost the four timer-0 ticks that 512 cycles at 128 cycles per tick come \
+         to, so either NOP is not two cycles or the timer is not running at T0DIV = 1 — and the \
+         XCN reading below is then measured against nothing",
+    );
+    a.c("And XCN's five cycles put its block at ten ticks; four or six would read 8 or 12.");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        9,
+        11,
+        "256 XCN did not cost the ten timer-0 ticks five cycles each come to. The baseline passed, \
+         so the timer and the block length are right and the per-instruction cost is not: at 128 \
+         cycles per tick this reading is off by at least a whole cycle per XCN",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E1.14",
+        'E',
+        "XCN costs five cycles",
+        Provenance::Documented(
+            "the SNESdev Wiki SPC700 reference and fullsnes both give XCN as 5 cycles, against 2 \
+             for NOP",
         ),
         Kind::Scored,
         None,

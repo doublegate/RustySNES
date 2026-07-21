@@ -1114,3 +1114,13 @@ fn kon_restart_is_reported() {
         report.meas[115]
     );
 }
+
+/// Report `E1.14`'s two block timings: the `NOP` baseline and the `XCN` block.
+#[test]
+fn xcn_cycle_cost_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E1.14 timer 0 ticks over 256 one-byte instructions:");
+    println!("    slot 7    {:#04x}  NOP  (expect 4)", report.meas[7]);
+    println!("    slot 125  {:#04x}  XCN  (expect 10)", report.meas[125]);
+}

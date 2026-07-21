@@ -575,6 +575,15 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E1.14` — does `XCN` cost five cycles?** Two 256-instruction blocks, one of `NOP` and one of
+  `XCN`, both one byte, timed off timer 0 at `T0DIV = 1` (one tick per 128 SPC cycles). Everything
+  but the per-instruction cost cancels between them: `NOP` reads 4 ticks (512 cycles), `XCN` reads
+  10 (1280). 256 is the widest window in which both numbers are unambiguous — fewer and the
+  difference disappears into quantisation, more and the `XCN` block overflows the **four-bit**
+  `TnOUT`. A one-cycle error moves the reading by two ticks, so 4 or 6 cycles would read 8 or 12.
+  Verified by dropping an idle cycle from the core's `XCN`, which fails the test. Adds `Spc::xcn`
+  and `Spc::nop`.
+
 - **`E8.03` — does `KON` restart a voice that is already playing?** It is not "start if stopped":
   every write of a set bit re-enters the key-on sequence, resetting the BRR pointer and zeroing the
   envelope, which is why a driver retriggering a held note hears it restart from silence. Two runs

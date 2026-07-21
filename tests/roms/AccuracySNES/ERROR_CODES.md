@@ -1823,6 +1823,15 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 addressing; fullsnes). Kind: sc
 |---|---|---|
 | 1 | `$02` | $FF + X did not wrap within the direct page; a 16-bit sum would read $0101 instead |
 
+### E1.14 — XCN costs five cycles
+
+Provenance: **Documented** (the SNESdev Wiki SPC700 reference and fullsnes both give XCN as 5 cycles, against 2 for NOP). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | 256 NOP did not cost the four timer-0 ticks that 512 cycles at 128 cycles per tick come to, so either NOP is not two cycles or the timer is not running at T0DIV = 1 — and the XCN reading below is then measured against nothing |
+| 2 | `$04` | 256 XCN did not cost the ten timer-0 ticks five cycles each come to. The baseline passed, so the timer and the block length are right and the per-instruction cost is not: at 128 cycles per tick this reading is off by at least a whole cycle per XCN |
+
 ### E2.04 — DBNZ dp is an RMW
 
 Provenance: **Documented** (SNESdev Wiki SPC700 reference and fullsnes: DBNZ dp,rel reads its operand, decrements it and writes it back, and $FD-$FF are read-to-clear). Kind: scored.
