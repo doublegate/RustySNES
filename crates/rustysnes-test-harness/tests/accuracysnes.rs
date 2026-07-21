@@ -435,6 +435,7 @@ const SCENE_DONE_MARK: u8 = 0x5A;
 
 /// `V_CURSOR` in low WRAM — `runtime.inc`'s `VAR_BASE + $00`.
 const V_CURSOR: u32 = 0x7E_E000;
+const V_SCROLL: u32 = 0x7E_E002;
 
 /// The Down bit of the 16-bit `BYsSUDLR` controller word.
 const PAD_UP: u16 = 0x0800;
@@ -1537,6 +1538,22 @@ fn the_dpad_scrolls_the_list() {
         before + 1,
         "pressing Down did not move the cursor (was {before}, now {after})"
     );
+    // A move within the visible window is flicker-free: only the marker is rewritten, inside the
+    // vblank, with no forced blank. Brightness must never dip, the old '>' must be erased and the
+    // new one drawn. (The bug this replaced left brightness stuck at 0 and hung the ROM.)
+    let cell =
+        |sys: &System, row: u16| (sys.bus.ppu.vram_word(0x0400 + (row + 3) * 32) & 0xFF) as u8;
+    assert_eq!(
+        sys.bus.ppu.display_brightness(),
+        15,
+        "the display dipped on a within-window Down move — it should not blank at all"
+    );
+    assert_eq!(cell(&sys, 0), b' ', "the old cursor marker was not erased");
+    assert_eq!(
+        cell(&sys, 1),
+        b'>',
+        "the cursor marker did not move to the new row"
+    );
 
     // Up moves it back. Same width bug hit both directions, so proving one is not proving the other.
     sys.bus.set_joypad(0, PAD_CONTRACT | PAD_UP);
@@ -1551,6 +1568,34 @@ fn the_dpad_scrolls_the_list() {
         rd16(&sys, V_CURSOR),
         before,
         "pressing Up did not move the cursor back"
+    );
+
+    // Scrolling past the visible window is the full-redraw path: every visible name changes, so the
+    // whole list is blanked and redrawn. Drive the cursor down far enough to shift V_SCROLL, then
+    // confirm the window moved and the display came back (a full redraw dips brightness for its one
+    // frame, so we settle before checking).
+    for _ in 0..30 {
+        sys.bus.set_joypad(0, PAD_CONTRACT | PAD_DOWN);
+        sys.run_frame();
+        sys.bus.set_joypad(0, PAD_CONTRACT);
+        sys.run_frame();
+    }
+    for _ in 0..4 {
+        sys.run_frame();
+    }
+    assert!(
+        rd16(&sys, V_SCROLL) > 0,
+        "driving the cursor past the window did not scroll the list"
+    );
+    assert_eq!(
+        sys.bus.ppu.display_brightness(),
+        15,
+        "the display stayed blank after a scrolling redraw"
+    );
+    assert_eq!(
+        (sys.bus.ppu.vram_word(0x0400) & 0xFF) as u8,
+        b'A',
+        "the header did not survive scrolling redraws"
     );
 
     // Still alive: the header is intact and the list still holds a real name. A ROM that fell off

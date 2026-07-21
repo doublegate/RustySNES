@@ -23,6 +23,8 @@ V_TEST_RESULT   = VAR_BASE + $10      ; the running test's verdict byte (u8)
 V_RESTARTED     = VAR_BASE + $11      ; 0 on a genuine power-on, 1 after a menu (Select) restart;
                                       ; power-on-dependent tests skip when it is set (u8)
 V_DIRTY         = VAR_BASE + $12      ; non-zero when the screen needs a redraw (u8)
+V_CURSOR_PREV   = VAR_BASE + $2A      ; where the cursor marker is currently drawn, so a within-
+                                      ; window move can erase it without a full redraw (u16)
 V_MENU_MODE     = VAR_BASE + $13      ; 1 while the menu re-runs one test, so the verdict path
                                       ; records R_STATUS without re-tallying (u8)
 V_TMP2          = VAR_BASE + $14      ; second scratch word, for code that needs two at once

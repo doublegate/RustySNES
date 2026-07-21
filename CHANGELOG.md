@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Menu navigation is now flicker-free.** Moving the cursor within the visible window rewrites only
+  the `>` marker — two character writes inside the vblank — so the display never blanks. Only when
+  the window actually scrolls (every visible name changes) does the full blank-and-redraw run. Before
+  this, every keypress blanked the whole screen for a frame. `cursor_up`/`cursor_down` now flag the
+  redraw as marker-only (`V_DIRTY = 2`) or full (`V_DIRTY = 1`), and record the previous cursor row so
+  the old marker can be erased. Asserted: a within-window Down move keeps brightness at 15 and moves
+  the `>`; a scroll past the window still does the full redraw.
+
 - **Pressing Down (or any navigation key) blanked the results menu and hung the ROM.** The menu
   redraw blanks the screen, calls `draw_list`, then un-blanks — but `draw_list` returns with `A`
   16-bit while the assembler was still `.a8`, so `lda #$0F` assembled one byte where the CPU read
