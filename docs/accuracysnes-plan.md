@@ -705,6 +705,47 @@ The rate differences are small (2 and 4 clocks an access), so this row needs a t
 than the ones it has been given, not a better probe.
 
 
+### The NMI-capable runtime — design, and it is smaller than it looks
+
+Five rows wait on this: `A6.11`/`A6.12` (`WAI` + IRQ with `I=1`, and wake latency), `A6.13` (`STP`),
+`A6.15` (all 256 opcodes defined), and dossier `A8.06` (`MVN` interruptible mid-block). They were
+deferred as "needs interrupt infrastructure the battery deliberately lacks", which is true but
+overstates the work — **the mechanism already exists and NMI is the one vector not wired into it.**
+
+**What is already there.** `$FFEE` (IRQ), `$FFE4`/`$FFF4` (COP) and `$FFFE` (BRK/IRQ emulation) all
+point at trampolines that do nothing but `jmp (V_xxx_VEC)` — a RAM pointer a test installs its own
+handler into for the duration of one test, restored by `test_restore`. `A6.10` already exercises
+this for the emulation COP vector, and `A6.06`/`A6.09` for BRK.
+
+**What is missing.** `$FFEA` (native NMI) and `$FFFA` (emulation NMI) both point directly at
+`irq_stub`, a dead end. There is no `V_NMI_VEC` and no `nmi_trampoline`.
+
+**The change**, following the established pattern exactly:
+
+1. `runtime.inc`: add `V_NMI_VEC` in a **verified-free** slot — the block is dense and
+   `V_COP_VEC_E` already had to move once after colliding with `V_APU_PTR`'s bank byte. Check the
+   whole map, not just the last entry.
+2. `runtime.s`: add `nmi_trampoline` = `jmp (V_NMI_VEC)`, and initialise `V_NMI_VEC` to `irq_stub`
+   at reset so an NMI arriving in a test that installed no handler is harmless — the same
+   defaulting `A6.10` relies on.
+3. `header.s`: point `$FFEA` and `$FFFA` at `nmi_trampoline`.
+4. **`test_restore` must clear `NMITIMEN` unconditionally.** This is the one genuinely new
+   requirement and the reason this is infrastructure rather than a test. A test enabling NMI and
+   then *failing* exits through the failure path, so leaving the enable to the test body would let
+   one failing test arm interrupts for every test after it — turning a single failure into a
+   cascade, and a battery whose results depend on test order.
+
+**Why this does not disturb the other 249 tests.** The runtime polls `$4212` bit 7 for VBlank and
+never enables NMI (`stz NMITIMEN` at init), so with `NMITIMEN` still zero the new vector is
+unreachable and the trampoline never runs. The change is inert until a test opts in — the same
+shape as every other additive feature here.
+
+**Validate it the way `A6.10` had to be validated.** That test reported neither handler because
+ca65 still had `.a16` in force where the handlers were emitted, so `lda #$E0` assembled as three
+bytes and the third executed as `BRK`. Interrupt handlers run in whatever width the interrupted code
+left behind — put explicit `.a8`/`.i8` (or `.a16`/`.i16`) in the handler and restore the body's
+belief afterwards.
+
 ### `A8.06` — deferred: the battery has no interrupt infrastructure, by design
 
 `A8.06` ("`MVN` is interruptible mid-block — NMI + `RTI` resumes correctly") is the last unclaimed
