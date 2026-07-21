@@ -523,13 +523,36 @@ Consequences worth carrying forward:
   experimental one. snes9x's 55.3 clocks a byte is not a whole number of cycles under any obvious
   decomposition: 54 would be six 8-clock accesses plus one internal, 56 would be seven 8-clock
   accesses. The next step is to establish from the WDC tables and the SNES clock model which memory
-  accesses `MVN` actually makes per byte — then the expected dot count follows, and it can be
-  compared against both slopes. Three outcomes are possible and the third is not the unlikeliest:
-  the derivation matches one core (the other has the defect), matches neither (both do, or the
-  clock model this cart uses to convert cycles into dots is wrong somewhere), or turns out
-  under-determined by the sources, in which case the row is a golden vector rather than an
-  assertion. Writing the assertion against a reference's measurement instead would pin this cart to
-  snes9x, which is the one thing it exists not to do.
+  accesses `MVN` actually makes per byte. **That has been checked, and the answer is that the sources
+  do not say** — the third of the three possible outcomes, and the one that decides what this row
+  can be.
+
+  undisbeliever's table, the corpus's primary timing source, leaves the `Cycles` cell for `$54` and
+  `$44` **empty**; the entire timing statement is `7 per byte moved` in the `Extra` column
+  (`ref-docs/2026-07-20-undisbeliever-65816-timing.md`, note 2). Nothing in the frozen corpus
+  decomposes those seven into memory cycles and internal cycles, and on this machine that
+  distinction is 2 master clocks apiece — the difference between every candidate reading:
+
+  | decomposition | clocks/byte | dots/byte |
+  |---|---:|---:|
+  | 4 memory + 3 internal | 50 | 12.50 |
+  | **5 memory + 2 internal** | **52** | **13.00** |
+  | 6 memory + 1 internal | 54 | 13.50 |
+  | 7 memory + 0 internal | 56 | 14.00 |
+
+  Measured: RustySNES **13.00**, snes9x **13.83**. RustySNES lands exactly on an integral
+  decomposition — five accesses (opcode plus two operand bytes re-fetched, one source read, one
+  destination write) and two internal cycles. snes9x lands on none of them, and the measurement's
+  uncertainty (±2 dots of quantisation over 24 bytes, ±0.33 clocks a byte) is not enough to reach
+  either 54 or 56.
+
+  So the documentary step does not adjudicate the divergence; it establishes that **the row is
+  under-determined by the sources**, which under the provenance rules makes it a golden vector
+  rather than a scored assertion. The weak evidence that exists points at RustySNES being right — it
+  matches a decomposition and snes9x matches none — but "matches an integral model" is not a
+  citation, and this cart does not score on it. Recording the two slopes as a golden vector, with
+  this table beside them, is the honest form of the row until a source decomposes the seven cycles
+  or a hardware measurement settles it.
 
 * The earlier `MVN` "finding" is retired regardless: 13 dots was the difference of two wrapped
   readings.
