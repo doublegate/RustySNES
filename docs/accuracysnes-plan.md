@@ -461,14 +461,51 @@ Consequences worth carrying forward:
   two-cycle instructions is 48 dots; the largest of them is nowhere near the cap. Anything added
   later has to be checked against the wrap, not against these counts: **the safe quantity is the
   measured span, and there is no guard on it.**
-* **`A5.20` needs a wider instrument**, one that counts dots since the top of the frame rather than
-  within a line — V as well as H. A first attempt at exactly that (`hv_read_wide`, reading `$213D`
-  alongside `$213C` and folding `V * 341 + H` through the hardware multiplier) was written and
-  **also produced non-monotonic numbers**, so it is not in the tree. Latching H and V from two
-  separate `$2137` reads is the likeliest culprit — they must come from one latch — and whoever
-  picks this up should start there rather than from scratch.
-* Until then, **no single-instruction timing can be asserted on this cart**, which retires the
-  `MVN` "finding" completely: 13 dots was the difference of two wrapped readings.
+* **The wider instrument now exists and is validated.** `hv_begin_wide` / `hv_end_wide` in
+  `runtime.s` latch H and V together and count dots from the top of the field, so a span may cross
+  line boundaries. Getting there took four separate bugs, and every one of them produced
+  plausible-looking numbers rather than an error:
+
+  1. **Two latches instead of one.** H from one `$2137` and V from a second, tens of cycles later,
+     so a line boundary between them threw the composite off by a whole line. One `$2137` latches
+     both; `$213C`/`$213D` then read them out through independent flipflops (`C3.07`).
+  2. **DBR-dependent reads.** `MVN` leaves `DBR` = its destination bank, so `lda $213F` after a
+     block move reads WRAM at `$7E:213F`, not the PPU. The counters came back as whatever bytes
+     were there and the line-countdown ran thousands of times — an 8-byte move reported 11,464
+     dots. The latch is long-addressed throughout now.
+  3. **No V window, and no overrun check.** A span starting near the end of a field let V wrap to
+     zero, making `V1 - V0` hugely negative and running the line-countdown sixty-five thousand
+     times. `hv_begin_wide` now waits for `V < 150`, which keeps the span inside active display
+     where every line really is 341 dots — but a start window bounds only the *start*, so
+     `hv_end_wide` also refuses any span whose V went backwards or which crossed more than
+     `MAX_SPAN_LINES`, returning `$FFFF`. That is the point of the whole exercise applied to the
+     instrument itself: **an out-of-range measurement must not come back looking like data.**
+  4. **`A` was not preserved.** `MVN` takes its byte count in `A`. Clobbering it made 8-, 32- and
+     64-byte moves all measure the *same* instruction — three identical numbers across two
+     rebuilds, which read as "the instrument is saturating" rather than "the operand is wrong".
+
+  Validated against a known quantity before being trusted: `NOP` spins come back linear at **3.5
+  dots each**, exactly one 8-clock ROM fetch plus one 6-clock internal cycle.
+* **`A5.20` is measurable but not yet settled.** Through the fixed instrument, `MVN` costs
+  **13.42 and 13.39 dots per byte** across two independent size pairings — agreeing to 0.2%, where
+  the narrow instrument had produced 326 and 327 dots for moves differing by 24 bytes. snes9x and
+  Mesen2 both put the 120-byte difference at exactly **1610 dots**.
+
+  **RustySNES does not**, and the gap is the reason no assertion is shipped yet. Its `block_move`
+  re-fetches the opcode and both operand bytes per byte (the ares model), giving 5 memory accesses
+  at 8 clocks plus 2 internal at 6 = 52 clocks = 13.0 dots. The references sit at 13.42, about
+  **1.7 clocks a byte higher** — which is not a whole cycle, and a discrepancy smaller than one
+  cycle is exactly what this instrument's remaining approximation (not every line is 341 dots)
+  could also produce over a five-line span.
+
+  So the next step is to decide between those two before writing an assertion or a defect report:
+  measure the same difference over a span short enough to cross **one** line boundary, where the
+  approximation is worth at most a dot. If the 1.7 clocks survive that, it is a real per-access
+  difference and a defect; if it collapses, the expected value needs deriving from the clock model
+  rather than from a reference's measurement.
+
+* The earlier `MVN` "finding" is retired regardless: 13 dots was the difference of two wrapped
+  readings.
 
 Nothing is shipped either way. A test that cannot distinguish "the core is wrong" from "the
 instrument is wrong" asserts nothing.

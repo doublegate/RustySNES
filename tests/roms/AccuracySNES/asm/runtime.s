@@ -1591,6 +1591,145 @@ test_restore := test_restore_impl
 ; incidental: the cycle tests measure 8-bit against 16-bit forms of the same instruction, so a
 ; helper that silently widened the accumulator would make those two measurements identical and
 ; the test would pass while measuring nothing.
+; ---------------------------------------------------------------------------------------------
+; WIDE measurement — the same instrument, counting dots since the top of the FRAME rather than
+; within a scanline, so a measured span may cross line boundaries.
+;
+; Why it exists: `hv_read_raw` returns the 9-bit H counter, which wraps every scanline. A span
+; longer than a line comes back SMALL, and two overrunning spans come back looking nearly equal —
+; nothing in the result says "out of range". Measured through the narrow pair, an MVN of 8 bytes and
+; one of 32 read 326 and 327 dots, and 64 NOPs read *less* than 32 of them.
+;
+; The single thing that makes this work, and the thing a first attempt got wrong: **H and V must
+; come from ONE latch.** `$2137` latches both counters together; `$213C` and `$213D` then read them
+; out through independent flipflops (`C3.07`). Latching twice — once for H, once for V — samples two
+; different instants, and when a line boundary falls between them the composite jumps by a whole
+; line. That version produced numbers as non-monotonic as the narrow instrument's.
+;
+; The delta is computed as `(V1 - V0) * 341 + (H1 - H0)`, and the multiply is a countdown loop
+; rather than the hardware multiplier: the line count is a handful, the loop is outside the measured
+; region, and using `$4202`/`$4203` here would clobber a unit that `B5.05` and `D2` tests read.
+;
+; **Accuracy.** Not every line is 341 dots — NTSC has a short one at V=240, PAL a long one — so a
+; span crossing N lines can be off by up to N dots. For the two- or three-line spans this exists to
+; measure that is inside the tolerance the timing tests already use. It is not suitable for spans
+; approaching a field, and it cannot measure one that wraps V back to zero.
+.proc hv_latch_wide
+    php
+    sep #$20
+    .a8
+    rep #$10
+    .i16
+    ; LONG addressing throughout, so the latch does not depend on DBR. This is not defensive
+    ; tidiness: `MVN` leaves DBR = its destination bank, so a measurement wrapped around a block
+    ; move reaches `hv_end_wide` with DBR = $7E, and absolute `lda $213F` then reads WRAM instead of
+    ; the PPU. The counters come back as whatever bytes happened to be there, the line-countdown
+    ; loop below runs thousands of times, and the result is a five-digit number that looks like
+    ; data. That is what an 8-byte MVN reported as "11464 dots".
+    ;
+    ; **`hv_read_raw`, the narrow instrument, still uses absolute addressing and still carries this
+    ; hazard.** No current test trips it — none of them measures across an instruction that moves
+    ; DBR — but anything that does must restore DBR before `hv_end`, or use this path instead.
+    lda f:$00213F               ; reset both read flipflops
+    lda f:$002137               ; SLHV: ONE latch, capturing H and V together
+    lda f:$00213C               ; OPHCT low 8
+    sta f:V_HW_H
+    lda f:$00213C               ; OPHCT second read: bit 0 is counter bit 8
+    and #$01
+    sta f:V_HW_H+1
+    lda f:$00213D               ; OPVCT low 8, from the same latch
+    sta f:V_HW_V
+    lda f:$00213D               ; OPVCT second read: bit 0 is counter bit 8
+    and #$01
+    sta f:V_HW_V+1
+    plp
+    rts
+.endproc
+
+.export hv_begin_wide
+.proc hv_begin_wide
+    php
+    rep #$30
+    .a16
+    .i16
+    cld                         ; the delta arithmetic in hv_end_wide must not run in BCD
+    pha                         ; the caller's A survives: MVN takes its byte count in A, and a
+                                ; measurement that clobbers it measures a different instruction
+    ; Start the span in the FIRST HALF of the field, and not for tidiness. V wrapping back to zero
+    ; mid-measurement makes `V1 - V0` hugely negative, the line-countdown loop below runs about
+    ; sixty-five thousand times, and the result is a five-digit number that looks like data. That is
+    ; exactly what an MVN of 64 bytes reported before this wait existed.
+    ;
+    ; V < 150 also keeps the whole span inside active display, where every line really is 341 dots —
+    ; NTSC's short line is at V=240 and PAL's long one later still — so the approximation the delta
+    ; arithmetic makes is exact here rather than merely close.
+@wait:
+    jsr hv_latch_wide
+    rep #$30
+    .a16
+    .i16
+    lda f:V_HW_V
+    cmp #150
+    bcs @wait
+    lda f:V_HW_H
+    sta f:V_H0
+    lda f:V_HW_V
+    sta f:V_HW_V0
+    pla
+    plp
+    rts
+.endproc
+
+.export hv_end_wide
+.proc hv_end_wide
+    php
+    rep #$30
+    .a16
+    .i16
+    cld
+    pha                         ; as in hv_begin_wide: the caller's A is not ours to spend
+    jsr hv_latch_wide
+    rep #$30
+    .a16
+    .i16
+    lda f:V_HW_V
+    sec
+    sbc f:V_HW_V0
+    ; A span that wraps the field, or simply runs too long, must not come back looking like data —
+    ; that failure mode is the entire reason this routine exists. V1 < V0 means V wrapped past the
+    ; end of the field (the borrow leaves carry clear); more than MAX_SPAN_LINES means the
+    ; line-length approximation has accumulated past usefulness. Either way, return $FFFF, which no
+    ; real span can produce and which fails any range assertion loudly.
+    bcc @overrun
+    cmp #MAX_SPAN_LINES + 1
+    bcs @overrun
+    sta f:V_HW_DV               ; lines crossed
+    lda f:V_HW_H
+    sec
+    sbc f:V_H0
+    sta f:V_H1                  ; H delta, which may be negative before the lines are added
+@lines:
+    lda f:V_HW_DV
+    beq @done
+    dec a
+    sta f:V_HW_DV
+    lda f:V_H1
+    clc
+    adc #341
+    sta f:V_H1
+    bra @lines
+@done:
+    pla
+    plp
+    rts
+@overrun:
+    lda #$FFFF
+    sta f:V_H1
+    pla
+    plp
+    rts
+.endproc
+
 .export hv_begin
 .proc hv_begin
     php
