@@ -262,10 +262,17 @@ reviews:
           If the diff adds or removes a test or a scene under `tests/roms/AccuracySNES/gen/src/`,
           check three things: the test appears in `dossier.rs::MAP` (mapped to a dossier assertion
           or to an empty slice with a matching `UNENUMERATED` entry); the regenerated artefacts
-          (`asm/tests_group_a.s`, `SOURCE_CATALOG.tsv`, `docs/accuracysnes-coverage.md`, the two
-          `.sfc` images, and `asm/scenes.s` whenever a scene changed) are present in the diff,
-          since a source change without them means the committed ROM does not match its generator; and the hand-maintained counts in
+          (`asm/tests_group_a.s`, `SOURCE_CATALOG.tsv`, `ERROR_CODES.md`,
+          `docs/accuracysnes-coverage.md`, the two `.sfc` images, and `asm/scenes.s` whenever a
+          scene changed) are present in the diff, since a source change without them means the
+          committed ROM does not match its generator; and the hand-maintained counts in
           `docs/accuracysnes-plan.md` moved by the same amount as the generated coverage table.
+
+          **Every one of those artefacts is excluded by the path filters above**, so their contents
+          are invisible to this review and their absence from the reviewed set proves nothing. Judge
+          their presence from the "files ignored due to path filters" list, which names them; a file
+          in neither list is the failure. Never report an artefact as missing on the strength of not
+          having been able to read it.
       - name: No panic on untrusted input
         mode: warning
         instructions: |
