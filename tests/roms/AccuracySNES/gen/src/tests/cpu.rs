@@ -803,6 +803,11 @@ fn a3_08() -> Test {
     a.l("sep #$20");
     a.l("lda #$EE");
     a.l("sta f:$7E01FF");
+    a.c("Seed $00FF with the COMPLEMENT of the byte the push must deliver. Left as stale WRAM it");
+    a.c("could already hold that byte, and the positive check below would then pass for a core");
+    a.c("that never made the second push at all -- an outcome dependent on test order.");
+    a.l("lda #(<(@after-1)) ^ $FF");
+    a.l("sta f:$7E00FF");
     a.c("Pointer for the indirect jump, in low WRAM (mirrored at $00:0210).");
     a.l("rep #$30");
     a.l("lda #.LOWORD(@sub)");

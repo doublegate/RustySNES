@@ -3847,6 +3847,11 @@ CATALOG_IMPL = 1
     .a8
     lda #$EE
     sta f:$7E01FF
+    ; Seed $00FF with the COMPLEMENT of the byte the push must deliver. Left as stale WRAM it
+    ; could already hold that byte, and the positive check below would then pass for a core
+    ; that never made the second push at all -- an outcome dependent on test order.
+    lda #(<(@after-1)) ^ $FF
+    sta f:$7E00FF
     ; Pointer for the indirect jump, in low WRAM (mirrored at $00:0210).
     rep #$30
     .a16
