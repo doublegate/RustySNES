@@ -58,6 +58,7 @@ pub fn all() -> Vec<Test> {
         dsp_addressing(),
         e2_01(),
         e2_05(),
+        e6_11(),
         e10_01(),
         e10_05(),
         e1_14(),
@@ -737,6 +738,105 @@ fn e10_05() -> Test {
             "both sources agree FLG bit 7 makes the DSP behave as $E0 and force every voice into \
              release, and contradict each other on what ENDX then reads: nocash says $FF, anomie \
              says 0. The dossier marks the row [CONFLICT] and asks for a golden vector",
+        ),
+        Kind::Golden,
+        None,
+    )
+}
+
+/// The four named BRR waveform vectors — a golden vector, because that is what the row asks for.
+///
+/// `E6.11` does not state an expected value for anything. It names four nibble patterns —
+/// `79797979`, `77997799`, `77779999`, `7777CC44` — and asks for what a decoder makes of each. They
+/// are chosen to walk from the trivial to the awkward: a plain alternation, the same alternation at
+/// half the rate, at a quarter, and finally a pattern with a large positive and a large negative
+/// nibble adjacent, which is where a filter's accumulator and the 15-bit clamp have the most to
+/// disagree about.
+///
+/// | slot | nibbles | shape |
+/// |---|---|---|
+/// | 197 | `79797979` | alternating every sample |
+/// | 198 | `77997799` | alternating every two |
+/// | 199 | `77779999` | alternating every four |
+/// | 200 | `7777CC44` | `+7`, then `-4`, then `+4` — sign changes of unequal size |
+///
+/// All four use shift 12 and filter 0, so the reading is the decoder's own arithmetic rather than
+/// a filter's history: filter 0 has no previous-sample term, and shift 12 puts the nibbles high
+/// enough in the 15-bit range that a clamp, if there is one, has something to act on.
+///
+/// # Recorded, not asserted, and not classified either
+///
+/// There is no expected value to assert — the row's content *is* the measurement. Nor does the
+/// verdict classify the readings: gaussian interpolation runs over four consecutive samples, so
+/// what `OUTX` holds depends on where in the pattern the DSP was when the cart looked, and a
+/// verdict computed from that would change every time anything ahead of this test in the battery
+/// shifted the sample phase. That is precisely what happened to `E8.07`. The numbers go to the
+/// channel and the verdict says only that all four were taken.
+///
+/// The envelope is asserted, though, because it is the one thing here that can be silently absent:
+/// four `OUTX` readings from a voice that never keyed on are four zeroes, and four zeroes look like
+/// a decoder that produces silence rather than like a test that never ran.
+///
+/// # The measurement confirmed the reason for not classifying
+///
+/// Against snes9x, the two slow patterns agree exactly — `77779999` reads `$6F` in both and
+/// `7777CC44` reads `$4F` — while the two fast ones do not: `$E1` against `$1E` for `79797979`, and
+/// one apart for `77997799`. That is the gaussian phase showing itself exactly where the pattern
+/// alternates fast enough for it to matter, and it is what a classifying verdict would have turned
+/// into a cross-validation failure about nothing.
+fn e6_11() -> Test {
+    let vectors: [(&str, &[u8], u8, u32); 4] = [
+        ("79797979", &[0x79], 197, 0x7E_01F8),
+        ("77997799", &[0x77, 0x99], 198, 0x7E_01F9),
+        ("77779999", &[0x77, 0x77, 0x99, 0x99], 199, 0x7E_01FA),
+        ("7777CC44", &[0x77, 0x77, 0xCC, 0x44], 200, 0x7E_01FB),
+    ];
+
+    let mut a = Asm::new();
+    for (name, pattern, _, stash) in vectors {
+        let sample = brr_sample(&[brr_block_pattern(0xC, 0, 0b11, pattern)], 0);
+        let prog = voice_program(&sample, Voice::direct_gain());
+        a.c(&format!("--- nibbles {name} ---"));
+        upload_and_run_tagged(&mut a, &prog, &format!("_v{name}"));
+        a.l("sep #$20");
+        a.l("lda f:$7E0102     ; OUTX");
+        a.l(&format!("sta f:${stash:06X}"));
+    }
+    a.c("The envelope from the last run stands for all four: the setup is identical.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.l("sta f:$7E01FC");
+    a.l("rep #$30");
+    for (name, _, slot, stash) in vectors {
+        a.l(&format!("lda f:${stash:06X}"));
+        a.l("and #$00FF");
+        a.record(slot, &format!("E6.11 OUTX for nibbles {name}"));
+    }
+    a.l("lda f:$7E01FC");
+    a.l("and #$00FF");
+    a.record(201, "E6.11 ENVX on the last vector (the arming guard)");
+    a.c("Four zeroes from a voice that never sounded look exactly like a decoder that outputs");
+    a.c("silence, so the envelope is what says the readings are readings.");
+    a.l("lda f:$7E01FC");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x7C,
+        0x7F,
+        "the voice was not at full scale when OUTX was read, so the four waveform readings are \
+         scaled by an envelope this test does not know and are not comparable with anything",
+    );
+    a.l("sep #$20");
+    a.l("lda #$03          ; variant 1 = all four captured; slots 197-200 are the vectors");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E6.11",
+        'E',
+        "BRR waveform vectors",
+        Provenance::Contested(
+            "the dossier names four nibble patterns and asks what a decoder makes of each without \
+             stating an expected value for any of them; the row's content is the measurement",
         ),
         Kind::Golden,
         None,
@@ -2857,6 +2957,19 @@ fn brr_block(shift: u8, filter: u8, flags: u8, hi: u8, lo: u8) -> Vec<u8> {
 /// `run_out` is zero for every sample that carries an end flag somewhere, which is most of them —
 /// the padding is not free, and five copies of a generous run-out overflowed the ROM bank the
 /// tests are linked into.
+/// One BRR block whose eight data bytes cycle a byte pattern, for the named waveform vectors.
+///
+/// [`brr_block`] repeats a single nibble pair, which covers every test that wants a constant or a
+/// simple alternation. `E6.11` names its vectors as nibble strings — `79797979`, `77997799`,
+/// `77779999`, `7777CC44` — and the last two are not expressible as one repeated byte. The pattern
+/// is cycled rather than padded, so a four-byte pattern fills the block twice and a one-byte
+/// pattern eight times, which is what the nibble strings describe.
+fn brr_block_pattern(shift: u8, filter: u8, flags: u8, pattern: &[u8]) -> Vec<u8> {
+    let mut v = vec![(shift << 4) | (filter << 2) | flags];
+    v.extend(pattern.iter().copied().cycle().take(8));
+    v
+}
+
 fn brr_sample(blocks: &[Vec<u8>], run_out: usize) -> Vec<u8> {
     let mut v: Vec<u8> = blocks.concat();
     for _ in 0..run_out {

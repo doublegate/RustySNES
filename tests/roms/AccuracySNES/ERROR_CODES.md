@@ -1823,6 +1823,14 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 addressing; fullsnes). Kind: sc
 |---|---|---|
 | 1 | `$02` | $FF + X did not wrap within the direct page; a 16-bit sum would read $0101 instead |
 
+### E6.11 — BRR waveform vectors
+
+Provenance: **Contested** (the dossier names four nibble patterns and asks what a decoder makes of each without stating an expected value for any of them; the row's content is the measurement). Kind: golden vector, never scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the voice was not at full scale when OUTX was read, so the four waveform readings are scaled by an envelope this test does not know and are not comparable with anything |
+
 ### E10.01 — 32 SPC cycles per sample
 
 Provenance: **Documented** (fullsnes and anomie: the SPC700's 1.024 MHz clock and the DSP's 32 kHz output rate fix the ratio at 32 CPU cycles per output sample). Kind: scored.

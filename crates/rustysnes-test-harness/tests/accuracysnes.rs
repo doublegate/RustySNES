@@ -1154,3 +1154,20 @@ fn dsp_soft_reset_is_reported() {
         report.meas[196]
     );
 }
+
+/// Report `E6.11`'s four named BRR waveform vectors.
+#[test]
+fn brr_waveform_vectors_are_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E6.11 OUTX per nibble pattern, shift 12, filter 0:");
+    for (slot, name) in [
+        (197, "79797979"),
+        (198, "77997799"),
+        (199, "77779999"),
+        (200, "7777CC44"),
+    ] {
+        println!("    slot {slot}  {:#04x}  {name}", report.meas[slot]);
+    }
+    println!("    slot 201  {:#04x}  ENVX (the guard)", report.meas[201]);
+}

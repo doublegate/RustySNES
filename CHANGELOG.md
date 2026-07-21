@@ -575,6 +575,19 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E6.11` — the four named BRR waveform vectors.** A **golden vector**: the row names four nibble
+  patterns and asks what a decoder makes of each without stating an expected value for any of them,
+  so the row's content *is* the measurement. All four run at shift 12, filter 0, so the reading is
+  the decoder's own arithmetic rather than a filter's history. `OUTX` reads `$E1` / `$B8` / `$6F` /
+  `$4F` for `79797979` / `77997799` / `77779999` / `7777CC44`; all four move when a scale error is
+  injected into the BRR decode, which is what says they track the decoder.
+  The verdict deliberately does not classify them. Gaussian interpolation runs over four consecutive
+  samples, so `OUTX` depends on where in the pattern the DSP was when the cart looked — and the
+  measurement bore that out: against snes9x the two slow patterns agree exactly while the two fast
+  ones do not. A classifying verdict would have turned the sample phase into a cross-validation
+  failure about nothing, which is what happened to `E8.07`. Adds `brr_block_pattern`, since two of
+  the four patterns are not expressible as one repeated byte.
+
 - **`E10.05` — what does a DSP soft reset leave behind?** A **golden vector**; the dossier marks the
   row `[CONFLICT]` and asks for one by name. Both sources agree `FLG` bit 7 makes the chip behave as
   `$E0` and force every voice into release, and that half **is** asserted: `ENVX` reads `$7F` before
