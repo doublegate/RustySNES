@@ -337,6 +337,19 @@ impl Asm {
         code
     }
 
+    /// Fail when the last comparison **was** equal.
+    ///
+    /// The mirror of [`Asm::fail_if_ne`], for guards phrased as "this must not be X". `E9.03`
+    /// needs it: its assertion is that two readings match, which two silences would also satisfy,
+    /// so it first has to reject a reading of zero.
+    pub fn fail_if_eq(&mut self, why: &str) -> &mut Self {
+        let code = self.alloc(why);
+        self.lines.push("    bne :+".into());
+        self.lines.push(format!("    jmp @fail{code}"));
+        self.lines.push("  :".into());
+        self
+    }
+
     /// Branch to a failure exit when the previous comparison was not equal.
     ///
     /// Uses `beq :+ / jmp` rather than a bare `bne` so the failure stub is reachable from

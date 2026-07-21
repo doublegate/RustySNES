@@ -953,3 +953,17 @@ fn wram_power_on_fill_is_reported() {
         println!("    slot {slot}  {:#04x}  {addr}", report.meas[slot]);
     }
 }
+
+/// `E9.03`'s two noise readings, reported so the guard's non-zero requirement can be seen.
+#[test]
+fn noise_pitch_independence_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E9.03 noise OUTX at two pitches:");
+    println!("    slot 168  {:#04x}  VxPITCH = $1000", report.meas[168]);
+    println!("    slot 169  {:#04x}  VxPITCH = $2000", report.meas[169]);
+    assert_ne!(
+        report.meas[168], 0,
+        "the noise voice was silent, so the test compared two silences"
+    );
+}

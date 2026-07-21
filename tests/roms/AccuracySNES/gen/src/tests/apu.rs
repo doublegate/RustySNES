@@ -62,6 +62,7 @@ pub fn all() -> Vec<Test> {
         e3_14(),
         dsp_global_regs(),
         e9_19(),
+        e9_03(),
         e5_07(),
         e5_08(),
         e5_09(),
@@ -664,6 +665,89 @@ fn e2_04() -> Test {
         Provenance::Documented(
             "SNESdev Wiki SPC700 reference and fullsnes: DBNZ dp,rel reads its operand, decrements \
              it and writes it back, and $FD-$FF are read-to-clear",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `VxPITCH` does not affect the noise generator's frequency.
+///
+/// A voice in noise mode takes its samples from the global LFSR, whose step rate comes from `FLG`
+/// bits 0-4 and from nothing else. The voice's own pitch register still controls the *sample*
+/// pointer — which is why `E9.04` can show a noise voice decoding BRR at the same time — but it has
+/// no bearing on how fast the noise itself advances. A core that runs the LFSR off the voice's
+/// pitch counter gives every noise voice a different timbre depending on the note it was keyed at,
+/// which is audible and wrong.
+///
+/// # Two runs that differ in exactly one register
+///
+/// Both play voice 0 with `NON` set, at the same volume, envelope and settle, and read `VxOUTX` at
+/// the same point. The only difference is `VxPITCH`: `$1000` (one sample per output sample) in the
+/// first, `$2000` (an octave up) in the second. Equal readings mean the pitch did not reach the
+/// noise generator.
+///
+/// # The LFSR has to start from the same place both times
+///
+/// It is global and survives between programs, so without a reset the second run would begin from
+/// wherever the first left it and the two readings would differ for a reason that has nothing to do
+/// with pitch. Both programs therefore pulse `FLG` bit 7 first, which re-seeds the LFSR to `$4000`.
+/// That is the whole reason [`Voice::flg_reset`] exists.
+///
+/// # The guard
+///
+/// Two zeroes are also equal. `VxOUTX` is asserted non-zero first: if the noise voice were silent —
+/// unkeyed, muted, or with the LFSR never stepping — the comparison below would pass without having
+/// compared anything. That check is what makes "they match" evidence rather than a coincidence.
+fn e9_03() -> Test {
+    let noise = |pitch_hi: u8| Voice {
+        non: 0x01,
+        pitch_hi,
+        flg_reset: true,
+        settle: 6,
+        ..Voice::direct_gain()
+    };
+    let low = voice_program(&looping_sample(), noise(0x10));
+    let high = voice_program(&looping_sample(), noise(0x20));
+
+    let mut a = Asm::new();
+    a.c("--- run 1: VxPITCH = $1000 ---");
+    upload_and_run_tagged(&mut a, &low, "_lo");
+    a.l("sep #$20");
+    a.l("lda f:$7E0102");
+    a.l("sta f:$7E01DC     ; OUTX, before the second upload overwrites the mailbox copy");
+    a.c("--- run 2: VxPITCH = $2000, everything else identical ---");
+    upload_and_run_tagged(&mut a, &high, "_hi");
+    a.l("rep #$30");
+    a.l("lda f:$7E01DC");
+    a.l("and #$00FF");
+    a.record(168, "E9.03 noise OUTX at VxPITCH = $1000");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.record(169, "E9.03 noise OUTX at VxPITCH = $2000");
+    a.c("The guard: two silences are equal too, and would pass the comparison having compared");
+    a.c("nothing at all.");
+    a.l("sep #$20");
+    a.l("lda f:$7E01DC");
+    a.l("cmp #$00");
+    a.fail_if_eq(
+        "the noise voice produced no output at all, so the comparison below would be between two \
+         silences rather than between two noise streams",
+    );
+    a.l("lda f:$7E01DC");
+    a.l("cmp f:$7E0102");
+    a.fail_if_ne(
+        "the two runs produced different noise output, and they differ only in VxPITCH — so the \
+         voice's pitch is reaching the noise generator, whose rate comes from FLG bits 0-4 alone",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E9.03",
+        'E',
+        "Pitch not noise rate",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: the noise generator's step rate is set by FLG bits \
+             0-4, and a voice's pitch register does not participate",
         ),
         Kind::Scored,
         None,
@@ -1620,6 +1704,12 @@ struct Voice {
     /// cycles apart instead of the twelve two full `dsp_write`s would take. `E8.07` needs the pair
     /// to land inside a single KON/KOFF poll, and at twelve cycles it did not on every core.
     pulse: Option<(u8, u8, u8)>,
+    /// Pulse `FLG` bit 7 before configuring anything, resetting the noise LFSR to `$4000`.
+    ///
+    /// The LFSR is global and survives between programs, so a test whose output depends on it
+    /// starts from wherever the previous test left it. Two runs are only comparable if both begin
+    /// from the same seed, which is what this buys.
+    flg_reset: bool,
     /// Delay loops after the `late` writes, before the registers are read.
     late_settle: u8,
 }
@@ -1638,6 +1728,7 @@ impl Voice {
             settle: 4,
             late: &[],
             pulse: None,
+            flg_reset: false,
             late_settle: 0,
         }
     }
@@ -1671,6 +1762,11 @@ fn voice_program(sample: &[u8], v: Voice) -> Spc {
     // is what a driver does before it has an echo buffer; the reset and mute bits are what the
     // power-on value has set. Noise, echo and pitch modulation are cleared explicitly rather than
     // assumed, since a previous test's program shares the same DSP.
+    if v.flg_reset {
+        // Bit 7 is the DSP's soft reset, and it re-seeds the noise LFSR to $4000. Written with
+        // mute and echo-write-disable so nothing is audible while the reset is asserted.
+        dsp_write(&mut p, 0x6C, 0xE0); // FLG: reset
+    }
     dsp_write(&mut p, 0x6C, 0x20); // FLG
     dsp_write(&mut p, 0x5C, 0x00); // KOF
     dsp_write(&mut p, 0x3D, v.non); // NON

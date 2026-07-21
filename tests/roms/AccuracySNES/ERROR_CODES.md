@@ -1851,6 +1851,15 @@ Provenance: **Documented** (SNESdev Wiki, S-DSP registers; fullsnes). Kind: scor
 |---|---|---|
 | 1 | `$02` | ENDX read back as $FF, so the write was stored rather than treated as a clear |
 
+### E9.03 — Pitch not noise rate
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: the noise generator's step rate is set by FLG bits 0-4, and a voice's pitch register does not participate). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the noise voice produced no output at all, so the comparison below would be between two silences rather than between two noise streams |
+| 2 | `$04` | the two runs produced different noise output, and they differ only in VxPITCH — so the voice's pitch is reaching the noise generator, whose rate comes from FLG bits 0-4 alone |
+
 ### E5.07 — End+mute zeroes env
 
 Provenance: **Documented** (fullsnes, S-DSP BRR; anomie's DSP doc). Kind: scored.

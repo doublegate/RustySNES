@@ -575,6 +575,24 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E9.03` — `VxPITCH` does not affect the noise generator's frequency.** A voice in noise mode
+  takes its samples from the global LFSR, whose step rate comes from `FLG` bits 0-4 and nothing
+  else. The voice's pitch still drives its sample pointer — which is why `E9.04` can show a noise
+  voice decoding BRR at the same time — but it has no bearing on how fast the noise advances. A core
+  running the LFSR off the voice's pitch counter gives every noise voice a timbre that depends on
+  the note it was keyed at.
+
+  Two runs differing in exactly one register, `$1000` against `$2000`, read at the same point. Both
+  return `$81`, so the pitch did not reach the noise generator. Verified by perturbing the noise
+  rate with voice 0's pitch, which fails it at code 2.
+
+  Two things make the comparison mean something. **The LFSR is global and survives between
+  programs**, so without a reset the second run would start from wherever the first left it and the
+  readings would differ for a reason unrelated to pitch — both programs now pulse `FLG` bit 7 first,
+  which re-seeds it to `$4000` (the new `Voice::flg_reset`). And **two silences are also equal**, so
+  the output is asserted non-zero before the two are compared; without that, a muted or unkeyed
+  voice would pass the test having compared nothing.
+
 - **`G1.07` — what WRAM powers up holding.** The row is marked `[UNDEFINED]` and asks for a golden
   vector by name, and the measurement is about as complete a demonstration of that as a row can get
   — **one core per variant**:
