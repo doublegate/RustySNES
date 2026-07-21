@@ -575,6 +575,22 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E9.05` — the echo buffer stores four bytes per entry, left channel first.** `L` low, `L` high,
+  `R` low, `R` high. `E9.12` already pins what goes *in* each sample; this pins the layout around
+  them, which is what a driver reading the buffer back has to know.
+
+  With a voice at equal volume on both sides the four bytes are two identical pairs, and a core
+  writing two bytes per entry — or writing right-then-left — produces the same buffer. So the voice
+  plays at full volume on the **left only**: bytes 0-1 must be written and not the `$FF` marker,
+  bytes 2-3 must be written *as zero*. A two-byte-entry core leaves the marker in 2-3; a
+  right-then-left core puts the zeroes in 0-1.
+
+  Verified by inverting the channel-to-offset mapping in the DSP, which fails it at code 2. **The
+  first injection attempt proved nothing**: swapping which channel is written at echo29 versus
+  echo30 leaves each one addressing its own offset, so the buffer is unchanged. Noticing that the
+  verdict had not moved is what led to the right injection — the address arithmetic, not the call
+  order.
+
 - **`E9.03` — `VxPITCH` does not affect the noise generator's frequency.** A voice in noise mode
   takes its samples from the global LFSR, whose step rate comes from `FLG` bits 0-4 and nothing
   else. The voice's pitch still drives its sample pointer — which is why `E9.04` can show a noise

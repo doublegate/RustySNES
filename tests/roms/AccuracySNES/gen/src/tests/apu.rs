@@ -94,6 +94,7 @@ pub fn all() -> Vec<Test> {
         e9_04(),
         e9_06(),
         e9_12(),
+        e9_05(),
         e9_10(),
         e9_17(),
         e9_18(),
@@ -3365,6 +3366,142 @@ fn e7_16() -> Test {
         'E',
         "OUTX is pre-volume",
         Provenance::Documented("fullsnes, S-DSP envelopes; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The echo buffer stores **four bytes per entry**, left channel first.
+///
+/// Each entry is `L` low, `L` high, `R` low, `R` high — two 16-bit samples, little-endian, in that
+/// order. `E9.12` already pins what goes *in* each sample (the bottom bit is masked off); this pins
+/// the layout around them, which is the part a driver reading the buffer back has to know.
+///
+/// # Making the two channels disagree is the whole design
+///
+/// With a voice at equal volume on both sides the four bytes are two identical pairs, and a core
+/// writing two bytes per entry, or writing right-then-left, produces exactly the same buffer. So
+/// the voice is set to full volume on the **left only**:
+///
+/// | bytes | channel | expected |
+/// |---|---|---|
+/// | 0-1 | `L` | written, and not the `$FF` marker |
+/// | 2-3 | `R` | written **as zero** |
+///
+/// A core writing only two bytes per entry leaves bytes 2-3 holding the `$FF` marker. One writing
+/// right-then-left puts the zeroes in bytes 0-1 and the signal in 2-3. Neither can produce the
+/// expected pattern, and the two failures are distinct codes.
+///
+/// # The marker is `$FF`, and that is doing real work
+///
+/// The buffer is painted `$FF` before echo writes are enabled, so "the right channel is zero" and
+/// "nothing was written to the right channel" are different readings rather than the same one. This
+/// is the same trick `E9.12` uses for its bit-0 check, and the reason both tests can assert a zero
+/// at all.
+///
+/// The left channel is checked first: it is the guard. If echo never wrote, byte 1 is still `$FF`
+/// and the test says so, instead of reporting the right channel's untouched marker as a layout
+/// error.
+fn e9_05() -> Test {
+    /// The page `ESA` names, well clear of the program image at `$0200`.
+    const ECHO_PAGE: u8 = 0x30;
+    /// Where that page starts. Derived, so the two cannot drift apart.
+    const ECHO_ADDR: u16 = (ECHO_PAGE as u16) << 8;
+    /// The sample directory, on the stack page well below the stack itself.
+    const DIR_ADDR: u16 = (DIR_PAGE as u16) << 8;
+
+    let sample = constant_sample(0x8, 0x7);
+    let mut prog = Spc::new();
+    let addr = prog.data_first(IMAGE_BASE, &sample);
+    prog.mov_x_imm(0xEF).mov_sp_x();
+    let [lo, hi] = addr.to_le_bytes();
+    prog.mov_a_imm(lo).mov_abs_a(DIR_ADDR);
+    prog.mov_a_imm(hi).mov_abs_a(DIR_ADDR + 1);
+    prog.mov_a_imm(lo).mov_abs_a(DIR_ADDR + 2);
+    prog.mov_a_imm(hi).mov_abs_a(DIR_ADDR + 3);
+
+    dsp_write(&mut prog, 0x6C, 0x20); // FLG: echo writes off during setup
+    dsp_write(&mut prog, 0x6D, ECHO_PAGE); // ESA
+    dsp_write(&mut prog, 0x7D, 0x00); // EDL = 0: one four-byte entry at the buffer start
+    dsp_write(&mut prog, 0x2C, 0x00); // EVOL L — the echo is measured, not heard
+    dsp_write(&mut prog, 0x3C, 0x00); // EVOL R
+    dsp_write(&mut prog, 0x0D, 0x00); // EFB
+    dsp_write(&mut prog, 0x5D, DIR_PAGE); // DIR
+    dsp_write(&mut prog, 0x0C, 0x7F); // MVOLL
+    dsp_write(&mut prog, 0x1C, 0x7F); // MVOLR
+    dsp_write(&mut prog, 0x3D, 0x00); // NON
+    dsp_write(&mut prog, 0x2D, 0x00); // PMON
+    dsp_write(&mut prog, 0x00, 0x7F); // voice 0 VOL L — full scale
+    dsp_write(&mut prog, 0x01, 0x00); // voice 0 VOL R — silent, and that is the point
+    dsp_write(&mut prog, 0x02, 0x00); // PITCH low
+    dsp_write(&mut prog, 0x03, 0x10); // PITCH high: one sample per output sample
+    dsp_write(&mut prog, 0x04, 0x00); // SRCN
+    dsp_write(&mut prog, 0x06, 0x00); // ADSR2
+    dsp_write(&mut prog, 0x07, 0x7F); // GAIN: direct, full scale
+    dsp_write(&mut prog, 0x05, 0x00); // ADSR1: GAIN is in charge
+    dsp_write(&mut prog, 0x4D, 0x01); // EON: voice 0 feeds the echo
+    dsp_write(&mut prog, 0x4C, 0x01); // KON
+    prog.delay(0x00);
+    dsp_write(&mut prog, 0x4C, 0x00);
+    prog.delay(0x00); // let the voice settle at its constant output
+
+    for i in 0..4u16 {
+        prog.mov_a_imm(0xFF).mov_abs_a(ECHO_ADDR + i);
+    }
+    dsp_write(&mut prog, 0x6C, 0x00); // FLG: echo writes on
+    prog.delay(0x00);
+    dsp_write(&mut prog, 0x6C, 0x20); // and off again, so the reads below are stable
+    prog.mov_a_abs(ECHO_ADDR + 1).mov_dp_a(PORT1); // L high
+    prog.mov_a_abs(ECHO_ADDR + 2).mov_dp_a(PORT2); // R low
+    prog.mov_a_abs(ECHO_ADDR + 3).mov_dp_a(PORT3); // R high
+    prog.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(
+        170,
+        "E9.05 echo buffer byte 1 (L high) — $FF means nothing was written",
+    );
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(171, "E9.05 echo buffer byte 2 (R low)");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.record(172, "E9.05 echo buffer byte 3 (R high)");
+    a.c("The left channel first: it is the guard. Still $FF means echo never wrote at all, and");
+    a.c("the right channel's bytes below would then be reporting the marker, not a layout.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.l("cmp #$FF");
+    a.fail_if_eq(
+        "the echo buffer's second byte still held the $FF marker, so nothing was written and the \
+         right-channel checks below would be about the paint rather than about the layout",
+    );
+    a.c("The right channel is silent, so its two bytes must be written zeroes.");
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x00,
+        "echo buffer byte 2 is not the right channel's low byte: a core writing two bytes per \
+         entry leaves the $FF marker here, and one writing right-then-left leaves the signal",
+    );
+    a.l("lda f:$7E0102");
+    a.assert_a8(
+        0x00,
+        "echo buffer byte 3 is not the right channel's high byte, so the entry is not four bytes \
+         of left-then-right",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E9.05",
+        'E',
+        "Echo entry is 4 bytes",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: the echo buffer holds four bytes per sample, a 16-bit \
+             left sample followed by a 16-bit right one",
+        ),
         Kind::Scored,
         None,
     )

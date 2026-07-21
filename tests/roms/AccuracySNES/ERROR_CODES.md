@@ -2131,6 +2131,16 @@ Provenance: **Documented** (fullsnes, S-DSP echo; anomie's DSP doc). Kind: score
 |---|---|---|
 | 1 | `$02` | the echo buffer's low byte kept its bottom bit — either nothing was written over the $FF marker, or the sample was stored without the & $FFFE mask |
 
+### E9.05 — Echo entry is 4 bytes
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: the echo buffer holds four bytes per sample, a 16-bit left sample followed by a 16-bit right one). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the echo buffer's second byte still held the $FF marker, so nothing was written and the right-channel checks below would be about the paint rather than about the layout |
+| 2 | `$04` | echo buffer byte 2 is not the right channel's low byte: a core writing two bytes per entry leaves the $FF marker here, and one writing right-then-left leaves the signal |
+| 3 | `$06` | echo buffer byte 3 is not the right channel's high byte, so the entry is not four bytes of left-then-right |
+
 ### E9.10 — FLG.5 stops echo writes
 
 Provenance: **Documented** (fullsnes, S-DSP echo; anomie's DSP doc). Kind: scored.
