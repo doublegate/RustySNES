@@ -1622,10 +1622,14 @@ test_restore := test_restore_impl
     .i16
     ; LONG addressing throughout, so the latch does not depend on DBR. This is not defensive
     ; tidiness: `MVN` leaves DBR = its destination bank, so a measurement wrapped around a block
-    ; move reaches `hv_end` with DBR = $7E, and absolute `lda $213F` then reads WRAM instead of the
-    ; PPU. The counters come back as whatever bytes happened to be there, the line-countdown loop
-    ; below runs thousands of times, and the result is a five-digit number that looks like data.
-    ; That is what an 8-byte MVN reported as "11464 dots".
+    ; move reaches `hv_end_wide` with DBR = $7E, and absolute `lda $213F` then reads WRAM instead of
+    ; the PPU. The counters come back as whatever bytes happened to be there, the line-countdown
+    ; loop below runs thousands of times, and the result is a five-digit number that looks like
+    ; data. That is what an 8-byte MVN reported as "11464 dots".
+    ;
+    ; **`hv_read_raw`, the narrow instrument, still uses absolute addressing and still carries this
+    ; hazard.** No current test trips it — none of them measures across an instruction that moves
+    ; DBR — but anything that does must restore DBR before `hv_end`, or use this path instead.
     lda f:$00213F               ; reset both read flipflops
     lda f:$002137               ; SLHV: ONE latch, capturing H and V together
     lda f:$00213C               ; OPHCT low 8
