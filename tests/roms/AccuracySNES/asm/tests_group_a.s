@@ -3267,7 +3267,8 @@ CATALOG_IMPL = 1
     ldy #$0300
     lda #$0000        ; one byte
     ; $54 then DESTINATION then SOURCE. Written as bytes so this tests the core's decoding
-    ; rather than ca65's operand order; `mvn #$7E,#$00` would assemble to exactly these.
+    ; rather than ca65's operand order — which is `mvn <src>,<dest>`, so `mvn #$00,#$7E`
+    ; assembles to exactly these three bytes. Checked by assembling it, not assumed.
     .byte $54, $7E, $00
     phk
     plb               ; MVN leaves DBR = destination bank; restore it before reading back

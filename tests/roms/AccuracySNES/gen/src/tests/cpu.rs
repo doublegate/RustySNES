@@ -2413,7 +2413,8 @@ fn a8_04() -> Test {
     a.l("ldy #$0300");
     a.l("lda #$0000        ; one byte");
     a.c("$54 then DESTINATION then SOURCE. Written as bytes so this tests the core's decoding");
-    a.c("rather than ca65's operand order; `mvn #$7E,#$00` would assemble to exactly these.");
+    a.c("rather than ca65's operand order — which is `mvn <src>,<dest>`, so `mvn #$00,#$7E`");
+    a.c("assembles to exactly these three bytes. Checked by assembling it, not assumed.");
     a.l(".byte $54, $7E, $00");
     a.l("phk");
     a.l("plb               ; MVN leaves DBR = destination bank; restore it before reading back");
