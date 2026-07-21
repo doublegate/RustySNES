@@ -663,6 +663,49 @@ So `A4.04`/`A4.05` need only two of those reserved bytes in each of two banks:
 That also fixes the flaw that withdrew `A4.06`/`A4.08`: the wrapped and carried addresses now differ
 in content by construction, because the banks are not mirrors. **Reopened as unblocked.**
 
+**One more piece the sketch above skips, and it is the non-obvious part.** The signature blocks live
+in `runtime.s`, and a generated test's landing labels are cheap-locals inside its own proc — the
+runtime cannot name them, so the reserved bytes cannot simply hold `.addr @landed`. The pointers
+have to target something the runtime *can* name.
+
+Follow the pattern the vectors already use. Two runtime stubs plus one RAM return vector:
+
+```asm
+; in runtime.s, RUNTIME segment
+.proc bankprobe_0                 ; reached only if the pointer came from bank $00
+    sep #$20
+    lda #$00
+    sta f:V_BANKPROBE
+    jml (V_BANKPROBE_RET)
+.endproc
+.proc bankprobe_1                 ; reached only if it carried into bank $01
+    sep #$20
+    lda #$01
+    sta f:V_BANKPROBE
+    jml (V_BANKPROBE_RET)
+.endproc
+
+.segment "SIG0"
+    .byte "SIG0", $00, $A0
+    .addr bankprobe_0             ; $00:8006 — two of the ten reserved bytes
+    ...
+.segment "BANK1"
+    .byte "SIG1", $00, $A1
+    .addr bankprobe_1             ; $01:8006
+    ...
+```
+
+The test installs its continuation in `V_BANKPROBE_RET`, does `ldx #$8008` so `$FFFE + X` reaches
+`$8006`, executes `jmp ($FFFE,x)`, and on return reads `V_BANKPROBE`: `$00` means the pointer came
+from the program bank (correct), `$01` means it carried. **Both outcomes return through the same
+path**, so neither answer hangs — the property that `A4.06`/`A4.08` lacked and the reason they
+asserted nothing.
+
+`JMP (a,X)` does not change `PBR`, so both stubs execute in bank `$00` regardless of which pointer
+was fetched; only the *pointer fetch* crosses banks, which is exactly the behaviour under test.
+`A4.05` is the same test with `JSR`, and inherits `A3.08`'s rule about not returning normally: after
+the pushes, rebuild the stack rather than `RTS`.
+
 **What a real test needs (superseded).** The wrapped and carried addresses must land in memory that
 actually differs between banks `$00` and `$01`. Below `$2000` is shared WRAM and `$2000-$7FFF` is I/O and
 open bus, mirrored identically across `$00-$3F` — so the only discriminating region is
