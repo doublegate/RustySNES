@@ -25,10 +25,20 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
 ; crossed into bank $01". Each bank carries its own signature byte at $xx:8005 so the difference
 ; is observable; inside a mirrored 32 KiB image it would not be.
 ; ---------------------------------------------------------------------------------------------
+; Bytes 8-9 of the bank $00 and bank $01 blocks hold the bank-probe stub addresses, so a test can
+; aim an `(a,X)` indirect jump at $xx:8008 and find out which bank the pointer actually came from.
+;
+; Offsets 8-9 and NOT 6-7: `A2.11` forms a `(dp,X)` pointer at $00:8005-8006 and reads through it,
+; so putting an address in byte 6 changes what that test loads. Found by A2.11 failing the moment
+; the first version of this landed. Bytes 6-7 and 10-15 stay zero.
 .segment "SIG0"
-    .byte "SIG0", $00, $A0, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte "SIG0", $00, $A0, $00, $00
+    .addr bankprobe_0
+    .byte $00, $00, $00, $00, $00, $00
 .segment "BANK1"
-    .byte "SIG1", $00, $A1, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte "SIG1", $00, $A1, $00, $00
+    .addr bankprobe_1
+    .byte $00, $00, $00, $00, $00, $00
 .segment "BANK2"
     .byte "SIG2", $00, $A2, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
 .segment "BANK3"
@@ -1550,6 +1560,40 @@ test_restore := test_restore_impl
 .export nmi_trampoline
 .proc nmi_trampoline
     jmp (V_NMI_VEC)
+.endproc
+
+; Bank-probe landing stubs for the `(a,X)` indirect-jump rows.
+;
+; Their addresses sit in the reserved bytes of the bank $00 and bank $01 signature blocks, so which
+; one runs says which bank the pointer was fetched from. Each records its identity and returns
+; through a RAM vector the test installs — the point being that BOTH answers return, rather than the
+; wrong one jumping into whatever ROM happens to be at that offset. A test whose wrong answer
+; crashes reports nothing, which is how the withdrawn A4.06/A4.08 managed to assert nothing at all.
+;
+; `JMP (a,X)` does not change PBR, so both stubs execute in bank $00 whichever pointer was fetched;
+; only the pointer FETCH crosses banks, which is the behaviour under test.
+; The explicit `.a8` is load-bearing, not tidiness. These stubs are reached by an indirect jump
+; from a test whose accumulator width ca65 cannot see, and the assembler's width belief is
+; file-global: without it, `lda #$00` assembles as a THREE-byte 16-bit immediate, the CPU (8-bit
+; after the SEP) takes two, and the trailing $00 executes as BRK. That is exactly how A6.10 failed
+; when it was written, and it is how the first version of these stubs failed too — the jump landed
+; correctly and the probe never recorded anything.
+.export bankprobe_0
+.proc bankprobe_0
+    sep #$20
+    .a8
+    lda #$00
+    sta f:V_BANKPROBE
+    jml [V_BANKPROBE_RET]
+.endproc
+
+.export bankprobe_1
+.proc bankprobe_1
+    sep #$20
+    .a8
+    lda #$01
+    sta f:V_BANKPROBE
+    jml [V_BANKPROBE_RET]
 .endproc
 
 ; BRK / COP trampolines. The vectors are fixed at link time; these jump through a RAM pointer so

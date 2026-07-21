@@ -98,6 +98,7 @@ pub fn all() -> Vec<Test> {
         a6_11(),
         a8_07(),
         a6_12(),
+        a4_11(),
     ]
 }
 
@@ -1308,6 +1309,65 @@ fn a6_12() -> Test {
              recorded in buckets rather than asserted",
         ),
         Kind::Golden,
+        None,
+    )
+}
+
+/// `JMP (a,X)` takes its pointer from the **program bank**, wrapping inside it rather than carrying.
+///
+/// `$FFFE + X` must stay in the current program bank. A core computing the pointer address as a
+/// flat 24-bit sum reads it from the next bank instead. The errata's worked example is `PBR = $05`,
+/// `X = $04`, `JMP ($FFFE,X)` reaching `$05:0002`.
+///
+/// # Why an earlier version of this asserted nothing
+///
+/// `A4.06` and `A4.08` tried this with the pointer in low WRAM and were **withdrawn as vacuous**:
+/// banks `$00-$3F` all alias the same 8 KiB below `$2000`, so `$00:1000` and `$01:1000` are
+/// literally the same bytes and a carrying core read the identical pointer. Cross-validation could
+/// not catch it either — a test that cannot fail passes on every implementation.
+///
+/// The discriminating fixture already existed and is what `lorom.cfg` builds a 128 KiB image for:
+/// a per-bank signature block at `$xx:8000`, whose bytes 8-9 now hold the address of `bankprobe_0`
+/// in bank `$00` and `bankprobe_1` in bank `$01`. Those are different ROM, not mirrors.
+///
+/// `ldx #$800A` makes `$FFFE + X` wrap to `$8008` in the program bank, or carry to `$01:8008`
+/// otherwise. Each stub records its own identity and returns through `V_BANKPROBE_RET`, so **both
+/// outcomes come back through the same path** — the property the withdrawn pair lacked, and the
+/// reason their wrong answer would have been a crash rather than a verdict.
+fn a4_11() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("Install the continuation both stubs return through, as a 24-bit pointer.");
+    a.l("lda #.LOWORD(@landed)");
+    a.l("sta a:V_BANKPROBE_RET");
+    a.l("sep #$20");
+    a.l("lda #^@landed");
+    a.l("sta a:V_BANKPROBE_RET+2");
+    a.c("Poison the result so 'neither stub ran' is distinguishable from either answer.");
+    a.l("lda #$FF");
+    a.l("sta a:V_BANKPROBE");
+    a.l("rep #$30");
+    a.l("ldx #$800A        ; $FFFE + $800A = $1_8008, wrapping to $8008 in the program bank");
+    a.l("jmp ($FFFE,x)");
+    a.label("landed");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda a:V_BANKPROBE");
+    a.assert_a8(
+        0x00,
+        "JMP (a,X) did not take its pointer from the program bank: $01 = carried into bank $01, \
+         $FF = neither stub ran",
+    );
+    a.finish(
+        "A4.11",
+        'A',
+        "JMP (a,X) ptr bank",
+        Provenance::Documented("SNESdev Errata, 65C816 section (worked example PBR=$05)"),
+        Kind::Scored,
         None,
     )
 }

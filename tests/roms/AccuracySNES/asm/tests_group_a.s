@@ -4445,6 +4445,58 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A4.11 — JMP (a,X) ptr bank
+; provenance: Documented (SNESdev Errata, 65C816 section (worked example PBR=$05))
+.proc test_a4_11
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Install the continuation both stubs return through, as a 24-bit pointer.
+    lda #.LOWORD(@landed)
+    sta a:V_BANKPROBE_RET
+    sep #$20
+    .a8
+    lda #^@landed
+    sta a:V_BANKPROBE_RET+2
+    ; Poison the result so 'neither stub ran' is distinguishable from either answer.
+    lda #$FF
+    sta a:V_BANKPROBE
+    rep #$30
+    .a16
+    .i16
+    ldx #$800A        ; $FFFE + $800A = $1_8008, wrapping to $8008 in the program bank
+    jmp ($FFFE,x)
+@landed:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda a:V_BANKPROBE
+    cmp #$00
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; JMP (a,X) did not take its pointer from the program bank: $01 = carried into bank $01, $FF = neither stub ran
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C1.01 — OAM word write/read
 ; provenance: Documented (SNESdev Wiki, OAM; fullsnes)
 .proc test_c1_01
@@ -20899,7 +20951,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 252
+    .word 253
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -20977,6 +21029,7 @@ _test_entries:
     .faraddr test_a6_11
     .faraddr test_a8_07
     .faraddr test_a6_12
+    .faraddr test_a4_11
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -21232,6 +21285,7 @@ _test_flags:
     .byte $01   ; A6.11
     .byte $01   ; A8.07
     .byte $02   ; A6.12
+    .byte $01   ; A4.11
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -21487,6 +21541,7 @@ _test_names:
     .addr @n_a6_11
     .addr @n_a8_07
     .addr @n_a6_12
+    .addr @n_a4_11
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -21887,6 +21942,9 @@ _test_names:
 @n_a6_12:
     .byte 21
     .byte "WAI wake lat (golden)"
+@n_a4_11:
+    .byte 18
+    .byte "JMP (a,X) ptr bank"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"

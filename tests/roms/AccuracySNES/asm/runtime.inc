@@ -199,6 +199,22 @@ V_COP_VEC_E     = $0054
 ; V_APU_PTR (24-bit, owns three bytes), $0054 V_COP_VEC_E, $0080 PAD_A.
 V_NMI_VEC       = $0056
 
+; Bank-probe result and return vector, for the `(a,X)` indirect-jump rows (A4.04/A4.05).
+;
+; Those tests must tell "the pointer address wrapped inside the program bank" from "it carried into
+; the next bank". Low WRAM cannot show that — banks $00-$3F all alias the same 8 KiB below $2000, so
+; both candidate addresses are literally the same bytes, which is what made an earlier pair of tests
+; vacuous. The discriminating fixture is the per-bank signature block at $xx:8000, whose reserved
+; bytes hold the address of `bankprobe_0` in bank $00 and `bankprobe_1` in bank $01. Each stub
+; writes its own identity here and returns through V_BANKPROBE_RET, so BOTH outcomes come back
+; through the same path and neither answer hangs.
+; V_BANKPROBE_RET is a 24-BIT pointer — the stubs return with `jml [V_BANKPROBE_RET]`, so it owns
+; $005A-$005C, not just $005A-$005B. Writing that down because the same mistake has been made here
+; once already: V_COP_VEC_E was first placed on top of V_APU_PTR's bank byte for exactly this
+; reason. The next free word after this block is $005E.
+V_BANKPROBE     = $0058
+V_BANKPROBE_RET = $005A
+
 ; Cycle-measurement scratch (see hv_sync / hv_h in runtime.s).
 V_H0            = $0046
 V_H1            = $0048
