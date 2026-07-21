@@ -632,6 +632,13 @@ rewritten to the current number — this line is the one to read.
   nothing depending on what is plugged in, and that `NMITIMEN` is zero for the whole battery, both
   of which the input contract changed.
 
+- **The measurement channel widened to 512 slots**, and its index type from `u8` to `u16`. It stood
+  at 240 with **25 free** against the 130-150 tests still to write — about ten tests of headroom, so
+  this one was deliberate rather than forced by the collision gate. The type change is why it is not
+  simply a larger number: 255 was the real ceiling, and `$7EE200` has room to `$7EF000` for 1,792.
+  Widening touches four places (`runtime.inc`, the generator, the harness, the libretro
+  cross-validator) plus the sweep's two slot blocks, and `runtime.inc` now says so.
+
 - **The SPC700 program images now pack across two banks.** They total ~22 KiB over 106 programs and
   grow ~240 bytes per APU test, so one 32 KiB bank runs out partway through finishing Group E — and
   a segment cannot span a bank boundary. `apu_upload` already reads them through a 24-bit pointer,

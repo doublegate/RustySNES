@@ -591,7 +591,7 @@ fn f1_12() -> Test {
     a.l("stz $4200         ; disarm before judging; the battery runs with auto-read off");
     a.l("rep #$30");
     for (slot, line, src) in [
-        (219u8, 225u16, 0x7E_01F8u32),
+        (219u16, 225u16, 0x7E_01F8u32),
         (220, 227, 0x7E_01FA),
         (221, 230, 0x7E_01FC),
         (222, 240, 0x7E_01FE),

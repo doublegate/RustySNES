@@ -63,22 +63,22 @@ const NOP_CLOCKS: u16 = 14;
 /// this file names a slot literally — so the reservation is stated here and enforced by
 /// `dossier::check_slots`, which caught the 35th entry landing on `B4.09`'s slot the moment it was
 /// added rather than silently overwriting it.
-const SWEEP_BASE: u8 = 8;
+const SWEEP_BASE: u16 = 8;
 
 /// How many entries the first block holds before [`SWEEP_BASE_2`] takes over.
 const SWEEP_BLOCK_1: usize = 34;
 
 /// Where entry 34 onward continues, in the block freed when the channel was widened to 240.
-const SWEEP_BASE_2: u8 = 231;
+const SWEEP_BASE_2: u16 = 231;
 
 /// The two slots entry `index` records into.
-fn slot_base_for(index: usize) -> u8 {
+fn slot_base_for(index: usize) -> u16 {
     let (base, offset) = if index < SWEEP_BLOCK_1 {
         (SWEEP_BASE, index)
     } else {
         (SWEEP_BASE_2, index - SWEEP_BLOCK_1)
     };
-    base + u8::try_from(offset).expect("sweep index fits u8") * 2
+    base + u16::try_from(offset).expect("sweep index fits u16") * 2
 }
 
 /// Tolerance in dots, matching the rest of the battery's timing tests.

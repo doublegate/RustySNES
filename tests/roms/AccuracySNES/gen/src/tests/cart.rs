@@ -410,7 +410,7 @@ fn g1_20() -> Test {
     a.l("phk");
     a.l("plb");
     for (i, (slot, what)) in [
-        (150u8, "$2140 APUIO0"),
+        (150u16, "$2140 APUIO0"),
         (151, "$2141 APUIO1"),
         (152, "$2142 APUIO2"),
         (153, "$2143 APUIO3"),

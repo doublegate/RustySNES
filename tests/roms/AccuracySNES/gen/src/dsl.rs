@@ -44,7 +44,7 @@ pub const TEST_RESULT: &str = "$7EE010";
 pub const MEAS_BASE: u32 = 0x7E_E200;
 
 /// Number of `u16` slots in the measurement channel.
-pub const MEAS_SLOTS: u8 = 240;
+pub const MEAS_SLOTS: u16 = 512;
 
 /// Verdict byte meaning "the test passed with no variant".
 pub const PASS: u8 = 0x01;
@@ -145,7 +145,7 @@ pub struct Test {
     /// reporting the newer one's numbers. That happened — `E3.02` was written against 106/107,
     /// which `B3.01` already owned — and nothing failed; the harness simply began printing the
     /// wrong values under the right labels. [`crate::check_slots`] turns it into a build error.
-    pub slots: Vec<u8>,
+    pub slots: Vec<u16>,
 }
 
 impl Test {
@@ -166,7 +166,7 @@ pub struct Asm {
     data: Vec<String>,
     next_code: u8,
     codes: Vec<(u8, String)>,
-    slots: Vec<u8>,
+    slots: Vec<u16>,
 }
 
 impl Default for Asm {
@@ -403,7 +403,7 @@ impl Asm {
     ///
     /// # Panics
     /// If `slot` is outside the block.
-    pub fn record(&mut self, slot: u8, why: &str) -> &mut Self {
+    pub fn record(&mut self, slot: u16, why: &str) -> &mut Self {
         assert!(
             slot < MEAS_SLOTS,
             "measurement slot {slot} is outside the block"

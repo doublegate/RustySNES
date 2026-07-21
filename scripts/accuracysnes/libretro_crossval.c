@@ -192,7 +192,7 @@ typedef size_t (*mem_size_fn)(unsigned);
 /* The full-width measurement channel. A verdict byte cannot carry a dot count -- anything above
  * 255 wraps and becomes indistinguishable from a real reading -- so timing tests write here. */
 #define MEAS   0xE200u
-#define MEAS_SLOTS 240u
+#define MEAS_SLOTS 512u
 #define SCENE      (BASE + 0x12u)
 #define SCENE_DONE (BASE + 0x13u)
 #define MAX_SCENES 64u

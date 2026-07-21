@@ -142,7 +142,16 @@ PAD_CONTRACT    = $9050
 ; test runner; until then F1.03 stays uncovered rather than green on two references out of three.
 
 MEAS_BASE       = $7EE200
-MEAS_SLOTS      = 240
+; 512 slots, widened from 240 and from 192 before that. The channel ends at $7EE600, and the
+; results block does not begin until $7EF000, so there is room for 1792 -- the ceiling here is the
+; constant, not the memory. Widening it is a change in four places (this file, the generator, the
+; harness, the libretro cross-validator) and the generator's collision gate prints an empty free
+; list when the channel is full, which is how the last two widenings were prompted.
+;
+; 240 was reached with 25 slots left against 130-150 tests still to write, so this one was
+; deliberate rather than forced. It also had to widen the slot *type* from `u8` to `u16`, which is
+; why it is not simply a larger number: 255 was the real ceiling before.
+MEAS_SLOTS      = 512
 
 ; Rendered-scene pacing. A scene is set up, allowed to SETTLE for whole frames, and only THEN
 ; publishes its ID for FRAMES frames before clearing it again.

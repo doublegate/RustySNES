@@ -866,7 +866,7 @@ fn e6_09() -> Test {
 /// alternates fast enough for it to matter, and it is what a classifying verdict would have turned
 /// into a cross-validation failure about nothing.
 fn e6_11() -> Test {
-    let vectors: [(&str, &[u8], u8, u32); 4] = [
+    let vectors: [(&str, &[u8], u16, u32); 4] = [
         ("79797979", &[0x79], 197, 0x7E_01F8),
         ("77997799", &[0x77, 0x99], 198, 0x7E_01F9),
         ("77779999", &[0x77, 0x77, 0x99, 0x99], 199, 0x7E_01FA),
