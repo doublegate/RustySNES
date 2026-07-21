@@ -31,6 +31,7 @@ pub fn all() -> Vec<Test> {
         d2_07(),
         d1_14(),
         d1_11(),
+        d1_08(),
         d1_03(),
         d1_04(),
         d2_05(),
@@ -754,6 +755,118 @@ fn d2_07() -> Test {
         "HDMA preempts GP-DMA",
         Provenance::Documented("SNESdev Wiki, HDMA; anomie's timing doc; fullsnes"),
         Kind::Scored,
+        None,
+    )
+}
+
+/// A DMA whose **A-bus** address lands in the CPU/DMA register block does not read those registers
+/// — a golden vector, never scored.
+///
+/// The errata marks four A-bus ranges invalid for DMA: `$21xx`, `$4000-$41FF`, `$4200-$421F` and
+/// `$4300-$437F`. The A bus cannot address the B-bus registers or the CPU's own block, so a
+/// transfer aimed there does not fetch what a CPU read would.
+///
+/// # Why this reports instead of asserting
+///
+/// The errata says the range is invalid; it does **not** say what is read instead. The substitute
+/// is open bus, and that leaves nothing portable to assert:
+///
+/// * asserting a particular byte would pin this core's open-bus model rather than the erratum;
+/// * asserting "different from the register value" is unsound — open bus could coincide with it
+///   and the test would fail a correct core;
+/// * asserting that two transfers return the *same* byte is unsound too, and demonstrably so.
+///   That was the first version of this test. Mesen2 failed it and was right to: its two runs
+///   returned `$A9` and `$C2`, instruction opcodes — open bus tracking recent CPU fetches, which
+///   differ because the surrounding code differs. RustySNES and snes9x happened to return a stable
+///   value and passed. Nothing documents which is correct.
+///
+/// So the observation is recorded. Variant 1 means neither transfer came back holding the probe
+/// value — the range was not read, which is what all three cores do and what the errata predicts.
+/// Variant 2 means a core read the register block through the A bus, and announces itself.
+///
+/// Two probe values are still written to `$4300` and still differ between runs, because that is
+/// what makes "the register was read" detectable at all; what changed is that their *absence* is
+/// reported rather than their equality asserted.
+fn d1_08() -> Test {
+    let mut a = Asm::new();
+    a.c(
+        "Channel 1 reads A-bus $00:4300 -- channel 0's DMAP, never armed here -- into WRAM through",
+    );
+    a.c("$2180. Run twice with the probe register holding different values.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("stz $420C         ; no HDMA: nothing else may touch the channels mid-test");
+    a.l("stz $4310         ; A->B, increment, mode 0");
+    a.l("lda #$80");
+    a.l("sta $4311         ; B-bus = $2180");
+    a.l("sep #$20");
+    a.l("stz $4314         ; A-bus bank $00");
+    a.c("--- run 1: probe register = $53 ---");
+    a.l("lda #$53");
+    a.l("sta $4300");
+    a.l("lda #$00");
+    a.l("sta $2181");
+    a.l("lda #$0E");
+    a.l("sta $2182");
+    a.l("stz $2183         ; WMADD = $7E:0E00");
+    a.l("rep #$30");
+    a.l("lda #$4300");
+    a.l("sta $4312");
+    a.l("lda #$0001");
+    a.l("sta $4315");
+    a.l("sep #$20");
+    a.l("lda #$02");
+    a.l("sta $420B");
+    a.c("--- run 2: probe register = $A5, destination one byte along ---");
+    a.l("lda #$A5");
+    a.l("sta $4300");
+    a.l("lda #$01");
+    a.l("sta $2181");
+    a.l("lda #$0E");
+    a.l("sta $2182");
+    a.l("stz $2183         ; WMADD = $7E:0E01");
+    a.l("rep #$30");
+    a.l("lda #$4300");
+    a.l("sta $4312");
+    a.l("lda #$0001");
+    a.l("sta $4315");
+    a.l("sep #$20");
+    a.l("lda #$02");
+    a.l("sta $420B");
+    a.c("Record both bytes: they are the whole content of this row and the reason it is golden.");
+    a.l("rep #$20");
+    a.l("lda f:$7E0E00");
+    a.l("and #$00FF");
+    a.record(122, "D1.08 run 1 byte");
+    a.l("lda f:$7E0E01");
+    a.l("and #$00FF");
+    a.record(123, "D1.08 run 2 byte");
+    a.c("Variant 1 = neither run held the probe value; variant 2 = the range was read after all.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0E00");
+    a.l("cmp #$53");
+    a.l("beq @sawit");
+    a.l("lda f:$7E0E01");
+    a.l("cmp #$A5");
+    a.l("beq @sawit");
+    a.l("lda #$03");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.l("@sawit:");
+    a.l("lda #$05");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.finish(
+        "D1.08",
+        'D',
+        "Invalid A-bus (golden)",
+        Provenance::Contested(
+            "the errata names the ranges invalid but does not specify what is read instead; \
+             the substitute is open bus, whose content is core-specific and time-dependent",
+        ),
+        Kind::Golden,
         None,
     )
 }

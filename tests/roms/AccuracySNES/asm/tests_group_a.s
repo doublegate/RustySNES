@@ -9937,6 +9937,94 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; D1.08 — Invalid A-bus (golden)
+; provenance: Contested (the errata names the ranges invalid but does not specify what is read instead; the substitute is open bus, whose content is core-specific and time-dependent)
+.proc test_d1_08
+    .a16
+    .i16
+    ; Channel 1 reads A-bus $00:4300 -- channel 0's DMAP, never armed here -- into WRAM through
+    ; $2180. Run twice with the probe register holding different values.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    stz $420C         ; no HDMA: nothing else may touch the channels mid-test
+    stz $4310         ; A->B, increment, mode 0
+    lda #$80
+    sta $4311         ; B-bus = $2180
+    sep #$20
+    .a8
+    stz $4314         ; A-bus bank $00
+    ; --- run 1: probe register = $53 ---
+    lda #$53
+    sta $4300
+    lda #$00
+    sta $2181
+    lda #$0E
+    sta $2182
+    stz $2183         ; WMADD = $7E:0E00
+    rep #$30
+    .a16
+    .i16
+    lda #$4300
+    sta $4312
+    lda #$0001
+    sta $4315
+    sep #$20
+    .a8
+    lda #$02
+    sta $420B
+    ; --- run 2: probe register = $A5, destination one byte along ---
+    lda #$A5
+    sta $4300
+    lda #$01
+    sta $2181
+    lda #$0E
+    sta $2182
+    stz $2183         ; WMADD = $7E:0E01
+    rep #$30
+    .a16
+    .i16
+    lda #$4300
+    sta $4312
+    lda #$0001
+    sta $4315
+    sep #$20
+    .a8
+    lda #$02
+    sta $420B
+    ; Record both bytes: they are the whole content of this row and the reason it is golden.
+    rep #$20
+    .a16
+    lda f:$7E0E00
+    and #$00FF
+    ; record slot 122: D1.08 run 1 byte
+    sta f:$7EE2F4
+    lda f:$7E0E01
+    and #$00FF
+    ; record slot 123: D1.08 run 2 byte
+    sta f:$7EE2F6
+    ; Variant 1 = neither run held the probe value; variant 2 = the range was read after all.
+    sep #$20
+    .a8
+    lda f:$7E0E00
+    cmp #$53
+    beq @sawit
+    lda f:$7E0E01
+    cmp #$A5
+    beq @sawit
+    lda #$03
+    sta f:$7EE010
+    jml test_restore
+    @sawit:
+    lda #$05
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; D1.03 — DMA startup overhead
 ; provenance: Documented (SNESdev Wiki, DMA timing; fullsnes)
 .proc test_d1_03
@@ -21269,7 +21357,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 257
+    .word 258
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -21423,6 +21511,7 @@ _test_entries:
     .faraddr test_d2_07
     .faraddr test_d1_14
     .faraddr test_d1_11
+    .faraddr test_d1_08
     .faraddr test_d1_03
     .faraddr test_d1_04
     .faraddr test_d2_05
@@ -21683,6 +21772,7 @@ _test_flags:
     .byte $01   ; D2.07
     .byte $01   ; D1.14
     .byte $01   ; D1.11
+    .byte $02   ; D1.08
     .byte $02   ; D1.03
     .byte $01   ; D1.04
     .byte $01   ; D2.05
@@ -21943,6 +22033,7 @@ _test_names:
     .addr @n_d2_07
     .addr @n_d1_14
     .addr @n_d1_11
+    .addr @n_d1_08
     .addr @n_d1_03
     .addr @n_d1_04
     .addr @n_d2_05
@@ -22500,6 +22591,9 @@ _test_names:
 @n_d1_11:
     .byte 18
     .byte "DMA power-on state"
+@n_d1_08:
+    .byte 22
+    .byte "Invalid A-bus (golden)"
 @n_d1_03:
     .byte 20
     .byte "DMA startup overhead"

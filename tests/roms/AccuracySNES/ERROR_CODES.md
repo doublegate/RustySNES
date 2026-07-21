@@ -1269,6 +1269,12 @@ Provenance: **Corroborated** (fullsnes register table and the SNESdev DMA-regist
 |---|---|---|
 | 1 | `$02` | a DMA channel register did not power on as $FF (Heian Fuuunden depends on this) |
 
+### D1.08 — Invalid A-bus (golden)
+
+Provenance: **Contested** (the errata names the ranges invalid but does not specify what is read instead; the substitute is open bus, whose content is core-specific and time-dependent). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
 ### D1.03 — DMA startup overhead
 
 Provenance: **Documented** (SNESdev Wiki, DMA timing; fullsnes). Kind: golden vector, never scored.
