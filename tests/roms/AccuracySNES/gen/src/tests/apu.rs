@@ -58,6 +58,7 @@ pub fn all() -> Vec<Test> {
         dsp_addressing(),
         e2_01(),
         e2_05(),
+        e6_09(),
         e6_11(),
         e10_01(),
         e10_05(),
@@ -740,6 +741,83 @@ fn e10_05() -> Test {
              says 0. The dossier marks the row [CONFLICT] and asks for a golden vector",
         ),
         Kind::Golden,
+        None,
+    )
+}
+
+/// The gaussian accumulator **wraps** rather than saturating, and it can invert a sample's sign.
+///
+/// Interpolation sums four gaussian-weighted taps. The intermediate sum is held in **16 bits**, and
+/// the third addition is allowed to overflow it — a run of large samples of one sign accumulates
+/// past the limit and comes back round as the other sign. `E6.09` states the rule directly: the
+/// first addition cannot overflow, the second wraps, and the third saturates.
+///
+/// # A constant sample at the extreme, so only the accumulator can be responsible
+///
+/// Every nibble is `8` — the most negative — at shift 12, which decodes to the most negative sample
+/// the 15-bit path can hold. Four identical taps means interpolation has no *shape* to contribute:
+/// a correctly-saturating implementation returns that same large negative value, and only a
+/// wrapping one can produce a positive number from four negative inputs.
+///
+/// That is the whole assertion, and it needs no tolerance — the two possibilities are on opposite
+/// sides of zero, the widest separation an eight-bit reading admits.
+///
+/// # This is not `E6.08`, and finding that out is the point
+///
+/// The same sample was first written as a test of `E6.08`, the `$801` BRR decode overflow, on the
+/// reasoning that `-8 << 12` cannot fit the 15-bit decode path. `VxOUTX` duly came back positive
+/// and the test passed.
+///
+/// It passed for the wrong reason. Injecting into the BRR clamp did not move the reading at all;
+/// injecting into the gaussian accumulator flipped it from `$7E` to `$81`. The decode produces the
+/// large negative sample perfectly correctly, and everything interesting happens downstream in the
+/// interpolator — which sits between the decoder and every reading this cart can take, and so
+/// masks the decode overflow rather than revealing it.
+///
+/// `E6.08` is therefore **not covered by this test and is not covered at all**: the cart has no
+/// path from a decoded BRR sample to an observable that does not pass through interpolation.
+fn e6_09() -> Test {
+    let prog = voice_program(&constant_sample(0xC, 0x8), Voice::direct_gain());
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(205, "E6.09 ENVX at shift 12 (the arming guard)");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.record(206, "E6.09 OUTX for four maximally-negative gaussian taps");
+    a.c("The guard: a silent voice reads $00, which is neither sign and would pass a range test");
+    a.c("written carelessly.");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x7C,
+        0x7F,
+        "the envelope was not at full scale, so OUTX is scaled by something this test does not \
+         know and its sign is not safe to read",
+    );
+    a.c("+$3FF8 rather than -$4000: the sign is the whole assertion.");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x01,
+        0x7F,
+        "four maximally-negative taps interpolated to a negative output, so the gaussian \
+         accumulator is saturating or working in wider arithmetic rather than wrapping in 16 bits \
+         — a sample written to exploit the wrap plays back without the sign inversion it expects",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E6.09",
+        'E',
+        "Gaussian sum wraps",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: of the four gaussian additions the first cannot \
+             overflow, the second wraps in 16 bits and the third saturates",
+        ),
+        Kind::Scored,
         None,
     )
 }

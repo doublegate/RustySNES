@@ -114,30 +114,6 @@ fn f1_04() -> Test {
     )
 }
 
-/// `$4213` reads back the `$4201` output latch, wired-AND with whatever the pins are being driven to.
-///
-/// `$4201` (WRIO) drives two pins — bit 6 to controller port 1's IOBIT, bit 7 to port 2's. `$4213`
-/// (RDIO) reads those pins back, and the port is **open-collector**: a device on either port can
-/// pull its pin low, but nothing can pull one high. So the value read is the AND of what was
-/// written with what the outside world is doing, and with nothing driving the pins low it is simply
-/// what was written.
-///
-/// A standard pad drives neither pin, which is what makes this testable without the peripheral
-/// contract Group F otherwise needs: the assertion is about the *latch and its read-back path*, and
-/// a controller that pulled a pin low would be a different test.
-///
-/// # Three values, chosen so a stuck bit cannot hide
-///
-/// `$FF`, `$00` and `$55` in turn. The first two catch a core that returns a constant either way;
-/// `$55` catches one that returns "all bits the same" — a mask, a boolean, or the two IOBIT pins
-/// smeared across the byte. A core ignoring `$4201` entirely fails the first comparison it reaches.
-///
-/// # `$4201` is restored before anything is asserted, and that is not tidiness
-///
-/// Bit 7 gates the `$2137` counter latch (`C3.10`), which a dozen later tests depend on. A failure
-/// exits through `test_restore`, which deliberately does not touch `$4201` — so leaving it at `$00`
-/// or `$55` here would break the H/V latch for the rest of the battery and turn one failure into a
-/// cascade. The readings are taken, the register is put back to `$FF`, and only then are the values
 /// judged.
 fn f1_14() -> Test {
     let mut a = Asm::new();

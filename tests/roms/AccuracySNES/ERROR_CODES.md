@@ -1823,6 +1823,15 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 addressing; fullsnes). Kind: sc
 |---|---|---|
 | 1 | `$02` | $FF + X did not wrap within the direct page; a 16-bit sum would read $0101 instead |
 
+### E6.09 — Gaussian sum wraps
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: of the four gaussian additions the first cannot overflow, the second wraps in 16 bits and the third saturates). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the envelope was not at full scale, so OUTX is scaled by something this test does not know and its sign is not safe to read |
+| 2 | `$04` | four maximally-negative taps interpolated to a negative output, so the gaussian accumulator is saturating or working in wider arithmetic rather than wrapping in 16 bits — a sample written to exploit the wrap plays back without the sign inversion it expects |
+
 ### E6.11 — BRR waveform vectors
 
 Provenance: **Contested** (the dossier names four nibble patterns and asks what a decoder makes of each without stating an expected value for any of them; the row's content is the measurement). Kind: golden vector, never scored.

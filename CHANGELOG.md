@@ -575,6 +575,28 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E6.09` — does the gaussian accumulator wrap or saturate?** Interpolation sums four weighted
+  taps in a 16-bit intermediate, and the row says the second addition wraps. A constant `$8` nibble
+  at shift 12 gives four identical maximally-negative taps, so interpolation has no shape to
+  contribute: a saturating implementation returns that same large negative value, and only a
+  wrapping one can produce a positive number from four negative inputs. `OUTX` reads `$7E`. No
+  tolerance is needed — the two possibilities are on opposite sides of zero.
+  The test was first written as `E6.08`, the `$801` BRR decode overflow, and **passed for the wrong
+  reason**: injecting into the BRR clamp moved the reading not at all, while injecting into the
+  gaussian accumulator flipped it to `$81`. The decoder handles the large negative sample correctly
+  and the interpolator downstream is what inverts the sign. `E6.08` is consequently recorded as not
+  coverable from this cart — interpolation sits between the decoder and every observable a cart can
+  reach.
+
+- **`F1.07` attempted and withdrawn.** The row says `$4218`-`$421F` are not written while `$4200`
+  bit 0 is clear, and proving a non-update needs the register to first hold something an auto-read
+  would not produce. It cannot here: `$4218` powers on as `$0000`, an unconnected port auto-reads as
+  `$0000`, and holding `$4016` bit 0 high across the poll re-reads that same first bit. All three
+  phases returned `$0000`, the guard fired, and the test was removed rather than shipped as one that
+  passes vacuously. Not an emulator gap — the row needs a pad reporting a non-zero state, the same
+  peripheral contract the rest of Group F needs. Removing it returned the ROM to checksum `$BD42`,
+  byte-identical to the build before it.
+
 - **`E6.11` — the four named BRR waveform vectors.** A **golden vector**: the row names four nibble
   patterns and asks what a decoder makes of each without stating an expected value for any of them,
   so the row's content *is* the measurement. All four run at shift 12, filter 0, so the reading is

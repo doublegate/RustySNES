@@ -876,6 +876,47 @@ Recorded rather than fixed, because the general lesson is the useful part: **for
 compares two measurements, ask what the difference would physically be before asking whether the
 numbers match.** Here the answer was "nothing observable", and no amount of guarding fixes that.
 
+### `F1.07` withdrawn — every phase reads `$0000`
+
+`F1.07` says `$4218`-`$421F` are not written while `$4200` bit 0 is clear. Proving a *non*-update
+needs the register to first hold something an auto-read would not produce, and the only lever the
+cart has is `F1.11`: holding `$4016` bit 0 high across the poll window corrupts the results.
+
+It does not, here, and cannot. `$4218` powers on as `$0000`, an unconnected port with no button
+held auto-reads as `$0000`, and holding the latch high re-reads that same first bit — `$0000` again.
+All three phases returned `$0000` on RustySNES, so the guard fired and the test was withdrawn rather
+than shipped as one that passes vacuously.
+
+This is not an emulator gap. It is a property of the machine with nothing plugged in: the row needs
+the peripheral contract the rest of Group F needs, specifically a pad reporting a **non-zero** state.
+Removing the test returned the ROM to checksum `$BD42`, byte-identical to the build before it — the
+same completeness check `E6.04`'s withdrawal used.
+
+### The gaussian interpolator masks the BRR decode overflow
+
+`E6.08` — the `$801` overflow, where `-8 << 12` cannot fit the 15-bit decode path — was written as a
+constant-`$8` sample at shift 12 read through `VxOUTX`. It came back positive, exactly as the row
+describes, and passed.
+
+It passed for the wrong reason. Injecting into the BRR clamp did not move the reading **at all**;
+injecting into the gaussian accumulator flipped it from `$7E` to `$81`. The decoder produces the
+large negative sample perfectly correctly. What inverts the sign is the interpolator's 16-bit
+accumulator wrapping on its third addition — which is `E6.09`, a different row.
+
+The test was retargeted to `E6.09`, where the assertion it actually makes is the assertion the row
+states. **`E6.08` is now recorded as not covered and not coverable from this cart**: interpolation
+sits between the decoder and every observable a cart can reach, so there is no path from a decoded
+BRR sample to a reading that does not pass through it.
+
+Two lessons, both already in this document and both earned again:
+
+- **The injection-didn't-move signal.** A test that passes while the bug it names has no effect on
+  it is testing something else. The only reliable way to find out is to inject at the named site and
+  watch — and when it does not move, to keep going until something does.
+- **A downstream stage can produce the effect an upstream stage is famous for.** Both are real
+  16-bit overflows, one row apart, and the observable is the same sign flip. Attribution needed the
+  experiment, not the reasoning.
+
 ### "Silenced" and "zeroed on the spot" are different claims
 
 `E10.05` asserts that `FLG` bit 7 forces every voice into release. Its first version waited about a

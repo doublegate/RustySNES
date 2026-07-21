@@ -1171,3 +1171,16 @@ fn brr_waveform_vectors_are_reported() {
     }
     println!("    slot 201  {:#04x}  ENVX (the guard)", report.meas[201]);
 }
+
+/// Report `E6.09`'s reading: four maximally-negative gaussian taps.
+#[test]
+fn brr_15_bit_overflow_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E6.09 four maximally-negative gaussian taps:");
+    println!("    slot 205  {:#04x}  ENVX (the guard)", report.meas[205]);
+    println!(
+        "    slot 206  {:#04x}  OUTX (positive = the wrap)",
+        report.meas[206]
+    );
+}
