@@ -144,6 +144,39 @@ Working rules that have each already cost a debugging session:
   signature, and one did — it cost a published finding that had to be retracted (see the `$F8`/`$F9`
   correction in the CHANGELOG).
 
+### Cartridge layout — what can move, what cannot, and why
+
+A 256 KiB LoROM image, 8 banks. The generator prints per-bank headroom on every build and **fails at
+512 bytes free**, so an overflow arrives as a warning with room to act rather than as an `ld65` error
+mid-change. It has overflowed four times without that gate.
+
+| bank | holds |
+|---|---|
+| `$00` | runtime, `RODATA`, and Groups **A + B** bodies — pinned, see below |
+| `$01` | `FONT` · `$02` `TESTSE` · `$03` `TESTSC`+`TESTSG`/F · `$04` `CATALOG` · `$05` `TESTSD` |
+| `$06`/`$07` | `APUDATA`, packed across two segments |
+
+Three facts that are not obvious and each cost a wrong turn:
+
+- **Bank `$00` is 32 KiB whatever the cart size.** LoROM maps only its `$8000-$FFFF`, and the
+  vectors, header and everything reached by a bank-local `jsr` live there. Growing the image does
+  not give it a byte; only moving bodies out does (`emit.rs`'s `OUT_OF_BANK`).
+- **A segment cannot span a bank boundary.** That, not total space, is why the image is 256 KiB:
+  `TESTSE` will outgrow one bank before Group E is finished, and needs somewhere to split into.
+- **Groups A and B must NOT be relocated.** `A4.11`/`A4.12` aim an `(a,X)` indirect jump at the
+  *program bank's* signature block to tell an in-bank wrap from a bank carry, and Group B's
+  access-speed rows depend on where they execute. Moving either leaves the tests green while
+  measuring something else. The build gate rejects it, and `emit.rs` says so.
+
+A relocated group reaches the runtime only through the `_far` wrappers (`wait_vblank_far`,
+`hv_begin_far`, …) — and note that `Asm::measure_begin`/`measure_end` emit the bank-local form from
+*inside the DSL*, so grepping the test files for `jsr` does not find them; use the `_far` variants.
+Address immediates (`ldx #@data`) need `.loword(…)` once a group leaves bank `$00`.
+
+The measurement channel is 512 slots (`u16`) at `$7EE200`, with room to `$7EF000` for 1,792.
+`dossier::check_slots` fails the build on a collision and prints the free list — an *empty* list
+means the channel is full, which is the same gate answering a different question.
+
 ### Group F — the host input contract
 
 Group F is untestable without one. With nothing plugged in and no button held, **every controller
