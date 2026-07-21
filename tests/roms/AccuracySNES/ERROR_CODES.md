@@ -491,7 +491,7 @@ Provenance: **Documented** (WDC datasheet: XCE exchanges carry and E, nothing el
 
 | Code | Byte | Meaning |
 |---|---|---|
-| 1 | `$02` | CLC/XCE in native mode disturbed the m/x width bits |
+| 1 | `$02` | CLC/XCE in native mode disturbed the m/x width bits or the carry |
 | 2 | `$04` | CLC/XCE in native mode disturbed A |
 | 3 | `$06` | CLC/XCE in native mode disturbed X |
 | 4 | `$08` | CLC/XCE in native mode disturbed Y |
@@ -503,12 +503,6 @@ Provenance: **Documented** (WDC datasheet; SNESdev Errata, 65C816 section). Kind
 | Code | Byte | Meaning |
 |---|---|---|
 | 1 | `$02` | REP #$30 cleared m/x while E=1 |
-
-### A4.06 — JMP (a,X) wraps in bank
-
-Provenance: **Documented** (SNESdev Errata, 65C816 section (worked example PBR=$05)). Kind: scored.
-
-No failure codes (control-flow test: reaching the end is the pass).
 
 ### A8.05 — MVN index wrap
 
@@ -534,12 +528,6 @@ Provenance: **Documented** (WDC datasheet; SNESdev Errata, 65C816 section). Kind
 | Code | Byte | Meaning |
 |---|---|---|
 | 1 | `$02` | JML [a] ignored the pointer's bank byte |
-
-### A4.08 — JSR (a,X) wraps in bank
-
-Provenance: **Documented** (SNESdev Errata, 65C816 section). Kind: scored.
-
-No failure codes (control-flow test: reaching the end is the pass).
 
 ### A2.12 — [dp],Y bank carry
 

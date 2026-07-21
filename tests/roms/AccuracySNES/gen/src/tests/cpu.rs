@@ -84,11 +84,9 @@ pub fn all() -> Vec<Test> {
         a8_04(),
         a1_08(),
         a1_09(),
-        a4_06(),
         a8_05(),
         a1_10(),
         a4_07(),
-        a4_08(),
         a2_12(),
         a4_09(),
         a4_10(),
@@ -1034,8 +1032,13 @@ fn a1_08() -> Test {
     a.l("php");
     a.l("sep #$20");
     a.l("pla");
-    a.l("and #$30");
-    a.assert_a8(0x00, "CLC/XCE in native mode disturbed the m/x width bits");
+    a.c("Keep bit 0: the carry is half of what XCE exchanges, so discarding it would let a core");
+    a.c("that leaves C set pass a test whose entire claim is that nothing changed.");
+    a.l("and #$31");
+    a.assert_a8(
+        0x00,
+        "CLC/XCE in native mode disturbed the m/x width bits or the carry",
+    );
     a.l("rep #$30");
     a.l("lda f:$7E0094");
     a.assert_a16(0x1234, "CLC/XCE in native mode disturbed A");
@@ -1077,42 +1080,6 @@ fn a1_09() -> Test {
         'A',
         "REP cannot widen in E=1",
         Provenance::Documented("WDC datasheet; SNESdev Errata, 65C816 section"),
-        Kind::Scored,
-        None,
-    )
-}
-
-/// `JMP (a,X)` forms its pointer address **within one bank**, wrapping rather than carrying.
-///
-/// `$FFFE + X` must stay in the current program bank. A core that computes the pointer address as
-/// a flat 24-bit sum reads it from the next bank instead — here that is bank `$01` ROM, so it
-/// jumps somewhere arbitrary rather than to the continuation.
-///
-/// # What this test does and does not cover
-///
-/// The rule has two halves: the pointer comes from the **program** bank, and the address **wraps**
-/// in it. Tests run from bank `$00`, where "program bank" and "bank `$00`" are indistinguishable,
-/// so only the wrap is asserted here — the same split `A4.02` makes for `JMP (a)`. The errata's
-/// worked example uses `PBR=$05, X=$04`; the wrap is the part reproducible from bank `$00`.
-///
-/// The wrapped address is `$1000` rather than the errata's `$0002` because low direct page is live
-/// scratch for other tests in this battery, and a pointer landing on another test's variable would
-/// be a collision rather than a measurement.
-fn a4_06() -> Test {
-    let mut a = Asm::new();
-    a.c("$FFFE + $1002 = $1_1000, which must wrap to $1000 in this bank.");
-    a.l("rep #$30");
-    a.l("lda #.LOWORD(@landed)");
-    a.l("sta f:$7E1000     ; low WRAM is mirrored at $00:1000");
-    a.l("ldx #$1002");
-    a.l("jmp ($FFFE,x)");
-    a.label("landed");
-    a.l("nop");
-    a.finish(
-        "A4.06",
-        'A',
-        "JMP (a,X) wraps in bank",
-        Provenance::Documented("SNESdev Errata, 65C816 section (worked example PBR=$05)"),
         Kind::Scored,
         None,
     )
@@ -1218,35 +1185,6 @@ fn a4_07() -> Test {
         'A',
         "JML [a] 24-bit dest",
         Provenance::Documented("WDC datasheet; SNESdev Errata, 65C816 section"),
-        Kind::Scored,
-        None,
-    )
-}
-
-/// `JSR (a,X)` forms its pointer address within one bank, exactly as `JMP (a,X)` does.
-///
-/// The companion to `A4.06`. It is not redundant: `JSR` and `JMP` are separate opcodes with
-/// separate address-formation paths in most cores, and the push makes `JSR` the more intricate of
-/// the two, so a wrap fixed in one is routinely missed in the other.
-///
-/// The return address pushed here is never used — control falls through the landing site into the
-/// assertions — and the stack is left unbalanced on purpose. `test_restore` re-establishes `S` from
-/// `SAVED_S`, which is what makes a test free to corrupt the stack.
-fn a4_08() -> Test {
-    let mut a = Asm::new();
-    a.c("$FFFE + $1002 = $1_1000, which must wrap to $1000 in this bank.");
-    a.l("rep #$30");
-    a.l("lda #.LOWORD(@landed)");
-    a.l("sta f:$7E1000     ; low WRAM is mirrored at $00:1000");
-    a.l("ldx #$1002");
-    a.l("jsr ($FFFE,x)");
-    a.label("landed");
-    a.l("nop");
-    a.finish(
-        "A4.08",
-        'A',
-        "JSR (a,X) wraps in bank",
-        Provenance::Documented("SNESdev Errata, 65C816 section"),
         Kind::Scored,
         None,
     )

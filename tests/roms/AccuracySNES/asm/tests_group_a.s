@@ -3320,7 +3320,9 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     pla
-    and #$30
+    ; Keep bit 0: the carry is half of what XCE exchanges, so discarding it would let a core
+    ; that leaves C set pass a test whose entire claim is that nothing changed.
+    and #$31
     cmp #$00
     beq :+
     jmp @fail1
@@ -3347,7 +3349,7 @@ CATALOG_IMPL = 1
     sta f:$7EE010
     jml test_restore
 @fail1:
-    ; CLC/XCE in native mode disturbed the m/x width bits
+    ; CLC/XCE in native mode disturbed the m/x width bits or the carry
     sep #$20
     .a8
     lda #$02
@@ -3414,28 +3416,6 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; A4.06 — JMP (a,X) wraps in bank
-; provenance: Documented (SNESdev Errata, 65C816 section (worked example PBR=$05))
-.proc test_a4_06
-    .a16
-    .i16
-    ; $FFFE + $1002 = $1_1000, which must wrap to $1000 in this bank.
-    rep #$30
-    .a16
-    .i16
-    lda #.LOWORD(@landed)
-    sta f:$7E1000     ; low WRAM is mirrored at $00:1000
-    ldx #$1002
-    jmp ($FFFE,x)
-@landed:
-    nop
-    sep #$20
-    .a8
-    lda #$01
     sta f:$7EE010
     jml test_restore
 .endproc
@@ -3559,28 +3539,6 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     lda #$02
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; A4.08 — JSR (a,X) wraps in bank
-; provenance: Documented (SNESdev Errata, 65C816 section)
-.proc test_a4_08
-    .a16
-    .i16
-    ; $FFFE + $1002 = $1_1000, which must wrap to $1000 in this bank.
-    rep #$30
-    .a16
-    .i16
-    lda #.LOWORD(@landed)
-    sta f:$7E1000     ; low WRAM is mirrored at $00:1000
-    ldx #$1002
-    jsr ($FFFE,x)
-@landed:
-    nop
-    sep #$20
-    .a8
-    lda #$01
     sta f:$7EE010
     jml test_restore
 .endproc
@@ -20158,7 +20116,7 @@ apu_prog_59:
 .export _test_flags
 
 _test_count:
-    .word 245
+    .word 243
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -20222,11 +20180,9 @@ _test_entries:
     .faraddr test_a8_04
     .faraddr test_a1_08
     .faraddr test_a1_09
-    .faraddr test_a4_06
     .faraddr test_a8_05
     .faraddr test_a1_10
     .faraddr test_a4_07
-    .faraddr test_a4_08
     .faraddr test_a2_12
     .faraddr test_a4_09
     .faraddr test_a4_10
@@ -20470,11 +20426,9 @@ _test_flags:
     .byte $01   ; A8.04
     .byte $01   ; A1.08
     .byte $01   ; A1.09
-    .byte $01   ; A4.06
     .byte $01   ; A8.05
     .byte $01   ; A1.10
     .byte $01   ; A4.07
-    .byte $01   ; A4.08
     .byte $01   ; A2.12
     .byte $01   ; A4.09
     .byte $02   ; A4.10
@@ -20718,11 +20672,9 @@ _test_names:
     .addr @n_a8_04
     .addr @n_a1_08
     .addr @n_a1_09
-    .addr @n_a4_06
     .addr @n_a8_05
     .addr @n_a1_10
     .addr @n_a4_07
-    .addr @n_a4_08
     .addr @n_a2_12
     .addr @n_a4_09
     .addr @n_a4_10
@@ -21083,9 +21035,6 @@ _test_names:
 @n_a1_09:
     .byte 23
     .byte "REP cannot widen in E=1"
-@n_a4_06:
-    .byte 23
-    .byte "JMP (a,X) wraps in bank"
 @n_a8_05:
     .byte 14
     .byte "MVN index wrap"
@@ -21095,9 +21044,6 @@ _test_names:
 @n_a4_07:
     .byte 19
     .byte "JML [a] 24-bit dest"
-@n_a4_08:
-    .byte 23
-    .byte "JSR (a,X) wraps in bank"
 @n_a2_12:
     .byte 17
     .byte "[dp],Y bank carry"

@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Four Group A mode/addressing assertions (`A1.08`, `A1.09`, `A4.06`, `A8.05`).** All four are
+- **Three Group A mode/addressing assertions (`A1.08`, `A1.09`, `A8.05`).** All four are
   `Documented`-tier and all four pass on RustySNES and on both cross-validation references.
 
   - `A1.08` — `CLC; XCE` entered with carry clear is a **no-op**, and the test checks the machine is
@@ -21,17 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `A1.09` — `REP #$30` cannot clear `m`/`x` while `E = 1`. The width bits are read **after**
     returning to native mode, because in emulation `P` bits 4 and 5 are `B` and unused, so the
     obvious in-emulation check reads a register that does not carry the answer.
-  - `A4.06` — `JMP (a,X)` forms its pointer address **within one bank**, wrapping rather than
-    carrying. Only the wrap half is asserted: tests run from bank `$00`, where "program bank" and
-    "bank `$00`" cannot be told apart — the same split `A4.02` already makes for `JMP (a)`.
   - `A8.05` — `MVN` wraps `X` inside the source bank and advances `Y` in the destination bank
     independently, with `Y` started away from its own wrap so one shared counter could not explain
     both results.
 
-  Dossier coverage moves **241 → 245 of 443**.
+  Dossier coverage moves **241 → 244 of 443**.
 
-- **Six more Group A addressing and mode assertions (`A1.10`, `A2.12`, `A4.07`–`A4.10`).** This
-  closes every remaining reachable Group A row.
+- **Five more Group A addressing and mode assertions (`A1.10`, `A2.12`, `A4.07`, `A4.09`,
+  `A4.10`).** This closes every remaining reachable Group A row.
 
   - `A1.10` — `PLP` cannot clear `m`/`x` while `E = 1`, the third of the three paths the dossier
     requires to behave identically. Not redundant with the `REP` path (`A1.09`): a core that
@@ -42,9 +39,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `A4.07` — `JML [a]` uses the full 24-bit destination. The target bank is `$80`, which mirrors
     bank `$00` in this LoROM image, so a bank-ignoring core runs the same instructions and does not
     crash; `PHK` afterwards is what separates them.
-  - `A4.08` — `JSR (a,X)` wraps its pointer address in-bank, the companion to `A4.06`. Separate
-    opcodes with separate address-formation paths, so a wrap fixed in one is routinely missed in
-    the other.
   - `A4.09` — `PC` wraps inside its bank on an operand fetch. The instruction stream is assembled
     as data into WRAM and jumped to, because bank `$00`'s boundary is occupied by the vector table.
   - `A4.10` — **golden vector**, never scored: where a branch lands when its target crosses a bank
@@ -52,7 +46,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     vouches for the row. All three cores currently report variant 1 (the wrap). Both candidate
     landing sites are seeded with a jump home so either answer returns.
 
-  Dossier coverage moves **245 → 251 of 443**.
+  Dossier coverage moves **244 → 249 of 443**.
+
+  Two further tests (`A4.06`/`A4.08`, the `(a,X)` in-bank pointer wrap) were written and then
+  **withdrawn on review**: banks `$00-$3F` mirror the same WRAM below `$2000`, so the wrapped and
+  carried pointer addresses were literally the same bytes and every implementation passed. A
+  discriminating test needs a ROM-resident pointer, which is a linker-layout change; recorded in
+  `docs/accuracysnes-plan.md` and reopened in `T-04-A`.
 
 - **`MVN`'s machine encoding puts the destination bank first (`A8.01`).** `MVN $00,$7E` assembles to
   `54 7E 00` — the reverse of how the mnemonic reads. Assemblers hide it, so a core written against
