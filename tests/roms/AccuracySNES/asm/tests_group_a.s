@@ -21936,6 +21936,166 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; E8.02 — Key-on takes 5 samples
+; provenance: Documented (fullsnes and anomie's DSP doc: KON is held for five output samples while the directory and the first BRR block are fetched, before the envelope starts)
+.proc test_e8_02
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image, which lives in another bank.
+    lda #.loword(apu_prog_90)
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    lda #^apu_prog_90
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #319
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsl apu_upload_far
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    jmp @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0100
+    and #$00FF
+    ; record slot 227: E8.02 timer 2 ticks to a non-zero ENVX, voice already sounding (baseline)
+    sta f:$7EE3C6
+    lda f:$7E0101
+    and #$00FF
+    ; record slot 228: E8.02 the same, measured from a KON write
+    sta f:$7EE3C8
+    lda f:$7E0102
+    and #$00FF
+    ; record slot 229: E8.02 ENVX after the release, before the second key-on (the arming guard)
+    sta f:$7EE3CA
+    ; The voice has to be silent before it is keyed on again. If the release has not finished,
+    ; the poll below exits on its first pass and reports a delay of nothing.
+    lda f:$7E0102
+    and #$00FF
+    cmp #$0000
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0001
+    bcc :+
+    jmp @fail1
+  :
+    ; The baseline has to be small, or the poll loop is slower than the delay it measures and
+    ; the subtraction below is meaningless.
+    lda f:$7E0100
+    and #$00FF
+    cmp #$0000
+    bcs :+
+    jmp @fail2
+  :
+    cmp #$0005
+    bcc :+
+    jmp @fail2
+  :
+    ; And the key-on has to cost about seven more ticks, one tick being one sample: the
+    ; five-sample delay, the KON write itself, and the first sample on which ENVX climbs.
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0101
+    and #$00FF
+    sec
+    sbc f:$7E0100
+    and #$00FF
+    cmp #$0004
+    bcs :+
+    jmp @fail3
+  :
+    cmp #$000C
+    bcc :+
+    jmp @fail3
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jml test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the envelope had not reached zero before the second key-on, so the poll started with ENVX already non-zero and measured the loop rather than the delay
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; polling ENVX on an already-sounding voice took more than four 16-cycle ticks, so the loop is slow enough to swamp a five-sample delay and phase B measures the loop rather than the key-on
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; a KON write did not cost about seven timer-2 ticks more than the same poll on a sounding voice, where a tick is one output sample. Near zero means the voice starts immediately and a driver reading ENVX straight after KON would see it start; near or past sixteen means the counter wrapped and the delay is far longer than five samples
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; E8.03 — KON restarts a voice
 ; provenance: Documented (fullsnes and anomie's DSP doc: KON re-enters the key-on sequence unconditionally, resetting the BRR pointer and zeroing the envelope, whether or not the voice was already playing)
 .proc test_e8_03
@@ -21948,11 +22108,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_90)
+    lda #.loword(apu_prog_91)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_90
+    lda #^apu_prog_91
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -22015,11 +22175,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_91)
+    lda #.loword(apu_prog_92)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_91
+    lda #^apu_prog_92
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -22144,11 +22304,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_92)
+    lda #.loword(apu_prog_93)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_92
+    lda #^apu_prog_93
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -22243,11 +22403,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_93)
+    lda #.loword(apu_prog_94)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_93
+    lda #^apu_prog_94
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -22310,11 +22470,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_94)
+    lda #.loword(apu_prog_95)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_94
+    lda #^apu_prog_95
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -22431,11 +22591,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_95)
+    lda #.loword(apu_prog_96)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_95
+    lda #^apu_prog_96
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -22527,11 +22687,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_96)
+    lda #.loword(apu_prog_97)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_96
+    lda #^apu_prog_97
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -22623,11 +22783,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_97)
+    lda #.loword(apu_prog_98)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_97
+    lda #^apu_prog_98
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -22719,11 +22879,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_98)
+    lda #.loword(apu_prog_99)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_98
+    lda #^apu_prog_99
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -22817,11 +22977,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_99)
+    lda #.loword(apu_prog_100)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_99
+    lda #^apu_prog_100
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -22915,11 +23075,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_100)
+    lda #.loword(apu_prog_101)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_100
+    lda #^apu_prog_101
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -23013,11 +23173,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_101)
+    lda #.loword(apu_prog_102)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_101
+    lda #^apu_prog_102
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -23111,11 +23271,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_102)
+    lda #.loword(apu_prog_103)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_102
+    lda #^apu_prog_103
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -23232,11 +23392,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_103)
+    lda #.loword(apu_prog_104)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_103
+    lda #^apu_prog_104
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -29776,6 +29936,34 @@ apu_prog_90:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
+    .byte $6C, $C4, $F2, $E8, $20, $C4, $F3, $E8, $5C, $C4, $F2, $E8
+    .byte $00, $C4, $F3, $E8, $3D, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $4D, $C4, $F2, $E8, $00, $C4, $F3, $E8, $2D, $C4, $F2, $E8
+    .byte $00, $C4, $F3, $E8, $5D, $C4, $F2, $E8, $01, $C4, $F3, $E8
+    .byte $0C, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $1C, $C4, $F2, $E8
+    .byte $7F, $C4, $F3, $E8, $00, $C4, $F2, $E8, $7F, $C4, $F3, $E8
+    .byte $01, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $02, $C4, $F2, $E8
+    .byte $00, $C4, $F3, $E8, $03, $C4, $F2, $E8, $10, $C4, $F3, $E8
+    .byte $04, $C4, $F2, $E8, $00, $C4, $F3, $E8, $06, $C4, $F2, $E8
+    .byte $00, $C4, $F3, $E8, $07, $C4, $F2, $E8, $7F, $C4, $F3, $E8
+    .byte $05, $C4, $F2, $E8, $00, $C4, $F3, $E8, $4C, $C4, $F2, $E8
+    .byte $01, $C4, $F3, $8D, $00, $FE, $FE, $E8, $4C, $C4, $F2, $E8
+    .byte $00, $C4, $F3, $8D, $20, $FE, $FE, $8F, $02, $FC, $E4, $FF
+    .byte $8F, $84, $F1, $E8, $08, $C4, $F2, $E4, $F3, $68, $00, $F0
+    .byte $F6, $8F, $80, $F1, $E4, $FF, $C4, $F5, $E8, $5C, $C4, $F2
+    .byte $E8, $01, $C4, $F3, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE
+    .byte $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE
+    .byte $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $E8, $5C, $C4, $F2
+    .byte $E8, $00, $C4, $F3, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F7
+    .byte $E4, $FF, $8F, $84, $F1, $E8, $4C, $C4, $F2, $E8, $01, $C4
+    .byte $F3, $E8, $08, $C4, $F2, $E4, $F3, $68, $00, $F0, $F6, $8F
+    .byte $80, $F1, $E4, $FF, $C4, $F6, $E8, $4C, $C4, $F2, $E8, $00
+    .byte $C4, $F3, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA
+    .byte $E8, $80, $C4, $F1, $5F, $C0, $FF
+apu_prog_91:
+    .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
+    .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
+    .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
     .byte $00, $C5, $04, $01, $E8, $00, $C5, $05, $01, $E8, $00, $C5
     .byte $06, $01, $E8, $00, $C5, $07, $01, $E8, $6C, $C4, $F2, $E8
     .byte $20, $C4, $F3, $E8, $5C, $C4, $F2, $E8, $00, $C4, $F3, $E8
@@ -29803,7 +29991,7 @@ apu_prog_90:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_91:
+apu_prog_92:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -29834,7 +30022,7 @@ apu_prog_91:
     .byte $F3, $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8
     .byte $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4
     .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_92:
+apu_prog_93:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -29863,7 +30051,7 @@ apu_prog_92:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_93:
+apu_prog_94:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -29888,7 +30076,7 @@ apu_prog_93:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_94:
+apu_prog_95:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -29914,7 +30102,7 @@ apu_prog_94:
     .byte $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4
     .byte $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0
     .byte $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_95:
+apu_prog_96:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -29938,7 +30126,7 @@ apu_prog_95:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_96:
+apu_prog_97:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -29962,7 +30150,7 @@ apu_prog_96:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_97:
+apu_prog_98:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -29986,7 +30174,7 @@ apu_prog_97:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_98:
+apu_prog_99:
     .byte $5F, $DB, $02, $80, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $80, $77, $77, $77, $77, $77, $77, $77, $77, $80, $77, $77
     .byte $77, $77, $77, $77, $77, $77, $80, $77, $77, $77, $77, $77
@@ -30027,7 +30215,7 @@ apu_prog_98:
     .byte $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $09
     .byte $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
     .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_99:
+apu_prog_100:
     .byte $5F, $DB, $02, $80, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $80, $77, $77, $77, $77, $77, $77, $77, $77, $80, $77, $77
     .byte $77, $77, $77, $77, $77, $77, $80, $77, $77, $77, $77, $77
@@ -30072,7 +30260,7 @@ apu_prog_99:
     .byte $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A
     .byte $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1
     .byte $5F, $C0, $FF
-apu_prog_100:
+apu_prog_101:
     .byte $5F, $DB, $02, $80, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $80, $77, $77, $77, $77, $77, $77, $77, $77, $80, $77, $77
     .byte $77, $77, $77, $77, $77, $77, $80, $77, $77, $77, $77, $77
@@ -30113,7 +30301,7 @@ apu_prog_100:
     .byte $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $09
     .byte $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
     .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_101:
+apu_prog_102:
     .byte $5F, $DB, $02, $80, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $80, $77, $77, $77, $77, $77, $77, $77, $77, $80, $77, $77
     .byte $77, $77, $77, $77, $77, $77, $80, $77, $77, $77, $77, $77
@@ -30153,12 +30341,12 @@ apu_prog_101:
     .byte $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $09
     .byte $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
     .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_102:
+apu_prog_103:
     .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $01, $FC, $E4, $FD, $E4
     .byte $FF, $8F, $85, $F1, $8D, $18, $FE, $FE, $8F, $80, $F1, $E4
     .byte $FD, $C4, $F6, $E4, $FF, $C4, $F7, $E8, $5A, $C4, $F4, $E4
     .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_103:
+apu_prog_104:
     .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $0B, $F0, $8F, $81, $F1
     .byte $8D, $00, $FE, $FE, $8F, $80, $F1, $E4, $FD, $C4, $F6, $8F
     .byte $0A, $F0, $8F, $81, $F1, $8D, $00, $FE, $FE, $8F, $80, $F1
@@ -30172,7 +30360,7 @@ apu_prog_103:
 .export _test_flags
 
 _test_count:
-    .word 314
+    .word 315
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -30425,6 +30613,7 @@ _test_entries:
     .faraddr test_e7_03
     .faraddr test_e7_12
     .faraddr test_e7_08
+    .faraddr test_e8_02
     .faraddr test_e8_03
     .faraddr test_e8_07
     .faraddr test_e8_10
@@ -30742,6 +30931,7 @@ _test_flags:
     .byte $01   ; E7.03
     .byte $02   ; E7.12
     .byte $01   ; E7.08
+    .byte $01   ; E8.02
     .byte $01   ; E8.03
     .byte $02   ; E8.07
     .byte $01   ; E8.10
@@ -31059,6 +31249,7 @@ _test_names:
     .addr @n_e7_03
     .addr @n_e7_12
     .addr @n_e7_08
+    .addr @n_e8_02
     .addr @n_e8_03
     .addr @n_e8_07
     .addr @n_e8_10
@@ -31871,6 +32062,9 @@ _test_names:
 @n_e7_08:
     .byte 24
     .byte "Key-off releases to zero"
+@n_e8_02:
+    .byte 22
+    .byte "Key-on takes 5 samples"
 @n_e8_03:
     .byte 20
     .byte "KON restarts a voice"

@@ -260,6 +260,30 @@ impl Spc {
         self.push(&[0xD0, rel.to_le_bytes()[0]])
     }
 
+    /// `BEQ` back to a point recorded by [`Spc::here`] — `$F0`.
+    ///
+    /// The zero-flag mirror of [`Spc::bne_back`], and it carries the same backwards-only contract
+    /// and the same computed displacement, for the same reasons. Used where the loop condition is
+    /// "keep going while the value is still zero", which is the shape of every poll that waits for
+    /// a DSP register to *become* something.
+    ///
+    /// # Panics
+    ///
+    /// If the target is not already emitted, or is further back than a branch can reach.
+    pub fn beq_back(&mut self, target: usize) -> &mut Self {
+        assert!(
+            target <= self.bytes.len(),
+            "beq_back target {target} is ahead of the current offset {}; this branch is backwards \
+             only",
+            self.bytes.len()
+        );
+        let after = self.bytes.len() + 2;
+        let rel = i64::try_from(target).expect("offset fits i64")
+            - i64::try_from(after).expect("offset fits i64");
+        let rel = i8::try_from(rel).expect("branch target is out of reach");
+        self.push(&[0xF0, rel.to_le_bytes()[0]])
+    }
+
     /// `ADC A,#imm` — `$88`.
     pub fn adc_a_imm(&mut self, v: u8) -> &mut Self {
         self.push(&[0x88, v])

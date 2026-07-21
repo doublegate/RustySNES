@@ -120,6 +120,7 @@ pub fn all() -> Vec<Test> {
         e7_03(),
         e7_12(),
         e7_08(),
+        e8_02(),
         e8_03(),
         e8_07(),
         e8_10(),
@@ -4644,6 +4645,199 @@ fn e5_10() -> Test {
         Kind::Scored,
         None,
     )
+}
+
+/// Key-on takes five output samples to reach the envelope generator.
+///
+/// A `KON` write does not start a voice immediately. The DSP holds it for five output samples —
+/// reading the sample directory, fetching the first BRR block and priming the interpolator — before
+/// the envelope begins to climb. At 32 SPC cycles a sample (`E10.01`) that is 160 cycles, and it is
+/// why a driver that keys on and immediately reads `ENVX` sees zero and can conclude the voice
+/// never started.
+///
+/// # Timing it against the poll loop that measures it
+///
+/// The observable is "how long until `ENVX` goes non-zero", polled through the DSP register port.
+/// That loop costs about fifteen cycles a pass, which is half a sample — comparable to the thing
+/// being measured, so it cannot be ignored and is subtracted instead:
+///
+/// | phase | voice state | measures |
+/// |---|---|---|
+/// | A | already sounding at full scale | the poll loop's own latency |
+/// | B | keyed off, then keyed on | that latency **plus** the key-on delay |
+///
+/// The difference is the delay. Timer 2 at `T2DIV = 2` ticks every **32 SPC cycles** — exactly one
+/// output sample — so the reading counts samples directly against a baseline of about zero:
+///
+/// | if the delay were | ticks over baseline |
+/// |---|---:|
+/// | 0 samples | 0 |
+/// | **5 samples, plus the write and the first climbing sample** | **~7** |
+/// | 16 samples | 16, which wraps `TnOUT` to 0 |
+///
+/// `T2DIV = 1` was tried first and is finer, but it put the reading at 15 of `TnOUT`'s 16 values —
+/// close enough to the wrap that the NTSC/PAL drift gate caught it failing on the PAL image alone.
+/// Resolution is worth nothing if it costs headroom.
+///
+/// # What the assertion is careful not to claim
+///
+/// A band, not a number. The `KON` write itself costs about a dozen cycles that phase A does not
+/// pay, the poll can overshoot by one pass, and `ENVX` goes non-zero on the *first* sample after
+/// the delay rather than the last of it — three small biases in the same direction. So the band is
+/// wide enough to hold all of them and still exclude both zero delay and any delay long enough to
+/// wrap the counter, which is what the row is actually about.
+fn e8_02() -> Test {
+    let mut p = e8_02_sounding_voice();
+
+    // T2DIV = 2: one tick per 32 SPC cycles, which is exactly one output sample. T2DIV = 1 was
+    // finer and put the reading at 15 of TnOUT's 16 values -- close enough to the wrap that the
+    // NTSC/PAL drift gate caught it failing on the PAL image alone. Resolution is worth nothing
+    // if it costs headroom.
+    p.mov_dp_imm(0xFC, 0x02);
+    e8_02_time_to_envx(&mut p, "a", None, PORT1);
+
+    // KOFF, and let the release run all the way to silence. A full-scale envelope is $7F0 and
+    // release steps it down by 8 a sample, so that is 254 samples -- and one delay block is about
+    // 48. The first version waited two blocks, the envelope was still around $40 when the poll
+    // started, and the poll exited on its first pass: the measured "key-on delay" was one tick.
+    dsp_write(&mut p, 0x5C, 0x01);
+    for _ in 0..7 {
+        p.delay(0x00);
+    }
+    dsp_write(&mut p, 0x5C, 0x00);
+    dsp_read_to(&mut p, 0x08, PORT3); // the arming guard: this has to be zero
+    e8_02_time_to_envx(&mut p, "b", Some(()), PORT2);
+    dsp_write(&mut p, 0x4C, 0x00);
+    p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &p);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(
+        227,
+        "E8.02 timer 2 ticks to a non-zero ENVX, voice already sounding (baseline)",
+    );
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(228, "E8.02 the same, measured from a KON write");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.record(
+        229,
+        "E8.02 ENVX after the release, before the second key-on (the arming guard)",
+    );
+    a.c("The voice has to be silent before it is keyed on again. If the release has not finished,");
+    a.c("the poll below exits on its first pass and reports a delay of nothing.");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0,
+        0,
+        "the envelope had not reached zero before the second key-on, so the poll started with \
+         ENVX already non-zero and measured the loop rather than the delay",
+    );
+    a.c("The baseline has to be small, or the poll loop is slower than the delay it measures and");
+    a.c("the subtraction below is meaningless.");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0,
+        4,
+        "polling ENVX on an already-sounding voice took more than four 16-cycle ticks, so the loop \
+         is slow enough to swamp a five-sample delay and phase B measures the loop rather than the \
+         key-on",
+    );
+    a.c("And the key-on has to cost about seven more ticks, one tick being one sample: the");
+    a.c("five-sample delay, the KON write itself, and the first sample on which ENVX climbs.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.l("sec");
+    a.l("sbc f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        4,
+        11,
+        "a KON write did not cost about seven timer-2 ticks more than the same poll on a sounding \
+         voice, where a tick is one output sample. Near zero means the voice starts immediately \
+         and a driver reading ENVX straight after KON would see it start; near or past sixteen \
+         means the counter wrapped and the delay is far longer than five samples",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E8.02",
+        'E',
+        "Key-on takes 5 samples",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: KON is held for five output samples while the \
+             directory and the first BRR block are fetched, before the envelope starts",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Emit [`e8_02`]'s prologue: a voice in direct-`GAIN` mode, keyed on and settled at full scale.
+///
+/// Direct `GAIN` rather than `ADSR` because the measurement is of the *key-on* delay and nothing
+/// else: with `ADSR1` bit 7 clear the envelope jumps to the `GAIN` value on the first sample it is
+/// allowed to move, so "how long until `ENVX` is non-zero" is the delay plus one sample rather than
+/// the delay plus an attack ramp.
+fn e8_02_sounding_voice() -> Spc {
+    let mut p = Spc::new();
+    let addr = p.data_first(IMAGE_BASE, &looping_sample());
+    p.mov_x_imm(0xEF).mov_sp_x();
+    let dir = u16::from(DIR_PAGE) << 8;
+    let [lo, hi] = addr.to_le_bytes();
+    p.mov_a_imm(lo).mov_abs_a(dir);
+    p.mov_a_imm(hi).mov_abs_a(dir + 1);
+    p.mov_a_imm(lo).mov_abs_a(dir + 2);
+    p.mov_a_imm(hi).mov_abs_a(dir + 3);
+    dsp_write(&mut p, 0x6C, 0x20); // FLG
+    dsp_write(&mut p, 0x5C, 0x00); // KOF
+    dsp_write(&mut p, 0x3D, 0x00); // NON
+    dsp_write(&mut p, 0x4D, 0x00); // EON
+    dsp_write(&mut p, 0x2D, 0x00); // PMON
+    dsp_write(&mut p, 0x5D, DIR_PAGE);
+    dsp_write(&mut p, 0x0C, 0x7F); // MVOLL
+    dsp_write(&mut p, 0x1C, 0x7F); // MVOLR
+    dsp_write(&mut p, 0x00, 0x7F); // VOL L
+    dsp_write(&mut p, 0x01, 0x7F); // VOL R
+    dsp_write(&mut p, 0x02, 0x00); // PITCH low
+    dsp_write(&mut p, 0x03, 0x10); // PITCH high
+    dsp_write(&mut p, 0x04, 0x00); // SRCN
+    dsp_write(&mut p, 0x06, 0x00); // ADSR2
+    dsp_write(&mut p, 0x07, 0x7F); // GAIN: direct, full scale
+    dsp_write(&mut p, 0x05, 0x00); // ADSR1 bit 7 clear, so GAIN governs and ENVX jumps at once
+    dsp_write(&mut p, 0x4C, 0x01); // KON
+    p.delay(0x00);
+    dsp_write(&mut p, 0x4C, 0x00);
+    p.delay(0x20); // the voice is sounding, which is phase A's premise
+    p
+}
+
+/// Emit: time how long `ENVX` takes to read non-zero, optionally keying the voice on first.
+///
+/// The timer is started *before* the `KON` write rather than after, so the write's own cost lands
+/// inside the measured interval. Phase A does not pay it, which is one of the small biases the
+/// assertion's band is sized to absorb — putting the write outside the interval instead would trade
+/// it for a worse one, since the DSP could then act on the key-on before the timer starts.
+fn e8_02_time_to_envx(p: &mut Spc, tag: &str, keyon: Option<()>, port: u8) {
+    p.mov_a_dp(0xFF); // drain timer 2, which is read-to-clear
+    p.mov_dp_imm(0xF1, 0x84); // enable timer 2, IPL ROM still mapped
+    if keyon.is_some() {
+        dsp_write(p, 0x4C, 0x01);
+    }
+    let poll = p.here();
+    p.mov_a_imm(0x08).mov_dp_a(0xF2);
+    p.mov_a_dp(0xF3);
+    p.cmp_a_imm(0x00);
+    let _ = tag;
+    p.beq_back(poll);
+    p.mov_dp_imm(0xF1, 0x80);
+    p.mov_a_dp(0xFF).mov_dp_a(port);
 }
 
 /// `KON` on a voice that is already playing restarts it, zeroing the envelope on the way.

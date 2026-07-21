@@ -2390,6 +2390,16 @@ Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DS
 |---|---|---|
 | 1 | `$02` | the envelope was not zero well after key-off, so release did not run to silence |
 
+### E8.02 — Key-on takes 5 samples
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: KON is held for five output samples while the directory and the first BRR block are fetched, before the envelope starts). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the envelope had not reached zero before the second key-on, so the poll started with ENVX already non-zero and measured the loop rather than the delay |
+| 2 | `$04` | polling ENVX on an already-sounding voice took more than four 16-cycle ticks, so the loop is slow enough to swamp a five-sample delay and phase B measures the loop rather than the key-on |
+| 3 | `$06` | a KON write did not cost about seven timer-2 ticks more than the same poll on a sounding voice, where a tick is one output sample. Near zero means the voice starts immediately and a driver reading ENVX straight after KON would see it start; near or past sixteen means the counter wrapped and the delay is far longer than five samples |
+
 ### E8.03 — KON restarts a voice
 
 Provenance: **Documented** (fullsnes and anomie's DSP doc: KON re-enters the key-on sequence unconditionally, resetting the BRR pointer and zeroing the envelope, whether or not the voice was already playing). Kind: scored.

@@ -618,6 +618,24 @@ rewritten to the current number — this line is the one to read.
   nothing depending on what is plugged in, and that `NMITIMEN` is zero for the whole battery, both
   of which the input contract changed.
 
+- **`E8.02` — does key-on take five output samples to reach the envelope?** A `KON` write is held
+  while the DSP reads the directory, fetches the first BRR block and primes the interpolator, which
+  is why a driver that keys on and immediately reads `ENVX` sees zero. The observable is "how long
+  until `ENVX` goes non-zero", polled through the register port — and that loop costs about half a
+  sample, comparable to the thing being measured, so it is **subtracted**: one phase times the poll
+  against an already-sounding voice, the other times it from a `KON`. Timer 2 at `T2DIV = 2` ticks
+  once per output sample, so the difference counts samples directly: baseline 0, keyed-on 7 (the
+  five-sample delay, the `KON` write, and the first sample on which `ENVX` climbs). Verified by
+  setting the delay to zero, which fails it.
+  Two things had to be got right first, and both were caught by a guard rather than by inspection.
+  The release before the second key-on runs **254 samples**, not the ~96 the first version allowed —
+  the envelope was still around `$40` when the poll began and it exited on its first pass, reporting
+  a delay of one tick. `ENVX` is now asserted to be zero before the key-on. And `T2DIV = 1` was finer
+  but put the reading at 15 of `TnOUT`'s 16 values, close enough to the wrap that the NTSC/PAL drift
+  gate caught it failing on the PAL image alone. Resolution is worth nothing if it costs headroom.
+  Adds `Spc::beq_back`, the zero-flag mirror of `bne_back`, for polls that wait for a register to
+  *become* something.
+
 - **`C11.08` — is the Mode 7 multiplier busy during active display?** A **golden vector**. The
   multiplier is not a unit sitting beside the PPU; it is *the* one the renderer transforms each
   pixel with, so a mid-frame read of `$2134`-`$2136` returns whatever step of the transform it has

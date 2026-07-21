@@ -1295,3 +1295,19 @@ fn mode7_multiplier_during_render_is_reported() {
         report.meas[226]
     );
 }
+
+/// Report `E8.02`'s two poll timings: the loop's baseline and the same poll after a `KON`.
+#[test]
+fn key_on_delay_is_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+    println!("\n  E8.02 timer 2 ticks (one output sample each) to a non-zero ENVX:");
+    println!(
+        "    slot 227  {:#04x}  voice already sounding (baseline)",
+        report.meas[227]
+    );
+    println!(
+        "    slot 228  {:#04x}  measured from a KON write",
+        report.meas[228]
+    );
+}
