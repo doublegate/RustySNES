@@ -60,6 +60,17 @@ V_PO_RDNMI      = VAR_BASE + $47      ; $4210 as first read after reset (u8) —
 V_PO_TIMEUP     = VAR_BASE + $48      ; $4211 as first read after reset (u8) — bit 7
 
 ; ---------------------------------------------------------------------------------------------
+; Wide (frame-relative) cycle measurement. See `hv_latch_wide` in runtime.s.
+;
+; The ordinary hv_begin/hv_end pair measures the 9-BIT H COUNTER, which wraps every scanline, so a
+; measurement longer than a line comes back small with nothing saying so. These hold H and V from a
+; single latch, letting a delta span line boundaries.
+V_HW_H          = VAR_BASE + $4A      ; H from the most recent wide latch (u16)
+V_HW_V          = VAR_BASE + $4C      ; V from that same latch (u16)
+V_HW_V0         = VAR_BASE + $4E      ; V at hv_begin_wide (u16)
+V_HW_DV         = VAR_BASE + $50      ; scratch: lines crossed, counted down (u16)
+
+; ---------------------------------------------------------------------------------------------
 ; Raw measurement channel ($E200-$E2FF) — 128 u16 slots.
 ;
 ; A test's verdict is ONE BYTE, which is fine for pass/fail/variant and useless for a measurement:
@@ -205,6 +216,8 @@ PAD_X           = $0040
     .import irq_stub
     .import hv_begin
     .import hv_end
+    .import hv_begin_wide
+    .import hv_end_wide
 .import wait_vblank
     .import apu_upload
 .import frame_step
