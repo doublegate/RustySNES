@@ -604,10 +604,23 @@ related or may not.
    1364/1360/1368 value the short/long-line gating needs), which also removes the boundary shift
    that changing 341 to 340 would otherwise cause.
 
-   This is the step most likely to pass its own acceptance criteria while being wrong: no scene
-   golden and no existing timing test covers raster-IRQ position, so **add one** — an H-IRQ fired
-   at an `HTIME` above 323 and one below, checked against the clock-domain expectation — before
-   changing the dot model, so the test exists to catch the regression it is meant to catch.
+   This is the step most likely to pass its own acceptance criteria while being wrong, so a test
+   must exist first. **`B4.07` cannot be that test, and neither can any variant of it.** It fires
+   an H-IRQ at `HTIME = 128` and reports the latched H in **32-dot buckets**, and its own doc
+   comment gives the reason: *"the `$4211` poll loop is coarser than the dot the comparator fires
+   on, so the exact H position is not resolvable from software by polling."* A shift of up to 4
+   dots does not move a 32-dot bucket. Adding a polling companion at an `HTIME` above 323 would
+   inherit exactly the same blindness.
+
+   **The guard has to use an IRQ handler, not a poll.** The runtime already trampolines `$FFEE`
+   through `V_IRQ_VEC`, so a test can install a handler whose first instructions latch H via
+   `$2137`/`$213C` — a few cycles after the interrupt is taken rather than a poll loop's worth,
+   which is fine enough to resolve the single-dot change this ticket introduces. Fire it once below
+   323 and once above, record both raw (not bucketed) to the measurement channel, and take the
+   readings **before** touching the dot model so the pair forms a genuine before/after.
+
+   Note the ordering consequence: this makes the H-IRQ guard the *first* piece of work in T-06-A,
+   ahead of any change to `MASTER_PER_DOT` or `DOTS_PER_LINE`.
 
 5. **The original H-IRQ note.** `set_hv_irq(..., htime, vtime)` hands `$4207/8` to the PPU, which compares it
    against the same `h`. If `h` becomes the *corrected* dot number the comparison silently changes
