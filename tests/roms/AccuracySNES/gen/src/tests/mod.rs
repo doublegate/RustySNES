@@ -42,3 +42,10 @@ pub fn all() -> Vec<Test> {
 pub fn hirom() -> Vec<Test> {
     hirom::all()
 }
+
+/// The ExHiROM image's battery — the Group G row (`G1.16`) that needs the extended >4 MiB two-half
+/// layout to observe the A23->A22 half-selection. Emitted into `build/accuracysnes-exhirom.sfc`.
+#[must_use]
+pub fn exhirom() -> Vec<Test> {
+    hirom::exhirom_all()
+}

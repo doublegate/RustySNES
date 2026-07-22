@@ -17,6 +17,12 @@ pub fn all() -> Vec<Test> {
     vec![g1_15(), g1_17()]
 }
 
+/// The ExHiROM battery — emitted into the third image (`build/accuracysnes-exhirom.sfc`).
+#[must_use]
+pub fn exhirom_all() -> Vec<Test> {
+    vec![g1_16()]
+}
+
 /// HiROM decode: the `$00:8000-$FFFF` window and the `$C0`/`$40` linear banks decode to the same ROM.
 ///
 /// This runs inside the HiROM image, so its passing at all is already evidence the emulator selected
@@ -107,6 +113,51 @@ fn g1_17() -> Test {
         "HiROM SRAM window",
         Provenance::Documented(
             "SNESdev Wiki, memory map (HiROM SRAM at $20-$3F:$6000-$7FFF, mirrored $A0-$BF); fullsnes",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// ExHiROM inverts A23 into ROM offset bit 22: banks `$80-$FF` select the first 4 MiB, `$00-$7D` the
+/// extra 4 MiB.
+///
+/// Runs inside the ExHiROM image, whose runtime lives in the extra half (bank `$00` has A23=0), so
+/// its passing at all already means the emulator selected the ExHiROM board. On top of that it reads
+/// the two landmark bytes the image plants at the same low address in different halves: `$C0:0000`
+/// (A23=1) must read the first-half `$A1`, and `$40:0000` (A23=0) the extra-half `$E2`. A core that
+/// fails to invert A23 into ROM bit 22 maps both to the same half and returns one byte for both.
+fn g1_16() -> Test {
+    let mut a = Asm::new();
+    a.l("sep #$20");
+    a.c("The header must read as ExHiROM.");
+    a.l("lda f:$00FFD5");
+    a.assert_a8(
+        0x25,
+        "the map-mode byte at $FFD5 is not $25 (ExHiROM, SlowROM), so the emulator did not select \
+         the ExHiROM board for this image",
+    );
+    a.c("ExHiROM's A23->A22 rule: $C0:0000 (A23=1) selects the first 4 MiB, $40:0000 (A23=0) the");
+    a.c("extra 4 MiB. The two halves plant different landmark bytes at ROM $000000 and $400000.");
+    a.l("lda f:$C00000");
+    a.assert_a8(
+        0xA1,
+        "$C0:0000 did not read the first-half landmark $A1 — the ExHiROM first-half ($80-$FF, A23=1) \
+         selection is wrong",
+    );
+    a.l("lda f:$400000");
+    a.assert_a8(
+        0xE2,
+        "$40:0000 did not read the extra-half landmark $E2 — the ExHiROM extra-half ($00-$7D, A23=0) \
+         selection is wrong: A23 is not inverted into ROM offset bit 22, so both banks read one half",
+    );
+    a.finish(
+        "G1.16",
+        'G',
+        "ExHiROM A23->A22",
+        Provenance::Documented(
+            "SNESdev Wiki, memory map (ExHiROM: $80-$FF select the first 4 MiB, $00-$7D the extra 4 \
+             MiB, ROM bit 22 = inverse of A23); fullsnes",
         ),
         Kind::Scored,
         None,

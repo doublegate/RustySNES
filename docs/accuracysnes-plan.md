@@ -99,8 +99,13 @@ pattern the C7 sprite tests established.
   `-D HIROM_BUILD`): `g1_15` asserts the HiROM decode (`$00` window / `$C0` linear / `$40-$7D` mirror
   agree) and `g1_17` the `$20-$3F:$6000-$7FFF` SRAM window (+ `$A0-$BF` mirror), both cross-validated
   on RustySNES/snes9x/Mesen2 and injection-verified in `HiRom::map` (`tests::hirom`). The runtime
-  must link into the `$00:8000` window (`phk/plb` → `DBR` in an MMIO-decoding bank). **Still needs a
-  further image**: `G1.16` (ExHiROM decode — a larger two-half image, the next PR), `G1.18` (the
+  must link into the `$00:8000` window (`phk/plb` → `DBR` in an MMIO-decoding bank).
+  **Third image LANDED for `G1.16`.** A genuine two-half `$410000`-byte ExHiROM image
+  (`build/accuracysnes-exhirom.sfc`, `exhirom.cfg` + `header-exhirom.s`, `$FFD5 = $25`, runtime under
+  `-D HIROM_BUILD` in the extra half's `$00:8000` window at ROM `$408000`): `g1_16` reads the `$A1`
+  landmark at ROM `$000000` via `$C0:0000` and the `$E2` landmark at ROM `$400000` via `$40:0000`,
+  asserting the A23->A22 inversion selected different halves, injection-verified in `ExHiRom::map`.
+  **Still needs a further image**: `G1.18` (the
   copier header, which requires a file 512 bytes longer — and is not cart-observable since the header
   is stripped before the cart runs), and the non-power-of-two half of `G1.11`. **Needs a soft reset the harness cannot
   currently issue**: `G1.06` (PPU state survives cartridge `/RESET`). `G1.01` is write-only
