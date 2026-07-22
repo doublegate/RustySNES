@@ -1,0 +1,742 @@
+# Fullsnes — About / Credits & Index
+
+[Index](00-index.md) · [« CPU 65XX / 65C816 Microprocessor Reference](90-cpu-65816.md)
+
+**Sections in this file:**
+
+- [About/Credits](#aboutcredits)
+- [Index](#index)
+
+---
+
+<a id="aboutcredits"></a>
+
+## About/Credits
+
+**About**
+
+This document is part of the no$sns emulator/debugger help text. Copyright 2012
+by Martin Korth (nocash).
+
+PPU and APU specs are widely based on Anomie's great specs (on that part I've
+mainly rearranged and reformatted the Anomie's txt files, verified most of it
+on real hardware, and discovered only a few additional details).
+
+For information on Add-Ons like Controllers or Cartridges with Coprocessors:
+There haven't been any all-in-one specs (not even a complete list of existing
+add-ons), so I needed to collect scattered fragments of information from
+hundreds of webpages (and do a lot of puzzling and reverse-engineering on my
+own).
+
+The result should be a fairly complete document that covers almost everything
+about the SNES hardware. There are still thousands of missing details (marked
+by words like unknown, whatever, might, maybe, probably, or by question marks).
+Info on such details (or donated hardware for research purposes) would be very
+welcome!
+
+**Credits**
+
+```text
+ - Anomie (first ever reasonable/detailed SNES specs)
+ - Boris (donated a SNES and SGB back in 1999)
+ - SNES Central (cartridge PCB photos/scans)
+ - SNES Development (http://wiki.superfamicom.org/)
+ - snes9x - open source emulator (info on undocumented coprocessors)
+ - http://www.datasheetarchive.com/
+ - byuu (coprocessor decapping, info on snes hw glitches, cart memory maps)
+ - Segher's weird and wonderful CIC (rev-engineered CIC opcodes)
+ - DogP (lots of hard to get info on NSS)
+```
+
+Plus many-many other people who released valueable bits of information on their
+own webpages, wikis, and in various forum threads.
+
+**Homepage**
+
+http://problemkaputt.de/sns.htm - no$sns emulator/debugger updates
+
+http://problemkaputt.de/fullsnes.htm - snes specs updates (html version)
+
+http://problemkaputt.de/fullsnes.txt - snes specs updates (text version)
+
+http://problemkaputt.de/email.htm - contact
+
+<a id="index"></a>
+
+## Index
+
+[Contents](00-index.md)
+
+[SNES I/O Map](10-memory-and-io-map.md#snes-io-map)
+
+[SNES Memory](10-memory-and-io-map.md#snes-memory)
+
+[SNES Memory Map](10-memory-and-io-map.md#snes-memory-map)
+
+[SNES Memory Control](10-memory-and-io-map.md#snes-memory-control)
+
+[SNES Memory Work RAM Access](10-memory-and-io-map.md#snes-memory-work-ram-access)
+
+[SNES Memory OAM Access (Sprite Attributes)](10-memory-and-io-map.md#snes-memory-oam-access-sprite-attributes)
+
+[SNES Memory VRAM Access (Tile and BG Map)](10-memory-and-io-map.md#snes-memory-vram-access-tile-and-bg-map)
+
+[SNES Memory CGRAM Access (Palette Memory)](10-memory-and-io-map.md#snes-memory-cgram-access-palette-memory)
+
+[SNES DMA Transfers](20-dma-hdma.md#snes-dma-transfers)
+
+[SNES DMA and HDMA Start/Enable Registers](20-dma-hdma.md#snes-dma-and-hdma-startenable-registers)
+
+[SNES DMA and HDMA Channel 0..7 Registers](20-dma-hdma.md#snes-dma-and-hdma-channel-07-registers)
+
+[SNES DMA and HDMA Notes](20-dma-hdma.md#snes-dma-and-hdma-notes)
+
+[SNES Picture Processing Unit (PPU)](30-ppu.md#snes-picture-processing-unit-ppu)
+
+[SNES PPU Control](30-ppu.md#snes-ppu-control)
+
+[SNES PPU BG Control](30-ppu.md#snes-ppu-bg-control)
+
+[SNES PPU Rotation/Scaling](30-ppu.md#snes-ppu-rotationscaling)
+
+[SNES PPU Sprites (OBJs)](30-ppu.md#snes-ppu-sprites-objs)
+
+[SNES PPU Video Memory (VRAM)](30-ppu.md#snes-ppu-video-memory-vram)
+
+[SNES PPU Color Palette Memory (CGRAM) and Direct Colors](30-ppu.md#snes-ppu-color-palette-memory-cgram-and-direct-colors)
+
+[SNES PPU Window](30-ppu.md#snes-ppu-window)
+
+[SNES PPU Color-Math](30-ppu.md#snes-ppu-color-math)
+
+[SNES PPU Timers and Status](30-ppu.md#snes-ppu-timers-and-status)
+
+[SNES PPU Interrupts](30-ppu.md#snes-ppu-interrupts)
+
+[SNES PPU Resolution](30-ppu.md#snes-ppu-resolution)
+
+[SNES PPU Offset-Per-Tile Mode](30-ppu.md#snes-ppu-offset-per-tile-mode)
+
+[SNES Audio Processing Unit (APU)](40-apu-dsp.md#snes-audio-processing-unit-apu)
+
+[SNES APU Memory and I/O Map](40-apu-dsp.md#snes-apu-memory-and-io-map)
+
+[SNES APU Block Diagram](40-apu-dsp.md#snes-apu-block-diagram)
+
+[SNES APU SPC700 CPU Overview](40-apu-dsp.md#snes-apu-spc700-cpu-overview)
+
+[SNES APU SPC700 CPU Load/Store Commands](40-apu-dsp.md#snes-apu-spc700-cpu-loadstore-commands)
+
+[SNES APU SPC700 CPU ALU Commands](40-apu-dsp.md#snes-apu-spc700-cpu-alu-commands)
+
+[SNES APU SPC700 CPU Jump/Control Commands](40-apu-dsp.md#snes-apu-spc700-cpu-jumpcontrol-commands)
+
+[SNES APU SPC700 I/O Ports](40-apu-dsp.md#snes-apu-spc700-io-ports)
+
+[SNES APU Main CPU Communication Port](40-apu-dsp.md#snes-apu-main-cpu-communication-port)
+
+[SNES APU DSP BRR Samples](40-apu-dsp.md#snes-apu-dsp-brr-samples)
+
+[SNES APU DSP BRR Pitch](40-apu-dsp.md#snes-apu-dsp-brr-pitch)
+
+[SNES APU DSP ADSR/Gain Envelope](40-apu-dsp.md#snes-apu-dsp-adsrgain-envelope)
+
+[SNES APU DSP Volume Registers](40-apu-dsp.md#snes-apu-dsp-volume-registers)
+
+[SNES APU DSP Control Registers](40-apu-dsp.md#snes-apu-dsp-control-registers)
+
+[SNES APU DSP Echo Registers](40-apu-dsp.md#snes-apu-dsp-echo-registers)
+
+[SNES APU Low Level Timings](40-apu-dsp.md#snes-apu-low-level-timings)
+
+[SNES Maths Multiply/Divide](40-apu-dsp.md#snes-maths-multiplydivide)
+
+[SNES Controllers](50-controllers.md#snes-controllers)
+
+[SNES Controllers I/O Ports - Automatic Reading](50-controllers.md#snes-controllers-io-ports-automatic-reading)
+
+[SNES Controllers I/O Ports - Manual Reading](50-controllers.md#snes-controllers-io-ports-manual-reading)
+
+[SNES Controllers Hardware ID Codes](50-controllers.md#snes-controllers-hardware-id-codes)
+
+[SNES Controllers Detecting Controller Support of ROM-Images](50-controllers.md#snes-controllers-detecting-controller-support-of-rom-images)
+
+[SNES Controllers Joypad](50-controllers.md#snes-controllers-joypad)
+
+[SNES Controllers Mouse (Two-button Mouse)](50-controllers.md#snes-controllers-mouse-two-button-mouse)
+
+[SNES Controllers Mouse Games](50-controllers.md#snes-controllers-mouse-games)
+
+[SNES Controllers Multiplayer 5 (MP5) (Five Player Adaptor)](50-controllers.md#snes-controllers-multiplayer-5-mp5-five-player-adaptor)
+
+[SNES Controllers Multiplayer 5 - Unsupported Hardware](50-controllers.md#snes-controllers-multiplayer-5-unsupported-hardware)
+
+[SNES Controllers Multiplayer 5 - Supported Games](50-controllers.md#snes-controllers-multiplayer-5-supported-games)
+
+[SNES Controllers SuperScope (Lightgun)](50-controllers.md#snes-controllers-superscope-lightgun)
+
+[SNES Controllers Konami Justifier (Lightgun)](50-controllers.md#snes-controllers-konami-justifier-lightgun)
+
+[SNES Controllers M.A.C.S. (Lightgun)](50-controllers.md#snes-controllers-macs-lightgun)
+
+[SNES Controllers Twin Tap](50-controllers.md#snes-controllers-twin-tap)
+
+[SNES Controllers Miracle Piano](50-controllers.md#snes-controllers-miracle-piano)
+
+[SNES Controllers Miracle Piano Controller Port](50-controllers.md#snes-controllers-miracle-piano-controller-port)
+
+[SNES Controllers Miracle Piano MIDI Commands](50-controllers.md#snes-controllers-miracle-piano-midi-commands)
+
+[SNES Controllers Miracle Piano Instruments](50-controllers.md#snes-controllers-miracle-piano-instruments)
+
+[SNES Controllers Miracle Pinouts and Component List](50-controllers.md#snes-controllers-miracle-pinouts-and-component-list)
+
+[SNES Controllers NTT Data Pad (joypad with numeric keypad)](50-controllers.md#snes-controllers-ntt-data-pad-joypad-with-numeric-keypad)
+
+[SNES Controllers X-Band Keyboard](50-controllers.md#snes-controllers-x-band-keyboard)
+
+[SNES Controllers Tilt/Motion Sensors](50-controllers.md#snes-controllers-tiltmotion-sensors)
+
+[SNES Controllers Lasabirdie (golf club)](50-controllers.md#snes-controllers-lasabirdie-golf-club)
+
+[SNES Controllers Exertainment (bicycle exercising machine)](50-controllers.md#snes-controllers-exertainment-bicycle-exercising-machine)
+
+[SNES Controllers Exertainment - I/O Ports](50-controllers.md#snes-controllers-exertainment-io-ports)
+
+[SNES Controllers Exertainment - RS232 Controller](50-controllers.md#snes-controllers-exertainment-rs232-controller)
+
+[SNES Controllers Exertainment - RS232 Data Packets &amp; Configuration](50-controllers.md#snes-controllers-exertainment-rs232-data-packets-configuration)
+
+[SNES Controllers Exertainment - RS232 Data Packets Login Phase](50-controllers.md#snes-controllers-exertainment-rs232-data-packets-login-phase)
+
+[SNES Controllers Exertainment - RS232 Data Packets Biking Phase](50-controllers.md#snes-controllers-exertainment-rs232-data-packets-biking-phase)
+
+[SNES Controllers Exertainment - Drawings](50-controllers.md#snes-controllers-exertainment-drawings)
+
+[SNES Controllers Pachinko](50-controllers.md#snes-controllers-pachinko)
+
+[SNES Controllers Other Inputs](50-controllers.md#snes-controllers-other-inputs)
+
+[SNES Add-On Turbo File (external backup memory for storing game positions)](50-controllers.md#snes-add-on-turbo-file-external-backup-memory-for-storing-game-positions)
+
+[SNES Add-On Turbo File - TFII Mode Transmission Protocol](50-controllers.md#snes-add-on-turbo-file-tfii-mode-transmission-protocol)
+
+[SNES Add-On Turbo File - TFII Mode Filesystem](50-controllers.md#snes-add-on-turbo-file-tfii-mode-filesystem)
+
+[SNES Add-On Turbo File - STF Mode Transmission Protocol](50-controllers.md#snes-add-on-turbo-file-stf-mode-transmission-protocol)
+
+[SNES Add-On Turbo File - STF Mode Filesystem](50-controllers.md#snes-add-on-turbo-file-stf-mode-filesystem)
+
+[SNES Add-On Turbo File - Games](50-controllers.md#snes-add-on-turbo-file-games)
+
+[SNES Add-On Barcode Battler (barcode reader)](50-controllers.md#snes-add-on-barcode-battler-barcode-reader)
+
+[SNES Add-On Barcode Transmission I/O](50-controllers.md#snes-add-on-barcode-transmission-io)
+
+[SNES Add-On Barcode Battler Drawings](50-controllers.md#snes-add-on-barcode-battler-drawings)
+
+[SNES Add-On SFC Modem (for JRA PAT)](50-controllers.md#snes-add-on-sfc-modem-for-jra-pat)
+
+[SNES Add-On SFC Modem - Data I/O](50-controllers.md#snes-add-on-sfc-modem-data-io)
+
+[SNES Add-On SFC Modem - Misc](50-controllers.md#snes-add-on-sfc-modem-misc)
+
+[SNES Add-On Voice-Kun (IR-transmitter/receiver for use with CD Players)](50-controllers.md#snes-add-on-voice-kun-ir-transmitterreceiver-for-use-with-cd-players)
+
+[SNES 3D Glasses](50-controllers.md#snes-3d-glasses)
+
+[SNES Cartridges](60-cartridge-header-and-mapping.md#snes-cartridges)
+
+[SNES Cartridge ROM Header](60-cartridge-header-and-mapping.md#snes-cartridge-rom-header)
+
+[SNES Cartridge PCBs](60-cartridge-header-and-mapping.md#snes-cartridge-pcbs)
+
+[SNES Cartridge ROM-Image Headers and File Extensions](60-cartridge-header-and-mapping.md#snes-cartridge-rom-image-headers-and-file-extensions)
+
+[SNES Cartridge ROM-Image Interleave](60-cartridge-header-and-mapping.md#snes-cartridge-rom-image-interleave)
+
+[SNES Cartridge CIC Lockout Chip](60-cartridge-header-and-mapping.md#snes-cartridge-cic-lockout-chip)
+
+[SNES Cartridge CIC Pseudo Code](60-cartridge-header-and-mapping.md#snes-cartridge-cic-pseudo-code)
+
+[SNES Cartridge CIC Instruction Set](60-cartridge-header-and-mapping.md#snes-cartridge-cic-instruction-set)
+
+[SNES Cartridge CIC Notes](60-cartridge-header-and-mapping.md#snes-cartridge-cic-notes)
+
+[SNES Cartridge CIC Versions](60-cartridge-header-and-mapping.md#snes-cartridge-cic-versions)
+
+[SNES Cart LoROM Mapping (ROM divided into 32K banks) (around 1500 games)](60-cartridge-header-and-mapping.md#snes-cart-lorom-mapping-rom-divided-into-32k-banks-around-1500-games)
+
+[SNES Cart HiROM Mapping (ROM divided into 64K banks) (around 500 games)](60-cartridge-header-and-mapping.md#snes-cart-hirom-mapping-rom-divided-into-64k-banks-around-500-games)
+
+[SNES Cart SA-1 (programmable 65C816 CPU) (aka Super Accelerator) (35 games)](61-coprocessors.md#snes-cart-sa-1-programmable-65c816-cpu-aka-super-accelerator-35-games)
+
+[SNES Cart SA-1 Games](61-coprocessors.md#snes-cart-sa-1-games)
+
+[SNES Cart SA-1 I/O Map](61-coprocessors.md#snes-cart-sa-1-io-map)
+
+[SNES Cart SA-1 Interrupt/Control on SNES Side](61-coprocessors.md#snes-cart-sa-1-interruptcontrol-on-snes-side)
+
+[SNES Cart SA-1 Interrupt/Control on SA-1 Side](61-coprocessors.md#snes-cart-sa-1-interruptcontrol-on-sa-1-side)
+
+[SNES Cart SA-1 Timer](61-coprocessors.md#snes-cart-sa-1-timer)
+
+[SNES Cart SA-1 Memory Control](61-coprocessors.md#snes-cart-sa-1-memory-control)
+
+[SNES Cart SA-1 DMA Transfers](61-coprocessors.md#snes-cart-sa-1-dma-transfers)
+
+[SNES Cart SA-1 Character Conversion](61-coprocessors.md#snes-cart-sa-1-character-conversion)
+
+[SNES Cart SA-1 Arithmetic Maths](61-coprocessors.md#snes-cart-sa-1-arithmetic-maths)
+
+[SNES Cart SA-1 Variable-Length Bit Processing](61-coprocessors.md#snes-cart-sa-1-variable-length-bit-processing)
+
+[SNES Cart GSU-n (programmable RISC CPU) (aka Super FX/Mario Chip) (10 games)](61-coprocessors.md#snes-cart-gsu-n-programmable-risc-cpu-aka-super-fxmario-chip-10-games)
+
+[SNES Cart GSU-n List of Games, Chips, and PCB versions](61-coprocessors.md#snes-cart-gsu-n-list-of-games-chips-and-pcb-versions)
+
+[SNES Cart GSU-n Memory Map](61-coprocessors.md#snes-cart-gsu-n-memory-map)
+
+[SNES Cart GSU-n I/O Map](61-coprocessors.md#snes-cart-gsu-n-io-map)
+
+[SNES Cart GSU-n General I/O Ports](61-coprocessors.md#snes-cart-gsu-n-general-io-ports)
+
+[SNES Cart GSU-n Bitmap I/O Ports](61-coprocessors.md#snes-cart-gsu-n-bitmap-io-ports)
+
+[SNES Cart GSU-n CPU MOV Opcodes](61-coprocessors.md#snes-cart-gsu-n-cpu-mov-opcodes)
+
+[SNES Cart GSU-n CPU ALU Opcodes](61-coprocessors.md#snes-cart-gsu-n-cpu-alu-opcodes)
+
+[SNES Cart GSU-n CPU JMP and Prefix Opcodes](61-coprocessors.md#snes-cart-gsu-n-cpu-jmp-and-prefix-opcodes)
+
+[SNES Cart GSU-n CPU Pseudo Opcodes](61-coprocessors.md#snes-cart-gsu-n-cpu-pseudo-opcodes)
+
+[SNES Cart GSU-n CPU Misc](61-coprocessors.md#snes-cart-gsu-n-cpu-misc)
+
+[SNES Cart GSU-n Code-Cache](61-coprocessors.md#snes-cart-gsu-n-code-cache)
+
+[SNES Cart GSU-n Pixel-Cache](61-coprocessors.md#snes-cart-gsu-n-pixel-cache)
+
+[SNES Cart GSU-n Other Caches](61-coprocessors.md#snes-cart-gsu-n-other-caches)
+
+[SNES Cart Capcom CX4 (programmable RISC CPU) (Mega Man X 2-3) (2 games)](61-coprocessors.md#snes-cart-capcom-cx4-programmable-risc-cpu-mega-man-x-2-3-2-games)
+
+[SNES Cart Capcom CX4 - I/O Ports](61-coprocessors.md#snes-cart-capcom-cx4-io-ports)
+
+[SNES Cart Capcom CX4 - Opcodes](61-coprocessors.md#snes-cart-capcom-cx4-opcodes)
+
+[SNES Cart Capcom CX4 - Functions](61-coprocessors.md#snes-cart-capcom-cx4-functions)
+
+[SNES Cart DSP-n/ST010/ST011 (pre-programmed NEC uPD77C25 CPU) (23 games)](61-coprocessors.md#snes-cart-dsp-nst010st011-pre-programmed-nec-upd77c25-cpu-23-games)
+
+[SNES Cart DSP-n/ST010/ST011 - NEC uPD77C25 - Registers &amp; Flags &amp; Overview](61-coprocessors.md#snes-cart-dsp-nst010st011-nec-upd77c25-registers-flags-overview)
+
+[SNES Cart DSP-n/ST010/ST011 - NEC uPD77C25 - ALU and LD Instructions](61-coprocessors.md#snes-cart-dsp-nst010st011-nec-upd77c25-alu-and-ld-instructions)
+
+[SNES Cart DSP-n/ST010/ST011 - NEC uPD77C25 - JP Instructions](61-coprocessors.md#snes-cart-dsp-nst010st011-nec-upd77c25-jp-instructions)
+
+[SNES Cart DSP-n/ST010/ST011 - List of Games using that chips](61-coprocessors.md#snes-cart-dsp-nst010st011-list-of-games-using-that-chips)
+
+[SNES Cart DSP-n/ST010/ST011 - BIOS Functions](61-coprocessors.md#snes-cart-dsp-nst010st011-bios-functions)
+
+[SNES Cart Seta ST018 (pre-programmed ARM CPU) (1 game)](61-coprocessors.md#snes-cart-seta-st018-pre-programmed-arm-cpu-1-game)
+
+[ARM CPU Reference](61-coprocessors.md#arm-cpu-reference)
+
+[ARM Register Set](61-coprocessors.md#arm-register-set)
+
+[ARM Flags &amp; Condition Field (cond)](61-coprocessors.md#arm-flags-condition-field-cond)
+
+[ARM 26bit Memory Interface](61-coprocessors.md#arm-26bit-memory-interface)
+
+[ARM Exceptions](61-coprocessors.md#arm-exceptions)
+
+[ARM Instruction Summary](61-coprocessors.md#arm-instruction-summary)
+
+[ARM Opcodes: Branch and Branch with Link (B, BL, SWI)](61-coprocessors.md#arm-opcodes-branch-and-branch-with-link-b-bl-swi)
+
+[ARM Opcodes: Data Processing (ALU)](61-coprocessors.md#arm-opcodes-data-processing-alu)
+
+[ARM Opcodes: PSR Transfer (MRS, MSR)](61-coprocessors.md#arm-opcodes-psr-transfer-mrs-msr)
+
+[ARM Opcodes: Multiply and Multiply-Accumulate (MUL, MLA)](61-coprocessors.md#arm-opcodes-multiply-and-multiply-accumulate-mul-mla)
+
+[ARM Opcodes: Memory: Block Data Transfer (LDM, STM)](61-coprocessors.md#arm-opcodes-memory-block-data-transfer-ldm-stm)
+
+[ARM Opcodes: Memory: Single Data Transfer (LDR, STR)](61-coprocessors.md#arm-opcodes-memory-single-data-transfer-ldr-str)
+
+[ARM Opcodes: Memory: Single Data Swap (SWP)](61-coprocessors.md#arm-opcodes-memory-single-data-swap-swp)
+
+[ARM Opcodes: Coprocessor Instructions (MRC/MCR, LDC/STC, CDP)](61-coprocessors.md#arm-opcodes-coprocessor-instructions-mrcmcr-ldcstc-cdp)
+
+[ARM Pseudo Instructions and Directives](61-coprocessors.md#arm-pseudo-instructions-and-directives)
+
+[ARM Instruction Cycle Times](61-coprocessors.md#arm-instruction-cycle-times)
+
+[ARM Versions](61-coprocessors.md#arm-versions)
+
+[SNES Cart OBC1 (OBJ Controller) (1 game)](61-coprocessors.md#snes-cart-obc1-obj-controller-1-game)
+
+[SNES Cart S-DD1 (Data Decompressor) (2 games)](61-coprocessors.md#snes-cart-s-dd1-data-decompressor-2-games)
+
+[SNES Cart S-DD1 Decompression Algorithm](61-coprocessors.md#snes-cart-s-dd1-decompression-algorithm)
+
+[SNES Cart SPC7110 (Data Decompressor) (3 games)](61-coprocessors.md#snes-cart-spc7110-data-decompressor-3-games)
+
+[SNES Cart SPC7110 Memory and I/O Map](61-coprocessors.md#snes-cart-spc7110-memory-and-io-map)
+
+[SNES Cart SPC7110 Decompression I/O Ports](61-coprocessors.md#snes-cart-spc7110-decompression-io-ports)
+
+[SNES Cart SPC7110 Direct Data ROM Access](61-coprocessors.md#snes-cart-spc7110-direct-data-rom-access)
+
+[SNES Cart SPC7110 Multiply/Divide Unit](61-coprocessors.md#snes-cart-spc7110-multiplydivide-unit)
+
+[SNES Cart SPC7110 with RTC-4513 Real Time Clock (1 game)](61-coprocessors.md#snes-cart-spc7110-with-rtc-4513-real-time-clock-1-game)
+
+[SNES Cart SPC7110 Decompression Algorithm](61-coprocessors.md#snes-cart-spc7110-decompression-algorithm)
+
+[SNES Cart SPC7110 Notes](61-coprocessors.md#snes-cart-spc7110-notes)
+
+[SNES Cart Unlicensed Variants](61-coprocessors.md#snes-cart-unlicensed-variants)
+
+[SNES Cart S-RTC (Realtime Clock) (1 game)](61-coprocessors.md#snes-cart-s-rtc-realtime-clock-1-game)
+
+[SNES Cart Super Gameboy](62-cartridge-addons-satellaview-modems.md#snes-cart-super-gameboy)
+
+[SNES Cart Satellaview (satellite receiver &amp; mini flashcard)](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-satellite-receiver-mini-flashcard)
+
+[SNES Cart Satellaview I/O Map](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-io-map)
+
+[SNES Cart Satellaview I/O Ports of MCC Memory Controller](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-io-ports-of-mcc-memory-controller)
+
+[SNES Cart Satellaview I/O Receiver Data Streams](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-io-receiver-data-streams)
+
+[SNES Cart Satellaview I/O Receiver Data Streams (Notes)](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-io-receiver-data-streams-notes)
+
+[SNES Cart Satellaview I/O Receiver Control](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-io-receiver-control)
+
+[SNES Cart Satellaview I/O FLASH Detection (Type 1,2,3,4)](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-io-flash-detection-type-1234)
+
+[SNES Cart Satellaview I/O FLASH Access (Type 1,3,4)](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-io-flash-access-type-134)
+
+[SNES Cart Satellaview I/O FLASH Access (Type 2)](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-io-flash-access-type-2)
+
+[SNES Cart Satellaview Packet Headers and Frames](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-packet-headers-and-frames)
+
+[SNES Cart Satellaview Channels and Channel Map](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-channels-and-channel-map)
+
+[SNES Cart Satellaview Town Status Packet](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-town-status-packet)
+
+[SNES Cart Satellaview Directory Packet](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-directory-packet)
+
+[SNES Cart Satellaview Expansion Data (at end of Directory Packets)](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-expansion-data-at-end-of-directory-packets)
+
+[SNES Cart Satellaview Other Packets](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-other-packets)
+
+[SNES Cart Satellaview Buildings](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-buildings)
+
+[SNES Cart Satellaview People](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-people)
+
+[SNES Cart Satellaview Items](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-items)
+
+[SNES Cart Satellaview SRAM (Battery-backed)](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-sram-battery-backed)
+
+[SNES Cart Satellaview FLASH File Header](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-flash-file-header)
+
+[SNES Cart Satellaview BIOS Function Summary](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-bios-function-summary)
+
+[SNES Cart Satellaview Interpreter Token Summary](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-interpreter-token-summary)
+
+[SNES Cart Satellaview Chipsets](62-cartridge-addons-satellaview-modems.md#snes-cart-satellaview-chipsets)
+
+[SNES Cart Data Pack Slots (satellaview-like mini-cartridge slot)](62-cartridge-addons-satellaview-modems.md#snes-cart-data-pack-slots-satellaview-like-mini-cartridge-slot)
+
+[SNES Cart Nintendo Power (flashcard)](62-cartridge-addons-satellaview-modems.md#snes-cart-nintendo-power-flashcard)
+
+[SNES Cart Nintendo Power - New Stuff](62-cartridge-addons-satellaview-modems.md#snes-cart-nintendo-power-new-stuff)
+
+[SNES Cart Nintendo Power - I/O Ports](62-cartridge-addons-satellaview-modems.md#snes-cart-nintendo-power-io-ports)
+
+[SNES Cart Nintendo Power - FLASH Commands](62-cartridge-addons-satellaview-modems.md#snes-cart-nintendo-power-flash-commands)
+
+[SNES Cart Nintendo Power - Directory](62-cartridge-addons-satellaview-modems.md#snes-cart-nintendo-power-directory)
+
+[SNES Cart Sufami Turbo (Mini Cartridge Adaptor)](62-cartridge-addons-satellaview-modems.md#snes-cart-sufami-turbo-mini-cartridge-adaptor)
+
+[SNES Cart Sufami Turbo General Notes](62-cartridge-addons-satellaview-modems.md#snes-cart-sufami-turbo-general-notes)
+
+[SNES Cart Sufami Turbo ROM/RAM Headers](62-cartridge-addons-satellaview-modems.md#snes-cart-sufami-turbo-romram-headers)
+
+[SNES Cart Sufami Turbo BIOS Functions &amp; Charset](62-cartridge-addons-satellaview-modems.md#snes-cart-sufami-turbo-bios-functions-charset)
+
+[SNES Cart X-Band (2400 baud Modem)](62-cartridge-addons-satellaview-modems.md#snes-cart-x-band-2400-baud-modem)
+
+[SNES Cart X-Band Misc](62-cartridge-addons-satellaview-modems.md#snes-cart-x-band-misc)
+
+[SNES Cart X-Band I/O Map](62-cartridge-addons-satellaview-modems.md#snes-cart-x-band-io-map)
+
+[SNES Cart X-Band I/O - Memory Patch/Mapping](62-cartridge-addons-satellaview-modems.md#snes-cart-x-band-io-memory-patchmapping)
+
+[SNES Cart X-Band I/O - Smart Card Reader](62-cartridge-addons-satellaview-modems.md#snes-cart-x-band-io-smart-card-reader)
+
+[SNES Cart X-Band I/O - LED and Debug](62-cartridge-addons-satellaview-modems.md#snes-cart-x-band-io-led-and-debug)
+
+[SNES Cart X-Band I/O - Whatever Stuff (External FIFO for Modem?)](62-cartridge-addons-satellaview-modems.md#snes-cart-x-band-io-whatever-stuff-external-fifo-for-modem)
+
+[SNES Cart X-Band I/O - Rockwell Modem Ports](62-cartridge-addons-satellaview-modems.md#snes-cart-x-band-io-rockwell-modem-ports)
+
+[SNES Cart X-Band Rockwell Notes](62-cartridge-addons-satellaview-modems.md#snes-cart-x-band-rockwell-notes)
+
+[SNES Cart X-Band BIOS Functions](62-cartridge-addons-satellaview-modems.md#snes-cart-x-band-bios-functions)
+
+[SNES Cart FLASH Backup](63-copiers-cheat-devices-cdrom.md#snes-cart-flash-backup)
+
+[SNES Cart Cheat Devices](63-copiers-cheat-devices-cdrom.md#snes-cart-cheat-devices)
+
+[SNES Cart Cheat Devices - Code Formats](63-copiers-cheat-devices-cdrom.md#snes-cart-cheat-devices-code-formats)
+
+[SNES Cart Cheat Devices - Game Genie](63-copiers-cheat-devices-cdrom.md#snes-cart-cheat-devices-game-genie)
+
+[SNES Cart Cheat Devices - Pro Action Replay I/O Ports](63-copiers-cheat-devices-cdrom.md#snes-cart-cheat-devices-pro-action-replay-io-ports)
+
+[SNES Cart Cheat Devices - Pro Action Replay Memory](63-copiers-cheat-devices-cdrom.md#snes-cart-cheat-devices-pro-action-replay-memory)
+
+[SNES Cart Cheat Devices - X-Terminator &amp; Game Wizard](63-copiers-cheat-devices-cdrom.md#snes-cart-cheat-devices-x-terminator-game-wizard)
+
+[SNES Cart Cheat Devices - Game Saver](63-copiers-cheat-devices-cdrom.md#snes-cart-cheat-devices-game-saver)
+
+[SNES Cart Cheat Devices - Theory](63-copiers-cheat-devices-cdrom.md#snes-cart-cheat-devices-theory)
+
+[SNES Cart Tri-Star (aka Super 8) (allows to play NES games on the SNES)](63-copiers-cheat-devices-cdrom.md#snes-cart-tri-star-aka-super-8-allows-to-play-nes-games-on-the-snes)
+
+[SNES Cart Pirate X-in-1 Multicarts (1)](63-copiers-cheat-devices-cdrom.md#snes-cart-pirate-x-in-1-multicarts-1)
+
+[SNES Cart Pirate X-in-1 Multicarts (2)](63-copiers-cheat-devices-cdrom.md#snes-cart-pirate-x-in-1-multicarts-2)
+
+[SNES Cart Copiers](63-copiers-cheat-devices-cdrom.md#snes-cart-copiers)
+
+[SNES Cart Copiers - Front Fareast (Super Magicom &amp; Super Wild Card)](63-copiers-cheat-devices-cdrom.md#snes-cart-copiers-front-fareast-super-magicom-super-wild-card)
+
+[SNES Cart Copiers - CCL (Supercom &amp; Pro Fighter)](63-copiers-cheat-devices-cdrom.md#snes-cart-copiers-ccl-supercom-pro-fighter)
+
+[SNES Cart Copiers - Bung (Game Doctor)](63-copiers-cheat-devices-cdrom.md#snes-cart-copiers-bung-game-doctor)
+
+[SNES Cart Copiers - Super UFO](63-copiers-cheat-devices-cdrom.md#snes-cart-copiers-super-ufo)
+
+[SNES Cart Copiers - Sane Ting (Super Disk Interceptor)](63-copiers-cheat-devices-cdrom.md#snes-cart-copiers-sane-ting-super-disk-interceptor)
+
+[SNES Cart Copiers - Gamars Copier](63-copiers-cheat-devices-cdrom.md#snes-cart-copiers-gamars-copier)
+
+[SNES Cart Copiers - Venus (Multi Game Hunter)](63-copiers-cheat-devices-cdrom.md#snes-cart-copiers-venus-multi-game-hunter)
+
+[SNES Cart Copiers - Others](63-copiers-cheat-devices-cdrom.md#snes-cart-copiers-others)
+
+[SNES Cart Copiers - Misc](63-copiers-cheat-devices-cdrom.md#snes-cart-copiers-misc)
+
+[SNES Cart Copiers - Floppy Disc Controllers](63-copiers-cheat-devices-cdrom.md#snes-cart-copiers-floppy-disc-controllers)
+
+[SNES Cart Copiers - Floppy Disc NEC uPD765 Commands](63-copiers-cheat-devices-cdrom.md#snes-cart-copiers-floppy-disc-nec-upd765-commands)
+
+[SNES Cart Copiers - Floppy Disc FAT12 Format](63-copiers-cheat-devices-cdrom.md#snes-cart-copiers-floppy-disc-fat12-format)
+
+[SNES Cart Copiers - BIOSes](63-copiers-cheat-devices-cdrom.md#snes-cart-copiers-bioses)
+
+[SNES Cart CDROM Drive](63-copiers-cheat-devices-cdrom.md#snes-cart-cdrom-drive)
+
+[SNES Cart CDROM - Memory and I/O Map](63-copiers-cheat-devices-cdrom.md#snes-cart-cdrom-memory-and-io-map)
+
+[SNES Cart CDROM - CDROM Bootsector and Volume Descriptor](63-copiers-cheat-devices-cdrom.md#snes-cart-cdrom-cdrom-bootsector-and-volume-descriptor)
+
+[SNES Cart CDROM - BIOS Cartridge](63-copiers-cheat-devices-cdrom.md#snes-cart-cdrom-bios-cartridge)
+
+[SNES Cart CDROM - BIOS Functions](63-copiers-cheat-devices-cdrom.md#snes-cart-cdrom-bios-functions)
+
+[SNES Cart CDROM - Mechacon](63-copiers-cheat-devices-cdrom.md#snes-cart-cdrom-mechacon)
+
+[SNES Cart CDROM - Decoder/FIFO](63-copiers-cheat-devices-cdrom.md#snes-cart-cdrom-decoderfifo)
+
+[SNES Cart CDROM - Component List](63-copiers-cheat-devices-cdrom.md#snes-cart-cdrom-component-list)
+
+[SNES Hotel Boxes and Arcade Machines](70-hotel-arcade-nss-sfcbox.md#snes-hotel-boxes-and-arcade-machines)
+
+[NSS Memory and I/O Maps](70-hotel-arcade-nss-sfcbox.md#nss-memory-and-io-maps)
+
+[NSS I/O Ports - Control Registers](70-hotel-arcade-nss-sfcbox.md#nss-io-ports-control-registers)
+
+[NSS I/O Ports - Button Inputs and Coin Control](70-hotel-arcade-nss-sfcbox.md#nss-io-ports-button-inputs-and-coin-control)
+
+[NSS I/O Ports - RTC and OSD](70-hotel-arcade-nss-sfcbox.md#nss-io-ports-rtc-and-osd)
+
+[NSS I/O Ports - EEPROM and PROM](70-hotel-arcade-nss-sfcbox.md#nss-io-ports-eeprom-and-prom)
+
+[NSS BIOS and INST ROM Maps](70-hotel-arcade-nss-sfcbox.md#nss-bios-and-inst-rom-maps)
+
+[NSS Interpreter Tokens](70-hotel-arcade-nss-sfcbox.md#nss-interpreter-tokens)
+
+[NSS Controls](70-hotel-arcade-nss-sfcbox.md#nss-controls)
+
+[NSS Games, BIOSes and ROM-Images](70-hotel-arcade-nss-sfcbox.md#nss-games-bioses-and-rom-images)
+
+[NSS Component Lists](70-hotel-arcade-nss-sfcbox.md#nss-component-lists)
+
+[NSS On-Screen Controller (OSD)](70-hotel-arcade-nss-sfcbox.md#nss-on-screen-controller-osd)
+
+[SFC-Box Overview](70-hotel-arcade-nss-sfcbox.md#sfc-box-overview)
+
+[SFC-Box Coprocessor (HD64180) (extended Z80)](70-hotel-arcade-nss-sfcbox.md#sfc-box-coprocessor-hd64180-extended-z80)
+
+[SFC-Box Memory &amp; I/O Maps](70-hotel-arcade-nss-sfcbox.md#sfc-box-memory-io-maps)
+
+[SFC-Box I/O Ports (Custom Ports)](70-hotel-arcade-nss-sfcbox.md#sfc-box-io-ports-custom-ports)
+
+[SFC-Box I/O Ports (HD64180 Ports)](70-hotel-arcade-nss-sfcbox.md#sfc-box-io-ports-hd64180-ports)
+
+[SFC-Box OSD Chip (On-Screen Display Controller)](70-hotel-arcade-nss-sfcbox.md#sfc-box-osd-chip-on-screen-display-controller)
+
+[SFC-Box GROM Format](70-hotel-arcade-nss-sfcbox.md#sfc-box-grom-format)
+
+[SFC-Box Component List (Cartridges)](70-hotel-arcade-nss-sfcbox.md#sfc-box-component-list-cartridges)
+
+[SFC-Box Component List (Console)](70-hotel-arcade-nss-sfcbox.md#sfc-box-component-list-console)
+
+[RTC S-3520 (Real-Time Clock)](70-hotel-arcade-nss-sfcbox.md#rtc-s-3520-real-time-clock)
+
+[Z80 CPU Specifications](70-hotel-arcade-nss-sfcbox.md#z80-cpu-specifications)
+
+[Z80 Register Set](70-hotel-arcade-nss-sfcbox.md#z80-register-set)
+
+[Z80 Flags](70-hotel-arcade-nss-sfcbox.md#z80-flags)
+
+[Z80 Instruction Format](70-hotel-arcade-nss-sfcbox.md#z80-instruction-format)
+
+[Z80 Load Commands](70-hotel-arcade-nss-sfcbox.md#z80-load-commands)
+
+[Z80 Arithmetic/Logical Commands](70-hotel-arcade-nss-sfcbox.md#z80-arithmeticlogical-commands)
+
+[Z80 Rotate/Shift and Singlebit Operations](70-hotel-arcade-nss-sfcbox.md#z80-rotateshift-and-singlebit-operations)
+
+[Z80 Jumpcommands &amp; Interrupts](70-hotel-arcade-nss-sfcbox.md#z80-jumpcommands-interrupts)
+
+[Z80 I/O Commands](70-hotel-arcade-nss-sfcbox.md#z80-io-commands)
+
+[Z80 Interrupts](70-hotel-arcade-nss-sfcbox.md#z80-interrupts)
+
+[Z80 Meaningless and Duplicated Opcodes](70-hotel-arcade-nss-sfcbox.md#z80-meaningless-and-duplicated-opcodes)
+
+[Z80 Garbage in Flag Register](70-hotel-arcade-nss-sfcbox.md#z80-garbage-in-flag-register)
+
+[Z80 Compatibility](70-hotel-arcade-nss-sfcbox.md#z80-compatibility)
+
+[Z80 Pin-Outs](70-hotel-arcade-nss-sfcbox.md#z80-pin-outs)
+
+[Z80 Local Usage](70-hotel-arcade-nss-sfcbox.md#z80-local-usage)
+
+[HD64180](70-hotel-arcade-nss-sfcbox.md#hd64180)
+
+[HD64180 Internal I/O Map](70-hotel-arcade-nss-sfcbox.md#hd64180-internal-io-map)
+
+[HD64180 New Opcodes (Z80 Extension)](70-hotel-arcade-nss-sfcbox.md#hd64180-new-opcodes-z80-extension)
+
+[HD64180 Serial I/O Ports (ASCI and CSI/O)](70-hotel-arcade-nss-sfcbox.md#hd64180-serial-io-ports-asci-and-csio)
+
+[HD64180 Timers (PRT and FRC)](70-hotel-arcade-nss-sfcbox.md#hd64180-timers-prt-and-frc)
+
+[HD64180 Direct Memory Access (DMA)](70-hotel-arcade-nss-sfcbox.md#hd64180-direct-memory-access-dma)
+
+[HD64180 Interrupts](70-hotel-arcade-nss-sfcbox.md#hd64180-interrupts)
+
+[HD64180 Memory Mapping and Control](70-hotel-arcade-nss-sfcbox.md#hd64180-memory-mapping-and-control)
+
+[HD64180 Extensions](70-hotel-arcade-nss-sfcbox.md#hd64180-extensions)
+
+[SNES Decompression Formats](70-hotel-arcade-nss-sfcbox.md#snes-decompression-formats)
+
+[SNES Unpredictable Things](80-timings-unpredictable-pinouts.md#snes-unpredictable-things)
+
+[SNES Timings](80-timings-unpredictable-pinouts.md#snes-timings)
+
+[SNES Timing Oscillators](80-timings-unpredictable-pinouts.md#snes-timing-oscillators)
+
+[SNES Timing H/V Counters](80-timings-unpredictable-pinouts.md#snes-timing-hv-counters)
+
+[SNES Timing H/V Events](80-timings-unpredictable-pinouts.md#snes-timing-hv-events)
+
+[SNES Timing PPU Memory Accesses](80-timings-unpredictable-pinouts.md#snes-timing-ppu-memory-accesses)
+
+[SNES Pinouts](80-timings-unpredictable-pinouts.md#snes-pinouts)
+
+[SNES Controllers Pinouts](80-timings-unpredictable-pinouts.md#snes-controllers-pinouts)
+
+[SNES Audio/Video Connector Pinouts](80-timings-unpredictable-pinouts.md#snes-audiovideo-connector-pinouts)
+
+[SNES Power Supply](80-timings-unpredictable-pinouts.md#snes-power-supply)
+
+[SNES Expansion Port (EXT) Pinouts](80-timings-unpredictable-pinouts.md#snes-expansion-port-ext-pinouts)
+
+[SNES Cartridge Slot Pinouts](80-timings-unpredictable-pinouts.md#snes-cartridge-slot-pinouts)
+
+[SNES Chipset](80-timings-unpredictable-pinouts.md#snes-chipset)
+
+[SNES Pinouts CPU Chip](80-timings-unpredictable-pinouts.md#snes-pinouts-cpu-chip)
+
+[SNES Pinouts PPU Chips](80-timings-unpredictable-pinouts.md#snes-pinouts-ppu-chips)
+
+[SNES Pinouts APU Chips](80-timings-unpredictable-pinouts.md#snes-pinouts-apu-chips)
+
+[SNES Pinouts ROM Chips](80-timings-unpredictable-pinouts.md#snes-pinouts-rom-chips)
+
+[SNES Pinouts RAM Chips](80-timings-unpredictable-pinouts.md#snes-pinouts-ram-chips)
+
+[SNES Pinouts CIC Chips](80-timings-unpredictable-pinouts.md#snes-pinouts-cic-chips)
+
+[SNES Pinouts MAD Chips](80-timings-unpredictable-pinouts.md#snes-pinouts-mad-chips)
+
+[SNES Pinouts RTC Chips](80-timings-unpredictable-pinouts.md#snes-pinouts-rtc-chips)
+
+[SNES Pinouts Misc Chips](80-timings-unpredictable-pinouts.md#snes-pinouts-misc-chips)
+
+[SNES Pinouts GSU Chips](80-timings-unpredictable-pinouts.md#snes-pinouts-gsu-chips)
+
+[SNES Pinouts CX4 Chip](80-timings-unpredictable-pinouts.md#snes-pinouts-cx4-chip)
+
+[SNES Pinouts SA1 Chip](80-timings-unpredictable-pinouts.md#snes-pinouts-sa1-chip)
+
+[SNES Pinouts Decompression Chips](80-timings-unpredictable-pinouts.md#snes-pinouts-decompression-chips)
+
+[SNES Pinouts BSX Connectors](80-timings-unpredictable-pinouts.md#snes-pinouts-bsx-connectors)
+
+[SNES Pinouts NSS Connectors](80-timings-unpredictable-pinouts.md#snes-pinouts-nss-connectors)
+
+[SNES Pinouts Nintendo Power Flashcarts](80-timings-unpredictable-pinouts.md#snes-pinouts-nintendo-power-flashcarts)
+
+[SNES Common Mods](80-timings-unpredictable-pinouts.md#snes-common-mods)
+
+[SNES Controller Mods](80-timings-unpredictable-pinouts.md#snes-controller-mods)
+
+[SNES Xboo Upload (WRAM Boot)](80-timings-unpredictable-pinouts.md#snes-xboo-upload-wram-boot)
+
+[CPU 65XX Microprocessor](90-cpu-65816.md#cpu-65xx-microprocessor)
+
+[CPU Registers and Flags](90-cpu-65816.md#cpu-registers-and-flags)
+
+[CPU Memory Addressing](90-cpu-65816.md#cpu-memory-addressing)
+
+[CPU Clock Cycles](90-cpu-65816.md#cpu-clock-cycles)
+
+[CPU Memory and Register Transfers](90-cpu-65816.md#cpu-memory-and-register-transfers)
+
+[CPU Arithmetic/Logical Operations](90-cpu-65816.md#cpu-arithmeticlogical-operations)
+
+[CPU Rotate and Shift Instructions](90-cpu-65816.md#cpu-rotate-and-shift-instructions)
+
+[CPU Jump and Control Instructions](90-cpu-65816.md#cpu-jump-and-control-instructions)
+
+[CPU Assembler Directives/Syntax](90-cpu-65816.md#cpu-assembler-directivessyntax)
+
+[CPU Glitches](90-cpu-65816.md#cpu-glitches)
+
+[CPU The 65XX Family](90-cpu-65816.md#cpu-the-65xx-family)
+
+[About/Credits](#aboutcredits)
+
+[extracted from no$sns v1.6 documentation]
