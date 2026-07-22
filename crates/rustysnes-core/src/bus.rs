@@ -125,8 +125,17 @@ pub struct Clock {
     /// the `NMITIMEN` enable (hardware), cleared on read. ROMs poll this to sync to `VBlank`
     /// without taking the interrupt (e.g. gilyon's `wait_for_vblank`).
     rdnmi_flag: bool,
+    /// RDNMI hold: for four master clocks (one dot / one interrupt poll) after the `VBlank` edge
+    /// sets `rdnmi_flag`, a `$4210` read returns bit 7 set but does **not** clear it — the hardware
+    /// holds `/NMI` across the edge (ares `status.nmiHold`, "hold /NMI for four cycles"). Terranigma
+    /// depends on the flag surviving a read that lands in that window. Set with `rdnmi_flag`,
+    /// consumed at the next dot in [`Bus::tick_ppu_dot`].
+    rdnmi_hold: bool,
     /// Level IRQ line (HV-IRQ / coprocessor / APU timer), cleared on `$4211` read.
     irq_line: bool,
+    /// TIMEUP hold: the `/IRQ` mirror of [`Clock::rdnmi_hold`] — a `$4211` read within four master
+    /// clocks of the IRQ edge returns bit 7 set without clearing it (ares `status.irqHold`).
+    irq_hold: bool,
     /// `$4207/8` HTIME — the H-IRQ comparator.
     htime: u16,
     /// `$4209/A` VTIME — the V-IRQ comparator.
@@ -143,7 +152,9 @@ impl Default for Clock {
             nmitimen: 0,
             nmi_line: false,
             rdnmi_flag: false,
+            rdnmi_hold: false,
             irq_line: false,
+            irq_hold: false,
             htime: 0x01FF,
             vtime: 0x01FF,
         }
@@ -211,7 +222,9 @@ impl Clock {
         s.write_u8(self.nmitimen);
         s.write_bool(self.nmi_line);
         s.write_bool(self.rdnmi_flag);
+        s.write_bool(self.rdnmi_hold);
         s.write_bool(self.irq_line);
+        s.write_bool(self.irq_hold);
         s.write_u16(self.htime);
         s.write_u16(self.vtime);
     }
@@ -224,7 +237,9 @@ impl Clock {
         self.nmitimen = s.read_u8()?;
         self.nmi_line = s.read_bool()?;
         self.rdnmi_flag = s.read_bool()?;
+        self.rdnmi_hold = s.read_bool()?;
         self.irq_line = s.read_bool()?;
+        self.irq_hold = s.read_bool()?;
         // htime/vtime are 9-bit comparators (write24 masks bit 8 with & 1 at $4208/$420A already).
         self.htime = s.read_u16()? & 0x01FF;
         self.vtime = s.read_u16()? & 0x01FF;
@@ -788,6 +803,14 @@ impl Bus {
 
     /// Tick the PPU one dot through a cart-only view (split borrow), then harvest its NMI/IRQ.
     fn tick_ppu_dot(&mut self) {
+        // Consume the previous dot's RDNMI/TIMEUP hold. The hardware holds `/NMI` and `/IRQ` for
+        // four master clocks (one interrupt poll = one dot) after the edge, during which a
+        // `$4210`/`$4211` read returns bit 7 set but does NOT clear it; ares does the same via
+        // `status.nmiHold`/`status.irqHold`, cleared one poll later. The hold is set alongside the
+        // flag below, so clearing it here (before this dot can set it again) makes the window exactly
+        // one dot — the dot the flag was raised on.
+        self.clock.rdnmi_hold = false;
+        self.clock.irq_hold = false;
         // Keep the PPU the single owner of the dot-phase HV-IRQ comparison.
         let enable_h = self.clock.nmitimen & 0x10 != 0;
         let enable_v = self.clock.nmitimen & 0x20 != 0;
@@ -804,6 +827,8 @@ impl Bus {
             self.ppu.ack_nmi();
             // The RDNMI VBlank flag sets unconditionally; the NMI *interrupt* only when enabled.
             self.clock.rdnmi_flag = true;
+            // Hold /NMI across this edge: a $4210 read this dot returns the flag without clearing it.
+            self.clock.rdnmi_hold = true;
             if self.clock.nmitimen & 0x80 != 0 {
                 self.clock.nmi_line = true;
             }
@@ -837,6 +862,8 @@ impl Bus {
         if self.ppu.irq_pending() {
             self.ppu.ack_irq();
             self.clock.irq_line = true;
+            // Hold /IRQ across this edge: a $4211 read this dot returns the flag without clearing it.
+            self.clock.irq_hold = true;
         }
     }
 
@@ -914,7 +941,11 @@ impl Bus {
                 let v = (u8::from(self.clock.rdnmi_flag) << 7)
                     | (self.open_bus & RDNMI_OPEN_BUS_MASK)
                     | 0x02;
-                self.clock.rdnmi_flag = false;
+                // Within four master clocks of the VBlank edge the flag is held: return it set but
+                // do not clear it (ares `rdnmi()` skips the clear while `nmiHold`).
+                if !self.clock.rdnmi_hold {
+                    self.clock.rdnmi_flag = false;
+                }
                 v
             }
             0x4211 => {
@@ -922,7 +953,10 @@ impl Bus {
                 // $4211 writes only bit 7 and leaves the rest as the incoming open-bus data.
                 let v =
                     (u8::from(self.clock.irq_line) << 7) | (self.open_bus & TIMEUP_OPEN_BUS_MASK);
-                self.clock.irq_line = false;
+                // Held for four master clocks after the IRQ edge — see `$4210` above.
+                if !self.clock.irq_hold {
+                    self.clock.irq_line = false;
+                }
                 v
             }
             0x4212 => {
@@ -1612,6 +1646,116 @@ mod tests {
         bus.open_bus = 0xAB;
         assert_eq!(bus.read_cpu_reg(0x4211), 0xAB);
         assert!(!bus.clock.irq_line, "reading $4211 clears the IRQ flag");
+    }
+
+    /// For four master clocks after the edge, a `$4210`/`$4211` read returns the flag set but does
+    /// NOT clear it — the hardware holds `/NMI` and `/IRQ` across the edge (ares `nmiHold`/`irqHold`;
+    /// Terranigma depends on the RDNMI flag surviving a read that lands in that window).
+    #[test]
+    #[allow(clippy::field_reassign_with_default)] // a full `Bus` struct literal is impractical
+    fn rdnmi_timeup_are_held_across_the_edge_and_do_not_clear_on_read() {
+        let mut bus = Bus::default();
+
+        // The VBlank edge raised the flag AND set the hold (as `tick_ppu_dot` does at vblank start).
+        bus.clock.rdnmi_flag = true;
+        bus.clock.rdnmi_hold = true;
+        // A read within the window returns bit 7 set and leaves the flag set — repeatedly.
+        assert_eq!(bus.read_cpu_reg(0x4210) & 0x80, 0x80);
+        assert!(
+            bus.clock.rdnmi_flag,
+            "held: the read must not clear the flag"
+        );
+        assert_eq!(
+            bus.read_cpu_reg(0x4210) & 0x80,
+            0x80,
+            "still held on a second read"
+        );
+        assert!(bus.clock.rdnmi_flag);
+        // The next dot consumes the hold; now a read clears normally.
+        bus.clock.rdnmi_hold = false;
+        assert_eq!(
+            bus.read_cpu_reg(0x4210) & 0x80,
+            0x80,
+            "flag still set on the clearing read"
+        );
+        assert!(
+            !bus.clock.rdnmi_flag,
+            "the read after the hold clears the flag"
+        );
+        assert_eq!(bus.read_cpu_reg(0x4210) & 0x80, 0x00, "cleared");
+
+        // Same for the IRQ flag / $4211, including the back-to-back held read.
+        bus.clock.irq_line = true;
+        bus.clock.irq_hold = true;
+        assert_eq!(bus.read_cpu_reg(0x4211) & 0x80, 0x80);
+        assert!(
+            bus.clock.irq_line,
+            "held: the read must not clear the IRQ flag"
+        );
+        assert_eq!(
+            bus.read_cpu_reg(0x4211) & 0x80,
+            0x80,
+            "still held on a second read"
+        );
+        assert!(bus.clock.irq_line);
+        bus.clock.irq_hold = false;
+        assert_eq!(bus.read_cpu_reg(0x4211) & 0x80, 0x80);
+        assert!(
+            !bus.clock.irq_line,
+            "the read after the hold clears the IRQ flag"
+        );
+    }
+
+    /// The RDNMI hold's full lifecycle, driven through the real per-dot path rather than by hand:
+    /// advancing to the `VBlank` edge must set the hold in [`Bus::tick_ppu_dot`], and the *next* dot
+    /// must consume it there. This is what proves the set/consume logic inside `tick_ppu_dot`, which
+    /// [`rdnmi_timeup_are_held_across_the_edge_and_do_not_clear_on_read`] (which mutates the hold
+    /// directly) cannot: were the consume removed, this test's post-dot read would not clear.
+    #[test]
+    fn rdnmi_hold_is_set_and_consumed_by_tick_ppu_dot_across_the_vblank_edge() {
+        let mut bus = Bus::default();
+        // Advance real dots until VBlank begins. The dot that raises the flag also sets the hold.
+        let mut prev_vblank = bus.ppu.in_vblank();
+        let mut at_edge = false;
+        // Bound: one NTSC frame of dots is far more than enough to reach the first VBlank.
+        for _ in 0..(u32::from(rustysnes_ppu::DOTS_PER_LINE) * 262) {
+            bus.advance_master(MASTER_PER_DOT);
+            let now = bus.ppu.in_vblank();
+            if now && !prev_vblank {
+                at_edge = true;
+                break;
+            }
+            prev_vblank = now;
+        }
+        assert!(at_edge, "advancing reached the VBlank edge");
+        // Set by tick_ppu_dot, not by hand:
+        assert!(
+            bus.clock.rdnmi_flag,
+            "the VBlank edge raised the RDNMI flag"
+        );
+        assert!(
+            bus.clock.rdnmi_hold,
+            "the VBlank edge set the four-clock hold"
+        );
+        // A read in the window returns bit 7 set and does not clear the flag.
+        assert_eq!(bus.read_cpu_reg(0x4210) & 0x80, 0x80);
+        assert!(
+            bus.clock.rdnmi_flag,
+            "held: the read did not clear the flag"
+        );
+        // The next dot's tick_ppu_dot consumes the hold; still in VBlank, so the flag stays set.
+        bus.advance_master(MASTER_PER_DOT);
+        assert!(!bus.clock.rdnmi_hold, "the next dot consumed the hold");
+        assert!(
+            bus.clock.rdnmi_flag,
+            "the flag itself is untouched — only a read past the hold clears it"
+        );
+        // Past the hold, a read clears normally.
+        assert_eq!(bus.read_cpu_reg(0x4210) & 0x80, 0x80);
+        assert!(
+            !bus.clock.rdnmi_flag,
+            "past the hold, the read clears the flag"
+        );
     }
 
     /// The timed automatic read reads busy on `$4212` bit 0 for ~4224 master clocks and publishes

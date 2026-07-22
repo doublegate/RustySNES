@@ -99,6 +99,12 @@ and diffing the deterministic output against a fork that kept running uninterrup
   save mid-window would then have dropped an observable in-flight read). Reuses the same
   older-blob-fails-loudly mechanism (`savestate-v1-gilyon.bin` proves it); a mid-window round-trip
   unit test proves the busy state and deferred snapshot survive save/load exactly.
+- **`5` → `6` (Tier-1 T-CA-02):** `crate::bus`'s `BUS0` section grew by two bytes — the RDNMI/TIMEUP
+  hold flags (`rdnmi_hold`/`irq_hold`, one `bool` each). For four master clocks (one dot) after a
+  VBlank/IRQ edge the hardware holds `/NMI` and `/IRQ`, so a `$4210`/`$4211` read in that window
+  returns bit 7 set without clearing it. The hold is CPU-observable machine state (a save taken
+  inside the window must restore the same read-clear behavior), so it is serialized for the same
+  reason the flags themselves are. Same older-blob-fails-loudly guarantee.
 - **The round-trip determinism test is the spec**: save → run N frames on a cloned/forked
   system → load the save into the original → run the same N frames → assert byte-identical
   framebuffer + audio output between the two. This extends `docs/adr/0004`'s existing

@@ -21,7 +21,7 @@ any golden that legitimately changes is re-blessed **only** from a render the re
 | # | Ticket | Gap | Source | Approach |
 |---|---|---|---|---|
 | T-CA-01 | `$4212` bit 0 auto-joypad busy | unimplemented; only bits 7/6 modelled | `bus.rs`, fullsnes | **[x] Landed** — `$4212` bit 0 reads busy for the 4224-clock auto-read window (ares deadline model), + open bus in bits 1-5. Battery 290/290; cross-val unchanged. |
-| T-CA-02 | `$4210` RDNMI held-flag + open-bus | lacks the ~4-cycle held-flag (Terranigma) quirk + open-bus bits 4-6 | `bus.rs`, fullsnes | [~] **Open-bus bits landed** (`$4210` bits 4-6, and `$4211` bits 0-6, now return the MDR — matches ares/fullsnes; battery 290/290). **Remaining:** the ~4-cycle held-flag quirk (flag reads set for a few cycles into the read) for both `$4210` and `$4211` (fullsnes: the IRQ/NMI condition true at read time returns bit7=1 without clearing, lasting 4-8 master cycles). |
+| T-CA-02 | `$4210` RDNMI held-flag + open-bus | lacks the ~4-cycle held-flag (Terranigma) quirk + open-bus bits 4-6 | `bus.rs`, fullsnes | **[x] Landed** — open-bus bits (`$4210` 4-6, `$4211` 0-6) + the four-master-clock **held-flag**: a `$4210`/`$4211` read within one dot of the VBlank/IRQ edge returns bit 7 set without clearing it (ares `nmiHold`/`irqHold`; `Clock::rdnmi_hold`/`irq_hold`, consumed next dot in `tick_ppu_dot`, serialized `FORMAT_VERSION` 6). Battery 292/292 (B4.03/04/05 unregressed), new core unit test, save round-trip green. |
 | T-CA-03 | Auto-joypad read timing window | entirely unmodeled (`no auto_joypad symbol`) | `bus.rs`, fullsnes/anomie | **[x] Landed** — the read now spans 4224 master clocks from vblank entry and publishes `$4218-$421F` only at completion (deferred from the start snapshot). Battery 290/290; cross-val unchanged. (`$4016/$4017` manual-read blocking during the window is a finer refinement not yet added.) |
 | T-CA-04 | SMP wait-state divider | glitchy `{2,4,10,20}` collapsed to `SMP_WAIT=2` | `apu/lib.rs:53` | Restore the per-region external-access wait-state table so SMP external (`$00F0-`) access timing matches; validate against `spc_mem_access_times`. |
 
@@ -64,3 +64,9 @@ rewrites. T-CA-12 stays blocked until its investigation is scheduled.
 - 2026-07-22: **T-CA-10 Phase 1 landed** — extracted `compose_pixel`/`DacCarry` from `compose_dac`
   (the per-pixel entry point Phase 4 will drive per-dot), verified bit-identical (undisbeliever 29 +
   53 scenes, ppu unit tests 29/29). Foundational refactor; no behavior change. Next: Phase 2-4.
+- 2026-07-22: **T-CA-02 fully landed** — the four-master-clock RDNMI/TIMEUP **held-flag** (a
+  `$4210`/`$4211` read within one dot of the VBlank/IRQ edge returns bit 7 set without clearing it;
+  ares `nmiHold`/`irqHold`, Terranigma). `Clock::rdnmi_hold`/`irq_hold`, set with the flag, consumed
+  next dot in `tick_ppu_dot`, serialized (`FORMAT_VERSION` 5→6). New core unit test; AccuracySNES
+  battery 292/292 (B4.03/04/05 unregressed); full test-roms harness green (49 golden framebuffers +
+  coprocessor unchanged — no NMI-timing frame shift); save round-trip green. Ticket closed.
