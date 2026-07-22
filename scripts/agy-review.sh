@@ -118,7 +118,11 @@ here="$(cd "$(dirname "$0")" && pwd)"
 # once collide (one reports the backend "unavailable"). flock makes jobs queue
 # instead of failing. Best-effort: if the lock can't be taken, proceed anyway.
 if command -v flock >/dev/null 2>&1; then
-  exec 9>"$AGY_LOCK" 2>/dev/null \
+  # Create the lock dir first: a failed `exec 9>` redirection is a FATAL shell error (it aborts
+  # before the `|| log` fallback can run), so ensure the parent exists on a fresh runner. `>>` opens
+  # for append rather than truncating the lockfile — flock uses the fd, not the contents.
+  mkdir -p "$(dirname "$AGY_LOCK")" 2>/dev/null || true
+  exec 9>>"$AGY_LOCK" 2>/dev/null \
     && flock -w "$AGY_LOCK_WAIT" 9 \
     || log "agy lock unavailable or timed out (${AGY_LOCK_WAIT}s); proceeding unserialized"
 fi
@@ -140,6 +144,7 @@ for (( attempt=1; attempt<=AGY_RETRIES; attempt++ )); do
     # quotes still expand them) so a repo path containing spaces survives the word-split.
     AGY_BIN="$AGY_BIN" script -qfec "'$here'/_agy_print.sh '$prompt_file' ${flags[*]}" "$raw" >/dev/null 2>>"$LOG" || true
     col -b < "$raw" > "$out_file"
+    rm -f "$raw"   # each retry makes a fresh $raw; the EXIT trap only holds the last one
   fi
 
   # normalize CRs without sed -i (avoid in-place edit footguns)
