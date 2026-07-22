@@ -98,11 +98,16 @@ and the commercial-screenshot suite. The port must not cost any of that. Therefo
 - **Incremental phases, each gated on the full corpus** (`undisbeliever_golden`, every `*_oncart`,
   the coprocessor goldens, `accuracysnes_scenes` 53/53, commercial screenshots, and both AccuracySNES
   cross-validation references) staying green before the phase lands:
-  1. Extract a per-pixel composite entry point from `render_scanline` that, driven in a loop over the
-     256 dots with **static** state, reproduces the current output bit-for-bit (pure refactor; the
-     corpus is the proof it changed nothing).
-  2. Move the background tile data behind a per-dot drain (shift-register) fed by the existing fetch,
-     still under static state — corpus must stay identical.
+  1. **[LANDED #205]** Extract a per-pixel composite entry point from `render_scanline` that, driven
+     in a loop over the 256 dots with **static** state, reproduces the current output bit-for-bit
+     (pure refactor; the corpus is the proof it changed nothing). — `compose_pixel`/`DacCarry`.
+  2. **[LANDED]** Move the background pixels behind a per-line drain buffer fed by the existing
+     per-column fetch, still under static state — corpus stays identical. `render_bg` now runs a
+     FETCH pass (each column's resolved `Pixel` into a fixed `[Pixel; 256]` line buffer — the future
+     shift-register, allocation-free) then a separate DRAIN pass that does the window+priority
+     composite into `above`/`below`. Byte-identical because each column touches only its own
+     `above[x]`/`below[x]`; verified against the 53 scene goldens, the undisbeliever framebuffers, and
+     the 29 PPU unit tests. This decouples fetch from composite so Phase 4 can drive the drain per-dot.
   3. Introduce the 14-dot fetch-ahead and the in-render CGRAM/OAM address latch — the first
      behaviors that *intentionally* differ from the per-line model, each validated against a
      reference render and an AccuracySNES/undisbeliever ROM that exercises it, and any golden that
