@@ -53,6 +53,13 @@ const MASTER_PER_DOT: u32 = 4;
 /// result is not yet published for that whole window (`sfc/cpu/timing.cpp` `joypadEdge`).
 const AUTO_JOYPAD_CLOCKS: u64 = 33 * 128;
 
+/// Open-bus (MDR) masks for the CPU flag registers' floating bits — the positions ares `CPU::readIO`
+/// leaves as the incoming open-bus value: `$4210` RDNMI bits 4-6, `$4211` TIMEUP bits 0-6, `$4212`
+/// HVBJOY bits 1-5.
+const RDNMI_OPEN_BUS_MASK: u8 = 0x70;
+const TIMEUP_OPEN_BUS_MASK: u8 = 0x7F;
+const HVBJOY_OPEN_BUS_MASK: u8 = 0x3E;
+
 /// The two dots that take **6** master clocks instead of 4 (`T-06-A`).
 ///
 /// Hardware's scanline is 340 dots and 1364 master clocks, which `338 × 4 + 2 × 6` satisfies and a
@@ -450,7 +457,10 @@ impl Bus {
         }
     }
 
-    /// [`Self::poll_auto_joypad`], reachable from the unit tests without running a whole frame.
+    /// The instant [`Self::poll_auto_joypad`] latch, reachable from the unit tests without running a
+    /// whole frame. Production scheduling does NOT use this path — it uses the timed
+    /// [`Self::begin_auto_joypad`] (start the busy window) + [`Self::settle_auto_joypad`] (publish at
+    /// the deadline); this helper exists only so a test can populate `joypad_auto` in one call.
     #[cfg(test)]
     fn poll_auto_joypad_for_test(&mut self) {
         self.poll_auto_joypad();
@@ -901,14 +911,17 @@ impl Bus {
                 // held in `self.open_bus` — the pre-read last-driven value), bits0-3 = CPU version
                 // (2). ares `CPU::readIO` $4210 leaves bits 4-6 as the incoming data (open bus) and
                 // only writes `io.version` into bits 0-3 and the flag into bit 7.
-                let v = (u8::from(self.clock.rdnmi_flag) << 7) | (self.open_bus & 0x70) | 0x02;
+                let v = (u8::from(self.clock.rdnmi_flag) << 7)
+                    | (self.open_bus & RDNMI_OPEN_BUS_MASK)
+                    | 0x02;
                 self.clock.rdnmi_flag = false;
                 v
             }
             0x4211 => {
                 // TIMEUP: bit7 = irq flag (read clears), bits0-6 = open bus (MDR). ares `readIO`
                 // $4211 writes only bit 7 and leaves the rest as the incoming open-bus data.
-                let v = (u8::from(self.clock.irq_line) << 7) | (self.open_bus & 0x7F);
+                let v =
+                    (u8::from(self.clock.irq_line) << 7) | (self.open_bus & TIMEUP_OPEN_BUS_MASK);
                 self.clock.irq_line = false;
                 v
             }
@@ -921,7 +934,7 @@ impl Bus {
                     u8::from(self.clock.nmitimen & 0x01 != 0 && self.auto_joypad_busy_until != 0);
                 (u8::from(self.ppu.in_vblank()) << 7)
                     | (u8::from(self.ppu.in_hblank()) << 6)
-                    | (self.open_bus & 0x3E)
+                    | (self.open_bus & HVBJOY_OPEN_BUS_MASK)
                     | busy
             }
             0x4214 => self.muldiv.rddiv as u8,
