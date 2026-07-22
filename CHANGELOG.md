@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES `G1.15` (HiROM decode) + `G1.17` (HiROM SRAM) via a parallel HiROM cartridge image
+  (coverage 336 -> 338 of 443).** The generator now emits a second, minimal self-scoring image
+  (`build/accuracysnes-hirom.sfc`, 64 KiB) alongside the LoROM battery: the shared `runtime.s`
+  (assembled with `-D HIROM_BUILD` so its LoROM-only per-bank signature blocks are dropped) linked
+  with a new `hirom.cfg` and `header-hirom.s` (`$FFD5 = $21`, 8 KiB battery SRAM). The load-bearing
+  constraint is that the runtime links into the `$00:8000-$FFFF` window so `phk/plb` keeps `DBR` in a
+  bank where MMIO decodes; a `$C0` linear low half holds the font and the position-independent test
+  bodies. `g1_15` asserts the HiROM decode (the `$00`-window, `$C0` linear, and `$40-$7D` mirror all
+  read the same ROM offset); `g1_17` asserts the `$20-$3F:$6000-$7FFF` SRAM window and its `$A0-$BF`
+  mirror. Verified on RustySNES, snes9x, and Mesen2 (2/2 each), with per-test non-vacuity injections
+  in `HiRom::map` (dropping the `$40-$7D` mirror fails `g1_15` alone; disabling SRAM fails `g1_17`
+  alone). The coverage report now spans both images' batteries. ExHiROM (`G1.16`) follows as a
+  separate image.
 - **AccuracySNES `F1.03` — the shared `$4016` latch, unblocked by attaching Mesen2 port 2 (coverage
   335 -> 336 of 443).** One write to `$4016` bit 0 latches BOTH controller ports' shift registers.
   The row needs a second controller held at a mask disjoint from port 1's (`PAD2_CONTRACT = $60A0`

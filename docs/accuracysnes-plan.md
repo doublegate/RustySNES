@@ -94,9 +94,15 @@ pattern the C7 sprite tests established.
   samples the readable PPU registers (`$2134`-`$2136` Mode 7 MPY, `$213E`/`$213F` STAT77/78) before
   `init_registers`, and `g1_05` reports them unscored (`cart.rs`); `G1.07` (the WRAM fill, which
   bsnes randomises by setting).
-  **Needs a second image**: `G1.15`/`G1.16` (HiROM and ExHiROM decode), `G1.17` (SRAM mapping, which
-  this cart's header does not declare), `G1.18` (the copier header, which requires a file 512 bytes
-  longer), and the non-power-of-two half of `G1.11`. **Needs a soft reset the harness cannot
+  **Second image LANDED for `G1.15`/`G1.17`.** The generator now emits a parallel minimal HiROM
+  image (`build/accuracysnes-hirom.sfc`, `hirom.cfg` + `header-hirom.s`, the shared `runtime.s` under
+  `-D HIROM_BUILD`): `g1_15` asserts the HiROM decode (`$00` window / `$C0` linear / `$40-$7D` mirror
+  agree) and `g1_17` the `$20-$3F:$6000-$7FFF` SRAM window (+ `$A0-$BF` mirror), both cross-validated
+  on RustySNES/snes9x/Mesen2 and injection-verified in `HiRom::map` (`tests::hirom`). The runtime
+  must link into the `$00:8000` window (`phk/plb` → `DBR` in an MMIO-decoding bank). **Still needs a
+  further image**: `G1.16` (ExHiROM decode — a larger two-half image, the next PR), `G1.18` (the
+  copier header, which requires a file 512 bytes longer — and is not cart-observable since the header
+  is stripped before the cart runs), and the non-power-of-two half of `G1.11`. **Needs a soft reset the harness cannot
   currently issue**: `G1.06` (PPU state survives cartridge `/RESET`). `G1.01` is write-only
   registers whose power-on values no instruction can read back, and `G1.13` is a `[CONFLICT]` on a
   FastROM bit this SlowROM image cannot exercise either way.
