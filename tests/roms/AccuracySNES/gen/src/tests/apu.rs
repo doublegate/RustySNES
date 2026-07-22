@@ -113,6 +113,7 @@ pub fn all() -> Vec<Test> {
         e5_05(),
         e7_01(),
         e7_13(),
+        e7_17(),
         e7_04(),
         e7_09(),
         e7_05(),
@@ -1540,6 +1541,109 @@ fn e7_13() -> Test {
         Provenance::Documented(
             "fullsnes and anomie's DSP doc: GAIN mode 7 increases +32 per sample below $600 and +8 \
              above, comparing the internal envelope latch unsigned",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// GAIN linear-decrease (mode 4) clamps at zero on underflow — it never wraps back up.
+///
+/// Mode 4 subtracts `$20` from the envelope on every counter tick. Once the envelope reaches zero
+/// the next subtraction goes negative, and hardware pins the result at zero rather than letting it
+/// wrap. The internal comparison that does this reads the envelope **unsigned** (`(u32) env > $7FF`,
+/// blargg `SPC_DSP` / ares), so a value one step below zero looks enormous and is pulled back to
+/// zero. A core that instead masks the result with `& $7FF`, or narrows a signed value straight to
+/// `u16`, wraps `-$20` to `$7E0` — the voice roars back to near-full scale and every fading note ends
+/// on an audible tick.
+///
+/// # Why it parks high first, and reads a guard
+///
+/// A voice that never sounded also reads `ENVX = 0`, so "the envelope is zero" on its own proves
+/// nothing about a clamp — that is the vacuous reading two withdrawn tests this session fell into.
+/// The voice is first parked at full scale under **direct** gain, and slot 236 records that `$7F`;
+/// only then is it switched to linear-decrease. The zero at slot 237 therefore means the envelope
+/// was driven down *through* zero and held there, which is the whole assertion. A wrapping core
+/// leaves a large value at slot 237 and fails; a core that never started fails the guard instead.
+fn e7_17() -> Test {
+    let mut p = Spc::new();
+    let addr = p.data_first(IMAGE_BASE, &looping_sample());
+    p.mov_x_imm(0xEF).mov_sp_x();
+    let dir = u16::from(DIR_PAGE) << 8;
+    let [lo, hi] = addr.to_le_bytes();
+    p.mov_a_imm(lo).mov_abs_a(dir);
+    p.mov_a_imm(hi).mov_abs_a(dir + 1);
+    p.mov_a_imm(lo).mov_abs_a(dir + 2);
+    p.mov_a_imm(hi).mov_abs_a(dir + 3);
+    dsp_write(&mut p, 0x6C, 0x20); // FLG: running, unmuted, echo writes off
+    dsp_write(&mut p, 0x5C, 0x00); // KOF
+    dsp_write(&mut p, 0x3D, 0x00); // NON
+    dsp_write(&mut p, 0x4D, 0x00); // EON
+    dsp_write(&mut p, 0x2D, 0x00); // PMON
+    dsp_write(&mut p, 0x5D, DIR_PAGE);
+    dsp_write(&mut p, 0x0C, 0x7F); // MVOLL
+    dsp_write(&mut p, 0x1C, 0x7F); // MVOLR
+    dsp_write(&mut p, 0x00, 0x7F); // VOL L
+    dsp_write(&mut p, 0x01, 0x7F); // VOL R
+    dsp_write(&mut p, 0x02, 0x00); // PITCH low
+    dsp_write(&mut p, 0x03, 0x10); // PITCH high
+    dsp_write(&mut p, 0x04, 0x00); // SRCN
+    dsp_write(&mut p, 0x06, 0x00); // ADSR2
+    dsp_write(&mut p, 0x07, 0x7F); // GAIN: direct, full scale
+    dsp_write(&mut p, 0x05, 0x00); // ADSR1 bit 7 clear: GAIN governs
+    dsp_write(&mut p, 0x4C, 0x01); // KON voice 0
+    p.delay(0x00);
+    dsp_write(&mut p, 0x4C, 0x00);
+    p.delay(0x40); // reach direct-gain full scale
+    dsp_read_to(&mut p, 0x08, PORT1); // ENVX parked at full scale: the guard
+
+    dsp_write(&mut p, 0x07, 0x9F); // GAIN: mode 4 linear-decrease, rate 31 (every sample, -$20)
+    p.delay(0xFF);
+    p.delay(0xFF); // long enough to drive $7F0 through zero and hold it there
+    dsp_read_to(&mut p, 0x08, PORT2); // ENVX after the underflow
+    p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &p);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(
+        236,
+        "E7.17 ENVX parked at full scale under direct gain (the guard)",
+    );
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(
+        237,
+        "E7.17 ENVX after linear-decrease drove the envelope through zero",
+    );
+    a.c("The guard: the envelope has to have been high for the zero below to mean it was pulled down.");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x7C,
+        0x7F,
+        "the envelope was not at full scale before switching to linear-decrease, so the value below \
+         says nothing about an underflow",
+    );
+    a.c("Linear-decrease past zero clamps to zero and holds; a core that wraps -$20 reads ~$7E here.");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x00,
+        0x00,
+        "linear-decrease did not clamp at zero on underflow — a wrapping subtraction leaves ~$7E0 in \
+         the envelope and ENVX reads near $7E",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E7.17",
+        'E',
+        "Lin-decrease clamps 0",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: GAIN linear-decrease subtracts $20 per tick and clamps \
+             the envelope to zero on underflow, comparing the internal envelope unsigned",
         ),
         Kind::Scored,
         None,

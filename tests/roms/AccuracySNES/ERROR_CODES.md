@@ -2347,6 +2347,15 @@ Provenance: **Documented** (fullsnes and anomie's DSP doc: GAIN mode 7 increases
 |---|---|---|
 | 1 | `$02` | GAIN bent-increase did not land in its slow region. Below $68 the envelope never reached the $600 break, so the second slope was never tested; at $7F it saturated, which is what a core that climbs a flat +32 and ignores the break does |
 
+### E7.17 — Lin-decrease clamps 0
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: GAIN linear-decrease subtracts $20 per tick and clamps the envelope to zero on underflow, comparing the internal envelope unsigned). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the envelope was not at full scale before switching to linear-decrease, so the value below says nothing about an underflow |
+| 2 | `$04` | linear-decrease did not clamp at zero on underflow — a wrapping subtraction leaves ~$7E0 in the envelope and ENVX reads near $7E |
+
 ### E7.04 — Attack $F is instant
 
 Provenance: **Documented** (fullsnes and anomie's DSP doc: attack rate $F fires every sample with a step of +1024, rather than the +32 on a counter tick every other rate uses). Kind: scored.

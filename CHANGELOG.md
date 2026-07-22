@@ -658,6 +658,15 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **Two more S-DSP envelope rows — `E7.13` and `E7.17` (S-DSP GAIN).** `E7.13` pins GAIN mode 7
+  (bent-increase): the envelope climbs `+32`/sample below the internal `$600` break and `+8` above
+  it, read back through `ENVX`; a core that ignores the break saturates at `$7F` instead of landing
+  in the `$68`-`$7C` slow region. `E7.17` pins GAIN mode 4 (linear-decrease) clamping at zero on
+  underflow: the voice is parked at full scale under direct gain (a guard slot records `$7F`), then
+  switched to linear-decrease and driven through zero — `ENVX` must read exactly `$00`, where a core
+  that wraps `-$20` instead of clamping reads near `$7E`. Both verified by injecting the bug (removing
+  the `$600` break; wrapping the clamp) and watching the row fail; both cross-validated on snes9x and
+  Mesen2. Coverage: 273 -> 275 on-cart assertion rows (325/443 with rendered scenes).
 - **The results menu scrolls and can re-run tests and restart the battery.** Up/Down move the
   cursor and scroll the 26-row window; **A** re-runs the highlighted test through the same dispatch
   the batch uses, rewriting only its verdict; **Select** restarts the battery from `restart_entry`
