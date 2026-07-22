@@ -12,11 +12,6 @@ on:
   issue_comment:
     types: [created]
 
-# One review at a time per PR; cancel a superseded run.
-concurrency:
-  group: agy-review-${{ github.event.pull_request.number || github.event.issue.number }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
   pull-requests: write
@@ -34,6 +29,15 @@ jobs:
       (github.event.issue.pull_request != null &&
        startsWith(github.event.comment.body, '/agy-review') &&
        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+    # Concurrency at the JOB level (NOT workflow level): a job skipped by the `if:`
+    # above never enters the group, so an unrelated `issue_comment` on the PR (e.g.
+    # another review bot commenting) can't cancel an in-progress review. And
+    # cancel-in-progress:false means a second *real* review queues behind the first
+    # instead of killing it. Fixes the race where any comment on the PR aborted the
+    # running review mid-`agy`.
+    concurrency:
+      group: agy-review-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: false
     runs-on: [self-hosted, agy]
     steps:
       - name: Check out repo (for the style guide + scripts)
