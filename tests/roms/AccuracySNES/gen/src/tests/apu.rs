@@ -96,6 +96,7 @@ pub fn all() -> Vec<Test> {
         e4_03(),
         e4_04(),
         e4_06(),
+        e4_08(),
         e5_12(),
         e5_02(),
         e7_16(),
@@ -4553,6 +4554,104 @@ fn e4_06() -> Test {
         'E',
         "IPL multi-block continue",
         Provenance::Documented("fullsnes, SNESdev Wiki; canonical IPL boot ROM $FFEF-$FFFB"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// A transfer aimed at `$00F2` pokes DSP registers through the IPL's own store loop.
+///
+/// The IPL's inner loop stores each byte with `MOV ($00)+Y, A`, so the transfer's *destination* is
+/// an ordinary SPC700 address — and `$00F2`/`$00F3` are the memory-mapped **DSPADDR**/**DSPDATA**
+/// registers. Aiming a transfer at `$00F2` therefore lets the boot ROM itself write the DSP: byte 0
+/// lands in DSPADDR (selecting a register), byte 1 in DSPDATA (writing it), before any program of
+/// the game's has run. It is a documented trick (fullsnes, "APU / S-DSP") real sound drivers use to
+/// pre-load the DSP during the upload.
+///
+/// # Construction
+///
+/// Block A is the pair `[$0F, $7E]` sent to destination `$00F2`: `$0F` is FIR echo-coefficient 0 (a
+/// plain read/write DSP register with no side effect while echo is disabled, and it reads back
+/// exactly what was written), `$7E` a distinctive value that is none of the handshake markers. Block
+/// B is a verifier, reached through the same non-zero continue `E4.06` exercises, that selects `$0F`
+/// via DSPADDR, reads DSPDATA back to port 1, and then restores the coefficient to `$00` so the poke
+/// cannot leak into a later echo test. The host asserts port 1 is `$7E`.
+///
+/// # Why it is not vacuous
+///
+/// The claim is specifically that the IPL store to `$00F2`/`$00F3` reaches the DSP register file
+/// rather than plain ARAM. To keep that non-vacuous regardless of what earlier tests left behind, a
+/// first phase sets `FIR[0]` to a known baseline `$A5` (a program upload; the zero-fill on IPL
+/// re-entry does not touch DSP registers, so it survives), and — importantly — leaves DSPADDR
+/// selecting a *different* register (`$1F`) than the poke targets. Only then does the poke phase run.
+/// This makes *both* halves of the poke load-bearing: block A's first byte is an IPL store to `$F2`
+/// (DSPADDR `<- $0F`) and its second an IPL store to `$F3` (DSPDATA `<- $7E`). If the DSPDATA write
+/// failed, `FIR[0]` stays `$A5`; if the DSPADDR write failed, DSPADDR stays `$1F` and `$7E` lands in
+/// `FIR[1]`, again leaving `FIR[0]` at `$A5`. Either way the verifier — reading `FIR[0]` from the
+/// DSP, not ARAM — sees `$A5` and FAILs, so the `$7E` read proves the poke *changed* `FIR[0]` through
+/// both DSP ports, not that it happened to read `$7E` or that DSPADDR was conveniently pre-selected.
+/// Confirmed by injection: aiming the same transfer at plain ARAM (`$0250`) instead of `$00F2` leaves
+/// `FIR[0]` at `$A5` and fails this test alone — the poke works precisely because it targets the DSP
+/// ports.
+fn e4_08() -> Test {
+    // Block A: [DSP register #, value] aimed at DSPADDR/DSPDATA. $0F = FIR coefficient 0.
+    let data = [0x0Fu8, 0x7E];
+
+    // Phase 1 establishes a KNOWN baseline in FIR[0] before the poke, so the $7E assertion proves
+    // the poke *changed* it rather than depending on FIR[0]'s power-on or prior-test state. A test
+    // that happened to run after something left FIR[0] = $7E would otherwise pass vacuously even if
+    // the poke did nothing. $A5 is distinctive and is not $7E.
+    let mut baseline = Spc::new();
+    baseline.mov_x_imm(0xEF).mov_sp_x();
+    baseline.mov_dp_imm(0xF2, 0x0F); // DSPADDR = $0F
+    baseline.mov_dp_imm(0xF3, 0xA5); // FIR[0] = $A5, the pre-poke baseline
+    // Leave DSPADDR selecting a DIFFERENT register ($1F) than the poke targets. This is what makes
+    // block A's first byte (DSPADDR <- $0F, an IPL store to $F2) load-bearing: if that DSPADDR write
+    // were broken, DSPADDR would stay $1F and block A's second byte ($7E) would land in FIR[1], not
+    // FIR[0], leaving FIR[0] at its $A5 baseline and failing the test. So the poke's DSPADDR write is
+    // proven, not just its DSPDATA write.
+    baseline.mov_dp_imm(0xF2, 0x1F); // DSPADDR = $1F (a register the poke does NOT target)
+    baseline.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut verify = Spc::new();
+    verify.mov_x_imm(0xEF).mov_sp_x();
+    verify.mov_dp_imm(0xF2, 0x0F); // DSPADDR = $0F (select FIR coefficient 0)
+    verify.mov_a_dp(0xF3); // A = DSPDATA (read it back)
+    verify.mov_dp_a(PORT1); // report the value the IPL poked
+    verify.mov_dp_imm(0xF2, 0x0F); // restore: select $0F again ...
+    verify.mov_dp_imm(0xF3, 0x00); // ... and clear it, so the poke cannot leak into a later test
+    verify.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    a.c("Phase 1: set FIR[0] = $A5 as a known baseline, then release to the IPL. The zero-fill on");
+    a.c("IPL re-entry does not touch DSP registers, so $A5 survives into the poke phase below.");
+    upload_and_run_tagged(&mut a, &baseline, "_base");
+    a.c(
+        "Block A pokes DSP register $0F=$7E via a transfer aimed at DSPADDR/DSPDATA ($00F2/$00F3);",
+    );
+    a.c("block B, reached through the non-zero continue, reads $0F back and reports it. It must now");
+    a.c("read $7E, not the $A5 baseline — which it can only do if the IPL poke reached the DSP.");
+    upload_2block_and_run(&mut a, &data, 0x00F2, &verify, 0x0280);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(
+        234,
+        "E4.08 DSP register $0F read back after the IPL poke (expect $7E)",
+    );
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.assert_a8(
+        0x7E,
+        "DSP register $0F did not change from its $A5 baseline to the poked $7E — the IPL store to \
+         $00F2/$00F3 did not reach the DSP register file",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E4.08",
+        'E',
+        "IPL DSP-poke via $00F2",
+        Provenance::Documented("fullsnes (APU / S-DSP); canonical IPL boot ROM store loop"),
         Kind::Scored,
         None,
     )
