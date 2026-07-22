@@ -6348,16 +6348,14 @@ fn e9_13() -> Test {
         "the echo buffer's left half still held the $FF marker, so nothing was written and the \
          right-channel checks below would be about the paint rather than about the filter",
     );
-    a.c("The left channel has to be substantial, or 'the right is small' is trivially true.");
+    a.c("The left channel has to be substantial, or 'the right is small' is trivially true. Fail if");
+    a.c("its high byte is zero: with $FF ruled out above, $00 is the only non-substantial value.");
     a.l("lda f:$7E0100");
-    a.l("cmp #$01");
-    a.l("bcs :+");
     a.l("cmp #$00");
-    a.fail_if_ne(
+    a.fail_if_eq(
         "the left echo channel's high byte is zero, so the signal this test is checking for \
          leakage of is itself too small for the comparison below to mean anything",
     );
-    // `bcs :+` above lands on the continuation label `fail_if_ne` already emits — no extra `:`.
     a.c("And the right must stay within one high-byte step of silence: crosstalk from a left");
     a.c("channel this large would land in the same magnitude, not nine bits below it.");
     a.l("lda f:$7E0102");

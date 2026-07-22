@@ -18370,12 +18370,11 @@ CATALOG_IMPL = 1
     bne :+
     jmp @fail1
   :
-    ; The left channel has to be substantial, or 'the right is small' is trivially true.
+    ; The left channel has to be substantial, or 'the right is small' is trivially true. Fail if
+    ; its high byte is zero: with $FF ruled out above, $00 is the only non-substantial value.
     lda f:$7E0100
-    cmp #$01
-    bcs :+
     cmp #$00
-    beq :+
+    bne :+
     jmp @fail2
   :
     ; And the right must stay within one high-byte step of silence: crosstalk from a left
