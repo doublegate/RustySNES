@@ -814,9 +814,8 @@ impl Bus {
         }
         // Complete a timed automatic read when its deadline passes, so `$4212` bit 0 and the
         // `$4218-$421F` result reflect the true ~4224-clock window even without an intervening
-        // register read — and so the busy state is idle at every frame boundary (it is not in the
-        // save state, mirroring the `$43xB` scratch latch; keeping it self-settling avoids a format
-        // bump per `docs/adr/0006`).
+        // register read. The in-flight snapshot + deadline are serialized (`FORMAT_VERSION` 5), so a
+        // save mid-window restores identically.
         self.settle_auto_joypad();
         // RDNMI's VBlank flag is cleared by a read *and*, independently, at the end of VBlank.
         // Modelling only the read left it set through the whole active display, so code that
@@ -1196,6 +1195,12 @@ impl Bus {
             s.write_u8(self.pio);
             self.ports[0].save_state(s);
             self.ports[1].save_state(s);
+            // In-flight automatic joypad read (`FORMAT_VERSION` 5): the start snapshot + the busy
+            // deadline, so a save taken during the ~4224-clock window restores an identical machine
+            // state — the busy flag and the deferred `$4218-$421F` publish survive exactly.
+            s.write_u16(self.joypad_auto_pending[0]);
+            s.write_u16(self.joypad_auto_pending[1]);
+            s.write_u64(self.auto_joypad_busy_until);
         });
         match &self.cart {
             Some(cart) => {
@@ -1240,6 +1245,12 @@ impl Bus {
         self.pio = s.read_u8()?;
         self.ports[0] = crate::controller::PortState::load_state(&mut s)?;
         self.ports[1] = crate::controller::PortState::load_state(&mut s)?;
+        // In-flight automatic joypad read (`FORMAT_VERSION` 5). A pre-5 blob's `BUS0` section ends
+        // above, so these reads fail loudly on it (the documented "old blob fails, no migration"
+        // convention), which is why the format major was bumped.
+        self.joypad_auto_pending[0] = s.read_u16()?;
+        self.joypad_auto_pending[1] = s.read_u16()?;
+        self.auto_joypad_busy_until = s.read_u64()?;
         if s.remaining() != 0 {
             return Err(SaveStateError::Invalid(alloc::format!(
                 "BUS0 section has {} trailing byte(s)",
@@ -1626,6 +1637,51 @@ mod tests {
             "result published at completion"
         );
         assert_eq!(bus.read_cpu_reg(0x4219), 0x12);
+    }
+
+    /// A save taken DURING the auto-read busy window restores an identical machine state
+    /// (`FORMAT_VERSION` 5): the busy flag and the deferred snapshot survive save/load exactly.
+    #[test]
+    fn auto_joypad_busy_state_survives_save_load() {
+        use rustysnes_savestate::{SaveReader, SaveWriter};
+        let mut bus = Bus::default();
+        bus.set_joypad(0, 0x1234);
+        bus.write_cpu_reg(0x4200, 0x01); // arm auto-read
+        bus.clock.master = 5000;
+        bus.begin_auto_joypad(); // start a read; deadline = 5000 + 4224
+        assert_eq!(bus.read_cpu_reg(0x4212) & 1, 1, "busy before the save");
+        // Save mid-window and restore into a fresh Bus.
+        let mut w = SaveWriter::new();
+        bus.save_state(&mut w);
+        let bytes = w.into_bytes();
+        let mut fresh = Bus::default();
+        let mut r = SaveReader::new(&bytes);
+        fresh
+            .load_state(&mut r)
+            .expect("mid-window round trip must succeed");
+        // Still busy, result still deferred (lost if the state were not serialized).
+        assert_eq!(
+            fresh.read_cpu_reg(0x4212) & 1,
+            1,
+            "busy state survives the round trip"
+        );
+        assert_eq!(
+            fresh.read_cpu_reg(0x4218),
+            0x00,
+            "result still deferred after load"
+        );
+        // Past the restored deadline, the restored snapshot publishes.
+        fresh.clock.master = 5000 + AUTO_JOYPAD_CLOCKS;
+        assert_eq!(
+            fresh.read_cpu_reg(0x4212) & 1,
+            0,
+            "not busy after the restored deadline"
+        );
+        assert_eq!(
+            fresh.read_cpu_reg(0x4218),
+            0x34,
+            "restored snapshot publishes at completion"
+        );
     }
 
     /// `$4218` reports only what an *armed* automatic read put there.

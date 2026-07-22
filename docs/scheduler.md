@@ -540,8 +540,9 @@ DMA/HDMA) plus the `System` run loop (`scheduler.rs`):
   **busy** for the next `AUTO_JOYPAD_CLOCKS` = 33 x 128 = 4224 clocks (ares `status.autoJoypadCounter`
   as a master-clock deadline), and the result publishes to `$4218-$421F` only at completion — a read
   during the window still holds the previous frame's value. `$4212` also returns open bus in bits
-  1-5. The busy deadline self-settles each dot and is **not** in the save state (mirroring the
-  `$43xB` scratch latch, `docs/adr/0006`). Tier-1 remediation T-CA-01/03.
+  1-5. The busy deadline self-settles each dot, and the in-flight snapshot + deadline **are** in the
+  save state (`FORMAT_VERSION` 5, `docs/adr/0006`), so a save taken mid-window restores an identical
+  machine state. Tier-1 remediation T-CA-01/03.
 - **Deferred refinements** (no committed ROM depends on them yet): the 40-clock DRAM-refresh CPU
   stall (researched, not yet implemented — see §DRAM refresh above) and the PAL-frame
   master-clock cycle-check.
