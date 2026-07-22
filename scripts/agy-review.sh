@@ -160,10 +160,15 @@ body_file="$(mktemp)"
 } > "$body_file"
 
 # --- replace any prior review comment, then post fresh -------------------------
+# A failed delete is logged, not swallowed: silently ignoring it would let a transient API/perms
+# error leave the old comment in place AND post a new one, so runs accumulate duplicates.
 gh api "repos/${REPO}/issues/${PR}/comments" --paginate \
     --jq ".[] | select(.body | contains(\"${MARKER}\")) | .id" 2>/dev/null \
   | while read -r cid; do
-      [ -n "$cid" ] && gh api -X DELETE "repos/${REPO}/issues/comments/${cid}" >/dev/null 2>&1 || true
+      [ -n "$cid" ] || continue
+      if ! gh api -X DELETE "repos/${REPO}/issues/comments/${cid}" >/dev/null 2>&1; then
+        log "warning: could not delete prior review comment ${cid}; a duplicate may result"
+      fi
     done
 
 gh pr comment "$PR" --repo "$REPO" --body-file "$body_file"
