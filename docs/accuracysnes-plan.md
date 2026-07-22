@@ -88,8 +88,11 @@ pattern the C7 sprite tests established.
   readable for exactly one instruction) and the first reads of the read-to-clear `$4210`/`$4211`.
 
   What is left divides cleanly. **Genuinely undefined and therefore golden at best**: `G1.03`
-  (APUIOn, WMDATA, JOYSER, HDMAEN and the rest — the dossier says report, never assert), `G1.05`
-  (most PPU registers start unknown), `G1.07` (the WRAM fill, which bsnes randomises by setting).
+  (APUIOn, WMDATA, JOYSER, HDMAEN and the rest — the dossier says report, never assert), ~~`G1.05`
+  (most PPU registers start unknown)~~ **[COVERED 2026-07-22 as a golden]** — `capture_power_on` now
+  samples the readable PPU registers (`$2134`-`$2136` Mode 7 MPY, `$213E`/`$213F` STAT77/78) before
+  `init_registers`, and `g1_05` reports them unscored (`cart.rs`); `G1.07` (the WRAM fill, which
+  bsnes randomises by setting).
   **Needs a second image**: `G1.15`/`G1.16` (HiROM and ExHiROM decode), `G1.17` (SRAM mapping, which
   this cart's header does not declare), `G1.18` (the copier header, which requires a file 512 bytes
   longer), and the non-power-of-two half of `G1.11`. **Needs a soft reset the harness cannot

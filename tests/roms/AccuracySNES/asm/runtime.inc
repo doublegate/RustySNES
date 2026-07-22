@@ -95,6 +95,10 @@ V_PO_DMA        = VAR_BASE + $60      ; $4300-$430B at power-on (12 bytes)
 V_PO_MISC       = VAR_BASE + $70      ; $2140-43, $2180, $4218, $4219 at power-on (7 bytes)
 V_PO_RDIO       = VAR_BASE + $6C      ; $4213 as first read after reset (u8)
 V_PO_TFIRED     = VAR_BASE + $6D      ; 1 if an IRQ fired on the power-on comparators (u8)
+; G1.05: the readable PPU registers before init_registers (5 bytes, $77-$7B) — the Mode 7 multiply
+; result $2134-$2136 (M7A x M7B, both power-on-undefined) and $213E/$213F (STAT77/78: version bits
+; defined, flags not). Reported, never asserted, as G1.03 does for the CPU/APU side.
+V_PO_PPU        = VAR_BASE + $77
 
 ; ---------------------------------------------------------------------------------------------
 ; Wide (frame-relative) cycle measurement. See `hv_latch_wide` in runtime.s.

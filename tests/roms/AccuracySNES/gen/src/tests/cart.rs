@@ -26,6 +26,7 @@ pub fn all() -> Vec<Test> {
     vec![
         g1_02(),
         g1_04(),
+        g1_05(),
         g1_08(),
         g1_10(),
         g1_11(),
@@ -439,6 +440,60 @@ fn g1_20() -> Test {
         Provenance::Contested(
             "the dossier marks the whole row [UNDEFINED] and says to report it and never assert \
              it; half the registers it names are write-only and cannot be reported at all",
+        ),
+        Kind::Golden,
+        None,
+    )
+}
+
+/// Most PPU registers power up unknown — the readable ones, captured before `init_registers`.
+///
+/// `G1.05` says the PPU has no boot ROM and most of its registers start indeterminate. The
+/// write-only ones (`$2101`-`$2133`) cannot be reported at all (`G1.01`'s territory), but the few
+/// readable PPU registers can be: the Mode 7 multiply `$2134`-`$2136` (= M7A x M7B, and M7A/M7B
+/// themselves power on undefined) and the two status registers `$213E`/`$213F` (STAT77/STAT78 — the
+/// low bits are the defined PPU1/PPU2 version, the rest is indeterminate). `capture_power_on` samples
+/// them at the very top of reset, before `init_registers` writes the PPU into its known state.
+///
+/// Reported, never asserted — identical in spirit to `G1.03`/`G1.20` for the CPU/APU side. A scored
+/// value would be meaningless (the row's whole content is that these are undefined; RustySNES's
+/// power-on is deterministic but the references need not agree), so the verdict only confirms the
+/// capture ran. The numbers live in the measurement channel for whoever wants to compare cores.
+fn g1_05() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    for (i, (slot, what)) in [
+        (242u16, "$2134 MPY low (M7A x M7B)"),
+        (243, "$2135 MPY mid"),
+        (244, "$2136 MPY high"),
+        (245, "$213E STAT77 (PPU1 version + flags)"),
+        (246, "$213F STAT78 (PPU2 version + flags)"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        a.l("rep #$30");
+        a.l(&format!("lda f:V_PO_PPU + {i}"));
+        a.l("and #$00FF");
+        a.record(slot, &format!("G1.05 {what} at power-on"));
+    }
+    a.c("Nothing is asserted: the row says most PPU registers power on unknown, so this only");
+    a.c("reports the readable ones. The verdict confirms the capture ran — the one thing that");
+    a.c("could silently fail to happen.");
+    a.l("sep #$20");
+    a.l("lda #$03          ; variant 1 = captured; the numbers are in slots 242-246");
+    a.l("sta f:$7EE010");
+    a.l("jml test_restore");
+    a.finish(
+        "G1.05",
+        'G',
+        "Power-on PPU registers",
+        Provenance::Contested(
+            "the dossier marks the PPU power-on state indeterminate ('no boot ROM; most PPU \
+             registers start unknown') and says to report it, never assert; the write-only \
+             registers cannot be reported at all",
         ),
         Kind::Golden,
         None,

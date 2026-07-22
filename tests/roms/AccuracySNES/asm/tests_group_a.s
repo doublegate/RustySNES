@@ -28296,6 +28296,61 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; G1.05 — Power-on PPU registers
+; provenance: Contested (the dossier marks the PPU power-on state indeterminate ('no boot ROM; most PPU registers start unknown') and says to report it, never assert; the write-only registers cannot be reported at all)
+.proc test_g1_05
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    rep #$30
+    .a16
+    .i16
+    lda f:V_PO_PPU + 0
+    and #$00FF
+    ; record slot 242: G1.05 $2134 MPY low (M7A x M7B) at power-on
+    sta f:$7EE3E4
+    rep #$30
+    .a16
+    .i16
+    lda f:V_PO_PPU + 1
+    and #$00FF
+    ; record slot 243: G1.05 $2135 MPY mid at power-on
+    sta f:$7EE3E6
+    rep #$30
+    .a16
+    .i16
+    lda f:V_PO_PPU + 2
+    and #$00FF
+    ; record slot 244: G1.05 $2136 MPY high at power-on
+    sta f:$7EE3E8
+    rep #$30
+    .a16
+    .i16
+    lda f:V_PO_PPU + 3
+    and #$00FF
+    ; record slot 245: G1.05 $213E STAT77 (PPU1 version + flags) at power-on
+    sta f:$7EE3EA
+    rep #$30
+    .a16
+    .i16
+    lda f:V_PO_PPU + 4
+    and #$00FF
+    ; record slot 246: G1.05 $213F STAT78 (PPU2 version + flags) at power-on
+    sta f:$7EE3EC
+    ; Nothing is asserted: the row says most PPU registers power on unknown, so this only
+    ; reports the readable ones. The verdict confirms the capture ran — the one thing that
+    ; could silently fail to happen.
+    sep #$20
+    .a8
+    lda #$03          ; variant 1 = captured; the numbers are in slots 242-246
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; G1.08 — Write-only read: openbus
 ; provenance: Documented (SNESdev Wiki, open bus; fullsnes, memory map notes)
 .proc test_g1_08
@@ -31937,7 +31992,7 @@ apu_prog_112:
 .export _test_flags
 
 _test_count:
-    .word 325
+    .word 326
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -32223,6 +32278,7 @@ _test_entries:
     .faraddr test_f1_14
     .faraddr test_g1_02
     .faraddr test_g1_04
+    .faraddr test_g1_05
     .faraddr test_g1_08
     .faraddr test_g1_10
     .faraddr test_g1_11
@@ -32551,6 +32607,7 @@ _test_flags:
     .byte $01   ; F1.14
     .byte $01   ; G1.02
     .byte $01   ; G1.04
+    .byte $02   ; G1.05
     .byte $01   ; G1.08
     .byte $01   ; G1.10
     .byte $01   ; G1.11
@@ -32879,6 +32936,7 @@ _test_names:
     .addr @n_f1_14
     .addr @n_g1_02
     .addr @n_g1_04
+    .addr @n_g1_05
     .addr @n_g1_08
     .addr @n_g1_10
     .addr @n_g1_11
@@ -33768,6 +33826,9 @@ _test_names:
 @n_g1_04:
     .byte 21
     .byte "Reset: emulation mode"
+@n_g1_05:
+    .byte 22
+    .byte "Power-on PPU registers"
 @n_g1_08:
     .byte 24
     .byte "Write-only read: openbus"
