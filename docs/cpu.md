@@ -47,6 +47,12 @@ tables** at the top of bank 0 (`ref-docs/research-report.md` §4). The reset vec
 power-on / `F3` power-cycle; NMI/IRQ are raised by the scheduler's timer phase
 (`docs/scheduler.md` §H/V-IRQ).
 
+The 5A22's CPU I/O registers (`$4200-$421F`) — `NMITIMEN`, `RDNMI` (`$4210`), `TIMEUP` (`$4211`),
+`HVBJOY` (`$4212`), the auto-joypad ports (`$4218-$421F`), etc. — are handled in `rustysnes-core`'s
+bus, not the 65816 core, so their exact bit layouts and read side effects (RDNMI/TIMEUP open-bus in
+the unused bits + read-clearing flags; HVBJOY vblank/hblank/auto-joypad-busy; the timed 4224-clock
+automatic joypad read) are specified in **`docs/scheduler.md` §NMI/IRQ**, the owning subsystem doc.
+
 ## Timing — variable instruction cycles
 
 The CPU is **not** a fixed master-clock divisor. Each memory access costs 6, 8, or 12 master

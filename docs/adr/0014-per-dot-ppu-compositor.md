@@ -38,10 +38,12 @@ map, consistent with `docs/adr/0002`/`0013` methodology.
 ## Decision
 
 Replace the per-line batch composite with a **per-dot compositor** driven by the master-clock
-scheduler, porting the ares/bsnes accurate-PPU mechanism clean-room. The finished-frame output is
-the determinism contract's only obligation, so the port must be **bit-identical to the current
-renderer for every static-register line** and diverge only where a mid-line register change makes the
-current renderer wrong.
+scheduler, porting the ares/bsnes accurate-PPU mechanism clean-room. The project-wide determinism
+contract (`docs/adr/0004`) stands unchanged: the same seed + ROM + input must still yield
+bit-identical **framebuffer *and* audio**. This change touches only the framebuffer path (audio is
+downstream of the APU and unaffected), so the compositor's obligation is that the finished frame stay
+reproducible — and, more strictly, **bit-identical to the current renderer for every static-register
+line**, diverging only where a mid-line register change makes the current renderer wrong.
 
 ### The mechanism being ported (from the ares/bsnes accurate PPU)
 
