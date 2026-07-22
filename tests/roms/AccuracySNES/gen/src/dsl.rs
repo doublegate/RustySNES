@@ -144,7 +144,7 @@ pub struct Test {
     /// same number silently overwrite each other and every reader of the older one starts
     /// reporting the newer one's numbers. That happened — `E3.02` was written against 106/107,
     /// which `B3.01` already owned — and nothing failed; the harness simply began printing the
-    /// wrong values under the right labels. [`crate::check_slots`] turns it into a build error.
+    /// wrong values under the right labels. [`crate::dossier::check_slots`] turns it into a build error.
     pub slots: Vec<u16>,
 }
 

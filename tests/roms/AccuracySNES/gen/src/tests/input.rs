@@ -750,7 +750,7 @@ fn f1_14() -> Test {
     )
 }
 
-/// Emit: stand the test down as SKIP unless the host is holding [`PAD_CONTRACT`].
+/// Emit: stand the test down as SKIP unless the host is holding `PAD_CONTRACT`.
 ///
 /// **Every Group F test that asserts against the contract must call this first.** The contract is a
 /// property of the *host*, not of the machine, and the three cross-validation runners are the only
