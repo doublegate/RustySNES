@@ -2213,6 +2213,14 @@ Provenance: **Documented** (fullsnes, SNESdev Wiki; canonical IPL boot ROM $FFEF
 | 2 | `$04` | the verifier read back the wrong second byte from block A's destination |
 | 3 | `$06` | the verifier read back the wrong third byte from block A's destination |
 
+### E4.08 — IPL DSP-poke via $00F2
+
+Provenance: **Documented** (fullsnes (APU / S-DSP); canonical IPL boot ROM store loop). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the value poked into DSP register $0F via a transfer to $00F2 did not read back — the IPL store to DSPADDR/DSPDATA did not reach the DSP register file |
+
 ### E5.12 — SRCN change source
 
 Provenance: **Documented** (fullsnes and anomie's DSP doc: a mid-playback SRCN change takes the new entry's start address, or its loop address if the voice has already passed a loop point). Kind: scored.

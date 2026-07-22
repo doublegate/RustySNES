@@ -17003,6 +17003,113 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; E4.08 — IPL DSP-poke via $00F2
+; provenance: Documented (fullsnes (APU / S-DSP); canonical IPL boot ROM store loop)
+.proc test_e4_08
+    .a16
+    .i16
+    ; Block A pokes DSP register $0F=$7E via a transfer aimed at DSPADDR/DSPDATA ($00F2/$00F3);
+    ; block B, reached through the non-zero continue, reads $0F back and reports it.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Block A: the data, transferred first and left in place for the verifier to read back.
+    lda #.loword(apu_dataA_59)
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    lda #^apu_dataA_59
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #2
+    sta f:V_APU_LEN
+    lda #$00F2
+    sta f:V_APU_DEST
+    ; Block B: the verifier program, reached through the NON-zero continue that closes block A.
+    lda #.loword(apu_progB_59)
+    sta f:V_APU_SRC2
+    lda #33
+    sta f:V_APU_LEN2
+    lda #$0280
+    sta f:V_APU_DEST2
+    lda #$0280
+    sta f:V_APU_ENTRY     ; the final close jumps here, into block B
+    jsl apu_upload_2block_far
+    ; Clear port 0 so a stale handshake byte cannot read as the program's done marker.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the verifier's done marker, bounded: a continue a core botched never runs it.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    jmp @timeout
+@ran:
+    ; Copy the answers out before releasing: the IPL's $AA/$BB announcement overwrites 0 and 1.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    lda #$A5
+    sta APUIO0
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0100
+    and #$00FF
+    ; record slot 234: E4.08 DSP register $0F read back after the IPL poke (expect $7E)
+    sta f:$7EE3D4
+    sep #$20
+    .a8
+    lda f:$7E0100
+    cmp #$7E
+    beq :+
+    jmp @fail1
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jml test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the value poked into DSP register $0F via a transfer to $00F2 did not read back — the IPL store to DSPADDR/DSPDATA did not reach the DSP register file
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; E5.12 — SRCN change source
 ; provenance: Documented (fullsnes and anomie's DSP doc: a mid-playback SRCN change takes the new entry's start address, or its loop address if the voice has already passed a loop point)
 .proc test_e5_12
@@ -17014,11 +17121,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_59)
+    lda #.loword(apu_prog_60)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_59
+    lda #^apu_prog_60
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -17143,11 +17250,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_60)
+    lda #.loword(apu_prog_61)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_60
+    lda #^apu_prog_61
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -17245,11 +17352,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_61)
+    lda #.loword(apu_prog_62)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_61
+    lda #^apu_prog_62
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -17347,11 +17454,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_62)
+    lda #.loword(apu_prog_63)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_62
+    lda #^apu_prog_63
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -17443,11 +17550,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_63)
+    lda #.loword(apu_prog_64)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_63
+    lda #^apu_prog_64
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -17547,11 +17654,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_64)
+    lda #.loword(apu_prog_65)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_64
+    lda #^apu_prog_65
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -17643,11 +17750,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_65)
+    lda #.loword(apu_prog_66)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_65
+    lda #^apu_prog_66
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -17752,11 +17859,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_66)
+    lda #.loword(apu_prog_67)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_66
+    lda #^apu_prog_67
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -17850,11 +17957,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_67)
+    lda #.loword(apu_prog_68)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_67
+    lda #^apu_prog_68
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -17980,11 +18087,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_68)
+    lda #.loword(apu_prog_69)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_68
+    lda #^apu_prog_69
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -18118,11 +18225,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_69)
+    lda #.loword(apu_prog_70)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_69
+    lda #^apu_prog_70
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -18264,11 +18371,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_70)
+    lda #.loword(apu_prog_71)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_70
+    lda #^apu_prog_71
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -18374,11 +18481,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_71)
+    lda #.loword(apu_prog_72)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_71
+    lda #^apu_prog_72
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -18476,11 +18583,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_72)
+    lda #.loword(apu_prog_73)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_72
+    lda #^apu_prog_73
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -18572,11 +18679,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_73)
+    lda #.loword(apu_prog_74)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_73
+    lda #^apu_prog_74
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -18674,11 +18781,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_74)
+    lda #.loword(apu_prog_75)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_74
+    lda #^apu_prog_75
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -18770,11 +18877,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_75)
+    lda #.loword(apu_prog_76)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_75
+    lda #^apu_prog_76
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -18872,11 +18979,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_76)
+    lda #.loword(apu_prog_77)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_76
+    lda #^apu_prog_77
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -19003,11 +19110,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_77)
+    lda #.loword(apu_prog_78)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_77
+    lda #^apu_prog_78
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -19099,11 +19206,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_78)
+    lda #.loword(apu_prog_79)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_78
+    lda #^apu_prog_79
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -19207,11 +19314,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_79)
+    lda #.loword(apu_prog_80)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_79
+    lda #^apu_prog_80
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -19336,11 +19443,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_80)
+    lda #.loword(apu_prog_81)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_80
+    lda #^apu_prog_81
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -19439,11 +19546,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_81)
+    lda #.loword(apu_prog_82)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_81
+    lda #^apu_prog_82
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -19506,11 +19613,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_82)
+    lda #.loword(apu_prog_83)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_82
+    lda #^apu_prog_83
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -19636,11 +19743,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_83)
+    lda #.loword(apu_prog_84)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_83
+    lda #^apu_prog_84
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -19703,11 +19810,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_84)
+    lda #.loword(apu_prog_85)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_84
+    lda #^apu_prog_85
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -19847,11 +19954,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_85)
+    lda #.loword(apu_prog_86)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_85
+    lda #^apu_prog_86
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -19914,11 +20021,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_86)
+    lda #.loword(apu_prog_87)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_86
+    lda #^apu_prog_87
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -20047,11 +20154,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_87)
+    lda #.loword(apu_prog_88)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_87
+    lda #^apu_prog_88
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -20114,11 +20221,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_88)
+    lda #.loword(apu_prog_89)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_88
+    lda #^apu_prog_89
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -20247,11 +20354,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_89)
+    lda #.loword(apu_prog_90)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_89
+    lda #^apu_prog_90
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -20314,11 +20421,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_90)
+    lda #.loword(apu_prog_91)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_90
+    lda #^apu_prog_91
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -20445,11 +20552,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_91)
+    lda #.loword(apu_prog_92)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_91
+    lda #^apu_prog_92
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -20512,11 +20619,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_92)
+    lda #.loword(apu_prog_93)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_92
+    lda #^apu_prog_93
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -20645,11 +20752,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_93)
+    lda #.loword(apu_prog_94)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_93
+    lda #^apu_prog_94
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -20712,11 +20819,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_94)
+    lda #.loword(apu_prog_95)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_94
+    lda #^apu_prog_95
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -20819,11 +20926,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_95)
+    lda #.loword(apu_prog_96)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_95
+    lda #^apu_prog_96
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -20915,11 +21022,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_96)
+    lda #.loword(apu_prog_97)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_96
+    lda #^apu_prog_97
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -21076,11 +21183,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_97)
+    lda #.loword(apu_prog_98)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_97
+    lda #^apu_prog_98
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -21143,11 +21250,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_98)
+    lda #.loword(apu_prog_99)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_98
+    lda #^apu_prog_99
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -21272,11 +21379,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_99)
+    lda #.loword(apu_prog_100)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_99
+    lda #^apu_prog_100
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -21371,11 +21478,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_100)
+    lda #.loword(apu_prog_101)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_100
+    lda #^apu_prog_101
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -21438,11 +21545,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_101)
+    lda #.loword(apu_prog_102)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_101
+    lda #^apu_prog_102
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -21559,11 +21666,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_102)
+    lda #.loword(apu_prog_103)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_102
+    lda #^apu_prog_103
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -21655,11 +21762,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_103)
+    lda #.loword(apu_prog_104)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_103
+    lda #^apu_prog_104
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -21751,11 +21858,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_104)
+    lda #.loword(apu_prog_105)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_104
+    lda #^apu_prog_105
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -21847,11 +21954,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_105)
+    lda #.loword(apu_prog_106)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_105
+    lda #^apu_prog_106
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -21945,11 +22052,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_106)
+    lda #.loword(apu_prog_107)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_106
+    lda #^apu_prog_107
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -22043,11 +22150,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_107)
+    lda #.loword(apu_prog_108)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_107
+    lda #^apu_prog_108
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -22141,11 +22248,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_108)
+    lda #.loword(apu_prog_109)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_108
+    lda #^apu_prog_109
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -22239,11 +22346,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_109)
+    lda #.loword(apu_prog_110)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_109
+    lda #^apu_prog_110
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -22360,11 +22467,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_110)
+    lda #.loword(apu_prog_111)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_110
+    lda #^apu_prog_111
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -30377,7 +30484,13 @@ apu_progB_58:
     .byte $CD, $EF, $BD, $E5, $50, $02, $C4, $F5, $E5, $51, $02, $C4
     .byte $F6, $E5, $52, $02, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
     .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_59:
+apu_dataA_59:
+    .byte $0F, $7E
+apu_progB_59:
+    .byte $CD, $EF, $BD, $8F, $0F, $F2, $E4, $F3, $C4, $F5, $8F, $0F
+    .byte $F2, $8F, $00, $F3, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5
+    .byte $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+apu_prog_60:
     .byte $5F, $39, $02, $C0, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $C0, $77, $77, $77, $77, $77, $77, $77, $77, $C0, $77, $77
     .byte $77, $77, $77, $77, $77, $77, $C3, $77, $77, $77, $77, $77
@@ -30410,7 +30523,7 @@ apu_prog_59:
     .byte $E8, $09, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $5A, $C4, $F4
     .byte $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0
     .byte $FF
-apu_prog_60:
+apu_prog_61:
     .byte $5F, $0C, $02, $83, $88, $88, $88, $88, $88, $88, $88, $88
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30434,7 +30547,7 @@ apu_prog_60:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_61:
+apu_prog_62:
     .byte $5F, $0C, $02, $83, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30458,7 +30571,7 @@ apu_prog_61:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_62:
+apu_prog_63:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30487,7 +30600,7 @@ apu_prog_62:
     .byte $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4
     .byte $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0
     .byte $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_63:
+apu_prog_64:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30506,7 +30619,7 @@ apu_prog_63:
     .byte $08, $C4, $F2, $E4, $F3, $C4, $F5, $E8, $4C, $C4, $F2, $E8
     .byte $00, $C4, $F3, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0
     .byte $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_64:
+apu_prog_65:
     .byte $5F, $0C, $02, $81, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30530,7 +30643,7 @@ apu_prog_64:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_65:
+apu_prog_66:
     .byte $CD, $EF, $BD, $E8, $6C, $C4, $F2, $E8, $20, $C4, $F3, $E8
     .byte $6D, $C4, $F2, $E8, $30, $C4, $F3, $E8, $7D, $C4, $F2, $E8
     .byte $00, $C4, $F3, $E8, $4D, $C4, $F2, $E8, $00, $C4, $F3, $E8
@@ -30544,7 +30657,7 @@ apu_prog_65:
     .byte $20, $C4, $F3, $E5, $00, $30, $C4, $F5, $E5, $04, $30, $C4
     .byte $F6, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8
     .byte $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_66:
+apu_prog_67:
     .byte $5F, $0C, $02, $83, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30569,7 +30682,7 @@ apu_prog_66:
     .byte $6C, $C4, $F2, $E8, $20, $C4, $F3, $E5, $00, $30, $C4, $F5
     .byte $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80
     .byte $C4, $F1, $5F, $C0, $FF
-apu_prog_67:
+apu_prog_68:
     .byte $5F, $0C, $02, $C3, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30605,7 +30718,7 @@ apu_prog_67:
     .byte $E8, $6C, $C4, $F2, $E8, $20, $C4, $F3, $E5, $01, $30, $C4
     .byte $F6, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8
     .byte $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_68:
+apu_prog_69:
     .byte $5F, $0C, $02, $83, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30631,7 +30744,7 @@ apu_prog_68:
     .byte $E5, $02, $30, $C4, $F6, $E5, $03, $30, $C4, $F7, $E8, $5A
     .byte $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1
     .byte $5F, $C0, $FF
-apu_prog_69:
+apu_prog_70:
     .byte $5F, $0C, $02, $83, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30662,7 +30775,7 @@ apu_prog_69:
     .byte $20, $C4, $F3, $E5, $01, $30, $C4, $F5, $E5, $02, $30, $C4
     .byte $F6, $E5, $03, $30, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
     .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_70:
+apu_prog_71:
     .byte $CD, $EF, $BD, $E8, $6D, $C4, $F2, $E8, $30, $C4, $F3, $E8
     .byte $7D, $C4, $F2, $E8, $00, $C4, $F3, $E8, $4D, $C4, $F2, $E8
     .byte $00, $C4, $F3, $E8, $2C, $C4, $F2, $E8, $00, $C4, $F3, $E8
@@ -30676,7 +30789,7 @@ apu_prog_70:
     .byte $E5, $00, $30, $C4, $F6, $E8, $6C, $C4, $F2, $E8, $20, $C4
     .byte $F3, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8
     .byte $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_71:
+apu_prog_72:
     .byte $5F, $0C, $02, $83, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30702,7 +30815,7 @@ apu_prog_71:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_72:
+apu_prog_73:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30728,7 +30841,7 @@ apu_prog_72:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_73:
+apu_prog_74:
     .byte $5F, $0C, $02, $83, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30752,7 +30865,7 @@ apu_prog_73:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_74:
+apu_prog_75:
     .byte $5F, $0C, $02, $D3, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30776,7 +30889,7 @@ apu_prog_74:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_75:
+apu_prog_76:
     .byte $5F, $0C, $02, $87, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30800,7 +30913,7 @@ apu_prog_75:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_76:
+apu_prog_77:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30826,7 +30939,7 @@ apu_prog_76:
     .byte $00, $FE, $FE, $E8, $7C, $C4, $F2, $E4, $F3, $C4, $F6, $E8
     .byte $5C, $C4, $F2, $E8, $00, $C4, $F3, $E8, $5A, $C4, $F4, $E4
     .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_77:
+apu_prog_78:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30850,7 +30963,7 @@ apu_prog_77:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_78:
+apu_prog_79:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30873,7 +30986,7 @@ apu_prog_78:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_79:
+apu_prog_80:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30894,7 +31007,7 @@ apu_prog_79:
     .byte $FF, $FE, $FE, $8D, $FF, $FE, $FE, $E8, $08, $C4, $F2, $E4
     .byte $F3, $C4, $F6, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0
     .byte $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_80:
+apu_prog_81:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30918,7 +31031,7 @@ apu_prog_80:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_81:
+apu_prog_82:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30940,7 +31053,7 @@ apu_prog_81:
     .byte $F3, $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8
     .byte $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4
     .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_82:
+apu_prog_83:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30962,7 +31075,7 @@ apu_prog_82:
     .byte $F3, $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8
     .byte $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4
     .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_83:
+apu_prog_84:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -30987,7 +31100,7 @@ apu_prog_83:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_84:
+apu_prog_85:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -31012,7 +31125,7 @@ apu_prog_84:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_85:
+apu_prog_86:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -31042,7 +31155,7 @@ apu_prog_85:
     .byte $F3, $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8
     .byte $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4
     .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_86:
+apu_prog_87:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -31072,36 +31185,6 @@ apu_prog_86:
     .byte $F3, $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8
     .byte $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4
     .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_87:
-    .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
-    .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
-    .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
-    .byte $00, $C5, $04, $01, $E8, $00, $C5, $05, $01, $E8, $00, $C5
-    .byte $06, $01, $E8, $00, $C5, $07, $01, $E8, $6C, $C4, $F2, $E8
-    .byte $20, $C4, $F3, $E8, $5C, $C4, $F2, $E8, $00, $C4, $F3, $E8
-    .byte $3D, $C4, $F2, $E8, $00, $C4, $F3, $E8, $4D, $C4, $F2, $E8
-    .byte $00, $C4, $F3, $E8, $2D, $C4, $F2, $E8, $00, $C4, $F3, $E8
-    .byte $5D, $C4, $F2, $E8, $01, $C4, $F3, $E8, $0C, $C4, $F2, $E8
-    .byte $7F, $C4, $F3, $E8, $1C, $C4, $F2, $E8, $7F, $C4, $F3, $E8
-    .byte $00, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $01, $C4, $F2, $E8
-    .byte $7F, $C4, $F3, $E8, $02, $C4, $F2, $E8, $00, $C4, $F3, $E8
-    .byte $03, $C4, $F2, $E8, $10, $C4, $F3, $E8, $04, $C4, $F2, $E8
-    .byte $00, $C4, $F3, $E8, $06, $C4, $F2, $E8, $E0, $C4, $F3, $E8
-    .byte $07, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $05, $C4, $F2, $E8
-    .byte $8F, $C4, $F3, $E8, $7C, $C4, $F2, $E8, $00, $C4, $F3, $E8
-    .byte $4C, $C4, $F2, $E8, $01, $C4, $F3, $8D, $00, $FE, $FE, $E8
-    .byte $4C, $C4, $F2, $E8, $00, $C4, $F3, $8D, $00, $FE, $FE, $8D
-    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
-    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
-    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
-    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
-    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
-    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
-    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
-    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $E8, $7C, $C4, $F2, $E4
-    .byte $F3, $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8
-    .byte $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4
-    .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
 apu_prog_88:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
@@ -31116,7 +31199,7 @@ apu_prog_88:
     .byte $00, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $01, $C4, $F2, $E8
     .byte $7F, $C4, $F3, $E8, $02, $C4, $F2, $E8, $00, $C4, $F3, $E8
     .byte $03, $C4, $F2, $E8, $10, $C4, $F3, $E8, $04, $C4, $F2, $E8
-    .byte $00, $C4, $F3, $E8, $06, $C4, $F2, $E8, $FF, $C4, $F3, $E8
+    .byte $00, $C4, $F3, $E8, $06, $C4, $F2, $E8, $E0, $C4, $F3, $E8
     .byte $07, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $05, $C4, $F2, $E8
     .byte $8F, $C4, $F3, $E8, $7C, $C4, $F2, $E8, $00, $C4, $F3, $E8
     .byte $4C, $C4, $F2, $E8, $01, $C4, $F3, $8D, $00, $FE, $FE, $E8
@@ -31146,9 +31229,9 @@ apu_prog_89:
     .byte $00, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $01, $C4, $F2, $E8
     .byte $7F, $C4, $F3, $E8, $02, $C4, $F2, $E8, $00, $C4, $F3, $E8
     .byte $03, $C4, $F2, $E8, $10, $C4, $F3, $E8, $04, $C4, $F2, $E8
-    .byte $00, $C4, $F3, $E8, $06, $C4, $F2, $E8, $60, $C4, $F3, $E8
+    .byte $00, $C4, $F3, $E8, $06, $C4, $F2, $E8, $FF, $C4, $F3, $E8
     .byte $07, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $05, $C4, $F2, $E8
-    .byte $FF, $C4, $F3, $E8, $7C, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $8F, $C4, $F3, $E8, $7C, $C4, $F2, $E8, $00, $C4, $F3, $E8
     .byte $4C, $C4, $F2, $E8, $01, $C4, $F3, $8D, $00, $FE, $FE, $E8
     .byte $4C, $C4, $F2, $E8, $00, $C4, $F3, $8D, $00, $FE, $FE, $8D
     .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
@@ -31176,7 +31259,7 @@ apu_prog_90:
     .byte $00, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $01, $C4, $F2, $E8
     .byte $7F, $C4, $F3, $E8, $02, $C4, $F2, $E8, $00, $C4, $F3, $E8
     .byte $03, $C4, $F2, $E8, $10, $C4, $F3, $E8, $04, $C4, $F2, $E8
-    .byte $00, $C4, $F3, $E8, $06, $C4, $F2, $E8, $A0, $C4, $F3, $E8
+    .byte $00, $C4, $F3, $E8, $06, $C4, $F2, $E8, $60, $C4, $F3, $E8
     .byte $07, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $05, $C4, $F2, $E8
     .byte $FF, $C4, $F3, $E8, $7C, $C4, $F2, $E8, $00, $C4, $F3, $E8
     .byte $4C, $C4, $F2, $E8, $01, $C4, $F3, $8D, $00, $FE, $FE, $E8
@@ -31206,6 +31289,36 @@ apu_prog_91:
     .byte $00, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $01, $C4, $F2, $E8
     .byte $7F, $C4, $F3, $E8, $02, $C4, $F2, $E8, $00, $C4, $F3, $E8
     .byte $03, $C4, $F2, $E8, $10, $C4, $F3, $E8, $04, $C4, $F2, $E8
+    .byte $00, $C4, $F3, $E8, $06, $C4, $F2, $E8, $A0, $C4, $F3, $E8
+    .byte $07, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $05, $C4, $F2, $E8
+    .byte $FF, $C4, $F3, $E8, $7C, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $4C, $C4, $F2, $E8, $01, $C4, $F3, $8D, $00, $FE, $FE, $E8
+    .byte $4C, $C4, $F2, $E8, $00, $C4, $F3, $8D, $00, $FE, $FE, $8D
+    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
+    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
+    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
+    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
+    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
+    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
+    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
+    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $E8, $7C, $C4, $F2, $E4
+    .byte $F3, $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8
+    .byte $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4
+    .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+apu_prog_92:
+    .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
+    .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
+    .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
+    .byte $00, $C5, $04, $01, $E8, $00, $C5, $05, $01, $E8, $00, $C5
+    .byte $06, $01, $E8, $00, $C5, $07, $01, $E8, $6C, $C4, $F2, $E8
+    .byte $20, $C4, $F3, $E8, $5C, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $3D, $C4, $F2, $E8, $00, $C4, $F3, $E8, $4D, $C4, $F2, $E8
+    .byte $00, $C4, $F3, $E8, $2D, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $5D, $C4, $F2, $E8, $01, $C4, $F3, $E8, $0C, $C4, $F2, $E8
+    .byte $7F, $C4, $F3, $E8, $1C, $C4, $F2, $E8, $7F, $C4, $F3, $E8
+    .byte $00, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $01, $C4, $F2, $E8
+    .byte $7F, $C4, $F3, $E8, $02, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $03, $C4, $F2, $E8, $10, $C4, $F3, $E8, $04, $C4, $F2, $E8
     .byte $00, $C4, $F3, $E8, $06, $C4, $F2, $E8, $E0, $C4, $F3, $E8
     .byte $07, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $05, $C4, $F2, $E8
     .byte $88, $C4, $F3, $E8, $7C, $C4, $F2, $E8, $00, $C4, $F3, $E8
@@ -31216,7 +31329,7 @@ apu_prog_91:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_92:
+apu_prog_93:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -31240,7 +31353,7 @@ apu_prog_92:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_93:
+apu_prog_94:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -31270,7 +31383,7 @@ apu_prog_93:
     .byte $F3, $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8
     .byte $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4
     .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_94:
+apu_prog_95:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -31300,7 +31413,7 @@ apu_prog_94:
     .byte $F3, $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8
     .byte $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4
     .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_95:
+apu_prog_96:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -31328,7 +31441,7 @@ apu_prog_95:
     .byte $F3, $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8
     .byte $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4
     .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_96:
+apu_prog_97:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -31356,7 +31469,7 @@ apu_prog_96:
     .byte $80, $F1, $E4, $FF, $C4, $F6, $E8, $4C, $C4, $F2, $E8, $00
     .byte $C4, $F3, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA
     .byte $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_97:
+apu_prog_98:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -31387,7 +31500,7 @@ apu_prog_97:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_98:
+apu_prog_99:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -31418,7 +31531,7 @@ apu_prog_98:
     .byte $F3, $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8
     .byte $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4
     .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_99:
+apu_prog_100:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -31447,7 +31560,7 @@ apu_prog_99:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_100:
+apu_prog_101:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -31472,7 +31585,7 @@ apu_prog_100:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_101:
+apu_prog_102:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -31498,7 +31611,7 @@ apu_prog_101:
     .byte $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4
     .byte $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0
     .byte $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_102:
+apu_prog_103:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -31522,7 +31635,7 @@ apu_prog_102:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_103:
+apu_prog_104:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -31546,7 +31659,7 @@ apu_prog_103:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_104:
+apu_prog_105:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -31570,7 +31683,7 @@ apu_prog_104:
     .byte $F3, $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
-apu_prog_105:
+apu_prog_106:
     .byte $5F, $DB, $02, $80, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $80, $77, $77, $77, $77, $77, $77, $77, $77, $80, $77, $77
     .byte $77, $77, $77, $77, $77, $77, $80, $77, $77, $77, $77, $77
@@ -31611,7 +31724,7 @@ apu_prog_105:
     .byte $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $09
     .byte $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
     .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_106:
+apu_prog_107:
     .byte $5F, $DB, $02, $80, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $80, $77, $77, $77, $77, $77, $77, $77, $77, $80, $77, $77
     .byte $77, $77, $77, $77, $77, $77, $80, $77, $77, $77, $77, $77
@@ -31656,7 +31769,7 @@ apu_prog_106:
     .byte $C4, $F6, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A
     .byte $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1
     .byte $5F, $C0, $FF
-apu_prog_107:
+apu_prog_108:
     .byte $5F, $DB, $02, $80, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $80, $77, $77, $77, $77, $77, $77, $77, $77, $80, $77, $77
     .byte $77, $77, $77, $77, $77, $77, $80, $77, $77, $77, $77, $77
@@ -31697,7 +31810,7 @@ apu_prog_107:
     .byte $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $09
     .byte $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
     .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_108:
+apu_prog_109:
     .byte $5F, $DB, $02, $80, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $80, $77, $77, $77, $77, $77, $77, $77, $77, $80, $77, $77
     .byte $77, $77, $77, $77, $77, $77, $80, $77, $77, $77, $77, $77
@@ -31737,12 +31850,12 @@ apu_prog_108:
     .byte $C4, $F5, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $09
     .byte $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
     .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_109:
+apu_prog_110:
     .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $01, $FC, $E4, $FD, $E4
     .byte $FF, $8F, $85, $F1, $8D, $18, $FE, $FE, $8F, $80, $F1, $E4
     .byte $FD, $C4, $F6, $E4, $FF, $C4, $F7, $E8, $5A, $C4, $F4, $E4
     .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_110:
+apu_prog_111:
     .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $0B, $F0, $8F, $81, $F1
     .byte $8D, $00, $FE, $FE, $8F, $80, $F1, $E4, $FD, $C4, $F6, $8F
     .byte $0A, $F0, $8F, $81, $F1, $8D, $00, $FE, $FE, $8F, $80, $F1
@@ -31755,7 +31868,7 @@ apu_prog_110:
 .export _test_flags
 
 _test_count:
-    .word 324
+    .word 325
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -31986,6 +32099,7 @@ _test_entries:
     .faraddr test_e4_03
     .faraddr test_e4_04
     .faraddr test_e4_06
+    .faraddr test_e4_08
     .faraddr test_e5_12
     .faraddr test_e5_02
     .faraddr test_e7_16
@@ -32313,6 +32427,7 @@ _test_flags:
     .byte $01   ; E4.03
     .byte $01   ; E4.04
     .byte $01   ; E4.06
+    .byte $01   ; E4.08
     .byte $01   ; E5.12
     .byte $01   ; E5.02
     .byte $01   ; E7.16
@@ -32640,6 +32755,7 @@ _test_names:
     .addr @n_e4_03
     .addr @n_e4_04
     .addr @n_e4_06
+    .addr @n_e4_08
     .addr @n_e5_12
     .addr @n_e5_02
     .addr @n_e7_16
@@ -33418,6 +33534,9 @@ _test_names:
 @n_e4_06:
     .byte 24
     .byte "IPL multi-block continue"
+@n_e4_08:
+    .byte 22
+    .byte "IPL DSP-poke via $00F2"
 @n_e5_12:
     .byte 18
     .byte "SRCN change source"

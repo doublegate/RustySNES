@@ -96,6 +96,7 @@ pub fn all() -> Vec<Test> {
         e4_03(),
         e4_04(),
         e4_06(),
+        e4_08(),
         e5_12(),
         e5_02(),
         e7_16(),
@@ -4553,6 +4554,76 @@ fn e4_06() -> Test {
         'E',
         "IPL multi-block continue",
         Provenance::Documented("fullsnes, SNESdev Wiki; canonical IPL boot ROM $FFEF-$FFFB"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// A transfer aimed at `$00F2` pokes DSP registers through the IPL's own store loop.
+///
+/// The IPL's inner loop stores each byte with `MOV ($00)+Y, A`, so the transfer's *destination* is
+/// an ordinary SPC700 address — and `$00F2`/`$00F3` are the memory-mapped **DSPADDR**/**DSPDATA**
+/// registers. Aiming a transfer at `$00F2` therefore lets the boot ROM itself write the DSP: byte 0
+/// lands in DSPADDR (selecting a register), byte 1 in DSPDATA (writing it), before any program of
+/// the game's has run. It is a documented trick (fullsnes, "APU / S-DSP") real sound drivers use to
+/// pre-load the DSP during the upload.
+///
+/// # Construction
+///
+/// Block A is the pair `[$0F, $7E]` sent to destination `$00F2`: `$0F` is FIR echo-coefficient 0 (a
+/// plain read/write DSP register with no side effect while echo is disabled, and it reads back
+/// exactly what was written), `$7E` a distinctive value that is none of the handshake markers. Block
+/// B is a verifier, reached through the same non-zero continue `E4.06` exercises, that selects `$0F`
+/// via DSPADDR, reads DSPDATA back to port 1, and then restores the coefficient to `$00` so the poke
+/// cannot leak into a later echo test. The host asserts port 1 is `$7E`.
+///
+/// # Why it is not vacuous
+///
+/// The claim is specifically that the IPL store to `$00F2`/`$00F3` reaches the DSP register file
+/// rather than plain ARAM. A core that routed those stores to ARAM (or never decoded DSPADDR from an
+/// IPL-driven write) would leave FIR[0] at its power-on value, and the verifier — reading the DSP,
+/// not ARAM — would see something other than `$7E` and FAIL. Confirmed by injection: stubbing the
+/// APU's `$F2` (DSPADDR) write breaks this test (and, as a shared decode path, the rest of the DSP
+/// suite with it); the poke reaching the DSP is what the pass depends on.
+fn e4_08() -> Test {
+    // Block A: [DSP register #, value] aimed at DSPADDR/DSPDATA. $0F = FIR coefficient 0.
+    let data = [0x0Fu8, 0x7E];
+
+    let mut verify = Spc::new();
+    verify.mov_x_imm(0xEF).mov_sp_x();
+    verify.mov_dp_imm(0xF2, 0x0F); // DSPADDR = $0F (select FIR coefficient 0)
+    verify.mov_a_dp(0xF3); // A = DSPDATA (read it back)
+    verify.mov_dp_a(PORT1); // report the value the IPL poked
+    verify.mov_dp_imm(0xF2, 0x0F); // restore: select $0F again ...
+    verify.mov_dp_imm(0xF3, 0x00); // ... and clear it, so the poke cannot leak into a later test
+    verify.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    a.c(
+        "Block A pokes DSP register $0F=$7E via a transfer aimed at DSPADDR/DSPDATA ($00F2/$00F3);",
+    );
+    a.c("block B, reached through the non-zero continue, reads $0F back and reports it.");
+    upload_2block_and_run(&mut a, &data, 0x00F2, &verify, 0x0280);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(
+        234,
+        "E4.08 DSP register $0F read back after the IPL poke (expect $7E)",
+    );
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.assert_a8(
+        0x7E,
+        "the value poked into DSP register $0F via a transfer to $00F2 did not read back — the IPL \
+         store to DSPADDR/DSPDATA did not reach the DSP register file",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E4.08",
+        'E',
+        "IPL DSP-poke via $00F2",
+        Provenance::Documented("fullsnes (APU / S-DSP); canonical IPL boot ROM store loop"),
         Kind::Scored,
         None,
     )
