@@ -4580,16 +4580,29 @@ fn e4_06() -> Test {
 /// # Why it is not vacuous
 ///
 /// The claim is specifically that the IPL store to `$00F2`/`$00F3` reaches the DSP register file
-/// rather than plain ARAM. A core that routed those stores to ARAM (or never decoded DSPADDR from an
-/// IPL-driven write) would leave `FIR[0]` at its power-on value, and the verifier — reading the DSP,
-/// not ARAM — would see something other than `$7E` and FAIL. This is also non-vacuous by
-/// construction: `FIR[0]` powers up `$00`, so the `$7E` assertion can only pass if the poke reached
-/// the DSP register file. Confirmed by injection: aiming the same transfer at plain ARAM (`$0250`)
-/// instead of `$00F2` fails this test alone — the poke works precisely because it targets the DSP
-/// ports.
+/// rather than plain ARAM. To keep that non-vacuous regardless of what earlier tests left behind, a
+/// first phase sets `FIR[0]` to a known baseline `$A5` (a program upload; the zero-fill on IPL
+/// re-entry does not touch DSP registers, so it survives), and only then does the poke phase write
+/// `$7E`. The assertion therefore proves the poke *changed* `FIR[0]` from `$A5` to `$7E`, not merely
+/// that it happened to read `$7E` — a test run after something left `FIR[0]` already at `$7E` would
+/// otherwise pass while the poke did nothing. A core that routed the `$00F2`/`$00F3` stores to ARAM
+/// (or never decoded DSPADDR from an IPL-driven write) leaves `FIR[0]` at `$A5`, and the verifier —
+/// reading the DSP, not ARAM — sees `$A5` and FAILs. Confirmed by injection: aiming the same
+/// transfer at plain ARAM (`$0250`) instead of `$00F2` fails this test alone — the poke works
+/// precisely because it targets the DSP ports.
 fn e4_08() -> Test {
     // Block A: [DSP register #, value] aimed at DSPADDR/DSPDATA. $0F = FIR coefficient 0.
     let data = [0x0Fu8, 0x7E];
+
+    // Phase 1 establishes a KNOWN baseline in FIR[0] before the poke, so the $7E assertion proves
+    // the poke *changed* it rather than depending on FIR[0]'s power-on or prior-test state. A test
+    // that happened to run after something left FIR[0] = $7E would otherwise pass vacuously even if
+    // the poke did nothing. $A5 is distinctive and is not $7E.
+    let mut baseline = Spc::new();
+    baseline.mov_x_imm(0xEF).mov_sp_x();
+    baseline.mov_dp_imm(0xF2, 0x0F); // DSPADDR = $0F
+    baseline.mov_dp_imm(0xF3, 0xA5); // FIR[0] = $A5, the pre-poke baseline
+    baseline.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
 
     let mut verify = Spc::new();
     verify.mov_x_imm(0xEF).mov_sp_x();
@@ -4601,10 +4614,14 @@ fn e4_08() -> Test {
     verify.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
 
     let mut a = Asm::new();
+    a.c("Phase 1: set FIR[0] = $A5 as a known baseline, then release to the IPL. The zero-fill on");
+    a.c("IPL re-entry does not touch DSP registers, so $A5 survives into the poke phase below.");
+    upload_and_run_tagged(&mut a, &baseline, "_base");
     a.c(
         "Block A pokes DSP register $0F=$7E via a transfer aimed at DSPADDR/DSPDATA ($00F2/$00F3);",
     );
-    a.c("block B, reached through the non-zero continue, reads $0F back and reports it.");
+    a.c("block B, reached through the non-zero continue, reads $0F back and reports it. It must now");
+    a.c("read $7E, not the $A5 baseline — which it can only do if the IPL poke reached the DSP.");
     upload_2block_and_run(&mut a, &data, 0x00F2, &verify, 0x0280);
     a.l("rep #$30");
     a.l("lda f:$7E0100");
@@ -4617,8 +4634,8 @@ fn e4_08() -> Test {
     a.l("lda f:$7E0100");
     a.assert_a8(
         0x7E,
-        "the value poked into DSP register $0F via a transfer to $00F2 did not read back — the IPL \
-         store to DSPADDR/DSPDATA did not reach the DSP register file",
+        "DSP register $0F did not change from its $A5 baseline to the poked $7E — the IPL store to \
+         $00F2/$00F3 did not reach the DSP register file",
     );
     apu_timeout_arm(&mut a);
     a.finish(
