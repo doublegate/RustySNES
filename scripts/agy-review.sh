@@ -19,13 +19,20 @@ command -v "$AGY_BIN" >/dev/null 2>&1 || AGY_BIN="$HOME/.local/bin/agy"
 AGY_MODEL="${AGY_MODEL:-}"                 # empty = agy's configured default (Gemini 3.x Pro)
 AGY_EFFORT="${AGY_EFFORT:-high}"           # low|medium|high
 AGY_PRINT_TIMEOUT="${AGY_PRINT_TIMEOUT:-5m}"
-MAX_DIFF_BYTES="${MAX_DIFF_BYTES:-115000}" # truncate very large diffs (keep prompt under the arg limit)
-MAX_PROMPT_BYTES="${MAX_PROMPT_BYTES:-125000}" # hard ceiling on the whole prompt: agy takes it as a
+AGY_DIFF_MODE="${AGY_DIFF_MODE:-auto}"     # auto|inline|file. A diff is passed to agy either inlined
+                                           # in the --print prompt, or written to a FILE agy reads with
+                                           # its own tools. `auto` inlines a diff that fits under the
+                                           # arg-size budget and files anything larger (so large PRs are
+                                           # never truncated); `inline`/`file` force one path.
+MAX_DIFF_BYTES="${MAX_DIFF_BYTES:-5000000}" # sanity cap on a pathological diff (5 MB). No longer the
+                                           # arg-size limit -- a large diff goes to agy as a file, not
+                                           # as an argv value -- just a guard against a runaway diff.
+MAX_PROMPT_BYTES="${MAX_PROMPT_BYTES:-125000}" # hard ceiling on the INLINED prompt: agy takes it as a
                                            # --print VALUE (not stdin), and a single execve argument
                                            # cannot exceed MAX_ARG_STRLEN (PAGE_SIZE*32 = 128 KiB on
                                            # Linux). Over it, execve fails with E2BIG before agy even
-                                           # starts -- a deterministic failure the retry loop cannot
-                                           # clear. This backstops MAX_DIFF_BYTES + boilerplate + style.
+                                           # starts. In `auto` mode this is the inline/file threshold;
+                                           # it also backstops the assembled prompt in every mode.
 ARG_SIZE_CEILING=128000                     # hard cap: a configured MAX_PROMPT_BYTES above the
                                            # MAX_ARG_STRLEN-derived safe bound would defeat the guard
                                            # and re-expose E2BIG, so clamp any override down to it.
@@ -72,8 +79,8 @@ log "reviewing ${REPO}#${PR}"
 
 # Remove every temp file on exit. Pre-declared so the trap is safe under `set -u` even if the
 # script exits before a given file is created.
-diff_file= meta_file= prompt_file= out_file= raw= body_file=
-trap 'rm -f "$diff_file" "$meta_file" "$prompt_file" "$out_file" "$raw" "$body_file"' EXIT
+diff_file= meta_file= prompt_file= out_file= raw= body_file= agy_diff_file=
+trap 'rm -f "$diff_file" "$meta_file" "$prompt_file" "$out_file" "$raw" "$body_file" "$agy_diff_file"' EXIT
 
 # --- fetch the diff + metadata -------------------------------------------------
 diff_file="$(mktemp)"; meta_file="$(mktemp)"
@@ -85,14 +92,28 @@ if ! have_text "$diff_file"; then log "empty diff; nothing to review"; exit 0; f
 truncated=""
 if [ "$(wc -c < "$diff_file")" -gt "$MAX_DIFF_BYTES" ]; then
   head -c "$MAX_DIFF_BYTES" "$diff_file" > "$diff_file.cut" && mv "$diff_file.cut" "$diff_file"
-  truncated=$'\n\n> Note: the diff was truncated to '"${MAX_DIFF_BYTES}"$' bytes for this review.'
-  log "diff truncated to ${MAX_DIFF_BYTES} bytes"
+  truncated=$'\n\n> Note: the diff exceeded '"${MAX_DIFF_BYTES}"$' bytes and was truncated for this review.'
+  log "diff truncated to the ${MAX_DIFF_BYTES}-byte sanity cap"
 fi
 
 # --- build the prompt ----------------------------------------------------------
 title="$(jq -r '.title // ""' "$meta_file")"
-style=""; [ -f "$STYLE_GUIDE" ] && style="$(cat "$STYLE_GUIDE")"
+# Bound the style guide so it can never fill the whole arg budget and crowd out the diff -- or, in
+# file mode, the file pointer that the MAX_PROMPT_BYTES guard would otherwise truncate away, leaving
+# agy with no diff at all. Reserve headroom for the instructions, the diff header, and the pointer.
+# head -c is byte-accurate (a shell substring is by character, which is wrong for multi-byte UTF-8).
+style=""
+if [ -f "$STYLE_GUIDE" ]; then
+  style_cap=$(( MAX_PROMPT_BYTES - 8192 )); [ "$style_cap" -lt 0 ] && style_cap=0
+  style="$(head -c "$style_cap" "$STYLE_GUIDE")"
+  [ "$(wc -c < "$STYLE_GUIDE")" -gt "$style_cap" ] && log "STYLE_GUIDE capped to ${style_cap} bytes so the diff / file pointer always fits under the arg budget"
+fi
 
+# The instruction HEAD (everything except the diff body). agy takes the whole prompt as one --print
+# argv value, capped at MAX_ARG_STRLEN (128 KiB), so a diff that would push the prompt over the budget
+# is handed to agy as a FILE it reads with its own tools instead of being inlined or truncated. Small
+# diffs still inline (the proven path); only a large PR takes the file path -- and a large PR used to
+# fail outright with E2BIG, so the file path can only improve on that.
 prompt_file="$(mktemp)"
 {
   cat <<EOF
@@ -112,9 +133,48 @@ EOF
   if [ -n "$style" ]; then
     printf '\n--- PROJECT STYLE GUIDE (enforce these) ---\n%s\n' "$style"
   fi
-  printf '\n--- UNIFIED DIFF ---\n'
-  cat "$diff_file"
 } > "$prompt_file"
+
+# Decide inline vs file. Budget: keep the whole argv prompt under MAX_PROMPT_BYTES (itself clamped
+# below the 128 KiB ceiling), reserving a small margin for the diff header. `file` mode writes the
+# diff into agy's working directory (the repo checkout) and points the prompt at it by name.
+head_bytes="$(wc -c < "$prompt_file")"
+diff_bytes="$(wc -c < "$diff_file")"
+inline_budget=$(( MAX_PROMPT_BYTES - head_bytes - 512 ))   # margin covers the diff header + file notice
+[ "$inline_budget" -lt 0 ] && inline_budget=0             # a huge STYLE_GUIDE can exceed it: file the diff
+use_file=0
+case "$AGY_DIFF_MODE" in
+  file)   use_file=1 ;;
+  inline) use_file=0 ;;
+  *)      [ "$diff_bytes" -gt "$inline_budget" ] && use_file=1 ;;
+esac
+
+if [ "$use_file" = "1" ]; then
+  # agy's CWD is the repo checkout, so a file written under it is readable by its file tool. Prefer
+  # `.git/` -- git never lists it in `git status`, so the transient diff can't show up as working-tree
+  # pollution if agy inspects repo state -- and fall back to the repo root when `.git` is not a real
+  # directory (a worktree/submodule gitfile). Either way the path is CWD-relative for the prompt.
+  if [ -d "$PWD/.git" ]; then
+    diff_name=".git/agy-review-diff.$$.patch"
+  else
+    diff_name=".agy-review-diff.$$.patch"
+  fi
+  agy_diff_file="$PWD/$diff_name"
+  cp "$diff_file" "$agy_diff_file"
+  {
+    printf '\n--- UNIFIED DIFF (in a file) ---\n'
+    printf 'The full unified diff for this PR is in the file `%s` in your current working directory\n' "$diff_name"
+    printf '(it is too large to inline). Read that file IN FULL with your file-reading tool first, then\n'
+    printf 'produce the review above from its actual contents. Do not review from the PR title alone.\n'
+  } >> "$prompt_file"
+  log "diff is ${diff_bytes} bytes (> ${inline_budget}-byte inline budget); handing it to agy as ${diff_name}"
+else
+  # Forced inline (AGY_DIFF_MODE=inline) on an over-budget diff: the MAX_PROMPT_BYTES guard below
+  # still prevents E2BIG by truncating, but warn since `auto` would have filed it in full instead.
+  [ "$diff_bytes" -gt "$inline_budget" ] && log "warning: forced inline with a ${diff_bytes}-byte diff over the ${inline_budget}-byte budget; the prompt will be truncated -- use AGY_DIFF_MODE=auto to file it in full"
+  { printf '\n--- UNIFIED DIFF ---\n'; cat "$diff_file"; } >> "$prompt_file"
+  log "diff is ${diff_bytes} bytes; inlined into the prompt"
+fi
 
 # --- guard the argv size (E2BIG) -----------------------------------------------
 # agy takes the prompt as a --print VALUE, so the whole prompt is one execve argument
