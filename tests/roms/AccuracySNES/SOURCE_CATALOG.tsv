@@ -282,7 +282,7 @@
 279	F1.14	F	$4213 reads $4201 back	Documented	fullsnes: RDIO reads the WRIO output pins, which are open-collector, so with nothing driving them low the value read is the value written	Scored	0x7EF137	F1.14
 280	G1.02	G	Reset: $4210/$4211 clear	Documented	SNESdev Wiki, power-on state; fullsnes	Scored	0x7EF138	G1.02
 281	G1.04	G	Reset: emulation mode	Documented	SNESdev Wiki, power-on state; WDC 65C816 datasheet, XCE	Scored	0x7EF139	G1.04
-282	G1.05	G	Power-on PPU registers	Contested	the dossier marks the PPU power-on state indeterminate ('no boot ROM; most PPU registers start unknown') and says to report it, never assert; the write-only registers cannot be reported at all	Golden	0x7EF13A	G1.05
+282	G1.05	G	Power-on PPU registers	Documented	the dossier marks the PPU power-on state indeterminate ('no boot ROM; most PPU registers start unknown') and says to report it, never assert; the readable registers ($2134-$2136, $213E/$213F) are reported and the only scored check is the self-guard that the power-on capture actually ran	Scored	0x7EF13A	G1.05
 283	G1.08	G	Write-only read: openbus	Documented	SNESdev Wiki, open bus; fullsnes, memory map notes	Scored	0x7EF13B	G1.08
 284	G1.10	G	Checksum XOR complement	Documented	SNESdev Wiki, cartridge header; fullsnes	Scored	0x7EF13C	G1.10
 285	G1.11	G	Checksum over the image	Documented	SNESdev Wiki, cartridge header checksum; fullsnes	Scored	0x7EF13D	G1.11

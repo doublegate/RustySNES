@@ -464,6 +464,10 @@ fn g1_05() -> Test {
     a.l("rep #$30");
     a.l("phk");
     a.l("plb");
+    // A/X/Y are already 16-bit from the `rep #$30` above; the loop reads a word and masks the byte,
+    // so no per-iteration mode switch is needed. Nothing is asserted ABOUT these values — the row's
+    // whole content is that they are undefined (M7A/M7B power on undefined, so does their product;
+    // STAT77/78 carry a defined version and undefined flags).
     for (i, (slot, what)) in [
         (242u16, "$2134 MPY low (M7A x M7B)"),
         (243, "$2135 MPY mid"),
@@ -474,28 +478,33 @@ fn g1_05() -> Test {
     .into_iter()
     .enumerate()
     {
-        a.l("rep #$30");
         a.l(&format!("lda f:V_PO_PPU + {i}"));
         a.l("and #$00FF");
         a.record(slot, &format!("G1.05 {what} at power-on"));
     }
-    a.c("Nothing is asserted: the row says most PPU registers power on unknown, so this only");
-    a.c("reports the readable ones. The verdict confirms the capture ran — the one thing that");
-    a.c("could silently fail to happen.");
+    // The one thing that IS asserted (via the helper, not a hand-written verdict): the
+    // capture-complete marker. Reset clears it and `capture_power_on` sets it $A5 only after the
+    // five stores above, so a bypassed or early-exiting capture fails here rather than reporting
+    // golden values read from stale WRAM.
+    a.c("Assert the capture-complete marker so the reported values cannot be stale WRAM.");
     a.l("sep #$20");
-    a.l("lda #$03          ; variant 1 = captured; the numbers are in slots 242-246");
-    a.l("sta f:$7EE010");
-    a.l("jml test_restore");
+    a.l("lda f:V_PO_READY");
+    a.assert_a8(
+        0xA5,
+        "capture_power_on did not set the power-on-capture-complete marker, so the reported PPU \
+         registers are stale WRAM rather than the power-on values this row is about",
+    );
     a.finish(
         "G1.05",
         'G',
         "Power-on PPU registers",
-        Provenance::Contested(
+        Provenance::Documented(
             "the dossier marks the PPU power-on state indeterminate ('no boot ROM; most PPU \
-             registers start unknown') and says to report it, never assert; the write-only \
-             registers cannot be reported at all",
+             registers start unknown') and says to report it, never assert; the readable registers \
+             ($2134-$2136, $213E/$213F) are reported and the only scored check is the self-guard \
+             that the power-on capture actually ran",
         ),
-        Kind::Golden,
+        Kind::Scored,
         None,
     )
 }

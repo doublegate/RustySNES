@@ -2687,9 +2687,11 @@ Provenance: **Documented** (SNESdev Wiki, power-on state; WDC 65C816 datasheet, 
 
 ### G1.05 — Power-on PPU registers
 
-Provenance: **Contested** (the dossier marks the PPU power-on state indeterminate ('no boot ROM; most PPU registers start unknown') and says to report it, never assert; the write-only registers cannot be reported at all). Kind: golden vector, never scored.
+Provenance: **Documented** (the dossier marks the PPU power-on state indeterminate ('no boot ROM; most PPU registers start unknown') and says to report it, never assert; the readable registers ($2134-$2136, $213E/$213F) are reported and the only scored check is the self-guard that the power-on capture actually ran). Kind: scored.
 
-No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | capture_power_on did not set the power-on-capture-complete marker, so the reported PPU registers are stale WRAM rather than the power-on values this row is about |
 
 ### G1.08 — Write-only read: openbus
 

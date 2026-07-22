@@ -108,6 +108,8 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     sep #$20
     .a8
 
+    lda #$00                    ; clear the capture-complete marker BEFORE capturing (G1.05 asserts
+    sta f:V_PO_READY            ; it) — STZ has no long-addressing form, so LDA/STA
     jsr capture_power_on        ; MUST precede init_registers — see below
 
     ; Start, from the menu, restarts the whole battery -- but re-enters HERE, after the power-on
@@ -319,6 +321,11 @@ restart_entry:
     sta f:V_PO_PPU + 3
     lda $213F
     sta f:V_PO_PPU + 4
+
+    ; The capture-complete marker, set LAST — so G1.05 can prove every store above ran rather than
+    ; reporting "captured" over stale WRAM if this proc were ever bypassed or exited early.
+    lda #$A5
+    sta f:V_PO_READY
 
     rts
 .endproc

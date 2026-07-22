@@ -80,8 +80,9 @@ pattern the C7 sprite tests established.
   trigger, address destroyed during render), the 9- and 10-bit `VMAIN` remap rotations,
   CGRAM-during-render, counter-flipflop independence, `C7.04`–`C7.09` sprite flag set positions,
   `C9.05` overscan vblank deferral, `C11.07`/`C11.08` MPY latch corruption and MPY-during-render.
-- **T-04-G · Group G (10 uncovered)** — power-on / reset state. The mechanism is done and now has
-  four consumers: `capture_power_on` in `asm/runtime.s` runs at the top of reset, *before*
+- **T-04-G · Group G (10 uncovered)** — power-on / reset state. The mechanism is done and has
+  several consumers (the Group-G power-on tests plus `D1.11`/`B5.05`; `g1_05` added the PPU-register
+  sample): `capture_power_on` in `asm/runtime.s` runs at the top of reset, *before*
   `init_registers`, and stashes what it samples in a documented WRAM capture block (`$E040-`, see
   `runtime.inc`); tests read the capture rather than the live registers. It grew two additions with
   `G1.02`/`G1.04` — the carry `XCE` leaves at the very top of `reset` (the boot-time emulation flag,
