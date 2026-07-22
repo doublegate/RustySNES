@@ -128,6 +128,12 @@ fn pal_rom_path() -> PathBuf {
     build_dir().join("accuracysnes-pal.sfc")
 }
 
+/// The parallel HiROM image: the shared runtime plus the small HiROM/SRAM battery, linked with
+/// `hirom.cfg` + `header-hirom.s` (see `main.rs::build_hirom_image`).
+fn hirom_rom_path() -> PathBuf {
+    build_dir().join("accuracysnes-hirom.sfc")
+}
+
 /// A decoded verdict byte. Mirrors the encoding in `gen/src/dsl.rs`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Verdict {
@@ -421,6 +427,47 @@ fn header_is_detected() {
     assert_eq!(rom.len(), 256 * 1024, "expected a 256 KiB image");
     let cart = Cart::from_rom(&rom).expect("AccuracySNES header must be detectable");
     eprintln!("AccuracySNES detected as {:?}", cart.header.map_mode);
+}
+
+/// The parallel HiROM image decodes as HiROM on-cart, and its battery scores with no failures.
+///
+/// This is the on-cart complement to `rustysnes-cart`'s HiROM board unit tests: the image only
+/// boots and reports if the emulator selected the HiROM board and decoded the `$00:8000-$FFFF`
+/// runtime window the HiROM way (a LoROM decode would map `$00:8000` to ROM offset 0, the reset
+/// vector would not point at the runtime, and nothing would ever populate the results block).
+/// `g1_15` then asserts the window/linear/`$40`-mirror decode explicitly. Coverage: G1.15.
+#[test]
+fn hirom_image_decodes_and_scores() {
+    if !hirom_rom_path().is_file() {
+        eprintln!("SKIP accuracysnes HiROM: image absent (run `cargo run -p accuracysnes-gen`)");
+        return;
+    }
+    let rom = std::fs::read(hirom_rom_path()).expect("read HiROM image");
+    let cart = Cart::from_rom(&rom).expect("HiROM header must be detectable");
+    assert_eq!(
+        cart.header.map_mode,
+        rustysnes_core::cart::MapMode::HiRom,
+        "the HiROM image was not detected as HiROM (got {:?})",
+        cart.header.map_mode
+    );
+
+    let report = run_image(&hirom_rom_path()).expect("HiROM image runs");
+    assert!(
+        report.done,
+        "the HiROM battery never finished — the runtime likely did not boot in the $00:8000 window \
+         (check that MMIO decodes under HiROM: hirom.cfg places the runtime there for exactly this)"
+    );
+    assert!(report.count >= 1, "the HiROM battery reported no tests");
+    assert_eq!(
+        report.failed, 0,
+        "the HiROM battery had {} failing test(s) of {}",
+        report.failed, report.count
+    );
+    assert!(report.passed >= 1, "the HiROM battery scored nothing");
+    eprintln!(
+        "AccuracySNES HiROM: {} test(s), {} passed, {} failed",
+        report.count, report.passed, report.failed
+    );
 }
 
 /// Base of the cart's raw measurement channel — must match `gen/src/dsl.rs` and `runtime.inc`.

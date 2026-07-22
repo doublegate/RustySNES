@@ -38,6 +38,13 @@ const COUNTRY_PAL: u8 = 0x02;
 /// Expected image size: 128 KiB (four 32 KiB LoROM banks).
 const ROM_SIZE: usize = 256 * 1024;
 
+/// File offset of the HiROM header checksum words. HiROM maps `$00:FFDC` to file offset `$FFDC`.
+const HIROM_CHECKSUM_OFFSET: usize = 0xFFDC;
+
+/// The parallel HiROM image size: 64 KiB (the smallest HiROM layout — a `$C0` linear low half plus
+/// the `$00:8000` runtime window).
+const HIROM_ROM_SIZE: usize = 64 * 1024;
+
 fn main() {
     let root = cart_root();
     let asm_dir = root.join("asm");
@@ -53,8 +60,15 @@ fn main() {
     write(&asm_dir.join("scenes.s"), &scenes::asm());
 
     // --- generated data the host side consumes ---
-    dossier::validate(&battery);
+    // Coverage and MAP validation span BOTH images' batteries: a dossier row covered only in the
+    // HiROM image (e.g. G1.15) is still covered. Each image has its own WRAM measurement channel,
+    // so the slot-collision check stays per-image.
+    let hirom_battery = tests::hirom();
+    let mut coverage_battery = battery.clone();
+    coverage_battery.extend(hirom_battery.iter().cloned());
+    dossier::validate(&coverage_battery);
     dossier::check_slots(&battery);
+    dossier::check_slots(&hirom_battery);
     write(&root.join("SOURCE_CATALOG.tsv"), &emit::catalog(&battery));
     // Next to the ROM, not in the source tree: it describes THIS build's scene numbering, and a
     // host that reads a manifest from a different build would key its goldens off the wrong names.
@@ -74,7 +88,7 @@ fn main() {
     let coverage_path = dossier_path.with_file_name("accuracysnes-coverage.md");
     write(
         &coverage_path,
-        &dossier::coverage_report(&battery, &enumerated),
+        &dossier::coverage_report(&coverage_battery, &enumerated),
     );
     write(&root.join("ERROR_CODES.md"), &emit::readme_codes(&battery));
 
@@ -134,6 +148,78 @@ fn main() {
     assert_eq!(sum ^ comp, 0xFFFF, "checksum/complement invariant broken");
 
     write_pal_image(&image, &build_dir.join("accuracysnes-pal.sfc"));
+
+    build_hirom_image(&root, &asm_dir, &build_dir);
+}
+
+/// Build the parallel HiROM image: the shared `runtime.s` (assembled with `-D HIROM_BUILD` so its
+/// LoROM-only per-bank signature blocks are dropped) plus the small HiROM battery, linked with
+/// `hirom.cfg` and `header-hirom.s`. It self-scores the emulator's HiROM decode and SRAM window.
+///
+/// Each unit gets its own object file (`*-hirom.o`) so the LoROM objects are untouched, and the
+/// checksum is patched at the HiROM header offset (`$FFDC`) rather than LoROM's `$7FDC`.
+fn build_hirom_image(root: &Path, asm_dir: &Path, build_dir: &Path) {
+    let battery = tests::hirom();
+    println!("accuracysnes-gen: HiROM image — {} test(s)", battery.len());
+    write(&asm_dir.join("tests_hirom.s"), &emit::asm(&battery));
+
+    let units = [
+        ("runtime", "runtime-hirom"),
+        ("header-hirom", "header-hirom"),
+        ("tests_hirom", "tests_hirom"),
+        ("font", "font-hirom"),
+    ];
+    let mut objects = Vec::new();
+    for (src_stem, obj_stem) in units {
+        let src = asm_dir.join(format!("{src_stem}.s"));
+        let obj = build_dir.join(format!("{obj_stem}.o"));
+        run(
+            Command::new("ca65")
+                .arg("--cpu")
+                .arg("65816")
+                .arg("-D")
+                .arg("HIROM_BUILD")
+                .arg("-I")
+                .arg(asm_dir)
+                .arg("-o")
+                .arg(&obj)
+                .arg(&src),
+            &format!("ca65 {src_stem} (HiROM)"),
+        );
+        objects.push(obj);
+    }
+
+    let sfc = build_dir.join("accuracysnes-hirom.sfc");
+    let mut link = Command::new("ld65");
+    link.arg("-C")
+        .arg(root.join("hirom.cfg"))
+        .arg("-o")
+        .arg(&sfc)
+        .arg("-m")
+        .arg(build_dir.join("accuracysnes-hirom.map"));
+    for obj in &objects {
+        link.arg(obj);
+    }
+    run(&mut link, "ld65 (HiROM)");
+
+    let mut image = std::fs::read(&sfc).expect("read linked HiROM image");
+    assert_eq!(
+        image.len(),
+        HIROM_ROM_SIZE,
+        "linked HiROM image is {} bytes, expected {HIROM_ROM_SIZE}",
+        image.len()
+    );
+    patch_checksum_at(&mut image, HIROM_CHECKSUM_OFFSET);
+    std::fs::write(&sfc, &image).expect("write patched HiROM image");
+    let sum = u16::from_le_bytes([
+        image[HIROM_CHECKSUM_OFFSET + 2],
+        image[HIROM_CHECKSUM_OFFSET + 3],
+    ]);
+    println!(
+        "accuracysnes-gen: wrote {} ({} bytes, HiROM, checksum ${sum:04X})",
+        sfc.display(),
+        image.len()
+    );
 }
 
 /// Write the PAL sibling image: the same battery, one header byte apart.
@@ -185,24 +271,30 @@ fn write_pal_image(ntsc: &[u8], path: &Path) {
     );
 }
 
-/// Compute and write the SNES header checksum and its complement.
+/// Compute and write the SNES header checksum and its complement at `offset` (the file offset of
+/// `$FFDC`: `$7FDC` for LoROM, `$FFDC` for HiROM).
 ///
 /// The image is a power of two, so this is a plain 16-bit sum of every byte with the checksum
 /// field itself neutralised first (complement `$0000`, checksum `$FFFF`) — the convention every
 /// SNES header follows.
-fn patch_checksum(image: &mut [u8]) {
-    image[CHECKSUM_OFFSET] = 0x00;
-    image[CHECKSUM_OFFSET + 1] = 0x00;
-    image[CHECKSUM_OFFSET + 2] = 0xFF;
-    image[CHECKSUM_OFFSET + 3] = 0xFF;
+fn patch_checksum_at(image: &mut [u8], offset: usize) {
+    image[offset] = 0x00;
+    image[offset + 1] = 0x00;
+    image[offset + 2] = 0xFF;
+    image[offset + 3] = 0xFF;
     let sum = image
         .iter()
         .fold(0u16, |acc, &b| acc.wrapping_add(u16::from(b)));
     let comp = !sum;
-    image[CHECKSUM_OFFSET] = (comp & 0xFF) as u8;
-    image[CHECKSUM_OFFSET + 1] = (comp >> 8) as u8;
-    image[CHECKSUM_OFFSET + 2] = (sum & 0xFF) as u8;
-    image[CHECKSUM_OFFSET + 3] = (sum >> 8) as u8;
+    image[offset] = (comp & 0xFF) as u8;
+    image[offset + 1] = (comp >> 8) as u8;
+    image[offset + 2] = (sum & 0xFF) as u8;
+    image[offset + 3] = (sum >> 8) as u8;
+}
+
+/// LoROM convenience wrapper for [`patch_checksum_at`].
+fn patch_checksum(image: &mut [u8]) {
+    patch_checksum_at(image, CHECKSUM_OFFSET);
 }
 
 /// The `tests/roms/AccuracySNES` directory, derived from this crate's manifest path.

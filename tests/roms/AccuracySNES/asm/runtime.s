@@ -35,6 +35,12 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     .byte "SIG0", $00, $A0, $00, $00
     .addr bankprobe_0
     .byte $00, $00, $00, $00, $00, $00
+; BANK1-3 sit at $01/$02/$03:$8000 under LoROM. A HiROM image maps those CPU addresses to ROM
+; offsets that a small second image does not contain, so the per-bank signature blocks are LoROM-only.
+; The generator defines HIROM_BUILD when assembling this file for the HiROM/ExHiROM images (whose
+; battery excludes the bank-crossing A4 tests these serve). SIG0 stays: $00:$8000 is a valid HiROM
+; window address and the block is inert when no test reads it.
+.ifndef HIROM_BUILD
 .segment "BANK1"
     .byte "SIG1", $00, $A1, $00, $00
     .addr bankprobe_1
@@ -43,6 +49,7 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     .byte "SIG2", $00, $A2, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
 .segment "BANK3"
     .byte "SIG3", $00, $A3, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+.endif
 
 .segment "CODE"
 
@@ -125,7 +132,11 @@ restart_entry:
 
     jsr run_all_tests           ; runs with the screen still blanked
 
+    ; Rendered scenes (ADR 0013) are a LoROM-image feature: they need the scene table from scenes.s,
+    ; which the minimal HiROM image does not link. HiROM self-scores its battery and stops.
+    .ifndef HIROM_BUILD
     jsr run_scenes              ; rendered scenes for the host framebuffer oracle (ADR 0013)
+    .endif
 
     ; Reload the menu palette: the rendered scenes just overwrote CGRAM, and draw_screen must draw
     ; the results in the menu's own green rather than whatever the last scene left behind.
@@ -1346,6 +1357,7 @@ test_restore := test_restore_impl
     rts
 .endproc
 
+.ifndef HIROM_BUILD
 .proc run_scenes
     ; The battery leaves DBR and DP wherever the last test put them — a test owns its own bank and
     ; direct page (see the dispatch loop above, which re-establishes both before every call). So
@@ -1458,6 +1470,7 @@ test_restore := test_restore_impl
     stz TM
     rts
 .endproc
+.endif
 
 ; ---------------------------------------------------------------------------------------------
 ; Interactive list. The battery has already finished by the time we get here.

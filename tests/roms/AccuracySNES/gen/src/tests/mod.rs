@@ -12,13 +12,14 @@ pub mod bus;
 pub mod cart;
 pub mod cpu;
 pub mod dma;
+pub mod hirom;
 pub mod input;
 pub mod ppu;
 pub mod sweep;
 
 use crate::dsl::Test;
 
-/// Every test in the battery, in menu order.
+/// Every test in the LoROM battery, in menu order.
 #[must_use]
 pub fn all() -> Vec<Test> {
     let mut v = cpu::all();
@@ -30,4 +31,14 @@ pub fn all() -> Vec<Test> {
     v.extend(cart::all());
     v.extend(sweep::all());
     v
+}
+
+/// The HiROM image's battery — the Group G rows that need a HiROM cartridge layout to observe.
+///
+/// Emitted into `build/accuracysnes-hirom.sfc` (linked with `hirom.cfg` + `header-hirom.s`), never
+/// into the LoROM image. Small by construction: it shares the LoROM runtime and exists only to
+/// self-score the HiROM decode and SRAM window.
+#[must_use]
+pub fn hirom() -> Vec<Test> {
+    hirom::all()
 }
