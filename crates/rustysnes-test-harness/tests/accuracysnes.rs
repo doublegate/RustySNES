@@ -1542,7 +1542,6 @@ fn the_dpad_scrolls_the_list() {
         sys.run_frame();
     }
     sys.bus.set_joypad(0, PAD_CONTRACT);
-    sys.bus.set_joypad(1, PAD2_CONTRACT);
     for _ in 0..6 {
         sys.run_frame();
     }
@@ -1576,7 +1575,6 @@ fn the_dpad_scrolls_the_list() {
         sys.run_frame();
     }
     sys.bus.set_joypad(0, PAD_CONTRACT);
-    sys.bus.set_joypad(1, PAD2_CONTRACT);
     for _ in 0..6 {
         sys.run_frame();
     }
@@ -1594,7 +1592,6 @@ fn the_dpad_scrolls_the_list() {
         sys.bus.set_joypad(0, PAD_CONTRACT | PAD_DOWN);
         sys.run_frame();
         sys.bus.set_joypad(0, PAD_CONTRACT);
-        sys.bus.set_joypad(1, PAD2_CONTRACT);
         sys.run_frame();
     }
     for _ in 0..4 {
@@ -1634,7 +1631,6 @@ fn the_dpad_scrolls_the_list() {
         sys.run_frame();
     }
     sys.bus.set_joypad(0, PAD_CONTRACT);
-    sys.bus.set_joypad(1, PAD2_CONTRACT);
     for _ in 0..600 {
         sys.run_frame();
     }
@@ -1663,7 +1659,6 @@ fn the_dpad_scrolls_the_list() {
         sys.run_frame();
     }
     sys.bus.set_joypad(0, PAD_CONTRACT);
-    sys.bus.set_joypad(1, PAD2_CONTRACT);
     // `run_all_tests` clears R_DONE at its very start, well before the scene loop clears
     // R_SCENE_DONE ~430 frames later, so R_DONE is the prompt signal that a restart began.
     let mut cleared = false;
