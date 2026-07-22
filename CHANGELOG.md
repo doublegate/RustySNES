@@ -658,6 +658,15 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E5.13` — a voice never stops decoding BRR (S-DSP).** Key-off releases the envelope but the BRR
+  decoder advances on the pitch clock regardless, so a released, silent voice still reaches its end
+  blocks and re-sets `ENDX`. The voice loops a sample and is keyed off; slot 240 records `ENVX = $00`
+  (the guard that it is genuinely silent, not merely a voice that never started), then `ENDX` is
+  cleared and re-read at slot 241 — voice 0's bit reads set because the released voice kept looping.
+  A core that halts a silent voice's decoder leaves it clear and fails; verified by injecting exactly
+  that halt into `voice4`. The assert masks to voice 0's bit because other voices carry leftover
+  `ENDX` bits from earlier tests. Cross-validated on snes9x and Mesen2.
+  Coverage: 276 -> 277 on-cart assertion rows (327/443 with rendered scenes).
 - **`E8.05` — KON is write-triggered and non-persistent (S-DSP key-on).** A voice is keyed on with
   `$4C` bit 0 and the register bit is deliberately **left set**; a correct DSP keys on once and, under
   direct gain, its envelope escapes the five-sample key-on delay and `ENVX` reads `$7F`. A core that

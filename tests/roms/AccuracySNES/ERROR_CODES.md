@@ -2339,6 +2339,15 @@ Provenance: **Documented** (fullsnes, S-DSP BRR filters; anomie's DSP doc). Kind
 |---|---|---|
 | 1 | `$02` | filter 1 did not settle well above its constant input — a single-digit reading is filter 0's answer, so the filter was not applied |
 
+### E5.13 — Released voices decode
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: the BRR decoder advances on the pitch clock regardless of the envelope; voices never actually stop decoding). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the voice was not silent after key-off, so its ENDX below says nothing about decoding while released |
+| 2 | `$04` | voice 0 stopped setting ENDX after key-off — its BRR decoder halted, but decoding continues independently of the envelope and the sample position must keep advancing |
+
 ### E7.01 — Rate 0 never fires
 
 Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc). Kind: scored.

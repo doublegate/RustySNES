@@ -112,6 +112,7 @@ pub fn all() -> Vec<Test> {
         e5_03(),
         e5_04(),
         e5_05(),
+        e5_13(),
         e7_01(),
         e7_13(),
         e7_17(),
@@ -4633,6 +4634,116 @@ fn e5_05() -> Test {
         'E',
         "BRR filter 1",
         Provenance::Documented("fullsnes, S-DSP BRR filters; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// A voice never stops decoding BRR — a key-off releases the envelope but the decoder keeps running.
+///
+/// The envelope generator and the BRR decoder are independent: key-off drives the envelope to zero
+/// but the decoder advances through blocks on the pitch clock regardless, which is why a released
+/// voice still reaches its end blocks and still sets `ENDX`. A core that shortcuts a silent voice by
+/// halting its decoder saves nothing a game can hear at the moment — but the sample position it
+/// stops advancing is the one a later key-on or `SRCN` swap resumes from, so the wrong block plays.
+///
+/// # Two reads that guard each other
+///
+/// The voice loops a sample, then is keyed **off** and left to release. Slot 240 records `ENVX = $00`
+/// — the voice is silent, which is what makes "still decoding" a non-trivial claim rather than
+/// something a merely-playing voice satisfies for free. `ENDX` is then cleared and, after a wait,
+/// read back at slot 241: it reads `$01` because the released voice kept looping through its end
+/// block and re-set it. A core that stops decoding for released voices leaves `ENDX` clear and fails
+/// slot 241; a core where the voice never went silent fails the `ENVX` guard at slot 240.
+fn e5_13() -> Test {
+    let mut p = Spc::new();
+    let addr = p.data_first(IMAGE_BASE, &looping_sample()); // end+loop: crosses its end block forever
+    p.mov_x_imm(0xEF).mov_sp_x();
+    let dir = u16::from(DIR_PAGE) << 8;
+    let [lo, hi] = addr.to_le_bytes();
+    p.mov_a_imm(lo).mov_abs_a(dir);
+    p.mov_a_imm(hi).mov_abs_a(dir + 1);
+    p.mov_a_imm(lo).mov_abs_a(dir + 2); // loop address: the same block, so it repeats
+    p.mov_a_imm(hi).mov_abs_a(dir + 3);
+    dsp_write(&mut p, 0x6C, 0x20); // FLG: running, unmuted, echo writes off
+    dsp_write(&mut p, 0x5C, 0x00); // KOF
+    dsp_write(&mut p, 0x3D, 0x00); // NON
+    dsp_write(&mut p, 0x4D, 0x00); // EON
+    dsp_write(&mut p, 0x2D, 0x00); // PMON
+    dsp_write(&mut p, 0x5D, DIR_PAGE);
+    dsp_write(&mut p, 0x0C, 0x7F); // MVOLL
+    dsp_write(&mut p, 0x1C, 0x7F); // MVOLR
+    dsp_write(&mut p, 0x00, 0x7F); // VOL L
+    dsp_write(&mut p, 0x01, 0x7F); // VOL R
+    dsp_write(&mut p, 0x02, 0x00); // PITCH low
+    dsp_write(&mut p, 0x03, 0x10); // PITCH high: one sample per output sample
+    dsp_write(&mut p, 0x04, 0x00); // SRCN
+    dsp_write(&mut p, 0x06, 0x00); // ADSR2
+    dsp_write(&mut p, 0x07, 0x08); // GAIN: direct, low — so the key-off release reaches zero quickly
+    dsp_write(&mut p, 0x05, 0x00); // ADSR1 bit 7 clear: GAIN governs
+    dsp_write(&mut p, 0x7C, 0x00); // ENDX: known start
+    dsp_write(&mut p, 0x4C, 0x01); // KON voice 0
+    p.delay(0x00);
+    dsp_write(&mut p, 0x4C, 0x00); // clear KON (edge)
+    p.delay(0x00); // let it loop and sound
+
+    dsp_write(&mut p, 0x5C, 0x01); // KOFF voice 0: release the envelope
+    p.delay(0x00);
+    p.delay(0x00); // release $80 -> 0 (about sixteen samples) with margin to spare
+    dsp_read_to(&mut p, 0x08, PORT1); // ENVX: $00, the voice is released and silent — the guard
+
+    dsp_write(&mut p, 0x7C, 0x00); // clear ENDX while the voice is released
+    // At pitch $1000 the voice decodes one BRR sample per four output samples, so a 16-sample loop
+    // is ~64 output samples. One `delay($00)` is only ~15-20 samples, so wait ten of them — several
+    // loop lengths — so a still-decoding voice is certain to re-cross its end block in the window.
+    for _ in 0..10 {
+        p.delay(0x00);
+    }
+    dsp_read_to(&mut p, 0x7C, PORT2); // ENDX: $01 if decoding continued despite the release
+    dsp_write(&mut p, 0x5C, 0x00); // tidy: clear KOFF
+    p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &p);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(
+        240,
+        "E5.13 ENVX after key-off release (the guard: the voice is silent)",
+    );
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(241, "E5.13 ENDX cleared then re-read while released");
+    a.c("The guard: a released voice reads ENVX $00, so the ENDX below is not just a playing voice.");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x00,
+        0x00,
+        "the voice was not silent after key-off, so its ENDX below says nothing about decoding while \
+         released",
+    );
+    a.c("A released voice keeps decoding and re-crosses its end block: voice 0's ENDX bit reads set.");
+    a.c("A core that halts a silent voice's decoder leaves it clear. Mask to bit 0 — other voices may");
+    a.c("carry leftover ENDX bits from an earlier test, which is why the raw slot can read $03.");
+    a.l("lda f:$7E0101");
+    a.l("and #$0001"); // voice 0's ENDX bit only; other voices' leftovers are not this test's subject
+    a.assert_a16_range(
+        0x01,
+        0x01,
+        "voice 0 stopped setting ENDX after key-off — its BRR decoder halted, but decoding continues \
+         independently of the envelope and the sample position must keep advancing",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E5.13",
+        'E',
+        "Released voices decode",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: the BRR decoder advances on the pitch clock regardless \
+             of the envelope; voices never actually stop decoding",
+        ),
         Kind::Scored,
         None,
     )
