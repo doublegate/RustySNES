@@ -11,6 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Automatic joypad read is now a timed ~4224-clock operation with a busy flag, not an instant
+  latch (cycle-accuracy, Tier-1 T-CA-01/03).** The auto-read previously completed the moment vblank
+  started, `$4212` bit 0 (auto-joypad busy) was never set, and `$4218-$421F` held the new result
+  immediately. It now models ares' `status.autoJoypadCounter` as a master-clock deadline: at vblank
+  entry the controller state is snapshotted, `$4212` bit 0 reads **busy** for the next 4224 master
+  clocks (33 steps x 128, ~3 scanlines), and the result publishes to `$4218-$421F` only at
+  completion — so a read during the window still sees the previous frame's value, as on hardware. The
+  busy window also fills `$4212` bits 1-5 with open bus. Verified: two new `rustysnes-core` unit
+  tests (the busy window + deferred publish, and the open-bus bits), AccuracySNES battery 290/290,
+  and snes9x + Mesen2 cross-validation unchanged (0 new divergences). The in-flight read's start
+  snapshot and busy deadline are in the save state (`FORMAT_VERSION` bumped 4 -> 5, `docs/adr/0006`),
+  so a save taken during the ~4224-clock window restores identical machine state; a round-trip test
+  covers the mid-window case, and pre-5 blobs fail loudly (no silent misinterpretation).
+- **`$4210` (RDNMI) and `$4211` (TIMEUP) now return open bus in their unused bits (cycle-accuracy,
+  Tier-1).** Both registers previously returned `0` in the bits the hardware leaves floating —
+  `$4210` bits 4-6 and `$4211` bits 0-6 — so a ROM that reads the full byte (rather than masking the
+  flag) saw the wrong value. They now OR in the CPU open-bus / MDR (`self.open_bus`, the pre-read
+  last-driven value) in exactly those positions, matching ares `CPU::readIO` (which writes only the
+  flag and, for `$4210`, the version nibble, leaving the rest as the incoming open-bus data) and
+  fullsnes. `$4210` keeps bit 7 = the read-clearing VBlank flag and bits 0-3 = CPU version 2; `$4211`
+  keeps bit 7 = the read-clearing IRQ flag. First landed item of the Tier-1 cycle-accuracy
+  remediation program (`to-dos/TIER1-CYCLE-ACCURACY.md`, T-CA-02). Verified: core + CPU unit suites
+  green, AccuracySNES battery 290/290 (B4.03/B4.04/B4.05 RDNMI tests unchanged — they mask the flag).
+
 - **OBJ interlace (`SETINI` $2133 bit 1) is now rendered, not just stored.** The bit was decoded and
   saved but never consulted, so a sprite drawn under OBJ interlace kept its full height where
   hardware halves it. The sprite renderer now ports ares `Object::onScanline`/`fetch`: the

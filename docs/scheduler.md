@@ -529,7 +529,20 @@ DMA/HDMA) plus the `System` run loop (`scheduler.rs`):
   `hdmaen_latch_test_2` among them).
 - **NMI / IRQ:** the RDNMI (`$4210`) VBlank flag sets at VBlank **regardless** of the NMITIMEN
   enable (so VBlank-poll loops like gilyon's work); the NMI *interrupt* and the H/V-IRQ comparator
-  (pushed to the PPU each dot) fire only when enabled.
+  (pushed to the PPU each dot) fire only when enabled. Both flag registers return **open bus** (the
+  CPU MDR, `self.open_bus` — the pre-read last-driven value) in the bits hardware leaves floating:
+  `$4210` bit 7 = the read-clearing VBlank flag, bits 4-6 = open bus, bits 0-3 = CPU version 2;
+  `$4211` (TIMEUP) bit 7 = the read-clearing IRQ flag, bits 0-6 = open bus. A ROM that reads the
+  whole byte instead of masking the flag therefore sees the last bus value in those positions, as on
+  hardware (ares `CPU::readIO`, fullsnes). Tier-1 remediation T-CA-02 (`to-dos/TIER1-CYCLE-ACCURACY.md`).
+- **Automatic joypad read (`$4200` bit 0):** a *timed* ~4224-master-clock operation, not an instant
+  latch. At vblank entry (while armed) the controller state is snapshotted; `$4212` bit 0 reads
+  **busy** for the next `AUTO_JOYPAD_CLOCKS` = 33 x 128 = 4224 clocks (ares `status.autoJoypadCounter`
+  as a master-clock deadline), and the result publishes to `$4218-$421F` only at completion — a read
+  during the window still holds the previous frame's value. `$4212` also returns open bus in bits
+  1-5. The busy deadline self-settles each dot, and the in-flight snapshot + deadline **are** in the
+  save state (`FORMAT_VERSION` 5, `docs/adr/0006`), so a save taken mid-window restores an identical
+  machine state. Tier-1 remediation T-CA-01/03.
 - **Deferred refinements** (no committed ROM depends on them yet): the 40-clock DRAM-refresh CPU
   stall (researched, not yet implemented — see §DRAM refresh above) and the PAL-frame
   master-clock cycle-check.

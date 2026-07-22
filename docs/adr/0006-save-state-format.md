@@ -90,6 +90,15 @@ and diffing the deterministic output against a fork that kept running uninterrup
   `1`→`2` mechanism above; no new fixture was added since the existing `savestate-v1-gilyon.bin`
   regression already proves the general "an older blob's section fails to parse under a newer,
   larger section layout" contract this bump also relies on.
+- **`4` → `5` (Tier-1 T-CA-01/03):** `crate::bus`'s `BUS0` section grew — the in-flight automatic
+  joypad read's start snapshot (`joypad_auto_pending`, two `u16`) and busy deadline
+  (`auto_joypad_busy_until`, one `u64`). The automatic read is now a timed ~4224-clock operation
+  whose `$4212` bit 0 busy state and deferred `$4218-$421F` publish are CPU-observable, so they are
+  saved for the same reason `Bus::joypad` already was — real, CPU-observable machine state — rather
+  than reset on load (the earlier iteration left them out, mirroring the `$43xB` scratch latch, but a
+  save mid-window would then have dropped an observable in-flight read). Reuses the same
+  older-blob-fails-loudly mechanism (`savestate-v1-gilyon.bin` proves it); a mid-window round-trip
+  unit test proves the busy state and deferred snapshot survive save/load exactly.
 - **The round-trip determinism test is the spec**: save → run N frames on a cloned/forked
   system → load the save into the original → run the same N frames → assert byte-identical
   framebuffer + audio output between the two. This extends `docs/adr/0004`'s existing

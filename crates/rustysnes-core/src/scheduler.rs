@@ -39,7 +39,12 @@ use crate::sa1_bus::Sa1Bus;
 /// (device selection + Mouse/Super Scope/Super Multitap runtime state). Same guarantee as the `2`
 /// bump above: a `FORMAT_VERSION < 3` blob fails loudly (a `BUS0` section-length mismatch), not
 /// silently.
-const FORMAT_VERSION: u16 = 4;
+///
+/// `5` (Tier-1 T-CA-01/03): `crate::bus`'s `BUS0` section grew again — the in-flight automatic
+/// joypad read's start snapshot (`joypad_auto_pending`) and busy deadline (`auto_joypad_busy_until`),
+/// so a save taken during the ~4224-clock auto-read window restores identical machine state. Same
+/// old-blob-fails-loudly guarantee.
+const FORMAT_VERSION: u16 = 5;
 /// The save-state envelope's leading magic bytes — identifies the blob as a RustySNES save-state
 /// before anything else is trusted.
 const MAGIC: &[u8; 4] = b"RSNS";

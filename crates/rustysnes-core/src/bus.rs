@@ -47,6 +47,19 @@ const WRAM_SIZE: usize = 128 * 1024;
 /// Master clocks per PPU dot, for every dot except the two long ones.
 const MASTER_PER_DOT: u32 = 4;
 
+/// Duration of an automatic joypad read, in master clocks. ares steps `status.autoJoypadCounter`
+/// 0 -> 33 once every 128 master clocks (`joypadCounter() = counter.cpu & 127`), so the read is busy
+/// for 33 * 128 = 4224 master clocks (~3 scanlines) from vblank entry; `$4212` bit 0 reads 1 and the
+/// result is not yet published for that whole window (`sfc/cpu/timing.cpp` `joypadEdge`).
+const AUTO_JOYPAD_CLOCKS: u64 = 33 * 128;
+
+/// Open-bus (MDR) masks for the CPU flag registers' floating bits — the positions ares `CPU::readIO`
+/// leaves as the incoming open-bus value: `$4210` RDNMI bits 4-6, `$4211` TIMEUP bits 0-6, `$4212`
+/// HVBJOY bits 1-5.
+const RDNMI_OPEN_BUS_MASK: u8 = 0x70;
+const TIMEUP_OPEN_BUS_MASK: u8 = 0x7F;
+const HVBJOY_OPEN_BUS_MASK: u8 = 0x3E;
+
 /// The two dots that take **6** master clocks instead of 4 (`T-06-A`).
 ///
 /// Hardware's scanline is 340 dots and 1364 master clocks, which `338 × 4 + 2 × 6` satisfies and a
@@ -276,6 +289,13 @@ pub struct Bus {
     /// could not detect this until the battery gained a host input contract, because with nothing
     /// held both behaviours report `$0000`.
     joypad_auto: [u16; 2],
+    /// The port snapshot taken at the START of a timed automatic read, held until the read completes
+    /// and then committed to [`Self::joypad_auto`]. See [`Self::begin_auto_joypad`].
+    joypad_auto_pending: [u16; 2],
+    /// `clock.master` instant the in-flight automatic joypad read completes (0 = idle). While
+    /// non-zero, `$4212` bit 0 reads busy and `$4218-$421F` still hold the previous result — the read
+    /// publishes at completion, ~[`AUTO_JOYPAD_CLOCKS`] master clocks after vblank entry.
+    auto_joypad_busy_until: u64,
     joypad_strobe: bool,
     /// Per-port peripheral state (`v0.9.0`, Phase 7 niche peripherals) — Mouse/Super Scope/Super
     /// Multitap. Idle (and touching nothing on `$4016`/`$4017`'s `data1` bit) unless a port's
@@ -349,6 +369,8 @@ impl Bus {
             joypad: [0; 2],
             joypad_shift: [0; 2],
             joypad_auto: [0; 2],
+            joypad_auto_pending: [0; 2],
+            auto_joypad_busy_until: 0,
             joypad_strobe: false,
             ports: [PortState::default(), PortState::default()],
             pio: 0xFF,
@@ -387,12 +409,13 @@ impl Bus {
         self.ppu.set_region(ppu_region);
     }
 
-    /// Perform the automatic joypad read: latch the ports into [`Self::joypad_auto`].
+    /// Compute the automatic-read result from the current port state (does **not** publish it).
     ///
-    /// Called at vblank entry while `$4200` bit 0 is set. Split out from the caller so the unit
-    /// tests exercise the same definition the scheduler does rather than a hand-written stand-in.
-    fn poll_auto_joypad(&mut self) {
-        self.joypad_auto = if self.joypad_strobe {
+    /// A latch held high (`joypad_strobe`) reloads the shift registers every clock instead of
+    /// shifting, so all sixteen bits read back as the first bit — `$FFFF`/`$0000` per the held bit
+    /// (AccuracySNES `F1.11`). Otherwise the read returns the latched pad word.
+    fn capture_auto_joypad(&self) -> [u16; 2] {
+        if self.joypad_strobe {
             core::array::from_fn(|i| {
                 if self.joypad[i] & 0x8000 == 0 {
                     0x0000
@@ -402,10 +425,42 @@ impl Bus {
             })
         } else {
             self.joypad
-        };
+        }
     }
 
-    /// [`Self::poll_auto_joypad`], reachable from the unit tests without running a whole frame.
+    /// Perform the automatic joypad read **immediately** (no busy window): latch into
+    /// [`Self::joypad_auto`]. The scheduler uses the timed [`Self::begin_auto_joypad`] instead;
+    /// this instant form is the unit-test helper and any legacy caller.
+    #[cfg(test)]
+    fn poll_auto_joypad(&mut self) {
+        self.joypad_auto = self.capture_auto_joypad();
+    }
+
+    /// Begin a timed automatic joypad read at vblank (ares `status.autoJoypadCounter`, modelled as a
+    /// master-clock deadline). The controller state is snapshotted **now** (ares latches at counter
+    /// 0), but published to [`Self::joypad_auto`] only once the read completes ~[`AUTO_JOYPAD_CLOCKS`]
+    /// master clocks later — so `$4218-$421F` read during the window still hold the *previous*
+    /// frame's result and `$4212` bit 0 reads busy. Called at vblank entry while `$4200` bit 0 is set.
+    fn begin_auto_joypad(&mut self) {
+        self.settle_auto_joypad(); // finish any read still nominally in flight from last frame
+        self.joypad_auto_pending = self.capture_auto_joypad();
+        self.auto_joypad_busy_until = self.clock.master + AUTO_JOYPAD_CLOCKS;
+    }
+
+    /// Publish a completed automatic read: once `clock.master` reaches the deadline, commit the
+    /// snapshot to [`Self::joypad_auto`] and clear the busy window. Idempotent and cheap; call before
+    /// any observation of `$4212` bit 0 or `$4218-$421F`.
+    const fn settle_auto_joypad(&mut self) {
+        if self.auto_joypad_busy_until != 0 && self.clock.master >= self.auto_joypad_busy_until {
+            self.joypad_auto = self.joypad_auto_pending;
+            self.auto_joypad_busy_until = 0;
+        }
+    }
+
+    /// The instant [`Self::poll_auto_joypad`] latch, reachable from the unit tests without running a
+    /// whole frame. Production scheduling does NOT use this path — it uses the timed
+    /// [`Self::begin_auto_joypad`] (start the busy window) + [`Self::settle_auto_joypad`] (publish at
+    /// the deadline); this helper exists only so a test can populate `joypad_auto` in one call.
     #[cfg(test)]
     fn poll_auto_joypad_for_test(&mut self) {
         self.poll_auto_joypad();
@@ -764,9 +819,14 @@ impl Bus {
                 // not merely stale. Software that hand-polls `$4016` must disarm auto-read or keep
                 // its strobing out of vblank. AccuracySNES `F1.11`; Mesen2 models this, snes9x
                 // does not.
-                self.poll_auto_joypad();
+                self.begin_auto_joypad();
             }
         }
+        // Complete a timed automatic read when its deadline passes, so `$4212` bit 0 and the
+        // `$4218-$421F` result reflect the true ~4224-clock window even without an intervening
+        // register read. The in-flight snapshot + deadline are serialized (`FORMAT_VERSION` 5), so a
+        // save mid-window restores identically.
+        self.settle_auto_joypad();
         // RDNMI's VBlank flag is cleared by a read *and*, independently, at the end of VBlank.
         // Modelling only the read left it set through the whole active display, so code that
         // polls $4210 outside VBlank saw a VBlank that had already ended and acted a frame late.
@@ -830,6 +890,9 @@ impl Bus {
     // --- CPU registers ($4016/$4017 + $4200-$421F). ---------------------------------------
 
     fn read_cpu_reg(&mut self, addr: u16) -> u8 {
+        // Publish a completed automatic joypad read (and clear its busy window) before observing
+        // `$4212` bit 0 or the `$4218-$421F` result, so a read at any dot sees the exact state.
+        self.settle_auto_joypad();
         match addr {
             0x4016 => {
                 let (d1, d2) = self.port_clock(0);
@@ -844,20 +907,35 @@ impl Bus {
                 self.pio
             }
             0x4210 => {
-                // RDNMI: bit7 = VBlank-occurred flag (read clears), bits0-3 = CPU version (2).
-                let v = (u8::from(self.clock.rdnmi_flag) << 7) | 0x02;
+                // RDNMI: bit7 = VBlank-occurred flag (read clears), bits4-6 = open bus (the MDR,
+                // held in `self.open_bus` — the pre-read last-driven value), bits0-3 = CPU version
+                // (2). ares `CPU::readIO` $4210 leaves bits 4-6 as the incoming data (open bus) and
+                // only writes `io.version` into bits 0-3 and the flag into bit 7.
+                let v = (u8::from(self.clock.rdnmi_flag) << 7)
+                    | (self.open_bus & RDNMI_OPEN_BUS_MASK)
+                    | 0x02;
                 self.clock.rdnmi_flag = false;
                 v
             }
             0x4211 => {
-                // TIMEUP: bit7 = irq flag (read clears).
-                let v = u8::from(self.clock.irq_line) << 7;
+                // TIMEUP: bit7 = irq flag (read clears), bits0-6 = open bus (MDR). ares `readIO`
+                // $4211 writes only bit 7 and leaves the rest as the incoming open-bus data.
+                let v =
+                    (u8::from(self.clock.irq_line) << 7) | (self.open_bus & TIMEUP_OPEN_BUS_MASK);
                 self.clock.irq_line = false;
                 v
             }
             0x4212 => {
-                // HVBJOY: bit7 vblank, bit6 hblank.
-                (u8::from(self.ppu.in_vblank()) << 7) | (u8::from(self.ppu.in_hblank()) << 6)
+                // HVBJOY: bit7 vblank, bit6 hblank, bits1-5 open bus, bit0 auto-joypad busy.
+                // Busy while auto-read is armed (`$4200` bit 0) AND the timed read has not yet
+                // completed (the `settle_auto_joypad` above zeroed the deadline if it passed) —
+                // ares `io.autoJoypadPoll && status.autoJoypadCounter < 33`.
+                let busy =
+                    u8::from(self.clock.nmitimen & 0x01 != 0 && self.auto_joypad_busy_until != 0);
+                (u8::from(self.ppu.in_vblank()) << 7)
+                    | (u8::from(self.ppu.in_hblank()) << 6)
+                    | (self.open_bus & HVBJOY_OPEN_BUS_MASK)
+                    | busy
             }
             0x4214 => self.muldiv.rddiv as u8,
             0x4215 => (self.muldiv.rddiv >> 8) as u8,
@@ -1130,6 +1208,12 @@ impl Bus {
             s.write_u8(self.pio);
             self.ports[0].save_state(s);
             self.ports[1].save_state(s);
+            // In-flight automatic joypad read (`FORMAT_VERSION` 5): the start snapshot + the busy
+            // deadline, so a save taken during the ~4224-clock window restores an identical machine
+            // state — the busy flag and the deferred `$4218-$421F` publish survive exactly.
+            s.write_u16(self.joypad_auto_pending[0]);
+            s.write_u16(self.joypad_auto_pending[1]);
+            s.write_u64(self.auto_joypad_busy_until);
         });
         match &self.cart {
             Some(cart) => {
@@ -1174,6 +1258,12 @@ impl Bus {
         self.pio = s.read_u8()?;
         self.ports[0] = crate::controller::PortState::load_state(&mut s)?;
         self.ports[1] = crate::controller::PortState::load_state(&mut s)?;
+        // In-flight automatic joypad read (`FORMAT_VERSION` 5). A pre-5 blob's `BUS0` section ends
+        // above, so these reads fail loudly on it (the documented "old blob fails, no migration"
+        // convention), which is why the format major was bumped.
+        self.joypad_auto_pending[0] = s.read_u16()?;
+        self.joypad_auto_pending[1] = s.read_u16()?;
+        self.auto_joypad_busy_until = s.read_u64()?;
         if s.remaining() != 0 {
             return Err(SaveStateError::Invalid(alloc::format!(
                 "BUS0 section has {} trailing byte(s)",
@@ -1491,6 +1581,120 @@ mod tests {
         bus.poll_auto_joypad_for_test();
         assert_eq!(bus.read_cpu_reg(0x4218), 0x50);
         assert_eq!(bus.read_cpu_reg(0x4219), 0x90);
+    }
+
+    /// `$4210`/`$4211` return the CPU open bus (MDR) in the bits hardware leaves floating.
+    ///
+    /// `$4210` RDNMI: bit 7 = the read-clearing `VBlank` flag, bits 4-6 = open bus, bits 0-3 = CPU
+    /// version 2. `$4211` TIMEUP: bit 7 = the read-clearing IRQ flag, bits 0-6 = open bus. Matches
+    /// ares `CPU::readIO` (which writes only the flag + version and leaves the rest as open bus).
+    #[test]
+    #[allow(clippy::field_reassign_with_default)] // a full `Bus` struct literal is impractical
+    fn rdnmi_timeup_expose_open_bus_in_unused_bits() {
+        let mut bus = Bus::default();
+        // 0xAB = 1010_1011: distinctive so every masked open-bus position is exercised.
+        // $4210 with the flag clear: bits 4-6 = 0xAB & 0x70 = 0x20, version = 0x02 -> 0x22.
+        bus.open_bus = 0xAB;
+        assert_eq!(bus.read_cpu_reg(0x4210), 0x22);
+        // Flag set: bit7 | open-bus 4-6 | version -> 0x80 | 0x20 | 0x02 = 0xA2, and the read clears.
+        bus.clock.rdnmi_flag = true;
+        bus.open_bus = 0xAB;
+        assert_eq!(bus.read_cpu_reg(0x4210), 0xA2);
+        assert!(
+            !bus.clock.rdnmi_flag,
+            "reading $4210 clears the VBlank flag"
+        );
+        // $4211 with the IRQ flag clear: bits0-6 = 0xAB & 0x7F = 0x2B.
+        bus.open_bus = 0xAB;
+        assert_eq!(bus.read_cpu_reg(0x4211), 0x2B);
+        // IRQ set: 0x80 | 0x2B = 0xAB, and the read clears.
+        bus.clock.irq_line = true;
+        bus.open_bus = 0xAB;
+        assert_eq!(bus.read_cpu_reg(0x4211), 0xAB);
+        assert!(!bus.clock.irq_line, "reading $4211 clears the IRQ flag");
+    }
+
+    /// The timed automatic read reads busy on `$4212` bit 0 for ~4224 master clocks and publishes
+    /// its result only at completion — not instantly at vblank entry.
+    #[test]
+    fn auto_joypad_read_is_busy_for_its_window_then_publishes() {
+        let mut bus = Bus::default();
+        bus.set_joypad(0, 0x1234);
+        bus.write_cpu_reg(0x4200, 0x01); // arm auto-read ($4200 bit 0)
+        bus.clock.master = 1000;
+        bus.begin_auto_joypad();
+        // Busy immediately, and the result is NOT yet published (still the power-on $0000).
+        assert_eq!(
+            bus.read_cpu_reg(0x4212) & 1,
+            1,
+            "busy at the start of the window"
+        );
+        assert_eq!(
+            bus.read_cpu_reg(0x4218),
+            0x00,
+            "result not published mid-window"
+        );
+        // Still busy one clock before the deadline.
+        bus.clock.master = 1000 + AUTO_JOYPAD_CLOCKS - 1;
+        assert_eq!(
+            bus.read_cpu_reg(0x4212) & 1,
+            1,
+            "still busy just before completion"
+        );
+        // At the deadline: no longer busy, and the snapshot is now published.
+        bus.clock.master = 1000 + AUTO_JOYPAD_CLOCKS;
+        assert_eq!(bus.read_cpu_reg(0x4212) & 1, 0, "not busy after the window");
+        assert_eq!(
+            bus.read_cpu_reg(0x4218),
+            0x34,
+            "result published at completion"
+        );
+        assert_eq!(bus.read_cpu_reg(0x4219), 0x12);
+    }
+
+    /// A save taken DURING the auto-read busy window restores an identical machine state
+    /// (`FORMAT_VERSION` 5): the busy flag and the deferred snapshot survive save/load exactly.
+    #[test]
+    fn auto_joypad_busy_state_survives_save_load() {
+        use rustysnes_savestate::{SaveReader, SaveWriter};
+        let mut bus = Bus::default();
+        bus.set_joypad(0, 0x1234);
+        bus.write_cpu_reg(0x4200, 0x01); // arm auto-read
+        bus.clock.master = 5000;
+        bus.begin_auto_joypad(); // start a read; deadline = 5000 + 4224
+        assert_eq!(bus.read_cpu_reg(0x4212) & 1, 1, "busy before the save");
+        // Save mid-window and restore into a fresh Bus.
+        let mut w = SaveWriter::new();
+        bus.save_state(&mut w);
+        let bytes = w.into_bytes();
+        let mut fresh = Bus::default();
+        let mut r = SaveReader::new(&bytes);
+        fresh
+            .load_state(&mut r)
+            .expect("mid-window round trip must succeed");
+        // Still busy, result still deferred (lost if the state were not serialized).
+        assert_eq!(
+            fresh.read_cpu_reg(0x4212) & 1,
+            1,
+            "busy state survives the round trip"
+        );
+        assert_eq!(
+            fresh.read_cpu_reg(0x4218),
+            0x00,
+            "result still deferred after load"
+        );
+        // Past the restored deadline, the restored snapshot publishes.
+        fresh.clock.master = 5000 + AUTO_JOYPAD_CLOCKS;
+        assert_eq!(
+            fresh.read_cpu_reg(0x4212) & 1,
+            0,
+            "not busy after the restored deadline"
+        );
+        assert_eq!(
+            fresh.read_cpu_reg(0x4218),
+            0x34,
+            "restored snapshot publishes at completion"
+        );
     }
 
     /// `$4218` reports only what an *armed* automatic read put there.
