@@ -1684,7 +1684,7 @@ mod tests {
         );
         assert_eq!(bus.read_cpu_reg(0x4210) & 0x80, 0x00, "cleared");
 
-        // Same for the IRQ flag / $4211.
+        // Same for the IRQ flag / $4211, including the back-to-back held read.
         bus.clock.irq_line = true;
         bus.clock.irq_hold = true;
         assert_eq!(bus.read_cpu_reg(0x4211) & 0x80, 0x80);
@@ -1692,11 +1692,69 @@ mod tests {
             bus.clock.irq_line,
             "held: the read must not clear the IRQ flag"
         );
+        assert_eq!(
+            bus.read_cpu_reg(0x4211) & 0x80,
+            0x80,
+            "still held on a second read"
+        );
+        assert!(bus.clock.irq_line);
         bus.clock.irq_hold = false;
         assert_eq!(bus.read_cpu_reg(0x4211) & 0x80, 0x80);
         assert!(
             !bus.clock.irq_line,
             "the read after the hold clears the IRQ flag"
+        );
+    }
+
+    /// The RDNMI hold's full lifecycle, driven through the real per-dot path rather than by hand:
+    /// advancing to the `VBlank` edge must set the hold in [`Bus::tick_ppu_dot`], and the *next* dot
+    /// must consume it there. This is what proves the set/consume logic inside `tick_ppu_dot`, which
+    /// [`rdnmi_timeup_are_held_across_the_edge_and_do_not_clear_on_read`] (which mutates the hold
+    /// directly) cannot: were the consume removed, this test's post-dot read would not clear.
+    #[test]
+    fn rdnmi_hold_is_set_and_consumed_by_tick_ppu_dot_across_the_vblank_edge() {
+        let mut bus = Bus::default();
+        // Advance real dots until VBlank begins. The dot that raises the flag also sets the hold.
+        let mut prev_vblank = bus.ppu.in_vblank();
+        let mut at_edge = false;
+        // Bound: one NTSC frame of dots is far more than enough to reach the first VBlank.
+        for _ in 0..(u32::from(rustysnes_ppu::DOTS_PER_LINE) * 262) {
+            bus.advance_master(MASTER_PER_DOT);
+            let now = bus.ppu.in_vblank();
+            if now && !prev_vblank {
+                at_edge = true;
+                break;
+            }
+            prev_vblank = now;
+        }
+        assert!(at_edge, "advancing reached the VBlank edge");
+        // Set by tick_ppu_dot, not by hand:
+        assert!(
+            bus.clock.rdnmi_flag,
+            "the VBlank edge raised the RDNMI flag"
+        );
+        assert!(
+            bus.clock.rdnmi_hold,
+            "the VBlank edge set the four-clock hold"
+        );
+        // A read in the window returns bit 7 set and does not clear the flag.
+        assert_eq!(bus.read_cpu_reg(0x4210) & 0x80, 0x80);
+        assert!(
+            bus.clock.rdnmi_flag,
+            "held: the read did not clear the flag"
+        );
+        // The next dot's tick_ppu_dot consumes the hold; still in VBlank, so the flag stays set.
+        bus.advance_master(MASTER_PER_DOT);
+        assert!(!bus.clock.rdnmi_hold, "the next dot consumed the hold");
+        assert!(
+            bus.clock.rdnmi_flag,
+            "the flag itself is untouched — only a read past the hold clears it"
+        );
+        // Past the hold, a read clears normally.
+        assert_eq!(bus.read_cpu_reg(0x4210) & 0x80, 0x80);
+        assert!(
+            !bus.clock.rdnmi_flag,
+            "past the hold, the read clears the flag"
         );
     }
 
