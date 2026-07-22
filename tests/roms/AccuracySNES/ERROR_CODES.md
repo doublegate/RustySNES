@@ -2339,6 +2339,14 @@ Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DS
 |---|---|---|
 | 1 | `$02` | the envelope moved although the GAIN rate was 0, which never fires |
 
+### E7.13 — GAIN bent-increase
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: GAIN mode 7 increases +32 per sample below $600 and +8 above, comparing the internal envelope latch unsigned). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | GAIN bent-increase did not land in its slow region. Below $68 the envelope never reached the $600 break, so the second slope was never tested; at $7F it saturated, which is what a core that climbs a flat +32 and ignores the break does |
+
 ### E7.04 — Attack $F is instant
 
 Provenance: **Documented** (fullsnes and anomie's DSP doc: attack rate $F fires every sample with a step of +1024, rather than the +32 on a counter tick every other rate uses). Kind: scored.

@@ -1519,6 +1519,9 @@ fn the_dpad_scrolls_the_list() {
     let rd16 = |s: &System, a: u32| -> u16 {
         u16::from(s.bus.peek_wram(a)) | (u16::from(s.bus.peek_wram(a + 1)) << 8)
     };
+    // The cold-boot pass count, captured before any restart, so the Select-restart assertion below
+    // tracks the battery total instead of a literal that must be re-blessed whenever a row is added.
+    let first_run_passed = rd16(&sys, R_PASSED);
     let before = rd16(&sys, V_CURSOR);
 
     // Down, held for a few frames then released: `read_pad` derives "newly pressed" from the
@@ -1672,12 +1675,13 @@ fn the_dpad_scrolls_the_list() {
         DONE_MARK,
         "the restarted battery never finished"
     );
-    // 283, not 284: F1.07 stands down as SKIP on a restart because its phase A needs the power-on
-    // value of $4218, which a soft restart cannot reproduce (the previous run armed auto-read). Its
-    // verdict byte is $FF (skip), not a fail code — that distinction is the whole point of the flag.
+    // One fewer than a cold boot: F1.07 stands down as SKIP on a restart because its phase A needs
+    // the power-on value of $4218, which a soft restart cannot reproduce (the previous run armed
+    // auto-read). Its verdict is $FF (skip), not a fail code. Relative to the first run's pass count
+    // rather than a literal, so adding tests does not break this.
     assert_eq!(
         rd16(&sys, R_PASSED),
-        283,
+        first_run_passed - 1,
         "the restarted battery did not reproduce its result (minus the power-on-only F1.07)"
     );
     let f107_idx = catalog()
