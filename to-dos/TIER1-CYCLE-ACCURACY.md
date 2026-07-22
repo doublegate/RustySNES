@@ -33,7 +33,7 @@ any golden that legitimately changes is re-blessed **only** from a render the re
 | T-CA-06 | `STP`/`WAI` wake-edge timing | approximate | `cpu.md:194` | Model `WAI` resuming on the exact interrupt-poll edge and `STP` halting the master clock until reset at the correct cycle; AccuracySNES `A6.11`/`A6.12` region. |
 | T-CA-07 | ABORT + mid-RMW interrupt injection | not modelled | `cpu.md:195` | Model interrupt injection at a sub-instruction (mid-RMW) boundary; ABORT vectors are unused on the 5A22 (dossier:741) so scope is the interrupt-timing half. |
 | T-CA-08 | SA-1 timing | approximate | `scheduler.md:435` | Tighten the SA-1 second-CPU step/IRQ timing against ares `sfc/sa1`; re-verify the SA-1 golden (`SD F-1 Grand Prix`). |
-| T-CA-09 | ST018 ARM cycle-count | simplified early-termination approximation | `st018-arm-notes.md:119` | Replace the early-termination approximation with the ARM-ARM documented cycle counts; unit-test-only (no commercial dump). |
+| T-CA-09 | ST018 ARM cycle-count | simplified early-termination approximation | `st018-arm-notes.md:119` | **[x] No change needed (re-scoped 2026-07-22).** `multiply_cycles` (`coproc/armv3/cpu.rs`) ALREADY implements the ARM ARM's documented early-termination rule exactly (1 cycle if `Rs` bits 31-8 are uniform, 2 if 31-16, 3 if 31-24, else 4). `docs/st018-arm-notes.md` is authoritative that this documented rule — NOT the reverse-engineered Booth's-exact `GbaCpuMultiply` derivation — is the intended target, because **nothing in the determinism contract or accuracy oracle exercises ST018 cycle timing** (unlike the 65C816/PPU/APU, which do). Result bits are exact (games depend on them); idle-cycle precision beyond the documented rule is deliberately out of scope. The ticket's premise (a "simplified" count below the documented rule) does not match the code. |
 
 ## Group C — large / blocked (major efforts)
 
@@ -52,6 +52,22 @@ phased effort (ADR 0014). Each Group A/B ticket is a self-contained PR. Land ord
 low-risk accuracy wins land first and the golden corpus is exercised repeatedly before the large
 rewrites. T-CA-12 stays blocked until its investigation is scheduled.
 
+### Reassessment after landing T-CA-01/02/03 and resolving T-CA-09 (2026-07-22)
+
+Investigating the remaining Group A/B tickets against **module 20's "pin a failing oracle FIRST"**
+rule surfaced a pattern: **T-CA-04, T-CA-05, T-CA-06, T-CA-07, T-CA-08 have no failing oracle** —
+the project docs state each approximation is *exact for the results games/tests actually observe*,
+and the determinism contract holds. `docs/scheduler.md:435` (SA-1: "approximate catch-up … exact for
+the register/arithmetic/DMA results games observe"), `docs/cpu.md:200` (WAI/STP wake-edge "approx",
+but AccuracySNES `A6.11`/`A6.12` already pass), `docs/st018-arm-notes.md` (ST018 cycle timing
+deliberately not gated). Changing these speculatively — no red test to turn green — risks regressing
+CPU/DSP/coprocessor timing for **no ROM-observable benefit**, which the module-20 discipline exists
+to prevent. They should each wait for a concrete failing vector (a game or a stricter test that
+actually diverges) rather than being remediated blind. **The genuine remaining Tier-1 work with a
+real ROM-observable payoff is T-CA-10 (the per-dot compositor)** — it unblocks the hi-res scene
+cluster (~15-20 AccuracySNES rows) and mid-line register-write accuracy — plus T-CA-11 (large) if an
+open-bus/DMA-order edge case ever needs it. T-CA-12 stays blocked.
+
 ## Progress log
 
 - 2026-07-22: program opened; ADR 0014 (per-dot compositor) written; Group A/B tickets scoped.
@@ -64,9 +80,16 @@ rewrites. T-CA-12 stays blocked until its investigation is scheduled.
 - 2026-07-22: **T-CA-10 Phase 1 landed** — extracted `compose_pixel`/`DacCarry` from `compose_dac`
   (the per-pixel entry point Phase 4 will drive per-dot), verified bit-identical (undisbeliever 29 +
   53 scenes, ppu unit tests 29/29). Foundational refactor; no behavior change. Next: Phase 2-4.
-- 2026-07-22: **T-CA-02 fully landed** — the four-master-clock RDNMI/TIMEUP **held-flag** (a
+- 2026-07-22: **T-CA-02 fully landed** (PR #208) — the four-master-clock RDNMI/TIMEUP **held-flag** (a
   `$4210`/`$4211` read within one dot of the VBlank/IRQ edge returns bit 7 set without clearing it;
   ares `nmiHold`/`irqHold`, Terranigma). `Clock::rdnmi_hold`/`irq_hold`, set with the flag, consumed
-  next dot in `tick_ppu_dot`, serialized (`FORMAT_VERSION` 5→6). New core unit test; AccuracySNES
-  battery 292/292 (B4.03/04/05 unregressed); full test-roms harness green (49 golden framebuffers +
-  coprocessor unchanged — no NMI-timing frame shift); save round-trip green. Ticket closed.
+  next dot in `tick_ppu_dot`, serialized (`FORMAT_VERSION` 5→6). New core unit tests (read behavior +
+  a lifecycle test driving `tick_ppu_dot` across the vblank edge); AccuracySNES battery 292/292
+  (B4.03/04/05 unregressed); full test-roms harness green (49 golden framebuffers + coprocessor
+  unchanged — no NMI-timing frame shift); save round-trip green. Ticket closed.
+- 2026-07-22: **T-CA-09 resolved as no-change-needed** — `multiply_cycles` already implements the ARM
+  ARM documented early-termination rule exactly, which `docs/st018-arm-notes.md` establishes as the
+  intended target (further precision deliberately out of scope; nothing exercises ST018 cycle timing).
+- 2026-07-22: **Group A/B remainder reassessed** — T-CA-04/05/06/07/08 have no failing oracle (each
+  approximation is documented as exact for observed results); deferred per module 20 rather than
+  changed blind. The genuine remaining ROM-observable Tier-1 work is T-CA-10 (per-dot compositor).
