@@ -19,7 +19,13 @@ command -v "$AGY_BIN" >/dev/null 2>&1 || AGY_BIN="$HOME/.local/bin/agy"
 AGY_MODEL="${AGY_MODEL:-}"                 # empty = agy's configured default (Gemini 3.x Pro)
 AGY_EFFORT="${AGY_EFFORT:-high}"           # low|medium|high
 AGY_PRINT_TIMEOUT="${AGY_PRINT_TIMEOUT:-5m}"
-MAX_DIFF_BYTES="${MAX_DIFF_BYTES:-200000}" # truncate very large diffs (~200 KB)
+MAX_DIFF_BYTES="${MAX_DIFF_BYTES:-115000}" # truncate very large diffs (keep prompt under the arg limit)
+MAX_PROMPT_BYTES="${MAX_PROMPT_BYTES:-125000}" # hard ceiling on the whole prompt: agy takes it as a
+                                           # --print VALUE (not stdin), and a single execve argument
+                                           # cannot exceed MAX_ARG_STRLEN (PAGE_SIZE*32 = 128 KiB on
+                                           # Linux). Over it, execve fails with E2BIG before agy even
+                                           # starts -- a deterministic failure the retry loop cannot
+                                           # clear. This backstops MAX_DIFF_BYTES + boilerplate + style.
 STYLE_GUIDE="${STYLE_GUIDE:-.github/agy-review.md}"  # repo-relative; loaded if present
                                            # (dedicated name -- avoids colliding with GEMINI.md/AGENTS.md)
 CONV_DIR="${CONV_DIR:-$HOME/.gemini/antigravity-cli/conversations}"
@@ -103,6 +109,16 @@ EOF
   cat "$diff_file"
 } > "$prompt_file"
 
+# --- guard the argv size (E2BIG) -----------------------------------------------
+# agy takes the prompt as a --print VALUE, so the whole prompt is one execve argument
+# and must stay under MAX_ARG_STRLEN (128 KiB). MAX_DIFF_BYTES bounds the diff, but the
+# boilerplate + style guide ride on top, so cap the assembled prompt as a hard backstop.
+if [ "$(wc -c < "$prompt_file")" -gt "$MAX_PROMPT_BYTES" ]; then
+  head -c "$MAX_PROMPT_BYTES" "$prompt_file" > "$prompt_file.cut" && mv "$prompt_file.cut" "$prompt_file"
+  truncated+=$'\n\n> Note: the review prompt was capped to '"${MAX_PROMPT_BYTES}"$' bytes (execve arg-size limit).'
+  log "prompt capped to ${MAX_PROMPT_BYTES} bytes (execve arg-size ceiling)"
+fi
+
 # --- run agy headless, under a PTY (works around agy issue #76: -p drops --------
 #     stdout when stdout is not a TTY, e.g. piped/redirected/subprocess) ---------
 flags=( --print-timeout "$AGY_PRINT_TIMEOUT" --sandbox --dangerously-skip-permissions )
@@ -180,6 +196,15 @@ exec 9>&- 2>/dev/null || true    # release the agy lock so the next queued job p
 
 if ! have_text "$out_file"; then
   log "no review output after ${AGY_RETRIES} attempt(s). Check $LOG and confirm 'agy -p \"hi\"' works for this user."
+  # Surface agy's stderr into the job log. RUNNER_TEMP is wiped between jobs, so a bare
+  # `exit 1` otherwise leaves the real cause invisible in CI (E2BIG, auth, backend, ...).
+  if [ -s "$LOG" ]; then
+    log "----- captured agy stderr ($LOG) -----"
+    sed 's/^/[agy] /' "$LOG" >&2 || true
+    log "----- end agy stderr -----"
+  else
+    log "(agy stderr log is empty -- agy likely failed before writing, e.g. execve E2BIG on an oversized prompt)"
+  fi
   exit 1
 fi
 
