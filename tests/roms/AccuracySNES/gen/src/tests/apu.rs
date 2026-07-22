@@ -6357,7 +6357,7 @@ fn e9_13() -> Test {
         "the left echo channel's high byte is zero, so the signal this test is checking for \
          leakage of is itself too small for the comparison below to mean anything",
     );
-    a.l(":");
+    // `bcs :+` above lands on the continuation label `fail_if_ne` already emits — no extra `:`.
     a.c("And the right must stay within one high-byte step of silence: crosstalk from a left");
     a.c("channel this large would land in the same magnitude, not nine bits below it.");
     a.l("lda f:$7E0102");
@@ -6368,7 +6368,7 @@ fn e9_13() -> Test {
         "the right echo channel's magnitude reached the left's, although only the left was ever \
          fed and feedback is on — the FIR is sharing history or accumulator between the channels",
     );
-    a.l(":");
+    // `beq :+` above lands on the continuation label `fail_if_ne` already emits — no extra `:`.
     apu_timeout_arm(&mut a);
     a.finish(
         "E9.13",

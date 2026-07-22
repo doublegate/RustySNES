@@ -18378,7 +18378,6 @@ CATALOG_IMPL = 1
     beq :+
     jmp @fail2
   :
-    :
     ; And the right must stay within one high-byte step of silence: crosstalk from a left
     ; channel this large would land in the same magnitude, not nine bits below it.
     lda f:$7E0102
@@ -18388,7 +18387,6 @@ CATALOG_IMPL = 1
     beq :+
     jmp @fail3
   :
-    :
     bra @pass
 @timeout:
     sep #$20
