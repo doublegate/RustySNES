@@ -24,11 +24,16 @@ permissions:
 
 jobs:
   review:
-    # PR opened/reopened, OR an `/agy-review` comment on a PR.
+    # PR opened/reopened, OR an `/agy-review` comment on a PR from a trusted author.
+    # The comment path is gated on author_association so an untrusted outside user cannot run the
+    # self-hosted runner by commenting `/agy-review` (belt-and-suspenders with the repo's
+    # Settings -> Actions -> "Fork pull request workflows -> require approval for all outside
+    # collaborators"). The `pull_request` trigger is already `opened`/`reopened` only.
     if: >-
       github.event_name == 'pull_request' ||
       (github.event.issue.pull_request != null &&
-       startsWith(github.event.comment.body, '/agy-review'))
+       startsWith(github.event.comment.body, '/agy-review') &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: [self-hosted, agy]
     steps:
       - name: Check out repo (for the style guide + scripts)

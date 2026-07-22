@@ -53,6 +53,11 @@ case "${GITHUB_EVENT_NAME:-}" in
 esac
 log "reviewing ${REPO}#${PR}"
 
+# Remove every temp file on exit. Pre-declared so the trap is safe under `set -u` even if the
+# script exits before a given file is created.
+diff_file= meta_file= prompt_file= out_file= raw= body_file=
+trap 'rm -f "$diff_file" "$meta_file" "$prompt_file" "$out_file" "$raw" "$body_file"' EXIT
+
 # --- fetch the diff + metadata -------------------------------------------------
 diff_file="$(mktemp)"; meta_file="$(mktemp)"
 gh pr diff "$PR" --repo "$REPO" > "$diff_file" || { log "gh pr diff failed"; exit 1; }
@@ -110,7 +115,10 @@ if command -v unbuffer >/dev/null 2>&1; then
 else
   log "unbuffer not found; falling back to script(1)"
   raw="$(mktemp)"
-  AGY_BIN="$AGY_BIN" script -qfec "$here/_agy_print.sh '$prompt_file' ${flags[*]}" "$raw" >/dev/null 2>>"$LOG" || true
+  # `script -c` runs its command through `sh -c`, so every path in the command string is quoted for
+  # that inner shell: `'$here'` and `'$prompt_file'` are wrapped in single quotes (the outer double
+  # quotes still expand them) so a repo path containing spaces survives the word-split.
+  AGY_BIN="$AGY_BIN" script -qfec "'$here'/_agy_print.sh '$prompt_file' ${flags[*]}" "$raw" >/dev/null 2>>"$LOG" || true
   col -b < "$raw" > "$out_file"
 fi
 
