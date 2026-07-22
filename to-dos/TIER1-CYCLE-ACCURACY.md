@@ -20,9 +20,9 @@ any golden that legitimately changes is re-blessed **only** from a render the re
 
 | # | Ticket | Gap | Source | Approach |
 |---|---|---|---|---|
-| T-CA-01 | `$4212` bit 0 auto-joypad busy | unimplemented; only bits 7/6 modelled | `bus.rs:722`, fullsnes | Set bit 0 during the auto-read window (V=225.. for ~4224 clocks); clears when the read completes. Ties to Group F auto-joypad rows. |
+| T-CA-01 | `$4212` bit 0 auto-joypad busy | unimplemented; only bits 7/6 modelled | `bus.rs`, fullsnes | **[x] Landed** — `$4212` bit 0 reads busy for the 4224-clock auto-read window (ares deadline model), + open bus in bits 1-5. Battery 290/290; cross-val unchanged. |
 | T-CA-02 | `$4210` RDNMI held-flag + open-bus | lacks the ~4-cycle held-flag (Terranigma) quirk + open-bus bits 4-6 | `bus.rs`, fullsnes | [~] **Open-bus bits landed** (`$4210` bits 4-6, and `$4211` bits 0-6, now return the MDR — matches ares/fullsnes; battery 290/290). **Remaining:** the ~4-cycle held-flag quirk (flag reads set for a few cycles into the read) for both `$4210` and `$4211` (fullsnes: the IRQ/NMI condition true at read time returns bit7=1 without clearing, lasting 4-8 master cycles). |
-| T-CA-03 | Auto-joypad read timing window | entirely unmodeled (`no auto_joypad symbol`) | `bus.rs:730`, fullsnes/anomie | Model the automatic read starting at vblank (~V=225, H≈32.5) and taking ~4224 master clocks, latching `$4218-$421F` at the end; `$4016/$4017` manual read blocked meanwhile. AccuracySNES Group F `F1.12` region. |
+| T-CA-03 | Auto-joypad read timing window | entirely unmodeled (`no auto_joypad symbol`) | `bus.rs`, fullsnes/anomie | **[x] Landed** — the read now spans 4224 master clocks from vblank entry and publishes `$4218-$421F` only at completion (deferred from the start snapshot). Battery 290/290; cross-val unchanged. (`$4016/$4017` manual-read blocking during the window is a finer refinement not yet added.) |
 | T-CA-04 | SMP wait-state divider | glitchy `{2,4,10,20}` collapsed to `SMP_WAIT=2` | `apu/lib.rs:53` | Restore the per-region external-access wait-state table so SMP external (`$00F0-`) access timing matches; validate against `spc_mem_access_times`. |
 
 ## Group B — medium, subsystem-localized
@@ -56,5 +56,9 @@ rewrites. T-CA-12 stays blocked until its investigation is scheduled.
 
 - 2026-07-22: program opened; ADR 0014 (per-dot compositor) written; Group A/B tickets scoped.
 - 2026-07-22: **T-CA-02 (partial) landed** — `$4210`/`$4211` open-bus bits (researched vs fullsnes +
-  ares `CPU::readIO`). Battery 290/290, core+CPU unit suites green. Held-flag quirk + the
-  `$4212`/auto-joypad busy-timing cluster (T-CA-01/03) remain next.
+  ares `CPU::readIO`). Battery 290/290, core+CPU unit suites green. Held-flag quirk remains.
+- 2026-07-22: **T-CA-01 + T-CA-03 landed** — `$4212` auto-joypad busy flag + the timed 4224-clock
+  auto-read (ares `status.autoJoypadCounter` as a master-clock deadline; result deferred to
+  completion), + `$4212` open-bus bits 1-5. Two new unit tests, battery 290/290, snes9x + Mesen2
+  cross-val unchanged. Next: SMP wait-states (T-CA-04) / S-DSP interleave (T-CA-05), and the
+  per-dot compositor (T-CA-10) as its own phased effort.

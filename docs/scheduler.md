@@ -535,6 +535,13 @@ DMA/HDMA) plus the `System` run loop (`scheduler.rs`):
   `$4211` (TIMEUP) bit 7 = the read-clearing IRQ flag, bits 0-6 = open bus. A ROM that reads the
   whole byte instead of masking the flag therefore sees the last bus value in those positions, as on
   hardware (ares `CPU::readIO`, fullsnes). Tier-1 remediation T-CA-02 (`to-dos/TIER1-CYCLE-ACCURACY.md`).
+- **Automatic joypad read (`$4200` bit 0):** a *timed* ~4224-master-clock operation, not an instant
+  latch. At vblank entry (while armed) the controller state is snapshotted; `$4212` bit 0 reads
+  **busy** for the next `AUTO_JOYPAD_CLOCKS` = 33 x 128 = 4224 clocks (ares `status.autoJoypadCounter`
+  as a master-clock deadline), and the result publishes to `$4218-$421F` only at completion — a read
+  during the window still holds the previous frame's value. `$4212` also returns open bus in bits
+  1-5. The busy deadline self-settles each dot and is **not** in the save state (mirroring the
+  `$43xB` scratch latch, `docs/adr/0006`). Tier-1 remediation T-CA-01/03.
 - **Deferred refinements** (no committed ROM depends on them yet): the 40-clock DRAM-refresh CPU
   stall (researched, not yet implemented — see §DRAM refresh above) and the PAL-frame
   master-clock cycle-check.
