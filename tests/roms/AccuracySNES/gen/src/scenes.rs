@@ -1733,6 +1733,48 @@ pub const SCENES: &[Scene] = &[
             "sta $2100",
         ],
     },
+    Scene {
+        id: "c7-hflip-sliver-order",
+        dossier: "C7.03",
+        what: "A 16x32 sprite with the H-flip attribute set. The sprite is two 8-pixel slivers wide \
+               ($10 then $11 across, each a distinct font glyph), and H-flip swaps which sliver \
+               appears on the left AND mirrors each glyph's pixels — but the slivers are still \
+               emitted left-to-right across the screen. A core that reverses the sliver *output* \
+               order as well as the tile order, or that mirrors the sprite as a whole without \
+               re-fetching per sliver, produces the same glyphs in a different arrangement, which a \
+               hash separates. Read against `c7-vflip-tall-halves`, the vertical analogue, whose \
+               attribute differs only in which flip bit is set.",
+        setup: &[
+            "sep #$20",
+            "stz $2105",
+            "jsr scene_oam_reset",
+            "sep #$20",
+            "lda #$C0",
+            "sta $2101         ; OBJSEL size pair 6: 16x32 / 32x64, name base word $0000",
+            "rep #$30",
+            "ldx #$0000",
+            "stx $2102",
+            "sep #$20",
+            "lda #100",
+            "sta $2104         ; X",
+            "lda #80",
+            "sta $2104         ; Y",
+            "lda #$10",
+            "sta $2104         ; tile $10 (top-left); $11 sits to its right",
+            "lda #$70",
+            "sta $2104         ; attr: H-flip set, palette 0, priority 3",
+            "rep #$30",
+            "ldx #$0100",
+            "stx $2102         ; OAMADD = $100 words = the high table",
+            "sep #$20",
+            "lda #$00",
+            "sta $2104         ; sprite 0: X bit 8 clear, size bit CLEAR -> the small 16x32",
+            "lda #$10",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
 ];
 
 /// The comment block `scene_low_tiles` carries, split out only to keep `low_tiles_helper` inside

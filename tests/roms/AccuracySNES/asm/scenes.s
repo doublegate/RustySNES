@@ -2085,11 +2085,58 @@ SCENES_IMPL = 1
     rts
 .endproc
 
+; c7-hflip-sliver-order — C7.03
+; A 16x32 sprite with the H-flip attribute set. The sprite is two 8-pixel slivers wide ($10 then $11 across, each a distinct font glyph), and H-flip swaps which sliver appears on the left AND mirrors each glyph's pixels — but the slivers are still emitted left-to-right across the screen. A core that reverses the sliver *output* order as well as the tile order, or that mirrors the sprite as a whole without re-fetching per sliver, produces the same glyphs in a different arrangement, which a hash separates. Read against `c7-vflip-tall-halves`, the vertical analogue, whose attribute differs only in which flip bit is set.
+.proc scene_c7_hflip_sliver_order
+    .a16
+    .i16
+    sep #$20
+    .a8
+    stz $2105
+    jsr scene_oam_reset
+    sep #$20
+    .a8
+    lda #$C0
+    sta $2101         ; OBJSEL size pair 6: 16x32 / 32x64, name base word $0000
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+    stx $2102
+    sep #$20
+    .a8
+    lda #100
+    sta $2104         ; X
+    lda #80
+    sta $2104         ; Y
+    lda #$10
+    sta $2104         ; tile $10 (top-left); $11 sits to its right
+    lda #$70
+    sta $2104         ; attr: H-flip set, palette 0, priority 3
+    rep #$30
+    .a16
+    .i16
+    ldx #$0100
+    stx $2102         ; OAMADD = $100 words = the high table
+    sep #$20
+    .a8
+    lda #$00
+    sta $2104         ; sprite 0: X bit 8 clear, size bit CLEAR -> the small 16x32
+    lda #$10
+    sta $212C
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
 .segment "CATALOG"
 .export _scene_count
 .export _scene_entries
 _scene_count:
-    .word 50
+    .word 51
 _scene_entries:
     .addr scene_c5_mode1_bg_priority
     .addr scene_c8_fixed_colour_add
@@ -2141,3 +2188,4 @@ _scene_entries:
     .addr scene_c7_objsel_size_7
     .addr scene_c7_vflip_tall_halves
     .addr scene_c7_64px_wraps_bottom_to_top
+    .addr scene_c7_hflip_sliver_order

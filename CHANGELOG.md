@@ -658,6 +658,13 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`C7.03` — sprite H-flip sliver order, as a rendered scene (`docs/adr/0013`).** A 16x32 sprite two
+  8-pixel slivers wide (distinct font glyphs `$10`/`$11`) with the H-flip attribute set: H-flip swaps
+  which sliver appears on the left and mirrors each glyph, but the slivers are still emitted
+  left-to-right across the screen. A core that reverses the sliver *output* order, or mirrors the
+  sprite as a whole without re-fetching per sliver, hashes differently. Blessed only after all three
+  cores agreed on the pixels (`0x863f085b…`), and its hash is distinct from every existing golden.
+  Coverage: 50 -> 51 rendered scenes (330/443 total; on-cart stays 279).
 - **`D1.13` — the GP-DMA byte-count register decrements to zero (general-purpose DMA).** A DMA runs
   until its count reaches zero, so `$43x5/6` is spent by the end and reads `$0000`, not the programmed
   size. A four-byte mode-0 transfer into scratch WRAM is run and the count register read back; a core
