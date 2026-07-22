@@ -37,10 +37,25 @@ use crate::{Object, Ppu, SCREEN_WIDTH, VideoBus};
 /// from the current column. Seeded per line as ares' pre-line reset.
 #[derive(Clone, Copy)]
 struct DacCarry {
+    /// This column's main pixel was not forced black (gates the next column's hi-res below color).
     above_enable: bool,
+    /// This column's color-math was enabled (gates the next column's hi-res below-pass math).
     below_enable: bool,
+    /// This column's **unclipped** 15-bit main-screen CGRAM color (the next column's below addend
+    /// when its blend mode selects the subscreen).
     above_raw: u16,
+    /// Whether this column's subscreen pixel was opaque (drives the next column's blend/halve gates).
     below_opaque: bool,
+}
+
+/// The per-line constants a column composite reads but never varies within a line: the framebuffer
+/// row base, the master brightness, and whether the frame is hi-res. Grouped so [`Ppu::compose_pixel`]
+/// takes them as one argument instead of three.
+#[derive(Clone, Copy)]
+struct LineCtx {
+    base: usize,
+    brightness: u32,
+    hires: bool,
 }
 
 /// A composited layer pixel: a 8-bit CGRAM palette index + a priority + the source-layer id.
@@ -992,9 +1007,11 @@ impl Ppu {
     /// no color math enabled, raw color = backdrop — which is exactly why the first hires column
     /// of every scanline is transparent on real hardware.
     fn compose_dac(&mut self, row: usize, above: &[Pixel], below: &[Pixel]) {
-        let base = row * self.visible_width();
-        let brightness = u32::from(self.io.display_brightness);
-        let hires = self.frame_hires;
+        let ctx = LineCtx {
+            base: row * self.visible_width(),
+            brightness: u32::from(self.io.display_brightness),
+            hires: self.frame_hires,
+        };
 
         // Threaded left-to-right: each column composites from its own layers plus the PREVIOUS
         // column's DAC carry (the hi-res below-pass). Seeded as ares' pre-line reset. This is the
@@ -1006,24 +1023,27 @@ impl Ppu {
             below_opaque: false,
         };
         for x in 0..SCREEN_WIDTH {
-            carry = self.compose_pixel(x, above[x], below[x], base, brightness, hires, carry);
+            carry = self.compose_pixel(x, above[x], below[x], ctx, carry);
         }
     }
 
     /// Composite one output column into the framebuffer and return the DAC carry-state the NEXT
     /// column's hi-res below-pass consumes. Bit-identical to the former inline `compose_dac` loop
     /// body — the per-pixel entry point the per-dot compositor drives (`docs/adr/0014`).
-    #[allow(clippy::too_many_arguments)] // line-constants (base/brightness/hires) + the DAC carry
+    #[inline]
     fn compose_pixel(
         &mut self,
         x: usize,
         ap: Pixel,
         bp: Pixel,
-        base: usize,
-        brightness: u32,
-        hires: bool,
+        ctx: LineCtx,
         prev: DacCarry,
     ) -> DacCarry {
+        let LineCtx {
+            base,
+            brightness,
+            hires,
+        } = ctx;
         // Main color.
         let main_color = self.layer_color(&ap);
 
