@@ -11,6 +11,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **OBJ interlace (`SETINI` $2133 bit 1) is now rendered, not just stored.** The bit was decoded and
+  saved but never consulted, so a sprite drawn under OBJ interlace kept its full height where
+  hardware halves it. The sprite renderer now ports ares `Object::onScanline`/`fetch`: the
+  on-scanline height is `height >> obj_interlace` and the fetched row is `(row << 1) + field` (`-`
+  when v-flipped), applied after the width-based V-flip — so a 16x32 sprite squishes into 16 lines,
+  sampling every other row per interlace field. Found via AccuracySNES C7.12; with the port in place
+  RustySNES matched Mesen2 exactly on a rendered 16x32 interlace scene, the 52 existing scenes and 29
+  PPU unit tests are unregressed (interlace is off by default), and a new `rustysnes-ppu` unit test
+  pins the 32→16 squish. The C7.12 scene itself can't be committed as a golden: snes9x renders the
+  interlace field differently, so the three references don't agree (ADR 0013).
+
+- **Menu navigation is now flicker-free.** Moving the cursor within the visible window rewrites only
+  the `>` marker — two character writes inside the vblank — so the display never blanks. Only when
+  the window actually scrolls (every visible name changes) does the full blank-and-redraw run. Before
+  this, every keypress blanked the whole screen for a frame. `cursor_up`/`cursor_down` now flag the
+  redraw as marker-only (`V_DIRTY = 2`) or full (`V_DIRTY = 1`), and record the previous cursor row so
+  the old marker can be erased. Asserted: a within-window Down move keeps brightness at 15 and moves
+  the `>`; a scroll past the window still does the full redraw.
+
+- **Pressing Down (or any navigation key) blanked the results menu and hung the ROM.** The menu
+  redraw blanks the screen, calls `draw_list`, then un-blanks — but `draw_list` returns with `A`
+  16-bit while the assembler was still `.a8`, so `lda #$0F` assembled one byte where the CPU read
+  two, ate the `sta INIDISP` opcode, and the un-blank never ran: the display stayed forced-blank and
+  the instruction stream desynced. The headless test missed it because it read VRAM directly (intact
+  even when the display is off); it now asserts `display_brightness` recovers. The cursor was moving
+  correctly the whole time — only the display was dead.
+- **The results menu is now drawn in green, not the last scene's leftover palette.** The font's "on"
+  pixels index CGRAM colour 1, and nothing reloaded the palette after the rendered scenes overwrote
+  CGRAM — so the menu inherited whatever colours the final scene left (orange, or a per-tile
+  green/orange mix). `load_palette` now sets colour 1 to `$03E0` (green), and `restart_entry` reloads
+  it after the rendered scenes overwrite CGRAM, before `draw_screen` runs.
+
 - **The interactive menu is now navigable and self-correcting, after a real cartridge showed three
   more defects.** The D-pad blanked the screen and killed the ROM: `cursor_up`/`cursor_down`
   returned `A` 8-bit while `main_loop` continued `.a16`, so ca65 emitted a 16-bit `bit #PAD_DOWN`
@@ -637,6 +669,79 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`C5.14` — 2/4/8bpp bitplane layouts, as a rendered scene (`docs/adr/0013`).** A custom 4bpp tile
+  fills the screen, its four bitplanes each carrying a distinct horizontal stripe: plane 0 -> colour 1
+  (rows 0-1), plane 1 -> colour 2 (rows 2-3), plane 2 -> colour 4 (rows 4-5), plane 3 -> colour 8
+  (rows 6-7). A 4bpp tile is two 2bpp halves — planes 0/1 in the first 16 bytes, planes 2/3 in the
+  next 16 — so it reads out as four separately-coloured bands only if the decoder pairs the right byte
+  offsets to the right planes. Font tiles cannot test this: they carry nothing in planes 2/3, so a
+  core that mis-pairs the high half renders them identically; here a swapped pairing recolours the
+  lower two bands. Verified by injecting a plane-pair swap into `read_planar` and watching the scene
+  hash flip `0xf11def7a…` -> `0xf7ba0cdf…` while every other check stayed green. Blessed after all
+  three cores agreed on `0xf11def7a…`, distinct from every existing golden. (The scene oracle is fixed
+  at 256x224 non-hi-res, so it deliberately does not claim the neighbouring `C5.15` "modes 5/6 use
+  16-px-wide tiles", which only a hi-res render could reach.)
+  Coverage: 52 -> 53 rendered scenes (332/443 total; on-cart stays 279).
+- **`C8.12` — CGWSEL force-main-black field, as a rendered scene (`docs/adr/0013`).** CGWSEL bits 7-6
+  select where the main screen is forced black (never / outside / inside / always the colour window).
+  The scene sets `01` (black outside the colour window at columns 64..191): BG1 is on everywhere, so
+  the font shows only in that central band and the sides are blacked out by the output stage — not by
+  clipping the layer. A core that reads the field inverted blacks the band instead, and one that ties
+  force-black to colour math being enabled shows nothing black (no CGADSUB here). Blessed after all
+  three cores agreed on `0x21a5b8a8…`, distinct from every existing golden.
+  Coverage: 51 -> 52 rendered scenes (331/443 total; on-cart stays 279).
+- **`C7.03` — sprite H-flip sliver order, as a rendered scene (`docs/adr/0013`).** A 16x32 sprite two
+  8-pixel slivers wide (distinct font glyphs `$10`/`$11`) with the H-flip attribute set: H-flip swaps
+  which sliver appears on the left and mirrors each glyph, but the slivers are still emitted
+  left-to-right across the screen. A core that reverses the sliver *output* order, or mirrors the
+  sprite as a whole without re-fetching per sliver, hashes differently. Blessed only after all three
+  cores agreed on the pixels (`0x863f085b…`), and its hash is distinct from every existing golden.
+  Coverage: 50 -> 51 rendered scenes (330/443 total; on-cart stays 279).
+- **`D1.13` — the GP-DMA byte-count register decrements to zero (general-purpose DMA).** A DMA runs
+  until its count reaches zero, so `$43x5/6` is spent by the end and reads `$0000`, not the programmed
+  size. The test reads the count both **before** and **after** a four-byte mode-0 transfer and asserts
+  the difference is exactly `4`: a paired control that a bare "reads `$0000`" assertion lacks, because
+  a core that never exposes the count (`$43x5` reads a constant `$0000`/open bus) reads zero both times
+  and would pass vacuously. The before-read holds the register to the programmed size and the delta
+  proves it decremented — separating a working count register from one that never decrements (reads
+  `$0004` both times) *and* from one that never exposes it. Verified both ways: suppressing the
+  write-back in `run_gp`, and forcing `$43x5` to read constant zero — each makes D1.13 alone fail.
+  Cross-validated on snes9x and Mesen2 (both read `$0004` before, `$0000` after).
+  Coverage: 278 -> 279 on-cart assertion rows (329/443 with rendered scenes).
+- **`E7.18` — `VxENVX` is the envelope shifted right four, bit 7 always clear (S-DSP).** The
+  eleven-bit envelope exposes bits 10-4 through `ENVX`, so it tops out at `$7F`. Probed at direct gain
+  `$40` — envelope `$400`, the value that separates every candidate shift at once: `>>4` reads `$40`,
+  `>>5` reads `$20`, and `>>3` reads `$80` (bit 7 set, which eleven bits can never produce). Asserting
+  exactly `$40` pins the shift at four and confirms bit 7 stays clear in one read, and it is the only
+  ENVX test that catches a `>>3` shift — verified by injecting exactly that. Cross-validated on snes9x
+  and Mesen2. Coverage: 277 -> 278 on-cart assertion rows (328/443 with rendered scenes).
+- **`E5.13` — a voice never stops decoding BRR (S-DSP).** Key-off releases the envelope but the BRR
+  decoder advances on the pitch clock regardless, so a released, silent voice still reaches its end
+  blocks and re-sets `ENDX`. The voice loops a sample and is keyed off; slot 240 records `ENVX = $00`
+  (the guard that it is genuinely silent, not merely a voice that never started), then `ENDX` is
+  cleared and re-read at slot 241 — voice 0's bit reads set because the released voice kept looping.
+  A core that halts a silent voice's decoder leaves it clear and fails; verified by injecting exactly
+  that halt into `voice4`. The assert masks to voice 0's bit because other voices carry leftover
+  `ENDX` bits from earlier tests. Cross-validated on snes9x and Mesen2.
+  Coverage: 276 -> 277 on-cart assertion rows (327/443 with rendered scenes).
+- **`E8.05` — KON is write-triggered and non-persistent (S-DSP key-on).** A voice is keyed on with
+  `$4C` bit 0 and the register bit is deliberately **left set**; a correct DSP keys on once and, under
+  direct gain, its envelope escapes the five-sample key-on delay and `ENVX` reads `$7F`. A core that
+  re-consults the held bit every poll perpetually restarts the key-on delay, the envelope never leaves
+  zero, and `ENVX` reads `$00`. The reading is self-guarding — `$7F` can only mean keyed-on-then-not-
+  re-keyed. `ENDX` cannot serve here (end always jumps to the loop pointer and re-crosses the end
+  block, so a merely-playing voice re-sets it regardless of a re-key). Verified by injecting a level-
+  sensitive KON into `misc30` and watching the row fail; cross-validated on snes9x and Mesen2.
+  Coverage: 275 -> 276 on-cart assertion rows (326/443 with rendered scenes).
+- **Two more S-DSP envelope rows — `E7.13` and `E7.17` (S-DSP GAIN).** `E7.13` pins GAIN mode 7
+  (bent-increase): the envelope climbs `+32`/sample below the internal `$600` break and `+8` above
+  it, read back through `ENVX`; a core that ignores the break saturates at `$7F` instead of landing
+  in the `$68`-`$7C` slow region. `E7.17` pins GAIN mode 4 (linear-decrease) clamping at zero on
+  underflow: the voice is parked at full scale under direct gain (a guard slot records `$7F`), then
+  switched to linear-decrease and driven through zero — `ENVX` must read exactly `$00`, where a core
+  that wraps `-$20` instead of clamping reads near `$7E`. Both verified by injecting the bug (removing
+  the `$600` break; wrapping the clamp) and watching the row fail; both cross-validated on snes9x and
+  Mesen2. Coverage: 273 -> 275 on-cart assertion rows (325/443 with rendered scenes).
 - **The results menu scrolls and can re-run tests and restart the battery.** Up/Down move the
   cursor and scroll the 26-row window; **A** re-runs the highlighted test through the same dispatch
   the batch uses, rewriting only its verdict; **Select** restarts the battery from `restart_entry`

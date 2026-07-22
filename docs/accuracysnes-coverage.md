@@ -26,33 +26,33 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `C2` | 10 | 10 | 0 | — |
 | `C3` | 10 | 8 | 0 | C3.04, C3.10 |
 | `C4` | 5 | 0 | 5 | — |
-| `C5` | 15 | 0 | 11 | C5.06, C5.07, C5.14, C5.15 |
+| `C5` | 15 | 0 | 12 | C5.06, C5.07, C5.15 |
 | `C6` | 7 | 0 | 6 | C6.07 |
-| `C7` | 16 | 5 | 5 | C7.03, C7.05, C7.06, C7.07, C7.12, C7.16 |
-| `C8` | 12 | 0 | 10 | C8.09, C8.12 |
+| `C7` | 16 | 5 | 6 | C7.05, C7.06, C7.07, C7.12, C7.16 |
+| `C8` | 12 | 0 | 11 | C8.09 |
 | `C9` | 8 | 2 | 0 | C9.01, C9.02, C9.03, C9.06, C9.07, C9.08 |
 | `C10` | 5 | 0 | 3 | C10.03, C10.04 |
 | `C11` | 12 | 3 | 7 | C11.03, C11.12 |
 | `C12` | 3 | 0 | 3 | — |
 | `C13` | 10 | 4 | 0 | C13.01, C13.02, C13.03, C13.04, C13.05, C13.06 |
 | `C14` | 3 | 3 | 0 | — |
-| `D1` | 15 | 13 | 0 | D1.12, D1.13 |
+| `D1` | 15 | 14 | 0 | D1.12 |
 | `D2` | 14 | 6 | 0 | D2.01, D2.02, D2.08, D2.10, D2.11-14, D2.15, D2.16, D2.17 |
 | `D3` | 2 | 0 | 0 | D3.01, D3.02 |
 | `E1` | 15 | 14 | 0 | E1.11 |
 | `E2` | 10 | 9 | 0 | E2.10 |
 | `E3` | 14 | 10 | 0 | E3.07, E3.09, E3.12, E3.13 |
 | `E4` | 11 | 5 | 0 | E4.05, E4.06, E4.07, E4.08, E4.09, E4.10 |
-| `E5` | 13 | 11 | 0 | E5.06, E5.13 |
+| `E5` | 13 | 12 | 0 | E5.06 |
 | `E6` | 11 | 3 | 0 | E6.01, E6.03, E6.04, E6.05, E6.06, E6.07, E6.08, E6.10 |
-| `E7` | 18 | 14 | 0 | E7.02, E7.13, E7.17, E7.18 |
-| `E8` | 11 | 5 | 0 | E8.01, E8.05, E8.06, E8.08, E8.09, E8.11 |
+| `E7` | 18 | 17 | 0 | E7.02 |
+| `E8` | 11 | 6 | 0 | E8.01, E8.06, E8.08, E8.09, E8.11 |
 | `E9` | 20 | 12 | 0 | E9.02, E9.07, E9.08, E9.09, E9.11, E9.14, E9.16, E9.20 |
 | `E10` | 6 | 2 | 0 | E10.02, E10.03, E10.04, E10.06 |
 | `F1` | 22 | 9 | 0 | F1.03, F1.08, F1.09, F1.10, F1.13, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
 | `G1` | 18 | 11 | 0 | G1.05, G1.06, G1.13, G1.15, G1.16, G1.17, G1.18 |
 
-**273 of 443** enumerated assertion rows covered by an on-cart test, plus **50** covered only by a rendered scene (`docs/adr/0013`) — **323 of 443** in total.
+**279 of 443** enumerated assertion rows covered by an on-cart test, plus **53** covered only by a rendered scene (`docs/adr/0013`) — **332 of 443** in total.
 
 The two columns are kept apart on purpose. An on-cart result means the same thing on any emulator and on real hardware; a rendered scene needs a host holding the golden. Adding them into one figure would quietly change what the number claims.
 
@@ -127,6 +127,9 @@ Declared in `gen/src/scenes.rs`. Each is reported by the host framebuffer oracle
 - **`C7.10`** — c7-objsel-size-7
 - **`C7.13`** — c7-vflip-tall-halves
 - **`C7.14`** — c7-64px-wraps-bottom-to-top
+- **`C7.03`** — c7-hflip-sliver-order
+- **`C8.12`** — c8-force-black-outside-window
+- **`C5.14`** — c5-4bpp-bitplane-order
 
 ## Tests with no enumerated assertion
 

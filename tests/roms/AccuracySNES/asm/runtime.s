@@ -125,6 +125,10 @@ restart_entry:
 
     jsr run_scenes              ; rendered scenes for the host framebuffer oracle (ADR 0013)
 
+    ; Reload the menu palette: the rendered scenes just overwrote CGRAM, and draw_screen must draw
+    ; the results in the menu's own green rather than whatever the last scene left behind.
+    jsr load_palette
+
     ; The menu's own state, which nothing else initialises.
     ;
     ; WRAM powers up holding garbage -- `G1.07` records that as undefined and measures it -- and
@@ -410,18 +414,23 @@ restart_entry:
 .endproc
 
 ; ---------------------------------------------------------------------------------------------
-; Two-colour palette: index 0 black (also the backdrop), index 1 white.
+; Two-colour palette: index 0 black (also the backdrop), index 1 bright green ($03E0).
 ; ---------------------------------------------------------------------------------------------
 .proc load_palette
     sep #$20
     .a8
     stz CGADD
-    stz CGDATA                  ; colour 0 = $0000, black
+    stz CGDATA                  ; colour 0 = $0000, black (the background)
     stz CGDATA
-    lda #$FF
-    sta CGDATA                  ; colour 1 = $7FFF, white
-    lda #$7F
-    sta CGDATA
+    ; Colour 1 = $03E0, bright green: the font's "on" pixels index colour 1 of palette 0, and this
+    ; is the colour the results screen is drawn in. It is reloaded right before draw_screen because
+    ; the rendered scenes overwrite CGRAM with their own palettes -- without the reload the menu
+    ; inherited whatever the last scene left, which is why the text came out orange (or, on an
+    ; earlier build, a per-tile mix of green and orange bleeding through from the scene).
+    lda #$E0
+    sta CGDATA                  ; colour 1 low  ($E0)
+    lda #$03
+    sta CGDATA                  ; colour 1 high ($03) -> BGR555 $03E0, green
     rts
 .endproc
 
@@ -1168,7 +1177,7 @@ test_restore := test_restore_impl
 ; framebuffer on the last frame of each hold. On real hardware the same loop is a slideshow.
 ; The canvas every scene renders. Set up once, before the scene loop.
 ;
-; The battery's own screen is deliberately austere: two CGRAM entries (black and white) and a
+; The battery's own screen is deliberately austere: two CGRAM entries (black and green) and a
 ; tilemap of spaces. That is right for a text menu and useless for a framebuffer oracle — a mosaic
 ; over a blank screen is a blank screen, and colour math over two colours is nearly one. The first
 ; version of these scenes proved it: `c8-fixed-colour-add` and `c10-mosaic-4x` hashed *identically*,
@@ -1519,6 +1528,22 @@ test_restore := test_restore_impl
     bne @redraw
     jmp @frame                  ; long: the A/Start handlers pushed @frame out of branch range
 @redraw:
+    ; V_DIRTY == 2 means the cursor moved but the window did not: move the marker only. Two
+    ; character writes fit in the vblank we are already inside, so there is no forced blank and no
+    ; flicker. Only V_DIRTY == 1 (the window scrolled, every visible name changed) needs the full
+    ; blank-and-redraw below.
+    cmp #$02
+    bne @full_redraw
+    sep #$20
+    .a8
+    lda #$00
+    sta f:V_DIRTY               ; STZ has no long addressing mode
+    rep #$30
+    .a16
+    .i16
+    jsr move_cursor_marker
+    jmp @frame
+@full_redraw:
     sep #$20
     .a8
     lda #$00
@@ -1531,6 +1556,15 @@ test_restore := test_restore_impl
     lda #$80
     sta INIDISP
     jsr draw_list
+    ; draw_list returns with A 16-bit (its @done falls through the loop, which is .a16). The
+    ; assembler is still .a8 here, so without this re-assertion `lda #$0F` would assemble as a
+    ; one-byte immediate while the CPU reads two -- eating the `sta INIDISP` opcode, so the screen
+    ; never un-blanks and the instruction stream desyncs. That was the whole "pressing Down blanks
+    ; the screen and hangs" symptom: the cursor moved, the redraw ran, and then the unblank never
+    ; executed. The initial draw_screen call is followed only by `rts`, which is width-independent,
+    ; which is why it was invisible there.
+    sep #$20
+    .a8
     lda #$0F
     sta INIDISP
     rep #$30
@@ -1539,26 +1573,79 @@ test_restore := test_restore_impl
     jmp @frame
 .endproc
 
+; Move the cursor marker without touching the list. Erases the '>' at V_CURSOR_PREV and draws one
+; at V_CURSOR, each at column 0 of its visible row. Two character writes, done inside the vblank the
+; caller is already in, so no forced blank and no flicker -- used for a move within the window.
+.proc move_cursor_marker
+    rep #$30
+    .a16
+    .i16
+    lda f:V_CURSOR_PREV
+    jsr marker_addr             ; X = tilemap word address, column 0 of that row
+    sep #$20
+    .a8
+    lda #' '
+    jsr draw_char
+    rep #$30
+    .a16
+    .i16
+    lda f:V_CURSOR
+    jsr marker_addr
+    sep #$20
+    .a8
+    lda #'>'
+    jsr draw_char
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; A (16-bit) = absolute test index -> X = tilemap word address of that row's column 0. The header
+; occupies rows 0-2, so a visible row lands at MAP_BASE + (row + 3) * SCREEN_COLS.
+.proc marker_addr
+    sec
+    sbc f:V_SCROLL              ; visible row = index - scroll
+    clc
+    adc #3
+    asl
+    asl
+    asl
+    asl
+    asl                         ; * 32 (SCREEN_COLS)
+    clc
+    adc #MAP_BASE
+    tax
+    rts
+.endproc
+
 .proc cursor_up
     rep #$30
     .a16
     .i16
     lda f:V_CURSOR
-    beq @done
+    beq @done                   ; already at the top
+    sta f:V_CURSOR_PREV         ; remember where the marker is, so it can be erased
     dec a
     sta f:V_CURSOR
     cmp f:V_SCROLL
-    bcs @dirty
-    sta f:V_SCROLL
-@dirty:
+    bcs @cursor_only            ; still visible: V_CURSOR >= V_SCROLL
+    sta f:V_SCROLL              ; scrolled the window up -> full redraw
     sep #$20
     .a8
     lda #$01
     sta f:V_DIRTY
     ; Restore the 16-bit width the caller was assembled for. `main_loop` continues with
-    ; `bit #PAD_DOWN`, which ca65 emits as a 16-bit immediate because its own `.a16` is still in
-    ; force -- so returning in 8-bit mode left the immediate's high byte to be executed as an
-    ; opcode. That is what turned a press of Up or Down into a blank screen and a dead ROM.
+    ; `bit #PAD_A`, a 16-bit immediate, so returning 8-bit would run its high byte as an opcode.
+    rep #$30
+    .a16
+    .i16
+    rts
+@cursor_only:
+    sep #$20
+    .a8
+    lda #$02                    ; move the marker only, no blank
+    sta f:V_DIRTY
     rep #$30
     .a16
     .i16
@@ -1571,27 +1658,32 @@ test_restore := test_restore_impl
     .a16
     .i16
     lda f:V_CURSOR
+    sta f:V_CURSOR_PREV         ; remember where the marker is, so it can be erased
     inc a
     cmp f:R_COUNT
-    bcs @done
+    bcs @done                   ; already at the last test
     sta f:V_CURSOR
     sec
     sbc f:V_SCROLL
     cmp #VISIBLE_ROWS
-    bcc @dirty
+    bcc @cursor_only            ; still within the window
     lda f:V_CURSOR
     sec
     sbc #(VISIBLE_ROWS - 1)
-    sta f:V_SCROLL
-@dirty:
+    sta f:V_SCROLL              ; scrolled the window down -> full redraw
     sep #$20
     .a8
     lda #$01
     sta f:V_DIRTY
-    ; Restore the 16-bit width the caller was assembled for. `main_loop` continues with
-    ; `bit #PAD_DOWN`, which ca65 emits as a 16-bit immediate because its own `.a16` is still in
-    ; force -- so returning in 8-bit mode left the immediate's high byte to be executed as an
-    ; opcode. That is what turned a press of Up or Down into a blank screen and a dead ROM.
+    rep #$30
+    .a16
+    .i16
+    rts
+@cursor_only:
+    sep #$20
+    .a8
+    lda #$02                    ; move the marker only, no blank
+    sta f:V_DIRTY
     rep #$30
     .a16
     .i16

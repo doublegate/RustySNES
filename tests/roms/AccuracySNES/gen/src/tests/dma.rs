@@ -31,6 +31,7 @@ pub fn all() -> Vec<Test> {
         d2_07(),
         d2_09(),
         d1_14(),
+        d1_13(),
         d1_11(),
         d1_08(),
         d1_03(),
@@ -1246,6 +1247,77 @@ fn d1_14() -> Test {
         'D',
         "$2180 B->A does write",
         Provenance::Documented("fullsnes: $2180->WRAM writes, but the value written is invalid"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The `$43x5/6` byte-count register decrements as a GP-DMA runs, and reads zero when it finishes.
+///
+/// A DMA transfers until the count reaches zero, so the register the count lives in is spent by the
+/// end — hardware leaves it at `$0000`, not at the value that was programmed. A core that keeps its
+/// own private counter and never writes the decrement back leaves the programmed size sitting in the
+/// register, so a driver that reads `$43x5` to learn how many bytes actually moved (or to resume a
+/// partial transfer) gets the wrong answer.
+///
+/// The transfer itself is an ordinary four-byte mode-0 run into a scratch WRAM page; nothing about
+/// its destination matters here. What is read back is the count register, which must have counted
+/// down to zero. A core that never decrements it, or that restores the programmed count when the
+/// run ends, reads `$0004` instead — the seed the test wrote, which is exactly the signature of the
+/// register not tracking the transfer.
+fn d1_13() -> Test {
+    let mut a = Asm::new();
+    data_table(&mut a);
+    a.c(
+        "Run a normal four-byte mode-0 DMA into a scratch page, then read the byte-count register.",
+    );
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta $2181");
+    a.l("lda #$06");
+    a.l("sta $2182");
+    a.l("stz $2183         ; WMADD = $7E:0600, a scratch page clear of every test");
+    a.l("stz $4300         ; DMAP: A->B, increment, mode 0");
+    a.l("lda #$80");
+    a.l("sta $4301         ; B-bus = $2180");
+    source_from_table(&mut a, 4);
+    a.c("Paired control: read the count BEFORE the transfer and keep it in Y (the DMA does not touch");
+    a.c("X/Y). Without this, a core that exposes $43x5 as a constant $0000 / open bus reads zero both");
+    a.c("times and would pass the post-transfer check vacuously — nothing would prove the count was");
+    a.c("ever the programmed size. Asserting before-after == 4 needs the register both readable (holds");
+    a.c("$0004 up front) and decrementing (reads $0000 after), and distinguishes both failure modes.");
+    a.l("rep #$30");
+    a.l(
+        "lda $4305         ; programmed count, BEFORE the transfer (16-bit: $4305 low, $4306 high)",
+    );
+    a.l("tay               ; stash across the run — the transfer leaves X/Y untouched");
+    a.l("sep #$20");
+    a.l("lda #$01");
+    a.l("sta $420B         ; run channel 0");
+    a.l("rep #$30");
+    a.l("lda $4305         ; the count AFTER — $0000 on hardware once the transfer completes");
+    a.l("sta f:$7E0604     ; scratch, just past the 4-byte DMA landing at $7E:0600-0603");
+    a.l("tya               ; A = the programmed count read before the run");
+    a.l("sec");
+    a.l("sbc f:$7E0604     ; A = before - after");
+    a.assert_a16(
+        0x0004,
+        "the DMA byte-count register did not decrement by the transfer size (before - after != 4): \
+         either it never exposed the programmed count (a constant-zero/open-bus $43x5 reads 0 both \
+         times) or it never decremented (reads the programmed size both times) — the paired read \
+         separates a register that tracks the transfer from one that only looks right after it",
+    );
+    a.finish(
+        "D1.13",
+        'D',
+        "DMA count hits zero",
+        Provenance::Documented(
+            "fullsnes and ares: the DAS $43x5/6 byte-count register decrements as GP-DMA transfers \
+             and reads $0000 when the transfer completes",
+        ),
         Kind::Scored,
         None,
     )

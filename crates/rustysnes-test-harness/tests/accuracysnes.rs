@@ -435,6 +435,7 @@ const SCENE_DONE_MARK: u8 = 0x5A;
 
 /// `V_CURSOR` in low WRAM — `runtime.inc`'s `VAR_BASE + $00`.
 const V_CURSOR: u32 = 0x7E_E000;
+const V_SCROLL: u32 = 0x7E_E002;
 
 /// The Down bit of the 16-bit `BYsSUDLR` controller word.
 const PAD_UP: u16 = 0x0800;
@@ -1443,6 +1444,15 @@ fn the_menu_still_draws_after_the_battery() {
          Rows read back as {list:?}"
     );
 
+    // The results screen is drawn in green ($03E0): the font's "on" pixels index CGRAM colour 1 of
+    // palette 0, which `load_palette` sets and `draw_screen` reloads so the last scene's palette
+    // does not bleed in. A regression here is the orange/mixed text the menu showed before.
+    assert_eq!(
+        sys.bus.ppu.cgram_word(1),
+        0x03E0,
+        "the menu font colour is not green — the palette was not reloaded before draw_screen"
+    );
+
     // The rendered tally against the results block it is drawn from. Comparing the menu with the
     // machine rather than with a remembered number means this never needs re-blessing when the
     // battery grows, and it catches the whole `draw_dec3` path: a digit drawn at the wrong column,
@@ -1509,6 +1519,9 @@ fn the_dpad_scrolls_the_list() {
     let rd16 = |s: &System, a: u32| -> u16 {
         u16::from(s.bus.peek_wram(a)) | (u16::from(s.bus.peek_wram(a + 1)) << 8)
     };
+    // The cold-boot pass count, captured before any restart, so the Select-restart assertion below
+    // tracks the battery total instead of a literal that must be re-blessed whenever a row is added.
+    let first_run_passed = rd16(&sys, R_PASSED);
     let before = rd16(&sys, V_CURSOR);
 
     // Down, held for a few frames then released: `read_pad` derives "newly pressed" from the
@@ -1528,6 +1541,22 @@ fn the_dpad_scrolls_the_list() {
         before + 1,
         "pressing Down did not move the cursor (was {before}, now {after})"
     );
+    // A move within the visible window is flicker-free: only the marker is rewritten, inside the
+    // vblank, with no forced blank. Brightness must never dip, the old '>' must be erased and the
+    // new one drawn. (The bug this replaced left brightness stuck at 0 and hung the ROM.)
+    let cell =
+        |sys: &System, row: u16| (sys.bus.ppu.vram_word(0x0400 + (row + 3) * 32) & 0xFF) as u8;
+    assert_eq!(
+        sys.bus.ppu.display_brightness(),
+        15,
+        "the display dipped on a within-window Down move — it should not blank at all"
+    );
+    assert_eq!(cell(&sys, 0), b' ', "the old cursor marker was not erased");
+    assert_eq!(
+        cell(&sys, 1),
+        b'>',
+        "the cursor marker did not move to the new row"
+    );
 
     // Up moves it back. Same width bug hit both directions, so proving one is not proving the other.
     sys.bus.set_joypad(0, PAD_CONTRACT | PAD_UP);
@@ -1542,6 +1571,34 @@ fn the_dpad_scrolls_the_list() {
         rd16(&sys, V_CURSOR),
         before,
         "pressing Up did not move the cursor back"
+    );
+
+    // Scrolling past the visible window is the full-redraw path: every visible name changes, so the
+    // whole list is blanked and redrawn. Drive the cursor down far enough to shift V_SCROLL, then
+    // confirm the window moved and the display came back (a full redraw dips brightness for its one
+    // frame, so we settle before checking).
+    for _ in 0..30 {
+        sys.bus.set_joypad(0, PAD_CONTRACT | PAD_DOWN);
+        sys.run_frame();
+        sys.bus.set_joypad(0, PAD_CONTRACT);
+        sys.run_frame();
+    }
+    for _ in 0..4 {
+        sys.run_frame();
+    }
+    assert!(
+        rd16(&sys, V_SCROLL) > 0,
+        "driving the cursor past the window did not scroll the list"
+    );
+    assert_eq!(
+        sys.bus.ppu.display_brightness(),
+        15,
+        "the display stayed blank after a scrolling redraw"
+    );
+    assert_eq!(
+        (sys.bus.ppu.vram_word(0x0400) & 0xFF) as u8,
+        b'A',
+        "the header did not survive scrolling redraws"
     );
 
     // Still alive: the header is intact and the list still holds a real name. A ROM that fell off
@@ -1618,12 +1675,13 @@ fn the_dpad_scrolls_the_list() {
         DONE_MARK,
         "the restarted battery never finished"
     );
-    // 283, not 284: F1.07 stands down as SKIP on a restart because its phase A needs the power-on
-    // value of $4218, which a soft restart cannot reproduce (the previous run armed auto-read). Its
-    // verdict byte is $FF (skip), not a fail code — that distinction is the whole point of the flag.
+    // One fewer than a cold boot: F1.07 stands down as SKIP on a restart because its phase A needs
+    // the power-on value of $4218, which a soft restart cannot reproduce (the previous run armed
+    // auto-read). Its verdict is $FF (skip), not a fail code. Relative to the first run's pass count
+    // rather than a literal, so adding tests does not break this.
     assert_eq!(
         rd16(&sys, R_PASSED),
-        283,
+        first_run_passed - 1,
         "the restarted battery did not reproduce its result (minus the power-on-only F1.07)"
     );
     let f107_idx = catalog()

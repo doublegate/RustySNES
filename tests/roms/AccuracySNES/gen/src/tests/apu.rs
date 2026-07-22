@@ -99,6 +99,7 @@ pub fn all() -> Vec<Test> {
         e5_02(),
         e7_16(),
         e8_04(),
+        e8_05(),
         e9_04(),
         e9_06(),
         e9_12(),
@@ -111,7 +112,11 @@ pub fn all() -> Vec<Test> {
         e5_03(),
         e5_04(),
         e5_05(),
+        e5_13(),
         e7_01(),
+        e7_13(),
+        e7_17(),
+        e7_18(),
         e7_04(),
         e7_09(),
         e7_05(),
@@ -748,36 +753,6 @@ fn e10_05() -> Test {
     )
 }
 
-/// The gaussian accumulator **wraps** rather than saturating, and it can invert a sample's sign.
-///
-/// Interpolation sums four gaussian-weighted taps. The intermediate sum is held in **16 bits**, and
-/// the third addition is allowed to overflow it — a run of large samples of one sign accumulates
-/// past the limit and comes back round as the other sign. `E6.09` states the rule directly: the
-/// first addition cannot overflow, the second wraps, and the third saturates.
-///
-/// # A constant sample at the extreme, so only the accumulator can be responsible
-///
-/// Every nibble is `8` — the most negative — at shift 12, which decodes to the most negative sample
-/// the 15-bit path can hold. Four identical taps means interpolation has no *shape* to contribute:
-/// a correctly-saturating implementation returns that same large negative value, and only a
-/// wrapping one can produce a positive number from four negative inputs.
-///
-/// That is the whole assertion, and it needs no tolerance — the two possibilities are on opposite
-/// sides of zero, the widest separation an eight-bit reading admits.
-///
-/// # This is not `E6.08`, and finding that out is the point
-///
-/// The same sample was first written as a test of `E6.08`, the `$801` BRR decode overflow, on the
-/// reasoning that `-8 << 12` cannot fit the 15-bit decode path. `VxOUTX` duly came back positive
-/// and the test passed.
-///
-/// It passed for the wrong reason. Injecting into the BRR clamp did not move the reading at all;
-/// injecting into the gaussian accumulator flipped it from `$7E` to `$81`. The decode produces the
-/// large negative sample perfectly correctly, and everything interesting happens downstream in the
-/// interpolator — which sits between the decoder and every reading this cart can take, and so
-/// masks the decode overflow rather than revealing it.
-///
-/// `E6.08` is therefore **not covered by this test and is not covered at all**: the cart has no
 /// path from a decoded BRR sample to an observable that does not pass through interpolation.
 fn e6_09() -> Test {
     let prog = voice_program(&constant_sample(0xC, 0x8), Voice::direct_gain());
@@ -1495,6 +1470,233 @@ fn e9_01() -> Test {
         Provenance::Documented(
             "fullsnes and anomie's DSP doc: the noise shift register resets to $4000, with taps \
              bit0 XOR bit1 feeding bit 14",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// GAIN bent-increase climbs at two slopes, breaking at `$600`, and it reads the *clipped* envelope.
+///
+/// GAIN mode 7 is a two-slope linear increase: the envelope climbs `+32` per sample until it reaches
+/// `$600`, then `+8` per sample the rest of the way to `$7FF`. That break is what shapes the "bent"
+/// attack a lot of instruments use. The `[ERRATA]` the row names is in the comparison: the threshold
+/// is checked against the **internal** envelope latch as an *unsigned* value, so a voice that came
+/// out of a decrease mode with an underflowed (negative) latch reads as `>= $600` and takes the slow
+/// slope immediately.
+///
+/// # Distinguishing the bent curve from a plain `+32`
+///
+/// A single reading in the slow region separates the two. At rate 31 (every sample) the envelope
+/// reaches `$600` in 48 samples and then crawls; a plain `+32` climb with no break saturates at
+/// `$7FF` in 64. Read the envelope around 96 samples in:
+///
+/// | model | envelope at ~96 samples | `ENVX` |
+/// |---|---:|---|
+/// | bent (`+32` then `+8`) | `$600 + 48 × 8` ≈ `$780` | ≈ `$78` |
+/// | plain `+32` throughout | saturated at `$7FF` | `$7F` |
+///
+/// So an `ENVX` past `$60` (the break happened) but short of `$7F` (it did not saturate) is the
+/// signature of the bent curve. A core that ignores the `$600` break saturates and reads `$7F`.
+///
+/// # The reading is bounded on both sides, and both bounds carry weight
+///
+/// Below `$68` would mean the envelope never crossed `$600` — the slow slope was never exercised and
+/// the test would pass against a core that only ever climbs slowly. Above `$7C` (towards `$7F`) means
+/// it saturated, which is exactly the plain-`+32` failure. The window between is where the second
+/// slope, and only the second slope, puts it.
+fn e7_13() -> Test {
+    let prog = voice_program(
+        &looping_sample(),
+        Voice {
+            adsr1: 0x00, // ADSR1 bit 7 clear: GAIN governs
+            gain: 0xFF,  // mode 7 (bent increase), rate 31 (steps every sample)
+            settle: 1,   // land in the slow region, past $600 and short of saturation
+            ..Voice::direct_gain()
+        },
+    );
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(
+        233,
+        "E7.13 ENVX under GAIN bent-increase, in the slow region past $600",
+    );
+    a.c("Past $600 the slope is +8, not +32: after ~96 samples the envelope is near $780, not");
+    a.c("saturated. A core that ignores the $600 break climbs +32 throughout and saturates at $7FF.");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x68,
+        0x7C,
+        "GAIN bent-increase did not land in its slow region. Below $68 the envelope never reached \
+         the $600 break, so the second slope was never tested; at $7F it saturated, which is what a \
+         core that climbs a flat +32 and ignores the break does",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E7.13",
+        'E',
+        "GAIN bent-increase",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: GAIN mode 7 increases +32 per sample below $600 and +8 \
+             above, comparing the internal envelope latch unsigned",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// GAIN linear-decrease (mode 4) clamps at zero on underflow — it never wraps back up.
+///
+/// Mode 4 subtracts `$20` from the envelope on every counter tick. Once the envelope reaches zero
+/// the next subtraction goes negative, and hardware pins the result at zero rather than letting it
+/// wrap. The internal comparison that does this reads the envelope **unsigned** (`(u32) env > $7FF`,
+/// blargg `SPC_DSP` / ares), so a value one step below zero looks enormous and is pulled back to
+/// zero. A core that instead masks the result with `& $7FF`, or narrows a signed value straight to
+/// `u16`, wraps `-$20` to `$7E0` — the voice roars back to near-full scale and every fading note ends
+/// on an audible tick.
+///
+/// # Why it parks high first, and reads a guard
+///
+/// A voice that never sounded also reads `ENVX = 0`, so "the envelope is zero" on its own proves
+/// nothing about a clamp — that is the vacuous reading two withdrawn tests this session fell into.
+/// The voice is first parked at full scale under **direct** gain, and slot 236 records that `$7F`;
+/// only then is it switched to linear-decrease. The zero at slot 237 therefore means the envelope
+/// was driven down *through* zero and held there, which is the whole assertion. A wrapping core
+/// leaves a large value at slot 237 and fails; a core that never started fails the guard instead.
+fn e7_17() -> Test {
+    let mut p = Spc::new();
+    let addr = p.data_first(IMAGE_BASE, &looping_sample());
+    p.mov_x_imm(0xEF).mov_sp_x();
+    let dir = u16::from(DIR_PAGE) << 8;
+    let [lo, hi] = addr.to_le_bytes();
+    p.mov_a_imm(lo).mov_abs_a(dir);
+    p.mov_a_imm(hi).mov_abs_a(dir + 1);
+    p.mov_a_imm(lo).mov_abs_a(dir + 2);
+    p.mov_a_imm(hi).mov_abs_a(dir + 3);
+    dsp_write(&mut p, 0x6C, 0x20); // FLG: running, unmuted, echo writes off
+    dsp_write(&mut p, 0x5C, 0x00); // KOF
+    dsp_write(&mut p, 0x3D, 0x00); // NON
+    dsp_write(&mut p, 0x4D, 0x00); // EON
+    dsp_write(&mut p, 0x2D, 0x00); // PMON
+    dsp_write(&mut p, 0x5D, DIR_PAGE);
+    dsp_write(&mut p, 0x0C, 0x7F); // MVOLL
+    dsp_write(&mut p, 0x1C, 0x7F); // MVOLR
+    dsp_write(&mut p, 0x00, 0x7F); // VOL L
+    dsp_write(&mut p, 0x01, 0x7F); // VOL R
+    dsp_write(&mut p, 0x02, 0x00); // PITCH low
+    dsp_write(&mut p, 0x03, 0x10); // PITCH high
+    dsp_write(&mut p, 0x04, 0x00); // SRCN
+    dsp_write(&mut p, 0x06, 0x00); // ADSR2
+    dsp_write(&mut p, 0x07, 0x7F); // GAIN: direct, full scale
+    dsp_write(&mut p, 0x05, 0x00); // ADSR1 bit 7 clear: GAIN governs
+    dsp_write(&mut p, 0x4C, 0x01); // KON voice 0
+    p.delay(0x00);
+    dsp_write(&mut p, 0x4C, 0x00);
+    p.delay(0x40); // reach direct-gain full scale
+    dsp_read_to(&mut p, 0x08, PORT1); // ENVX parked at full scale: the guard
+
+    dsp_write(&mut p, 0x07, 0x9F); // GAIN: mode 4 linear-decrease, rate 31 (every sample, -$20)
+    p.delay(0xFF);
+    p.delay(0xFF); // long enough to drive $7F0 through zero and hold it there
+    dsp_read_to(&mut p, 0x08, PORT2); // ENVX after the underflow
+    p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &p);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(
+        236,
+        "E7.17 ENVX parked at full scale under direct gain (the guard)",
+    );
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(
+        237,
+        "E7.17 ENVX after linear-decrease drove the envelope through zero",
+    );
+    a.c("The guard: the envelope has to have been high for the zero below to mean it was pulled down.");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x7C,
+        0x7F,
+        "the envelope was not at full scale before switching to linear-decrease, so the value below \
+         says nothing about an underflow",
+    );
+    a.c("Linear-decrease past zero clamps to zero and holds; a core that wraps -$20 reads ~$7E here.");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x00,
+        0x00,
+        "linear-decrease did not clamp at zero on underflow — a wrapping subtraction leaves ~$7E0 in \
+         the envelope and ENVX reads near $7E",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E7.17",
+        'E',
+        "Lin-decrease clamps 0",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: GAIN linear-decrease subtracts $20 per tick and clamps \
+             the envelope to zero on underflow, comparing the internal envelope unsigned",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `VxENVX` is the eleven-bit envelope shifted right four — a seven-bit value whose bit 7 is always
+/// clear.
+///
+/// The envelope generator runs on eleven bits (`$000`-`$7FF`); `ENVX` exposes bits 10-4 of it, so
+/// the widest it can ever read is `$7F`. A game reads `ENVX` to follow a note's decay, and a core
+/// that shifts by the wrong amount reports the wrong loudness — off by an octave of amplitude in
+/// either direction, and a right shift of three would set bit 7 the hardware never sets.
+///
+/// # Why the probe is direct gain `$40`, not full scale
+///
+/// Full scale reads `$7F` under `>>4` and `$FE` under `>>3`, which catches the bad shift — but it is
+/// exactly the reading `E7.17`'s guard already makes, and it does not pin the shift *amount*. Direct
+/// gain `$40` sets the envelope to `$40 << 4 = $400`, and `$400` is the value that separates every
+/// candidate at once: `>>4` reads `$40`, `>>5` reads `$20`, and `>>3` reads **`$80`** — bit 7 set,
+/// all other bits clear, the cleanest possible witness that a wrong shift violates "bit 7 always 0".
+/// Asserting exactly `$40` pins the shift at four and confirms bit 7 stays clear in one read.
+fn e7_18() -> Test {
+    let prog = voice_program(
+        &looping_sample(),
+        Voice {
+            gain: 0x40, // direct gain (bit 7 clear): envelope = $40 << 4 = $400
+            ..Voice::direct_gain()
+        },
+    );
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0101"); // voice 0 ENVX
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x40,
+        0x40,
+        "ENVX was not the envelope shifted right four: at envelope $400 a >>4 reads $40, a >>5 reads \
+         $20, and a >>3 reads $80 — bit 7 set, which the envelope's eleven bits can never produce",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E7.18",
+        'E',
+        "ENVX is E>>4",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: VxENVX = envelope >> 4, a seven-bit value with bit 7 \
+             always clear",
         ),
         Kind::Scored,
         None,
@@ -4488,6 +4690,117 @@ fn e5_05() -> Test {
     )
 }
 
+/// A voice never stops decoding BRR — a key-off releases the envelope but the decoder keeps running.
+///
+/// The envelope generator and the BRR decoder are independent: key-off drives the envelope to zero
+/// but the decoder advances through blocks on the pitch clock regardless, which is why a released
+/// voice still reaches its end blocks and still sets `ENDX`. A core that shortcuts a silent voice by
+/// halting its decoder saves nothing a game can hear at the moment — but the sample position it
+/// stops advancing is the one a later key-on or `SRCN` swap resumes from, so the wrong block plays.
+///
+/// # Two reads that guard each other
+///
+/// The voice loops a sample, then is keyed **off** and left to release. Slot 240 records `ENVX = $00`
+/// — the voice is silent, which is what makes "still decoding" a non-trivial claim rather than
+/// something a merely-playing voice satisfies for free. `ENDX` is then cleared and, after a wait,
+/// read back at slot 241: it reads `$01` because the released voice kept looping through its end
+/// block and re-set it. A core that stops decoding for released voices leaves `ENDX` clear and fails
+/// slot 241; a core where the voice never went silent fails the `ENVX` guard at slot 240.
+fn e5_13() -> Test {
+    let mut p = Spc::new();
+    let addr = p.data_first(IMAGE_BASE, &looping_sample()); // end+loop: crosses its end block forever
+    p.mov_x_imm(0xEF).mov_sp_x();
+    let dir = u16::from(DIR_PAGE) << 8;
+    let [lo, hi] = addr.to_le_bytes();
+    p.mov_a_imm(lo).mov_abs_a(dir);
+    p.mov_a_imm(hi).mov_abs_a(dir + 1);
+    p.mov_a_imm(lo).mov_abs_a(dir + 2); // loop address: the same block, so it repeats
+    p.mov_a_imm(hi).mov_abs_a(dir + 3);
+    dsp_write(&mut p, 0x6C, 0x20); // FLG: running, unmuted, echo writes off
+    dsp_write(&mut p, 0x5C, 0x00); // KOF
+    dsp_write(&mut p, 0x3D, 0x00); // NON
+    dsp_write(&mut p, 0x4D, 0x00); // EON
+    dsp_write(&mut p, 0x2D, 0x00); // PMON
+    dsp_write(&mut p, 0x5D, DIR_PAGE);
+    dsp_write(&mut p, 0x0C, 0x7F); // MVOLL
+    dsp_write(&mut p, 0x1C, 0x7F); // MVOLR
+    dsp_write(&mut p, 0x00, 0x7F); // VOL L
+    dsp_write(&mut p, 0x01, 0x7F); // VOL R
+    dsp_write(&mut p, 0x02, 0x00); // PITCH low
+    dsp_write(&mut p, 0x03, 0x10); // PITCH high: one sample per output sample
+    dsp_write(&mut p, 0x04, 0x00); // SRCN
+    dsp_write(&mut p, 0x06, 0x00); // ADSR2
+    dsp_write(&mut p, 0x07, 0x08); // GAIN: direct, low — so the key-off release reaches zero quickly
+    dsp_write(&mut p, 0x05, 0x00); // ADSR1 bit 7 clear: GAIN governs
+    dsp_write(&mut p, 0x7C, 0x00); // ENDX: known start
+    dsp_write(&mut p, 0x4C, 0x01); // KON voice 0
+    p.delay(0x00);
+    dsp_write(&mut p, 0x4C, 0x00); // clear KON (edge)
+    p.delay(0x00); // let it loop and sound
+
+    dsp_write(&mut p, 0x5C, 0x01); // KOFF voice 0: release the envelope
+    p.delay(0x00);
+    p.delay(0x00); // release $80 -> 0 (about sixteen samples) with margin to spare
+    dsp_read_to(&mut p, 0x08, PORT1); // ENVX: $00, the voice is released and silent — the guard
+
+    dsp_write(&mut p, 0x7C, 0x00); // clear ENDX while the voice is released
+    // At pitch $1000 the voice decodes one BRR sample per output sample (pitch $1000 = 4096 is a 1.0
+    // step), so a 16-sample loop is ~16 output samples. One `delay($00)` is only ~15-20 samples, so
+    // wait ten of them — several loop lengths — so a still-decoding voice is certain to re-cross its
+    // end block in the window.
+    for _ in 0..10 {
+        p.delay(0x00);
+    }
+    dsp_read_to(&mut p, 0x7C, PORT2); // ENDX: $01 if decoding continued despite the release
+    dsp_write(&mut p, 0x5C, 0x00); // tidy: clear KOFF
+    p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &p);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(
+        240,
+        "E5.13 ENVX after key-off release (the guard: the voice is silent)",
+    );
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(241, "E5.13 ENDX cleared then re-read while released");
+    a.c("The guard: a released voice reads ENVX $00, so the ENDX below is not just a playing voice.");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x00,
+        0x00,
+        "the voice was not silent after key-off, so its ENDX below says nothing about decoding while \
+         released",
+    );
+    a.c("A released voice keeps decoding and re-crosses its end block: voice 0's ENDX bit reads set.");
+    a.c("A core that halts a silent voice's decoder leaves it clear. Mask to bit 0 — other voices may");
+    a.c("carry leftover ENDX bits from an earlier test, which is why the raw slot can read $03.");
+    a.l("lda f:$7E0101");
+    a.l("and #$0001"); // voice 0's ENDX bit only; other voices' leftovers are not this test's subject
+    a.assert_a16_range(
+        0x01,
+        0x01,
+        "voice 0 stopped setting ENDX after key-off — its BRR decoder halted, but decoding continues \
+         independently of the envelope and the sample position must keep advancing",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E5.13",
+        'E',
+        "Released voices decode",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: the BRR decoder advances on the pitch clock regardless \
+             of the envelope; voices never actually stop decoding",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
 /// A linear-decrease envelope that runs out of room clamps at zero; it does not wrap.
 ///
 /// Key-on puts the envelope at zero, and a linear-decrease GAIN steps it down by 32 every sample,
@@ -6055,6 +6368,88 @@ fn e8_04() -> Test {
         'E',
         "KOFF outranks KON",
         Provenance::Documented("fullsnes, S-DSP key on/off; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// KON is edge-triggered: a written `1` keys a voice on **once** and the internal bit self-clears.
+///
+/// A driver writes `$4C` to key voices on and, having no reason to, does not always clear it — so
+/// the register bit stays set across many poll windows. Hardware keys the voice on only on the
+/// *write*, then clears the internal key-on bit ~63 clocks later (`E8.10`); a held register bit does
+/// nothing after that. `KOFF` and `FLG` bit 7 are the opposite — the DSP re-consults them every
+/// poll, continuously. A core that treats `KON` as a level re-keys the voice on every poll: a
+/// one-shot sound effect stutters, and a note that should have played once machine-guns.
+///
+/// # Observing it through the envelope a re-key would never let leave the key-on delay
+///
+/// The register bit is written once and **left set**. Key-on begins a five-sample delay during which
+/// the envelope is held at zero before the sample and envelope start (`E8.02`). A correct DSP keys
+/// on once: the delay counts down, and under direct gain the envelope reaches full scale, so `ENVX`
+/// reads `$7F`. A core that re-consults the set `KON` bit every poll restarts that five-sample delay
+/// faster than it can expire — the voice is *perpetually* keying on, the envelope never escapes zero,
+/// and `ENVX` reads `$00`. The read is self-guarding: `$7F` can only mean the voice keyed on and then
+/// was *not* re-keyed, so no separate guard is needed. (Reading `ENDX` cannot serve here — end always
+/// jumps to the loop pointer and re-crosses the end block, so a voice that is merely *playing*
+/// re-sets `ENDX` continuously whether or not it re-keyed.)
+fn e8_05() -> Test {
+    let mut p = Spc::new();
+    let addr = p.data_first(IMAGE_BASE, &looping_sample());
+    p.mov_x_imm(0xEF).mov_sp_x();
+    let dir = u16::from(DIR_PAGE) << 8;
+    let [lo, hi] = addr.to_le_bytes();
+    p.mov_a_imm(lo).mov_abs_a(dir);
+    p.mov_a_imm(hi).mov_abs_a(dir + 1);
+    p.mov_a_imm(lo).mov_abs_a(dir + 2);
+    p.mov_a_imm(hi).mov_abs_a(dir + 3);
+    dsp_write(&mut p, 0x6C, 0x20); // FLG: running, unmuted, echo writes off
+    dsp_write(&mut p, 0x5C, 0x00); // KOF
+    dsp_write(&mut p, 0x3D, 0x00); // NON
+    dsp_write(&mut p, 0x4D, 0x00); // EON
+    dsp_write(&mut p, 0x2D, 0x00); // PMON
+    dsp_write(&mut p, 0x5D, DIR_PAGE);
+    dsp_write(&mut p, 0x0C, 0x7F); // MVOLL
+    dsp_write(&mut p, 0x1C, 0x7F); // MVOLR
+    dsp_write(&mut p, 0x00, 0x7F); // VOL L
+    dsp_write(&mut p, 0x01, 0x7F); // VOL R
+    dsp_write(&mut p, 0x02, 0x00); // PITCH low
+    dsp_write(&mut p, 0x03, 0x10); // PITCH high: one sample per output sample
+    dsp_write(&mut p, 0x04, 0x00); // SRCN
+    dsp_write(&mut p, 0x06, 0x00); // ADSR2
+    dsp_write(&mut p, 0x07, 0x7F); // GAIN: direct full scale, so a keyed-on voice climbs to $7F0
+    dsp_write(&mut p, 0x05, 0x00); // ADSR1 bit 7 clear: GAIN governs
+    dsp_write(&mut p, 0x4C, 0x01); // KON voice 0 — and LEAVE the register bit set (the whole point)
+    // No `KON = $00` clear here, unlike every other voice program: holding the bit set is exactly
+    // what a level-sensitive core would keep acting on, and an edge-triggered one must not.
+    p.delay(0x00);
+    p.delay(0x00); // well past the five-sample key-on delay — a re-keying core never gets here
+    dsp_read_to(&mut p, 0x08, PORT1); // ENVX: $7F if keyed on once, $00 if perpetually re-keyed
+    dsp_write(&mut p, 0x4C, 0x00); // tidy: clear KON so the held bit does not follow into later tests
+    p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &p);
+    a.c("$7F means the voice keyed on once and its envelope escaped the key-on delay; $00 means a");
+    a.c("held KON bit kept re-keying it, so the envelope never left zero.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x40,
+        0x7F,
+        "a held KON register bit kept re-keying the voice — its envelope never escaped the key-on \
+         delay, so KON is being treated as a level the DSP re-consults rather than a write-once edge",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E8.05",
+        'E',
+        "KON is edge-triggered",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: KON is write-triggered and self-clears ~63 clocks later; \
+             only KOFF and FLG bit 7 are level-sensitive",
+        ),
         Kind::Scored,
         None,
     )

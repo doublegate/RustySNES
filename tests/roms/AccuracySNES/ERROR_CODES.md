@@ -1683,6 +1683,14 @@ Provenance: **Documented** (fullsnes: $2180->WRAM writes, but the value written 
 |---|---|---|
 | 1 | `$02` | $2180 as a DMA source performed no write — both destinations still hold their seeds |
 
+### D1.13 — DMA count hits zero
+
+Provenance: **Documented** (fullsnes and ares: the DAS $43x5/6 byte-count register decrements as GP-DMA transfers and reads $0000 when the transfer completes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the DMA byte-count register did not decrement by the transfer size (before - after != 4): either it never exposed the programmed count (a constant-zero/open-bus $43x5 reads 0 both times) or it never decremented (reads the programmed size both times) — the paired read separates a register that tracks the transfer from one that only looks right after it |
+
 ### D1.11 — DMA power-on state
 
 Provenance: **Corroborated** (fullsnes register table and the SNESdev DMA-registers page agree independently; ares and bsnes default every channel field to match). Kind: scored.
@@ -2228,6 +2236,14 @@ Provenance: **Documented** (fullsnes, S-DSP key on/off; anomie's DSP doc). Kind:
 |---|---|---|
 | 1 | `$02` | a KON written while KOFF was still set restarted the voice — KOFF is a level the DSP consults continuously, not an edge that KON can override |
 
+### E8.05 — KON is edge-triggered
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: KON is write-triggered and self-clears ~63 clocks later; only KOFF and FLG bit 7 are level-sensitive). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a held KON register bit kept re-keying the voice — its envelope never escaped the key-on delay, so KON is being treated as a level the DSP re-consults rather than a write-once edge |
+
 ### E9.04 — Noise voices decode BRR
 
 Provenance: **Documented** (fullsnes, S-DSP noise; anomie's DSP doc — flagged as errata). Kind: scored.
@@ -2331,6 +2347,15 @@ Provenance: **Documented** (fullsnes, S-DSP BRR filters; anomie's DSP doc). Kind
 |---|---|---|
 | 1 | `$02` | filter 1 did not settle well above its constant input — a single-digit reading is filter 0's answer, so the filter was not applied |
 
+### E5.13 — Released voices decode
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: the BRR decoder advances on the pitch clock regardless of the envelope; voices never actually stop decoding). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the voice was not silent after key-off, so its ENDX below says nothing about decoding while released |
+| 2 | `$04` | voice 0 stopped setting ENDX after key-off — its BRR decoder halted, but decoding continues independently of the envelope and the sample position must keep advancing |
+
 ### E7.01 — Rate 0 never fires
 
 Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DSP doc). Kind: scored.
@@ -2338,6 +2363,31 @@ Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DS
 | Code | Byte | Meaning |
 |---|---|---|
 | 1 | `$02` | the envelope moved although the GAIN rate was 0, which never fires |
+
+### E7.13 — GAIN bent-increase
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: GAIN mode 7 increases +32 per sample below $600 and +8 above, comparing the internal envelope latch unsigned). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | GAIN bent-increase did not land in its slow region. Below $68 the envelope never reached the $600 break, so the second slope was never tested; at $7F it saturated, which is what a core that climbs a flat +32 and ignores the break does |
+
+### E7.17 — Lin-decrease clamps 0
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: GAIN linear-decrease subtracts $20 per tick and clamps the envelope to zero on underflow, comparing the internal envelope unsigned). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the envelope was not at full scale before switching to linear-decrease, so the value below says nothing about an underflow |
+| 2 | `$04` | linear-decrease did not clamp at zero on underflow — a wrapping subtraction leaves ~$7E0 in the envelope and ENVX reads near $7E |
+
+### E7.18 — ENVX is E>>4
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: VxENVX = envelope >> 4, a seven-bit value with bit 7 always clear). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | ENVX was not the envelope shifted right four: at envelope $400 a >>4 reads $40, a >>5 reads $20, and a >>3 reads $80 — bit 7 set, which the envelope's eleven bits can never produce |
 
 ### E7.04 — Attack $F is instant
 

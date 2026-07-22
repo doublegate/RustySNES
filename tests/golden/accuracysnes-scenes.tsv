@@ -198,3 +198,6 @@ c5-mode7-ignores-bgsc	0x61673947271ec365
 c5-mode4-two-layers	0xedb2fcffaf97d845
 c5-bgsc-64x32-second-map-right	0xe6608c42ab8ac555
 c7-name-select-picks-second-table	0x11e9afd7545c0b25
+c7-hflip-sliver-order	0x863f085bccebd107
+c8-force-black-outside-window	0x21a5b8a828e748d7
+c5-4bpp-bitplane-order	0xf11def7ad73be325
