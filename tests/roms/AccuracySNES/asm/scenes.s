@@ -2161,11 +2161,97 @@ SCENES_IMPL = 1
     rts
 .endproc
 
+; c5-4bpp-bitplane-order — C5.14
+; A custom 4bpp tile whose four bitplanes each carry a distinct horizontal stripe: plane 0 on rows 0-1 (colour 1), plane 1 on rows 2-3 (colour 2), plane 2 on rows 4-5 (colour 4), plane 3 on rows 6-7 (colour 8). A 4bpp tile is two 2bpp halves -- planes 0/1 in the first 16 bytes, planes 2/3 in the next 16 -- so it reads out as four coloured bands only if the decoder pairs the right byte offsets to the right planes. Font tiles cannot test this: they carry no data in planes 2/3, so a core that swaps the high half renders them identically. Here a wrong plane pairing recolours the lower two bands. The tile fills the whole screen; the palette gives colours 1/2/4/8 four distinct hues.
+.proc scene_c5_4bpp_bitplane_order
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$01
+    sta $2105         ; BGMODE 1 (BG1 4bpp)
+    stz $210B         ; BG1 character data at word $0000
+    lda #(MAP_BASE >> 8)
+    sta $2107         ; BG1 tilemap base
+    ; --- custom 4bpp stripe tile at word $0200 (tile index $20), clear of font + tilemap ---
+    lda #$80
+    sta $2115         ; VMAIN: +1 word after the high byte, so a 16-bit store = one word
+    rep #$30
+    .a16
+    .i16
+    ldx #$0200
+    stx $2116
+    ldx #$00FF
+    stx $2118         ; row 0  planes 0/1: plane0 set -> colour 1
+    stx $2118         ; row 1
+    ldx #$FF00
+    stx $2118         ; row 2  planes 0/1: plane1 set -> colour 2
+    stx $2118         ; row 3
+    ldx #$0000
+    stx $2118         ; row 4  planes 0/1 empty
+    stx $2118         ; row 5
+    stx $2118         ; row 6
+    stx $2118         ; row 7  (end of the first 2bpp half)
+    stx $2118         ; row 0  planes 2/3 empty
+    stx $2118         ; row 1
+    stx $2118         ; row 2
+    stx $2118         ; row 3
+    ldx #$00FF
+    stx $2118         ; row 4  planes 2/3: plane2 set -> colour 4
+    stx $2118         ; row 5
+    ldx #$FF00
+    stx $2118         ; row 6  planes 2/3: plane3 set -> colour 8
+    stx $2118         ; row 7
+    ; --- point every tilemap cell at tile $20, palette 0 ---
+    ldx #MAP_BASE
+    stx $2116
+    ldx #$0000
+    @fill:
+    lda #$0020
+    sta $2118
+    inx
+    cpx #(SCREEN_COLS * 32)
+    bne @fill
+    ; --- palette: colours 1/2/4/8 as four distinct hues (0 = black backdrop) ---
+    sep #$20
+    .a8
+    lda #$01
+    sta $2121         ; CGADD = 1
+    lda #$1F
+    sta $2122
+    stz $2122         ; colour 1 = red $001F
+    lda #$02
+    sta $2121
+    lda #$E0
+    sta $2122
+    lda #$03
+    sta $2122         ; colour 2 = green $03E0
+    lda #$04
+    sta $2121
+    stz $2122
+    lda #$7C
+    sta $2122         ; colour 4 = blue $7C00
+    lda #$08
+    sta $2121
+    lda #$FF
+    sta $2122
+    lda #$7F
+    sta $2122         ; colour 8 = white $7FFF
+    lda #$01
+    sta $212C         ; BG1 on the main screen
+    lda #$0F
+    sta $2100         ; brightness 15, forced blank off
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
 .segment "CATALOG"
 .export _scene_count
 .export _scene_entries
 _scene_count:
-    .word 52
+    .word 53
 _scene_entries:
     .addr scene_c5_mode1_bg_priority
     .addr scene_c8_fixed_colour_add
@@ -2219,3 +2305,4 @@ _scene_entries:
     .addr scene_c7_64px_wraps_bottom_to_top
     .addr scene_c7_hflip_sliver_order
     .addr scene_c8_force_black_outside_window
+    .addr scene_c5_4bpp_bitplane_order

@@ -669,6 +669,19 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`C5.14` — 2/4/8bpp bitplane layouts, as a rendered scene (`docs/adr/0013`).** A custom 4bpp tile
+  fills the screen, its four bitplanes each carrying a distinct horizontal stripe: plane 0 -> colour 1
+  (rows 0-1), plane 1 -> colour 2 (rows 2-3), plane 2 -> colour 4 (rows 4-5), plane 3 -> colour 8
+  (rows 6-7). A 4bpp tile is two 2bpp halves — planes 0/1 in the first 16 bytes, planes 2/3 in the
+  next 16 — so it reads out as four separately-coloured bands only if the decoder pairs the right byte
+  offsets to the right planes. Font tiles cannot test this: they carry nothing in planes 2/3, so a
+  core that mis-pairs the high half renders them identically; here a swapped pairing recolours the
+  lower two bands. Verified by injecting a plane-pair swap into `read_planar` and watching the scene
+  hash flip `0xf11def7a…` -> `0xf7ba0cdf…` while every other check stayed green. Blessed after all
+  three cores agreed on `0xf11def7a…`, distinct from every existing golden. (The scene oracle is fixed
+  at 256x224 non-hi-res, so it deliberately does not claim the neighbouring `C5.15` "modes 5/6 use
+  16-px-wide tiles", which only a hi-res render could reach.)
+  Coverage: 52 -> 53 rendered scenes (332/443 total; on-cart stays 279).
 - **`C8.12` — CGWSEL force-main-black field, as a rendered scene (`docs/adr/0013`).** CGWSEL bits 7-6
   select where the main screen is forced black (never / outside / inside / always the colour window).
   The scene sets `01` (black outside the colour window at columns 64..191): BG1 is on everywhere, so
