@@ -26,6 +26,13 @@ MAX_PROMPT_BYTES="${MAX_PROMPT_BYTES:-125000}" # hard ceiling on the whole promp
                                            # Linux). Over it, execve fails with E2BIG before agy even
                                            # starts -- a deterministic failure the retry loop cannot
                                            # clear. This backstops MAX_DIFF_BYTES + boilerplate + style.
+ARG_SIZE_CEILING=128000                     # hard cap: a configured MAX_PROMPT_BYTES above the
+                                           # MAX_ARG_STRLEN-derived safe bound would defeat the guard
+                                           # and re-expose E2BIG, so clamp any override down to it.
+if ! [ "$MAX_PROMPT_BYTES" -le "$ARG_SIZE_CEILING" ] 2>/dev/null; then
+  log "MAX_PROMPT_BYTES='${MAX_PROMPT_BYTES}' invalid or above the ${ARG_SIZE_CEILING}-byte ceiling; clamping"
+  MAX_PROMPT_BYTES="$ARG_SIZE_CEILING"
+fi
 STYLE_GUIDE="${STYLE_GUIDE:-.github/agy-review.md}"  # repo-relative; loaded if present
                                            # (dedicated name -- avoids colliding with GEMINI.md/AGENTS.md)
 CONV_DIR="${CONV_DIR:-$HOME/.gemini/antigravity-cli/conversations}"
@@ -123,8 +130,15 @@ fi
 # an instant startup failure -- exactly the class of bug this guard exists to prevent. Drop any
 # invalid/partial sequences when iconv is available (glibc + macOS ship it); a no-op when clean.
 if command -v iconv >/dev/null 2>&1; then
-  iconv -c -f UTF-8 -t UTF-8 "$prompt_file" > "$prompt_file.utf8" 2>/dev/null \
-    && mv "$prompt_file.utf8" "$prompt_file" || rm -f "$prompt_file.utf8"
+  # Explicit branches, not `&& mv || rm`: that idiom masks an mv failure and would then feed agy the
+  # original (possibly split) bytes. A successful iconv must replace the file; a failed mv is fatal
+  # (set -e), a failed iconv leaves the original and we proceed (it may already be clean, and any
+  # residual invalid byte now surfaces via the captured stderr rather than a silent instant crash).
+  if iconv -c -f UTF-8 -t UTF-8 "$prompt_file" > "$prompt_file.utf8" 2>/dev/null; then
+    mv "$prompt_file.utf8" "$prompt_file"
+  else
+    rm -f "$prompt_file.utf8"
+  fi
 fi
 
 # --- run agy headless, under a PTY (works around agy issue #76: -p drops --------
@@ -207,8 +221,11 @@ if ! have_text "$out_file"; then
   # Surface agy's stderr into the job log. RUNNER_TEMP is wiped between jobs, so a bare
   # `exit 1` otherwise leaves the real cause invisible in CI (E2BIG, auth, backend, ...).
   if [ -s "$LOG" ]; then
-    log "----- captured agy stderr ($LOG) -----"
-    sed 's/^/[agy] /' "$LOG" >&2 || true
+    # Bound the dump to the last lines: GitHub Actions auto-masks registered secrets (incl.
+    # GITHUB_TOKEN) in logs, and this is agy's own diagnostic stream, but a bounded tail avoids
+    # publishing an unbounded volume of stderr (which could echo prompt/diff content) into CI.
+    log "----- captured agy stderr ($LOG), last ${AGY_LOG_TAIL_LINES:-60} lines (secrets auto-masked) -----"
+    tail -n "${AGY_LOG_TAIL_LINES:-60}" "$LOG" | sed 's/^/[agy] /' >&2 || true
     log "----- end agy stderr -----"
   else
     log "(agy stderr log is empty -- agy likely failed before writing, e.g. execve E2BIG on an oversized prompt)"
