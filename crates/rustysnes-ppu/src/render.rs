@@ -29,6 +29,35 @@
 
 use crate::{Object, Ppu, SCREEN_WIDTH, VideoBus};
 
+/// The DAC state one composited column hands to the NEXT column's hi-res below-pass.
+///
+/// ares recomputes the hi-res subscreen's blend-mode/halve gates from each column's OWN
+/// below-opacity, and the *next* column's below-pass is what actually consumes them (`dac.cpp`
+/// lines 124-129), so the composite is threaded left-to-right through this carry rather than read
+/// from the current column. Seeded per line as ares' pre-line reset.
+#[derive(Clone, Copy)]
+struct DacCarry {
+    /// This column's main pixel was not forced black (gates the next column's hi-res below color).
+    above_enable: bool,
+    /// This column's color-math was enabled (gates the next column's hi-res below-pass math).
+    below_enable: bool,
+    /// This column's **unclipped** 15-bit main-screen CGRAM color (the next column's below addend
+    /// when its blend mode selects the subscreen).
+    above_raw: u16,
+    /// Whether this column's subscreen pixel was opaque (drives the next column's blend/halve gates).
+    below_opaque: bool,
+}
+
+/// The per-line constants a column composite reads but never varies within a line: the framebuffer
+/// row base, the master brightness, and whether the frame is hi-res. Grouped so [`Ppu::compose_pixel`]
+/// takes them as one argument instead of three.
+#[derive(Clone, Copy)]
+struct LineCtx {
+    base: usize,
+    brightness: u32,
+    hires: bool,
+}
+
 /// A composited layer pixel: a 8-bit CGRAM palette index + a priority + the source-layer id.
 #[derive(Clone, Copy, Default)]
 struct Pixel {
@@ -973,116 +1002,141 @@ impl Ppu {
     /// operand roles swapped — but gated by the color-math state from the *previous* column's
     /// `aboveColor` pass, not this column's own (a genuine one-pixel-clock-delayed hardware
     /// pipeline stage, not a translation artifact — see `docs/ppu.md` §Hi-res (Modes 5/6)
-    /// color-math precision for the full derivation). `prev_*` below carries that delayed state;
-    /// it starts at the documented power-on/scanline-start boundary (ares `DAC::scanline()`):
-    /// no color math enabled, raw color = backdrop — which is exactly why the first hires column
-    /// of every scanline is transparent on real hardware.
+    /// color-math precision for the full derivation). The `DacCarry` value threaded below carries
+    /// that delayed state; it starts at the documented power-on/scanline-start boundary (ares
+    /// `DAC::scanline()`): no color math enabled, raw color = backdrop — which is exactly why the
+    /// first hires column of every scanline is transparent on real hardware.
     fn compose_dac(&mut self, row: usize, above: &[Pixel], below: &[Pixel]) {
-        let base = row * self.visible_width();
-        let brightness = u32::from(self.io.display_brightness);
-        let hires = self.frame_hires;
+        let ctx = LineCtx {
+            base: row * self.visible_width(),
+            brightness: u32::from(self.io.display_brightness),
+            hires: self.frame_hires,
+        };
 
-        let mut prev_above_enable = false;
-        let mut prev_below_enable = false;
-        let mut prev_above_raw = self.cgram[0];
-        let mut prev_below_opaque = false;
-
+        // Threaded left-to-right: each column composites from its own layers plus the PREVIOUS
+        // column's DAC carry (the hi-res below-pass). Seeded as ares' pre-line reset. This is the
+        // per-pixel decomposition the per-dot compositor drives (`docs/adr/0014`, Phase 1).
+        let mut carry = DacCarry {
+            above_enable: false,
+            below_enable: false,
+            above_raw: self.cgram[0],
+            below_opaque: false,
+        };
         for x in 0..SCREEN_WIDTH {
-            let ap = above[x];
-            let bp = below[x];
+            carry = self.compose_pixel(x, above[x], below[x], ctx, carry);
+        }
+    }
 
-            // Main color.
-            let main_color = self.layer_color(&ap);
+    /// Composite one output column into the framebuffer and return the DAC carry-state the NEXT
+    /// column's hi-res below-pass consumes. Bit-identical to the former inline `compose_dac` loop
+    /// body — the per-pixel entry point the per-dot compositor drives (`docs/adr/0014`).
+    #[inline]
+    fn compose_pixel(
+        &mut self,
+        x: usize,
+        ap: Pixel,
+        bp: Pixel,
+        ctx: LineCtx,
+        prev: DacCarry,
+    ) -> DacCarry {
+        let LineCtx {
+            base,
+            brightness,
+            hires,
+        } = ctx;
+        // Main color.
+        let main_color = self.layer_color(&ap);
 
-            // Determine whether color math applies to this main pixel's layer.
-            let math_layer = match ap.layer {
-                0..=3 => self.io.color_math_enable[ap.layer as usize],
-                4 => self.io.color_math_enable[4] && ap.palette >= 192,
-                _ => self.io.color_math_enable[5], // backdrop
+        // Determine whether color math applies to this main pixel's layer.
+        let math_layer = match ap.layer {
+            0..=3 => self.io.color_math_enable[ap.layer as usize],
+            4 => self.io.color_math_enable[4] && ap.palette >= 192,
+            _ => self.io.color_math_enable[5], // backdrop
+        };
+
+        // Color window: above mask gates whether main is forced black; below mask gates math.
+        let col_win = self.color_window(x);
+        let math_allowed = self.math_region_allowed(col_win, false);
+        let main_force_black = !self.math_region_allowed(col_win, true);
+        let above_enable = !main_force_black;
+        let below_enable = math_layer && math_allowed;
+
+        let mut out = if main_force_black { 0 } else { main_color };
+
+        if below_enable {
+            // SNES color-math addend selection (ares `DAC::above`): the subscreen is the
+            // addend ONLY when "add subscreen" is enabled AND the subscreen pixel is opaque
+            // (a real layer wrote it). When the subscreen pixel is the backdrop (transparent),
+            // the hardware falls back to the COLDATA fixed color even with add-subscreen on —
+            // this is what paints SMW's blue sky (fixed_color) over the black main backdrop.
+            let use_subscreen = self.io.add_subscreen && bp.opaque;
+            let addend = if use_subscreen {
+                self.layer_color(&bp)
+            } else {
+                self.io.fixed_color
             };
+            // Halving applies only when the main pixel is not forced black and (for the
+            // subscreen addend) the subscreen is opaque — matching ares' `colorHalve` gate.
+            let halve =
+                self.io.color_halve && above_enable && (!self.io.add_subscreen || bp.opaque);
+            out = if self.io.color_subtract {
+                color_sub(out, addend, halve)
+            } else {
+                color_add(out, addend, halve)
+            };
+        }
 
-            // Color window: above mask gates whether main is forced black; below mask gates math.
-            let col_win = self.color_window(x);
-            let math_allowed = self.math_region_allowed(col_win, false);
-            let main_force_black = !self.math_region_allowed(col_win, true);
-            let above_enable = !main_force_black;
-            let below_enable = math_layer && math_allowed;
-
-            let mut out = if main_force_black { 0 } else { main_color };
-
-            if below_enable {
-                // SNES color-math addend selection (ares `DAC::above`): the subscreen is the
-                // addend ONLY when "add subscreen" is enabled AND the subscreen pixel is opaque
-                // (a real layer wrote it). When the subscreen pixel is the backdrop (transparent),
-                // the hardware falls back to the COLDATA fixed color even with add-subscreen on —
-                // this is what paints SMW's blue sky (fixed_color) over the black main backdrop.
-                let use_subscreen = self.io.add_subscreen && bp.opaque;
-                let addend = if use_subscreen {
-                    self.layer_color(&bp)
+        if hires {
+            // `layer_color` already falls back to `cgram[0]` for a non-opaque pixel (the
+            // same fallback ares' `below()` priority-resolution applies when nothing wrote
+            // this column on the subscreen), so no separate opacity check is needed here.
+            let below_screen_color = self.layer_color(&bp);
+            let mut below_out = if prev.above_enable {
+                below_screen_color
+            } else {
+                0
+            };
+            if prev.below_enable {
+                // The one-column-delayed mirror of `above()`'s addend/halve selection: the
+                // "blend mode" and halve gates ares recomputes each column from that column's
+                // OWN below-opacity, then that recomputed value is what the NEXT column's
+                // below-pass actually consumes (`math.blendMode`/`math.colorHalve`, dac.cpp
+                // lines 124-129) — hence `prev.below_opaque`, not this column's `bp.opaque`.
+                let prev_blend_mode = self.io.add_subscreen && prev.below_opaque;
+                let addend = if prev_blend_mode {
+                    prev.above_raw
                 } else {
                     self.io.fixed_color
                 };
-                // Halving applies only when the main pixel is not forced black and (for the
-                // subscreen addend) the subscreen is opaque — matching ares' `colorHalve` gate.
-                let halve =
-                    self.io.color_halve && above_enable && (!self.io.add_subscreen || bp.opaque);
-                out = if self.io.color_subtract {
-                    color_sub(out, addend, halve)
+                let halve = self.io.color_halve
+                    && prev.above_enable
+                    && (!self.io.add_subscreen || prev.below_opaque);
+                below_out = if self.io.color_subtract {
+                    color_sub(below_out, addend, halve)
                 } else {
-                    color_add(out, addend, halve)
+                    color_add(below_out, addend, halve)
                 };
             }
-
-            if hires {
-                // `layer_color` already falls back to `cgram[0]` for a non-opaque pixel (the
-                // same fallback ares' `below()` priority-resolution applies when nothing wrote
-                // this column on the subscreen), so no separate opacity check is needed here.
-                let below_screen_color = self.layer_color(&bp);
-                let mut below_out = if prev_above_enable {
-                    below_screen_color
-                } else {
-                    0
-                };
-                if prev_below_enable {
-                    // The one-column-delayed mirror of `above()`'s addend/halve selection: the
-                    // "blend mode" and halve gates ares recomputes each column from that column's
-                    // OWN below-opacity, then that recomputed value is what the NEXT column's
-                    // below-pass actually consumes (`math.blendMode`/`math.colorHalve`, dac.cpp
-                    // lines 124-129) — hence `prev_below_opaque`, not this column's `bp.opaque`.
-                    let prev_blend_mode = self.io.add_subscreen && prev_below_opaque;
-                    let addend = if prev_blend_mode {
-                        prev_above_raw
-                    } else {
-                        self.io.fixed_color
-                    };
-                    let halve = self.io.color_halve
-                        && prev_above_enable
-                        && (!self.io.add_subscreen || prev_below_opaque);
-                    below_out = if self.io.color_subtract {
-                        color_sub(below_out, addend, halve)
-                    } else {
-                        color_add(below_out, addend, halve)
-                    };
-                }
-                self.framebuffer[base + 2 * x] = apply_brightness(below_out, brightness);
-                self.framebuffer[base + 2 * x + 1] = apply_brightness(out, brightness);
-                #[cfg(feature = "hd-pack")]
-                if self.hd_pack_tagging {
-                    self.tile_tags[base + 2 * x] = bp.tag;
-                    self.tile_tags[base + 2 * x + 1] = ap.tag;
-                }
-            } else {
-                self.framebuffer[base + x] = apply_brightness(out, brightness);
-                #[cfg(feature = "hd-pack")]
-                if self.hd_pack_tagging {
-                    self.tile_tags[base + x] = ap.tag;
-                }
+            self.framebuffer[base + 2 * x] = apply_brightness(below_out, brightness);
+            self.framebuffer[base + 2 * x + 1] = apply_brightness(out, brightness);
+            #[cfg(feature = "hd-pack")]
+            if self.hd_pack_tagging {
+                self.tile_tags[base + 2 * x] = bp.tag;
+                self.tile_tags[base + 2 * x + 1] = ap.tag;
             }
+        } else {
+            self.framebuffer[base + x] = apply_brightness(out, brightness);
+            #[cfg(feature = "hd-pack")]
+            if self.hd_pack_tagging {
+                self.tile_tags[base + x] = ap.tag;
+            }
+        }
 
-            prev_above_enable = above_enable;
-            prev_below_enable = below_enable;
-            prev_above_raw = main_color;
-            prev_below_opaque = bp.opaque;
+        DacCarry {
+            above_enable,
+            below_enable,
+            above_raw: main_color,
+            below_opaque: bp.opaque,
         }
     }
 

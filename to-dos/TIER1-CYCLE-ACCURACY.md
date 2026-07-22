@@ -39,7 +39,7 @@ any golden that legitimately changes is re-blessed **only** from a render the re
 
 | # | Ticket | Gap | Source | Status |
 |---|---|---|---|---|
-| T-CA-10 | **Per-dot PPU compositor** | per-scanline; mid-line register writes, offset-per-tile, interlace, live `frame_hires` all wrong at dot resolution | `docs/adr/0014`, `ppu.md` | [~] ADR 0014 written (design + ares blueprint + phased regression-safe rollout). Multi-phase implementation. |
+| T-CA-10 | **Per-dot PPU compositor** | per-scanline; mid-line register writes, offset-per-tile, interlace, live `frame_hires` all wrong at dot resolution | `docs/adr/0014`, `ppu.md` | [~] ADR 0014 written. **Phase 1 landed:** extracted `compose_pixel` (the per-pixel DAC entry point Phase 4 drives per-dot) from `compose_dac`'s inline loop, threading the hi-res carry via `DacCarry` — **bit-identical** (undisbeliever 29 + 53 scenes unchanged). Remaining: Phase 2 (BG per-dot drain), Phase 3 (14-dot fetch-ahead + in-render CGRAM/OAM latch — first behavior change), Phase 4 (wire to `tick_dot` per-dot). |
 | T-CA-11 | 65816 cycle-by-cycle bus trace | cycle counts are per-instruction tallies, access **order** not pin-validated | `cpu.md:186`, timing-oracle | [ ] Large: model per-cycle bus access (address driven each internal cycle) so open-bus/DMA-interaction is exact. |
 | T-CA-12 | Open-bus-via-HDMA-latch | correct fix breaks 24 GSU goldens, root cause unknown | `accuracy-ledger.md`, `scheduler.md` | [BLOCKED] Blocked on an access-level trace of GSU VRAM/CGRAM writes vs the failing DMA transfers. |
 
@@ -60,5 +60,7 @@ rewrites. T-CA-12 stays blocked until its investigation is scheduled.
 - 2026-07-22: **T-CA-01 + T-CA-03 landed** — `$4212` auto-joypad busy flag + the timed 4224-clock
   auto-read (ares `status.autoJoypadCounter` as a master-clock deadline; result deferred to
   completion), + `$4212` open-bus bits 1-5. Two new unit tests, battery 290/290, snes9x + Mesen2
-  cross-val unchanged. Next: SMP wait-states (T-CA-04) / S-DSP interleave (T-CA-05), and the
-  per-dot compositor (T-CA-10) as its own phased effort.
+  cross-val unchanged. (Landed in #204 with T-CA-02 open-bus.)
+- 2026-07-22: **T-CA-10 Phase 1 landed** — extracted `compose_pixel`/`DacCarry` from `compose_dac`
+  (the per-pixel entry point Phase 4 will drive per-dot), verified bit-identical (undisbeliever 29 +
+  53 scenes, ppu unit tests 29/29). Foundational refactor; no behavior change. Next: Phase 2-4.
