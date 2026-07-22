@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES `G1.05` — power-on PPU registers reported as a golden (coverage 334 -> 335 of 443).**
+  The dossier row says the PPU has no boot ROM and most of its registers start indeterminate.
+  `capture_power_on` now samples the *readable* ones before `init_registers` writes the PPU into its
+  known state — the Mode 7 multiply `$2134`-`$2136` (= M7A x M7B, both power-on-undefined) and the
+  status registers `$213E`/`$213F` (STAT77/STAT78, whose low bits are the defined PPU1/PPU2 version
+  and the rest indeterminate) — and `g1_05` reports them to the measurement channel, **never
+  asserted** (identical in spirit to `G1.03`/`G1.20` for the CPU/APU side; a scored value would be
+  meaningless because the row's whole content is that these are undefined and the reference cores
+  need not agree). Battery 292/292 scoring (100.00%), golden 33 unscored; snes9x + Mesen2 cross-val
+  agree with no new divergences.
+
 - **AccuracySNES `E4.08` — the IPL boot ROM pokes DSP registers through a `$00F2` transfer (coverage
   333 -> 334 of 443).** The IPL's inner loop stores each uploaded byte with `MOV ($00)+Y, A`, so the
   transfer *destination* is an ordinary SPC700 address — and `$00F2`/`$00F3` are the memory-mapped

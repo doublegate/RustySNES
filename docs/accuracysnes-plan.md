@@ -80,16 +80,20 @@ pattern the C7 sprite tests established.
   trigger, address destroyed during render), the 9- and 10-bit `VMAIN` remap rotations,
   CGRAM-during-render, counter-flipflop independence, `C7.04`–`C7.09` sprite flag set positions,
   `C9.05` overscan vblank deferral, `C11.07`/`C11.08` MPY latch corruption and MPY-during-render.
-- **T-04-G · Group G (10 uncovered)** — power-on / reset state. The mechanism is done and now has
-  four consumers: `capture_power_on` in `asm/runtime.s` runs at the top of reset, *before*
+- **T-04-G · Group G (10 uncovered)** — power-on / reset state. The mechanism is done and has
+  several consumers (the Group-G power-on tests plus `D1.11`/`B5.05`; `g1_05` added the PPU-register
+  sample): `capture_power_on` in `asm/runtime.s` runs at the top of reset, *before*
   `init_registers`, and stashes what it samples in a documented WRAM capture block (`$E040-`, see
   `runtime.inc`); tests read the capture rather than the live registers. It grew two additions with
   `G1.02`/`G1.04` — the carry `XCE` leaves at the very top of `reset` (the boot-time emulation flag,
   readable for exactly one instruction) and the first reads of the read-to-clear `$4210`/`$4211`.
 
   What is left divides cleanly. **Genuinely undefined and therefore golden at best**: `G1.03`
-  (APUIOn, WMDATA, JOYSER, HDMAEN and the rest — the dossier says report, never assert), `G1.05`
-  (most PPU registers start unknown), `G1.07` (the WRAM fill, which bsnes randomises by setting).
+  (APUIOn, WMDATA, JOYSER, HDMAEN and the rest — the dossier says report, never assert), ~~`G1.05`
+  (most PPU registers start unknown)~~ **[COVERED 2026-07-22 as a golden]** — `capture_power_on` now
+  samples the readable PPU registers (`$2134`-`$2136` Mode 7 MPY, `$213E`/`$213F` STAT77/78) before
+  `init_registers`, and `g1_05` reports them unscored (`cart.rs`); `G1.07` (the WRAM fill, which
+  bsnes randomises by setting).
   **Needs a second image**: `G1.15`/`G1.16` (HiROM and ExHiROM decode), `G1.17` (SRAM mapping, which
   this cart's header does not declare), `G1.18` (the copier header, which requires a file 512 bytes
   longer), and the non-power-of-two half of `G1.11`. **Needs a soft reset the harness cannot

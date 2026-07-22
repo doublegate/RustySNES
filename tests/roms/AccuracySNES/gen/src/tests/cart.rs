@@ -26,6 +26,7 @@ pub fn all() -> Vec<Test> {
     vec![
         g1_02(),
         g1_04(),
+        g1_05(),
         g1_08(),
         g1_10(),
         g1_11(),
@@ -441,6 +442,72 @@ fn g1_20() -> Test {
              it; half the registers it names are write-only and cannot be reported at all",
         ),
         Kind::Golden,
+        None,
+    )
+}
+
+/// Most PPU registers power up unknown — the readable ones, captured before `init_registers`.
+///
+/// `G1.05` says the PPU has no boot ROM and most of its registers start indeterminate. The
+/// write-only ones (`$2101`-`$2133`) cannot be reported at all (`G1.01`'s territory), but the few
+/// readable PPU registers can be: the Mode 7 multiply `$2134`-`$2136` (= M7A x M7B, and M7A/M7B
+/// themselves power on undefined) and the two status registers `$213E`/`$213F` (STAT77/STAT78 — the
+/// low bits are the defined PPU1/PPU2 version, the rest is indeterminate). `capture_power_on` samples
+/// them at the very top of reset, before `init_registers` writes the PPU into its known state.
+///
+/// The five values are reported, never asserted — like `G1.03`/`G1.20` for the CPU/APU side: a
+/// scored value would be meaningless (the row's whole content is that these are undefined; RustySNES
+/// is deterministic but the references need not agree). The numbers live in the measurement channel
+/// for whoever wants to compare cores. The one scored check is a self-guard: `capture_power_on` sets
+/// a completion marker (`V_PO_READY`, cleared at reset) only after its five stores, and this test
+/// asserts it — so a bypassed or early-exiting capture fails the row rather than reporting stale WRAM
+/// as if it were the power-on registers.
+fn g1_05() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    // A/X/Y are already 16-bit from the `rep #$30` above; the loop reads a word and masks the byte,
+    // so no per-iteration mode switch is needed. Nothing is asserted ABOUT these values — the row's
+    // whole content is that they are undefined (M7A/M7B power on undefined, so does their product;
+    // STAT77/78 carry a defined version and undefined flags).
+    for (i, (slot, what)) in [
+        (242u16, "$2134 MPY low (M7A x M7B)"),
+        (243, "$2135 MPY mid"),
+        (244, "$2136 MPY high"),
+        (245, "$213E STAT77 (PPU1 version + flags)"),
+        (246, "$213F STAT78 (PPU2 version + flags)"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        a.l(&format!("lda f:V_PO_PPU + {i}"));
+        a.l("and #$00FF");
+        a.record(slot, &format!("G1.05 {what} at power-on"));
+    }
+    // The one thing that IS asserted (via the helper, not a hand-written verdict): the
+    // capture-complete marker. Reset clears it and `capture_power_on` sets it $A5 only after the
+    // five stores above, so a bypassed or early-exiting capture fails here rather than reporting
+    // golden values read from stale WRAM.
+    a.c("Assert the capture-complete marker so the reported values cannot be stale WRAM.");
+    a.l("sep #$20");
+    a.l("lda f:V_PO_READY");
+    a.assert_a8(
+        0xA5,
+        "capture_power_on did not set the power-on-capture-complete marker, so the reported PPU \
+         registers are stale WRAM rather than the power-on values this row is about",
+    );
+    a.finish(
+        "G1.05",
+        'G',
+        "Power-on PPU registers",
+        Provenance::Documented(
+            "the dossier marks the PPU power-on state indeterminate ('no boot ROM; most PPU \
+             registers start unknown') and says to report it, never assert; the readable registers \
+             ($2134-$2136, $213E/$213F) are reported and the only scored check is the self-guard \
+             that the power-on capture actually ran",
+        ),
+        Kind::Scored,
         None,
     )
 }

@@ -2685,6 +2685,14 @@ Provenance: **Documented** (SNESdev Wiki, power-on state; WDC 65C816 datasheet, 
 | 1 | `$02` | the CPU was not in emulation mode at reset — XCE's carry said E was already clear |
 | 2 | `$04` | the word at $00FFFC does not point at code beginning with SEI, so the reset vector is not where LoROM puts it |
 
+### G1.05 — Power-on PPU registers
+
+Provenance: **Documented** (the dossier marks the PPU power-on state indeterminate ('no boot ROM; most PPU registers start unknown') and says to report it, never assert; the readable registers ($2134-$2136, $213E/$213F) are reported and the only scored check is the self-guard that the power-on capture actually ran). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | capture_power_on did not set the power-on-capture-complete marker, so the reported PPU registers are stale WRAM rather than the power-on values this row is about |
+
 ### G1.08 — Write-only read: openbus
 
 Provenance: **Documented** (SNESdev Wiki, open bus; fullsnes, memory map notes). Kind: scored.

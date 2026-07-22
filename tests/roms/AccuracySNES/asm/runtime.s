@@ -108,6 +108,8 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     sep #$20
     .a8
 
+    lda #$00                    ; clear the capture-complete marker BEFORE capturing (G1.05 asserts
+    sta f:V_PO_READY            ; it) — STZ has no long-addressing form, so LDA/STA
     jsr capture_power_on        ; MUST precede init_registers — see below
 
     ; Start, from the menu, restarts the whole battery -- but re-enters HERE, after the power-on
@@ -303,6 +305,27 @@ restart_entry:
     .a8
     stz $4200                   ; disarm; init_registers will set the real state next
     lda $4211
+
+    ; G1.05: the readable PPU registers, sampled last (after the timing-sensitive comparator test
+    ; above, still before init_registers writes the PPU). $2134-$2136 is the Mode 7 multiply of the
+    ; power-on-undefined M7A/M7B; $213E/$213F are STAT77/STAT78 (defined version bits, undefined
+    ; flags). Their address-increment/latch side effects don't matter — init_registers resets the
+    ; PPU immediately after. Reported, never asserted, exactly as G1.03 does for the CPU/APU side.
+    lda $2134
+    sta f:V_PO_PPU + 0
+    lda $2135
+    sta f:V_PO_PPU + 1
+    lda $2136
+    sta f:V_PO_PPU + 2
+    lda $213E
+    sta f:V_PO_PPU + 3
+    lda $213F
+    sta f:V_PO_PPU + 4
+
+    ; The capture-complete marker, set LAST — so G1.05 can prove every store above ran rather than
+    ; reporting "captured" over stale WRAM if this proc were ever bypassed or exited early.
+    lda #$A5
+    sta f:V_PO_READY
 
     rts
 .endproc
