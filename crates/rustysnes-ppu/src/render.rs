@@ -1002,10 +1002,10 @@ impl Ppu {
     /// operand roles swapped — but gated by the color-math state from the *previous* column's
     /// `aboveColor` pass, not this column's own (a genuine one-pixel-clock-delayed hardware
     /// pipeline stage, not a translation artifact — see `docs/ppu.md` §Hi-res (Modes 5/6)
-    /// color-math precision for the full derivation). `prev_*` below carries that delayed state;
-    /// it starts at the documented power-on/scanline-start boundary (ares `DAC::scanline()`):
-    /// no color math enabled, raw color = backdrop — which is exactly why the first hires column
-    /// of every scanline is transparent on real hardware.
+    /// color-math precision for the full derivation). The `DacCarry` value threaded below carries
+    /// that delayed state; it starts at the documented power-on/scanline-start boundary (ares
+    /// `DAC::scanline()`): no color math enabled, raw color = backdrop — which is exactly why the
+    /// first hires column of every scanline is transparent on real hardware.
     fn compose_dac(&mut self, row: usize, above: &[Pixel], below: &[Pixel]) {
         let ctx = LineCtx {
             base: row * self.visible_width(),
