@@ -252,7 +252,10 @@ fn build_hirom_image(root: &Path, asm_dir: &Path, build_dir: &Path, battery: &[d
 /// `$400000` in the extra half. `G1.16` reads both through the ExHiROM banks to self-score the
 /// A23->A22 inversion. The checksum is patched at the ExHiROM header offset (`$40FFDC`).
 fn build_exhirom_image(root: &Path, asm_dir: &Path, build_dir: &Path, battery: &[dsl::Test]) {
-    println!("accuracysnes-gen: ExHiROM image — {} test(s)", battery.len());
+    println!(
+        "accuracysnes-gen: ExHiROM image — {} test(s)",
+        battery.len()
+    );
     write(&asm_dir.join("tests_exhirom.s"), &emit::asm(battery));
 
     let units = [
