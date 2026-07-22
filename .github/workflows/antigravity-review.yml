@@ -51,7 +51,7 @@ jobs:
           # --- optional overrides (uncomment to change) ---
           # AGY_MODEL: gemini-3-pro        # default: agy's configured model
           AGY_EFFORT: high                 # low|medium|high
-          AGY_DIFF_MODE: file              # TEMP self-test of the file path; revert to auto before merge
+          # AGY_DIFF_MODE: auto            # auto|inline|file — auto files any diff too big to inline
           # MAX_DIFF_BYTES: "5000000"      # pathological-diff sanity cap (not the arg-size limit)
           # MAX_PROMPT_BYTES: "125000"     # inline/file threshold + hard backstop on the argv prompt
           # STYLE_GUIDE: .github/agy-review.md   # style guide, loaded if present

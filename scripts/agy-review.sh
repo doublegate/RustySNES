@@ -98,7 +98,16 @@ fi
 
 # --- build the prompt ----------------------------------------------------------
 title="$(jq -r '.title // ""' "$meta_file")"
-style=""; [ -f "$STYLE_GUIDE" ] && style="$(cat "$STYLE_GUIDE")"
+# Bound the style guide so it can never fill the whole arg budget and crowd out the diff -- or, in
+# file mode, the file pointer that the MAX_PROMPT_BYTES guard would otherwise truncate away, leaving
+# agy with no diff at all. Reserve headroom for the instructions, the diff header, and the pointer.
+# head -c is byte-accurate (a shell substring is by character, which is wrong for multi-byte UTF-8).
+style=""
+if [ -f "$STYLE_GUIDE" ]; then
+  style_cap=$(( MAX_PROMPT_BYTES - 8192 )); [ "$style_cap" -lt 0 ] && style_cap=0
+  style="$(head -c "$style_cap" "$STYLE_GUIDE")"
+  [ "$(wc -c < "$STYLE_GUIDE")" -gt "$style_cap" ] && log "STYLE_GUIDE capped to ${style_cap} bytes so the diff / file pointer always fits under the arg budget"
+fi
 
 # The instruction HEAD (everything except the diff body). agy takes the whole prompt as one --print
 # argv value, capped at MAX_ARG_STRLEN (128 KiB), so a diff that would push the prompt over the budget
@@ -131,8 +140,8 @@ EOF
 # diff into agy's working directory (the repo checkout) and points the prompt at it by name.
 head_bytes="$(wc -c < "$prompt_file")"
 diff_bytes="$(wc -c < "$diff_file")"
-inline_budget=$(( MAX_PROMPT_BYTES - head_bytes - 256 ))
-[ "$inline_budget" -lt 0 ] && inline_budget=0   # a huge STYLE_GUIDE can exceed the budget: file it
+inline_budget=$(( MAX_PROMPT_BYTES - head_bytes - 512 ))   # margin covers the diff header + file notice
+[ "$inline_budget" -lt 0 ] && inline_budget=0             # a huge STYLE_GUIDE can exceed it: file the diff
 use_file=0
 case "$AGY_DIFF_MODE" in
   file)   use_file=1 ;;
