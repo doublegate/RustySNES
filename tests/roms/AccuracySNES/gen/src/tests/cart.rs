@@ -455,10 +455,13 @@ fn g1_20() -> Test {
 /// low bits are the defined PPU1/PPU2 version, the rest is indeterminate). `capture_power_on` samples
 /// them at the very top of reset, before `init_registers` writes the PPU into its known state.
 ///
-/// Reported, never asserted — identical in spirit to `G1.03`/`G1.20` for the CPU/APU side. A scored
-/// value would be meaningless (the row's whole content is that these are undefined; RustySNES's
-/// power-on is deterministic but the references need not agree), so the verdict only confirms the
-/// capture ran. The numbers live in the measurement channel for whoever wants to compare cores.
+/// The five values are reported, never asserted — like `G1.03`/`G1.20` for the CPU/APU side: a
+/// scored value would be meaningless (the row's whole content is that these are undefined; RustySNES
+/// is deterministic but the references need not agree). The numbers live in the measurement channel
+/// for whoever wants to compare cores. The one scored check is a self-guard: `capture_power_on` sets
+/// a completion marker (`V_PO_READY`, cleared at reset) only after its five stores, and this test
+/// asserts it — so a bypassed or early-exiting capture fails the row rather than reporting stale WRAM
+/// as if it were the power-on registers.
 fn g1_05() -> Test {
     let mut a = Asm::new();
     a.l("rep #$30");
