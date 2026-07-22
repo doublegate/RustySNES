@@ -534,7 +534,14 @@ DMA/HDMA) plus the `System` run loop (`scheduler.rs`):
   `$4210` bit 7 = the read-clearing VBlank flag, bits 4-6 = open bus, bits 0-3 = CPU version 2;
   `$4211` (TIMEUP) bit 7 = the read-clearing IRQ flag, bits 0-6 = open bus. A ROM that reads the
   whole byte instead of masking the flag therefore sees the last bus value in those positions, as on
-  hardware (ares `CPU::readIO`, fullsnes). Tier-1 remediation T-CA-02 (`to-dos/TIER1-CYCLE-ACCURACY.md`).
+  hardware (ares `CPU::readIO`, fullsnes). Both flags are also **held for four master clocks (one
+  dot / one interrupt poll) after their edge**: a `$4210`/`$4211` read within that window returns
+  bit 7 set but does **not** clear it — the hardware holds `/NMI` and `/IRQ` across the edge (ares
+  `status.nmiHold`/`irqHold`, "hold for four cycles"; Terranigma depends on the RDNMI flag surviving a
+  read that lands there). The hold (`Clock::rdnmi_hold`/`irq_hold`) is set with the flag and consumed
+  at the next dot in `tick_ppu_dot`, so it lasts exactly the dot the flag was raised on; it is
+  serialized (`FORMAT_VERSION` 6) so a save inside the window restores identically. Tier-1
+  remediation T-CA-02 (`to-dos/TIER1-CYCLE-ACCURACY.md`).
 - **Automatic joypad read (`$4200` bit 0):** a *timed* ~4224-master-clock operation, not an instant
   latch. At vblank entry (while armed) the controller state is snapshotted; `$4212` bit 0 reads
   **busy** for the next `AUTO_JOYPAD_CLOCKS` = 33 x 128 = 4224 clocks (ares `status.autoJoypadCounter`

@@ -1564,7 +1564,7 @@ regression**.
 | S-DSP 32-tick interleave batched once per output sample | `docs/apu.md:333` | expandable if `spc_dsp6` demands |
 | SMP glitchy `{2,4,10,20}` wait-state divider collapsed to `SMP_WAIT = 2` | `crates/rustysnes-apu/src/lib.rs:53-55` | acknowledged in the constant's own doc |
 | ~~`$4212` bit 0 (auto-joypad busy) unimplemented~~ | `bus.rs` | **Remediated 2026-07-22** (T-CA-01): bit 0 reads busy for the 4224-clock auto-read window + open bus in bits 1-5 |
-| `$4210` lacks the 4-cycle held-flag (Terranigma) quirk ~~and open-bus bits 4-6~~ | `bus.rs` | open-bus bits 4-6 **Remediated 2026-07-22** (T-CA-02, matches ares/fullsnes); held-flag quirk remains |
+| ~~`$4210` lacks the 4-cycle held-flag (Terranigma) quirk and open-bus bits 4-6~~ | `bus.rs` | **Remediated 2026-07-22** (T-CA-02): open-bus bits 4-6 + the 4-master-clock held-flag on `$4210`/`$4211` (a read within one dot of the edge returns bit 7 set without clearing it), matching ares `nmiHold`/`irqHold` / fullsnes |
 | ~~Auto-joypad read timing window entirely unmodeled~~ | `bus.rs` | **Remediated 2026-07-22** (T-CA-03): timed 4224-clock read, result deferred to completion (`begin_auto_joypad`/`settle_auto_joypad`) |
 | Open-bus-via-HDMA-latch | `docs/accuracy-ledger.md` | **Deferred** — correct fix breaks 24 GSU goldens, root cause unknown |
 | Hi-res Modes 5/6 real-title validation | `docs/ppu.md` | **No-stricter-oracle-available** |

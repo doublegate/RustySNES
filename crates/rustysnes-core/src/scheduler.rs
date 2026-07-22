@@ -44,7 +44,12 @@ use crate::sa1_bus::Sa1Bus;
 /// joypad read's start snapshot (`joypad_auto_pending`) and busy deadline (`auto_joypad_busy_until`),
 /// so a save taken during the ~4224-clock auto-read window restores identical machine state. Same
 /// old-blob-fails-loudly guarantee.
-const FORMAT_VERSION: u16 = 5;
+///
+/// `6` (Tier-1 T-CA-02): `crate::bus`'s `BUS0` section grew by two bytes — the RDNMI/TIMEUP hold
+/// flags (`rdnmi_hold`/`irq_hold`), so a save taken during the four-master-clock window after a
+/// `VBlank`/IRQ edge (when a `$4210`/`$4211` read returns the flag without clearing it) restores
+/// identical machine state. Same old-blob-fails-loudly guarantee.
+const FORMAT_VERSION: u16 = 6;
 /// The save-state envelope's leading magic bytes — identifies the blob as a RustySNES save-state
 /// before anything else is trusted.
 const MAGIC: &[u8; 4] = b"RSNS";

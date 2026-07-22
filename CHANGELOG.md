@@ -49,6 +49,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`$4210`/`$4211` now hold their flag for four master clocks after the edge (cycle-accuracy,
+  Tier-1 T-CA-02 — completes the ticket).** RDNMI and TIMEUP previously cleared their flag on every
+  read. Hardware holds `/NMI` and `/IRQ` across the VBlank/IRQ edge: a `$4210`/`$4211` read within
+  the first four master clocks (one dot / one interrupt poll) after the flag is raised returns bit 7
+  set but does **not** clear it (Terranigma depends on the RDNMI flag surviving such a read). Modeled
+  as `Clock::rdnmi_hold`/`irq_hold`, set with the flag and consumed at the next dot in `tick_ppu_dot`
+  so the window is exactly the dot the flag was raised on — matching ares `status.nmiHold`/`irqHold`
+  ("hold for four cycles") and fullsnes. The hold is serialized (`FORMAT_VERSION` bumped 5 -> 6,
+  `docs/adr/0006`) so a save inside the window restores identical read-clear behavior; old blobs fail
+  loudly. Verified: new `rustysnes-core` unit test (held read does not clear, post-hold read does),
+  AccuracySNES battery 292/292 with `B4.03`/`B4.04`/`B4.05` (the RDNMI read-clear/auto-clear tests)
+  unregressed, the full test-roms harness green (49 golden-framebuffer + coprocessor tests unchanged
+  — no NMI-timing frame shift), and the save round-trip suite green. This is the held-flag half of
+  T-CA-02; the `$4210`/`$4211` open-bus bits landed earlier (#204).
+
 - **Automatic joypad read is now a timed ~4224-clock operation with a busy flag, not an instant
   latch (cycle-accuracy, Tier-1 T-CA-01/03).** The auto-read previously completed the moment vblank
   started, `$4212` bit 0 (auto-joypad busy) was never set, and `$4218-$421F` held the new result
