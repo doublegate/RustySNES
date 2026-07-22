@@ -99,6 +99,7 @@ pub fn all() -> Vec<Test> {
         e5_02(),
         e7_16(),
         e8_04(),
+        e8_05(),
         e9_04(),
         e9_06(),
         e9_12(),
@@ -6204,6 +6205,88 @@ fn e8_04() -> Test {
         'E',
         "KOFF outranks KON",
         Provenance::Documented("fullsnes, S-DSP key on/off; anomie's DSP doc"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// KON is edge-triggered: a written `1` keys a voice on **once** and the internal bit self-clears.
+///
+/// A driver writes `$4C` to key voices on and, having no reason to, does not always clear it — so
+/// the register bit stays set across many poll windows. Hardware keys the voice on only on the
+/// *write*, then clears the internal key-on bit ~63 clocks later (`E8.10`); a held register bit does
+/// nothing after that. `KOFF` and `FLG` bit 7 are the opposite — the DSP re-consults them every
+/// poll, continuously. A core that treats `KON` as a level re-keys the voice on every poll: a
+/// one-shot sound effect stutters, and a note that should have played once machine-guns.
+///
+/// # Observing it through the envelope a re-key would never let leave the key-on delay
+///
+/// The register bit is written once and **left set**. Key-on begins a five-sample delay during which
+/// the envelope is held at zero before the sample and envelope start (`E8.02`). A correct DSP keys
+/// on once: the delay counts down, and under direct gain the envelope reaches full scale, so `ENVX`
+/// reads `$7F`. A core that re-consults the set `KON` bit every poll restarts that five-sample delay
+/// faster than it can expire — the voice is *perpetually* keying on, the envelope never escapes zero,
+/// and `ENVX` reads `$00`. The read is self-guarding: `$7F` can only mean the voice keyed on and then
+/// was *not* re-keyed, so no separate guard is needed. (Reading `ENDX` cannot serve here — end always
+/// jumps to the loop pointer and re-crosses the end block, so a voice that is merely *playing*
+/// re-sets `ENDX` continuously whether or not it re-keyed.)
+fn e8_05() -> Test {
+    let mut p = Spc::new();
+    let addr = p.data_first(IMAGE_BASE, &looping_sample());
+    p.mov_x_imm(0xEF).mov_sp_x();
+    let dir = u16::from(DIR_PAGE) << 8;
+    let [lo, hi] = addr.to_le_bytes();
+    p.mov_a_imm(lo).mov_abs_a(dir);
+    p.mov_a_imm(hi).mov_abs_a(dir + 1);
+    p.mov_a_imm(lo).mov_abs_a(dir + 2);
+    p.mov_a_imm(hi).mov_abs_a(dir + 3);
+    dsp_write(&mut p, 0x6C, 0x20); // FLG: running, unmuted, echo writes off
+    dsp_write(&mut p, 0x5C, 0x00); // KOF
+    dsp_write(&mut p, 0x3D, 0x00); // NON
+    dsp_write(&mut p, 0x4D, 0x00); // EON
+    dsp_write(&mut p, 0x2D, 0x00); // PMON
+    dsp_write(&mut p, 0x5D, DIR_PAGE);
+    dsp_write(&mut p, 0x0C, 0x7F); // MVOLL
+    dsp_write(&mut p, 0x1C, 0x7F); // MVOLR
+    dsp_write(&mut p, 0x00, 0x7F); // VOL L
+    dsp_write(&mut p, 0x01, 0x7F); // VOL R
+    dsp_write(&mut p, 0x02, 0x00); // PITCH low
+    dsp_write(&mut p, 0x03, 0x10); // PITCH high: one sample per output sample
+    dsp_write(&mut p, 0x04, 0x00); // SRCN
+    dsp_write(&mut p, 0x06, 0x00); // ADSR2
+    dsp_write(&mut p, 0x07, 0x7F); // GAIN: direct full scale, so a keyed-on voice climbs to $7F0
+    dsp_write(&mut p, 0x05, 0x00); // ADSR1 bit 7 clear: GAIN governs
+    dsp_write(&mut p, 0x4C, 0x01); // KON voice 0 — and LEAVE the register bit set (the whole point)
+    // No `KON = $00` clear here, unlike every other voice program: holding the bit set is exactly
+    // what a level-sensitive core would keep acting on, and an edge-triggered one must not.
+    p.delay(0x00);
+    p.delay(0x00); // well past the five-sample key-on delay — a re-keying core never gets here
+    dsp_read_to(&mut p, 0x08, PORT1); // ENVX: $7F if keyed on once, $00 if perpetually re-keyed
+    dsp_write(&mut p, 0x4C, 0x00); // tidy: clear KON so the held bit does not follow into later tests
+    p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &p);
+    a.c("$7F means the voice keyed on once and its envelope escaped the key-on delay; $00 means a");
+    a.c("held KON bit kept re-keying it, so the envelope never left zero.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x40,
+        0x7F,
+        "a held KON register bit kept re-keying the voice — its envelope never escaped the key-on \
+         delay, so KON is being treated as a level the DSP re-consults rather than a write-once edge",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E8.05",
+        'E',
+        "KON is edge-triggered",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: KON is write-triggered and self-clears ~63 clocks later; \
+             only KOFF and FLG bit 7 are level-sensitive",
+        ),
         Kind::Scored,
         None,
     )

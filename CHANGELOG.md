@@ -658,6 +658,15 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E8.05` — KON is write-triggered and non-persistent (S-DSP key-on).** A voice is keyed on with
+  `$4C` bit 0 and the register bit is deliberately **left set**; a correct DSP keys on once and, under
+  direct gain, its envelope escapes the five-sample key-on delay and `ENVX` reads `$7F`. A core that
+  re-consults the held bit every poll perpetually restarts the key-on delay, the envelope never leaves
+  zero, and `ENVX` reads `$00`. The reading is self-guarding — `$7F` can only mean keyed-on-then-not-
+  re-keyed. `ENDX` cannot serve here (end always jumps to the loop pointer and re-crosses the end
+  block, so a merely-playing voice re-sets it regardless of a re-key). Verified by injecting a level-
+  sensitive KON into `misc30` and watching the row fail; cross-validated on snes9x and Mesen2.
+  Coverage: 275 -> 276 on-cart assertion rows (326/443 with rendered scenes).
 - **Two more S-DSP envelope rows — `E7.13` and `E7.17` (S-DSP GAIN).** `E7.13` pins GAIN mode 7
   (bent-increase): the envelope climbs `+32`/sample below the internal `$600` break and `+8` above
   it, read back through `ENVX`; a core that ignores the break saturates at `$7F` instead of landing

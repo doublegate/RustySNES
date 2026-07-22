@@ -2228,6 +2228,14 @@ Provenance: **Documented** (fullsnes, S-DSP key on/off; anomie's DSP doc). Kind:
 |---|---|---|
 | 1 | `$02` | a KON written while KOFF was still set restarted the voice — KOFF is a level the DSP consults continuously, not an edge that KON can override |
 
+### E8.05 — KON is edge-triggered
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: KON is write-triggered and self-clears ~63 clocks later; only KOFF and FLG bit 7 are level-sensitive). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | a held KON register bit kept re-keying the voice — its envelope never escaped the key-on delay, so KON is being treated as a level the DSP re-consults rather than a write-once edge |
+
 ### E9.04 — Noise voices decode BRR
 
 Provenance: **Documented** (fullsnes, S-DSP noise; anomie's DSP doc — flagged as errata). Kind: scored.
