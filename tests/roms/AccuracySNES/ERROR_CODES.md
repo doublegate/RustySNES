@@ -1689,7 +1689,7 @@ Provenance: **Documented** (fullsnes and ares: the DAS $43x5/6 byte-count regist
 
 | Code | Byte | Meaning |
 |---|---|---|
-| 1 | `$02` | the DMA byte-count register did not decrement to zero across the transfer — it still holds the programmed size, so it is not tracking the transfer at all |
+| 1 | `$02` | the DMA byte-count register did not decrement by the transfer size (before - after != 4): either it never exposed the programmed count (a constant-zero/open-bus $43x5 reads 0 both times) or it never decremented (reads the programmed size both times) — the paired read separates a register that tracks the transfer from one that only looks right after it |
 
 ### D1.11 — DMA power-on state
 

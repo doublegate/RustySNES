@@ -1284,16 +1284,31 @@ fn d1_13() -> Test {
     a.l("lda #$80");
     a.l("sta $4301         ; B-bus = $2180");
     source_from_table(&mut a, 4);
+    a.c("Paired control: read the count BEFORE the transfer and keep it in Y (the DMA does not touch");
+    a.c("X/Y). Without this, a core that exposes $43x5 as a constant $0000 / open bus reads zero both");
+    a.c("times and would pass the post-transfer check vacuously — nothing would prove the count was");
+    a.c("ever the programmed size. Asserting before-after == 4 needs the register both readable (holds");
+    a.c("$0004 up front) and decrementing (reads $0000 after), and distinguishes both failure modes.");
+    a.l("rep #$30");
+    a.l(
+        "lda $4305         ; programmed count, BEFORE the transfer (16-bit: $4305 low, $4306 high)",
+    );
+    a.l("tay               ; stash across the run — the transfer leaves X/Y untouched");
+    a.l("sep #$20");
     a.l("lda #$01");
     a.l("sta $420B         ; run channel 0");
-    a.c("The count register now holds the decremented value. A core that never decrements it, or");
-    a.c("that restores the programmed count at the end, reads back $0004 — the size the test wrote.");
     a.l("rep #$30");
-    a.l("lda $4305         ; a 16-bit read folds $4305 (low) and $4306 (high) into A");
+    a.l("lda $4305         ; the count AFTER — $0000 on hardware once the transfer completes");
+    a.l("sta f:$7E0604     ; scratch, just past the 4-byte DMA landing at $7E:0600-0603");
+    a.l("tya               ; A = the programmed count read before the run");
+    a.l("sec");
+    a.l("sbc f:$7E0604     ; A = before - after");
     a.assert_a16(
-        0x0000,
-        "the DMA byte-count register did not decrement to zero across the transfer — it still holds \
-         the programmed size, so it is not tracking the transfer at all",
+        0x0004,
+        "the DMA byte-count register did not decrement by the transfer size (before - after != 4): \
+         either it never exposed the programmed count (a constant-zero/open-bus $43x5 reads 0 both \
+         times) or it never decremented (reads the programmed size both times) — the paired read \
+         separates a register that tracks the transfer from one that only looks right after it",
     );
     a.finish(
         "D1.13",

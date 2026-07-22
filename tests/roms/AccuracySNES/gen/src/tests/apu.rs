@@ -4744,9 +4744,10 @@ fn e5_13() -> Test {
     dsp_read_to(&mut p, 0x08, PORT1); // ENVX: $00, the voice is released and silent — the guard
 
     dsp_write(&mut p, 0x7C, 0x00); // clear ENDX while the voice is released
-    // At pitch $1000 the voice decodes one BRR sample per four output samples, so a 16-sample loop
-    // is ~64 output samples. One `delay($00)` is only ~15-20 samples, so wait ten of them — several
-    // loop lengths — so a still-decoding voice is certain to re-cross its end block in the window.
+    // At pitch $1000 the voice decodes one BRR sample per output sample (pitch $1000 = 4096 is a 1.0
+    // step), so a 16-sample loop is ~16 output samples. One `delay($00)` is only ~15-20 samples, so
+    // wait ten of them — several loop lengths — so a still-decoding voice is certain to re-cross its
+    // end block in the window.
     for _ in 0..10 {
         p.delay(0x00);
     }

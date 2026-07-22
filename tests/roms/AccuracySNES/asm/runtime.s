@@ -414,7 +414,7 @@ restart_entry:
 .endproc
 
 ; ---------------------------------------------------------------------------------------------
-; Two-colour palette: index 0 black (also the backdrop), index 1 white.
+; Two-colour palette: index 0 black (also the backdrop), index 1 bright green ($03E0).
 ; ---------------------------------------------------------------------------------------------
 .proc load_palette
     sep #$20
@@ -1177,7 +1177,7 @@ test_restore := test_restore_impl
 ; framebuffer on the last frame of each hold. On real hardware the same loop is a slideshow.
 ; The canvas every scene renders. Set up once, before the scene loop.
 ;
-; The battery's own screen is deliberately austere: two CGRAM entries (black and white) and a
+; The battery's own screen is deliberately austere: two CGRAM entries (black and green) and a
 ; tilemap of spaces. That is right for a text menu and useless for a framebuffer oracle — a mosaic
 ; over a blank screen is a blank screen, and colour math over two colours is nearly one. The first
 ; version of these scenes proved it: `c8-fixed-colour-add` and `c10-mosaic-4x` hashed *identically*,

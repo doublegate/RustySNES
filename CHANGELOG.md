@@ -40,8 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The results menu is now drawn in green, not the last scene's leftover palette.** The font's "on"
   pixels index CGRAM colour 1, and nothing reloaded the palette after the rendered scenes overwrote
   CGRAM — so the menu inherited whatever colours the final scene left (orange, or a per-tile
-  green/orange mix). `load_palette` now sets colour 1 to `$03E0` (green) and `draw_screen` reloads it
-  first.
+  green/orange mix). `load_palette` now sets colour 1 to `$03E0` (green), and `restart_entry` reloads
+  it after the rendered scenes overwrite CGRAM, before `draw_screen` runs.
 
 - **The interactive menu is now navigable and self-correcting, after a real cartridge showed three
   more defects.** The D-pad blanked the screen and killed the ROM: `cursor_up`/`cursor_down`
@@ -699,10 +699,14 @@ rewritten to the current number — this line is the one to read.
   Coverage: 50 -> 51 rendered scenes (330/443 total; on-cart stays 279).
 - **`D1.13` — the GP-DMA byte-count register decrements to zero (general-purpose DMA).** A DMA runs
   until its count reaches zero, so `$43x5/6` is spent by the end and reads `$0000`, not the programmed
-  size. A four-byte mode-0 transfer into scratch WRAM is run and the count register read back; a core
-  that keeps a private counter and never writes the decrement back reads `$0004` — the seed the test
-  wrote, the signature of a register not tracking the transfer. Verified by suppressing the count
-  write-back in `run_gp` and watching D1.13 alone fail. Cross-validated on snes9x and Mesen2.
+  size. The test reads the count both **before** and **after** a four-byte mode-0 transfer and asserts
+  the difference is exactly `4`: a paired control that a bare "reads `$0000`" assertion lacks, because
+  a core that never exposes the count (`$43x5` reads a constant `$0000`/open bus) reads zero both times
+  and would pass vacuously. The before-read holds the register to the programmed size and the delta
+  proves it decremented — separating a working count register from one that never decrements (reads
+  `$0004` both times) *and* from one that never exposes it. Verified both ways: suppressing the
+  write-back in `run_gp`, and forcing `$43x5` to read constant zero — each makes D1.13 alone fail.
+  Cross-validated on snes9x and Mesen2 (both read `$0004` before, `$0000` after).
   Coverage: 278 -> 279 on-cart assertion rows (329/443 with rendered scenes).
 - **`E7.18` — `VxENVX` is the envelope shifted right four, bit 7 always clear (S-DSP).** The
   eleven-bit envelope exposes bits 10-4 through `ENVX`, so it tops out at `$7F`. Probed at direct gain

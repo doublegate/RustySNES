@@ -27390,15 +27390,29 @@ CATALOG_IMPL = 1
     stx $4305         ; byte count
     sep #$20
     .a8
-    lda #$01
-    sta $420B         ; run channel 0
-    ; The count register now holds the decremented value. A core that never decrements it, or
-    ; that restores the programmed count at the end, reads back $0004 — the size the test wrote.
+    ; Paired control: read the count BEFORE the transfer and keep it in Y (the DMA does not touch
+    ; X/Y). Without this, a core that exposes $43x5 as a constant $0000 / open bus reads zero both
+    ; times and would pass the post-transfer check vacuously — nothing would prove the count was
+    ; ever the programmed size. Asserting before-after == 4 needs the register both readable (holds
+    ; $0004 up front) and decrementing (reads $0000 after), and distinguishes both failure modes.
     rep #$30
     .a16
     .i16
-    lda $4305         ; a 16-bit read folds $4305 (low) and $4306 (high) into A
-    cmp #$0000
+    lda $4305         ; programmed count, BEFORE the transfer (16-bit: $4305 low, $4306 high)
+    tay               ; stash across the run — the transfer leaves X/Y untouched
+    sep #$20
+    .a8
+    lda #$01
+    sta $420B         ; run channel 0
+    rep #$30
+    .a16
+    .i16
+    lda $4305         ; the count AFTER — $0000 on hardware once the transfer completes
+    sta f:$7E0604     ; scratch, just past the 4-byte DMA landing at $7E:0600-0603
+    tya               ; A = the programmed count read before the run
+    sec
+    sbc f:$7E0604     ; A = before - after
+    cmp #$0004
     beq :+
     jmp @fail1
   :
@@ -27408,7 +27422,7 @@ CATALOG_IMPL = 1
     sta f:$7EE010
     jml test_restore
 @fail1:
-    ; the DMA byte-count register did not decrement to zero across the transfer — it still holds the programmed size, so it is not tracking the transfer at all
+    ; the DMA byte-count register did not decrement by the transfer size (before - after != 4): either it never exposed the programmed count (a constant-zero/open-bus $43x5 reads 0 both times) or it never decremented (reads the programmed size both times) — the paired read separates a register that tracks the transfer from one that only looks right after it
     sep #$20
     .a8
     lda #$02
