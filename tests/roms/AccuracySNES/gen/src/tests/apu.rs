@@ -4582,14 +4582,17 @@ fn e4_06() -> Test {
 /// The claim is specifically that the IPL store to `$00F2`/`$00F3` reaches the DSP register file
 /// rather than plain ARAM. To keep that non-vacuous regardless of what earlier tests left behind, a
 /// first phase sets `FIR[0]` to a known baseline `$A5` (a program upload; the zero-fill on IPL
-/// re-entry does not touch DSP registers, so it survives), and only then does the poke phase write
-/// `$7E`. The assertion therefore proves the poke *changed* `FIR[0]` from `$A5` to `$7E`, not merely
-/// that it happened to read `$7E` — a test run after something left `FIR[0]` already at `$7E` would
-/// otherwise pass while the poke did nothing. A core that routed the `$00F2`/`$00F3` stores to ARAM
-/// (or never decoded DSPADDR from an IPL-driven write) leaves `FIR[0]` at `$A5`, and the verifier —
-/// reading the DSP, not ARAM — sees `$A5` and FAILs. Confirmed by injection: aiming the same
-/// transfer at plain ARAM (`$0250`) instead of `$00F2` fails this test alone — the poke works
-/// precisely because it targets the DSP ports.
+/// re-entry does not touch DSP registers, so it survives), and — importantly — leaves DSPADDR
+/// selecting a *different* register (`$1F`) than the poke targets. Only then does the poke phase run.
+/// This makes *both* halves of the poke load-bearing: block A's first byte is an IPL store to `$F2`
+/// (DSPADDR `<- $0F`) and its second an IPL store to `$F3` (DSPDATA `<- $7E`). If the DSPDATA write
+/// failed, `FIR[0]` stays `$A5`; if the DSPADDR write failed, DSPADDR stays `$1F` and `$7E` lands in
+/// `FIR[1]`, again leaving `FIR[0]` at `$A5`. Either way the verifier — reading `FIR[0]` from the
+/// DSP, not ARAM — sees `$A5` and FAILs, so the `$7E` read proves the poke *changed* `FIR[0]` through
+/// both DSP ports, not that it happened to read `$7E` or that DSPADDR was conveniently pre-selected.
+/// Confirmed by injection: aiming the same transfer at plain ARAM (`$0250`) instead of `$00F2` leaves
+/// `FIR[0]` at `$A5` and fails this test alone — the poke works precisely because it targets the DSP
+/// ports.
 fn e4_08() -> Test {
     // Block A: [DSP register #, value] aimed at DSPADDR/DSPDATA. $0F = FIR coefficient 0.
     let data = [0x0Fu8, 0x7E];
@@ -4602,6 +4605,12 @@ fn e4_08() -> Test {
     baseline.mov_x_imm(0xEF).mov_sp_x();
     baseline.mov_dp_imm(0xF2, 0x0F); // DSPADDR = $0F
     baseline.mov_dp_imm(0xF3, 0xA5); // FIR[0] = $A5, the pre-poke baseline
+    // Leave DSPADDR selecting a DIFFERENT register ($1F) than the poke targets. This is what makes
+    // block A's first byte (DSPADDR <- $0F, an IPL store to $F2) load-bearing: if that DSPADDR write
+    // were broken, DSPADDR would stay $1F and block A's second byte ($7E) would land in FIR[1], not
+    // FIR[0], leaving FIR[0] at its $A5 baseline and failing the test. So the poke's DSPADDR write is
+    // proven, not just its DSPDATA write.
+    baseline.mov_dp_imm(0xF2, 0x1F); // DSPADDR = $1F (a register the poke does NOT target)
     baseline.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
 
     let mut verify = Spc::new();

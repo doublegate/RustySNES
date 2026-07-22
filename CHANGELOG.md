@@ -20,11 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sends the pair `[$0F, $7E]` to `$00F2` — poking FIR echo-coefficient 0 with a distinctive value —
   then a verifier reached through the non-zero continue reads DSP register `$0F` back and restores it
   to `$00` so nothing leaks into a later echo test. A first phase sets `$0F` to a known baseline
-  `$A5` before the poke (surviving the IPL re-entry zero-fill, which does not touch DSP registers),
-  so the `$7E` assertion proves the poke *changed* the register rather than depending on its power-on
-  or prior-test state. Confirmed by injection: pointing the same transfer at plain ARAM (`$0250`)
-  instead of `$00F2` leaves `$0F` at the `$A5` baseline and fails `E4.08` alone — the poke works
-  precisely because it targets the DSP ports. Battery 292/292 scoring (100.00%); snes9x + Mesen2
+  `$A5` before the poke and leaves DSPADDR selecting a *different* register (`$1F`), so the `$7E`
+  assertion proves the poke *changed* `$0F` through **both** the DSPADDR (`$00F2`) and DSPDATA
+  (`$00F3`) writes — a broken DSPADDR write would leave DSPADDR at `$1F` and land `$7E` in `$1F`,
+  leaving `$0F` at `$A5` — rather than depending on power-on state or a conveniently pre-selected
+  DSPADDR. Confirmed by injection: pointing the same transfer at plain ARAM (`$0250`) instead of
+  `$00F2` leaves `$0F` at the `$A5` baseline and fails `E4.08` alone — the poke works precisely
+  because it targets the DSP ports. Battery 292/292 scoring (100.00%); snes9x + Mesen2
   cross-validation agree with no new divergences.
 
 - **AccuracySNES `E4.06` — the IPL boot ROM's multi-block continue (coverage 332 -> 333 of 443).**

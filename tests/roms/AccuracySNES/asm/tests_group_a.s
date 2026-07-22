@@ -17025,7 +17025,7 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
-    lda #26
+    lda #29
     sta f:V_APU_LEN
     lda #$0200
     sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
@@ -30550,9 +30550,9 @@ apu_progB_58:
     .byte $F6, $E5, $52, $02, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
     .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
 apu_prog_59:
-    .byte $CD, $EF, $BD, $8F, $0F, $F2, $8F, $A5, $F3, $E8, $5A, $C4
-    .byte $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F
-    .byte $C0, $FF
+    .byte $CD, $EF, $BD, $8F, $0F, $F2, $8F, $A5, $F3, $8F, $1F, $F2
+    .byte $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80
+    .byte $C4, $F1, $5F, $C0, $FF
 apu_dataA_60:
     .byte $0F, $7E
 apu_progB_60:
