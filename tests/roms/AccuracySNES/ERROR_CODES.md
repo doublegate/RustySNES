@@ -2203,6 +2203,16 @@ Provenance: **Documented** (fullsnes, SNESdev Wiki, APU boot handshake). Kind: s
 |---|---|---|
 | 1 | `$02` | port 1 announced $BB but port 0 does not read $AA, so the ready word is not $BBAA — or the two bytes are written in the wrong order |
 
+### E4.06 — IPL multi-block continue
+
+Provenance: **Documented** (fullsnes, SNESdev Wiki; canonical IPL boot ROM $FFEF-$FFFB). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the verifier read back the wrong first byte from block A's destination — the non-zero close did not transfer block A to $0250, or jumped instead of continuing |
+| 2 | `$04` | the verifier read back the wrong second byte from block A's destination |
+| 3 | `$06` | the verifier read back the wrong third byte from block A's destination |
+
 ### E5.12 — SRCN change source
 
 Provenance: **Documented** (fullsnes and anomie's DSP doc: a mid-playback SRCN change takes the new entry's start address, or its loop address if the voice has already passed a loop point). Kind: scored.

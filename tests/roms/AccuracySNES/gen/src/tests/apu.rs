@@ -95,6 +95,7 @@ pub fn all() -> Vec<Test> {
         e4_02(),
         e4_03(),
         e4_04(),
+        e4_06(),
         e5_12(),
         e5_02(),
         e7_16(),
@@ -221,6 +222,97 @@ fn upload_and_run_tagged(a: &mut Asm, prog: &Spc, tag: &str) {
     a.l("lda APUIO3");
     a.l("sta f:$7E0102");
     a.c("Release: the program hands the APU back to the IPL so the NEXT test can upload at all.");
+    a.l(&format!("lda #${RELEASE:02X}"));
+    a.l("sta APUIO0");
+}
+
+/// Upload a raw DATA block and a verifier PROGRAM as a single two-block IPL transfer, then run the
+/// program — the multi-block path `E4.06` needs and `upload_and_run` cannot provide.
+///
+/// `apu_upload` only ever closes a block with a zero (jump), so the IPL's "non-zero close → continue
+/// with another block" branch is unexercised anywhere else. This drives it: block A (`data`, to
+/// `dest_a`) is closed with a non-zero port 1 naming `dest_b`, block B (`prog`, to `dest_b`) is
+/// transferred to that second destination, and only the final close carries the zero that jumps into
+/// `prog` at `dest_b`. If a core mishandles the continue it never runs `prog`, the done marker never
+/// appears, and the shared timeout arm records SKIP — the same bounded-wait contract as
+/// `upload_and_run`, so a mishandled continue stands the test down rather than hanging the battery.
+///
+/// The results land in `$7E0100`-`$7E0102` from ports 1-3, exactly as `upload_and_run` leaves them.
+fn upload_2block_and_run(a: &mut Asm, data: &[u8], dest_a: u16, prog: &Spc, dest_b: u16) {
+    let id = next_prog_id();
+    let label_a = format!("apu_dataA_{id}");
+    let label_b = format!("apu_progB_{id}");
+
+    // Block A is raw data, block B a program; both live in the out-of-bank data segment, adjacent
+    // and therefore in the same bank (a segment cannot span one), which is why the proc reads a
+    // single V_APU_BANK for both.
+    let bytes = data
+        .iter()
+        .map(|b| format!("${b:02X}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    a.d(&format!("{label_a}:"));
+    a.d(&format!("    .byte {bytes}"));
+    a.d(&format!("{label_b}:"));
+    for line in prog.as_ca65("    ").lines() {
+        a.d(line);
+    }
+
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("Block A: the data, transferred first and left in place for the verifier to read back.");
+    a.l(&format!("lda #.loword({label_a})"));
+    a.l("sta f:V_APU_SRC");
+    a.l("sep #$20");
+    a.l(&format!("lda #^{label_a}"));
+    a.l("sta f:V_APU_BANK");
+    a.l("rep #$30");
+    a.l(&format!("lda #{}", data.len()));
+    a.l("sta f:V_APU_LEN");
+    a.l(&format!("lda #${dest_a:04X}"));
+    a.l("sta f:V_APU_DEST");
+    a.c(
+        "Block B: the verifier program, reached through the NON-zero continue that closes block A.",
+    );
+    a.l(&format!("lda #.loword({label_b})"));
+    a.l("sta f:V_APU_SRC2");
+    a.l(&format!("lda #{}", prog.bytes().len()));
+    a.l("sta f:V_APU_LEN2");
+    a.l(&format!("lda #${dest_b:04X}"));
+    a.l("sta f:V_APU_DEST2");
+    a.l(&format!("lda #${dest_b:04X}"));
+    a.l("sta f:V_APU_ENTRY     ; the final close jumps here, into block B");
+    a.l("jsl apu_upload_2block_far");
+
+    a.c("Clear port 0 so a stale handshake byte cannot read as the program's done marker.");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta APUIO0");
+    a.c("Wait for the verifier's done marker, bounded: a continue a core botched never runs it.");
+    a.l("rep #$30");
+    a.l("ldx #$0000");
+    a.label("wait");
+    a.l("sep #$20");
+    a.l("lda APUIO0");
+    a.l(&format!("cmp #${DONE:02X}"));
+    a.l("beq @ran");
+    a.l("rep #$30");
+    a.l("inx");
+    a.l("cpx #$8000");
+    a.l("bne @wait");
+    a.l("jmp @timeout");
+    a.label("ran");
+    a.c(
+        "Copy the answers out before releasing: the IPL's $AA/$BB announcement overwrites 0 and 1.",
+    );
+    a.l("sep #$20");
+    a.l("lda APUIO1");
+    a.l("sta f:$7E0100");
+    a.l("lda APUIO2");
+    a.l("sta f:$7E0101");
+    a.l("lda APUIO3");
+    a.l("sta f:$7E0102");
     a.l(&format!("lda #${RELEASE:02X}"));
     a.l("sta APUIO0");
 }
@@ -4356,6 +4448,111 @@ fn e4_04() -> Test {
         'E',
         "IPL ready announcement",
         Provenance::Documented("fullsnes, SNESdev Wiki, APU boot handshake"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// A non-zero port-1 at a block boundary continues the transfer; only a zero jumps.
+///
+/// The IPL upload protocol reads port 1 at every block boundary, and its value is the whole
+/// decision: a zero means "the address in ports 2/3 is an entry point — jump there", a non-zero
+/// means "it is the destination of another block — keep transferring". The single-block
+/// `apu_upload` only ever exercises the two ends every upload must use — a non-zero at the opening
+/// kick and a zero at the close — so the middle case, a non-zero *close* that continues to a second
+/// block, is reached by nothing else in the battery. The boot ROM's `BNE` at `$FFF9` is that branch.
+///
+/// # Why the obvious single-block test would be vacuous
+///
+/// "Upload a program and check it ran" proves the non-zero *open* and the zero *close*, but every
+/// other `E4` test already does that incidentally, and neither exercises a non-zero close. The claim
+/// here is specifically that a non-zero close does *not* jump — that the IPL transfers a second
+/// block to a *different* destination and only then jumps. Establishing that needs two blocks going
+/// to two addresses, which is what [`upload_2block_and_run`] drives.
+///
+/// # Construction and how it is pinned
+///
+/// Block A is three distinctive data bytes (`$C3 $3C $99` — none of them a handshake marker) sent to
+/// `$0250`. Block B is a verifier program sent, via the non-zero continue, to `$0280`; the final
+/// close jumps into it. The verifier reads back `$0250`-`$0252` into ports 1-3 and the host asserts
+/// they are the three bytes block A carried.
+///
+/// The three failure modes are distinct, which is what makes the pass mean something:
+///
+/// - **The IPL jumps on the non-zero close** (the bug under test): block B is never transferred, the
+///   final jump lands at `$0280` — which the verifier's code never reached, since block B was never
+///   transferred — so the verifier never runs, the done marker never appears, and the test stands
+///   down — SKIP. Confirmed by injection: forcing the boot ROM's `$FFF9` branch to fall through
+///   (always jump) stands this test down while, as expected of a shared code path, taking the rest
+///   of the APU group with it.
+/// - **The continue works but block A did not land**: the verifier runs and reads whatever occupies
+///   `$0250`-`$0252` instead of block A's bytes — FAIL. (`$0250` is above the IPL's `$00-$EF`
+///   zero-fill and APU RAM is not reset between tests, so this is not guaranteed to be zero; what
+///   makes the failure reliable is that the assertion demands the exact, distinctive `$C3 $3C $99`,
+///   which no unrelated prior state matches.)
+/// - **Correct**: the verifier reports `$C3 $3C $99` — PASS.
+///
+/// `$0250` and `$0280` both sit above the IPL's `$00-$EF` zero-fill and below the `$3000` echo
+/// buffer, and block B is far shorter than the `$30`-byte gap to block A, so the two never overlap.
+fn e4_06() -> Test {
+    let data = [0xC3u8, 0x3C, 0x99];
+
+    let mut verify = Spc::new();
+    verify.mov_x_imm(0xEF).mov_sp_x();
+    verify.mov_a_abs(0x0250).mov_dp_a(PORT1);
+    verify.mov_a_abs(0x0251).mov_dp_a(PORT2);
+    verify.mov_a_abs(0x0252).mov_dp_a(PORT3);
+    verify.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    a.c("Two blocks in one upload: data to $0250, verifier to $0280 through a non-zero continue.");
+    upload_2block_and_run(&mut a, &data, 0x0250, &verify, 0x0280);
+    a.c("Record the read-back bytes, then assert they are block A's — proof the continue transferred");
+    a.c(
+        "block A to its own destination and jumped into block B rather than jumping after block A.",
+    );
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(
+        202,
+        "E4.06 read-back of APU $0250 (block A byte 0, expect $C3)",
+    );
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(
+        203,
+        "E4.06 read-back of APU $0251 (block A byte 1, expect $3C)",
+    );
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.record(
+        204,
+        "E4.06 read-back of APU $0252 (block A byte 2, expect $99)",
+    );
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.assert_a8(
+        0xC3,
+        "the verifier read back the wrong first byte from block A's destination — the non-zero \
+         close did not transfer block A to $0250, or jumped instead of continuing",
+    );
+    a.l("lda f:$7E0101");
+    a.assert_a8(
+        0x3C,
+        "the verifier read back the wrong second byte from block A's destination",
+    );
+    a.l("lda f:$7E0102");
+    a.assert_a8(
+        0x99,
+        "the verifier read back the wrong third byte from block A's destination",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E4.06",
+        'E',
+        "IPL multi-block continue",
+        Provenance::Documented("fullsnes, SNESdev Wiki; canonical IPL boot ROM $FFEF-$FFFB"),
         Kind::Scored,
         None,
     )

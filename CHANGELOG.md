@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **AccuracySNES `E4.06` — the IPL boot ROM's multi-block continue (coverage 332 -> 333 of 443).**
+  The IPL reads port 1 at every block boundary and its value is the whole decision: zero means "the
+  address in ports 2/3 is an entry point, jump there", non-zero means "it is another block's
+  destination, keep transferring". The single-block `apu_upload` only ever drives the two ends every
+  upload must use — a non-zero at the opening kick and a zero at the close — so the middle case, a
+  non-zero *close* that continues to a second block (the boot ROM's `BNE $FFF9`), was unexercised by
+  the whole battery. A new runtime helper `apu_upload_2block` drives it: block A (three distinctive
+  data bytes) is transferred to `$0250`, closed with a non-zero port 1 naming a second destination,
+  block B (a verifier program) is transferred to `$0280` through that continue, and only the final
+  close carries the zero that jumps into the verifier — which reads block A back and reports it. Every
+  handshake wait stays bounded exactly as `apu_upload`'s do, so a core that mishandles the continue
+  stands the test down (SKIP) rather than hanging the battery; `apu_upload` itself is untouched.
+  Verified by injection both ways: forcing the boot ROM's `$FFF9` branch to always jump breaks the
+  battery (the continue is load-bearing), and pointing the verifier at an address block A never wrote
+  fails `E4.06` alone (the read-back assertion is real). Battery 291/291 scoring (100.00%), and
+  snes9x + Mesen2 cross-validation agree with no new divergences — the multi-block continue is
+  standard IPL behavior all three implement.
+
 ### Fixed
 
 - **Automatic joypad read is now a timed ~4224-clock operation with a busy flag, not an instant
