@@ -19,7 +19,20 @@ command -v "$AGY_BIN" >/dev/null 2>&1 || AGY_BIN="$HOME/.local/bin/agy"
 AGY_MODEL="${AGY_MODEL:-}"                 # empty = agy's configured default (Gemini 3.x Pro)
 AGY_EFFORT="${AGY_EFFORT:-high}"           # low|medium|high
 AGY_PRINT_TIMEOUT="${AGY_PRINT_TIMEOUT:-5m}"
-MAX_DIFF_BYTES="${MAX_DIFF_BYTES:-200000}" # truncate very large diffs (~200 KB)
+MAX_DIFF_BYTES="${MAX_DIFF_BYTES:-115000}" # truncate very large diffs (keep prompt under the arg limit)
+MAX_PROMPT_BYTES="${MAX_PROMPT_BYTES:-125000}" # hard ceiling on the whole prompt: agy takes it as a
+                                           # --print VALUE (not stdin), and a single execve argument
+                                           # cannot exceed MAX_ARG_STRLEN (PAGE_SIZE*32 = 128 KiB on
+                                           # Linux). Over it, execve fails with E2BIG before agy even
+                                           # starts -- a deterministic failure the retry loop cannot
+                                           # clear. This backstops MAX_DIFF_BYTES + boilerplate + style.
+ARG_SIZE_CEILING=128000                     # hard cap: a configured MAX_PROMPT_BYTES above the
+                                           # MAX_ARG_STRLEN-derived safe bound would defeat the guard
+                                           # and re-expose E2BIG, so clamp any override down to it.
+if ! [ "$MAX_PROMPT_BYTES" -le "$ARG_SIZE_CEILING" ] 2>/dev/null; then
+  log "MAX_PROMPT_BYTES='${MAX_PROMPT_BYTES}' invalid or above the ${ARG_SIZE_CEILING}-byte ceiling; clamping"
+  MAX_PROMPT_BYTES="$ARG_SIZE_CEILING"
+fi
 STYLE_GUIDE="${STYLE_GUIDE:-.github/agy-review.md}"  # repo-relative; loaded if present
                                            # (dedicated name -- avoids colliding with GEMINI.md/AGENTS.md)
 CONV_DIR="${CONV_DIR:-$HOME/.gemini/antigravity-cli/conversations}"
@@ -103,6 +116,31 @@ EOF
   cat "$diff_file"
 } > "$prompt_file"
 
+# --- guard the argv size (E2BIG) -----------------------------------------------
+# agy takes the prompt as a --print VALUE, so the whole prompt is one execve argument
+# and must stay under MAX_ARG_STRLEN (128 KiB). MAX_DIFF_BYTES bounds the diff, but the
+# boilerplate + style guide ride on top, so cap the assembled prompt as a hard backstop.
+if [ "$(wc -c < "$prompt_file")" -gt "$MAX_PROMPT_BYTES" ]; then
+  head -c "$MAX_PROMPT_BYTES" "$prompt_file" > "$prompt_file.cut" && mv "$prompt_file.cut" "$prompt_file"
+  truncated+=$'\n\n> Note: the review prompt was capped to '"${MAX_PROMPT_BYTES}"$' bytes (execve arg-size limit).'
+  log "prompt capped to ${MAX_PROMPT_BYTES} bytes (execve arg-size ceiling)"
+fi
+# Byte truncation (here or in the MAX_DIFF_BYTES cap above) can slice a multi-byte UTF-8 sequence.
+# agy is a Rust binary and std::env::args() PANICS on a non-UTF-8 argument, which would reintroduce
+# an instant startup failure -- exactly the class of bug this guard exists to prevent. Drop any
+# invalid/partial sequences when iconv is available (glibc + macOS ship it); a no-op when clean.
+if command -v iconv >/dev/null 2>&1; then
+  # Explicit branches, not `&& mv || rm`: that idiom masks an mv failure and would then feed agy the
+  # original (possibly split) bytes. A successful iconv must replace the file; a failed mv is fatal
+  # (set -e), a failed iconv leaves the original and we proceed (it may already be clean, and any
+  # residual invalid byte now surfaces via the captured stderr rather than a silent instant crash).
+  if iconv -c -f UTF-8 -t UTF-8 "$prompt_file" > "$prompt_file.utf8" 2>/dev/null; then
+    mv "$prompt_file.utf8" "$prompt_file"
+  else
+    rm -f "$prompt_file.utf8"
+  fi
+fi
+
 # --- run agy headless, under a PTY (works around agy issue #76: -p drops --------
 #     stdout when stdout is not a TTY, e.g. piped/redirected/subprocess) ---------
 flags=( --print-timeout "$AGY_PRINT_TIMEOUT" --sandbox --dangerously-skip-permissions )
@@ -180,6 +218,18 @@ exec 9>&- 2>/dev/null || true    # release the agy lock so the next queued job p
 
 if ! have_text "$out_file"; then
   log "no review output after ${AGY_RETRIES} attempt(s). Check $LOG and confirm 'agy -p \"hi\"' works for this user."
+  # Surface agy's stderr into the job log. RUNNER_TEMP is wiped between jobs, so a bare
+  # `exit 1` otherwise leaves the real cause invisible in CI (E2BIG, auth, backend, ...).
+  if [ -s "$LOG" ]; then
+    # Bound the dump to the last lines: GitHub Actions auto-masks registered secrets (incl.
+    # GITHUB_TOKEN) in logs, and this is agy's own diagnostic stream, but a bounded tail avoids
+    # publishing an unbounded volume of stderr (which could echo prompt/diff content) into CI.
+    log "----- captured agy stderr ($LOG), last ${AGY_LOG_TAIL_LINES:-60} lines (secrets auto-masked) -----"
+    tail -n "${AGY_LOG_TAIL_LINES:-60}" "$LOG" | sed 's/^/[agy] /' >&2 || true
+    log "----- end agy stderr -----"
+  else
+    log "(agy stderr log is empty -- agy likely failed before writing, e.g. execve E2BIG on an oversized prompt)"
+  fi
   exit 1
 fi
 
