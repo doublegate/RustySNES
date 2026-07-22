@@ -319,6 +319,15 @@ impl Ppu {
         let opt_valid = 0x2000u16 << bg; // BG1 => 0x2000, BG2 => 0x4000
         let hofs_fine = hofs & 7;
 
+        // Per-dot compositor, Phase 2 (`docs/adr/0014`): the per-column FETCH fills a per-line pixel
+        // buffer (an opaque `Pixel` per column, or a transparent default), and a separate DRAIN pass
+        // below composites it into `above`/`below`. Splitting fetch from composite is the structural
+        // step toward driving the drain one dot at a time; under static state (the whole line fetched
+        // before any composite, as here) it is BYTE-IDENTICAL to the fused per-column write, because
+        // each column touches only its own `above[x]`/`below[x]` and reads none of its own line's
+        // prior columns. Fixed-size stack buffer — no allocation on the hot path.
+        let mut bg_line = [Pixel::default(); SCREEN_WIDTH];
+
         for x in 0..SCREEN_WIDTH as u32 {
             let px = if self.io.mosaic_enable[bg] && self.io.mosaic_size > 1 {
                 let m = u32::from(self.io.mosaic_size);
@@ -412,6 +421,20 @@ impl Ppu {
                     vflip,
                 );
             }
+            // FETCH: stash the resolved pixel; the DRAIN pass below does the window+priority write
+            // (the priority travels in `pixel.priority`).
+            bg_line[xi] = pixel;
+        }
+
+        // DRAIN: composite the fetched line into `above`/`below`. This is the pass a future per-dot
+        // compositor will step one dot at a time; here it runs after the full-line fetch, so the
+        // result is byte-identical to the fused loop (see the buffer's doc comment above).
+        for xi in 0..SCREEN_WIDTH {
+            let pixel = bg_line[xi];
+            if !pixel.opaque {
+                continue;
+            }
+            let prio = pixel.priority;
             if main && !self.windowed_out(bg, xi, true) && prio > above[xi].priority {
                 above[xi] = pixel;
             }
