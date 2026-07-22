@@ -88,6 +88,11 @@ local function onInput()
     emu.setInput({ b = true, start = true, x = true, r = true,
                    y = false, select = false, a = false, l = false,
                    up = false, down = false, left = false, right = false }, 0)
+    -- Port 2 (PAD2_CONTRACT = $60A0: Y + Select + A + L). Needs a device in port 2, which the
+    -- testrunner invocation supplies via --snes.port2.type=SnesController (see crossval.sh).
+    emu.setInput({ y = true, select = true, a = true, l = true,
+                   b = false, start = false, x = false, r = false,
+                   up = false, down = false, left = false, right = false }, 1)
 end
 
 emu.addEventCallback(onInput, emu.eventType.inputPolled)

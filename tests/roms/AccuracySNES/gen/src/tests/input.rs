@@ -36,6 +36,7 @@ pub fn all() -> Vec<Test> {
     vec![
         f1_01(),
         f1_02(),
+        f1_03(),
         f1_04(),
         // F1.07 must precede F1.05 and F1.06: its first phase reads $4218 before anything has
         // armed auto-read, and those two arm it. Its guard catches the mistake rather than
@@ -938,6 +939,86 @@ fn f1_02() -> Test {
         'F',
         "Pad reads 17+ are 1",
         Provenance::Documented("SNESdev Wiki, controller protocol; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// One write to `$4016` bit 0 latches BOTH controller ports' shift registers.
+///
+/// The latch line is shared: a single `$4016.0` strobe parallel-loads controller 1 AND controller 2
+/// at once. The host input contract holds port 1 at `$9050` and port 2 at `$60A0` — two masks that
+/// share no set bit — so after a single latch, reading each port must return its OWN value. A core
+/// that latches only port 1 leaves port 2 unloaded (it reads `$0000`); a core that echoes port 1
+/// onto port 2 returns `$9050` where `$60A0` is held. The two distinct masks catch both failures,
+/// which is exactly why the contract puts a disjoint mask on port 2.
+///
+/// This needs a second controller in port 2. The in-repo harness (`set_joypad(1, …)`) and the snes9x
+/// libretro driver (`input_state` for port 1) hold it directly; Mesen2's headless `--testrunner`
+/// gets a port-2 device from `--snes.port2.type=SnesController` (see `scripts/accuracysnes/crossval.sh`).
+/// Without that device an earlier version of this test was withdrawn — `runtime.inc` records the history.
+fn f1_03() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    f1_require_contract(&mut a, "c03");
+    a.c("One shared latch, then clock BOTH ports out together, MSB first: read $4016 (port 1) and");
+    a.c("$4017 (port 2) once each per bit. Both words therefore come from the single latch above.");
+    a.l("sep #$20");
+    a.l("lda #$01");
+    a.l("sta JOYSER0        ; $4016.0 high: latch both ports at once");
+    a.l("lda #$00");
+    a.l("sta JOYSER0        ; low: begin clocking");
+    a.l("rep #$30");
+    a.l("lda #$0000");
+    a.l("sta f:$7E01E8      ; port 1 accumulator");
+    a.l("sta f:$7E01EA      ; port 2 accumulator");
+    a.l("ldx #$0010");
+    a.label("bit");
+    a.l("sep #$20");
+    a.l("lda JOYSER0        ; port 1 data bit");
+    a.l("lsr");
+    a.l("rep #$20");
+    a.l("lda f:$7E01E8");
+    a.l("rol");
+    a.l("sta f:$7E01E8");
+    a.l("sep #$20");
+    a.l("lda JOYSER1        ; port 2 data bit — same shared latch, clocked independently");
+    a.l("lsr");
+    a.l("rep #$20");
+    a.l("lda f:$7E01EA");
+    a.l("rol");
+    a.l("sta f:$7E01EA");
+    a.l("dex");
+    a.l("bne @bit");
+    a.l("lda f:$7E01E8");
+    a.record(235, "F1.03 port 1 word after a single $4016 latch");
+    a.l("lda f:$7E01EA");
+    a.record(238, "F1.03 port 2 word after the same latch");
+    a.c("Guard: port 1 must read its own contract, or the manual read is broken and the port-2");
+    a.c("assertion below would be measuring nothing.");
+    a.l("lda f:$7E01E8");
+    a.l("cmp #PAD_CONTRACT");
+    a.fail_if_ne(
+        "port 1 did not read $9050 after the latch, so the shared-latch reading of port 2 below is \
+         not trustworthy — the manual read itself is broken",
+    );
+    a.c("The assertion: the SAME $4016 write latched port 2 too.");
+    a.l("lda f:$7E01EA");
+    a.l("cmp #PAD2_CONTRACT");
+    a.fail_if_ne(
+        "port 2 did not read $60A0 after a single $4016 latch. $0000 means the latch is not shared \
+         (port 2 was never loaded); $9050 means the core echoes port 1 onto port 2",
+    );
+    a.finish(
+        "F1.03",
+        'F',
+        "Shared $4016 latch",
+        Provenance::Documented(
+            "fullsnes and the SNESdev Wiki controller protocol: bit 0 of $4016 is the shared latch \
+             line that parallel-loads both controller ports' shift registers",
+        ),
         Kind::Scored,
         None,
     )

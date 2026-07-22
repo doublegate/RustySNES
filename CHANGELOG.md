@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES `F1.03` — the shared `$4016` latch, unblocked by attaching Mesen2 port 2 (coverage
+  335 -> 336 of 443).** One write to `$4016` bit 0 latches BOTH controller ports' shift registers.
+  The row needs a second controller held at a mask disjoint from port 1's (`PAD2_CONTRACT = $60A0`
+  vs `$9050`) so "port 2 latched" is distinguishable from "port 2 echoes port 1"; it had been
+  withdrawn because Mesen2's headless `--testrunner` had no device in port 2. Fixed by passing
+  `--snes.port2.type=SnesController` to every Mesen2 invocation in `scripts/accuracysnes/crossval.sh`
+  (a generic config switch applied before the core config push, not persisted). All three runners now
+  hold port 2; `f1_03()` latches once and reads both ports interleaved, asserting port 1 = `$9050`
+  (guard) and port 2 = `$60A0`. Verified across the harness battery (327/327), Mesen2 (0 failing),
+  and snes9x (7 known divergences, F1.03 not among them), both NTSC and PAL images, 53/53 scenes
+  unchanged; the non-vacuity injection (hold port 2 at `$0000`) fails F1.03 alone.
 - **AccuracySNES `G1.05` — power-on PPU registers reported as a golden (coverage 334 -> 335 of 443).**
   The dossier row says the PPU has no boot ROM and most of its registers start indeterminate.
   `capture_power_on` now samples the *readable* ones before `init_registers` writes the PPU into its

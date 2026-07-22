@@ -920,7 +920,18 @@ part of the measurement, not a robustness tweak.** This is the same shape as `E1
 there, a state that is *entered* rather than arrived at instantly; here, a result that is *finished*
 rather than produced instantly.
 
-### `F1.03` attempted and withdrawn — Mesen2's runner has no second controller
+### `F1.03` LANDED — Mesen2 port 2 attached via `--snes.port2.type=SnesController`
+
+**Resolved and landed.** The blocker below (Mesen2's `--testrunner` had no port-2 device) is fixed
+by a command-line switch: `--snes.port2.type=SnesController` populates port 2 before the core config
+push (Mesen2's generic config-switch parser → `SnesConfig.Port2.Type`; not persisted under
+`DisableSaveSettings`). Every Mesen2 invocation in `scripts/accuracysnes/crossval.sh` now passes it,
+`PAD2_CONTRACT = $60A0` is held by all three runners, and `f1_03()` (`gen/src/tests/input.rs`)
+latches once via `$4016.0` then reads both ports interleaved (`$4016`/`$4017`), asserting port 1 =
+`$9050` (guard) and port 2 = `$60A0`. Verified: harness battery 327/327, Mesen2 0 failing, snes9x 7
+(its known baseline — F1.03 index 273 is not among the failures), and the non-vacuity injection
+(hold port 2 at `$0000`) fails F1.03 alone. Coverage 335 → 336. The withdrawal history below is kept
+for the record.
 
 `F1.03` (one write to `$4016` bit 0 latches **both** ports) needs a *second* controller held at a
 **different** mask: with the same buttons on both, "port 2 latched" and "port 2 is echoing port 1"
