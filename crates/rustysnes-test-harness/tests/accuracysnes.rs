@@ -438,11 +438,12 @@ fn header_is_detected() {
 /// `g1_15` then asserts the window/linear/`$40`-mirror decode explicitly. Coverage: G1.15.
 #[test]
 fn hirom_image_decodes_and_scores() {
-    if !hirom_rom_path().is_file() {
+    let path = hirom_rom_path();
+    if !path.is_file() {
         eprintln!("SKIP accuracysnes HiROM: image absent (run `cargo run -p accuracysnes-gen`)");
         return;
     }
-    let rom = std::fs::read(hirom_rom_path()).expect("read HiROM image");
+    let rom = std::fs::read(&path).expect("read HiROM image");
     let cart = Cart::from_rom(&rom).expect("HiROM header must be detectable");
     assert_eq!(
         cart.header.map_mode,
@@ -451,7 +452,7 @@ fn hirom_image_decodes_and_scores() {
         cart.header.map_mode
     );
 
-    let report = run_image(&hirom_rom_path()).expect("HiROM image runs");
+    let report = run_image(&path).expect("HiROM image runs");
     assert!(
         report.done,
         "the HiROM battery never finished — the runtime likely did not boot in the $00:8000 window \

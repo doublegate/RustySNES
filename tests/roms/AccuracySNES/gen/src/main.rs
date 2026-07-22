@@ -149,7 +149,7 @@ fn main() {
 
     write_pal_image(&image, &build_dir.join("accuracysnes-pal.sfc"));
 
-    build_hirom_image(&root, &asm_dir, &build_dir);
+    build_hirom_image(&root, &asm_dir, &build_dir, &hirom_battery);
 }
 
 /// Build the parallel HiROM image: the shared `runtime.s` (assembled with `-D HIROM_BUILD` so its
@@ -158,10 +158,9 @@ fn main() {
 ///
 /// Each unit gets its own object file (`*-hirom.o`) so the LoROM objects are untouched, and the
 /// checksum is patched at the HiROM header offset (`$FFDC`) rather than LoROM's `$7FDC`.
-fn build_hirom_image(root: &Path, asm_dir: &Path, build_dir: &Path) {
-    let battery = tests::hirom();
+fn build_hirom_image(root: &Path, asm_dir: &Path, build_dir: &Path, battery: &[dsl::Test]) {
     println!("accuracysnes-gen: HiROM image — {} test(s)", battery.len());
-    write(&asm_dir.join("tests_hirom.s"), &emit::asm(&battery));
+    write(&asm_dir.join("tests_hirom.s"), &emit::asm(battery));
 
     let units = [
         ("runtime", "runtime-hirom"),
@@ -215,6 +214,15 @@ fn build_hirom_image(root: &Path, asm_dir: &Path, build_dir: &Path) {
         image[HIROM_CHECKSUM_OFFSET + 2],
         image[HIROM_CHECKSUM_OFFSET + 3],
     ]);
+    let comp = u16::from_le_bytes([
+        image[HIROM_CHECKSUM_OFFSET],
+        image[HIROM_CHECKSUM_OFFSET + 1],
+    ]);
+    assert_eq!(
+        sum ^ comp,
+        0xFFFF,
+        "HiROM checksum/complement invariant broken"
+    );
     println!(
         "accuracysnes-gen: wrote {} ({} bytes, HiROM, checksum ${sum:04X})",
         sfc.display(),
