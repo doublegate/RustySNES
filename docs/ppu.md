@@ -68,6 +68,11 @@ Per `ref-docs/2026-06-24-ppu.md` §3 (SNESdev Sprites, Fullsnes):
 - **Per-scanline limits:** **Range Over = 32 sprites/line** (STAT77 bit 6); **Time Over = 34
   sprite-tiles/line** (STAT77 bit 7); both reset at end of VBlank. **Lower OAM index = on
   top**; tile fetch is reverse-order, so **low-index sprites drop first** on overflow.
+- **OBJ interlace (SETINI $2133 bit 1):** a sprite occupies **half** its normal scanline height and
+  samples **every other row**, selected by the interlace field (ares `Object::onScanline`/`fetch`:
+  `height >> interlace`, then `row = (row << 1) + field` after the width-based V-flip). So a 16x32
+  sprite renders squished into 16 lines. Independent of screen interlace ($2133 bit 0); off by
+  default, so ordinary rendering is unchanged.
 
 ## Dot-clock timeline & H/V counters
 

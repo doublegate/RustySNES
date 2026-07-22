@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **OBJ interlace (`SETINI` $2133 bit 1) is now rendered, not just stored.** The bit was decoded and
+  saved but never consulted, so a sprite drawn under OBJ interlace kept its full height where
+  hardware halves it. The sprite renderer now ports ares `Object::onScanline`/`fetch`: the
+  on-scanline height is `height >> obj_interlace` and the fetched row is `(row << 1) + field` (`-`
+  when v-flipped), applied after the width-based V-flip — so a 16x32 sprite squishes into 16 lines,
+  sampling every other row per interlace field. Found via AccuracySNES C7.12; with the port in place
+  RustySNES matched Mesen2 exactly on a rendered 16x32 interlace scene, the 52 existing scenes and 29
+  PPU unit tests are unregressed (interlace is off by default), and a new `rustysnes-ppu` unit test
+  pins the 32→16 squish. The C7.12 scene itself can't be committed as a golden: snes9x renders the
+  interlace field differently, so the three references don't agree (ADR 0013).
+
 - **Menu navigation is now flicker-free.** Moving the cursor within the visible window rewrites only
   the `>` marker — two character writes inside the vblank — so the display never blanks. Only when
   the window actually scrolls (every visible name changes) does the full blank-and-redraw run. Before

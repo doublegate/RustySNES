@@ -770,6 +770,10 @@ impl Ppu {
             let idx = (first + i) & 0x7f;
             let obj = self.object(idx);
             let (w, h) = self.object_size(obj.size);
+            // OBJ interlace ($2133 bit 1) halves the height a sprite occupies on screen — each
+            // displayed line samples every other sprite row (ares `Object::onScanline`,
+            // `height >> io.interlace`). A 16x32 sprite is in range for 16 lines, not 32.
+            let h = h >> u32::from(self.io.obj_interlace);
             // Vertical intersection (Y wraps in 256).
             let top = u32::from(obj.y);
             let dy = (scan_y.wrapping_sub(top)) & 0xff;
@@ -828,6 +832,13 @@ impl Ppu {
             let (w, _h) = self.object_size(obj.size);
 
             let mut row = (scan_y.wrapping_sub(u32::from(obj.y))) & 0xff;
+            // OBJ interlace: the displayed line maps to twice the sprite row, so only every other
+            // row is fetched (ares `Object::fetch`, `y <<= 1` before the flip). The field parity is
+            // added after the flip so it selects even/odd rows per frame (`y += field`, `-` when
+            // v-flipped). This squishes a 16x32 into the 16 lines the range test now allows.
+            if self.io.obj_interlace {
+                row <<= 1;
+            }
             if obj.vflip {
                 // Vertical flip is computed against the sprite's WIDTH, not its height, and that
                 // is not a typo. For a square sprite the two are the same and this is the ordinary
@@ -841,6 +852,15 @@ impl Ppu {
                 } else {
                     w * 3 - 1 - row
                 };
+            }
+            if self.io.obj_interlace {
+                // Field parity selects the even or odd sprite rows (ares `Object::fetch`,
+                // `y = !vflip ? y + field : y - field`), applied after the flip.
+                row = if obj.vflip {
+                    row.wrapping_sub(u32::from(self.field))
+                } else {
+                    row + u32::from(self.field)
+                } & 0xff;
             }
 
             let pal_base = 128 + (u16::from(obj.palette) << 4);
@@ -1273,6 +1293,56 @@ mod tests {
         assert_eq!(p.oam_byte(1), 0x60);
         assert_eq!(p.oam_byte(2), 0x01);
         assert_eq!(p.oam_byte(3), 0x30);
+    }
+
+    /// OBJ interlace (`SETINI` $2133 bit 1) halves the on-screen height of a sprite: a 16x32 sprite
+    /// occupies 16 scanlines, sampling every other row (ares `Object::onScanline`/`fetch`). Ported
+    /// from ares; with it in place RustySNES matched Mesen2 exactly on a rendered 16x32 scene, and
+    /// the existing `c7-*` sprite scenes (interlace off) are unregressed.
+    #[test]
+    fn obj_interlace_halves_sprite_height() {
+        let extent = |interlace: bool| -> usize {
+            let mut p = Ppu::new();
+            p.write_reg(0x2100, 0x80); // force-blank for setup
+            // Make every sprite tile fully opaque: all-ones bitplanes across the tile region.
+            for addr in 0..0x400u16 {
+                vram_set(&mut p, addr, 0xffff);
+            }
+            // All-ones bitplanes give colour 15; sprite palette 0 -> CGRAM 128 + 15 = 143.
+            cgram_set(&mut p, 143, 0x7fff); // backdrop (CGRAM 0) stays black
+            // OAM sprite 0 at (100, 100), tile 0, palette 0, priority 3. The high table stays zero,
+            // so the size bit is clear (the pair's small 16x32 member) and X bit 8 is clear. Placed
+            // well away from the 127 unused sprites, which default to (0,0) and also carry the now-
+            // opaque tile 0 — so the measured column (102) and rows (100+) see only sprite 0.
+            p.write_reg(0x2102, 0x00);
+            p.write_reg(0x2103, 0x00);
+            p.write_reg(0x2104, 100);
+            p.write_reg(0x2104, 100);
+            p.write_reg(0x2104, 0x00);
+            p.write_reg(0x2104, 0x30);
+            p.write_reg(0x2101, 0xc0); // OBJSEL pair 6: 16x32 / 32x64, name base 0
+            if interlace {
+                p.write_reg(0x2133, 0x02); // SETINI bit 1: OBJ interlace
+            }
+            p.write_reg(0x212c, 0x10); // OBJ on the main screen
+            p.write_reg(0x2100, 0x0f); // display on, full brightness
+            run_frame(&mut p);
+            let fb = p.framebuffer();
+            // Count scanlines whose pixel inside the sprite's column is opaque (non-backdrop).
+            (0..crate::SCREEN_HEIGHT)
+                .filter(|&y| fb[y * SCREEN_WIDTH + 102] != 0)
+                .count()
+        };
+        assert_eq!(
+            extent(false),
+            32,
+            "a 16x32 sprite spans 32 lines without OBJ interlace"
+        );
+        assert_eq!(
+            extent(true),
+            16,
+            "OBJ interlace should squish the 16x32 sprite to 16 lines"
+        );
     }
 
     #[test]
