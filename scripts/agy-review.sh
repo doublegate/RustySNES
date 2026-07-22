@@ -118,6 +118,14 @@ if [ "$(wc -c < "$prompt_file")" -gt "$MAX_PROMPT_BYTES" ]; then
   truncated+=$'\n\n> Note: the review prompt was capped to '"${MAX_PROMPT_BYTES}"$' bytes (execve arg-size limit).'
   log "prompt capped to ${MAX_PROMPT_BYTES} bytes (execve arg-size ceiling)"
 fi
+# Byte truncation (here or in the MAX_DIFF_BYTES cap above) can slice a multi-byte UTF-8 sequence.
+# agy is a Rust binary and std::env::args() PANICS on a non-UTF-8 argument, which would reintroduce
+# an instant startup failure -- exactly the class of bug this guard exists to prevent. Drop any
+# invalid/partial sequences when iconv is available (glibc + macOS ship it); a no-op when clean.
+if command -v iconv >/dev/null 2>&1; then
+  iconv -c -f UTF-8 -t UTF-8 "$prompt_file" > "$prompt_file.utf8" 2>/dev/null \
+    && mv "$prompt_file.utf8" "$prompt_file" || rm -f "$prompt_file.utf8"
+fi
 
 # --- run agy headless, under a PTY (works around agy issue #76: -p drops --------
 #     stdout when stdout is not a TTY, e.g. piped/redirected/subprocess) ---------
