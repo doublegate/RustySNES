@@ -844,14 +844,18 @@ impl Bus {
                 self.pio
             }
             0x4210 => {
-                // RDNMI: bit7 = VBlank-occurred flag (read clears), bits0-3 = CPU version (2).
-                let v = (u8::from(self.clock.rdnmi_flag) << 7) | 0x02;
+                // RDNMI: bit7 = VBlank-occurred flag (read clears), bits4-6 = open bus (the MDR,
+                // held in `self.open_bus` — the pre-read last-driven value), bits0-3 = CPU version
+                // (2). ares `CPU::readIO` $4210 leaves bits 4-6 as the incoming data (open bus) and
+                // only writes `io.version` into bits 0-3 and the flag into bit 7.
+                let v = (u8::from(self.clock.rdnmi_flag) << 7) | (self.open_bus & 0x70) | 0x02;
                 self.clock.rdnmi_flag = false;
                 v
             }
             0x4211 => {
-                // TIMEUP: bit7 = irq flag (read clears).
-                let v = u8::from(self.clock.irq_line) << 7;
+                // TIMEUP: bit7 = irq flag (read clears), bits0-6 = open bus (MDR). ares `readIO`
+                // $4211 writes only bit 7 and leaves the rest as the incoming open-bus data.
+                let v = (u8::from(self.clock.irq_line) << 7) | (self.open_bus & 0x7F);
                 self.clock.irq_line = false;
                 v
             }

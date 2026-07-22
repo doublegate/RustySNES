@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`$4210` (RDNMI) and `$4211` (TIMEUP) now return open bus in their unused bits (cycle-accuracy,
+  Tier-1).** Both registers previously returned `0` in the bits the hardware leaves floating —
+  `$4210` bits 4-6 and `$4211` bits 0-6 — so a ROM that reads the full byte (rather than masking the
+  flag) saw the wrong value. They now OR in the CPU open-bus / MDR (`self.open_bus`, the pre-read
+  last-driven value) in exactly those positions, matching ares `CPU::readIO` (which writes only the
+  flag and, for `$4210`, the version nibble, leaving the rest as the incoming open-bus data) and
+  fullsnes. `$4210` keeps bit 7 = the read-clearing VBlank flag and bits 0-3 = CPU version 2; `$4211`
+  keeps bit 7 = the read-clearing IRQ flag. First landed item of the Tier-1 cycle-accuracy
+  remediation program (`to-dos/TIER1-CYCLE-ACCURACY.md`, T-CA-02). Verified: core + CPU unit suites
+  green, AccuracySNES battery 290/290 (B4.03/B4.04/B4.05 RDNMI tests unchanged — they mask the flag).
+
 - **OBJ interlace (`SETINI` $2133 bit 1) is now rendered, not just stored.** The bit was decoded and
   saved but never consulted, so a sprite drawn under OBJ interlace kept its full height where
   hardware halves it. The sprite renderer now ports ares `Object::onScanline`/`fetch`: the
