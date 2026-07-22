@@ -4581,10 +4581,12 @@ fn e4_06() -> Test {
 ///
 /// The claim is specifically that the IPL store to `$00F2`/`$00F3` reaches the DSP register file
 /// rather than plain ARAM. A core that routed those stores to ARAM (or never decoded DSPADDR from an
-/// IPL-driven write) would leave FIR[0] at its power-on value, and the verifier — reading the DSP,
-/// not ARAM — would see something other than `$7E` and FAIL. Confirmed by injection: stubbing the
-/// APU's `$F2` (DSPADDR) write breaks this test (and, as a shared decode path, the rest of the DSP
-/// suite with it); the poke reaching the DSP is what the pass depends on.
+/// IPL-driven write) would leave `FIR[0]` at its power-on value, and the verifier — reading the DSP,
+/// not ARAM — would see something other than `$7E` and FAIL. This is also non-vacuous by
+/// construction: `FIR[0]` powers up `$00`, so the `$7E` assertion can only pass if the poke reached
+/// the DSP register file. Confirmed by injection: aiming the same transfer at plain ARAM (`$0250`)
+/// instead of `$00F2` fails this test alone — the poke works precisely because it targets the DSP
+/// ports.
 fn e4_08() -> Test {
     // Block A: [DSP register #, value] aimed at DSPADDR/DSPDATA. $0F = FIR coefficient 0.
     let data = [0x0Fu8, 0x7E];
