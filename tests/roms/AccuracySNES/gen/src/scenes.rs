@@ -1775,6 +1775,37 @@ pub const SCENES: &[Scene] = &[
             "sta $2100",
         ],
     },
+    Scene {
+        id: "c8-force-black-outside-window",
+        dossier: "C8.12",
+        what: "CGWSEL bits 7-6 = 01 (force the main screen black OUTSIDE the colour window). BG1 is \
+               on everywhere and the colour window is columns 64..191, so the font shows only in \
+               that central band and everything to either side is forced black — regardless of \
+               what BG1 or the backdrop hold there. This is the force-black field, not a layer \
+               clip: BG1 is never disabled, the output stage blacks the region out after the pixel \
+               is chosen. A core that reads the field inverted blacks the band instead of the \
+               sides; one that ties force-black to colour math being enabled shows nothing black at \
+               all (no CGADSUB here).",
+        setup: &[
+            "sep #$20",
+            "stz $2105         ; BGMODE 0",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107         ; BG1 tilemap base",
+            "stz $210B         ; BG1 character data at word $0000",
+            "lda #$01",
+            "sta $212C         ; BG1 on the main screen, everywhere",
+            "lda #64",
+            "sta $2126         ; WH0: colour-window left edge",
+            "lda #191",
+            "sta $2127         ; WH1: colour-window right edge",
+            "lda #$20",
+            "sta $2125         ; WOBJSEL: colour window (layer 5) uses window 1, enabled, not inverted",
+            "lda #$40",
+            "sta $2130         ; CGWSEL bits 7-6 = 01: force main black OUTSIDE the colour window",
+            "lda #$0F",
+            "sta $2100         ; brightness 15, forced blank off",
+        ],
+    },
 ];
 
 /// The comment block `scene_low_tiles` carries, split out only to keep `low_tiles_helper` inside

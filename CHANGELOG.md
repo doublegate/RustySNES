@@ -658,6 +658,14 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`C8.12` — CGWSEL force-main-black field, as a rendered scene (`docs/adr/0013`).** CGWSEL bits 7-6
+  select where the main screen is forced black (never / outside / inside / always the colour window).
+  The scene sets `01` (black outside the colour window at columns 64..191): BG1 is on everywhere, so
+  the font shows only in that central band and the sides are blacked out by the output stage — not by
+  clipping the layer. A core that reads the field inverted blacks the band instead, and one that ties
+  force-black to colour math being enabled shows nothing black (no CGADSUB here). Blessed after all
+  three cores agreed on `0x21a5b8a8…`, distinct from every existing golden.
+  Coverage: 51 -> 52 rendered scenes (331/443 total; on-cart stays 279).
 - **`C7.03` — sprite H-flip sliver order, as a rendered scene (`docs/adr/0013`).** A 16x32 sprite two
   8-pixel slivers wide (distinct font glyphs `$10`/`$11`) with the H-flip attribute set: H-flip swaps
   which sliver appears on the left and mirrors each glyph, but the slivers are still emitted
