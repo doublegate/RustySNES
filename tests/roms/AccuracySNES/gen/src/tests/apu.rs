@@ -4480,12 +4480,16 @@ fn e4_04() -> Test {
 /// The three failure modes are distinct, which is what makes the pass mean something:
 ///
 /// - **The IPL jumps on the non-zero close** (the bug under test): block B is never transferred, the
-///   final jump lands in the zero-fill at `$0280`, the verifier never runs, and the done marker
-///   never appears — SKIP. Confirmed by injection: forcing the boot ROM's `$FFF9` branch to fall
-///   through (always jump) stands this test down while, as expected of a shared code path, taking the
-///   rest of the APU group with it.
-/// - **The continue works but block A did not land**: the verifier runs and reads the `$0250`
-///   zero-fill, reporting `$00 $00 $00` — FAIL.
+///   final jump lands at `$0280` — which the verifier's code never reached, since block B was never
+///   transferred — so the verifier never runs, the done marker never appears, and the test stands
+///   down — SKIP. Confirmed by injection: forcing the boot ROM's `$FFF9` branch to fall through
+///   (always jump) stands this test down while, as expected of a shared code path, taking the rest
+///   of the APU group with it.
+/// - **The continue works but block A did not land**: the verifier runs and reads whatever occupies
+///   `$0250`-`$0252` instead of block A's bytes — FAIL. (`$0250` is above the IPL's `$00-$EF`
+///   zero-fill and APU RAM is not reset between tests, so this is not guaranteed to be zero; what
+///   makes the failure reliable is that the assertion demands the exact, distinctive `$C3 $3C $99`,
+///   which no unrelated prior state matches.)
 /// - **Correct**: the verifier reports `$C3 $3C $99` — PASS.
 ///
 /// `$0250` and `$0280` both sit above the IPL's `$00-$EF` zero-fill and below the `$3000` echo

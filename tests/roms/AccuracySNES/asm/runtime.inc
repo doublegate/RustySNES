@@ -48,10 +48,13 @@ V_APU_STAGE     = VAR_BASE + $28      ; which handshake step failed, if one did
 ; Second-block parameters for `apu_upload_2block` (E4.06): the multi-block IPL upload that closes
 ; block A with a NON-ZERO port-1 (continue) rather than zero (jump), transferring block B to a
 ; second destination before finally jumping. Block A reuses V_APU_SRC/LEN/DEST/BANK above; block B
-; shares the bank (both images live in the test's own data segment). $2A-$3F is free below V_PO_MPY.
-V_APU_SRC2      = VAR_BASE + $2A      ; 16-bit source address of block B's image
-V_APU_LEN2      = VAR_BASE + $2C      ; block B byte count (only the low byte is used)
-V_APU_DEST2     = VAR_BASE + $2E      ; block B APU RAM destination
+; shares the bank (both images live in the test's own data segment). $2C-$3F is free: V_APU_STAGE
+; owns $28-$29 and V_CURSOR_PREV (declared out of numeric order at the top) owns $2A-$2B; the next
+; used slot is V_PO_MPY at $40.
+V_APU_SRC2      = VAR_BASE + $2C      ; 16-bit source address of block B's image
+V_APU_LEN2      = VAR_BASE + $2E      ; block B byte count (compared as a full 16-bit word in
+                                      ; .a16, as apu_upload does with V_APU_LEN — high byte must be 0)
+V_APU_DEST2     = VAR_BASE + $30      ; block B APU RAM destination
 V_APU_PTR       = $0050
 
 ; ---------------------------------------------------------------------------------------------
