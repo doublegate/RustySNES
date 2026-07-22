@@ -1497,6 +1497,33 @@ mod tests {
         assert_eq!(bus.read_cpu_reg(0x4219), 0x90);
     }
 
+    /// `$4210`/`$4211` return the CPU open bus (MDR) in the bits hardware leaves floating.
+    ///
+    /// `$4210` RDNMI: bit7 = the read-clearing VBlank flag, bits4-6 = open bus, bits0-3 = CPU
+    /// version 2. `$4211` TIMEUP: bit7 = the read-clearing IRQ flag, bits0-6 = open bus. Matches
+    /// ares `CPU::readIO` (which writes only the flag + version and leaves the rest as open bus).
+    #[test]
+    fn rdnmi_timeup_expose_open_bus_in_unused_bits() {
+        let mut bus = Bus::default();
+        // 0xAB = 1010_1011: distinctive so every masked open-bus position is exercised.
+        // $4210 with the flag clear: bits4-6 = 0xAB & 0x70 = 0x20, version = 0x02 -> 0x22.
+        bus.open_bus = 0xAB;
+        assert_eq!(bus.read_cpu_reg(0x4210), 0x22);
+        // Flag set: bit7 | open-bus 4-6 | version -> 0x80 | 0x20 | 0x02 = 0xA2, and the read clears.
+        bus.clock.rdnmi_flag = true;
+        bus.open_bus = 0xAB;
+        assert_eq!(bus.read_cpu_reg(0x4210), 0xA2);
+        assert!(!bus.clock.rdnmi_flag, "reading $4210 clears the VBlank flag");
+        // $4211 with the IRQ flag clear: bits0-6 = 0xAB & 0x7F = 0x2B.
+        bus.open_bus = 0xAB;
+        assert_eq!(bus.read_cpu_reg(0x4211), 0x2B);
+        // IRQ set: 0x80 | 0x2B = 0xAB, and the read clears.
+        bus.clock.irq_line = true;
+        bus.open_bus = 0xAB;
+        assert_eq!(bus.read_cpu_reg(0x4211), 0xAB);
+        assert!(!bus.clock.irq_line, "reading $4211 clears the IRQ flag");
+    }
+
     /// `$4218` reports only what an *armed* automatic read put there.
     ///
     /// With `$4200` bit 0 clear the registers hold their previous contents indefinitely, so
