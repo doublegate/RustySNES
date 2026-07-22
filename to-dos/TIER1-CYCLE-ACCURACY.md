@@ -58,11 +58,13 @@ Investigating the remaining Group A/B tickets against this program's own **test-
 pin a failing oracle (a red test/vector) FIRST, then implement only until it passes** (the Method
 note at the top of this file) — surfaced a pattern: **T-CA-04, T-CA-05, T-CA-06, T-CA-07, T-CA-08
 have no failing oracle** —
-the project docs state each approximation is *exact for the results games/tests actually observe*,
-and the determinism contract holds. `docs/scheduler.md:435` (SA-1: "approximate catch-up … exact for
-the register/arithmetic/DMA results games observe"), `docs/cpu.md:200` (WAI/STP wake-edge "approx",
-but AccuracySNES `A6.11`/`A6.12` already pass), `docs/st018-arm-notes.md` (ST018 cycle timing
-deliberately not gated). Changing these speculatively — no red test to turn green — risks regressing
+no test or vector in the suite currently distinguishes these approximations from exact hardware, and
+the project docs describe each as *exact for the results games/tests actually observe* (a claim, not
+yet an independently-pinned fact — the table above still records each as an open gap):
+`docs/scheduler.md:435` (SA-1: "approximate catch-up … exact for the register/arithmetic/DMA results
+games observe"), `docs/cpu.md:200` (WAI/STP wake-edge "approx", but AccuracySNES `A6.11`/`A6.12`
+already pass), `docs/st018-arm-notes.md` (ST018 cycle timing deliberately not gated). Changing these
+speculatively — no red test to turn green — risks regressing
 CPU/DSP/coprocessor timing for **no ROM-observable benefit**, which the pin-a-failing-oracle-first
 discipline exists to prevent. They should each wait for a concrete failing vector (a game or a stricter test that
 actually diverges) rather than being remediated blind. **The genuine remaining Tier-1 work with a
