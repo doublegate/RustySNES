@@ -160,11 +160,16 @@ PAD_CONTRACT    = $9050
 
 ; A *second* controller, held at a different mask, is what `F1.03` (one $4016 write latches both
 ; ports) needs — with the same buttons on both, "port 2 latched" and "port 2 is echoing port 1"
-; are the same sixteen bits. It was built and withdrawn: Mesen2's headless --testrunner has no
-; device in port 2, and calling emu.setInput on it clobbers port 1's pending state rather than
-; failing, which silently cost every contract-dependent test its input. The harness and the snes9x
-; driver both handled it fine. Re-adding needs a way to attach a second controller in Mesen2's
-; test runner; until then F1.03 stays uncovered rather than green on two references out of three.
+; are the same sixteen bits. $60A0 (Y + Select + A + L on controller 2) shares NO set bit with
+; port 1's $9050, so "port 2 latched" is distinguishable from "port 2 echoes port 1"; it is also
+; asymmetric under bit-reversal ($60A0 reversed is $0506) and has bits in both bytes.
+;
+; Every runner holds it: the in-repo harness (set_joypad(1, ...)), the snes9x libretro driver
+; (input_state for port 1), and the Mesen2 script (emu.setInput(..., 1)). Mesen2's headless
+; --testrunner has no device in port 2 by default, so its invocation adds
+; `--snes.port2.type=SnesController` (a generic config switch applied before the core config push)
+; to populate port 2 — see scripts/accuracysnes/crossval.sh.
+PAD2_CONTRACT   = $60A0
 
 MEAS_BASE       = $7EE200
 ; 512 slots, widened from 240 and from 192 before that. The channel ends at $7EE600, and the

@@ -184,6 +184,7 @@ fn run_image(path: &std::path::Path) -> Option<Report> {
     // the whole run, because Group F has no observable at all with nothing held: an unconnected,
     // unpressed pad reads $0000 through every register the cart can reach.
     sys.bus.set_joypad(0, PAD_CONTRACT);
+    sys.bus.set_joypad(1, PAD2_CONTRACT);
 
     let mut frames = 0;
     while frames < MAX_FRAMES {
@@ -342,6 +343,7 @@ fn results_block_is_well_formed() {
     // the whole run, because Group F has no observable at all with nothing held: an unconnected,
     // unpressed pad reads $0000 through every register the cart can reach.
     sys.bus.set_joypad(0, PAD_CONTRACT);
+    sys.bus.set_joypad(1, PAD2_CONTRACT);
     for _ in 0..MAX_FRAMES {
         sys.run_frame();
         if sys.bus.peek_wram(R_DONE) == DONE_MARK {
@@ -428,6 +430,13 @@ fn header_is_detected() {
 /// post-battery menu cannot be disturbed; bits in both bytes, so a host reporting one half is
 /// visibly wrong; and asymmetric under bit reversal, so an LSB-first read cannot pass by accident.
 const PAD_CONTRACT: u16 = 0x9050;
+
+/// The controller-2 state every runner holds — `runtime.inc`'s `PAD2_CONTRACT`.
+///
+/// `Y + Select + A + L`. It shares NO set bit with `PAD_CONTRACT` ($9050), so `F1.03` (one `$4016`
+/// write latches both ports) can distinguish "port 2 latched" from "port 2 echoes port 1"; like
+/// port 1 it has bits in both bytes, no d-pad, and is asymmetric under bit reversal.
+const PAD2_CONTRACT: u16 = 0x60A0;
 
 /// `$5A` in [`R_SCENE_DONE`] once every rendered scene has been shown — the point after which the
 /// runtime draws the interactive menu.
@@ -1398,6 +1407,7 @@ fn the_menu_still_draws_after_the_battery() {
     sys.bus.cart = Some(cart);
     sys.reset();
     sys.bus.set_joypad(0, PAD_CONTRACT);
+    sys.bus.set_joypad(1, PAD2_CONTRACT);
 
     // `draw_screen` runs after `run_scenes`, not after the battery — about 700 frames later, since
     // each of the 50 scenes is settled and held. Waiting on the battery's sentinel and then a
@@ -1501,6 +1511,7 @@ fn the_dpad_scrolls_the_list() {
     sys.bus.cart = Some(cart);
     sys.reset();
     sys.bus.set_joypad(0, PAD_CONTRACT);
+    sys.bus.set_joypad(1, PAD2_CONTRACT);
 
     const MENU_FRAMES: u32 = 3000;
     let mut frames = 0;
@@ -1531,6 +1542,7 @@ fn the_dpad_scrolls_the_list() {
         sys.run_frame();
     }
     sys.bus.set_joypad(0, PAD_CONTRACT);
+    sys.bus.set_joypad(1, PAD2_CONTRACT);
     for _ in 0..6 {
         sys.run_frame();
     }
@@ -1564,6 +1576,7 @@ fn the_dpad_scrolls_the_list() {
         sys.run_frame();
     }
     sys.bus.set_joypad(0, PAD_CONTRACT);
+    sys.bus.set_joypad(1, PAD2_CONTRACT);
     for _ in 0..6 {
         sys.run_frame();
     }
@@ -1581,6 +1594,7 @@ fn the_dpad_scrolls_the_list() {
         sys.bus.set_joypad(0, PAD_CONTRACT | PAD_DOWN);
         sys.run_frame();
         sys.bus.set_joypad(0, PAD_CONTRACT);
+        sys.bus.set_joypad(1, PAD2_CONTRACT);
         sys.run_frame();
     }
     for _ in 0..4 {
@@ -1620,6 +1634,7 @@ fn the_dpad_scrolls_the_list() {
         sys.run_frame();
     }
     sys.bus.set_joypad(0, PAD_CONTRACT);
+    sys.bus.set_joypad(1, PAD2_CONTRACT);
     for _ in 0..600 {
         sys.run_frame();
     }
@@ -1648,6 +1663,7 @@ fn the_dpad_scrolls_the_list() {
         sys.run_frame();
     }
     sys.bus.set_joypad(0, PAD_CONTRACT);
+    sys.bus.set_joypad(1, PAD2_CONTRACT);
     // `run_all_tests` clears R_DONE at its very start, well before the scene loop clears
     // R_SCENE_DONE ~430 frames later, so R_DONE is the prompt signal that a restart began.
     let mut cleared = false;

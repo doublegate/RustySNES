@@ -156,16 +156,31 @@ static void input_poll(void) {}
  * can reach -- so every runner holds the same mask and the cart asserts against it. */
 static int16_t input_state(unsigned port, unsigned dev, unsigned idx, unsigned id) {
     (void)dev; (void)idx;
-    if (port != 0) return 0;
-    switch (id) {
-        case 0:  /* B     */
-        case 3:  /* START */
-        case 9:  /* X     */
-        case 11: /* R     */
-            return 1;
-        default:
-            return 0;
+    if (port == 0) {
+        switch (id) {
+            case 0:  /* B     */
+            case 3:  /* START */
+            case 9:  /* X     */
+            case 11: /* R     */
+                return 1;  /* PAD_CONTRACT = $9050 */
+            default:
+                return 0;
+        }
     }
+    if (port == 1) {
+        /* PAD2_CONTRACT = $60A0: Y + Select + A + L on controller 2 (shares no set bit with
+         * $9050, so "port 2 latched" is distinguishable from "port 2 echoes port 1" for F1.03). */
+        switch (id) {
+            case 1:  /* Y      */
+            case 2:  /* SELECT */
+            case 8:  /* A      */
+            case 10: /* L      */
+                return 1;
+            default:
+                return 0;
+        }
+    }
+    return 0;
 }
 
 /* One typedef per entry point: a function-pointer type cannot be passed positionally to a

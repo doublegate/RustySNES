@@ -29045,6 +29045,130 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; F1.03 — Shared $4016 latch
+; provenance: Documented (fullsnes and the SNESdev Wiki controller protocol: bit 0 of $4016 is the shared latch line that parallel-loads both controller ports' shift registers)
+.proc test_f1_03
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Skip unless the host holds the input contract — see f1_require_contract.
+    sep #$20
+    .a8
+    lda #$01
+    sta $4016
+    lda #$00
+    sta $4016
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E01E6
+    ldx #$0010
+@rq_c03:
+    sep #$20
+    .a8
+    lda $4016
+    lsr
+    rep #$20
+    .a16
+    lda f:$7E01E6
+    rol
+    sta f:$7E01E6
+    dex
+    bne @rq_c03
+    lda f:$7E01E6
+    cmp #PAD_CONTRACT
+    beq :+
+    ; SKIP: the host is not holding PAD_CONTRACT, so there is nothing for this row to assert against
+    sep #$20
+    .a8
+    lda #VERDICT_SKIP
+    sta f:V_TEST_RESULT
+    jml test_restore
+    ; unreachable — restores the assembler's width belief only
+    .a16
+    .i16
+    :
+    ; One shared latch, then clock BOTH ports out together, MSB first: read $4016 (port 1) and
+    ; $4017 (port 2) once each per bit. Both words therefore come from the single latch above.
+    sep #$20
+    .a8
+    lda #$01
+    sta JOYSER0        ; $4016.0 high: latch both ports at once
+    lda #$00
+    sta JOYSER0        ; low: begin clocking
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E01E8      ; port 1 accumulator
+    sta f:$7E01EA      ; port 2 accumulator
+    ldx #$0010
+@bit:
+    sep #$20
+    .a8
+    lda JOYSER0        ; port 1 data bit
+    lsr
+    rep #$20
+    .a16
+    lda f:$7E01E8
+    rol
+    sta f:$7E01E8
+    sep #$20
+    .a8
+    lda JOYSER1        ; port 2 data bit — same shared latch, clocked independently
+    lsr
+    rep #$20
+    .a16
+    lda f:$7E01EA
+    rol
+    sta f:$7E01EA
+    dex
+    bne @bit
+    lda f:$7E01E8
+    ; record slot 235: F1.03 port 1 word after a single $4016 latch
+    sta f:$7EE3D6
+    lda f:$7E01EA
+    ; record slot 238: F1.03 port 2 word after the same latch
+    sta f:$7EE3DC
+    ; Guard: port 1 must read its own contract, or the manual read is broken and the port-2
+    ; assertion below would be measuring nothing.
+    lda f:$7E01E8
+    cmp #PAD_CONTRACT
+    beq :+
+    jmp @fail1
+  :
+    ; The assertion: the SAME $4016 write latched port 2 too.
+    lda f:$7E01EA
+    cmp #PAD2_CONTRACT
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; port 1 did not read $9050 after the latch, so the shared-latch reading of port 2 below is not trustworthy — the manual read itself is broken
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; port 2 did not read $60A0 after a single $4016 latch. $0000 means the latch is not shared (port 2 was never loaded); $9050 means the core echoes port 1 onto port 2
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; F1.04 — $4016 bits 7-2 open bus
 ; provenance: Corroborated (RustySNES, snes9x and Mesen2 all return $41 for the absolute read and $01 for the long one -- identical bytes, so bits 7-2 follow the CPU bus in all three)
 .proc test_f1_04
@@ -31989,7 +32113,7 @@ apu_prog_112:
 .export _test_flags
 
 _test_count:
-    .word 326
+    .word 327
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -32266,6 +32390,7 @@ _test_entries:
     .faraddr test_e3_08
     .faraddr test_f1_01
     .faraddr test_f1_02
+    .faraddr test_f1_03
     .faraddr test_f1_04
     .faraddr test_f1_07
     .faraddr test_f1_05
@@ -32595,6 +32720,7 @@ _test_flags:
     .byte $01   ; E3.08
     .byte $01   ; F1.01
     .byte $01   ; F1.02
+    .byte $01   ; F1.03
     .byte $01   ; F1.04
     .byte $01   ; F1.07
     .byte $01   ; F1.05
@@ -32924,6 +33050,7 @@ _test_names:
     .addr @n_e3_08
     .addr @n_f1_01
     .addr @n_f1_02
+    .addr @n_f1_03
     .addr @n_f1_04
     .addr @n_f1_07
     .addr @n_f1_05
@@ -33796,6 +33923,9 @@ _test_names:
 @n_f1_02:
     .byte 19
     .byte "Pad reads 17+ are 1"
+@n_f1_03:
+    .byte 18
+    .byte "Shared $4016 latch"
 @n_f1_04:
     .byte 23
     .byte "$4016 bits 7-2 open bus"

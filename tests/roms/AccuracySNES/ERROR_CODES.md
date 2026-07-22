@@ -2602,6 +2602,15 @@ Provenance: **Documented** (SNESdev Wiki, controller protocol; fullsnes). Kind: 
 | 1 | `$02` | every one of the sixteen data bits read as 1, so the line is stuck high and the reads below would report that rather than the pad running out of data |
 | 2 | `$04` | a read past the sixteenth returned 0 — an official pad drives the line high once its data bits are exhausted, and peripherals are identified by not doing so |
 
+### F1.03 — Shared $4016 latch
+
+Provenance: **Documented** (fullsnes and the SNESdev Wiki controller protocol: bit 0 of $4016 is the shared latch line that parallel-loads both controller ports' shift registers). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | port 1 did not read $9050 after the latch, so the shared-latch reading of port 2 below is not trustworthy — the manual read itself is broken |
+| 2 | `$04` | port 2 did not read $60A0 after a single $4016 latch. $0000 means the latch is not shared (port 2 was never loaded); $9050 means the core echoes port 1 onto port 2 |
+
 ### F1.04 — $4016 bits 7-2 open bus
 
 Provenance: **Corroborated** (RustySNES, snes9x and Mesen2 all return $41 for the absolute read and $01 for the long one -- identical bytes, so bits 7-2 follow the CPU bus in all three). Kind: scored.

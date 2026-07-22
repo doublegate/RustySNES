@@ -139,7 +139,7 @@ fi
 if [[ -f $MESEN ]] && command -v dotnet >/dev/null; then
     echo "=== Mesen2 (headless test runner) ==="
     dotnet "$MESEN" --testrunner "$ROM" scripts/accuracysnes/mesen_crossval.lua --timeout=60 \
-        >/dev/null 2>&1
+        --snes.port2.type=SnesController >/dev/null 2>&1
     code=$?
     case $code in
         0)   echo "Mesen2: OK (0 failing tests)" ;;
@@ -174,7 +174,7 @@ if [[ -f $PAL_ROM ]]; then
     if [[ -f $MESEN ]] && command -v dotnet >/dev/null; then
         echo "=== Mesen2 (PAL image) ==="
         dotnet "$MESEN" --testrunner "$PAL_ROM" scripts/accuracysnes/mesen_crossval.lua \
-            --timeout=120 >/dev/null 2>&1
+            --timeout=120 --snes.port2.type=SnesController >/dev/null 2>&1
         code=$?
         case $code in
             0)   echo "Mesen2 PAL: OK (0 failing tests)" ;;
@@ -261,7 +261,8 @@ if [[ -f $MANIFEST && -f $SCENE_GOLDEN ]]; then
         # thing most worth checking about a freshly-grown image, which is that the upper banks are
         # mapped at all.
         { dotnet "$MESEN" --testrunner "$ROM" scripts/accuracysnes/mesen_scenes.lua \
-            --timeout=800 2>/dev/null || true; } | check_scenes "Mesen2" || rc=1
+            --timeout=800 --snes.port2.type=SnesController 2>/dev/null || true; } \
+            | check_scenes "Mesen2" || rc=1
     fi
 else
     echo "skip rendered scenes: build the cart first (cargo run -p accuracysnes-gen)" >&2
