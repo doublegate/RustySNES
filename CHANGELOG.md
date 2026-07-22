@@ -658,6 +658,13 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`D1.13` — the GP-DMA byte-count register decrements to zero (general-purpose DMA).** A DMA runs
+  until its count reaches zero, so `$43x5/6` is spent by the end and reads `$0000`, not the programmed
+  size. A four-byte mode-0 transfer into scratch WRAM is run and the count register read back; a core
+  that keeps a private counter and never writes the decrement back reads `$0004` — the seed the test
+  wrote, the signature of a register not tracking the transfer. Verified by suppressing the count
+  write-back in `run_gp` and watching D1.13 alone fail. Cross-validated on snes9x and Mesen2.
+  Coverage: 278 -> 279 on-cart assertion rows (329/443 with rendered scenes).
 - **`E7.18` — `VxENVX` is the envelope shifted right four, bit 7 always clear (S-DSP).** The
   eleven-bit envelope exposes bits 10-4 through `ENVX`, so it tops out at `$7F`. Probed at direct gain
   `$40` — envelope `$400`, the value that separates every candidate shift at once: `>>4` reads `$40`,

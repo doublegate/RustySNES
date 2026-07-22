@@ -31,6 +31,7 @@ pub fn all() -> Vec<Test> {
         d2_07(),
         d2_09(),
         d1_14(),
+        d1_13(),
         d1_11(),
         d1_08(),
         d1_03(),
@@ -1246,6 +1247,62 @@ fn d1_14() -> Test {
         'D',
         "$2180 B->A does write",
         Provenance::Documented("fullsnes: $2180->WRAM writes, but the value written is invalid"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The `$43x5/6` byte-count register decrements as a GP-DMA runs, and reads zero when it finishes.
+///
+/// A DMA transfers until the count reaches zero, so the register the count lives in is spent by the
+/// end — hardware leaves it at `$0000`, not at the value that was programmed. A core that keeps its
+/// own private counter and never writes the decrement back leaves the programmed size sitting in the
+/// register, so a driver that reads `$43x5` to learn how many bytes actually moved (or to resume a
+/// partial transfer) gets the wrong answer.
+///
+/// The transfer itself is an ordinary four-byte mode-0 run into a scratch WRAM page; nothing about
+/// its destination matters here. What is read back is the count register, which must have counted
+/// down to zero. A core that never decrements it, or that restores the programmed count when the
+/// run ends, reads `$0004` instead — the seed the test wrote, which is exactly the signature of the
+/// register not tracking the transfer.
+fn d1_13() -> Test {
+    let mut a = Asm::new();
+    data_table(&mut a);
+    a.c(
+        "Run a normal four-byte mode-0 DMA into a scratch page, then read the byte-count register.",
+    );
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta $2181");
+    a.l("lda #$06");
+    a.l("sta $2182");
+    a.l("stz $2183         ; WMADD = $7E:0600, a scratch page clear of every test");
+    a.l("stz $4300         ; DMAP: A->B, increment, mode 0");
+    a.l("lda #$80");
+    a.l("sta $4301         ; B-bus = $2180");
+    source_from_table(&mut a, 4);
+    a.l("lda #$01");
+    a.l("sta $420B         ; run channel 0");
+    a.c("The count register now holds the decremented value. A core that never decrements it, or");
+    a.c("that restores the programmed count at the end, reads back $0004 — the size the test wrote.");
+    a.l("rep #$30");
+    a.l("lda $4305         ; a 16-bit read folds $4305 (low) and $4306 (high) into A");
+    a.assert_a16(
+        0x0000,
+        "the DMA byte-count register did not decrement to zero across the transfer — it still holds \
+         the programmed size, so it is not tracking the transfer at all",
+    );
+    a.finish(
+        "D1.13",
+        'D',
+        "DMA count hits zero",
+        Provenance::Documented(
+            "fullsnes and ares: the DAS $43x5/6 byte-count register decrements as GP-DMA transfers \
+             and reads $0000 when the transfer completes",
+        ),
         Kind::Scored,
         None,
     )

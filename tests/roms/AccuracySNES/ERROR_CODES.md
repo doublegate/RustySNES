@@ -1683,6 +1683,14 @@ Provenance: **Documented** (fullsnes: $2180->WRAM writes, but the value written 
 |---|---|---|
 | 1 | `$02` | $2180 as a DMA source performed no write — both destinations still hold their seeds |
 
+### D1.13 — DMA count hits zero
+
+Provenance: **Documented** (fullsnes and ares: the DAS $43x5/6 byte-count register decrements as GP-DMA transfers and reads $0000 when the transfer completes). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the DMA byte-count register did not decrement to zero across the transfer — it still holds the programmed size, so it is not tracking the transfer at all |
+
 ### D1.11 — DMA power-on state
 
 Provenance: **Corroborated** (fullsnes register table and the SNESdev DMA-registers page agree independently; ares and bsnes default every channel field to match). Kind: scored.

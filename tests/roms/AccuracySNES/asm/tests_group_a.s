@@ -27348,6 +27348,74 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; D1.13 — DMA count hits zero
+; provenance: Documented (fullsnes and ares: the DAS $43x5/6 byte-count register decrements as GP-DMA transfers and reads $0000 when the transfer completes)
+.proc test_d1_13
+    .a16
+    .i16
+    bra @body
+@data:
+    .byte $11, $22, $33, $44
+@body:
+    ; Run a normal four-byte mode-0 DMA into a scratch page, then read the byte-count register.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta $2181
+    lda #$06
+    sta $2182
+    stz $2183         ; WMADD = $7E:0600, a scratch page clear of every test
+    stz $4300         ; DMAP: A->B, increment, mode 0
+    lda #$80
+    sta $4301         ; B-bus = $2180
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@data)
+    stx $4302         ; A-bus address = this test's data table
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; A-bus bank = this bank
+    rep #$30
+    .a16
+    .i16
+    ldx #$0004
+    stx $4305         ; byte count
+    sep #$20
+    .a8
+    lda #$01
+    sta $420B         ; run channel 0
+    ; The count register now holds the decremented value. A core that never decrements it, or
+    ; that restores the programmed count at the end, reads back $0004 — the size the test wrote.
+    rep #$30
+    .a16
+    .i16
+    lda $4305         ; a 16-bit read folds $4305 (low) and $4306 (high) into A
+    cmp #$0000
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the DMA byte-count register did not decrement to zero across the transfer — it still holds the programmed size, so it is not tracking the transfer at all
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; D1.11 — DMA power-on state
 ; provenance: Corroborated (fullsnes register table and the SNESdev DMA-registers page agree independently; ares and bsnes default every channel field to match)
 .proc test_d1_11
@@ -31527,7 +31595,7 @@ apu_prog_109:
 .export _test_flags
 
 _test_count:
-    .word 322
+    .word 323
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -31698,6 +31766,7 @@ _test_entries:
     .faraddr test_d2_07
     .faraddr test_d2_09
     .faraddr test_d1_14
+    .faraddr test_d1_13
     .faraddr test_d1_11
     .faraddr test_d1_08
     .faraddr test_d1_03
@@ -32023,6 +32092,7 @@ _test_flags:
     .byte $01   ; D2.07
     .byte $02   ; D2.09
     .byte $01   ; D1.14
+    .byte $01   ; D1.13
     .byte $01   ; D1.11
     .byte $02   ; D1.08
     .byte $02   ; D1.03
@@ -32348,6 +32418,7 @@ _test_names:
     .addr @n_d2_07
     .addr @n_d2_09
     .addr @n_d1_14
+    .addr @n_d1_13
     .addr @n_d1_11
     .addr @n_d1_08
     .addr @n_d1_03
@@ -33004,6 +33075,9 @@ _test_names:
 @n_d1_14:
     .byte 21
     .byte "$2180 B->A does write"
+@n_d1_13:
+    .byte 19
+    .byte "DMA count hits zero"
 @n_d1_11:
     .byte 18
     .byte "DMA power-on state"
