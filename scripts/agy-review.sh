@@ -132,6 +132,7 @@ EOF
 head_bytes="$(wc -c < "$prompt_file")"
 diff_bytes="$(wc -c < "$diff_file")"
 inline_budget=$(( MAX_PROMPT_BYTES - head_bytes - 256 ))
+[ "$inline_budget" -lt 0 ] && inline_budget=0   # a huge STYLE_GUIDE can exceed the budget: file it
 use_file=0
 case "$AGY_DIFF_MODE" in
   file)   use_file=1 ;;
@@ -140,11 +141,17 @@ case "$AGY_DIFF_MODE" in
 esac
 
 if [ "$use_file" = "1" ]; then
-  # agy's CWD is the repo checkout, so a file written there is readable by its file tool. The prompt
-  # references it by a CWD-relative name; the argv prompt itself stays tiny regardless of diff size.
-  agy_diff_file="$PWD/.agy-review-diff.$$.patch"
+  # agy's CWD is the repo checkout, so a file written under it is readable by its file tool. Prefer
+  # `.git/` -- git never lists it in `git status`, so the transient diff can't show up as working-tree
+  # pollution if agy inspects repo state -- and fall back to the repo root when `.git` is not a real
+  # directory (a worktree/submodule gitfile). Either way the path is CWD-relative for the prompt.
+  if [ -d "$PWD/.git" ]; then
+    diff_name=".git/agy-review-diff.$$.patch"
+  else
+    diff_name=".agy-review-diff.$$.patch"
+  fi
+  agy_diff_file="$PWD/$diff_name"
   cp "$diff_file" "$agy_diff_file"
-  diff_name="$(basename "$agy_diff_file")"
   {
     printf '\n--- UNIFIED DIFF (in a file) ---\n'
     printf 'The full unified diff for this PR is in the file `%s` in your current working directory\n' "$diff_name"
@@ -153,6 +160,9 @@ if [ "$use_file" = "1" ]; then
   } >> "$prompt_file"
   log "diff is ${diff_bytes} bytes (> ${inline_budget}-byte inline budget); handing it to agy as ${diff_name}"
 else
+  # Forced inline (AGY_DIFF_MODE=inline) on an over-budget diff: the MAX_PROMPT_BYTES guard below
+  # still prevents E2BIG by truncating, but warn since `auto` would have filed it in full instead.
+  [ "$diff_bytes" -gt "$inline_budget" ] && log "warning: forced inline with a ${diff_bytes}-byte diff over the ${inline_budget}-byte budget; the prompt will be truncated -- use AGY_DIFF_MODE=auto to file it in full"
   { printf '\n--- UNIFIED DIFF ---\n'; cat "$diff_file"; } >> "$prompt_file"
   log "diff is ${diff_bytes} bytes; inlined into the prompt"
 fi
