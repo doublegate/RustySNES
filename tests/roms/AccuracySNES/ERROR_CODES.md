@@ -2373,6 +2373,14 @@ Provenance: **Documented** (fullsnes and anomie's DSP doc: GAIN linear-decrease 
 | 1 | `$02` | the envelope was not at full scale before switching to linear-decrease, so the value below says nothing about an underflow |
 | 2 | `$04` | linear-decrease did not clamp at zero on underflow — a wrapping subtraction leaves ~$7E0 in the envelope and ENVX reads near $7E |
 
+### E7.18 — ENVX is E>>4
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: VxENVX = envelope >> 4, a seven-bit value with bit 7 always clear). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | ENVX was not the envelope shifted right four: at envelope $400 a >>4 reads $40, a >>5 reads $20, and a >>3 reads $80 — bit 7 set, which the envelope's eleven bits can never produce |
+
 ### E7.04 — Attack $F is instant
 
 Provenance: **Documented** (fullsnes and anomie's DSP doc: attack rate $F fires every sample with a step of +1024, rather than the +32 on a counter tick every other rate uses). Kind: scored.

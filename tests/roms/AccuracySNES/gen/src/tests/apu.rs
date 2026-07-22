@@ -116,6 +116,7 @@ pub fn all() -> Vec<Test> {
         e7_01(),
         e7_13(),
         e7_17(),
+        e7_18(),
         e7_04(),
         e7_09(),
         e7_05(),
@@ -1646,6 +1647,56 @@ fn e7_17() -> Test {
         Provenance::Documented(
             "fullsnes and anomie's DSP doc: GAIN linear-decrease subtracts $20 per tick and clamps \
              the envelope to zero on underflow, comparing the internal envelope unsigned",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `VxENVX` is the eleven-bit envelope shifted right four — a seven-bit value whose bit 7 is always
+/// clear.
+///
+/// The envelope generator runs on eleven bits (`$000`-`$7FF`); `ENVX` exposes bits 10-4 of it, so
+/// the widest it can ever read is `$7F`. A game reads `ENVX` to follow a note's decay, and a core
+/// that shifts by the wrong amount reports the wrong loudness — off by an octave of amplitude in
+/// either direction, and a right shift of three would set bit 7 the hardware never sets.
+///
+/// # Why the probe is direct gain `$40`, not full scale
+///
+/// Full scale reads `$7F` under `>>4` and `$FE` under `>>3`, which catches the bad shift — but it is
+/// exactly the reading `E7.17`'s guard already makes, and it does not pin the shift *amount*. Direct
+/// gain `$40` sets the envelope to `$40 << 4 = $400`, and `$400` is the value that separates every
+/// candidate at once: `>>4` reads `$40`, `>>5` reads `$20`, and `>>3` reads **`$80`** — bit 7 set,
+/// all other bits clear, the cleanest possible witness that a wrong shift violates "bit 7 always 0".
+/// Asserting exactly `$40` pins the shift at four and confirms bit 7 stays clear in one read.
+fn e7_18() -> Test {
+    let prog = voice_program(
+        &looping_sample(),
+        Voice {
+            gain: 0x40, // direct gain (bit 7 clear): envelope = $40 << 4 = $400
+            ..Voice::direct_gain()
+        },
+    );
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0101"); // voice 0 ENVX
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x40,
+        0x40,
+        "ENVX was not the envelope shifted right four: at envelope $400 a >>4 reads $40, a >>5 reads \
+         $20, and a >>3 reads $80 — bit 7 set, which the envelope's eleven bits can never produce",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E7.18",
+        'E',
+        "ENVX is E>>4",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: VxENVX = envelope >> 4, a seven-bit value with bit 7 \
+             always clear",
         ),
         Kind::Scored,
         None,

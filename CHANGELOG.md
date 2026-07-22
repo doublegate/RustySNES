@@ -658,6 +658,13 @@ rewritten to the current number — this line is the one to read.
 
 ### Added
 
+- **`E7.18` — `VxENVX` is the envelope shifted right four, bit 7 always clear (S-DSP).** The
+  eleven-bit envelope exposes bits 10-4 through `ENVX`, so it tops out at `$7F`. Probed at direct gain
+  `$40` — envelope `$400`, the value that separates every candidate shift at once: `>>4` reads `$40`,
+  `>>5` reads `$20`, and `>>3` reads `$80` (bit 7 set, which eleven bits can never produce). Asserting
+  exactly `$40` pins the shift at four and confirms bit 7 stays clear in one read, and it is the only
+  ENVX test that catches a `>>3` shift — verified by injecting exactly that. Cross-validated on snes9x
+  and Mesen2. Coverage: 277 -> 278 on-cart assertion rows (328/443 with rendered scenes).
 - **`E5.13` — a voice never stops decoding BRR (S-DSP).** Key-off releases the envelope but the BRR
   decoder advances on the pitch clock regardless, so a released, silent voice still reaches its end
   blocks and re-sets `ENDX`. The voice loops a sample and is keyed off; slot 240 records `ENVX = $00`
