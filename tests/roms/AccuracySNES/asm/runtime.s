@@ -1948,6 +1948,288 @@ test_restore := test_restore_impl
 .endproc
 
 ; ---------------------------------------------------------------------------------------------
+; apu_upload_2block — a TWO-block IPL upload, for E4.06.
+;
+; The single-block `apu_upload` above exercises only two of the IPL's port-1-at-a-boundary
+; decisions: a NON-zero at the opening kick (begin the first transfer) and a zero at the close
+; (jump to the entry point). The one boundary it never reaches is a NON-zero close: the IPL then
+; re-enters its transfer loop against the address left in ports 2/3 rather than jumping — a genuine
+; branch ($FFF9 `BNE` in the boot ROM) that no other test drives. This proc drives it: block A is
+; transferred, closed with a NON-zero port-1 and block B's destination in ports 2/3, block B is then
+; transferred to that second destination, and only the final close carries the zero that jumps.
+;
+; Block A reuses V_APU_SRC / V_APU_BANK / V_APU_LEN / V_APU_DEST; block B is V_APU_SRC2 (same bank) /
+; V_APU_LEN2 / V_APU_DEST2; V_APU_ENTRY is the final jump target. Every wait is bounded exactly as
+; `apu_upload`'s are, so a core that mishandles the continue stands the test down (SKIP) rather than
+; hanging the battery. V_APU_STAGE names the step that gave up.
+.export apu_upload_2block_far
+.proc apu_upload_2block_far
+    jsr apu_upload_2block
+    rtl
+.endproc
+
+.export apu_upload_2block
+.proc apu_upload_2block
+    php
+    rep #$30
+    .a16
+    .i16
+    phb
+    phd
+    phk
+    plb
+    lda #$0000
+    tcd
+
+    ; Block A's source pointer into direct page.
+    lda f:V_APU_SRC
+    sta z:V_APU_PTR
+    sep #$20
+    .a8
+    lda f:V_APU_BANK
+    sta z:V_APU_PTR + 2
+
+    ; --- wait for the IPL's $AA/$BB ready announcement ---
+    rep #$30
+    .a16
+    .i16
+    lda #$0001
+    sta f:V_APU_STAGE
+    ldx #$0000
+@ready:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$AA
+    bne :+
+    lda APUIO1
+    cmp #$BB
+    beq @open
+  :
+    rep #$30
+    .a16
+    .i16
+    inx
+    bne :+
+    jmp @fail
+  :
+    bra @ready
+
+@open:
+    ; --- open block A's transfer at V_APU_DEST ---
+    rep #$30
+    .a16
+    .i16
+    lda #$0002
+    sta f:V_APU_STAGE
+    lda f:V_APU_DEST
+    sta APUIO2
+    sep #$20
+    .a8
+    lda #$01                    ; non-zero: begin a transfer
+    sta APUIO1
+    lda #$CC
+    sta APUIO0
+    rep #$10
+    .i16
+    ldx #$0000
+@kickA:
+    sep #$20
+    .a8
+    cmp APUIO0
+    beq @loopA
+    rep #$10
+    .i16
+    inx
+    bne :+
+    jmp @fail
+  :
+    bra @kickA
+
+@loopA:
+    ; --- block A, one byte per round trip ---
+    rep #$30
+    .a16
+    .i16
+    lda #$0003
+    sta f:V_APU_STAGE
+    ldy #$0000
+@byteA:
+    tya
+    cmp f:V_APU_LEN
+    beq @contA
+    sep #$20
+    .a8
+    lda [V_APU_PTR],y
+    sta APUIO1
+    tya
+    sta APUIO0
+    rep #$10
+    .i16
+    ldx #$0000
+@echoA:
+    sep #$20
+    .a8
+    cmp APUIO0
+    beq @nextA
+    rep #$10
+    .i16
+    inx
+    bne :+
+    jmp @fail
+  :
+    bra @echoA
+@nextA:
+    rep #$30
+    .a16
+    .i16
+    iny
+    bra @byteA
+
+@contA:
+    ; --- close block A with a NON-zero port 1: continue to block B, do NOT jump ---
+    ;
+    ; Ports 2/3 carry block B's destination; port 1 non-zero is exactly what tells the IPL this is a
+    ; new block rather than an entry point. The final counter is Y + 2, the same off-by-one
+    ; `apu_upload`'s close uses (one for the byte never sent, one because the IPL reads it as "next
+    ; expected"). After this echo the boot ROM sits in its transfer loop waiting for counter 0.
+    rep #$30
+    .a16
+    .i16
+    lda #$0004
+    sta f:V_APU_STAGE
+    lda f:V_APU_DEST2
+    sta APUIO2
+    sep #$20
+    .a8
+    lda #$01                    ; NON-zero: continue with another block
+    sta APUIO1
+    tya
+    clc
+    adc #$02
+    sta APUIO0
+    rep #$10
+    .i16
+    ldx #$0000
+@echoCont:
+    sep #$20
+    .a8
+    cmp APUIO0
+    beq @ptrB
+    rep #$10
+    .i16
+    inx
+    bne :+
+    jmp @fail
+  :
+    bra @echoCont
+
+@ptrB:
+    ; Block B's source pointer into direct page (block B shares block A's bank).
+    rep #$30
+    .a16
+    .i16
+    lda f:V_APU_SRC2
+    sta z:V_APU_PTR
+    sep #$20
+    .a8
+    lda f:V_APU_BANK
+    sta z:V_APU_PTR + 2
+
+    rep #$30
+    .a16
+    .i16
+    lda #$0005
+    sta f:V_APU_STAGE
+    ldy #$0000
+@byteB:
+    tya
+    cmp f:V_APU_LEN2
+    beq @doneB
+    sep #$20
+    .a8
+    lda [V_APU_PTR],y
+    sta APUIO1
+    tya
+    sta APUIO0
+    rep #$10
+    .i16
+    ldx #$0000
+@echoB:
+    sep #$20
+    .a8
+    cmp APUIO0
+    beq @nextB
+    rep #$10
+    .i16
+    inx
+    bne :+
+    jmp @fail
+  :
+    bra @echoB
+@nextB:
+    rep #$30
+    .a16
+    .i16
+    iny
+    bra @byteB
+
+@doneB:
+    ; --- final close with a ZERO port 1: jump to V_APU_ENTRY ---
+    rep #$30
+    .a16
+    .i16
+    lda #$0006
+    sta f:V_APU_STAGE
+    lda f:V_APU_ENTRY
+    sta APUIO2
+    sep #$20
+    .a8
+    stz APUIO1                  ; zero: jump instead of continuing
+    tya
+    clc
+    adc #$02
+    sta APUIO0
+    rep #$10
+    .i16
+    ldx #$0000
+@final:
+    sep #$20
+    .a8
+    cmp APUIO0
+    beq @ok
+    rep #$10
+    .i16
+    inx
+    bne :+
+    jmp @fail
+  :
+    bra @final
+
+@ok:
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:V_APU_STAGE
+    pld
+    plb
+    plp
+    clc
+    rts
+
+@fail:
+    rep #$30
+    .a16
+    .i16
+    pld
+    plb
+    plp
+    sec
+    rts
+.endproc
+
+; ---------------------------------------------------------------------------------------------
 ; Interrupt handlers. Nothing is enabled, but the vectors must point somewhere sane.
 ; ---------------------------------------------------------------------------------------------
 .export irq_stub
