@@ -206,8 +206,13 @@ The crate is a working dual-chip model. Public API the scheduler/bus call:
   `nmi_pending()`/`ack_nmi()`, `irq_pending()`/`ack_irq()`, `in_vblank()`/`in_hblank()`,
   `dot()`/`scanline()`, `frame_ready()`/`take_frame()`/`frame_count()`, `framebuffer() -> &[u16]`.
 - **Rendering model:** **per-scanline** — the whole visible line is composited at the line's
-  end into a `256×239` 15-bit framebuffer. This is far simpler than a per-dot renderer, and
-  bit-identical to one **only when no register a line's rendering reads is changed mid-line**
+  end into a `256×239` 15-bit framebuffer. The internal structure is being migrated toward a
+  per-dot compositor (`docs/adr/0014`) in bit-identical phases: `compose_dac` exposes a per-pixel
+  `compose_pixel` (Phase 1), and `render_bg` now runs a FETCH pass into a per-line pixel buffer
+  followed by a separate DRAIN/composite pass (Phase 2) — both byte-identical to the fused loop under
+  static state. The *behavioral* per-dot change (mid-line register writes taking effect at dot
+  resolution) is Phase 3+, not yet landed. This per-scanline model is far simpler than a per-dot
+  renderer, and bit-identical to one **only when no register a line's rendering reads is changed mid-line**
   (the determinism contract only requires the finished frame be reproducible, so this is a valid
   simplification *when the equivalence holds* — but it does NOT always hold: see "Mid-scanline/
   HDMA-driven register timing" below for a confirmed off-by-one-line compositor bug this
