@@ -51,8 +51,9 @@ jobs:
           # --- optional overrides (uncomment to change) ---
           # AGY_MODEL: gemini-3-pro        # default: agy's configured model
           AGY_EFFORT: high                 # low|medium|high
-          MAX_DIFF_BYTES: "115000"         # keep prompt under execve's 128 KiB single-arg limit
-          # MAX_PROMPT_BYTES: "125000"     # hard backstop on the whole prompt (see script)
+          # AGY_DIFF_MODE: auto            # auto|inline|file — auto files any diff too big to inline
+          # MAX_DIFF_BYTES: "5000000"      # pathological-diff sanity cap (not the arg-size limit)
+          # MAX_PROMPT_BYTES: "125000"     # inline/file threshold + hard backstop on the argv prompt
           # STYLE_GUIDE: .github/agy-review.md   # style guide, loaded if present
         run: |
           chmod +x scripts/agy-review.sh scripts/_agy_print.sh
