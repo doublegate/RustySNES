@@ -13,7 +13,22 @@
 -- Env: MCE_RESULT = output file path; MCE_FRAMES = frame count (default 60).
 
 local RES = os.getenv("MCE_RESULT") or "/tmp/perdot_mce.txt"
-local TARGET = tonumber(os.getenv("MCE_FRAMES") or "60") or 60
+
+-- Frame count shares a positive-integer contract with the RustySNES side (`perdot_dump`): a
+-- zero/negative/non-integer TARGET would capture a different frame than RustySNES renders and
+-- manufacture a false diff. Default to 60 when unset, but abort on a supplied-yet-invalid value
+-- rather than silently falling back.
+local TARGET = 60
+local raw = os.getenv("MCE_FRAMES")
+if raw ~= nil then
+  local n = tonumber(raw)
+  if n == nil or n < 1 or n % 1 ~= 0 then
+    io.stderr:write(string.format("perdot_capture: MCE_FRAMES must be a positive integer, got '%s'\n", raw))
+    emu.stop(1)
+    return
+  end
+  TARGET = n
+end
 local frames = 0
 
 local function onEndFrame()

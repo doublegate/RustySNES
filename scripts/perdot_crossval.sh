@@ -12,6 +12,16 @@
 # one during 4a validation. A per-color count diff needs FIRST_ROW calibration and is left to a
 # follow-up; the SET diff catches every new/missing colour, which is the accuracy signal that matters.
 #
+# KNOWN ORACLE CAVEAT — master-brightness formula. MesenCE (SnesPpu.cpp:1453 ApplyBrightness) scales a
+# channel by `value * ScreenBrightness / 15`; RustySNES (render.rs apply_brightness) uses
+# `value * (N + 1) / 16`, which is what fullsnes documents (ref-docs/fullsnes/30-ppu.md:112, "N=1..15:
+# Brightness*(N+1)/16"). The two agree only at N=15 (full) and N=0 (black) and differ by up to one step
+# per channel for every intermediate brightness. So any ROM that renders a mid-scale or ramped INIDISP
+# brightness — notably the `hdma-*-2100-glitch` ROMs, which HDMA-write $2100 down the screen — DIFFs by a
+# ±1-per-channel colour SET here where RustySNES is the hardware-correct side. That is a colour-value
+# formula gap, NOT a per-dot timing gap: it cannot be closed by compositor work and must not be read as a
+# per-dot accuracy regression or "fixed" by matching MesenCE. Treat such DIFFs as expected.
+#
 # Usage:
 #   scripts/perdot_crossval.sh [rom ...]           # default: the undisbeliever corpus
 #   REF_PROJ=/path/to/ref-proj scripts/perdot_crossval.sh
@@ -27,9 +37,20 @@ cd "$(dirname "$0")/.."
 REF_PROJ=${REF_PROJ:-ref-proj}
 [[ ${REF_PROJ} != /* ]] && REF_PROJ=$PWD/${REF_PROJ}
 MESENCE="$REF_PROJ/MesenCE/bin/linux-x64/Release/Mesen"
+
+# A single positive-integer frame-count contract: MesenCE captures after `TARGET` endFrame callbacks
+# and RustySNES renders exactly `FRAMES` frames, so a non-positive/malformed value would make the two
+# sides sample different frames and manufacture a false diff. Reject it up front (both capture tools
+# validate the same way).
 FRAMES=${MCE_FRAMES:-60}
-TMP=${TMPDIR:-/tmp}/perdot_crossval.$$
-mkdir -p "$TMP"
+if [[ ! $FRAMES =~ ^[1-9][0-9]*$ ]]; then
+    echo "perdot_crossval: MCE_FRAMES must be a positive integer, got '$FRAMES'" >&2
+    exit 2
+fi
+
+# mktemp -d, not a $$-predictable path: `mkdir -p` would accept a pre-created dir, letting a local
+# attacker who guesses the PID pre-plant mce.txt/rusty.txt symlinks that the later writes follow (CWE-377).
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/perdot_crossval.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
 if [[ ! -x $MESENCE ]]; then
@@ -51,8 +72,13 @@ cargo build -q -p rustysnes-test-harness --features per-dot-compositor --bin per
 colorset() { sed -n 's/.*colors=//p' "$1" | tr ',' '\n' | cut -d: -f1 | sort -u; }
 
 diffs=0
+skipped=0
 for rom in "${roms[@]}"; do
     name=$(basename "$rom" .sfc)
+
+    # Remove any prior ROM's captures first: Line 59 tolerates a MesenCE failure, and without this a
+    # stale mce.txt would survive and be compared against the current RustySNES capture — a false MATCH.
+    rm -f "$TMP/mce.txt" "$TMP/rusty.txt"
 
     MCE_RESULT="$TMP/mce.txt" MCE_FRAMES="$FRAMES" \
         SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
@@ -61,8 +87,11 @@ for rom in "${roms[@]}"; do
     cargo run -q -p rustysnes-test-harness --features per-dot-compositor --bin perdot_dump -- \
         "$rom" "$FRAMES" >"$TMP/rusty.txt" 2>/dev/null || true
 
+    # A genuinely empty capture (either side failed on THIS ROM) is now unambiguous — no stale file can
+    # masquerade as a match. Count and report it rather than swallowing it silently.
     if [[ ! -s $TMP/mce.txt || ! -s $TMP/rusty.txt ]]; then
-        printf '  %-40s SKIP (no capture)\n' "$name"
+        skipped=$((skipped + 1))
+        printf '  %-40s SKIP (capture failed)\n' "$name"
         continue
     fi
 
@@ -76,5 +105,5 @@ for rom in "${roms[@]}"; do
     fi
 done
 
-echo "=== $diffs ROM(s) DIFF from MesenCE ==="
+echo "=== $diffs ROM(s) DIFF from MesenCE, $skipped skipped (capture failed) ==="
 exit "$diffs"

@@ -38,7 +38,20 @@ fn main() -> ExitCode {
         eprintln!("usage: perdot_dump <rom.sfc> [frames]");
         return ExitCode::FAILURE;
     };
-    let frames: u32 = args.next().and_then(|s| s.parse().ok()).unwrap_or(60);
+    // Frame count shares a positive-integer contract with the MesenCE side (`perdot_capture.lua`): a
+    // zero/negative/malformed value would make the two renderers sample different frames. Default to 60
+    // when omitted, but reject a supplied value that is not a positive integer instead of silently
+    // falling back to 60.
+    let frames: u32 = match args.next() {
+        None => 60,
+        Some(s) => match s.parse::<u32>() {
+            Ok(n) if n > 0 => n,
+            _ => {
+                eprintln!("perdot_dump: frame count must be a positive integer, got {s:?}");
+                return ExitCode::FAILURE;
+            }
+        },
+    };
 
     let rom = match std::fs::read(&rom_path) {
         Ok(bytes) => bytes,
