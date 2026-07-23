@@ -1,6 +1,6 @@
 <!-- Managed by Master-Claude. Universal rules come from the imported/inlined core.
      Edit only inside the MC-PROJECT block; mc-sync overwrites everything else. -->
-<!-- mc-core: 0.1.0 | mode=import | lang=rust -->
+<!-- mc-core: 0.2.0 | mode=import | lang=rust -->
 # AGENTS.md — RustySNES
 
 @/home/parobek/.claude/master-core/AGENTS.base.md
@@ -14,6 +14,7 @@
 @/home/parobek/.claude/master-core/modules/70-release-ceremony.md
 @/home/parobek/.claude/master-core/modules/80-phase-sprint-workflow.md
 @/home/parobek/.claude/master-core/modules/90-multi-language-integration.md
+@/home/parobek/.claude/master-core/modules/91-agent-system-architecture.md
 @/home/parobek/.claude/master-core/modules/95-named-pattern-library.md
 
 <<< MC-PROJECT-START >>>
@@ -234,3 +235,4 @@ commercial ROMs** (only derived screenshots/hashes); never `--all-features`. Rus
 engine-lineage" anchors are NOT this project's releases.
 
 <<< MC-PROJECT-END >>>
+
