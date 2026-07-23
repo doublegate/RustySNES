@@ -121,12 +121,16 @@ Per `ref-docs/2026-06-24-ppu.md` §6:
     drawn index is recomputed on demand from the exact per-line BG resolution (`render_bg`), so it
     cannot diverge from the batch composite. **First-cut scope:** backdrop + non-Mode-7 BGs; sprites,
     Mode 7, and the color-window resolve as the backdrop pending later compositor phases. **Off by
-    default** (batch model never redirects) → byte-identical shipped builds. Flag-ON is byte-identical
-    on every corpus ROM *except* the one that writes CGRAM mid-active-display —
-    `undisbeliever/inidisp_forgot_to_force_blank`, whose frame the redirect changes (the intended
-    effect). **Reference cross-validation of that changed frame against ares/Mesen2 is the gate before
-    the redirect is trusted or the flag advanced** — the first-cut backdrop+BG scope may not match
-    hardware for that ROM's exact screen; not yet verified.
+    default** (batch model never redirects) → byte-identical shipped builds. The redirect itself is
+    documented-real: fullsnes/SNESdev state a CGRAM write during active display "lands at the wrong
+    CGRAM address" (`ref-docs/fullsnes/30-ppu.md`), and ares pins that address as `latch.cgramAddress`
+    (the drawn color). Flag-ON is byte-identical on every corpus ROM *except* the one that exercises
+    this quirk — `undisbeliever/inidisp_forgot_to_force_blank` — whose frame the redirect changes (2
+    colors → 3). snes9x renders that ROM the flag-OFF way (it writes the programmed index and does not
+    model the quirk), so it is not a valid oracle here. **Still outstanding before the flag is trusted
+    or advanced:** exact-pixel confirmation of the changed frame against ares or Mesen2 (which do model
+    the quirk); the first-cut backdrop+BG scope may not match that ROM's exact screen at column
+    boundaries. Not yet done (headless-sandbox capture limits).
 
 ## Frame structure / resolutions
 
