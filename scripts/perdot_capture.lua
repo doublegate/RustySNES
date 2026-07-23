@@ -70,8 +70,21 @@ local function onEndFrame()
     emu.stop(1)
     return
   end
-  f:write(string.format("PERDOT distinct=%d colors=%s\n", #keys, table.concat(parts, ",")))
-  f:close()
+  -- Check the write AND the close: a flush failure (disk full, I/O error) surfaces at close, and a
+  -- silently-truncated MCE_RESULT would then be diffed as a partial capture. Fail loudly instead.
+  local wok, werr = f:write(string.format("PERDOT distinct=%d colors=%s\n", #keys, table.concat(parts, ",")))
+  if not wok then
+    io.stderr:write(string.format("perdot_capture: write to '%s' failed: %s\n", RES, werr or "?"))
+    f:close()
+    emu.stop(1)
+    return
+  end
+  local cok, cerr = f:close()
+  if not cok then
+    io.stderr:write(string.format("perdot_capture: close of '%s' failed: %s\n", RES, cerr or "?"))
+    emu.stop(1)
+    return
+  end
   emu.stop(0)
 end
 

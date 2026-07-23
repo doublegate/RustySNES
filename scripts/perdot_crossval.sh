@@ -65,10 +65,17 @@ if [[ ! -x $MESENCE ]]; then
     exit 0
 fi
 
-# ROM list: args, or the whole committed undisbeliever corpus (shell glob, not ls-parsing).
+# ROM list: args, or the whole committed undisbeliever corpus (shell glob, not ls-parsing). nullglob so
+# an empty corpus yields an empty array rather than the literal unexpanded pattern being run as a "ROM".
 roms=("$@")
 if [[ ${#roms[@]} -eq 0 ]]; then
+    shopt -s nullglob
     roms=(tests/roms/undisbeliever/*.sfc)
+    shopt -u nullglob
+fi
+if [[ ${#roms[@]} -eq 0 ]]; then
+    echo "perdot_crossval: no ROMs to check — the corpus tests/roms/undisbeliever/*.sfc is empty and no ROM args were given" >&2
+    exit 2
 fi
 
 echo "=== building perdot_dump (--features per-dot-compositor) ==="
