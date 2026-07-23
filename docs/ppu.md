@@ -111,6 +111,22 @@ Per `ref-docs/2026-06-24-ppu.md` §6:
     `bpp` = 2/4/8, so 8bpp ignores the group), where `paletteBase = id<<5` only in Mode 0. Per
     ares `background.cpp`. Dropping the group collapses every tile onto palette group 0 and
     washes multi-palette art (the SMW logo/border).
+  - **In-render CGRAM access** (`per-dot-compositor` feature, `docs/adr/0014` T-CA-10 Phase 3;
+    dossier C3.04). A `$2122` CGRAM write **during active display** does not land at the
+    CPU-programmed `CGADD` index — it is redirected to **the CGRAM index of the color currently
+    being drawn** at that dot (ares `PPU::writeCGRAM`: `address = latch.cgramAddress`, where
+    `latch.cgramAddress` is the above-pixel's palette set by the DAC's `paletteColor`). The gate is
+    ares' exactly — `!displayDisable && 0 < vcounter < vdisp && 88 ≤ hcounter < 1096` (RustySNES
+    dots `22..274`, since `hcounter = dot·4`); the programmed address still auto-increments. The
+    drawn index is recomputed on demand from the exact per-line BG resolution (`render_bg`), so it
+    cannot diverge from the batch composite. **First-cut scope:** backdrop + non-Mode-7 BGs; sprites,
+    Mode 7, and the color-window resolve as the backdrop pending later compositor phases. **Off by
+    default** (batch model never redirects) → byte-identical shipped builds. Flag-ON is byte-identical
+    on every corpus ROM *except* the one that writes CGRAM mid-active-display —
+    `undisbeliever/inidisp_forgot_to_force_blank`, whose frame the redirect changes (the intended
+    effect). **Reference cross-validation of that changed frame against ares/Mesen2 is the gate before
+    the redirect is trusted or the flag advanced** — the first-cut backdrop+BG scope may not match
+    hardware for that ROM's exact screen; not yet verified.
 
 ## Frame structure / resolutions
 

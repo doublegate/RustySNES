@@ -10,6 +10,11 @@ authors.workspace = true
 default = []
 test-roms = []          # compiles the committed CC0/public-domain suites + integration tests
 commercial-roms = []    # the local-dump oracle (ROMs gitignored; commit only screenshots/.snap)
+# Builds the accurate PPU path (`docs/adr/0014`, T-CA-10) so the golden corpus can be run flag-ON.
+# Flag-ON is byte-identical EXCEPT on `undisbeliever/inidisp_forgot_to_force_blank` (the one corpus
+# ROM that writes CGRAM mid-active-display) — the in-render redirect changes its frame by design;
+# that frame's hardware-accuracy is pending reference cross-validation before the flag is trusted.
+per-dot-compositor = ["rustysnes-core/per-dot-compositor"]
 
 [dependencies]
 rustysnes-core = { path = "../rustysnes-core", version = "1.4.0" }

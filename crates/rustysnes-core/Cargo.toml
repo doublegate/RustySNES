@@ -20,6 +20,11 @@ debug-hooks = []
 # frontend reaches `Ppu::set_hd_pack_tagging`/`Ppu::tile_tags` directly via
 # `EmuCore::system_mut().bus.ppu` once this feature enables them to exist at all.
 hd-pack = ["rustysnes-ppu/hd-pack"]
+# `docs/adr/0014`, T-CA-10: propagates down to `rustysnes-ppu/per-dot-compositor` (the in-render
+# CGRAM redirect and, in later phases, the per-dot composite). This crate has no compositor code of
+# its own; the flag exists so the harness and frontend can build the accurate PPU path. Off by
+# default → the shipped `Bus`/`Ppu` path is byte-identical to the batch compositor.
+per-dot-compositor = ["rustysnes-ppu/per-dot-compositor"]
 
 [dependencies]
 rustysnes-cpu = { path = "../rustysnes-cpu", version = "1.4.0", default-features = false }

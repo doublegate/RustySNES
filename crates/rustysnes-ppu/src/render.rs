@@ -1050,6 +1050,44 @@ impl Ppu {
         }
     }
 
+    /// The CGRAM palette index of the above-pixel at output column `x` of the line currently being
+    /// drawn — the value ares maintains as `latch.cgramAddress` (`sfc/ppu/dac.cpp` `paletteColor`)
+    /// and that a CGRAM write during active display is redirected to (`PPU::writeCGRAM`; dossier
+    /// C3.04, "CGRAM access during active display hits the color currently being drawn").
+    ///
+    /// Recomputed on demand — only a mid-active-display CGRAM write reaches it, so the per-write cost
+    /// is irrelevant — and it reuses the exact per-line BG resolution ([`Self::render_bg`]) so it
+    /// cannot diverge from the batch composite. First compositor cut (`docs/adr/0014`, T-CA-10
+    /// Phase 3): backdrop + non-Mode-7 BGs. Sprites, Mode 7, and the color-window are resolved as the
+    /// backdrop (index 0) pending later phases — matching the deliberately-controlled screens the
+    /// C3.04 oracle uses; documented in `docs/ppu.md`.
+    #[cfg(feature = "per-dot-compositor")]
+    pub(crate) fn in_render_above_palette(&self, x: usize) -> u8 {
+        if self.io.display_disable || self.io.bg_mode == 7 {
+            return 0;
+        }
+        let pr = self.mode_priorities();
+        let mut above = [Pixel::default(); SCREEN_WIDTH];
+        let mut below = [Pixel::default(); SCREEN_WIDTH];
+        for c in 0..SCREEN_WIDTH {
+            above[c] = Pixel {
+                palette: 0,
+                priority: 0,
+                layer: 5,
+                palette_group: 0,
+                opaque: false,
+                ..Pixel::default()
+            };
+            below[c] = above[c];
+        }
+        for bg in 0..4 {
+            if pr.active[bg] {
+                self.render_bg(bg, &pr, &mut above, &mut below);
+            }
+        }
+        above[x.min(SCREEN_WIDTH - 1)].palette
+    }
+
     /// Composite one output column into the framebuffer and return the DAC carry-state the NEXT
     /// column's hi-res below-pass consumes. Bit-identical to the former inline `compose_dac` loop
     /// body — the per-pixel entry point the per-dot compositor drives (`docs/adr/0014`).
@@ -1866,5 +1904,75 @@ mod tests {
             "column 1's aboveColor must be unaffected by column 0's state — only the hires \
              below-pass has the one-column delay"
         );
+    }
+
+    // --- Per-dot compositor: the in-render CGRAM write redirect (T-CA-10 Phase 3, dossier C3.04).
+    //
+    // The redirect targets `in_render_above_palette`, which reuses `render_bg` — the batch's exact
+    // BG resolution, already validated pixel-for-pixel by the whole golden corpus — so these tests
+    // only need to exercise the NEW logic: the active-display gate and that a mid-display write is
+    // redirected to the drawn color rather than the CPU-programmed index.
+
+    #[cfg(feature = "per-dot-compositor")]
+    #[test]
+    fn cgram_write_during_active_display_redirects_to_drawn_color() {
+        let mut p = Ppu::new();
+        // Display ENABLED (INIDISP bit 7 = 0), brightness 15; no layers on main, so every drawn
+        // pixel is the backdrop = CGRAM index 0.
+        p.write_reg(0x2100, 0x0f);
+        p.write_reg(0x212c, 0x00); // TM: nothing on main
+        // Inside the active-display window: line 50 (1..=visible), dot 100 (22..274) → column 78.
+        p.v = 50;
+        p.h = 100;
+        // A NON-redirected write would land at the programmed index 5.
+        p.write_reg(0x2121, 0x05);
+        p.write_reg(0x2122, 0x34);
+        p.write_reg(0x2122, 0x12); // commits word $1234
+        assert_eq!(
+            p.cgram[0], 0x1234,
+            "the in-render write must hit the color being drawn (backdrop = index 0)"
+        );
+        assert_eq!(
+            p.cgram[5], 0x0000,
+            "the in-render write must NOT land at the CPU-programmed index"
+        );
+        assert_eq!(
+            p.io.cgram_address, 6,
+            "the programmed address still advances (ares io.cgramAddress++ is unconditional)"
+        );
+    }
+
+    #[cfg(feature = "per-dot-compositor")]
+    #[test]
+    fn cgram_write_outside_active_display_is_not_redirected() {
+        let mut p = Ppu::new();
+        p.write_reg(0x2100, 0x0f); // display enabled
+        p.v = 50;
+        p.h = 300; // dot 300 >= 274 → HBlank, outside the redirect window
+        p.write_reg(0x2121, 0x05);
+        p.write_reg(0x2122, 0x34);
+        p.write_reg(0x2122, 0x12);
+        assert_eq!(
+            p.cgram[5], 0x1234,
+            "a write in HBlank must commit to the CPU-programmed index"
+        );
+        assert_eq!(p.cgram[0], 0x0000, "backdrop must be untouched");
+    }
+
+    #[cfg(feature = "per-dot-compositor")]
+    #[test]
+    fn cgram_write_under_force_blank_is_not_redirected() {
+        let mut p = Ppu::new();
+        p.write_reg(0x2100, 0x80); // FORCE BLANK on — CGRAM is freely accessible, no redirect
+        p.v = 50;
+        p.h = 100; // in the dot window, but force-blank gates the redirect off
+        p.write_reg(0x2121, 0x05);
+        p.write_reg(0x2122, 0x34);
+        p.write_reg(0x2122, 0x12);
+        assert_eq!(
+            p.cgram[5], 0x1234,
+            "under force-blank the write must commit to the programmed index"
+        );
+        assert_eq!(p.cgram[0], 0x0000);
     }
 }
