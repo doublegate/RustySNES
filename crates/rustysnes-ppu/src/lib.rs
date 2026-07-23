@@ -693,6 +693,34 @@ pub struct Ppu {
     /// the regression proof that toggling this never changes `framebuffer()`'s bytes.
     #[cfg(feature = "hd-pack")]
     tile_tags: Box<[hdtag::TileTag]>,
+
+    // --- Per-dot compositor state (`per-dot-compositor` feature, `docs/adr/0014`, T-CA-10 Phase 4).
+    //
+    // The visible line is composited one dot at a time (blueprint: MesenCE `SnesPpu::RenderScanline`).
+    // These hold the current line's fetched pixels and the incremental draw cursor. They are transient
+    // (re-derived at each line start from serialized PPU state), so they are deliberately NOT saved —
+    // a save at a frame boundary (the normal case) has no mid-line cursor to preserve; a mid-line save
+    // under this experimental flag re-fetches on load, documented in `docs/ppu.md`.
+    /// This line's fetched above/below pixels (built once per line, drained per dot).
+    #[cfg(feature = "per-dot-compositor")]
+    pd_above: alloc::boxed::Box<[render::Pixel; SCREEN_WIDTH]>,
+    #[cfg(feature = "per-dot-compositor")]
+    pd_below: alloc::boxed::Box<[render::Pixel; SCREEN_WIDTH]>,
+    /// The DAC carry threaded through the incremental composite (ares' one-column hi-res delay).
+    #[cfg(feature = "per-dot-compositor")]
+    pd_carry: render::DacCarry,
+    /// Next output column to composite (the draw cursor; MesenCE `_drawStartX`). Reset to 0 per line.
+    #[cfg(feature = "per-dot-compositor")]
+    pd_draw_x: u16,
+    /// Which visible line (`self.v`) `pd_above`/`pd_below` were fetched for; `u16::MAX` = not fetched
+    /// (forces a re-fetch — also the state after a save-state load).
+    #[cfg(feature = "per-dot-compositor")]
+    pd_fetched_line: u16,
+    /// The CGRAM index of the last-drawn column (MesenCE `_state.InternalCgramAddress`, `dac.cpp`
+    /// `paletteColor`). A CGRAM write during active display is redirected here — the exact,
+    /// draw-cursor-driven form of the in-render redirect (supersedes the on-demand `h-22` approximation).
+    #[cfg(feature = "per-dot-compositor")]
+    internal_cgram_address: u8,
 }
 
 impl core::fmt::Debug for Ppu {
@@ -754,6 +782,18 @@ impl Ppu {
             #[cfg(feature = "hd-pack")]
             tile_tags: alloc::vec![hdtag::TileTag::default(); MAX_FRAMEBUFFER_LEN]
                 .into_boxed_slice(),
+            #[cfg(feature = "per-dot-compositor")]
+            pd_above: Box::new([render::Pixel::default(); SCREEN_WIDTH]),
+            #[cfg(feature = "per-dot-compositor")]
+            pd_below: Box::new([render::Pixel::default(); SCREEN_WIDTH]),
+            #[cfg(feature = "per-dot-compositor")]
+            pd_carry: render::DacCarry::default(),
+            #[cfg(feature = "per-dot-compositor")]
+            pd_draw_x: 0,
+            #[cfg(feature = "per-dot-compositor")]
+            pd_fetched_line: u16::MAX,
+            #[cfg(feature = "per-dot-compositor")]
+            internal_cgram_address: 0,
         }
     }
 
@@ -827,9 +867,15 @@ impl Ppu {
         // confirmed off-by-one-line fix). `advance_master` services this line's HDMA at this
         // same dot, strictly AFTER this render call within the same master-clock tick (the HDMA
         // check runs after `tick_ppu_dot` returns) -- see `docs/scheduler.md` §DMA/HDMA bus-steal.
+        #[cfg(not(feature = "per-dot-compositor"))]
         if self.h == RENDER_DOT && self.v >= 1 && self.v <= self.visible_height() {
             self.render_scanline(bus);
         }
+        // Per-dot compositor: composite incrementally up to the current dot's column every tick,
+        // with live register state (`docs/adr/0014`, T-CA-10 Phase 4). Finishes each line by
+        // `RENDER_DOT`, before that line's HDMA — byte-identical to the batch on a static line.
+        #[cfg(feature = "per-dot-compositor")]
+        self.pd_render_to_dot(bus);
 
         self.h += 1;
         if self.h >= DOTS_PER_LINE {

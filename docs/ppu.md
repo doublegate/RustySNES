@@ -111,29 +111,28 @@ Per `ref-docs/2026-06-24-ppu.md` §6:
     `bpp` = 2/4/8, so 8bpp ignores the group), where `paletteBase = id<<5` only in Mode 0. Per
     ares `background.cpp`. Dropping the group collapses every tile onto palette group 0 and
     washes multi-palette art (the SMW logo/border).
-  - **In-render CGRAM access** (`per-dot-compositor` feature, `docs/adr/0014` T-CA-10 Phase 3;
-    dossier C3.04). A `$2122` CGRAM write **during active display** does not land at the
-    CPU-programmed `CGADD` index — it is redirected to **the CGRAM index of the color currently
-    being drawn** at that dot (ares `PPU::writeCGRAM`: `address = latch.cgramAddress`, where
-    `latch.cgramAddress` is the above-pixel's palette set by the DAC's `paletteColor`). The gate is
-    ares' exactly — `!displayDisable && 0 < vcounter < vdisp && 88 ≤ hcounter < 1096` (RustySNES
-    dots `22..274`, since `hcounter = dot·4`); the programmed address still auto-increments. The
-    drawn index is recomputed on demand from the exact per-line resolution the batch uses (`render_bg`
-    + `render_objects`, incl. window/priority; `render_objects`' `$213E` over-flag mutation is
-    snapshotted/restored so the resolver is side-effect-free), so it is **correct-by-construction for
-    every non-Mode-7 screen** — backgrounds, sprites, windows. **Only limitation:** Mode 7 resolves as
-    the backdrop (its `render_mode7` carries a vestigial `VideoBus` param the bus-less write path
-    can't supply; a CGRAM write during Mode-7 active display is vanishingly rare). **Off by
-    default** (batch model never redirects) → byte-identical shipped builds. The redirect itself is
-    documented-real: fullsnes/SNESdev state a CGRAM write during active display "lands at the wrong
-    CGRAM address" (`ref-docs/fullsnes/30-ppu.md`), and ares pins that address as `latch.cgramAddress`
-    (the drawn color). Flag-ON is byte-identical on every corpus ROM *except* the one that exercises
-    this quirk — `undisbeliever/inidisp_forgot_to_force_blank` — whose frame the redirect changes (2
-    colors → 3). snes9x renders that ROM the flag-OFF way (it writes the programmed index and does not
-    model the quirk), so it is not a valid oracle here. **Still outstanding before the flag is trusted
-    or advanced:** exact-pixel confirmation of the changed frame against ares or Mesen2 (which do model
-    the quirk); the first-cut backdrop+BG scope may not match that ROM's exact screen at column
-    boundaries. Not yet done (headless-sandbox capture limits).
+  - **Per-dot compositor + in-render CGRAM access** (`per-dot-compositor` feature, `docs/adr/0014`
+    T-CA-10 Phase 4; dossier C3.04). With the feature on, the visible line is composited **one dot at
+    a time** as the master clock advances (`Ppu::pd_render_to_dot`, blueprint: MesenCE
+    `SnesPpu::RenderScanline`), rather than in a single batch at `RENDER_DOT`. The line's `above`/
+    `below` pixels are fetched once at its start (`pd_fetch_line`, same build as `render_scanline`
+    minus the composite), then drained per dot up to the column the DAC has reached — all columns
+    finish by `RENDER_DOT`, before that line's HDMA, so a **static** line is byte-identical to the
+    batch. Live per-column register reads make mid-line writes take effect only on later columns:
+    brightness/force-blank (INIDISP) and the in-render CGRAM redirect. The redirect: a `$2122` write
+    during active display commits to `Ppu::internal_cgram_address` — the palette of the last-drawn
+    column (MesenCE `_state.InternalCgramAddress`, ares `latch.cgramAddress` = the DAC's
+    `paletteColor`), maintained live by the per-dot compositor — not the programmed `CGADD` index; the
+    gate is `!displayDisable && 0 < vcounter < vdisp && 88 ≤ hcounter < 1096` (dots `22..274`) and the
+    programmed address still auto-increments. Documented-real: fullsnes/SNESdev state a CGRAM write
+    during active display "lands at the wrong CGRAM address" (`ref-docs/fullsnes/30-ppu.md`).
+    **Off by default** (batch model never redirects) → byte-identical shipped builds.
+    **Status (in progress):** flag-ON is byte-identical on the static corpus (26/29 undisbeliever);
+    the three mid-line INIDISP ROMs now shift as intended, but the exact raster timing does not yet
+    match MesenCE (`inidisp_forgot_to_force_blank` renders `7fff` vs MesenCE's `7fc6` — a
+    compose-vs-CPU-write ordering / INIDISP-per-column issue under debug). The per-dot state is
+    transient (re-fetched at each line start), so it is not save-stated; a mid-line save under this
+    experimental flag re-fetches on load.
 
 ## Frame structure / resolutions
 

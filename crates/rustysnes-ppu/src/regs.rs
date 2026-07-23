@@ -35,19 +35,20 @@ impl Ppu {
     /// but with the per-dot compositor, a write during active display is redirected to the color
     /// currently being drawn (ares `PPU::writeCGRAM`'s `address = latch.cgramAddress`; dossier C3.04).
     ///
-    /// The active-display gate is ares' exactly: `!displayDisable && 0 < vcounter < vdisp &&
-    /// 88 <= hcounter < 1096`. RustySNES' `hcounter` is `h * 4`, so `88..1096` is dots `22..274`
-    /// (`ACTIVE_DOT_START..274`); the drawn output column is `h - ACTIVE_DOT_START`.
+    /// The active-display gate is ares'/MesenCE's exactly: `!displayDisable && 0 < vcounter < vdisp &&
+    /// 88 <= hcounter < 1096` (RustySNES `hcounter = h*4`, so dots `22..274`). The redirect target is
+    /// [`Ppu::internal_cgram_address`] — the palette of the last column the per-dot compositor drew
+    /// (MesenCE `_state.InternalCgramAddress`), maintained live by `pd_render_to_dot` each dot. This
+    /// is the exact, draw-cursor-driven form; it supersedes the earlier on-demand `h-22` re-render.
     #[cfg(feature = "per-dot-compositor")]
-    fn cgram_write_target(&mut self) -> u8 {
+    const fn cgram_write_target(&self) -> u8 {
         let in_active_display = !self.io.display_disable
             && self.v >= 1
             && self.v <= self.visible_height()
             && self.h >= crate::ACTIVE_DOT_START
             && self.h < 274;
         if in_active_display {
-            let column = usize::from(self.h - crate::ACTIVE_DOT_START);
-            self.in_render_above_palette(column)
+            self.internal_cgram_address
         } else {
             self.io.cgram_address
         }
