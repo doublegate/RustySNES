@@ -153,13 +153,27 @@ Per `ref-docs/2026-06-24-ppu.md` §6:
     other per-dot fields, `pd_oam_eval_seed` is **save-stated** (FORMAT_VERSION 7, mirroring MesenCE
     serializing `_oamEvaluationIndex`): it diverges from `OAMADDR` after redirected active-display
     writes and so cannot be re-derived on load; the byte is written unconditionally (0 without the
-    feature) so the format stays identical across builds. Over-flag dot-timing, mid-line BG-scroll,
-    and the fetch-phase OAM index are Phase 4b/4c follow-ups.
+    feature) so the format stays identical across builds. Mid-line BG-scroll and the fetch-phase OAM
+    index are Phase 4c follow-ups.
   - **In-render OAM read redirect** (`per-dot-compositor` feature; dossier C1.08). The read side of
     the same rule: a `$2138` (OAMDATAREAD) during a rendering scanline returns the *evaluator's* OAM
     entry (`oam_render_redirect` = `eval_index << 2`), not the CPU's `OAMADDR` (MesenCE `$2138` =
     `GetOamAddress()`), and `OAMADDR` still auto-increments. Shares `pd_oam_eval_seed` and the
     evaluation-phase gate with the write redirect. Off by default → byte-identical shipped builds.
+  - **Incremental over-flag evaluation** (`per-dot-compositor` feature; Phase 4b; MesenCE
+    `EvaluateNextLineSprites`). The `$213E` range/time over-flags are set by `pd_eval_over_flags`,
+    driven per dot from `pd_render_to_dot`: over dots `0..=255`, two dots per sprite, the in-range
+    check for sprite `seed + (h>>1)` runs on its second (odd) dot, setting `range_over` at the 33rd
+    in-range sprite and `time_over` at the 35th tile — at the dot each is reached, not at whole-line
+    granularity. Crucially it evaluates the **next** display line (`scan_y = self.v`), one line ahead
+    of the paint's `scan_y = self.v-1`: MesenCE evaluates scanline *L*'s over-condition during *L* and
+    displays those sprites on *L+1* (the SNES sprite +1 Y-offset), so the flag becomes observable one
+    line before the sprites paint. This eval-line offset and the 33rd-sprite dot were **measured**
+    against MesenCE by `scripts/probes/eval-line-213e` (both now read scanline 100 for Y=100 sprites;
+    the batch model stays one line late, unchanged). The cursor is transient — reset per line, not
+    serialized (the over-flags themselves are, and a deterministic re-eval on load reproduces it).
+    The batch model keeps setting the flags at whole-line granularity in `eval_objects_range`
+    (byte-identical shipped behaviour).
 
 ## Frame structure / resolutions
 

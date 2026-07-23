@@ -737,6 +737,19 @@ pub struct Ppu {
     /// so cannot be re-derived on load. `pd_fetch_line` re-seeds it at each line boundary.
     #[cfg(feature = "per-dot-compositor")]
     pd_oam_eval_seed: u8,
+    /// Incremental sprite-evaluation cursor for the `$213E` range/time over-flags (MesenCE
+    /// `EvaluateNextLineSprites`). Over dots `0..=255`, two dots per sprite, it evaluates the NEXT
+    /// display line (`scan_y = self.v`, one line ahead of the paint's `self.v - 1` — the eval-line
+    /// offset pinned by `scripts/probes/eval-line-213e`) and sets `range_over` at the 33rd in-range
+    /// sprite / `time_over` at the 35th tile, at the dot each is reached. `pd_sprite_eval_h` is the
+    /// next dot to evaluate. All three reset per line in `pd_fetch_line`; transient (not serialized —
+    /// the over-flags themselves are, and a deterministic re-eval on load reproduces the cursor).
+    #[cfg(feature = "per-dot-compositor")]
+    pd_sprite_count: u8,
+    #[cfg(feature = "per-dot-compositor")]
+    pd_sprite_tile_count: u16,
+    #[cfg(feature = "per-dot-compositor")]
+    pd_sprite_eval_h: u16,
 }
 
 impl core::fmt::Debug for Ppu {
@@ -812,6 +825,12 @@ impl Ppu {
             internal_cgram_address: 0,
             #[cfg(feature = "per-dot-compositor")]
             pd_oam_eval_seed: 0,
+            #[cfg(feature = "per-dot-compositor")]
+            pd_sprite_count: 0,
+            #[cfg(feature = "per-dot-compositor")]
+            pd_sprite_tile_count: 0,
+            #[cfg(feature = "per-dot-compositor")]
+            pd_sprite_eval_h: 0,
         }
     }
 
@@ -1290,6 +1309,9 @@ impl Ppu {
             self.pd_draw_x = 0;
             self.pd_carry = render::DacCarry::default();
             self.internal_cgram_address = 0;
+            self.pd_sprite_count = 0;
+            self.pd_sprite_tile_count = 0;
+            self.pd_sprite_eval_h = 0;
         }
         Ok(())
     }

@@ -334,7 +334,56 @@ impl Ppu {
         } else {
             0
         };
+        // Reset the incremental over-flag evaluation cursor for this line.
+        self.pd_sprite_count = 0;
+        self.pd_sprite_tile_count = 0;
+        self.pd_sprite_eval_h = 0;
         self.pd_fetched_line = self.v;
+    }
+
+    /// Advance the incremental sprite-evaluation cursor to the current dot, setting the `$213E`
+    /// range/time over-flags (MesenCE `EvaluateNextLineSprites`). Two dots per sprite over
+    /// `0..=255`; the in-range check for sprite `seed + (h >> 1)` happens on its second (odd) dot.
+    /// It evaluates the NEXT display line (`scan_y = self.v`) — one line ahead of the paint's
+    /// `self.v - 1`, the offset `scripts/probes/eval-line-213e` measured against MesenCE — and, like
+    /// the batch model, stops counting in-range sprites past the 32nd (the 33rd only trips
+    /// `range_over`) and tiles with them. Idempotent under force-blank aside, so a mid-line save that
+    /// re-runs `pd_fetch_line` on load re-derives the same cursor and flags.
+    #[cfg(feature = "per-dot-compositor")]
+    fn pd_eval_over_flags(&mut self) {
+        let eval_to = self.h.min(255);
+        let scan_y = u32::from(self.v);
+        while self.pd_sprite_eval_h <= eval_to {
+            let h = self.pd_sprite_eval_h;
+            self.pd_sprite_eval_h += 1;
+            // In-range check on the sprite's second (odd) evaluation dot only.
+            if h & 1 == 0 {
+                continue;
+            }
+            if self.pd_sprite_count > 32 {
+                continue; // range already overflowed; the rest of the line adds nothing observable
+            }
+            let idx = (usize::from(self.pd_oam_eval_seed) + usize::from(h >> 1)) & 0x7f;
+            let obj = self.object(idx);
+            let (w, ht) = self.object_size(obj.size);
+            let ht = ht >> u32::from(self.io.obj_interlace);
+            let dy = scan_y.wrapping_sub(u32::from(obj.y)) & 0xff;
+            if dy >= ht {
+                continue;
+            }
+            if obj.x > 256 && obj.x + (w as u16) - 1 < 512 {
+                continue; // fully off-screen: ignored for range/time, per MesenCE `IsVisible`
+            }
+            self.pd_sprite_count += 1;
+            if self.pd_sprite_count > 32 {
+                self.io.range_over = true;
+                continue; // 33rd sprite: no tile fetched for it
+            }
+            self.pd_sprite_tile_count += (w / 8) as u16;
+            if self.pd_sprite_tile_count > 34 {
+                self.io.time_over = true;
+            }
+        }
     }
 
     /// Per-dot compositor driver, called every dot from [`crate::Ppu::tick_dot`]. Composites the
@@ -351,6 +400,8 @@ impl Ppu {
         if self.pd_fetched_line != self.v {
             self.pd_fetch_line(bus);
         }
+        // Advance the incremental sprite evaluation (the $213E over-flags) to this dot before drawing.
+        self.pd_eval_over_flags();
         let target = if self.h < crate::ACTIVE_DOT_START {
             0
         } else if self.h >= crate::RENDER_DOT {
@@ -922,6 +973,16 @@ impl Ppu {
     /// `(in_range, count, budget_ok)` for [`Ppu::paint_objects`] to draw. Split out from the
     /// paint so phase 4b can drive it one dot at a time (the per-dot compositor, `docs/adr/0014`);
     /// today it still runs whole-line, byte-identically.
+    // With the per-dot compositor the over-flags move to `pd_eval_over_flags`, so this no longer
+    // mutates `self` under that feature — but it still does under the batch model (it sets them here),
+    // so `&mut self` is required and the lint is a per-feature false positive.
+    #[cfg_attr(
+        feature = "per-dot-compositor",
+        allow(
+            clippy::needless_pass_by_ref_mut,
+            reason = "mutates self only under the batch model; &mut self is required there"
+        )
+    )]
     fn eval_objects_range(&mut self) -> ([u8; 32], usize, [bool; 32]) {
         let scan_y = u32::from(self.v - 1);
 
@@ -965,12 +1026,23 @@ impl Ppu {
             tile_count += (w / 8) as usize;
         }
 
-        if range_count > 32 {
-            self.io.range_over = true;
+        // The `$213E` over-flags. With the per-dot compositor they are owned by the incremental
+        // evaluator (`pd_eval_over_flags`), which — matching MesenCE and confirmed by
+        // `scripts/probes/eval-line-213e` — evaluates the NEXT display line (`scan_y = self.v`) one
+        // line ahead of this paint (`scan_y = self.v - 1`), and sets them at the dot the 33rd sprite
+        // / 35th tile is reached rather than here at whole-line granularity. The batch model has no
+        // per-dot evaluator, so it keeps setting them here (byte-identical shipped behaviour).
+        #[cfg(not(feature = "per-dot-compositor"))]
+        {
+            if range_count > 32 {
+                self.io.range_over = true;
+            }
+            if tile_count > 34 {
+                self.io.time_over = true;
+            }
         }
-        if tile_count > 34 {
-            self.io.time_over = true;
-        }
+        #[cfg(feature = "per-dot-compositor")]
+        let _ = tile_count;
 
         // Sprites paint in reverse index order so lower index ends up on top (last writer wins
         // among equal priority). We honor the 34-tile limit by dropping the lowest-index sprites
@@ -2212,6 +2284,79 @@ mod tests {
         assert_eq!(
             p.io.oam_address, 1,
             "OAMADDR still advances on the redirected read"
+        );
+    }
+
+    #[cfg(feature = "per-dot-compositor")]
+    #[test]
+    fn incremental_range_over_sets_on_next_line_at_the_33rd_sprite() {
+        use crate::bus::NullVideoBus;
+        let mut p = Ppu::new();
+        let mut bus = NullVideoBus;
+        // 40 8x8 sprites at Y=100 (X spread on-screen); the rest off-screen.
+        for i in 0..128usize {
+            let (x, y) = if i < 40 {
+                ((i * 4) as u8, 100u8)
+            } else {
+                (0u8, 0xf0u8)
+            };
+            p.oam[i * 4] = x;
+            p.oam[i * 4 + 1] = y;
+            p.oam[i * 4 + 2] = 0;
+            p.oam[i * 4 + 3] = 0;
+        }
+        p.io.main_enable[4] = true;
+        p.write_reg(0x2100, 0x0f);
+        let mut first = None;
+        for _ in 0..(crate::DOTS_PER_LINE as usize * 130) {
+            let before = p.io.range_over;
+            p.tick_dot(&mut bus);
+            if !before && p.io.range_over && first.is_none() {
+                first = Some((p.v, p.h));
+            }
+        }
+        // The over-flag is evaluated for the NEXT display line (scan_y = v), so Y=100 sprites trip it
+        // during scanline 100 — one line ahead of where they paint (scan_y = v-1, i.e. v=101). It sets
+        // on the 33rd sprite's evaluation dot (2 dots/sprite from 0: h = 2*32 + 1 = 65); the detection
+        // reads `p.h` after `tick_dot`'s post-render increment, so it observes h=66. Pinned against
+        // MesenCE by scripts/probes/eval-line-213e (both read scanline 100).
+        assert_eq!(
+            first,
+            Some((100, 66)),
+            "range_over must set on the next-line eval (v=100) at the 33rd sprite's dot"
+        );
+    }
+
+    #[cfg(feature = "per-dot-compositor")]
+    #[test]
+    fn incremental_over_flags_not_set_without_enough_sprites() {
+        use crate::bus::NullVideoBus;
+        let mut p = Ppu::new();
+        let mut bus = NullVideoBus;
+        // Only 32 in-range sprites at Y=100 — exactly the limit, so neither over-flag trips.
+        for i in 0..128usize {
+            let (x, y) = if i < 32 {
+                ((i * 4) as u8, 100u8)
+            } else {
+                (0u8, 0xf0u8)
+            };
+            p.oam[i * 4] = x;
+            p.oam[i * 4 + 1] = y;
+            p.oam[i * 4 + 2] = 0;
+            p.oam[i * 4 + 3] = 0;
+        }
+        p.io.main_enable[4] = true;
+        p.write_reg(0x2100, 0x0f);
+        for _ in 0..(crate::DOTS_PER_LINE as usize * 130) {
+            p.tick_dot(&mut bus);
+        }
+        assert!(
+            !p.io.range_over,
+            "exactly 32 in-range sprites must not trip range_over"
+        );
+        assert!(
+            !p.io.time_over,
+            "32 8x8 sprites = 32 tiles (<= 34) must not trip time_over"
         );
     }
 
