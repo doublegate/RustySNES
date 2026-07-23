@@ -1,8 +1,10 @@
 ; $213E over-flag eval-line probe ROM (self-sampling).
 ;
 ; Sets up 40 sprites (8x8) all at Y=100, X = 0,4,...,156 (on-screen); the other 88 parked
-; off-screen (Y=$F0). An H-IRQ fires every scanline at HTIME=300 (deep in HBlank, after that
-; scanline's sprite evaluation has run); the handler latches the V-counter, reads STAT77 ($213E)
+; off-screen (Y=$F0). An H-IRQ fires every scanline at HTIME=256 (just after that scanline's sprite
+; evaluation, which runs over dots 0..255, but with a wide margin before the line ends at ~340 so
+; the handler's OPVCT latch stays within the current line); the handler latches the V-counter, reads
+; STAT77 ($213E)
 ; and stores it to WRAM $7E:1000 + V. So after one full frame, WRAM[$1000+s] = the $213E value
 ; sampled late on scanline s. The host reads that array and finds the first scanline whose bit 6
 ; (range over) / bit 7 (time over) is set — the scanline at which the evaluation for a display line
@@ -105,8 +107,11 @@ set_spr:
         lda     #$0f
         sta     INIDISP
 
-        ; ---- program H-IRQ at HTIME = 300 ($12C), every scanline ----
-        lda     #$2c
+        ; ---- program H-IRQ at HTIME = 256 ($100), every scanline ----
+        ; Right after sprite evaluation (dots 0..255), with a wide margin before the line ends
+        ; (~340) so the handler's OPVCT latch stays within the current line: at HTIME=300 the
+        ; IRQ-service latency pushed the latch to ~H=340, the V-counter increment, latching V+1.
+        lda     #$00
         sta     HTIMEL
         lda     #$01
         sta     HTIMEH
