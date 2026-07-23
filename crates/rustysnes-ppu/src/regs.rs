@@ -349,20 +349,63 @@ impl Ppu {
         }
     }
 
-    const fn write_oamdata(&mut self, val: u8) {
-        let addr = self.io.oam_address & 0x03ff;
-        let even = addr & 1 == 0;
-        if addr >= 0x200 {
-            // High table (32 bytes mirrored every 0x20).
-            self.oam[(0x200 + (addr & 0x1f)) as usize] = val;
-        } else if even {
-            self.io.oam_byte_latch = val;
+    /// The OAM byte address a `$2104` write is redirected to during sprite evaluation, or `None`
+    /// when the CPU's `OAMADDR` is used as normal. During a rendering scanline (`!displayDisable &&
+    /// 0 < v <= vdisp`) the PPU's sprite evaluator owns the OAM address bus; MesenCE models this as
+    /// `GetOamAddress` returning `_oamEvaluationIndex << 2` for the evaluation phase (dots 0..=255,
+    /// two cycles per sprite). The evaluation index at dot `h` is `seed + (min(h,255)+1)/2`, seeded
+    /// at line start in [`Ppu::pd_fetch_line`]. This is the low-table byte address (always even, so
+    /// the low-table write only latches) — the *visible* effect is the paired high-table write in
+    /// [`Ppu::write_oamdata`], the Uniracers in-render OAM corruption. The fetch phase (dots 256+,
+    /// `_oamTimeIndex`) is not yet modelled and awaits the incremental range evaluator.
+    #[cfg(feature = "per-dot-compositor")]
+    const fn oam_render_redirect(&self) -> Option<u16> {
+        let rendering = !self.io.display_disable && self.v >= 1 && self.v <= self.visible_height();
+        if rendering && self.h <= 255 {
+            let advance = (self.h + 1) >> 1;
+            let eval_index = (self.pd_oam_eval_seed as u16 + advance) & 0x7f;
+            Some(eval_index << 2)
         } else {
-            // On the odd write, both the latched even byte and this byte commit.
-            let base = (addr & !1) as usize;
-            self.oam[base] = self.io.oam_byte_latch;
-            self.oam[base + 1] = val;
+            None
         }
+    }
+
+    /// Without the per-dot compositor, a `$2104` write always uses the CPU's `OAMADDR` — the
+    /// historical batch model never redirected during rendering.
+    #[cfg(not(feature = "per-dot-compositor"))]
+    #[expect(
+        clippy::unused_self,
+        reason = "matches the per-dot signature; batch never redirects"
+    )]
+    const fn oam_render_redirect(&self) -> Option<u16> {
+        None
+    }
+
+    const fn write_oamdata(&mut self, val: u8) {
+        if let Some(render_addr) = self.oam_render_redirect() {
+            // In-render redirect (Uniracers): `render_addr = eval_index << 2` is always even and in
+            // the low table, so the low-table write only latches the even-byte buffer and never
+            // commits; the value actually lands in the high table at the remapped address
+            // (MesenCE: `oamAddr = 0x200 | ((oamAddr & 0x1F0) >> 4)`).
+            self.io.oam_byte_latch = val;
+            let high = (render_addr & 0x1f0) >> 4;
+            self.oam[(0x200 + high) as usize] = val;
+        } else {
+            let addr = self.io.oam_address & 0x03ff;
+            let even = addr & 1 == 0;
+            if addr >= 0x200 {
+                // High table (32 bytes mirrored every 0x20).
+                self.oam[(0x200 + (addr & 0x1f)) as usize] = val;
+            } else if even {
+                self.io.oam_byte_latch = val;
+            } else {
+                // On the odd write, both the latched even byte and this byte commit.
+                let base = (addr & !1) as usize;
+                self.oam[base] = self.io.oam_byte_latch;
+                self.oam[base + 1] = val;
+            }
+        }
+        // OAMADDR always advances, even when the write was redirected during rendering.
         self.io.oam_address = (self.io.oam_address + 1) & 0x03ff;
     }
 

@@ -326,6 +326,14 @@ impl Ppu {
             below_opaque: false,
         };
         self.pd_draw_x = 0;
+        // Seed the OAM sprite-evaluation index for this line (MesenCE `_oamEvaluationIndex` at
+        // `_spriteEvalStart == 0`): the priority-rotation base, or 0. The in-render `$2104` redirect
+        // reads `seed + (min(h,255)+1)/2` from here.
+        self.pd_oam_eval_seed = if self.io.oam_priority_rotation {
+            ((self.io.oam_address >> 2) & 0x7f) as u8
+        } else {
+            0
+        };
         self.pd_fetched_line = self.v;
     }
 
@@ -2069,5 +2077,83 @@ mod tests {
             "under force-blank the write must commit to the programmed index"
         );
         assert_eq!(p.cgram[7], 0x0000);
+    }
+
+    // --- OAM in-render write redirect (C7.16, MesenCE GetOamAddress / the Uniracers quirk). During
+    // sprite evaluation a $2104 write is aimed at the evaluator's OAM index, not the CPU's OAMADDR.
+    // `render_addr = eval_index << 2` is always even and in the low table, so the low-table write
+    // only latches; the value lands in the high table at the remapped address `(render&0x1f0)>>4`.
+
+    #[cfg(feature = "per-dot-compositor")]
+    #[test]
+    fn oam_write_during_evaluation_redirects_to_high_table() {
+        let mut p = Ppu::new();
+        p.write_reg(0x2100, 0x0f); // display ENABLED
+        p.write_reg(0x2102, 0x00); // OAMADDR = 0
+        // Line 50, dot 100, priority-rotation off ⇒ eval_seed 0. eval_index = 0 + (100+1)/2 = 50,
+        // render_addr = 200 (0xC8); high-table remap = (0xC8 & 0x1F0) >> 4 = 12 ⇒ oam[0x200 + 12].
+        p.v = 50;
+        p.h = 100;
+        p.pd_oam_eval_seed = 0;
+        p.write_reg(0x2104, 0xab);
+        assert_eq!(
+            p.oam[0x200 + 12],
+            0xab,
+            "the in-render write must corrupt the high table at the remapped evaluation address"
+        );
+        assert_eq!(
+            p.oam[200], 0x00,
+            "the low-table entry at the (even) render address must only latch, never commit"
+        );
+        assert_eq!(
+            p.io.oam_byte_latch, 0xab,
+            "the even-byte buffer latches the value"
+        );
+        assert_eq!(
+            p.io.oam_address, 1,
+            "OAMADDR advances even when the write was redirected"
+        );
+    }
+
+    #[cfg(feature = "per-dot-compositor")]
+    #[test]
+    fn oam_write_in_fetch_phase_is_not_redirected() {
+        let mut p = Ppu::new();
+        p.write_reg(0x2100, 0x0f); // display enabled
+        p.write_reg(0x2102, 0x00); // OAMADDR = 0
+        p.v = 50;
+        p.h = 300; // dot > 255 → fetch phase, not modelled ⇒ no redirect
+        p.pd_oam_eval_seed = 0;
+        p.write_reg(0x2104, 0x11); // even → latch
+        p.write_reg(0x2104, 0x22); // odd → commit word to oam[0]/oam[1]
+        assert_eq!(
+            (p.oam[0], p.oam[1]),
+            (0x11, 0x22),
+            "a fetch-phase write uses the CPU OAMADDR (low table), not the redirect"
+        );
+        assert_eq!(p.oam[0x200 + 12], 0x00, "the high table must be untouched");
+    }
+
+    #[cfg(feature = "per-dot-compositor")]
+    #[test]
+    fn oam_write_under_force_blank_is_not_redirected() {
+        let mut p = Ppu::new();
+        p.write_reg(0x2100, 0x80); // FORCE BLANK — OAM freely accessible, no redirect
+        p.write_reg(0x2102, 0x00); // OAMADDR = 0
+        p.v = 50;
+        p.h = 100; // in the eval dot range, but force-blank gates the redirect off
+        p.pd_oam_eval_seed = 0;
+        p.write_reg(0x2104, 0x11);
+        p.write_reg(0x2104, 0x22);
+        assert_eq!(
+            (p.oam[0], p.oam[1]),
+            (0x11, 0x22),
+            "under force-blank the write commits to the CPU OAMADDR"
+        );
+        assert_eq!(
+            p.oam[0x200 + 12],
+            0x00,
+            "the high table must be untouched under force-blank"
+        );
     }
 }

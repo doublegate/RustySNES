@@ -727,6 +727,14 @@ pub struct Ppu {
     /// draw-cursor-driven form of the in-render redirect (supersedes the on-demand `h-22` approximation).
     #[cfg(feature = "per-dot-compositor")]
     internal_cgram_address: u8,
+    /// Seed for the per-dot OAM sprite-evaluation index, captured at line start (`oam_priority ?
+    /// (oam_address >> 2) & 0x7f : 0`, MesenCE `_oamEvaluationIndex` at `_spriteEvalStart == 0`).
+    /// At dot `h` the evaluator is reading OAM entry `(seed + (min(h,255)+1)/2) & 0x7f` (2 cycles
+    /// per sprite over dots 0..=255); a `$2104` write during active display redirects there
+    /// (MesenCE `GetOamAddress`/`_oamRenderAddress`, the Uniracers in-render OAM quirk). Transient;
+    /// re-derived each line, so not serialized and invalidated on `load_state`.
+    #[cfg(feature = "per-dot-compositor")]
+    pd_oam_eval_seed: u8,
 }
 
 impl core::fmt::Debug for Ppu {
@@ -800,6 +808,8 @@ impl Ppu {
             pd_fetched_line: u16::MAX,
             #[cfg(feature = "per-dot-compositor")]
             internal_cgram_address: 0,
+            #[cfg(feature = "per-dot-compositor")]
+            pd_oam_eval_seed: 0,
         }
     }
 
@@ -1258,6 +1268,7 @@ impl Ppu {
             self.pd_draw_x = 0;
             self.pd_carry = render::DacCarry::default();
             self.internal_cgram_address = 0;
+            self.pd_oam_eval_seed = 0;
         }
         Ok(())
     }
