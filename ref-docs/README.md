@@ -24,3 +24,9 @@ frozen: new findings go in NEW dated files, never edits. Put the deep research r
   the full per-assertion test enumeration for groups A-G, and a survey of the existing SNES
   test-ROM landscape. Distilled into `docs/accuracysnes-research-dossier.md`; the cartridge it
   designs is `tests/roms/AccuracySNES/`.
+- `2026-07-22-anomie-snes-timing.md` — Anomie's SNES Timing Doc (rev 1126, 2007), vendored
+  verbatim. Third-party community documentation with no explicit permissive licence: **reference
+  only**, cite rather than reproduce as our own, and never a scoring oracle (see its header).
+- `2026-07-22-nesdev-snes-timing.md` — the NESdev Wiki "Timing" (SNESdev) page, vendored verbatim.
+  **CC BY-SA 4.0** with attribution intact — like the undisbeliever entry, do not transcribe its
+  values into code (adapted-material/ShareAlike risk). **Reference only, never a scoring oracle.**
