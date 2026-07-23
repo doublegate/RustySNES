@@ -188,22 +188,27 @@ different claim, and worth writing down rather than leaving as a shrug.
 - **"`B2.09`'s window edges aren't CPU-observable."** Correct that no register reports them, but the
   framebuffer oracle changes what counts as observable: locating a mid-line register change in the
   *rendered picture* is exactly what maps a dot to a pixel column, and the picture window's edges
-  fall out of that. It is therefore **blocked on a per-dot compositor**, not unreachable.
+  fall out of that. It was **blocked on a per-dot compositor** — and **that blocker is now gone**: PR
+  `#227` made the per-dot compositor the sole renderer (`render_scanline` is deleted), so a mid-line
+  write does split a line at the writing column. `B2.09` is therefore now reachable (the 2026-07-23
+  audit lists it among the per-dot-unblocked rows), with the caveat that the dot→column mapping may
+  split across references, in which case it lands as a recorded golden rather than an agreed scene.
+  *(Historical note: the paragraph here formerly said `render_scanline` "still paints all 256 columns
+  from one register snapshot" — true under the v0.8.0 batch compositor, false since `#227`.)*
 
-  Precisely what blocks it, because `docs/ppu.md` is easy to misread here: the v0.8.0 work moved
-  *when* a line is composited (dot 276 rather than dot 340) so that HDMA writes land on the right
-  line. It did **not** make the renderer per-pixel — `render_scanline` still paints all 256 columns
-  from one register snapshot. A mid-line write therefore still cannot split a line, and a `B2.09`
-  scene written today would encode that simplification rather than measure the hardware.
+### `C13.01`-`C13.06` — genuinely uncoverable, but not for the reason once written
 
-### `C13.01`-`C13.06` — blocked twice over, and not worth forcing
+**The old first blocker is void.** These were called blocked because they are *sub-scanline* effects
+and "the whole-line compositor rules them out" — but the whole-line compositor is gone (`#227`). The
+per-dot renderer *does* resolve mid-line brightness/force-blank per column. The durable reasons the
+2026-07-23 audit (`docs/accuracysnes-coverability-audit-2026-07-23.md`) pins are different and stronger:
 
-The same blocker, plus a second one that does not go away when the first does. These are the
-INIDISP early-read artifacts: a one-dot display flash, a one-dot brightness step, a brightness
-ramp over ~72 pixels. Every one is a *sub-scanline* effect, so the whole-line compositor above
-rules them out.
-
-The second blocker is that they are **chip-revision-dependent**: `C13.01` is 3-chip only,
+1. **No reference models the INIDISP early-read glitch.** These are the early-read artifacts — a one-dot
+   display flash, a one-dot brightness step, a ~72px ramp — where the PPU latches the prior data-bus
+   value for ~1 dot. ares/bsnes/MesenCE/RustySNES all latch `$2100` atomically at the write cycle, so
+   there is no agreeing render to bless a golden from (the "agreement" would be on the glitch's
+   *absence* — a vacuous golden; same standing as `C11.08`'s exact-value route).
+2. They are **chip-revision-dependent**: `C13.01` is 3-chip only,
 `C13.05` is 1CHIP, and `C14.02` explicitly gates `C13.01` on the PPU2 version read from `$213F`.
 A golden framebuffer would therefore commit to one revision as though it were the behaviour, which
 is exactly the substitution ADR 0013 rule 4 exists to prevent — and unlike a reference-emulator
@@ -213,29 +218,35 @@ revision and stay there.
 So `C13.01`-`C13.06` stay uncovered on purpose, and the coverage report lists them as such. The
 other four (`C13.07`-`C13.10`, the open-bus latches) are CPU-observable and already covered on-cart.
 
-### `C11.08` — MPY during active display — blocked on hardware capture, not reachable-now
+### `C11.08` — MPY during active display — exact-value blocked; a STRUCTURAL assertion is coverable-with-work
 
 The Phase-6 scored-row batch was `C3.04`, `C1.08`, `C7.16`, `C11.08`. The first three landed once the
-per-dot compositor became the default renderer (`#227`). `C11.08` does not, and the reason is worth
-recording so it is not re-attempted as a "reachable now" row.
+per-dot compositor became the default renderer (`#227`). `C11.08` did not — but the 2026-07-23
+coverability audit (`docs/accuracysnes-coverability-audit-2026-07-23.md`) corrects an earlier over-strong
+"uncoverable" reading: the *exact-value* route is blocked, the *structural self-scoring* route is not.
 
 The assertion is *"MPY during active display holds intermediate per-pixel rotation results"* — i.e. a
 `$2134`-`$2136` read mid-frame in Mode 7 returns the renderer's last per-pixel matrix product, not the
-CPU-programmed `M7A * (M7B >> 8)`. **No available reference models this.** MesenCE
-(`Core/SNES/SnesPpu.cpp:1808-1820`) computes the read combinatorially from `Mode7.Matrix[0/1]` with no
-render-time latch; snes9x does the same; and RustySNES (`rustysnes-ppu/src/regs.rs:417`) matches both.
-So every reference returns the CPU product and would agree with each other on the *wrong* value — the
-"three emulators agree ⇒ suspect the test" signature, here from a shared modelling gap rather than a
-harness bug.
+CPU-programmed `M7A * (M7B >> 8)`. **No reference models this** — MesenCE
+(`Core/SNES/SnesPpu.cpp:1808-1820`), Mesen2, bsnes, ares, snes9x, and RustySNES
+(`rustysnes-ppu/src/regs.rs`) all compute the read combinatorially from the M7A/M7B registers with no
+render-time latch. So the **golden** route is dead (no agreeing reference to bless — ADR 0013), and an
+**exact-value** self-scoring assertion is blocked on a hardware capture of the read-cycle→`SCREEN.X`
+phase offset that no reference and no doc pins.
 
-That rules out both scoring routes. A golden needs a reference the render agrees with (ADR 0013);
-there is none. A self-scoring "the read differs from `M7A*(M7B>>8)` during render" assertion would be
-**vacuous** — it passes on whatever RustySNES happens to return, verifying that a value changed, not
-that it changed to the hardware value (the vacuous-test trap this document warns about repeatedly).
-Modelling the exact intermediate would require a hardware capture of the Mode-7 per-pixel
-multiply sequence at a known dot, which we do not have. It therefore stays **uncovered on purpose**,
-blocked on that capture — the same standing as `C13`. `C11.07` (the shared-latch corruption between the
-two `M7A` writes) is a separate, CPU-observable errata case and remains a legitimate on-cart row.
+But a **structural self-scoring assertion is available and non-vacuous.** fullsnes `30-ppu.md:394-413`
+documents the per-pixel sequence: with `ORG.X=ORG.Y=0` the only legal visible-loop products form a
+magnitude-bounded set `S`; choose the matrix so the CPU product `P_cpu ∉ S`; read `$2134` at a
+controlled dot during active display and assert `value ∈ S && value ≠ P_cpu`. This is robust to the
+unknown dot→phase offset (every visible-loop phase lands in `S`), fails all five references + today's
+RustySNES, and passes only a correct render-time model — it verifies the structural signature a
+CPU-product model cannot fake, so it is *not* the vacuous "differs from `M7A*(M7B>>8)`". **Work:**
+implement the render-time MPY latch in `rustysnes-ppu/src/regs.rs` (a real accuracy improvement per
+fullsnes; the per-dot compositor did not add it) + author the structural test. **Honesty caveat to
+record on the row:** the oracle is a written spec, not a capture or agreeing reference, so it is
+`crossval.sh`-exempt and proves "valid render-product class, not the CPU product" — weaker than
+exact-value. `C11.07` (the shared-latch corruption between the two `M7A` writes) is a separate,
+CPU-observable errata case and remains a legitimate ordinary on-cart row.
 
 ### `E7.07` — parked after one attempt, with a measurement worth keeping
 
@@ -1629,7 +1640,9 @@ exists.
   stay in their own tier. `crossval.sh` gates on them, and per rule 4 a golden is committed only
   once the references agree.
 
-  **Status: 41 scenes blessed**, covering 42 assertions across `C4`-`C8`, `C10`, `C11` and `C12`. The
+  **Status: 53 scenes blessed** (the regenerated `docs/accuracysnes-coverage.md` is authoritative — this
+  hand-maintained figure had drifted from an earlier "41"), covering the scene tier across `C4`-`C8`,
+  `C10`, `C11` and `C12`. The
   first three disagreed with the references on first run, and in all three cases RustySNES was
   wrong: the BG vertical fetch was a line late, and mosaic quantised the BG row instead of the
   screen row. Both are fixed; agreement with snes9x across the third-party undisbeliever suite went
