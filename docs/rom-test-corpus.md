@@ -90,6 +90,47 @@ already fully staged:
 | General PPU/HDMA/Mode 7/interlace homebrew | `tests/roms/external/krom/PPU/`, `BANK/`, `CPUTest/`, `INPUT/`, `MSU/`, `Compress/`, `Translate/` | Broad homebrew coverage for bank-crossing, mosaic, windows, Mode 7, interlace, HDMA variants, MSU-1 audio/video, LZ77 decompression, and ROM-hacking-adjacent translate-table tooling. |
 | 240p test suite | `tests/roms/external/240p/SNES-source/` | Display-timing/geometry reference (source form, not a prebuilt ROM). |
 
+## Coprocessor framebuffer goldens are secondary — and must be re-blessed after PPU accuracy work
+
+The `*_oncart` coprocessor suites (`dsp1-framebuffer.tsv`, `sa1-framebuffer.tsv`,
+`superfx-framebuffer.tsv`) hash the emulator's **output framebuffer** after booting a commercial
+dump, so they are as sensitive to a PPU-render change as they are to the coprocessor itself. Because
+the commercial dumps + firmware are gitignored, CI **skips** these suites — nothing forces a re-bless
+when the render legitimately changes.
+
+`undisbeliever_golden` (29 committed, permissive PPU/DMA/HDMA ROMs) is run in CI and kept current, but
+be precise about what it proves: like the coprocessor suites, it compares against *committed* hashes,
+so it is a **regression/consistency** check, not independent reference agreement. A render that matches
+a stale `undisbeliever` baseline would still pass. The **reference evidence** lives upstream: each PPU
+change that shifts these framebuffers landed in its own reviewed PR that cross-validated the new render
+against the reference emulators (snes9x / Mesen2 / ares) and the AccuracySNES scenes (blessed per ADR
+0013 only from a render the references agree on). The coprocessor goldens are a *downstream* check that
+must simply be refreshed to match once that upstream evidence exists.
+
+**Re-bless discipline (per ADR 0013 — never bless blind):** re-bless a coprocessor golden only when
+BOTH hold: (a) the framebuffer drift traces to specific reviewed PRs that already cross-validated the
+new render against references (that is the reference evidence — `undisbeliever` alone is not), and
+(b) `undisbeliever_golden` is green as a regression guard that no *additional*, unreviewed drift crept
+in. Then refresh with the concrete suite target:
+
+```bash
+BLESS_DSP1=1     cargo test -p rustysnes-test-harness --features "test-roms commercial-roms" --test dsp1_oncart
+BLESS_SA1=1      cargo test -p rustysnes-test-harness --features "test-roms commercial-roms" --test sa1_oncart
+BLESS_SUPERFX=1  cargo test -p rustysnes-test-harness --features "test-roms commercial-roms" --test superfx_oncart
+```
+
+**2026-07-22 re-bless.** All three coprocessor goldens were stale w.r.t. PPU accuracy work that landed
+after each was last blessed (DSP-1 `56bcfab` 2026-06-26; SA-1 `22ecae4` 2026-07-10; Super FX `6ee0d9f`
+2026-07-11) — 36-47 `rustysnes-ppu` commits since, incl. #156 (sprite vertical-flip against WIDTH),
+T-06-A (dot timing), #201 (OBJ-interlace), and the per-dot compositor Phase 1/2 refactors (#205/#210).
+Diagnosis confirmed it was render drift, not a coprocessor or determinism bug: Super Mario Kart
+matched with 103,714 DSP accesses (engine correct), while Ace wo Nerae mismatched with **zero** DSP
+accesses (pure PPU); only content-bearing frames shifted (every blank-title `0xd065a59d…` SA-1 entry
+was unchanged). The causing PPU fixes (#156, T-06-A, #201, #205/#210) each landed reference-validated
+in their own PR — that is the reference evidence — and `undisbeliever_golden` was green throughout as
+the regression guard confirming no additional unreviewed drift, so the three goldens were re-blessed
+from the current render (DSP-1 2/4 entries, SA-1 6/18, Super FX 57/58).
+
 ## Legitimate sourcing leads (`v1.1.0` research pass — leads only, nothing staged)
 
 For each `❌` gap above, concrete legitimate leads a developer could manually pursue outside this
