@@ -39,7 +39,51 @@ any golden that legitimately changes is re-blessed **only** from a render the re
 
 | # | Ticket | Gap | Source | Status |
 |---|---|---|---|---|
-| T-CA-10 | **Per-dot PPU compositor** | per-scanline; mid-line register writes, offset-per-tile, interlace, live `frame_hires` all wrong at dot resolution | `docs/adr/0014`, `ppu.md` | [~] ADR 0014 written. **Phase 1 landed:** extracted `compose_pixel` (the per-pixel DAC entry point Phase 4 drives per-dot) from `compose_dac`'s inline loop, threading the hi-res carry via `DacCarry` — **bit-identical** (undisbeliever 29 + 53 scenes unchanged). Remaining: Phase 2 (BG per-dot drain), Phase 3 (14-dot fetch-ahead + in-render CGRAM/OAM latch — first behavior change), Phase 4 (wire to `tick_dot` per-dot). |
+| T-CA-10 | **Per-dot PPU compositor** | per-scanline; mid-line register writes, offset-per-tile, interlace, live `frame_hires` all wrong at dot resolution | `docs/adr/0014`, `ppu.md` | [~] ADR 0014 written. **Phase 1 landed (#205):** extracted `compose_pixel`/`DacCarry` (the per-pixel DAC entry point) from `compose_dac`'s inline loop — bit-identical. **Phase 2 landed (#210):** split `render_bg` into a FETCH pass (`[Pixel;256]` line buffer) + a DRAIN pass — bit-identical. **Phase 3 (NEXT — first behaviour change) scoped 2026-07-23, see the plan block + TRAPS below.** Then Phase 4 (live BG fetch / mid-line scroll), Phase 5 (sprites + hi-res two-sub-pixel), Phase 6 (flip default after full-corpus re-bless). |
+
+### T-CA-10 Phase 3 — concrete implementation plan + traps (scoped 2026-07-23)
+
+**Goal of Phase 3:** the first behaviour change — the in-render CGRAM/OAM/counter latch (unblocks
+dossier **C3.04** "CGRAM access during active display hits the color *currently being drawn*",
+**C11.08** MPY-per-pixel, **C1.08** `$2138` mid-frame). This *requires* driving the composite live
+per-dot, because the latch VALUE is the palette index of the dot being drawn right now — the batch,
+which composites the whole line at `RENDER_DOT`=276, cannot supply it (confirmed by diffing the code
+2026-07-23). Reference: ares `sfc/ppu/io.cpp:48-51` (CGRAM write → `latch.cgramAddress` when
+`!displayDisable && 0<vcounter<vdisp && 88<=hcounter<1096`), `:32-42` (OAM → `latch.oamAddress`,
+`!displayDisable && vcounter<vdisp`, no hcounter bound); latch set at the DAC/sprite read sites
+(`dac.cpp:159`, `object.cpp`).
+
+**Shape:** add a default-off `per-dot-compositor` cargo feature (rustysnes-ppu; wire a frontend
+passthrough). Under flag-ON, in `tick_dot`: FETCH the line (backdrop+BG+sprites into feature-gated
+`Ppu` line buffers) once, then COMPOSE one column per dot via the existing `compose_pixel`, tracking
+`latch_cgram_address`. Skip the batch `render_scanline` call at `RENDER_DOT`. **Milestone before any
+behaviour: flag-ON byte-identical to batch across the FULL corpus** (undisbeliever 29 + 53 scenes +
+coprocessor goldens + commercial screenshots); only THEN wire the CGRAM/OAM write-redirect.
+
+**TRAPS identified 2026-07-23 (each will silently shift goldens or break determinism if missed):**
+1. **Sprite over-flag timing.** `render_objects` (`render.rs:803`) is `&mut self` and sets the
+   `$213E` range/time over-flags. Moving the fetch off `RENDER_DOT` to line-start re-times when those
+   CPU-observable flags appear (AccuracySNES C7.x reads them). Either keep sprite eval at its current
+   dot or account for the shift explicitly — do not move it blindly.
+2. **HDMA-ordering dot window.** The batch renders line V at `RENDER_DOT`=276, and line V's own HDMA
+   runs strictly AFTER (the off-by-one-line design, `tick_dot` doc + `docs/ppu.md`). Every per-dot
+   compose MUST finish by dot 276 so it still reads pre-line-V-HDMA state; mapping column `x` to a
+   dot `>276` reads post-HDMA state for the last column(s) and shifts the line edge. Suggested map:
+   column `x` composes at dot `276-255+x` (= 21..276), fetch at ~dot 20 — but that is `<ACTIVE_DOT_START`
+   (22), which re-raises trap 1. Resolve the exact window against ares' `hcounter` (`x=(hcounter-56)>>2`,
+   plan's `hcounter=h*4`) before coding.
+3. **Save-state of the transient per-dot line buffers.** `pd_above`/`pd_below`/`pd_carry` are live
+   only during a line; a mid-line save/restore under flag-ON would lose them (the batch has no such
+   per-line state). `latch_cgram_address` is CPU-observable and MUST be serialized (FORMAT_VERSION
+   bump). Either serialize the line buffers too or document/guarantee save points are at VBlank.
+4. **`Pixel` is private to `render.rs`** — to store line buffers on `Ppu` (lib.rs) either make
+   `Pixel` `pub(crate)` or keep the buffers in a `render`-module struct field.
+
+**Validate LOCALLY** (fast loop): `--test undisbeliever_golden` + `--test accuracysnes_scenes` +
+`rustysnes-ppu --lib`, then the coprocessor oncart tests + `crossval.sh` before the PR. Re-bless any
+legitimately-shifted golden (mid-line-write ROMs) ONLY from a reference-agreeing render (ADR 0013);
+the coprocessor goldens are usable local gates again post-#216 ([[coprocessor-golden-staleness-rootcause]]).
+Keep flag-OFF byte-identical throughout (default builds unchanged).
 | T-CA-11 | 65816 cycle-by-cycle bus trace | cycle counts are per-instruction tallies, access **order** not pin-validated | `cpu.md:186`, timing-oracle | [ ] Large: model per-cycle bus access (address driven each internal cycle) so open-bus/DMA-interaction is exact. |
 | T-CA-12 | Open-bus-via-HDMA-latch | correct fix breaks 24 GSU goldens, root cause unknown | `accuracy-ledger.md`, `scheduler.md` | [BLOCKED] Blocked on an access-level trace of GSU VRAM/CGRAM writes vs the failing DMA transfers. |
 
@@ -97,3 +141,14 @@ open-bus/DMA-order edge case ever needs it. T-CA-12 stays blocked.
 - 2026-07-22: **Group A/B remainder reassessed** — T-CA-04/05/06/07/08 have no failing oracle (each
   approximation is documented as exact for observed results); deferred (pin a failing oracle first) rather than
   changed blind. The genuine remaining ROM-observable Tier-1 work is T-CA-10 (per-dot compositor).
+- 2026-07-23: **T-CA-10 Phase 2 recorded as landed (#210)** — `render_bg` fetch/drain split,
+  bit-identical. And **Phase 3 fully scoped** (see the plan block under the T-CA-10 row): the in-render
+  CGRAM/OAM latch (C3.04/C11.08/C1.08) is confirmed to REQUIRE the live per-dot composite (the batch
+  composites the whole line at `RENDER_DOT`, so it cannot supply "the color currently being drawn").
+  Three determinism/timing TRAPS identified before writing any code — sprite over-flag timing, the
+  HDMA-ordering dot window, and save-state of the transient per-dot line buffers — plus the `Pixel`
+  visibility detail. Phase 3 is the first behaviour change and the emulator's most determinism-critical
+  code; it is queued as its own focused PR (branch `feat/per-dot-compositor-*`) with a flag-ON
+  byte-identical milestone before the CGRAM redirect is wired. No code landed this session (the
+  scoping + trap-identification is the deliverable); the baseline was restored first (coprocessor
+  goldens re-blessed, #216) so Phase 3's legitimate golden shifts will be cleanly isolatable.
