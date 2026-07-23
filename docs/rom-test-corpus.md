@@ -90,6 +90,35 @@ already fully staged:
 | General PPU/HDMA/Mode 7/interlace homebrew | `tests/roms/external/krom/PPU/`, `BANK/`, `CPUTest/`, `INPUT/`, `MSU/`, `Compress/`, `Translate/` | Broad homebrew coverage for bank-crossing, mosaic, windows, Mode 7, interlace, HDMA variants, MSU-1 audio/video, LZ77 decompression, and ROM-hacking-adjacent translate-table tooling. |
 | 240p test suite | `tests/roms/external/240p/SNES-source/` | Display-timing/geometry reference (source form, not a prebuilt ROM). |
 
+## Coprocessor framebuffer goldens are secondary — and must be re-blessed after PPU accuracy work
+
+The `*_oncart` coprocessor suites (`dsp1-framebuffer.tsv`, `sa1-framebuffer.tsv`,
+`superfx-framebuffer.tsv`) hash the emulator's **output framebuffer** after booting a commercial
+dump, so they are as sensitive to a PPU-render change as they are to the coprocessor itself. Because
+the commercial dumps + firmware are gitignored, CI **skips** these suites — nothing forces a re-bless
+when the render legitimately changes.
+
+The **primary** PPU oracle is `undisbeliever_golden` (29 committed, permissive PPU/DMA/HDMA ROMs),
+which IS run in CI and kept current. When a reviewed PPU accuracy fix lands, `undisbeliever` (plus the
+AccuracySNES scenes) is what proves the new render correct; the coprocessor goldens are a *downstream*
+check and must simply be refreshed to match.
+
+**Re-bless discipline (per ADR 0013 — never bless blind):** re-bless a coprocessor golden
+(`BLESS_DSP1=1` / `BLESS_SA1=1` / `BLESS_SUPERFX=1 cargo test -p rustysnes-test-harness --features
+"test-roms commercial-roms" --test <suite>`) ONLY when `undisbeliever_golden` is green — that is the
+evidence the current render is reference-agreeing, so the coprocessor bless is anchored to a validated
+render rather than a blind snapshot.
+
+**2026-07-22 re-bless.** All three coprocessor goldens were stale w.r.t. PPU accuracy work that landed
+after each was last blessed (DSP-1 `56bcfab` 2026-06-26; SA-1 `22ecae4` 2026-07-10; Super FX `6ee0d9f`
+2026-07-11) — 36-47 `rustysnes-ppu` commits since, incl. #156 (sprite vertical-flip against WIDTH),
+T-06-A (dot timing), #201 (OBJ-interlace), and the per-dot compositor Phase 1/2 refactors (#205/#210).
+Diagnosis confirmed it was render drift, not a coprocessor or determinism bug: Super Mario Kart
+matched with 103,714 DSP accesses (engine correct), while Ace wo Nerae mismatched with **zero** DSP
+accesses (pure PPU); only content-bearing frames shifted (every blank-title `0xd065a59d…` SA-1 entry
+was unchanged). `undisbeliever_golden` was green throughout, so the three goldens were re-blessed from
+the current render (DSP-1 2/4 entries, SA-1 6/18, Super FX 57/58).
+
 ## Legitimate sourcing leads (`v1.1.0` research pass — leads only, nothing staged)
 
 For each `❌` gap above, concrete legitimate leads a developer could manually pursue outside this
