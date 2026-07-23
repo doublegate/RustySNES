@@ -426,9 +426,18 @@ impl Ppu {
                 self.latch_hv_counters();
                 self.io.ppu1_mdr
             }
-            // OAMDATAREAD
+            // OAMDATAREAD. Like the $2104 write, a read during a rendering scanline uses the sprite
+            // evaluator's OAM address, not the CPU's OAMADDR (MesenCE `$2138` = `GetOamAddress()`;
+            // dossier C1.08). `oam_render_redirect` returns `eval_index << 2` (< 512, low table) during
+            // the evaluation phase, else the CPU address is used. OAMADDR still auto-increments.
             0x2138 => {
-                let addr = self.io.oam_address & 0x03ff;
+                // `oam_render_redirect` returns `eval_index << 2` with `eval_index` masked to
+                // `0..=127`, so a redirected `addr` is at most 508 — always `< 0x200` (the low-table
+                // branch) and well inside the 544-byte OAM, no bound needed. The CPU fallback is
+                // masked to `0x03ff` and its `>= 0x200` values are folded into the 32-byte high table.
+                let addr = self
+                    .oam_render_redirect()
+                    .unwrap_or(self.io.oam_address & 0x03ff);
                 let out = if addr >= 0x200 {
                     self.oam[(0x200 + (addr & 0x1f)) as usize]
                 } else {
