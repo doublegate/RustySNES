@@ -1056,14 +1056,20 @@ impl Ppu {
     /// C3.04, "CGRAM access during active display hits the color currently being drawn").
     ///
     /// Recomputed on demand — only a mid-active-display CGRAM write reaches it, so the per-write cost
-    /// is irrelevant — and it reuses the exact per-line BG resolution ([`Self::render_bg`]) so it
-    /// cannot diverge from the batch composite. First compositor cut (`docs/adr/0014`, T-CA-10
-    /// Phase 3): backdrop + non-Mode-7 BGs. Sprites, Mode 7, and the color-window are resolved as the
-    /// backdrop (index 0) pending later phases — matching the deliberately-controlled screens the
-    /// C3.04 oracle uses; documented in `docs/ppu.md`.
+    /// is irrelevant — and it reuses the **exact** per-line resolution the batch uses
+    /// ([`Self::render_bg`] + [`Self::render_objects`], including window/priority), so the redirect
+    /// target cannot diverge from the drawn `above` pixel. Correct-by-construction for every non-Mode-7
+    /// screen (backgrounds, sprites, windows). **Only limitation** (`docs/adr/0014`, T-CA-10 Phase 3):
+    /// Mode 7 resolves as the backdrop — `render_mode7` carries a (vestigial) `VideoBus` param this
+    /// bus-less write path cannot supply, and a CGRAM write during Mode-7 active display is vanishingly
+    /// rare; documented in `docs/ppu.md`.
+    ///
+    /// `&mut self` because [`Self::render_objects`] mutates the `$213E` range/time over-flags; those
+    /// are snapshotted and restored here so the resolver is side-effect-free and the batch's own
+    /// `render_objects` at `RENDER_DOT` still sets them at the correct time.
     #[cfg(feature = "per-dot-compositor")]
-    pub(crate) fn in_render_above_palette(&self, x: usize) -> u8 {
-        if self.io.display_disable || self.io.bg_mode == 7 {
+    pub(crate) fn in_render_above_palette(&mut self, x: usize) -> u8 {
+        if self.io.display_disable {
             return 0;
         }
         let pr = self.mode_priorities();
@@ -1080,11 +1086,18 @@ impl Ppu {
             };
             below[c] = above[c];
         }
+        if self.io.bg_mode == 7 {
+            return above[x.min(SCREEN_WIDTH - 1)].palette;
+        }
         for bg in 0..4 {
             if pr.active[bg] {
                 self.render_bg(bg, &pr, &mut above, &mut below);
             }
         }
+        let (range_over, time_over) = (self.io.range_over, self.io.time_over);
+        self.render_objects(&pr, &mut above, &mut below);
+        self.io.range_over = range_over;
+        self.io.time_over = time_over;
         above[x.min(SCREEN_WIDTH - 1)].palette
     }
 
@@ -1974,5 +1987,36 @@ mod tests {
             "under force-blank the write must commit to the programmed index"
         );
         assert_eq!(p.cgram[0], 0x0000);
+    }
+
+    #[cfg(feature = "per-dot-compositor")]
+    #[test]
+    fn in_render_above_palette_includes_sprites() {
+        // The drawn color at a sprite-covered column is the sprite's palette, so the resolver must
+        // include sprites — not just backdrop/BG. Same sprite setup as one_sprite_renders_at_oam.
+        let mut p = Ppu::new();
+        p.write_reg(0x2100, 0x80); // force-blank for setup
+        p.write_reg(0x2101, 0x00); // OBSEL: 8x8, tile base 0
+        p.write_reg(0x2102, 0x00);
+        p.write_reg(0x2103, 0x00);
+        p.write_reg(0x2104, 10); // sprite 0 x=10
+        p.write_reg(0x2104, 0); // y=0
+        p.write_reg(0x2104, 0); // tile 0
+        p.write_reg(0x2104, 0x20); // attr: priority 2, palette group 0
+        vram_set(&mut p, 0x0000, 0x0080); // tile 0 top-left pixel = color index 1
+        p.write_reg(0x2100, 0x0f); // display on
+        p.write_reg(0x212c, 0x10); // TM: OBJ on main
+        p.v = 1; // resolving row 0 (render_objects uses scan_y = v-1)
+
+        // Sprite palette base is 128; group 0, color 1 → index 129. The resolver must see it.
+        assert_eq!(
+            p.in_render_above_palette(10),
+            129,
+            "the resolver must include sprites — the sprite pixel is the drawn color at its column"
+        );
+        // A column with no sprite/BG resolves to the backdrop (index 0).
+        assert_eq!(p.in_render_above_palette(200), 0);
+        // The resolver is side-effect-free: render_objects' over-flags were snapshotted/restored.
+        assert!(!p.io.range_over && !p.io.time_over);
     }
 }

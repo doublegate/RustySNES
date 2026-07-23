@@ -39,7 +39,7 @@ impl Ppu {
     /// 88 <= hcounter < 1096`. RustySNES' `hcounter` is `h * 4`, so `88..1096` is dots `22..274`
     /// (`ACTIVE_DOT_START..274`); the drawn output column is `h - ACTIVE_DOT_START`.
     #[cfg(feature = "per-dot-compositor")]
-    fn cgram_write_target(&self) -> u8 {
+    fn cgram_write_target(&mut self) -> u8 {
         let in_active_display = !self.io.display_disable
             && self.v >= 1
             && self.v <= self.visible_height()

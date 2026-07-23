@@ -118,9 +118,12 @@ Per `ref-docs/2026-06-24-ppu.md` §6:
     `latch.cgramAddress` is the above-pixel's palette set by the DAC's `paletteColor`). The gate is
     ares' exactly — `!displayDisable && 0 < vcounter < vdisp && 88 ≤ hcounter < 1096` (RustySNES
     dots `22..274`, since `hcounter = dot·4`); the programmed address still auto-increments. The
-    drawn index is recomputed on demand from the exact per-line BG resolution (`render_bg`), so it
-    cannot diverge from the batch composite. **First-cut scope:** backdrop + non-Mode-7 BGs; sprites,
-    Mode 7, and the color-window resolve as the backdrop pending later compositor phases. **Off by
+    drawn index is recomputed on demand from the exact per-line resolution the batch uses (`render_bg`
+    + `render_objects`, incl. window/priority; `render_objects`' `$213E` over-flag mutation is
+    snapshotted/restored so the resolver is side-effect-free), so it is **correct-by-construction for
+    every non-Mode-7 screen** — backgrounds, sprites, windows. **Only limitation:** Mode 7 resolves as
+    the backdrop (its `render_mode7` carries a vestigial `VideoBus` param the bus-less write path
+    can't supply; a CGRAM write during Mode-7 active display is vanishingly rare). **Off by
     default** (batch model never redirects) → byte-identical shipped builds. The redirect itself is
     documented-real: fullsnes/SNESdev state a CGRAM write during active display "lands at the wrong
     CGRAM address" (`ref-docs/fullsnes/30-ppu.md`), and ares pins that address as `latch.cgramAddress`
