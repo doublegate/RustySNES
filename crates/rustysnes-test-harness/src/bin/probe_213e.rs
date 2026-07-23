@@ -23,11 +23,15 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), Box<dyn Error>> {
     // The ROM path and its bytes are untrusted external input: propagate typed errors rather than
-    // panic (the no-`expect`-on-external-input guideline applies to this non-test binary too).
-    let path = std::env::args().nth(1).ok_or("usage: probe_213e <rom>")?;
-    let rom = std::fs::read(&path).map_err(|e| format!("cannot read {path}: {e}"))?;
-    let cart =
-        Cart::from_rom(&rom).map_err(|e| format!("{path} is not a valid cartridge: {e:?}"))?;
+    // panic (the no-`expect`-on-external-input guideline applies to this non-test binary too). Use
+    // `args_os`/`PathBuf` so a non-UTF-8 argv entry is handled, not panicked on, by `args()`.
+    let path: std::path::PathBuf = std::env::args_os()
+        .nth(1)
+        .ok_or("usage: probe_213e <rom>")?
+        .into();
+    let rom = std::fs::read(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let cart = Cart::from_rom(&rom)
+        .map_err(|e| format!("{} is not a valid cartridge: {e:?}", path.display()))?;
     let mut sys = System::new(0);
     sys.bus.cart = Some(cart);
     sys.reset();
