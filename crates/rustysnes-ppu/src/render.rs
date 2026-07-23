@@ -904,9 +904,17 @@ impl Ppu {
 
     /// Render sprites for the current scanline: range/time evaluation + pixel fetch.
     fn render_objects(&mut self, pr: &ModePriorities, above: &mut [Pixel], below: &mut [Pixel]) {
-        let main = self.io.main_enable[4];
-        let sub = self.io.sub_enable[4];
+        let (in_range, count, budget_ok) = self.eval_objects_range();
+        self.paint_objects(pr, above, below, &in_range, count, &budget_ok);
+    }
 
+    /// Sprite range + tile-budget evaluation for the current scanline (the `render_objects`
+    /// first phase). Collects up to 32 in-range sprites into `in_range`, sets the `$213E`
+    /// range/time over-flags, and computes which survive the 34-tile fetch budget. Returns
+    /// `(in_range, count, budget_ok)` for [`Ppu::paint_objects`] to draw. Split out from the
+    /// paint so phase 4b can drive it one dot at a time (the per-dot compositor, `docs/adr/0014`);
+    /// today it still runs whole-line, byte-identically.
+    fn eval_objects_range(&mut self) -> ([u8; 32], usize, [bool; 32]) {
         let scan_y = u32::from(self.v - 1);
 
         // Range evaluation: collect up to 32 sprites that intersect this scanline. Lower index
@@ -956,12 +964,10 @@ impl Ppu {
             self.io.time_over = true;
         }
 
-        // Paint sprites: reverse-order so lower index ends up on top (last writer wins among
-        // equal priority because we paint high index first). We honor the 34-tile limit by
-        // dropping the lowest-index sprites first (reverse fetch).
+        // Sprites paint in reverse index order so lower index ends up on top (last writer wins
+        // among equal priority). We honor the 34-tile limit by dropping the lowest-index sprites
+        // first (the HW fetches in reverse, so the lowest-index tiles are the first to be starved).
         let count = range_count.min(32);
-        // Determine which sprites survive the 34-tile budget (drop lowest index first — the HW
-        // fetches in reverse, so the lowest-index tiles are the first to be starved).
         let mut budget_ok = [true; 32];
         let mut acc = 0usize;
         for k in (0..count).rev() {
@@ -974,6 +980,26 @@ impl Ppu {
                 acc += cost;
             }
         }
+
+        (in_range, count, budget_ok)
+    }
+
+    /// Paint the evaluated, budget-surviving sprites into the `above`/`below` line buffers (the
+    /// `render_objects` second phase). Consumes the `(in_range, count, budget_ok)` produced by
+    /// [`Ppu::eval_objects_range`]. Kept a distinct phase so the per-dot compositor can fetch and
+    /// paint sprite columns independently of range evaluation (`docs/adr/0014`, phase 4b).
+    fn paint_objects(
+        &self,
+        pr: &ModePriorities,
+        above: &mut [Pixel],
+        below: &mut [Pixel],
+        in_range: &[u8; 32],
+        count: usize,
+        budget_ok: &[bool; 32],
+    ) {
+        let main = self.io.main_enable[4];
+        let sub = self.io.sub_enable[4];
+        let scan_y = u32::from(self.v - 1);
 
         // Paint from highest index to lowest (so lowest index wins ties).
         for k in (0..count).rev() {
