@@ -288,32 +288,35 @@ impl Ppu {
         if row == 0 {
             self.frame_hires = self.is_hires();
         }
+        // ALWAYS build the line, even under force-blank: display-disable is a compose-time decision
+        // (`pd_render_to_dot` outputs black per column while it is set), so a line that is blanked at
+        // its start but UN-blanked mid-line must still have real pixels ready to draw. (The batch
+        // early-returns on force-blank because it composites the whole line at once; the per-dot path
+        // cannot, since blank can toggle within the line — MesenCE fetches regardless of force-blank.)
         let mut above = [Pixel::default(); SCREEN_WIDTH];
         let mut below = [Pixel::default(); SCREEN_WIDTH];
-        if !self.io.display_disable {
-            let pr = self.mode_priorities();
-            for x in 0..SCREEN_WIDTH {
-                above[x] = Pixel {
-                    palette: 0,
-                    priority: 0,
-                    layer: 5,
-                    palette_group: 0,
-                    opaque: false,
-                    ..Pixel::default()
-                };
-                below[x] = above[x];
-            }
-            if self.io.bg_mode == 7 {
-                self.render_mode7(bus, &pr, &mut above, &mut below);
-            } else {
-                for bg in 0..4 {
-                    if pr.active[bg] {
-                        self.render_bg(bg, &pr, &mut above, &mut below);
-                    }
+        let pr = self.mode_priorities();
+        for x in 0..SCREEN_WIDTH {
+            above[x] = Pixel {
+                palette: 0,
+                priority: 0,
+                layer: 5,
+                palette_group: 0,
+                opaque: false,
+                ..Pixel::default()
+            };
+            below[x] = above[x];
+        }
+        if self.io.bg_mode == 7 {
+            self.render_mode7(bus, &pr, &mut above, &mut below);
+        } else {
+            for bg in 0..4 {
+                if pr.active[bg] {
+                    self.render_bg(bg, &pr, &mut above, &mut below);
                 }
             }
-            self.render_objects(&pr, &mut above, &mut below);
         }
+        self.render_objects(&pr, &mut above, &mut below);
         self.pd_above.copy_from_slice(&above);
         self.pd_below.copy_from_slice(&below);
         self.pd_carry = DacCarry {
