@@ -79,7 +79,15 @@ pattern the C7 sprite tests established.
 - **T-04-C · rest of register-observable Group C (~20)** — `C1.07`/`C1.08` (the `$2100` 1→0 reload
   trigger, address destroyed during render), the 9- and 10-bit `VMAIN` remap rotations,
   CGRAM-during-render, counter-flipflop independence, `C7.04`–`C7.09` sprite flag set positions,
-  `C9.05` overscan vblank deferral, `C11.07`/`C11.08` MPY latch corruption and MPY-during-render.
+  `C9.05` overscan vblank deferral, and `C11.07` MPY latch corruption. (`C11.08`, MPY-during-render,
+  turned out **not** reachable-now — blocked on hardware capture; see its own subsection below.)
+  Note on `C7.05`/`C7.06`: the *line* the over-flags set on is now correct (the per-dot compositor is
+  the default renderer and matches MesenCE at line 100 — the batch was the one-line-late path and is
+  gone), but `C7.05` asserts the exact *dot* too (`H = OAM.INDEX*2`), which RustySNES does not yet
+  model — `range_over`/`time_over` still flip in the whole-line `eval_objects_range` pass, not at the
+  33rd in-range sprite's cycle. Scoring them needs the 4b **incremental over-flag dot cursor**
+  (`pd_eval_over_flags`, MesenCE `EvaluateNextLineSprites`/`FetchSpriteData`) built first; it is the
+  next per-dot increment.
 - **T-04-G · Group G (10 uncovered)** — power-on / reset state. The mechanism is done and has
   several consumers (the Group-G power-on tests plus `D1.11`/`B5.05`; `g1_05` added the PPU-register
   sample): `capture_power_on` in `asm/runtime.s` runs at the top of reset, *before*
@@ -204,6 +212,30 @@ revision and stay there.
 
 So `C13.01`-`C13.06` stay uncovered on purpose, and the coverage report lists them as such. The
 other four (`C13.07`-`C13.10`, the open-bus latches) are CPU-observable and already covered on-cart.
+
+### `C11.08` — MPY during active display — blocked on hardware capture, not reachable-now
+
+The Phase-6 scored-row batch was `C3.04`, `C1.08`, `C7.16`, `C11.08`. The first three landed once the
+per-dot compositor became the default renderer (`#227`). `C11.08` does not, and the reason is worth
+recording so it is not re-attempted as a "reachable now" row.
+
+The assertion is *"MPY during active display holds intermediate per-pixel rotation results"* — i.e. a
+`$2134`-`$2136` read mid-frame in Mode 7 returns the renderer's last per-pixel matrix product, not the
+CPU-programmed `M7A * (M7B >> 8)`. **No available reference models this.** MesenCE
+(`Core/SNES/SnesPpu.cpp:1808-1820`) computes the read combinatorially from `Mode7.Matrix[0/1]` with no
+render-time latch; snes9x does the same; and RustySNES (`rustysnes-ppu/src/regs.rs:417`) matches both.
+So every reference returns the CPU product and would agree with each other on the *wrong* value — the
+"three emulators agree ⇒ suspect the test" signature, here from a shared modelling gap rather than a
+harness bug.
+
+That rules out both scoring routes. A golden needs a reference the render agrees with (ADR 0013);
+there is none. A self-scoring "the read differs from `M7A*(M7B>>8)` during render" assertion would be
+**vacuous** — it passes on whatever RustySNES happens to return, verifying that a value changed, not
+that it changed to the hardware value (the vacuous-test trap this document warns about repeatedly).
+Modelling the exact intermediate would require a hardware capture of the Mode-7 per-pixel
+multiply sequence at a known dot, which we do not have. It therefore stays **uncovered on purpose**,
+blocked on that capture — the same standing as `C13`. `C11.07` (the shared-latch corruption between the
+two `M7A` writes) is a separate, CPU-observable errata case and remains a legitimate on-cart row.
 
 ### `E7.07` — parked after one attempt, with a measurement worth keeping
 
@@ -1611,7 +1643,8 @@ exists.
 
   Remaining under this ticket: `C5.05`/`C5.12`-`C5.14` (tilemap sizes, bitplane layouts),
   `C6.07` (wraparound), `C8.01`/`C8.09`/`C8.12`, `C10.03`/`C10.04`, `C11.02`/`C11.03`/`C11.12`,
-  `C12.02`. `C11.07`/`C11.08` are MPY-latch behaviour and belong on-cart, not in a scene. `C5.06`/`C5.07`
+  `C12.02`. `C11.07` is MPY-latch behaviour and belongs on-cart, not in a scene (`C11.08` is blocked on
+  hardware capture — its own subsection above). `C5.06`/`C5.07`
   and most of `C9` are hi-res and need the scene region's 256x224 contract widened first — that
   contract exists because emulators disagree about geometry, so widening it means re-deriving each
   host's `FIRST_ROW` for 512-wide output rather than merely relaxing an assertion.
