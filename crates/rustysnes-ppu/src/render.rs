@@ -2156,4 +2156,38 @@ mod tests {
             "the high table must be untouched under force-blank"
         );
     }
+
+    #[cfg(feature = "per-dot-compositor")]
+    #[test]
+    fn oam_eval_seed_uses_priority_rotation_base_at_line_start() {
+        use crate::bus::NullVideoBus;
+        let mut p = Ppu::new();
+        let mut bus = NullVideoBus;
+        p.write_reg(0x2100, 0x0f); // display enabled
+        p.write_reg(0x2103, 0x80); // OAM priority rotation ON
+        p.write_reg(0x2102, 0x20); // OAMADDL → OAMADDR = 0x40
+        p.v = 50; // a visible line
+        p.pd_fetch_line(&mut bus);
+        assert_eq!(
+            p.pd_oam_eval_seed,
+            ((0x40u16 >> 2) & 0x7f) as u8, // 0x10
+            "with priority rotation the evaluation index seeds from (OAMADDR >> 2) at line start"
+        );
+        // At dot 100 the redirect then reads seed + (100>>1) = 0x10 + 50 = 66 → render_addr 0x108.
+        p.h = 100;
+        p.write_reg(0x2104, 0xcd);
+        assert_eq!(
+            p.oam[0x200 + 16],
+            0xcd,
+            "the priority-rotation seed shifts the redirect's high-table target ((0x108&0x1F0)>>4=16)"
+        );
+
+        // With rotation OFF the seed is 0 regardless of OAMADDR.
+        p.write_reg(0x2103, 0x00);
+        p.pd_fetch_line(&mut bus);
+        assert_eq!(
+            p.pd_oam_eval_seed, 0,
+            "without priority rotation the evaluation index seeds from 0"
+        );
+    }
 }

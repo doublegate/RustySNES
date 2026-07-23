@@ -353,17 +353,17 @@ impl Ppu {
     /// when the CPU's `OAMADDR` is used as normal. During a rendering scanline (`!displayDisable &&
     /// 0 < v <= vdisp`) the PPU's sprite evaluator owns the OAM address bus; MesenCE models this as
     /// `GetOamAddress` returning `_oamEvaluationIndex << 2` for the evaluation phase (dots 0..=255,
-    /// two cycles per sprite). The evaluation index at dot `h` is `seed + (min(h,255)+1)/2`, seeded
-    /// at line start in [`Ppu::pd_fetch_line`]. This is the low-table byte address (always even, so
-    /// the low-table write only latches) — the *visible* effect is the paired high-table write in
-    /// [`Ppu::write_oamdata`], the Uniracers in-render OAM corruption. The fetch phase (dots 256+,
-    /// `_oamTimeIndex`) is not yet modelled and awaits the incremental range evaluator.
+    /// two cycles per sprite). Sprite `i` occupies dots `2i` and `2i+1`, so the OAM entry on the bus
+    /// at dot `h` is `seed + (h >> 1)` — seeded at line start in [`Ppu::pd_fetch_line`]. This is the
+    /// low-table byte address (always even, so the low-table write only latches) — the *visible*
+    /// effect is the paired high-table write in [`Ppu::write_oamdata`], the Uniracers in-render OAM
+    /// corruption. The fetch phase (dots 256+, `_oamTimeIndex`) is not yet modelled and awaits the
+    /// incremental range evaluator.
     #[cfg(feature = "per-dot-compositor")]
     const fn oam_render_redirect(&self) -> Option<u16> {
         let rendering = !self.io.display_disable && self.v >= 1 && self.v <= self.visible_height();
         if rendering && self.h <= 255 {
-            let advance = (self.h + 1) >> 1;
-            let eval_index = (self.pd_oam_eval_seed as u16 + advance) & 0x7f;
+            let eval_index = (self.pd_oam_eval_seed as u16 + (self.h >> 1)) & 0x7f;
             Some(eval_index << 2)
         } else {
             None
