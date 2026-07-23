@@ -345,8 +345,9 @@ impl Ppu {
     /// range/time over-flags (MesenCE `EvaluateNextLineSprites`). Two dots per sprite over
     /// `0..=255`; the in-range check for sprite `seed + (h >> 1)` happens on its second (odd) dot.
     /// It evaluates the NEXT display line (`scan_y = self.v`) — one line ahead of the paint's
-    /// `self.v - 1`, the offset `scripts/probes/eval-line-213e` measured against MesenCE — and, like
-    /// the batch model, stops counting in-range sprites past the 32nd (the 33rd only trips
+    /// `self.v - 1` — matching how MesenCE evaluates scanline `L` during `L` and paints on `L+1`
+    /// (grounded by `scripts/probes/eval-line-213e`). Like the batch model it stops counting in-range
+    /// sprites past the 32nd (the 33rd only trips
     /// `range_over`) and tiles with them. Idempotent under force-blank aside, so a mid-line save that
     /// re-runs `pd_fetch_line` on load re-derives the same cursor and flags.
     #[cfg(feature = "per-dot-compositor")]
@@ -2318,8 +2319,10 @@ mod tests {
         // The over-flag is evaluated for the NEXT display line (scan_y = v), so Y=100 sprites trip it
         // during scanline 100 — one line ahead of where they paint (scan_y = v-1, i.e. v=101). It sets
         // on the 33rd sprite's evaluation dot (2 dots/sprite from 0: h = 2*32 + 1 = 65); the detection
-        // reads `p.h` after `tick_dot`'s post-render increment, so it observes h=66. Pinned against
-        // MesenCE by scripts/probes/eval-line-213e (both read scanline 100).
+        // reads `p.h` after `tick_dot`'s post-render increment, so it observes h=66. This internal
+        // (100, 66) matches MesenCE's EvaluateNextLineSprites; it is the acceptance test for the cursor,
+        // since scripts/probes/eval-line-213e's V-counter sampling can only resolve the coarser
+        // per-dot-vs-batch line parity, not this dot.
         assert_eq!(
             first,
             Some((100, 66)),

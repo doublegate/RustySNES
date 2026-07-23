@@ -168,9 +168,12 @@ Per `ref-docs/2026-06-24-ppu.md` §6:
     granularity. Crucially it evaluates the **next** display line (`scan_y = self.v`), one line ahead
     of the paint's `scan_y = self.v-1`: MesenCE evaluates scanline *L*'s over-condition during *L* and
     displays those sprites on *L+1* (the SNES sprite +1 Y-offset), so the flag becomes observable one
-    line before the sprites paint. This eval-line offset and the 33rd-sprite dot were **measured**
-    against MesenCE by `scripts/probes/eval-line-213e` (both now read scanline 100 for Y=100 sprites;
-    the batch model stays one line late, unchanged). The cursor is transient — reset per line, not
+    line before the sprites paint. The MesenCE model was grounded with `scripts/probes/eval-line-213e`,
+    which resolves that the per-dot path matches MesenCE (scanline 100) while the **batch** is one line
+    late (101). The cursor's finer effect — internal `(scanline 101, dot 1)` → `(scanline 100, dot 66)`,
+    matching MesenCE's `EvaluateNextLineSprites` — is below that probe's V-counter resolution, so the
+    acceptance test is the unit test `incremental_range_over_sets_on_next_line_at_the_33rd_sprite`,
+    which asserts the internal `(100, 66)` directly. The cursor is transient — reset per line, not
     serialized (the over-flags themselves are, and a deterministic re-eval on load reproduces it).
     The batch model keeps setting the flags at whole-line granularity in `eval_objects_range`
     (byte-identical shipped behaviour).
