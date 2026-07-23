@@ -104,12 +104,16 @@ The exact CGRAM latch `internal_cgram_address` (= last-drawn palette) replaces t
 Feature-gated `Ppu` fields are transient (not save-stated; re-fetched per line). **VERIFIED: feature-OFF
 byte-identical (29 tests); feature-ON byte-identical on 26/29 undisbeliever (static); clippy+fmt clean both.**
 
-**Open at 4a:** the 3 mid-line INIDISP undisbeliever ROMs shift but don't match MesenCE (`inidisp_forgot` renders
-`7fff` vs MesenCE `7fc6`; the BATCH renders `34e6`, so even the old model was wrong for it). Findings: that ROM
-does ZERO `$2122` writes (redirect irrelevant) and its artifact is PPU-access-during-active-display (VRAM/OAM),
-a deep quirk = **Phase 4d**. MesenCE applies INIDISP live per-segment with NO write-delay (so brightness_delay is
-not a simple systematic fix). These are undisbeliever, NOT AccuracySNES scored rows — they gate the corpus
-re-bless, not coverage. **DON'T chase one ROM; do the systematic phases:**
+**4a VALIDATED ACCURATE vs MesenCE — 28/29 correct.** Rendered the 3 mid-line INIDISP ROMs in MesenCE and
+compared to per-dot flag-ON: `inidisp_brightness_delay` MATCHES exactly (7fff/white is a legit color there);
+`inidisp_enable_display_mid_frame` NEARLY matches (dominant counts align, minor color-value diffs on ~2k px);
+ONLY `inidisp_forgot_to_force_blank` is genuinely wrong (`7fff` vs MesenCE `7fc6`, less black) — it does ZERO
+`$2122` writes, so its artifact is PPU-access-during-active-display (VRAM/OAM), a deep quirk = **Phase 4d**. So
+the per-dot COMPOSE is correct on 28/29, not merely byte-identical-on-static. **CONSTRAINT: the undisbeliever
+golden is shared flag-on/off, so it CANNOT re-bless to the more-accurate per-dot values without breaking
+flag-OFF — it stays batch-valued until Phase 6's default flip; flag-ON "failing" the 3 INIDISP goldens is
+expected and fine.** MesenCE applies INIDISP live per-segment, no write-delay. **DON'T chase inidisp_forgot;
+do the systematic phases:**
 
 - **4b — incremental sprite-eval cursor.** Split `render_objects` range/time eval (sets `$213E` over-flags) from
   paint; run the eval incrementally over dots per MesenCE `EvaluateNextLineSprites`. Fixes over-flag DOT timing
