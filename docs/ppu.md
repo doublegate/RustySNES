@@ -127,12 +127,16 @@ Per `ref-docs/2026-06-24-ppu.md` §6:
     programmed address still auto-increments. Documented-real: fullsnes/SNESdev state a CGRAM write
     during active display "lands at the wrong CGRAM address" (`ref-docs/fullsnes/30-ppu.md`).
     **Off by default** (batch model never redirects) → byte-identical shipped builds.
-    **Status (in progress):** flag-ON is byte-identical on the static corpus (26/29 undisbeliever);
-    the three mid-line INIDISP ROMs now shift as intended, but the exact raster timing does not yet
-    match MesenCE (`inidisp_forgot_to_force_blank` renders `7fff` vs MesenCE's `7fc6` — a
-    compose-vs-CPU-write ordering / INIDISP-per-column issue under debug). The per-dot state is
-    transient (re-fetched at each line start), so it is not save-stated; a mid-line save under this
-    experimental flag re-fetches on load.
+    **Status:** flag-ON is **validated accurate against MesenCE on 28/29 undisbeliever ROMs** —
+    byte-identical to the batch on the 26 static ROMs, and matching MesenCE on `inidisp_brightness_delay`
+    (exact) and `inidisp_enable_display_mid_frame` (near). The sole mismatch,
+    `inidisp_forgot_to_force_blank` (`7fff` vs MesenCE `7fc6`), does **zero** CGRAM writes — its
+    artifact is PPU VRAM/OAM access during active display, a deeper quirk scoped to Phase 4d, not a
+    CGRAM-redirect issue. The 3 INIDISP undisbeliever goldens are shared flag-on/off, so they stay
+    batch-valued (flag-ON "fails" them because it is *more* accurate) until Phase 6's default flip
+    re-blesses the corpus. The per-dot state is transient (re-fetched at each line start), so it is not
+    save-stated; `Ppu::load_state` invalidates it (forcing a re-fetch) and a mid-line save re-fetches
+    on load. Over-flag dot-timing and mid-line BG-scroll are Phase 4b/4c follow-ups.
 
 ## Frame structure / resolutions
 

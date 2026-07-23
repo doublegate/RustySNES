@@ -46,7 +46,7 @@ impl Ppu {
             && self.v >= 1
             && self.v <= self.visible_height()
             && self.h >= crate::ACTIVE_DOT_START
-            && self.h < 274;
+            && self.h < crate::HBLANK_START_DOT;
         if in_active_display {
             self.internal_cgram_address
         } else {

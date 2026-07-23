@@ -112,6 +112,12 @@ pub const SCREEN_HEIGHT: usize = 239;
 /// First active output dot on a visible line.
 const ACTIVE_DOT_START: u16 = 22;
 
+/// First horizontal-blank dot: active output ends and horizontal blanking begins here
+/// (`docs/ppu.md`, dot-clock timeline). Also the exclusive upper bound of the in-render CGRAM/OAM
+/// redirect window (ares `hcounter < 1096`, i.e. dot `< 274`) — shared between `tick_dot`'s blanking
+/// test and `cgram_write_target`'s gate so the two cannot desync.
+const HBLANK_START_DOT: u16 = 274;
+
 /// Dots by which the HV-IRQ horizontal comparator lags the programmed `HTIME`, modelling the
 /// SNES hardware communication delay between the counter unit and the CPU's interrupt logic
 /// (ares `hcounter(10) == (HTIME+1)<<2` ⇒ fire at dot `HTIME + 3.5`; see `check_hv_irq`).
@@ -857,7 +863,7 @@ impl Ppu {
     /// [`VideoBus::notify_vblank`] when `VBlank` begins. Hot path: allocation-free.
     pub fn tick_dot(&mut self, bus: &mut impl VideoBus) {
         // HBlank region: dots 274..=340 (active output ends near dot 274).
-        self.hblank = self.h >= 274 || self.h < ACTIVE_DOT_START;
+        self.hblank = self.h >= HBLANK_START_DOT || self.h < ACTIVE_DOT_START;
 
         // HV-IRQ comparator (level): fire when the enabled H and/or V positions match.
         self.check_hv_irq();
@@ -1240,6 +1246,18 @@ impl Ppu {
                 "PPU0 section has {} trailing byte(s)",
                 s.remaining()
             )));
+        }
+        // The per-dot compositor's line state is transient (not part of the serialized format —
+        // re-derived per line), so it must be INVALIDATED here: a pre-load `pd_fetched_line` that
+        // coincidentally equals the just-loaded `self.v` would otherwise skip the re-fetch in
+        // `pd_render_to_dot` and composite the new line from the previous state's stale cursor/pixels,
+        // breaking determinism. `u16::MAX` forces a fresh `pd_fetch_line` on the next dot.
+        #[cfg(feature = "per-dot-compositor")]
+        {
+            self.pd_fetched_line = u16::MAX;
+            self.pd_draw_x = 0;
+            self.pd_carry = render::DacCarry::default();
+            self.internal_cgram_address = 0;
         }
         Ok(())
     }
