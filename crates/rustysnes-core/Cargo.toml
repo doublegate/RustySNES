@@ -7,7 +7,13 @@ license.workspace = true
 authors.workspace = true
 
 [features]
-default = ["std"]
+# Phase 6 (T-CA-10) flipped `per-dot-compositor` ON by default here: it propagates to the frontend
+# and the test harness (both consume this crate with default features), so the shipped emulator and
+# the golden corpus render through the accurate per-dot PPU. The batch path stays reachable with
+# `--no-default-features` (the `no_std`/thumbv7em gate builds it that way) and is byte-identical to
+# the pre-flip renders. See `crates/rustysnes-ppu/Cargo.toml` for the compositor and the one
+# documented per-dot gap (`inidisp_forgot_to_force_blank`, pending Phase 4d).
+default = ["std", "per-dot-compositor"]
 # Gates the `facade` module (`EmuCore`, needs `zip` archive extraction) — vanishes entirely from
 # the `no_std` build (`--no-default-features`, the thumbv7em CI gate).
 std = ["dep:zip"]

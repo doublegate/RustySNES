@@ -7,14 +7,17 @@ license.workspace = true
 authors.workspace = true
 
 [features]
-default = ["std"]
+default = ["std", "per-dot-compositor"]
 std = []
 # Per-dot PPU compositor accuracy (`docs/adr/0014`, ticket T-CA-10) — off by default, additive, and
 # byte-identical to the batch compositor on any ROM that does not access CGRAM/OAM mid-active-display.
 # First increment: the in-render CGRAM write redirect (a CGRAM write during active display hits the
 # color currently being drawn, not the CPU-programmed index — dossier C3.04, ares `PPU::writeCGRAM`).
-# Phased rollout: stays off until the full ON path lands and the golden corpus is re-blessed against
-# reference-agreeing renders (Phase 6), at which point the AccuracySNES mid-line rows count by default.
+# Phase 6 (T-CA-10) flipped this ON by default: the per-dot compositor is the shipped renderer, and the
+# golden corpus is re-blessed to per-dot values that agree with the MesenCE oracle. The batch path is
+# still reachable with `--no-default-features` (or without this feature) and stays byte-identical to the
+# pre-flip renders — the `no_std`/portable gates build it that way. `inidisp_forgot_to_force_blank` is a
+# documented per-dot gap pending Phase 4d (PPU access during active display), tracked as expected-fail.
 per-dot-compositor = []
 # HD texture pack tile-identity hashing + the `Ppu`-side `TileTag` recording hook (`v1.3.0`,
 # `hdtag` module + `Ppu::set_hd_pack_tagging`/`Ppu::tile_tags`) -- off by default, purely

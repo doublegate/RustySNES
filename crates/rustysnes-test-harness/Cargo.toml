@@ -7,7 +7,10 @@ license.workspace = true
 authors.workspace = true
 
 [features]
-default = []
+# Phase 6 (T-CA-10): per-dot is on by default (matching `rustysnes-core`'s flipped default), so this
+# crate's own `#[cfg(feature = "per-dot-compositor")]` code (e.g. the golden gate's documented gaps)
+# tracks the actual rendered path. The batch path is `--no-default-features`.
+default = ["per-dot-compositor"]
 test-roms = []          # compiles the committed CC0/public-domain suites + integration tests
 commercial-roms = []    # the local-dump oracle (ROMs gitignored; commit only screenshots/.snap)
 # Builds the accurate PPU path (`docs/adr/0014`, T-CA-10) so the golden corpus can be run flag-ON.

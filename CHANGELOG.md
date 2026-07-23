@@ -99,7 +99,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   snes9x + Mesen2 cross-validation agree with no new divergences — the multi-block continue is
   standard IPL behavior all three implement.
 
+### Changed
+
+- **The per-dot PPU compositor (`docs/adr/0014`, T-CA-10) is now the shipped default renderer.** The
+  `per-dot-compositor` feature is on by default in `rustysnes-core` (propagating to the frontend and
+  the test harness) and in `rustysnes-ppu`/`rustysnes-test-harness`; the batch compositor stays
+  reachable, byte-identical to the pre-flip renders, via `--no-default-features` (the `no_std`/
+  thumbv7em gate builds it that way, verified). The shipped emulator now composites one dot at a time
+  with live registers, so a CGRAM/OAM access during active display hits the color/sprite-eval address
+  the hardware is drawing rather than the CPU-programmed one. The AccuracySNES self-scoring battery is
+  **294/294 both ways** (zero regression) and the shared framebuffer corpus is re-blessed to the
+  per-dot values, each cross-validated against the MesenCE oracle: `inidisp_brightness_delay` and
+  `inidisp_enable_display_mid_frame` move to their MesenCE-agreeing per-dot hashes. One documented gap
+  remains — `undisbeliever/inidisp_forgot_to_force_blank` (a PPU access during active display without
+  forced blank) renders `7fff` where MesenCE renders `7fc6`; it is pinned as a known per-dot gap
+  pending Phase 4d (PPU access-during-render) rather than blessed. `C1.08` is declared region-dependent
+  (its mid-render `$2138` read samples a dot-sensitive address the region's frame timing shifts).
+
 ### Fixed
+
+- **AccuracySNES no longer regresses its OAM tests on a Select restart under the per-dot compositor.**
+  The battery's standing precondition is forced blank (`INIDISP=$8F`), which is what lets the OAM port
+  return the CPU-programmed address; the cold-boot path sets it at reset before `restart_entry`, but a
+  Select restart re-entered with the menu's display ON and `init_registers` never touched INIDISP, so
+  the C1.01-C1.05/C1.03b OAM tests re-ran mid-render — where the per-dot PPU correctly redirects OAM to
+  the sprite-evaluation index and the read-back no longer matched the written value (6 tests `Pass` ->
+  `Fail`). `run_all_tests` now establishes forced blank at its own entry so every entry path shares the
+  precondition. A no-op under the batch compositor.
 
 - **`$4210`/`$4211` now hold their flag for four master clocks after the edge (cycle-accuracy,
   Tier-1 T-CA-02 — completes the ticket).** RDNMI and TIMEUP previously cleared their flag on every

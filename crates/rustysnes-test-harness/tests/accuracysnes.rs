@@ -544,6 +544,12 @@ const SCENE_DONE_MARK: u8 = 0x5A;
 const V_CURSOR: u32 = 0x7E_E000;
 const V_SCROLL: u32 = 0x7E_E002;
 
+/// Frame ceiling for the menu-interaction tests to reach the interactive menu (bounds CI time; not
+/// a timeout on a legitimate run). The tilemap base and column stride of the drawn name list.
+const MENU_FRAMES: u32 = 3000;
+const MAP_BASE: u16 = 0x0400;
+const SCREEN_COLS: u16 = 32;
+
 /// The Down bit of the 16-bit `BYsSUDLR` controller word.
 const PAD_UP: u16 = 0x0800;
 const PAD_DOWN: u16 = 0x0400;
@@ -681,6 +687,15 @@ const REGION_DEPENDENT: &[(&str, &str)] = &[
     (
         "B2.10",
         "the region bit itself; this changing is the whole point of the second image",
+    ),
+    (
+        "C1.08",
+        "the mid-render $2138 read samples the renderer-driven OAM address at an uncontrolled dot \
+         (enter_active_display burns a fixed cycle count, not to a fixed dot); under the per-dot \
+         compositor that address is eval_index<<2, and whether it lands on $80 (variant 2) or not \
+         (variant 1) is dot-sensitive, so the region's frame timing shifts which variant is \
+         recorded. Making this region-independent needs a controlled-dot (HV-IRQ) read — the \
+         scored-conversion follow-up, not a batch-vs-per-dot regression",
     ),
 ];
 
@@ -1510,10 +1525,9 @@ fn the_menu_still_draws_after_the_battery() {
     // `draw_screen` runs after `run_scenes`, not after the battery — about 700 frames later, since
     // each of the 50 scenes is settled and held. Waiting on the battery's sentinel and then a
     // handful of frames lands in the middle of the scene loop, with the tilemap still cleared.
-    // A budget of its own, larger than `MAX_FRAMES`: this is the only check that waits for the
-    // *whole* cartridge — battery, then every rendered scene settled and held, and only then the
-    // menu. Everything else stops at the battery's sentinel.
-    const MENU_FRAMES: u32 = 3000;
+    // A budget of its own, larger than `MAX_FRAMES` (module-level `MENU_FRAMES`): this is the only
+    // check that waits for the *whole* cartridge — battery, then every rendered scene settled and
+    // held, and only then the menu. Everything else stops at the battery's sentinel.
     let mut frames = 0;
     while frames < MENU_FRAMES && sys.bus.peek_wram(R_SCENE_DONE) != SCENE_DONE_MARK {
         sys.run_frame();
@@ -1528,11 +1542,8 @@ fn the_menu_still_draws_after_the_battery() {
         sys.run_frame();
     }
 
-    // BG1's tilemap starts at word $0400; the title is row 0. Tile indices are ASCII-derived, so
-    // the row's low bytes spell the title back.
-    const MAP_BASE: u16 = 0x0400;
-    /// Tilemap stride, matching `runtime.inc`'s `SCREEN_COLS`.
-    const SCREEN_COLS: u16 = 32;
+    // BG1's tilemap starts at word $0400 (module-level `MAP_BASE`); the title is row 0. Tile indices
+    // are ASCII-derived, so the row's low bytes spell the title back. `SCREEN_COLS` is the stride.
     let row: String = (0..24)
         .map(|i| {
             let c = (sys.bus.ppu.vram_word(MAP_BASE + i) & 0xFF) as u8;
@@ -1598,6 +1609,11 @@ fn the_menu_still_draws_after_the_battery() {
 /// the second half is the one that matters, since a desynchronised instruction stream shows up as a
 /// screen that stops changing rather than as a wrong value anywhere.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one linear menu-interaction script (scroll, wrap, re-run, restart) read top-to-bottom; \
+              splitting it would scatter the shared cart/System setup across helpers"
+)]
 fn the_dpad_scrolls_the_list() {
     if !rom_path().is_file() {
         eprintln!("SKIP accuracysnes: ROM absent");
@@ -1611,7 +1627,6 @@ fn the_dpad_scrolls_the_list() {
     sys.bus.set_joypad(0, PAD_CONTRACT);
     sys.bus.set_joypad(1, PAD2_CONTRACT);
 
-    const MENU_FRAMES: u32 = 3000;
     let mut frames = 0;
     while frames < MENU_FRAMES && sys.bus.peek_wram(R_SCENE_DONE) != SCENE_DONE_MARK {
         sys.run_frame();
@@ -1713,7 +1728,6 @@ fn the_dpad_scrolls_the_list() {
     // Still alive: the header is intact and the list still holds a real name. A ROM that fell off
     // the rails leaves the last drawn frame on screen, so checking the tilemap is not enough on its
     // own — the cursor moving above is what proves it is still executing the menu loop.
-    const MAP_BASE: u16 = 0x0400;
     let title: String = (0..12)
         .map(|i| char::from((sys.bus.ppu.vram_word(MAP_BASE + i) & 0xFF) as u8))
         .collect();
@@ -1797,8 +1811,9 @@ fn the_dpad_scrolls_the_list() {
         .iter()
         .position(|t| t.id == "F1.07")
         .expect("F1.07 is in the catalog");
+    let f107_idx = u32::try_from(f107_idx).expect("F1.07 index fits u32");
     assert_eq!(
-        sys.bus.peek_wram(R_STATUS_BASE + f107_idx as u32),
+        sys.bus.peek_wram(R_STATUS_BASE + f107_idx),
         0xFF,
         "F1.07 did not stand down as SKIP on the restart — it must not report a failure"
     );

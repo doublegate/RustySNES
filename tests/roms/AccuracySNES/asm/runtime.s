@@ -535,6 +535,22 @@ restart_entry:
     rep #$30
     .a16
     .i16
+    ; Forced blank is the battery's standing precondition (see the module header in tests/ppu.rs):
+    ; the OAM/VRAM/CGRAM ports are only architecturally accessible outside active display, and
+    ; nearly every test reads or writes them. The cold-boot caller sets INIDISP = $8F before it
+    ; jsr's here, but a Select restart re-enters at `restart_entry` with the display ON (the menu was
+    ; on screen) and `init_registers` never touches INIDISP — so a restart would run the whole
+    ; battery mid-render. That is invisible under the batch compositor but not under the per-dot PPU:
+    ; an OAM access during active display is correctly redirected to the sprite-evaluation index, so
+    ; C1.01-C1.05/C1.03b read back the render address rather than the CPU-written value and fail.
+    ; Establish forced blank here, at the battery entry, so every entry path shares the precondition.
+    sep #$20
+    .a8
+    lda #$8F
+    sta INIDISP
+    rep #$30
+    .a16
+    .i16
     ; Publish the block header up front so a harness that samples early can tell the difference
     ; between "not started" and "no such block".
     lda #$4341                  ; "AC" little-endian
