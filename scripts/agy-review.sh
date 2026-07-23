@@ -79,13 +79,102 @@ log "reviewing ${REPO}#${PR}"
 
 # Remove every temp file on exit. Pre-declared so the trap is safe under `set -u` even if the
 # script exits before a given file is created.
-diff_file= meta_file= prompt_file= out_file= raw= body_file= agy_diff_file=
-trap 'rm -f "$diff_file" "$meta_file" "$prompt_file" "$out_file" "$raw" "$body_file" "$agy_diff_file"' EXIT
+diff_file= diff_err= meta_file= prompt_file= out_file= raw= body_file= agy_diff_file=
+# Set when the large-diff fallback below creates refs/agy/* so the trap can remove them.
+agy_refs_created=
+cleanup() {
+  rm -f "$diff_file" "$diff_err" "$meta_file" "$prompt_file" "$out_file" "$raw" "$body_file" "$agy_diff_file"
+  if [ -n "$agy_refs_created" ] && [ -n "${PR:-}" ]; then
+    git update-ref -d "refs/agy/pr-${PR}" 2>/dev/null || true
+    git update-ref -d "refs/agy/base-${PR}" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
 
-# --- fetch the diff + metadata -------------------------------------------------
+# --- fetch metadata first, because the fork gate + the large-diff fallback depend on it ---
+# FAIL-CLOSED. A `{}` fallback was harmless when the only field read was the title,
+# but is NOT harmless now that isCrossRepository gates whether an untrusted diff
+# reaches agy: a lookup failure must never be indistinguishable from "same-repo".
 diff_file="$(mktemp)"; meta_file="$(mktemp)"
-gh pr diff "$PR" --repo "$REPO" > "$diff_file" || { log "gh pr diff failed"; exit 1; }
-gh pr view "$PR" --repo "$REPO" --json title > "$meta_file" 2>/dev/null || echo '{}' > "$meta_file"
+gh pr view "$PR" --repo "$REPO" --json title,isCrossRepository,baseRefName > "$meta_file" \
+  || { log "gh pr view failed; refusing to review without knowing the PR's head repo"; exit 1; }
+
+# THE FORK GATE (see the trust model at the agy invocation below). The workflow `if:`
+# blocks fork PRs on the `pull_request` trigger, but it CANNOT do so on `issue_comment`:
+# that payload carries no head-repo information at all, so a collaborator commenting
+# `/agy-review` on a fork PR would otherwise schedule this job against an external diff.
+# A trusted person typing the command does not make the DIFF trusted -- and the diff is
+# what agy ingests, under --dangerously-skip-permissions, on the maintainer's machine.
+# Enforced here because this is the first point where the answer is knowable.
+# NOT `.isCrossRepository // empty` -- jq's `//` treats `false` as absent, so the
+# alternative fires on exactly the same-repo case this gate is meant to admit, and every
+# legitimate review would be refused. Read the raw value and match all three shapes.
+is_fork="$(jq -r '.isCrossRepository' "$meta_file")"
+case "$is_fork" in
+  true)
+    log "PR #${PR} is from a fork; refusing to run agy on an external diff"
+    log "(review it by hand, or push the branch into this repo first)"
+    exit 0
+    ;;
+  false) : ;;
+  *) log "could not determine whether PR #${PR} is cross-repository; refusing"; exit 1 ;;
+esac
+
+# --- fetch the diff, with a fallback for a diff over GitHub's API line limit -----
+# `gh pr diff` can fail for two very different reasons and they must not be
+# conflated. A genuine error (auth, network, bad PR) is fatal. But GitHub's API
+# also refuses any diff over 20,000 lines with HTTP 406, and that is not an error
+# -- it just means the PR is too large to fetch through the API. A large PR is
+# exactly the one worth reviewing, so fall back to computing the diff locally.
+#
+# SECURITY: this fetches the PR's objects but NEVER checks them out. The working
+# tree is untouched, and the PR content is treated exactly as the API diff was --
+# read-only bytes that become prompt text and are never executed. So the fallback
+# does not widen the trust boundary the workflow already sets: whatever governs
+# whether a given PR's diff is allowed to reach agy at all (the workflow `if:`
+# author-association gate; see the trust model at the agy invocation below) is
+# unchanged, and this only changes HOW an already-permitted diff is obtained when
+# it is too large for the API. `refs/agy/*` are private namespaces (cannot clobber
+# a real branch) and are removed on exit. Auth goes through `http.extraheader` for
+# the one fetch rather than a persisted credential, so a `persist-credentials:
+# false` checkout stays intact; a hand-run without GH_TOKEN falls through to git's
+# ambient credential helper.
+diff_err="$(mktemp)"
+if ! gh pr diff "$PR" --repo "$REPO" > "$diff_file" 2>"$diff_err"; then
+  if grep -qi 'diff exceeded the maximum number of lines' "$diff_err"; then
+    base_ref="$(jq -r '.baseRefName // empty' "$meta_file")"
+    if [ -z "$base_ref" ] || [ "$base_ref" = "null" ]; then
+      log "diff exceeds the API limit and the base branch is unknown; cannot fall back"
+      exit 1
+    fi
+    log "diff exceeds GitHub's 20,000-line API limit; falling back to a local git diff"
+    pr_ref="refs/agy/pr-${PR}"
+    base_local="refs/agy/base-${PR}"
+    agy_refs_created=1
+    fetch_refspecs=( "+refs/pull/${PR}/head:${pr_ref}" "+refs/heads/${base_ref}:${base_local}" )
+    # `bearer` is what Actions' GITHUB_TOKEN accepts; a personal token from
+    # `gh auth token` is rejected ("remote: invalid credentials"), so a hand-run
+    # falls through to git's ambient credentials. Neither path persists anything.
+    if [ -n "${GH_TOKEN:-}" ] \
+       && git -c "http.extraheader=AUTHORIZATION: bearer ${GH_TOKEN}" fetch --no-tags --quiet \
+              origin "${fetch_refspecs[@]}" 2>/dev/null; then
+      :
+    elif git fetch --no-tags --quiet origin "${fetch_refspecs[@]}"; then
+      log "fetched PR refs using git's ambient credentials (token header not accepted)"
+    else
+      log "could not fetch PR #${PR} refs for the local diff fallback"
+      exit 1
+    fi
+    merge_base="$(git merge-base "$base_local" "$pr_ref")" || {
+      log "could not compute the merge base for PR #${PR}"; exit 1; }
+    git diff "$merge_base" "$pr_ref" > "$diff_file" || {
+      log "local git diff failed for PR #${PR}"; exit 1; }
+    log "local diff: $(wc -l < "$diff_file") lines, $(wc -c < "$diff_file") bytes"
+  else
+    log "gh pr diff failed:"; sed 's/^/  /' "$diff_err" >&2
+    exit 1
+  fi
+fi
 
 if ! have_text "$diff_file"; then log "empty diff; nothing to review"; exit 0; fi
 
@@ -199,6 +288,20 @@ if command -v iconv >/dev/null 2>&1; then
   else
     rm -f "$prompt_file.utf8"
   fi
+fi
+
+# Escape hatch for verifying the diff-acquisition and prompt-assembly path (including
+# the large-PR API-limit fallback and the inline/file decision) without spending an agy
+# run or posting to the PR. Prints the assembled prompt to stdout and stops before agy.
+if [ -n "${AGY_DRY_RUN:-}" ]; then
+  log "AGY_DRY_RUN set: printing the assembled prompt and exiting before agy runs"
+  if [ "${use_file:-0}" = "1" ]; then
+    log "prompt: $(wc -c < "$prompt_file") bytes (diff handed off on disk as ${agy_diff_file:-?}, $(wc -c < "$diff_file") bytes)"
+  else
+    log "prompt: $(wc -c < "$prompt_file") bytes (diff inlined, $(wc -c < "$diff_file") bytes)"
+  fi
+  cat "$prompt_file"
+  exit 0
 fi
 
 # --- run agy headless, under a PTY (works around agy issue #76: -p drops --------
