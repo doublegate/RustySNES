@@ -43,8 +43,14 @@ MESENCE="$REF_PROJ/MesenCE/bin/linux-x64/Release/Mesen"
 # sides sample different frames and manufacture a false diff. Reject it up front (both capture tools
 # validate the same way).
 FRAMES=${MCE_FRAMES:-60}
-if [[ ! $FRAMES =~ ^[1-9][0-9]*$ ]]; then
-    echo "perdot_crossval: MCE_FRAMES must be a positive integer, got '$FRAMES'" >&2
+# Positive integer AND within the u32 ceiling that perdot_dump's frame count parses to — otherwise the
+# Rust side rejects a >u32 value as out of range and the driver would mis-report it as a skipped capture
+# while MesenCE happily captured. 10 digits is the max width of 4294967295; a longer string, or a
+# same-width string lexicographically greater, is over the ceiling.
+if [[ ! $FRAMES =~ ^[1-9][0-9]*$ ]] \
+    || (( ${#FRAMES} > 10 )) \
+    || { (( ${#FRAMES} == 10 )) && [[ $FRAMES > "4294967295" ]]; }; then
+    echo "perdot_crossval: MCE_FRAMES must be a positive integer <= 4294967295 (u32), got '$FRAMES'" >&2
     exit 2
 fi
 
@@ -59,10 +65,10 @@ if [[ ! -x $MESENCE ]]; then
     exit 0
 fi
 
-# ROM list: args, or the whole committed undisbeliever corpus.
+# ROM list: args, or the whole committed undisbeliever corpus (shell glob, not ls-parsing).
 roms=("$@")
 if [[ ${#roms[@]} -eq 0 ]]; then
-    mapfile -t roms < <(ls tests/roms/undisbeliever/*.sfc)
+    roms=(tests/roms/undisbeliever/*.sfc)
 fi
 
 echo "=== building perdot_dump (--features per-dot-compositor) ==="

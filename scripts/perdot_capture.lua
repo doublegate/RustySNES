@@ -12,7 +12,16 @@
 --
 -- Env: MCE_RESULT = output file path; MCE_FRAMES = frame count (default 60).
 
-local RES = os.getenv("MCE_RESULT") or "/tmp/perdot_mce.txt"
+-- Require an explicit output path — no predictable /tmp fallback. A default like
+-- `/tmp/perdot_mce.txt` could be redirected through a pre-planted symlink before the write below
+-- truncates it (CWE-377); the driver (perdot_crossval.sh) always sets MCE_RESULT to a file inside
+-- its own `mktemp -d` dir.
+local RES = os.getenv("MCE_RESULT")
+if RES == nil or RES == "" then
+  io.stderr:write("perdot_capture: MCE_RESULT must be set to the output file path\n")
+  emu.stop(1)
+  return
+end
 
 -- Frame count shares a positive-integer contract with the RustySNES side (`perdot_dump`): a
 -- zero/negative/non-integer TARGET would capture a different frame than RustySNES renders and
@@ -55,7 +64,12 @@ local function onEndFrame()
     parts[#parts + 1] = string.format("%04x:%d", k, hist[k])
   end
 
-  local f = io.open(RES, "w")
+  local f, err = io.open(RES, "w")
+  if f == nil then
+    io.stderr:write(string.format("perdot_capture: cannot open MCE_RESULT '%s': %s\n", RES, err or "?"))
+    emu.stop(1)
+    return
+  end
   f:write(string.format("PERDOT distinct=%d colors=%s\n", #keys, table.concat(parts, ",")))
   f:close()
   emu.stop(0)

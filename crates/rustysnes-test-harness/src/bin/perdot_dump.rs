@@ -14,7 +14,6 @@
 //! canonical value. The distinct-color SET + counts is the robust cross-emulator signal — it is
 //! immune to the ~7-row overscan offset between RustySNES (composites from scanline 0) and MesenCE
 //! (renders into a 239-row buffer with blank top rows).
-#![allow(missing_docs)] // small standalone cross-check binary, not a library API surface.
 
 use std::collections::BTreeMap;
 use std::env;
