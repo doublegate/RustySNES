@@ -700,32 +700,26 @@ pub struct Ppu {
     #[cfg(feature = "hd-pack")]
     tile_tags: Box<[hdtag::TileTag]>,
 
-    // --- Per-dot compositor state (`per-dot-compositor` feature, `docs/adr/0014`, T-CA-10 Phase 4).
+    // --- Per-dot compositor state (`docs/adr/0014`, T-CA-10 Phase 4).
     //
     // The visible line is composited one dot at a time (blueprint: MesenCE `SnesPpu::RenderScanline`).
     // These hold the current line's fetched pixels and the incremental draw cursor. They are transient
     // (re-derived at each line start from serialized PPU state), so they are deliberately NOT saved —
     // a save at a frame boundary (the normal case) has no mid-line cursor to preserve; a mid-line save
-    // under this experimental flag re-fetches on load, documented in `docs/ppu.md`.
+    // re-fetches on load, documented in `docs/ppu.md`.
     /// This line's fetched above/below pixels (built once per line, drained per dot).
-    #[cfg(feature = "per-dot-compositor")]
     pd_above: alloc::boxed::Box<[render::Pixel; SCREEN_WIDTH]>,
-    #[cfg(feature = "per-dot-compositor")]
     pd_below: alloc::boxed::Box<[render::Pixel; SCREEN_WIDTH]>,
     /// The DAC carry threaded through the incremental composite (ares' one-column hi-res delay).
-    #[cfg(feature = "per-dot-compositor")]
     pd_carry: render::DacCarry,
     /// Next output column to composite (the draw cursor; MesenCE `_drawStartX`). Reset to 0 per line.
-    #[cfg(feature = "per-dot-compositor")]
     pd_draw_x: u16,
     /// Which visible line (`self.v`) `pd_above`/`pd_below` were fetched for; `u16::MAX` = not fetched
     /// (forces a re-fetch — also the state after a save-state load).
-    #[cfg(feature = "per-dot-compositor")]
     pd_fetched_line: u16,
     /// The CGRAM index of the last-drawn column (MesenCE `_state.InternalCgramAddress`, `dac.cpp`
     /// `paletteColor`). A CGRAM write during active display is redirected here — the exact,
     /// draw-cursor-driven form of the in-render redirect (supersedes the on-demand `h-22` approximation).
-    #[cfg(feature = "per-dot-compositor")]
     internal_cgram_address: u8,
     /// Seed for the per-dot OAM sprite-evaluation index, captured at line start (`oam_priority ?
     /// (oam_address >> 2) & 0x7f : 0`, MesenCE `_oamEvaluationIndex` at `_spriteEvalStart == 0`).
@@ -735,7 +729,6 @@ pub struct Ppu {
     /// per-dot fields it is **serialized** (`FORMAT_VERSION` 7, mirroring MesenCE serializing
     /// `_oamEvaluationIndex`): it diverges from `OAMADDR` after redirected active-display writes and
     /// so cannot be re-derived on load. `pd_fetch_line` re-seeds it at each line boundary.
-    #[cfg(feature = "per-dot-compositor")]
     pd_oam_eval_seed: u8,
 }
 
@@ -798,19 +791,12 @@ impl Ppu {
             #[cfg(feature = "hd-pack")]
             tile_tags: alloc::vec![hdtag::TileTag::default(); MAX_FRAMEBUFFER_LEN]
                 .into_boxed_slice(),
-            #[cfg(feature = "per-dot-compositor")]
             pd_above: Box::new([render::Pixel::default(); SCREEN_WIDTH]),
-            #[cfg(feature = "per-dot-compositor")]
             pd_below: Box::new([render::Pixel::default(); SCREEN_WIDTH]),
-            #[cfg(feature = "per-dot-compositor")]
             pd_carry: render::DacCarry::default(),
-            #[cfg(feature = "per-dot-compositor")]
             pd_draw_x: 0,
-            #[cfg(feature = "per-dot-compositor")]
             pd_fetched_line: u16::MAX,
-            #[cfg(feature = "per-dot-compositor")]
             internal_cgram_address: 0,
-            #[cfg(feature = "per-dot-compositor")]
             pd_oam_eval_seed: 0,
         }
     }
@@ -880,19 +866,12 @@ impl Ppu {
         // HV-IRQ comparator (level): fire when the enabled H and/or V positions match.
         self.check_hv_irq();
 
-        // Composite the line that's finishing (V is the line number 1..=visible) using register
-        // state as it stood just BEFORE this line's own HDMA run, not after (`docs/ppu.md`'s
-        // confirmed off-by-one-line fix). `advance_master` services this line's HDMA at this
-        // same dot, strictly AFTER this render call within the same master-clock tick (the HDMA
-        // check runs after `tick_ppu_dot` returns) -- see `docs/scheduler.md` §DMA/HDMA bus-steal.
-        #[cfg(not(feature = "per-dot-compositor"))]
-        if self.h == RENDER_DOT && self.v >= 1 && self.v <= self.visible_height() {
-            self.render_scanline(bus);
-        }
         // Per-dot compositor: composite incrementally up to the current dot's column every tick,
         // with live register state (`docs/adr/0014`, T-CA-10 Phase 4). Finishes each line by
-        // `RENDER_DOT`, before that line's HDMA — byte-identical to the batch on a static line.
-        #[cfg(feature = "per-dot-compositor")]
+        // `RENDER_DOT` (V is the line number 1..=visible), using register state as it stood just
+        // BEFORE this line's own HDMA run, not after (`docs/ppu.md`'s confirmed off-by-one-line fix).
+        // `advance_master` services this line's HDMA at this same dot, strictly AFTER this render
+        // call within the same master-clock tick -- see `docs/scheduler.md` §DMA/HDMA bus-steal.
         self.pd_render_to_dot(bus);
 
         self.h += 1;
@@ -1206,12 +1185,8 @@ impl Ppu {
             }
             // The OAM sprite-evaluation seed is the one piece of per-dot state that cannot be
             // re-derived on load (it diverges from OAMADDR after redirected active-display writes),
-            // so it is persisted (FORMAT_VERSION 7). Written unconditionally — 0 without the feature
-            // — so the PPU0 length is identical across feature builds.
-            #[cfg(feature = "per-dot-compositor")]
+            // so it is persisted (FORMAT_VERSION 7).
             s.write_u8(self.pd_oam_eval_seed);
-            #[cfg(not(feature = "per-dot-compositor"))]
-            s.write_u8(0);
         });
     }
 
@@ -1261,16 +1236,8 @@ impl Ppu {
         for word in self.framebuffer.iter_mut() {
             *word = s.read_u16()? & 0x7FFF;
         }
-        // OAM sprite-evaluation seed (FORMAT_VERSION 7). Read unconditionally to keep the PPU0 length
-        // identical across feature builds; only the per-dot build retains the value.
-        #[cfg(feature = "per-dot-compositor")]
-        {
-            self.pd_oam_eval_seed = s.read_u8()?;
-        }
-        #[cfg(not(feature = "per-dot-compositor"))]
-        {
-            let _ = s.read_u8()?;
-        }
+        // OAM sprite-evaluation seed (FORMAT_VERSION 7).
+        self.pd_oam_eval_seed = s.read_u8()?;
         if s.remaining() != 0 {
             return Err(SaveStateError::Invalid(alloc::format!(
                 "PPU0 section has {} trailing byte(s)",
@@ -1284,13 +1251,10 @@ impl Ppu {
         // forces a fresh `pd_fetch_line` on the next dot. `pd_oam_eval_seed` is the exception — it was
         // just deserialized above (it cannot be re-derived after mid-line redirected writes), so it is
         // NOT reset here; `pd_fetch_line` re-seeds it at the next line boundary as usual.
-        #[cfg(feature = "per-dot-compositor")]
-        {
-            self.pd_fetched_line = u16::MAX;
-            self.pd_draw_x = 0;
-            self.pd_carry = render::DacCarry::default();
-            self.internal_cgram_address = 0;
-        }
+        self.pd_fetched_line = u16::MAX;
+        self.pd_draw_x = 0;
+        self.pd_carry = render::DacCarry::default();
+        self.internal_cgram_address = 0;
         Ok(())
     }
 }

@@ -7,13 +7,10 @@ license.workspace = true
 authors.workspace = true
 
 [features]
-# Phase 6 (T-CA-10) flipped `per-dot-compositor` ON by default here: it propagates to the frontend
-# and the test harness (both consume this crate with default features), so the shipped emulator and
-# the golden corpus render through the accurate per-dot PPU. The batch path stays reachable with
-# `--no-default-features` (the `no_std`/thumbv7em gate builds it that way) and is byte-identical to
-# the pre-flip renders. See `crates/rustysnes-ppu/Cargo.toml` for the compositor and the one
-# documented per-dot gap (`inidisp_forgot_to_force_blank`, pending Phase 4d).
-default = ["std", "per-dot-compositor"]
+# The per-dot PPU compositor (`docs/adr/0014`, T-CA-10) is the only compositor — the batch path was
+# removed (Phase 6 "single code path"); `rustysnes-ppu` carries no compositor feature. See that
+# crate's `Cargo.toml`.
+default = ["std"]
 # Gates the `facade` module (`EmuCore`, needs `zip` archive extraction) — vanishes entirely from
 # the `no_std` build (`--no-default-features`, the thumbv7em CI gate).
 std = ["dep:zip"]
@@ -26,11 +23,6 @@ debug-hooks = []
 # frontend reaches `Ppu::set_hd_pack_tagging`/`Ppu::tile_tags` directly via
 # `EmuCore::system_mut().bus.ppu` once this feature enables them to exist at all.
 hd-pack = ["rustysnes-ppu/hd-pack"]
-# `docs/adr/0014`, T-CA-10: propagates down to `rustysnes-ppu/per-dot-compositor` (the in-render
-# CGRAM redirect and, in later phases, the per-dot composite). This crate has no compositor code of
-# its own; the flag exists so the harness and frontend can build the accurate PPU path. Off by
-# default → the shipped `Bus`/`Ppu` path is byte-identical to the batch compositor.
-per-dot-compositor = ["rustysnes-ppu/per-dot-compositor"]
 
 [dependencies]
 rustysnes-cpu = { path = "../rustysnes-cpu", version = "1.4.0", default-features = false }

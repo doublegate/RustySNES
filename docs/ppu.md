@@ -111,14 +111,15 @@ Per `ref-docs/2026-06-24-ppu.md` §6:
     `bpp` = 2/4/8, so 8bpp ignores the group), where `paletteBase = id<<5` only in Mode 0. Per
     ares `background.cpp`. Dropping the group collapses every tile onto palette group 0 and
     washes multi-palette art (the SMW logo/border).
-  - **Per-dot compositor + in-render CGRAM access** (`per-dot-compositor` feature, `docs/adr/0014`
-    T-CA-10 Phase 4; dossier C3.04). With the feature on, the visible line is composited **one dot at
-    a time** as the master clock advances (`Ppu::pd_render_to_dot`, blueprint: MesenCE
-    `SnesPpu::RenderScanline`), rather than in a single batch at `RENDER_DOT`. The line's `above`/
-    `below` pixels are fetched once at its start (`pd_fetch_line`, same build as `render_scanline`
-    minus the composite), then drained per dot up to the column the DAC has reached — all columns
-    finish by `RENDER_DOT`, before that line's HDMA, so a **static** line is byte-identical to the
-    batch. Live per-column register reads make mid-line writes take effect only on later columns:
+  - **Per-dot compositor + in-render CGRAM access** (`docs/adr/0014` T-CA-10; dossier C3.04). The
+    visible line is composited **one dot at a time** as the master clock advances
+    (`Ppu::pd_render_to_dot`, blueprint: MesenCE `SnesPpu::RenderScanline`) — this is the **only**
+    compositor; the batch whole-line composite it replaced (`render_scanline`/`compose_dac`) has been
+    removed (Phase 6 "single code path"). The line's `above`/`below` pixels are fetched once at its
+    start (`pd_fetch_line`: backdrop + backgrounds + sprites, without the per-column composite), then
+    drained per dot up to the column the DAC has reached — all columns finish by `RENDER_DOT`, before
+    that line's HDMA, so a **static** line composites exactly as a whole-line pass at `RENDER_DOT`
+    would. Live per-column register reads make mid-line writes take effect only on later columns:
     brightness/force-blank (INIDISP) and the in-render CGRAM redirect. The redirect: a `$2122` write
     during active display commits to `Ppu::internal_cgram_address` — the palette of the last-drawn
     column (MesenCE `_state.InternalCgramAddress`, ares `latch.cgramAddress` = the DAC's
@@ -126,18 +127,15 @@ Per `ref-docs/2026-06-24-ppu.md` §6:
     gate is `!displayDisable && 0 < vcounter < vdisp && 88 ≤ hcounter < 1096` (dots `22..274`) and the
     programmed address still auto-increments. Documented-real: fullsnes/SNESdev state a CGRAM write
     during active display "lands at the wrong CGRAM address" (`ref-docs/fullsnes/30-ppu.md`).
-    **Off by default** (batch model never redirects) → byte-identical shipped builds.
-    **Status:** flag-ON is **validated accurate against MesenCE on 28/29 undisbeliever ROMs** —
-    byte-identical to the batch on the 26 static ROMs, and matching MesenCE on `inidisp_brightness_delay`
-    (exact) and `inidisp_enable_display_mid_frame` (near). The sole mismatch,
-    `inidisp_forgot_to_force_blank` (`7fff` vs MesenCE `7fc6`), does **zero** CGRAM writes — its
-    artifact is PPU VRAM/OAM access during active display, a deeper quirk scoped to Phase 4d, not a
-    CGRAM-redirect issue. The 3 INIDISP undisbeliever goldens are shared flag-on/off, so they stay
-    batch-valued (flag-ON "fails" them because it is *more* accurate) until Phase 6's default flip
-    re-blesses the corpus. The per-dot state is transient (re-fetched at each line start), so it is not
-    save-stated; `Ppu::load_state` invalidates it (forcing a re-fetch) and a mid-line save re-fetches
-    on load.
-  - **In-render OAM write redirect** (`per-dot-compositor` feature; Phase 4b; dossier C7.16). During
+    **Status:** validated against MesenCE on 28/29 undisbeliever ROMs; the golden corpus holds the
+    per-dot values (`inidisp_brightness_delay`, `inidisp_enable_display_mid_frame` agree with MesenCE).
+    The sole mismatch, `inidisp_forgot_to_force_blank` (`7fff` vs MesenCE `7fc6`), is pinned as a
+    documented per-dot gap in `undisbeliever_golden.rs`: its artifact is the CGRAM-redirect target on
+    backdrop columns between opaque regions (an `internal_cgram_address` draw-ordering detail, tied to
+    the draw-cursor/fetch-ahead alignment of Phase 4c), not a missing access-during-render redirect.
+    The per-dot line state is transient (re-fetched at each line start), so it is not save-stated;
+    `Ppu::load_state` invalidates it (forcing a re-fetch) and a mid-line save re-fetches on load.
+  - **In-render OAM write redirect** (dossier C7.16). During
     a rendering scanline the sprite evaluator owns the OAM address bus, so a `$2104` (OAMDATA) write
     is aimed at the *evaluation* index, not the CPU's `OAMADDR` (MesenCE `GetOamAddress` /
     `_oamRenderAddress`, "needed for Uniracers"). The evaluation index is seeded at line start
@@ -155,7 +153,7 @@ Per `ref-docs/2026-06-24-ppu.md` §6:
     writes and so cannot be re-derived on load; the byte is written unconditionally (0 without the
     feature) so the format stays identical across builds. Over-flag dot-timing, mid-line BG-scroll,
     and the fetch-phase OAM index are Phase 4b/4c follow-ups.
-  - **In-render OAM read redirect** (`per-dot-compositor` feature; dossier C1.08). The read side of
+  - **In-render OAM read redirect** (dossier C1.08). The read side of
     the same rule: a `$2138` (OAMDATAREAD) during a rendering scanline returns the *evaluator's* OAM
     entry (`oam_render_redirect` = `eval_index << 2`), not the CPU's `OAMADDR` (MesenCE `$2138` =
     `GetOamAddress()`), and `OAMADDR` still auto-increments. Shares `pd_oam_eval_seed` and the
@@ -357,8 +355,9 @@ equal to — a regression-locking `#[test]` in `rustysnes-core` asserts the two 
 since `rustysnes-ppu` cannot depend on `rustysnes-core` (the crate graph is strictly
 one-directional, `docs/architecture.md`), so the PPU-owned constant is the single source of truth.
 
-`Ppu::tick_dot` calls `render_scanline` at `self.h == RENDER_DOT` (inside the main per-dot loop),
-not inside `end_of_scanline` (which used to run it at dot 340/`DOTS_PER_LINE` wraparound).
+`Ppu::tick_dot` drives the per-dot compositor (`pd_render_to_dot`) every dot, and each visible line's
+columns all finish by `RENDER_DOT` — before that line's HDMA, not inside `end_of_scanline` (the
+compositor no longer runs at the dot 340/`DOTS_PER_LINE` wraparound).
 `Bus::advance_master` services line `V`'s own HDMA run at this same dot, gated to fire on the
 exact sub-tick whose *pre-tick* dot value is 276 — i.e. the sub-tick that advances the counter
 *from* 276 to 277 (`dot_ticked`/`pre_tick_dot`, see "What actually unblocked this" above) — the

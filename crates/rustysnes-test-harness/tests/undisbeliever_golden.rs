@@ -29,10 +29,8 @@ const FRAMES: u32 = 60;
 /// PPU access during active display without force-blank; per-dot returns `7fff` where MesenCE returns
 /// `7fc6` — a Phase 4d (PPU access-during-render) gap. When 4d lands, remove the entry and re-bless.
 ///
-/// Unconditional: since the `per-dot-compositor` flip, `rustysnes-core` renders through the per-dot
-/// path by default and the harness never disables it (it does not set `default-features = false` on
-/// the core dependency), so this crate always exercises the per-dot renderer. The list is not gated
-/// on a harness feature that no longer changes which compositor runs.
+/// Unconditional: the per-dot PPU is the only compositor (the batch path was removed), so this crate
+/// always exercises it and the gap list is not gated on any feature.
 const PERDOT_KNOWN_GAPS: &[(&str, u64)] =
     &[("inidisp_forgot_to_force_blank", 0xc50c_9a26_7678_0d05)];
 

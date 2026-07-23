@@ -7,14 +7,10 @@ license.workspace = true
 authors.workspace = true
 
 [features]
-# The `per-dot-compositor` flip (T-CA-10) made the per-dot PPU `rustysnes-core`'s DEFAULT, and this
-# crate consumes `rustysnes-core` with its default features (no `default-features = false`), so the
-# harness ALWAYS renders through the per-dot path. There is therefore no harness-level compositor
-# feature to toggle — a `per-dot-compositor` passthrough here would have been vestigial (it would
-# re-enable a core default that is already on) and, worse, misleading: gating this crate's own
-# `#[cfg]` code on it decoupled the cfg from the compositor actually running and broke
-# `--no-default-features` runs. The batch compositor remains reachable only by building
-# `rustysnes-core` itself with `--no-default-features` (the `no_std` gate); it is slated for removal.
+# The per-dot PPU compositor is the only compositor (T-CA-10 "single code path"; the batch path was
+# removed), so there is no compositor feature anywhere in the tree and nothing for this crate to
+# toggle — it always renders through the per-dot PPU, and this crate's own `#[cfg]` code (the golden
+# gate's documented gaps) is unconditional.
 test-roms = []          # compiles the committed CC0/public-domain suites + integration tests
 commercial-roms = []    # the local-dump oracle (ROMs gitignored; commit only screenshots/.snap)
 

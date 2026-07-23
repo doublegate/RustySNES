@@ -134,13 +134,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **The per-dot PPU compositor (`docs/adr/0014`, T-CA-10) is now the shipped default renderer.** The
-  `per-dot-compositor` feature is on by default in `rustysnes-core` (propagating to the frontend and
-  the test harness) and in `rustysnes-ppu`/`rustysnes-test-harness`; the batch compositor stays
-  reachable, byte-identical to the pre-flip renders, via `--no-default-features` (the `no_std`/
-  thumbv7em gate builds it that way, verified). The shipped emulator now composites one dot at a time
-  with live registers, so a CGRAM/OAM access during active display hits the color/sprite-eval address
-  the hardware is drawing rather than the CPU-programmed one. The AccuracySNES self-scoring battery is
+- **The per-dot PPU compositor (`docs/adr/0014`, T-CA-10) is now the emulator's only renderer.** It
+  first became the shipped default (a `per-dot-compositor` feature on by default), and then the batch
+  whole-line composite it replaced (`render_scanline`/`compose_dac`) and the feature itself were
+  **removed** — a single code path (the per-dot compositor is `no_std`-clean, so nothing needed the
+  batch fallback; `compose_dac` survives only as a `#[cfg(test)]` driver for the hi-res DAC tests).
+  The emulator composites one dot at a time with live registers, so a CGRAM/OAM access during active
+  display hits the color/sprite-eval address the hardware is drawing rather than the CPU-programmed
+  one. The AccuracySNES self-scoring battery is
   **294/294 both ways** (zero regression) and the shared framebuffer corpus is re-blessed to the
   per-dot values, each cross-validated against the MesenCE oracle: `inidisp_brightness_delay` and
   `inidisp_enable_display_mid_frame` move to their MesenCE-agreeing per-dot hashes. One documented gap

@@ -211,78 +211,12 @@ impl Ppu {
         crate::hdtag::TileTag { hash, hflip, vflip }
     }
 
-    /// Composite the current scanline (`self.v`, 1..=visible) into the framebuffer.
-    // The batch compositor. Used by the default (feature-off) build and by tests; the
-    // `per-dot-compositor` feature drives `pd_render_to_dot` instead, so it is dead in that lib.
-    #[cfg_attr(feature = "per-dot-compositor", allow(dead_code))]
-    pub(crate) fn render_scanline(&mut self, bus: &mut impl VideoBus) {
-        let row = (self.v - 1) as usize;
-        if row >= crate::SCREEN_HEIGHT {
-            return;
-        }
-        // Latch this frame's output width once, at its first visible line, and hold it for every
-        // remaining line — so the framebuffer's row stride stays consistent across one frame even
-        // if `BGMODE`/`SETINI` change mid-frame (`docs/ppu.md` §Hi-res (Modes 5/6) color-math
-        // precision; see the `frame_hires` field doc for the full rationale).
-        if row == 0 {
-            self.frame_hires = self.is_hires();
-        }
-        let base = row * self.visible_width();
-
-        // Force-blank: the line is black.
-        if self.io.display_disable {
-            for x in 0..self.visible_width() {
-                self.framebuffer[base + x] = 0;
-            }
-            return;
-        }
-
-        let pr = self.mode_priorities();
-
-        // Build the main (above) and sub (below) layer pixels for each column.
-        let mut above = [Pixel::default(); SCREEN_WIDTH];
-        let mut below = [Pixel::default(); SCREEN_WIDTH];
-        // Backdrop (CGRAM 0) at priority 0.
-        for x in 0..SCREEN_WIDTH {
-            above[x] = Pixel {
-                palette: 0,
-                priority: 0,
-                layer: 5,
-                palette_group: 0,
-                opaque: false,
-                ..Pixel::default()
-            };
-            below[x] = above[x];
-        }
-
-        // --- Backgrounds ---
-        if self.io.bg_mode == 7 {
-            self.render_mode7(bus, &pr, &mut above, &mut below);
-        } else {
-            for bg in 0..4 {
-                if pr.active[bg] {
-                    self.render_bg(bg, &pr, &mut above, &mut below);
-                }
-            }
-        }
-
-        // --- Sprites ---
-        self.render_objects(&pr, &mut above, &mut below);
-
-        // --- Windows (clear a layer's priority where windowed-out) ---
-        // Implemented inline during compositing below via per-pixel window tests.
-
-        // --- Color math + DAC ---
-        self.compose_dac(row, &above, &below);
-    }
-
-    /// Per-dot compositor (`per-dot-compositor` feature, `docs/adr/0014` T-CA-10 Phase 4): fetch this
-    /// visible line's `above`/`below` pixels once (the same backdrop+BG+sprite build as
-    /// [`Self::render_scanline`], minus the composite), seed the DAC carry, and reset the draw cursor.
-    /// Called lazily by [`Self::pd_render_to_dot`] at each line's first active dot (or after a
-    /// save-state load). Fetch happens once per line, before this line's HDMA, so on a static line it
-    /// reads the same register state the batch composite reads at `RENDER_DOT`.
-    #[cfg(feature = "per-dot-compositor")]
+    /// Per-dot compositor (`docs/adr/0014` T-CA-10 Phase 4): fetch this visible line's `above`/`below`
+    /// pixels once (backdrop + backgrounds + sprites, without the per-column composite), seed the DAC
+    /// carry, and reset the draw cursor. Called lazily by [`Self::pd_render_to_dot`] at each line's
+    /// first active dot (or after a save-state load). Fetch happens once per line, before this line's
+    /// HDMA, so on a static line it reads the register state a whole-line composite at `RENDER_DOT`
+    /// would.
     fn pd_fetch_line(&mut self, bus: &mut impl VideoBus) {
         let row = (self.v - 1) as usize;
         if row == 0 {
@@ -342,8 +276,8 @@ impl Ppu {
     /// using **live** register state per column (so a mid-line color-math/brightness/force-blank write
     /// only affects columns drawn after it), and tracks [`crate::Ppu::internal_cgram_address`] = the
     /// last drawn palette (the exact CGRAM-redirect target). All columns finish by `RENDER_DOT` so the
-    /// composite still reads pre-line-HDMA state (matching the batch on a static line → byte-identical).
-    #[cfg(feature = "per-dot-compositor")]
+    /// composite still reads pre-line-HDMA state (a static line composites identically to a whole-line
+    /// pass at `RENDER_DOT`).
     pub(crate) fn pd_render_to_dot(&mut self, bus: &mut impl VideoBus) {
         if self.v < 1 || self.v > self.visible_height() {
             return;
@@ -1152,7 +1086,11 @@ impl Ppu {
         window_test(wl, one, two)
     }
 
-    /// Color-math + DAC: pick the main/sub colors, apply add/sub/half + windows, write the row.
+    /// Test-only whole-line composite: the row loop that drives the shipped per-column
+    /// [`Self::compose_pixel`], seeded at ares' pre-line DAC reset. The per-dot compositor drives
+    /// `compose_pixel` one dot at a time instead ([`Self::pd_render_to_dot`]); this helper exists so
+    /// the hi-res DAC column-threading tests below can feed a hand-built pixel row straight into that
+    /// same per-column path without standing up full BG/tilemap register state.
     ///
     /// In hi-res (`self.frame_hires`) each input column `x` emits *two* output columns, mirroring
     /// ares' `PPU::DAC::run()`/`above()`/`below()` (`ref-proj/ares/ares/sfc/ppu/dac.cpp`): the
@@ -1166,7 +1104,7 @@ impl Ppu {
     /// that delayed state; it starts at the documented power-on/scanline-start boundary (ares
     /// `DAC::scanline()`): no color math enabled, raw color = backdrop — which is exactly why the
     /// first hires column of every scanline is transparent on real hardware.
-    #[cfg_attr(feature = "per-dot-compositor", allow(dead_code))]
+    #[cfg(test)]
     fn compose_dac(&mut self, row: usize, above: &[Pixel], below: &[Pixel]) {
         let ctx = LineCtx {
             base: row * self.visible_width(),
@@ -2013,7 +1951,6 @@ mod tests {
     // These unit tests set it directly to exercise the NEW logic: the active-display gate, and that a
     // mid-display write commits to that drawn-palette index rather than the CPU-programmed index.
 
-    #[cfg(feature = "per-dot-compositor")]
     #[test]
     fn cgram_write_during_active_display_redirects_to_drawn_palette() {
         let mut p = Ppu::new();
@@ -2040,7 +1977,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "per-dot-compositor")]
     #[test]
     fn cgram_write_outside_active_display_is_not_redirected() {
         let mut p = Ppu::new();
@@ -2061,7 +1997,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "per-dot-compositor")]
     #[test]
     fn cgram_write_under_force_blank_is_not_redirected() {
         let mut p = Ppu::new();
@@ -2084,7 +2019,6 @@ mod tests {
     // `render_addr = eval_index << 2` is always even and in the low table, so the low-table write
     // only latches; the value lands in the high table at the remapped address `(render&0x1f0)>>4`.
 
-    #[cfg(feature = "per-dot-compositor")]
     #[test]
     fn oam_write_during_evaluation_redirects_to_high_table() {
         let mut p = Ppu::new();
@@ -2115,7 +2049,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "per-dot-compositor")]
     #[test]
     fn oam_write_in_fetch_phase_is_not_redirected() {
         let mut p = Ppu::new();
@@ -2134,7 +2067,6 @@ mod tests {
         assert_eq!(p.oam[0x200 + 12], 0x00, "the high table must be untouched");
     }
 
-    #[cfg(feature = "per-dot-compositor")]
     #[test]
     fn oam_write_under_force_blank_is_not_redirected() {
         let mut p = Ppu::new();
@@ -2157,7 +2089,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "per-dot-compositor")]
     #[test]
     fn oam_eval_seed_uses_priority_rotation_base_at_line_start() {
         use crate::bus::NullVideoBus;
@@ -2191,7 +2122,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "per-dot-compositor")]
     #[test]
     fn oam_read_during_evaluation_redirects_to_render_address() {
         // C1.08: a $2138 (OAMDATAREAD) during a rendering scanline reads the evaluator's OAM entry,
@@ -2215,7 +2145,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "per-dot-compositor")]
     #[test]
     fn oam_read_outside_render_uses_cpu_address() {
         let mut p = Ppu::new();

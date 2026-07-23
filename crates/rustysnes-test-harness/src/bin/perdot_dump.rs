@@ -2,11 +2,8 @@
 //!
 //! Renders one ROM through RustySNES for a fixed number of frames and prints its framebuffer as a
 //! canonical `0RRRRRGGGGGBBBBB` distinct-color histogram, so `scripts/perdot_crossval.sh` can compare
-//! it against the same ROM rendered in MesenCE (`scripts/perdot_capture.lua`). Since the
-//! `per-dot-compositor` flip, `rustysnes-core` renders through the per-dot path by default, so this
-//! binary exercises the accurate per-dot compositor with no feature flag. (The batch compositor is
-//! reachable only by building `rustysnes-core` itself `--no-default-features`, which this harness
-//! binary cannot select; it is slated for removal.)
+//! it against the same ROM rendered in MesenCE (`scripts/perdot_capture.lua`). The per-dot PPU is the
+//! only compositor (the batch path was removed), so this binary exercises it directly with no flag.
 //!
 //! Usage: `cargo run -q -p rustysnes-test-harness --bin perdot_dump -- <rom.sfc> [frames]`
 //! (frames default 60).

@@ -7,18 +7,13 @@ license.workspace = true
 authors.workspace = true
 
 [features]
-default = ["std", "per-dot-compositor"]
+default = ["std"]
 std = []
-# Per-dot PPU compositor accuracy (`docs/adr/0014`, ticket T-CA-10) — off by default, additive, and
-# byte-identical to the batch compositor on any ROM that does not access CGRAM/OAM mid-active-display.
-# First increment: the in-render CGRAM write redirect (a CGRAM write during active display hits the
-# color currently being drawn, not the CPU-programmed index — dossier C3.04, ares `PPU::writeCGRAM`).
-# Phase 6 (T-CA-10) flipped this ON by default: the per-dot compositor is the shipped renderer, and the
-# golden corpus is re-blessed to per-dot values that agree with the MesenCE oracle. The batch path is
-# still reachable with `--no-default-features` (or without this feature) and stays byte-identical to the
-# pre-flip renders — the `no_std`/portable gates build it that way. `inidisp_forgot_to_force_blank` is a
-# documented per-dot gap pending Phase 4d (PPU access during active display), tracked as expected-fail.
-per-dot-compositor = []
+# The per-dot PPU compositor (`docs/adr/0014`, ticket T-CA-10) is now the ONLY compositor — the batch
+# `render_scanline`/`compose_dac` path it replaced has been removed (Phase 6 T-CA-10, "single code
+# path"). It composites the visible line one dot at a time with live registers, so a CGRAM/OAM access
+# during active display hits the color/sprite the PPU is drawing, not the CPU-programmed index. It is
+# `no_std`-clean, so there is no compositor feature to toggle.
 # HD texture pack tile-identity hashing + the `Ppu`-side `TileTag` recording hook (`v1.3.0`,
 # `hdtag` module + `Ppu::set_hd_pack_tagging`/`Ppu::tile_tags`) -- off by default, purely
 # additive, `no_std`-clean (xxhash-rust's `xxh3` needs no allocator beyond `alloc`, already a
