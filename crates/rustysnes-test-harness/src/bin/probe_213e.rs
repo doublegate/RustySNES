@@ -1,8 +1,9 @@
 //! RustySNES side of the `$213E` over-flag eval-line probe (`scripts/probes/eval-line-213e/`). Runs
 //! the probe ROM and reports the first scanline whose range/time over-flag reads set, by reading the
 //! WRAM array the ROM's per-scanline H-IRQ populates. MesenCE reads the same array via
-//! `probe_mesen.lua`, so the eval-line offset is directly comparable. Build with or without
-//! `--features per-dot-compositor` to compare the batch and per-dot paths.
+//! `probe_mesen.lua`, so the eval-line offset is directly comparable. `rustysnes-core` renders
+//! through the per-dot path by default since the `per-dot-compositor` flip, so this reports the
+//! per-dot eval line.
 #![allow(missing_docs)] // small standalone probe binary, not a library API surface.
 use std::fmt::Write as _;
 

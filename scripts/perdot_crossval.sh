@@ -5,7 +5,7 @@
 # The undisbeliever framebuffer golden is shared between the batch (flag-OFF) and per-dot (flag-ON)
 # compositors, so it stays batch-valued and cannot gate the (more-accurate) per-dot path while phases
 # 4b-4d land. This script is that gate instead: it renders each ROM in MesenCE (the cycle-accurate
-# oracle, ref-proj/MesenCE) AND in RustySNES with `--features per-dot-compositor`, and compares their
+# oracle, ref-proj/MesenCE) AND in RustySNES (per-dot is core's default renderer), and compares their
 # canonical 0RRRRRGGGGGBBBBB distinct-color SETS. The set is the robust cross-emulator signal — immune
 # to the ~7-row overscan offset between RustySNES (composites from scanline 0) and MesenCE (blank top
 # rows) — and it is exactly what distinguished a correct per-dot render (matching MesenCE) from a wrong
@@ -78,8 +78,8 @@ if [[ ${#roms[@]} -eq 0 ]]; then
     exit 2
 fi
 
-echo "=== building perdot_dump (--features per-dot-compositor) ==="
-cargo build -q -p rustysnes-test-harness --features per-dot-compositor --bin perdot_dump
+echo "=== building perdot_dump (per-dot is rustysnes-core's default renderer) ==="
+cargo build -q -p rustysnes-test-harness --bin perdot_dump
 
 # Extract just the sorted set of canonical colour values (drop the :count) from a PERDOT line.
 colorset() { sed -n 's/.*colors=//p' "$1" | tr ',' '\n' | cut -d: -f1 | sort -u; }
@@ -97,7 +97,7 @@ for rom in "${roms[@]}"; do
         SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy \
         timeout 60 "$MESENCE" --testRunner scripts/perdot_capture.lua "$rom" >/dev/null 2>&1 || true
 
-    cargo run -q -p rustysnes-test-harness --features per-dot-compositor --bin perdot_dump -- \
+    cargo run -q -p rustysnes-test-harness --bin perdot_dump -- \
         "$rom" "$FRAMES" >"$TMP/rusty.txt" 2>/dev/null || true
 
     # A genuinely empty capture (either side failed on THIS ROM) is now unambiguous — no stale file can

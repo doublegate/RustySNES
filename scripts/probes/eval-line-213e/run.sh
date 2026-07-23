@@ -31,10 +31,8 @@ ca65 --cpu 65816 -o probe.o probe.s
 ld65 -C probe.cfg -o probe.sfc probe.o
 echo "built $(stat -c%s probe.sfc) bytes"
 
-echo "=== RustySNES (batch) ==="
+echo "=== RustySNES (per-dot compositor, rustysnes-core's default renderer) ==="
 cargo run -q -p rustysnes-test-harness --bin probe_213e --manifest-path "$ROOT/Cargo.toml" -- probe.sfc
-echo "=== RustySNES (per-dot compositor) ==="
-cargo run -q -p rustysnes-test-harness --features per-dot-compositor --bin probe_213e --manifest-path "$ROOT/Cargo.toml" -- probe.sfc
 
 if [[ -x $MESEN ]]; then
     echo "=== MesenCE (oracle) ==="

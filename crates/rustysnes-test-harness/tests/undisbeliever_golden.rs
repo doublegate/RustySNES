@@ -28,11 +28,13 @@ const FRAMES: u32 = 60;
 /// in the wrong output still trips the gate. Currently one: `inidisp_forgot_to_force_blank` does a
 /// PPU access during active display without force-blank; per-dot returns `7fff` where MesenCE returns
 /// `7fc6` — a Phase 4d (PPU access-during-render) gap. When 4d lands, remove the entry and re-bless.
-#[cfg(feature = "per-dot-compositor")]
+///
+/// Unconditional: since the `per-dot-compositor` flip, `rustysnes-core` renders through the per-dot
+/// path by default and the harness never disables it (it does not set `default-features = false` on
+/// the core dependency), so this crate always exercises the per-dot renderer. The list is not gated
+/// on a harness feature that no longer changes which compositor runs.
 const PERDOT_KNOWN_GAPS: &[(&str, u64)] =
     &[("inidisp_forgot_to_force_blank", 0xc50c_9a26_7678_0d05)];
-#[cfg(not(feature = "per-dot-compositor"))]
-const PERDOT_KNOWN_GAPS: &[(&str, u64)] = &[];
 
 fn roms_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/roms/undisbeliever")

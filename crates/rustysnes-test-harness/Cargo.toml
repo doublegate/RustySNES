@@ -7,17 +7,16 @@ license.workspace = true
 authors.workspace = true
 
 [features]
-# Phase 6 (T-CA-10): per-dot is on by default (matching `rustysnes-core`'s flipped default), so this
-# crate's own `#[cfg(feature = "per-dot-compositor")]` code (e.g. the golden gate's documented gaps)
-# tracks the actual rendered path. The batch path is `--no-default-features`.
-default = ["per-dot-compositor"]
+# The `per-dot-compositor` flip (T-CA-10) made the per-dot PPU `rustysnes-core`'s DEFAULT, and this
+# crate consumes `rustysnes-core` with its default features (no `default-features = false`), so the
+# harness ALWAYS renders through the per-dot path. There is therefore no harness-level compositor
+# feature to toggle — a `per-dot-compositor` passthrough here would have been vestigial (it would
+# re-enable a core default that is already on) and, worse, misleading: gating this crate's own
+# `#[cfg]` code on it decoupled the cfg from the compositor actually running and broke
+# `--no-default-features` runs. The batch compositor remains reachable only by building
+# `rustysnes-core` itself with `--no-default-features` (the `no_std` gate); it is slated for removal.
 test-roms = []          # compiles the committed CC0/public-domain suites + integration tests
 commercial-roms = []    # the local-dump oracle (ROMs gitignored; commit only screenshots/.snap)
-# Builds the accurate PPU path (`docs/adr/0014`, T-CA-10) so the golden corpus can be run flag-ON.
-# Flag-ON is byte-identical EXCEPT on `undisbeliever/inidisp_forgot_to_force_blank` (the one corpus
-# ROM that writes CGRAM mid-active-display) — the in-render redirect changes its frame by design;
-# that frame's hardware-accuracy is pending reference cross-validation before the flag is trusted.
-per-dot-compositor = ["rustysnes-core/per-dot-compositor"]
 
 [dependencies]
 rustysnes-core = { path = "../rustysnes-core", version = "1.4.0" }
