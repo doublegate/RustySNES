@@ -24104,6 +24104,123 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; C3.12 — CGRAM taken in render
+; provenance: Documented (fullsnes and the SNESdev Wiki: a CGRAM access during active display uses the colour the PPU is drawing, not the CPU CGADD. Mesen2 models it (writes use InternalCgramAddress when !CanAccessCgram); the batch compositor and snes9x use the programmed CGADD and fail)
+.proc test_c3_12
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$8F
+    sta $2100         ; forced blank while CGRAM is seeded
+    stz $212C         ; TM = 0: every pixel is the backdrop, so the internal CGRAM address is 0
+    ; --- seed colour 0 = $1111 and colour $10 = $2222, both distinct from the render value $3333 ---
+    stz $2121         ; CGADD = 0
+    lda #$11
+    sta $2122
+    lda #$11
+    sta $2122         ; colour 0 = $1111
+    lda #$10
+    sta $2121         ; CGADD = $10
+    lda #$22
+    sta $2122
+    lda #$22
+    sta $2122         ; colour $10 = $2222
+    ; --- guard: in blank the seed reads back, so a changed colour 0 below cannot be a dead port ---
+    stz $2121
+    lda $213B
+    sta f:$7E0208     ; colour 0 low, still the seed $11
+    ; --- the render write, at a CONTROLLED dot inside the CGRAM-redirect window (dots 22..273) ---
+    ; Turn the display on for a settled frame, then park on a once-per-frame H+V IRQ mid-line. SEI
+    ; keeps it masked so WAI resumes inline; the $2122 write then commits at a known active-display
+    ; dot. A fixed burn cannot guarantee that window across emulators — the write must land where the
+    ; redirect is live, not in h-blank.
+    lda #$0F
+    sta $2100         ; forced blank off
+    jsl wait_vblank_far
+    jsl wait_vblank_far   ; a settled frame with the display on
+    sep #$20             ; re-assert 8-bit A after the far calls
+    .a8
+    lda #100
+    sta $4207         ; HTIME = 100, well inside the active line
+    stz $4208
+    lda #50
+    sta $4209         ; VTIME = 50 (a visible line)
+    stz $420A
+    sei               ; mask so WAI resumes inline, no dispatch latency
+    lda #$30
+    sta $4200         ; enable the H+V IRQ
+    wai               ; parked until (V=50, H=100)
+    lda #$10
+    sta $2121         ; CPU CGADD = $10 (resets the write flipflop) — the redirect ignores it
+    lda #$33
+    sta $2122
+    lda #$33
+    sta $2122         ; the write commits mid-render; the redirect sends it to colour 0
+    lda $4211         ; ack TIMEUP
+    stz $4200         ; disarm the IRQ (test_restore also does this on any exit path)
+    lda #$8F
+    sta $2100         ; forced blank restored before readback
+    ; --- read colour 0 (the redirect target) then colour $10 (the CPU address) ---
+    stz $2121
+    lda $213B
+    sta f:$7E0209     ; colour 0 low, after the render write
+    lda #$10
+    sta $2121
+    lda $213B
+    sta f:$7E020A     ; colour $10 low, after the render write
+    ; Guard first: the seed read back before the render write, so the port and the fill both work.
+    lda f:$7E0208
+    cmp #$11
+    beq :+
+    jmp @fail1
+  :
+    ; Colour 0 must now hold the render value: the mid-render write was redirected to the drawn
+    ; colour (internal address 0), not to CGADD. A core that writes CGADD leaves colour 0 at $11.
+    lda f:$7E0209
+    cmp #$33
+    beq :+
+    jmp @fail2
+  :
+    ; And colour $10 — the CPU-programmed address — must be untouched, still its $22 seed.
+    lda f:$7E020A
+    cmp #$22
+    beq :+
+    jmp @fail3
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; colour 0 did not read back its seed in forced blank — the CGRAM port or the fill is broken, so the render write below proves nothing
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the mid-render $2122 write did not reach the drawn colour (colour 0) — the CGRAM address was not taken over during active display
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; the mid-render $2122 write landed on the CPU-programmed CGADD ($10) instead of the drawn colour
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C13.01 — PPU1 open bus in $213E
 ; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
 .proc test_c13_01
@@ -32141,7 +32258,7 @@ apu_prog_112:
 .export _test_flags
 
 _test_count:
-    .word 327
+    .word 328
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -32247,6 +32364,7 @@ _test_entries:
     .faraddr test_c3_04
     .faraddr test_c3_05
     .faraddr test_c3_07
+    .faraddr test_c3_12
     .faraddr test_c13_01
     .faraddr test_c13_02
     .faraddr test_c13_03
@@ -32577,6 +32695,7 @@ _test_flags:
     .byte $01   ; C3.04
     .byte $01   ; C3.05
     .byte $01   ; C3.07
+    .byte $01   ; C3.12
     .byte $01   ; C13.01
     .byte $01   ; C13.02
     .byte $01   ; C13.03
@@ -32907,6 +33026,7 @@ _test_names:
     .addr @n_c3_04
     .addr @n_c3_05
     .addr @n_c3_07
+    .addr @n_c3_12
     .addr @n_c13_01
     .addr @n_c13_02
     .addr @n_c13_03
@@ -33438,6 +33558,9 @@ _test_names:
 @n_c3_07:
     .byte 24
     .byte "Counter flipflops differ"
+@n_c3_12:
+    .byte 21
+    .byte "CGRAM taken in render"
 @n_c13_01:
     .byte 22
     .byte "PPU1 open bus in $213E"

@@ -1141,6 +1141,16 @@ Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored
 |---|---|---|
 | 1 | `$02` | reading $213C advanced $213D's flipflop — the two counters share one, so a read of V after a read of H returns its high byte |
 
+### C3.12 — CGRAM taken in render
+
+Provenance: **Documented** (fullsnes and the SNESdev Wiki: a CGRAM access during active display uses the colour the PPU is drawing, not the CPU CGADD. Mesen2 models it (writes use InternalCgramAddress when !CanAccessCgram); the batch compositor and snes9x use the programmed CGADD and fail). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | colour 0 did not read back its seed in forced blank — the CGRAM port or the fill is broken, so the render write below proves nothing |
+| 2 | `$04` | the mid-render $2122 write did not reach the drawn colour (colour 0) — the CGRAM address was not taken over during active display |
+| 3 | `$06` | the mid-render $2122 write landed on the CPU-programmed CGADD ($10) instead of the drawn colour |
+
 ### C13.01 — PPU1 open bus in $213E
 
 Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.

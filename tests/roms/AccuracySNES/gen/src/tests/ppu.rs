@@ -53,6 +53,7 @@ pub fn all() -> Vec<Test> {
         c3_04(),
         c3_05(),
         c3_07(),
+        c3_12(),
         // --- C13: open bus ---
         c13_01(),
         c13_02(),
@@ -1281,6 +1282,119 @@ fn c3_04() -> Test {
         'C',
         "H counter advances",
         Provenance::Documented("SNESdev Wiki, PPU registers"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Dossier C3.04: a `$2122` write during active display commits to the colour the PPU is currently
+/// drawing (the internal CGRAM address), not the CPU-programmed CGADD.
+///
+/// With every main-screen layer disabled (`TM = 0`) the whole active line is the backdrop, palette
+/// 0, so the internal CGRAM address is 0 for the entire line — the redirect target is known without
+/// a controlled dot, and any active-display dot the fixed burn lands on gives the same answer. The
+/// test seeds colour 0 and colour `$10` to distinct values, points CGADD at `$10`, and writes a
+/// third value during render: the takeover must land colour 0 and leave colour `$10` untouched. A
+/// core that ignores it writes colour `$10` instead (or drops the write), and either way colour 0
+/// keeps its seed. Mesen2 models it (`GetCgramColor`/`Write` use `InternalCgramAddress` when
+/// `!CanAccessCgram`); snes9x does not.
+fn c3_12() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$8F");
+    a.l("sta $2100         ; forced blank while CGRAM is seeded");
+    a.l("stz $212C         ; TM = 0: every pixel is the backdrop, so the internal CGRAM address is 0");
+    a.c("--- seed colour 0 = $1111 and colour $10 = $2222, both distinct from the render value $3333 ---");
+    a.l("stz $2121         ; CGADD = 0");
+    a.l("lda #$11");
+    a.l("sta $2122");
+    a.l("lda #$11");
+    a.l("sta $2122         ; colour 0 = $1111");
+    a.l("lda #$10");
+    a.l("sta $2121         ; CGADD = $10");
+    a.l("lda #$22");
+    a.l("sta $2122");
+    a.l("lda #$22");
+    a.l("sta $2122         ; colour $10 = $2222");
+    a.c("--- guard: in blank the seed reads back, so a changed colour 0 below cannot be a dead port ---");
+    a.l("stz $2121");
+    a.l("lda $213B");
+    a.l("sta f:$7E0208     ; colour 0 low, still the seed $11");
+    a.c("--- the render write, at a CONTROLLED dot inside the CGRAM-redirect window (dots 22..273) ---");
+    a.c("Turn the display on for a settled frame, then park on a once-per-frame H+V IRQ mid-line. SEI");
+    a.c("keeps it masked so WAI resumes inline; the $2122 write then commits at a known active-display");
+    a.c("dot. A fixed burn cannot guarantee that window across emulators — the write must land where the");
+    a.c("redirect is live, not in h-blank.");
+    a.l("lda #$0F");
+    a.l("sta $2100         ; forced blank off");
+    a.l("jsl wait_vblank_far");
+    a.l("jsl wait_vblank_far   ; a settled frame with the display on");
+    a.l("sep #$20             ; re-assert 8-bit A after the far calls");
+    a.l("lda #100");
+    a.l("sta $4207         ; HTIME = 100, well inside the active line");
+    a.l("stz $4208");
+    a.l("lda #50");
+    a.l("sta $4209         ; VTIME = 50 (a visible line)");
+    a.l("stz $420A");
+    a.l("sei               ; mask so WAI resumes inline, no dispatch latency");
+    a.l("lda #$30");
+    a.l("sta $4200         ; enable the H+V IRQ");
+    a.l("wai               ; parked until (V=50, H=100)");
+    a.l("lda #$10");
+    a.l(
+        "sta $2121         ; CPU CGADD = $10 (resets the write flipflop) — the redirect ignores it",
+    );
+    a.l("lda #$33");
+    a.l("sta $2122");
+    a.l("lda #$33");
+    a.l("sta $2122         ; the write commits mid-render; the redirect sends it to colour 0");
+    a.l("lda $4211         ; ack TIMEUP");
+    a.l("stz $4200         ; disarm the IRQ (test_restore also does this on any exit path)");
+    a.l("lda #$8F");
+    a.l("sta $2100         ; forced blank restored before readback");
+    a.c("--- read colour 0 (the redirect target) then colour $10 (the CPU address) ---");
+    a.l("stz $2121");
+    a.l("lda $213B");
+    a.l("sta f:$7E0209     ; colour 0 low, after the render write");
+    a.l("lda #$10");
+    a.l("sta $2121");
+    a.l("lda $213B");
+    a.l("sta f:$7E020A     ; colour $10 low, after the render write");
+    a.c("Guard first: the seed read back before the render write, so the port and the fill both work.");
+    a.l("lda f:$7E0208");
+    a.assert_a8(
+        0x11,
+        "colour 0 did not read back its seed in forced blank — the CGRAM port or the fill is broken, \
+         so the render write below proves nothing",
+    );
+    a.c(
+        "Colour 0 must now hold the render value: the mid-render write was redirected to the drawn",
+    );
+    a.c("colour (internal address 0), not to CGADD. A core that writes CGADD leaves colour 0 at $11.");
+    a.l("lda f:$7E0209");
+    a.assert_a8(
+        0x33,
+        "the mid-render $2122 write did not reach the drawn colour (colour 0) — the CGRAM address was \
+         not taken over during active display",
+    );
+    a.c("And colour $10 — the CPU-programmed address — must be untouched, still its $22 seed.");
+    a.l("lda f:$7E020A");
+    a.assert_a8(
+        0x22,
+        "the mid-render $2122 write landed on the CPU-programmed CGADD ($10) instead of the drawn colour",
+    );
+    a.finish(
+        "C3.12",
+        'C',
+        "CGRAM taken in render",
+        Provenance::Documented(
+            "fullsnes and the SNESdev Wiki: a CGRAM access during active display uses the colour the \
+             PPU is drawing, not the CPU CGADD. Mesen2 models it (writes use InternalCgramAddress \
+             when !CanAccessCgram); the batch compositor and snes9x use the programmed CGADD and fail",
+        ),
         Kind::Scored,
         None,
     )

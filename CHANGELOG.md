@@ -23,6 +23,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and cross-validated: Mesen2 agrees (`GetOamAddress` returns the same render address), while snes9x
   and the batch compositor read back the programmed `$80` — a now-documented snes9x divergence.
 
+- **AccuracySNES dossier `C3.04` (CGRAM taken over during active display) is now a scored row
+  (295 -> 296), the CGRAM sibling of `C1.08`.** A `$2122` write during active display commits to the
+  colour the PPU is drawing — its internal CGRAM address — not the CPU-programmed CGADD (ares/MesenCE
+  `!CanAccessCgram` → `InternalCgramAddress`). With every main-screen layer off (`TM = 0`) the whole
+  active line is the backdrop, palette 0, so the redirect target is a known 0. The test seeds colour 0
+  and colour `$10` to distinct values, points CGADD at `$10`, and writes a third value at a controlled
+  active-display dot (the same H+V IRQ + `SEI`/`WAI` sync as `C1.08`, so the write lands where the
+  redirect is live rather than in h-blank — a fixed burn could not guarantee that across emulators):
+  colour 0 must take the write and colour `$10` must stay its seed. Cross-validated — Mesen2 agrees,
+  snes9x uses the programmed CGADD and fails (a now-documented divergence).
+
 - **AccuracySNES `G1.16` (ExHiROM A23->A22 half-selection) via a third, two-half cartridge image
   (coverage 338 -> 339 of 443).** ExHiROM inverts address bit 23 into ROM offset bit 22 — banks
   `$80-$FF` (A23=1) select the first 4 MiB, `$00-$7D` (A23=0) the extra 4 MiB — so distinguishing the
