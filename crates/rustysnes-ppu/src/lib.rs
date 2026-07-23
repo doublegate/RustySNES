@@ -112,6 +112,12 @@ pub const SCREEN_HEIGHT: usize = 239;
 /// First active output dot on a visible line.
 const ACTIVE_DOT_START: u16 = 22;
 
+/// First horizontal-blank dot: active output ends and horizontal blanking begins here
+/// (`docs/ppu.md`, dot-clock timeline). Also the exclusive upper bound of the in-render CGRAM/OAM
+/// redirect window (ares `hcounter < 1096`, i.e. dot `< 274`) — shared between `tick_dot`'s blanking
+/// test and `cgram_write_target`'s gate so the two cannot desync.
+const HBLANK_START_DOT: u16 = 274;
+
 /// Dots by which the HV-IRQ horizontal comparator lags the programmed `HTIME`, modelling the
 /// SNES hardware communication delay between the counter unit and the CPU's interrupt logic
 /// (ares `hcounter(10) == (HTIME+1)<<2` ⇒ fire at dot `HTIME + 3.5`; see `check_hv_irq`).
@@ -693,6 +699,34 @@ pub struct Ppu {
     /// the regression proof that toggling this never changes `framebuffer()`'s bytes.
     #[cfg(feature = "hd-pack")]
     tile_tags: Box<[hdtag::TileTag]>,
+
+    // --- Per-dot compositor state (`per-dot-compositor` feature, `docs/adr/0014`, T-CA-10 Phase 4).
+    //
+    // The visible line is composited one dot at a time (blueprint: MesenCE `SnesPpu::RenderScanline`).
+    // These hold the current line's fetched pixels and the incremental draw cursor. They are transient
+    // (re-derived at each line start from serialized PPU state), so they are deliberately NOT saved —
+    // a save at a frame boundary (the normal case) has no mid-line cursor to preserve; a mid-line save
+    // under this experimental flag re-fetches on load, documented in `docs/ppu.md`.
+    /// This line's fetched above/below pixels (built once per line, drained per dot).
+    #[cfg(feature = "per-dot-compositor")]
+    pd_above: alloc::boxed::Box<[render::Pixel; SCREEN_WIDTH]>,
+    #[cfg(feature = "per-dot-compositor")]
+    pd_below: alloc::boxed::Box<[render::Pixel; SCREEN_WIDTH]>,
+    /// The DAC carry threaded through the incremental composite (ares' one-column hi-res delay).
+    #[cfg(feature = "per-dot-compositor")]
+    pd_carry: render::DacCarry,
+    /// Next output column to composite (the draw cursor; MesenCE `_drawStartX`). Reset to 0 per line.
+    #[cfg(feature = "per-dot-compositor")]
+    pd_draw_x: u16,
+    /// Which visible line (`self.v`) `pd_above`/`pd_below` were fetched for; `u16::MAX` = not fetched
+    /// (forces a re-fetch — also the state after a save-state load).
+    #[cfg(feature = "per-dot-compositor")]
+    pd_fetched_line: u16,
+    /// The CGRAM index of the last-drawn column (MesenCE `_state.InternalCgramAddress`, `dac.cpp`
+    /// `paletteColor`). A CGRAM write during active display is redirected here — the exact,
+    /// draw-cursor-driven form of the in-render redirect (supersedes the on-demand `h-22` approximation).
+    #[cfg(feature = "per-dot-compositor")]
+    internal_cgram_address: u8,
 }
 
 impl core::fmt::Debug for Ppu {
@@ -754,6 +788,18 @@ impl Ppu {
             #[cfg(feature = "hd-pack")]
             tile_tags: alloc::vec![hdtag::TileTag::default(); MAX_FRAMEBUFFER_LEN]
                 .into_boxed_slice(),
+            #[cfg(feature = "per-dot-compositor")]
+            pd_above: Box::new([render::Pixel::default(); SCREEN_WIDTH]),
+            #[cfg(feature = "per-dot-compositor")]
+            pd_below: Box::new([render::Pixel::default(); SCREEN_WIDTH]),
+            #[cfg(feature = "per-dot-compositor")]
+            pd_carry: render::DacCarry::default(),
+            #[cfg(feature = "per-dot-compositor")]
+            pd_draw_x: 0,
+            #[cfg(feature = "per-dot-compositor")]
+            pd_fetched_line: u16::MAX,
+            #[cfg(feature = "per-dot-compositor")]
+            internal_cgram_address: 0,
         }
     }
 
@@ -817,7 +863,7 @@ impl Ppu {
     /// [`VideoBus::notify_vblank`] when `VBlank` begins. Hot path: allocation-free.
     pub fn tick_dot(&mut self, bus: &mut impl VideoBus) {
         // HBlank region: dots 274..=340 (active output ends near dot 274).
-        self.hblank = self.h >= 274 || self.h < ACTIVE_DOT_START;
+        self.hblank = self.h >= HBLANK_START_DOT || self.h < ACTIVE_DOT_START;
 
         // HV-IRQ comparator (level): fire when the enabled H and/or V positions match.
         self.check_hv_irq();
@@ -827,9 +873,15 @@ impl Ppu {
         // confirmed off-by-one-line fix). `advance_master` services this line's HDMA at this
         // same dot, strictly AFTER this render call within the same master-clock tick (the HDMA
         // check runs after `tick_ppu_dot` returns) -- see `docs/scheduler.md` §DMA/HDMA bus-steal.
+        #[cfg(not(feature = "per-dot-compositor"))]
         if self.h == RENDER_DOT && self.v >= 1 && self.v <= self.visible_height() {
             self.render_scanline(bus);
         }
+        // Per-dot compositor: composite incrementally up to the current dot's column every tick,
+        // with live register state (`docs/adr/0014`, T-CA-10 Phase 4). Finishes each line by
+        // `RENDER_DOT`, before that line's HDMA — byte-identical to the batch on a static line.
+        #[cfg(feature = "per-dot-compositor")]
+        self.pd_render_to_dot(bus);
 
         self.h += 1;
         if self.h >= DOTS_PER_LINE {
@@ -1194,6 +1246,18 @@ impl Ppu {
                 "PPU0 section has {} trailing byte(s)",
                 s.remaining()
             )));
+        }
+        // The per-dot compositor's line state is transient (not part of the serialized format —
+        // re-derived per line), so it must be INVALIDATED here: a pre-load `pd_fetched_line` that
+        // coincidentally equals the just-loaded `self.v` would otherwise skip the re-fetch in
+        // `pd_render_to_dot` and composite the new line from the previous state's stale cursor/pixels,
+        // breaking determinism. `u16::MAX` forces a fresh `pd_fetch_line` on the next dot.
+        #[cfg(feature = "per-dot-compositor")]
+        {
+            self.pd_fetched_line = u16::MAX;
+            self.pd_draw_x = 0;
+            self.pd_carry = render::DacCarry::default();
+            self.internal_cgram_address = 0;
         }
         Ok(())
     }

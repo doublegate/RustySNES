@@ -31,6 +31,36 @@ impl Ppu {
         self.io.display_disable || self.v == 0 || self.v > self.visible_height()
     }
 
+    /// The CGRAM index a `$2122` word write commits to. Normally the CPU-programmed `cgram_address`;
+    /// but with the per-dot compositor, a write during active display is redirected to the color
+    /// currently being drawn (ares `PPU::writeCGRAM`'s `address = latch.cgramAddress`; dossier C3.04).
+    ///
+    /// The active-display gate is ares'/MesenCE's exactly: `!displayDisable && 0 < vcounter < vdisp &&
+    /// 88 <= hcounter < 1096` (RustySNES `hcounter = h*4`, so dots `22..274`). The redirect target is
+    /// [`Ppu::internal_cgram_address`] — the palette of the last column the per-dot compositor drew
+    /// (MesenCE `_state.InternalCgramAddress`), maintained live by `pd_render_to_dot` each dot. This
+    /// is the exact, draw-cursor-driven form; it supersedes the earlier on-demand `h-22` re-render.
+    #[cfg(feature = "per-dot-compositor")]
+    const fn cgram_write_target(&self) -> u8 {
+        let in_active_display = !self.io.display_disable
+            && self.v >= 1
+            && self.v <= self.visible_height()
+            && self.h >= crate::ACTIVE_DOT_START
+            && self.h < crate::HBLANK_START_DOT;
+        if in_active_display {
+            self.internal_cgram_address
+        } else {
+            self.io.cgram_address
+        }
+    }
+
+    /// Without the per-dot compositor, a `$2122` write always commits to the programmed address —
+    /// byte-identical to the historical batch model, which never modelled the in-render redirect.
+    #[cfg(not(feature = "per-dot-compositor"))]
+    const fn cgram_write_target(&self) -> u8 {
+        self.io.cgram_address
+    }
+
     fn vram_read_word(&self) -> u16 {
         self.vram[self.vram_mapped_address()]
     }
@@ -183,7 +213,13 @@ impl Ppu {
             0x2122 => {
                 if self.io.cgram_latch_high {
                     let word = (u16::from(val & 0x7f) << 8) | u16::from(self.io.cgram_byte_latch);
-                    self.cgram[self.io.cgram_address as usize] = word;
+                    // In-render CGRAM redirect (ares `PPU::writeCGRAM`; dossier C3.04): a write during
+                    // active display lands at the color currently being drawn, not the CPU-programmed
+                    // index. The programmed address still advances (ares `io.cgramAddress++` is
+                    // unconditional). Off by default → byte-identical to the batch model, which never
+                    // redirects. See `docs/ppu.md` §In-render CGRAM access.
+                    let target = self.cgram_write_target();
+                    self.cgram[target as usize] = word;
                     self.io.cgram_address = self.io.cgram_address.wrapping_add(1);
                     self.io.cgram_latch_high = false;
                 } else {

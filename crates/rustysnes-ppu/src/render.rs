@@ -35,8 +35,8 @@ use crate::{Object, Ppu, SCREEN_WIDTH, VideoBus};
 /// below-opacity, and the *next* column's below-pass is what actually consumes them (`dac.cpp`
 /// lines 124-129), so the composite is threaded left-to-right through this carry rather than read
 /// from the current column. Seeded per line as ares' pre-line reset.
-#[derive(Clone, Copy)]
-struct DacCarry {
+#[derive(Clone, Copy, Default)]
+pub struct DacCarry {
     /// This column's main pixel was not forced black (gates the next column's hi-res below color).
     above_enable: bool,
     /// This column's color-math was enabled (gates the next column's hi-res below-pass math).
@@ -60,7 +60,7 @@ struct LineCtx {
 
 /// A composited layer pixel: a 8-bit CGRAM palette index + a priority + the source-layer id.
 #[derive(Clone, Copy, Default)]
-struct Pixel {
+pub struct Pixel {
     palette: u8,
     priority: u8,
     /// Layer source: 0..=3 bg1..4, 4 obj, 5 backdrop. Drives color-math enable + direct color.
@@ -212,6 +212,9 @@ impl Ppu {
     }
 
     /// Composite the current scanline (`self.v`, 1..=visible) into the framebuffer.
+    // The batch compositor. Used by the default (feature-off) build and by tests; the
+    // `per-dot-compositor` feature drives `pd_render_to_dot` instead, so it is dead in that lib.
+    #[cfg_attr(feature = "per-dot-compositor", allow(dead_code))]
     pub(crate) fn render_scanline(&mut self, bus: &mut impl VideoBus) {
         let row = (self.v - 1) as usize;
         if row >= crate::SCREEN_HEIGHT {
@@ -271,6 +274,106 @@ impl Ppu {
 
         // --- Color math + DAC ---
         self.compose_dac(row, &above, &below);
+    }
+
+    /// Per-dot compositor (`per-dot-compositor` feature, `docs/adr/0014` T-CA-10 Phase 4): fetch this
+    /// visible line's `above`/`below` pixels once (the same backdrop+BG+sprite build as
+    /// [`Self::render_scanline`], minus the composite), seed the DAC carry, and reset the draw cursor.
+    /// Called lazily by [`Self::pd_render_to_dot`] at each line's first active dot (or after a
+    /// save-state load). Fetch happens once per line, before this line's HDMA, so on a static line it
+    /// reads the same register state the batch composite reads at `RENDER_DOT`.
+    #[cfg(feature = "per-dot-compositor")]
+    fn pd_fetch_line(&mut self, bus: &mut impl VideoBus) {
+        let row = (self.v - 1) as usize;
+        if row == 0 {
+            self.frame_hires = self.is_hires();
+        }
+        // ALWAYS build the line, even under force-blank: display-disable is a compose-time decision
+        // (`pd_render_to_dot` outputs black per column while it is set), so a line that is blanked at
+        // its start but UN-blanked mid-line must still have real pixels ready to draw. (The batch
+        // early-returns on force-blank because it composites the whole line at once; the per-dot path
+        // cannot, since blank can toggle within the line — MesenCE fetches regardless of force-blank.)
+        let mut above = [Pixel::default(); SCREEN_WIDTH];
+        let mut below = [Pixel::default(); SCREEN_WIDTH];
+        let pr = self.mode_priorities();
+        for x in 0..SCREEN_WIDTH {
+            above[x] = Pixel {
+                palette: 0,
+                priority: 0,
+                layer: 5,
+                palette_group: 0,
+                opaque: false,
+                ..Pixel::default()
+            };
+            below[x] = above[x];
+        }
+        if self.io.bg_mode == 7 {
+            self.render_mode7(bus, &pr, &mut above, &mut below);
+        } else {
+            for bg in 0..4 {
+                if pr.active[bg] {
+                    self.render_bg(bg, &pr, &mut above, &mut below);
+                }
+            }
+        }
+        self.render_objects(&pr, &mut above, &mut below);
+        self.pd_above.copy_from_slice(&above);
+        self.pd_below.copy_from_slice(&below);
+        self.pd_carry = DacCarry {
+            above_enable: false,
+            below_enable: false,
+            above_raw: self.cgram[0],
+            below_opaque: false,
+        };
+        self.pd_draw_x = 0;
+        self.pd_fetched_line = self.v;
+    }
+
+    /// Per-dot compositor driver, called every dot from [`crate::Ppu::tick_dot`]. Composites the
+    /// visible line's columns incrementally up to the column the DAC has reached at the current dot,
+    /// using **live** register state per column (so a mid-line color-math/brightness/force-blank write
+    /// only affects columns drawn after it), and tracks [`crate::Ppu::internal_cgram_address`] = the
+    /// last drawn palette (the exact CGRAM-redirect target). All columns finish by `RENDER_DOT` so the
+    /// composite still reads pre-line-HDMA state (matching the batch on a static line → byte-identical).
+    #[cfg(feature = "per-dot-compositor")]
+    pub(crate) fn pd_render_to_dot(&mut self, bus: &mut impl VideoBus) {
+        if self.v < 1 || self.v > self.visible_height() {
+            return;
+        }
+        if self.pd_fetched_line != self.v {
+            self.pd_fetch_line(bus);
+        }
+        let target = if self.h < crate::ACTIVE_DOT_START {
+            0
+        } else if self.h >= crate::RENDER_DOT {
+            SCREEN_WIDTH
+        } else {
+            usize::from(self.h - crate::ACTIVE_DOT_START + 1).min(SCREEN_WIDTH)
+        };
+        let base = (self.v - 1) as usize * self.visible_width();
+        let hires = self.frame_hires;
+        while usize::from(self.pd_draw_x) < target {
+            let x = usize::from(self.pd_draw_x);
+            if self.io.display_disable {
+                if hires {
+                    self.framebuffer[base + 2 * x] = 0;
+                    self.framebuffer[base + 2 * x + 1] = 0;
+                } else {
+                    self.framebuffer[base + x] = 0;
+                }
+            } else {
+                let ctx = LineCtx {
+                    base,
+                    brightness: u32::from(self.io.display_brightness),
+                    hires,
+                };
+                let ap = self.pd_above[x];
+                let bp = self.pd_below[x];
+                self.pd_carry = self.compose_pixel(x, ap, bp, ctx, self.pd_carry);
+                self.internal_cgram_address = ap.palette;
+            }
+            self.pd_draw_x += 1;
+        }
     }
 
     /// Render one non-Mode-7 background into the above/below pixel buffers.
@@ -1029,6 +1132,7 @@ impl Ppu {
     /// that delayed state; it starts at the documented power-on/scanline-start boundary (ares
     /// `DAC::scanline()`): no color math enabled, raw color = backdrop — which is exactly why the
     /// first hires column of every scanline is transparent on real hardware.
+    #[cfg_attr(feature = "per-dot-compositor", allow(dead_code))]
     fn compose_dac(&mut self, row: usize, above: &[Pixel], below: &[Pixel]) {
         let ctx = LineCtx {
             base: row * self.visible_width(),
@@ -1866,5 +1970,78 @@ mod tests {
             "column 1's aboveColor must be unaffected by column 0's state — only the hires \
              below-pass has the one-column delay"
         );
+    }
+
+    // --- Per-dot compositor: the exact in-render CGRAM write redirect (T-CA-10, dossier C3.04).
+    //
+    // The redirect target is `internal_cgram_address` — the palette of the last column the per-dot
+    // compositor drew (MesenCE `_state.InternalCgramAddress`), maintained live by `pd_render_to_dot`.
+    // These unit tests set it directly to exercise the NEW logic: the active-display gate, and that a
+    // mid-display write commits to that drawn-palette index rather than the CPU-programmed index.
+
+    #[cfg(feature = "per-dot-compositor")]
+    #[test]
+    fn cgram_write_during_active_display_redirects_to_drawn_palette() {
+        let mut p = Ppu::new();
+        p.write_reg(0x2100, 0x0f); // display ENABLED, brightness 15
+        // Inside the active-display window (line 50, dot 100), the DAC last drew palette 7.
+        p.v = 50;
+        p.h = 100;
+        p.internal_cgram_address = 7;
+        // A NON-redirected write would land at the programmed index 5.
+        p.write_reg(0x2121, 0x05);
+        p.write_reg(0x2122, 0x34);
+        p.write_reg(0x2122, 0x12); // commits word $1234
+        assert_eq!(
+            p.cgram[7], 0x1234,
+            "the in-render write must hit the color being drawn (internal_cgram_address = 7)"
+        );
+        assert_eq!(
+            p.cgram[5], 0x0000,
+            "the in-render write must NOT land at the CPU-programmed index"
+        );
+        assert_eq!(
+            p.io.cgram_address, 6,
+            "the programmed address still advances (ares io.cgramAddress++ is unconditional)"
+        );
+    }
+
+    #[cfg(feature = "per-dot-compositor")]
+    #[test]
+    fn cgram_write_outside_active_display_is_not_redirected() {
+        let mut p = Ppu::new();
+        p.write_reg(0x2100, 0x0f); // display enabled
+        p.v = 50;
+        p.h = 300; // dot 300 >= 274 → HBlank, outside the redirect window
+        p.internal_cgram_address = 7;
+        p.write_reg(0x2121, 0x05);
+        p.write_reg(0x2122, 0x34);
+        p.write_reg(0x2122, 0x12);
+        assert_eq!(
+            p.cgram[5], 0x1234,
+            "a write in HBlank must commit to the CPU-programmed index"
+        );
+        assert_eq!(
+            p.cgram[7], 0x0000,
+            "the drawn-palette index must be untouched"
+        );
+    }
+
+    #[cfg(feature = "per-dot-compositor")]
+    #[test]
+    fn cgram_write_under_force_blank_is_not_redirected() {
+        let mut p = Ppu::new();
+        p.write_reg(0x2100, 0x80); // FORCE BLANK on — CGRAM is freely accessible, no redirect
+        p.v = 50;
+        p.h = 100; // in the dot window, but force-blank gates the redirect off
+        p.internal_cgram_address = 7;
+        p.write_reg(0x2121, 0x05);
+        p.write_reg(0x2122, 0x34);
+        p.write_reg(0x2122, 0x12);
+        assert_eq!(
+            p.cgram[5], 0x1234,
+            "under force-blank the write must commit to the programmed index"
+        );
+        assert_eq!(p.cgram[7], 0x0000);
     }
 }

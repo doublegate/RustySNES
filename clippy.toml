@@ -24,4 +24,6 @@ doc-valid-idents = [
     "SuperFX",
     "PeterLemon",
     "TetaNES",
+    "MesenCE",
+    "Mesen2",
 ]
