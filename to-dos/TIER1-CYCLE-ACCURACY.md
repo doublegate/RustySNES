@@ -84,6 +84,50 @@ coprocessor goldens + commercial screenshots); only THEN wire the CGRAM/OAM writ
 legitimately-shifted golden (mid-line-write ROMs) ONLY from a reference-agreeing render (ADR 0013);
 the coprocessor goldens are usable local gates again post-#216 ([[coprocessor-golden-staleness-rootcause]]).
 Keep flag-OFF byte-identical throughout (default builds unchanged).
+
+### T-CA-10 Phase 4 — status + remaining plan (2026-07-23; branch `feat/per-dot-compositor-cgram-latch`, draft #218)
+
+**KEY ASSET — `ref-proj/MesenCE`** (cloned + built this session; env has .NET 10 SDK + SDL2 + clang, `make -j`,
+binary `bin/linux-x64/Release/Mesen`, run `SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy Mesen --testRunner
+<lua> <rom>`; Lua `emu.getScreenBuffer()` = 0xRRGGBB of the RENDERED frame, top rows are overscan-black so
+compare distinct picture-color SETS not row-0). It is the authoritative Phase-4 blueprint AND the exact-frame
+oracle. Phase-4 driving loop = `Core/SNES/SnesPpu.cpp:RenderScanline()` (928-976): three incremental cursors
+advancing with the dot clock — sprite-eval `_spriteEvalStart..End` (935 `EvaluateNextLineSprites`), BG-fetch
+`_fetchBgStart..End` (944 `FetchTileData`), draw `_drawStartX..EndX` (`_drawEndX=min(hPos-22,255)`); reset per
+line at `ProcessEndOfScanline:443`. CGRAM redirect = `:2216` (`InternalCgramAddress`); OAM redirect = `:2006`
++`:1768` (`GetOamAddress`→`_oamEvaluationIndex`/`_oamTimeIndex` + high-table quirk, "needed for Uniracers").
+
+**4a DONE (commits 7689b92, 391ac7c):** the DRAW cursor. `Ppu::pd_render_to_dot` (each `tick_dot`) composites
+the line one column at a time up to the DAC column with LIVE registers, finishing by `RENDER_DOT` (pre-HDMA);
+`pd_fetch_line` builds the line once at its start (always, even under force-blank — a real bug fixed in 391ac7c).
+The exact CGRAM latch `internal_cgram_address` (= last-drawn palette) replaces the removed on-demand resolver.
+Feature-gated `Ppu` fields are transient (not save-stated; re-fetched per line). **VERIFIED: feature-OFF
+byte-identical (29 tests); feature-ON byte-identical on 26/29 undisbeliever (static); clippy+fmt clean both.**
+
+**Open at 4a:** the 3 mid-line INIDISP undisbeliever ROMs shift but don't match MesenCE (`inidisp_forgot` renders
+`7fff` vs MesenCE `7fc6`; the BATCH renders `34e6`, so even the old model was wrong for it). Findings: that ROM
+does ZERO `$2122` writes (redirect irrelevant) and its artifact is PPU-access-during-active-display (VRAM/OAM),
+a deep quirk = **Phase 4d**. MesenCE applies INIDISP live per-segment with NO write-delay (so brightness_delay is
+not a simple systematic fix). These are undisbeliever, NOT AccuracySNES scored rows — they gate the corpus
+re-bless, not coverage. **DON'T chase one ROM; do the systematic phases:**
+
+- **4b — incremental sprite-eval cursor.** Split `render_objects` range/time eval (sets `$213E` over-flags) from
+  paint; run the eval incrementally over dots per MesenCE `EvaluateNextLineSprites`. Fixes over-flag DOT timing
+  (needed for AccuracySNES C7.x) and mid-line OAM changes. Milestone: framebuffer byte-identical + over-flag reads.
+- **4c — incremental BG fetch-ahead.** Run `render_bg`'s FETCH incrementally over `_fetchBgStart..End` (≤ dot 263,
+  draw ≤ 255) so a mid-line scroll write only reaches not-yet-fetched columns. Unblocks mid-line scroll rasters.
+- **4d — deep mid-line access + hi-res/interlace.** PPU VRAM/OAM/CGRAM access-during-render redirect/drop model
+  (the inidisp_forgot class), MPY-during-render (C11.08), `$2138` mid-frame (C1.08), two-sub-pixel hi-res +
+  interlace at dot resolution. Re-bless the legitimately-shifted goldens (incl. the 3 INIDISP ROMs) vs MesenCE.
+- **Item 3 — OAM redirect (C7.16 Uniracers), integrated with 4b's sprite-eval cursor** (`oam_write_target` in
+  regs.rs mirroring the CGRAM one, using the eval index; port the high-table-also-written quirk).
+- **Phase 6 — flip default** after 4b-4d+OAM land and the full corpus re-blesses vs MesenCE/ares; then add the
+  AccuracySNES SCORED rows (C3.04, C11.08, C1.08, C7.16, hi-res) → coverage climbs past 339/443.
+
+Determinism/save-state: serialize any CPU-observable new cursor state at the point mid-line saves become possible;
+keep transient line buffers re-derived. Every phase: byte-identical milestone → save-state round-trip → determinism
+→ clippy/fmt both feature states → MesenCE frame agreement for any re-blessed golden.
+
 | T-CA-11 | 65816 cycle-by-cycle bus trace | cycle counts are per-instruction tallies, access **order** not pin-validated | `cpu.md:186`, timing-oracle | [ ] Large: model per-cycle bus access (address driven each internal cycle) so open-bus/DMA-interaction is exact. |
 | T-CA-12 | Open-bus-via-HDMA-latch | correct fix breaks 24 GSU goldens, root cause unknown | `accuracy-ledger.md`, `scheduler.md` | [BLOCKED] Blocked on an access-level trace of GSU VRAM/CGRAM writes vs the failing DMA transfers. |
 
