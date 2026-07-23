@@ -2190,4 +2190,46 @@ mod tests {
             "without priority rotation the evaluation index seeds from 0"
         );
     }
+
+    #[cfg(feature = "per-dot-compositor")]
+    #[test]
+    fn oam_read_during_evaluation_redirects_to_render_address() {
+        // C1.08: a $2138 (OAMDATAREAD) during a rendering scanline reads the evaluator's OAM entry,
+        // not the CPU's OAMADDR (MesenCE $2138 = GetOamAddress()).
+        let mut p = Ppu::new();
+        p.write_reg(0x2100, 0x0f); // display enabled
+        p.write_reg(0x2102, 0x00); // OAMADDR = 0
+        p.oam[0] = 0x11; // what a NON-redirected read at OAMADDR=0 would return
+        p.oam[200] = 0x77; // eval_index 50 << 2 = 200 — the render address at v=50, h=100
+        p.pd_oam_eval_seed = 0;
+        p.v = 50;
+        p.h = 100;
+        assert_eq!(
+            p.read_reg(0x2138),
+            0x77,
+            "the in-render read must return the evaluator's OAM entry, not OAMADDR's"
+        );
+        assert_eq!(
+            p.io.oam_address, 1,
+            "OAMADDR still advances on the redirected read"
+        );
+    }
+
+    #[cfg(feature = "per-dot-compositor")]
+    #[test]
+    fn oam_read_outside_render_uses_cpu_address() {
+        let mut p = Ppu::new();
+        p.write_reg(0x2100, 0x0f); // display enabled
+        p.write_reg(0x2102, 0x00); // OAMADDR = 0
+        p.oam[0] = 0x11;
+        p.oam[200] = 0x77;
+        p.pd_oam_eval_seed = 0;
+        p.v = 0; // vblank line → not rendering → no redirect
+        p.h = 100;
+        assert_eq!(
+            p.read_reg(0x2138),
+            0x11,
+            "outside a rendering scanline the read uses the CPU OAMADDR"
+        );
+    }
 }

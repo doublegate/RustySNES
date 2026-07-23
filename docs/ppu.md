@@ -155,6 +155,11 @@ Per `ref-docs/2026-06-24-ppu.md` §6:
     writes and so cannot be re-derived on load; the byte is written unconditionally (0 without the
     feature) so the format stays identical across builds. Over-flag dot-timing, mid-line BG-scroll,
     and the fetch-phase OAM index are Phase 4b/4c follow-ups.
+  - **In-render OAM read redirect** (`per-dot-compositor` feature; dossier C1.08). The read side of
+    the same rule: a `$2138` (OAMDATAREAD) during a rendering scanline returns the *evaluator's* OAM
+    entry (`oam_render_redirect` = `eval_index << 2`), not the CPU's `OAMADDR` (MesenCE `$2138` =
+    `GetOamAddress()`), and `OAMADDR` still auto-increments. Shares `pd_oam_eval_seed` and the
+    evaluation-phase gate with the write redirect. Off by default → byte-identical shipped builds.
 
 ## Frame structure / resolutions
 
