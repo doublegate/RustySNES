@@ -134,6 +134,13 @@ fn hirom_rom_path() -> PathBuf {
     build_dir().join("accuracysnes-hirom.sfc")
 }
 
+/// The parallel ExHiROM image: the shared runtime plus the single ExHiROM battery row (`G1.16`),
+/// linked with `exhirom.cfg` + `header-exhirom.s` (see `main.rs::build_exhirom_image`). A genuine
+/// two-half >4 MiB layout so the A23->A22 half-selection has distinct physical bytes to observe.
+fn exhirom_rom_path() -> PathBuf {
+    build_dir().join("accuracysnes-exhirom.sfc")
+}
+
 /// A decoded verdict byte. Mirrors the encoding in `gen/src/dsl.rs`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Verdict {
@@ -467,6 +474,49 @@ fn hirom_image_decodes_and_scores() {
     assert!(report.passed >= 1, "the HiROM battery scored nothing");
     eprintln!(
         "AccuracySNES HiROM: {} test(s), {} passed, {} failed",
+        report.count, report.passed, report.failed
+    );
+}
+
+/// The ExHiROM sibling of [`hirom_image_decodes_and_scores`].
+///
+/// ExHiROM inverts A23 into ROM offset bit 22, so the runtime lives in the image's *extra* half
+/// (bank `$00` has A23=0 → ROM `$408000`, where `$21xx/$42xx` still decode as MMIO). If the emulator
+/// did not select the ExHiROM board, the reset vector would point into the wrong half and nothing
+/// would populate the results block. `g1_16` then asserts the two-half `$C0:0000`/`$40:0000`
+/// landmark selection explicitly. Coverage: G1.16.
+#[test]
+fn exhirom_image_decodes_and_scores() {
+    let path = exhirom_rom_path();
+    if !path.is_file() {
+        eprintln!("SKIP accuracysnes ExHiROM: image absent (run `cargo run -p accuracysnes-gen`)");
+        return;
+    }
+    let rom = std::fs::read(&path).expect("read ExHiROM image");
+    let cart = Cart::from_rom(&rom).expect("ExHiROM header must be detectable");
+    assert_eq!(
+        cart.header.map_mode,
+        rustysnes_core::cart::MapMode::ExHiRom,
+        "the ExHiROM image was not detected as ExHiROM (got {:?})",
+        cart.header.map_mode
+    );
+
+    let report = run_image(&path).expect("ExHiROM image runs");
+    assert!(
+        report.done,
+        "the ExHiROM battery never finished — the runtime likely did not boot in the extra half's \
+         $00:8000 window (check the ExHiROM A23->A22 decode: exhirom.cfg places the runtime at ROM \
+         $408000 for exactly this)"
+    );
+    assert!(report.count >= 1, "the ExHiROM battery reported no tests");
+    assert_eq!(
+        report.failed, 0,
+        "the ExHiROM battery had {} failing test(s) of {}",
+        report.failed, report.count
+    );
+    assert!(report.passed >= 1, "the ExHiROM battery scored nothing");
+    eprintln!(
+        "AccuracySNES ExHiROM: {} test(s), {} passed, {} failed",
         report.count, report.passed, report.failed
     );
 }

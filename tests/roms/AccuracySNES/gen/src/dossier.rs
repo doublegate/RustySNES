@@ -276,6 +276,8 @@ pub const MAP: &[(&str, &[&str])] = &[
     // Live in the HiROM image (tests::hirom), not the LoROM battery — see main.rs::build_hirom_image.
     ("G1.15", &["G1.15"]),
     ("G1.17", &["G1.17"]),
+    // Lives in the ExHiROM image (tests::exhirom) — see main.rs::build_exhirom_image.
+    ("G1.16", &["G1.16"]),
     ("A2.07", &["A2.07"]),
     ("A3.07", &["A3.07"]),
     ("A3.09", &["A3.09"]),

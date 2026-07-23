@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES `G1.16` (ExHiROM A23->A22 half-selection) via a third, two-half cartridge image
+  (coverage 338 -> 339 of 443).** ExHiROM inverts address bit 23 into ROM offset bit 22 — banks
+  `$80-$FF` (A23=1) select the first 4 MiB, `$00-$7D` (A23=0) the extra 4 MiB — so distinguishing the
+  two halves requires a genuine >4 MiB image whose halves are distinct physical bytes (a smaller image
+  would mirror them together). The generator now emits a third self-scoring image
+  (`build/accuracysnes-exhirom.sfc`, `$410000` bytes; the `$FF` fill compresses to a few KiB in git):
+  the shared `runtime.s` (again under `-D HIROM_BUILD`, which also drops the LoROM-only signature
+  blocks and scene loop) linked with a new `exhirom.cfg` and `header-exhirom.s` (`$FFD5 = $25`). The
+  load-bearing constraint is that ExHiROM maps bank `$00` (A23=0) into the *extra* half, so the runtime
+  links at CPU `$00:8000` (where `$21xx/$42xx` still decode as MMIO) but its bytes sit at ROM
+  `$408000`; the reset vector reads `$40FFFC`. The image plants two landmark bytes — `$A1` at ROM
+  `$000000` (first half) and `$E2` at ROM `$400000` (extra half) — and `g1_16` reads them through
+  `$C0:0000` and `$40:0000`, asserting the A23->A22 inversion selected different halves. Verified on
+  RustySNES, snes9x, and Mesen2, with a non-vacuity injection in `ExHiRom::map` (forcing the linear
+  region's high bit to 0 so both banks read the first half fails `g1_16` alone while the runtime — in
+  the untouched windowed region — still boots). The coverage report now spans all three images'
+  batteries.
 - **AccuracySNES `G1.15` (HiROM decode) + `G1.17` (HiROM SRAM) via a parallel HiROM cartridge image
   (coverage 336 -> 338 of 443).** The generator now emits a second, minimal self-scoring image
   (`build/accuracysnes-hirom.sfc`, 64 KiB) alongside the LoROM battery: the shared `runtime.s`
@@ -22,8 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   read the same ROM offset); `g1_17` asserts the `$20-$3F:$6000-$7FFF` SRAM window and its `$A0-$BF`
   mirror. Verified on RustySNES, snes9x, and Mesen2 (2/2 each), with per-test non-vacuity injections
   in `HiRom::map` (dropping the `$40-$7D` mirror fails `g1_15` alone; disabling SRAM fails `g1_17`
-  alone). The coverage report now spans both images' batteries. ExHiROM (`G1.16`) follows as a
-  separate image.
+  alone). The coverage report now spans both images' batteries. ExHiROM (`G1.16`) landed next as a
+  separate third image (above).
 - **AccuracySNES `F1.03` — the shared `$4016` latch, unblocked by attaching Mesen2 port 2 (coverage
   335 -> 336 of 443).** One write to `$4016` bit 0 latches BOTH controller ports' shift registers.
   The row needs a second controller held at a mask disjoint from port 1's (`PAD2_CONTRACT = $60A0`

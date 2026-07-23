@@ -45,6 +45,14 @@ const HIROM_CHECKSUM_OFFSET: usize = 0xFFDC;
 /// the `$00:8000` runtime window).
 const HIROM_ROM_SIZE: usize = 64 * 1024;
 
+/// File offset of the ExHiROM header checksum words. The ExHiROM header sits at file `$40FFC0`.
+const EXHIROM_CHECKSUM_OFFSET: usize = 0x40_FFDC;
+
+/// The ExHiROM image size: `$410000` (4 MiB + 64 KiB). It must exceed 4 MiB so the two halves
+/// (ROM `$0xxxxx` / `$4xxxxx`) are distinct physical bytes rather than mirror-collapsed — the whole
+/// property `G1.16` checks. The gap is `$FF` fill, which git compresses.
+const EXHIROM_ROM_SIZE: usize = 0x0041_0000;
+
 fn main() {
     let root = cart_root();
     let asm_dir = root.join("asm");
@@ -64,11 +72,14 @@ fn main() {
     // HiROM image (e.g. G1.15) is still covered. Each image has its own WRAM measurement channel,
     // so the slot-collision check stays per-image.
     let hirom_battery = tests::hirom();
+    let exhirom_battery = tests::exhirom();
     let mut coverage_battery = battery.clone();
     coverage_battery.extend(hirom_battery.iter().cloned());
+    coverage_battery.extend(exhirom_battery.iter().cloned());
     dossier::validate(&coverage_battery);
     dossier::check_slots(&battery);
     dossier::check_slots(&hirom_battery);
+    dossier::check_slots(&exhirom_battery);
     write(&root.join("SOURCE_CATALOG.tsv"), &emit::catalog(&battery));
     // Next to the ROM, not in the source tree: it describes THIS build's scene numbering, and a
     // host that reads a manifest from a different build would key its goldens off the wrong names.
@@ -150,6 +161,7 @@ fn main() {
     write_pal_image(&image, &build_dir.join("accuracysnes-pal.sfc"));
 
     build_hirom_image(&root, &asm_dir, &build_dir, &hirom_battery);
+    build_exhirom_image(&root, &asm_dir, &build_dir, &exhirom_battery);
 }
 
 /// Build the parallel HiROM image: the shared `runtime.s` (assembled with `-D HIROM_BUILD` so its
@@ -225,6 +237,90 @@ fn build_hirom_image(root: &Path, asm_dir: &Path, build_dir: &Path, battery: &[d
     );
     println!(
         "accuracysnes-gen: wrote {} ({} bytes, HiROM, checksum ${sum:04X})",
+        sfc.display(),
+        image.len()
+    );
+}
+
+/// Build the parallel ExHiROM image: the shared `runtime.s` (again under `-D HIROM_BUILD`, which
+/// drops the LoROM-only per-bank signature blocks and the scene loop for any second image) plus the
+/// ExHiROM battery (`G1.16`), linked with `exhirom.cfg` and `header-exhirom.s`.
+///
+/// The image is a genuine two-half >4 MiB layout: the runtime and tests live in the *extra* half
+/// (bank `$00` has A23=0, so `phk/plb` keeps `DBR` in `$00-$3F` where `$21xx/$42xx` decode as MMIO),
+/// while `EXSIG_LO` (`$A1`) sits at ROM `$000000` in the first half and `EXSIG_HI` (`$E2`) at ROM
+/// `$400000` in the extra half. `G1.16` reads both through the ExHiROM banks to self-score the
+/// A23->A22 inversion. The checksum is patched at the ExHiROM header offset (`$40FFDC`).
+fn build_exhirom_image(root: &Path, asm_dir: &Path, build_dir: &Path, battery: &[dsl::Test]) {
+    println!(
+        "accuracysnes-gen: ExHiROM image — {} test(s)",
+        battery.len()
+    );
+    write(&asm_dir.join("tests_exhirom.s"), &emit::asm(battery));
+
+    let units = [
+        ("runtime", "runtime-exhirom"),
+        ("header-exhirom", "header-exhirom"),
+        ("tests_exhirom", "tests_exhirom"),
+        ("font", "font-exhirom"),
+    ];
+    let mut objects = Vec::new();
+    for (src_stem, obj_stem) in units {
+        let src = asm_dir.join(format!("{src_stem}.s"));
+        let obj = build_dir.join(format!("{obj_stem}.o"));
+        run(
+            Command::new("ca65")
+                .arg("--cpu")
+                .arg("65816")
+                .arg("-D")
+                .arg("HIROM_BUILD")
+                .arg("-I")
+                .arg(asm_dir)
+                .arg("-o")
+                .arg(&obj)
+                .arg(&src),
+            &format!("ca65 {src_stem} (ExHiROM)"),
+        );
+        objects.push(obj);
+    }
+
+    let sfc = build_dir.join("accuracysnes-exhirom.sfc");
+    let mut link = Command::new("ld65");
+    link.arg("-C")
+        .arg(root.join("exhirom.cfg"))
+        .arg("-o")
+        .arg(&sfc)
+        .arg("-m")
+        .arg(build_dir.join("accuracysnes-exhirom.map"));
+    for obj in &objects {
+        link.arg(obj);
+    }
+    run(&mut link, "ld65 (ExHiROM)");
+
+    let mut image = std::fs::read(&sfc).expect("read linked ExHiROM image");
+    assert_eq!(
+        image.len(),
+        EXHIROM_ROM_SIZE,
+        "linked ExHiROM image is {} bytes, expected {EXHIROM_ROM_SIZE}",
+        image.len()
+    );
+    patch_checksum_at(&mut image, EXHIROM_CHECKSUM_OFFSET);
+    std::fs::write(&sfc, &image).expect("write patched ExHiROM image");
+    let sum = u16::from_le_bytes([
+        image[EXHIROM_CHECKSUM_OFFSET + 2],
+        image[EXHIROM_CHECKSUM_OFFSET + 3],
+    ]);
+    let comp = u16::from_le_bytes([
+        image[EXHIROM_CHECKSUM_OFFSET],
+        image[EXHIROM_CHECKSUM_OFFSET + 1],
+    ]);
+    assert_eq!(
+        sum ^ comp,
+        0xFFFF,
+        "ExHiROM checksum/complement invariant broken"
+    );
+    println!(
+        "accuracysnes-gen: wrote {} ({} bytes, ExHiROM, checksum ${sum:04X})",
         sfc.display(),
         image.len()
     );
