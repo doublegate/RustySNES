@@ -14,9 +14,11 @@
 # finer internal change ((scanline 101, dot 1) -> (scanline 100, dot 66)) — that is below the
 # V-counter sampling resolution and is asserted by the unit test instead (see README.md).
 #
-# Usage: scripts/probes/eval-line-213e/run.sh   (from the repo root; REF_PROJ overrides ref-proj)
+# Usage: scripts/probes/eval-line-213e/run.sh   (runnable from any directory; REF_PROJ overrides ref-proj)
 
 set -euo pipefail
+# Run from the script's own directory so probe.o/probe.sfc/probe_mesen.lua resolve as bare names;
+# cargo is invoked with an absolute --manifest-path so its cwd does not matter.
 cd "$(dirname "$0")"
 ROOT=$(git rev-parse --show-toplevel)
 REF_PROJ=${REF_PROJ:-$ROOT/ref-proj}
