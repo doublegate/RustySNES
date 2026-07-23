@@ -2,13 +2,11 @@
 //!
 //! Renders one ROM through RustySNES for a fixed number of frames and prints its framebuffer as a
 //! canonical `0RRRRRGGGGGBBBBB` distinct-color histogram, so `scripts/perdot_crossval.sh` can compare
-//! it against the same ROM rendered in MesenCE (`scripts/perdot_capture.lua`). Build it
-//! `--features per-dot-compositor` to exercise the accurate per-dot path (the harness feature
-//! propagates down to `rustysnes-core/per-dot-compositor`); without the feature it renders the batch
-//! path, which is how the harness reports the flag-OFF baseline.
+//! it against the same ROM rendered in MesenCE (`scripts/perdot_capture.lua`). The per-dot PPU is the
+//! only compositor (the batch path was removed), so this binary exercises it directly with no flag.
 //!
-//! Usage: `cargo run -q -p rustysnes-test-harness --features per-dot-compositor --bin perdot_dump --
-//! <rom.sfc> [frames]` (frames default 60).
+//! Usage: `cargo run -q -p rustysnes-test-harness --bin perdot_dump -- <rom.sfc> [frames]`
+//! (frames default 60).
 //!
 //! Output (one line, parseable by the shell): `PERDOT distinct=<n> colors=<hhhh:count,...>` sorted by
 //! canonical value. The distinct-color SET + counts is the robust cross-emulator signal — it is

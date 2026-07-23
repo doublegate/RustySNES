@@ -131,6 +131,14 @@ jobs:
       # `hd-pack` placeholder) — testing it directly instead of re-listing the flags keeps this
       # step and `full`'s own Cargo.toml definition from silently drifting apart.
       - run: cargo clippy -p rustysnes-frontend --all-targets --features full -- -D warnings
+      # `rustysnes-test-harness` (T-CA-10): its ROM-oracle test targets are gated behind
+      # `#![cfg(feature = "test-roms")]`, so the `--workspace` line above — which never passes
+      # `test-roms` — compiles them to nothing and never lints them. Lint them explicitly. The harness
+      # always renders through `rustysnes-core`'s default (per-dot) compositor — it has no
+      # compositor feature of its own — so one `--features test-roms` step covers it. Without this the
+      # whole accuracysnes/undisbeliever oracle suite is invisible to clippy and drifts (it had — a
+      # backlog of pedantic findings that had never fired). NEVER `--all-features` (the workspace rule).
+      - run: cargo clippy -p rustysnes-test-harness --all-targets --features test-roms -- -D warnings
       # `rustysnes-libretro` (`v1.2.0`): already covered by the `--workspace` clippy line above (a
       # regular workspace member, no non-default features to combo over), but clippy doesn't
       # necessarily exercise the FFI-crate-specific bit that matters most for a `cdylib`/

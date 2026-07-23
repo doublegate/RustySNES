@@ -5567,13 +5567,19 @@ CATALOG_IMPL = 1
 @wirq2:
     lda $4211
     and #$80
-    beq @wirq2        ; this read both detects and acknowledges
+    beq @wirq2        ; poll until the flag is up
+    ; The detecting read above may land on the one-dot /IRQ hold: a $4211 read on the very dot the
+    ; flag is raised returns it set but does NOT clear it (the four-master-clock hold that hardware
+    ; and ares both model). Take one more read, a few dots later and so guaranteed past that single
+    ; dot, as the actual release. Without it the verdict depended on whether the polling loop
+    ; happened to catch the hold dot, which shifts with the region and with any change to the code
+    ; that runs before this test — it began failing on Mesen2 once when an unrelated change moved
+    ; the battery's code by a few bytes, and again on the PAL image when the per-dot C1.08 rewrite
+    ; added a few frames ahead of it.
+    lda $4211         ; the releasing read, definitely past the one-dot hold
     ; Disarm BEFORE looking again. The claim is that a read releases the latch; while the
     ; comparator still matches -- a V-only IRQ matches for the whole scanline -- a core is free
     ; to re-assert it, and a second read on the same line then says nothing about the release.
-    ; Asserting the stronger thing made this test depend on where in the scanline the polling
-    ; loop happened to catch the flag: it began failing on Mesen2 when an unrelated change
-    ; moved the battery's code by a few bytes.
     stz $4200         ; disarm, so nothing can re-assert what the read released
     lda $4211         ; must now read clear
     sta f:$7E0124
@@ -24098,6 +24104,123 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; C3.12 — CGRAM taken in render
+; provenance: Documented (fullsnes and the SNESdev Wiki: a CGRAM access during active display uses the colour the PPU is drawing, not the CPU CGADD. Mesen2 models it (writes use InternalCgramAddress when !CanAccessCgram); the batch compositor and snes9x use the programmed CGADD and fail)
+.proc test_c3_12
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$8F
+    sta $2100         ; forced blank while CGRAM is seeded
+    stz $212C         ; TM = 0: every pixel is the backdrop, so the internal CGRAM address is 0
+    ; --- seed colour 0 = $1111 and colour $10 = $2222, both distinct from the render value $3333 ---
+    stz $2121         ; CGADD = 0
+    lda #$11
+    sta $2122
+    lda #$11
+    sta $2122         ; colour 0 = $1111
+    lda #$10
+    sta $2121         ; CGADD = $10
+    lda #$22
+    sta $2122
+    lda #$22
+    sta $2122         ; colour $10 = $2222
+    ; --- guard: in blank the seed reads back, so a changed colour 0 below cannot be a dead port ---
+    stz $2121
+    lda $213B
+    sta f:$7E0208     ; colour 0 low, still the seed $11
+    ; --- the render write, at a CONTROLLED dot inside the CGRAM-redirect window (dots 22..273) ---
+    ; Turn the display on for a settled frame, then park on a once-per-frame H+V IRQ mid-line. SEI
+    ; keeps it masked so WAI resumes inline; the $2122 write then commits at a known active-display
+    ; dot. A fixed burn cannot guarantee that window across emulators — the write must land where the
+    ; redirect is live, not in h-blank.
+    lda #$0F
+    sta $2100         ; forced blank off
+    jsl wait_vblank_far
+    jsl wait_vblank_far   ; a settled frame with the display on
+    sep #$20             ; re-assert 8-bit A after the far calls
+    .a8
+    lda #100
+    sta $4207         ; HTIME = 100, well inside the active line
+    stz $4208
+    lda #50
+    sta $4209         ; VTIME = 50 (a visible line)
+    stz $420A
+    sei               ; mask so WAI resumes inline, no dispatch latency
+    lda #$30
+    sta $4200         ; enable the H+V IRQ
+    wai               ; parked until (V=50, H=100)
+    lda #$10
+    sta $2121         ; CPU CGADD = $10 (resets the write flipflop) — the redirect ignores it
+    lda #$33
+    sta $2122
+    lda #$33
+    sta $2122         ; the write commits mid-render; the redirect sends it to colour 0
+    lda $4211         ; ack TIMEUP
+    stz $4200         ; disarm the IRQ (test_restore also does this on any exit path)
+    lda #$8F
+    sta $2100         ; forced blank restored before readback
+    ; --- read colour 0 (the redirect target) then colour $10 (the CPU address) ---
+    stz $2121
+    lda $213B
+    sta f:$7E0209     ; colour 0 low, after the render write
+    lda #$10
+    sta $2121
+    lda $213B
+    sta f:$7E020A     ; colour $10 low, after the render write
+    ; Guard first: the seed read back before the render write, so the port and the fill both work.
+    lda f:$7E0208
+    cmp #$11
+    beq :+
+    jmp @fail1
+  :
+    ; Colour 0 must now hold the render value: the mid-render write was redirected to the drawn
+    ; colour (internal address 0), not to CGADD. A core that writes CGADD leaves colour 0 at $11.
+    lda f:$7E0209
+    cmp #$33
+    beq :+
+    jmp @fail2
+  :
+    ; And colour $10 — the CPU-programmed address — must be untouched, still its $22 seed.
+    lda f:$7E020A
+    cmp #$22
+    beq :+
+    jmp @fail3
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; colour 0 did not read back its seed in forced blank — the CGRAM port or the fill is broken, so the render write below proves nothing
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the mid-render $2122 write did not reach the drawn colour (colour 0) — the CGRAM address was not taken over during active display
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; the mid-render $2122 write landed on the CPU-programmed CGADD ($10) instead of the drawn colour
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C13.01 — PPU1 open bus in $213E
 ; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
 .proc test_c13_01
@@ -25282,6 +25405,131 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; C7.10 — OAM write to high table
+; provenance: Documented (fullsnes and the SNESdev Wiki (the Uniracers case): an OAM write during active display is driven to the evaluator's address and lands in the high table, not the CPU OAMADDR. Mesen2 models it (oamAddr = 0x200 | ((oamAddr & 0x1F0) >> 4)); the batch compositor and snes9x write the programmed OAMADDR and fail)
+.proc test_c7_10
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$8F
+    sta $2100         ; forced blank while OAM is seeded
+    ; --- seed the CPU low-table target (word $40 = bytes $80/$81) to $AA/$BB ---
+    lda #$40
+    sta $2102
+    stz $2103         ; OAMADDR = word $40 (byte $80)
+    lda #$AA
+    sta $2104         ; even byte latched
+    lda #$BB
+    sta $2104         ; commits byte $80 = $AA, byte $81 = $BB
+    ; --- seed the whole 32-byte high table to $00, so a $55 appearing there must be our write ---
+    lda #$00
+    sta $2102
+    lda #$01
+    sta $2103         ; OAMADDR = word $100 (byte $200, the high table)
+    rep #$10
+    .i16
+    ldx #$0000
+@seedhi:
+    stz $2104         ; the high table commits one byte per write
+    inx
+    cpx #$0020
+    bne @seedhi
+    ; --- the render write, at a CONTROLLED eval-phase dot (h <= 255) via an H+V IRQ + SEI/WAI ---
+    sep #$20
+    .a8
+    lda #$0F
+    sta $2100         ; forced blank off
+    jsl wait_vblank_far
+    jsl wait_vblank_far   ; a settled frame with the display on
+    sep #$20             ; re-assert 8-bit A after the far calls
+    .a8
+    lda #100
+    sta $4207         ; HTIME = 100 (dot 100, inside the sprite-evaluation phase 0..255)
+    stz $4208
+    lda #50
+    sta $4209         ; VTIME = 50 (a visible line)
+    stz $420A
+    sei               ; mask so WAI resumes inline, no dispatch latency
+    lda #$30
+    sta $4200         ; enable the H+V IRQ
+    wai               ; parked until (V=50, H=100)
+    lda #$40
+    sta $2102
+    stz $2103         ; CPU OAMADDR = word $40 (byte $80) — where a non-redirecting core writes
+    lda #$55
+    sta $2104         ; the write commits mid-render; the redirect drives it to the high table
+    lda $4211         ; ack TIMEUP
+    stz $4200         ; disarm the IRQ (test_restore also does this on any exit path)
+    lda #$8F
+    sta $2100         ; forced blank restored before readback
+    ; --- scan the 32-byte high table for the written $55 ---
+    lda #$00
+    sta $2102
+    lda #$01
+    sta $2103         ; OAMADDR = word $100 (byte $200)
+    lda #$00
+    sta f:$7E0208     ; found flag = 0
+    rep #$10
+    .i16
+    ldx #$0000
+@scanhi:
+    lda $2138         ; read one high-table byte (OAMADDR auto-increments)
+    cmp #$55
+    bne @scannext
+    lda #$01
+    sta f:$7E0208     ; found it
+@scannext:
+    inx
+    cpx #$0020
+    bne @scanhi
+    ; --- read the CPU low-table target back: it must be untouched ---
+    sep #$20
+    .a8
+    lda #$40
+    sta $2102
+    stz $2103         ; OAMADDR = word $40 (byte $80)
+    lda $2138
+    sta f:$7E0209     ; byte $80, must still be the $AA seed
+    ; The write must have reached the high table: a redirecting core lands $55 there. A core that
+    ; writes the CPU OAMADDR instead leaves the high table all $00.
+    lda f:$7E0208
+    cmp #$01
+    beq :+
+    jmp @fail1
+  :
+    ; And the CPU-programmed low-table byte must be untouched, still its $AA seed.
+    lda f:$7E0209
+    cmp #$AA
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the mid-render $2104 write did not land in the OAM high table — the OAM address was not taken over during active display
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the mid-render $2104 write disturbed the CPU OAMADDR low-table byte ($80)
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C2.11 — VRAM locked in render
 ; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
 .proc test_c2_11
@@ -25372,8 +25620,8 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
-; C1.08 — OAM addr lost in render
-; provenance: Contested (fullsnes and the SNESdev Wiki agree the renderer drives the OAM address during active display, but neither states which byte evaluation has reached at a given moment, and the cores split: Mesen2 models it, RustySNES and snes9x return the programmed address)
+; C1.08 — OAM addr in render
+; provenance: Documented (fullsnes and the SNESdev Wiki: during active display the renderer drives the OAM address, so a $2138 read returns a render-time address, not the CPU-programmed one. MesenCE models it (GetOamAddress -> _oamEvaluationIndex<<2); the batch compositor and snes9x return the programmed address and fail)
 .proc test_c1_08
     .a16
     .i16
@@ -25412,30 +25660,39 @@ CATALOG_IMPL = 1
     stz $2103         ; OAMADDR = word $40, byte $80
     lda $2138
     sta f:$7E0208
-    ; --- and during render, where the renderer owns the counter ---
+    ; --- and during render at a CONTROLLED low dot, where the renderer owns the counter ---
+    ; Turn the display on for a settled frame, reprogram OAMADDR to the same $80, then park the
+    ; CPU on a once-per-frame H+V IRQ early on a visible line. SEI keeps the IRQ masked, so WAI
+    ; resumes inline (no vector dispatch) and the very next instruction reads $2138 at a fixed low
+    ; dot — where the evaluation index is well under 32, so a renderer that owns the OAM address
+    ; returns a value below the programmed $80. Reading at a *controlled* dot (not the old fixed
+    ; burn, whose landing dot drifted with the region and made this test unstable) is what lets it
+    ; score instead of merely recording a variant.
     sep #$20
     .a8
     lda #$0F
-    sta $2100         ; forced blank off — the access window now depends on position
+    sta $2100         ; forced blank off
     jsl wait_vblank_far
-    jsl wait_vblank_far   ; a full settled frame
-@wa_c108:
-    lda $4212
-    and #$80
-    bne @wa_c108   ; wait for vblank to end
-    rep #$10
-    .i16
-    ldx #$0400
-@burn_c108:
-    dex
-    bne @burn_c108 ; ~20 scanlines in, well clear of the pre-render line
-    sep #$20
+    jsl wait_vblank_far   ; a settled frame with the display on
+    sep #$20             ; re-assert 8-bit A after the far calls
     .a8
     lda #$40
     sta $2102
-    stz $2103         ; ask for the same address again
-    lda $2138
+    stz $2103         ; ask for byte $80 again (the CPU-programmed address)
+    lda #24
+    sta $4207         ; HTIME low = 24 dots (well under the dot-64 point where eval_index hits 32)
+    stz $4208         ; HTIME high
+    lda #50
+    sta $4209         ; VTIME low = line 50 (a visible line)
+    stz $420A         ; VTIME high
+    sei               ; mask so WAI resumes inline, with no dispatch latency
+    lda #$30
+    sta $4200         ; enable the H+V IRQ (no NMI, no auto-joypad)
+    wai               ; parked until (V=50, H=24)
+    lda $2138         ; the render read, at a controlled low dot
     sta f:$7E0209
+    lda $4211         ; acknowledge TIMEUP
+    stz $4200         ; disarm the IRQ (test_restore also does this on any exit path)
     lda #$8F
     sta $2100         ; forced blank restored before anything is judged
     rep #$30
@@ -25447,10 +25704,10 @@ CATALOG_IMPL = 1
     sta f:$7EE2D6
     lda f:$7E0209
     and #$00FF
-    ; record slot 113: C1.08 $2138 at the same address during active display
+    ; record slot 113: C1.08 $2138 at a controlled low dot during active display
     sta f:$7EE2E2
-    ; The guard first: without it, 'the render read was different' could just mean the fill or
-    ; the port never worked.
+    ; The guard first: without it, 'the render read was lower' could just mean the fill or the
+    ; port never worked.
     sep #$20
     .a8
     lda f:$7E0208
@@ -25458,24 +25715,40 @@ CATALOG_IMPL = 1
     beq :+
     jmp @fail1
   :
-    ; The mid-render read is recorded, not asserted. Which byte evaluation has reached is a
-    ; function of the sub-scanline sprite pipeline, and a core without one has nothing to
-    ; return but the programmed address.
+    ; The render read: during active display the renderer drives the OAM address, so the read
+    ; returns a render-time address (eval_index<<2, below $80 at this low dot), not the CPU's $80.
+    ; The batch compositor and snes9x return the programmed $80 and fail here — modelling the
+    ; takeover is the accurate path (fullsnes; MesenCE GetOamAddress).
+    rep #$30
+    .a16
+    .i16
     lda f:$7E0209
-    cmp #$80
-    beq :+
-    lda #$03          ; variant 1 = the counter was taken over; slot 113 says where to
-    sta f:$7EE010
-    jml test_restore
-    :
-    lda #$05          ; variant 2 = the programmed address survived: no evaluation counter
+    and #$00FF
+    cmp #$0001
+    bcs :+
+    jmp @fail2
+  :
+    cmp #$0080
+    bcc :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
     sta f:$7EE010
     jml test_restore
 @fail1:
-    ; reading $2138 in forced blank did not return the byte at the programmed address, so the fill or the port is wrong and the render read below proves nothing
+    ; reading $2138 in forced blank did not return the byte at the programmed address ($80), so the fill or the port is wrong and the render read below proves nothing
     sep #$20
     .a8
     lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the mid-render $2138 read did not return a renderer-driven OAM address below the programmed $80 — the OAM address was not taken over during active display
+    sep #$20
+    .a8
+    lda #$04
     sta f:$7EE010
     jml test_restore
 .endproc
@@ -32110,7 +32383,7 @@ apu_prog_112:
 .export _test_flags
 
 _test_count:
-    .word 327
+    .word 329
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -32216,6 +32489,7 @@ _test_entries:
     .faraddr test_c3_04
     .faraddr test_c3_05
     .faraddr test_c3_07
+    .faraddr test_c3_12
     .faraddr test_c13_01
     .faraddr test_c13_02
     .faraddr test_c13_03
@@ -32230,6 +32504,7 @@ _test_entries:
     .faraddr test_c7_04
     .faraddr test_c7_02
     .faraddr test_c7_08
+    .faraddr test_c7_10
     .faraddr test_c2_11
     .faraddr test_c1_08
     .faraddr test_c2_10
@@ -32546,6 +32821,7 @@ _test_flags:
     .byte $01   ; C3.04
     .byte $01   ; C3.05
     .byte $01   ; C3.07
+    .byte $01   ; C3.12
     .byte $01   ; C13.01
     .byte $01   ; C13.02
     .byte $01   ; C13.03
@@ -32560,8 +32836,9 @@ _test_flags:
     .byte $01   ; C7.04
     .byte $01   ; C7.02
     .byte $01   ; C7.08
+    .byte $01   ; C7.10
     .byte $01   ; C2.11
-    .byte $02   ; C1.08
+    .byte $01   ; C1.08
     .byte $01   ; C2.10
     .byte $01   ; C1.06
     .byte $01   ; C9.04
@@ -32876,6 +33153,7 @@ _test_names:
     .addr @n_c3_04
     .addr @n_c3_05
     .addr @n_c3_07
+    .addr @n_c3_12
     .addr @n_c13_01
     .addr @n_c13_02
     .addr @n_c13_03
@@ -32890,6 +33168,7 @@ _test_names:
     .addr @n_c7_04
     .addr @n_c7_02
     .addr @n_c7_08
+    .addr @n_c7_10
     .addr @n_c2_11
     .addr @n_c1_08
     .addr @n_c2_10
@@ -33407,6 +33686,9 @@ _test_names:
 @n_c3_07:
     .byte 24
     .byte "Counter flipflops differ"
+@n_c3_12:
+    .byte 21
+    .byte "CGRAM taken in render"
 @n_c13_01:
     .byte 22
     .byte "PPU1 open bus in $213E"
@@ -33449,12 +33731,15 @@ _test_names:
 @n_c7_08:
     .byte 18
     .byte "Flags ignore $212C"
+@n_c7_10:
+    .byte 23
+    .byte "OAM write to high table"
 @n_c2_11:
     .byte 21
     .byte "VRAM locked in render"
 @n_c1_08:
-    .byte 23
-    .byte "OAM addr lost in render"
+    .byte 18
+    .byte "OAM addr in render"
 @n_c2_10:
     .byte 24
     .byte "Dropped write still incs"

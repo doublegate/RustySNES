@@ -11,6 +11,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES `C1.08` (OAM address taken over during active display) is now a scored row, the
+  first coverage the per-dot compositor unblocks (294 -> 295 of the on-cart scoring total).** During
+  active display the renderer drives the OAM address, so a `$2138` read returns the sprite-evaluation
+  address (`eval_index << 2`), not the CPU-programmed one — behaviour the shipped per-dot compositor
+  now models. The test reads `$2138` at a *controlled* low dot (an H+V IRQ armed at `(V=50, H=24)`
+  plus `SEI`/`WAI`, which resumes inline with no dispatch latency), so `eval_index` is well under 32
+  and the render address is provably below the programmed `$80` regardless of region or the code that
+  runs before it — the old fixed-burn read landed at a region-dependent dot and could only record a
+  variant. Retiered `Contested`/golden -> `Documented`/scored on nocash fullsnes and the SNESdev Wiki,
+  and cross-validated: Mesen2 agrees (`GetOamAddress` returns the same render address), while snes9x
+  and the batch compositor read back the programmed `$80` — a now-documented snes9x divergence.
+
+- **AccuracySNES dossier `C3.04` (CGRAM taken over during active display) is now a scored row
+  (295 -> 296), the CGRAM sibling of `C1.08`.** A `$2122` write during active display commits to the
+  colour the PPU is drawing — its internal CGRAM address — not the CPU-programmed CGADD (ares/MesenCE
+  `!CanAccessCgram` → `InternalCgramAddress`). With every main-screen layer off (`TM = 0`) the whole
+  active line is the backdrop, palette 0, so the redirect target is a known 0. The test seeds colour 0
+  and colour `$10` to distinct values, points CGADD at `$10`, and writes a third value at a controlled
+  active-display dot (the same H+V IRQ + `SEI`/`WAI` sync as `C1.08`, so the write lands where the
+  redirect is live rather than in h-blank — a fixed burn could not guarantee that across emulators):
+  colour 0 must take the write and colour `$10` must stay its seed. Cross-validated — Mesen2 agrees,
+  snes9x uses the programmed CGADD and fails (a now-documented divergence).
+
+- **AccuracySNES dossier `C7.16` (OAM write to the high table during render — the Uniracers case) is
+  now a scored row (296 -> 297).** During sprite evaluation the OAM address is driven by the evaluator
+  (`eval_index << 2`, always even and in the low table), so a `$2104` write there only latches and the
+  byte lands in the high table at `0x200 | ((evalAddr & 0x1F0) >> 4)`. The exact high-table byte
+  depends on the dot, so the test does not pin it: it seeds the whole 32-byte high table to `$00`,
+  writes `$55` at a controlled eval-phase dot (H+V IRQ + `SEI`/`WAI`), then scans the high table for
+  it and confirms the CPU OAMADDR low-table byte is untouched — robust to the eval index and the
+  region. Cross-validated — Mesen2 models the same remap; snes9x writes the CPU OAMADDR, nothing
+  reaches the high table, and it fails (a now-documented divergence).
+
 - **AccuracySNES `G1.16` (ExHiROM A23->A22 half-selection) via a third, two-half cartridge image
   (coverage 338 -> 339 of 443).** ExHiROM inverts address bit 23 into ROM offset bit 22 — banks
   `$80-$FF` (A23=1) select the first 4 MiB, `$00-$7D` (A23=0) the extra 4 MiB — so distinguishing the
@@ -99,7 +132,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   snes9x + Mesen2 cross-validation agree with no new divergences — the multi-block continue is
   standard IPL behavior all three implement.
 
+### Changed
+
+- **The per-dot PPU compositor (`docs/adr/0014`, T-CA-10) is now the emulator's only renderer.** It
+  first became the shipped default (a `per-dot-compositor` feature on by default), and then the batch
+  whole-line composite it replaced (`render_scanline`/`compose_dac`) and the feature itself were
+  **removed** — a single code path (the per-dot compositor is `no_std`-clean, so nothing needed the
+  batch fallback; `compose_dac` survives only as a `#[cfg(test)]` driver for the hi-res DAC tests).
+  The emulator composites one dot at a time with live registers, so a CGRAM/OAM access during active
+  display hits the color/sprite-eval address the hardware is drawing rather than the CPU-programmed
+  one. Making per-dot the shipped renderer is **zero-regression** — the AccuracySNES self-scoring
+  battery stayed at its pre-flip pass count, and the three scored rows added above then took it to
+  **297/297**. The shared framebuffer corpus is re-blessed to the per-dot values, each cross-validated
+  against the MesenCE oracle: `inidisp_brightness_delay` and `inidisp_enable_display_mid_frame` move to
+  their MesenCE-agreeing per-dot hashes. One documented gap remains —
+  `undisbeliever/inidisp_forgot_to_force_blank` (a PPU access during active display without forced
+  blank) renders `7fff` where MesenCE renders `7fc6`; it is pinned as a known per-dot gap. (The flip
+  briefly declared `C1.08` region-dependent; the C1.08 scored row above then reads it at a controlled
+  dot, making it region-independent and removing that declaration.)
+
 ### Fixed
+
+- **AccuracySNES no longer regresses its OAM tests on a Select restart under the per-dot compositor.**
+  The battery's standing precondition is forced blank (`INIDISP=$8F`), which is what lets the OAM port
+  return the CPU-programmed address; the cold-boot path sets it at reset before `restart_entry`, but a
+  Select restart re-entered with the menu's display ON and `init_registers` never touched INIDISP, so
+  the C1.01-C1.05/C1.03b OAM tests re-ran mid-render — where the per-dot PPU correctly redirects OAM to
+  the sprite-evaluation index and the read-back no longer matched the written value (6 tests `Pass` ->
+  `Fail`). `run_all_tests` now establishes forced blank at its own entry so every entry path shares the
+  precondition. A no-op under the batch compositor.
+- **AccuracySNES `B4.12` (`$4211` read releases the IRQ latch) no longer depends on where the polling
+  loop catches the flag.** A `$4211` read on the exact dot the flag is raised returns it set but does
+  not clear it (the four-master-clock `/IRQ` hold that hardware and ares model, and RustySNES models
+  correctly). B4.12 used one read to both detect and acknowledge, so if the poll happened to catch the
+  hold dot the latch was never released and the follow-up read failed — a phase-dependent verdict that
+  the region and any change to the code running before the test could flip (the per-dot C1.08 rewrite,
+  which adds a few frames ahead of it, tripped it on the PAL image). It now takes an explicit second
+  read, guaranteed past the one-dot hold, as the release; the verdict is region- and phase-independent
+  and still agrees with Mesen2 and snes9x.
 
 - **`$4210`/`$4211` now hold their flag for four master clocks after the edge (cycle-accuracy,
   Tier-1 T-CA-02 — completes the ticket).** RDNMI and TIMEUP previously cleared their flag on every

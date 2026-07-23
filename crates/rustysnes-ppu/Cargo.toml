@@ -9,13 +9,11 @@ authors.workspace = true
 [features]
 default = ["std"]
 std = []
-# Per-dot PPU compositor accuracy (`docs/adr/0014`, ticket T-CA-10) — off by default, additive, and
-# byte-identical to the batch compositor on any ROM that does not access CGRAM/OAM mid-active-display.
-# First increment: the in-render CGRAM write redirect (a CGRAM write during active display hits the
-# color currently being drawn, not the CPU-programmed index — dossier C3.04, ares `PPU::writeCGRAM`).
-# Phased rollout: stays off until the full ON path lands and the golden corpus is re-blessed against
-# reference-agreeing renders (Phase 6), at which point the AccuracySNES mid-line rows count by default.
-per-dot-compositor = []
+# The per-dot PPU compositor (`docs/adr/0014`, ticket T-CA-10) is now the ONLY compositor — the batch
+# `render_scanline`/`compose_dac` path it replaced has been removed (Phase 6 T-CA-10, "single code
+# path"). It composites the visible line one dot at a time with live registers, so a CGRAM/OAM access
+# during active display hits the color/sprite the PPU is drawing, not the CPU-programmed index. It is
+# `no_std`-clean, so there is no compositor feature to toggle.
 # HD texture pack tile-identity hashing + the `Ppu`-side `TileTag` recording hook (`v1.3.0`,
 # `hdtag` module + `Ppu::set_hd_pack_tagging`/`Ppu::tile_tags`) -- off by default, purely
 # additive, `no_std`-clean (xxhash-rust's `xxh3` needs no allocator beyond `alloc`, already a

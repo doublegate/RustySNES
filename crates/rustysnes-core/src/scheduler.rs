@@ -55,8 +55,7 @@ use crate::sa1_bus::Sa1Bus;
 /// the evaluator's OAM index. It is captured at line start and diverges from `OAMADDR` after
 /// redirected active-display writes (with priority rotation), so it cannot be re-derived on load and
 /// must persist for a mid-line save to restore identical machine state (mirrors MesenCE serializing
-/// `_oamEvaluationIndex`). Written unconditionally (0 when the `per-dot-compositor` feature is off),
-/// so the format stays identical across feature builds. Same old-blob-fails-loudly guarantee.
+/// `_oamEvaluationIndex`). Same old-blob-fails-loudly guarantee.
 const FORMAT_VERSION: u16 = 7;
 /// The save-state envelope's leading magic bytes — identifies the blob as a RustySNES save-state
 /// before anything else is trusted.

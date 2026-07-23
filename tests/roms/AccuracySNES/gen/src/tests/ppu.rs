@@ -53,6 +53,7 @@ pub fn all() -> Vec<Test> {
         c3_04(),
         c3_05(),
         c3_07(),
+        c3_12(),
         // --- C13: open bus ---
         c13_01(),
         c13_02(),
@@ -71,6 +72,7 @@ pub fn all() -> Vec<Test> {
         c7_04(),
         c7_02(),
         c7_08(),
+        c7_10(),
         // --- access windows and frame geometry, also requiring a rendered frame ---
         c2_11(),
         c1_08(),
@@ -531,6 +533,132 @@ fn c7_09() -> Test {
         'C',
         "Overflow flags clear",
         Provenance::Documented("SNESdev Wiki, sprites; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Dossier C7.16: an OAM (`$2104`) write during active display lands in the high table, not at the
+/// CPU-programmed OAMADDR — the Uniracers case.
+///
+/// During sprite evaluation the OAM address is driven by the evaluator (`eval_index << 2`, always
+/// even and in the low table), so a `$2104` write there only latches the even-byte buffer and never
+/// commits to the low table; the byte instead lands in the high table at the remapped address
+/// `0x200 | ((eval_addr & 0x1F0) >> 4)` (MesenCE `oamAddr = 0x200 | ((oamAddr & 0x1F0) >> 4)`). The
+/// exact high-table byte depends on the dot the write lands on, so the test does not pin it: it seeds
+/// the whole 32-byte high table to `$00` and scans it for the written value — robust to the eval
+/// index while still proving the write went there and not to the CPU low-table address. Read at a
+/// controlled eval-phase dot (H+V IRQ + `SEI`/`WAI`) so the write is guaranteed inside the redirect
+/// window. Mesen2 models it; snes9x writes the CPU OAMADDR regardless of the rendering state.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one linear cart routine: seed the low-table target and the high table, the H+V-IRQ/WAI \
+              render write, then scan the high table and read the CPU byte back to score"
+)]
+fn c7_10() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$8F");
+    a.l("sta $2100         ; forced blank while OAM is seeded");
+    a.c("--- seed the CPU low-table target (word $40 = bytes $80/$81) to $AA/$BB ---");
+    a.l("lda #$40");
+    a.l("sta $2102");
+    a.l("stz $2103         ; OAMADDR = word $40 (byte $80)");
+    a.l("lda #$AA");
+    a.l("sta $2104         ; even byte latched");
+    a.l("lda #$BB");
+    a.l("sta $2104         ; commits byte $80 = $AA, byte $81 = $BB");
+    a.c("--- seed the whole 32-byte high table to $00, so a $55 appearing there must be our write ---");
+    a.l("lda #$00");
+    a.l("sta $2102");
+    a.l("lda #$01");
+    a.l("sta $2103         ; OAMADDR = word $100 (byte $200, the high table)");
+    a.l("rep #$10");
+    a.l("ldx #$0000");
+    a.label("seedhi");
+    a.l("stz $2104         ; the high table commits one byte per write");
+    a.l("inx");
+    a.l("cpx #$0020");
+    a.l("bne @seedhi");
+    a.c("--- the render write, at a CONTROLLED eval-phase dot (h <= 255) via an H+V IRQ + SEI/WAI ---");
+    a.l("sep #$20");
+    a.l("lda #$0F");
+    a.l("sta $2100         ; forced blank off");
+    a.l("jsl wait_vblank_far");
+    a.l("jsl wait_vblank_far   ; a settled frame with the display on");
+    a.l("sep #$20             ; re-assert 8-bit A after the far calls");
+    a.l("lda #100");
+    a.l("sta $4207         ; HTIME = 100 (dot 100, inside the sprite-evaluation phase 0..255)");
+    a.l("stz $4208");
+    a.l("lda #50");
+    a.l("sta $4209         ; VTIME = 50 (a visible line)");
+    a.l("stz $420A");
+    a.l("sei               ; mask so WAI resumes inline, no dispatch latency");
+    a.l("lda #$30");
+    a.l("sta $4200         ; enable the H+V IRQ");
+    a.l("wai               ; parked until (V=50, H=100)");
+    a.l("lda #$40");
+    a.l("sta $2102");
+    a.l("stz $2103         ; CPU OAMADDR = word $40 (byte $80) — where a non-redirecting core writes");
+    a.l("lda #$55");
+    a.l("sta $2104         ; the write commits mid-render; the redirect drives it to the high table");
+    a.l("lda $4211         ; ack TIMEUP");
+    a.l("stz $4200         ; disarm the IRQ (test_restore also does this on any exit path)");
+    a.l("lda #$8F");
+    a.l("sta $2100         ; forced blank restored before readback");
+    a.c("--- scan the 32-byte high table for the written $55 ---");
+    a.l("lda #$00");
+    a.l("sta $2102");
+    a.l("lda #$01");
+    a.l("sta $2103         ; OAMADDR = word $100 (byte $200)");
+    a.l("lda #$00");
+    a.l("sta f:$7E0208     ; found flag = 0");
+    a.l("rep #$10");
+    a.l("ldx #$0000");
+    a.label("scanhi");
+    a.l("lda $2138         ; read one high-table byte (OAMADDR auto-increments)");
+    a.l("cmp #$55");
+    a.l("bne @scannext");
+    a.l("lda #$01");
+    a.l("sta f:$7E0208     ; found it");
+    a.label("scannext");
+    a.l("inx");
+    a.l("cpx #$0020");
+    a.l("bne @scanhi");
+    a.c("--- read the CPU low-table target back: it must be untouched ---");
+    a.l("sep #$20");
+    a.l("lda #$40");
+    a.l("sta $2102");
+    a.l("stz $2103         ; OAMADDR = word $40 (byte $80)");
+    a.l("lda $2138");
+    a.l("sta f:$7E0209     ; byte $80, must still be the $AA seed");
+    a.c("The write must have reached the high table: a redirecting core lands $55 there. A core that");
+    a.c("writes the CPU OAMADDR instead leaves the high table all $00.");
+    a.l("lda f:$7E0208");
+    a.assert_a8(
+        0x01,
+        "the mid-render $2104 write did not land in the OAM high table — the OAM address was not \
+         taken over during active display",
+    );
+    a.c("And the CPU-programmed low-table byte must be untouched, still its $AA seed.");
+    a.l("lda f:$7E0209");
+    a.assert_a8(
+        0xAA,
+        "the mid-render $2104 write disturbed the CPU OAMADDR low-table byte ($80)",
+    );
+    a.finish(
+        "C7.10",
+        'C',
+        "OAM write to high table",
+        Provenance::Documented(
+            "fullsnes and the SNESdev Wiki (the Uniracers case): an OAM write during active display \
+             is driven to the evaluator's address and lands in the high table, not the CPU OAMADDR. \
+             Mesen2 models it (oamAddr = 0x200 | ((oamAddr & 0x1F0) >> 4)); the batch compositor and \
+             snes9x write the programmed OAMADDR and fail",
+        ),
         Kind::Scored,
         None,
     )
@@ -1281,6 +1409,119 @@ fn c3_04() -> Test {
         'C',
         "H counter advances",
         Provenance::Documented("SNESdev Wiki, PPU registers"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Dossier C3.04: a `$2122` write during active display commits to the colour the PPU is currently
+/// drawing (the internal CGRAM address), not the CPU-programmed CGADD.
+///
+/// With every main-screen layer disabled (`TM = 0`) the whole active line is the backdrop, palette
+/// 0, so the internal CGRAM address is 0 for the entire line — the redirect target is known without
+/// a controlled dot, and any active-display dot the fixed burn lands on gives the same answer. The
+/// test seeds colour 0 and colour `$10` to distinct values, points CGADD at `$10`, and writes a
+/// third value during render: the takeover must land colour 0 and leave colour `$10` untouched. A
+/// core that ignores it writes colour `$10` instead (or drops the write), and either way colour 0
+/// keeps its seed. Mesen2 models it (`GetCgramColor`/`Write` use `InternalCgramAddress` when
+/// `!CanAccessCgram`); snes9x does not.
+fn c3_12() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$8F");
+    a.l("sta $2100         ; forced blank while CGRAM is seeded");
+    a.l("stz $212C         ; TM = 0: every pixel is the backdrop, so the internal CGRAM address is 0");
+    a.c("--- seed colour 0 = $1111 and colour $10 = $2222, both distinct from the render value $3333 ---");
+    a.l("stz $2121         ; CGADD = 0");
+    a.l("lda #$11");
+    a.l("sta $2122");
+    a.l("lda #$11");
+    a.l("sta $2122         ; colour 0 = $1111");
+    a.l("lda #$10");
+    a.l("sta $2121         ; CGADD = $10");
+    a.l("lda #$22");
+    a.l("sta $2122");
+    a.l("lda #$22");
+    a.l("sta $2122         ; colour $10 = $2222");
+    a.c("--- guard: in blank the seed reads back, so a changed colour 0 below cannot be a dead port ---");
+    a.l("stz $2121");
+    a.l("lda $213B");
+    a.l("sta f:$7E0208     ; colour 0 low, still the seed $11");
+    a.c("--- the render write, at a CONTROLLED dot inside the CGRAM-redirect window (dots 22..273) ---");
+    a.c("Turn the display on for a settled frame, then park on a once-per-frame H+V IRQ mid-line. SEI");
+    a.c("keeps it masked so WAI resumes inline; the $2122 write then commits at a known active-display");
+    a.c("dot. A fixed burn cannot guarantee that window across emulators — the write must land where the");
+    a.c("redirect is live, not in h-blank.");
+    a.l("lda #$0F");
+    a.l("sta $2100         ; forced blank off");
+    a.l("jsl wait_vblank_far");
+    a.l("jsl wait_vblank_far   ; a settled frame with the display on");
+    a.l("sep #$20             ; re-assert 8-bit A after the far calls");
+    a.l("lda #100");
+    a.l("sta $4207         ; HTIME = 100, well inside the active line");
+    a.l("stz $4208");
+    a.l("lda #50");
+    a.l("sta $4209         ; VTIME = 50 (a visible line)");
+    a.l("stz $420A");
+    a.l("sei               ; mask so WAI resumes inline, no dispatch latency");
+    a.l("lda #$30");
+    a.l("sta $4200         ; enable the H+V IRQ");
+    a.l("wai               ; parked until (V=50, H=100)");
+    a.l("lda #$10");
+    a.l(
+        "sta $2121         ; CPU CGADD = $10 (resets the write flipflop) — the redirect ignores it",
+    );
+    a.l("lda #$33");
+    a.l("sta $2122");
+    a.l("lda #$33");
+    a.l("sta $2122         ; the write commits mid-render; the redirect sends it to colour 0");
+    a.l("lda $4211         ; ack TIMEUP");
+    a.l("stz $4200         ; disarm the IRQ (test_restore also does this on any exit path)");
+    a.l("lda #$8F");
+    a.l("sta $2100         ; forced blank restored before readback");
+    a.c("--- read colour 0 (the redirect target) then colour $10 (the CPU address) ---");
+    a.l("stz $2121");
+    a.l("lda $213B");
+    a.l("sta f:$7E0209     ; colour 0 low, after the render write");
+    a.l("lda #$10");
+    a.l("sta $2121");
+    a.l("lda $213B");
+    a.l("sta f:$7E020A     ; colour $10 low, after the render write");
+    a.c("Guard first: the seed read back before the render write, so the port and the fill both work.");
+    a.l("lda f:$7E0208");
+    a.assert_a8(
+        0x11,
+        "colour 0 did not read back its seed in forced blank — the CGRAM port or the fill is broken, \
+         so the render write below proves nothing",
+    );
+    a.c(
+        "Colour 0 must now hold the render value: the mid-render write was redirected to the drawn",
+    );
+    a.c("colour (internal address 0), not to CGADD. A core that writes CGADD leaves colour 0 at $11.");
+    a.l("lda f:$7E0209");
+    a.assert_a8(
+        0x33,
+        "the mid-render $2122 write did not reach the drawn colour (colour 0) — the CGRAM address was \
+         not taken over during active display",
+    );
+    a.c("And colour $10 — the CPU-programmed address — must be untouched, still its $22 seed.");
+    a.l("lda f:$7E020A");
+    a.assert_a8(
+        0x22,
+        "the mid-render $2122 write landed on the CPU-programmed CGADD ($10) instead of the drawn colour",
+    );
+    a.finish(
+        "C3.12",
+        'C',
+        "CGRAM taken in render",
+        Provenance::Documented(
+            "fullsnes and the SNESdev Wiki: a CGRAM access during active display uses the colour the \
+             PPU is drawing, not the CPU CGADD. Mesen2 models it (writes use InternalCgramAddress \
+             when !CanAccessCgram); the batch compositor and snes9x use the programmed CGADD and fail",
+        ),
         Kind::Scored,
         None,
     )
@@ -2524,6 +2765,11 @@ fn enter_active_display(a: &mut Asm, tag: &str) {
 /// different claim from the row's, and satisfying it would mean inventing a counter position with
 /// no oracle behind it. The reading is published instead, and the row becomes scorable for free the
 /// day the `C13` blocker lifts.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one linear cart routine: OAM fill, the forced-blank guard read, the H+V-IRQ/WAI \
+              controlled-dot render read, then record + score — read top to bottom"
+)]
 fn c1_08() -> Test {
     let mut a = Asm::new();
     a.l("rep #$30");
@@ -2552,14 +2798,41 @@ fn c1_08() -> Test {
     a.l("stz $2103         ; OAMADDR = word $40, byte $80");
     a.l("lda $2138");
     a.l("sta f:$7E0208");
-    a.c("--- and during render, where the renderer owns the counter ---");
-    enter_active_display(&mut a, "c108");
+    a.c("--- and during render at a CONTROLLED low dot, where the renderer owns the counter ---");
+    a.c(
+        "Turn the display on for a settled frame, reprogram OAMADDR to the same $80, then park the",
+    );
+    a.c(
+        "CPU on a once-per-frame H+V IRQ early on a visible line. SEI keeps the IRQ masked, so WAI",
+    );
+    a.c("resumes inline (no vector dispatch) and the very next instruction reads $2138 at a fixed low");
+    a.c("dot — where the evaluation index is well under 32, so a renderer that owns the OAM address");
+    a.c("returns a value below the programmed $80. Reading at a *controlled* dot (not the old fixed");
+    a.c("burn, whose landing dot drifted with the region and made this test unstable) is what lets it");
+    a.c("score instead of merely recording a variant.");
     a.l("sep #$20");
+    a.l("lda #$0F");
+    a.l("sta $2100         ; forced blank off");
+    a.l("jsl wait_vblank_far");
+    a.l("jsl wait_vblank_far   ; a settled frame with the display on");
+    a.l("sep #$20             ; re-assert 8-bit A after the far calls");
     a.l("lda #$40");
     a.l("sta $2102");
-    a.l("stz $2103         ; ask for the same address again");
-    a.l("lda $2138");
+    a.l("stz $2103         ; ask for byte $80 again (the CPU-programmed address)");
+    a.l("lda #24");
+    a.l("sta $4207         ; HTIME low = 24 dots (well under the dot-64 point where eval_index hits 32)");
+    a.l("stz $4208         ; HTIME high");
+    a.l("lda #50");
+    a.l("sta $4209         ; VTIME low = line 50 (a visible line)");
+    a.l("stz $420A         ; VTIME high");
+    a.l("sei               ; mask so WAI resumes inline, with no dispatch latency");
+    a.l("lda #$30");
+    a.l("sta $4200         ; enable the H+V IRQ (no NMI, no auto-joypad)");
+    a.l("wai               ; parked until (V=50, H=24)");
+    a.l("lda $2138         ; the render read, at a controlled low dot");
     a.l("sta f:$7E0209");
+    a.l("lda $4211         ; acknowledge TIMEUP");
+    a.l("stz $4200         ; disarm the IRQ (test_restore also does this on any exit path)");
     a.l("lda #$8F");
     a.l("sta $2100         ; forced blank restored before anything is judged");
     a.l("rep #$30");
@@ -2571,39 +2844,43 @@ fn c1_08() -> Test {
     );
     a.l("lda f:$7E0209");
     a.l("and #$00FF");
-    a.record(113, "C1.08 $2138 at the same address during active display");
-    a.c("The guard first: without it, 'the render read was different' could just mean the fill or");
-    a.c("the port never worked.");
+    a.record(
+        113,
+        "C1.08 $2138 at a controlled low dot during active display",
+    );
+    a.c("The guard first: without it, 'the render read was lower' could just mean the fill or the");
+    a.c("port never worked.");
     a.l("sep #$20");
     a.l("lda f:$7E0208");
     a.assert_a8(
         0x80,
-        "reading $2138 in forced blank did not return the byte at the programmed address, so the \
-         fill or the port is wrong and the render read below proves nothing",
+        "reading $2138 in forced blank did not return the byte at the programmed address ($80), so \
+         the fill or the port is wrong and the render read below proves nothing",
     );
-    a.c("The mid-render read is recorded, not asserted. Which byte evaluation has reached is a");
-    a.c("function of the sub-scanline sprite pipeline, and a core without one has nothing to");
-    a.c("return but the programmed address.");
+    a.c("The render read: during active display the renderer drives the OAM address, so the read");
+    a.c("returns a render-time address (eval_index<<2, below $80 at this low dot), not the CPU's $80.");
+    a.c("The batch compositor and snes9x return the programmed $80 and fail here — modelling the");
+    a.c("takeover is the accurate path (fullsnes; MesenCE GetOamAddress).");
+    a.l("rep #$30");
     a.l("lda f:$7E0209");
-    a.l("cmp #$80");
-    a.l("beq :+");
-    a.l("lda #$03          ; variant 1 = the counter was taken over; slot 113 says where to");
-    a.l("sta f:$7EE010");
-    a.l("jml test_restore");
-    a.l(":");
-    a.l("lda #$05          ; variant 2 = the programmed address survived: no evaluation counter");
-    a.l("sta f:$7EE010");
-    a.l("jml test_restore");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x0001,
+        0x007F,
+        "the mid-render $2138 read did not return a renderer-driven OAM address below the programmed \
+         $80 — the OAM address was not taken over during active display",
+    );
     a.finish(
         "C1.08",
         'C',
-        "OAM addr lost in render",
-        Provenance::Contested(
-            "fullsnes and the SNESdev Wiki agree the renderer drives the OAM address during active \
-             display, but neither states which byte evaluation has reached at a given moment, and \
-             the cores split: Mesen2 models it, RustySNES and snes9x return the programmed address",
+        "OAM addr in render",
+        Provenance::Documented(
+            "fullsnes and the SNESdev Wiki: during active display the renderer drives the OAM \
+             address, so a $2138 read returns a render-time address, not the CPU-programmed one. \
+             MesenCE models it (GetOamAddress -> _oamEvaluationIndex<<2); the batch compositor and \
+             snes9x return the programmed address and fail",
         ),
-        Kind::Golden,
+        Kind::Scored,
         None,
     )
 }

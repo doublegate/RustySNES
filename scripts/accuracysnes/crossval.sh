@@ -109,7 +109,30 @@ ran=0
 #   corrupts the results on hardware and not there — the more dangerous direction, since code that
 #   works under snes9x can be silently wrong on a console. Mesen2 models it (its result reads $FFFF
 #   with B held); RustySNES did not either until this row was written, and now does.
-SNES9X_KNOWN_FAILURES=7
+# snes9x, +1 test (C1.08 "OAM addr in render"): during active display the renderer drives the OAM
+#   address, so a $2138 read returns the sprite-evaluation address (eval_index<<2, below the
+#   programmed $80 at the controlled low dot this test reads at), not the CPU's OAMADDR. Mesen2
+#   models it (`SnesPpu::GetOamAddress` returns `_oamEvaluationIndex << 2` during rendering) and
+#   RustySNES does under the per-dot compositor; snes9x's OAMDATAREAD path uses the CPU OAMADDR
+#   regardless of the rendering state, so it reads back the programmed $80 and fails the assertion.
+#   Documented by nocash fullsnes and the SNESdev Wiki (the renderer owns the OAM address during
+#   active display). The read is taken at a controlled dot (an H+V IRQ + SEI/WAI sync), so the
+#   verdict is region-independent — snes9x fails it identically on the NTSC and PAL images.
+# snes9x, +1 test (cart C3.12 "CGRAM taken in render" = dossier C3.04): the CGRAM sibling of C1.08.
+#   (These are cart IDs — what the on-cart battery reports failing — not dossier IDs.) A $2122 write during
+#   active display commits to the colour the PPU is drawing (its internal CGRAM address), not the CPU
+#   CGADD — with every layer off that colour is the backdrop, index 0. Mesen2 models it (writes use
+#   InternalCgramAddress when !CanAccessCgram); snes9x uses the programmed CGADD regardless of the
+#   rendering state, so the write lands the wrong colour and the test fails. Documented by nocash
+#   fullsnes and the SNESdev Wiki. Read at a controlled dot (H+V IRQ + SEI/WAI), region-independent.
+# snes9x, +1 test (cart C7.10 "OAM write to high table" = dossier C7.16): the Uniracers case. An OAM $2104 write during
+#   sprite evaluation is driven to the evaluator's address, which is even and in the low table, so it
+#   only latches there and the byte lands in the high table at 0x200 | ((evalAddr & 0x1F0) >> 4).
+#   Mesen2 models it (same remap); snes9x writes the CPU OAMADDR regardless of rendering, so nothing
+#   reaches the high table and the scan finds no write. Documented by nocash fullsnes and the SNESdev
+#   Wiki. Read at a controlled eval-phase dot (H+V IRQ + SEI/WAI); the high table is scanned rather
+#   than pinned to one byte, so the verdict is independent of the exact eval index and the region.
+SNES9X_KNOWN_FAILURES=10
 
 # --- snes9x, via the libretro host --------------------------------------------------------------
 if [[ -f $SNES9X ]]; then

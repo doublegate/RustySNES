@@ -2,11 +2,15 @@
 
 ## Status
 
-**Proposed** (2026-07-22). Supersedes the per-scanline "simplification point" documented in
-`docs/ppu.md` §Rendering model and the `v0.8.0` line-granularity fix (ADR-adjacent, recorded in
-`docs/ppu.md` §Mid-scanline/HDMA-driven register timing). Implementation is incremental behind a
-hard non-regression invariant (below); this ADR is accepted at design level and each implementation
-phase lands only when the invariant holds.
+**Accepted** (2026-07-22; per-dot made the shipped default and the batch path removed 2026-07-23).
+Supersedes the per-scanline "simplification point" documented in `docs/ppu.md` §Rendering model and
+the `v0.8.0` line-granularity fix (ADR-adjacent, recorded in `docs/ppu.md` §Mid-scanline/HDMA-driven
+register timing). The per-dot compositor was landed incrementally behind a hard non-regression
+invariant (below) and a default-off `per-dot-compositor` feature; once every phase held, Phase 6
+flipped it to the shipped default and then **removed the batch `render_scanline`/`compose_dac` path
+and the feature entirely** — the per-dot compositor is now the single code path (it is `no_std`-clean,
+so nothing needed the batch fallback). `compose_dac` survives only as a `#[cfg(test)]` driver that
+feeds hand-built pixel rows into the shipped per-column `compose_pixel` for the hi-res DAC tests.
 
 ## Context
 

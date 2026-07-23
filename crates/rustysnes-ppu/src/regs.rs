@@ -40,7 +40,6 @@ impl Ppu {
     /// [`Ppu::internal_cgram_address`] — the palette of the last column the per-dot compositor drew
     /// (MesenCE `_state.InternalCgramAddress`), maintained live by `pd_render_to_dot` each dot. This
     /// is the exact, draw-cursor-driven form; it supersedes the earlier on-demand `h-22` re-render.
-    #[cfg(feature = "per-dot-compositor")]
     const fn cgram_write_target(&self) -> u8 {
         let in_active_display = !self.io.display_disable
             && self.v >= 1
@@ -52,13 +51,6 @@ impl Ppu {
         } else {
             self.io.cgram_address
         }
-    }
-
-    /// Without the per-dot compositor, a `$2122` write always commits to the programmed address —
-    /// byte-identical to the historical batch model, which never modelled the in-render redirect.
-    #[cfg(not(feature = "per-dot-compositor"))]
-    const fn cgram_write_target(&self) -> u8 {
-        self.io.cgram_address
     }
 
     fn vram_read_word(&self) -> u16 {
@@ -359,7 +351,6 @@ impl Ppu {
     /// effect is the paired high-table write in [`Ppu::write_oamdata`], the Uniracers in-render OAM
     /// corruption. The fetch phase (dots 256+, `_oamTimeIndex`) is not yet modelled and awaits the
     /// incremental range evaluator.
-    #[cfg(feature = "per-dot-compositor")]
     const fn oam_render_redirect(&self) -> Option<u16> {
         let rendering = !self.io.display_disable && self.v >= 1 && self.v <= self.visible_height();
         if rendering && self.h <= 255 {
@@ -368,17 +359,6 @@ impl Ppu {
         } else {
             None
         }
-    }
-
-    /// Without the per-dot compositor, a `$2104` write always uses the CPU's `OAMADDR` — the
-    /// historical batch model never redirected during rendering.
-    #[cfg(not(feature = "per-dot-compositor"))]
-    #[expect(
-        clippy::unused_self,
-        reason = "matches the per-dot signature; batch never redirects"
-    )]
-    const fn oam_render_redirect(&self) -> Option<u16> {
-        None
     }
 
     const fn write_oamdata(&mut self, val: u8) {

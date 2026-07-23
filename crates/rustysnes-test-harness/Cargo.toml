@@ -7,14 +7,12 @@ license.workspace = true
 authors.workspace = true
 
 [features]
-default = []
+# The per-dot PPU compositor is the only compositor (T-CA-10 "single code path"; the batch path was
+# removed), so there is no compositor feature anywhere in the tree and nothing for this crate to
+# toggle — it always renders through the per-dot PPU, and this crate's own `#[cfg]` code (the golden
+# gate's documented gaps) is unconditional.
 test-roms = []          # compiles the committed CC0/public-domain suites + integration tests
 commercial-roms = []    # the local-dump oracle (ROMs gitignored; commit only screenshots/.snap)
-# Builds the accurate PPU path (`docs/adr/0014`, T-CA-10) so the golden corpus can be run flag-ON.
-# Flag-ON is byte-identical EXCEPT on `undisbeliever/inidisp_forgot_to_force_blank` (the one corpus
-# ROM that writes CGRAM mid-active-display) — the in-render redirect changes its frame by design;
-# that frame's hardware-accuracy is pending reference cross-validation before the flag is trusted.
-per-dot-compositor = ["rustysnes-core/per-dot-compositor"]
 
 [dependencies]
 rustysnes-core = { path = "../rustysnes-core", version = "1.4.0" }
