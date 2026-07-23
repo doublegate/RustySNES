@@ -72,6 +72,7 @@ pub fn all() -> Vec<Test> {
         c7_04(),
         c7_02(),
         c7_08(),
+        c7_10(),
         // --- access windows and frame geometry, also requiring a rendered frame ---
         c2_11(),
         c1_08(),
@@ -532,6 +533,132 @@ fn c7_09() -> Test {
         'C',
         "Overflow flags clear",
         Provenance::Documented("SNESdev Wiki, sprites; fullsnes"),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Dossier C7.16: an OAM (`$2104`) write during active display lands in the high table, not at the
+/// CPU-programmed OAMADDR — the Uniracers case.
+///
+/// During sprite evaluation the OAM address is driven by the evaluator (`eval_index << 2`, always
+/// even and in the low table), so a `$2104` write there only latches the even-byte buffer and never
+/// commits to the low table; the byte instead lands in the high table at the remapped address
+/// `0x200 | ((eval_addr & 0x1F0) >> 4)` (MesenCE `oamAddr = 0x200 | ((oamAddr & 0x1F0) >> 4)`). The
+/// exact high-table byte depends on the dot the write lands on, so the test does not pin it: it seeds
+/// the whole 32-byte high table to `$00` and scans it for the written value — robust to the eval
+/// index while still proving the write went there and not to the CPU low-table address. Read at a
+/// controlled eval-phase dot (H+V IRQ + `SEI`/`WAI`) so the write is guaranteed inside the redirect
+/// window. Mesen2 models it; snes9x writes the CPU OAMADDR regardless of the rendering state.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one linear cart routine: seed the low-table target and the high table, the H+V-IRQ/WAI \
+              render write, then scan the high table and read the CPU byte back to score"
+)]
+fn c7_10() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$8F");
+    a.l("sta $2100         ; forced blank while OAM is seeded");
+    a.c("--- seed the CPU low-table target (word $40 = bytes $80/$81) to $AA/$BB ---");
+    a.l("lda #$40");
+    a.l("sta $2102");
+    a.l("stz $2103         ; OAMADDR = word $40 (byte $80)");
+    a.l("lda #$AA");
+    a.l("sta $2104         ; even byte latched");
+    a.l("lda #$BB");
+    a.l("sta $2104         ; commits byte $80 = $AA, byte $81 = $BB");
+    a.c("--- seed the whole 32-byte high table to $00, so a $55 appearing there must be our write ---");
+    a.l("lda #$00");
+    a.l("sta $2102");
+    a.l("lda #$01");
+    a.l("sta $2103         ; OAMADDR = word $100 (byte $200, the high table)");
+    a.l("rep #$10");
+    a.l("ldx #$0000");
+    a.label("seedhi");
+    a.l("stz $2104         ; the high table commits one byte per write");
+    a.l("inx");
+    a.l("cpx #$0020");
+    a.l("bne @seedhi");
+    a.c("--- the render write, at a CONTROLLED eval-phase dot (h <= 255) via an H+V IRQ + SEI/WAI ---");
+    a.l("sep #$20");
+    a.l("lda #$0F");
+    a.l("sta $2100         ; forced blank off");
+    a.l("jsl wait_vblank_far");
+    a.l("jsl wait_vblank_far   ; a settled frame with the display on");
+    a.l("sep #$20             ; re-assert 8-bit A after the far calls");
+    a.l("lda #100");
+    a.l("sta $4207         ; HTIME = 100 (dot 100, inside the sprite-evaluation phase 0..255)");
+    a.l("stz $4208");
+    a.l("lda #50");
+    a.l("sta $4209         ; VTIME = 50 (a visible line)");
+    a.l("stz $420A");
+    a.l("sei               ; mask so WAI resumes inline, no dispatch latency");
+    a.l("lda #$30");
+    a.l("sta $4200         ; enable the H+V IRQ");
+    a.l("wai               ; parked until (V=50, H=100)");
+    a.l("lda #$40");
+    a.l("sta $2102");
+    a.l("stz $2103         ; CPU OAMADDR = word $40 (byte $80) — where a non-redirecting core writes");
+    a.l("lda #$55");
+    a.l("sta $2104         ; the write commits mid-render; the redirect drives it to the high table");
+    a.l("lda $4211         ; ack TIMEUP");
+    a.l("stz $4200         ; disarm the IRQ (test_restore also does this on any exit path)");
+    a.l("lda #$8F");
+    a.l("sta $2100         ; forced blank restored before readback");
+    a.c("--- scan the 32-byte high table for the written $55 ---");
+    a.l("lda #$00");
+    a.l("sta $2102");
+    a.l("lda #$01");
+    a.l("sta $2103         ; OAMADDR = word $100 (byte $200)");
+    a.l("lda #$00");
+    a.l("sta f:$7E0208     ; found flag = 0");
+    a.l("rep #$10");
+    a.l("ldx #$0000");
+    a.label("scanhi");
+    a.l("lda $2138         ; read one high-table byte (OAMADDR auto-increments)");
+    a.l("cmp #$55");
+    a.l("bne @scannext");
+    a.l("lda #$01");
+    a.l("sta f:$7E0208     ; found it");
+    a.label("scannext");
+    a.l("inx");
+    a.l("cpx #$0020");
+    a.l("bne @scanhi");
+    a.c("--- read the CPU low-table target back: it must be untouched ---");
+    a.l("sep #$20");
+    a.l("lda #$40");
+    a.l("sta $2102");
+    a.l("stz $2103         ; OAMADDR = word $40 (byte $80)");
+    a.l("lda $2138");
+    a.l("sta f:$7E0209     ; byte $80, must still be the $AA seed");
+    a.c("The write must have reached the high table: a redirecting core lands $55 there. A core that");
+    a.c("writes the CPU OAMADDR instead leaves the high table all $00.");
+    a.l("lda f:$7E0208");
+    a.assert_a8(
+        0x01,
+        "the mid-render $2104 write did not land in the OAM high table — the OAM address was not \
+         taken over during active display",
+    );
+    a.c("And the CPU-programmed low-table byte must be untouched, still its $AA seed.");
+    a.l("lda f:$7E0209");
+    a.assert_a8(
+        0xAA,
+        "the mid-render $2104 write disturbed the CPU OAMADDR low-table byte ($80)",
+    );
+    a.finish(
+        "C7.10",
+        'C',
+        "OAM write to high table",
+        Provenance::Documented(
+            "fullsnes and the SNESdev Wiki (the Uniracers case): an OAM write during active display \
+             is driven to the evaluator's address and lands in the high table, not the CPU OAMADDR. \
+             Mesen2 models it (oamAddr = 0x200 | ((oamAddr & 0x1F0) >> 4)); the batch compositor and \
+             snes9x write the programmed OAMADDR and fail",
+        ),
         Kind::Scored,
         None,
     )

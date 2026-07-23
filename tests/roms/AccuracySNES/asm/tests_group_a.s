@@ -25405,6 +25405,131 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; C7.10 — OAM write to high table
+; provenance: Documented (fullsnes and the SNESdev Wiki (the Uniracers case): an OAM write during active display is driven to the evaluator's address and lands in the high table, not the CPU OAMADDR. Mesen2 models it (oamAddr = 0x200 | ((oamAddr & 0x1F0) >> 4)); the batch compositor and snes9x write the programmed OAMADDR and fail)
+.proc test_c7_10
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$8F
+    sta $2100         ; forced blank while OAM is seeded
+    ; --- seed the CPU low-table target (word $40 = bytes $80/$81) to $AA/$BB ---
+    lda #$40
+    sta $2102
+    stz $2103         ; OAMADDR = word $40 (byte $80)
+    lda #$AA
+    sta $2104         ; even byte latched
+    lda #$BB
+    sta $2104         ; commits byte $80 = $AA, byte $81 = $BB
+    ; --- seed the whole 32-byte high table to $00, so a $55 appearing there must be our write ---
+    lda #$00
+    sta $2102
+    lda #$01
+    sta $2103         ; OAMADDR = word $100 (byte $200, the high table)
+    rep #$10
+    .i16
+    ldx #$0000
+@seedhi:
+    stz $2104         ; the high table commits one byte per write
+    inx
+    cpx #$0020
+    bne @seedhi
+    ; --- the render write, at a CONTROLLED eval-phase dot (h <= 255) via an H+V IRQ + SEI/WAI ---
+    sep #$20
+    .a8
+    lda #$0F
+    sta $2100         ; forced blank off
+    jsl wait_vblank_far
+    jsl wait_vblank_far   ; a settled frame with the display on
+    sep #$20             ; re-assert 8-bit A after the far calls
+    .a8
+    lda #100
+    sta $4207         ; HTIME = 100 (dot 100, inside the sprite-evaluation phase 0..255)
+    stz $4208
+    lda #50
+    sta $4209         ; VTIME = 50 (a visible line)
+    stz $420A
+    sei               ; mask so WAI resumes inline, no dispatch latency
+    lda #$30
+    sta $4200         ; enable the H+V IRQ
+    wai               ; parked until (V=50, H=100)
+    lda #$40
+    sta $2102
+    stz $2103         ; CPU OAMADDR = word $40 (byte $80) — where a non-redirecting core writes
+    lda #$55
+    sta $2104         ; the write commits mid-render; the redirect drives it to the high table
+    lda $4211         ; ack TIMEUP
+    stz $4200         ; disarm the IRQ (test_restore also does this on any exit path)
+    lda #$8F
+    sta $2100         ; forced blank restored before readback
+    ; --- scan the 32-byte high table for the written $55 ---
+    lda #$00
+    sta $2102
+    lda #$01
+    sta $2103         ; OAMADDR = word $100 (byte $200)
+    lda #$00
+    sta f:$7E0208     ; found flag = 0
+    rep #$10
+    .i16
+    ldx #$0000
+@scanhi:
+    lda $2138         ; read one high-table byte (OAMADDR auto-increments)
+    cmp #$55
+    bne @scannext
+    lda #$01
+    sta f:$7E0208     ; found it
+@scannext:
+    inx
+    cpx #$0020
+    bne @scanhi
+    ; --- read the CPU low-table target back: it must be untouched ---
+    sep #$20
+    .a8
+    lda #$40
+    sta $2102
+    stz $2103         ; OAMADDR = word $40 (byte $80)
+    lda $2138
+    sta f:$7E0209     ; byte $80, must still be the $AA seed
+    ; The write must have reached the high table: a redirecting core lands $55 there. A core that
+    ; writes the CPU OAMADDR instead leaves the high table all $00.
+    lda f:$7E0208
+    cmp #$01
+    beq :+
+    jmp @fail1
+  :
+    ; And the CPU-programmed low-table byte must be untouched, still its $AA seed.
+    lda f:$7E0209
+    cmp #$AA
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the mid-render $2104 write did not land in the OAM high table — the OAM address was not taken over during active display
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the mid-render $2104 write disturbed the CPU OAMADDR low-table byte ($80)
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C2.11 — VRAM locked in render
 ; provenance: Documented (SNESdev Wiki, PPU registers; fullsnes)
 .proc test_c2_11
@@ -32258,7 +32383,7 @@ apu_prog_112:
 .export _test_flags
 
 _test_count:
-    .word 328
+    .word 329
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -32379,6 +32504,7 @@ _test_entries:
     .faraddr test_c7_04
     .faraddr test_c7_02
     .faraddr test_c7_08
+    .faraddr test_c7_10
     .faraddr test_c2_11
     .faraddr test_c1_08
     .faraddr test_c2_10
@@ -32710,6 +32836,7 @@ _test_flags:
     .byte $01   ; C7.04
     .byte $01   ; C7.02
     .byte $01   ; C7.08
+    .byte $01   ; C7.10
     .byte $01   ; C2.11
     .byte $01   ; C1.08
     .byte $01   ; C2.10
@@ -33041,6 +33168,7 @@ _test_names:
     .addr @n_c7_04
     .addr @n_c7_02
     .addr @n_c7_08
+    .addr @n_c7_10
     .addr @n_c2_11
     .addr @n_c1_08
     .addr @n_c2_10
@@ -33603,6 +33731,9 @@ _test_names:
 @n_c7_08:
     .byte 18
     .byte "Flags ignore $212C"
+@n_c7_10:
+    .byte 23
+    .byte "OAM write to high table"
 @n_c2_11:
     .byte 21
     .byte "VRAM locked in render"

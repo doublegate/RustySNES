@@ -124,7 +124,14 @@ ran=0
 #   InternalCgramAddress when !CanAccessCgram); snes9x uses the programmed CGADD regardless of the
 #   rendering state, so the write lands the wrong colour and the test fails. Documented by nocash
 #   fullsnes and the SNESdev Wiki. Read at a controlled dot (H+V IRQ + SEI/WAI), region-independent.
-SNES9X_KNOWN_FAILURES=9
+# snes9x, +1 test (C7.10 "OAM write to high table"): the Uniracers case. An OAM $2104 write during
+#   sprite evaluation is driven to the evaluator's address, which is even and in the low table, so it
+#   only latches there and the byte lands in the high table at 0x200 | ((evalAddr & 0x1F0) >> 4).
+#   Mesen2 models it (same remap); snes9x writes the CPU OAMADDR regardless of rendering, so nothing
+#   reaches the high table and the scan finds no write. Documented by nocash fullsnes and the SNESdev
+#   Wiki. Read at a controlled eval-phase dot (H+V IRQ + SEI/WAI); the high table is scanned rather
+#   than pinned to one byte, so the verdict is independent of the exact eval index and the region.
+SNES9X_KNOWN_FAILURES=10
 
 # --- snes9x, via the libretro host --------------------------------------------------------------
 if [[ -f $SNES9X ]]; then

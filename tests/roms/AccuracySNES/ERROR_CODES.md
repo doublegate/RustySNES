@@ -1273,6 +1273,15 @@ Provenance: **Documented** (SNESdev Wiki, Sprites; fullsnes). Kind: scored.
 |---|---|---|
 | 1 | `$02` | Range Over did not set while OBJ was off the main screen ($212C gates compositing, not evaluation) |
 
+### C7.10 — OAM write to high table
+
+Provenance: **Documented** (fullsnes and the SNESdev Wiki (the Uniracers case): an OAM write during active display is driven to the evaluator's address and lands in the high table, not the CPU OAMADDR. Mesen2 models it (oamAddr = 0x200 | ((oamAddr & 0x1F0) >> 4)); the batch compositor and snes9x write the programmed OAMADDR and fail). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the mid-render $2104 write did not land in the OAM high table — the OAM address was not taken over during active display |
+| 2 | `$04` | the mid-render $2104 write disturbed the CPU OAMADDR low-table byte ($80) |
+
 ### C2.11 — VRAM locked in render
 
 Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored.

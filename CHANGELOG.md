@@ -34,6 +34,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   colour 0 must take the write and colour `$10` must stay its seed. Cross-validated — Mesen2 agrees,
   snes9x uses the programmed CGADD and fails (a now-documented divergence).
 
+- **AccuracySNES dossier `C7.16` (OAM write to the high table during render — the Uniracers case) is
+  now a scored row (296 -> 297).** During sprite evaluation the OAM address is driven by the evaluator
+  (`eval_index << 2`, always even and in the low table), so a `$2104` write there only latches and the
+  byte lands in the high table at `0x200 | ((evalAddr & 0x1F0) >> 4)`. The exact high-table byte
+  depends on the dot, so the test does not pin it: it seeds the whole 32-byte high table to `$00`,
+  writes `$55` at a controlled eval-phase dot (H+V IRQ + `SEI`/`WAI`), then scans the high table for
+  it and confirms the CPU OAMADDR low-table byte is untouched — robust to the eval index and the
+  region. Cross-validated — Mesen2 models the same remap; snes9x writes the CPU OAMADDR, nothing
+  reaches the high table, and it fails (a now-documented divergence).
+
 - **AccuracySNES `G1.16` (ExHiROM A23->A22 half-selection) via a third, two-half cartridge image
   (coverage 338 -> 339 of 443).** ExHiROM inverts address bit 23 into ROM offset bit 22 — banks
   `$80-$FF` (A23=1) select the first 4 MiB, `$00-$7D` (A23=0) the extra 4 MiB — so distinguishing the
