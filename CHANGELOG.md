@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES `C1.08` (OAM address taken over during active display) is now a scored row, the
+  first coverage the per-dot compositor unblocks (294 -> 295 of the on-cart scoring total).** During
+  active display the renderer drives the OAM address, so a `$2138` read returns the sprite-evaluation
+  address (`eval_index << 2`), not the CPU-programmed one — behaviour the shipped per-dot compositor
+  now models. The test reads `$2138` at a *controlled* low dot (an H+V IRQ armed at `(V=50, H=24)`
+  plus `SEI`/`WAI`, which resumes inline with no dispatch latency), so `eval_index` is well under 32
+  and the render address is provably below the programmed `$80` regardless of region or the code that
+  runs before it — the old fixed-burn read landed at a region-dependent dot and could only record a
+  variant. Retiered `Contested`/golden -> `Documented`/scored on nocash fullsnes and the SNESdev Wiki,
+  and cross-validated: Mesen2 agrees (`GetOamAddress` returns the same render address), while snes9x
+  and the batch compositor read back the programmed `$80` — a now-documented snes9x divergence.
+
 - **AccuracySNES `G1.16` (ExHiROM A23->A22 half-selection) via a third, two-half cartridge image
   (coverage 338 -> 339 of 443).** ExHiROM inverts address bit 23 into ROM offset bit 22 — banks
   `$80-$FF` (A23=1) select the first 4 MiB, `$00-$7D` (A23=0) the extra 4 MiB — so distinguishing the
@@ -126,6 +138,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the sprite-evaluation index and the read-back no longer matched the written value (6 tests `Pass` ->
   `Fail`). `run_all_tests` now establishes forced blank at its own entry so every entry path shares the
   precondition. A no-op under the batch compositor.
+- **AccuracySNES `B4.12` (`$4211` read releases the IRQ latch) no longer depends on where the polling
+  loop catches the flag.** A `$4211` read on the exact dot the flag is raised returns it set but does
+  not clear it (the four-master-clock `/IRQ` hold that hardware and ares model, and RustySNES models
+  correctly). B4.12 used one read to both detect and acknowledge, so if the poll happened to catch the
+  hold dot the latch was never released and the follow-up read failed — a phase-dependent verdict that
+  the region and any change to the code running before the test could flip (the per-dot C1.08 rewrite,
+  which adds a few frames ahead of it, tripped it on the PAL image). It now takes an explicit second
+  read, guaranteed past the one-dot hold, as the release; the verdict is region- and phase-independent
+  and still agrees with Mesen2 and snes9x.
 
 - **`$4210`/`$4211` now hold their flag for four master clocks after the edge (cycle-accuracy,
   Tier-1 T-CA-02 — completes the ticket).** RDNMI and TIMEUP previously cleared their flag on every

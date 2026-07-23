@@ -688,15 +688,6 @@ const REGION_DEPENDENT: &[(&str, &str)] = &[
         "B2.10",
         "the region bit itself; this changing is the whole point of the second image",
     ),
-    (
-        "C1.08",
-        "the mid-render $2138 read samples the renderer-driven OAM address at an uncontrolled dot \
-         (enter_active_display burns a fixed cycle count, not to a fixed dot); under the per-dot \
-         compositor that address is eval_index<<2, and whether it lands on $80 (variant 2) or not \
-         (variant 1) is dot-sensitive, so the region's frame timing shifts which variant is \
-         recorded. Making this region-independent needs a controlled-dot (HV-IRQ) read — the \
-         scored-conversion follow-up, not a batch-vs-per-dot regression",
-    ),
 ];
 
 /// The PAL image runs the same battery at PAL timing, and the region-dependent pair swaps over.

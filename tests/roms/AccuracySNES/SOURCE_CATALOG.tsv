@@ -117,7 +117,7 @@
 114	C7.02	C	Time Over is slivers	Documented	SNESdev Wiki, Sprites; fullsnes; anomie	Scored	0x7EF092	C7.02
 115	C7.08	C	Flags ignore $212C	Documented	SNESdev Wiki, Sprites; fullsnes	Scored	0x7EF093	C7.08
 116	C2.11	C	VRAM locked in render	Documented	SNESdev Wiki, PPU registers; fullsnes	Scored	0x7EF094	C2.11
-117	C1.08	C	OAM addr lost in render	Contested	fullsnes and the SNESdev Wiki agree the renderer drives the OAM address during active display, but neither states which byte evaluation has reached at a given moment, and the cores split: Mesen2 models it, RustySNES and snes9x return the programmed address	Golden	0x7EF095	C1.08
+117	C1.08	C	OAM addr in render	Documented	fullsnes and the SNESdev Wiki: during active display the renderer drives the OAM address, so a $2138 read returns a render-time address, not the CPU-programmed one. MesenCE models it (GetOamAddress -> _oamEvaluationIndex<<2); the batch compositor and snes9x return the programmed address and fail	Scored	0x7EF095	C1.08
 118	C2.10	C	Dropped write still incs	Documented	SNESdev Wiki, PPU registers; fullsnes; anomie	Scored	0x7EF096	C2.10
 119	C1.06	C	OAM addr reloads	Documented	SNESdev Wiki, OAM; anomie	Scored	0x7EF097	C1.06
 120	C9.04	C	Overscan moves vblank	Documented	SNESdev Wiki, Timing; fullsnes	Scored	0x7EF098	C9.04,B4.02

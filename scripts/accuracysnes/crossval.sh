@@ -109,7 +109,16 @@ ran=0
 #   corrupts the results on hardware and not there — the more dangerous direction, since code that
 #   works under snes9x can be silently wrong on a console. Mesen2 models it (its result reads $FFFF
 #   with B held); RustySNES did not either until this row was written, and now does.
-SNES9X_KNOWN_FAILURES=7
+# snes9x, +1 test (C1.08 "OAM addr in render"): during active display the renderer drives the OAM
+#   address, so a $2138 read returns the sprite-evaluation address (eval_index<<2, below the
+#   programmed $80 at the controlled low dot this test reads at), not the CPU's OAMADDR. Mesen2
+#   models it (`SnesPpu::GetOamAddress` returns `_oamEvaluationIndex << 2` during rendering) and
+#   RustySNES does under the per-dot compositor; snes9x's OAMDATAREAD path uses the CPU OAMADDR
+#   regardless of the rendering state, so it reads back the programmed $80 and fails the assertion.
+#   Documented by nocash fullsnes and the SNESdev Wiki (the renderer owns the OAM address during
+#   active display). The read is taken at a controlled dot (an H+V IRQ + SEI/WAI sync), so the
+#   verdict is region-independent — snes9x fails it identically on the NTSC and PAL images.
+SNES9X_KNOWN_FAILURES=8
 
 # --- snes9x, via the libretro host --------------------------------------------------------------
 if [[ -f $SNES9X ]]; then

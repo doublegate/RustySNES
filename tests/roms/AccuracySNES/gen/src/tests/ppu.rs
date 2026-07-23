@@ -2524,6 +2524,11 @@ fn enter_active_display(a: &mut Asm, tag: &str) {
 /// different claim from the row's, and satisfying it would mean inventing a counter position with
 /// no oracle behind it. The reading is published instead, and the row becomes scorable for free the
 /// day the `C13` blocker lifts.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one linear cart routine: OAM fill, the forced-blank guard read, the H+V-IRQ/WAI \
+              controlled-dot render read, then record + score — read top to bottom"
+)]
 fn c1_08() -> Test {
     let mut a = Asm::new();
     a.l("rep #$30");
@@ -2552,14 +2557,41 @@ fn c1_08() -> Test {
     a.l("stz $2103         ; OAMADDR = word $40, byte $80");
     a.l("lda $2138");
     a.l("sta f:$7E0208");
-    a.c("--- and during render, where the renderer owns the counter ---");
-    enter_active_display(&mut a, "c108");
+    a.c("--- and during render at a CONTROLLED low dot, where the renderer owns the counter ---");
+    a.c(
+        "Turn the display on for a settled frame, reprogram OAMADDR to the same $80, then park the",
+    );
+    a.c(
+        "CPU on a once-per-frame H+V IRQ early on a visible line. SEI keeps the IRQ masked, so WAI",
+    );
+    a.c("resumes inline (no vector dispatch) and the very next instruction reads $2138 at a fixed low");
+    a.c("dot — where the evaluation index is well under 32, so a renderer that owns the OAM address");
+    a.c("returns a value below the programmed $80. Reading at a *controlled* dot (not the old fixed");
+    a.c("burn, whose landing dot drifted with the region and made this test unstable) is what lets it");
+    a.c("score instead of merely recording a variant.");
     a.l("sep #$20");
+    a.l("lda #$0F");
+    a.l("sta $2100         ; forced blank off");
+    a.l("jsl wait_vblank_far");
+    a.l("jsl wait_vblank_far   ; a settled frame with the display on");
+    a.l("sep #$20             ; re-assert 8-bit A after the far calls");
     a.l("lda #$40");
     a.l("sta $2102");
-    a.l("stz $2103         ; ask for the same address again");
-    a.l("lda $2138");
+    a.l("stz $2103         ; ask for byte $80 again (the CPU-programmed address)");
+    a.l("lda #24");
+    a.l("sta $4207         ; HTIME low = 24 dots (well under the dot-64 point where eval_index hits 32)");
+    a.l("stz $4208         ; HTIME high");
+    a.l("lda #50");
+    a.l("sta $4209         ; VTIME low = line 50 (a visible line)");
+    a.l("stz $420A         ; VTIME high");
+    a.l("sei               ; mask so WAI resumes inline, with no dispatch latency");
+    a.l("lda #$30");
+    a.l("sta $4200         ; enable the H+V IRQ (no NMI, no auto-joypad)");
+    a.l("wai               ; parked until (V=50, H=24)");
+    a.l("lda $2138         ; the render read, at a controlled low dot");
     a.l("sta f:$7E0209");
+    a.l("lda $4211         ; acknowledge TIMEUP");
+    a.l("stz $4200         ; disarm the IRQ (test_restore also does this on any exit path)");
     a.l("lda #$8F");
     a.l("sta $2100         ; forced blank restored before anything is judged");
     a.l("rep #$30");
@@ -2571,39 +2603,43 @@ fn c1_08() -> Test {
     );
     a.l("lda f:$7E0209");
     a.l("and #$00FF");
-    a.record(113, "C1.08 $2138 at the same address during active display");
-    a.c("The guard first: without it, 'the render read was different' could just mean the fill or");
-    a.c("the port never worked.");
+    a.record(
+        113,
+        "C1.08 $2138 at a controlled low dot during active display",
+    );
+    a.c("The guard first: without it, 'the render read was lower' could just mean the fill or the");
+    a.c("port never worked.");
     a.l("sep #$20");
     a.l("lda f:$7E0208");
     a.assert_a8(
         0x80,
-        "reading $2138 in forced blank did not return the byte at the programmed address, so the \
-         fill or the port is wrong and the render read below proves nothing",
+        "reading $2138 in forced blank did not return the byte at the programmed address ($80), so \
+         the fill or the port is wrong and the render read below proves nothing",
     );
-    a.c("The mid-render read is recorded, not asserted. Which byte evaluation has reached is a");
-    a.c("function of the sub-scanline sprite pipeline, and a core without one has nothing to");
-    a.c("return but the programmed address.");
+    a.c("The render read: during active display the renderer drives the OAM address, so the read");
+    a.c("returns a render-time address (eval_index<<2, below $80 at this low dot), not the CPU's $80.");
+    a.c("The batch compositor and snes9x return the programmed $80 and fail here — modelling the");
+    a.c("takeover is the accurate path (fullsnes; MesenCE GetOamAddress).");
+    a.l("rep #$30");
     a.l("lda f:$7E0209");
-    a.l("cmp #$80");
-    a.l("beq :+");
-    a.l("lda #$03          ; variant 1 = the counter was taken over; slot 113 says where to");
-    a.l("sta f:$7EE010");
-    a.l("jml test_restore");
-    a.l(":");
-    a.l("lda #$05          ; variant 2 = the programmed address survived: no evaluation counter");
-    a.l("sta f:$7EE010");
-    a.l("jml test_restore");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x0001,
+        0x007F,
+        "the mid-render $2138 read did not return a renderer-driven OAM address below the programmed \
+         $80 — the OAM address was not taken over during active display",
+    );
     a.finish(
         "C1.08",
         'C',
-        "OAM addr lost in render",
-        Provenance::Contested(
-            "fullsnes and the SNESdev Wiki agree the renderer drives the OAM address during active \
-             display, but neither states which byte evaluation has reached at a given moment, and \
-             the cores split: Mesen2 models it, RustySNES and snes9x return the programmed address",
+        "OAM addr in render",
+        Provenance::Documented(
+            "fullsnes and the SNESdev Wiki: during active display the renderer drives the OAM \
+             address, so a $2138 read returns a render-time address, not the CPU-programmed one. \
+             MesenCE models it (GetOamAddress -> _oamEvaluationIndex<<2); the batch compositor and \
+             snes9x return the programmed address and fail",
         ),
-        Kind::Golden,
+        Kind::Scored,
         None,
     )
 }

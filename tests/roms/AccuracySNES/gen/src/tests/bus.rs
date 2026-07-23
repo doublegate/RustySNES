@@ -681,15 +681,21 @@ fn b4_12() -> Test {
     a.label("wirq2");
     a.l("lda $4211");
     a.l("and #$80");
-    a.l("beq @wirq2        ; this read both detects and acknowledges");
+    a.l("beq @wirq2        ; poll until the flag is up");
+    a.c("The detecting read above may land on the one-dot /IRQ hold: a $4211 read on the very dot the");
+    a.c("flag is raised returns it set but does NOT clear it (the four-master-clock hold that hardware");
+    a.c("and ares both model). Take one more read, a few dots later and so guaranteed past that single");
+    a.c("dot, as the actual release. Without it the verdict depended on whether the polling loop");
+    a.c("happened to catch the hold dot, which shifts with the region and with any change to the code");
+    a.c("that runs before this test — it began failing on Mesen2 once when an unrelated change moved");
+    a.c("the battery's code by a few bytes, and again on the PAL image when the per-dot C1.08 rewrite");
+    a.c("added a few frames ahead of it.");
+    a.l("lda $4211         ; the releasing read, definitely past the one-dot hold");
     a.c("Disarm BEFORE looking again. The claim is that a read releases the latch; while the");
     a.c(
         "comparator still matches -- a V-only IRQ matches for the whole scanline -- a core is free",
     );
     a.c("to re-assert it, and a second read on the same line then says nothing about the release.");
-    a.c("Asserting the stronger thing made this test depend on where in the scanline the polling");
-    a.c("loop happened to catch the flag: it began failing on Mesen2 when an unrelated change");
-    a.c("moved the battery's code by a few bytes.");
     a.l("stz $4200         ; disarm, so nothing can re-assert what the read released");
     a.l("lda $4211         ; must now read clear");
     a.l("sta f:$7E0124");

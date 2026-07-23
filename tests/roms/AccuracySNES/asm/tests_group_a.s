@@ -5567,13 +5567,19 @@ CATALOG_IMPL = 1
 @wirq2:
     lda $4211
     and #$80
-    beq @wirq2        ; this read both detects and acknowledges
+    beq @wirq2        ; poll until the flag is up
+    ; The detecting read above may land on the one-dot /IRQ hold: a $4211 read on the very dot the
+    ; flag is raised returns it set but does NOT clear it (the four-master-clock hold that hardware
+    ; and ares both model). Take one more read, a few dots later and so guaranteed past that single
+    ; dot, as the actual release. Without it the verdict depended on whether the polling loop
+    ; happened to catch the hold dot, which shifts with the region and with any change to the code
+    ; that runs before this test — it began failing on Mesen2 once when an unrelated change moved
+    ; the battery's code by a few bytes, and again on the PAL image when the per-dot C1.08 rewrite
+    ; added a few frames ahead of it.
+    lda $4211         ; the releasing read, definitely past the one-dot hold
     ; Disarm BEFORE looking again. The claim is that a read releases the latch; while the
     ; comparator still matches -- a V-only IRQ matches for the whole scanline -- a core is free
     ; to re-assert it, and a second read on the same line then says nothing about the release.
-    ; Asserting the stronger thing made this test depend on where in the scanline the polling
-    ; loop happened to catch the flag: it began failing on Mesen2 when an unrelated change
-    ; moved the battery's code by a few bytes.
     stz $4200         ; disarm, so nothing can re-assert what the read released
     lda $4211         ; must now read clear
     sta f:$7E0124
@@ -25372,8 +25378,8 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
-; C1.08 — OAM addr lost in render
-; provenance: Contested (fullsnes and the SNESdev Wiki agree the renderer drives the OAM address during active display, but neither states which byte evaluation has reached at a given moment, and the cores split: Mesen2 models it, RustySNES and snes9x return the programmed address)
+; C1.08 — OAM addr in render
+; provenance: Documented (fullsnes and the SNESdev Wiki: during active display the renderer drives the OAM address, so a $2138 read returns a render-time address, not the CPU-programmed one. MesenCE models it (GetOamAddress -> _oamEvaluationIndex<<2); the batch compositor and snes9x return the programmed address and fail)
 .proc test_c1_08
     .a16
     .i16
@@ -25412,30 +25418,39 @@ CATALOG_IMPL = 1
     stz $2103         ; OAMADDR = word $40, byte $80
     lda $2138
     sta f:$7E0208
-    ; --- and during render, where the renderer owns the counter ---
+    ; --- and during render at a CONTROLLED low dot, where the renderer owns the counter ---
+    ; Turn the display on for a settled frame, reprogram OAMADDR to the same $80, then park the
+    ; CPU on a once-per-frame H+V IRQ early on a visible line. SEI keeps the IRQ masked, so WAI
+    ; resumes inline (no vector dispatch) and the very next instruction reads $2138 at a fixed low
+    ; dot — where the evaluation index is well under 32, so a renderer that owns the OAM address
+    ; returns a value below the programmed $80. Reading at a *controlled* dot (not the old fixed
+    ; burn, whose landing dot drifted with the region and made this test unstable) is what lets it
+    ; score instead of merely recording a variant.
     sep #$20
     .a8
     lda #$0F
-    sta $2100         ; forced blank off — the access window now depends on position
+    sta $2100         ; forced blank off
     jsl wait_vblank_far
-    jsl wait_vblank_far   ; a full settled frame
-@wa_c108:
-    lda $4212
-    and #$80
-    bne @wa_c108   ; wait for vblank to end
-    rep #$10
-    .i16
-    ldx #$0400
-@burn_c108:
-    dex
-    bne @burn_c108 ; ~20 scanlines in, well clear of the pre-render line
-    sep #$20
+    jsl wait_vblank_far   ; a settled frame with the display on
+    sep #$20             ; re-assert 8-bit A after the far calls
     .a8
     lda #$40
     sta $2102
-    stz $2103         ; ask for the same address again
-    lda $2138
+    stz $2103         ; ask for byte $80 again (the CPU-programmed address)
+    lda #24
+    sta $4207         ; HTIME low = 24 dots (well under the dot-64 point where eval_index hits 32)
+    stz $4208         ; HTIME high
+    lda #50
+    sta $4209         ; VTIME low = line 50 (a visible line)
+    stz $420A         ; VTIME high
+    sei               ; mask so WAI resumes inline, with no dispatch latency
+    lda #$30
+    sta $4200         ; enable the H+V IRQ (no NMI, no auto-joypad)
+    wai               ; parked until (V=50, H=24)
+    lda $2138         ; the render read, at a controlled low dot
     sta f:$7E0209
+    lda $4211         ; acknowledge TIMEUP
+    stz $4200         ; disarm the IRQ (test_restore also does this on any exit path)
     lda #$8F
     sta $2100         ; forced blank restored before anything is judged
     rep #$30
@@ -25447,10 +25462,10 @@ CATALOG_IMPL = 1
     sta f:$7EE2D6
     lda f:$7E0209
     and #$00FF
-    ; record slot 113: C1.08 $2138 at the same address during active display
+    ; record slot 113: C1.08 $2138 at a controlled low dot during active display
     sta f:$7EE2E2
-    ; The guard first: without it, 'the render read was different' could just mean the fill or
-    ; the port never worked.
+    ; The guard first: without it, 'the render read was lower' could just mean the fill or the
+    ; port never worked.
     sep #$20
     .a8
     lda f:$7E0208
@@ -25458,24 +25473,40 @@ CATALOG_IMPL = 1
     beq :+
     jmp @fail1
   :
-    ; The mid-render read is recorded, not asserted. Which byte evaluation has reached is a
-    ; function of the sub-scanline sprite pipeline, and a core without one has nothing to
-    ; return but the programmed address.
+    ; The render read: during active display the renderer drives the OAM address, so the read
+    ; returns a render-time address (eval_index<<2, below $80 at this low dot), not the CPU's $80.
+    ; The batch compositor and snes9x return the programmed $80 and fail here — modelling the
+    ; takeover is the accurate path (fullsnes; MesenCE GetOamAddress).
+    rep #$30
+    .a16
+    .i16
     lda f:$7E0209
-    cmp #$80
-    beq :+
-    lda #$03          ; variant 1 = the counter was taken over; slot 113 says where to
-    sta f:$7EE010
-    jml test_restore
-    :
-    lda #$05          ; variant 2 = the programmed address survived: no evaluation counter
+    and #$00FF
+    cmp #$0001
+    bcs :+
+    jmp @fail2
+  :
+    cmp #$0080
+    bcc :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
     sta f:$7EE010
     jml test_restore
 @fail1:
-    ; reading $2138 in forced blank did not return the byte at the programmed address, so the fill or the port is wrong and the render read below proves nothing
+    ; reading $2138 in forced blank did not return the byte at the programmed address ($80), so the fill or the port is wrong and the render read below proves nothing
     sep #$20
     .a8
     lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the mid-render $2138 read did not return a renderer-driven OAM address below the programmed $80 — the OAM address was not taken over during active display
+    sep #$20
+    .a8
+    lda #$04
     sta f:$7EE010
     jml test_restore
 .endproc
@@ -32561,7 +32592,7 @@ _test_flags:
     .byte $01   ; C7.02
     .byte $01   ; C7.08
     .byte $01   ; C2.11
-    .byte $02   ; C1.08
+    .byte $01   ; C1.08
     .byte $01   ; C2.10
     .byte $01   ; C1.06
     .byte $01   ; C9.04
@@ -33453,8 +33484,8 @@ _test_names:
     .byte 21
     .byte "VRAM locked in render"
 @n_c1_08:
-    .byte 23
-    .byte "OAM addr lost in render"
+    .byte 18
+    .byte "OAM addr in render"
 @n_c2_10:
     .byte 24
     .byte "Dropped write still incs"

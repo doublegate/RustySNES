@@ -1272,13 +1272,14 @@ Provenance: **Documented** (SNESdev Wiki, PPU registers; fullsnes). Kind: scored
 | 1 | `$02` | a VRAM write during active display was not dropped |
 | 2 | `$04` | the second VRAM write during active display was not dropped |
 
-### C1.08 — OAM addr lost in render
+### C1.08 — OAM addr in render
 
-Provenance: **Contested** (fullsnes and the SNESdev Wiki agree the renderer drives the OAM address during active display, but neither states which byte evaluation has reached at a given moment, and the cores split: Mesen2 models it, RustySNES and snes9x return the programmed address). Kind: golden vector, never scored.
+Provenance: **Documented** (fullsnes and the SNESdev Wiki: during active display the renderer drives the OAM address, so a $2138 read returns a render-time address, not the CPU-programmed one. MesenCE models it (GetOamAddress -> _oamEvaluationIndex<<2); the batch compositor and snes9x return the programmed address and fail). Kind: scored.
 
 | Code | Byte | Meaning |
 |---|---|---|
-| 1 | `$02` | reading $2138 in forced blank did not return the byte at the programmed address, so the fill or the port is wrong and the render read below proves nothing |
+| 1 | `$02` | reading $2138 in forced blank did not return the byte at the programmed address ($80), so the fill or the port is wrong and the render read below proves nothing |
+| 2 | `$04` | the mid-render $2138 read did not return a renderer-driven OAM address below the programmed $80 — the OAM address was not taken over during active display |
 
 ### C2.10 — Dropped write still incs
 
