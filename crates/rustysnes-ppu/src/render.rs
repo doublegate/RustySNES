@@ -263,11 +263,21 @@ impl Ppu {
         // Seed the OAM sprite-evaluation index for this line (MesenCE `_oamEvaluationIndex` at
         // `_spriteEvalStart == 0`): the priority-rotation base, or 0. The in-render `$2104` redirect
         // reads `seed + (min(h,255)+1)/2` from here.
-        self.pd_oam_eval_seed = if self.io.oam_priority_rotation {
-            ((self.io.oam_address >> 2) & 0x7f) as u8
-        } else {
-            0
-        };
+        //
+        // Capture it ONLY at the true line start (`h == 0`). A fetch at `h > 0` is a post-`load_state`
+        // re-fetch (the only thing that invalidates `pd_fetched_line` mid-line): there, `OAMADDR` has
+        // already diverged from its line-start value via mid-line redirected writes — which is exactly
+        // why `pd_oam_eval_seed` is serialized (`FORMAT_VERSION 7`) — so re-deriving it from the current
+        // `OAMADDR` would clobber the deserialized value and break mid-scanline save-state determinism.
+        // Leaving it untouched preserves the restored seed (MesenCE serializes `_oamEvaluationIndex`
+        // and likewise never re-derives it on load).
+        if self.h == 0 {
+            self.pd_oam_eval_seed = if self.io.oam_priority_rotation {
+                ((self.io.oam_address >> 2) & 0x7f) as u8
+            } else {
+                0
+            };
+        }
         self.pd_fetched_line = self.v;
     }
 
@@ -2113,8 +2123,11 @@ mod tests {
             "the priority-rotation seed shifts the redirect's high-table target ((0x108&0x1F0)>>4=16)"
         );
 
-        // With rotation OFF the seed is 0 regardless of OAMADDR.
+        // With rotation OFF the seed is 0 regardless of OAMADDR. The seed is (re-)captured only at the
+        // line start (`h == 0`) — a mid-line `pd_fetch_line` is a post-load re-fetch and preserves the
+        // restored seed — so rewind to the line start before re-fetching.
         p.write_reg(0x2103, 0x00);
+        p.h = 0;
         p.pd_fetch_line(&mut bus);
         assert_eq!(
             p.pd_oam_eval_seed, 0,
@@ -2159,6 +2172,39 @@ mod tests {
             p.read_reg(0x2138),
             0x11,
             "outside a rendering scanline the read uses the CPU OAMADDR"
+        );
+    }
+
+    #[test]
+    fn load_state_mid_line_re_fetch_preserves_oam_eval_seed() {
+        // A mid-scanline save deserializes `pd_oam_eval_seed` because it has diverged from `OAMADDR`
+        // via in-render redirected writes and cannot be re-derived. `load_state` invalidates the line
+        // (`pd_fetched_line = u16::MAX`), so the next `pd_render_to_dot` re-fetches it — and that
+        // re-fetch (at `h > 0`) must NOT clobber the restored seed by re-deriving it from the diverged
+        // `OAMADDR`, or mid-scanline save-state determinism breaks (Antigravity review, #227).
+        let mut p = Ppu::new();
+        p.write_reg(0x2100, 0x0f); // display on
+        p.io.oam_priority_rotation = true; // a re-derive from OAMADDR would be non-zero here
+        p.io.oam_address = 0xA8; // `(0xA8 >> 2) & 0x7f` = 0x2A — what a re-derive would produce
+        // The state a mid-line `load_state` leaves behind.
+        p.v = 50;
+        p.h = 100;
+        p.pd_fetched_line = u16::MAX;
+        p.pd_oam_eval_seed = 0x55; // the restored line-start seed, distinct from the 0x2A re-derive
+        let mut bus = NullVideoBus;
+        p.pd_render_to_dot(&mut bus); // triggers `pd_fetch_line` (pd_fetched_line != v)
+        assert_eq!(
+            p.pd_oam_eval_seed, 0x55,
+            "a post-load mid-line re-fetch (h > 0) must preserve the deserialized OAM eval seed"
+        );
+
+        // Sanity: a genuine line-start fetch (h == 0) DOES capture the seed from OAMADDR.
+        p.pd_fetched_line = u16::MAX;
+        p.h = 0;
+        p.pd_render_to_dot(&mut bus);
+        assert_eq!(
+            p.pd_oam_eval_seed, 0x2A,
+            "a line-start fetch (h == 0) captures the seed from OAMADDR"
         );
     }
 }
