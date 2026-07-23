@@ -147,17 +147,16 @@ Per `ref-docs/2026-06-24-ppu.md` §6:
     `0x200 | ((eval_index<<2 & 0x1F0) >> 4)` (the Uniracers in-render OAM corruption). `OAMADDR` still
     auto-increments. The gate is `!displayDisable && 0 < v ≤ vdisp` and the evaluation phase (dots
     `0..=255`); the fetch-phase index (`_oamTimeIndex`, dots 256+) awaits the incremental range
-    evaluator. **Off by default** (batch never redirects) → byte-identical shipped builds. Unlike the
-    other per-dot fields, `pd_oam_eval_seed` is **save-stated** (FORMAT_VERSION 7, mirroring MesenCE
-    serializing `_oamEvaluationIndex`): it diverges from `OAMADDR` after redirected active-display
-    writes and so cannot be re-derived on load; the byte is written unconditionally (0 without the
-    feature) so the format stays identical across builds. Over-flag dot-timing, mid-line BG-scroll,
-    and the fetch-phase OAM index are Phase 4b/4c follow-ups.
+    evaluator. Unlike the other per-dot fields, `pd_oam_eval_seed` is **save-stated**
+    (FORMAT_VERSION 7, mirroring MesenCE serializing `_oamEvaluationIndex`): it diverges from `OAMADDR`
+    after redirected active-display writes and so cannot be re-derived on load. Dossier **C7.16** scores
+    this via a controlled-dot write that scans the high table for the value. The fetch-phase OAM index
+    (`_oamTimeIndex`, dots 256+) awaits the incremental range evaluator (Phase 4b/4c follow-up).
   - **In-render OAM read redirect** (dossier C1.08). The read side of
     the same rule: a `$2138` (OAMDATAREAD) during a rendering scanline returns the *evaluator's* OAM
     entry (`oam_render_redirect` = `eval_index << 2`), not the CPU's `OAMADDR` (MesenCE `$2138` =
     `GetOamAddress()`), and `OAMADDR` still auto-increments. Shares `pd_oam_eval_seed` and the
-    evaluation-phase gate with the write redirect. Off by default → byte-identical shipped builds.
+    evaluation-phase gate with the write redirect.
 
 ## Frame structure / resolutions
 

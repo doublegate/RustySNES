@@ -141,14 +141,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   batch fallback; `compose_dac` survives only as a `#[cfg(test)]` driver for the hi-res DAC tests).
   The emulator composites one dot at a time with live registers, so a CGRAM/OAM access during active
   display hits the color/sprite-eval address the hardware is drawing rather than the CPU-programmed
-  one. The AccuracySNES self-scoring battery is
-  **294/294 both ways** (zero regression) and the shared framebuffer corpus is re-blessed to the
-  per-dot values, each cross-validated against the MesenCE oracle: `inidisp_brightness_delay` and
-  `inidisp_enable_display_mid_frame` move to their MesenCE-agreeing per-dot hashes. One documented gap
-  remains — `undisbeliever/inidisp_forgot_to_force_blank` (a PPU access during active display without
-  forced blank) renders `7fff` where MesenCE renders `7fc6`; it is pinned as a known per-dot gap
-  pending Phase 4d (PPU access-during-render) rather than blessed. `C1.08` is declared region-dependent
-  (its mid-render `$2138` read samples a dot-sensitive address the region's frame timing shifts).
+  one. Making per-dot the shipped renderer is **zero-regression** — the AccuracySNES self-scoring
+  battery stayed at its pre-flip pass count, and the three scored rows added above then took it to
+  **297/297**. The shared framebuffer corpus is re-blessed to the per-dot values, each cross-validated
+  against the MesenCE oracle: `inidisp_brightness_delay` and `inidisp_enable_display_mid_frame` move to
+  their MesenCE-agreeing per-dot hashes. One documented gap remains —
+  `undisbeliever/inidisp_forgot_to_force_blank` (a PPU access during active display without forced
+  blank) renders `7fff` where MesenCE renders `7fc6`; it is pinned as a known per-dot gap. (The flip
+  briefly declared `C1.08` region-dependent; the C1.08 scored row above then reads it at a controlled
+  dot, making it region-independent and removing that declaration.)
 
 ### Fixed
 

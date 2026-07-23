@@ -118,13 +118,14 @@ ran=0
 #   Documented by nocash fullsnes and the SNESdev Wiki (the renderer owns the OAM address during
 #   active display). The read is taken at a controlled dot (an H+V IRQ + SEI/WAI sync), so the
 #   verdict is region-independent — snes9x fails it identically on the NTSC and PAL images.
-# snes9x, +1 test (C3.12 "CGRAM taken in render"): the CGRAM sibling of C1.08. A $2122 write during
+# snes9x, +1 test (cart C3.12 "CGRAM taken in render" = dossier C3.04): the CGRAM sibling of C1.08.
+#   (These are cart IDs — what the on-cart battery reports failing — not dossier IDs.) A $2122 write during
 #   active display commits to the colour the PPU is drawing (its internal CGRAM address), not the CPU
 #   CGADD — with every layer off that colour is the backdrop, index 0. Mesen2 models it (writes use
 #   InternalCgramAddress when !CanAccessCgram); snes9x uses the programmed CGADD regardless of the
 #   rendering state, so the write lands the wrong colour and the test fails. Documented by nocash
 #   fullsnes and the SNESdev Wiki. Read at a controlled dot (H+V IRQ + SEI/WAI), region-independent.
-# snes9x, +1 test (C7.10 "OAM write to high table"): the Uniracers case. An OAM $2104 write during
+# snes9x, +1 test (cart C7.10 "OAM write to high table" = dossier C7.16): the Uniracers case. An OAM $2104 write during
 #   sprite evaluation is driven to the evaluator's address, which is even and in the low table, so it
 #   only latches there and the byte lands in the high table at 0x200 | ((evalAddr & 0x1F0) >> 4).
 #   Mesen2 models it (same remap); snes9x writes the CPU OAMADDR regardless of rendering, so nothing
