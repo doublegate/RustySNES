@@ -727,6 +727,16 @@ pub struct Ppu {
     /// draw-cursor-driven form of the in-render redirect (supersedes the on-demand `h-22` approximation).
     #[cfg(feature = "per-dot-compositor")]
     internal_cgram_address: u8,
+    /// Seed for the per-dot OAM sprite-evaluation index, captured at line start (`oam_priority ?
+    /// (oam_address >> 2) & 0x7f : 0`, MesenCE `_oamEvaluationIndex` at `_spriteEvalStart == 0`).
+    /// At dot `h` the evaluator is reading OAM entry `(seed + (h >> 1)) & 0x7f` (2 cycles per sprite
+    /// over dots 0..=255); a `$2104` write during active display redirects there (MesenCE
+    /// `GetOamAddress`/`_oamRenderAddress`, the Uniracers in-render OAM quirk). Unlike the other
+    /// per-dot fields it is **serialized** (`FORMAT_VERSION` 7, mirroring MesenCE serializing
+    /// `_oamEvaluationIndex`): it diverges from `OAMADDR` after redirected active-display writes and
+    /// so cannot be re-derived on load. `pd_fetch_line` re-seeds it at each line boundary.
+    #[cfg(feature = "per-dot-compositor")]
+    pd_oam_eval_seed: u8,
 }
 
 impl core::fmt::Debug for Ppu {
@@ -800,6 +810,8 @@ impl Ppu {
             pd_fetched_line: u16::MAX,
             #[cfg(feature = "per-dot-compositor")]
             internal_cgram_address: 0,
+            #[cfg(feature = "per-dot-compositor")]
+            pd_oam_eval_seed: 0,
         }
     }
 
@@ -1192,6 +1204,14 @@ impl Ppu {
             for &word in self.framebuffer.iter() {
                 s.write_u16(word);
             }
+            // The OAM sprite-evaluation seed is the one piece of per-dot state that cannot be
+            // re-derived on load (it diverges from OAMADDR after redirected active-display writes),
+            // so it is persisted (FORMAT_VERSION 7). Written unconditionally — 0 without the feature
+            // — so the PPU0 length is identical across feature builds.
+            #[cfg(feature = "per-dot-compositor")]
+            s.write_u8(self.pd_oam_eval_seed);
+            #[cfg(not(feature = "per-dot-compositor"))]
+            s.write_u8(0);
         });
     }
 
@@ -1241,17 +1261,29 @@ impl Ppu {
         for word in self.framebuffer.iter_mut() {
             *word = s.read_u16()? & 0x7FFF;
         }
+        // OAM sprite-evaluation seed (FORMAT_VERSION 7). Read unconditionally to keep the PPU0 length
+        // identical across feature builds; only the per-dot build retains the value.
+        #[cfg(feature = "per-dot-compositor")]
+        {
+            self.pd_oam_eval_seed = s.read_u8()?;
+        }
+        #[cfg(not(feature = "per-dot-compositor"))]
+        {
+            let _ = s.read_u8()?;
+        }
         if s.remaining() != 0 {
             return Err(SaveStateError::Invalid(alloc::format!(
                 "PPU0 section has {} trailing byte(s)",
                 s.remaining()
             )));
         }
-        // The per-dot compositor's line state is transient (not part of the serialized format —
-        // re-derived per line), so it must be INVALIDATED here: a pre-load `pd_fetched_line` that
-        // coincidentally equals the just-loaded `self.v` would otherwise skip the re-fetch in
-        // `pd_render_to_dot` and composite the new line from the previous state's stale cursor/pixels,
-        // breaking determinism. `u16::MAX` forces a fresh `pd_fetch_line` on the next dot.
+        // Most per-dot compositor line state is transient (not serialized — re-derived per line), so
+        // it must be INVALIDATED here: a pre-load `pd_fetched_line` that coincidentally equals the
+        // just-loaded `self.v` would otherwise skip the re-fetch in `pd_render_to_dot` and composite
+        // the new line from the previous state's stale cursor/pixels, breaking determinism. `u16::MAX`
+        // forces a fresh `pd_fetch_line` on the next dot. `pd_oam_eval_seed` is the exception — it was
+        // just deserialized above (it cannot be re-derived after mid-line redirected writes), so it is
+        // NOT reset here; `pd_fetch_line` re-seeds it at the next line boundary as usual.
         #[cfg(feature = "per-dot-compositor")]
         {
             self.pd_fetched_line = u16::MAX;

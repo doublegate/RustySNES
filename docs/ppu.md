@@ -136,7 +136,25 @@ Per `ref-docs/2026-06-24-ppu.md` §6:
     batch-valued (flag-ON "fails" them because it is *more* accurate) until Phase 6's default flip
     re-blesses the corpus. The per-dot state is transient (re-fetched at each line start), so it is not
     save-stated; `Ppu::load_state` invalidates it (forcing a re-fetch) and a mid-line save re-fetches
-    on load. Over-flag dot-timing and mid-line BG-scroll are Phase 4b/4c follow-ups.
+    on load.
+  - **In-render OAM write redirect** (`per-dot-compositor` feature; Phase 4b; dossier C7.16). During
+    a rendering scanline the sprite evaluator owns the OAM address bus, so a `$2104` (OAMDATA) write
+    is aimed at the *evaluation* index, not the CPU's `OAMADDR` (MesenCE `GetOamAddress` /
+    `_oamRenderAddress`, "needed for Uniracers"). The evaluation index is seeded at line start
+    (`pd_oam_eval_seed` = the priority-rotation base, or 0) and advances two dots per sprite (sprite
+    `i` occupies dots `2i`/`2i+1`), so at dot `h` it is `(seed + (h >> 1)) & 0x7f`; the redirect
+    target is `eval_index << 2`. That
+    address is always even and in the low table, so the low-table write only latches the even-byte
+    buffer — the value actually lands in the **high** table at the remapped address
+    `0x200 | ((eval_index<<2 & 0x1F0) >> 4)` (the Uniracers in-render OAM corruption). `OAMADDR` still
+    auto-increments. The gate is `!displayDisable && 0 < v ≤ vdisp` and the evaluation phase (dots
+    `0..=255`); the fetch-phase index (`_oamTimeIndex`, dots 256+) awaits the incremental range
+    evaluator. **Off by default** (batch never redirects) → byte-identical shipped builds. Unlike the
+    other per-dot fields, `pd_oam_eval_seed` is **save-stated** (FORMAT_VERSION 7, mirroring MesenCE
+    serializing `_oamEvaluationIndex`): it diverges from `OAMADDR` after redirected active-display
+    writes and so cannot be re-derived on load; the byte is written unconditionally (0 without the
+    feature) so the format stays identical across builds. Over-flag dot-timing, mid-line BG-scroll,
+    and the fetch-phase OAM index are Phase 4b/4c follow-ups.
 
 ## Frame structure / resolutions
 

@@ -49,7 +49,15 @@ use crate::sa1_bus::Sa1Bus;
 /// flags (`rdnmi_hold`/`irq_hold`), so a save taken during the four-master-clock window after a
 /// `VBlank`/IRQ edge (when a `$4210`/`$4211` read returns the flag without clearing it) restores
 /// identical machine state. Same old-blob-fails-loudly guarantee.
-const FORMAT_VERSION: u16 = 6;
+///
+/// `7` (T-CA-10 Phase 4b): `rustysnes_ppu`'s `PPU0` section grew by one byte — the OAM
+/// sprite-evaluation seed (`pd_oam_eval_seed`), from which the in-render `$2104` redirect derives
+/// the evaluator's OAM index. It is captured at line start and diverges from `OAMADDR` after
+/// redirected active-display writes (with priority rotation), so it cannot be re-derived on load and
+/// must persist for a mid-line save to restore identical machine state (mirrors MesenCE serializing
+/// `_oamEvaluationIndex`). Written unconditionally (0 when the `per-dot-compositor` feature is off),
+/// so the format stays identical across feature builds. Same old-blob-fails-loudly guarantee.
+const FORMAT_VERSION: u16 = 7;
 /// The save-state envelope's leading magic bytes — identifies the blob as a RustySNES save-state
 /// before anything else is trusted.
 const MAGIC: &[u8; 4] = b"RSNS";

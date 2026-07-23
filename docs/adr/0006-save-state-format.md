@@ -105,6 +105,16 @@ and diffing the deterministic output against a fork that kept running uninterrup
   returns bit 7 set without clearing it. The hold is CPU-observable machine state (a save taken
   inside the window must restore the same read-clear behavior), so it is serialized for the same
   reason the flags themselves are. Same older-blob-fails-loudly guarantee.
+- **`6` → `7` (T-CA-10 Phase 4b):** `rustysnes_ppu`'s `PPU0` section grew by one byte — the OAM
+  sprite-evaluation seed (`pd_oam_eval_seed`). During a rendering scanline the sprite evaluator owns
+  the OAM address bus, so a `$2104` write is redirected to the evaluator's index (the Uniracers
+  in-render OAM quirk); that index is seeded at line start and, with OAM priority rotation, diverges
+  from `OAMADDR` after the redirected writes advance it. It therefore cannot be re-derived on load
+  (unlike the other per-dot compositor state, which is transient and re-fetched per line) and must
+  persist for a mid-line save to restore identical machine state — the same reason MesenCE serializes
+  `_oamEvaluationIndex`. The byte is written **unconditionally** (0 when the `per-dot-compositor`
+  feature is off) so the `PPU0` layout is identical across feature builds. Same older-blob-fails-loudly
+  guarantee.
 - **The round-trip determinism test is the spec**: save → run N frames on a cloned/forked
   system → load the save into the original → run the same N frames → assert byte-identical
   framebuffer + audio output between the two. This extends `docs/adr/0004`'s existing

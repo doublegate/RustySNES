@@ -326,6 +326,14 @@ impl Ppu {
             below_opaque: false,
         };
         self.pd_draw_x = 0;
+        // Seed the OAM sprite-evaluation index for this line (MesenCE `_oamEvaluationIndex` at
+        // `_spriteEvalStart == 0`): the priority-rotation base, or 0. The in-render `$2104` redirect
+        // reads `seed + (min(h,255)+1)/2` from here.
+        self.pd_oam_eval_seed = if self.io.oam_priority_rotation {
+            ((self.io.oam_address >> 2) & 0x7f) as u8
+        } else {
+            0
+        };
         self.pd_fetched_line = self.v;
     }
 
@@ -904,9 +912,17 @@ impl Ppu {
 
     /// Render sprites for the current scanline: range/time evaluation + pixel fetch.
     fn render_objects(&mut self, pr: &ModePriorities, above: &mut [Pixel], below: &mut [Pixel]) {
-        let main = self.io.main_enable[4];
-        let sub = self.io.sub_enable[4];
+        let (in_range, count, budget_ok) = self.eval_objects_range();
+        self.paint_objects(pr, above, below, &in_range, count, &budget_ok);
+    }
 
+    /// Sprite range + tile-budget evaluation for the current scanline (the `render_objects`
+    /// first phase). Collects up to 32 in-range sprites into `in_range`, sets the `$213E`
+    /// range/time over-flags, and computes which survive the 34-tile fetch budget. Returns
+    /// `(in_range, count, budget_ok)` for [`Ppu::paint_objects`] to draw. Split out from the
+    /// paint so phase 4b can drive it one dot at a time (the per-dot compositor, `docs/adr/0014`);
+    /// today it still runs whole-line, byte-identically.
+    fn eval_objects_range(&mut self) -> ([u8; 32], usize, [bool; 32]) {
         let scan_y = u32::from(self.v - 1);
 
         // Range evaluation: collect up to 32 sprites that intersect this scanline. Lower index
@@ -956,12 +972,10 @@ impl Ppu {
             self.io.time_over = true;
         }
 
-        // Paint sprites: reverse-order so lower index ends up on top (last writer wins among
-        // equal priority because we paint high index first). We honor the 34-tile limit by
-        // dropping the lowest-index sprites first (reverse fetch).
+        // Sprites paint in reverse index order so lower index ends up on top (last writer wins
+        // among equal priority). We honor the 34-tile limit by dropping the lowest-index sprites
+        // first (the HW fetches in reverse, so the lowest-index tiles are the first to be starved).
         let count = range_count.min(32);
-        // Determine which sprites survive the 34-tile budget (drop lowest index first — the HW
-        // fetches in reverse, so the lowest-index tiles are the first to be starved).
         let mut budget_ok = [true; 32];
         let mut acc = 0usize;
         for k in (0..count).rev() {
@@ -974,6 +988,26 @@ impl Ppu {
                 acc += cost;
             }
         }
+
+        (in_range, count, budget_ok)
+    }
+
+    /// Paint the evaluated, budget-surviving sprites into the `above`/`below` line buffers (the
+    /// `render_objects` second phase). Consumes the `(in_range, count, budget_ok)` produced by
+    /// [`Ppu::eval_objects_range`]. Kept a distinct phase so the per-dot compositor can fetch and
+    /// paint sprite columns independently of range evaluation (`docs/adr/0014`, phase 4b).
+    fn paint_objects(
+        &self,
+        pr: &ModePriorities,
+        above: &mut [Pixel],
+        below: &mut [Pixel],
+        in_range: &[u8; 32],
+        count: usize,
+        budget_ok: &[bool; 32],
+    ) {
+        let main = self.io.main_enable[4];
+        let sub = self.io.sub_enable[4];
+        let scan_y = u32::from(self.v - 1);
 
         // Paint from highest index to lowest (so lowest index wins ties).
         for k in (0..count).rev() {
@@ -2043,5 +2077,117 @@ mod tests {
             "under force-blank the write must commit to the programmed index"
         );
         assert_eq!(p.cgram[7], 0x0000);
+    }
+
+    // --- OAM in-render write redirect (C7.16, MesenCE GetOamAddress / the Uniracers quirk). During
+    // sprite evaluation a $2104 write is aimed at the evaluator's OAM index, not the CPU's OAMADDR.
+    // `render_addr = eval_index << 2` is always even and in the low table, so the low-table write
+    // only latches; the value lands in the high table at the remapped address `(render&0x1f0)>>4`.
+
+    #[cfg(feature = "per-dot-compositor")]
+    #[test]
+    fn oam_write_during_evaluation_redirects_to_high_table() {
+        let mut p = Ppu::new();
+        p.write_reg(0x2100, 0x0f); // display ENABLED
+        p.write_reg(0x2102, 0x00); // OAMADDR = 0
+        // Line 50, dot 100, priority-rotation off ⇒ eval_seed 0. eval_index = 0 + (100+1)/2 = 50,
+        // render_addr = 200 (0xC8); high-table remap = (0xC8 & 0x1F0) >> 4 = 12 ⇒ oam[0x200 + 12].
+        p.v = 50;
+        p.h = 100;
+        p.pd_oam_eval_seed = 0;
+        p.write_reg(0x2104, 0xab);
+        assert_eq!(
+            p.oam[0x200 + 12],
+            0xab,
+            "the in-render write must corrupt the high table at the remapped evaluation address"
+        );
+        assert_eq!(
+            p.oam[200], 0x00,
+            "the low-table entry at the (even) render address must only latch, never commit"
+        );
+        assert_eq!(
+            p.io.oam_byte_latch, 0xab,
+            "the even-byte buffer latches the value"
+        );
+        assert_eq!(
+            p.io.oam_address, 1,
+            "OAMADDR advances even when the write was redirected"
+        );
+    }
+
+    #[cfg(feature = "per-dot-compositor")]
+    #[test]
+    fn oam_write_in_fetch_phase_is_not_redirected() {
+        let mut p = Ppu::new();
+        p.write_reg(0x2100, 0x0f); // display enabled
+        p.write_reg(0x2102, 0x00); // OAMADDR = 0
+        p.v = 50;
+        p.h = 300; // dot > 255 → fetch phase, not modelled ⇒ no redirect
+        p.pd_oam_eval_seed = 0;
+        p.write_reg(0x2104, 0x11); // even → latch
+        p.write_reg(0x2104, 0x22); // odd → commit word to oam[0]/oam[1]
+        assert_eq!(
+            (p.oam[0], p.oam[1]),
+            (0x11, 0x22),
+            "a fetch-phase write uses the CPU OAMADDR (low table), not the redirect"
+        );
+        assert_eq!(p.oam[0x200 + 12], 0x00, "the high table must be untouched");
+    }
+
+    #[cfg(feature = "per-dot-compositor")]
+    #[test]
+    fn oam_write_under_force_blank_is_not_redirected() {
+        let mut p = Ppu::new();
+        p.write_reg(0x2100, 0x80); // FORCE BLANK — OAM freely accessible, no redirect
+        p.write_reg(0x2102, 0x00); // OAMADDR = 0
+        p.v = 50;
+        p.h = 100; // in the eval dot range, but force-blank gates the redirect off
+        p.pd_oam_eval_seed = 0;
+        p.write_reg(0x2104, 0x11);
+        p.write_reg(0x2104, 0x22);
+        assert_eq!(
+            (p.oam[0], p.oam[1]),
+            (0x11, 0x22),
+            "under force-blank the write commits to the CPU OAMADDR"
+        );
+        assert_eq!(
+            p.oam[0x200 + 12],
+            0x00,
+            "the high table must be untouched under force-blank"
+        );
+    }
+
+    #[cfg(feature = "per-dot-compositor")]
+    #[test]
+    fn oam_eval_seed_uses_priority_rotation_base_at_line_start() {
+        use crate::bus::NullVideoBus;
+        let mut p = Ppu::new();
+        let mut bus = NullVideoBus;
+        p.write_reg(0x2100, 0x0f); // display enabled
+        p.write_reg(0x2103, 0x80); // OAM priority rotation ON
+        p.write_reg(0x2102, 0x20); // OAMADDL → OAMADDR = 0x40
+        p.v = 50; // a visible line
+        p.pd_fetch_line(&mut bus);
+        assert_eq!(
+            p.pd_oam_eval_seed,
+            ((0x40u16 >> 2) & 0x7f) as u8, // 0x10
+            "with priority rotation the evaluation index seeds from (OAMADDR >> 2) at line start"
+        );
+        // At dot 100 the redirect then reads seed + (100>>1) = 0x10 + 50 = 66 → render_addr 0x108.
+        p.h = 100;
+        p.write_reg(0x2104, 0xcd);
+        assert_eq!(
+            p.oam[0x200 + 16],
+            0xcd,
+            "the priority-rotation seed shifts the redirect's high-table target ((0x108&0x1F0)>>4=16)"
+        );
+
+        // With rotation OFF the seed is 0 regardless of OAMADDR.
+        p.write_reg(0x2103, 0x00);
+        p.pd_fetch_line(&mut bus);
+        assert_eq!(
+            p.pd_oam_eval_seed, 0,
+            "without priority rotation the evaluation index seeds from 0"
+        );
     }
 }
