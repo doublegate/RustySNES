@@ -167,7 +167,66 @@ pub fn asm(tests: &[Test]) -> String {
         let _ = writeln!(s, "    .byte {}", name.len());
         let _ = writeln!(s, "    .byte \"{name}\"");
     }
+    emit_pages(&mut s, tests);
     s
+}
+
+/// The AccuracyCoin-style menu pages (see `pages.rs`): the group titles and, per page, the battery
+/// indices of its tests. Emitted into `CATALOG` alongside the per-test tables the runtime walks.
+///
+/// - `_page_count`   : word, number of pages.
+/// - `_page_names`   : `_page_count` addresses, then each a length-prefixed ASCII title.
+/// - `_page_len`     : one byte per page, the number of tests on it (1..=`MAX_PER_PAGE`).
+/// - `_page_off`     : one word per page, the offset (in test-entries) of its first test into
+///   `_page_tests` — so a page's tests are `_page_tests[_page_off[p] .. _page_off[p] + _page_len[p]]`.
+/// - `_page_tests`   : one word per (page, test), the test's battery index. The menu, the per-test
+///   result byte and the skyline all key off that battery index.
+fn emit_pages(s: &mut String, tests: &[crate::dsl::Test]) {
+    let pages = crate::pages::pages(tests);
+    let _ = writeln!(s);
+    let _ = writeln!(s, "; --- menu pages (AccuracyCoin-style grouping, see pages.rs) ---");
+    let _ = writeln!(s, ".export _page_count");
+    let _ = writeln!(s, ".export _page_names");
+    let _ = writeln!(s, ".export _page_len");
+    let _ = writeln!(s, ".export _page_off");
+    let _ = writeln!(s, ".export _page_tests");
+    let _ = writeln!(s);
+    let _ = writeln!(s, "_page_count:");
+    let _ = writeln!(s, "    .word {}", pages.len());
+    let _ = writeln!(s);
+    let _ = writeln!(s, "_page_names:");
+    for (p, _) in pages.iter().enumerate() {
+        let _ = writeln!(s, "    .addr @pn_{p}");
+    }
+    for (p, page) in pages.iter().enumerate() {
+        assert!(
+            page.name.is_ascii(),
+            "page title '{}' must be ASCII (the font covers $20-$7A)",
+            page.name
+        );
+        let _ = writeln!(s, "@pn_{p}:");
+        let _ = writeln!(s, "    .byte {}", page.name.len());
+        let _ = writeln!(s, "    .byte \"{}\"", page.name);
+    }
+    let _ = writeln!(s);
+    let _ = writeln!(s, "_page_len:");
+    for page in &pages {
+        let _ = writeln!(s, "    .byte {}", page.tests.len());
+    }
+    let _ = writeln!(s);
+    let _ = writeln!(s, "_page_off:");
+    let mut off = 0usize;
+    for page in &pages {
+        let _ = writeln!(s, "    .word {off}");
+        off += page.tests.len();
+    }
+    let _ = writeln!(s);
+    let _ = writeln!(s, "_page_tests:");
+    for page in &pages {
+        for &idx in &page.tests {
+            let _ = writeln!(s, "    .word {idx}");
+        }
+    }
 }
 
 /// Lay the SPC700 program images out across the `APUDATA` segments, filling each before the next.
