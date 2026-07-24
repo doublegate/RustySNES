@@ -1094,8 +1094,8 @@ The `$2180` asymmetry is Mesen2's `SnesDmaController.cpp:53,62`.
 
 | # | Assertion |
 |---|---|
-| D2.01 | Init at V=0, H≈6 |
-| D2.02 | **Per-line transfer at dot 278**, ~18 cycles overhead + 8-24 per channel |
+| D2.01 | Init at V=0, dot≈3 (12 master cycles) [corrected 2026-07-23 from "H≈6"; consensus of Mesen2/bsnes/ares] |
+| D2.02 | **Per-line transfer at dot 276** (1104 master cycles), ~18 cycles overhead + 8-24 per channel [corrected 2026-07-23 from "dot 278"; consensus of Mesen2/bsnes/ares, and matches the cart's dot-276 compositor] |
 | D2.03 | Line-count byte: bit7 repeat, bits 6-0 count, `$00` terminates |
 | D2.04 | Repeat transfers every line; non-repeat once then counts down |
 | D2.05 | Indirect mode via `$4306/07` |

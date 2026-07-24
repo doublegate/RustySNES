@@ -9,9 +9,9 @@ audit (each bucket cross-referenced against the dossier, all five reference emul
 and primary web sources) **overturned that conclusion for four of the five buckets examined.**
 
 The honest revised picture: **443/443 is still not reachable — but the genuinely-impossible core is
-~9 rows, not ~100.** Adding the rows that are expressible-but-unblessable (reference disagreement) or
-oracle-thin brings the effective wall to ≈ **22–24 rows**, for a practical ceiling of roughly
-**≈415–420/443** — not 341, and not 443. The prior claim conflated three distinct states — "provably
+~9 rows, not ~100.** Adding the ~12 rows that are expressible-but-unblessable (reference disagreement)
+or oracle-thin brings the effective wall to ≈ **21 rows** (9 impossible + ~12 soft-ceiling), for a
+practical ceiling of roughly **≈422/443** — not 341, and not 443. The prior claim conflated three distinct states — "provably
 impossible", "reachable only as a golden / needs an oracle we lack", and "not yet implemented" — and
 labelled all three "uncoverable". Only the first is a true wall; the second is a soft ceiling; the third
 is just a backlog.
@@ -24,7 +24,7 @@ the dossier. Factual dossier/plan corrections it surfaced are listed in the last
 | Class | Count (of the ~46 audited "hard" rows) | Meaning |
 |---|---:|---|
 | **Genuinely uncoverable** | ~9 | No path exists; proof given per row |
-| **Golden-only / oracle-thin / very-hard** | ~13 | Expressible but references *disagree* (true-hires mainscreen), or no agreeing oracle (mouse micro-timing, Super Scope), or needs major new machinery (interlace) |
+| **Golden-only / oracle-thin / very-hard** | ~12 | Expressible but references *disagree* (true-hires mainscreen, ~6), or no agreeing oracle (mouse micro-timing, Super Scope, ~3), needs major new machinery (interlace, ~2), or on-cart-unreachable (G1.18, ~1) |
 | **Coverable with bounded work** | ~24 | RustySNES + references already agree, or a self-scoring / loader-tier / second-image path exists |
 
 The other ~56 uncovered rows (A5/A6 opcode tail, B2/B4 timing, most of Group E APU, D1.12, …) were
@@ -138,24 +138,24 @@ walked back.
 - **D3.01, D3.02** (2) — chip-revision crash bugs no reference models.
 
 ≈ **9 rows**. Add the soft-ceiling tier — true-hires *mainscreen* rows that references disagree on
-(C5.06/C5.07 + the mainscreen halves of C9.01/02/07/08, ~5–6), interlace (C9.06 + C9.03-V, 2),
-oracle-thin (F1.19/20/21, 3), G1.18 on-cart (1) — and the effective wall is ≈ **22–24 rows**.
+(C5.06/C5.07 + the mainscreen halves of C9.01/02/07/08, ~6), interlace (C9.06 + C9.03-V, 2),
+oracle-thin (F1.19/20/21, 3), G1.18 on-cart (1) — ≈ 12 rows, so the effective wall is ≈ **21 rows**.
 **Everything else among the audited rows — and the entire un-audited Bucket-1/2 backlog — is
-reachable.** Practical ceiling ≈ 415–420/443.
+reachable.** Practical ceiling ≈ 422/443.
 
-## Factual corrections this audit surfaced (to land separately)
+## Factual corrections this audit surfaced (applied in this PR)
 
 1. `docs/accuracysnes-plan.md` C11.08 subsection: it is **coverable-with-work** (structural, spec-grounded),
-   not uncoverable. The blocked-on-capture standing applies only to the exact-value variant.
-2. `docs/accuracysnes-plan.md` C13 subsection: drop the obsolete "whole-line compositor" blocker; the
-   durable reason is "no reference models the early-read glitch + irreducible revision-dependence."
+   not uncoverable. The blocked-on-capture standing applies only to the exact-value variant. *(Applied.)*
+2. `docs/accuracysnes-plan.md` C13 subsection: dropped the obsolete "whole-line compositor" blocker; the
+   durable reason is "no reference models the early-read glitch + irreducible revision-dependence." *(Applied.)*
 3. `docs/accuracysnes-research-dossier.md` D2.02: HDMA per-line dot is **276 (1104 master cycles)**, not 278
-   (consensus of Mesen2/bsnes/ares — and it matches the cart's own dot-276 compositor).
-4. `docs/accuracysnes-research-dossier.md` D2.01: HDMA init is **dot≈3 / 12 master cycles**, not "H≈6".
-5. `docs/ppu.md:277-278`: "the per-line compositor is the simplification point" is **superseded** by
-   ADR 0014 (per-dot is the sole renderer).
-6. `docs/accuracysnes-plan.md:1632`: "41 scenes blessed" → **53** (the regenerated coverage report is
-   authoritative).
+   (consensus of Mesen2/bsnes/ares — and it matches the cart's own dot-276 compositor). *(Applied.)*
+4. `docs/accuracysnes-research-dossier.md` D2.01: HDMA init is **dot≈3 / 12 master cycles**, not "H≈6". *(Applied.)*
+5. `docs/ppu.md`: "the per-line compositor is the simplification point" is **superseded** by
+   ADR 0014 (per-dot is the sole renderer). *(Applied.)*
+6. `docs/accuracysnes-plan.md`: "41 scenes blessed" → **53** (the regenerated coverage report is
+   authoritative). *(Applied.)*
 
 ## Recommended next-action priority (highest value / lowest risk first)
 

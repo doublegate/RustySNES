@@ -79,8 +79,9 @@ pattern the C7 sprite tests established.
 - **T-04-C · rest of register-observable Group C (~20)** — `C1.07`/`C1.08` (the `$2100` 1→0 reload
   trigger, address destroyed during render), the 9- and 10-bit `VMAIN` remap rotations,
   CGRAM-during-render, counter-flipflop independence, `C7.04`–`C7.09` sprite flag set positions,
-  `C9.05` overscan vblank deferral, and `C11.07` MPY latch corruption. (`C11.08`, MPY-during-render,
-  turned out **not** reachable-now — blocked on hardware capture; see its own subsection below.)
+  `C9.05` overscan vblank deferral, and `C11.07` MPY latch corruption. (`C11.08`, MPY-during-render:
+  its *exact-value* route is blocked on hardware capture, but its *structural* self-scoring route is
+  coverable-with-work — see its own subsection below.)
   Note on `C7.05`/`C7.06`: the *line* the over-flags set on is now correct (the per-dot compositor is
   the default renderer and matches MesenCE at line 100 — the batch was the one-line-late path and is
   gone), but `C7.05` asserts the exact *dot* too (`H = OAM.INDEX*2`), which RustySNES does not yet
