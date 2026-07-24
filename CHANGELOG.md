@@ -155,7 +155,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   highlighted test, **B** toggles a user-skip mark on it, **Start** shows the results, **Select**
   restarts from the power-on capture. A B-marked test shows `SKIP` immediately and is honoured
   (recorded `SKIP` without running) on the next restart; the skip bitmap is zeroed on cold boot, so
-  the harness's scored run is provably unaffected. The selected row (or the page header) draws in an
+  the harness's scored run is provably unaffected. **The flow matches AccuracyCoin: on ROM load the
+  menu is shown first with every test not-run (`TEST`), and the cart waits for Start** — a
+  contract-holding accuracy host (which holds Start) auto-starts on the first frame, while a human
+  browses the pages and starts when ready. When the battery concludes the cart **lands on the skyline
+  results view automatically**, with Start toggling between the skyline and the (now scored) menu
+  thereafter. The selected row (or the page header) draws in an
   **inverse-video** font copy (a
   complemented glyph set at tile `$100`, uploaded beside the upright font) — the highlight bar
   AccuracyCoin gets from its `tile+$80` inverse tiles, done on a single background layer where palette

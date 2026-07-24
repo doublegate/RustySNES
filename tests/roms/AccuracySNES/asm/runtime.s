@@ -145,7 +145,43 @@ restart_entry:
     jsr load_font
     jsr clear_tilemap
 
-    jsr run_all_tests           ; runs with the screen still blanked
+    ; --- Initial menu, BEFORE the battery runs: show every test as not-run ("TEST") across all the
+    ; pages, then wait for Start to begin -- AccuracyCoin's "here are the tests, press Start to run".
+    ; The results array is zeroed first so nothing reads back as a stale PASS/FAIL from power-on
+    ; garbage, and V_MENU_MODE is cleared so the battery's verdict path tallies (rather than diverting
+    ; to the menu as a single-test A re-run would). WRAM powers up garbage (`G1.07` measures that), so
+    ; the menu state is initialised here too -- a garbage V_PAGE / V_CURSOR would index the page
+    ; tables out of range and draw a nonsense list.
+    jsr reset_results
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:V_PAGE
+    sta f:V_VIEW                ; the paged test menu
+    lda #$FFFF
+    sta f:V_CURSOR             ; land on the page header
+    sep #$20
+    .a8
+    lda #$00
+    sta f:V_DIRTY               ; STZ has no long addressing mode
+    sta f:V_MENU_MODE
+    rep #$30
+    .a16
+    .i16
+    jsr draw_screen
+    jsr setup_bg_unblank
+    jsr wait_for_start          ; a contract-holding host returns at once; a human browses + presses Start
+
+    ; --- Run the battery under forced blank, then the rendered scenes. ---
+    sep #$20
+    .a8
+    lda #$8F
+    sta INIDISP
+    rep #$30
+    .a16
+    .i16
+    jsr run_all_tests
 
     ; Rendered scenes (ADR 0013) are a LoROM-image feature: they need the scene table from scenes.s,
     ; which the minimal HiROM image does not link. HiROM self-scores its battery and stops.
@@ -153,11 +189,10 @@ restart_entry:
     jsr run_scenes              ; rendered scenes for the host framebuffer oracle (ADR 0013)
     .endif
 
-    ; Re-establish the menu's font and palette. The battery and the rendered scenes leave VRAM and
-    ; CGRAM in whatever state their last write wanted -- a scene overwrites the font's $0800 inverse
-    ; copy with its offset-per-tile map, and CGRAM holds the last scene's palette -- so reload both.
-    ; draw_screen's blank_rows clears the visible tilemap, so a full clear_vram (32K words, ~6 frames
-    ; of black) is not needed here; the screen is still force-blanked, so these writes land.
+    ; --- Skyline results, at the END: the AccuracyCoin "city" is what you land on once the battery
+    ; concludes. Re-establish the font and palette (the battery and scenes leave both in a test-defined
+    ; state; a scene overwrites the $0800 inverse-font copy with its offset-per-tile map). From here
+    ; Start toggles to the menu (now showing the verdicts) and back.
     sep #$20
     .a8
     lda #$8F
@@ -167,39 +202,38 @@ restart_entry:
     .i16
     jsr load_font
     jsr load_palette
-
-    ; The paged menu's own state, which nothing else initialises. WRAM powers up holding garbage
-    ; (`G1.07` records that as undefined and measures it) and these are read before being written:
-    ; a garbage V_PAGE or V_CURSOR would index _page_off / _page_tests out of range and draw a
-    ; nonsense list, exactly as a garbage V_SCROLL used to bail the whole list out before row 0.
     rep #$30
     .a16
     .i16
     lda #$0000
     sta f:V_PAGE
-    sta f:V_VIEW                ; start on the paged test menu (skyline is Phase 5)
     lda #$FFFF
-    sta f:V_CURSOR             ; land on the PAGE header line of page 0, like AccuracyCoin's start
+    sta f:V_CURSOR
     sep #$20
     .a8
+    lda #$01
+    sta f:V_VIEW               ; skyline
     lda #$00
-    sta f:V_DIRTY               ; STZ has no long addressing mode
+    sta f:V_SKY_SCREEN
+    sta f:V_DIRTY
     rep #$30
     .a16
     .i16
-
-    ; Prime the controller edge-detector so a host holding the input contract (B + Start + X + R the
-    ; whole run) does not register a spurious Start / A press on the menu's first frame: after this,
-    ; V_PAD_LAST == V_PAD_HELD, so V_PAD_NEW is zero until the user actually presses something.
+    ; Prime the edge-detector so a host holding the input contract does not act on the first frame.
     jsr read_pad
     rep #$30
     .a16
     .i16
     lda f:V_PAD_HELD
     sta f:V_PAD_LAST
+    jsr draw_current
+    jsr setup_bg_unblank
+    jmp main_loop
+.endproc
 
-    jsr draw_screen
-
+; Establish the menu/skyline background (mode 0, BG1 at MAP_BASE) and release forced blank. Shared by
+; the initial menu, the wait-for-Start preview, and the battery-done skyline.
+.proc setup_bg_unblank
     sep #$20
     .a8
     stz BGMODE                  ; mode 0, 8x8 tiles
@@ -214,8 +248,90 @@ restart_entry:
     sta TM                      ; BG1 on the main screen
     lda #$0F
     sta INIDISP                 ; release forced blank
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
 
-    jmp main_loop
+; Zero the per-test results array (so the pre-battery menu shows every test not-run) and publish the
+; test count. WRAM powers up garbage, so without this the initial menu would show stale verdicts.
+.proc reset_results
+    rep #$30
+    .a16
+    .i16
+    lda f:_test_count
+    sta f:R_COUNT
+    ; ceil(count / 2) word-writes cover the byte array. A down-counter in Y avoids a `cpx` against the
+    ; bank-$7E `_test_count` (CPX has no long-addressing mode; only CMP does).
+    lda f:_test_count
+    lsr
+    inc a
+    tay                         ; Y = number of 16-bit stores
+    ldx #$0000                  ; X = byte offset into R_STATUS
+    lda #$0000                  ; the zero written each iteration (unchanged by STA)
+@z:
+    sta f:R_STATUS,x            ; two bytes at a time (one extra past an odd count is harmless)
+    inx
+    inx
+    dey
+    bne @z
+    rts
+.endproc
+
+; The pre-battery menu loop: show the test list and wait for Start to begin the battery, with
+; Left/Right browsing the pages meanwhile. The pad edge state is zeroed first so a host holding the
+; input contract (Start is one of its buttons) registers a Start edge on the very first frame and the
+; battery starts at once, while a human sees the menu and starts when ready.
+.proc wait_for_start
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:V_PAD_HELD
+    sta f:V_PAD_LAST
+@loop:
+    jsr wait_vblank
+    jsr read_pad
+    rep #$30
+    .a16
+    .i16
+    lda f:V_PAD_NEW
+    bit #PAD_START
+    bne @go
+    lda f:V_PAD_NEW
+    bit #PAD_LEFT
+    beq :+
+    jsr page_prev
+:
+    lda f:V_PAD_NEW
+    bit #PAD_RIGHT
+    beq :+
+    jsr page_next
+:
+    lda f:V_DIRTY
+    and #$00FF
+    beq @loop
+    sep #$20
+    .a8
+    lda #$00
+    sta f:V_DIRTY
+    lda #$80
+    sta INIDISP
+    rep #$30
+    .a16
+    .i16
+    jsr draw_screen
+    sep #$20
+    .a8
+    lda #$0F
+    sta INIDISP
+    rep #$30
+    .a16
+    .i16
+    bra @loop
+@go:
+    rts
 .endproc
 
 ; ---------------------------------------------------------------------------------------------
