@@ -132,7 +132,14 @@ ran=0
 #   reaches the high table and the scan finds no write. Documented by nocash fullsnes and the SNESdev
 #   Wiki. Read at a controlled eval-phase dot (H+V IRQ + SEI/WAI); the high table is scanned rather
 #   than pinned to one byte, so the verdict is independent of the exact eval index and the region.
-SNES9X_KNOWN_FAILURES=10
+# snes9x, +1 test (F1.10 "Auto-read start race"): the automatic joypad read begins a few dozen cycles
+#   into the first vblank line, not at the vblank edge, so a $4212 bit-0 poll at NMI entry sees the read
+#   not-yet-started (bit 0 = 0) even though it is armed. snes9x performs the read as an instant latch
+#   with a 3-scanline busy flag anchored at vblank start, so $4212 already reads busy at entry and it
+#   fails the test's phase A. Mesen2 delays the start (busy=0 at entry) and passes, and RustySNES does
+#   too since the auto-read-start-timing fix. Documented by nocash fullsnes (the read starts ~dot
+#   32.5-95.5 of the first vblank line). Region-independent — snes9x fails it identically NTSC and PAL.
+SNES9X_KNOWN_FAILURES=11
 
 # --- snes9x, via the libretro host --------------------------------------------------------------
 if [[ -f $SNES9X ]]; then

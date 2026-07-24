@@ -44,6 +44,7 @@ pub fn all() -> Vec<Test> {
         f1_07(),
         f1_05(),
         f1_06(),
+        f1_10(),
         f1_11(),
         f1_12(),
         f1_14(),
@@ -437,6 +438,110 @@ fn f1_11() -> Test {
             "fullsnes and the SNESdev Wiki: while $4016 bit 0 is high the shift registers reload \
              continuously rather than shifting, so an automatic read taken across it returns the \
              same bit in every position",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// The automatic read does not begin at the vblank edge, so a `$4212` bit-0 poll at NMI entry sees it
+/// **not yet started** — the race that lets a naive wait-loop read stale `$4218` data.
+///
+/// Hardware starts the automatic joypad read ~dot 32.5-95.5 into the first vblank line (fullsnes),
+/// not at the vblank edge. So for the few dozen cycles between the edge and the start, `$4212` bit 0
+/// reads **not-busy** even though auto-read is armed; a driver that samples `$4212` immediately in its
+/// NMI handler and waits for busy=0 as "read done" can read the *previous* frame's result before the
+/// current read has even begun.
+///
+/// # Making it non-vacuous
+///
+/// "not busy at entry" is also true of a *disarmed* auto-read that never runs — so the test would pass
+/// on a core that simply never sets busy. Both halves are therefore load-bearing: phase B asserts the
+/// armed read **does** set busy shortly after (so there is a real read to race), and phase A asserts it
+/// was **not** already busy at vblank entry. A core that begins the read at the vblank edge fails
+/// phase A; one that never starts it fails phase B.
+///
+/// snes9x performs the read as an instant latch and does not model this window, so it fails phase A —
+/// a real snes9x inaccuracy, recorded in `crossval.sh`. RustySNES and Mesen2 both delay the start.
+fn f1_10() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    f1_require_contract(&mut a, "c10");
+    a.c("Arm auto-read; the read is scheduled at the vblank edge but only begins ~dot 64 into the line.");
+    a.l("sep #$20");
+    a.l("lda #$01");
+    a.l("sta $4200");
+    a.c("Land at the very start of a fresh vblank line (H is small), BEFORE the read begins. Two waits");
+    a.c("so a read is certainly armed for this vblank, and the second lands us early on the first");
+    a.c("vblank line (V = 225 NTSC / 240 PAL -- wait_vblank_far keys on the region's own vblank start).");
+    a.l("jsl wait_vblank_far");
+    a.l("jsl wait_vblank_far");
+    a.c(
+        "--- A: read $4212 immediately. Armed but not yet started => bit 0 reads 0 (the race). ---",
+    );
+    a.l("lda $4212");
+    a.l("and #$01");
+    a.l("sta f:$7E01E0");
+    a.c("--- B: spin until the read starts (busy sets), bounded so a read that never starts reports. ---");
+    a.l("rep #$30");
+    a.l("ldx #$0000");
+    a.l("sep #$20");
+    a.label("f10busy");
+    a.l("lda $4212");
+    a.l("and #$01");
+    a.l("bne @f10started");
+    a.l("rep #$20");
+    a.l("inx");
+    a.l("cpx #$0800         ; ~2048 samples span several scanlines");
+    a.l("sep #$20");
+    a.l("bne @f10busy");
+    a.l("lda #$02           ; sentinel: the armed read never set busy");
+    a.l("bra @f10store");
+    a.label("f10started");
+    a.l("lda #$01");
+    a.label("f10store");
+    a.l("sta f:$7E01E2");
+    a.c("Disarm before judging: the battery hand-polls $4016 with $4200 = 0, and a failure exits");
+    a.c("through test_restore, which touches neither $4200 nor $4016.");
+    a.l("stz $4200");
+    a.l("rep #$30");
+    a.l("lda f:$7E01E0");
+    a.record(
+        247,
+        "F1.10 $4212 bit 0 at vblank entry (0 = read not yet started -- the race)",
+    );
+    a.l("lda f:$7E01E2");
+    a.record(
+        248,
+        "F1.10 $4212 bit 0 became busy later (1 = read started; 2 = never)",
+    );
+    a.c("Phase B first: without a read that actually starts, 'not busy at entry' proves nothing.");
+    a.l("sep #$20");
+    a.l("lda f:$7E01E2");
+    a.l("cmp #$01");
+    a.fail_if_ne(
+        "the armed automatic read never set $4212 busy within several scanlines, so there is no read \
+         to observe the start of -- 'not busy at vblank entry' would then be satisfied by a read that \
+         simply never runs",
+    );
+    a.l("lda f:$7E01E0");
+    a.l("cmp #$00");
+    a.fail_if_ne(
+        "$4212 bit 0 read busy at the very start of the vblank line, so the automatic read began at \
+         the vblank edge rather than a few dozen cycles into the line -- a $4212 poll at NMI entry \
+         cannot then observe the not-yet-started window, and a driver waiting for busy to clear would \
+         read the previous frame's stale $4218 result",
+    );
+    a.finish(
+        "F1.10",
+        'F',
+        "Auto-read start race",
+        Provenance::Documented(
+            "fullsnes: the automatic joypad read begins ~dot 32.5-95.5 of the first vblank line, not \
+             at the vblank edge, so $4212 bit 0 reads not-busy for that window and a $4212 poll at \
+             NMI entry sees the read not yet started",
         ),
         Kind::Scored,
         None,

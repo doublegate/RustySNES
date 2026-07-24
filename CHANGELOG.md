@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES `F1.10` (the auto-read start race) is now a scored row (288 -> 289 of the on-cart
+  scoring total; 341 -> 342 of 443 overall).** The automatic joypad read begins a few dozen cycles into the
+  first vblank line, so a `$4212` bit-0 poll at NMI entry sees it not-yet-started even though it is
+  armed — the race that lets a naive wait-loop read the previous frame's `$4218` result. Phase A asserts
+  `$4212` bit 0 reads 0 at vblank entry; phase B asserts the armed read *does* set busy shortly after
+  (so the "not busy at entry" is not a disarmed read). Cross-validated: RustySNES and Mesen2 pass
+  (both delay the start), snes9x fails (instant auto-read — a real snes9x inaccuracy, recorded in
+  `crossval.sh`, `SNES9X_KNOWN_FAILURES` 10 -> 11). Inject-verified: with the read forced to start at
+  the vblank edge, `F1.10` is the sole battery failure. Depends on the auto-read start-timing fix above.
 - **AccuracySNES `C1.08` (OAM address taken over during active display) is now a scored row, the
   first coverage the per-dot compositor unblocks (294 -> 295 of the on-cart scoring total).** During
   active display the renderer drives the OAM address, so a `$2138` read returns the sprite-evaluation

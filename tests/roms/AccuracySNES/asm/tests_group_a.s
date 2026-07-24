@@ -29878,6 +29878,138 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; F1.10 — Auto-read start race
+; provenance: Documented (fullsnes: the automatic joypad read begins ~dot 32.5-95.5 of the first vblank line, not at the vblank edge, so $4212 bit 0 reads not-busy for that window and a $4212 poll at NMI entry sees the read not yet started)
+.proc test_f1_10
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Skip unless the host holds the input contract — see f1_require_contract.
+    sep #$20
+    .a8
+    lda #$01
+    sta $4016
+    lda #$00
+    sta $4016
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E01E6
+    ldx #$0010
+@rq_c10:
+    sep #$20
+    .a8
+    lda $4016
+    lsr
+    rep #$20
+    .a16
+    lda f:$7E01E6
+    rol
+    sta f:$7E01E6
+    dex
+    bne @rq_c10
+    lda f:$7E01E6
+    cmp #PAD_CONTRACT
+    beq :+
+    ; SKIP: the host is not holding PAD_CONTRACT, so there is nothing for this row to assert against
+    sep #$20
+    .a8
+    lda #VERDICT_SKIP
+    sta f:V_TEST_RESULT
+    jml test_restore
+    ; unreachable — restores the assembler's width belief only
+    .a16
+    .i16
+    :
+    ; Arm auto-read; the read is scheduled at the vblank edge but only begins ~dot 64 into the line.
+    sep #$20
+    .a8
+    lda #$01
+    sta $4200
+    ; Land at the very start of a fresh vblank line (H is small), BEFORE the read begins. Two waits
+    ; so a read is certainly armed for this vblank, and the second lands us early on the first
+    ; vblank line (V = 225 NTSC / 240 PAL -- wait_vblank_far keys on the region's own vblank start).
+    jsl wait_vblank_far
+    jsl wait_vblank_far
+    ; --- A: read $4212 immediately. Armed but not yet started => bit 0 reads 0 (the race). ---
+    lda $4212
+    and #$01
+    sta f:$7E01E0
+    ; --- B: spin until the read starts (busy sets), bounded so a read that never starts reports. ---
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+    sep #$20
+    .a8
+@f10busy:
+    lda $4212
+    and #$01
+    bne @f10started
+    rep #$20
+    .a16
+    inx
+    cpx #$0800         ; ~2048 samples span several scanlines
+    sep #$20
+    .a8
+    bne @f10busy
+    lda #$02           ; sentinel: the armed read never set busy
+    bra @f10store
+@f10started:
+    lda #$01
+@f10store:
+    sta f:$7E01E2
+    ; Disarm before judging: the battery hand-polls $4016 with $4200 = 0, and a failure exits
+    ; through test_restore, which touches neither $4200 nor $4016.
+    stz $4200
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E01E0
+    ; record slot 247: F1.10 $4212 bit 0 at vblank entry (0 = read not yet started -- the race)
+    sta f:$7EE3EE
+    lda f:$7E01E2
+    ; record slot 248: F1.10 $4212 bit 0 became busy later (1 = read started; 2 = never)
+    sta f:$7EE3F0
+    ; Phase B first: without a read that actually starts, 'not busy at entry' proves nothing.
+    sep #$20
+    .a8
+    lda f:$7E01E2
+    cmp #$01
+    beq :+
+    jmp @fail1
+  :
+    lda f:$7E01E0
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the armed automatic read never set $4212 busy within several scanlines, so there is no read to observe the start of -- 'not busy at vblank entry' would then be satisfied by a read that simply never runs
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; $4212 bit 0 read busy at the very start of the vblank line, so the automatic read began at the vblank edge rather than a few dozen cycles into the line -- a $4212 poll at NMI entry cannot then observe the not-yet-started window, and a driver waiting for busy to clear would read the previous frame's stale $4218 result
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; F1.11 — Latch corrupts auto-read
 ; provenance: Documented (fullsnes and the SNESdev Wiki: while $4016 bit 0 is high the shift registers reload continuously rather than shifting, so an automatic read taken across it returns the same bit in every position)
 .proc test_f1_11
@@ -32383,7 +32515,7 @@ apu_prog_112:
 .export _test_flags
 
 _test_count:
-    .word 329
+    .word 330
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -32667,6 +32799,7 @@ _test_entries:
     .faraddr test_f1_07
     .faraddr test_f1_05
     .faraddr test_f1_06
+    .faraddr test_f1_10
     .faraddr test_f1_11
     .faraddr test_f1_12
     .faraddr test_f1_14
@@ -32999,6 +33132,7 @@ _test_flags:
     .byte $01   ; F1.07
     .byte $01   ; F1.05
     .byte $01   ; F1.06
+    .byte $01   ; F1.10
     .byte $01   ; F1.11
     .byte $02   ; F1.12
     .byte $01   ; F1.14
@@ -33331,6 +33465,7 @@ _test_names:
     .addr @n_f1_07
     .addr @n_f1_05
     .addr @n_f1_06
+    .addr @n_f1_10
     .addr @n_f1_11
     .addr @n_f1_12
     .addr @n_f1_14
@@ -34220,6 +34355,9 @@ _test_names:
 @n_f1_06:
     .byte 22
     .byte "First bit clocked is B"
+@n_f1_10:
+    .byte 20
+    .byte "Auto-read start race"
 @n_f1_11:
     .byte 24
     .byte "Latch corrupts auto-read"
