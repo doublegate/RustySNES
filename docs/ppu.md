@@ -260,17 +260,20 @@ The crate is a working dual-chip model. Public API the scheduler/bus call:
   `nmi_pending()`/`ack_nmi()`, `irq_pending()`/`ack_irq()`, `in_vblank()`/`in_hblank()`,
   `dot()`/`scanline()`, `frame_ready()`/`take_frame()`/`frame_count()`, `framebuffer() -> &[u16]`.
 - **Rendering model:** **per-dot** (`v1.21.0`, `docs/adr/0014`, T-CA-10) — the sole renderer since
-  the batch path was removed. The visible line is composited one column at a time against live
-  registers into a `256×239` 15-bit framebuffer, so a register write partway through a line reaches
-  only the columns not yet drawn — the exact mid-scanline register-visibility timing real hardware
-  has, and the fix for the off-by-one-line error the earlier model carried. It arrived in
-  bit-identical phases (`compose_dac`'s per-pixel `compose_pixel`; `render_bg`'s FETCH/DRAIN split;
-  then the per-dot CGRAM/OAM redirects and over-flag timing) and was validated 29/29 on the
-  undisbeliever corpus against a headless MesenCE built as both the per-dot blueprint and the
-  exact-frame oracle. The earlier per-scanline model composited the whole line in one shot at
-  `RENDER_DOT` (dot 276), which was bit-identical to a per-dot renderer only when no register a
-  line's rendering reads was changed mid-line — see "Mid-scanline/HDMA-driven register timing" below
-  for the case that broke, now handled correctly at dot resolution. BG modes 0–7
+  the batch path was removed. The **compose/draw** stage (`pd_render_to_dot`) drains one column at a
+  time against live registers into a `256×239` 15-bit framebuffer, so a mid-line CGRAM/OAM access
+  during active display, an `INIDISP` brightness/blank change, and the sprite over-flag timing all
+  take effect at dot resolution — the mid-scanline register-visibility timing real hardware has, and
+  the fix for the off-by-one-line error the earlier model carried. It arrived in bit-identical phases
+  (`compose_dac`'s per-pixel `compose_pixel`; `render_bg`'s FETCH/DRAIN split; then the per-dot
+  CGRAM/OAM redirects and over-flag timing) and was validated 29/29 on the undisbeliever corpus
+  against a headless MesenCE built as both the per-dot blueprint and the exact-frame oracle. The
+  **BG/sprite line fetch** (`pd_fetch_line`) is still performed line-wide up front, so a mid-line
+  scroll/tilemap/OPT write is not yet reflected on later columns — incremental fetch-ahead is
+  T-CA-10 **Phase 4c**, not yet landed. The earlier per-scanline model composited the whole line in
+  one shot at `RENDER_DOT` (dot 276), which was bit-identical to a per-dot renderer only when no
+  register a line's rendering reads was changed mid-line — see "Mid-scanline/HDMA-driven register
+  timing" below for the case that broke, now handled correctly at dot resolution. BG modes 0–7
   tile fetch (2/4/8 bpp), per-mode priority tables, 16×16 tiles,
   mosaic (vertical+horizontal block), Mode 7 affine (matrix + center + wrap/flip from M7SEL,
   EXTBG high-bit priority), the 128-sprite OAM pipeline with the 32-sprite range / 34-tile time

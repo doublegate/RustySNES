@@ -1366,13 +1366,15 @@ The `v1.5.0`-`v1.20.0` ladder shipped frontend, mobile, shader, and CI breadth w
 because none of those releases was about them. `v1.21.0` cuts them together — they are one story
 from two ends.
 
-- **The per-dot PPU compositor is now the sole renderer (`docs/adr/0014`, T-CA-10).** The scanline
-  is composited one column at a time against live registers, so a mid-line write to CGRAM, OAM, a
-  scroll register, or `INIDISP` reaches only the not-yet-drawn columns. The whole-line batch path is
-  removed (single code path), validated 29/29 on the undisbeliever corpus against a headless
-  **MesenCE** built this cycle as both the per-dot blueprint (`SnesPpu.cpp:RenderScanline`) and the
-  exact-frame oracle. Unblocks the mid-render scored rows `C1.08`/`C3.04`/`C7.16` on the default
-  build.
+- **The per-dot PPU compositor is now the sole renderer (`docs/adr/0014`, T-CA-10).** The
+  compose/draw stage runs one column at a time against live registers, so a mid-line CGRAM/OAM
+  access during active display and an `INIDISP` change reach only the not-yet-drawn columns. (The
+  BG/sprite line fetch is still performed line-wide, so mid-line scroll/tilemap changes are not yet
+  reflected — incremental fetch-ahead is Phase 4c, tracked in `to-dos/TIER1-CYCLE-ACCURACY.md`.) The
+  whole-line batch path is removed (single code path), validated 29/29 on the undisbeliever corpus
+  against a headless **MesenCE** built this cycle as both the per-dot blueprint
+  (`SnesPpu.cpp:RenderScanline`) and the exact-frame oracle. Unblocks the mid-render scored rows
+  `C1.08`/`C3.04`/`C7.16` on the default build.
 - **The first-party AccuracySNES cartridge matured into a usable instrument.** An AccuracyCoin-style
   paged menu (`gen/src/pages.rs`), an automatic "skyline" results city (one column per page, one
   brick per test, top-down fill), a per-test **B**-skip, and a **Select** live-WRAM debug hex viewer

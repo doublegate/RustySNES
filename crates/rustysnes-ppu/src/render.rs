@@ -1,13 +1,16 @@
-//! Per-dot compositor (`docs/adr/0014`): BG modes 0–7 (incl. Mode 7 affine), the 128-sprite OAM pipeline,
-//! windows, and color math. Re-implemented clean-room from `docs/ppu.md` + documented SNES
-//! hardware behavior, structurally informed by ares (ISC). Nothing was ported verbatim.
+//! Per-dot compositor (`docs/adr/0014`, T-CA-10): BG modes 0–7 (incl. Mode 7 affine), the
+//! 128-sprite OAM pipeline, windows, and color math. Re-implemented clean-room from `docs/ppu.md` +
+//! documented SNES hardware behavior, structurally informed by ares (ISC) and cross-validated
+//! against a headless MesenCE. Nothing was ported verbatim.
 //!
-//! The model is per-scanline (composite a whole visible line at line end). This is bit-
-//! identical in the *final framebuffer* to a per-dot renderer — the determinism contract only
-//! requires the finished frame be reproducible — and dramatically simpler. Mid-scanline raster
-//! tricks that need dot-resolution (HDMA palette splits) land later via the scheduler driving
-//! register writes at the exact dot; the per-line compositor already sees those writes because
-//! it samples register state at the *end* of the line.
+//! The **compose/draw** stage is per-dot: `pd_render_to_dot` drains one column at a time against
+//! live registers, so a mid-line CGRAM/OAM access during active display, an `INIDISP`
+//! brightness/blank change, and the sprite over-flag timing all take effect at dot resolution
+//! (the sole renderer since the batch `compose_dac` whole-line path was removed; `compose_dac`
+//! survives only as a `#[cfg(test)]` hi-res DAC driver). The **BG/sprite line fetch** is still
+//! performed line-wide up front by `pd_fetch_line`, so a mid-line scroll/tilemap/OPT write is not
+//! yet reflected on later columns — incremental fetch-ahead is T-CA-10 Phase 4c, tracked in
+//! `to-dos/TIER1-CYCLE-ACCURACY.md`, not landed here.
 //!
 //! reason for the module-level allows: the compositor is intrinsically a long, branch-dense
 //! state machine. `too_many_lines` fires on the per-scanline / per-sprite/mode-7 loops, which

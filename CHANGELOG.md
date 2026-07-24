@@ -15,10 +15,11 @@ The accuracy release. Two long-running parallel tracks that had accumulated in `
 across the entire `v1.8.0`-`v1.20.0` era — while those rungs shipped frontend, mobile, shader, and
 CI work with zero change to the emulation core — are cut here together, because they are the same
 story told from two ends. **The per-dot PPU compositor (ADR 0014, ticket T-CA-10) is now the
-emulator's only renderer**: the scanline is composited one column at a time against live registers,
-so a mid-line write to CGRAM, OAM, a scroll register, or `INIDISP` reaches only the columns not yet
-drawn — retiring the whole-line batch model and, with it, an entire class of raster-trick
-inaccuracy. And **the first-party `AccuracySNES` self-scoring test cartridge matured into a usable
+emulator's only renderer**: the compose/draw stage runs one column at a time against live registers,
+so a mid-line CGRAM/OAM access during active display and an `INIDISP` brightness/blank change reach
+only the columns not yet drawn — retiring the whole-line batch model and, with it, a class of
+raster-trick inaccuracy. (The BG/sprite line fetch is still done up front, so mid-line scroll/tilemap
+changes are not yet reflected on later columns — incremental fetch-ahead is T-CA-10 Phase 4c.) And **the first-party `AccuracySNES` self-scoring test cartridge matured into a usable
 instrument**: an AccuracyCoin-style paged menu, an automatic "skyline" results screen, a per-test
 B-skip, and a live WRAM debug hex viewer on Select, over a battery that climbed from 323 to 342 of
 443 dossier assertions — each row inject-verified for non-vacuity and cross-validated on RustySNES,
