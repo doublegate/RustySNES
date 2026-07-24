@@ -8,14 +8,17 @@
 # $7E:1000+scanline every scanline via an H-IRQ. Both emulators then read that array and report the
 # first scanline whose range-over (bit 6) / time-over (bit 7) reads set — apples-to-apples.
 #
-# Baseline finding (2026-07): MesenCE = scanline 100; RustySNES per-dot = 101 (one line late); batch
-# = 102 (two late). So the incremental cursor must evaluate scan_y = self.v (the NEXT display line's
-# sprites, one line ahead of the paint's scan_y = self.v-1). After implementing it, this probe should
-# read 100 for the per-dot build.
+# Observable finding (2026-07, HTIME=256, the values THIS script prints): MesenCE = scanline 100,
+# RustySNES per-dot compositor = 100 (matches), RustySNES batch = 101 (one line late). That is the
+# full extent of what the probe resolves. It does NOT distinguish the incremental over-flag cursor's
+# finer internal change ((scanline 101, dot 1) -> (scanline 100, dot 66)) — that is below the
+# V-counter sampling resolution and is asserted by the unit test instead (see README.md).
 #
-# Usage: scripts/probes/eval-line-213e/run.sh   (from the repo root; REF_PROJ overrides ref-proj)
+# Usage: scripts/probes/eval-line-213e/run.sh   (runnable from any directory; REF_PROJ overrides ref-proj)
 
 set -euo pipefail
+# Run from the script's own directory so probe.o/probe.sfc/probe_mesen.lua resolve as bare names;
+# cargo is invoked with an absolute --manifest-path so its cwd does not matter.
 cd "$(dirname "$0")"
 ROOT=$(git rev-parse --show-toplevel)
 REF_PROJ=${REF_PROJ:-$ROOT/ref-proj}
@@ -36,7 +39,18 @@ cargo run -q -p rustysnes-test-harness --bin probe_213e --manifest-path "$ROOT/C
 
 if [[ -x $MESEN ]]; then
     echo "=== MesenCE (oracle) ==="
-    SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy timeout 60 "$MESEN" --testRunner probe_mesen.lua probe.sfc 2>&1 | grep -E "^MESEN" || true
+    # Capture and validate: a Mesen crash, timeout, test-runner failure, or output without a MESEN
+    # line must fail the probe rather than pass silently (no `| grep … || true`, which would mask it).
+    if ! mce_out=$(SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy timeout 60 "$MESEN" --testRunner probe_mesen.lua probe.sfc 2>&1); then
+        echo "MesenCE oracle failed (crash / timeout / non-zero exit):" >&2
+        echo "$mce_out" | tail -5 >&2
+        exit 1
+    fi
+    if ! grep -E "^MESEN" <<<"$mce_out"; then
+        echo "MesenCE ran but produced no MESEN result line:" >&2
+        echo "$mce_out" | tail -5 >&2
+        exit 1
+    fi
 else
     echo "=== MesenCE absent ($MESEN) — skipping oracle side ==="
 fi

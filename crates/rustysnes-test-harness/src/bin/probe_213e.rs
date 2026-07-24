@@ -4,15 +4,34 @@
 //! `probe_mesen.lua`, so the eval-line offset is directly comparable. The per-dot PPU is the only
 //! compositor, so this reports the per-dot eval line.
 #![allow(missing_docs)] // small standalone probe binary, not a library API surface.
+use std::error::Error;
 use std::fmt::Write as _;
+use std::process::ExitCode;
 
 use rustysnes_core::System;
 use rustysnes_core::cart::Cart;
 
-fn main() {
-    let path = std::env::args().nth(1).expect("usage: probe_213e <rom>");
-    let rom = std::fs::read(&path).expect("read rom");
-    let cart = Cart::from_rom(&rom).expect("parse rom");
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("probe_213e: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<(), Box<dyn Error>> {
+    // The ROM path and its bytes are untrusted external input: propagate typed errors rather than
+    // panic (the no-`expect`-on-external-input guideline applies to this non-test binary too). Use
+    // `args_os`/`PathBuf` so a non-UTF-8 argv entry is handled, not panicked on, by `args()`.
+    let path: std::path::PathBuf = std::env::args_os()
+        .nth(1)
+        .ok_or("usage: probe_213e <rom>")?
+        .into();
+    let rom = std::fs::read(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let cart = Cart::from_rom(&rom)
+        .map_err(|e| format!("{} is not a valid cartridge: {e:?}", path.display()))?;
     let mut sys = System::new(0);
     sys.bus.cart = Some(cart);
     sys.reset();
@@ -34,4 +53,5 @@ fn main() {
     }
     println!("RUSTY range_over first-set scanline={first_range:?} time_over={first_time:?}");
     println!("RUSTY window {window}");
+    Ok(())
 }

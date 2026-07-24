@@ -29,23 +29,33 @@ scanline whose bit 6 (range over) / bit 7 (time over) reads set.
 scripts/probes/eval-line-213e/run.sh      # builds the ROM (needs cc65), runs both RustySNES paths + MesenCE
 ```
 
-## Baseline finding (2026-07)
+## Finding (2026-07)
 
-`range_over` first-observable scanline, same ROM:
+`range_over` first-observable scanline, same ROM, sampled at HTIME=256:
 
 | build | scanline |
 |---|---|
 | **MesenCE (oracle)** | **100** |
-| RustySNES per-dot, before the incremental cursor | 101 (one line late) |
-| RustySNES per-dot, **with** the incremental cursor | **100** (matches MesenCE) |
-| RustySNES batch (shipped) | 101 (one line late) |
+| RustySNES per-dot compositor (with or without the incremental cursor) | **100** (matches) |
+| RustySNES batch (shipped default) | 101 (one line late) |
 
-**Conclusion:** MesenCE evaluates scanline *L*'s over-condition during scanline *L*; RustySNES's
-`eval_objects_range` evaluates `scan_y = self.v-1` during `self.v`, one line late. The incremental
-over-flag cursor must evaluate `scan_y = self.v` (the *next* display line's sprites, one line ahead of
-the paint's `scan_y = self.v-1`) and set `range_over` at the dot the 33rd in-range sprite is found. That cursor
-is `Ppu::pd_eval_over_flags`; with it the per-dot build reads **100** here (re-run to confirm).
+**What the probe resolves — and what it doesn't.** At the probe's line granularity the per-dot
+compositor already reads 100 (matching MesenCE); the **batch** model reads 101, one line late. So the
+probe's reliable result is *per-dot matches MesenCE, batch is a line behind*. (An earlier run at
+HTIME=300 reported per-dot=101 / batch=102, but that was the V-counter latch artifact this probe now
+avoids — do not trust those numbers.)
 
-(Also surfaced: `time_over` never sets for many 8×8 sprites — `eval_objects_range`'s range loop
-`break`s at the 33rd sprite before `tile_count += w/8`, capping the count at 32; fix when the
-incremental tile-fetch/`time_over` phase lands.)
+The probe's V-counter sampling **cannot** resolve the finer, internal difference the incremental
+over-flag cursor (`Ppu::pd_eval_over_flags`) makes: the pre-cursor per-dot path sets `range_over`
+internally at `(scanline 101, dot 1)` — line start of the paint line — while the cursor sets it at
+`(scanline 100, dot 66)`, i.e. one line *ahead* (`scan_y = self.v`, the next display line MesenCE
+evaluates during the current one) and at the 33rd in-range sprite's dot (2 dots/sprite). That internal
+`(100, 66)` matches MesenCE's `EvaluateNextLineSprites` exactly and is asserted directly by the unit
+test `incremental_range_over_sets_on_next_line_at_the_33rd_sprite` — the real acceptance test for the
+cursor. This probe validates the coarser line-level parity; the unit test validates the dot-level one.
+
+(`time_over` reads unset here on both emulators — and correctly so: only the ≤32 in-range sprites are
+tile-fetched, and 32 × one 8×8 tile = 32 tiles ≤ the 34-tile limit. Both `eval_objects_range` and the
+incremental cursor stop counting tiles past the 32nd in-range sprite for the same reason, so this is
+matching behaviour, not a bug — a wider sprite (`w/8 ≥ 2`) or more tiles per sprite is needed to trip
+it.)
