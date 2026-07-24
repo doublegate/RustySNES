@@ -2197,7 +2197,7 @@ test_restore := test_restore_impl
     lda f:V_PAD_NEW
     bit #PAD_START
     beq @no_start
-    jsr rerun_battery
+    jmp rerun_battery           ; tail jump — rerun_battery resets SP and never returns
 @no_start:
     ; Select opens the debug memory viewer (AccuracyCoin's Select screen).
     lda f:V_PAD_NEW

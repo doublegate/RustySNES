@@ -401,11 +401,14 @@ SKY_OBJ_ATTR    = $30                 ; OAM attr: palette 0, priority 3, no flip
 ; --- debug memory viewer (AccuracyCoin's Select screen) --------------------------------------
 ; A hex dump of bank-$7E WRAM: DEBUG_ROWS rows of DEBUG_BYTES bytes, one row per address+8, starting
 ; at V_DEBUG_ADDR (Up/Down page it by DEBUG_SCROLL). Opens on the results block by default so the
-; per-test R_STATUS array is visible.
+; per-test R_STATUS array is visible. V_DEBUG_ADDR is a free-running 16-bit offset into the fixed
+; bank-$7E base; Up/Down deliberately do NOT clamp, so scrolling wraps around and can browse the whole
+; of WRAM (a step off either end lands within the 128 KiB $7E/$7F WRAM — never an out-of-RAM access).
 DEBUG_ROWS      = 22
 DEBUG_BYTES     = 8                   ; bytes per row ("xxxx: HH*8" = 30 columns)
 DEBUG_ROW0      = 2                   ; first hex row (row 0 is the header)
-DEBUG_SCROLL    = $0040               ; Up/Down step (8 rows)
+DEBUG_SCROLL    = $0040               ; Up/Down step: 8 rows ($40 bytes), an 8-of-22-row page that
+                                      ; keeps 14 rows of overlap for context between steps
 DEBUG_START     = $F000               ; default base: the results block ($7E:F000)
 
 ; The three view modes (V_VIEW).
