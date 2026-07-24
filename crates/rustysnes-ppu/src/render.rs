@@ -854,8 +854,102 @@ impl Ppu {
         table[usize::from(self.io.obj_base_size)]
     }
 
-    /// Render sprites for the current scanline: range/time evaluation + pixel fetch.
-    fn render_objects(&mut self, pr: &ModePriorities, above: &mut [Pixel], below: &mut [Pixel]) {
+    /// Per-dot sprite over-flag (STAT77 range/time) timing — the 4b increment of the per-dot
+    /// compositor (`docs/adr/0014`; dossier C7.05/C7.06). Hardware evaluates a line's sprites one
+    /// line AHEAD of drawing them (MesenCE `EvaluateNextLineSprites`), setting `range_over` when a
+    /// 33rd in-range sprite is found and `time_over` once more than 34 sprite-tiles are due. So during
+    /// display line `self.v` this evaluates `scan_y = self.v` — the sprites that paint on `self.v + 1`
+    /// — and exposes each flag at the exact dot a cart reading `$213E` observes it: `range_over` at
+    /// `V = OBJ.YLOC, H = OAM.INDEX*2` (the eval cycle of the 33rd sprite), `time_over` by the fetch
+    /// phase so it reads set by `V = OBJ.YLOC + 1, H = 0`. The paint pass (`eval_objects_range`,
+    /// `scan_y = self.v - 1`) no longer sets them.
+    ///
+    /// The set-dots are computed once at line start (from OAMADDR's priority-rotation base, exactly as
+    /// the paint pass snapshots it) and NOT re-derived if the CPU writes OAM/OAMADDR mid-line before
+    /// the flag trips — the same whole-line snapshot approximation `eval_objects_range` already makes
+    /// for painting; a true mid-eval OAM re-read is a separate, unvalidated refinement.
+    ///
+    /// Transient (recomputed per line); `pd_over_computed_line` is invalidated on `load_state` so a
+    /// mid-line restore re-derives the pending set-dot. `io.range_over`/`io.time_over` themselves are
+    /// serialized, so a flag already set before a save survives regardless.
+    pub(crate) fn pd_eval_over_flags(&mut self) {
+        // Only lines whose sprites paint on a visible line (`scan_y = self.v` draws on `self.v + 1`).
+        if self.v >= self.visible_height() {
+            return;
+        }
+        // Capture the priority-rotation seed at the TRUE line start (`h == 0`), before any mid-line
+        // `$2104` write can advance `oam_address`. Serialized, so a post-load recompute uses it rather
+        // than the diverged live address. A mid-line re-entry (`h > 0`, only after `load_state`) skips
+        // the capture and reuses the restored seed.
+        if self.h == 0 {
+            self.pd_over_eval_seed = if self.io.oam_priority_rotation {
+                ((self.io.oam_address >> 2) & 0x7f) as u8
+            } else {
+                0
+            };
+        }
+        if self.pd_over_computed_line != self.v {
+            self.pd_over_computed_line = self.v;
+            let (range_dot, time_dot) = self.compute_over_flag_dots(u32::from(self.v));
+            self.pd_over_range_dot = range_dot;
+            self.pd_over_time_dot = time_dot;
+        }
+        if self.pd_over_range_dot == Some(self.h) {
+            self.io.range_over = true;
+        }
+        if self.pd_over_time_dot == Some(self.h) {
+            self.io.time_over = true;
+        }
+    }
+
+    /// Scan OAM for `scan_y` exactly as [`Self::eval_objects_range`] does (same in-range test, same
+    /// 32-sprite break, same reverse-fetch tile budget) and return the dots at which `range_over` and
+    /// `time_over` should trip. `range_over`: the 33rd in-range sprite's evaluation dot (`2 * i + 1`,
+    /// the odd in-range-check cycle of the `i`-th evaluated sprite). `time_over`: `HBLANK_START_DOT`,
+    /// since the tile fetch runs at dots 272+ and C7.06 only pins observability by the next line start.
+    fn compute_over_flag_dots(&self, scan_y: u32) -> (Option<u16>, Option<u16>) {
+        // Key off the serialized line-start seed, NOT the live `oam_address` — the latter diverges
+        // from the line-start value after redirected active-display `$2104` writes on a
+        // priority-rotated line, and this function is re-run on `load_state`, so using the live
+        // address would shift `$213E` timing across a mid-line save/load.
+        let first = usize::from(self.pd_over_eval_seed);
+        let mut range_count = 0usize;
+        let mut tile_count = 0usize;
+        let mut range_dot = None;
+        let mut time_dot = None;
+        for i in 0..128usize {
+            let idx = (first + i) & 0x7f;
+            let obj = self.object(idx);
+            let (w, h) = self.object_size(obj.size);
+            let h = h >> u32::from(self.io.obj_interlace);
+            let top = u32::from(obj.y);
+            let dy = (scan_y.wrapping_sub(top)) & 0xff;
+            if dy >= h {
+                continue;
+            }
+            if obj.x > 256 && obj.x + (w as u16) - 1 < 512 {
+                continue;
+            }
+            range_count += 1;
+            if range_count > 32 {
+                // 33rd in-range sprite: range-over trips and evaluation stops (mirrors the paint
+                // pass's `break`). `2 * i + 1` is the odd (in-range-check) cycle of sprite `i`.
+                // `i < 128` so `2 * i + 1 <= 255`; `try_from` (not `as`) keeps the pedantic
+                // truncation lint happy, and the fallback is unreachable.
+                range_dot = Some(u16::try_from(2 * i + 1).unwrap_or(255));
+                break;
+            }
+            tile_count += (w / 8) as usize;
+            if tile_count > 34 && time_dot.is_none() {
+                time_dot = Some(crate::HBLANK_START_DOT);
+            }
+        }
+        (range_dot, time_dot)
+    }
+
+    /// Render sprites for the current scanline: range evaluation + pixel fetch. (The STAT77 over-flags
+    /// are timed separately by [`Self::pd_eval_over_flags`], one line ahead.)
+    fn render_objects(&self, pr: &ModePriorities, above: &mut [Pixel], below: &mut [Pixel]) {
         let (in_range, count, budget_ok) = self.eval_objects_range();
         self.paint_objects(pr, above, below, &in_range, count, &budget_ok);
     }
@@ -866,7 +960,7 @@ impl Ppu {
     /// `(in_range, count, budget_ok)` for [`Ppu::paint_objects`] to draw. Split out from the
     /// paint so phase 4b can drive it one dot at a time (the per-dot compositor, `docs/adr/0014`);
     /// today it still runs whole-line, byte-identically.
-    fn eval_objects_range(&mut self) -> ([u8; 32], usize, [bool; 32]) {
+    fn eval_objects_range(&self) -> ([u8; 32], usize, [bool; 32]) {
         let scan_y = u32::from(self.v - 1);
 
         // Range evaluation: collect up to 32 sprites that intersect this scanline. Lower index
@@ -879,7 +973,6 @@ impl Ppu {
 
         let mut in_range: [u8; 32] = [0; 32];
         let mut range_count = 0usize;
-        let mut tile_count = 0usize;
 
         for i in 0..128 {
             let idx = (first + i) & 0x7f;
@@ -906,15 +999,14 @@ impl Ppu {
             if range_count > 32 {
                 break;
             }
-            tile_count += (w / 8) as usize;
         }
 
-        if range_count > 32 {
-            self.io.range_over = true;
-        }
-        if tile_count > 34 {
-            self.io.time_over = true;
-        }
+        // NOTE: `range_over`/`time_over` (STAT77 bits 6/7) are NOT set here. This pass evaluates the
+        // sprites of the line being *drawn* (`scan_y = self.v - 1`) for painting; the over-flags belong
+        // to the *evaluation* of the NEXT line's sprites, which hardware performs one line ahead at a
+        // specific dot. That timing is driven separately by `pd_eval_over_flags` (MesenCE
+        // `EvaluateNextLineSprites`; dossier C7.05/C7.06) so a cart reading `$213E` sees the flag set at
+        // `V = OBJ.YLOC, H = OAM.INDEX*2`, not at the draw line's start.
 
         // Sprites paint in reverse index order so lower index ends up on top (last writer wins
         // among equal priority). We honor the 34-tile limit by dropping the lowest-index sprites
@@ -1731,6 +1823,48 @@ mod tests {
         // STAT77 bit 6 (range over) should be set.
         let stat = p.read_reg(0x213e);
         assert!(stat & 0x40 != 0, "range-over flag not set: {stat:#04x}");
+    }
+
+    #[test]
+    fn incremental_range_over_sets_on_next_line_at_the_33rd_sprite() {
+        // 40 8x8 sprites at Y=100 (indices 0-39, seed 0), the other 88 parked off-screen. The 33rd
+        // in-range sprite is OAM index 32, evaluated during display line 100 (the line whose sprites
+        // paint on 101), at its odd in-range-check cycle `2*32+1 = 65`. `range_over` must trip exactly
+        // there (dossier C7.05: V = OBJ.YLOC, H = OAM.INDEX*2), NOT at the draw line's start.
+        let mut p = Ppu::new();
+        p.write_reg(0x2100, 0x80);
+        p.write_reg(0x2101, 0x00);
+        p.write_reg(0x2102, 0x00);
+        p.write_reg(0x2103, 0x00);
+        for i in 0..128u16 {
+            if i < 40 {
+                p.write_reg(0x2104, ((i * 6) & 0xff) as u8);
+                p.write_reg(0x2104, 100);
+            } else {
+                p.write_reg(0x2104, 0x00);
+                p.write_reg(0x2104, 0xf0);
+            }
+            p.write_reg(0x2104, 0);
+            p.write_reg(0x2104, 0x20);
+        }
+        p.write_reg(0x2100, 0x0f);
+        p.write_reg(0x212c, 0x10);
+
+        let mut bus = NullVideoBus;
+        let mut first: Option<(u16, u16)> = None;
+        for _ in 0..(u32::from(DOTS_PER_LINE) * 130) {
+            let before = p.io.range_over;
+            p.tick_dot(&mut bus);
+            if !before && p.io.range_over {
+                first = Some((p.v, p.h));
+                break;
+            }
+        }
+        assert_eq!(
+            first,
+            Some((100, 66)),
+            "range_over must trip during line 100 at the 33rd sprite's eval dot, not the draw line"
+        );
     }
 
     #[test]

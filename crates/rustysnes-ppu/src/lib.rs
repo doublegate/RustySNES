@@ -730,6 +730,22 @@ pub struct Ppu {
     /// `_oamEvaluationIndex`): it diverges from `OAMADDR` after redirected active-display writes and
     /// so cannot be re-derived on load. `pd_fetch_line` re-seeds it at each line boundary.
     pd_oam_eval_seed: u8,
+    /// Dot at which `range_over` (STAT77 bit 6) trips this line, or `None` (< 33 in-range sprites).
+    /// Computed at line start from the NEXT line's sprites (`pd_eval_over_flags`, 4b of ADR 0014);
+    /// transient, re-derived per line and after `load_state` via [`Self::pd_over_computed_line`].
+    pd_over_range_dot: Option<u16>,
+    /// Dot at which `time_over` (STAT77 bit 7) trips this line, or `None` (<= 34 sprite-tiles).
+    pd_over_time_dot: Option<u16>,
+    /// Which display line `pd_over_range_dot`/`pd_over_time_dot` were computed for; `u16::MAX` forces
+    /// a recompute (also the state after `load_state`, so a mid-line restore re-derives the set-dot).
+    pd_over_computed_line: u16,
+    /// Line-start priority-rotation seed the over-flag timing evaluates from (`OAMADDR >> 2` masked, or
+    /// 0 without rotation), captured at each line's `h == 0`. **Serialized** (`FORMAT_VERSION` 8): like
+    /// [`Self::pd_oam_eval_seed`] it diverges from `OAMADDR` after redirected active-display writes, so
+    /// the set-dots (transient, re-derived on load) must key off this persisted value — recomputing
+    /// from the live `oam_address` on a mid-line restore would shift `$213E` timing (a save-state
+    /// determinism break the paint pass does not have because it snapshots at line start).
+    pd_over_eval_seed: u8,
 }
 
 impl core::fmt::Debug for Ppu {
@@ -798,6 +814,10 @@ impl Ppu {
             pd_fetched_line: u16::MAX,
             internal_cgram_address: 0,
             pd_oam_eval_seed: 0,
+            pd_over_range_dot: None,
+            pd_over_time_dot: None,
+            pd_over_computed_line: u16::MAX,
+            pd_over_eval_seed: 0,
         }
     }
 
@@ -873,6 +893,11 @@ impl Ppu {
         // `advance_master` services this line's HDMA at this same dot, strictly AFTER this render
         // call within the same master-clock tick -- see `docs/scheduler.md` §DMA/HDMA bus-steal.
         self.pd_render_to_dot(bus);
+
+        // Sprite over-flag (STAT77 range/time) timing runs one line ahead of the paint and must cover
+        // line 0 (whose sprites paint on line 1), so it is driven here rather than from
+        // `pd_render_to_dot` (which only renders lines 1..=visible). `docs/adr/0014` 4b.
+        self.pd_eval_over_flags();
 
         self.h += 1;
         if self.h >= DOTS_PER_LINE {
@@ -1187,6 +1212,10 @@ impl Ppu {
             // re-derived on load (it diverges from OAMADDR after redirected active-display writes),
             // so it is persisted (FORMAT_VERSION 7).
             s.write_u8(self.pd_oam_eval_seed);
+            // The over-flag timing's line-start seed (FORMAT_VERSION 8) — persisted for the same
+            // reason as `pd_oam_eval_seed`: the set-dots re-derive from it on load, and it diverges
+            // from OAMADDR mid-line.
+            s.write_u8(self.pd_over_eval_seed);
         });
     }
 
@@ -1238,6 +1267,8 @@ impl Ppu {
         }
         // OAM sprite-evaluation seed (FORMAT_VERSION 7).
         self.pd_oam_eval_seed = s.read_u8()?;
+        // Over-flag timing line-start seed (FORMAT_VERSION 8).
+        self.pd_over_eval_seed = s.read_u8()?;
         if s.remaining() != 0 {
             return Err(SaveStateError::Invalid(alloc::format!(
                 "PPU0 section has {} trailing byte(s)",
@@ -1255,6 +1286,12 @@ impl Ppu {
         self.pd_draw_x = 0;
         self.pd_carry = render::DacCarry::default();
         self.internal_cgram_address = 0;
+        // Force the over-flag set-dots to re-derive for the restored line. The recompute keys off the
+        // just-deserialized `pd_over_eval_seed` (NOT the live `oam_address`, which may have diverged
+        // mid-line), so a mid-line restore on a priority-rotated line reproduces identical `$213E`
+        // timing. `io.range_over`/`time_over` are serialized, so a flag already set before the save
+        // survives regardless.
+        self.pd_over_computed_line = u16::MAX;
         Ok(())
     }
 }
@@ -1301,6 +1338,74 @@ mod tests {
         assert_eq!(fresh.v, 150);
         assert_eq!(fresh.frame_count, 99);
         assert_eq!(r.remaining(), 0);
+    }
+
+    #[test]
+    fn over_flag_timing_survives_mid_line_save_load_with_diverged_oamaddr() {
+        // On a priority-rotated line the over-flag set-dots are derived from the line-start OAM seed.
+        // If a redirected active-display write advances OAMADDR mid-line and then the state is saved
+        // and restored, the recompute-on-load must key off the SERIALIZED line-start seed, not the
+        // diverged `oam_address`, or `$213E` Range Over timing shifts across the save/load (a
+        // determinism break). Seed the cart with rotation ON and OAMADDR=0 (seed 0), so Range Over
+        // trips at (v=100, h=66) exactly as the non-rotated case; then diverge `oam_address` before
+        // the trip, save/load, and assert the trip is unchanged.
+        let mut p = Ppu::new();
+        p.write_reg(0x2100, 0x80);
+        p.write_reg(0x2101, 0x00);
+        p.write_reg(0x2102, 0x00);
+        p.write_reg(0x2103, 0x00);
+        for i in 0..128u16 {
+            if i < 40 {
+                p.write_reg(0x2104, ((i * 6) & 0xff) as u8);
+                p.write_reg(0x2104, 100);
+            } else {
+                p.write_reg(0x2104, 0x00);
+                p.write_reg(0x2104, 0xf0);
+            }
+            p.write_reg(0x2104, 0);
+            p.write_reg(0x2104, 0x20);
+        }
+        p.write_reg(0x2100, 0x0f);
+        p.write_reg(0x212c, 0x10);
+        // OAMADDR back to 0, priority rotation ON (so `first` = OAMADDR>>2 = 0 at line start).
+        p.write_reg(0x2102, 0x00);
+        p.write_reg(0x2103, 0x80);
+
+        let mut bus = NullVideoBus;
+        // Tick to line 100, dot 30 — past the line-start seed capture, before the h=65 trip.
+        while !(p.v == 100 && p.h == 30) {
+            p.tick_dot(&mut bus);
+        }
+        assert!(
+            !p.io.range_over,
+            "range_over should not have tripped yet at (100, 30)"
+        );
+        // A redirected active-display write diverges OAMADDR far from the line-start value.
+        p.io.oam_address = 0x1fc; // >>2 = 0x7f, a wildly different rotation base
+
+        let mut w = SaveWriter::new();
+        p.save_state(&mut w);
+        let bytes = w.into_bytes();
+        let mut fresh = Ppu::new();
+        let mut r = SaveReader::new(&bytes);
+        fresh.load_state(&mut r).unwrap();
+
+        // Continue on the restored state; range_over must still trip at (100, 66) — the line-start
+        // seed (0) was preserved, so the diverged 0x1fc address does not reorder evaluation.
+        let mut trip = None;
+        for _ in 0..(u32::from(DOTS_PER_LINE) * 3) {
+            let before = fresh.io.range_over;
+            fresh.tick_dot(&mut bus);
+            if !before && fresh.io.range_over {
+                trip = Some((fresh.v, fresh.h));
+                break;
+            }
+        }
+        assert_eq!(
+            trip,
+            Some((100, 66)),
+            "mid-line save/load with a diverged OAMADDR must not shift Range Over timing"
+        );
     }
 
     #[test]

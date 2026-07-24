@@ -115,6 +115,17 @@ and diffing the deterministic output against a fork that kept running uninterrup
   `_oamEvaluationIndex`. The byte is written **unconditionally** (0 when the `per-dot-compositor`
   feature is off) so the `PPU0` layout is identical across feature builds. Same older-blob-fails-loudly
   guarantee.
+- **`7` → `8` (T-CA-10 Phase 4b over-flag cursor):** `PPU0` grew by one more byte — `pd_over_eval_seed`,
+  the line-start priority-rotation seed the sprite over-flag (STAT77 `$213E`) timing evaluates from.
+  The over-flag set-dots (the dots at which Range/Time Over trip) are themselves transient — re-derived
+  per line, and re-derived again on load — but they depend on the line-start OAM evaluation order,
+  which with priority rotation diverges from `OAMADDR` after redirected active-display `$2104` writes.
+  If the recompute-on-load keyed off the live `oam_address`, a mid-line save/load on a rotated line
+  would shift `$213E` timing (a determinism break); keying off this persisted line-start seed instead
+  restores identical timing. Same reasoning as `pd_oam_eval_seed`, applied to the over-flag eval (which
+  runs one line ahead of the paint and covers line 0). Regression-locked by
+  `over_flag_timing_survives_mid_line_save_load_with_diverged_oamaddr`. Same older-blob-fails-loudly
+  guarantee.
 - **The round-trip determinism test is the spec**: save → run N frames on a cloned/forked
   system → load the save into the original → run the same N frames → assert byte-identical
   framebuffer + audio output between the two. This extends `docs/adr/0004`'s existing

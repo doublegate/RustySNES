@@ -150,6 +150,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   blank) renders `7fff` where MesenCE renders `7fc6`; it is pinned as a known per-dot gap. (The flip
   briefly declared `C1.08` region-dependent; the C1.08 scored row above then reads it at a controlled
   dot, making it region-independent and removing that declaration.)
+- **Sprite over-flags (STAT77 `$213E` range/time) are now timed per-dot, one line ahead of drawing**
+  (4b of the per-dot compositor, `docs/adr/0014`). Hardware evaluates a line's sprites during the
+  previous line and sets Range Over at the 33rd in-range sprite's dot; RustySNES had set both flags at
+  the drawn line's start. A cart reading `$213E` now observes Range Over at `V = OBJ.YLOC, H = OAM.INDEX*2`
+  and Time Over by `V = OBJ.YLOC + 1, H = 0` (dossier C7.05/C7.06), matching MesenCE's
+  `EvaluateNextLineSprites`. Zero-regression: the framebuffer is byte-identical (the paint pass is
+  unchanged — only the flag *observability* moved) and the AccuracySNES battery, undisbeliever goldens,
+  determinism, and save-state round-trip are all unaffected. Unblocks the C7.05/C7.06 scored rows.
+  Save-state `FORMAT_VERSION` bumps 7 → 8: the `PPU0` section gains the over-flag eval's line-start seed
+  (`pd_over_eval_seed`), so a mid-line save/load on a priority-rotated line reproduces identical `$213E`
+  timing rather than recomputing from a diverged `OAMADDR` (`docs/adr/0006`). Pre-8 blobs fail loudly.
 
 ### Fixed
 
