@@ -1626,39 +1626,64 @@ test_restore := test_restore_impl
     sta f:V_TMP                 ; FAIL code (0-127)
     ldy #str_fail
     jsr str_ptr_bank0
+    sep #$20
+    .a8
     lda #ATTR_RED
-    sta f:V_ATTR                ; 16-bit store also zeroes V_VIEW (its high byte) -- 0 is the menu view
+    sta f:V_ATTR                ; 8-bit store: V_ATTR is a byte, so this leaves the adjacent V_VIEW alone
+    rep #$30
+    .a16
+    .i16
     bra @have_label
 @draw:
     ; Non-scoring (Contested / Novel): informational, drawn "DRAW" in white -- like AccuracyCoin.
     ldy #str_draw
     jsr str_ptr_bank0
+    sep #$20
+    .a8
     lda #ATTR_WHITE
     sta f:V_ATTR
+    rep #$30
+    .a16
+    .i16
     lda #$FFFF
     sta f:V_TMP                 ; no FAIL code
     bra @have_label
 @test:
     ldy #str_test
     jsr str_ptr_bank0
+    sep #$20
+    .a8
     lda #ATTR_WHITE
     sta f:V_ATTR
+    rep #$30
+    .a16
+    .i16
     lda #$FFFF
     sta f:V_TMP
     bra @have_label
 @skip:
     ldy #str_skip
     jsr str_ptr_bank0
+    sep #$20
+    .a8
     lda #ATTR_BLACK
     sta f:V_ATTR
+    rep #$30
+    .a16
+    .i16
     lda #$FFFF
     sta f:V_TMP
     bra @have_label
 @pass:
     ldy #str_pass
     jsr str_ptr_bank0
+    sep #$20
+    .a8
     lda #ATTR_BLUE
     sta f:V_ATTR
+    rep #$30
+    .a16
+    .i16
     lda #$FFFF
     sta f:V_TMP
 @have_label:

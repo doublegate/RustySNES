@@ -1590,6 +1590,22 @@ fn the_menu_still_draws_after_the_battery() {
         "the menu's list does not show the first test's name. The title drew, so a bank-$00 string \
          works — what failed is reading a name out of the catalog's own bank. Row 7 read back as {list:?}"
     );
+    // The verdict label is drawn in the state's palette (the per-tile palette bits, from V_ATTR).
+    // A1.01 passed, so its label ("PASS") at MENU_LABEL_COL = 1 must be palette 1 (blue), and not the
+    // inverse-highlight copy (the page header is selected at menu open, not this row). This also
+    // guards V_ATTR itself: a wrong-width store there would corrupt the palette bits while the text
+    // still reads "PASS".
+    let label_tile = sys.bus.ppu.vram_word(MAP_BASE + SCREEN_COLS * 7 + 1);
+    assert_eq!(
+        (label_tile >> 10) & 0x07,
+        1,
+        "the PASS label is not drawn in the blue palette (tile {label_tile:#06x})"
+    );
+    assert_eq!(
+        label_tile & 0x0100,
+        0,
+        "the unselected PASS label was drawn in the inverse-highlight font (tile {label_tile:#06x})"
+    );
 
     // AccuracyCoin-style palette (`load_palette`, reloaded by `draw_screen` so the last scene's
     // palette does not bleed in): a grey backdrop with white/blue/red/black label inks. CGRAM index 0
