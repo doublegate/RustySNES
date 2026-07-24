@@ -92,7 +92,7 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     sta INIDISP                 ; forced blank while we set up
 
     ; Power-on path: this is a real reset, not a menu restart. `restart_entry` is below and does
-    ; NOT pass through here, so a Select restart leaves V_RESTARTED at the 1 its handler wrote.
+    ; NOT pass through here, so a Menu+Start restart leaves V_RESTARTED at the 1 its handler wrote.
     lda #$00
     sta f:V_RESTARTED
 
@@ -120,7 +120,7 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     jsr capture_power_on        ; MUST precede init_registers — see below
 
     ; Cold-boot only: clear the user-skip bitmap. WRAM powers up holding garbage, so without this a
-    ; random set of tests would report SKIP on the very first run. A Select restart re-enters at
+    ; random set of tests would report SKIP on the very first run. A Menu+Start restart re-enters at
     ; restart_entry below (past this), which is what preserves the marks the user set with B.
     rep #$30
     .a16
@@ -954,7 +954,7 @@ restart_entry:
     ; Forced blank is the battery's standing precondition (see the module header in tests/ppu.rs):
     ; the OAM/VRAM/CGRAM ports are only architecturally accessible outside active display, and
     ; nearly every test reads or writes them. The cold-boot caller sets INIDISP = $8F before it
-    ; jsr's here, but a Select restart re-enters at `restart_entry` with the display ON (the menu was
+    ; jsr's here, but a Menu+Start restart re-enters at `restart_entry` with the display ON (the menu was
     ; on screen) and `init_registers` never touches INIDISP — so a restart would run the whole
     ; battery mid-render. That is invisible under the batch compositor but not under the per-dot PPU:
     ; an OAM access during active display is correctly redirected to the sprite-evaluation index, so
@@ -2834,7 +2834,7 @@ test_restore := test_restore_impl
 .endproc
 
 ; Toggle the user-skip mark on the highlighted test and reflect it in R_STATUS immediately (SKIP when
-; set, back to NOT-RUN when cleared). The battery honours the mark on the next Select restart.
+; set, back to NOT-RUN when cleared). The battery honours the mark on the next Menu+Start restart.
 .proc toggle_skip
     rep #$30
     .a16

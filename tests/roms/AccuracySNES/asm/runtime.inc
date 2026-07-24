@@ -22,7 +22,7 @@ V_SAVED_S       = VAR_BASE + $0A      ; stack pointer captured before a test run
 V_TEST_IDX      = VAR_BASE + $0C      ; index of the test currently running (u16)
 V_TMP           = VAR_BASE + $0E      ; scratch (u16)
 V_TEST_RESULT   = VAR_BASE + $10      ; the running test's verdict byte (u8)
-V_RESTARTED     = VAR_BASE + $11      ; 0 on a genuine power-on, 1 after a menu (Select) restart;
+V_RESTARTED     = VAR_BASE + $11      ; 0 on a genuine power-on, 1 after a Menu+Start restart;
                                       ; power-on-dependent tests skip when it is set (u8)
 V_DIRTY         = VAR_BASE + $12      ; non-zero when the screen needs a redraw (u8)
 V_CURSOR_PREV   = VAR_BASE + $2A      ; where the cursor marker is currently drawn, so a within-
@@ -76,7 +76,7 @@ V_APU_PTR       = $0050
 
 ; User-skip bitmap: one bit per test (menu B toggles it), 64 bytes = 512 tests, at $7E:E100 -- clear
 ; of the runtime vars ($E000-$E0FF) and the measurement channel ($E200+). Zeroed on cold boot only
-; (a Select restart preserves the marks), so the harness's cold-boot scored run sees no skips and is
+; (a Menu+Start restart preserves the marks), so the harness's cold-boot scored run sees no skips and is
 ; byte-identical to a build without this feature. A marked test records SKIP without running.
 V_USER_SKIP     = $7EE100
 USER_SKIP_BYTES = 64
