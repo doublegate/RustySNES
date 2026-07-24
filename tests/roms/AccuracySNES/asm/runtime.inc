@@ -22,7 +22,7 @@ V_SAVED_S       = VAR_BASE + $0A      ; stack pointer captured before a test run
 V_TEST_IDX      = VAR_BASE + $0C      ; index of the test currently running (u16)
 V_TMP           = VAR_BASE + $0E      ; scratch (u16)
 V_TEST_RESULT   = VAR_BASE + $10      ; the running test's verdict byte (u8)
-V_RESTARTED     = VAR_BASE + $11      ; 0 on a genuine power-on, 1 after a menu (Select) restart;
+V_RESTARTED     = VAR_BASE + $11      ; 0 on a genuine power-on, 1 after a Menu+Start restart;
                                       ; power-on-dependent tests skip when it is set (u8)
 V_DIRTY         = VAR_BASE + $12      ; non-zero when the screen needs a redraw (u8)
 V_CURSOR_PREV   = VAR_BASE + $2A      ; where the cursor marker is currently drawn, so a within-
@@ -41,6 +41,10 @@ V_MENU_CNT      = VAR_BASE + $38      ; number of tests on the current page (u16
 V_SKY_SCREEN    = VAR_BASE + $3A      ; skyline horizontal screen (a page group of SKY_COLS), u8
 V_SKY_J         = VAR_BASE + $3C      ; skyline per-column brick loop index (u16)
 V_OAM_N         = VAR_BASE + $3E      ; next free OAM sprite slot while drawing the skyline (u8)
+; Debug memory viewer (AccuracyCoin's Select screen). $7D-$7F is free: the power-on capture block
+; ends at V_PO_READY ($7C) and the results block does not start until $F000.
+V_PREV_VIEW     = VAR_BASE + $7D      ; the view to restore when leaving the debug viewer (u8)
+V_DEBUG_ADDR    = VAR_BASE + $7E      ; low 16 bits of the bank-$7E WRAM address the viewer dumps (u16)
 ; Offset-per-tile entry values handed to `scene_opt_map`: the H row (0) and the V row (1), each
 ; with an even-column and an odd-column value. Alternating columns is what makes the leftmost-tile
 ; exemption visible — the shifted columns come out odd-numbered rather than even.
@@ -72,7 +76,7 @@ V_APU_PTR       = $0050
 
 ; User-skip bitmap: one bit per test (menu B toggles it), 64 bytes = 512 tests, at $7E:E100 -- clear
 ; of the runtime vars ($E000-$E0FF) and the measurement channel ($E200+). Zeroed on cold boot only
-; (a Select restart preserves the marks), so the harness's cold-boot scored run sees no skips and is
+; (a Menu+Start restart preserves the marks), so the harness's cold-boot scored run sees no skips and is
 ; byte-identical to a build without this feature. A marked test records SKIP without running.
 V_USER_SKIP     = $7EE100
 USER_SKIP_BYTES = 64
@@ -393,6 +397,24 @@ SKY_BLOCK       = $20                 ; the space glyph; drawn inverse (tile $12
 ; sits over BG1.
 SKY_OBJ_OBSEL   = $02                 ; OBJ name base = $4000 words, 8x8 sprites
 SKY_OBJ_ATTR    = $30                 ; OAM attr: palette 0, priority 3, no flip, tile bit 8 = 0
+
+; --- debug memory viewer (AccuracyCoin's Select screen) --------------------------------------
+; A hex dump of bank-$7E WRAM: DEBUG_ROWS rows of DEBUG_BYTES bytes, one row per address+8, starting
+; at V_DEBUG_ADDR (Up/Down page it by DEBUG_SCROLL). Opens on the results block by default so the
+; per-test R_STATUS array is visible. V_DEBUG_ADDR is a free-running 16-bit offset into the fixed
+; bank-$7E base; Up/Down deliberately do NOT clamp, so scrolling wraps around and can browse the whole
+; of WRAM (a step off either end lands within the 128 KiB $7E/$7F WRAM — never an out-of-RAM access).
+DEBUG_ROWS      = 22
+DEBUG_BYTES     = 8                   ; bytes per row ("xxxx: HH*8" = 30 columns)
+DEBUG_ROW0      = 2                   ; first hex row (row 0 is the header)
+DEBUG_SCROLL    = $0040               ; Up/Down step: 8 rows ($40 bytes), an 8-of-22-row page that
+                                      ; keeps 14 rows of overlap for context between steps
+DEBUG_START     = $F000               ; default base: the results block ($7E:F000)
+
+; The three view modes (V_VIEW).
+VIEW_MENU       = 0
+VIEW_SKYLINE    = 1
+VIEW_DEBUG      = 2
 
 ; --- controller bits (manual $4016 read, MSB first) -------------------------------------------
 PAD_B           = $8000

@@ -92,7 +92,7 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     sta INIDISP                 ; forced blank while we set up
 
     ; Power-on path: this is a real reset, not a menu restart. `restart_entry` is below and does
-    ; NOT pass through here, so a Select restart leaves V_RESTARTED at the 1 its handler wrote.
+    ; NOT pass through here, so a Menu+Start restart leaves V_RESTARTED at the 1 its handler wrote.
     lda #$00
     sta f:V_RESTARTED
 
@@ -120,7 +120,7 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     jsr capture_power_on        ; MUST precede init_registers — see below
 
     ; Cold-boot only: clear the user-skip bitmap. WRAM powers up holding garbage, so without this a
-    ; random set of tests would report SKIP on the very first run. A Select restart re-enters at
+    ; random set of tests would report SKIP on the very first run. A Menu+Start restart re-enters at
     ; restart_entry below (past this), which is what preserves the marks the user set with B.
     rep #$30
     .a16
@@ -954,7 +954,7 @@ restart_entry:
     ; Forced blank is the battery's standing precondition (see the module header in tests/ppu.rs):
     ; the OAM/VRAM/CGRAM ports are only architecturally accessible outside active display, and
     ; nearly every test reads or writes them. The cold-boot caller sets INIDISP = $8F before it
-    ; jsr's here, but a Select restart re-enters at `restart_entry` with the display ON (the menu was
+    ; jsr's here, but a Menu+Start restart re-enters at `restart_entry` with the display ON (the menu was
     ; on screen) and `init_registers` never touches INIDISP — so a restart would run the whole
     ; battery mid-render. That is invisible under the batch compositor but not under the per-dot PPU:
     ; an OAM access during active display is correctly redirected to the sprite-evaluation index, so
@@ -2134,11 +2134,17 @@ test_restore := test_restore_impl
     rep #$30
     .a16
     .i16
-    ; V_VIEW selects which input set is live: 0 = the paged test menu, 1 = the skyline results.
+    ; V_VIEW selects which input set is live: 0 = paged menu, 1 = skyline, 2 = debug viewer.
     lda f:V_VIEW
     and #$00FF
-    beq @menu_input
+    bne @not_menu
+    jmp @menu_input
+@not_menu:
+    cmp #VIEW_SKYLINE
+    bne @debug_j
     jmp @skyline_input
+@debug_j:
+    jmp @debug_input
 
 @menu_input:
     lda f:V_PAD_NEW
@@ -2184,25 +2190,25 @@ test_restore := test_restore_impl
     beq @no_b
     jsr toggle_skip
 @no_b:
-    ; Start switches to the skyline results view -- AccuracyCoin's "run tests -> results" (the battery
-    ; already ran at boot, so this shows the existing verdicts rather than re-running). A host holding
-    ; the input contract (B + Start + X + R) holds Start continuously, but the menu acts on
-    ; freshly-pressed edges and the first-frame edge is primed away in the menu setup.
+    ; Start re-runs the battery -- AccuracyCoin's "run all tests" -- then lands on the skyline. A host
+    ; holding the input contract (B + Start + X + R) holds Start continuously, but the menu acts on
+    ; freshly-pressed edges and the first-frame edge is primed away in the menu setup, so a static
+    ; hold never triggers it.
     lda f:V_PAD_NEW
     bit #PAD_START
     beq @no_start
-    jsr enter_skyline
+    jmp rerun_battery           ; tail jump — rerun_battery resets SP and never returns
 @no_start:
-    ; Select restarts the whole battery from restart_entry (after the power-on capture).
+    ; Select opens the debug memory viewer (AccuracyCoin's Select screen).
     lda f:V_PAD_NEW
     bit #PAD_SELECT
     beq @no_select
-    jmp do_restart              ; never returns
+    jsr enter_debug
 @no_select:
     jmp @redraw
 
 @skyline_input:
-    ; Left/Right page the skyline across its screens; Start returns to the menu; Select restarts.
+    ; Left/Right page the skyline across its screens; Start returns to the menu; Select -> debug.
     lda f:V_PAD_NEW
     bit #PAD_LEFT
     beq :+
@@ -2221,7 +2227,25 @@ test_restore := test_restore_impl
     lda f:V_PAD_NEW
     bit #PAD_SELECT
     beq @redraw
-    jmp do_restart              ; never returns
+    jsr enter_debug
+    jmp @redraw
+
+@debug_input:
+    ; Up/Down page the hex dump; Select (or Start) leaves, restoring the previous view.
+    lda f:V_PAD_NEW
+    bit #PAD_UP
+    beq :+
+    jsr debug_scroll_up
+:
+    lda f:V_PAD_NEW
+    bit #PAD_DOWN
+    beq :+
+    jsr debug_scroll_down
+:
+    lda f:V_PAD_NEW
+    bit #(PAD_SELECT | PAD_START)
+    beq @redraw
+    jsr leave_debug
 
 @redraw:
     lda f:V_DIRTY
@@ -2258,17 +2282,26 @@ test_restore := test_restore_impl
     .i16
     lda f:V_VIEW
     and #$00FF
-    bne @sky
+    bne @not_menu
     jsr draw_screen
     rts
-@sky:
+@not_menu:
+    cmp #VIEW_SKYLINE
+    bne @dbg
     jsr draw_skyline
+    rts
+@dbg:
+    jsr draw_debug
     rts
 .endproc
 
-; Restart the whole battery from restart_entry. Resets the stack first (the menu has been jsr-ing
-; around) and does not return. Shared by the menu and skyline Select handlers.
-.proc do_restart
+; Restart the whole battery -- Start's "run all". Resets the stack (the menu has been jsr-ing around)
+; and re-enters at restart_entry, which re-initialises the machine (init_registers), shows the
+; pre-battery menu, and re-runs the battery + scenes before landing on the skyline. Going through
+; restart_entry rather than calling run_all_tests directly is what makes the re-run behave like a
+; fresh run: a bare re-run over the menu's stale PPU/APU state hangs. Marks V_RESTARTED so the
+; power-on-only rows (F1.07) stand down. Does not return.
+.proc rerun_battery
     sei
     sep #$20
     .a8
@@ -2282,22 +2315,217 @@ test_restore := test_restore_impl
     jmp reset::restart_entry
 .endproc
 
-; Enter the skyline results view from the menu: reset to its first screen and request a redraw.
-.proc enter_skyline
+; Open the debug memory viewer, remembering the view to return to and starting at the results block.
+.proc enter_debug
     rep #$30
     .a16
     .i16
     sep #$20
     .a8
-    lda #$01
+    lda f:V_VIEW
+    sta f:V_PREV_VIEW
+    lda #VIEW_DEBUG
     sta f:V_VIEW
-    lda #$00
-    sta f:V_SKY_SCREEN
     lda #$01
     sta f:V_DIRTY
     rep #$30
     .a16
     .i16
+    lda #DEBUG_START
+    sta f:V_DEBUG_ADDR
+    rts
+.endproc
+
+; Leave the debug viewer, restoring the view it was opened from.
+.proc leave_debug
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda f:V_PREV_VIEW
+    sta f:V_VIEW
+    lda #$01
+    sta f:V_DIRTY
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; Up: page the hex dump toward lower addresses.
+.proc debug_scroll_up
+    rep #$30
+    .a16
+    .i16
+    lda f:V_DEBUG_ADDR
+    sec
+    sbc #DEBUG_SCROLL
+    sta f:V_DEBUG_ADDR
+    sep #$20
+    .a8
+    lda #$01
+    sta f:V_DIRTY
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; Down: page the hex dump toward higher addresses.
+.proc debug_scroll_down
+    rep #$30
+    .a16
+    .i16
+    lda f:V_DEBUG_ADDR
+    clc
+    adc #DEBUG_SCROLL
+    sta f:V_DEBUG_ADDR
+    sep #$20
+    .a8
+    lda #$01
+    sta f:V_DIRTY
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; A (16-bit, 0-15) = nibble -> one hex glyph (0-9 / A-F) streamed with V_ATTR (reuses attr_hexdigit,
+; whose 0-9 / A-Z table covers 0-F). A (low byte) = byte -> two hex glyphs (high nibble then low).
+.proc attr_hex_byte
+    rep #$30
+    .a16
+    .i16
+    and #$00FF
+    pha
+    lsr
+    lsr
+    lsr
+    lsr                         ; high nibble
+    jsr attr_hexdigit
+    pla
+    and #$000F                  ; low nibble
+    jsr attr_hexdigit
+    rts
+.endproc
+
+; A (16-bit) = value -> four hex glyphs (high byte then low) streamed with V_ATTR.
+.proc attr_hex4
+    rep #$30
+    .a16
+    .i16
+    pha
+    xba                         ; swap bytes: low byte now holds the high byte
+    and #$00FF
+    jsr attr_hex_byte
+    pla
+    and #$00FF
+    jsr attr_hex_byte
+    rts
+.endproc
+
+; The debug memory viewer: a hex dump of bank-$7E WRAM from V_DEBUG_ADDR, DEBUG_ROWS x DEBUG_BYTES.
+; Opens on the results block, so the R_STATUS array and the tally are visible; Up/Down page it.
+.proc draw_debug
+    rep #$30
+    .a16
+    .i16
+    jsr clear_oam
+    ldx #MAP_BASE
+    ldy #(28 * SCREEN_COLS)
+    jsr blank_rows
+    ; Header: "DEBUG  7E:" + the base address, at row 0.
+    sep #$20
+    .a8
+    lda #ATTR_WHITE
+    sta f:V_ATTR
+    rep #$30
+    .a16
+    .i16
+    ldx #(MAP_BASE + 1)
+    jsr attr_set_addr
+    ldy #str_debug
+    jsr str_ptr_bank0
+    jsr attr_str
+    lda f:V_DEBUG_ADDR
+    jsr attr_hex4
+    ; Rows.
+    lda #$0000
+    sta f:V_MENU_I              ; row counter
+@row:
+    lda f:V_MENU_I
+    cmp #DEBUG_ROWS
+    bcc :+
+    jmp @done
+:
+    ; This row's WRAM address = V_DEBUG_ADDR + row * DEBUG_BYTES; a $7E:addr direct-page pointer.
+    lda f:V_MENU_I
+    asl
+    asl
+    asl                         ; * 8
+    clc
+    adc f:V_DEBUG_ADDR
+    sta f:V_TMP2               ; row base address
+    sta f:V_STR_PTR
+    sep #$20
+    .a8
+    lda #$7E
+    sta f:V_STR_PTR+2
+    rep #$30
+    .a16
+    .i16
+    ; VRAM address of the row: MAP_BASE + (DEBUG_ROW0 + row) * SCREEN_COLS + 1
+    lda f:V_MENU_I
+    clc
+    adc #DEBUG_ROW0
+    asl
+    asl
+    asl
+    asl
+    asl                         ; * 32
+    clc
+    adc #(MAP_BASE + 1)
+    tax
+    jsr attr_set_addr
+    ; "xxxx: "
+    lda f:V_TMP2
+    jsr attr_hex4
+    lda #':'
+    jsr attr_putdigit
+    lda #' '
+    jsr attr_putdigit
+    ; DEBUG_BYTES bytes, each two hex glyphs then a space.
+    lda #$0000
+    sta f:V_SKY_J              ; byte counter
+@byte:
+    lda f:V_SKY_J
+    cmp #DEBUG_BYTES
+    bcc :+
+    bra @byte_done
+:
+    lda f:V_SKY_J
+    tay
+    sep #$20
+    .a8
+    lda [V_STR_PTR],y          ; the WRAM byte
+    rep #$30
+    .a16
+    .i16
+    and #$00FF
+    jsr attr_hex_byte
+    lda #' '
+    jsr attr_putdigit
+    lda f:V_SKY_J
+    inc a
+    sta f:V_SKY_J
+    bra @byte
+@byte_done:
+    lda f:V_MENU_I
+    inc a
+    sta f:V_MENU_I
+    jmp @row
+@done:
     rts
 .endproc
 
@@ -2606,7 +2834,7 @@ test_restore := test_restore_impl
 .endproc
 
 ; Toggle the user-skip mark on the highlighted test and reflect it in R_STATUS immediately (SKIP when
-; set, back to NOT-RUN when cleared). The battery honours the mark on the next Select restart.
+; set, back to NOT-RUN when cleared). The battery honours the mark on the next Menu+Start restart.
 .proc toggle_skip
     rep #$30
     .a16
@@ -3955,3 +4183,6 @@ str_scr:
 str_passed:
     .byte 14
     .byte "TESTS PASSED: "
+str_debug:
+    .byte 10
+    .byte "DEBUG  7E:"

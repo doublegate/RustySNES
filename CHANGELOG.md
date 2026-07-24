@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES on-cart debug memory viewer (Select), with Start remapped to the battery restart.**
+  Select — from either the menu or the skyline results screen — now opens an AccuracyCoin-style hex
+  dump of WRAM: a `7E:ADDR` header over 22 rows of 8 bytes each, read live through a 24-bit direct-page
+  pointer so it reflects the machine's current state. Up/Down page the window ($40 bytes at a time),
+  and Select or Start returns to the prior view. Start's meaning is now consistent across views:
+  **Skyline+Start** drops to the menu, and **Menu+Start** restarts the whole battery (AccuracyCoin's
+  "run all") back onto the skyline — replacing the previous Start menu/skyline toggle. Select was
+  previously the restart trigger; the restart moved to Menu+Start to free Select for the viewer. None
+  of `Select`, `Up`, or `Down` is in the input contract, so the automated hosts (which hold the
+  contract continuously) never trigger the viewer or the restart, and the cross-validated battery and
+  scenes are unchanged.
+
 - **AccuracySNES `F1.10` (the auto-read start race) is now a scored row (288 -> 289 of the on-cart
   scoring total; 341 -> 342 of 443 overall).** The automatic joypad read begins a few dozen cycles into the
   first vblank line, so a `$4212` bit-0 poll at NMI entry sees it not-yet-started even though it is
