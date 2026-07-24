@@ -152,8 +152,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   verdict byte, so the human-facing restyle is orthogonal to the harness's WRAM-based scoring (the
   self-scoring battery is unchanged at 298/298). Controls follow AccuracyCoin: **Up/Down** select
   (through a page-header line above the list), **Left/Right** change page, **A** re-runs the
-  highlighted test, **Start** re-runs the whole battery, **Select** restarts from the power-on
-  capture. The selected row (or the page header) draws in an **inverse-video** font copy (a
+  highlighted test, **B** toggles a user-skip mark on it, **Start** shows the results, **Select**
+  restarts from the power-on capture. A B-marked test shows `SKIP` immediately and is honoured
+  (recorded `SKIP` without running) on the next restart; the skip bitmap is zeroed on cold boot, so
+  the harness's scored run is provably unaffected. The selected row (or the page header) draws in an
+  **inverse-video** font copy (a
   complemented glyph set at tile `$100`, uploaded beside the upright font) — the highlight bar
   AccuracyCoin gets from its `tile+$80` inverse tiles, done on a single background layer where palette
   colour 0 is transparent. **Start** switches to the AccuracyCoin **skyline results view** — the

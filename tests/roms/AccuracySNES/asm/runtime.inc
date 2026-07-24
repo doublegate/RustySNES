@@ -69,6 +69,13 @@ V_APU_LEN2      = VAR_BASE + $2E      ; block B byte count (compared as a full 1
 V_APU_DEST2     = VAR_BASE + $30      ; block B APU RAM destination
 V_APU_PTR       = $0050
 
+; User-skip bitmap: one bit per test (menu B toggles it), 64 bytes = 512 tests, at $7E:E100 -- clear
+; of the runtime vars ($E000-$E0FF) and the measurement channel ($E200+). Zeroed on cold boot only
+; (a Select restart preserves the marks), so the harness's cold-boot scored run sees no skips and is
+; byte-identical to a build without this feature. A marked test records SKIP without running.
+V_USER_SKIP     = $7EE100
+USER_SKIP_BYTES = 64
+
 ; ---------------------------------------------------------------------------------------------
 ; Power-on capture block ($E040-$E04F, plus the DMA snapshot at $E060-$E06B).
 ;

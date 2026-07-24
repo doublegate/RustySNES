@@ -119,6 +119,21 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     sta f:V_PO_READY            ; it) — STZ has no long-addressing form, so LDA/STA
     jsr capture_power_on        ; MUST precede init_registers — see below
 
+    ; Cold-boot only: clear the user-skip bitmap. WRAM powers up holding garbage, so without this a
+    ; random set of tests would report SKIP on the very first run. A Select restart re-enters at
+    ; restart_entry below (past this), which is what preserves the marks the user set with B.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+    lda #$0000
+@clr_skip:
+    sta f:V_USER_SKIP,x
+    inx
+    inx
+    cpx #USER_SKIP_BYTES
+    bne @clr_skip
+
     ; Start, from the menu, restarts the whole battery -- but re-enters HERE, after the power-on
     ; capture, not at reset. The V_PO_* values are only meaningful in the first instructions after a
     ; real reset; re-capturing them from a fully-initialised machine would fill the Group G power-on
@@ -686,6 +701,22 @@ rt_next:
     rep #$30
     .a16
     .i16
+
+    ; Honour a user skip mark (menu B). The bitmap is all-zero on the harness's cold boot, so this is
+    ; a no-op there and the scored run is byte-identical; only a human toggling B before a Select
+    ; restart sets a bit. A marked test records SKIP and is tallied as skipped without running.
+    lda f:V_TEST_IDX
+    jsr user_skip_check         ; Z set = not skipped
+    beq @not_skipped
+    sep #$20
+    .a8
+    lda #VERDICT_SKIP
+    sta f:V_TEST_RESULT
+    rep #$30
+    .a16
+    .i16
+    jmp test_restore_target     ; record SKIP + tally, then advance -- no dispatch
+@not_skipped:
 
     tsc
     sta f:V_SAVED_S             ; test_restore rebuilds the stack from this
@@ -1810,6 +1841,17 @@ test_restore := test_restore_impl
     beq @no_a
     jsr run_selected            ; never returns here
 @no_a:
+    ; B toggles the user-skip mark on the highlighted test (nothing to toggle on the page header).
+    ; Like Start, B is inside the input contract, so a contract-holding host never edges it; a human
+    ; toggles freely. The mark shows immediately (SKIP / back to TEST) and is applied on a restart.
+    lda f:V_PAD_NEW
+    bit #PAD_B
+    beq @no_b
+    lda f:V_CURSOR
+    cmp #$FFFF
+    beq @no_b
+    jsr toggle_skip
+@no_b:
     ; Start switches to the skyline results view -- AccuracyCoin's "run tests -> results" (the battery
     ; already ran at boot, so this shows the existing verdicts rather than re-running). A host holding
     ; the input contract (B + Start + X + R) holds Start continuously, but the menu acts on
@@ -2194,6 +2236,114 @@ test_restore := test_restore_impl
     plb
     jsr call_indirect           ; never returns here; lands at test_restore_target
     rts                         ; unreachable, keeps the assembler's flow analysis happy
+.endproc
+
+; A (16-bit) = test index -> A (16-bit) = the test's user-skip bit (0 = not skipped; Z reflects it).
+; The bitmap byte is idx>>3, the bit is 1 << (idx & 7). Clobbers X.
+.proc user_skip_check
+    rep #$30
+    .a16
+    .i16
+    sta f:V_TMP                 ; idx
+    lsr
+    lsr
+    lsr                         ; byte index = idx >> 3
+    tax
+    sep #$20
+    .a8
+    lda f:V_USER_SKIP,x
+    rep #$30
+    .a16
+    .i16
+    and #$00FF
+    sta f:V_TMP2                ; the bitmap byte
+    ; mask = 1 << (idx & 7)
+    lda f:V_TMP
+    and #$0007
+    tax
+    lda #$0001
+@sh:
+    cpx #$0000
+    beq @sh_done
+    asl
+    dex
+    bra @sh
+@sh_done:
+    and f:V_TMP2                ; mask & byte -> Z clear if the test is skipped
+    rts
+.endproc
+
+; Toggle the user-skip mark on the highlighted test and reflect it in R_STATUS immediately (SKIP when
+; set, back to NOT-RUN when cleared). The battery honours the mark on the next Select restart.
+.proc toggle_skip
+    rep #$30
+    .a16
+    .i16
+    ; battery index = _page_tests[_page_off[V_PAGE] + V_CURSOR]
+    lda f:V_PAGE
+    asl
+    tax
+    lda f:_page_off,x
+    clc
+    adc f:V_CURSOR
+    asl
+    tax
+    lda f:_page_tests,x
+    sta f:V_TMP2                ; battery index
+    ; mask = 1 << (idx & 7) -> V_TMP; byte index -> X
+    lda f:V_TMP2
+    and #$0007
+    tax
+    lda #$0001
+@sh:
+    cpx #$0000
+    beq @sh_done
+    asl
+    dex
+    bra @sh
+@sh_done:
+    sta f:V_TMP                 ; mask
+    lda f:V_TMP2
+    lsr
+    lsr
+    lsr
+    tax                         ; byte index
+    ; byte ^= mask
+    sep #$20
+    .a8
+    lda f:V_USER_SKIP,x
+    eor f:V_TMP
+    sta f:V_USER_SKIP,x
+    and f:V_TMP                 ; new bit state
+    beq @cleared
+    ; now marked -> show SKIP
+    rep #$30
+    .a16
+    .i16
+    lda f:V_TMP2
+    tax
+    sep #$20
+    .a8
+    lda #VERDICT_SKIP
+    sta f:R_STATUS,x
+    bra @done
+@cleared:
+    rep #$30
+    .a16
+    .i16
+    lda f:V_TMP2
+    tax
+    sep #$20
+    .a8
+    lda #VERDICT_NOTRUN
+    sta f:R_STATUS,x
+@done:
+    lda #$01
+    sta f:V_DIRTY
+    rep #$30
+    .a16
+    .i16
+    rts
 .endproc
 
 ; ---------------------------------------------------------------------------------------------

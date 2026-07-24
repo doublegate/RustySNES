@@ -561,6 +561,7 @@ const MAP_BASE: u16 = 0x0400;
 const SCREEN_COLS: u16 = 32;
 
 /// The Down bit of the 16-bit `BYsSUDLR` controller word.
+const PAD_B: u16 = 0x8000;
 const PAD_START: u16 = 0x1000;
 const PAD_UP: u16 = 0x0800;
 const PAD_DOWN: u16 = 0x0400;
@@ -1985,5 +1986,145 @@ fn the_start_button_shows_the_skyline() {
     assert!(
         text_row(&sys, 5).contains("PAGE"),
         "the menu did not redraw after leaving the skyline"
+    );
+}
+
+/// B toggles a test's user-skip mark (menu control), and the cold-boot scored run ignores it.
+///
+/// The battery runs at boot with the skip bitmap zeroed, so pressing B afterward only changes what
+/// the menu shows and what a *subsequent* Select restart would run — it can never perturb the
+/// harness's scored total (asserted separately in `accuracysnes_battery`). Here: the highlighted
+/// test's label flips PASS -> SKIP -> back to TEST, and the machine stays live. B is inside the input
+/// contract, so the test releases the contract to drive a clean edge (the battery is already done).
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one linear script (select, toggle PASS->SKIP->TEST, re-mark, restart, verify honoured) \
+              read top-to-bottom; splitting it would scatter the shared cart/System setup across helpers"
+)]
+fn the_b_button_toggles_skip() {
+    if !rom_path().is_file() {
+        eprintln!("SKIP accuracysnes: ROM absent");
+        return;
+    }
+    let rom = std::fs::read(rom_path()).expect("read rom");
+    let cart = Cart::from_rom(&rom).expect("AccuracySNES header must be detectable");
+    let mut sys = System::new(0);
+    sys.bus.cart = Some(cart);
+    sys.reset();
+    sys.bus.set_joypad(0, PAD_CONTRACT);
+    sys.bus.set_joypad(1, PAD2_CONTRACT);
+
+    let mut frames = 0;
+    while frames < MENU_FRAMES && sys.bus.peek_wram(R_SCENE_DONE) != SCENE_DONE_MARK {
+        sys.run_frame();
+        frames += 1;
+    }
+    assert_eq!(
+        sys.bus.peek_wram(R_SCENE_DONE),
+        SCENE_DONE_MARK,
+        "menu never reached"
+    );
+    for _ in 0..12 {
+        sys.run_frame();
+    }
+    let text_row = |s: &System, row: u16| -> String {
+        (0..32)
+            .map(|i| char::from((s.bus.ppu.vram_word(MAP_BASE + row * 32 + i) & 0xFF) as u8))
+            .collect()
+    };
+    let press = |s: &mut System, btn: u16| {
+        s.bus.set_joypad(0, 0);
+        s.run_frame();
+        s.bus.set_joypad(0, btn);
+        for _ in 0..3 {
+            s.run_frame();
+        }
+        s.bus.set_joypad(0, 0);
+        for _ in 0..6 {
+            s.run_frame();
+        }
+    };
+
+    // Select the first test (page 0 row 0). A1.01 passed at boot, so its label is PASS.
+    press(&mut sys, PAD_DOWN);
+    assert!(
+        text_row(&sys, 7).contains("PASS"),
+        "the first test's label was not PASS before B (row 7 = {:?})",
+        text_row(&sys, 7)
+    );
+
+    // B marks it skipped -> the label becomes SKIP.
+    press(&mut sys, PAD_B);
+    assert!(
+        text_row(&sys, 7).contains("SKIP"),
+        "B did not mark the test SKIP (row 7 = {:?})",
+        text_row(&sys, 7)
+    );
+
+    // B again clears the mark -> the test is now not-run (TEST) until re-run.
+    press(&mut sys, PAD_B);
+    let row = text_row(&sys, 7);
+    assert!(
+        row.contains("TEST"),
+        "a second B did not clear the skip mark (row 7 = {row:?})"
+    );
+    assert!(
+        row.contains("XCE clears XH/YH"),
+        "the test name was lost across B toggles (row 7 = {row:?})"
+    );
+    assert_eq!(
+        sys.bus.ppu.display_brightness(),
+        15,
+        "the menu did not survive the B toggles"
+    );
+
+    // Mark it skipped again, then Select-restart: the battery must honour the mark and record SKIP
+    // for that test without running it. This is the end-to-end check of the run_all_tests skip path.
+    press(&mut sys, PAD_B);
+    assert!(
+        text_row(&sys, 7).contains("SKIP"),
+        "re-marking the test did not show SKIP"
+    );
+    let a101 = catalog()
+        .iter()
+        .position(|t| t.id == "A1.01")
+        .expect("A1.01 is in the catalog");
+    let a101 = u32::try_from(a101).expect("A1.01 index fits u32");
+    // Select restarts the battery (Select is outside the input contract, so a plain edge fires it).
+    sys.bus.set_joypad(0, PAD_SELECT);
+    for _ in 0..3 {
+        sys.run_frame();
+    }
+    sys.bus.set_joypad(0, 0);
+    // run_all_tests clears R_DONE at its start and re-sets it at the end; wait for that whole cycle so
+    // the restart has actually re-run (and would have overwritten A1.01's SKIP with PASS if it ran it).
+    let mut cleared = false;
+    for _ in 0..60 {
+        sys.run_frame();
+        if sys.bus.peek_wram(R_DONE) != DONE_MARK {
+            cleared = true;
+            break;
+        }
+    }
+    assert!(
+        cleared,
+        "Select did not restart the battery — R_DONE never cleared"
+    );
+    let mut frames = 0;
+    while frames < MENU_FRAMES && sys.bus.peek_wram(R_DONE) != DONE_MARK {
+        sys.run_frame();
+        frames += 1;
+    }
+    assert_eq!(
+        sys.bus.peek_wram(R_DONE),
+        DONE_MARK,
+        "the restarted battery never finished"
+    );
+    assert_eq!(
+        sys.bus.peek_wram(R_STATUS_BASE + a101),
+        0xFF,
+        "the battery did not honour the B skip mark on restart — A1.01 must record SKIP, not run \
+         (a PASS here means run_all_tests ignored the user-skip bitmap)"
     );
 }
