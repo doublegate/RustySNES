@@ -549,10 +549,12 @@ const V_PAGE: u32 = 0x7E_E002;
 const MENU_HEADER: u16 = 0xFFFF;
 /// `V_TEST_IDX` — the battery index of the test the menu last dispatched (`VAR_BASE + $0C`).
 const V_TEST_IDX: u32 = 0x7E_E00C;
-/// `V_VIEW` — 0 = paged menu, 1 = skyline results (`VAR_BASE + $33`).
+/// `V_VIEW` — 0 = paged menu, 1 = skyline results, 2 = debug viewer (`VAR_BASE + $33`).
 const V_VIEW: u32 = 0x7E_E033;
 /// `V_SKY_SCREEN` — the skyline's horizontal screen (`VAR_BASE + $3A`).
 const V_SKY_SCREEN: u32 = 0x7E_E03A;
+/// `V_DEBUG_ADDR` — the bank-$7E address the debug viewer dumps (`VAR_BASE + $7E`).
+const V_DEBUG_ADDR: u32 = 0x7E_E07E;
 
 /// Frame ceiling for the menu-interaction tests to reach the interactive menu (bounds CI time; not
 /// a timeout on a legitimate run). The tilemap base and column stride of the drawn name list.
@@ -1856,17 +1858,16 @@ fn the_dpad_navigates_the_pages() {
         "the menu did not survive an A re-run"
     );
 
-    // Select restarts the whole battery from restart_entry. R_DONE clears while it re-runs, then the
-    // scene loop must complete again and the menu return.
-    sys.bus.set_joypad(0, PAD_CONTRACT | PAD_SELECT);
-    for _ in 0..3 {
-        sys.run_frame();
-    }
+    // Menu + Start restarts the whole battery -- AccuracyCoin's "run all" -- and lands on the skyline.
+    // Start is inside the input contract, so edge ONLY Start (drop it while keeping B/X/R held, then
+    // re-press) -- releasing the whole contract would also edge B and toggle a skip. Group F still
+    // sees the contract held through the re-run. R_DONE clears when the re-run starts and sets again
+    // when it finishes.
+    sys.bus.set_joypad(0, PAD_CONTRACT & !PAD_START);
+    sys.run_frame();
     sys.bus.set_joypad(0, PAD_CONTRACT);
-    // `run_all_tests` clears R_DONE at its very start, well before the scene loop clears
-    // R_SCENE_DONE ~430 frames later, so R_DONE is the prompt signal that a restart began.
     let mut cleared = false;
-    for _ in 0..30 {
+    for _ in 0..80 {
         sys.run_frame();
         if sys.bus.peek_wram(R_DONE) != DONE_MARK {
             cleared = true;
@@ -1875,11 +1876,8 @@ fn the_dpad_navigates_the_pages() {
     }
     assert!(
         cleared,
-        "Select did not restart the battery — R_DONE never cleared"
+        "Menu+Start did not restart the battery — R_DONE never cleared"
     );
-    // And that the restarted battery runs to completion — R_DONE set again — rather than hanging.
-    // R_SCENE_DONE is no use here: it is still set from the previous run until the scene loop
-    // clears it ~430 frames in, so waiting on it would read R_PASSED mid-restart.
     let mut frames = 0;
     while frames < MENU_FRAMES && sys.bus.peek_wram(R_DONE) != DONE_MARK {
         sys.run_frame();
@@ -1890,7 +1888,7 @@ fn the_dpad_navigates_the_pages() {
         DONE_MARK,
         "the restarted battery never finished"
     );
-    // One fewer than a cold boot: F1.07 stands down as SKIP on a restart because its phase A needs
+    // One fewer than a cold boot: F1.07 stands down as SKIP on a re-run because its phase A needs
     // the power-on value of $4218, which a soft restart cannot reproduce (the previous run armed
     // auto-read). Its verdict is $FF (skip), not a fail code. Relative to the first run's pass count
     // rather than a literal, so adding tests does not break this.
@@ -1911,14 +1909,16 @@ fn the_dpad_navigates_the_pages() {
     );
 }
 
-/// The AccuracyCoin-style skyline results view shows automatically when the battery finishes, and
-/// Start toggles it against the menu.
+/// The AccuracyCoin-style skyline results view shows automatically when the battery finishes; Start
+/// leaves it for the menu, and Menu+Start restarts the battery back onto the skyline.
 ///
 /// Once the battery concludes the cart lands on the "city" (`V_VIEW` = 1): one column per page, one
 /// brick per test, framed by a "RESULTS  SCR x/y" header and a "TESTS PASSED: N / M" footer. Left/Right
-/// page the columns across screens (51 pages exceed one 30-column screen); Start toggles to the menu
-/// and back. The check is the view is the skyline at the end, the frame text drew, a real brick landed,
-/// the screen paged, and Start toggles cleanly (a width desync shows up as a frozen screen).
+/// page the columns across screens (51 pages exceed one 30-column screen); Start on the skyline drops to
+/// the menu, and Start on the menu restarts the whole battery (AccuracyCoin's "run all"), which lands
+/// back on the skyline. The check is the view is the skyline at the end, the frame text drew, a real
+/// brick landed, the screen paged, and the Start round-trip is clean (a width desync shows up as a
+/// frozen screen).
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -2075,7 +2075,7 @@ fn the_start_button_shows_the_skyline() {
         "the skyline footer was lost after paging"
     );
 
-    // Start toggles to the menu (now showing the verdicts) and back to the skyline.
+    // Start on the skyline drops to the menu (now showing the verdicts).
     press(&mut sys, PAD_START);
     assert_eq!(
         sys.bus.peek_wram(V_VIEW),
@@ -2086,15 +2086,46 @@ fn the_start_button_shows_the_skyline() {
         text_row(&sys, 5).contains("PAGE"),
         "the menu did not draw after leaving the skyline"
     );
-    press(&mut sys, PAD_START);
+
+    // Start on the menu restarts the whole battery, which runs and lands back on the skyline. Start is
+    // inside the input contract, so edge ONLY Start (drop it while keeping B/X/R held, then re-press) so
+    // the restart's `wait_for_start` still sees the contract held and auto-proceeds. R_DONE clears when
+    // the re-run starts and sets again when it finishes.
+    sys.bus.set_joypad(0, PAD_CONTRACT & !PAD_START);
+    sys.run_frame();
+    sys.bus.set_joypad(0, PAD_CONTRACT);
+    let mut cleared = false;
+    for _ in 0..80 {
+        sys.run_frame();
+        if sys.bus.peek_wram(R_DONE) != DONE_MARK {
+            cleared = true;
+            break;
+        }
+    }
+    assert!(
+        cleared,
+        "Menu+Start did not restart the battery — R_DONE never cleared"
+    );
+    // Wait for the restarted battery + scenes to complete and hand back to the skyline. R_SCENE_DONE is
+    // stale from the first run until the restart's reset clears it, so poll the end state (V_VIEW = 1)
+    // directly rather than a done-flag that reads marked mid-restart.
+    let mut frames = 0;
+    while frames < MENU_FRAMES && sys.bus.peek_wram(V_VIEW) != 1 {
+        sys.run_frame();
+        frames += 1;
+    }
     assert_eq!(
         sys.bus.peek_wram(V_VIEW),
         1,
-        "Start did not switch back to the skyline"
+        "Menu+Start did not land back on the skyline after the restart"
     );
+    // The skyline redraws the frame after V_VIEW flips; settle a few frames before reading its footer.
+    for _ in 0..12 {
+        sys.run_frame();
+    }
     assert!(
         text_row(&sys, 26).contains("TESTS PASSED:"),
-        "the skyline did not redraw on the way back"
+        "the skyline did not redraw after the restart"
     );
 }
 
@@ -2208,18 +2239,15 @@ fn the_b_button_toggles_skip() {
         .position(|t| t.id == "A1.01")
         .expect("A1.01 is in the catalog");
     let a101 = u32::try_from(a101).expect("A1.01 index fits u32");
-    // Select restarts (Select is outside the input contract, so a plain edge fires it). The restart
-    // returns to the pre-battery menu and waits for Start, so hold the contract (which includes Start)
-    // afterward: a contract-holding host auto-proceeds through the preview, and Group F needs it held.
-    sys.bus.set_joypad(0, PAD_SELECT);
-    for _ in 0..3 {
-        sys.run_frame();
-    }
-    sys.bus.set_joypad(0, PAD_CONTRACT);
-    // run_all_tests clears R_DONE at its start and re-sets it at the end; wait for that whole cycle so
-    // the restart has actually re-run (and would have overwritten A1.01's SKIP with PASS if it ran it).
+    // Menu + Start restarts the battery, honouring the skip marks. The joypad is released here, so
+    // press ONLY Start -- pressing the whole contract would edge B and un-mark the skip we just set.
+    // Group F seeing a partial pad during the re-run does not matter: this test only checks A1.01, and
+    // run_all_tests honours V_USER_SKIP regardless. run_all_tests clears R_DONE at its start and
+    // re-sets it at the end; wait for that whole cycle so the re-run has actually run (and would have
+    // overwritten A1.01's SKIP with PASS if it ran the test).
+    sys.bus.set_joypad(0, PAD_START);
     let mut cleared = false;
-    for _ in 0..60 {
+    for _ in 0..80 {
         sys.run_frame();
         if sys.bus.peek_wram(R_DONE) != DONE_MARK {
             cleared = true;
@@ -2228,7 +2256,7 @@ fn the_b_button_toggles_skip() {
     }
     assert!(
         cleared,
-        "Select did not restart the battery — R_DONE never cleared"
+        "Menu+Start did not re-run the battery — R_DONE never cleared"
     );
     let mut frames = 0;
     while frames < MENU_FRAMES && sys.bus.peek_wram(R_DONE) != DONE_MARK {
@@ -2238,12 +2266,12 @@ fn the_b_button_toggles_skip() {
     assert_eq!(
         sys.bus.peek_wram(R_DONE),
         DONE_MARK,
-        "the restarted battery never finished"
+        "the re-run battery never finished"
     );
     assert_eq!(
         sys.bus.peek_wram(R_STATUS_BASE + a101),
         0xFF,
-        "the battery did not honour the B skip mark on restart — A1.01 must record SKIP, not run \
+        "the battery did not honour the B skip mark on the re-run — A1.01 must record SKIP, not run \
          (a PASS here means run_all_tests ignored the user-skip bitmap)"
     );
 }
@@ -2355,5 +2383,114 @@ fn the_menu_shows_before_the_battery() {
         sys.bus.peek_wram(R_DONE),
         DONE_MARK,
         "pressing Start did not run the battery to completion"
+    );
+}
+
+/// Select opens the AccuracyCoin-style debug memory viewer, and Select/Start close it.
+///
+/// From the menu or skyline, Select switches `V_VIEW` to 2 and draws a hex dump of bank-$7E WRAM
+/// starting at the results block ($7E:F000), so `R_MAGIC` ("ACSN" = 41 43 53 4E) and the per-test
+/// `R_STATUS` array are on screen. Up/Down page the dump; Select or Start restores the prior view.
+#[test]
+fn the_select_button_shows_the_debug_viewer() {
+    if !rom_path().is_file() {
+        eprintln!("SKIP accuracysnes: ROM absent");
+        return;
+    }
+    let rom = std::fs::read(rom_path()).expect("read rom");
+    let cart = Cart::from_rom(&rom).expect("AccuracySNES header must be detectable");
+    let mut sys = System::new(0);
+    sys.bus.cart = Some(cart);
+    sys.reset();
+    sys.bus.set_joypad(0, PAD_CONTRACT);
+    sys.bus.set_joypad(1, PAD2_CONTRACT);
+
+    let mut frames = 0;
+    while frames < MENU_FRAMES && sys.bus.peek_wram(R_SCENE_DONE) != SCENE_DONE_MARK {
+        sys.run_frame();
+        frames += 1;
+    }
+    assert_eq!(
+        sys.bus.peek_wram(R_SCENE_DONE),
+        SCENE_DONE_MARK,
+        "menu never reached"
+    );
+    for _ in 0..12 {
+        sys.run_frame();
+    }
+    let rd16 = |s: &System, a: u32| -> u16 {
+        u16::from(s.bus.peek_wram(a)) | (u16::from(s.bus.peek_wram(a + 1)) << 8)
+    };
+    let text_row = |s: &System, row: u16| -> String {
+        (0..32)
+            .map(|i| char::from((s.bus.ppu.vram_word(MAP_BASE + row * 32 + i) & 0xFF) as u8))
+            .collect()
+    };
+    // Select / Up / Down are all outside the input contract, so a contract-holding host edges them.
+    let press = |s: &mut System, btn: u16| {
+        s.bus.set_joypad(0, PAD_CONTRACT | btn);
+        for _ in 0..3 {
+            s.run_frame();
+        }
+        s.bus.set_joypad(0, PAD_CONTRACT);
+        for _ in 0..8 {
+            s.run_frame();
+        }
+    };
+
+    // The cart is on the skyline after the battery; Select opens the debug viewer.
+    assert_eq!(sys.bus.peek_wram(V_VIEW), 1, "did not start on the skyline");
+    press(&mut sys, PAD_SELECT);
+    assert_eq!(
+        sys.bus.peek_wram(V_VIEW),
+        2,
+        "Select did not open the debug viewer"
+    );
+    let header = text_row(&sys, 0);
+    assert!(
+        header.contains("DEBUG") && header.contains("F000"),
+        "the debug header did not draw (row 0 = {header:?})"
+    );
+    // Row 2 dumps $7E:F000, whose first four bytes are R_MAGIC = "ACSN" -> 41 43 53 4E.
+    let first = text_row(&sys, 2);
+    assert!(
+        first.contains("F000: 41 43 53 4E"),
+        "the debug dump did not read the results block's magic (row 2 = {first:?})"
+    );
+    assert_eq!(
+        sys.bus.ppu.display_brightness(),
+        15,
+        "the debug viewer left the display blank"
+    );
+
+    // Down pages the dump forward by one step ($40).
+    press(&mut sys, PAD_DOWN);
+    assert_eq!(
+        rd16(&sys, V_DEBUG_ADDR),
+        0xF040,
+        "Down did not page the debug dump"
+    );
+    assert!(
+        text_row(&sys, 2).contains("F040:"),
+        "the debug dump's first row address did not follow the scroll"
+    );
+    // Up pages it back.
+    press(&mut sys, PAD_UP);
+    assert_eq!(
+        rd16(&sys, V_DEBUG_ADDR),
+        0xF000,
+        "Up did not page the debug dump back"
+    );
+
+    // Select restores the view it was opened from (the skyline).
+    press(&mut sys, PAD_SELECT);
+    assert_eq!(
+        sys.bus.peek_wram(V_VIEW),
+        1,
+        "Select did not return from the debug viewer to the skyline"
+    );
+    assert!(
+        text_row(&sys, 26).contains("TESTS PASSED:"),
+        "the skyline did not redraw after leaving the debug viewer"
     );
 }

@@ -41,6 +41,10 @@ V_MENU_CNT      = VAR_BASE + $38      ; number of tests on the current page (u16
 V_SKY_SCREEN    = VAR_BASE + $3A      ; skyline horizontal screen (a page group of SKY_COLS), u8
 V_SKY_J         = VAR_BASE + $3C      ; skyline per-column brick loop index (u16)
 V_OAM_N         = VAR_BASE + $3E      ; next free OAM sprite slot while drawing the skyline (u8)
+; Debug memory viewer (AccuracyCoin's Select screen). $7D-$7F is free: the power-on capture block
+; ends at V_PO_READY ($7C) and the results block does not start until $F000.
+V_PREV_VIEW     = VAR_BASE + $7D      ; the view to restore when leaving the debug viewer (u8)
+V_DEBUG_ADDR    = VAR_BASE + $7E      ; low 16 bits of the bank-$7E WRAM address the viewer dumps (u16)
 ; Offset-per-tile entry values handed to `scene_opt_map`: the H row (0) and the V row (1), each
 ; with an even-column and an odd-column value. Alternating columns is what makes the leftmost-tile
 ; exemption visible — the shifted columns come out odd-numbered rather than even.
@@ -393,6 +397,21 @@ SKY_BLOCK       = $20                 ; the space glyph; drawn inverse (tile $12
 ; sits over BG1.
 SKY_OBJ_OBSEL   = $02                 ; OBJ name base = $4000 words, 8x8 sprites
 SKY_OBJ_ATTR    = $30                 ; OAM attr: palette 0, priority 3, no flip, tile bit 8 = 0
+
+; --- debug memory viewer (AccuracyCoin's Select screen) --------------------------------------
+; A hex dump of bank-$7E WRAM: DEBUG_ROWS rows of DEBUG_BYTES bytes, one row per address+8, starting
+; at V_DEBUG_ADDR (Up/Down page it by DEBUG_SCROLL). Opens on the results block by default so the
+; per-test R_STATUS array is visible.
+DEBUG_ROWS      = 22
+DEBUG_BYTES     = 8                   ; bytes per row ("xxxx: HH*8" = 30 columns)
+DEBUG_ROW0      = 2                   ; first hex row (row 0 is the header)
+DEBUG_SCROLL    = $0040               ; Up/Down step (8 rows)
+DEBUG_START     = $F000               ; default base: the results block ($7E:F000)
+
+; The three view modes (V_VIEW).
+VIEW_MENU       = 0
+VIEW_SKYLINE    = 1
+VIEW_DEBUG      = 2
 
 ; --- controller bits (manual $4016 read, MSB first) -------------------------------------------
 PAD_B           = $8000
