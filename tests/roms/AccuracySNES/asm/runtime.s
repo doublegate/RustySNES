@@ -835,7 +835,7 @@ restart_entry:
     .a16
     .i16
     and #$00FF
-    cmp #$00FF
+    cmp #VERDICT_SKIP           ; the status was masked to 16 bits; VERDICT_SKIP zero-extends to match
     beq @no                     ; skip verdict -> not a pass
     bit #$0001
     beq @no                     ; even -> fail / not-run -> no sprite
@@ -1617,7 +1617,7 @@ test_restore := test_restore_impl
     and #$00FF
     cmp #VERDICT_NOTRUN
     beq @test
-    cmp #$00FF                  ; VERDICT_SKIP, masked to a byte
+    cmp #VERDICT_SKIP           ; the status was masked to 16 bits; VERDICT_SKIP zero-extends to match
     beq @skip
     bit #$0001                  ; bit 0 set = pass (possibly with a variant code); else fail
     bne @pass
@@ -2932,7 +2932,7 @@ test_restore := test_restore_impl
     bne :+
     rts                         ; not run -> no brick
 :
-    cmp #$00FF
+    cmp #VERDICT_SKIP           ; the status was masked to 16 bits; VERDICT_SKIP zero-extends to match
     beq @black                  ; skip -> black block
     bit #$0001
     bne @blue                   ; pass -> blue block
