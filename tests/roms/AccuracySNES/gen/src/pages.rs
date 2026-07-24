@@ -104,7 +104,8 @@ pub fn pages(battery: &[Test]) -> Vec<Page> {
             };
             assert!(
                 name.len() <= 28,
-                "page title '{name}' exceeds the 28-column centered row"
+                "page title '{name}' exceeds the 28-column centered row — give its sub-group a \
+                 shorter title in subgroup_title()"
             );
             out.push(Page {
                 name,
