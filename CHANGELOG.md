@@ -156,7 +156,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   capture. The selected row (or the page header) draws in an **inverse-video** font copy (a
   complemented glyph set at tile `$100`, uploaded beside the upright font) — the highlight bar
   AccuracyCoin gets from its `tile+$80` inverse tiles, done on a single background layer where palette
-  colour 0 is transparent. The skyline "city" results visualization is not yet wired in.
+  colour 0 is transparent. **Start** switches to the AccuracyCoin **skyline results view** — the
+  "city" where each page is a column and each test a brick stacked from a common baseline (so ragged
+  page lengths read as a skyline): a solid blue/black/white block for pass/skip/non-scoring, the red
+  code glyph for a fail, under a "RESULTS  SCR x/y" header and a "TESTS PASSED: N / M" footer, with
+  Left/Right paging the columns across screens (the 51 pages exceed one 30-column screen); Start
+  returns to the menu. The Start toggle sits on a controller-contract button, so a contract-holding
+  accuracy host (which holds it continuously with no rising edge) never leaves the menu, while a human
+  user toggles freely.
 - **The per-dot PPU compositor (`docs/adr/0014`, T-CA-10) is now the emulator's only renderer.** It
   first became the shipped default (a `per-dot-compositor` feature on by default), and then the batch
   whole-line composite it replaced (`render_scanline`/`compose_dac`) and the feature itself were

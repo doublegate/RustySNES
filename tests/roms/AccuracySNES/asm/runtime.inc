@@ -38,6 +38,8 @@ V_VIEW          = VAR_BASE + $33      ; 0 = paged test menu, 1 = skyline results
 V_MENU_I        = VAR_BASE + $34      ; draw_list / row loop index within the current page (u16)
 V_MENU_BASE     = VAR_BASE + $36      ; _page_tests entry index of the current page's first test (u16)
 V_MENU_CNT      = VAR_BASE + $38      ; number of tests on the current page (u16)
+V_SKY_SCREEN    = VAR_BASE + $3A      ; skyline horizontal screen (a page group of SKY_COLS), u8
+V_SKY_J         = VAR_BASE + $3C      ; skyline per-column brick loop index (u16)
 ; Offset-per-tile entry values handed to `scene_opt_map`: the H row (0) and the V row (1), each
 ; with an even-column and an odd-column value. Alternating columns is what makes the leftmost-tile
 ; exemption visible — the shifted columns come out odd-numbered rather than even.
@@ -356,6 +358,16 @@ ATTR_BLUE       = $04                 ; palette 1 ink blue   (PASS)
 ATTR_RED        = $08                 ; palette 2 ink red    (FAIL and its code)
 ATTR_BLACK      = $0C                 ; palette 3 ink black  (SKIP)
 ATTR_INVERSE    = $01                 ; select the inverse-font copy at tile $100 (highlight bar)
+
+; --- skyline results screen (AccuracyCoin's "city") -------------------------------------------
+; One column per page, one brick per test, stacked up from a common baseline so ragged page lengths
+; look like a skyline. A brick is the inverse-font space tile ($100 + ' ' = a solid colour-1 block)
+; in the verdict's palette; a FAIL brick is instead the upright code glyph in red. 51 pages exceed
+; the 32-column screen, so the columns page across SKY screens with Left/Right.
+SKY_COLS        = 30                  ; page columns per screen (x = SKY_X0 .. SKY_X0+SKY_COLS-1)
+SKY_X0          = 1                   ; leftmost brick column
+SKY_BASELINE    = 24                  ; brick row of a page's first test; taller pages rise above it
+SKY_BLOCK       = $20                 ; the space glyph; drawn inverse (tile $120) it is a solid block
 
 ; --- controller bits (manual $4016 read, MSB first) -------------------------------------------
 PAD_B           = $8000

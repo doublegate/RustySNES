@@ -549,6 +549,10 @@ const V_PAGE: u32 = 0x7E_E002;
 const MENU_HEADER: u16 = 0xFFFF;
 /// `V_TEST_IDX` — the battery index of the test the menu last dispatched (`VAR_BASE + $0C`).
 const V_TEST_IDX: u32 = 0x7E_E00C;
+/// `V_VIEW` — 0 = paged menu, 1 = skyline results (`VAR_BASE + $33`).
+const V_VIEW: u32 = 0x7E_E033;
+/// `V_SKY_SCREEN` — the skyline's horizontal screen (`VAR_BASE + $3A`).
+const V_SKY_SCREEN: u32 = 0x7E_E03A;
 
 /// Frame ceiling for the menu-interaction tests to reach the interactive menu (bounds CI time; not
 /// a timeout on a legitimate run). The tilemap base and column stride of the drawn name list.
@@ -557,6 +561,7 @@ const MAP_BASE: u16 = 0x0400;
 const SCREEN_COLS: u16 = 32;
 
 /// The Down bit of the 16-bit `BYsSUDLR` controller word.
+const PAD_START: u16 = 0x1000;
 const PAD_UP: u16 = 0x0800;
 const PAD_DOWN: u16 = 0x0400;
 const PAD_LEFT: u16 = 0x0200;
@@ -1856,5 +1861,129 @@ fn the_dpad_navigates_the_pages() {
         sys.bus.peek_wram(R_STATUS_BASE + f107_idx),
         0xFF,
         "F1.07 did not stand down as SKIP on the restart — it must not report a failure"
+    );
+}
+
+/// Start toggles to the AccuracyCoin-style skyline results view, and back.
+///
+/// From the menu, Start switches `V_VIEW` to 1 and draws the "city": one column per page, one brick
+/// per test, framed by a "RESULTS  SCR x/y" header and a "TESTS PASSED: N / M" footer. Left/Right
+/// page the columns across screens (51 pages exceed one 30-column screen); Start returns to the menu.
+/// The check is the view actually switched, the frame text drew, a real brick landed, the screen
+/// paged, and the machine stayed live (a width desync shows up as a frozen screen, not a wrong value).
+#[test]
+fn the_start_button_shows_the_skyline() {
+    if !rom_path().is_file() {
+        eprintln!("SKIP accuracysnes: ROM absent");
+        return;
+    }
+    let rom = std::fs::read(rom_path()).expect("read rom");
+    let cart = Cart::from_rom(&rom).expect("AccuracySNES header must be detectable");
+    let mut sys = System::new(0);
+    sys.bus.cart = Some(cart);
+    sys.reset();
+    sys.bus.set_joypad(0, PAD_CONTRACT);
+    sys.bus.set_joypad(1, PAD2_CONTRACT);
+
+    let mut frames = 0;
+    while frames < MENU_FRAMES && sys.bus.peek_wram(R_SCENE_DONE) != SCENE_DONE_MARK {
+        sys.run_frame();
+        frames += 1;
+    }
+    assert_eq!(
+        sys.bus.peek_wram(R_SCENE_DONE),
+        SCENE_DONE_MARK,
+        "menu never reached"
+    );
+    for _ in 0..12 {
+        sys.run_frame();
+    }
+    let tile =
+        |s: &System, row: u16, col: u16| -> u16 { s.bus.ppu.vram_word(MAP_BASE + row * 32 + col) };
+    let text_row = |s: &System, row: u16| -> String {
+        (0..32)
+            .map(|i| char::from((s.bus.ppu.vram_word(MAP_BASE + row * 32 + i) & 0xFF) as u8))
+            .collect()
+    };
+    // The skyline toggle is on Start, which is *inside* the input contract ($1000 of $9050), so a
+    // contract-holding host holds Start continuously with no rising edge and never triggers it —
+    // harmless for the automated hosts, and a human user (who holds no contract) toggles freely. To
+    // exercise it here the battery is already done, so release the contract and drive clean edges.
+    let press = |s: &mut System, btn: u16| {
+        s.bus.set_joypad(0, 0);
+        s.run_frame();
+        s.bus.set_joypad(0, btn);
+        for _ in 0..3 {
+            s.run_frame();
+        }
+        s.bus.set_joypad(0, 0);
+        for _ in 0..6 {
+            s.run_frame();
+        }
+    };
+
+    assert_eq!(
+        sys.bus.peek_wram(V_VIEW),
+        0,
+        "the cart did not start in the menu view"
+    );
+
+    // Start -> skyline.
+    press(&mut sys, PAD_START);
+    assert_eq!(
+        sys.bus.peek_wram(V_VIEW),
+        1,
+        "Start did not switch to the skyline view"
+    );
+    let header = text_row(&sys, 0);
+    assert!(
+        header.contains("RESULTS"),
+        "the skyline header did not draw (row 0 = {header:?})"
+    );
+    let footer = text_row(&sys, 26);
+    assert!(
+        footer.contains("TESTS PASSED:"),
+        "the skyline footer did not draw (row 26 = {footer:?})"
+    );
+    // Page 0, test 0 is a PASS, so its brick is the solid inverse-font block (tile >= $100) in the
+    // blue palette (bits 2-4 == 1). It sits at the baseline (row 24), column SKY_X0 (1).
+    let brick = tile(&sys, 24, 1);
+    assert!(
+        brick & 0x0100 != 0 && (brick & 0xFF) == 0x20,
+        "the baseline PASS brick is not the solid inverse block (tile {brick:#06x})"
+    );
+    assert_eq!(
+        (brick >> 10) & 0x07,
+        1,
+        "the PASS brick is not in the blue palette (tile {brick:#06x})"
+    );
+    assert_eq!(
+        sys.bus.ppu.display_brightness(),
+        15,
+        "the skyline left the display blank"
+    );
+
+    // Right pages to the second screen (51 pages / 30 columns = 2 screens); the footer stays.
+    press(&mut sys, PAD_RIGHT);
+    assert_eq!(
+        sys.bus.peek_wram(V_SKY_SCREEN),
+        1,
+        "Right did not page the skyline to its second screen"
+    );
+    assert!(
+        text_row(&sys, 26).contains("TESTS PASSED:"),
+        "the skyline footer was lost after paging"
+    );
+
+    // Start returns to the menu.
+    press(&mut sys, PAD_START);
+    assert_eq!(
+        sys.bus.peek_wram(V_VIEW),
+        0,
+        "Start did not return to the menu"
+    );
+    assert!(
+        text_row(&sys, 5).contains("PAGE"),
+        "the menu did not redraw after leaving the skyline"
     );
 }

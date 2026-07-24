@@ -1771,6 +1771,13 @@ test_restore := test_restore_impl
     rep #$30
     .a16
     .i16
+    ; V_VIEW selects which input set is live: 0 = the paged test menu, 1 = the skyline results.
+    lda f:V_VIEW
+    and #$00FF
+    beq @menu_input
+    jmp @skyline_input
+
+@menu_input:
     lda f:V_PAD_NEW
     bit #PAD_UP
     beq :+
@@ -1803,29 +1810,91 @@ test_restore := test_restore_impl
     beq @no_a
     jsr run_selected            ; never returns here
 @no_a:
-
-    ; Start re-runs the whole battery in place, then redraws -- AccuracyCoin's "run all". A host
-    ; holding the input contract (B + Start + X + R) holds Start continuously, but the menu acts on
-    ; freshly-pressed edges and the first-frame edge is primed away in the menu setup, so a static
-    ; hold never triggers it.
+    ; Start switches to the skyline results view -- AccuracyCoin's "run tests -> results" (the battery
+    ; already ran at boot, so this shows the existing verdicts rather than re-running). A host holding
+    ; the input contract (B + Start + X + R) holds Start continuously, but the menu acts on
+    ; freshly-pressed edges and the first-frame edge is primed away in the menu setup.
     lda f:V_PAD_NEW
     bit #PAD_START
     beq @no_start
-    jsr rerun_battery
-    sep #$20
-    .a8
-    lda #$01
-    sta f:V_DIRTY
-    rep #$30
-    .a16
-    .i16
+    jsr enter_skyline
 @no_start:
-
-    ; Select restarts the whole battery from restart_entry (after the power-on capture). Reset the
-    ; stack first: the menu has been jsr-ing around, and the restart runs the full battery again.
+    ; Select restarts the whole battery from restart_entry (after the power-on capture).
     lda f:V_PAD_NEW
     bit #PAD_SELECT
     beq @no_select
+    jmp do_restart              ; never returns
+@no_select:
+    jmp @redraw
+
+@skyline_input:
+    ; Left/Right page the skyline across its screens; Start returns to the menu; Select restarts.
+    lda f:V_PAD_NEW
+    bit #PAD_LEFT
+    beq :+
+    jsr sky_prev
+:
+    lda f:V_PAD_NEW
+    bit #PAD_RIGHT
+    beq :+
+    jsr sky_next
+:
+    lda f:V_PAD_NEW
+    bit #PAD_START
+    beq :+
+    jsr enter_menu
+:
+    lda f:V_PAD_NEW
+    bit #PAD_SELECT
+    beq @redraw
+    jmp do_restart              ; never returns
+
+@redraw:
+    lda f:V_DIRTY
+    and #$00FF
+    bne @do_redraw
+    jmp @frame                  ; long: the handlers above pushed @frame out of branch range
+@do_redraw:
+    ; A whole-screen redraw under forced blank (far more VRAM traffic than a vblank alone covers; a
+    ; write during active display is dropped). draw_current dispatches on V_VIEW.
+    sep #$20
+    .a8
+    lda #$00
+    sta f:V_DIRTY               ; STZ has no long addressing mode
+    lda #$80
+    sta INIDISP
+    rep #$30
+    .a16
+    .i16
+    jsr draw_current
+    sep #$20
+    .a8
+    lda #$0F
+    sta INIDISP
+    rep #$30
+    .a16
+    .i16
+    jmp @frame
+.endproc
+
+; Redraw whichever view is active.
+.proc draw_current
+    rep #$30
+    .a16
+    .i16
+    lda f:V_VIEW
+    and #$00FF
+    bne @sky
+    jsr draw_screen
+    rts
+@sky:
+    jsr draw_skyline
+    rts
+.endproc
+
+; Restart the whole battery from restart_entry. Resets the stack first (the menu has been jsr-ing
+; around) and does not return. Shared by the menu and skyline Select handlers.
+.proc do_restart
     sei
     sep #$20
     .a8
@@ -1837,34 +1906,113 @@ test_restore := test_restore_impl
     ldx #$1FFF
     txs
     jmp reset::restart_entry
-@no_select:
+.endproc
 
-    lda f:V_DIRTY
-    and #$00FF
-    bne @redraw
-    jmp @frame                  ; long: the A / Start / Select handlers pushed @frame out of range
-@redraw:
-    ; The paged menu always redraws whole -- a page fits one screen, so there is no partial-marker
-    ; fast path. Under forced blank, because a full-screen rewrite is far more VRAM traffic than a
-    ; vblank alone covers (a write during active display is dropped).
+; Enter the skyline results view from the menu: reset to its first screen and request a redraw.
+.proc enter_skyline
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$01
+    sta f:V_VIEW
+    lda #$00
+    sta f:V_SKY_SCREEN
+    lda #$01
+    sta f:V_DIRTY
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; Return to the paged menu from the skyline.
+.proc enter_menu
+    rep #$30
+    .a16
+    .i16
     sep #$20
     .a8
     lda #$00
-    sta f:V_DIRTY               ; STZ has no long addressing mode
-    lda #$80
-    sta INIDISP
+    sta f:V_VIEW
+    lda #$01
+    sta f:V_DIRTY
     rep #$30
     .a16
     .i16
-    jsr draw_screen
+    rts
+.endproc
+
+; Number of skyline screens = ceil(_page_count / SKY_COLS) -> A (16-bit).
+.proc sky_screen_count
+    rep #$30
+    .a16
+    .i16
+    lda f:_page_count
+    clc
+    adc #(SKY_COLS - 1)
+    ; divide by SKY_COLS (30) by repeated subtraction -- called rarely, columns are few.
+    ldx #$0000
+@d:
+    cmp #SKY_COLS
+    bcc @done
+    sec
+    sbc #SKY_COLS
+    inx
+    bra @d
+@done:
+    txa
+    rts
+.endproc
+
+; Right: next skyline screen, wrapping.
+.proc sky_next
+    rep #$30
+    .a16
+    .i16
+    lda f:V_SKY_SCREEN
+    and #$00FF
+    inc a
+    pha
+    jsr sky_screen_count
+    sta f:V_TMP                 ; screen count
+    pla
+    cmp f:V_TMP
+    bcc :+
+    lda #$0000                  ; wrap past the last screen
+:
     sep #$20
     .a8
-    lda #$0F
-    sta INIDISP
+    sta f:V_SKY_SCREEN
+    lda #$01
+    sta f:V_DIRTY
     rep #$30
     .a16
     .i16
-    jmp @frame
+    rts
+.endproc
+
+; Left: previous skyline screen, wrapping.
+.proc sky_prev
+    rep #$30
+    .a16
+    .i16
+    lda f:V_SKY_SCREEN
+    and #$00FF
+    bne :+
+    jsr sky_screen_count        ; wrap: screen 0 -> last
+:
+    dec a
+    sep #$20
+    .a8
+    sta f:V_SKY_SCREEN
+    lda #$01
+    sta f:V_DIRTY
+    rep #$30
+    .a16
+    .i16
+    rts
 .endproc
 
 ; A = number of tests on the current page (from _page_len, a byte table).
@@ -2048,19 +2196,293 @@ test_restore := test_restore_impl
     rts                         ; unreachable, keeps the assembler's flow analysis happy
 .endproc
 
-; Start's "run all": re-run the whole battery in place, then rebuild the menu's VRAM and palette
-; (the battery leaves both in a test-defined state). Returns to main_loop, which redraws.
-.proc rerun_battery
-    sep #$20
-    .a8
-    lda #$8F
-    sta INIDISP                 ; forced blank is run_all_tests's standing precondition
+; ---------------------------------------------------------------------------------------------
+; Skyline results view (AccuracyCoin's "city"): one column per page, one brick per test, stacked up
+; from a common baseline so ragged page lengths read as a skyline. A brick is the solid inverse-font
+; block in the verdict's palette (blue pass / black skip / white non-scoring); a FAIL brick is the
+; red code glyph instead. Columns page across screens with Left/Right; a "TESTS PASSED: N / M"
+; footer and a "RESULTS  SCR x/y" header frame it.
+; ---------------------------------------------------------------------------------------------
+.proc draw_skyline
     rep #$30
     .a16
     .i16
-    jsr run_all_tests
-    jsr load_font
-    jsr load_palette
+    ldx #MAP_BASE
+    ldy #(28 * SCREEN_COLS)
+    jsr blank_rows
+    jsr draw_sky_header
+    jsr draw_sky_columns
+    jsr draw_sky_footer
+    rts
+.endproc
+
+; "RESULTS" and the screen indicator at row 0.
+.proc draw_sky_header
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #ATTR_WHITE
+    sta f:V_ATTR
+    rep #$30
+    .a16
+    .i16
+    ldx #(MAP_BASE + SKY_X0)
+    jsr attr_set_addr
+    ldy #str_results
+    jsr str_ptr_bank0
+    jsr attr_str
+    ; "SCR x / y" at column 20.
+    ldx #(MAP_BASE + 20)
+    jsr attr_set_addr
+    ldy #str_scr
+    jsr str_ptr_bank0
+    jsr attr_str
+    lda f:V_SKY_SCREEN
+    and #$00FF
+    inc a                       ; 1-based
+    jsr attr_dec3
+    ldy #str_slash
+    jsr str_ptr_bank0
+    jsr attr_str
+    jsr sky_screen_count
+    jsr attr_dec3
+    rts
+.endproc
+
+; "TESTS PASSED: N / M" at row 26, where M is the scored total (passed + failed).
+.proc draw_sky_footer
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #ATTR_WHITE
+    sta f:V_ATTR
+    rep #$30
+    .a16
+    .i16
+    ldx #(MAP_BASE + 26 * SCREEN_COLS + SKY_X0)
+    jsr attr_set_addr
+    ldy #str_passed
+    jsr str_ptr_bank0
+    jsr attr_str
+    lda f:R_PASSED
+    jsr attr_dec3
+    ldy #str_slash
+    jsr str_ptr_bank0
+    jsr attr_str
+    lda f:R_PASSED
+    clc
+    adc f:R_FAILED
+    jsr attr_dec3
+    rts
+.endproc
+
+; Draw every column of the current screen: page = V_SKY_SCREEN*SKY_COLS + i, one brick per test.
+.proc draw_sky_columns
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:V_MENU_I              ; column index i
+@col:
+    lda f:V_MENU_I
+    cmp #SKY_COLS
+    bcc :+
+    jmp @done
+:
+    ; page = V_SKY_SCREEN * SKY_COLS + i  (SKY_COLS = 30 = 32 - 2)
+    lda f:V_SKY_SCREEN
+    and #$00FF
+    sta f:V_TMP
+    asl
+    asl
+    asl
+    asl
+    asl                         ; screen * 32
+    sta f:V_TMP2
+    lda f:V_TMP
+    asl                         ; screen * 2
+    sta f:V_TMP
+    lda f:V_TMP2
+    sec
+    sbc f:V_TMP                 ; screen * 30
+    clc
+    adc f:V_MENU_I
+    sta f:V_TMP2                ; page p
+    cmp f:_page_count
+    bcc :+
+    jmp @done                   ; no more pages on this screen
+:
+    lda f:V_TMP2
+    asl
+    tax
+    lda f:_page_off,x
+    sta f:V_MENU_BASE
+    lda f:V_TMP2
+    tax
+    sep #$20
+    .a8
+    lda f:_page_len,x
+    rep #$30
+    .a16
+    .i16
+    and #$00FF
+    sta f:V_MENU_CNT
+    lda #$0000
+    sta f:V_SKY_J               ; test-in-page (also the brick's height above the baseline)
+@brick:
+    lda f:V_SKY_J
+    cmp f:V_MENU_CNT
+    bcc :+
+    jmp @nextcol
+:
+    lda f:V_MENU_BASE
+    clc
+    adc f:V_SKY_J
+    asl
+    tax
+    lda f:_page_tests,x
+    sta f:V_TMP                 ; battery index of this brick's test
+    jsr draw_brick
+    lda f:V_SKY_J
+    inc a
+    sta f:V_SKY_J
+    jmp @brick
+@nextcol:
+    lda f:V_MENU_I
+    inc a
+    sta f:V_MENU_I
+    jmp @col
+@done:
+    rts
+.endproc
+
+; Draw one brick. V_TMP = battery index, V_SKY_J = height above baseline, V_MENU_I = column. Chooses
+; a solid block (pass/skip/non-scoring) or the red code glyph (fail); a not-run test draws nothing.
+.proc draw_brick
+    rep #$30
+    .a16
+    .i16
+    lda f:V_TMP
+    tax
+    sep #$20
+    .a8
+    lda f:_test_flags,x
+    rep #$30
+    .a16
+    .i16
+    and #$0001
+    beq @white                  ; non-scoring -> white block
+    sep #$20
+    .a8
+    lda f:R_STATUS,x
+    rep #$30
+    .a16
+    .i16
+    and #$00FF
+    cmp #VERDICT_NOTRUN
+    bne :+
+    rts                         ; not run -> no brick
+:
+    cmp #$00FF
+    beq @black                  ; skip -> black block
+    bit #$0001
+    bne @blue                   ; pass -> blue block
+    ; fail -> red code glyph (code = byte >> 1, rendered 0-9 / A-Z).
+    lsr
+    cmp #10
+    bcc :+
+    clc
+    adc #('A' - 10)
+    bra @red_tile
+:
+    clc
+    adc #'0'
+@red_tile:
+    sta f:V_TMP2                ; tile low = the code glyph (upright font)
+    sep #$20
+    .a8
+    lda #ATTR_RED
+    sta f:V_ATTR
+    rep #$30
+    .a16
+    .i16
+    bra @emit
+@blue:
+    lda #SKY_BLOCK
+    sta f:V_TMP2
+    sep #$20
+    .a8
+    lda #(ATTR_BLUE | ATTR_INVERSE)
+    sta f:V_ATTR
+    rep #$30
+    .a16
+    .i16
+    bra @emit
+@black:
+    lda #SKY_BLOCK
+    sta f:V_TMP2
+    sep #$20
+    .a8
+    lda #(ATTR_BLACK | ATTR_INVERSE)
+    sta f:V_ATTR
+    rep #$30
+    .a16
+    .i16
+    bra @emit
+@white:
+    lda #SKY_BLOCK
+    sta f:V_TMP2
+    sep #$20
+    .a8
+    lda #(ATTR_WHITE | ATTR_INVERSE)
+    sta f:V_ATTR
+    rep #$30
+    .a16
+    .i16
+@emit:
+    ; vram = MAP_BASE + (SKY_BASELINE - V_SKY_J) * SCREEN_COLS + (SKY_X0 + V_MENU_I)
+    lda #SKY_BASELINE
+    sec
+    sbc f:V_SKY_J
+    asl
+    asl
+    asl
+    asl
+    asl                         ; * SCREEN_COLS (32)
+    clc
+    adc #(MAP_BASE + SKY_X0)
+    clc
+    adc f:V_MENU_I
+    tax
+    lda f:V_TMP2                ; tile low byte
+    jsr put_tile_at
+    rts
+.endproc
+
+; X = tilemap word address, A (low byte) = tile index low, V_ATTR = high byte. Writes one full word.
+.proc put_tile_at
+    pha
+    sep #$20
+    .a8
+    lda #$80
+    sta VMAIN                   ; advance after the high byte -> a 16-bit store writes one tile word
+    rep #$30
+    .a16
+    .i16
+    stx VMADDL
+    pla
+    sep #$20
+    .a8
+    sta VMDATAL
+    lda f:V_ATTR
+    sta VMDATAH
+    rep #$30
+    .a16
+    .i16
     rts
 .endproc
 
@@ -2977,3 +3399,12 @@ str_skip:
 str_draw:
     .byte 4
     .byte "DRAW"
+str_results:
+    .byte 7
+    .byte "RESULTS"
+str_scr:
+    .byte 4
+    .byte "SCR "
+str_passed:
+    .byte 14
+    .byte "TESTS PASSED: "
