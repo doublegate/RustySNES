@@ -877,6 +877,17 @@ impl Ppu {
         if self.v >= self.visible_height() {
             return;
         }
+        // Capture the priority-rotation seed at the TRUE line start (`h == 0`), before any mid-line
+        // `$2104` write can advance `oam_address`. Serialized, so a post-load recompute uses it rather
+        // than the diverged live address. A mid-line re-entry (`h > 0`, only after `load_state`) skips
+        // the capture and reuses the restored seed.
+        if self.h == 0 {
+            self.pd_over_eval_seed = if self.io.oam_priority_rotation {
+                ((self.io.oam_address >> 2) & 0x7f) as u8
+            } else {
+                0
+            };
+        }
         if self.pd_over_computed_line != self.v {
             self.pd_over_computed_line = self.v;
             let (range_dot, time_dot) = self.compute_over_flag_dots(u32::from(self.v));
@@ -897,11 +908,11 @@ impl Ppu {
     /// the odd in-range-check cycle of the `i`-th evaluated sprite). `time_over`: `HBLANK_START_DOT`,
     /// since the tile fetch runs at dots 272+ and C7.06 only pins observability by the next line start.
     fn compute_over_flag_dots(&self, scan_y: u32) -> (Option<u16>, Option<u16>) {
-        let first = if self.io.oam_priority_rotation {
-            (self.io.oam_address >> 2) as usize & 0x7f
-        } else {
-            0
-        };
+        // Key off the serialized line-start seed, NOT the live `oam_address` — the latter diverges
+        // from the line-start value after redirected active-display `$2104` writes on a
+        // priority-rotated line, and this function is re-run on `load_state`, so using the live
+        // address would shift `$213E` timing across a mid-line save/load.
+        let first = usize::from(self.pd_over_eval_seed);
         let mut range_count = 0usize;
         let mut tile_count = 0usize;
         let mut range_dot = None;

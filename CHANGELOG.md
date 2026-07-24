@@ -158,6 +158,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `EvaluateNextLineSprites`. Zero-regression: the framebuffer is byte-identical (the paint pass is
   unchanged — only the flag *observability* moved) and the AccuracySNES battery, undisbeliever goldens,
   determinism, and save-state round-trip are all unaffected. Unblocks the C7.05/C7.06 scored rows.
+  Save-state `FORMAT_VERSION` bumps 7 → 8: the `PPU0` section gains the over-flag eval's line-start seed
+  (`pd_over_eval_seed`), so a mid-line save/load on a priority-rotated line reproduces identical `$213E`
+  timing rather than recomputing from a diverged `OAMADDR` (`docs/adr/0006`). Pre-8 blobs fail loudly.
 
 ### Fixed
 

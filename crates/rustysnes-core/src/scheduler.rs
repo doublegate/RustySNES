@@ -56,7 +56,14 @@ use crate::sa1_bus::Sa1Bus;
 /// redirected active-display writes (with priority rotation), so it cannot be re-derived on load and
 /// must persist for a mid-line save to restore identical machine state (mirrors MesenCE serializing
 /// `_oamEvaluationIndex`). Same old-blob-fails-loudly guarantee.
-const FORMAT_VERSION: u16 = 7;
+///
+/// `8` (T-CA-10 Phase 4b over-flag cursor): `PPU0` grew by one more byte — `pd_over_eval_seed`, the
+/// line-start priority-rotation seed the sprite over-flag (STAT77) timing evaluates from. Like
+/// `pd_oam_eval_seed` it is captured at line start and diverges from `OAMADDR` mid-line, so the
+/// over-flag set-dots (re-derived on load) must key off the persisted seed rather than the live
+/// address, or a mid-line save/load on a priority-rotated line would shift `$213E` timing. Same
+/// old-blob-fails-loudly guarantee.
+const FORMAT_VERSION: u16 = 8;
 /// The save-state envelope's leading magic bytes — identifies the blob as a RustySNES save-state
 /// before anything else is trusted.
 const MAGIC: &[u8; 4] = b"RSNS";
