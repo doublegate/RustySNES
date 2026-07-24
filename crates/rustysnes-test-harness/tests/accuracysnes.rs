@@ -1554,13 +1554,37 @@ fn the_menu_still_draws_after_the_battery() {
          Rows read back as {list:?}"
     );
 
-    // The results screen is drawn in green ($03E0): the font's "on" pixels index CGRAM colour 1 of
-    // palette 0, which `load_palette` sets and `draw_screen` reloads so the last scene's palette
-    // does not bleed in. A regression here is the orange/mixed text the menu showed before.
+    // AccuracyCoin-style palette (`load_palette`, reloaded by `draw_screen` so the last scene's
+    // palette does not bleed in): a grey backdrop with white/blue/red/black label inks. CGRAM index 0
+    // (palette 0 colour 0) is the shared grey backdrop; index 1 (palette 0 colour 1) is the white ink
+    // of normal/TEST text. A regression here is the orange/mixed text the menu showed before, or the
+    // green the menu used pre-AccuracyCoin-restyle.
+    assert_eq!(
+        sys.bus.ppu.cgram_word(0),
+        0x1CE7,
+        "the menu backdrop is not the AccuracyCoin grey — the palette was not reloaded before draw_screen"
+    );
     assert_eq!(
         sys.bus.ppu.cgram_word(1),
-        0x03E0,
-        "the menu font colour is not green — the palette was not reloaded before draw_screen"
+        0x7BBD,
+        "the menu's normal-text ink is not white — the AccuracyCoin palette was not loaded"
+    );
+    // The four label inks: white (TEST/DRAW, pal 0), blue (PASS, pal 1 = CGRAM 5), red (FAIL, pal 2 =
+    // CGRAM 9), black (SKIP/in-progress, pal 3 = CGRAM 13).
+    assert_eq!(
+        sys.bus.ppu.cgram_word(5),
+        0x7669,
+        "PASS ink (palette 1) is not blue"
+    );
+    assert_eq!(
+        sys.bus.ppu.cgram_word(9),
+        0x31BD,
+        "FAIL ink (palette 2) is not red"
+    );
+    assert_eq!(
+        sys.bus.ppu.cgram_word(13),
+        0x0000,
+        "SKIP ink (palette 3) is not black"
     );
 
     // The rendered tally against the results block it is drawn from. Comparing the menu with the

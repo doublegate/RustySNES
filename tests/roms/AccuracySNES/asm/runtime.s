@@ -448,23 +448,54 @@ restart_entry:
 .endproc
 
 ; ---------------------------------------------------------------------------------------------
-; Two-colour palette: index 0 black (also the backdrop), index 1 bright green ($03E0).
-; ---------------------------------------------------------------------------------------------
+; AccuracyCoin-style palette. The font is 2bpp with only bitplane 0 populated, so a glyph uses colour
+; 0 (background) and colour 1 (ink) of whichever BG palette its tilemap word selects. Four BG palettes
+; share a grey backdrop in colour 0 and carry the four label inks in colour 1, so a label's colour is
+; a per-tile palette-bit choice (high-byte bits 2-4), no second tile copy needed:
+;
+;   pal 0  ink WHITE  $7BBD  -- normal text, TEST, DRAW
+;   pal 1  ink BLUE   $7669  -- PASS
+;   pal 2  ink RED    $31BD  -- FAIL (and the fail code)
+;   pal 3  ink BLACK  $0000  -- SKIP and the in-progress "...."
+;
+; Colour 0 of palette 0 is CGRAM index 0, which is also the screen backdrop -> grey $1CE7 (NES $2D,
+; #3C3C3C), the AccuracyCoin background. Reloaded right before draw_screen because the rendered scenes
+; overwrite CGRAM with their own palettes.
+;
+; A macro keeps the eight two-byte writes honest; CGADD auto-increments, so this walks CGRAM 0..15.
+.macro cgcolor lo, hi
+    lda #lo
+    sta CGDATA
+    lda #hi
+    sta CGDATA
+.endmacro
+; Each 2bpp BG palette is FOUR CGRAM entries, so palette N's colours are indices N*4..N*4+3 and the
+; ink (colour 1) is at N*4+1. Only colours 0 (grey backdrop) and 1 (ink) are used, so CGADD is set to
+; each palette's base and its two used colours written; colours 2/3 are left as whatever (unused).
 .proc load_palette
     sep #$20
     .a8
-    stz CGADD
-    stz CGDATA                  ; colour 0 = $0000, black (the background)
-    stz CGDATA
-    ; Colour 1 = $03E0, bright green: the font's "on" pixels index colour 1 of palette 0, and this
-    ; is the colour the results screen is drawn in. It is reloaded right before draw_screen because
-    ; the rendered scenes overwrite CGRAM with their own palettes -- without the reload the menu
-    ; inherited whatever the last scene left, which is why the text came out orange (or, on an
-    ; earlier build, a per-tile mix of green and orange bleeding through from the scene).
-    lda #$E0
-    sta CGDATA                  ; colour 1 low  ($E0)
-    lda #$03
-    sta CGDATA                  ; colour 1 high ($03) -> BGR555 $03E0, green
+    stz CGADD                   ; palette 0, colour 0 = CGRAM 0 = the screen backdrop
+    cgcolor $E7, $1C            ; pal0 col0 grey $1CE7
+    cgcolor $BD, $7B            ; pal0 col1 white $7BBD  (normal/TEST/DRAW ink)
+    lda #4
+    sta CGADD                   ; palette 1 base
+    cgcolor $E7, $1C            ; pal1 col0 grey
+    cgcolor $69, $76            ; pal1 col1 blue $7669   (PASS ink)
+    lda #8
+    sta CGADD                   ; palette 2 base
+    cgcolor $E7, $1C            ; pal2 col0 grey
+    cgcolor $BD, $31            ; pal2 col1 red $31BD    (FAIL ink)
+    lda #12
+    sta CGADD                   ; palette 3 base
+    cgcolor $E7, $1C            ; pal3 col0 grey
+    cgcolor $00, $00            ; pal3 col1 black $0000  (SKIP / in-progress ink)
+    ; Sprite palette 0 (OBJ palettes begin at CGRAM index 128): grey bg + light-blue $7735, for the
+    ; multi-behaviour success codes overlaid on the skyline.
+    lda #$80
+    sta CGADD
+    cgcolor $E7, $1C
+    cgcolor $35, $77            ; $7735 light blue
     rts
 .endproc
 
