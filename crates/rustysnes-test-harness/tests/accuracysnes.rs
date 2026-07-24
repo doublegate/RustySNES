@@ -1995,6 +1995,33 @@ fn the_start_button_shows_the_skyline() {
         "the skyline left the display blank"
     );
 
+    // Page-number labels (AccuracyCoin style): the leading digit on top, the units below only for a
+    // two-digit page. Column 0 is page 1 -> "1" on the top row (SKY_LABEL_ROW = 1) with a BLANK below
+    // (no leading zero); column 9 is page 10 -> "1" over "0".
+    let cell = |s: &System, row: u16, col: u16| {
+        (s.bus.ppu.vram_word(MAP_BASE + row * 32 + col) & 0xFF) as u8
+    };
+    assert_eq!(
+        cell(&sys, 1, 1),
+        b'1',
+        "page 1's leading digit is not on the top label row"
+    );
+    assert_eq!(
+        cell(&sys, 2, 1),
+        b' ',
+        "page 1 shows a second label digit — a single-digit page must leave the lower row blank"
+    );
+    assert_eq!(
+        cell(&sys, 1, 10),
+        b'1',
+        "page 10's tens digit is not on the top label row"
+    );
+    assert_eq!(
+        cell(&sys, 2, 10),
+        b'0',
+        "page 10's units digit is not on the lower label row"
+    );
+
     // Multi-behaviour passes (the golden "pass variant N" tests) get a light-blue OBJ sprite of the
     // code glyph over their brick. The first screen holds many golden tests (groups A-D), so at least
     // one such sprite must be live (Y on the 224-line screen) with the skyline OBJ attr ($30) and a

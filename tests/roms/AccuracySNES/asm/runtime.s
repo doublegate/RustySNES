@@ -2800,8 +2800,11 @@ test_restore := test_restore_impl
     rts
 .endproc
 
-; The page number (1-based), two digits stacked vertically above the column: tens at row 2, units at
-; row 3, in the column SKY_X0 + V_MENU_I. V_TMP2 = page (0-based). Clobbers V_TMP / V_TMP2.
+; The page number (1-based) above the column at SKY_X0 + V_MENU_I, the AccuracyCoin way: the leading
+; (first significant) digit on the top row (SKY_LABEL_ROW), the units digit on the row below ONLY for a
+; two-digit page. A single-digit page (1-9) shows just its digit on top with a blank below -- no
+; leading zero, so the label rows do not fill with a busy run of 0s. V_TMP2 = page (0-based). Clobbers
+; V_TMP / V_TMP2.
 .proc draw_col_label
     rep #$30
     .a16
@@ -2825,24 +2828,35 @@ test_restore := test_restore_impl
     bra @t
 @td:
     ; A = units value, X = tens value.
+    cpx #$0000
+    bne @twodigit
+    ; single digit: the digit itself on top, blank below (no leading zero).
     clc
     adc #'0'
-    sta f:V_TMP                 ; units char
+    sta f:V_TMP2                ; top char = the single digit
+    lda #' '
+    sta f:V_TMP                 ; bottom char = blank
+    bra @draw
+@twodigit:
+    clc
+    adc #'0'
+    sta f:V_TMP                 ; bottom char = units
     txa
     clc
     adc #'0'
-    sta f:V_TMP2                ; tens char (page no longer needed)
+    sta f:V_TMP2                ; top char = tens (page no longer needed)
+@draw:
     lda #(MAP_BASE + SKY_LABEL_ROW * SCREEN_COLS + SKY_X0)
     clc
     adc f:V_MENU_I
     tax
-    lda f:V_TMP2                ; tens
+    lda f:V_TMP2                ; top
     jsr put_tile_at
     lda #(MAP_BASE + (SKY_LABEL_ROW + 1) * SCREEN_COLS + SKY_X0)
     clc
     adc f:V_MENU_I
     tax
-    lda f:V_TMP                 ; units
+    lda f:V_TMP                 ; bottom
     jsr put_tile_at
     rts
 .endproc
