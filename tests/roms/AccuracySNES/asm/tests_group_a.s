@@ -34505,3 +34505,657 @@ _test_names:
 @n_a5_s35:
     .byte 17
     .byte "Sweep: BRL flat 4"
+
+; --- menu pages (AccuracyCoin-style grouping, see pages.rs) ---
+.export _page_count
+.export _page_names
+.export _page_len
+.export _page_off
+.export _page_tests
+
+_page_count:
+    .word 51
+
+_page_names:
+    .addr @pn_0
+    .addr @pn_1
+    .addr @pn_2
+    .addr @pn_3
+    .addr @pn_4
+    .addr @pn_5
+    .addr @pn_6
+    .addr @pn_7
+    .addr @pn_8
+    .addr @pn_9
+    .addr @pn_10
+    .addr @pn_11
+    .addr @pn_12
+    .addr @pn_13
+    .addr @pn_14
+    .addr @pn_15
+    .addr @pn_16
+    .addr @pn_17
+    .addr @pn_18
+    .addr @pn_19
+    .addr @pn_20
+    .addr @pn_21
+    .addr @pn_22
+    .addr @pn_23
+    .addr @pn_24
+    .addr @pn_25
+    .addr @pn_26
+    .addr @pn_27
+    .addr @pn_28
+    .addr @pn_29
+    .addr @pn_30
+    .addr @pn_31
+    .addr @pn_32
+    .addr @pn_33
+    .addr @pn_34
+    .addr @pn_35
+    .addr @pn_36
+    .addr @pn_37
+    .addr @pn_38
+    .addr @pn_39
+    .addr @pn_40
+    .addr @pn_41
+    .addr @pn_42
+    .addr @pn_43
+    .addr @pn_44
+    .addr @pn_45
+    .addr @pn_46
+    .addr @pn_47
+    .addr @pn_48
+    .addr @pn_49
+    .addr @pn_50
+@pn_0:
+    .byte 18
+    .byte "65816: XCE & FLAGS"
+@pn_1:
+    .byte 17
+    .byte "65816: ARITHMETIC"
+@pn_2:
+    .byte 17
+    .byte "65816: LOAD/STORE"
+@pn_3:
+    .byte 22
+    .byte "65816: INDIRECT & WRAP"
+@pn_4:
+    .byte 22
+    .byte "65816: OPCODE CYCLES 1"
+@pn_5:
+    .byte 22
+    .byte "65816: OPCODE CYCLES 2"
+@pn_6:
+    .byte 22
+    .byte "65816: OPCODE CYCLES 3"
+@pn_7:
+    .byte 22
+    .byte "65816: OPCODE CYCLES 4"
+@pn_8:
+    .byte 22
+    .byte "65816: OPCODE CYCLES 5"
+@pn_9:
+    .byte 19
+    .byte "65816: INTERRUPTS 1"
+@pn_10:
+    .byte 19
+    .byte "65816: INTERRUPTS 2"
+@pn_11:
+    .byte 23
+    .byte "65816: STACK & TRANSFER"
+@pn_12:
+    .byte 17
+    .byte "65816: BLOCK MOVE"
+@pn_13:
+    .byte 11
+    .byte "65816: MISC"
+@pn_14:
+    .byte 16
+    .byte "PPU: VRAM ACCESS"
+@pn_15:
+    .byte 12
+    .byte "PPU: SPRITES"
+@pn_16:
+    .byte 16
+    .byte "PPU: VMAIN REMAP"
+@pn_17:
+    .byte 23
+    .byte "PPU: CGRAM & COUNTERS 1"
+@pn_18:
+    .byte 23
+    .byte "PPU: CGRAM & COUNTERS 2"
+@pn_19:
+    .byte 22
+    .byte "PPU: INIDISP ARTIFACTS"
+@pn_20:
+    .byte 17
+    .byte "PPU: CHIP VERSION"
+@pn_21:
+    .byte 11
+    .byte "PPU: MODE 7"
+@pn_22:
+    .byte 22
+    .byte "PPU: OVERSCAN & HI-RES"
+@pn_23:
+    .byte 18
+    .byte "BUS: FASTROM SPEED"
+@pn_24:
+    .byte 22
+    .byte "BUS: SCANLINE GEOMETRY"
+@pn_25:
+    .byte 17
+    .byte "BUS: IRQ TIMING 1"
+@pn_26:
+    .byte 17
+    .byte "BUS: IRQ TIMING 2"
+@pn_27:
+    .byte 17
+    .byte "BUS: MUL/DIV UNIT"
+@pn_28:
+    .byte 17
+    .byte "BUS: DRAM REFRESH"
+@pn_29:
+    .byte 14
+    .byte "DMA: GENERAL 1"
+@pn_30:
+    .byte 14
+    .byte "DMA: GENERAL 2"
+@pn_31:
+    .byte 9
+    .byte "DMA: HDMA"
+@pn_32:
+    .byte 17
+    .byte "APU: IPL & UPLOAD"
+@pn_33:
+    .byte 18
+    .byte "APU: SPC700 CORE 1"
+@pn_34:
+    .byte 18
+    .byte "APU: SPC700 CORE 2"
+@pn_35:
+    .byte 20
+    .byte "APU: SPC700 TIMING 1"
+@pn_36:
+    .byte 20
+    .byte "APU: SPC700 TIMING 2"
+@pn_37:
+    .byte 17
+    .byte "APU: SPC700 FLAGS"
+@pn_38:
+    .byte 15
+    .byte "APU: DSP VOICES"
+@pn_39:
+    .byte 13
+    .byte "APU: DSP ECHO"
+@pn_40:
+    .byte 20
+    .byte "APU: DSP REGISTERS 1"
+@pn_41:
+    .byte 20
+    .byte "APU: DSP REGISTERS 2"
+@pn_42:
+    .byte 13
+    .byte "APU: TIMERS 1"
+@pn_43:
+    .byte 13
+    .byte "APU: TIMERS 2"
+@pn_44:
+    .byte 19
+    .byte "APU: DSP ENVELOPE 1"
+@pn_45:
+    .byte 19
+    .byte "APU: DSP ENVELOPE 2"
+@pn_46:
+    .byte 15
+    .byte "APU: DSP MIXING"
+@pn_47:
+    .byte 20
+    .byte "INPUT: CONTROLLERS 1"
+@pn_48:
+    .byte 20
+    .byte "INPUT: CONTROLLERS 2"
+@pn_49:
+    .byte 16
+    .byte "POWER-ON STATE 1"
+@pn_50:
+    .byte 16
+    .byte "POWER-ON STATE 2"
+
+_page_len:
+    .byte 10
+    .byte 10
+    .byte 9
+    .byte 10
+    .byte 10
+    .byte 10
+    .byte 10
+    .byte 10
+    .byte 5
+    .byte 10
+    .byte 4
+    .byte 5
+    .byte 7
+    .byte 4
+    .byte 9
+    .byte 6
+    .byte 10
+    .byte 10
+    .byte 1
+    .byte 3
+    .byte 3
+    .byte 4
+    .byte 2
+    .byte 4
+    .byte 5
+    .byte 10
+    .byte 3
+    .byte 5
+    .byte 1
+    .byte 10
+    .byte 5
+    .byte 6
+    .byte 7
+    .byte 10
+    .byte 4
+    .byte 10
+    .byte 2
+    .byte 9
+    .byte 6
+    .byte 2
+    .byte 10
+    .byte 2
+    .byte 10
+    .byte 2
+    .byte 10
+    .byte 7
+    .byte 6
+    .byte 10
+    .byte 1
+    .byte 10
+    .byte 1
+
+_page_off:
+    .word 0
+    .word 10
+    .word 20
+    .word 29
+    .word 39
+    .word 49
+    .word 59
+    .word 69
+    .word 79
+    .word 84
+    .word 94
+    .word 98
+    .word 103
+    .word 110
+    .word 114
+    .word 123
+    .word 129
+    .word 139
+    .word 149
+    .word 150
+    .word 153
+    .word 156
+    .word 160
+    .word 162
+    .word 166
+    .word 171
+    .word 181
+    .word 184
+    .word 189
+    .word 190
+    .word 200
+    .word 205
+    .word 211
+    .word 218
+    .word 228
+    .word 232
+    .word 242
+    .word 244
+    .word 253
+    .word 259
+    .word 261
+    .word 271
+    .word 273
+    .word 283
+    .word 285
+    .word 295
+    .word 302
+    .word 308
+    .word 318
+    .word 319
+    .word 329
+
+_page_tests:
+    .word 0
+    .word 1
+    .word 2
+    .word 3
+    .word 4
+    .word 47
+    .word 52
+    .word 58
+    .word 59
+    .word 61
+    .word 5
+    .word 6
+    .word 7
+    .word 8
+    .word 9
+    .word 10
+    .word 11
+    .word 54
+    .word 63
+    .word 78
+    .word 12
+    .word 13
+    .word 14
+    .word 15
+    .word 16
+    .word 17
+    .word 18
+    .word 67
+    .word 68
+    .word 19
+    .word 20
+    .word 21
+    .word 22
+    .word 23
+    .word 62
+    .word 64
+    .word 65
+    .word 74
+    .word 75
+    .word 24
+    .word 25
+    .word 26
+    .word 27
+    .word 28
+    .word 29
+    .word 48
+    .word 50
+    .word 69
+    .word 70
+    .word 295
+    .word 296
+    .word 297
+    .word 298
+    .word 299
+    .word 300
+    .word 301
+    .word 302
+    .word 303
+    .word 304
+    .word 305
+    .word 306
+    .word 307
+    .word 308
+    .word 309
+    .word 310
+    .word 311
+    .word 312
+    .word 313
+    .word 314
+    .word 315
+    .word 316
+    .word 317
+    .word 318
+    .word 319
+    .word 320
+    .word 321
+    .word 322
+    .word 323
+    .word 324
+    .word 325
+    .word 326
+    .word 327
+    .word 328
+    .word 329
+    .word 30
+    .word 31
+    .word 32
+    .word 33
+    .word 34
+    .word 35
+    .word 36
+    .word 37
+    .word 49
+    .word 56
+    .word 71
+    .word 73
+    .word 76
+    .word 77
+    .word 38
+    .word 39
+    .word 40
+    .word 41
+    .word 55
+    .word 42
+    .word 43
+    .word 44
+    .word 57
+    .word 60
+    .word 66
+    .word 72
+    .word 45
+    .word 46
+    .word 51
+    .word 53
+    .word 79
+    .word 80
+    .word 81
+    .word 82
+    .word 83
+    .word 84
+    .word 85
+    .word 119
+    .word 121
+    .word 86
+    .word 113
+    .word 114
+    .word 115
+    .word 116
+    .word 117
+    .word 87
+    .word 88
+    .word 89
+    .word 90
+    .word 91
+    .word 92
+    .word 93
+    .word 118
+    .word 120
+    .word 124
+    .word 94
+    .word 95
+    .word 96
+    .word 97
+    .word 98
+    .word 99
+    .word 100
+    .word 101
+    .word 102
+    .word 125
+    .word 126
+    .word 103
+    .word 104
+    .word 105
+    .word 106
+    .word 107
+    .word 108
+    .word 109
+    .word 110
+    .word 111
+    .word 112
+    .word 122
+    .word 123
+    .word 127
+    .word 128
+    .word 144
+    .word 145
+    .word 129
+    .word 131
+    .word 146
+    .word 147
+    .word 149
+    .word 130
+    .word 132
+    .word 133
+    .word 134
+    .word 135
+    .word 136
+    .word 137
+    .word 138
+    .word 148
+    .word 150
+    .word 151
+    .word 153
+    .word 154
+    .word 139
+    .word 140
+    .word 141
+    .word 142
+    .word 143
+    .word 152
+    .word 155
+    .word 156
+    .word 157
+    .word 158
+    .word 159
+    .word 160
+    .word 161
+    .word 162
+    .word 163
+    .word 168
+    .word 169
+    .word 170
+    .word 171
+    .word 172
+    .word 173
+    .word 164
+    .word 165
+    .word 166
+    .word 167
+    .word 174
+    .word 175
+    .word 176
+    .word 224
+    .word 225
+    .word 226
+    .word 227
+    .word 228
+    .word 229
+    .word 177
+    .word 178
+    .word 179
+    .word 180
+    .word 181
+    .word 182
+    .word 183
+    .word 184
+    .word 195
+    .word 209
+    .word 210
+    .word 217
+    .word 218
+    .word 219
+    .word 185
+    .word 186
+    .word 187
+    .word 188
+    .word 197
+    .word 198
+    .word 213
+    .word 214
+    .word 215
+    .word 216
+    .word 271
+    .word 272
+    .word 189
+    .word 190
+    .word 196
+    .word 211
+    .word 212
+    .word 220
+    .word 221
+    .word 222
+    .word 223
+    .word 191
+    .word 192
+    .word 267
+    .word 268
+    .word 269
+    .word 270
+    .word 193
+    .word 194
+    .word 199
+    .word 200
+    .word 201
+    .word 235
+    .word 236
+    .word 237
+    .word 238
+    .word 239
+    .word 240
+    .word 241
+    .word 242
+    .word 243
+    .word 202
+    .word 203
+    .word 204
+    .word 205
+    .word 206
+    .word 207
+    .word 230
+    .word 231
+    .word 244
+    .word 245
+    .word 246
+    .word 247
+    .word 208
+    .word 232
+    .word 248
+    .word 249
+    .word 250
+    .word 251
+    .word 252
+    .word 253
+    .word 254
+    .word 255
+    .word 256
+    .word 257
+    .word 258
+    .word 259
+    .word 264
+    .word 265
+    .word 266
+    .word 233
+    .word 234
+    .word 260
+    .word 261
+    .word 262
+    .word 263
+    .word 273
+    .word 274
+    .word 275
+    .word 276
+    .word 277
+    .word 278
+    .word 279
+    .word 280
+    .word 281
+    .word 282
+    .word 283
+    .word 284
+    .word 285
+    .word 286
+    .word 287
+    .word 288
+    .word 289
+    .word 290
+    .word 291
+    .word 292
+    .word 293
+    .word 294

@@ -92,3 +92,28 @@ _test_names:
 @n_g1_16:
     .byte 16
     .byte "ExHiROM A23->A22"
+
+; --- menu pages (AccuracyCoin-style grouping, see pages.rs) ---
+.export _page_count
+.export _page_names
+.export _page_len
+.export _page_off
+.export _page_tests
+
+_page_count:
+    .word 1
+
+_page_names:
+    .addr @pn_0
+@pn_0:
+    .byte 14
+    .byte "POWER-ON STATE"
+
+_page_len:
+    .byte 1
+
+_page_off:
+    .word 0
+
+_page_tests:
+    .word 0

@@ -11,8 +11,10 @@
 ; $F000-$F0FF   the results block the host harness reads.
 
 VAR_BASE        = $7EE000
-V_CURSOR        = VAR_BASE + $00      ; selected menu row (u16)
-V_SCROLL        = VAR_BASE + $02      ; first visible row (u16)
+V_CURSOR        = VAR_BASE + $00      ; selected test WITHIN the current page (0..len-1), or
+                                      ; $FFFF when the PAGE header line is selected (u16)
+V_PAGE          = VAR_BASE + $02      ; current menu page (u16). Reuses what was V_SCROLL before the
+                                      ; AccuracyCoin-style paged menu replaced the scrolling list.
 V_PAD_HELD      = VAR_BASE + $04      ; controller 1, currently held (u16)
 V_PAD_LAST      = VAR_BASE + $06      ; previous frame (u16)
 V_PAD_NEW       = VAR_BASE + $08      ; newly pressed this frame (u16)
@@ -28,6 +30,17 @@ V_CURSOR_PREV   = VAR_BASE + $2A      ; where the cursor marker is currently dra
 V_MENU_MODE     = VAR_BASE + $13      ; 1 while the menu re-runs one test, so the verdict path
                                       ; records R_STATUS without re-tallying (u8)
 V_TMP2          = VAR_BASE + $14      ; second scratch word, for code that needs two at once
+; AccuracyCoin-style paged menu state (see draw_screen / main_loop). $32-$3F is free: the APU
+; second-block params end at $31 and the power-on capture block begins at $40.
+V_ATTR          = VAR_BASE + $32      ; tilemap high-byte the attributed draw routines OR into every
+                                      ; word: palette in bits 2-4, inverse-font (tile $100+) in bit 0 (u8)
+V_VIEW          = VAR_BASE + $33      ; 0 = paged test menu, 1 = skyline results (u8; skyline is Phase 5)
+V_MENU_I        = VAR_BASE + $34      ; draw_list / row loop index within the current page (u16)
+V_MENU_BASE     = VAR_BASE + $36      ; _page_tests entry index of the current page's first test (u16)
+V_MENU_CNT      = VAR_BASE + $38      ; number of tests on the current page (u16)
+V_SKY_SCREEN    = VAR_BASE + $3A      ; skyline horizontal screen (a page group of SKY_COLS), u8
+V_SKY_J         = VAR_BASE + $3C      ; skyline per-column brick loop index (u16)
+V_OAM_N         = VAR_BASE + $3E      ; next free OAM sprite slot while drawing the skyline (u8)
 ; Offset-per-tile entry values handed to `scene_opt_map`: the H row (0) and the V row (1), each
 ; with an even-column and an odd-column value. Alternating columns is what makes the leftmost-tile
 ; exemption visible — the shifted columns come out odd-numbered rather than even.
@@ -56,6 +69,13 @@ V_APU_LEN2      = VAR_BASE + $2E      ; block B byte count (compared as a full 1
                                       ; .a16, as apu_upload does with V_APU_LEN — high byte must be 0)
 V_APU_DEST2     = VAR_BASE + $30      ; block B APU RAM destination
 V_APU_PTR       = $0050
+
+; User-skip bitmap: one bit per test (menu B toggles it), 64 bytes = 512 tests, at $7E:E100 -- clear
+; of the runtime vars ($E000-$E0FF) and the measurement channel ($E200+). Zeroed on cold boot only
+; (a Select restart preserves the marks), so the harness's cold-boot scored run sees no skips and is
+; byte-identical to a build without this feature. A marked test records SKIP without running.
+V_USER_SKIP     = $7EE100
+USER_SKIP_BYTES = 64
 
 ; ---------------------------------------------------------------------------------------------
 ; Power-on capture block ($E040-$E04F, plus the DMA snapshot at $E060-$E06B).
@@ -229,6 +249,10 @@ APUIO3          = $2143
 
 ; --- PPU / CPU registers we touch ------------------------------------------------------------
 INIDISP         = $2100
+OBSEL           = $2101
+OAMADDL         = $2102
+OAMADDH         = $2103
+OAMDATA         = $2104
 BGMODE          = $2105
 BG1SC           = $2107
 BG12NBA         = $210B
@@ -237,6 +261,7 @@ BG1VOFS         = $210E
 VMAIN           = $2115
 VMADDL          = $2116
 VMDATAL         = $2118
+VMDATAH         = $2119
 CGADD           = $2121
 CGDATA          = $2122
 TM              = $212C
@@ -327,6 +352,48 @@ OPT_MAP_BASE    = $0800
 SCREEN_COLS     = 32
 VISIBLE_ROWS    = 26                  ; rows 2..27 list tests; rows 0-1 are the header
 
+; --- AccuracyCoin-style paged menu layout ----------------------------------------------------
+; Row/col -> tilemap word = MAP_BASE + row * SCREEN_COLS + col. Tests are double-spaced from
+; MENU_LIST_ROW, exactly like AccuracyCoin's results screen.
+MENU_TITLE_ROW  = 3                   ; centered page-group title (e.g. "65816: XCE & FLAGS")
+MENU_PAGE_ROW   = 5                   ; "PAGE x / N"
+MENU_LIST_ROW   = 7                   ; first test row
+MENU_LIST_STEP  = 2                   ; two tile-rows (16px) between tests
+MENU_LABEL_COL  = 1                   ; 4-char verdict label (TEST/PASS/FAIL/SKIP/DRAW)
+MENU_CODE_COL   = 6                   ; the FAIL code glyph, just past the label
+MENU_NAME_COL   = 8                   ; the test name -- name field is columns 8..31 = 24 chars, which
+                                      ; is exactly the generator's `name.len() <= 24` cap, so no name
+                                      ; wraps to the next tile row (was column 9 = only 23 chars)
+; Tilemap high-byte attributes: palette in bits 2-4, inverse-font copy (tile $100+) in bit 0. The
+; inverse-font bit is how the cursor/page-header highlight renders as a solid bar on a single BG
+; layer -- palette colour 0 is transparent on a background, so a swapped palette cannot.
+ATTR_WHITE      = $00                 ; palette 0 ink white  (TEST / DRAW / names / title)
+ATTR_BLUE       = $04                 ; palette 1 ink blue   (PASS)
+ATTR_RED        = $08                 ; palette 2 ink red    (FAIL and its code)
+ATTR_BLACK      = $0C                 ; palette 3 ink black  (SKIP)
+ATTR_INVERSE    = $01                 ; select the inverse-font copy at tile $100 (highlight bar)
+
+; --- skyline results screen (AccuracyCoin's "city") -------------------------------------------
+; One column per page, one brick per test, stacked up from a common baseline so ragged page lengths
+; look like a skyline. A brick is the inverse-font space tile ($100 + ' ' = a solid colour-1 block)
+; in the verdict's palette; a FAIL brick is instead the upright code glyph in red. 51 pages exceed
+; the 32-column screen, so the columns page across SKY screens with Left/Right.
+SKY_COLS        = 30                  ; page columns per screen (x = SKY_X0 .. SKY_X0+SKY_COLS-1)
+SKY_X0          = 1                   ; leftmost brick column
+; AccuracyCoin fills each column from the TOP downward (its results grid is drawn top-to-bottom,
+; +32 per row): a page's first test is at SKY_TOP and later tests hang below it, so ragged page
+; lengths form the skyline. The page number sits just above, at rows SKY_LABEL_ROW and +1.
+SKY_TOP         = 3                   ; brick row of a page's first test
+SKY_LABEL_ROW   = 1                   ; the page number's tens digit (units on the row below)
+SKY_BLOCK       = $20                 ; the space glyph; drawn inverse (tile $120) it is a solid block
+; Multi-behaviour success codes (AccuracyCoin): a pass with a variant code (verdict odd and > 1) gets
+; a light-blue OBJ sprite of the code glyph over its brick. The sprite font is uploaded as 4bpp
+; bitplane-0-only tiles at OBJ name base word $4000; OBSEL selects that base (bits 0-2 = 2), 8x8
+; sprites. The sprite attr byte uses OBJ palette 0 (grey + light-blue, CGRAM $80) at priority 3 so it
+; sits over BG1.
+SKY_OBJ_OBSEL   = $02                 ; OBJ name base = $4000 words, 8x8 sprites
+SKY_OBJ_ATTR    = $30                 ; OAM attr: palette 0, priority 3, no flip, tile bit 8 = 0
+
 ; --- controller bits (manual $4016 read, MSB first) -------------------------------------------
 PAD_B           = $8000
 PAD_Y           = $4000
@@ -363,6 +430,11 @@ PAD_X           = $0040
     .import _test_entries
     .import _test_flags
     .import _test_names
+    .import _page_count
+    .import _page_names
+    .import _page_len
+    .import _page_off
+    .import _page_tests
 .ifndef SCENES_IMPL
 .import _scene_count
 .import _scene_entries

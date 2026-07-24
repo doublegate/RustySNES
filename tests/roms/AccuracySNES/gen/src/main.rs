@@ -15,6 +15,7 @@ mod dossier;
 mod dsl;
 mod emit;
 mod font;
+mod pages;
 mod scenes;
 mod spc;
 mod tests;

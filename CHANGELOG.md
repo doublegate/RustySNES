@@ -143,6 +143,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **AccuracySNES's on-cart menu is restyled after the AccuracyCoin (NES) test ROM** to reduce the
+  friction of learning a bespoke UI: an AccuracyCoin-faithful grey backdrop with four label inks
+  (white / blue / red / black), and the old single scrolling list replaced by named **pages** of at
+  most ten tests each (51 pages, grouped by dossier sub-group — e.g. "65816: XCE & FLAGS", "PPU:
+  SPRITES"). Each row shows a coloured verdict label — `TEST` (not run) / `PASS` / `FAIL n` (with its
+  code glyph) / `SKIP` / `DRAW` (non-scoring, informational) — mapped from the existing per-test
+  verdict byte, so the human-facing restyle is orthogonal to the harness's WRAM-based scoring (the
+  self-scoring battery is unchanged at 298/298). Controls follow AccuracyCoin: **Up/Down** select
+  (through a page-header line above the list), **Left/Right** change page, **A** re-runs the
+  highlighted test, **B** toggles a user-skip mark on it, **Start** shows the results, **Select**
+  restarts from the power-on capture. A B-marked test shows `SKIP` immediately and is honoured
+  (recorded `SKIP` without running) on the next restart; the skip bitmap is zeroed on cold boot, so
+  the harness's scored run is provably unaffected. **The flow matches AccuracyCoin: on ROM load the
+  menu is shown first with every test not-run (`TEST`), and the cart waits for Start** — a
+  contract-holding accuracy host (which holds Start) auto-starts on the first frame, while a human
+  browses the pages and starts when ready. When the battery concludes the cart **lands on the skyline
+  results view automatically**, with Start toggling between the skyline and the (now scored) menu
+  thereafter. The selected row (or the page header) draws in an
+  **inverse-video** font copy (a
+  complemented glyph set at tile `$100`, uploaded beside the upright font) — the highlight bar
+  AccuracyCoin gets from its `tile+$80` inverse tiles, done on a single background layer where palette
+  colour 0 is transparent. **Start** switches to the AccuracyCoin **skyline results view** — the
+  "city" where each page is a column and each test a brick stacked from a common baseline (so ragged
+  page lengths read as a skyline): a solid blue/black/white block for pass/skip/non-scoring, the red
+  code glyph for a fail, under a "RESULTS  SCR x/y" header and a "TESTS PASSED: N / M" footer, with
+  Left/Right paging the columns across screens (the 51 pages exceed one 30-column screen); Start
+  returns to the menu. The Start toggle sits on a controller-contract button, so a contract-holding
+  accuracy host (which holds it continuously with no rising edge) never leaves the menu, while a human
+  user toggles freely. Columns **fill top-down** (a page's first test at the top, later tests hanging
+  below — matching AccuracyCoin's results grid); a pass is a solid blue square, a **fail is its error
+  code in red**, and a **multi-behaviour pass** (a golden "pass variant N") carries a **light-blue OBJ
+  sprite** of its code glyph over the brick (a 4bpp bitplane-0 sprite font uploaded at VRAM `$4000`,
+  OBJ palette 0). Each column is topped with its page number drawn AccuracyCoin-style — the leading
+  digit on top, the units below only for a two-digit page, so single-digit pages (1-9) show one digit
+  with a blank below instead of a busy leading zero. Menu test names that are up to 24 characters now
+  fit the name field without wrapping to the next row.
 - **The per-dot PPU compositor (`docs/adr/0014`, T-CA-10) is now the emulator's only renderer.** It
   first became the shipped default (a `per-dot-compositor` feature on by default), and then the batch
   whole-line composite it replaced (`render_scanline`/`compose_dac`) and the feature itself were
