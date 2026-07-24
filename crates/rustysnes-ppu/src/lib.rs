@@ -730,6 +730,15 @@ pub struct Ppu {
     /// `_oamEvaluationIndex`): it diverges from `OAMADDR` after redirected active-display writes and
     /// so cannot be re-derived on load. `pd_fetch_line` re-seeds it at each line boundary.
     pd_oam_eval_seed: u8,
+    /// Dot at which `range_over` (STAT77 bit 6) trips this line, or `None` (< 33 in-range sprites).
+    /// Computed at line start from the NEXT line's sprites (`pd_eval_over_flags`, 4b of ADR 0014);
+    /// transient, re-derived per line and after `load_state` via [`Self::pd_over_computed_line`].
+    pd_over_range_dot: Option<u16>,
+    /// Dot at which `time_over` (STAT77 bit 7) trips this line, or `None` (<= 34 sprite-tiles).
+    pd_over_time_dot: Option<u16>,
+    /// Which display line `pd_over_range_dot`/`pd_over_time_dot` were computed for; `u16::MAX` forces
+    /// a recompute (also the state after `load_state`, so a mid-line restore re-derives the set-dot).
+    pd_over_computed_line: u16,
 }
 
 impl core::fmt::Debug for Ppu {
@@ -798,6 +807,9 @@ impl Ppu {
             pd_fetched_line: u16::MAX,
             internal_cgram_address: 0,
             pd_oam_eval_seed: 0,
+            pd_over_range_dot: None,
+            pd_over_time_dot: None,
+            pd_over_computed_line: u16::MAX,
         }
     }
 
@@ -873,6 +885,11 @@ impl Ppu {
         // `advance_master` services this line's HDMA at this same dot, strictly AFTER this render
         // call within the same master-clock tick -- see `docs/scheduler.md` §DMA/HDMA bus-steal.
         self.pd_render_to_dot(bus);
+
+        // Sprite over-flag (STAT77 range/time) timing runs one line ahead of the paint and must cover
+        // line 0 (whose sprites paint on line 1), so it is driven here rather than from
+        // `pd_render_to_dot` (which only renders lines 1..=visible). `docs/adr/0014` 4b.
+        self.pd_eval_over_flags();
 
         self.h += 1;
         if self.h >= DOTS_PER_LINE {
@@ -1255,6 +1272,9 @@ impl Ppu {
         self.pd_draw_x = 0;
         self.pd_carry = render::DacCarry::default();
         self.internal_cgram_address = 0;
+        // Force the over-flag set-dots to re-derive for the restored line (`io.range_over`/`time_over`
+        // themselves are serialized, so a flag already set before the save survives).
+        self.pd_over_computed_line = u16::MAX;
         Ok(())
     }
 }

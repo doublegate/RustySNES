@@ -68,6 +68,14 @@ Per `ref-docs/2026-06-24-ppu.md` §3 (SNESdev Sprites, Fullsnes):
 - **Per-scanline limits:** **Range Over = 32 sprites/line** (STAT77 bit 6); **Time Over = 34
   sprite-tiles/line** (STAT77 bit 7); both reset at end of VBlank. **Lower OAM index = on
   top**; tile fetch is reverse-order, so **low-index sprites drop first** on overflow.
+  - **Over-flag timing (per-dot, 4b of `docs/adr/0014`).** Hardware evaluates a line's sprites one
+    line AHEAD of drawing them (MesenCE `EvaluateNextLineSprites`). So the flags are timed by
+    `Ppu::pd_eval_over_flags` on the *evaluation* line (`scan_y = self.v`, the sprites that paint on
+    `self.v + 1`), not by the paint pass (`eval_objects_range`, `scan_y = self.v - 1`): `range_over`
+    trips at the 33rd in-range sprite's evaluation dot (`V = OBJ.YLOC, H = OAM.INDEX*2`), and
+    `time_over` during the tile-fetch phase, so a cart reading `$213E` sees it set by
+    `V = OBJ.YLOC + 1, H = 0` (dossier C7.05/C7.06). The set-dots are transient (re-derived per line;
+    invalidated on `load_state`); the flags themselves are serialized.
 - **OBJ interlace (SETINI $2133 bit 1):** a sprite occupies **half** its normal scanline height and
   samples **every other row**, selected by the interlace field (ares `Object::onScanline`/`fetch`:
   `height >> interlace`, then `row = (row << 1) + field` after the width-based V-flip). So a 16x32
