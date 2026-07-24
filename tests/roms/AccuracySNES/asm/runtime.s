@@ -143,6 +143,7 @@ restart_entry:
     jsr clear_vram
     jsr load_palette
     jsr load_font
+    jsr load_inverse_font       ; the $0800 highlight/skyline-block font (menu paths only, not scenes)
     jsr load_sprite_font        ; 4bpp OBJ code font at $4000, for the skyline variant-code sprites
     jsr init_oam                ; point OBSEL at it and clear OAM (scenes/battery never touch $4000)
     jsr clear_tilemap
@@ -203,6 +204,7 @@ restart_entry:
     .a16
     .i16
     jsr load_font
+    jsr load_inverse_font       ; the skyline's solid blocks use the $0800 inverse-space tile
     jsr load_sprite_font        ; a VRAM test may have overwritten the $4000 sprite font
     jsr init_oam
     jsr load_palette
@@ -674,9 +676,9 @@ restart_entry:
     .a16
     .i16
     ldx #$0000
-    stx VMADDL                  ; word $0000 = tile $00 (upright font)
+    stx VMADDL                  ; word $0000 = tile $00
     ldx #$0000
-@upright:
+@loop:
     sep #$20
     .a8
     lda f:font_data,x
@@ -686,19 +688,32 @@ restart_entry:
     .i16
     inx
     cpx #FONT_SIZE
-    bne @upright
+    bne @loop
+    rts
+.endproc
 
-    ; Inverse-video copy at word $0800 (tile $100), for the AccuracyCoin cursor / page-header
-    ; highlight bar. A background layer treats palette colour 0 as transparent, so a swapped-colour
-    ; palette cannot draw a solid bar -- the inverse GLYPH does: complementing bitplane 0 fills the
-    ; cell with ink (colour 1) as the bar and punches the character through as colour 0, the grey
-    ; backdrop. $0800 is clear of the upright font ($0000-$03FF) and the menu tilemap
-    ; (MAP_BASE $0400-$07FF); the menu reloads the font before drawing, so a scene's use of $0800
-    ; for its offset-per-tile map does not have to survive into the menu.
+; The inverse-video font copy at word $0800 (BG tile $100), for the AccuracyCoin cursor / page-header
+; highlight bar and the skyline's solid blocks. A background layer treats palette colour 0 as
+; transparent, so a swapped-colour palette cannot draw a solid bar -- the inverse GLYPH does:
+; complementing bitplane 0 fills the cell with ink (colour 1) as the bar and punches the character
+; through as colour 0, the grey backdrop.
+;
+; This is uploaded ONLY on the menu/skyline paths, NEVER by scene_canvas. At OBJ name base $0000 a 4bpp
+; sprite tile $80 reads word $800, so a rendered-scene sprite large enough to reach tile $80 (the c7
+; 32x64 sprites do) would draw the inverse font as garbage over itself. The scenes need only the
+; upright font at $0000; leaving $0800 zero for them keeps their large sprites blank as the goldens
+; expect. The menu reloads the font before it draws, so it always has the inverse copy when it needs it.
+.proc load_inverse_font
+    sep #$20
+    .a8
+    stz VMAIN                   ; increment after the LOW byte
+    rep #$30
+    .a16
+    .i16
     ldx #$0800
     stx VMADDL
     ldx #$0000
-@inverse:
+@loop:
     sep #$20
     .a8
     lda f:font_data,x
@@ -709,7 +724,7 @@ restart_entry:
     .i16
     inx
     cpx #FONT_SIZE
-    bne @inverse
+    bne @loop
     rts
 .endproc
 

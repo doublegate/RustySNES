@@ -85,7 +85,8 @@ fn leak_static(code: &str) -> &'static str {
 pub fn pages(battery: &[Test]) -> Vec<Page> {
     // First-seen sub-group order, and each sub-group's battery indices.
     let mut order: Vec<&str> = Vec::new();
-    let mut groups: std::collections::BTreeMap<&str, Vec<usize>> = std::collections::BTreeMap::new();
+    let mut groups: std::collections::BTreeMap<&str, Vec<usize>> =
+        std::collections::BTreeMap::new();
     for (i, t) in battery.iter().enumerate() {
         let sub = subgroup(t.id);
         if !groups.contains_key(sub) {

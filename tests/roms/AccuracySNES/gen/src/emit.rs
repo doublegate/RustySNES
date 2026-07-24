@@ -184,7 +184,10 @@ pub fn asm(tests: &[Test]) -> String {
 fn emit_pages(s: &mut String, tests: &[crate::dsl::Test]) {
     let pages = crate::pages::pages(tests);
     let _ = writeln!(s);
-    let _ = writeln!(s, "; --- menu pages (AccuracyCoin-style grouping, see pages.rs) ---");
+    let _ = writeln!(
+        s,
+        "; --- menu pages (AccuracyCoin-style grouping, see pages.rs) ---"
+    );
     let _ = writeln!(s, ".export _page_count");
     let _ = writeln!(s, ".export _page_names");
     let _ = writeln!(s, ".export _page_len");

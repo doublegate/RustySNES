@@ -41,6 +41,12 @@ const R_SCENE_DONE: u32 = RESULTS + 0x13;
 const DONE_MARK: u8 = 0xA5;
 const SCENE_DONE_MARK: u8 = 0x5A;
 
+/// The controller input contract every scene host holds for the whole run (see `runtime.inc`). It is
+/// also what releases the pre-battery menu: Start is one of its buttons ($1000 of $9050), so the
+/// cart's `wait_for_start` proceeds on the first frame instead of parking on the menu forever.
+const PAD_CONTRACT: u16 = 0x9050;
+const PAD2_CONTRACT: u16 = 0x60A0;
+
 /// Frame budget. The battery runs first, then one hold per scene.
 const MAX_FRAMES: u32 = 4_000;
 
@@ -154,6 +160,10 @@ fn capture_scenes() -> BTreeMap<u8, u64> {
     let mut sys = System::new(0);
     sys.bus.cart = Some(cart);
     sys.reset();
+    // Hold the input contract for the whole run, like every other scene host (snes9x, Mesen2): it
+    // holds Start, so the cart leaves the pre-battery menu and runs the battery + scenes.
+    sys.bus.set_joypad(0, PAD_CONTRACT);
+    sys.bus.set_joypad(1, PAD2_CONTRACT);
 
     let mut seen: BTreeMap<u8, u64> = BTreeMap::new();
     let mut sightings: BTreeMap<u8, u32> = BTreeMap::new();
