@@ -63,7 +63,13 @@ use crate::sa1_bus::Sa1Bus;
 /// over-flag set-dots (re-derived on load) must key off the persisted seed rather than the live
 /// address, or a mid-line save/load on a priority-rotated line would shift `$213E` timing. Same
 /// old-blob-fails-loudly guarantee.
-const FORMAT_VERSION: u16 = 8;
+///
+/// `9` (auto-read start timing): `rustysnes_core`'s `BUS0` section grew by eight bytes —
+/// `auto_joypad_start_at`, the `clock.master` instant an armed automatic joypad read is scheduled to
+/// begin. Hardware starts the read ~dot 32.5-95.5 into the first vblank line, not at the vblank edge,
+/// so a save taken in that window must restore the pending start or the read never begins on load
+/// (`$4212` bit 0 and `$4218-$421F` would desync). Same old-blob-fails-loudly guarantee.
+const FORMAT_VERSION: u16 = 9;
 /// The save-state envelope's leading magic bytes — identifies the blob as a RustySNES save-state
 /// before anything else is trusted.
 const MAGIC: &[u8; 4] = b"RSNS";

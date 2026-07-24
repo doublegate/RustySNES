@@ -126,6 +126,14 @@ and diffing the deterministic output against a fork that kept running uninterrup
   runs one line ahead of the paint and covers line 0). Regression-locked by
   `over_flag_timing_survives_mid_line_save_load_with_diverged_oamaddr`. Same older-blob-fails-loudly
   guarantee.
+- **`8` → `9` (auto-read start timing):** `rustysnes_core`'s `BUS0` section grew by eight bytes —
+  `auto_joypad_start_at`, the `clock.master` instant an armed automatic joypad read is scheduled to
+  begin. Hardware does not start the read at the VBlank edge but ~dot 32.5-95.5 into the first VBlank
+  line (`AUTO_JOYPAD_START_DELAY`; AccuracySNES `F1.08`/`F1.10`), so `$4212` bit 0 reads not-busy for
+  that window and the NMI-entry race is observable. A save taken between the edge and the start must
+  restore the pending deadline, or the read never begins on load and `$4212`/`$4218-$421F` desync.
+  Regression-locked by `auto_joypad_pending_start_survives_save_load`. Same older-blob-fails-loudly
+  guarantee.
 - **The round-trip determinism test is the spec**: save → run N frames on a cloned/forked
   system → load the save into the original → run the same N frames → assert byte-identical
   framebuffer + audio output between the two. This extends `docs/adr/0004`'s existing
