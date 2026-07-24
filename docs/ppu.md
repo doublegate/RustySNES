@@ -297,13 +297,24 @@ The crate is a working dual-chip model. Public API the scheduler/bus call:
   timing" below — landed, with the Super FX/GSU golden updates it required independently
   verified (not blindly re-blessed).
 
-## Mid-scanline/HDMA-driven register timing — landed (v0.8.0)
+## Mid-scanline/HDMA-driven register timing — landed (v0.8.0), superseded by the per-dot compositor (v1.21.0)
 
-**Status: landed.** The off-by-one-line compositor bug confirmed in `v0.5.0` is fixed:
-`Ppu::tick_dot` composites each scanline at [`rustysnes_ppu::RENDER_DOT`] (dot 276) instead of
+> **Superseded — historical.** This section documents the `v0.8.0` per-scanline-at-`RENDER_DOT`
+> (dot 276) model and the investigation that landed it. As of `v1.21.0` the **per-dot compositor**
+> (`docs/adr/0014`, T-CA-10) is the sole renderer and is the current specification — see the
+> "Rendering model" bullet above: the compose/draw stage now runs one column at a time against live
+> registers, so mid-line CGRAM/OAM/`INIDISP` visibility is exact at dot resolution rather than
+> approximated by a single dot-276 sample. The mechanism and cross-validation below remain accurate
+> as the account of *how the earlier model worked and why it was correct for the HDMA-per-line case*;
+> read it as lineage, not as the current dot-timing model. (The one part still live: the BG/sprite
+> line **fetch** is line-wide even under the per-dot compositor, so mid-line scroll/tilemap changes
+> are Phase 4c, not yet landed.)
+
+**Status (v0.8.0): landed.** The off-by-one-line compositor bug confirmed in `v0.5.0` was fixed:
+`Ppu::tick_dot` composited each scanline at [`rustysnes_ppu::RENDER_DOT`] (dot 276) instead of
 end-of-scanline (dot 340), matching real hardware's per-pixel active-region timing. All 29
 `undisbeliever` goldens, every `*_oncart`/commercial-screenshot suite, and the Super FX/GSU
-golden corpus (24/24, re-verified — see "The Super FX/GSU golden updates" below) pass with the
+golden corpus (24/24, re-verified — see "The Super FX/GSU golden updates" below) passed with the
 fix in place; SA-1's `SD F-1 Grand Prix` golden changed to the pixel-exact hardware-correct
 value (see "The SA-1 case" below).
 
