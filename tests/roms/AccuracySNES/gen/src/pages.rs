@@ -29,8 +29,10 @@ fn subgroup(id: &str) -> &str {
 }
 
 /// Human page title for a sub-group. Hand-authored, AccuracyCoin-style; unknown sub-groups fall back
-/// to the bare code so a newly-added group still pages (just with a terse title until named here).
-fn subgroup_title(sub: &str) -> &'static str {
+/// to the bare code (borrowed from the input) so a newly-added group still pages, just with a terse
+/// title until named here. The known arms are `&'static str` literals, which coerce to the borrowed
+/// lifetime, so no allocation or leak is needed for the fallback.
+fn subgroup_title(sub: &str) -> &str {
     match sub {
         "A1" => "65816: XCE & FLAGS",
         "A2" => "65816: ARITHMETIC",
@@ -68,15 +70,8 @@ fn subgroup_title(sub: &str) -> &'static str {
         "E10" => "APU: DSP ECHO",
         "F1" => "INPUT: CONTROLLERS",
         "G1" => "POWER-ON STATE",
-        other => leak_static(other),
+        other => other,
     }
-}
-
-/// Fall-back title for an un-named sub-group: leak a `'static` copy of the code so the signature can
-/// stay `&'static str`. Only reached for a brand-new sub-group before it is named above, so the leak
-/// is one tiny string per generator run, never in the ROM.
-fn leak_static(code: &str) -> &'static str {
-    Box::leak(code.to_owned().into_boxed_str())
 }
 
 /// Regroup the battery into menu pages. Sub-groups appear in first-seen order; each sub-group's tests
@@ -117,5 +112,13 @@ pub fn pages(battery: &[Test]) -> Vec<Page> {
             });
         }
     }
+    // The skyline's per-column page numbers (`draw_col_label` in runtime.s) draw exactly two digits,
+    // so page numbers must stay in 1..=99. Fail the build loudly here rather than let a 100th page
+    // render a non-digit glyph (':' for 100) on the results screen.
+    assert!(
+        out.len() <= 99,
+        "the skyline's two-digit column labels can only show pages 1-99; got {} pages",
+        out.len()
+    );
     out
 }

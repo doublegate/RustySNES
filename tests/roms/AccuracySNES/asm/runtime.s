@@ -852,6 +852,12 @@ restart_entry:
     adc #'0'
 @tile:
     sta f:V_TMP2                ; tile = code glyph ASCII (reuse V_TMP2)
+    ; OAM has 128 slots (0-127). Drop the sprite once the channel is full rather than write over slot
+    ; 127 -- the guard is on the WRITE, so a full channel keeps its last 128 sprites, not its last one.
+    lda f:V_OAM_N
+    and #$00FF
+    cmp #128
+    bcs @no
     ; OAM word address = V_OAM_N * 2 (each sprite is two words in the low table).
     lda f:V_OAM_N
     and #$00FF
@@ -890,14 +896,12 @@ restart_entry:
     sta OAMDATA                 ; tile
     lda #SKY_OBJ_ATTR
     sta OAMDATA                 ; attr
-    ; advance the slot, capped at 127
+    ; advance the slot -- only reached for a written sprite (the @tile guard skipped a full channel).
     rep #$30
     .a16
     .i16
     lda f:V_OAM_N
     and #$00FF
-    cmp #127
-    bcs @no
     inc a
     sep #$20
     .a8
