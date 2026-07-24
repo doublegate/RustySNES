@@ -490,6 +490,27 @@ restart_entry:
     sta CGADD                   ; palette 3 base
     cgcolor $E7, $1C            ; pal3 col0 grey
     cgcolor $00, $00            ; pal3 col1 black $0000  (SKIP / in-progress ink)
+    ; Palettes 4-7 are the highlight (cursor) versions of 0-3: the same two colours SWAPPED, so a
+    ; selected label drawn with palette state+4 renders inverse-video (the AccuracyCoin cursor) — the
+    ; state colour becomes the background, grey the ink. This is the SNES per-tile-palette equivalent
+    ; of AccuracyCoin's tile+$80 inverse glyphs, and avoids a second 128-tile font copy colliding with
+    ; MAP_BASE.
+    lda #16
+    sta CGADD                   ; palette 4 base (inverse of 0: white bg, grey ink)
+    cgcolor $BD, $7B            ; white
+    cgcolor $E7, $1C            ; grey
+    lda #20
+    sta CGADD                   ; palette 5 (inverse PASS: blue bg, grey ink)
+    cgcolor $69, $76            ; blue
+    cgcolor $E7, $1C            ; grey
+    lda #24
+    sta CGADD                   ; palette 6 (inverse FAIL: red bg, grey ink)
+    cgcolor $BD, $31            ; red
+    cgcolor $E7, $1C            ; grey
+    lda #28
+    sta CGADD                   ; palette 7 (inverse SKIP: black bg, grey ink)
+    cgcolor $00, $00            ; black
+    cgcolor $E7, $1C            ; grey
     ; Sprite palette 0 (OBJ palettes begin at CGRAM index 128): grey bg + light-blue $7735, for the
     ; multi-behaviour success codes overlaid on the skyline.
     lda #$80
