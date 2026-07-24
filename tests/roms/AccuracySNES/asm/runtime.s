@@ -138,23 +138,33 @@ restart_entry:
     jsr run_scenes              ; rendered scenes for the host framebuffer oracle (ADR 0013)
     .endif
 
-    ; Reload the menu palette: the rendered scenes just overwrote CGRAM, and draw_screen must draw
-    ; the results in the menu's own green rather than whatever the last scene left behind.
+    ; Re-establish the menu's font and palette. The battery and the rendered scenes leave VRAM and
+    ; CGRAM in whatever state their last write wanted -- a scene overwrites the font's $0800 inverse
+    ; copy with its offset-per-tile map, and CGRAM holds the last scene's palette -- so reload both.
+    ; draw_screen's blank_rows clears the visible tilemap, so a full clear_vram (32K words, ~6 frames
+    ; of black) is not needed here; the screen is still force-blanked, so these writes land.
+    sep #$20
+    .a8
+    lda #$8F
+    sta INIDISP
+    rep #$30
+    .a16
+    .i16
+    jsr load_font
     jsr load_palette
 
-    ; The menu's own state, which nothing else initialises.
-    ;
-    ; WRAM powers up holding garbage -- `G1.07` records that as undefined and measures it -- and
-    ; these are read before they are ever written. A garbage `V_SCROLL` is not a cosmetic problem:
-    ; `draw_list` adds it to the row counter and compares the sum against `R_COUNT`, so any large
-    ; value bails out before the first row and the whole test list silently fails to render. That
-    ; is what it did, on every emulator and on hardware, for as long as the menu has existed.
+    ; The paged menu's own state, which nothing else initialises. WRAM powers up holding garbage
+    ; (`G1.07` records that as undefined and measures it) and these are read before being written:
+    ; a garbage V_PAGE or V_CURSOR would index _page_off / _page_tests out of range and draw a
+    ; nonsense list, exactly as a garbage V_SCROLL used to bail the whole list out before row 0.
     rep #$30
     .a16
     .i16
     lda #$0000
-    sta f:V_CURSOR
-    sta f:V_SCROLL
+    sta f:V_PAGE
+    sta f:V_VIEW                ; start on the paged test menu (skyline is Phase 5)
+    lda #$FFFF
+    sta f:V_CURSOR             ; land on the PAGE header line of page 0, like AccuracyCoin's start
     sep #$20
     .a8
     lda #$00
@@ -162,6 +172,16 @@ restart_entry:
     rep #$30
     .a16
     .i16
+
+    ; Prime the controller edge-detector so a host holding the input contract (B + Start + X + R the
+    ; whole run) does not register a spurious Start / A press on the menu's first frame: after this,
+    ; V_PAD_LAST == V_PAD_HELD, so V_PAD_NEW is zero until the user actually presses something.
+    jsr read_pad
+    rep #$30
+    .a16
+    .i16
+    lda f:V_PAD_HELD
+    sta f:V_PAD_LAST
 
     jsr draw_screen
 
@@ -536,9 +556,9 @@ restart_entry:
     .a16
     .i16
     ldx #$0000
-    stx VMADDL                  ; word $0000 = tile $00
+    stx VMADDL                  ; word $0000 = tile $00 (upright font)
     ldx #$0000
-@loop:
+@upright:
     sep #$20
     .a8
     lda f:font_data,x
@@ -548,7 +568,30 @@ restart_entry:
     .i16
     inx
     cpx #FONT_SIZE
-    bne @loop
+    bne @upright
+
+    ; Inverse-video copy at word $0800 (tile $100), for the AccuracyCoin cursor / page-header
+    ; highlight bar. A background layer treats palette colour 0 as transparent, so a swapped-colour
+    ; palette cannot draw a solid bar -- the inverse GLYPH does: complementing bitplane 0 fills the
+    ; cell with ink (colour 1) as the bar and punches the character through as colour 0, the grey
+    ; backdrop. $0800 is clear of the upright font ($0000-$03FF) and the menu tilemap
+    ; (MAP_BASE $0400-$07FF); the menu reloads the font before drawing, so a scene's use of $0800
+    ; for its offset-per-tile map does not have to survive into the menu.
+    ldx #$0800
+    stx VMADDL
+    ldx #$0000
+@inverse:
+    sep #$20
+    .a8
+    lda f:font_data,x
+    eor #$FF
+    sta VMDATAL
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #FONT_SIZE
+    bne @inverse
     rts
 .endproc
 
@@ -899,44 +942,224 @@ test_restore := test_restore_impl
     rts
 .endproc
 
-; Draw the whole screen: header, tallies, and one row per test.
+; Draw the whole paged menu (AccuracyCoin-style): a centered page-group title, the "PAGE x / N"
+; line, and the current page's tests double-spaced with a coloured verdict label each. The selected
+; row (or the page header, when V_CURSOR == $FFFF) is drawn in the inverse-video font as the cursor.
 .proc draw_screen
     rep #$30
     .a16
     .i16
-    ; The three header rows, before anything is written into them.
+    ; Clear the whole visible tilemap first: pages have different lengths, so last page's tail rows
+    ; must not linger under a shorter page.
     ldx #MAP_BASE
-    ldy #(3 * SCREEN_COLS)
+    ldy #(28 * SCREEN_COLS)
     jsr blank_rows
-
-    ldy #str_title
-    jsr str_ptr_bank0
-    ldx #MAP_BASE
-    jsr draw_str
-
-    ; Row 1: the tallies.
-    ldy #str_tally
-    jsr str_ptr_bank0
-    ldx #(MAP_BASE + SCREEN_COLS)
-    jsr draw_str
-    ; Columns 2, 8, 14 and 21 are where `str_tally`'s own "000" placeholders sit: it reads
-    ; "P:000 F:000 G:000 OF:000", so the digits start after "P:", after "F:" at 6, after "G:" at 12
-    ; and after "OF:" at 18. They were 2/9/16/23, which put three of the four counters one or two
-    ; columns right of their labels and overwrote the neighbouring text.
-    lda f:R_PASSED
-    ldx #(MAP_BASE + SCREEN_COLS + 2)
-    jsr draw_dec3
-    lda f:R_FAILED
-    ldx #(MAP_BASE + SCREEN_COLS + 8)
-    jsr draw_dec3
-    lda f:R_GOLDEN
-    ldx #(MAP_BASE + SCREEN_COLS + 14)
-    jsr draw_dec3
-    lda f:R_COUNT
-    ldx #(MAP_BASE + SCREEN_COLS + 21)
-    jsr draw_dec3
-
+    jsr draw_title
+    jsr draw_page_header
     jsr draw_list
+    rts
+.endproc
+
+; Centered page-group title at MENU_TITLE_ROW, always white.
+.proc draw_title
+    rep #$30
+    .a16
+    .i16
+    lda f:V_PAGE
+    asl
+    tax
+    lda f:_page_names,x         ; 16-bit address of this page's length-prefixed name
+    sta f:V_STR_PTR
+    sep #$20
+    .a8
+    lda #^_page_names           ; the CATALOG segment's bank
+    sta f:V_STR_PTR+2
+    lda #ATTR_WHITE
+    sta f:V_ATTR
+    rep #$30
+    .a16
+    .i16
+    ; col = (SCREEN_COLS - length) / 2
+    ldy #$0000
+    sep #$20
+    .a8
+    lda [V_STR_PTR],y           ; length byte
+    rep #$20
+    .a16
+    and #$00FF
+    sta f:V_TMP
+    lda #SCREEN_COLS
+    sec
+    sbc f:V_TMP
+    lsr
+    clc
+    adc #(MAP_BASE + MENU_TITLE_ROW * SCREEN_COLS)
+    tax
+    jsr attr_set_addr
+    jsr attr_str
+    rts
+.endproc
+
+; "PAGE x / N" at MENU_PAGE_ROW. Inverse when the page header is the selected line (V_CURSOR==$FFFF).
+.proc draw_page_header
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #ATTR_WHITE
+    sta f:V_ATTR
+    rep #$30
+    .a16
+    .i16
+    lda f:V_CURSOR
+    cmp #$FFFF
+    bne :+
+    sep #$20
+    .a8
+    lda #(ATTR_WHITE | ATTR_INVERSE)
+    sta f:V_ATTR
+    rep #$30
+    .a16
+    .i16
+:
+    ldx #(MAP_BASE + MENU_PAGE_ROW * SCREEN_COLS + 2)
+    jsr attr_set_addr
+    ldy #str_page
+    jsr str_ptr_bank0
+    jsr attr_str
+    lda f:V_PAGE
+    inc a                       ; 1-based for display
+    jsr attr_dec3
+    ldy #str_slash
+    jsr str_ptr_bank0
+    jsr attr_str
+    lda f:_page_count
+    jsr attr_dec3
+    rts
+.endproc
+
+; X = VRAM word address. Point the attributed streamers at it, in full-word (VMAIN=$80) mode.
+.proc attr_set_addr
+    sep #$20
+    .a8
+    lda #$80
+    sta VMAIN                   ; advance after the HIGH byte -> a 16-bit store writes one tile word
+    rep #$30
+    .a16
+    .i16
+    stx VMADDL
+    rts
+.endproc
+
+; Stream a length-prefixed string (V_STR_PTR) as full tilemap words, high byte = V_ATTR. VMADDL and
+; VMAIN=$80 must be set by the caller (attr_set_addr); auto-increment leaves VMADDL past the string,
+; so several attr_str / attr_dec3 calls chain into consecutive columns.
+.proc attr_str
+    rep #$30
+    .a16
+    .i16
+    ldy #$0000
+    sep #$20
+    .a8
+    lda [V_STR_PTR],y           ; length
+    beq @done
+    rep #$20
+    .a16
+    and #$00FF
+    tax                         ; X = remaining characters
+@loop:
+    iny
+    sep #$20
+    .a8
+    lda [V_STR_PTR],y
+    sta VMDATAL
+    lda f:V_ATTR
+    sta VMDATAH
+    rep #$20
+    .a16
+    dex
+    bne @loop
+@done:
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; A (16-bit) = value 0-999 -> three digits streamed as full words with V_ATTR. Address pre-set.
+.proc attr_dec3
+    rep #$30
+    .a16
+    .i16
+    sta f:V_TMP
+    ; hundreds
+    ldx #$0000
+@h:
+    cmp #100
+    bcc @hd
+    sec
+    sbc #100
+    inx
+    bra @h
+@hd:
+    sta f:V_TMP                 ; remainder after hundreds
+    txa
+    clc
+    adc #'0'
+    jsr attr_putdigit
+    ; tens
+    lda f:V_TMP
+    ldx #$0000
+@t:
+    cmp #10
+    bcc @td
+    sec
+    sbc #10
+    inx
+    bra @t
+@td:
+    sta f:V_TMP                 ; units
+    txa
+    clc
+    adc #'0'
+    jsr attr_putdigit
+    ; units
+    lda f:V_TMP
+    clc
+    adc #'0'
+    jsr attr_putdigit
+    rts
+.endproc
+
+; A (low byte) = character -> one tilemap word (low = char, high = V_ATTR). Address pre-set.
+.proc attr_putdigit
+    sep #$20
+    .a8
+    sta VMDATAL
+    lda f:V_ATTR
+    sta VMDATAH
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; A (16-bit, 0-35) = value -> one hex glyph (0-9, A-Z) streamed with V_ATTR. Address pre-set.
+.proc attr_hexdigit
+    rep #$30
+    .a16
+    .i16
+    cmp #10
+    bcc @dig
+    clc
+    adc #('A' - 10)
+    bra @put
+@dig:
+    clc
+    adc #'0'
+@put:
+    jsr attr_putdigit
     rts
 .endproc
 
@@ -975,231 +1198,228 @@ test_restore := test_restore_impl
     rts
 .endproc
 
-; Draw the scrollable test list starting at V_SCROLL.
+; Draw the current page's tests, each as a coloured verdict label + name, double-spaced from
+; MENU_LIST_ROW. The battery index of a row is _page_tests[_page_off[V_PAGE] + row].
 .proc draw_list
     rep #$30
     .a16
     .i16
-    ldx #(MAP_BASE + 3 * SCREEN_COLS)
-    ldy #(VISIBLE_ROWS * SCREEN_COLS)
-    jsr blank_rows
+    ; Base entry index of this page (from _page_off, a word table).
+    lda f:V_PAGE
+    asl
+    tax
+    lda f:_page_off,x
+    sta f:V_MENU_BASE
+    ; Test count on this page (from _page_len, a byte table).
+    lda f:V_PAGE
+    tax
+    sep #$20
+    .a8
+    lda f:_page_len,x
     rep #$30
     .a16
     .i16
+    and #$00FF
+    sta f:V_MENU_CNT
     lda #$0000
-    sta f:V_TMP                 ; row counter
+    sta f:V_MENU_I
 @row:
-    lda f:V_TMP
-    cmp #VISIBLE_ROWS
+    lda f:V_MENU_I
+    cmp f:V_MENU_CNT
     bcc :+
     jmp @done
-  :
+:
+    ; Battery index for this row -> V_TMP2 (a word into _page_tests).
+    lda f:V_MENU_BASE
     clc
-    adc f:V_SCROLL
-    cmp f:R_COUNT
-    bcc :+
-    jmp @blank_rest
-  :
+    adc f:V_MENU_I
+    asl
+    tax
+    lda f:_page_tests,x
+    sta f:V_TMP2
+    jsr draw_test_row
+    lda f:V_MENU_I
+    inc a
+    sta f:V_MENU_I
+    jmp @row
+@done:
+    rts
+.endproc
 
-    ; VRAM address for this row: MAP_BASE + (row + 3) * 32
-    pha                         ; test index
+; Draw one test row. V_MENU_I = row within page (also the cursor comparison), V_TMP2 = battery index.
+; Classifies R_STATUS + _test_flags into a label + palette, then draws the label, an optional FAIL
+; code glyph, and the name -- all inverse-video when this row is the selected one.
+; The classification stays uniformly 16-bit (A and index), reading the two byte tables in brief
+; `.a8` windows that immediately re-widen. Keeping one width throughout avoids the trap where a block
+; that ends `.a16` leaves the *next* fall-through / branch label assembled 16-bit while the CPU runs
+; it 8-bit -- the `cmp #imm` then emits a 3-byte immediate the CPU decodes as 2, and the stray byte
+; runs as an opcode (`.smart` does not save straight-line code; this file tracks width by hand).
+.proc draw_test_row
+    rep #$30
+    .a16
+    .i16
+    lda f:V_TMP2                ; battery index
+    tax                         ; X indexes the byte tables
+    ; flags byte -> A, masked to 16 bits.
+    sep #$20
+    .a8
+    lda f:_test_flags,x
+    rep #$30
+    .a16
+    .i16
+    and #$0001                  ; does it score at all?
+    beq @draw
+    ; status byte -> A, masked to 16 bits.
+    sep #$20
+    .a8
+    lda f:R_STATUS,x
+    rep #$30
+    .a16
+    .i16
+    and #$00FF
+    cmp #VERDICT_NOTRUN
+    beq @test
+    cmp #$00FF                  ; VERDICT_SKIP, masked to a byte
+    beq @skip
+    bit #$0001                  ; bit 0 set = pass (possibly with a variant code); else fail
+    bne @pass
+    ; fail: code = byte >> 1.
+    lsr
+    sta f:V_TMP                 ; FAIL code (0-127)
+    ldy #str_fail
+    jsr str_ptr_bank0
+    lda #ATTR_RED
+    sta f:V_ATTR                ; 16-bit store also zeroes V_VIEW (its high byte) -- 0 is the menu view
+    bra @have_label
+@draw:
+    ; Non-scoring (Contested / Novel): informational, drawn "DRAW" in white -- like AccuracyCoin.
+    ldy #str_draw
+    jsr str_ptr_bank0
+    lda #ATTR_WHITE
+    sta f:V_ATTR
+    lda #$FFFF
+    sta f:V_TMP                 ; no FAIL code
+    bra @have_label
+@test:
+    ldy #str_test
+    jsr str_ptr_bank0
+    lda #ATTR_WHITE
+    sta f:V_ATTR
+    lda #$FFFF
+    sta f:V_TMP
+    bra @have_label
+@skip:
+    ldy #str_skip
+    jsr str_ptr_bank0
+    lda #ATTR_BLACK
+    sta f:V_ATTR
+    lda #$FFFF
+    sta f:V_TMP
+    bra @have_label
+@pass:
+    ldy #str_pass
+    jsr str_ptr_bank0
+    lda #ATTR_BLUE
+    sta f:V_ATTR
+    lda #$FFFF
+    sta f:V_TMP
+@have_label:
+    rep #$30
+    .a16
+    .i16
+    ; Highlight (inverse-video) when this row is selected.
+    lda f:V_MENU_I
+    cmp f:V_CURSOR
+    bne @notsel
+    sep #$20
+    .a8
+    lda f:V_ATTR
+    ora #ATTR_INVERSE
+    sta f:V_ATTR
+    rep #$30
+    .a16
+    .i16
+@notsel:
+    ; Label at MENU_LABEL_COL.
+    jsr row_vram
+    txa
+    clc
+    adc #MENU_LABEL_COL
+    tax
+    jsr attr_set_addr
+    jsr attr_str
+    ; FAIL code glyph, if any, at MENU_CODE_COL (same palette / highlight).
     lda f:V_TMP
+    cmp #$FFFF
+    beq @no_code
+    jsr row_vram
+    txa
     clc
-    adc #3
-    asl
-    asl
-    asl
-    asl
-    asl                         ; * 32
-    clc
-    adc #MAP_BASE
+    adc #MENU_CODE_COL
     tax
-    pla                         ; test index back
-    pha
+    jsr attr_set_addr
+    lda f:V_TMP
+    jsr attr_hexdigit
+@no_code:
+    ; Name at MENU_NAME_COL, white (inverse when selected).
+    sep #$20
+    .a8
+    lda #ATTR_WHITE
+    sta f:V_ATTR
+    rep #$30
+    .a16
+    .i16
+    lda f:V_MENU_I
+    cmp f:V_CURSOR
+    bne :+
+    sep #$20
+    .a8
+    lda #(ATTR_WHITE | ATTR_INVERSE)
+    sta f:V_ATTR
+    rep #$30
+    .a16
+    .i16
+:
+    lda f:V_TMP2
     asl
-    phx
     tax
-    ; The name's 16-bit address, plus the catalog's own bank. `^_test_names` is resolved by the
-    ; linker, so this follows the segment wherever lorom.cfg puts it.
     lda f:_test_names,x
     sta f:V_STR_PTR
     sep #$20
     .a8
     lda #^_test_names
     sta f:V_STR_PTR+2
-    rep #$20
-    .a16
-    plx
-    txa
-    clc
-    adc #2                      ; leave two columns for the cursor
-    tax
-    jsr draw_str
-
-    ; Verdict character at column 29 of this row.
-    lda f:V_TMP
-    clc
-    adc #3
-    asl
-    asl
-    asl
-    asl
-    asl
-    clc
-    adc #(MAP_BASE + 29)
-    tax
-    pla                         ; test index
-    pha
-    phx
-    tax
-    sep #$20
-    .a8
-    lda f:R_STATUS,x
-    jsr verdict_char
-    plx
-    jsr draw_char
     rep #$30
     .a16
     .i16
-    pla                         ; discard the saved index
+    jsr row_vram
+    txa
+    clc
+    adc #MENU_NAME_COL
+    tax
+    jsr attr_set_addr
+    jsr attr_str
+    rts
+.endproc
 
-    ; Cursor marker.
-    lda f:V_TMP
+; X = tilemap word address of the current row's column 0: MAP_BASE + (MENU_LIST_ROW +
+; V_MENU_I * MENU_LIST_STEP) * SCREEN_COLS.
+.proc row_vram
+    rep #$30
+    .a16
+    .i16
+    lda f:V_MENU_I
+    asl                         ; * MENU_LIST_STEP (2)
     clc
-    adc f:V_SCROLL
-    cmp f:V_CURSOR
-    bne @no_cursor
-    lda f:V_TMP
-    clc
-    adc #3
+    adc #MENU_LIST_ROW
     asl
     asl
     asl
     asl
-    asl
+    asl                         ; * SCREEN_COLS (32)
     clc
     adc #MAP_BASE
     tax
-    sep #$20
-    .a8
-    lda #'>'
-    jsr draw_char
-    rep #$30
-    .a16
-    .i16
-@no_cursor:
-    lda f:V_TMP
-    inc a
-    sta f:V_TMP
-    jmp @row
-
-@blank_rest:
-@done:
-    rts
-.endproc
-
-; A (8-bit) = verdict byte -> A (8-bit) = display character.
-.proc verdict_char
-    .a8
-    cmp #VERDICT_NOTRUN
-    bne :+
-    lda #'.'
-    rts
-:
-    cmp #VERDICT_SKIP
-    bne :+
-    lda #'S'
-    rts
-:
-    and #$01
-    beq :+
-    lda #'P'
-    rts
-:
-    lda #'F'
-    rts
-.endproc
-
-; A (16-bit) = value 0-999, X = VRAM word address. Writes three digits.
-.proc draw_dec3
-    rep #$30
-    .a16
-    .i16
-    sta f:V_TMP
-    phx
-    ; hundreds
-    lda f:V_TMP
-    ldx #$0000
-@h:
-    cmp #100
-    bcc @h_done
-    sec
-    sbc #100
-    inx
-    bra @h
-@h_done:
-    sta f:V_TMP
-    txa
-    clc
-    adc #'0'
-    plx
-    phx
-    ; Narrow A rather than round-tripping it through the stack. `pha` with A 16-bit pushes two
-    ; bytes and the `pla` after `sep #$20` pulled one, leaking a byte per digit -- so the `plx`
-    ; that followed picked up a misaligned VRAM address and the tens and units were drawn at
-    ; whatever it happened to be. The digit is already in A's low byte; `sep` is all that is needed.
-    sep #$20
-    .a8
-    jsr draw_char
-    rep #$30
-    .a16
-    .i16
-    ; tens
-    plx
-    inx
-    phx
-    lda f:V_TMP
-    ldx #$0000
-@t:
-    cmp #10
-    bcc @t_done
-    sec
-    sbc #10
-    inx
-    bra @t
-@t_done:
-    sta f:V_TMP
-    txa
-    clc
-    adc #'0'
-    plx
-    phx
-    ; Narrow A rather than round-tripping it through the stack. `pha` with A 16-bit pushes two
-    ; bytes and the `pla` after `sep #$20` pulled one, leaking a byte per digit -- so the `plx`
-    ; that followed picked up a misaligned VRAM address and the tens and units were drawn at
-    ; whatever it happened to be. The digit is already in A's low byte; `sep` is all that is needed.
-    sep #$20
-    .a8
-    jsr draw_char
-    rep #$30
-    .a16
-    .i16
-    ; units
-    plx
-    inx
-    lda f:V_TMP
-    clc
-    adc #'0'
-    ; Narrow A rather than round-tripping it through the stack. `pha` with A 16-bit pushes two
-    ; bytes and the `pla` after `sep #$20` pulled one, leaking a byte per digit -- so the `plx`
-    ; that followed picked up a misaligned VRAM address and the tens and units were drawn at
-    ; whatever it happened to be. The digit is already in A's low byte; `sep` is all that is needed.
-    sep #$20
-    .a8
-    jsr draw_char
-    rep #$30
-    .a16
-    .i16
     rts
 .endproc
 
@@ -1561,14 +1781,239 @@ test_restore := test_restore_impl
     beq :+
     jsr cursor_down
 :
-    ; A re-runs the highlighted test. It dispatches exactly as the batch does -- same pointer setup,
-    ; same canonical entry state, same call_indirect -- but with V_MENU_MODE set, so the verdict
-    ; path records R_STATUS and returns here rather than tallying and advancing. Control does not
-    ; come back from call_indirect: the test exits through test_restore to test_restore_target,
-    ; which jmps back to main_loop.
+    lda f:V_PAD_NEW
+    bit #PAD_LEFT
+    beq :+
+    jsr page_prev
+:
+    lda f:V_PAD_NEW
+    bit #PAD_RIGHT
+    beq :+
+    jsr page_next
+:
+    ; A runs the highlighted test (there is nothing to run on the page-header line, V_CURSOR==$FFFF).
+    ; run_selected dispatches exactly as the batch does but with V_MENU_MODE set, so the verdict path
+    ; records R_STATUS and jumps back to main_loop rather than tallying and advancing. It does not
+    ; return: the test exits through test_restore to test_restore_target, which jmps back here.
     lda f:V_PAD_NEW
     bit #PAD_A
     beq @no_a
+    lda f:V_CURSOR
+    cmp #$FFFF
+    beq @no_a
+    jsr run_selected            ; never returns here
+@no_a:
+
+    ; Start re-runs the whole battery in place, then redraws -- AccuracyCoin's "run all". A host
+    ; holding the input contract (B + Start + X + R) holds Start continuously, but the menu acts on
+    ; freshly-pressed edges and the first-frame edge is primed away in the menu setup, so a static
+    ; hold never triggers it.
+    lda f:V_PAD_NEW
+    bit #PAD_START
+    beq @no_start
+    jsr rerun_battery
+    sep #$20
+    .a8
+    lda #$01
+    sta f:V_DIRTY
+    rep #$30
+    .a16
+    .i16
+@no_start:
+
+    ; Select restarts the whole battery from restart_entry (after the power-on capture). Reset the
+    ; stack first: the menu has been jsr-ing around, and the restart runs the full battery again.
+    lda f:V_PAD_NEW
+    bit #PAD_SELECT
+    beq @no_select
+    sei
+    sep #$20
+    .a8
+    lda #$01
+    sta f:V_RESTARTED           ; tell the power-on-dependent tests this is not a power-on
+    rep #$30
+    .a16
+    .i16
+    ldx #$1FFF
+    txs
+    jmp reset::restart_entry
+@no_select:
+
+    lda f:V_DIRTY
+    and #$00FF
+    bne @redraw
+    jmp @frame                  ; long: the A / Start / Select handlers pushed @frame out of range
+@redraw:
+    ; The paged menu always redraws whole -- a page fits one screen, so there is no partial-marker
+    ; fast path. Under forced blank, because a full-screen rewrite is far more VRAM traffic than a
+    ; vblank alone covers (a write during active display is dropped).
+    sep #$20
+    .a8
+    lda #$00
+    sta f:V_DIRTY               ; STZ has no long addressing mode
+    lda #$80
+    sta INIDISP
+    rep #$30
+    .a16
+    .i16
+    jsr draw_screen
+    sep #$20
+    .a8
+    lda #$0F
+    sta INIDISP
+    rep #$30
+    .a16
+    .i16
+    jmp @frame
+.endproc
+
+; A = number of tests on the current page (from _page_len, a byte table).
+.proc page_count_a
+    rep #$30
+    .a16
+    .i16
+    lda f:V_PAGE
+    tax
+    sep #$20
+    .a8
+    lda f:_page_len,x
+    rep #$30
+    .a16
+    .i16
+    and #$00FF
+    rts
+.endproc
+
+; Up: header <- last test <- ... <- first test <- header (wraps through the page header line).
+.proc cursor_up
+    rep #$30
+    .a16
+    .i16
+    lda f:V_CURSOR
+    cmp #$FFFF
+    beq @from_header
+    cmp #$0000
+    beq @to_header
+    dec a
+    sta f:V_CURSOR
+    bra @dirty
+@to_header:
+    lda #$FFFF
+    sta f:V_CURSOR
+    bra @dirty
+@from_header:
+    jsr page_count_a
+    dec a                       ; last test row
+    sta f:V_CURSOR
+@dirty:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:V_DIRTY
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; Down: header -> first test -> ... -> last test -> header.
+.proc cursor_down
+    rep #$30
+    .a16
+    .i16
+    lda f:V_CURSOR
+    cmp #$FFFF
+    beq @from_header
+    inc a
+    sta f:V_TMP                 ; candidate row
+    jsr page_count_a            ; A = count
+    cmp f:V_TMP
+    bcc @to_header              ; count < candidate -> past the end
+    beq @to_header              ; count == candidate -> past the end
+    lda f:V_TMP
+    sta f:V_CURSOR
+    bra @dirty
+@to_header:
+    lda #$FFFF
+    sta f:V_CURSOR
+    bra @dirty
+@from_header:
+    lda #$0000
+    sta f:V_CURSOR
+@dirty:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:V_DIRTY
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; Right: next page, wrapping; land on the new page's header line.
+.proc page_next
+    rep #$30
+    .a16
+    .i16
+    lda f:V_PAGE
+    inc a
+    cmp f:_page_count
+    bcc :+
+    lda #$0000                  ; wrap past the last page
+:
+    sta f:V_PAGE
+    lda #$FFFF
+    sta f:V_CURSOR
+    sep #$20
+    .a8
+    lda #$01
+    sta f:V_DIRTY
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; Left: previous page, wrapping; land on the new page's header line.
+.proc page_prev
+    rep #$30
+    .a16
+    .i16
+    lda f:V_PAGE
+    bne :+
+    lda f:_page_count           ; wrap: page 0 -> last page
+:
+    dec a
+    sta f:V_PAGE
+    lda #$FFFF
+    sta f:V_CURSOR
+    sep #$20
+    .a8
+    lda #$01
+    sta f:V_DIRTY
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; Run the one highlighted test. battery index = _page_tests[_page_off[V_PAGE] + V_CURSOR]. Sets
+; V_MENU_MODE so the verdict path records R_STATUS and jumps back to main_loop. Does not return.
+.proc run_selected
+    rep #$30
+    .a16
+    .i16
+    lda f:V_PAGE
+    asl
+    tax
+    lda f:_page_off,x
+    clc
+    adc f:V_CURSOR
+    asl
+    tax
+    lda f:_page_tests,x
+    sta f:V_TEST_IDX
     sep #$20
     .a8
     lda #$01
@@ -1578,8 +2023,6 @@ test_restore := test_restore_impl
     rep #$30
     .a16
     .i16
-    lda f:V_CURSOR
-    sta f:V_TEST_IDX
     tsc
     sta f:V_SAVED_S
     lda f:V_TEST_IDX
@@ -1602,196 +2045,22 @@ test_restore := test_restore_impl
     phk
     plb
     jsr call_indirect           ; never returns here; lands at test_restore_target
-@no_a:
-
-    ; Select restarts the whole battery from restart_entry (after the power-on capture). Reset the
-    ; stack first: the menu has been jsr-ing around, and the restart runs the full battery again.
-    ;
-    ; Select rather than Start deliberately: PAD_CONTRACT is B+Start+X+R, so a host holding the
-    ; input contract holds Start continuously, and a restart bound to Start would fire whenever the
-    ; contract is held. The menu's action buttons all avoid the four contract buttons for that
-    ; reason -- Up/Down, A and Select are all outside $9050.
-    lda f:V_PAD_NEW
-    bit #PAD_SELECT
-    beq @no_start
-    sei
-    sep #$20
-    .a8
-    lda #$01
-    sta f:V_RESTARTED           ; tell the power-on-dependent tests this is not a power-on
-    rep #$30
-    .a16
-    .i16
-    ldx #$1FFF
-    txs
-    jmp reset::restart_entry
-@no_start:
-
-    lda f:V_DIRTY
-    and #$00FF
-    bne @redraw
-    jmp @frame                  ; long: the A/Start handlers pushed @frame out of branch range
-@redraw:
-    ; V_DIRTY == 2 means the cursor moved but the window did not: move the marker only. Two
-    ; character writes fit in the vblank we are already inside, so there is no forced blank and no
-    ; flicker. Only V_DIRTY == 1 (the window scrolled, every visible name changed) needs the full
-    ; blank-and-redraw below.
-    cmp #$02
-    bne @full_redraw
-    sep #$20
-    .a8
-    lda #$00
-    sta f:V_DIRTY               ; STZ has no long addressing mode
-    rep #$30
-    .a16
-    .i16
-    jsr move_cursor_marker
-    jmp @frame
-@full_redraw:
-    sep #$20
-    .a8
-    lda #$00
-    sta f:V_DIRTY               ; STZ has no long addressing mode
-
-    ; Redraw under forced blank. The list is 26 rows of 32 words plus a name and a verdict on each,
-    ; which is far more VRAM traffic than the remainder of a vblank holds -- and a write during
-    ; active display is simply dropped, so the old comment claiming this ran "still inside vblank"
-    ; was wrong twice over. Blanking costs one frame of black and makes the write unconditional.
-    lda #$80
-    sta INIDISP
-    jsr draw_list
-    ; draw_list returns with A 16-bit (its @done falls through the loop, which is .a16). The
-    ; assembler is still .a8 here, so without this re-assertion `lda #$0F` would assemble as a
-    ; one-byte immediate while the CPU reads two -- eating the `sta INIDISP` opcode, so the screen
-    ; never un-blanks and the instruction stream desyncs. That was the whole "pressing Down blanks
-    ; the screen and hangs" symptom: the cursor moved, the redraw ran, and then the unblank never
-    ; executed. The initial draw_screen call is followed only by `rts`, which is width-independent,
-    ; which is why it was invisible there.
-    sep #$20
-    .a8
-    lda #$0F
-    sta INIDISP
-    rep #$30
-    .a16
-    .i16
-    jmp @frame
+    rts                         ; unreachable, keeps the assembler's flow analysis happy
 .endproc
 
-; Move the cursor marker without touching the list. Erases the '>' at V_CURSOR_PREV and draws one
-; at V_CURSOR, each at column 0 of its visible row. Two character writes, done inside the vblank the
-; caller is already in, so no forced blank and no flicker -- used for a move within the window.
-.proc move_cursor_marker
-    rep #$30
-    .a16
-    .i16
-    lda f:V_CURSOR_PREV
-    jsr marker_addr             ; X = tilemap word address, column 0 of that row
+; Start's "run all": re-run the whole battery in place, then rebuild the menu's VRAM and palette
+; (the battery leaves both in a test-defined state). Returns to main_loop, which redraws.
+.proc rerun_battery
     sep #$20
     .a8
-    lda #' '
-    jsr draw_char
+    lda #$8F
+    sta INIDISP                 ; forced blank is run_all_tests's standing precondition
     rep #$30
     .a16
     .i16
-    lda f:V_CURSOR
-    jsr marker_addr
-    sep #$20
-    .a8
-    lda #'>'
-    jsr draw_char
-    rep #$30
-    .a16
-    .i16
-    rts
-.endproc
-
-; A (16-bit) = absolute test index -> X = tilemap word address of that row's column 0. The header
-; occupies rows 0-2, so a visible row lands at MAP_BASE + (row + 3) * SCREEN_COLS.
-.proc marker_addr
-    sec
-    sbc f:V_SCROLL              ; visible row = index - scroll
-    clc
-    adc #3
-    asl
-    asl
-    asl
-    asl
-    asl                         ; * 32 (SCREEN_COLS)
-    clc
-    adc #MAP_BASE
-    tax
-    rts
-.endproc
-
-.proc cursor_up
-    rep #$30
-    .a16
-    .i16
-    lda f:V_CURSOR
-    beq @done                   ; already at the top
-    sta f:V_CURSOR_PREV         ; remember where the marker is, so it can be erased
-    dec a
-    sta f:V_CURSOR
-    cmp f:V_SCROLL
-    bcs @cursor_only            ; still visible: V_CURSOR >= V_SCROLL
-    sta f:V_SCROLL              ; scrolled the window up -> full redraw
-    sep #$20
-    .a8
-    lda #$01
-    sta f:V_DIRTY
-    ; Restore the 16-bit width the caller was assembled for. `main_loop` continues with
-    ; `bit #PAD_A`, a 16-bit immediate, so returning 8-bit would run its high byte as an opcode.
-    rep #$30
-    .a16
-    .i16
-    rts
-@cursor_only:
-    sep #$20
-    .a8
-    lda #$02                    ; move the marker only, no blank
-    sta f:V_DIRTY
-    rep #$30
-    .a16
-    .i16
-@done:
-    rts
-.endproc
-
-.proc cursor_down
-    rep #$30
-    .a16
-    .i16
-    lda f:V_CURSOR
-    sta f:V_CURSOR_PREV         ; remember where the marker is, so it can be erased
-    inc a
-    cmp f:R_COUNT
-    bcs @done                   ; already at the last test
-    sta f:V_CURSOR
-    sec
-    sbc f:V_SCROLL
-    cmp #VISIBLE_ROWS
-    bcc @cursor_only            ; still within the window
-    lda f:V_CURSOR
-    sec
-    sbc #(VISIBLE_ROWS - 1)
-    sta f:V_SCROLL              ; scrolled the window down -> full redraw
-    sep #$20
-    .a8
-    lda #$01
-    sta f:V_DIRTY
-    rep #$30
-    .a16
-    .i16
-    rts
-@cursor_only:
-    sep #$20
-    .a8
-    lda #$02                    ; move the marker only, no blank
-    sta f:V_DIRTY
-    rep #$30
-    .a16
-    .i16
-@done:
+    jsr run_all_tests
+    jsr load_font
+    jsr load_palette
     rts
 .endproc
 
@@ -2685,3 +2954,26 @@ str_title:
 str_tally:
     .byte 26
     .byte "P:000 F:000 G:000 OF:000  "
+
+; AccuracyCoin-style paged-menu strings, each length-prefixed (drawn via str_ptr_bank0 + attr_str).
+str_page:
+    .byte 5
+    .byte "PAGE "
+str_slash:
+    .byte 3
+    .byte " / "
+str_test:
+    .byte 4
+    .byte "TEST"
+str_pass:
+    .byte 4
+    .byte "PASS"
+str_fail:
+    .byte 4
+    .byte "FAIL"
+str_skip:
+    .byte 4
+    .byte "SKIP"
+str_draw:
+    .byte 4
+    .byte "DRAW"

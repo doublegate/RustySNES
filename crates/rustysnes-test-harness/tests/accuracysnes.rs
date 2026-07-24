@@ -540,9 +540,15 @@ const PAD2_CONTRACT: u16 = 0x60A0;
 /// runtime draws the interactive menu.
 const SCENE_DONE_MARK: u8 = 0x5A;
 
-/// `V_CURSOR` in low WRAM — `runtime.inc`'s `VAR_BASE + $00`.
+/// `V_CURSOR` in low WRAM — `runtime.inc`'s `VAR_BASE + $00`. In the AccuracyCoin-style paged menu
+/// it is the selected test *within the current page* (`0..len-1`), or `$FFFF` on the page header.
 const V_CURSOR: u32 = 0x7E_E000;
-const V_SCROLL: u32 = 0x7E_E002;
+/// `V_PAGE` — the current menu page (`runtime.inc`'s `VAR_BASE + $02`, what was `V_SCROLL`).
+const V_PAGE: u32 = 0x7E_E002;
+/// The page-header sentinel value of `V_CURSOR`.
+const MENU_HEADER: u16 = 0xFFFF;
+/// `V_TEST_IDX` — the battery index of the test the menu last dispatched (`VAR_BASE + $0C`).
+const V_TEST_IDX: u32 = 0x7E_E00C;
 
 /// Frame ceiling for the menu-interaction tests to reach the interactive menu (bounds CI time; not
 /// a timeout on a legitimate run). The tilemap base and column stride of the drawn name list.
@@ -553,6 +559,8 @@ const SCREEN_COLS: u16 = 32;
 /// The Down bit of the 16-bit `BYsSUDLR` controller word.
 const PAD_UP: u16 = 0x0800;
 const PAD_DOWN: u16 = 0x0400;
+const PAD_LEFT: u16 = 0x0200;
+const PAD_RIGHT: u16 = 0x0100;
 
 /// The A and Select bits of the `BYsSUDLR????AXLR`-ordered controller word.
 const PAD_A: u16 = 0x0080;
@@ -1529,29 +1537,41 @@ fn the_menu_still_draws_after_the_battery() {
         SCENE_DONE_MARK,
         "the scene loop never finished within {MENU_FRAMES} frames, so the menu was never drawn"
     );
-    for _ in 0..4 {
+    // The menu draws in `reset`'s tail after `run_scenes` returns (`load_font` + `load_palette` +
+    // `draw_screen`), which takes a few frames; settle before reading the tilemap.
+    for _ in 0..12 {
         sys.run_frame();
     }
 
-    // BG1's tilemap starts at word $0400 (module-level `MAP_BASE`); the title is row 0. Tile indices
-    // are ASCII-derived, so the row's low bytes spell the title back. `SCREEN_COLS` is the stride.
-    let row: String = (0..24)
-        .map(|i| {
-            let c = (sys.bus.ppu.vram_word(MAP_BASE + i) & 0xFF) as u8;
-            char::from(c)
-        })
-        .collect();
-    // The title lives in RODATA in bank $00; the test *names* live in the catalog, in another bank
-    // entirely, and are the reason `V_STR_PTR` had to become 24-bit. Asserting a name is what gives
-    // that path runtime evidence.
-    let list: String = (0..SCREEN_COLS * 4)
-        .map(|i| char::from((sys.bus.ppu.vram_word(MAP_BASE + SCREEN_COLS * 3 + i) & 0xFF) as u8))
-        .collect();
+    // The paged menu (AccuracyCoin-style): a centered page-group title at row 3, "PAGE x / N" at
+    // row 5, and the page's tests double-spaced from row 7 with the name at column 9. Tile indices
+    // are ASCII-derived (the upright font is tiles $00-$7F), so a row's low bytes spell its text.
+    let text_row = |sys: &System, row: u16| -> String {
+        (0..SCREEN_COLS)
+            .map(|i| {
+                char::from((sys.bus.ppu.vram_word(MAP_BASE + SCREEN_COLS * row + i) & 0xFF) as u8)
+            })
+            .collect()
+    };
+    // Page 0 is the first sub-group in battery order: the 65C816 XCE / flags page.
+    let row = text_row(&sys, 3);
+    assert!(
+        row.contains("65816"),
+        "the page-group title did not draw at row 3 (read back {row:?})"
+    );
+    let page_hdr = text_row(&sys, 5);
+    assert!(
+        page_hdr.contains("PAGE"),
+        "the 'PAGE x / N' line did not draw at row 5 (read back {page_hdr:?})"
+    );
+    // The first test's name lives in the catalog, in a different bank from the runtime — the reason
+    // `V_STR_PTR` had to become 24-bit. Asserting it gives that path runtime evidence. It sits at
+    // column 9 (`MENU_NAME_COL`) of the first list row (row 7 = `MENU_LIST_ROW`).
+    let list = text_row(&sys, 7);
     assert!(
         list.contains("XCE clears XH/YH"),
-        "the menu's list does not show the first test's name. The title drew, so draw_str works \
-         for a bank-$00 string — what failed is reading a name out of the catalog's own bank. \
-         Rows read back as {list:?}"
+        "the menu's list does not show the first test's name. The title drew, so a bank-$00 string \
+         works — what failed is reading a name out of the catalog's own bank. Row 7 read back as {list:?}"
     );
 
     // AccuracyCoin-style palette (`load_palette`, reloaded by `draw_screen` so the last scene's
@@ -1587,49 +1607,26 @@ fn the_menu_still_draws_after_the_battery() {
         "SKIP ink (palette 3) is not black"
     );
 
-    // The rendered tally against the results block it is drawn from. Comparing the menu with the
-    // machine rather than with a remembered number means this never needs re-blessing when the
-    // battery grows, and it catches the whole `draw_dec3` path: a digit drawn at the wrong column,
-    // or from an 8-bit read of a 16-bit counter, stops matching immediately.
-    let rd16 = |a: u32| -> u16 {
-        u16::from(sys.bus.peek_wram(a)) | (u16::from(sys.bus.peek_wram(a + 1)) << 8)
-    };
-    let tally: String = (0..SCREEN_COLS)
-        .map(|i| char::from((sys.bus.ppu.vram_word(MAP_BASE + SCREEN_COLS + i) & 0xFF) as u8))
-        .collect();
-    let expect = format!(
-        "P:{:03} F:{:03} G:{:03} OF:{:03}",
-        rd16(R_PASSED),
-        rd16(R_FAILED),
-        rd16(R_GOLDEN),
-        rd16(R_COUNT),
-    );
-    assert!(
-        tally.starts_with(&expect),
-        "the menu's tally row does not match the results block it is drawn from.\n  \
-         rendered: {tally:?}\n  expected: {expect:?}"
-    );
     eprintln!("menu title row: {row:?}");
-    eprintln!("menu tally row: {tally:?}");
+    eprintln!("menu page  row: {page_hdr:?}");
 }
 
-/// The D-pad scrolls the list instead of killing the ROM.
+/// The D-pad navigates the paged menu (Up/Down select, Left/Right page) instead of killing the ROM.
 ///
-/// Pressing Up or Down used to blank the screen and stop the cartridge dead. `cursor_up` and
-/// `cursor_down` returned with `A` 8-bit, while `main_loop` continues in `.a16` — so ca65 emitted a
-/// 16-bit `bit #PAD_DOWN` that the CPU decoded 8-bit, and the immediate's high byte was executed as
-/// an opcode. Nothing in the battery could see it: the menu runs after every gate has finished.
-///
-/// The check is that the cursor *moved* and the machine is *still running the menu* afterwards —
-/// the second half is the one that matters, since a desynchronised instruction stream shows up as a
-/// screen that stops changing rather than as a wrong value anywhere.
+/// Pressing a direction used to blank the screen and stop the cartridge dead when `cursor_up` /
+/// `cursor_down` returned with `A` 8-bit while `main_loop` continued in `.a16` — ca65 emitted a
+/// 16-bit `bit #PAD_DOWN` the CPU decoded 8-bit, running the immediate's high byte as an opcode. The
+/// AccuracyCoin-style paged menu keeps the same width discipline, so this drives the cursor through
+/// the page-header sentinel, wraps, changes page, re-runs a test with A, and restarts with Select,
+/// checking the machine stays live — a desynchronised stream shows up as a frozen screen, not a
+/// wrong value.
 #[test]
 #[expect(
     clippy::too_many_lines,
-    reason = "one linear menu-interaction script (scroll, wrap, re-run, restart) read top-to-bottom; \
+    reason = "one linear menu-interaction script (select, page, re-run, restart) read top-to-bottom; \
               splitting it would scatter the shared cart/System setup across helpers"
 )]
-fn the_dpad_scrolls_the_list() {
+fn the_dpad_navigates_the_pages() {
     if !rom_path().is_file() {
         eprintln!("SKIP accuracysnes: ROM absent");
         return;
@@ -1652,107 +1649,130 @@ fn the_dpad_scrolls_the_list() {
         SCENE_DONE_MARK,
         "menu never reached"
     );
-    for _ in 0..4 {
+    // Let the menu draw in reset's tail (load_font + load_palette + draw_screen) before poking it.
+    for _ in 0..12 {
         sys.run_frame();
     }
+    // Helpers that take `sys` by argument (never capture it), so a `press(&mut sys, …)` and a
+    // following `rd16(&sys, …)` do not fight over the borrow.
     let rd16 = |s: &System, a: u32| -> u16 {
         u16::from(s.bus.peek_wram(a)) | (u16::from(s.bus.peek_wram(a + 1)) << 8)
     };
-    // The cold-boot pass count, captured before any restart, so the Select-restart assertion below
-    // tracks the battery total instead of a literal that must be re-blessed whenever a row is added.
+    let tile =
+        |s: &System, row: u16, col: u16| -> u16 { s.bus.ppu.vram_word(MAP_BASE + row * 32 + col) };
+    let text_row = |s: &System, row: u16| -> String {
+        (0..32)
+            .map(|i| char::from((s.bus.ppu.vram_word(MAP_BASE + row * 32 + i) & 0xFF) as u8))
+            .collect()
+    };
+    // One button as an edge: `read_pad` derives "newly pressed" from the previous frame, and a full
+    // redraw blanks for a single frame, so hold briefly then settle.
+    let press = |s: &mut System, btn: u16| {
+        s.bus.set_joypad(0, PAD_CONTRACT | btn);
+        for _ in 0..3 {
+            s.run_frame();
+        }
+        s.bus.set_joypad(0, PAD_CONTRACT);
+        for _ in 0..6 {
+            s.run_frame();
+        }
+    };
+
+    // The cold-boot pass count, before any restart, so the Select-restart assertion tracks the
+    // battery total rather than a literal that must be re-blessed when a row is added.
     let first_run_passed = rd16(&sys, R_PASSED);
-    let before = rd16(&sys, V_CURSOR);
 
-    // Down, held for a few frames then released: `read_pad` derives "newly pressed" from the
-    // previous frame, so the press has to be an edge.
-    sys.bus.set_joypad(0, PAD_CONTRACT | PAD_DOWN);
-    for _ in 0..3 {
-        sys.run_frame();
-    }
-    sys.bus.set_joypad(0, PAD_CONTRACT);
-    for _ in 0..6 {
-        sys.run_frame();
-    }
-
-    let after = rd16(&sys, V_CURSOR);
-    assert_eq!(
-        after,
-        before + 1,
-        "pressing Down did not move the cursor (was {before}, now {after})"
-    );
-    // A move within the visible window is flicker-free: only the marker is rewritten, inside the
-    // vblank, with no forced blank. Brightness must never dip, the old '>' must be erased and the
-    // new one drawn. (The bug this replaced left brightness stuck at 0 and hung the ROM.)
-    let cell =
-        |sys: &System, row: u16| (sys.bus.ppu.vram_word(0x0400 + (row + 3) * 32) & 0xFF) as u8;
-    assert_eq!(
-        sys.bus.ppu.display_brightness(),
-        15,
-        "the display dipped on a within-window Down move — it should not blank at all"
-    );
-    assert_eq!(cell(&sys, 0), b' ', "the old cursor marker was not erased");
-    assert_eq!(
-        cell(&sys, 1),
-        b'>',
-        "the cursor marker did not move to the new row"
-    );
-
-    // Up moves it back. Same width bug hit both directions, so proving one is not proving the other.
-    sys.bus.set_joypad(0, PAD_CONTRACT | PAD_UP);
-    for _ in 0..3 {
-        sys.run_frame();
-    }
-    sys.bus.set_joypad(0, PAD_CONTRACT);
-    for _ in 0..6 {
-        sys.run_frame();
-    }
+    // The menu opens on the page header (AccuracyCoin lands the cursor above the list).
     assert_eq!(
         rd16(&sys, V_CURSOR),
-        before,
-        "pressing Up did not move the cursor back"
+        MENU_HEADER,
+        "the menu did not open on the page header"
+    );
+    assert!(
+        tile(&sys, 5, 2) & 0x0100 != 0,
+        "the page header is not highlighted (inverse-font tile) when it is the selected line"
     );
 
-    // Scrolling past the visible window is the full-redraw path: every visible name changes, so the
-    // whole list is blanked and redrawn. Drive the cursor down far enough to shift V_SCROLL, then
-    // confirm the window moved and the display came back (a full redraw dips brightness for its one
-    // frame, so we settle before checking).
-    for _ in 0..30 {
-        sys.bus.set_joypad(0, PAD_CONTRACT | PAD_DOWN);
-        sys.run_frame();
-        sys.bus.set_joypad(0, PAD_CONTRACT);
-        sys.run_frame();
-    }
-    for _ in 0..4 {
-        sys.run_frame();
-    }
+    // Down: header -> first test row. The selected label draws in the inverse-video font copy (tile
+    // >= $100) as the highlight bar, and the header stops being highlighted.
+    press(&mut sys, PAD_DOWN);
+    assert_eq!(
+        rd16(&sys, V_CURSOR),
+        0,
+        "Down from the header did not select the first test"
+    );
     assert!(
-        rd16(&sys, V_SCROLL) > 0,
-        "driving the cursor past the window did not scroll the list"
+        tile(&sys, 7, 2) & 0x0100 != 0,
+        "the selected test row is not drawn inverse-video (no highlight bar)"
+    );
+    assert!(
+        tile(&sys, 5, 2) & 0x0100 == 0,
+        "the page header stayed highlighted after the cursor moved onto the list"
+    );
+
+    // Down again advances; Up twice returns through row 0 to the header.
+    press(&mut sys, PAD_DOWN);
+    assert_eq!(
+        rd16(&sys, V_CURSOR),
+        1,
+        "second Down did not advance the cursor"
+    );
+    press(&mut sys, PAD_UP);
+    assert_eq!(
+        rd16(&sys, V_CURSOR),
+        0,
+        "Up did not step back to the first row"
+    );
+    press(&mut sys, PAD_UP);
+    assert_eq!(
+        rd16(&sys, V_CURSOR),
+        MENU_HEADER,
+        "Up from the first row did not return to the page header"
     );
     assert_eq!(
         sys.bus.ppu.display_brightness(),
         15,
-        "the display stayed blank after a scrolling redraw"
+        "the display stayed blank after a navigation redraw"
+    );
+
+    // Left/Right change the page and land on the new page's header; the title row changes with it.
+    let page0 = rd16(&sys, V_PAGE);
+    let title_p0 = text_row(&sys, 3);
+    press(&mut sys, PAD_RIGHT);
+    assert_eq!(
+        rd16(&sys, V_PAGE),
+        page0 + 1,
+        "Right did not advance the page"
     );
     assert_eq!(
-        (sys.bus.ppu.vram_word(0x0400) & 0xFF) as u8,
-        b'A',
-        "the header did not survive scrolling redraws"
+        rd16(&sys, V_CURSOR),
+        MENU_HEADER,
+        "changing the page did not land on its header line"
+    );
+    assert_ne!(
+        text_row(&sys, 3),
+        title_p0,
+        "the page-group title did not change between pages"
+    );
+    press(&mut sys, PAD_LEFT);
+    assert_eq!(
+        rd16(&sys, V_PAGE),
+        page0,
+        "Left did not return to the first page"
+    );
+    assert!(
+        text_row(&sys, 5).contains("PAGE"),
+        "the 'PAGE x / N' line was lost during navigation"
     );
 
-    // Still alive: the header is intact and the list still holds a real name. A ROM that fell off
-    // the rails leaves the last drawn frame on screen, so checking the tilemap is not enough on its
-    // own — the cursor moving above is what proves it is still executing the menu loop.
-    let title: String = (0..12)
-        .map(|i| char::from((sys.bus.ppu.vram_word(MAP_BASE + i) & 0xFF) as u8))
-        .collect();
-    assert_eq!(title, "ACCURACYSNES", "the header did not survive a redraw");
-
-    // A re-runs the highlighted test: its verdict byte is rewritten (deterministic, so unchanged)
-    // and the ROM keeps running. A crash in the re-run path would freeze the menu.
-    let idx_before = rd16(&sys, V_CURSOR);
-    let status_before = sys.bus.peek_wram(R_STATUS_BASE + u32::from(idx_before));
-    let cursor_before = idx_before;
+    // A re-runs the highlighted test. Select row 0, press A: it dispatches with V_MENU_MODE set and
+    // returns to a live menu with the cursor unchanged.
+    press(&mut sys, PAD_DOWN); // header -> row 0
+    assert_eq!(
+        rd16(&sys, V_CURSOR),
+        0,
+        "Down did not reselect the first test"
+    );
     sys.bus.set_joypad(0, PAD_CONTRACT | PAD_A);
     for _ in 0..3 {
         sys.run_frame();
@@ -1763,19 +1783,24 @@ fn the_dpad_scrolls_the_list() {
     }
     assert_eq!(
         rd16(&sys, V_CURSOR),
-        cursor_before,
+        0,
         "re-running a test moved the cursor — the menu did not resume where it was"
     );
-    assert_eq!(
-        sys.bus.peek_wram(R_STATUS_BASE + u32::from(idx_before)),
-        status_before,
-        "re-running a deterministic test changed its verdict"
+    // The re-run recorded a real verdict at the battery index it dispatched (V_TEST_IDX), and the
+    // menu came back live.
+    let ran_idx = rd16(&sys, V_TEST_IDX);
+    assert_ne!(
+        sys.bus.peek_wram(R_STATUS_BASE + u32::from(ran_idx)),
+        0x00,
+        "the A re-run left the test unrun (no verdict recorded)"
     );
-    let title_after_a: String = (0..12)
-        .map(|i| char::from((sys.bus.ppu.vram_word(MAP_BASE + i) & 0xFF) as u8))
-        .collect();
     assert_eq!(
-        title_after_a, "ACCURACYSNES",
+        sys.bus.ppu.display_brightness(),
+        15,
+        "the menu did not survive an A re-run"
+    );
+    assert!(
+        text_row(&sys, 5).contains("PAGE"),
         "the menu did not survive an A re-run"
     );
 

@@ -143,6 +143,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **AccuracySNES's on-cart menu is restyled after the AccuracyCoin (NES) test ROM** to reduce the
+  friction of learning a bespoke UI: an AccuracyCoin-faithful grey backdrop with four label inks
+  (white / blue / red / black), and the old single scrolling list replaced by named **pages** of at
+  most ten tests each (51 pages, grouped by dossier sub-group — e.g. "65816: XCE & FLAGS", "PPU:
+  SPRITES"). Each row shows a coloured verdict label — `TEST` (not run) / `PASS` / `FAIL n` (with its
+  code glyph) / `SKIP` / `DRAW` (non-scoring, informational) — mapped from the existing per-test
+  verdict byte, so the human-facing restyle is orthogonal to the harness's WRAM-based scoring (the
+  self-scoring battery is unchanged at 298/298). Controls follow AccuracyCoin: **Up/Down** select
+  (through a page-header line above the list), **Left/Right** change page, **A** re-runs the
+  highlighted test, **Start** re-runs the whole battery, **Select** restarts from the power-on
+  capture. The selected row (or the page header) draws in an **inverse-video** font copy (a
+  complemented glyph set at tile `$100`, uploaded beside the upright font) — the highlight bar
+  AccuracyCoin gets from its `tile+$80` inverse tiles, done on a single background layer where palette
+  colour 0 is transparent. The skyline "city" results visualization is not yet wired in.
 - **The per-dot PPU compositor (`docs/adr/0014`, T-CA-10) is now the emulator's only renderer.** It
   first became the shipped default (a `per-dot-compositor` feature on by default), and then the batch
   whole-line composite it replaced (`render_scanline`/`compose_dac`) and the feature itself were
