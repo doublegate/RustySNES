@@ -143,6 +143,8 @@ restart_entry:
     jsr clear_vram
     jsr load_palette
     jsr load_font
+    jsr load_sprite_font        ; 4bpp OBJ code font at $4000, for the skyline variant-code sprites
+    jsr init_oam                ; point OBSEL at it and clear OAM (scenes/battery never touch $4000)
     jsr clear_tilemap
 
     ; --- Initial menu, BEFORE the battery runs: show every test as not-run ("TEST") across all the
@@ -201,6 +203,8 @@ restart_entry:
     .a16
     .i16
     jsr load_font
+    jsr load_sprite_font        ; a VRAM test may have overwritten the $4000 sprite font
+    jsr init_oam
     jsr load_palette
     rep #$30
     .a16
@@ -244,8 +248,8 @@ restart_entry:
     stz BG1HOFS                 ; scroll registers are written twice
     stz BG1VOFS
     stz BG1VOFS
-    lda #$01
-    sta TM                      ; BG1 on the main screen
+    lda #$11
+    sta TM                      ; BG1 + OBJ on the main screen (OAM is empty unless the skyline fills it)
     lda #$0F
     sta INIDISP                 ; release forced blank
     rep #$30
@@ -710,6 +714,190 @@ restart_entry:
 .endproc
 
 ; ---------------------------------------------------------------------------------------------
+; Upload the code font a second time as 4bpp OBJ (sprite) tiles at name base word $4000, indexed by
+; ASCII so an OAM tile is just the glyph's character. A 4bpp tile is 16 words: 8 of (bitplane-0 = a
+; font row, bitplane-1 = 0) then 8 zero words (bitplanes 2/3). Only colour 1 is ever set, so a sprite
+; renders in OBJ palette 0's light-blue -- the multi-behaviour success-code overlay on the skyline.
+; ---------------------------------------------------------------------------------------------
+.proc load_sprite_font
+    sep #$20
+    .a8
+    lda #$80
+    sta VMAIN                   ; advance after the high byte -> a 16-bit store writes one word
+    rep #$30
+    .a16
+    .i16
+    ldx #$4000
+    stx VMADDL
+    ldx #$0000                  ; source byte index into font_data
+@glyph:
+    ldy #$0000                  ; 8 rows -> 8 words, low = row, high = 0
+@row:
+    sep #$20
+    .a8
+    lda f:font_data,x
+    rep #$30
+    .a16
+    .i16
+    and #$00FF
+    sta VMDATAL                 ; word = font row (bitplane 0), high byte (bitplane 1) = 0
+    inx
+    iny
+    cpy #$0008
+    bne @row
+    lda #$0000                  ; 8 zero words (bitplanes 2 and 3)
+    ldy #$0000
+@zero:
+    sta VMDATAL
+    iny
+    cpy #$0008
+    bne @zero
+    cpx #FONT_SIZE
+    bne @glyph
+    rts
+.endproc
+
+; Point OBSEL at the sprite font and clear OAM. Called once at boot after load_sprite_font.
+.proc init_oam
+    sep #$20
+    .a8
+    lda #SKY_OBJ_OBSEL
+    sta OBSEL
+    rep #$30
+    .a16
+    .i16
+    jsr clear_oam
+    rts
+.endproc
+
+; Move every sprite off-screen (Y = $F0, below the 224-line display) so no stale sprite shows. The
+; low table is 128 * 4 bytes then the 32-byte high table, written straight through ($2104 latches a
+; byte pair, so each sprite is two word-writes). Leaves V_OAM_N = 0 for the next skyline pass.
+.proc clear_oam
+    sep #$20
+    .a8
+    rep #$10
+    .i16
+    stz OAMADDL
+    stz OAMADDH
+    ldx #$0000
+@lo:
+    stz OAMDATA                 ; X = 0
+    lda #$F0
+    sta OAMDATA                 ; Y = $F0 (off-screen)
+    stz OAMDATA                 ; tile = 0
+    stz OAMDATA                 ; attr = 0
+    inx
+    cpx #128
+    bne @lo
+    ldx #$0000
+@hi:
+    stz OAMDATA                 ; high table (X bit 8 = 0, size = 8x8)
+    inx
+    cpx #32
+    bne @hi
+    lda #$00
+    sta f:V_OAM_N               ; STZ has no long-addressing form
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; If the brick's test is a multi-behaviour pass (verdict odd and > 1, i.e. a pass carrying a variant
+; code), add a light-blue OBJ sprite of the code glyph over the brick. V_TMP = battery index, V_SKY_J
+; = height above baseline, V_MENU_I = column. Sprites are appended at V_OAM_N (capped at 127).
+.proc maybe_add_variant_sprite
+    rep #$30
+    .a16
+    .i16
+    lda f:V_TMP                 ; battery index
+    tax
+    sep #$20
+    .a8
+    lda f:R_STATUS,x
+    rep #$30
+    .a16
+    .i16
+    and #$00FF
+    cmp #$00FF
+    beq @no                     ; skip verdict -> not a pass
+    bit #$0001
+    beq @no                     ; even -> fail / not-run -> no sprite
+    lsr
+    beq @no                     ; code 0 -> a plain pass, no variant to show
+    ; A = code (1-127) -> the glyph's ASCII.
+    cmp #10
+    bcc @dig
+    clc
+    adc #('A' - 10)
+    bra @tile
+@dig:
+    clc
+    adc #'0'
+@tile:
+    sta f:V_TMP2                ; tile = code glyph ASCII (reuse V_TMP2)
+    ; OAM word address = V_OAM_N * 2 (each sprite is two words in the low table).
+    lda f:V_OAM_N
+    and #$00FF
+    asl
+    sep #$20
+    .a8
+    sta OAMADDL
+    stz OAMADDH                 ; low table, X < 256
+    ; X pixel = (SKY_X0 + V_MENU_I) * 8
+    rep #$30
+    .a16
+    .i16
+    lda f:V_MENU_I
+    clc
+    adc #SKY_X0
+    asl
+    asl
+    asl
+    sep #$20
+    .a8
+    sta OAMDATA                 ; X
+    ; Y pixel = (SKY_BASELINE - V_SKY_J) * 8
+    rep #$30
+    .a16
+    .i16
+    lda #SKY_BASELINE
+    sec
+    sbc f:V_SKY_J
+    asl
+    asl
+    asl
+    sep #$20
+    .a8
+    sta OAMDATA                 ; Y
+    lda f:V_TMP2
+    sta OAMDATA                 ; tile
+    lda #SKY_OBJ_ATTR
+    sta OAMDATA                 ; attr
+    ; advance the slot, capped at 127
+    rep #$30
+    .a16
+    .i16
+    lda f:V_OAM_N
+    and #$00FF
+    cmp #127
+    bcs @no
+    inc a
+    sep #$20
+    .a8
+    sta f:V_OAM_N
+    rep #$30
+    .a16
+    .i16
+@no:
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
+; ---------------------------------------------------------------------------------------------
 ; Fill the visible tilemap with spaces.
 ; ---------------------------------------------------------------------------------------------
 .proc clear_tilemap
@@ -1079,6 +1267,7 @@ test_restore := test_restore_impl
     rep #$30
     .a16
     .i16
+    jsr clear_oam               ; the menu has no sprites; hide any the skyline left in OAM
     ; Clear the whole visible tilemap first: pages have different lengths, so last page's tail rows
     ; must not linger under a shorter page.
     ldx #MAP_BASE
@@ -2456,11 +2645,12 @@ test_restore := test_restore_impl
     rep #$30
     .a16
     .i16
+    jsr clear_oam               ; hide last frame's sprites and reset the slot counter to 0
     ldx #MAP_BASE
     ldy #(28 * SCREEN_COLS)
     jsr blank_rows
     jsr draw_sky_header
-    jsr draw_sky_columns
+    jsr draw_sky_columns        ; draws the bricks and appends the variant-code sprites
     jsr draw_sky_footer
     rts
 .endproc
@@ -2580,6 +2770,7 @@ test_restore := test_restore_impl
     .i16
     and #$00FF
     sta f:V_MENU_CNT
+    jsr draw_col_label          ; the page number, vertically above this column (V_TMP2 = page)
     lda #$0000
     sta f:V_SKY_J               ; test-in-page (also the brick's height above the baseline)
 @brick:
@@ -2606,6 +2797,53 @@ test_restore := test_restore_impl
     sta f:V_MENU_I
     jmp @col
 @done:
+    rts
+.endproc
+
+; The page number (1-based), two digits stacked vertically above the column: tens at row 2, units at
+; row 3, in the column SKY_X0 + V_MENU_I. V_TMP2 = page (0-based). Clobbers V_TMP / V_TMP2.
+.proc draw_col_label
+    rep #$30
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #ATTR_WHITE
+    sta f:V_ATTR
+    rep #$30
+    .a16
+    .i16
+    lda f:V_TMP2
+    inc a                       ; 1-based page number
+    ldx #$0000                  ; tens digit
+@t:
+    cmp #10
+    bcc @td
+    sec
+    sbc #10
+    inx
+    bra @t
+@td:
+    ; A = units value, X = tens value.
+    clc
+    adc #'0'
+    sta f:V_TMP                 ; units char
+    txa
+    clc
+    adc #'0'
+    sta f:V_TMP2                ; tens char (page no longer needed)
+    lda #(MAP_BASE + 2 * SCREEN_COLS + SKY_X0)
+    clc
+    adc f:V_MENU_I
+    tax
+    lda f:V_TMP2                ; tens
+    jsr put_tile_at
+    lda #(MAP_BASE + 3 * SCREEN_COLS + SKY_X0)
+    clc
+    adc f:V_MENU_I
+    tax
+    lda f:V_TMP                 ; units
+    jsr put_tile_at
     rts
 .endproc
 
@@ -2709,6 +2947,7 @@ test_restore := test_restore_impl
     tax
     lda f:V_TMP2                ; tile low byte
     jsr put_tile_at
+    jsr maybe_add_variant_sprite ; light-blue code sprite over a multi-behaviour pass
     rts
 .endproc
 

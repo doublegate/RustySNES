@@ -1994,6 +1994,31 @@ fn the_start_button_shows_the_skyline() {
         "the skyline left the display blank"
     );
 
+    // Multi-behaviour passes (the golden "pass variant N" tests) get a light-blue OBJ sprite of the
+    // code glyph over their brick. The first screen holds many golden tests (groups A-D), so at least
+    // one such sprite must be live (Y on the 224-line screen) with the skyline OBJ attr ($30) and a
+    // code glyph tile.
+    let mut on_screen = 0;
+    let mut found_code = false;
+    for n in 0..128u16 {
+        if sys.bus.ppu.oam_byte(n * 4 + 1) < 224 {
+            on_screen += 1;
+            let tile = sys.bus.ppu.oam_byte(n * 4 + 2);
+            let attr = sys.bus.ppu.oam_byte(n * 4 + 3);
+            if attr == 0x30 && (tile as char).is_ascii_alphanumeric() {
+                found_code = true;
+            }
+        }
+    }
+    assert!(
+        on_screen > 0,
+        "no code sprites on the skyline — expected light-blue overlays on the golden variant passes"
+    );
+    assert!(
+        found_code,
+        "the skyline sprites are not the light-blue variant-code overlays (attr $30, code glyph)"
+    );
+
     // Right pages to the second screen (51 pages / 30 columns = 2 screens); the footer stays.
     press(&mut sys, PAD_RIGHT);
     assert_eq!(

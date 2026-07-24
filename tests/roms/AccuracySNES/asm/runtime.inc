@@ -40,6 +40,7 @@ V_MENU_BASE     = VAR_BASE + $36      ; _page_tests entry index of the current p
 V_MENU_CNT      = VAR_BASE + $38      ; number of tests on the current page (u16)
 V_SKY_SCREEN    = VAR_BASE + $3A      ; skyline horizontal screen (a page group of SKY_COLS), u8
 V_SKY_J         = VAR_BASE + $3C      ; skyline per-column brick loop index (u16)
+V_OAM_N         = VAR_BASE + $3E      ; next free OAM sprite slot while drawing the skyline (u8)
 ; Offset-per-tile entry values handed to `scene_opt_map`: the H row (0) and the V row (1), each
 ; with an even-column and an odd-column value. Alternating columns is what makes the leftmost-tile
 ; exemption visible — the shifted columns come out odd-numbered rather than even.
@@ -248,6 +249,10 @@ APUIO3          = $2143
 
 ; --- PPU / CPU registers we touch ------------------------------------------------------------
 INIDISP         = $2100
+OBSEL           = $2101
+OAMADDL         = $2102
+OAMADDH         = $2103
+OAMDATA         = $2104
 BGMODE          = $2105
 BG1SC           = $2107
 BG12NBA         = $210B
@@ -375,6 +380,13 @@ SKY_COLS        = 30                  ; page columns per screen (x = SKY_X0 .. S
 SKY_X0          = 1                   ; leftmost brick column
 SKY_BASELINE    = 24                  ; brick row of a page's first test; taller pages rise above it
 SKY_BLOCK       = $20                 ; the space glyph; drawn inverse (tile $120) it is a solid block
+; Multi-behaviour success codes (AccuracyCoin): a pass with a variant code (verdict odd and > 1) gets
+; a light-blue OBJ sprite of the code glyph over its brick. The sprite font is uploaded as 4bpp
+; bitplane-0-only tiles at OBJ name base word $4000; OBSEL selects that base (bits 0-2 = 2), 8x8
+; sprites. The sprite attr byte uses OBJ palette 0 (grey + light-blue, CGRAM $80) at priority 3 so it
+; sits over BG1.
+SKY_OBJ_OBSEL   = $02                 ; OBJ name base = $4000 words, 8x8 sprites
+SKY_OBJ_ATTR    = $30                 ; OAM attr: palette 0, priority 3, no flip, tile bit 8 = 0
 
 ; --- controller bits (manual $4016 read, MSB first) -------------------------------------------
 PAD_B           = $8000
