@@ -274,9 +274,11 @@ The crate is a working dual-chip model. Public API the scheduler/bus call:
   - per-layer enable + the CGWSEL color-math regions), and INIDISP master brightness all work.
   Hi-res Modes 5/6 (and pseudo-hires, `SETINI` bit 3) render true 512-px dual-column output
   (`v0.7.0 "Resolution"` — see §Hi-res (Modes 5/6) color-math precision below for the mechanism
-  and verification status). Still not wired to dot resolution: offset-per-tile (Modes 2/4/6) and
-  interlace field doubling — the per-line compositor is the simplification point for those,
-  landing with HDMA/raster work.
+  and verification status). As of `#227` the **per-dot compositor is the sole renderer** (ADR 0014):
+  the line is composited one column at a time with live register state, so mid-line brightness,
+  force-blank, color-math, and window writes take effect at the writing column. Still not wired to
+  dot resolution: offset-per-tile (Modes 2/4/6) and interlace field doubling — those remain
+  whole-line approximations pending the fetch-ahead (4c) and interlace (4d) increments.
 
 ## Open questions
 
