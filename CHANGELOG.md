@@ -164,6 +164,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The automatic joypad read now starts a few dozen cycles into the first vblank line, not at the
+  vblank edge.** Hardware begins the auto-read ~dot 32.5-95.5 of the first vblank line (RustySNES models
+  Mesen2's dot 64), so `$4212` bit 0 reads not-busy for that window and the NMI-entry race is real; the
+  emulator had begun it at the vblank edge (H≈0). This makes `$4212`/`$4218` timing match hardware for
+  code that polls at NMI entry (AccuracySNES `F1.08`/`F1.10`). The read duration (4224 master cycles,
+  `F1.09`) is unchanged. Zero-regression — the AccuracySNES battery, the auto-read cluster, and
+  save-state round-trip are unaffected. Save-state `FORMAT_VERSION` bumps 8 → 9 (the scheduled start is
+  serialized so a save in the edge→start window restores it; `docs/adr/0006`; pre-9 blobs fail loudly).
 - **AccuracySNES no longer regresses its OAM tests on a Select restart under the per-dot compositor.**
   The battery's standing precondition is forced blank (`INIDISP=$8F`), which is what lets the OAM port
   return the CPU-programmed address; the cold-boot path sets it at reset before `restart_entry`, but a

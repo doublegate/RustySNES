@@ -543,13 +543,20 @@ DMA/HDMA) plus the `System` run loop (`scheduler.rs`):
   serialized (`FORMAT_VERSION` 6) so a save inside the window restores identically. Tier-1
   remediation T-CA-02 (`to-dos/TIER1-CYCLE-ACCURACY.md`).
 - **Automatic joypad read (`$4200` bit 0):** a *timed* ~4224-master-clock operation, not an instant
-  latch. At vblank entry (while armed) the controller state is snapshotted; `$4212` bit 0 reads
-  **busy** for the next `AUTO_JOYPAD_CLOCKS` = 33 x 128 = 4224 clocks (ares `status.autoJoypadCounter`
-  as a master-clock deadline), and the result publishes to `$4218-$421F` only at completion — a read
-  during the window still holds the previous frame's value. `$4212` also returns open bus in bits
-  1-5. The busy deadline self-settles each dot, and the in-flight snapshot + deadline **are** in the
-  save state (`FORMAT_VERSION` 5, `docs/adr/0006`), so a save taken mid-window restores an identical
-  machine state. Tier-1 remediation T-CA-01/03.
+  latch. It does **not** begin at the vblank edge but `AUTO_JOYPAD_START_DELAY` = 256 master clocks
+  (dot 64) into the first vblank line — hardware starts it ~dot 32.5-95.5 (RustySNES models Mesen2's
+  first 256-clock boundary after `hclock` 130). So for the `[edge, start)` window `$4212` bit 0 reads
+  **not-busy**, and a `$4212` read at NMI entry sees the read not-yet-started (AccuracySNES `F1.08` =
+  the start position, `F1.10` = that race). The vblank edge only *schedules* the start
+  (`auto_joypad_start_at`); `$4200` bit 0 is re-sampled at the start dot itself, so arming or disarming
+  auto-read anywhere in the window is honoured. Once begun, the controller state is snapshotted and
+  `$4212` bit 0 reads **busy** for `AUTO_JOYPAD_CLOCKS` = 33 x 128 = 4224 clocks (ares
+  `status.autoJoypadCounter` as a master-clock deadline, `F1.09` = the duration), and the result
+  publishes to `$4218-$421F` only at completion — a read during the window still holds the previous
+  frame's value. `$4212` also returns open bus in bits 1-5. Both the scheduled start and the busy
+  deadline self-settle each dot and **are** in the save state (`FORMAT_VERSION` 5 for the busy window,
+  9 for the scheduled start; `docs/adr/0006`), so a save taken in either window restores identical
+  state. Tier-1 remediation T-CA-01/03.
 - **Deferred refinements** (no committed ROM depends on them yet): the 40-clock DRAM-refresh CPU
   stall (researched, not yet implemented — see §DRAM refresh above) and the PAL-frame
   master-clock cycle-check.

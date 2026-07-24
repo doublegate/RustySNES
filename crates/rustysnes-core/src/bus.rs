@@ -53,6 +53,14 @@ const MASTER_PER_DOT: u32 = 4;
 /// result is not yet published for that whole window (`sfc/cpu/timing.cpp` `joypadEdge`).
 const AUTO_JOYPAD_CLOCKS: u64 = 33 * 128;
 
+/// Master clocks from the vblank edge to the START of the automatic joypad read. Hardware does not
+/// begin the read at the edge but ~dot 32.5-95.5 of the first vblank line (fullsnes; AccuracySNES
+/// `F1.08`). Mesen2 (`InternalRegisters.cpp`) begins at the first 256-clock boundary after `hclock`
+/// 130 — `hclock` 256, i.e. dot 64 — which is what this models. Units are **master clocks** (not dots
+/// or CPU cycles): 256 master clocks = 64 dots at 4 master clocks/dot. During `[edge, edge + delay)`
+/// the read is not yet in flight: `$4212` bit 0 reads not-busy, exposing the `F1.10` NMI-entry race.
+const AUTO_JOYPAD_START_DELAY: u64 = 256;
+
 /// Open-bus (MDR) masks for the CPU flag registers' floating bits — the positions ares `CPU::readIO`
 /// leaves as the incoming open-bus value: `$4210` RDNMI bits 4-6, `$4211` TIMEUP bits 0-6, `$4212`
 /// HVBJOY bits 1-5.
@@ -311,6 +319,12 @@ pub struct Bus {
     /// non-zero, `$4212` bit 0 reads busy and `$4218-$421F` still hold the previous result — the read
     /// publishes at completion, ~[`AUTO_JOYPAD_CLOCKS`] master clocks after vblank entry.
     auto_joypad_busy_until: u64,
+    /// `clock.master` instant the armed automatic read is due to START (0 = none pending). Hardware
+    /// does not begin the read at the vblank edge but a few dozen cycles into the first vblank line
+    /// (`AUTO_JOYPAD_START_DELAY`), so `$4212` bit 0 reads NOT-busy for that window and the NMI-entry
+    /// race (`F1.10`) is observable. Set at the vblank edge while armed; consumed by
+    /// [`Self::begin_auto_joypad`] when reached.
+    auto_joypad_start_at: u64,
     joypad_strobe: bool,
     /// Per-port peripheral state (`v0.9.0`, Phase 7 niche peripherals) — Mouse/Super Scope/Super
     /// Multitap. Idle (and touching nothing on `$4016`/`$4017`'s `data1` bit) unless a port's
@@ -386,6 +400,7 @@ impl Bus {
             joypad_auto: [0; 2],
             joypad_auto_pending: [0; 2],
             auto_joypad_busy_until: 0,
+            auto_joypad_start_at: 0,
             joypad_strobe: false,
             ports: [PortState::default(), PortState::default()],
             pio: 0xFF,
@@ -460,6 +475,19 @@ impl Bus {
         self.settle_auto_joypad(); // finish any read still nominally in flight from last frame
         self.joypad_auto_pending = self.capture_auto_joypad();
         self.auto_joypad_busy_until = self.clock.master + AUTO_JOYPAD_CLOCKS;
+    }
+
+    /// Fire a start scheduled by the vblank edge once its dot arrives. The `$4200` bit-0 enable is
+    /// re-sampled HERE, not at the edge, so a game that arms or disarms auto-read anywhere in the
+    /// `[edge, start)` window is honoured (hardware latches the enable at the read's start). Called
+    /// every dot from [`Self::tick_ppu_dot`]; a no-op when nothing is scheduled.
+    fn maybe_begin_scheduled_auto_joypad(&mut self) {
+        if self.auto_joypad_start_at != 0 && self.clock.master >= self.auto_joypad_start_at {
+            self.auto_joypad_start_at = 0;
+            if self.clock.nmitimen & 0x01 != 0 {
+                self.begin_auto_joypad();
+            }
+        }
     }
 
     /// Publish a completed automatic read: once `clock.master` reaches the deadline, commit the
@@ -832,21 +860,17 @@ impl Bus {
             if self.clock.nmitimen & 0x80 != 0 {
                 self.clock.nmi_line = true;
             }
-            // The automatic joypad read, which runs at the start of vblank and only while armed.
-            // Sharing this hook with the NMI is exact enough for everything the cart can observe:
-            // hardware starts the read a few dozen cycles into the first vblank line and takes
-            // about three scanlines over it, and `F1.08`-`F1.10` — the rows about *when* it runs
-            // and the race that window creates — are not covered by this battery.
-            if self.clock.nmitimen & 0x01 != 0 {
-                // The read clocks the ports' shift registers, so it is subject to the latch line.
-                // While `$4016` bit 0 is held high the registers reload continuously instead of
-                // shifting, and all sixteen clocks return the first bit — the result is uniform,
-                // not merely stale. Software that hand-polls `$4016` must disarm auto-read or keep
-                // its strobing out of vblank. AccuracySNES `F1.11`; Mesen2 models this, snes9x
-                // does not.
-                self.begin_auto_joypad();
-            }
+            // The automatic joypad read runs at the start of vblank while armed — but NOT at this
+            // edge: hardware begins it ~dot 32.5-95.5 into the first vblank line, so `$4212` bit 0
+            // reads not-busy for that window (the `F1.10` race) and the start position is observable
+            // (`F1.08`). Schedule the potential start for `AUTO_JOYPAD_START_DELAY` clocks from here
+            // UNCONDITIONALLY of the current arm bit — `$4200` bit 0 is re-sampled at the start dot
+            // itself (in `maybe_begin_scheduled_auto_joypad`), so arming or disarming auto-read
+            // anywhere in the window is honoured, matching the hardware that latches the enable at the
+            // start of the read, not at the vblank edge.
+            self.auto_joypad_start_at = self.clock.master + AUTO_JOYPAD_START_DELAY;
         }
+        self.maybe_begin_scheduled_auto_joypad();
         // Complete a timed automatic read when its deadline passes, so `$4212` bit 0 and the
         // `$4218-$421F` result reflect the true ~4224-clock window even without an intervening
         // register read. The in-flight snapshot + deadline are serialized (`FORMAT_VERSION` 5), so a
@@ -1248,6 +1272,10 @@ impl Bus {
             s.write_u16(self.joypad_auto_pending[0]);
             s.write_u16(self.joypad_auto_pending[1]);
             s.write_u64(self.auto_joypad_busy_until);
+            // The scheduled auto-read START (`FORMAT_VERSION` 9): a save taken in the window between
+            // the VBlank edge and the read's start dot must restore the pending start, or the read
+            // never begins on load.
+            s.write_u64(self.auto_joypad_start_at);
         });
         match &self.cart {
             Some(cart) => {
@@ -1298,6 +1326,8 @@ impl Bus {
         self.joypad_auto_pending[0] = s.read_u16()?;
         self.joypad_auto_pending[1] = s.read_u16()?;
         self.auto_joypad_busy_until = s.read_u64()?;
+        // The scheduled auto-read start (`FORMAT_VERSION` 9).
+        self.auto_joypad_start_at = s.read_u64()?;
         if s.remaining() != 0 {
             return Err(SaveStateError::Invalid(alloc::format!(
                 "BUS0 section has {} trailing byte(s)",
@@ -1838,6 +1868,68 @@ mod tests {
             fresh.read_cpu_reg(0x4218),
             0x34,
             "restored snapshot publishes at completion"
+        );
+    }
+
+    /// A save taken in the window between the vblank edge and the auto-read's scheduled START
+    /// (`FORMAT_VERSION` 9) restores the pending start, so the read still begins on the loaded state.
+    #[test]
+    fn auto_joypad_pending_start_survives_save_load() {
+        use rustysnes_savestate::{SaveReader, SaveWriter};
+        let mut bus = Bus::default();
+        bus.set_joypad(0, 0x1234);
+        bus.write_cpu_reg(0x4200, 0x01);
+        bus.clock.master = 7000;
+        // Simulate the VBlank edge scheduling the delayed start (not yet begun).
+        bus.auto_joypad_start_at = 7000 + AUTO_JOYPAD_START_DELAY;
+        assert_eq!(
+            bus.read_cpu_reg(0x4212) & 1,
+            0,
+            "not busy yet — the read has not started"
+        );
+        let mut w = SaveWriter::new();
+        bus.save_state(&mut w);
+        let bytes = w.into_bytes();
+        let mut fresh = Bus::default();
+        let mut r = SaveReader::new(&bytes);
+        fresh.load_state(&mut r).expect("pending-start round trip");
+        assert_eq!(
+            fresh.auto_joypad_start_at,
+            7000 + AUTO_JOYPAD_START_DELAY,
+            "the pending start deadline survives save/load (else the read never begins)"
+        );
+        // Reaching the deadline begins the read (busy), exactly as on the pre-save state.
+        fresh.clock.master = 7000 + AUTO_JOYPAD_START_DELAY;
+        fresh.maybe_begin_scheduled_auto_joypad();
+        assert_eq!(
+            fresh.read_cpu_reg(0x4212) & 1,
+            1,
+            "read begins at the deadline"
+        );
+    }
+
+    /// Disarming `$4200` bit 0 DURING the `[edge, start)` window cancels the read: the enable is
+    /// re-sampled at the start dot, not latched at the vblank edge.
+    #[test]
+    fn disarming_auto_read_in_the_start_window_cancels_it() {
+        let mut bus = Bus::default();
+        bus.set_joypad(0, 0x1234);
+        bus.write_cpu_reg(0x4200, 0x01); // armed at the "edge"
+        bus.clock.master = 100;
+        bus.auto_joypad_start_at = 100 + AUTO_JOYPAD_START_DELAY;
+        // Software disarms auto-read before the start dot arrives.
+        bus.write_cpu_reg(0x4200, 0x00);
+        // Reach the scheduled start dot: the read must NOT begin, because it is disarmed now.
+        bus.clock.master = 100 + AUTO_JOYPAD_START_DELAY;
+        bus.maybe_begin_scheduled_auto_joypad();
+        assert_eq!(
+            bus.read_cpu_reg(0x4212) & 1,
+            0,
+            "a read disarmed during the start window must not begin"
+        );
+        assert_eq!(
+            bus.auto_joypad_start_at, 0,
+            "the pending start is consumed either way"
         );
     }
 
