@@ -13,12 +13,14 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **237** (226 scoring + 10 golden vectors + 1 region SKIP per image) — *tests, not assertions; see the note below the table* |
-| Rendered scenes | **50**, all cross-validated (`docs/adr/0013`) |
-| Pass rate | **100.00%**, floor enforced at 1.00 by `tests/accuracysnes.rs` |
-| Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but five, all recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`. Both images. |
+| Tests | **330** (scoring + golden vectors + region SKIP per image) — *tests, not assertions; see the note below the table* |
+| Assertion coverage | **342 of 443** dossier assertions — **289 on-cart** + **53 rendered scenes**, kept as separate columns (`docs/accuracysnes-coverage.md`) |
+| Rendered scenes | **53**, all cross-validated (`docs/adr/0013`) |
+| Pass rate | **100.00%** on-cart, floor enforced at 1.00 by `tests/accuracysnes.rs` |
+| Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but a handful of recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`; a headless **MesenCE** (this cycle) is the per-dot compositor's blueprint + exact-frame oracle. All images. |
 | Groups shipped | **A** (65C816) · **B** (5A22) · **C** (PPU, on-cart and rendered) · **D** (DMA/HDMA) · **E** (SPC700 + S-DSP) · **F** (controller ports) · **G** (cartridge/memory map) — all seven, all partial |
-| Defects found in this emulator | **12** — see §5 |
+| On-cart UI | AccuracyCoin-style paged menu + automatic skyline results + per-test B-skip + a Select WRAM debug viewer (`v1.21.0`) |
+| Defects found in this emulator | **12+** — see §5 |
 
 These counts are maintained by hand and will drift. **`docs/accuracysnes-coverage.md` is the
 authority**: it is regenerated with the ROM, so it cannot.

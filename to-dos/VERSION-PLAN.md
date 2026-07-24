@@ -1357,3 +1357,45 @@ Super Scope scaling issues) and a real presented-frame desync (the overscan flag
 of the UI/UX-parity plan (in-app Help docs, deeper debugger panels, wasm Lua scripting via
 `piccolo`, browser netplay lobby, browser RetroAchievements, i18n) remain scoped but not started —
 each is its own future rung, sized like a small roadmap phase on its own.
+
+### `v1.21.0 "Touchstone"` — the accuracy release: per-dot compositor + the AccuracySNES instrument — **RELEASED 2026-07-24**
+
+The `v1.5.0`-`v1.20.0` ladder shipped frontend, mobile, shader, and CI breadth with a deliberate
+**zero change** to the emulation core. In parallel, two accuracy tracks accumulated in
+`CHANGELOG.md`'s `[Unreleased]` section across that whole span, never cut into a numbered rung
+because none of those releases was about them. `v1.21.0` cuts them together — they are one story
+from two ends.
+
+- **The per-dot PPU compositor is now the sole renderer (`docs/adr/0014`, T-CA-10).** The scanline
+  is composited one column at a time against live registers, so a mid-line write to CGRAM, OAM, a
+  scroll register, or `INIDISP` reaches only the not-yet-drawn columns. The whole-line batch path is
+  removed (single code path), validated 29/29 on the undisbeliever corpus against a headless
+  **MesenCE** built this cycle as both the per-dot blueprint (`SnesPpu.cpp:RenderScanline`) and the
+  exact-frame oracle. Unblocks the mid-render scored rows `C1.08`/`C3.04`/`C7.16` on the default
+  build.
+- **The first-party AccuracySNES cartridge matured into a usable instrument.** An AccuracyCoin-style
+  paged menu (`gen/src/pages.rs`), an automatic "skyline" results city (one column per page, one
+  brick per test, top-down fill), a per-test **B**-skip, and a **Select** live-WRAM debug hex viewer
+  (`7E:ADDR` header over 22 rows × 8 bytes, Up/Down paging; **Menu+Start** = run-all restart,
+  **Skyline+Start** = menu). #235 (UI) + #236 (debug viewer). None of Select/Up/Down is in the input
+  contract, so the automated cross-validation hosts never trip the UI and the scored battery +
+  rendered scenes stay byte-identical.
+- **The battery climbed 323 → 342 of 443 dossier assertions** (289 on-cart + 53 rendered scenes;
+  `docs/accuracysnes-coverage.md`, regenerated with the ROM). New scored/golden rows across Groups
+  A-G: `F1.03`/`F1.10` (controller latch + auto-read race), `G1.05`/`G1.15`/`G1.16`/`G1.17`
+  (power-on PPU regs + HiROM/ExHiROM decode via parallel cartridge images), `E4.06`/`E4.08` (IPL
+  boot ROM), `C1.08` (OAM address takeover). Every row inject-verified for non-vacuity and
+  cross-validated on RustySNES + snes9x + MesenCE.
+- **Cycle-accuracy fixes the cartridge surfaced.** The automatic joypad read is a timed ~4224-clock
+  busy-window operation that starts a few dozen cycles into vblank and honours the `$4016` latch;
+  `$4210`/`$4211` hold their flags four master clocks and return open bus in unused bits; the PPU
+  dot model is 340 dots with the correct two long dots per line (`T-06-A`); OBJ interlace renders;
+  sprite over-flags (`$213E`) are timed per-dot.
+- **CI: a self-hosted Antigravity (Gemini-via-Ultra) first-pass PR reviewer** landed alongside
+  CodeRabbit (`#199`-`#203`), and the Anomie + NESdev SNES timing references were vendored into
+  `ref-docs/`.
+
+Default-build behaviour is unchanged except that the per-dot compositor is now the shipped
+renderer; the on-cart cartridge is developer tooling and does not touch the emulator binary. The
+state-of-play doc for the ongoing accuracy program is `docs/accuracysnes-plan.md`; the coverability
+ceiling analysis is `docs/accuracysnes-coverability-audit-2026-07-23.md`.

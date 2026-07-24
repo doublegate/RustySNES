@@ -1,4 +1,4 @@
-//! Per-scanline compositor: BG modes 0–7 (incl. Mode 7 affine), the 128-sprite OAM pipeline,
+//! Per-dot compositor (`docs/adr/0014`): BG modes 0–7 (incl. Mode 7 affine), the 128-sprite OAM pipeline,
 //! windows, and color math. Re-implemented clean-room from `docs/ppu.md` + documented SNES
 //! hardware behavior, structurally informed by ares (ISC). Nothing was ported verbatim.
 //!
