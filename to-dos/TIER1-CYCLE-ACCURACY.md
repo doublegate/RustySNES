@@ -39,7 +39,7 @@ any golden that legitimately changes is re-blessed **only** from a render the re
 
 | # | Ticket | Gap | Source | Status |
 |---|---|---|---|---|
-| T-CA-10 | **Per-dot PPU compositor** | per-scanline; mid-line register writes, offset-per-tile, interlace, live `frame_hires` all wrong at dot resolution | `docs/adr/0014`, `ppu.md` | [~] ADR 0014 written. **Phase 1 landed (#205):** extracted `compose_pixel`/`DacCarry` (the per-pixel DAC entry point) from `compose_dac`'s inline loop — bit-identical. **Phase 2 landed (#210):** split `render_bg` into a FETCH pass (`[Pixel;256]` line buffer) + a DRAIN pass — bit-identical. **Phase 3 (NEXT — first behaviour change) scoped 2026-07-23, see the plan block + TRAPS below.** Then Phase 4 (live BG fetch / mid-line scroll), Phase 5 (sprites + hi-res two-sub-pixel), Phase 6 (flip default after full-corpus re-bless). |
+| T-CA-10 | **Per-dot PPU compositor** | per-scanline; mid-line register writes, offset-per-tile, interlace, live `frame_hires` all wrong at dot resolution | `docs/adr/0014`, `ppu.md` | **[x] LANDED — shipped as the sole renderer in `v1.21.0` (ADR 0014 Accepted; batch path deleted, single code path).** Phase 1 (#205): extracted `compose_pixel`/`DacCarry` — bit-identical. Phase 2 (#210): split `render_bg` FETCH/DRAIN — bit-identical. Phase 3+ (#218 CGRAM redirect, #223 OAM `$2138` redirect, #231 per-dot over-flag, then the default flip): the scanline composites one column at a time against live registers; validated 29/29 on undisbeliever vs a headless MesenCE built as blueprint + exact-frame oracle. Unblocked the scored rows `C1.08`/`C3.04`/`C7.16`. |
 
 ### T-CA-10 Phase 3 — concrete implementation plan + traps (scoped 2026-07-23)
 

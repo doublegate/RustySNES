@@ -259,21 +259,21 @@ The crate is a working dual-chip model. Public API the scheduler/bus call:
 - **Polls (the scheduler reads these — no extra `VideoBus` methods were added):**
   `nmi_pending()`/`ack_nmi()`, `irq_pending()`/`ack_irq()`, `in_vblank()`/`in_hblank()`,
   `dot()`/`scanline()`, `frame_ready()`/`take_frame()`/`frame_count()`, `framebuffer() -> &[u16]`.
-- **Rendering model:** **per-scanline** — the whole visible line is composited in one shot at
-  `RENDER_DOT` (dot 276) into a `256×239` 15-bit framebuffer, sampling every rendering register at
-  that single instant. A register write later in the line (dots 277-340) therefore does not affect
-  the line it lands on — the documented timing error this model carries. The internal structure is being migrated toward a
-  per-dot compositor (`docs/adr/0014`) in bit-identical phases: `compose_dac` exposes a per-pixel
-  `compose_pixel` (Phase 1), and `render_bg` now runs a FETCH pass into a per-line pixel buffer
-  followed by a separate DRAIN/composite pass (Phase 2) — both byte-identical to the fused loop under
-  static state. The *behavioral* per-dot change (mid-line register writes taking effect at dot
-  resolution) is Phase 3+, not yet landed. This per-scanline model is far simpler than a per-dot
-  renderer, and bit-identical to one **only when no register a line's rendering reads is changed mid-line**
-  (the determinism contract only requires the finished frame be reproducible, so this is a valid
-  simplification *when the equivalence holds* — but it does NOT always hold: see "Mid-scanline/
-  HDMA-driven register timing" below for a confirmed off-by-one-line compositor bug this
-  dot-276-sampling approach causes for HDMA-driven per-line register changes, and a designed
-  fix that is NOT yet landed pending a Super FX/GSU regression investigation). BG modes 0–7
+- **Rendering model:** **per-dot** (`v1.21.0`, `docs/adr/0014`, T-CA-10) — the sole renderer since
+  the batch path was removed. The **compose/draw** stage (`pd_render_to_dot`) drains one column at a
+  time against live registers into a `256×239` 15-bit framebuffer, so a mid-line CGRAM/OAM access
+  during active display, an `INIDISP` brightness/blank change, and the sprite over-flag timing all
+  take effect at dot resolution — the mid-scanline register-visibility timing real hardware has, and
+  the fix for the off-by-one-line error the earlier model carried. It arrived in bit-identical phases
+  (`compose_dac`'s per-pixel `compose_pixel`; `render_bg`'s FETCH/DRAIN split; then the per-dot
+  CGRAM/OAM redirects and over-flag timing) and was validated 29/29 on the undisbeliever corpus
+  against a headless MesenCE built as both the per-dot blueprint and the exact-frame oracle. The
+  **BG/sprite line fetch** (`pd_fetch_line`) is still performed line-wide up front, so a mid-line
+  scroll/tilemap/OPT write is not yet reflected on later columns — incremental fetch-ahead is
+  T-CA-10 **Phase 4c**, not yet landed. The earlier per-scanline model composited the whole line in
+  one shot at `RENDER_DOT` (dot 276), which was bit-identical to a per-dot renderer only when no
+  register a line's rendering reads was changed mid-line — see "Mid-scanline/HDMA-driven register
+  timing" below for the case that broke, now handled correctly at dot resolution. BG modes 0–7
   tile fetch (2/4/8 bpp), per-mode priority tables, 16×16 tiles,
   mosaic (vertical+horizontal block), Mode 7 affine (matrix + center + wrap/flip from M7SEL,
   EXTBG high-bit priority), the 128-sprite OAM pipeline with the 32-sprite range / 34-tile time
@@ -297,13 +297,24 @@ The crate is a working dual-chip model. Public API the scheduler/bus call:
   timing" below — landed, with the Super FX/GSU golden updates it required independently
   verified (not blindly re-blessed).
 
-## Mid-scanline/HDMA-driven register timing — landed (v0.8.0)
+## Mid-scanline/HDMA-driven register timing — landed (v0.8.0), superseded by the per-dot compositor (v1.21.0)
 
-**Status: landed.** The off-by-one-line compositor bug confirmed in `v0.5.0` is fixed:
-`Ppu::tick_dot` composites each scanline at [`rustysnes_ppu::RENDER_DOT`] (dot 276) instead of
+> **Superseded — historical.** This section documents the `v0.8.0` per-scanline-at-`RENDER_DOT`
+> (dot 276) model and the investigation that landed it. As of `v1.21.0` the **per-dot compositor**
+> (`docs/adr/0014`, T-CA-10) is the sole renderer and is the current specification — see the
+> "Rendering model" bullet above: the compose/draw stage now runs one column at a time against live
+> registers, so mid-line CGRAM/OAM/`INIDISP` visibility is exact at dot resolution rather than
+> approximated by a single dot-276 sample. The mechanism and cross-validation below remain accurate
+> as the account of *how the earlier model worked and why it was correct for the HDMA-per-line case*;
+> read it as lineage, not as the current dot-timing model. (The one part still live: the BG/sprite
+> line **fetch** is line-wide even under the per-dot compositor, so mid-line scroll/tilemap changes
+> are Phase 4c, not yet landed.)
+
+**Status (v0.8.0): landed.** The off-by-one-line compositor bug confirmed in `v0.5.0` was fixed:
+`Ppu::tick_dot` composited each scanline at [`rustysnes_ppu::RENDER_DOT`] (dot 276) instead of
 end-of-scanline (dot 340), matching real hardware's per-pixel active-region timing. All 29
 `undisbeliever` goldens, every `*_oncart`/commercial-screenshot suite, and the Super FX/GSU
-golden corpus (24/24, re-verified — see "The Super FX/GSU golden updates" below) pass with the
+golden corpus (24/24, re-verified — see "The Super FX/GSU golden updates" below) passed with the
 fix in place; SA-1's `SD F-1 Grand Prix` golden changed to the pixel-exact hardware-correct
 value (see "The SA-1 case" below).
 

@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/doublegate/RustySNES/actions"><img src="https://github.com/doublegate/RustySNES/workflows/CI/badge.svg" alt="Build Status"></a> <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a> <a href="https://github.com/doublegate/RustySNES/releases"><img src="https://img.shields.io/badge/version-v1.8.0-blue.svg" alt="Version"></a> <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/rust-1.96-orange.svg" alt="Rust: 1.96"></a><br>
+  <a href="https://github.com/doublegate/RustySNES/actions"><img src="https://github.com/doublegate/RustySNES/workflows/CI/badge.svg" alt="Build Status"></a> <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a> <a href="https://github.com/doublegate/RustySNES/releases"><img src="https://img.shields.io/badge/version-v1.21.0-blue.svg" alt="Version"></a> <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/rust-1.96-orange.svg" alt="Rust: 1.96"></a><br>
   <a href="#compatibility-and-accuracy"><img src="https://img.shields.io/badge/65C816%20oracle-0--diff-brightgreen.svg" alt="65C816 oracle: 0-diff"></a> <a href="#compatibility-and-accuracy"><img src="https://img.shields.io/badge/SPC700%20oracle-0--diff-brightgreen.svg" alt="SPC700 oracle: 0-diff"></a> <a href="https://doublegate.github.io/RustySNES/"><img src="https://img.shields.io/badge/pages-demo%20%2B%20rustdoc%20%2B%20docs-success.svg" alt="GitHub Pages"></a><br>
   <a href="#platform-support"><img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS%20%7C%20Web-lightgrey.svg" alt="Platform"></a>
 </p>
@@ -149,9 +149,11 @@ frames spanning every LoROM/HiROM × coprocessor combination in the local ROM co
   [`docs/adr/0002`](docs/adr/0002-fractional-timebase-refactor.md),
   [`docs/adr/0005`](docs/adr/0005-65816-opcode-oracle-license.md)).
 - **Cycle-accurate PPU1 (5C77) + PPU2 (5C78)** — BG modes 0-7, Mode 7 affine transforms, the full
-  128-sprite OAM pipeline, color math, windows, and a per-scanline compositor that renders each
-  line one dot before that line's own HDMA can mutate the registers it reads, matching real
-  hardware's mid-scanline register-visibility timing.
+  128-sprite OAM pipeline, color math, windows, and a **per-dot compositor** (`v1.21.0`,
+  [`docs/adr/0014`](docs/adr/0014-per-dot-compositor.md)) that composites each scanline one column
+  at a time against live registers, so a mid-line write to CGRAM, OAM, a scroll register, or
+  `INIDISP` reaches only the columns not yet drawn — matching real hardware's mid-scanline
+  register-visibility timing.
 - **Cycle-accurate SPC700 + S-DSP** — the SMP advances in cycle-exact sub-instruction lockstep
   with the main CPU via an integer relative-time accumulator (no floating point in the timing
   path), and the S-DSP is itself cycle-stepped (32 ticks per 32 kHz sample) so a mid-instruction
