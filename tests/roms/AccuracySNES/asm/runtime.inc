@@ -359,9 +359,11 @@ MENU_TITLE_ROW  = 3                   ; centered page-group title (e.g. "65816: 
 MENU_PAGE_ROW   = 5                   ; "PAGE x / N"
 MENU_LIST_ROW   = 7                   ; first test row
 MENU_LIST_STEP  = 2                   ; two tile-rows (16px) between tests
-MENU_LABEL_COL  = 2                   ; 4-char verdict label (TEST/PASS/FAIL/SKIP/DRAW)
-MENU_CODE_COL   = 7                   ; the FAIL code glyph, just past the label
-MENU_NAME_COL   = 9                   ; the test name
+MENU_LABEL_COL  = 1                   ; 4-char verdict label (TEST/PASS/FAIL/SKIP/DRAW)
+MENU_CODE_COL   = 6                   ; the FAIL code glyph, just past the label
+MENU_NAME_COL   = 8                   ; the test name -- name field is columns 8..31 = 24 chars, which
+                                      ; is exactly the generator's `name.len() <= 24` cap, so no name
+                                      ; wraps to the next tile row (was column 9 = only 23 chars)
 ; Tilemap high-byte attributes: palette in bits 2-4, inverse-font copy (tile $100+) in bit 0. The
 ; inverse-font bit is how the cursor/page-header highlight renders as a solid bar on a single BG
 ; layer -- palette colour 0 is transparent on a background, so a swapped palette cannot.
@@ -378,7 +380,11 @@ ATTR_INVERSE    = $01                 ; select the inverse-font copy at tile $10
 ; the 32-column screen, so the columns page across SKY screens with Left/Right.
 SKY_COLS        = 30                  ; page columns per screen (x = SKY_X0 .. SKY_X0+SKY_COLS-1)
 SKY_X0          = 1                   ; leftmost brick column
-SKY_BASELINE    = 24                  ; brick row of a page's first test; taller pages rise above it
+; AccuracyCoin fills each column from the TOP downward (its results grid is drawn top-to-bottom,
+; +32 per row): a page's first test is at SKY_TOP and later tests hang below it, so ragged page
+; lengths form the skyline. The page number sits just above, at rows SKY_LABEL_ROW and +1.
+SKY_TOP         = 3                   ; brick row of a page's first test
+SKY_LABEL_ROW   = 1                   ; the page number's tens digit (units on the row below)
 SKY_BLOCK       = $20                 ; the space glyph; drawn inverse (tile $120) it is a solid block
 ; Multi-behaviour success codes (AccuracyCoin): a pass with a variant code (verdict odd and > 1) gets
 ; a light-blue OBJ sprite of the code glyph over its brick. The sprite font is uploaded as 4bpp

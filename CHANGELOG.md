@@ -171,9 +171,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Left/Right paging the columns across screens (the 51 pages exceed one 30-column screen); Start
   returns to the menu. The Start toggle sits on a controller-contract button, so a contract-holding
   accuracy host (which holds it continuously with no rising edge) never leaves the menu, while a human
-  user toggles freely. Each column is topped with its **page number** drawn vertically, and a
-  **multi-behaviour pass** (a golden "pass variant N") carries a **light-blue OBJ sprite** of its code
-  glyph over the brick (a 4bpp bitplane-0 sprite font uploaded at VRAM `$4000`, OBJ palette 0).
+  user toggles freely. Columns **fill top-down** (a page's first test at the top, later tests hanging
+  below — matching AccuracyCoin's results grid); a pass is a solid blue square, a **fail is its error
+  code in red**, and a **multi-behaviour pass** (a golden "pass variant N") carries a **light-blue OBJ
+  sprite** of its code glyph over the brick (a 4bpp bitplane-0 sprite font uploaded at VRAM `$4000`,
+  OBJ palette 0). Each column is topped with its page number. Menu test names that are up to 24
+  characters now fit the name field without wrapping to the next row.
 - **The per-dot PPU compositor (`docs/adr/0014`, T-CA-10) is now the emulator's only renderer.** It
   first became the shipped default (a `per-dot-compositor` feature on by default), and then the batch
   whole-line composite it replaced (`render_scanline`/`compose_dac`) and the feature itself were

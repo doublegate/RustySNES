@@ -858,13 +858,13 @@ restart_entry:
     sep #$20
     .a8
     sta OAMDATA                 ; X
-    ; Y pixel = (SKY_BASELINE - V_SKY_J) * 8
+    ; Y pixel = (SKY_TOP + V_SKY_J) * 8
     rep #$30
     .a16
     .i16
-    lda #SKY_BASELINE
-    sec
-    sbc f:V_SKY_J
+    lda #SKY_TOP
+    clc
+    adc f:V_SKY_J
     asl
     asl
     asl
@@ -2832,13 +2832,13 @@ test_restore := test_restore_impl
     clc
     adc #'0'
     sta f:V_TMP2                ; tens char (page no longer needed)
-    lda #(MAP_BASE + 2 * SCREEN_COLS + SKY_X0)
+    lda #(MAP_BASE + SKY_LABEL_ROW * SCREEN_COLS + SKY_X0)
     clc
     adc f:V_MENU_I
     tax
     lda f:V_TMP2                ; tens
     jsr put_tile_at
-    lda #(MAP_BASE + 3 * SCREEN_COLS + SKY_X0)
+    lda #(MAP_BASE + (SKY_LABEL_ROW + 1) * SCREEN_COLS + SKY_X0)
     clc
     adc f:V_MENU_I
     tax
@@ -2931,10 +2931,11 @@ test_restore := test_restore_impl
     .a16
     .i16
 @emit:
-    ; vram = MAP_BASE + (SKY_BASELINE - V_SKY_J) * SCREEN_COLS + (SKY_X0 + V_MENU_I)
-    lda #SKY_BASELINE
-    sec
-    sbc f:V_SKY_J
+    ; vram = MAP_BASE + (SKY_TOP + V_SKY_J) * SCREEN_COLS + (SKY_X0 + V_MENU_I). Top-down: test 0 at
+    ; SKY_TOP, later tests below it, like AccuracyCoin.
+    lda #SKY_TOP
+    clc
+    adc f:V_SKY_J
     asl
     asl
     asl

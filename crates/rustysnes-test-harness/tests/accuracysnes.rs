@@ -1977,11 +1977,12 @@ fn the_start_button_shows_the_skyline() {
         "the skyline footer did not draw (row 26 = {footer:?})"
     );
     // Page 0, test 0 is a PASS, so its brick is the solid inverse-font block (tile >= $100) in the
-    // blue palette (bits 2-4 == 1). It sits at the baseline (row 24), column SKY_X0 (1).
-    let brick = tile(&sys, 24, 1);
+    // blue palette (bits 2-4 == 1). Columns fill top-down, so it sits at the top row (SKY_TOP = 3),
+    // column SKY_X0 (1).
+    let brick = tile(&sys, 3, 1);
     assert!(
         brick & 0x0100 != 0 && (brick & 0xFF) == 0x20,
-        "the baseline PASS brick is not the solid inverse block (tile {brick:#06x})"
+        "the top PASS brick is not the solid inverse block (tile {brick:#06x})"
     );
     assert_eq!(
         (brick >> 10) & 0x07,
@@ -2258,6 +2259,45 @@ fn the_menu_shows_before_the_battery() {
         row7.contains("TEST") && row7.contains("XCE clears XH/YH"),
         "the pre-battery menu did not show the first test as not-run (row 7 = {row7:?})"
     );
+
+    // No test name wraps to the next tile row. The name field is columns 8..31 (24 chars) and the
+    // left margin (column 0) is always blank, so a too-long name overflowing to the next row would
+    // show up as a non-space at column 0. Page through every menu page (Left/Right work in the
+    // pre-battery menu) and assert column 0 of the whole list stays blank. This is the regression
+    // guard for the wrap the user saw (e.g. "EMULATION PUSHES 3 BYTES" on the INTERRUPTS page).
+    let page_count = {
+        // _page_count is a word at the head of the CATALOG page tables; read it via the menu's own
+        // 1-based "PAGE x / N" line instead of the symbol: the trailing number is N.
+        let hdr: String = text_row(&sys, 5);
+        hdr.split('/')
+            .nth(1)
+            .and_then(|s| s.split_whitespace().next())
+            .and_then(|s| s.trim_start_matches('0').parse::<u32>().ok())
+            .expect("PAGE x / N header parses")
+    };
+    assert!(page_count >= 40, "unexpected page count {page_count}");
+    for _ in 0..page_count {
+        for row in 6..28u16 {
+            let c0 = (sys.bus.ppu.vram_word(MAP_BASE + row * 32) & 0xFF) as u8;
+            assert_eq!(
+                c0,
+                b' ',
+                "a test name wrapped into column 0 of row {row} (page header now {:?}) — the name is \
+                 too long for the {}-column name field",
+                text_row(&sys, 5),
+                32 - 8
+            );
+        }
+        // Right -> next page; run a few frames for the under-blank redraw.
+        sys.bus.set_joypad(0, PAD_RIGHT);
+        for _ in 0..2 {
+            sys.run_frame();
+        }
+        sys.bus.set_joypad(0, 0);
+        for _ in 0..5 {
+            sys.run_frame();
+        }
+    }
 
     // Press Start (holding the input contract for Group F during the run): the battery runs to
     // completion. The joypad was 0, so setting the contract raises Start as a clean edge.
