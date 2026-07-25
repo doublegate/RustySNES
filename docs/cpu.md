@@ -155,6 +155,20 @@ inter-reference divergences resolved toward hardware (`docs/adr/0002`), not bugs
   confines the push to page 1 and is the lone outlier; RustySNES matches these implementations on
   every physically-reachable state (`S.h=$01`).
 
+Provenance supports resolving both toward hardware. The `SingleStepTests/65816` set documents no
+generation method — its README calls it "an aid to reimplementation," with no stated hardware
+oracle. The `(dp,X)` wrap and the `$FC`/`PLB` page-1 escapes, by contrast, are **hardware-derived**:
+gilyon's `snes-tests` are credited on nesdev with *discovering two undocumented behaviors that all
+major emulators had not implemented* (the `(dp,X)` wrap among them), which bsnes/ares/MesenCE then
+adopted — so SST is simply the test set that predates those findings. The general rule is documented
+in the WDC W65C816S datasheet and confirmed on real SNES hardware (nesdev
+[t=14281](https://forums.nesdev.org/viewtopic.php?t=14281)): emulation mode preserves 6502 behavior
+only for the modes that exist on the 6502; **65816-specific additions (`JSR (a,X)`, `PLD`/`PLB`,
+`PEA`/`PEI`/`PER`, and the `[dp]`/`[dp],Y`/`PEI` long-pointer read that increments from `$00FE/FF`
+into the stack) use native behavior in emulation mode.** RustySNES models every one of these
+(`push_n*`/`pull_n*`, `direct_n_addr`), matching bsnes and passing gilyon `cputest-full` — so the
+two SST divergences are the *complete* known set, not a sample.
+
 An earlier figure of `5,119,999 / 5,120,000` in this doc predated both the `A3.08` `$FC` push fix
 and the `(dp,X)` wrap; sampled runs (`RUSTYSNES_ORACLE_PER_FILE=200`) miss most of these page-edge
 cases and still read ~100%. The four block-move files (`44/54.e/.n`
