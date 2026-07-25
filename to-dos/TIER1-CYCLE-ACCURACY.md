@@ -165,8 +165,8 @@ Determinism/save-state: serialize any CPU-observable new cursor state at the poi
 keep transient line buffers re-derived. Every step: byte-identical milestone → save-state round-trip → determinism
 → clippy/fmt clean → MesenCE frame agreement for any re-blessed golden.
 
-| T-CA-11 | 65816 cycle-by-cycle bus trace | cycle counts are per-instruction tallies, access **order** not pin-validated | `cpu.md:186`, timing-oracle | [ ] Large: model per-cycle bus access (address driven each internal cycle) so open-bus/DMA-interaction is exact. |
-| T-CA-12 | Open-bus-via-HDMA-latch | correct fix breaks 24 GSU goldens, root cause unknown | `accuracy-ledger.md`, `scheduler.md` | [BLOCKED] Blocked on an access-level trace of GSU VRAM/CGRAM writes vs the failing DMA transfers. |
+| T-CA-11 | 65816 cycle-by-cycle bus trace | cycle counts are per-instruction tallies, access **order** not pin-validated | `cpu.md:186`, timing-oracle | **[~] Measured + localized; implementation deferred (no payoff, real risk).** `tests/cpu_oracle.rs` now cross-checks the read/write access **order** against the SST per-cycle trace: state 99.99%, cycle count 100%, **access order ~25%** — the gap is the **dummy cycles** of RMW / indexed-indirect / stack ops (emulator does an internal `io` where HW drives a real dummy read/write). No ROM-observable payoff (state+cycle exact; the one open-bus-order case is T-CA-12, done) and a real risk (dummy reads of clear-on-read I/O regs have side effects the current `io` avoids), so the pin-exact rewrite stays deferred — now **trackable via the oracle metric** rather than an unquantified "large". |
+| T-CA-12 | Open-bus-via-HDMA-latch | correct fix breaks 24 GSU goldens, root cause unknown | `accuracy-ledger.md`, `scheduler.md` | **[x] Done — the "unknown root cause" was found.** The naive prototype updated `open_bus` on DMA/HDMA *writes* too; the correct rule (reads update, writes never — ares/bsnes `CPU::Channel`) landed in `DmaBus for Bus` `read_a`/`read_b`, covering both GP-DMA and HDMA (same path). 24 GSU goldens re-blessed. See `docs/scheduler.md` §Open bus via DMA/HDMA. |
 
 ---
 
@@ -175,7 +175,7 @@ keep transient line buffers re-derived. Every step: byte-identical milestone →
 Group A → B → C by tractability, but C's compositor (T-CA-10) proceeds in parallel as its own
 phased effort (ADR 0014). Each Group A/B ticket is a self-contained PR. Land order chosen so
 low-risk accuracy wins land first and the golden corpus is exercised repeatedly before the large
-rewrites. T-CA-12 stays blocked until its investigation is scheduled.
+rewrites. T-CA-12 is **done** (the open-bus-via-DMA/HDMA reads-only fix; see its row).
 
 ### Reassessment after landing T-CA-01/02/03 and resolving T-CA-09 (2026-07-22)
 
@@ -194,8 +194,9 @@ CPU/DSP/coprocessor timing for **no ROM-observable benefit**, which the pin-a-fa
 discipline exists to prevent. They should each wait for a concrete failing vector (a game or a stricter test that
 actually diverges) rather than being remediated blind. **The genuine remaining Tier-1 work with a
 real ROM-observable payoff is T-CA-10 (the per-dot compositor)** — it unblocks the hi-res scene
-cluster (~15-20 AccuracySNES rows) and mid-line register-write accuracy — plus T-CA-11 (large) if an
-open-bus/DMA-order edge case ever needs it. T-CA-12 stays blocked.
+cluster (~15-20 AccuracySNES rows) and mid-line register-write accuracy. T-CA-12 is now **done**
+(open-bus-via-DMA/HDMA). T-CA-11 (large) remains deferred, needed only if an open-bus/DMA-order
+edge case that the current model gets wrong is ever demonstrated (none is, see its row).
 
 ## Progress log
 

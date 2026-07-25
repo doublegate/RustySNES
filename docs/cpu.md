@@ -239,8 +239,17 @@ full; leaving it linear to keep the SST cases would fail real hardware and every
   each case at a fixed, non-architectural cycle budget (A never wraps; every test moves exactly
   14 bytes), so `tests/cpu_oracle.rs` replays the move to that recorded budget for the
   cross-check (see the runner's MVN/MVP note). With that, the four block-move files pass.
-- Cycle counts are per-instruction tallies, not a cycle-by-cycle bus-pin trace; access *order*
-  is reasonable but not validated against the SingleStepTests pin traces.
+- Cycle counts are per-instruction tallies, not a cycle-by-cycle bus-pin trace. The **read/write
+  access order** is now cross-checked against the SingleStepTests per-cycle trace by
+  `tests/cpu_oracle.rs` (T-CA-11): final state passes 99.99% and cycle *count* 100%, but the access
+  *order* matches only ~25% — the divergence is confined to the **dummy cycles** of read-modify-write
+  (`ASL/LSR/ROL/ROR/INC/DEC/TSB/TRB`), indexed-indirect pointer fetches, and stack pushes, where the
+  emulator performs an internal `io` where hardware drives a real dummy read/write. Because the end
+  state and cycle count are exact and the only open-bus-order case that mattered is handled
+  (`docs/scheduler.md` §Open bus via DMA/HDMA, T-CA-12), a pin-exact rewrite has no current
+  ROM-observable payoff — and a real risk (a dummy read of a clear-on-read I/O register has side
+  effects the current `io` avoids), so it stays deferred. The oracle metric now makes it trackable if
+  a title ever depends on it (T-CA-11 in `to-dos/TIER1-CYCLE-ACCURACY.md`).
 - `STP` idles until reset; `WAI` idles until a polled NMI/IRQ, then spends **one extra internal
   cycle leaving the wait** before the interrupt sequence begins (`Cpu::wake_from_wai`) — matching
   ares' trailing `idle()` in `instructionWait` and MesenCE's `Idle()` in `ProcessHaltedState`.

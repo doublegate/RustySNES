@@ -29,18 +29,47 @@ use rustysnes_cpu::{Bus, Cpu, Status};
 use serde_json::Value;
 
 /// A flat 24-bit memory the single-step tests seed and diff. Cycle counts come from the value
-/// [`Cpu::step`] returns (the per-instruction cycle count), not the bus.
+/// [`Cpu::step`] returns (the per-instruction cycle count), not the bus. `accesses` records the
+/// ordered sequence of real bus reads/writes (`(addr, is_write)`) so the oracle can cross-check the
+/// **access order** against the SingleStepTests per-cycle trace (T-CA-11), not just the end state and
+/// cycle count. Internal (`io`) cycles drive no memory access here, matching the SST cycles whose
+/// pin flags carry neither `r` nor `w`.
 struct TestBus {
     mem: HashMap<u32, u8>,
+    accesses: Vec<(u32, bool)>,
 }
 
 impl Bus for TestBus {
     fn read24(&mut self, addr24: u32) -> u8 {
+        self.accesses.push((addr24 & 0x00FF_FFFF, false));
         *self.mem.get(&(addr24 & 0x00FF_FFFF)).unwrap_or(&0)
     }
     fn write24(&mut self, addr24: u32, val: u8) {
+        self.accesses.push((addr24 & 0x00FF_FFFF, true));
         self.mem.insert(addr24 & 0x00FF_FFFF, val);
     }
+}
+
+/// The ordered real memory accesses `(addr, is_write)` the SST per-cycle trace records: every cycle
+/// whose pin string carries an `r` (read) or `w` (write). Internal cycles (address held, no access —
+/// neither flag) are skipped, exactly as `Cpu::io` performs no bus access here.
+fn sst_accesses(t: &Value) -> Vec<(u32, bool)> {
+    t["cycles"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|c| {
+            let pins = c[2].as_str()?;
+            let addr = (c[0].as_u64()? as u32) & 0x00FF_FFFF;
+            if pins.contains('r') {
+                Some((addr, false))
+            } else if pins.contains('w') {
+                Some((addr, true))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn oracle_dir() -> PathBuf {
@@ -69,11 +98,13 @@ fn set_regs(cpu: &mut Cpu, st: &Value) {
     r.emulation = g("e") == 1;
 }
 
-/// Returns (register_ok, ram_ok, cycle_ok) for one test object.
-fn run_one(t: &Value) -> (bool, bool, bool) {
+/// Returns (register_ok, ram_ok, cycle_ok, access_order_ok) for one test object. `access_order_ok`
+/// is `None` for the block-move opcodes (their re-step + PC-nudge tail doesn't map 1:1 to the trace).
+fn run_one(t: &Value) -> (bool, bool, bool, Option<bool>) {
     let init = &t["initial"];
     let mut bus = TestBus {
         mem: HashMap::new(),
+        accesses: Vec::new(),
     };
     for pair in init["ram"].as_array().into_iter().flatten() {
         let a = pair[0].as_u64().unwrap_or(0) as u32 & 0x00FF_FFFF;
@@ -138,10 +169,20 @@ fn run_one(t: &Value) -> (bool, bool, bool) {
     });
 
     let cycle_ok = u64::from(got_cycles) == t["cycles"].as_array().map_or(0, |c| c.len() as u64);
-    (reg_ok, ram_ok, cycle_ok)
+
+    // Access-order cross-check (T-CA-11): the ordered real reads/writes must match the SST trace.
+    // Skip the block-move opcodes, whose re-step loop + PC-nudge tail don't map 1:1 to a single
+    // instruction's trace.
+    let access_ok = if opcode == 0x44 || opcode == 0x54 {
+        None
+    } else {
+        Some(bus.accesses == sst_accesses(t))
+    };
+    (reg_ok, ram_ok, cycle_ok, access_ok)
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // linear reporting block; splitting it hurts readability
 fn cpu_65816_oracle_cross_check() {
     let dir = oracle_dir();
     if !dir.is_dir() {
@@ -170,7 +211,9 @@ fn cpu_65816_oracle_cross_check() {
     }
 
     let (mut total, mut full_pass, mut reg_pass, mut cyc_pass) = (0u64, 0u64, 0u64, 0u64);
+    let (mut acc_total, mut acc_pass) = (0u64, 0u64);
     let mut worst: HashMap<String, u64> = HashMap::new();
+    let mut acc_worst: HashMap<String, u64> = HashMap::new();
 
     for path in &files {
         let bytes = std::fs::read(path).expect("read json");
@@ -186,7 +229,7 @@ fn cpu_65816_oracle_cross_check() {
             per_file.min(tests.len())
         };
         for t in tests.iter().take(take) {
-            let (reg_ok, ram_ok, cyc_ok) = run_one(t);
+            let (reg_ok, ram_ok, cyc_ok, acc_ok) = run_one(t);
             total += 1;
             if reg_ok && ram_ok {
                 reg_pass += 1;
@@ -198,6 +241,14 @@ fn cpu_65816_oracle_cross_check() {
             }
             if reg_ok && ram_ok && cyc_ok {
                 full_pass += 1;
+            }
+            if let Some(ok) = acc_ok {
+                acc_total += 1;
+                if ok {
+                    acc_pass += 1;
+                } else {
+                    *acc_worst.entry(stem.clone()).or_default() += 1;
+                }
             }
         }
     }
@@ -232,10 +283,24 @@ fn cpu_65816_oracle_cross_check() {
         total,
         pct(full_pass)
     );
+    let acc_pct = if acc_total == 0 {
+        0.0
+    } else {
+        acc_pass as f64 * 100.0 / acc_total as f64
+    };
+    eprintln!(
+        "  access order     : {acc_pass:>7} / {acc_total} = {acc_pct:.2}%  (T-CA-11: read/write sequence vs the SST trace)"
+    );
     let mut top: Vec<_> = worst.iter().collect();
     top.sort_by(|a, b| b.1.cmp(a.1));
     eprintln!("  worst opcodes (file: state-fails):");
     for (op, n) in top.iter().take(12) {
+        eprintln!("    {op}: {n}");
+    }
+    let mut acc_top: Vec<_> = acc_worst.iter().collect();
+    acc_top.sort_by(|a, b| b.1.cmp(a.1));
+    eprintln!("  worst opcodes (file: access-order-fails):");
+    for (op, n) in acc_top.iter().take(12) {
         eprintln!("    {op}: {n}");
     }
 
