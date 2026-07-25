@@ -707,13 +707,18 @@ pub struct Ppu {
     // (re-derived at each line start from serialized PPU state), so they are deliberately NOT saved —
     // a save at a frame boundary (the normal case) has no mid-line cursor to preserve; a mid-line save
     // re-fetches on load, documented in `docs/ppu.md`.
-    /// This line's fetched above/below pixels (composited incrementally by the fetch cursor).
-    pd_above: alloc::boxed::Box<[render::Pixel; SCREEN_WIDTH]>,
-    pd_below: alloc::boxed::Box<[render::Pixel; SCREEN_WIDTH]>,
+    /// This line's fetched BG pixels, one per column PER LAYER (`[layer 0..=3][column]`): the raw
+    /// tile/affine lookup with its priority baked in (a fetch-side property), but WITHOUT window,
+    /// `TM`/`TS` enable, or cross-layer priority resolution — those are applied at DRAW time (the draw
+    /// cursor) so a mid-line window/`TM`/`TS` write takes effect only on later columns, matching
+    /// MesenCE. Inactive layers / colour-0 pixels are transparent (`opaque == false`). Filled by the
+    /// fetch cursor (`pd_fetch_bg_to`, ~`BG_FETCH_AHEAD` columns ahead of the draw); resolved by
+    /// `pd_compose_column` at draw time. Transient, re-derived per line.
+    pd_bg: alloc::boxed::Box<[[render::Pixel; SCREEN_WIDTH]; 4]>,
     /// This line's resolved sprite pixels, one per column (inter-sprite priority already decided;
-    /// window/main/sub gating applied later, at composite time). Latched at line start — sprites do
-    /// not change from a mid-line BG-data write, so keeping them line-fixed is correct while the BG
-    /// fetch goes incremental (`docs/adr/0014` Phase 4c). Transient, re-derived per line.
+    /// window/main/sub gating applied later, at DRAW time). Latched at line start — sprites do not
+    /// change from a mid-line BG-data write, so keeping them line-fixed is correct while the BG fetch
+    /// goes incremental (`docs/adr/0014` Phase 4c). Transient, re-derived per line.
     pd_sprite: alloc::boxed::Box<[render::Pixel; SCREEN_WIDTH]>,
     /// The DAC carry threaded through the incremental composite (ares' one-column hi-res delay).
     pd_carry: render::DacCarry,
@@ -818,8 +823,7 @@ impl Ppu {
             #[cfg(feature = "hd-pack")]
             tile_tags: alloc::vec![hdtag::TileTag::default(); MAX_FRAMEBUFFER_LEN]
                 .into_boxed_slice(),
-            pd_above: Box::new([render::Pixel::default(); SCREEN_WIDTH]),
-            pd_below: Box::new([render::Pixel::default(); SCREEN_WIDTH]),
+            pd_bg: Box::new([[render::Pixel::default(); SCREEN_WIDTH]; 4]),
             pd_sprite: Box::new([render::Pixel::default(); SCREEN_WIDTH]),
             pd_carry: render::DacCarry::default(),
             pd_draw_x: 0,

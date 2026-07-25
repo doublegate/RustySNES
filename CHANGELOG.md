@@ -43,9 +43,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   directions. Byte-identical on every static line (no behaviour change unless a program writes a
   BG-data register mid-scanline); verified across the ppu unit tests, the AccuracySNES rendered
   scenes (incl. Mode 7) + battery (298/298), and save-state/movie determinism, and the fetch-ahead
-  offset is pinned by white-box mid-line-scroll tests for both the tiled and Mode-7 paths. Scope not
-  yet covered: window/`TM`/`TS` timing (applied at the fetch cursor, a static-line no-op), and an
-  external raster-boundary cross-check.
+  offset is pinned by white-box mid-line-scroll tests for both the tiled and Mode-7 paths.
+  **Window, `TM`/`TS` layer enables, and cross-layer priority are resolved at the DRAW cursor**: the
+  fetch cursor stores raw per-layer pixels (`pd_bg`, priority baked in) and `pd_compose_column`
+  applies the composite-side registers live at draw time, so a mid-line window/`TM`/`TS` write reaches
+  only columns past the draw cursor (a windowed-out or disabled layer reveals the layers beneath it),
+  matching MesenCE's fetch-vs-composite split — pinned by a white-box test showing the enable boundary
+  lands 22 columns behind a BG-data write's. Scope not yet covered: an external raster-boundary
+  cross-check vs hardware.
 - **The 65C816 `(dp,X)` addressing now models the WDC emulation-mode `DL!=0` high-byte page-wrap
   silicon bug**, and the full gilyon on-cart suites are committed gates. When `E=1` and the direct
   register's low byte is non-zero, the `(dp,X)` pointer's *high* byte is read from the same page as

@@ -124,9 +124,13 @@ and the commercial-screenshot suite. The port must not cost any of that. Therefo
      `mid_line_mode7_scroll_shifts_only_columns_past_the_fetch_cursor`) that pin the split boundary to
      the 22-column offset at two injection dots. **Mode 7** is incremental too (`fetch_mode7_column`,
      dispatched on live `bg_mode` per column, which also makes a mid-line `BGMODE` flip switch the
-     fetch path correctly in both directions). Scope not yet covered: window/`TM`/`TS` at the draw
-     cursor (currently applied at the fetch cursor — a static-line no-op), and an external reference
-     (MesenCE/synthetic-ROM) cross-check of the exact raster boundary vs hardware.
+     fetch path correctly in both directions). **Window/`TM`/`TS` are resolved at the DRAW cursor**:
+     the fetch cursor stores raw per-layer pixels (`pd_bg`) and `pd_compose_column` applies window +
+     enable + priority live at draw time, so a windowed-out or disabled layer reveals the lower layers
+     beneath it exactly at the draw column — validated by `mid_line_tm_write_takes_effect_at_the_draw_cursor`,
+     which shows the enable boundary lands `BG_FETCH_AHEAD` columns behind a BG-data write's boundary.
+     Scope not yet covered: an external reference (MesenCE/synthetic-ROM) cross-check of the exact
+     raster boundary vs hardware.
   4. **[LANDED]** The composite is wired to `tick_dot` per-dot (the single dot-276 call retired).
      Remaining: hi-res two-sub-pixel output and interlace at dot resolution (deferred — no
      reference-agreed target, ADR 0013).
