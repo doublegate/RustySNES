@@ -191,7 +191,7 @@ tracked here, always current, reaffirmed every release:
 
 | Layer | Status | Detail |
 |---|---|---|
-| CPU (65C816) per-opcode oracle | ✅ **0-diff vs. reference** | 5,119,999 / 5,120,000 (SingleStepTests/65816; the one residual is a documented inter-reference divergence, `docs/adr/0002`, not a bug — not literally 0 of 5,120,000, but 0 against the chosen reference behavior every other test vector agrees on) |
+| CPU (65C816) per-opcode oracle | ✅ **hardware-accurate** | 5,119,710 / 5,120,000 (SingleStepTests/65816). The 290 residuals are all emulation-mode cases where SST is the lone outlier and RustySNES matches bsnes/ares/MesenCE/snes9x + the AccuracySNES first-party suite: 247 `(dp,X)` `DL!=0` high-byte-wrap (a WDC silicon bug; makes gilyon `cputest-full` pass in full) + 43 `fc.e` `$FC` push. `docs/adr/0002` divergence posture; `docs/cpu.md` |
 | SPC700 per-opcode oracle | ✅ **0-diff, 100.00%** | 256,000 / 256,000 (SingleStepTests/spc700) |
 | On-cart CPU (gilyon `cputest-basic`) | ✅ **green** | 1107 / 1107 "Success" |
 | PPU/DMA/HDMA golden framebuffer (undisbeliever) | ✅ **green, deterministic** | 29 / 29 ROMs bit-identical across runs |
@@ -235,9 +235,11 @@ added to this table; hi-res color-math precision itself closed in `v0.7.0 "Resol
 
 | Suite | Layer | License posture | Pass | Total |
 |---|---|---|---|---|
-| SingleStepTests/65816 (JSON) | CPU per-opcode oracle | **self-gen committed + upstream cross-check (external)** — ADR 0005 | **5,119,999** | 5,120,000 |
+| SingleStepTests/65816 (JSON) | CPU per-opcode oracle | **self-gen committed + upstream cross-check (external)** — ADR 0005 | **5,119,710** | 5,120,000 (290 SST-outlier emu divergences; `docs/cpu.md`) |
 | SingleStepTests/spc700 (JSON) | SPC per-opcode oracle | MIT (committable) | **256,000** | 256,000 (0-diff) |
 | gilyon/snes-tests (cputest-basic .sfc) | CPU on-cart (boots on `System`) | MIT (committed) | **1107** | 1107 (= "Success") |
+| gilyon/snes-tests (cputest-full .sfc) | CPU on-cart, all addressing + emu wrap edges | MIT (committed) | **1610** | 1610 (= "Success") |
+| gilyon/snes-tests (spctest .sfc) | SPC-700 on-cart (boots on `System`) | MIT (committed) | **558** | 558 (= "Success") |
 | undisbeliever/snes-test-roms (.sfc) | PPU/DMA/HDMA hardware (golden framebuffer) | Zlib (committed) | **29** | 29 (deterministic) |
 | blargg `spc_*` (spc_dsp6 / mem_access / smp / timer) | cycle-accurate SPC/DSP (cycle-stepped S-DSP + timer-phase + GAIN mode-7 fixes) | unstated (external) | **4 boot+run det.; 4 literal PASS** | 4 (all → literal `PASSED TESTS` asserted: `spc_smp`/`spc_timer`/`spc_mem_access_times` via timer-phase fix, `spc_dsp6` via DSP GAIN mode-7 unsigned-threshold fix) |
 | DSP-1 commercial dumps (`dsp1_oncart`) | DSP-1 coprocessor (boots on `System` w/ user firmware) | ROMs+firmware gitignored (golden committed) | **4 boot+det.** | 4 (detection + RQM-access + golden + firmware-diff) |
@@ -246,12 +248,14 @@ added to this table; hi-res color-math precision itself closed in `v0.7.0 "Resol
 | 240p Test Suite (SNES) | video / overscan | GPLv2 (run-only) | 0 | TBD |
 | Visual golden corpus (`tests/golden/`) | framebuffer / audio hashes | own (committed) | **29** | 29 |
 
-- **CPU 65816 oracle (0-diff):** **100.00%** — 5,119,999 / 5,120,000 full passes
+- **CPU 65816 oracle:** **99.994%** — 5,119,710 / 5,120,000 full passes
   (state + RAM + cycle count) across all 512 opcode files × 10,000 tests each, native +
-  emulation. The one
-  residual is a single `e1.e` (`SBC (dp,X)`, emulation) test exercising the bsnes `readDirectX`
-  `DL!=0` high-byte wrap that the rest of the SingleStepTests set does **not** model — a
-  documented inter-reference divergence (`docs/adr/0002` posture), not point-fixed. Measured via
+  emulation. The 290 residuals are all emulation-mode cases where SingleStepTests is the lone
+  outlier and RustySNES matches the SNES-accurate references (bsnes/ares/MesenCE/snes9x) + the
+  AccuracySNES first-party suite: 247 `(dp,X)` `DL!=0` high-byte-wrap (a WDC silicon bug that also
+  makes gilyon `cputest-full` pass) + 43 `fc.e` `$FC` push (page-1 escape, per AccuracySNES `A3.08`)
+  — two documented inter-reference divergences resolved toward hardware (`docs/adr/0002`,
+  `docs/cpu.md`), not bugs. Measured via
   `tests/cpu_oracle.rs` against the gitignored external set (ADR 0005: cross-check only, never a
   CI dependency). No textual Nintendulator-style 65816 log exists — this JSON oracle replaces it
   (`docs/testing-strategy.md`).

@@ -185,10 +185,18 @@ impl Cpu {
     //                 else        → (D + addr) & 0xFFFF
     // `readDirectN` : always (D + addr) & 0xFFFF  (long-indirect pointer fetch, no page-lock)
     //
-    // NOTE on (dp,X): bsnes additionally models an emulation-mode `DL!=0` high-byte wrap in
-    // `readDirectX`. The SingleStepTests reference does NOT reproduce that wrap (it reads the
-    // pointer high byte linearly), so we follow the oracle and apply only the `DL==0`
-    // page-lock here — see [`Self::direct_x_addr`].
+    // NOTE on (dp,X): a real WDC 65816 silicon bug wraps the *high* pointer byte within the page
+    // when `E==1 && DL!=0` — the low byte is read from `D + dp + X`, but the `+1` for the high byte
+    // increments only the low 8 bits, staying in the same page (`$xxFF -> $xx00`, not `$xxFF+1`).
+    // All three of this project's accuracy references model it and call it a CPU bug — bsnes/ares
+    // `readDirectX` ("the (direct,X) addressing mode has a bug in which the high byte is wrapped
+    // within the page if E = 1 and D&0xFF != 0") and MesenCE
+    // `GetDirectAddressIndirectWordWithPageWrap` ("wrap around to start of previous page instead
+    // (cpu bug?)") — and gilyon's cputest-full tests it. Only the SingleStepTests set reads it
+    // linearly, so it is wrong here: a *documented inter-reference divergence* (`docs/adr/0002`) we
+    // resolve toward hardware, at the cost of the `(dp,X)` emulation SST cases that assume linear
+    // (`docs/cpu.md`). Applied in [`Self::read_dp_x_ptr16`]; the `DL==0` page-lock lives in
+    // [`Self::direct_x_addr`].
     // ----------------------------------------------------------------------------------
 
     /// Effective bank-`0` address of a direct-page byte at `D + addr`, applying the
@@ -202,9 +210,10 @@ impl Cpu {
         }
     }
 
-    /// Effective bank-`0` address for the `(dp,X)` pointer-byte fetch. `addr` already includes
-    /// the `+X` from the caller; `offset` is the byte index (`0`/`1`). Applies the `DL==0`
-    /// page-lock only (the oracle does not model the bsnes `DL!=0` high-byte wrap).
+    /// Effective bank-`0` address for the `(dp,X)` pointer low-byte fetch (`offset == 0`). `addr`
+    /// already includes the `+X` from the caller. Applies the `DL==0` page-lock via
+    /// [`Self::direct_addr`]; the `DL!=0` emulation high-byte wrap is handled in
+    /// [`Self::read_dp_x_ptr16`].
     fn direct_x_addr(&self, addr: u16, offset: u16) -> u32 {
         self.direct_addr(addr.wrapping_add(offset))
     }
@@ -218,13 +227,22 @@ impl Cpu {
         u16::from(lo) | (u16::from(hi) << 8)
     }
 
-    /// Read a 16-bit pointer via per-byte [`Self::direct_x_addr`] for `(dp,X)`. Matches bsnes
-    /// `readDirectX(U.l + X.w, 0)` / `(…, 1)`: the index is folded into the address, and the
-    /// per-byte offset is `0`/`1`.
+    /// Read a 16-bit pointer for `(dp,X)`, modelling the WDC 65816 emulation-mode `DL!=0`
+    /// high-byte page-wrap silicon bug (bsnes/ares `readDirectX`, MesenCE
+    /// `GetDirectAddressIndirectWordWithPageWrap`). When `E==1 && DL!=0` the pointer high byte is
+    /// read from the same page as the low byte — `sum = D + dp + X`, low from `sum`, high from
+    /// `(sum & 0xFF00) | ((sum + 1) & 0x00FF)` — so a `sum` ending in `$FF` reads its high byte from
+    /// `$xx00`, not the next page. Otherwise the linear `D + dp + X + offset` fetch (with the
+    /// `DL==0` page-lock) applies.
     fn read_dp_x_ptr16(&mut self, bus: &mut impl Bus, dp: u16, x: u16) -> u16 {
         let base = dp.wrapping_add(x);
         let a0 = self.direct_x_addr(base, 0);
-        let a1 = self.direct_x_addr(base, 1);
+        let a1 = if self.regs.emulation && (self.regs.d & 0x00FF) != 0 {
+            let sum = self.regs.d.wrapping_add(base);
+            u32::from((sum & 0xFF00) | (sum.wrapping_add(1) & 0x00FF))
+        } else {
+            self.direct_x_addr(base, 1)
+        };
         let lo = self.bus_read8(bus, a0);
         let hi = self.bus_read8(bus, a1);
         u16::from(lo) | (u16::from(hi) << 8)

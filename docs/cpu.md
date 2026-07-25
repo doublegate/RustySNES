@@ -134,12 +134,24 @@ impl Cpu {
 Phase-1 instruction core in `crates/rustysnes-cpu` (modules `regs.rs`, `addr.rs`, `exec.rs`).
 Behavior modelled clean-room on the bsnes / ares `wdc65816` reference cores (study-only).
 
-**Oracle results** (SingleStepTests/65816, `tests/cpu_oracle.rs`): **100.00% — 5,119,999 /
-5,120,000** full passes (state + RAM + cycle) across the entire set (512 opcode files × 10,000
-tests, both emulation `.e` and native `.n`); sampled runs (20,480 and 102,400 tests) are a clean
-100%. The single residual is one `e1.e` (`SBC (dp,X)`, emulation) case exercising the bsnes
-`readDirectX` `DL!=0` high-byte wrap that the rest of the SingleStepTests set does not model — a
-documented inter-reference divergence, not point-fixed. The four block-move files (`44/54.e/.n`
+**Oracle results** (SingleStepTests/65816, `tests/cpu_oracle.rs`): **5,119,710 / 5,120,000
+(99.994%)** full passes (state + RAM + cycle) across the entire set (512 opcode files × 10,000
+tests, both emulation `.e` and native `.n`). The **290 residuals are all emulation-mode cases where
+SingleStepTests is the lone outlier** and RustySNES matches the SNES-accurate references
+(bsnes/ares/MesenCE/snes9x) and its own AccuracySNES first-party suite — two documented
+inter-reference divergences resolved toward hardware (`docs/adr/0002`), not bugs:
+
+- **247** across the eight `(dp,X)` emulation files (`01/21/41/61/81/a1/c1/e1.e`): the WDC 65816
+  silicon bug that wraps the `(dp,X)` pointer high byte within the page when `E=1 && DL!=0`.
+  bsnes/ares `readDirectX` and MesenCE `GetDirectAddressIndirectWordWithPageWrap` both model it and
+  call it a CPU bug; gilyon's `cputest-full` tests it (and now passes). SST reads it linearly.
+- **43** in `fc.e` (`JSR (addr,X)`, emulation): the return-address push uses `pushN` (full-16-bit
+  `S`, escaping page 1 mid-instruction) per bsnes `instructionCallIndexedIndirect`, cross-validated
+  by AccuracySNES `A3.08` on snes9x + Mesen2. SST confines the push to page 1.
+
+An earlier figure of `5,119,999 / 5,120,000` in this doc predated both the `A3.08` `$FC` push fix
+and the `(dp,X)` wrap; sampled runs (`RUSTYSNES_ORACLE_PER_FILE=200`) miss most of these page-edge
+cases and still read ~100%. The four block-move files (`44/54.e/.n`
 MVP/MVN) pass too: the CPU keeps true per-byte hardware semantics, and since the block-move
 fixtures cap each case at a fixed non-architectural cycle budget (A never wraps), the oracle
 runner replays the move to that budget for the cross-check. This satisfies Phase 1's
@@ -180,12 +192,13 @@ per-opcode-oracle exit criterion (`docs/adr/0005` self-gen oracle of record is t
   `cycles`-field delta == the number of `Bus::on_cpu_cycle()` ticks; the per-access 6/8/12
   master-clock weighting stays the Bus's job, as the scaffold intended.
 
-Full-run measurement (all 512 files × **10 000** tests = 5 120 000) is **5 119 999 / 5 120 000
-= 100.00%** full passes (state + RAM + cycle). The single residual is one `e1.e`
-(`SBC (dp,X)`, emulation) test that exercises the bsnes `readDirectX` `DL!=0` high-byte wrap
-which the rest of the SingleStepTests set does not model — a documented inter-reference
-divergence (`docs/adr/0002` posture), deliberately not point-fixed because matching it would
-regress the other 9 999 `e1.e` tests.
+Full-run measurement (all 512 files × **10 000** tests = 5 120 000) is **5 119 710 / 5 120 000
+= 99.994%** full passes (state + RAM + cycle). All 290 residuals are the two emulation-mode
+SST-outlier divergences described above (247 `(dp,X)` high-byte wrap + 43 `fc.e` `$FC` push), each
+resolved toward the SNES-accurate references (bsnes/ares/MesenCE/snes9x) and the AccuracySNES
+first-party suite rather than toward SingleStepTests (`docs/adr/0002` posture). The `(dp,X)` wrap in
+particular makes gilyon's `cputest-full` (1610 tests, gated in `tests/gilyon_oncart.rs`) pass in
+full; leaving it linear to keep the SST cases would fail real hardware and every accurate emulator.
 
 **Approximated / deferred (Phase 1 scope honesty):**
 

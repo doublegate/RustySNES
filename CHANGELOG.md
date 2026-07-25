@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The 65C816 `(dp,X)` addressing now models the WDC emulation-mode `DL!=0` high-byte page-wrap
+  silicon bug**, and the full gilyon on-cart suites are committed gates. When `E=1` and the direct
+  register's low byte is non-zero, the `(dp,X)` pointer's *high* byte is read from the same page as
+  its low byte (`sum = D + dp + X`; high from `(sum & 0xFF00) | ((sum + 1) & 0xFF)`), so a `sum`
+  ending in `$FF` reads its high byte from `$xx00`, not the next page. All three of the project's
+  accuracy references model this and call it a CPU bug — bsnes/ares `readDirectX` and MesenCE
+  `GetDirectAddressIndirectWordWithPageWrap` — and gilyon's `cputest-full` tests it. RustySNES had
+  read the high byte linearly to match SingleStepTests, which is the lone outlier here; this
+  resolves the divergence toward hardware (`docs/adr/0002` posture). Net effect on the SST oracle:
+  **5,119,710 / 5,120,000** (from a stale, sampled `5,119,999`; the true pre-change full-run figure
+  was `5,119,956`). The 290 residuals are now all emulation-mode SST-outlier cases where RustySNES
+  matches bsnes/ares/MesenCE/snes9x + the AccuracySNES first-party suite: 247 `(dp,X)` wrap + a
+  pre-existing 43 `fc.e` (`$FC` `JSR (addr,X)` page-1-escaping push, per AccuracySNES `A3.08`) — see
+  `docs/cpu.md`. **gilyon `cputest-full` (1610 tests, every opcode × every addressing mode + the
+  emulation wrap edges) and `spctest` (558 SPC-700 tests) both now report "Success" and are gated in
+  `tests/gilyon_oncart.rs`** alongside the existing `cputest-basic`; `cputest-full` previously
+  stopped at test 39 on exactly this `(dp,X)` quirk.
+
 ## [1.21.0] "Touchstone" - 2026-07-24
 
 The accuracy release. Two long-running parallel tracks that had accumulated in `[Unreleased]`
