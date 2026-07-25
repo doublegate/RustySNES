@@ -15,9 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   65C816 for **40 master clocks (10 dots) once per scanline at line-clock ≈ 536** to refresh work RAM;
   RustySNES now models it in the scheduler (`bus.rs` `DRAM_REFRESH_CLOCKS`/`DRAM_REFRESH_DOT`, a nested
   `advance_master` on the sub-tick completing dot 133). This is a **reallocation, not an addition**:
-  the master clock is PPU-driven, so the stall spends the frame's fixed 357,368-clock budget on refresh
-  instead of on CPU work — the frame length is unchanged (re-run steady-state probe confirms no drift),
-  the CPU simply does ~10,480 clocks/frame less, as on hardware. This corrects the long-standing
+  the frame length is fixed by the PPU dot-counter rollover (357,368 master clocks for NTSC), not by
+  CPU work, so the stall spends that fixed budget on refresh instead of on CPU work — the frame length
+  is unchanged (re-run steady-state probe confirms no drift), the CPU simply does ~10,480 NTSC
+  clocks/frame less, as on hardware. This corrects the long-standing
   "adding a stall would inflate the frame" conclusion, which had measured a refresh-*insensitive*
   metric. Effect: a mid-line register write from an H-IRQ handler now lands ~10 dots later when the
   ISR straddles the refresh point (matching MesenCE's variable H-IRQ→write latency, the item the

@@ -36,7 +36,8 @@ understanding why is the key to the whole model.
 
 **The master clock here is CPU-driven, and the frame length is PPU-fixed.** `Bus::advance_master`
 increments the master clock and the PPU dot counter in lockstep (1:1), and `run_frame` runs until the
-PPU rolls a full frame — which is *always* exactly 357,368 master clocks (262 lines × 1364). So the
+PPU rolls a full frame — which is *always* a fixed count (357,368 master clocks for NTSC: 262 lines ×
+1364; PAL differs by line count). So the
 frame's length in master clocks is fixed by the video counters, not by how much work the CPU does.
 
 Injecting a 40-clock stall therefore does **not** lengthen the frame. Those 40 clocks advance the PPU

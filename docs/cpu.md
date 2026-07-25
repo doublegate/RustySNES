@@ -87,9 +87,10 @@ the 5A22's memory controller steals the bus once per scanline to refresh work RA
 (`Bus::advance_master`), **not** in opcode cycle counts — so the single-step CPU oracle is unaffected
 — but it does move where an in-flight instruction's remaining accesses land relative to the beam: an
 ISR whose execution straddles the refresh point commits its register write ~10 dots later, which is
-the observable behind mid-line raster timing. Because the master clock is PPU-driven, the stall
-reallocates the CPU's share of the frame's fixed budget rather than lengthening the frame. See
-`docs/dram-refresh.md` and `docs/scheduler.md` §DRAM refresh.
+the observable behind mid-line raster timing. Because the frame length is fixed by the PPU
+dot-counter rollover (357,368 master clocks for NTSC) rather than by CPU work, the stall reallocates
+the CPU's share of that fixed budget rather than lengthening the frame. See `docs/dram-refresh.md`
+and `docs/scheduler.md` §DRAM refresh.
 
 ## Interfaces (sketch)
 
