@@ -43,7 +43,8 @@ for dot in $DOTS; do
     ca65 --cpu 65816 -D RASTER_DOT="$dot" -DFETCH_RASTER -o "$HERE/raster.o" "$HERE/raster.s" 2>/dev/null
     ld65 -C "$HERE/raster.cfg" -o "$HERE/raster.sfc" "$HERE/raster.o" 2>/dev/null
     fr=$(rusty_boundary); fm=$(mce_boundary)
-    or=$((fr - dr)); om="-"; [[ "$dm" != "-" && "$fm" != "-" ]] && om=$((fm - dm))
+    or="-"; [[ "$dr" != "-" && "$fr" != "-" ]] && or=$((fr - dr))
+    om="-"; [[ "$dm" != "-" && "$fm" != "-" ]] && om=$((fm - dm))
     printf '%-6s | %-16s | %-16s | %s\n' "$dot" "$dr / $dm" "$fr / $fm" "$or / $om"
 done
 # Restore the default build.

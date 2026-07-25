@@ -12,7 +12,6 @@
 //! DRAW boundary, and that OFFSET — unlike the absolute boundary — is independent of the H-IRQ/ISR
 //! latency, so comparing it against MesenCE isolates the compositor's fetch-vs-draw split. See the
 //! README for the measured numbers.
-#![allow(missing_docs)]
 #![cfg(feature = "test-roms")]
 use rustysnes_core::{System, cart::Cart};
 use std::path::PathBuf;
