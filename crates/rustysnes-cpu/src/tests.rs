@@ -684,3 +684,59 @@ fn register_file_round_trips_through_save_state() {
     assert!(fresh.waiting);
     assert_eq!(r.remaining(), 0);
 }
+
+/// The WDC 65816 `(dp,X)` silicon bug: in emulation mode with `DL != 0`, the pointer *high* byte
+/// wraps within the page of the low byte (bsnes/ares `readDirectX`, MesenCE
+/// `GetDirectAddressIndirectWordWithPageWrap`, gilyon cputest-full). gilyon's own example:
+/// `E=1, D=$11A, X=$EE, adc ($F7,X)` → `$F7+$EE+$11A = $2FF`; low byte from `$2FF`, high byte from
+/// `$200` (the `+1` wraps `$2FF -> $200`), NOT linearly from `$300`.
+#[test]
+fn dpx_emulation_dl_nonzero_high_byte_wraps_within_page() {
+    let mut bus = TestBus::new();
+    bus.set16(vectors::RESET, 0x8000);
+    let mut cpu = Cpu::new();
+    cpu.reset(&mut bus); // emulation mode, 8-bit A/X
+    cpu.regs.d = 0x011A; // DL = $1A != 0
+    cpu.regs.x = 0x00EE;
+    cpu.regs.a = 0x0000;
+    cpu.regs.set_flag(Status::C, false);
+    // adc ($F7,X)
+    bus.load(0x00_8000, &[0x61, 0xF7]);
+    // pointer bytes: sum = $F7 + $EE + $11A = $2FF
+    bus.mem[0x00_02FF] = 0x34; // low byte
+    bus.mem[0x00_0200] = 0x12; // high byte — hardware-correct (page-wrap)
+    bus.mem[0x00_0300] = 0x99; // high byte — linear (must NOT be used)
+    bus.mem[0x00_1234] = 0x11; // operand at the wrap-correct effective address $00:1234
+    bus.mem[0x00_9934] = 0x22; // operand at the linear (wrong) address $00:9934
+
+    cpu.step(&mut bus);
+
+    // Correct wrap: pointer $1234 -> operand $11 -> A = 0 + $11.
+    assert_eq!(
+        cpu.regs.a & 0xFF,
+        0x11,
+        "(dp,X) emulation DL!=0 did not wrap the high pointer byte within the page"
+    );
+
+    // Control: with DL == 0 the wrap does not apply (linear high-byte fetch).
+    let mut bus2 = TestBus::new();
+    bus2.set16(vectors::RESET, 0x8000);
+    let mut cpu2 = Cpu::new();
+    cpu2.reset(&mut bus2);
+    cpu2.regs.d = 0x0100; // DL == 0
+    cpu2.regs.x = 0x00EE;
+    cpu2.regs.a = 0x0000;
+    cpu2.regs.set_flag(Status::C, false);
+    bus2.load(0x00_8000, &[0x61, 0xF7]);
+    // DL==0 page-lock: pointer bytes read from ($100 | (($F7+$EE+n) & $FF)).
+    // $F7+$EE = $1E5; low byte at $100|$E5 = $01E5, high byte at $100|$E6 = $01E6.
+    bus2.mem[0x00_01E5] = 0x78;
+    bus2.mem[0x00_01E6] = 0x56;
+    bus2.mem[0x00_5678] = 0x0A;
+    cpu2.step(&mut bus2);
+    assert_eq!(
+        cpu2.regs.a & 0xFF,
+        0x0A,
+        "(dp,X) emulation DL==0 page-lock path regressed"
+    );
+}

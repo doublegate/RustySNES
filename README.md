@@ -143,11 +143,12 @@ frames spanning every LoROM/HiROM × coprocessor combination in the local ROM co
   line) work without per-quirk patches.
 - **Cycle-accurate WDC 65C816 (Ricoh 5A22)** — all opcodes and addressing modes, native and
   emulation mode, variable 6/8/12-cycle bus access timing, `REP`/`SEP`/`XCE`, and cycle-exact
-  interrupt/DMA timing — 0-diff (state + cycles) against the committed per-opcode oracle, which
-  was bootstrap-validated against SingleStepTests/65816 before being frozen
-  (5,119,999 / 5,120,000; the one residual is a documented inter-reference divergence, not a bug —
-  [`docs/adr/0002`](docs/adr/0002-fractional-timebase-refactor.md),
-  [`docs/adr/0005`](docs/adr/0005-65816-opcode-oracle-license.md)).
+  interrupt/DMA timing — cross-validated against SingleStepTests/65816
+  (5,119,710 / 5,120,000; the 290 residuals are emulation-mode cases where SST is the lone outlier
+  and RustySNES matches bsnes/ares/MesenCE/snes9x + the AccuracySNES first-party suite, resolved
+  toward hardware — [`docs/adr/0002`](docs/adr/0002-fractional-timebase-refactor.md),
+  [`docs/adr/0005`](docs/adr/0005-65816-opcode-oracle-license.md), [`docs/cpu.md`](docs/cpu.md)),
+  and passing gilyon's full on-cart `cputest-full` (1610) and `spctest` (558) suites.
 - **Cycle-accurate PPU1 (5C77) + PPU2 (5C78)** — BG modes 0-7, Mode 7 affine transforms, the full
   128-sprite OAM pipeline, color math, windows, and a **per-dot compositor** (`v1.21.0`,
   [`docs/adr/0014`](docs/adr/0014-per-dot-compositor.md)) that composites each scanline one column
@@ -473,9 +474,11 @@ here, always current, reaffirmed every release:
 | --- | --- |
 | AccuracySNES (first-party self-scoring cartridge) | **100.00%** — 124 / 124 scoring, plus 10 golden vectors; agrees with Mesen2 and snes9x on both the NTSC and PAL images |
 | AccuracySNES rendered scenes (host framebuffer oracle, [`docs/adr/0013`](docs/adr/0013-accuracysnes-framebuffer-oracle.md)) | **3 / 3 blessed** — reported separately and deliberately **not** folded into the line above, because a rendered scene needs a host holding the golden |
-| CPU (65C816) per-opcode oracle | **0-diff** — 5,119,999 / 5,120,000 (the one residual is a documented inter-reference divergence, not a bug — [`docs/adr/0002`](docs/adr/0002-fractional-timebase-refactor.md)) |
+| CPU (65C816) per-opcode oracle | **99.994%** — 5,119,710 / 5,120,000; the 290 residuals are emulation-mode cases where SST is the lone outlier vs bsnes/ares/MesenCE/snes9x + AccuracySNES, resolved toward hardware ([`docs/adr/0002`](docs/adr/0002-fractional-timebase-refactor.md), [`docs/cpu.md`](docs/cpu.md)) |
 | SPC700 per-opcode oracle | **0-diff, 100.00%** — 256,000 / 256,000 |
 | On-cart CPU (gilyon `cputest-basic`) | **green** — 1107 / 1107 "Success" |
+| On-cart CPU (gilyon `cputest-full`) | **green** — 1610 / 1610 "Success" (all addressing modes + the emulation wrap edges) |
+| On-cart SPC-700 (gilyon `spctest`) | **green** — 558 / 558 "Success" |
 | PPU/DMA/HDMA golden framebuffer (undisbeliever) | **green, deterministic** — 29 / 29 ROMs bit-identical |
 | Audio boot+run (blargg `spc_*`) | **literal PASS, all 4** — `spc_smp`, `spc_timer`, `spc_mem_access_times`, `spc_dsp6` |
 | Core/Curated coprocessors (oracle-gated) | **3 / 3, honesty gate green** — DSP-1, Super FX/GSU, SA-1 |
