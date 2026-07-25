@@ -7,10 +7,16 @@
 //! live registers, so a mid-line CGRAM/OAM access during active display, an `INIDISP`
 //! brightness/blank change, and the sprite over-flag timing all take effect at dot resolution
 //! (the sole renderer since the batch `compose_dac` whole-line path was removed; `compose_dac`
-//! survives only as a `#[cfg(test)]` hi-res DAC driver). The **BG/sprite line fetch** is still
-//! performed line-wide up front by `pd_fetch_line`, so a mid-line scroll/tilemap/OPT write is not
-//! yet reflected on later columns — incremental fetch-ahead is T-CA-10 Phase 4c, tracked in
-//! `to-dos/TIER1-CYCLE-ACCURACY.md`, not landed here.
+//! survives only as a `#[cfg(test)]` hi-res DAC driver). The **non-Mode-7 BG fetch** is also
+//! per-dot (T-CA-10 Phase 4c): `pd_fetch_bg_to` advances a fetch cursor `BG_FETCH_AHEAD` (22)
+//! columns ahead of the draw, building each column's `pd_above`/`pd_below` from live BG-data
+//! registers (`fetch_bg_column`), so a mid-line scroll/tilemap/OPT/mosaic write reaches only
+//! not-yet-fetched columns. Sprites are resolved once per line into `pd_sprite` (they do not change
+//! from a BG-data write) and composited per column. Two scope notes: **Mode 7** has no fetch-ahead
+//! (its whole line is composited at line start), and the **window/main-sub** gating is read at the
+//! fetch cursor rather than the draw cursor — identical on a static line, ~22 columns early only on
+//! the rare mid-line window/`TM`/`TS` write (a documented future refinement; the BG-data fetch is
+//! the 4c subject).
 //!
 //! reason for the module-level allows: the compositor is intrinsically a long, branch-dense
 //! state machine. `too_many_lines` fires on the per-scanline / per-sprite/mode-7 loops, which
@@ -31,6 +37,13 @@
 )]
 
 use crate::{Object, Ppu, SCREEN_WIDTH, VideoBus};
+
+/// How many columns the BG fetch cursor runs ahead of the draw cursor (`docs/adr/0014` Phase 4c).
+/// MesenCE fetches BG tile data one tile-column-plus ahead of the draw (`_fetchBgEnd = min(hPos,263)`
+/// vs `_drawEndX = min(hPos-22,255)`), so a mid-line BG-data write takes effect ~22 columns to the
+/// right of where a composite-register write would. On a static line the offset is irrelevant (every
+/// column is fetched with identical registers); it only shapes where a raster write's boundary lands.
+const BG_FETCH_AHEAD: usize = 22;
 
 /// The DAC state one composited column hands to the NEXT column's hi-res below-pass.
 ///
@@ -214,48 +227,49 @@ impl Ppu {
         crate::hdtag::TileTag { hash, hflip, vflip }
     }
 
-    /// Per-dot compositor (`docs/adr/0014` T-CA-10 Phase 4): fetch this visible line's `above`/`below`
-    /// pixels once (backdrop + backgrounds + sprites, without the per-column composite), seed the DAC
-    /// carry, and reset the draw cursor. Called lazily by [`Self::pd_render_to_dot`] at each line's
-    /// first active dot (or after a save-state load). Fetch happens once per line, before this line's
-    /// HDMA, so on a static line it reads the register state a whole-line composite at `RENDER_DOT`
-    /// would.
+    /// Per-dot compositor line-start setup (`docs/adr/0014` T-CA-10 Phase 4/4c). Resets the DAC carry
+    /// and the draw + fetch cursors, seeds the backdrop, and resolves this line's SPRITES into
+    /// `pd_sprite` (latched — sprites do not change from a mid-line BG-data write). It does NOT fetch
+    /// the non-Mode-7 BGs: the fetch cursor builds those incrementally, ~`BG_FETCH_AHEAD` columns
+    /// ahead of the draw, reading live registers ([`Self::pd_fetch_bg_to`]). Mode 7 has no per-column
+    /// fetch-ahead yet, so its whole line (BGs + sprites) is composited here. Called lazily by
+    /// [`Self::pd_render_to_dot`] at each line's first active dot (or after a save-state load).
     fn pd_fetch_line(&mut self, bus: &mut impl VideoBus) {
         let row = (self.v - 1) as usize;
         if row == 0 {
             self.frame_hires = self.is_hires();
         }
-        // ALWAYS build the line, even under force-blank: display-disable is a compose-time decision
-        // (`pd_render_to_dot` outputs black per column while it is set), so a line that is blanked at
-        // its start but UN-blanked mid-line must still have real pixels ready to draw. (The batch
-        // early-returns on force-blank because it composites the whole line at once; the per-dot path
-        // cannot, since blank can toggle within the line — MesenCE fetches regardless of force-blank.)
-        let mut above = [Pixel::default(); SCREEN_WIDTH];
-        let mut below = [Pixel::default(); SCREEN_WIDTH];
         let pr = self.mode_priorities();
-        for x in 0..SCREEN_WIDTH {
-            above[x] = Pixel {
-                palette: 0,
-                priority: 0,
-                layer: 5,
-                palette_group: 0,
-                opaque: false,
-                ..Pixel::default()
-            };
-            below[x] = above[x];
-        }
+        // Backdrop base for every column; the fetch (BGs) + composite (sprite) build over it. ALWAYS
+        // build the line even under force-blank: display-disable is a compose-time decision
+        // (`pd_render_to_dot` outputs black per column while set), so a line blanked at its start but
+        // un-blanked mid-line must still have real pixels ready — MesenCE fetches regardless of blank.
+        let backdrop = Pixel {
+            palette: 0,
+            priority: 0,
+            layer: 5,
+            palette_group: 0,
+            opaque: false,
+            ..Pixel::default()
+        };
         if self.io.bg_mode == 7 {
+            // Mode 7 is not fetch-ahead yet: composite the whole line now (backgrounds + sprites).
+            let mut above = [backdrop; SCREEN_WIDTH];
+            let mut below = [backdrop; SCREEN_WIDTH];
             self.render_mode7(bus, &pr, &mut above, &mut below);
+            self.render_objects(&pr, &mut above, &mut below);
+            self.pd_above.copy_from_slice(&above);
+            self.pd_below.copy_from_slice(&below);
+            self.pd_fetch_x = SCREEN_WIDTH as u16;
         } else {
-            for bg in 0..4 {
-                if pr.active[bg] {
-                    self.render_bg(bg, &pr, &mut above, &mut below);
-                }
-            }
+            // Non-Mode-7: seed the backdrop; the fetch cursor composites BGs + sprite per column.
+            self.pd_above.fill(backdrop);
+            self.pd_below.fill(backdrop);
+            let mut sprite = [Pixel::default(); SCREEN_WIDTH];
+            self.resolve_sprite_line(&pr, &mut sprite);
+            self.pd_sprite.copy_from_slice(&sprite);
+            self.pd_fetch_x = 0;
         }
-        self.render_objects(&pr, &mut above, &mut below);
-        self.pd_above.copy_from_slice(&above);
-        self.pd_below.copy_from_slice(&below);
         self.pd_carry = DacCarry {
             above_enable: false,
             below_enable: false,
@@ -284,13 +298,88 @@ impl Ppu {
         self.pd_fetched_line = self.v;
     }
 
-    /// Per-dot compositor driver, called every dot from [`crate::Ppu::tick_dot`]. Composites the
-    /// visible line's columns incrementally up to the column the DAC has reached at the current dot,
-    /// using **live** register state per column (so a mid-line color-math/brightness/force-blank write
-    /// only affects columns drawn after it), and tracks [`crate::Ppu::internal_cgram_address`] = the
-    /// last drawn palette (the exact CGRAM-redirect target). All columns finish by `RENDER_DOT` so the
-    /// composite still reads pre-line-HDMA state (a static line composites identically to a whole-line
-    /// pass at `RENDER_DOT`).
+    /// Advance the BG fetch cursor up to `fetch_target`, composing each newly-reached column's
+    /// `pd_above`/`pd_below` from LIVE registers: backdrop, then each active BG's fetched pixel
+    /// ([`Self::fetch_bg_column`]) by window + enable + priority, then this line's latched sprite
+    /// (`pd_sprite`). Non-Mode-7 only (Mode 7 is composited whole-line at line start). On a static
+    /// line every column reads identical registers, so the result is byte-identical to the old
+    /// whole-line fetch; a mid-line BG-data write only reaches columns beyond the cursor
+    /// (`docs/adr/0014` Phase 4c). Idempotent per line: each column is built exactly once.
+    fn pd_fetch_bg_to(&mut self, fetch_target: usize) {
+        let pr = self.mode_priorities();
+        let backdrop = Pixel {
+            palette: 0,
+            priority: 0,
+            layer: 5,
+            palette_group: 0,
+            opaque: false,
+            ..Pixel::default()
+        };
+        // A mid-line `BGMODE` write that flips this line INTO Mode 7 (it started non-Mode-7, so the
+        // cursor is running incrementally) must NOT drive the remaining columns through the tiled
+        // `fetch_bg_column` path — Mode 7 is affine (`render_mode7`), and a tiled fetch of its VRAM
+        // is garbage. Skip the BG fetch for those columns (backdrop + sprite only); an incremental
+        // affine fetch is out of scope (Mode 7 is composited whole-line at line start). The reverse
+        // flip (7 -> non-7) leaves `pd_fetch_x == SCREEN_WIDTH` from the line-start Mode-7 fetch, so
+        // this loop never runs and the write is a no-op on the current line — the pre-4c behaviour.
+        let mode7 = self.io.bg_mode == 7;
+        while usize::from(self.pd_fetch_x) < fetch_target {
+            let x = usize::from(self.pd_fetch_x);
+            let mut a = backdrop;
+            let mut b = backdrop;
+            if !mode7 {
+                for bg in 0..4 {
+                    if !pr.active[bg] {
+                        continue;
+                    }
+                    let px = self.fetch_bg_column(bg, x, &pr);
+                    if !px.opaque {
+                        continue;
+                    }
+                    let prio = px.priority;
+                    // TODO(4c refinement): window + `TM`/`TS` are composite-side registers and
+                    // should be read at the DRAW cursor, not here at the fetch cursor (~22 dots
+                    // early). A static-line no-op today; only a mid-line window/enable write differs.
+                    if self.io.main_enable[bg]
+                        && !self.windowed_out(bg, x, true)
+                        && prio > a.priority
+                    {
+                        a = px;
+                    }
+                    if self.io.sub_enable[bg]
+                        && !self.windowed_out(bg, x, false)
+                        && prio > b.priority
+                    {
+                        b = px;
+                    }
+                }
+            }
+            // Sprites compose last (highest layer), with `>=` so an obj ties over a BG of equal
+            // priority — matching the old `render_objects` drain. `pd_sprite` already resolved the
+            // inter-sprite winner; here only the window + enable + BG-priority test remains.
+            let sp = self.pd_sprite[x];
+            if sp.opaque {
+                let prio = sp.priority;
+                if self.io.main_enable[4] && !self.windowed_out(4, x, true) && prio >= a.priority {
+                    a = sp;
+                }
+                if self.io.sub_enable[4] && !self.windowed_out(4, x, false) && prio >= b.priority {
+                    b = sp;
+                }
+            }
+            self.pd_above[x] = a;
+            self.pd_below[x] = b;
+            self.pd_fetch_x += 1;
+        }
+    }
+
+    /// Per-dot compositor driver, called every dot from [`crate::Ppu::tick_dot`]. First advances the
+    /// BG fetch cursor to `BG_FETCH_AHEAD` columns ahead of the draw (building `pd_above`/`pd_below`
+    /// from live BG-data registers), then composites the visible line's columns to the framebuffer up
+    /// to the column the DAC has reached, using **live** composite registers per column (so a mid-line
+    /// color-math/brightness/force-blank write only affects columns drawn after it), tracking
+    /// [`crate::Ppu::internal_cgram_address`] = the last drawn palette. All columns finish by
+    /// `RENDER_DOT` (pre-line-HDMA), so a static line composites identically to a whole-line pass.
     pub(crate) fn pd_render_to_dot(&mut self, bus: &mut impl VideoBus) {
         if self.v < 1 || self.v > self.visible_height() {
             return;
@@ -305,6 +394,9 @@ impl Ppu {
         } else {
             usize::from(self.h - crate::ACTIVE_DOT_START + 1).min(SCREEN_WIDTH)
         };
+        // Keep the BG fetch cursor ahead of the draw cursor (a no-op once the line is fully fetched,
+        // e.g. Mode 7 where `pd_fetch_x` is seeded at `SCREEN_WIDTH`).
+        self.pd_fetch_bg_to((target + BG_FETCH_AHEAD).min(SCREEN_WIDTH));
         let base = (self.v - 1) as usize * self.visible_width();
         let hires = self.frame_hires;
         while usize::from(self.pd_draw_x) < target {
@@ -331,20 +423,20 @@ impl Ppu {
         }
     }
 
-    /// Render one non-Mode-7 background into the above/below pixel buffers.
+    /// Fetch one non-Mode-7 BG's pixel at screen column `x`, reading every BG-data register LIVE
+    /// (`docs/adr/0014` Phase 4c): scroll (`BGnHOFS`/`VOFS`), tilemap (`BGnSC`), char base
+    /// (`BGnNBA`), tile size, mosaic, and the BG3 offset-per-tile lookup. Returns a transparent
+    /// [`Pixel`] (`opaque == false`) for a colour-0 dot or a disabled BG. Extracted verbatim from
+    /// `render_bg`'s per-column loop so an incremental fetch cursor can call it one column at a time
+    /// mid-line; while it is still invoked whole-line at line start (`render_bg`), a static line
+    /// reads identical registers every column, so the result is byte-identical to the old fused loop.
     // `bg3_hofs`/`bg3_vofs` (offset-per-tile) intentionally mirror the `hofs`/`vofs` naming.
     #[allow(clippy::similar_names)]
-    fn render_bg(&self, bg: usize, pr: &ModePriorities, above: &mut [Pixel], below: &mut [Pixel]) {
+    fn fetch_bg_column(&self, bg: usize, x: usize, pr: &ModePriorities) -> Pixel {
         let bpp = self.bg_bpp(bg);
         if bpp == 0 {
-            return;
+            return Pixel::default();
         }
-        let main = self.io.main_enable[bg];
-        let sub = self.io.sub_enable[bg];
-        if !main && !sub {
-            return;
-        }
-
         let tile_w = if self.io.tile_size[bg] { 16u32 } else { 8 };
         let tile_h = tile_w;
 
@@ -363,7 +455,7 @@ impl Ppu {
             // Cannot underflow: the caller renders only for `self.v >= 1` (see `tick_ppu_dot`),
             // and `line_y` is `self.v` until this point. Saturating here instead would turn a
             // broken invariant into a silently wrong picture, which is the harder bug to find.
-            debug_assert!(line_y >= 1, "render_bg called for scanline 0");
+            debug_assert!(line_y >= 1, "fetch_bg_column called for scanline 0");
             let screen_y = line_y - 1;
             line_y = (screen_y / m) * m + 1;
         }
@@ -377,129 +469,99 @@ impl Ppu {
         let opt_valid = 0x2000u16 << bg; // BG1 => 0x2000, BG2 => 0x4000
         let hofs_fine = hofs & 7;
 
-        // Per-dot compositor, Phase 2 (`docs/adr/0014`): the per-column FETCH fills a per-line pixel
-        // buffer (an opaque `Pixel` per column, or a transparent default), and a separate DRAIN pass
-        // below composites it into `above`/`below`. Splitting fetch from composite is the structural
-        // step toward driving the drain one dot at a time; under static state (the whole line fetched
-        // before any composite, as here) it is BYTE-IDENTICAL to the fused per-column write, because
-        // each column touches only its own `above[x]`/`below[x]` and reads none of its own line's
-        // prior columns. Fixed-size stack buffer — no allocation on the hot path.
-        let mut bg_line = [Pixel::default(); SCREEN_WIDTH];
-
-        for x in 0..SCREEN_WIDTH as u32 {
-            let px = if self.io.mosaic_enable[bg] && self.io.mosaic_size > 1 {
-                let m = u32::from(self.io.mosaic_size);
-                (x / m) * m
-            } else {
-                x
-            };
-            let mut world_x = px.wrapping_add(hofs);
-            let mut world_y = line_y.wrapping_add(vofs);
-            if opt_mode {
-                let offset_x = (px + hofs_fine) & !7;
-                if offset_x >= tile_w {
-                    // first tile column(s) are exempt
-                    let bg3_hofs = u32::from(self.io.bg_hofs[2]);
-                    let bg3_vofs = u32::from(self.io.bg_vofs[2]);
-                    let base_x = (offset_x - tile_w).wrapping_add(bg3_hofs & !7);
-                    let hlookup = self.bg3_opt_tile(base_x, bg3_vofs);
-                    let fine = (px + hofs_fine) & 7;
-                    if self.io.bg_mode == 4 {
-                        if hlookup & opt_valid != 0 {
-                            if hlookup & 0x8000 == 0 {
-                                world_x = offset_x + (u32::from(hlookup) & !7) + fine;
-                            } else {
-                                world_y = line_y.wrapping_add(u32::from(hlookup));
-                            }
-                        }
-                    } else {
-                        let vlookup = self.bg3_opt_tile(base_x, bg3_vofs.wrapping_add(8));
-                        if hlookup & opt_valid != 0 {
+        let x = x as u32;
+        let px = if self.io.mosaic_enable[bg] && self.io.mosaic_size > 1 {
+            let m = u32::from(self.io.mosaic_size);
+            (x / m) * m
+        } else {
+            x
+        };
+        let mut world_x = px.wrapping_add(hofs);
+        let mut world_y = line_y.wrapping_add(vofs);
+        if opt_mode {
+            let offset_x = (px + hofs_fine) & !7;
+            if offset_x >= tile_w {
+                // first tile column(s) are exempt
+                let bg3_hofs = u32::from(self.io.bg_hofs[2]);
+                let bg3_vofs = u32::from(self.io.bg_vofs[2]);
+                let base_x = (offset_x - tile_w).wrapping_add(bg3_hofs & !7);
+                let hlookup = self.bg3_opt_tile(base_x, bg3_vofs);
+                let fine = (px + hofs_fine) & 7;
+                if self.io.bg_mode == 4 {
+                    if hlookup & opt_valid != 0 {
+                        if hlookup & 0x8000 == 0 {
                             world_x = offset_x + (u32::from(hlookup) & !7) + fine;
+                        } else {
+                            world_y = line_y.wrapping_add(u32::from(hlookup));
                         }
-                        if vlookup & opt_valid != 0 {
-                            world_y = line_y.wrapping_add(u32::from(vlookup));
-                        }
+                    }
+                } else {
+                    let vlookup = self.bg3_opt_tile(base_x, bg3_vofs.wrapping_add(8));
+                    if hlookup & opt_valid != 0 {
+                        world_x = offset_x + (u32::from(hlookup) & !7) + fine;
+                    }
+                    if vlookup & opt_valid != 0 {
+                        world_y = line_y.wrapping_add(u32::from(vlookup));
                     }
                 }
             }
+        }
 
-            let (palette_idx, group, priority_hi, tile_base, hflip, vflip) = self.fetch_bg_pixel(
-                world_x,
-                world_y,
-                tile_w,
-                tile_h,
-                screen_size,
-                screen_addr,
-                char_addr,
+        let (palette_idx, group, priority_hi, tile_base, hflip, vflip) = self.fetch_bg_pixel(
+            world_x,
+            world_y,
+            tile_w,
+            tile_h,
+            screen_size,
+            screen_addr,
+            char_addr,
+            bpp,
+        );
+        if palette_idx == 0 {
+            return Pixel::default();
+        }
+        // Only the `hd-pack` tile-tagging hook below consumes these; keep them from
+        // triggering an unused-variable warning when that feature is compiled out.
+        #[cfg(not(feature = "hd-pack"))]
+        let _ = (tile_base, hflip, vflip);
+
+        // BG palette index: Mode 0 gives each BG its own 32-color region; every other mode
+        // shares the 256-entry CGRAM. The tilemap's 3-bit palette group selects a sub-palette
+        // of `2^bpp` colors, contributing `group << bpp` (masked to a byte; 8bpp ignores the
+        // group). Dropping this group offset is what collapsed every BG tile onto palette
+        // group 0 and washed the SMW logo/border colors. Matches ares `background.cpp`:
+        //   paletteIndex = paletteBase + (paletteNumber << paletteShift) & 0xff
+        let pal_base: u16 = if self.io.bg_mode == 0 {
+            (bg as u16) << 5
+        } else {
+            0
+        };
+        let group_off = (u16::from(group) << bpp) & 0xff;
+        let final_pal = (pal_base + group_off + u16::from(palette_idx)) as u8;
+        let prio = pr.bg[bg][usize::from(priority_hi)];
+
+        #[allow(unused_mut)]
+        let mut pixel = Pixel {
+            palette: final_pal,
+            priority: prio,
+            layer: bg as u8,
+            palette_group: group,
+            opaque: true,
+            ..Pixel::default()
+        };
+        #[cfg(feature = "hd-pack")]
+        if self.hd_pack_tagging {
+            let group_base = ((pal_base + group_off) & 0xff) as u8;
+            pixel.tag = self.tile_tag(
+                crate::hdtag::TileClass::Bg,
                 bpp,
+                tile_base,
+                group_base,
+                hflip,
+                vflip,
             );
-            if palette_idx == 0 {
-                continue;
-            }
-            // Only the `hd-pack` tile-tagging hook below consumes these; keep them from
-            // triggering an unused-variable warning when that feature is compiled out.
-            #[cfg(not(feature = "hd-pack"))]
-            let _ = (tile_base, hflip, vflip);
-
-            // BG palette index: Mode 0 gives each BG its own 32-color region; every other mode
-            // shares the 256-entry CGRAM. The tilemap's 3-bit palette group selects a sub-palette
-            // of `2^bpp` colors, contributing `group << bpp` (masked to a byte; 8bpp ignores the
-            // group). Dropping this group offset is what collapsed every BG tile onto palette
-            // group 0 and washed the SMW logo/border colors. Matches ares `background.cpp`:
-            //   paletteIndex = paletteBase + (paletteNumber << paletteShift) & 0xff
-            let pal_base: u16 = if self.io.bg_mode == 0 {
-                (bg as u16) << 5
-            } else {
-                0
-            };
-            let group_off = (u16::from(group) << bpp) & 0xff;
-            let final_pal = (pal_base + group_off + u16::from(palette_idx)) as u8;
-            let prio = pr.bg[bg][usize::from(priority_hi)];
-
-            let xi = x as usize;
-            #[allow(unused_mut)]
-            let mut pixel = Pixel {
-                palette: final_pal,
-                priority: prio,
-                layer: bg as u8,
-                palette_group: group,
-                opaque: true,
-                ..Pixel::default()
-            };
-            #[cfg(feature = "hd-pack")]
-            if self.hd_pack_tagging {
-                let group_base = ((pal_base + group_off) & 0xff) as u8;
-                pixel.tag = self.tile_tag(
-                    crate::hdtag::TileClass::Bg,
-                    bpp,
-                    tile_base,
-                    group_base,
-                    hflip,
-                    vflip,
-                );
-            }
-            // FETCH: stash the resolved pixel; the DRAIN pass below does the window+priority write
-            // (the priority travels in `pixel.priority`).
-            bg_line[xi] = pixel;
         }
-
-        // DRAIN: composite the fetched line into `above`/`below`. This is the pass a future per-dot
-        // compositor will step one dot at a time; here it runs after the full-line fetch, so the
-        // result is byte-identical to the fused loop (see the buffer's doc comment above).
-        for xi in 0..SCREEN_WIDTH {
-            let pixel = bg_line[xi];
-            if !pixel.opaque {
-                continue;
-            }
-            let prio = pixel.priority;
-            if main && !self.windowed_out(bg, xi, true) && prio > above[xi].priority {
-                above[xi] = pixel;
-            }
-            if sub && !self.windowed_out(bg, xi, false) && prio > below[xi].priority {
-                below[xi] = pixel;
-            }
-        }
+        pixel
     }
 
     /// Read a raw BG3 tilemap entry at world `(hoffset, voffset)` — the offset-per-tile source for
@@ -950,11 +1012,40 @@ impl Ppu {
         (range_dot, time_dot)
     }
 
-    /// Render sprites for the current scanline: range evaluation + pixel fetch. (The STAT77 over-flags
-    /// are timed separately by [`Self::pd_eval_over_flags`], one line ahead.)
+    /// Render sprites for the current scanline directly into `above`/`below` (whole-line; used by the
+    /// Mode-7 path). Equivalent to resolving the sprite line and compositing it: the sprite layer is
+    /// evaluated + fetched into a buffer, then merged by window + enable + priority. (The STAT77
+    /// over-flags are timed separately by [`Self::pd_eval_over_flags`], one line ahead.)
     fn render_objects(&self, pr: &ModePriorities, above: &mut [Pixel], below: &mut [Pixel]) {
+        let mut sprite = [Pixel::default(); SCREEN_WIDTH];
+        self.resolve_sprite_line(pr, &mut sprite);
+        let main = self.io.main_enable[4];
+        let sub = self.io.sub_enable[4];
+        for xi in 0..SCREEN_WIDTH {
+            let sp = sprite[xi];
+            if !sp.opaque {
+                continue;
+            }
+            let prio = sp.priority;
+            if main && !self.windowed_out(4, xi, true) && prio >= above[xi].priority {
+                above[xi] = sp;
+            }
+            if sub && !self.windowed_out(4, xi, false) && prio >= below[xi].priority {
+                below[xi] = sp;
+            }
+        }
+    }
+
+    /// Resolve this line's sprites into a per-column buffer (`docs/adr/0014` Phase 4c). Inter-sprite
+    /// priority is decided here — [`Self::paint_objects`] paints high-index → low with `>=` into the
+    /// transparent buffer, so the lowest-index highest-priority sprite wins — but the window and
+    /// main/sub gating are deferred to the composite. This is equivalent to the old fused
+    /// `render_objects` drain because the inter-sprite winner does not depend on the BG underneath:
+    /// the composite (here or in [`Self::pd_fetch_bg_to`]) applies the same window + enable + the
+    /// `sprite.priority >= layer.priority` test against whatever the BGs left in the column.
+    fn resolve_sprite_line(&self, pr: &ModePriorities, sprite: &mut [Pixel]) {
         let (in_range, count, budget_ok) = self.eval_objects_range();
-        self.paint_objects(pr, above, below, &in_range, count, &budget_ok);
+        self.paint_objects(pr, sprite, &in_range, count, &budget_ok);
     }
 
     /// Sprite range + tile-budget evaluation for the current scanline (the `render_objects`
@@ -1031,21 +1122,21 @@ impl Ppu {
         (in_range, count, budget_ok)
     }
 
-    /// Paint the evaluated, budget-surviving sprites into the `above`/`below` line buffers (the
-    /// `render_objects` second phase). Consumes the `(in_range, count, budget_ok)` produced by
-    /// [`Ppu::eval_objects_range`]. Kept a distinct phase so the per-dot compositor can fetch and
-    /// paint sprite columns independently of range evaluation (`docs/adr/0014`, phase 4b).
+    /// Paint the evaluated, budget-surviving sprites into a single per-column sprite buffer (the
+    /// `resolve_sprite_line` second phase). Consumes the `(in_range, count, budget_ok)` produced by
+    /// [`Ppu::eval_objects_range`]. Only inter-sprite priority is resolved here — highest index →
+    /// lowest with `>=`, so the lowest-index highest-priority sprite ends up in `sprite[x]`; window
+    /// and main/sub gating are applied later by whichever composite consumes the buffer. Kept a
+    /// distinct phase so the per-dot compositor can fetch/paint sprite columns independently of range
+    /// evaluation (`docs/adr/0014`, phase 4b).
     fn paint_objects(
         &self,
         pr: &ModePriorities,
-        above: &mut [Pixel],
-        below: &mut [Pixel],
+        sprite: &mut [Pixel],
         in_range: &[u8; 32],
         count: usize,
         budget_ok: &[bool; 32],
     ) {
-        let main = self.io.main_enable[4];
-        let sub = self.io.sub_enable[4];
         let scan_y = u32::from(self.v - 1);
 
         // Paint from highest index to lowest (so lowest index wins ties).
@@ -1160,12 +1251,11 @@ impl Ppu {
                         pixel.tag = tag;
                     }
                     // We paint high-index sprites first, so a `>=` test lets a lower-index
-                    // sprite at the same priority win the tie (it is painted later).
-                    if main && !self.windowed_out(4, xi, true) && prio >= above[xi].priority {
-                        above[xi] = pixel;
-                    }
-                    if sub && !self.windowed_out(4, xi, false) && prio >= below[xi].priority {
-                        below[xi] = pixel;
+                    // sprite at the same priority win the tie (it is painted later). The buffer
+                    // starts transparent (priority 0) and obj priorities are always >= 1, so any
+                    // opaque sprite wins the first write. Window/enable are applied by the composite.
+                    if prio >= sprite[xi].priority {
+                        sprite[xi] = pixel;
                     }
                 }
             }
@@ -1462,6 +1552,7 @@ fn apply_brightness(color: u16, brightness: u32) -> u16 {
 
 #[cfg(test)]
 mod tests {
+    use super::BG_FETCH_AHEAD;
     use crate::bus::NullVideoBus;
     use crate::{DOTS_PER_LINE, Ppu, SCREEN_WIDTH};
 
@@ -2343,5 +2434,133 @@ mod tests {
             p.pd_oam_eval_seed, 0x2A,
             "a line-start fetch (h == 0) captures the seed from OAMADDR"
         );
+    }
+
+    /// Phase 4c: a mid-line BG horizontal-scroll write reaches only the columns the fetch cursor has
+    /// NOT yet fetched (MesenCE `_fetchBgStart..End`), running `BG_FETCH_AHEAD` columns ahead of the
+    /// draw. Under the old whole-line-at-line-start fetch the write would have affected nothing (the
+    /// line was already fetched); this pins the incremental behaviour AND the fetch-ahead offset.
+    #[test]
+    fn mid_line_bg_scroll_shifts_only_columns_past_the_fetch_cursor() {
+        // A 4bpp BG1 (Mode 1) whose tile 0 is a horizontal colour ramp — pixel i has colour i+1 —
+        // so the colour at screen column x is CGRAM[((x + hofs) & 7) + 1]. A sub-tile scroll change
+        // (0 -> 3) therefore shifts EVERY column's colour, so each column's value reveals which
+        // scroll it was fetched with.
+        fn setup() -> Ppu {
+            let mut p = Ppu::new();
+            p.write_reg(0x2100, 0x80); // force-blank for VRAM/CGRAM setup
+            for y in 0..8u16 {
+                let (mut w0, mut w1) = (0u16, 0u16); // planes 0/1 and 2/3 for this row
+                for i in 0..8u16 {
+                    let c = i + 1; // colour 1..=8 across the 8 pixels
+                    let b = 7 - i; // read_planar uses bit = 7 - fine_x
+                    if c & 1 != 0 {
+                        w0 |= 1 << b;
+                    }
+                    if c & 2 != 0 {
+                        w0 |= 1 << (8 + b);
+                    }
+                    if c & 4 != 0 {
+                        w1 |= 1 << b;
+                    }
+                    if c & 8 != 0 {
+                        w1 |= 1 << (8 + b);
+                    }
+                }
+                vram_set(&mut p, y, w0); // tile 0 (char base 0): plane 0/1 row y
+                vram_set(&mut p, 8 + y, w1); // plane 2/3 row y (a plane-pair is 8 words on)
+            }
+            for c in 1..=8u16 {
+                cgram_set(&mut p, c as u8, (c * 0x0841) & 0x7fff); // 8 distinct non-zero colours
+            }
+            // Tilemap base 0x0400: default-zero entries = character 0, palette group 0, no flip.
+            p.io.bg_mode = 1;
+            p.io.bg_tiledata_addr[0] = 0;
+            p.io.bg_screen_addr[0] = 0x0400;
+            p.io.bg_screen_size[0] = 0;
+            p.io.tile_size[0] = false;
+            p.io.bg_vofs[0] = 0;
+            p.io.mosaic_enable[0] = false;
+            p.io.main_enable[0] = true;
+            p.io.display_disable = false;
+            p.io.display_brightness = 15;
+            p
+        }
+
+        // Render visible line 1 by stepping the per-dot compositor, optionally writing a new hofs at
+        // dot `d` (mid-line). Returns the 256 framebuffer colours of row 0.
+        let render = |start: u16, inject: Option<(u16, u16)>| -> [u16; SCREEN_WIDTH] {
+            let mut p = setup();
+            let mut bus = NullVideoBus;
+            p.io.bg_hofs[0] = start;
+            p.v = 1;
+            p.pd_fetched_line = u16::MAX;
+            for h in 0..=crate::RENDER_DOT {
+                if let Some((d, new_hofs)) = inject
+                    && h == d
+                {
+                    p.io.bg_hofs[0] = new_hofs;
+                }
+                p.h = h;
+                p.pd_render_to_dot(&mut bus);
+            }
+            let fb = p.framebuffer();
+            core::array::from_fn(|x| fb[x])
+        };
+
+        let s0 = render(0, None); // whole line at hofs 0
+        let s3 = render(3, None); // whole line at hofs 3
+
+        // The ramp + sub-tile shift makes the two static lines differ at EVERY column, so each
+        // `split` column is unambiguously one scroll or the other.
+        assert!(
+            (0..SCREEN_WIDTH).all(|x| s0[x] != s3[x]),
+            "setup: a hofs 0->3 shift must change every column's colour"
+        );
+
+        // Inject the scroll change at dot `d`, then find the split boundary: every column must be
+        // exactly the old- or new-scroll colour (no garbage), monotone (old left / new right), and
+        // the write must affect SOME columns (not the old whole-line no-op).
+        let boundary_at = |d: u16| -> usize {
+            let split = render(0, Some((d, 3)));
+            let mut boundary = None;
+            for x in 0..SCREEN_WIDTH {
+                let is_old = split[x] == s0[x];
+                let is_new = split[x] == s3[x];
+                assert!(
+                    is_old || is_new,
+                    "d={d}: column {x} is neither the old nor the new scroll colour (garbage)"
+                );
+                match boundary {
+                    None if is_new => boundary = Some(x),
+                    None => {} // still in the old-scroll run
+                    Some(_) => assert!(
+                        is_new,
+                        "d={d}: column {x} reverted to the old scroll after the boundary (not monotone)"
+                    ),
+                }
+            }
+            let boundary = boundary
+                .unwrap_or_else(|| panic!("d={d}: the mid-line write must affect SOME columns"));
+            assert!(
+                boundary > 0,
+                "d={d}: column 0 (fetched first, before the write) must keep the old scroll"
+            );
+            boundary
+        };
+
+        // A write at dot `d` reaches the column the fetch cursor is about to build, which runs
+        // BG_FETCH_AHEAD ahead of the draw, so the boundary lands at ~column `d` (the draw is then at
+        // ~d - BG_FETCH_AHEAD). Two dots pin the *relation* boundary == d, not one coincidental
+        // point: a constant cursor offset that happened to give boundary == 128 would miss at 60. A
+        // draw-cursor fetch (BG_FETCH_AHEAD effectively 0) would land ~22 columns low and fail both.
+        for d in [60u16, 128] {
+            let boundary = boundary_at(d);
+            assert!(
+                boundary.abs_diff(usize::from(d)) <= 2,
+                "fetch-ahead boundary {boundary} should be ~dot {d} (write reaches the fetch cursor, \
+                 {BG_FETCH_AHEAD} columns ahead of the draw)"
+            );
+        }
     }
 }

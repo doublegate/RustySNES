@@ -707,13 +707,24 @@ pub struct Ppu {
     // (re-derived at each line start from serialized PPU state), so they are deliberately NOT saved —
     // a save at a frame boundary (the normal case) has no mid-line cursor to preserve; a mid-line save
     // re-fetches on load, documented in `docs/ppu.md`.
-    /// This line's fetched above/below pixels (built once per line, drained per dot).
+    /// This line's fetched above/below pixels (composited incrementally by the fetch cursor).
     pd_above: alloc::boxed::Box<[render::Pixel; SCREEN_WIDTH]>,
     pd_below: alloc::boxed::Box<[render::Pixel; SCREEN_WIDTH]>,
+    /// This line's resolved sprite pixels, one per column (inter-sprite priority already decided;
+    /// window/main/sub gating applied later, at composite time). Latched at line start — sprites do
+    /// not change from a mid-line BG-data write, so keeping them line-fixed is correct while the BG
+    /// fetch goes incremental (`docs/adr/0014` Phase 4c). Transient, re-derived per line.
+    pd_sprite: alloc::boxed::Box<[render::Pixel; SCREEN_WIDTH]>,
     /// The DAC carry threaded through the incremental composite (ares' one-column hi-res delay).
     pd_carry: render::DacCarry,
-    /// Next output column to composite (the draw cursor; MesenCE `_drawStartX`). Reset to 0 per line.
+    /// Next output column to composite to the framebuffer (the draw cursor; MesenCE `_drawStartX`).
+    /// Reset to 0 per line.
     pd_draw_x: u16,
+    /// Next column whose above/below the BG fetch cursor will build (MesenCE `_fetchBgStart`). Runs
+    /// ~22 columns AHEAD of `pd_draw_x` reading LIVE BG-data registers per column, so a mid-line
+    /// scroll/tilemap/OPT write reaches only not-yet-fetched columns (`docs/adr/0014` Phase 4c).
+    /// Reset to 0 per line; transient (a mid-line save re-fetches on load).
+    pd_fetch_x: u16,
     /// Which visible line (`self.v`) `pd_above`/`pd_below` were fetched for; `u16::MAX` = not fetched
     /// (forces a re-fetch — also the state after a save-state load).
     pd_fetched_line: u16,
@@ -809,8 +820,10 @@ impl Ppu {
                 .into_boxed_slice(),
             pd_above: Box::new([render::Pixel::default(); SCREEN_WIDTH]),
             pd_below: Box::new([render::Pixel::default(); SCREEN_WIDTH]),
+            pd_sprite: Box::new([render::Pixel::default(); SCREEN_WIDTH]),
             pd_carry: render::DacCarry::default(),
             pd_draw_x: 0,
+            pd_fetch_x: 0,
             pd_fetched_line: u16::MAX,
             internal_cgram_address: 0,
             pd_oam_eval_seed: 0,

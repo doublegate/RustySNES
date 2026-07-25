@@ -29,6 +29,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The per-dot PPU compositor's non-Mode-7 background fetch is now incremental (T-CA-10 Phase 4c,
+  `docs/adr/0014`).** A fetch cursor (`pd_fetch_bg_to`) runs 22 columns ahead of the draw cursor,
+  building each column's pixels from **live** BG-data registers (`fetch_bg_column`: scroll, tilemap,
+  char base, tile size, mosaic, BG3 offset-per-tile) over the backdrop, then the line's latched
+  sprites (`pd_sprite`, resolved once — sprites do not change from a BG-data write). So a mid-line
+  write to `BGnSC`/`BGnNBA`/`BGnHOFS`/`BGnVOFS`/`BGMODE`/`MOSAIC`/OPT now takes effect only on
+  columns the fetch has not yet reached — the raster-scroll effects (mid-frame parallax splits) that
+  the previous whole-line-at-line-start fetch rendered flat. Byte-identical on every static line (no
+  behaviour change unless a program writes a BG-data register mid-scanline); verified across the ppu
+  unit tests, the AccuracySNES rendered scenes + battery (298/298), and save-state/movie determinism,
+  and the fetch-ahead offset is pinned by a white-box mid-line-scroll test. Scope not yet covered:
+  Mode 7 (composited whole-line), window/`TM`/`TS` timing (applied at the fetch cursor, a static-line
+  no-op), and an external raster-boundary cross-check.
 - **The 65C816 `(dp,X)` addressing now models the WDC emulation-mode `DL!=0` high-byte page-wrap
   silicon bug**, and the full gilyon on-cart suites are committed gates. When `E=1` and the direct
   register's low byte is non-zero, the `(dp,X)` pointer's *high* byte is read from the same page as

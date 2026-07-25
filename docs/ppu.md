@@ -123,12 +123,22 @@ Per `ref-docs/2026-06-24-ppu.md` §6:
     visible line is composited **one dot at a time** as the master clock advances
     (`Ppu::pd_render_to_dot`, blueprint: MesenCE `SnesPpu::RenderScanline`) — this is the **only**
     compositor; the batch whole-line composite it replaced (`render_scanline`/`compose_dac`) has been
-    removed (Phase 6 "single code path"). The line's `above`/`below` pixels are fetched once at its
-    start (`pd_fetch_line`: backdrop + backgrounds + sprites, without the per-column composite), then
-    drained per dot up to the column the DAC has reached — all columns finish by `RENDER_DOT`, before
-    that line's HDMA, so a **static** line composites exactly as a whole-line pass at `RENDER_DOT`
-    would. Live per-column register reads make mid-line writes take effect only on later columns:
-    brightness/force-blank (INIDISP) and the in-render CGRAM redirect. The redirect: a `$2122` write
+    removed (Phase 6 "single code path"). Two cursors advance with the dot clock (MesenCE
+    `_fetchBgStart..End` / `_drawStartX..EndX`). The **non-Mode-7 BG fetch** is per-dot (Phase 4c):
+    `pd_fetch_bg_to` runs a fetch cursor `BG_FETCH_AHEAD` (22) columns ahead of the draw, building
+    each column's `above`/`below` from **live** BG-data registers (`fetch_bg_column`) over the
+    backdrop, then this line's sprites (resolved once into `pd_sprite` at line start — sprites do not
+    change from a BG-data write — and composited per column). The **draw cursor** then drains each
+    column up to where the DAC has reached, reading live composite registers. All columns finish by
+    `RENDER_DOT`, before that line's HDMA, so a **static** line composites exactly as a whole-line
+    pass at `RENDER_DOT` would. The result: a mid-line write to a **BG-data** register (`BGnSC`
+    tilemap, `BGnNBA` char base, `BGnHOFS`/`VOFS` scroll, `BGMODE`, `MOSAIC`, BG3 offset-per-tile)
+    reaches only columns past the fetch cursor (~22 ahead of the draw), and a mid-line **composite**
+    write — brightness/force-blank (`INIDISP`), color math, the in-render CGRAM redirect — reaches
+    only columns past the draw cursor. Scope: **Mode 7** is composited whole-line at line start (no
+    fetch-ahead), and window/`TM`/`TS` gating is applied at the fetch cursor rather than the draw
+    cursor (identical on a static line; ~22 columns early only on the rare mid-line window write — a
+    documented refinement). The CGRAM redirect: a `$2122` write
     during active display commits to `Ppu::internal_cgram_address` — the palette of the last-drawn
     column (MesenCE `_state.InternalCgramAddress`, ares `latch.cgramAddress` = the DAC's
     `paletteColor`), maintained live by the per-dot compositor — not the programmed `CGADD` index; the
