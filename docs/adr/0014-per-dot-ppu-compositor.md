@@ -119,10 +119,12 @@ and the commercial-screenshot suite. The port must not cost any of that. Therefo
      line (`pd_sprite`). A mid-line scroll/tilemap/OPT/mosaic write thus reaches only not-yet-fetched
      columns — the first BG behavior that *intentionally* differs from the per-line model. Byte-
      identical on the whole static corpus (no committed ROM does a mid-line BG-data write); the
-     fetch-ahead itself is validated by a white-box unit test
-     (`mid_line_bg_scroll_shifts_only_columns_past_the_fetch_cursor`) that pins the split boundary to
-     the 22-column offset at two injection dots. Scope not
-     yet covered: **Mode 7** fetch-ahead (whole-line at line start), window/`TM`/`TS` at the draw
+     fetch-ahead itself is validated by white-box unit tests
+     (`mid_line_bg_scroll_shifts_only_columns_past_the_fetch_cursor` and its Mode-7 sibling
+     `mid_line_mode7_scroll_shifts_only_columns_past_the_fetch_cursor`) that pin the split boundary to
+     the 22-column offset at two injection dots. **Mode 7** is incremental too (`fetch_mode7_column`,
+     dispatched on live `bg_mode` per column, which also makes a mid-line `BGMODE` flip switch the
+     fetch path correctly in both directions). Scope not yet covered: window/`TM`/`TS` at the draw
      cursor (currently applied at the fetch cursor — a static-line no-op), and an external reference
      (MesenCE/synthetic-ROM) cross-check of the exact raster boundary vs hardware.
   4. **[LANDED]** The composite is wired to `tick_dot` per-dot (the single dot-276 call retired).

@@ -7,16 +7,17 @@
 //! live registers, so a mid-line CGRAM/OAM access during active display, an `INIDISP`
 //! brightness/blank change, and the sprite over-flag timing all take effect at dot resolution
 //! (the sole renderer since the batch `compose_dac` whole-line path was removed; `compose_dac`
-//! survives only as a `#[cfg(test)]` hi-res DAC driver). The **non-Mode-7 BG fetch** is also
-//! per-dot (T-CA-10 Phase 4c): `pd_fetch_bg_to` advances a fetch cursor `BG_FETCH_AHEAD` (22)
-//! columns ahead of the draw, building each column's `pd_above`/`pd_below` from live BG-data
-//! registers (`fetch_bg_column`), so a mid-line scroll/tilemap/OPT/mosaic write reaches only
+//! survives only as a `#[cfg(test)]` hi-res DAC driver). The **BG fetch** is also per-dot (T-CA-10
+//! Phase 4c): `pd_fetch_bg_to` advances a fetch cursor `BG_FETCH_AHEAD` (22) columns ahead of the
+//! draw, building each column's `pd_above`/`pd_below` from live BG-data registers — the tiled modes
+//! via `fetch_bg_column`, Mode 7's affine layer via `fetch_mode7_column` (dispatched on live
+//! `bg_mode` per column, so a mid-line `BGMODE` flip switches paths correctly) — so a mid-line
+//! scroll/tilemap/OPT/mosaic write, or a Mode-7 matrix/centre/scroll write, reaches only
 //! not-yet-fetched columns. Sprites are resolved once per line into `pd_sprite` (they do not change
-//! from a BG-data write) and composited per column. Two scope notes: **Mode 7** has no fetch-ahead
-//! (its whole line is composited at line start), and the **window/main-sub** gating is read at the
-//! fetch cursor rather than the draw cursor — identical on a static line, ~22 columns early only on
-//! the rare mid-line window/`TM`/`TS` write (a documented future refinement; the BG-data fetch is
-//! the 4c subject).
+//! from a BG-data write) and composited per column. One scope note: the **window/main-sub** gating is
+//! read at the fetch cursor rather than the draw cursor — identical on a static line, ~22 columns
+//! early only on the rare mid-line window/`TM`/`TS` write (a documented future refinement; the
+//! BG-data fetch is the 4c subject).
 //!
 //! reason for the module-level allows: the compositor is intrinsically a long, branch-dense
 //! state machine. `too_many_lines` fires on the per-scanline / per-sprite/mode-7 loops, which

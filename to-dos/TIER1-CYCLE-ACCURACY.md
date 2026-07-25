@@ -129,22 +129,22 @@ Only 4c remains — it is the last T-CA-10 accuracy item.**
   `per-dot-compositor` feature are all gone (`compose_dac` kept only as a `#[cfg(test)]` hi-res-DAC driver). The
   scored rows C1.08/C3.04/C7.16 landed with the flip (294→297 on-cart). ADR 0014 → Accepted.
 
-- **4c — incremental BG fetch-ahead. LANDED (2026-07-25).** The non-Mode-7 BG fetch is now per-dot: `pd_fetch_bg_to`
+- **4c — incremental BG fetch-ahead. LANDED (2026-07-25), incl. Mode 7.** The BG fetch is now per-dot: `pd_fetch_bg_to`
   runs a fetch cursor `BG_FETCH_AHEAD` (22) columns ahead of the draw, building each column's `above`/`below` from
-  live BG-data registers (`fetch_bg_column` — scroll/tilemap/char-base/size/mosaic/OPT) over the backdrop, then the
-  line's latched sprites (`pd_sprite`, resolved once — sprites do not change from a BG-data write). So a mid-line
-  BGnSC/BGnNBA/BGnHOFS/VOFS/BGMODE/MOSAIC/OPT write reaches only not-yet-fetched columns. Implemented in three
-  commits: `fetch_bg_column` extraction (byte-identical factor), the fetch cursor + sprite-buffer restructure, and
-  a white-box validation test. Verified byte-identical on the static corpus (ppu 42, AccuracySNES scenes match
-  goldens, battery 298/298, save-state + movie determinism); the fetch-ahead itself is pinned by a unit test that
-  splits a line with a mid-line scroll write and asserts the boundary lands at the 22-column offset.
-  **Remaining sub-scope (NOT this landing):** (1) **Mode 7** fetch-ahead — still whole-line at line start;
-  (2) window/`TM`/`TS` at the *draw* cursor — currently applied at the fetch cursor (a static-line no-op, ~22 cols
-  early only on a mid-line window write); (3) an EXTERNAL cross-check (MesenCE render of a synthetic mid-line-scroll
-  ROM, or an AccuracySNES scene) of the exact raster boundary vs hardware — the unit test pins it to RustySNES's own
-  model, not to a reference; (4) whether 4c moves `inidisp_forgot_to_force_blank` (still the one documented per-dot
-  gap) is UNCONFIRMED — needs the per-pixel per-dot-vs-MesenCE diff, which needs the gitignored undisbeliever ROMs
-  present. See [[4c-bg-fetch-ahead-scope]].
+  live BG-data registers — tiled modes via `fetch_bg_column` (scroll/tilemap/char-base/size/mosaic/OPT), Mode 7 via
+  `fetch_mode7_column` (M7A-D matrix / M7X-Y centre / M7HOFS-VOFS scroll / flips / mosaic / M7SEL) — over the
+  backdrop, then the line's latched sprites (`pd_sprite`, resolved once). So a mid-line BGnSC/BGnNBA/BGnHOFS/VOFS/
+  MOSAIC/OPT or M7 write reaches only not-yet-fetched columns, and a mid-line `BGMODE` flip across the Mode-7
+  boundary switches the fetch path correctly in both directions (`bg_mode` read live per column). Landed over two
+  PRs (tiled #245, Mode 7 following). Verified byte-identical on the static corpus (ppu 43, AccuracySNES scenes incl.
+  Mode 7 match goldens, battery 298/298, save-state + movie determinism); the fetch-ahead is pinned by white-box
+  tests for both the tiled and Mode-7 paths (mid-line scroll write, boundary at the 22-column offset, two dots).
+  **Remaining sub-scope (NOT landed):** (1) window/`TM`/`TS` at the *draw* cursor — currently applied at the fetch
+  cursor (a static-line no-op, ~22 cols early only on a mid-line window write); (2) an EXTERNAL cross-check (MesenCE
+  render of a synthetic mid-line-scroll ROM, or an AccuracySNES scene) of the exact raster boundary vs hardware —
+  the unit tests pin it to RustySNES's own model, not to a reference; (3) whether 4c moves
+  `inidisp_forgot_to_force_blank` (still the one documented per-dot gap) is UNCONFIRMED — needs the per-pixel
+  per-dot-vs-MesenCE diff, which needs the gitignored undisbeliever ROMs present. See [[4c-bg-fetch-ahead-scope]].
 
 Determinism/save-state: serialize any CPU-observable new cursor state at the point mid-line saves become possible;
 keep transient line buffers re-derived. Every step: byte-identical milestone → save-state round-trip → determinism
