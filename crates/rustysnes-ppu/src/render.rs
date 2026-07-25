@@ -337,6 +337,9 @@ impl Ppu {
                         continue;
                     }
                     let prio = px.priority;
+                    // TODO(4c refinement): window + `TM`/`TS` are composite-side registers and
+                    // should be read at the DRAW cursor, not here at the fetch cursor (~22 dots
+                    // early). A static-line no-op today; only a mid-line window/enable write differs.
                     if self.io.main_enable[bg]
                         && !self.windowed_out(bg, x, true)
                         && prio > a.priority
