@@ -89,7 +89,7 @@ already fully staged:
 | Super FX/GSU opcode + framebuffer | `tests/roms/external/krom/CHIP/GSU/` | 58 ROMs across `2BPP`/`4BPP`/`8BPP` × `128`/`160`/`192` × `FillPoly`/`PlotLine`/`PlotPixel`, plus per-opcode `GSUTest` ROMs. |
 | General PPU/HDMA/Mode 7/interlace homebrew | `tests/roms/external/krom/PPU/`, `BANK/`, `CPUTest/`, `INPUT/`, `MSU/`, `Compress/`, `Translate/` | Broad homebrew coverage for bank-crossing, mosaic, windows, Mode 7, interlace, HDMA variants, MSU-1 audio/video, LZ77 decompression, and ROM-hacking-adjacent translate-table tooling. |
 | 240p test suite | `tests/roms/external/240p/SNES-source/` | Display-timing/geometry reference (source form, not a prebuilt ROM). |
-| PPU hi-res / high-colour (rainwarrior) | `tests/roms/external/rainwarrior/` (gitignored) + golden `tests/golden/rainwarrior-framebuffer.tsv` (committed) | `twoship` (Mode 5 512-px hi-res) and `elasticity` (per-scanline high-colour) — the PPU paths the AccuracySNES scenes cover least. Gated by `crates/rustysnes-test-harness/tests/rainwarrior_golden.rs` (deterministic framebuffer hash, self-skips when the ROM dir is absent). Cross-validated vs MesenCE at bless time: `twoship` matches exactly (26/26 colors); `elasticity` shares all 1509 colors, MesenCE renders 2 extra from its known-wrong brightness formula. |
+| PPU + input + mul/div (rainwarrior) | `tests/roms/external/rainwarrior/` (gitignored) + golden `tests/golden/rainwarrior-framebuffer.tsv` (committed) | Six ROMs the AccuracySNES suites cover least, gated by `crates/rustysnes-test-harness/tests/rainwarrior_golden.rs` (self-skips when the ROM dir is absent). **Framebuffer goldens:** `twoship` (Mode 5 hi-res — MesenCE-exact, 26/26 colors) and `elasticity` (high-colour — all 1509 colors shared, MesenCE +2 from its known-wrong brightness formula); `ctrltest`/`ctrltest_auto`/`ctrltest_simple` with `PAD_CONTRACT` held (the `$4016`/`$4218`-`$421F` read path, also Group-F-cross-validated); `mset` with a Mouse driven on port 2 (the 32-bit mouse read path). **Self-scoring:** `multest_mul16`/`multest_div16` sweep the hardware multiply/divide unit and halt on any wrong result — the gate runs a sample and requires no halt (a live mul/div accuracy check). |
 
 ### License-checked homebrew candidates (2026-07-24 pass)
 
@@ -100,9 +100,9 @@ committed as ROMs:
 
 | ROM (author) | Repo/source | License | Disposition |
 |---|---|---|---|
-| `twoship`, `elasticity` (rainwarrior) | [bbbradsmith/SNES_stuff](https://github.com/bbbradsmith/SNES_stuff) | **none stated** (no LICENSE; only the OpenGameArt graphics are CC0) | **Added** — gitignored ROMs + committed golden (above). |
-| `ctrltest`, `mset` (rainwarrior) | same repo | **none stated** | Not wired — controller/mouse tests need host input driving (cf. AccuracySNES Group F contract); available locally to add the same way. |
-| `multest` (rainwarrior) | same repo | **none stated** | Not wired — self-scoring `$4203`-written-twice multiplier quirk; overlaps AccuracySNES Group B5. Addable as a pass/fail gate if a gap is confirmed. |
+| `twoship`, `elasticity` (rainwarrior) | [bbbradsmith/SNES_stuff](https://github.com/bbbradsmith/SNES_stuff) | **none stated** (no LICENSE; only the OpenGameArt graphics are CC0) | **Added** — gitignored ROMs + committed framebuffer golden (above). |
+| `ctrltest`, `mset` (rainwarrior) | same repo | **none stated** | **Added** — framebuffer goldens with input driven (`ctrltest*` hold `PAD_CONTRACT`; `mset` drives a Mouse on port 2 — confirmed to change the display vs no-mouse). |
+| `multest_mul16`, `multest_div16` (rainwarrior) | same repo | **none stated** | **Added** — self-scoring hardware multiply/divide sweep; the gate runs a sample and requires the ROM never halts on a wrong result. Passes (independent live check of the mul/div unit, complementing AccuracySNES B5's power-on latches). |
 | `gradient-test` (NovaSquirrel) | single `.sfc` on smwcentral | **none stated** (bare file host) | Not added — CGWSEL accuracy overlaps AccuracySNES C3 / undisbeliever; no license to commit. |
 | PPU bus activity (lidnariq), Two Ship forum build | nesdev forum attachments | **none stated** | Not added. |
 
