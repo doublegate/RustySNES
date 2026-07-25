@@ -7,16 +7,17 @@
 //! live registers, so a mid-line CGRAM/OAM access during active display, an `INIDISP`
 //! brightness/blank change, and the sprite over-flag timing all take effect at dot resolution
 //! (the sole renderer since the batch `compose_dac` whole-line path was removed; `compose_dac`
-//! survives only as a `#[cfg(test)]` hi-res DAC driver). The **non-Mode-7 BG fetch** is also
-//! per-dot (T-CA-10 Phase 4c): `pd_fetch_bg_to` advances a fetch cursor `BG_FETCH_AHEAD` (22)
-//! columns ahead of the draw, building each column's `pd_above`/`pd_below` from live BG-data
-//! registers (`fetch_bg_column`), so a mid-line scroll/tilemap/OPT/mosaic write reaches only
+//! survives only as a `#[cfg(test)]` hi-res DAC driver). The **BG fetch** is also per-dot (T-CA-10
+//! Phase 4c): `pd_fetch_bg_to` advances a fetch cursor `BG_FETCH_AHEAD` (22) columns ahead of the
+//! draw, building each column's `pd_above`/`pd_below` from live BG-data registers — the tiled modes
+//! via `fetch_bg_column`, Mode 7's affine layer via `fetch_mode7_column` (dispatched on live
+//! `bg_mode` per column, so a mid-line `BGMODE` flip switches paths correctly) — so a mid-line
+//! scroll/tilemap/OPT/mosaic write, or a Mode-7 matrix/centre/scroll write, reaches only
 //! not-yet-fetched columns. Sprites are resolved once per line into `pd_sprite` (they do not change
-//! from a BG-data write) and composited per column. Two scope notes: **Mode 7** has no fetch-ahead
-//! (its whole line is composited at line start), and the **window/main-sub** gating is read at the
-//! fetch cursor rather than the draw cursor — identical on a static line, ~22 columns early only on
-//! the rare mid-line window/`TM`/`TS` write (a documented future refinement; the BG-data fetch is
-//! the 4c subject).
+//! from a BG-data write) and composited per column. One scope note: the **window/main-sub** gating is
+//! read at the fetch cursor rather than the draw cursor — identical on a static line, ~22 columns
+//! early only on the rare mid-line window/`TM`/`TS` write (a documented future refinement; the
+//! BG-data fetch is the 4c subject).
 //!
 //! reason for the module-level allows: the compositor is intrinsically a long, branch-dense
 //! state machine. `too_many_lines` fires on the per-scanline / per-sprite/mode-7 loops, which
@@ -36,7 +37,7 @@
     clippy::needless_update
 )]
 
-use crate::{Object, Ppu, SCREEN_WIDTH, VideoBus};
+use crate::{Object, Ppu, SCREEN_WIDTH};
 
 /// How many columns the BG fetch cursor runs ahead of the draw cursor (`docs/adr/0014` Phase 4c).
 /// MesenCE fetches BG tile data one tile-column-plus ahead of the draw (`_fetchBgEnd = min(hPos,263)`
@@ -230,11 +231,11 @@ impl Ppu {
     /// Per-dot compositor line-start setup (`docs/adr/0014` T-CA-10 Phase 4/4c). Resets the DAC carry
     /// and the draw + fetch cursors, seeds the backdrop, and resolves this line's SPRITES into
     /// `pd_sprite` (latched — sprites do not change from a mid-line BG-data write). It does NOT fetch
-    /// the non-Mode-7 BGs: the fetch cursor builds those incrementally, ~`BG_FETCH_AHEAD` columns
-    /// ahead of the draw, reading live registers ([`Self::pd_fetch_bg_to`]). Mode 7 has no per-column
-    /// fetch-ahead yet, so its whole line (BGs + sprites) is composited here. Called lazily by
-    /// [`Self::pd_render_to_dot`] at each line's first active dot (or after a save-state load).
-    fn pd_fetch_line(&mut self, bus: &mut impl VideoBus) {
+    /// the BGs: the fetch cursor builds those incrementally, ~`BG_FETCH_AHEAD` columns ahead of the
+    /// draw, reading live registers ([`Self::pd_fetch_bg_to`]) — for both tiled modes and Mode 7's
+    /// affine layer. Called lazily by [`Self::pd_render_to_dot`] at each line's first active dot (or
+    /// after a save-state load).
+    fn pd_fetch_line(&mut self) {
         let row = (self.v - 1) as usize;
         if row == 0 {
             self.frame_hires = self.is_hires();
@@ -252,24 +253,14 @@ impl Ppu {
             opaque: false,
             ..Pixel::default()
         };
-        if self.io.bg_mode == 7 {
-            // Mode 7 is not fetch-ahead yet: composite the whole line now (backgrounds + sprites).
-            let mut above = [backdrop; SCREEN_WIDTH];
-            let mut below = [backdrop; SCREEN_WIDTH];
-            self.render_mode7(bus, &pr, &mut above, &mut below);
-            self.render_objects(&pr, &mut above, &mut below);
-            self.pd_above.copy_from_slice(&above);
-            self.pd_below.copy_from_slice(&below);
-            self.pd_fetch_x = SCREEN_WIDTH as u16;
-        } else {
-            // Non-Mode-7: seed the backdrop; the fetch cursor composites BGs + sprite per column.
-            self.pd_above.fill(backdrop);
-            self.pd_below.fill(backdrop);
-            let mut sprite = [Pixel::default(); SCREEN_WIDTH];
-            self.resolve_sprite_line(&pr, &mut sprite);
-            self.pd_sprite.copy_from_slice(&sprite);
-            self.pd_fetch_x = 0;
-        }
+        // Seed the backdrop; the fetch cursor composites the BGs (tiled or Mode-7 affine) + sprite
+        // per column. Sprites are resolved once here (they do not change from a mid-line BG write).
+        self.pd_above.fill(backdrop);
+        self.pd_below.fill(backdrop);
+        let mut sprite = [Pixel::default(); SCREEN_WIDTH];
+        self.resolve_sprite_line(&pr, &mut sprite);
+        self.pd_sprite.copy_from_slice(&sprite);
+        self.pd_fetch_x = 0;
         self.pd_carry = DacCarry {
             above_enable: false,
             below_enable: false,
@@ -299,12 +290,14 @@ impl Ppu {
     }
 
     /// Advance the BG fetch cursor up to `fetch_target`, composing each newly-reached column's
-    /// `pd_above`/`pd_below` from LIVE registers: backdrop, then each active BG's fetched pixel
-    /// ([`Self::fetch_bg_column`]) by window + enable + priority, then this line's latched sprite
-    /// (`pd_sprite`). Non-Mode-7 only (Mode 7 is composited whole-line at line start). On a static
-    /// line every column reads identical registers, so the result is byte-identical to the old
-    /// whole-line fetch; a mid-line BG-data write only reaches columns beyond the cursor
-    /// (`docs/adr/0014` Phase 4c). Idempotent per line: each column is built exactly once.
+    /// `pd_above`/`pd_below` from LIVE registers: backdrop, then the active BGs — the tiled BGs
+    /// ([`Self::fetch_bg_column`]) or the Mode-7 affine layer(s) ([`Self::fetch_mode7_column`]) — by
+    /// window + enable + priority, then this line's latched sprite (`pd_sprite`). `bg_mode` is read
+    /// live per column, so a mid-line `BGMODE` flip across the Mode-7 boundary switches the fetch path
+    /// for the remaining columns (both directions). On a static line every column reads identical
+    /// registers, so the result is byte-identical to the old whole-line fetch; a mid-line BG-data
+    /// write only reaches columns beyond the cursor (`docs/adr/0014` Phase 4c). Idempotent per line:
+    /// each column is built exactly once.
     fn pd_fetch_bg_to(&mut self, fetch_target: usize) {
         let pr = self.mode_priorities();
         let backdrop = Pixel {
@@ -315,19 +308,41 @@ impl Ppu {
             opaque: false,
             ..Pixel::default()
         };
-        // A mid-line `BGMODE` write that flips this line INTO Mode 7 (it started non-Mode-7, so the
-        // cursor is running incrementally) must NOT drive the remaining columns through the tiled
-        // `fetch_bg_column` path — Mode 7 is affine (`render_mode7`), and a tiled fetch of its VRAM
-        // is garbage. Skip the BG fetch for those columns (backdrop + sprite only); an incremental
-        // affine fetch is out of scope (Mode 7 is composited whole-line at line start). The reverse
-        // flip (7 -> non-7) leaves `pd_fetch_x == SCREEN_WIDTH` from the line-start Mode-7 fetch, so
-        // this loop never runs and the write is a no-op on the current line — the pre-4c behaviour.
-        let mode7 = self.io.bg_mode == 7;
         while usize::from(self.pd_fetch_x) < fetch_target {
             let x = usize::from(self.pd_fetch_x);
             let mut a = backdrop;
             let mut b = backdrop;
-            if !mode7 {
+            // TODO(4c refinement): window + `TM`/`TS` are composite-side registers and should be read
+            // at the DRAW cursor, not here at the fetch cursor (~22 dots early). A static-line no-op
+            // today; only a mid-line window/enable write differs.
+            // `bg_mode` is read per column so a mid-line `BGMODE` flip switches the fetch path here.
+            if self.io.bg_mode == 7 {
+                // Mode 7: the affine BG1 layer, then the EXTBG BG2 layer (present only under EXTBG,
+                // which `fetch_mode7_column` already gates). BG1 uses `main_enable[0]`/`sub_enable[0]`.
+                let (bg1, bg2) = self.fetch_mode7_column(x, &pr);
+                if let Some(px) = bg1 {
+                    let prio = px.priority;
+                    if self.io.main_enable[0] && !self.windowed_out(0, x, true) && prio > a.priority
+                    {
+                        a = px;
+                    }
+                    if self.io.sub_enable[0] && !self.windowed_out(0, x, false) && prio > b.priority
+                    {
+                        b = px;
+                    }
+                }
+                if let Some(px) = bg2 {
+                    let prio = px.priority;
+                    if self.io.main_enable[1] && !self.windowed_out(1, x, true) && prio > a.priority
+                    {
+                        a = px;
+                    }
+                    if self.io.sub_enable[1] && !self.windowed_out(1, x, false) && prio > b.priority
+                    {
+                        b = px;
+                    }
+                }
+            } else {
                 for bg in 0..4 {
                     if !pr.active[bg] {
                         continue;
@@ -337,9 +352,6 @@ impl Ppu {
                         continue;
                     }
                     let prio = px.priority;
-                    // TODO(4c refinement): window + `TM`/`TS` are composite-side registers and
-                    // should be read at the DRAW cursor, not here at the fetch cursor (~22 dots
-                    // early). A static-line no-op today; only a mid-line window/enable write differs.
                     if self.io.main_enable[bg]
                         && !self.windowed_out(bg, x, true)
                         && prio > a.priority
@@ -380,12 +392,12 @@ impl Ppu {
     /// color-math/brightness/force-blank write only affects columns drawn after it), tracking
     /// [`crate::Ppu::internal_cgram_address`] = the last drawn palette. All columns finish by
     /// `RENDER_DOT` (pre-line-HDMA), so a static line composites identically to a whole-line pass.
-    pub(crate) fn pd_render_to_dot(&mut self, bus: &mut impl VideoBus) {
+    pub(crate) fn pd_render_to_dot(&mut self) {
         if self.v < 1 || self.v > self.visible_height() {
             return;
         }
         if self.pd_fetched_line != self.v {
-            self.pd_fetch_line(bus);
+            self.pd_fetch_line();
         }
         let target = if self.h < crate::ACTIVE_DOT_START {
             0
@@ -695,14 +707,16 @@ impl Ppu {
         color
     }
 
-    /// Render Mode 7 (BG1 affine; BG2 = the high-bit priority layer when EXTBG).
-    fn render_mode7(
-        &self,
-        _bus: &mut impl VideoBus,
-        pr: &ModePriorities,
-        above: &mut [Pixel],
-        below: &mut [Pixel],
-    ) {
+    /// Fetch the Mode-7 affine pixel(s) at screen column `x`, reading every M7 register LIVE
+    /// (`docs/adr/0014` Phase 4c): the `M7A`-`M7D` matrix, the `M7X`/`M7Y` center, the `M7HOFS`/
+    /// `M7VOFS` scroll, the flips, mosaic, and `M7SEL` repeat mode. Returns `(BG1, BG2)` where BG1 is
+    /// the affine layer (full 8-bit palette) and BG2 is the EXTBG high-priority layer (bit 7 promoted
+    /// to a priority selector, low 7 bits the colour) — `None` for a colour-0 (transparent) pixel or a
+    /// disabled layer. The compositor ([`Self::pd_fetch_bg_to`]) applies window + enable + priority,
+    /// so a mid-line M7 write reaches only columns the fetch cursor has not yet built. Extracted from
+    /// the old whole-line `render_mode7`; the per-line affine origin is recomputed per column so the
+    /// read is live (the extra arithmetic is a Mode-7-only cost). Byte-identical on a static line.
+    fn fetch_mode7_column(&self, x: usize, pr: &ModePriorities) -> (Option<Pixel>, Option<Pixel>) {
         let a = self.io.m7a as i16 as i32;
         let b = self.io.m7b as i16 as i32;
         let c = self.io.m7c as i16 as i32;
@@ -726,10 +740,8 @@ impl Ppu {
             }
         };
 
-        // Mosaic, quantised in SCREEN space exactly as `render_bg` does it: the block grid is
+        // Mosaic, quantised in SCREEN space exactly as `fetch_bg_column` does it: the block grid is
         // anchored to the top-left of the picture, not to whatever the transform maps there.
-        // Mode 7 had no mosaic handling at all until the framebuffer oracle rendered the same
-        // picture with and without it.
         let mosaic = self.io.mosaic_enable[0] && self.io.mosaic_size > 1;
         let msize = u32::from(self.io.mosaic_size);
 
@@ -750,62 +762,75 @@ impl Ppu {
             + ((d * y as i32) & !63)
             + (vcenter << 8);
 
-        let main1 = self.io.main_enable[0];
-        let sub1 = self.io.sub_enable[0];
-        let extbg = self.io.extbg;
-        let main2 = extbg && self.io.main_enable[1];
-        let sub2 = extbg && self.io.sub_enable[1];
+        let mut sx = x as u32;
+        if mosaic {
+            sx = (sx / msize) * msize;
+        }
+        if self.io.m7_hflip {
+            sx = 255 - (sx & 0xff);
+        }
 
-        for screen_x in 0..SCREEN_WIDTH as u32 {
-            let mut x = screen_x;
-            if mosaic {
-                x = (x / msize) * msize;
-            }
-            if self.io.m7_hflip {
-                x = 255 - (x & 0xff);
-            }
+        let pixel_x = (origin_x + a * sx as i32) >> 8;
+        let pixel_y = (origin_y + c * sx as i32) >> 8;
 
-            let pixel_x = (origin_x + a * x as i32) >> 8;
-            let pixel_y = (origin_y + c * x as i32) >> 8;
+        let out_of_bounds = (pixel_x | pixel_y) & !1023 != 0;
 
-            let out_of_bounds = (pixel_x | pixel_y) & !1023 != 0;
+        let palette_addr = (((pixel_y as u32) & 7) << 3) | ((pixel_x as u32) & 7);
+        let tile_x = ((pixel_x >> 3) as u32) & 0x7f;
+        let tile_y = ((pixel_y >> 3) as u32) & 0x7f;
+        let tile_addr = (tile_y << 7) | tile_x;
 
-            let palette_addr = (((pixel_y as u32) & 7) << 3) | ((pixel_x as u32) & 7);
-            let tile_x = ((pixel_x >> 3) as u32) & 0x7f;
-            let tile_y = ((pixel_y >> 3) as u32) & 0x7f;
-            let tile_addr = (tile_y << 7) | tile_x;
+        let tile = if self.io.m7_repeat == 3 && out_of_bounds {
+            0u16
+        } else {
+            self.vram[(tile_addr & 0x7fff) as usize] & 0xff
+        };
+        let palette = if self.io.m7_repeat == 2 && out_of_bounds {
+            0u8
+        } else {
+            let addr = ((tile << 6) | (palette_addr as u16)) & 0x7fff;
+            (self.vram[addr as usize] >> 8) as u8
+        };
 
-            let tile = if self.io.m7_repeat == 3 && out_of_bounds {
-                0u16
-            } else {
-                self.vram[(tile_addr & 0x7fff) as usize] & 0xff
+        // BG1 always renders, with the FULL 8-bit palette. EXTBG adds a second layer from the same
+        // pixels — it does not replace the first (treating it as either/or made BG1 vanish under
+        // EXTBG, which the framebuffer oracle caught). The `hd-pack` tag reuses `tile`.
+        let bg1 = (palette != 0).then(|| {
+            #[allow(unused_mut)]
+            let mut pixel = Pixel {
+                palette,
+                priority: pr.bg[0][0],
+                layer: 0,
+                palette_group: 0,
+                opaque: true,
+                ..Pixel::default()
             };
-            let mut palette = if self.io.m7_repeat == 2 && out_of_bounds {
-                0u8
-            } else {
-                let addr = ((tile << 6) | (palette_addr as u16)) & 0x7fff;
-                (self.vram[addr as usize] >> 8) as u8
-            };
+            #[cfg(feature = "hd-pack")]
+            if self.hd_pack_tagging {
+                let tile_base = (tile << 6) & 0x7fff;
+                pixel.tag = self.tile_tag(
+                    crate::hdtag::TileClass::Mode7,
+                    8,
+                    tile_base,
+                    0,
+                    false,
+                    false,
+                );
+            }
+            pixel
+        });
 
-            let xi = screen_x as usize;
-
-            // Only the `hd-pack` tile-tagging hook below consumes this; keep it from triggering
-            // an unused-variable warning when that feature is compiled out.
-            #[cfg(not(feature = "hd-pack"))]
-            let _ = tile;
-
-            // BG1 always renders, with the FULL 8-bit palette. EXTBG adds a second layer from
-            // the same pixels — it does not replace the first. Treating it as an either/or made
-            // BG1 vanish the moment EXTBG was enabled, which the framebuffer oracle caught by
-            // rendering a picture both references disagreed with.
-            let palette_bg1 = palette;
-            if palette_bg1 != 0 {
-                let prio = pr.bg[0][0];
+        // BG2, present only under EXTBG: bit 7 promoted from palette data to a priority selector,
+        // the remaining seven bits the colour.
+        let bg2 = if self.io.extbg {
+            let prio_hi = (palette >> 7) & 1;
+            let p2 = palette & 0x7f;
+            (p2 != 0).then(|| {
                 #[allow(unused_mut)]
                 let mut pixel = Pixel {
-                    palette: palette_bg1,
-                    priority: prio,
-                    layer: 0,
+                    palette: p2,
+                    priority: pr.bg[1][usize::from(prio_hi)],
+                    layer: 1,
                     palette_group: 0,
                     opaque: true,
                     ..Pixel::default()
@@ -822,51 +847,16 @@ impl Ppu {
                         false,
                     );
                 }
-                if main1 && !self.windowed_out(0, xi, true) && prio > above[xi].priority {
-                    above[xi] = pixel;
-                }
-                if sub1 && !self.windowed_out(0, xi, false) && prio > below[xi].priority {
-                    below[xi] = pixel;
-                }
-            }
+                pixel
+            })
+        } else {
+            None
+        };
 
-            // BG2, present only under EXTBG: the same pixel, with bit 7 promoted from palette
-            // data to a priority selector and the remaining seven bits as the colour.
-            if extbg {
-                let prio_hi = (palette >> 7) & 1;
-                palette &= 0x7f;
-                if palette != 0 {
-                    let prio = pr.bg[1][usize::from(prio_hi)];
-                    #[allow(unused_mut)]
-                    let mut pixel = Pixel {
-                        palette,
-                        priority: prio,
-                        layer: 1,
-                        palette_group: 0,
-                        opaque: true,
-                        ..Pixel::default()
-                    };
-                    #[cfg(feature = "hd-pack")]
-                    if self.hd_pack_tagging {
-                        let tile_base = (tile << 6) & 0x7fff;
-                        pixel.tag = self.tile_tag(
-                            crate::hdtag::TileClass::Mode7,
-                            8,
-                            tile_base,
-                            0,
-                            false,
-                            false,
-                        );
-                    }
-                    if main2 && !self.windowed_out(1, xi, true) && prio > above[xi].priority {
-                        above[xi] = pixel;
-                    }
-                    if sub2 && !self.windowed_out(1, xi, false) && prio > below[xi].priority {
-                        below[xi] = pixel;
-                    }
-                }
-            }
-        }
+        #[cfg(not(feature = "hd-pack"))]
+        let _ = tile;
+
+        (bg1, bg2)
     }
 
     /// Decode a sprite from OAM by index 0..=127.
@@ -1010,30 +1000,6 @@ impl Ppu {
             }
         }
         (range_dot, time_dot)
-    }
-
-    /// Render sprites for the current scanline directly into `above`/`below` (whole-line; used by the
-    /// Mode-7 path). Equivalent to resolving the sprite line and compositing it: the sprite layer is
-    /// evaluated + fetched into a buffer, then merged by window + enable + priority. (The STAT77
-    /// over-flags are timed separately by [`Self::pd_eval_over_flags`], one line ahead.)
-    fn render_objects(&self, pr: &ModePriorities, above: &mut [Pixel], below: &mut [Pixel]) {
-        let mut sprite = [Pixel::default(); SCREEN_WIDTH];
-        self.resolve_sprite_line(pr, &mut sprite);
-        let main = self.io.main_enable[4];
-        let sub = self.io.sub_enable[4];
-        for xi in 0..SCREEN_WIDTH {
-            let sp = sprite[xi];
-            if !sp.opaque {
-                continue;
-            }
-            let prio = sp.priority;
-            if main && !self.windowed_out(4, xi, true) && prio >= above[xi].priority {
-                above[xi] = sp;
-            }
-            if sub && !self.windowed_out(4, xi, false) && prio >= below[xi].priority {
-                below[xi] = sp;
-            }
-        }
     }
 
     /// Resolve this line's sprites into a per-column buffer (`docs/adr/0014` Phase 4c). Inter-sprite
@@ -2329,14 +2295,12 @@ mod tests {
 
     #[test]
     fn oam_eval_seed_uses_priority_rotation_base_at_line_start() {
-        use crate::bus::NullVideoBus;
         let mut p = Ppu::new();
-        let mut bus = NullVideoBus;
         p.write_reg(0x2100, 0x0f); // display enabled
         p.write_reg(0x2103, 0x80); // OAM priority rotation ON
         p.write_reg(0x2102, 0x20); // OAMADDL → OAMADDR = 0x40
         p.v = 50; // a visible line
-        p.pd_fetch_line(&mut bus);
+        p.pd_fetch_line();
         assert_eq!(
             p.pd_oam_eval_seed,
             ((0x40u16 >> 2) & 0x7f) as u8, // 0x10
@@ -2356,7 +2320,7 @@ mod tests {
         // restored seed — so rewind to the line start before re-fetching.
         p.write_reg(0x2103, 0x00);
         p.h = 0;
-        p.pd_fetch_line(&mut bus);
+        p.pd_fetch_line();
         assert_eq!(
             p.pd_oam_eval_seed, 0,
             "without priority rotation the evaluation index seeds from 0"
@@ -2419,8 +2383,7 @@ mod tests {
         p.h = 100;
         p.pd_fetched_line = u16::MAX;
         p.pd_oam_eval_seed = 0x55; // the restored line-start seed, distinct from the 0x2A re-derive
-        let mut bus = NullVideoBus;
-        p.pd_render_to_dot(&mut bus); // triggers `pd_fetch_line` (pd_fetched_line != v)
+        p.pd_render_to_dot(); // triggers `pd_fetch_line` (pd_fetched_line != v)
         assert_eq!(
             p.pd_oam_eval_seed, 0x55,
             "a post-load mid-line re-fetch (h > 0) must preserve the deserialized OAM eval seed"
@@ -2429,7 +2392,7 @@ mod tests {
         // Sanity: a genuine line-start fetch (h == 0) DOES capture the seed from OAMADDR.
         p.pd_fetched_line = u16::MAX;
         p.h = 0;
-        p.pd_render_to_dot(&mut bus);
+        p.pd_render_to_dot();
         assert_eq!(
             p.pd_oam_eval_seed, 0x2A,
             "a line-start fetch (h == 0) captures the seed from OAMADDR"
@@ -2491,7 +2454,6 @@ mod tests {
         // dot `d` (mid-line). Returns the 256 framebuffer colours of row 0.
         let render = |start: u16, inject: Option<(u16, u16)>| -> [u16; SCREEN_WIDTH] {
             let mut p = setup();
-            let mut bus = NullVideoBus;
             p.io.bg_hofs[0] = start;
             p.v = 1;
             p.pd_fetched_line = u16::MAX;
@@ -2502,7 +2464,7 @@ mod tests {
                     p.io.bg_hofs[0] = new_hofs;
                 }
                 p.h = h;
-                p.pd_render_to_dot(&mut bus);
+                p.pd_render_to_dot();
             }
             let fb = p.framebuffer();
             core::array::from_fn(|x| fb[x])
@@ -2560,6 +2522,101 @@ mod tests {
                 boundary.abs_diff(usize::from(d)) <= 2,
                 "fetch-ahead boundary {boundary} should be ~dot {d} (write reaches the fetch cursor, \
                  {BG_FETCH_AHEAD} columns ahead of the draw)"
+            );
+        }
+    }
+
+    /// Phase 4c, Mode 7: a mid-line `M7HOFS` write reaches only columns the fetch cursor has not yet
+    /// built — the affine layer runs through the same fetch cursor as the tiled BGs. With an identity
+    /// matrix and zero centre/vscroll, screen column x samples Mode-7 pixel `(x + m7_hofs)`, so the
+    /// colour is a horizontal ramp that shifts with the scroll (the same probe as the tiled test).
+    #[test]
+    fn mid_line_mode7_scroll_shifts_only_columns_past_the_fetch_cursor() {
+        fn setup() -> Ppu {
+            let mut p = Ppu::new();
+            p.write_reg(0x2100, 0x80); // force-blank for VRAM/CGRAM setup
+            // Mode-7 VRAM is interleaved: low byte = tilemap (tile index), high byte = char data.
+            // Keep every tile 0 (low byte 0, the default) and fill tile 0's 8x8 char block (word
+            // addrs 0..64) so pixel `(px&7, py&7)` has colour `(px&7)+1` — a horizontal ramp.
+            for pa in 0..64u16 {
+                let colour = (pa & 7) + 1; // low 3 bits of palette_addr == pixel_x & 7
+                vram_set(&mut p, pa, colour << 8); // high byte = char colour, low byte = tile 0
+            }
+            for c in 1..=8u16 {
+                cgram_set(&mut p, c as u8, (c * 0x0841) & 0x7fff); // 8 distinct non-zero colours
+            }
+            p.io.bg_mode = 7;
+            p.io.main_enable[0] = true;
+            // Identity matrix (8.8 fixed point) with zero centre and vscroll:
+            //   pixel_x = x + m7_hofs, pixel_y = v.
+            p.io.m7a = 0x0100;
+            p.io.m7b = 0;
+            p.io.m7c = 0;
+            p.io.m7d = 0x0100;
+            p.io.m7x = 0;
+            p.io.m7y = 0;
+            p.io.m7_hofs = 0;
+            p.io.m7_vofs = 0;
+            p.io.m7_hflip = false;
+            p.io.m7_vflip = false;
+            p.io.m7_repeat = 0;
+            p.io.extbg = false;
+            p.io.mosaic_enable[0] = false;
+            p.io.display_disable = false;
+            p.io.display_brightness = 15;
+            p
+        }
+
+        let render = |start: u16, inject: Option<(u16, u16)>| -> [u16; SCREEN_WIDTH] {
+            let mut p = setup();
+            p.io.m7_hofs = start;
+            p.v = 1;
+            p.pd_fetched_line = u16::MAX;
+            for h in 0..=crate::RENDER_DOT {
+                if let Some((d, new_hofs)) = inject
+                    && h == d
+                {
+                    p.io.m7_hofs = new_hofs;
+                }
+                p.h = h;
+                p.pd_render_to_dot();
+            }
+            let fb = p.framebuffer();
+            core::array::from_fn(|x| fb[x])
+        };
+
+        let s0 = render(0, None);
+        let s3 = render(3, None);
+        assert!(
+            (0..SCREEN_WIDTH).all(|x| s0[x] != s3[x]),
+            "setup: a Mode-7 hofs 0->3 shift must change every column's colour"
+        );
+
+        let boundary_at = |d: u16| -> usize {
+            let split = render(0, Some((d, 3)));
+            let mut boundary = None;
+            for x in 0..SCREEN_WIDTH {
+                let is_old = split[x] == s0[x];
+                let is_new = split[x] == s3[x];
+                assert!(
+                    is_old || is_new,
+                    "d={d}: Mode-7 column {x} is neither scroll's colour (garbage)"
+                );
+                match boundary {
+                    None if is_new => boundary = Some(x),
+                    None => {}
+                    Some(_) => assert!(is_new, "d={d}: Mode-7 column {x} is not a monotone split"),
+                }
+            }
+            boundary
+                .unwrap_or_else(|| panic!("d={d}: the mid-line M7 write must affect SOME columns"))
+        };
+
+        for d in [60u16, 128] {
+            let boundary = boundary_at(d);
+            assert!(
+                boundary.abs_diff(usize::from(d)) <= 2,
+                "Mode-7 fetch-ahead boundary {boundary} should be ~dot {d} ({BG_FETCH_AHEAD} ahead)"
             );
         }
     }

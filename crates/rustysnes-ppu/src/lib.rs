@@ -905,7 +905,7 @@ impl Ppu {
         // BEFORE this line's own HDMA run, not after (`docs/ppu.md`'s confirmed off-by-one-line fix).
         // `advance_master` services this line's HDMA at this same dot, strictly AFTER this render
         // call within the same master-clock tick -- see `docs/scheduler.md` §DMA/HDMA bus-steal.
-        self.pd_render_to_dot(bus);
+        self.pd_render_to_dot();
 
         // Sprite over-flag (STAT77 range/time) timing runs one line ahead of the paint and must cover
         // line 0 (whose sprites paint on line 1), so it is driven here rather than from

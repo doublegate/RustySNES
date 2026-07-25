@@ -135,8 +135,10 @@ Per `ref-docs/2026-06-24-ppu.md` §6:
     tilemap, `BGnNBA` char base, `BGnHOFS`/`VOFS` scroll, `BGMODE`, `MOSAIC`, BG3 offset-per-tile)
     reaches only columns past the fetch cursor (~22 ahead of the draw), and a mid-line **composite**
     write — brightness/force-blank (`INIDISP`), color math, the in-render CGRAM redirect — reaches
-    only columns past the draw cursor. Scope: **Mode 7** is composited whole-line at line start (no
-    fetch-ahead), and window/`TM`/`TS` gating is applied at the fetch cursor rather than the draw
+    only columns past the draw cursor. **Mode 7** is incremental too (`fetch_mode7_column`, dispatched
+    on live `bg_mode` per column), so a mid-line M7 matrix/centre/scroll write reaches only
+    not-yet-fetched columns and a mid-line `BGMODE` flip across the Mode-7 boundary switches the fetch
+    path correctly. Scope: window/`TM`/`TS` gating is applied at the fetch cursor rather than the draw
     cursor (identical on a static line; ~22 columns early only on the rare mid-line window write — a
     documented refinement). The CGRAM redirect: a `$2122` write
     during active display commits to `Ppu::internal_cgram_address` — the palette of the last-drawn
