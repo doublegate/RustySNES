@@ -9,15 +9,15 @@
 //! (the sole renderer since the batch `compose_dac` whole-line path was removed; `compose_dac`
 //! survives only as a `#[cfg(test)]` hi-res DAC driver). The **BG fetch** is also per-dot (T-CA-10
 //! Phase 4c): `pd_fetch_bg_to` advances a fetch cursor `BG_FETCH_AHEAD` (22) columns ahead of the
-//! draw, building each column's `pd_above`/`pd_below` from live BG-data registers — the tiled modes
-//! via `fetch_bg_column`, Mode 7's affine layer via `fetch_mode7_column` (dispatched on live
-//! `bg_mode` per column, so a mid-line `BGMODE` flip switches paths correctly) — so a mid-line
+//! draw, storing each column's raw per-layer pixels in `pd_bg` from live **BG-data** registers — the
+//! tiled modes via `fetch_bg_column`, Mode 7's affine layer via `fetch_mode7_column` (dispatched on
+//! live `bg_mode` per column, so a mid-line `BGMODE` flip switches paths correctly) — so a mid-line
 //! scroll/tilemap/OPT/mosaic write, or a Mode-7 matrix/centre/scroll write, reaches only
-//! not-yet-fetched columns. Sprites are resolved once per line into `pd_sprite` (they do not change
-//! from a BG-data write) and composited per column. One scope note: the **window/main-sub** gating is
-//! read at the fetch cursor rather than the draw cursor — identical on a static line, ~22 columns
-//! early only on the rare mid-line window/`TM`/`TS` write (a documented future refinement; the
-//! BG-data fetch is the 4c subject).
+//! not-yet-fetched columns. The **composite** — window, `TM`/`TS` enable, and cross-layer priority
+//! over `pd_bg` + the once-per-line resolved `pd_sprite` — runs at the DRAW cursor
+//! (`pd_compose_column`), so a mid-line window/`TM`/`TS` write reaches only columns past the draw
+//! cursor (`BG_FETCH_AHEAD` behind the fetch), matching MesenCE's fetch-vs-composite split. Only the
+//! tile pixel's own priority is baked at fetch time (a fetch-side property).
 //!
 //! reason for the module-level allows: the compositor is intrinsically a long, branch-dense
 //! state machine. `too_many_lines` fires on the per-scanline / per-sprite/mode-7 loops, which
@@ -241,22 +241,12 @@ impl Ppu {
             self.frame_hires = self.is_hires();
         }
         let pr = self.mode_priorities();
-        // Backdrop base for every column; the fetch (BGs) + composite (sprite) build over it. ALWAYS
-        // build the line even under force-blank: display-disable is a compose-time decision
-        // (`pd_render_to_dot` outputs black per column while set), so a line blanked at its start but
-        // un-blanked mid-line must still have real pixels ready — MesenCE fetches regardless of blank.
-        let backdrop = Pixel {
-            palette: 0,
-            priority: 0,
-            layer: 5,
-            palette_group: 0,
-            opaque: false,
-            ..Pixel::default()
-        };
-        // Seed the backdrop; the fetch cursor composites the BGs (tiled or Mode-7 affine) + sprite
-        // per column. Sprites are resolved once here (they do not change from a mid-line BG write).
-        self.pd_above.fill(backdrop);
-        self.pd_below.fill(backdrop);
+        // Resolve this line's sprites once (they do not change from a mid-line BG write). The fetch
+        // cursor fills `pd_bg` per layer per column ahead of the draw; the draw composite applies the
+        // backdrop base and the window/`TM`/`TS`/priority resolution live. Nothing to pre-fill here:
+        // every column the draw reads was written by the fetch cursor first (it runs ahead). ALWAYS
+        // resolve regardless of force-blank — display-disable is a compose-time decision, so a line
+        // blanked at its start but un-blanked mid-line must have real pixels ready.
         let mut sprite = [Pixel::default(); SCREEN_WIDTH];
         self.resolve_sprite_line(&pr, &mut sprite);
         self.pd_sprite.copy_from_slice(&sprite);
@@ -289,17 +279,54 @@ impl Ppu {
         self.pd_fetched_line = self.v;
     }
 
-    /// Advance the BG fetch cursor up to `fetch_target`, composing each newly-reached column's
-    /// `pd_above`/`pd_below` from LIVE registers: backdrop, then the active BGs — the tiled BGs
-    /// ([`Self::fetch_bg_column`]) or the Mode-7 affine layer(s) ([`Self::fetch_mode7_column`]) — by
-    /// window + enable + priority, then this line's latched sprite (`pd_sprite`). `bg_mode` is read
-    /// live per column, so a mid-line `BGMODE` flip across the Mode-7 boundary switches the fetch path
-    /// for the remaining columns (both directions). On a static line every column reads identical
-    /// registers, so the result is byte-identical to the old whole-line fetch; a mid-line BG-data
-    /// write only reaches columns beyond the cursor (`docs/adr/0014` Phase 4c). Idempotent per line:
-    /// each column is built exactly once.
+    /// Advance the BG fetch cursor up to `fetch_target`, storing each newly-reached column's raw
+    /// per-layer BG pixels into `pd_bg` from LIVE BG-data registers — the tiled BGs
+    /// ([`Self::fetch_bg_column`]) or the Mode-7 affine layer(s) ([`Self::fetch_mode7_column`]). Only
+    /// the tile/affine lookup and its baked-in priority happen here (both fetch-side); the window,
+    /// `TM`/`TS` enable, and cross-layer priority resolution are deferred to the DRAW cursor
+    /// ([`Self::pd_compose_column`]). `bg_mode` is read live per column, so a mid-line `BGMODE` flip
+    /// across the Mode-7 boundary switches the fetch path for the remaining columns (both directions).
+    /// On a static line every column reads identical registers, so the composited result is
+    /// byte-identical to the old whole-line fetch; a mid-line BG-data write only reaches columns
+    /// beyond the cursor (`docs/adr/0014` Phase 4c). Idempotent per line: each column is built once.
     fn pd_fetch_bg_to(&mut self, fetch_target: usize) {
         let pr = self.mode_priorities();
+        while usize::from(self.pd_fetch_x) < fetch_target {
+            let x = usize::from(self.pd_fetch_x);
+            if self.io.bg_mode == 7 {
+                // Mode 7: BG1 = affine layer 0, BG2 = the EXTBG high-priority layer 1 (transparent
+                // when EXTBG is off, `fetch_mode7_column` gates it). Layers 2/3 do not exist — clear
+                // them so a prior tiled line's pixels are not composited.
+                let (bg1, bg2) = self.fetch_mode7_column(x, &pr);
+                self.pd_bg[x][0] = bg1.unwrap_or_default();
+                self.pd_bg[x][1] = bg2.unwrap_or_default();
+                self.pd_bg[x][2] = Pixel::default();
+                self.pd_bg[x][3] = Pixel::default();
+            } else {
+                // Tiled: store each active layer's fetched pixel (transparent for a colour-0 dot);
+                // an inactive layer in this mode is cleared to transparent so a prior line's or a
+                // prior mode's pixel is not composited.
+                for bg in 0..4 {
+                    self.pd_bg[x][bg] = if pr.active[bg] {
+                        self.fetch_bg_column(bg, x, &pr)
+                    } else {
+                        Pixel::default()
+                    };
+                }
+            }
+            self.pd_fetch_x += 1;
+        }
+    }
+
+    /// Resolve one column's `(main, sub)` pixels from the fetched per-layer BG pixels (`pd_bg`) and
+    /// the latched sprite (`pd_sprite`), applying the DRAW-cursor-timed composite registers LIVE: the
+    /// `TM`/`TS` layer enables, the windows, and cross-layer priority. Called at the draw cursor, so a
+    /// mid-line window/`TM`/`TS` write takes effect only on later columns (MesenCE's split between
+    /// BG-data at the fetch cursor and composite registers at the draw cursor). Layer active-ness and
+    /// colour-0 are encoded as transparency in `pd_bg`, so no mode table is needed here.
+    fn pd_compose_column(&self, x: usize) -> (Pixel, Pixel) {
+        // The backdrop base: layer 5, priority 0, transparent (so a bare backdrop column stays
+        // colour-0 for `compose_pixel` to render from CGRAM[0]).
         let backdrop = Pixel {
             palette: 0,
             priority: 0,
@@ -308,90 +335,44 @@ impl Ppu {
             opaque: false,
             ..Pixel::default()
         };
-        while usize::from(self.pd_fetch_x) < fetch_target {
-            let x = usize::from(self.pd_fetch_x);
-            let mut a = backdrop;
-            let mut b = backdrop;
-            // TODO(4c refinement): window + `TM`/`TS` are composite-side registers and should be read
-            // at the DRAW cursor, not here at the fetch cursor (~22 dots early). A static-line no-op
-            // today; only a mid-line window/enable write differs.
-            // `bg_mode` is read per column so a mid-line `BGMODE` flip switches the fetch path here.
-            if self.io.bg_mode == 7 {
-                // Mode 7: the affine BG1 layer, then the EXTBG BG2 layer (present only under EXTBG,
-                // which `fetch_mode7_column` already gates). BG1 uses `main_enable[0]`/`sub_enable[0]`.
-                let (bg1, bg2) = self.fetch_mode7_column(x, &pr);
-                if let Some(px) = bg1 {
-                    let prio = px.priority;
-                    if self.io.main_enable[0] && !self.windowed_out(0, x, true) && prio > a.priority
-                    {
-                        a = px;
-                    }
-                    if self.io.sub_enable[0] && !self.windowed_out(0, x, false) && prio > b.priority
-                    {
-                        b = px;
-                    }
-                }
-                if let Some(px) = bg2 {
-                    let prio = px.priority;
-                    if self.io.main_enable[1] && !self.windowed_out(1, x, true) && prio > a.priority
-                    {
-                        a = px;
-                    }
-                    if self.io.sub_enable[1] && !self.windowed_out(1, x, false) && prio > b.priority
-                    {
-                        b = px;
-                    }
-                }
-            } else {
-                for bg in 0..4 {
-                    if !pr.active[bg] {
-                        continue;
-                    }
-                    let px = self.fetch_bg_column(bg, x, &pr);
-                    if !px.opaque {
-                        continue;
-                    }
-                    let prio = px.priority;
-                    if self.io.main_enable[bg]
-                        && !self.windowed_out(bg, x, true)
-                        && prio > a.priority
-                    {
-                        a = px;
-                    }
-                    if self.io.sub_enable[bg]
-                        && !self.windowed_out(bg, x, false)
-                        && prio > b.priority
-                    {
-                        b = px;
-                    }
-                }
+        let mut a = backdrop;
+        let mut b = backdrop;
+        for bg in 0..4 {
+            let px = self.pd_bg[x][bg];
+            if !px.opaque {
+                continue;
             }
-            // Sprites compose last (highest layer), with `>=` so an obj ties over a BG of equal
-            // priority — matching the old `render_objects` drain. `pd_sprite` already resolved the
-            // inter-sprite winner; here only the window + enable + BG-priority test remains.
-            let sp = self.pd_sprite[x];
-            if sp.opaque {
-                let prio = sp.priority;
-                if self.io.main_enable[4] && !self.windowed_out(4, x, true) && prio >= a.priority {
-                    a = sp;
-                }
-                if self.io.sub_enable[4] && !self.windowed_out(4, x, false) && prio >= b.priority {
-                    b = sp;
-                }
+            let prio = px.priority;
+            if self.io.main_enable[bg] && !self.windowed_out(bg, x, true) && prio > a.priority {
+                a = px;
             }
-            self.pd_above[x] = a;
-            self.pd_below[x] = b;
-            self.pd_fetch_x += 1;
+            if self.io.sub_enable[bg] && !self.windowed_out(bg, x, false) && prio > b.priority {
+                b = px;
+            }
         }
+        // Sprites compose last (highest layer), with `>=` so an obj ties over a BG of equal priority.
+        let sp = self.pd_sprite[x];
+        if sp.opaque {
+            let prio = sp.priority;
+            if self.io.main_enable[4] && !self.windowed_out(4, x, true) && prio >= a.priority {
+                a = sp;
+            }
+            if self.io.sub_enable[4] && !self.windowed_out(4, x, false) && prio >= b.priority {
+                b = sp;
+            }
+        }
+        (a, b)
     }
 
     /// Per-dot compositor driver, called every dot from [`crate::Ppu::tick_dot`]. First advances the
-    /// BG fetch cursor to `BG_FETCH_AHEAD` columns ahead of the draw (building `pd_above`/`pd_below`
-    /// from live BG-data registers), then composites the visible line's columns to the framebuffer up
-    /// to the column the DAC has reached, using **live** composite registers per column (so a mid-line
-    /// color-math/brightness/force-blank write only affects columns drawn after it), tracking
-    /// [`crate::Ppu::internal_cgram_address`] = the last drawn palette. All columns finish by
-    /// `RENDER_DOT` (pre-line-HDMA), so a static line composites identically to a whole-line pass.
+    /// BG fetch cursor to `BG_FETCH_AHEAD` columns ahead of the draw (storing raw per-layer pixels in
+    /// `pd_bg` from live BG-data registers), then composites the visible line's columns to the
+    /// framebuffer up to the column the DAC has reached — resolving window/`TM`/`TS`/priority
+    /// ([`Self::pd_compose_column`]) and color-math/brightness/force-blank/CGRAM-redirect with **live**
+    /// registers per column, so a mid-line composite-register write only affects columns drawn after
+    /// it — tracking [`crate::Ppu::internal_cgram_address`] = the last drawn palette. All columns
+    /// finish by `RENDER_DOT` (pre-line-HDMA), so a static line composites identically to a whole-line
+    /// pass.
     pub(crate) fn pd_render_to_dot(&mut self) {
         if self.v < 1 || self.v > self.visible_height() {
             return;
@@ -426,8 +407,9 @@ impl Ppu {
                     brightness: u32::from(self.io.display_brightness),
                     hires,
                 };
-                let ap = self.pd_above[x];
-                let bp = self.pd_below[x];
+                // Resolve the column now, at the DRAW cursor: window/`TM`/`TS`/priority live, over
+                // the per-layer pixels the fetch cursor built ~`BG_FETCH_AHEAD` columns ago.
+                let (ap, bp) = self.pd_compose_column(x);
                 self.pd_carry = self.compose_pixel(x, ap, bp, ctx, self.pd_carry);
                 self.internal_cgram_address = ap.palette;
             }
@@ -2617,6 +2599,101 @@ mod tests {
             assert!(
                 boundary.abs_diff(usize::from(d)) <= 2,
                 "Mode-7 fetch-ahead boundary {boundary} should be ~dot {d} ({BG_FETCH_AHEAD} ahead)"
+            );
+        }
+    }
+
+    /// Phase 4c refinement: a mid-line `TM` (main-screen layer-enable) write takes effect at the
+    /// **draw** cursor, NOT the fetch cursor — the split lands ~`ACTIVE_DOT_START` columns to the LEFT
+    /// of where a BG-DATA write at the same dot would (`BG_FETCH_AHEAD` columns behind the fetch), so
+    /// this both proves the composite moved to the draw cursor and distinguishes it from the fetch
+    /// timing. Two solid BGs: BG1 (higher priority, colour A) over BG2 (colour B); disabling BG1 on
+    /// the main screen reveals BG2, so the column colour flips A→B exactly where the enable is read.
+    #[test]
+    fn mid_line_tm_write_takes_effect_at_the_draw_cursor() {
+        fn setup() -> Ppu {
+            let mut p = Ppu::new();
+            p.write_reg(0x2100, 0x80); // force-blank for VRAM/CGRAM setup
+            // Char 0 (4bpp) = solid colour 1: plane 0 all ones, planes 1-3 zero.
+            for y in 0..8u16 {
+                vram_set(&mut p, y, 0x00ff); // word0: low byte = plane 0 (all set), high byte = 0
+                vram_set(&mut p, 8 + y, 0x0000); // word1: planes 2/3 = 0
+            }
+            // BG1 tilemap at 0x0800 stays default 0 (tile 0, palette group 0). BG2 tilemap at 0x0C00:
+            // tile 0, palette group 1 (entry bits 10-12 = 001 = 0x0400), for the visible first rows.
+            for e in 0..0x40u16 {
+                vram_set(&mut p, 0x0c00 + e, 0x0400);
+            }
+            cgram_set(&mut p, 1, 0x001f); // BG1 colour A (group 0, colour 1 -> CGRAM 1)
+            cgram_set(&mut p, 17, 0x7c00); // BG2 colour B (group 1, colour 1 -> CGRAM 17)
+            p.io.bg_mode = 1; // BG1 (prio 6) over BG2 (prio 5)
+            p.io.bg_tiledata_addr[0] = 0;
+            p.io.bg_tiledata_addr[1] = 0;
+            p.io.bg_screen_addr[0] = 0x0800;
+            p.io.bg_screen_addr[1] = 0x0c00;
+            p.io.bg_screen_size[0] = 0;
+            p.io.bg_screen_size[1] = 0;
+            p.io.tile_size[0] = false;
+            p.io.tile_size[1] = false;
+            p.io.main_enable[1] = true; // BG2 always on the main screen
+            p.io.mosaic_enable[0] = false;
+            p.io.mosaic_enable[1] = false;
+            p.io.display_disable = false;
+            p.io.display_brightness = 15;
+            p
+        }
+
+        // Render line 1, optionally disabling BG1's main-screen enable at dot `d`.
+        let render = |bg1_start: bool, disable_at: Option<u16>| -> [u16; SCREEN_WIDTH] {
+            let mut p = setup();
+            p.io.main_enable[0] = bg1_start;
+            p.v = 1;
+            p.pd_fetched_line = u16::MAX;
+            for h in 0..=crate::RENDER_DOT {
+                if let Some(d) = disable_at
+                    && h == d
+                {
+                    p.io.main_enable[0] = false;
+                }
+                p.h = h;
+                p.pd_render_to_dot();
+            }
+            let fb = p.framebuffer();
+            core::array::from_fn(|x| fb[x])
+        };
+
+        let with_bg1 = render(true, None); // BG1 wins everywhere -> colour A
+        let without_bg1 = render(false, None); // BG1 off -> BG2 shows -> colour B
+        assert!(
+            (0..SCREEN_WIDTH).all(|x| with_bg1[x] != without_bg1[x]),
+            "setup: disabling BG1 on the main screen must change every column's colour"
+        );
+
+        for d in [60u16, 128] {
+            let split = render(true, Some(d));
+            let mut boundary = None;
+            for x in 0..SCREEN_WIDTH {
+                let is_a = split[x] == with_bg1[x];
+                let is_b = split[x] == without_bg1[x];
+                assert!(
+                    is_a || is_b,
+                    "d={d}: column {x} is neither colour (garbage)"
+                );
+                match boundary {
+                    None if is_b => boundary = Some(x),
+                    None => {}
+                    Some(_) => assert!(is_b, "d={d}: column {x} is not a monotone split"),
+                }
+            }
+            let boundary = boundary
+                .unwrap_or_else(|| panic!("d={d}: the mid-line TM write must affect columns"));
+            // The draw cursor at dot d is column `d - ACTIVE_DOT_START`; that is where the enable is
+            // read, and it is BG_FETCH_AHEAD columns to the LEFT of a BG-data write's boundary (`d`).
+            let expected = usize::from(d - crate::ACTIVE_DOT_START);
+            assert!(
+                boundary.abs_diff(expected) <= 2,
+                "TM write at dot {d} should take effect at the DRAW cursor (~column {expected}), not \
+                 the fetch cursor (~column {d}); got boundary {boundary}"
             );
         }
     }

@@ -139,12 +139,16 @@ Only 4c remains — it is the last T-CA-10 accuracy item.**
   PRs (tiled #245, Mode 7 following). Verified byte-identical on the static corpus (ppu 43, AccuracySNES scenes incl.
   Mode 7 match goldens, battery 298/298, save-state + movie determinism); the fetch-ahead is pinned by white-box
   tests for both the tiled and Mode-7 paths (mid-line scroll write, boundary at the 22-column offset, two dots).
-  **Remaining sub-scope (NOT landed):** (1) window/`TM`/`TS` at the *draw* cursor — currently applied at the fetch
-  cursor (a static-line no-op, ~22 cols early only on a mid-line window write); (2) an EXTERNAL cross-check (MesenCE
-  render of a synthetic mid-line-scroll ROM, or an AccuracySNES scene) of the exact raster boundary vs hardware —
-  the unit tests pin it to RustySNES's own model, not to a reference; (3) whether 4c moves
-  `inidisp_forgot_to_force_blank` (still the one documented per-dot gap) is UNCONFIRMED — needs the per-pixel
-  per-dot-vs-MesenCE diff, which needs the gitignored undisbeliever ROMs present. See [[4c-bg-fetch-ahead-scope]].
+  **Window/`TM`/`TS` are now resolved at the DRAW cursor** too: the fetch cursor stores raw per-layer pixels
+  (`pd_bg`) and `pd_compose_column` applies window + enable + priority live at draw time, so a mid-line window/
+  `TM`/`TS` write reaches only columns past the draw cursor (a windowed-out/disabled layer reveals the layers
+  beneath it) — validated by `mid_line_tm_write_takes_effect_at_the_draw_cursor` (the enable boundary lands
+  `BG_FETCH_AHEAD` columns behind a BG-data write's).
+  **Remaining sub-scope (NOT landed):** (1) an EXTERNAL cross-check (MesenCE render of a synthetic mid-line-scroll
+  ROM, or an AccuracySNES scene) of the exact raster boundary vs hardware — the unit tests pin it to RustySNES's
+  own model, not to a reference; (2) whether 4c moves `inidisp_forgot_to_force_blank` (still the one documented
+  per-dot gap) is UNCONFIRMED — needs the per-pixel per-dot-vs-MesenCE diff, which needs the gitignored undisbeliever
+  ROMs present. See [[4c-bg-fetch-ahead-scope]].
 
 Determinism/save-state: serialize any CPU-observable new cursor state at the point mid-line saves become possible;
 keep transient line buffers re-derived. Every step: byte-identical milestone → save-state round-trip → determinism
