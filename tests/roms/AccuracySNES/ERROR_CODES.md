@@ -2667,6 +2667,22 @@ Provenance: **Documented** (fullsnes and the SNESdev Wiki: the auto-read result 
 | 1 | `$02` | bit 15 of the auto-read result was clear although the host is holding B, so the first bit clocked is not landing in the most significant position |
 | 2 | `$04` | bit 14 was set although Y is not held. Bit 15 passed, so what this catches is a high byte reading as all ones — an unimplemented auto-read on hardware whose line idles high looks exactly like a correct one if only the top bit is checked |
 
+### F1.08 — Auto-read start dot
+
+Provenance: **Documented** (fullsnes: the automatic joypad read begins ~dot 32.5-95.5 of the first vblank line (RustySNES delays it 256 master clocks ~ dot 64), not at the vblank edge). Kind: golden vector, never scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the armed automatic read was either already busy at the vblank edge (it must start ~dot 64, not at the edge) or never set $4212 busy within several scanlines, so there is no clean start transition whose dot to measure |
+
+### F1.09 — Auto-read duration
+
+Provenance: **Documented** (fullsnes: the automatic joypad read is busy for exactly 4224 master cycles (~3.097 scanlines); the poll count is a CPU-cycle-proportional proxy for it). Kind: golden vector, never scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the armed automatic read did not both set and clear $4212 busy within the sampled window, so the recorded poll count is not a duration |
+
 ### F1.10 — Auto-read start race
 
 Provenance: **Documented** (fullsnes: the automatic joypad read begins ~dot 32.5-95.5 of the first vblank line, not at the vblank edge, so $4212 bit 0 reads not-busy for that window and a $4212 poll at NMI entry sees the read not yet started). Kind: scored.

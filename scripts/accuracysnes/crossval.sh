@@ -139,7 +139,15 @@ ran=0
 #   fails the test's phase A. Mesen2 delays the start (busy=0 at entry) and passes, and RustySNES does
 #   too since the auto-read-start-timing fix. Documented by nocash fullsnes (the read starts ~dot
 #   32.5-95.5 of the first vblank line). Region-independent — snes9x fails it identically NTSC and PAL.
-SNES9X_KNOWN_FAILURES=11
+# snes9x, +1 test (F1.08 "Auto-read start dot"): the golden sibling of F1.10. After the vblank edge the
+#   cart requires $4212 bit 0 to read *closed* first (proving the read has not started), then latches the
+#   H counter at the closed->open transition as the start dot (~149 with instrument latency; RustySNES
+#   and a cycle-accurate core agree). snes9x's instant latch has busy already open at the edge, so the
+#   closed-at-edge guard takes the not-started path and the row fails — the same instant-latch divergence
+#   as F1.10, on the same nocash-documented behaviour. (F1.09, the busy *duration* golden, still PASSES on
+#   snes9x: its latch both sets and clears within the window at a slightly shorter count — 22 vs 24 — a
+#   recorded golden difference, not a failing test.) Region-independent.
+SNES9X_KNOWN_FAILURES=12
 
 # --- snes9x, via the libretro host --------------------------------------------------------------
 if [[ -f $SNES9X ]]; then

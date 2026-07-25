@@ -13,8 +13,8 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **330** (scoring + golden vectors + region SKIP per image) — *tests, not assertions; see the note below the table* |
-| Assertion coverage | **342 of 443** dossier assertions — **289 on-cart** + **53 rendered scenes**, kept as separate columns (`docs/accuracysnes-coverage.md`) |
+| Tests | **332** (scoring + golden vectors + region SKIP per image) — *tests, not assertions; see the note below the table* |
+| Assertion coverage | **344 of 443** dossier assertions — **291 on-cart** + **53 rendered scenes**, kept as separate columns (`docs/accuracysnes-coverage.md`) |
 | Rendered scenes | **53**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%** on-cart, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but a handful of recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`; a headless **MesenCE** (this cycle) is the per-dot compositor's blueprint + exact-frame oracle. All images. |
@@ -46,9 +46,9 @@ flag in the status byte `BRK` pushes).
 | **C** | S-PPU1 / S-PPU2 | ~85 | 30 | ~55 |
 | **D** | DMA / HDMA | ~35 | 15 | ~20 |
 | **E** | SPC700 + S-DSP | ~75 | 44 | ~31 |
-| **F** | Input | ~22 | 1 | ~21 |
+| **F** | Input | ~22 | 3 | ~19 |
 | **G** | Power-on / reset / cartridge | ~18 | 4 | ~14 |
-| | | **~320** | **202** | **~118** |
+| | | **~320** | **204** | **~116** |
 
 **These are test counts. For assertion coverage, read `docs/accuracysnes-coverage.md`** — it is
 regenerated with the ROM from the map in `gen/src/dossier.rs`, so it is always current where the

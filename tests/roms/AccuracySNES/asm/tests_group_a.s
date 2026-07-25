@@ -29878,6 +29878,296 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; F1.08 — Auto-read start dot
+; provenance: Documented (fullsnes: the automatic joypad read begins ~dot 32.5-95.5 of the first vblank line (RustySNES delays it 256 master clocks ~ dot 64), not at the vblank edge)
+.proc test_f1_08
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Skip unless the host holds the input contract — see f1_require_contract.
+    sep #$20
+    .a8
+    lda #$01
+    sta $4016
+    lda #$00
+    sta $4016
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E01E6
+    ldx #$0010
+@rq_c08:
+    sep #$20
+    .a8
+    lda $4016
+    lsr
+    rep #$20
+    .a16
+    lda f:$7E01E6
+    rol
+    sta f:$7E01E6
+    dex
+    bne @rq_c08
+    lda f:$7E01E6
+    cmp #PAD_CONTRACT
+    beq :+
+    ; SKIP: the host is not holding PAD_CONTRACT, so there is nothing for this row to assert against
+    sep #$20
+    .a8
+    lda #VERDICT_SKIP
+    sta f:V_TEST_RESULT
+    jml test_restore
+    ; unreachable — restores the assembler's width belief only
+    .a16
+    .i16
+    :
+    ; Arm auto-read; scheduled at the vblank edge but only begins ~dot 64 into the line.
+    sep #$20
+    .a8
+    lda #$01
+    sta $4200
+    ; Get into active display first so the next $4212 bit-7 rise is a FRESH vblank edge.
+@f08active:
+    lda $4212
+    and #$80
+    bne @f08active     ; spin while in vblank -> falls through in active display
+    ; Poll $4212 until bit 7 (vblank) sets -- the rising edge, at the top of line V=225.
+@f08edge:
+    lda $4212
+    and #$80
+    beq @f08edge
+    ; First read of bit 0 right at the edge MUST be closed: the read has not started yet (the F1.08
+    ; subject), AND it proves the poll began before the ~dot-64 open, so the latched dot below is the
+    ; real open transition and not just 'wherever H is now'. Busy-already-open here (a regression that
+    ; starts the read at the vblank edge, or an instrument too slow) takes the flag=0 path -> guard fails.
+    lda $4212
+    and #$01
+    bne @f08bad
+    ; Poll bit 0 until busy opens, then latch the absolute H (SLHV) -- the dot at which the cart
+    ; observes the read start. That is ~the 256-clock/dot-64 open plus a fixed poll+jsl instrument
+    ; latency; all cores share the CPU 0-diff timing, so the value reproduces and is a tight regression
+    ; gate (revert the start delay and the dot collapses toward the edge). Anchored to the H counter's
+    ; own line origin via SLHV, so it carries none of the vblank-flag-vs-NMI-edge offset a from-the-edge
+    ; count would. Rejected drafts: a poll COUNT (~1, granularity straddled the delay) and an edge->open
+    ; DIFFERENCE (the edge latch delayed the poll past the open, so it never caught the transition).
+    rep #$10             ; X 16-bit for the bound; A stays 8-bit for the register poll
+    .i16
+    ldx #$0000
+    sep #$20
+    .a8
+@f08busy:
+    lda $4212
+    and #$01
+    bne @f08started
+    inx
+    cpx #$0400         ; bounded: busy opens well within one line of the edge
+    bne @f08busy
+    ; Busy open at the edge, or never opened within the window: record dot 0 + not-started; guard fails.
+@f08bad:
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E01D8
+    sta f:$7E01DA
+    bra @f08done
+@f08started:
+    jsl hv_read_raw_far   ; C = absolute H at the open transition = the start dot
+    sta f:$7E01D8
+    lda #$0001
+    sta f:$7E01DA         ; started flag
+@f08done:
+    sep #$20
+    .a8
+    stz $4200             ; disarm before judging
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E01D8
+    ; record slot 249: F1.08 auto-read start dot (absolute H at the closed->open transition)
+    sta f:$7EE3F2
+    lda f:$7E01DA
+    ; record slot 250: F1.08 read started after the edge (1) / open-at-edge or never (0)
+    sta f:$7EE3F4
+    ; Guard: the read must have been closed at the edge and then opened -- otherwise the dot is meaningless.
+    sep #$20
+    .a8
+    lda f:$7E01DA
+    cmp #$01
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the armed automatic read was either already busy at the vblank edge (it must start ~dot 64, not at the edge) or never set $4212 busy within several scanlines, so there is no clean start transition whose dot to measure
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; F1.09 — Auto-read duration
+; provenance: Documented (fullsnes: the automatic joypad read is busy for exactly 4224 master cycles (~3.097 scanlines); the poll count is a CPU-cycle-proportional proxy for it)
+.proc test_f1_09
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Skip unless the host holds the input contract — see f1_require_contract.
+    sep #$20
+    .a8
+    lda #$01
+    sta $4016
+    lda #$00
+    sta $4016
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E01E6
+    ldx #$0010
+@rq_c09:
+    sep #$20
+    .a8
+    lda $4016
+    lsr
+    rep #$20
+    .a16
+    lda f:$7E01E6
+    rol
+    sta f:$7E01E6
+    dex
+    bne @rq_c09
+    lda f:$7E01E6
+    cmp #PAD_CONTRACT
+    beq :+
+    ; SKIP: the host is not holding PAD_CONTRACT, so there is nothing for this row to assert against
+    sep #$20
+    .a8
+    lda #VERDICT_SKIP
+    sta f:V_TEST_RESULT
+    jml test_restore
+    ; unreachable — restores the assembler's width belief only
+    .a16
+    .i16
+    :
+    ; Arm auto-read and land on a fresh vblank line, like F1.08 / F1.10.
+    sep #$20
+    .a8
+    lda #$01
+    sta $4200
+    jsl wait_vblank_far
+    jsl wait_vblank_far
+    ; Wait for busy to SET (bounded).
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+    sep #$20
+    .a8
+@f09set:
+    lda $4212
+    and #$01
+    bne @f09busy
+    rep #$20
+    .a16
+    inx
+    cpx #$0800
+    sep #$20
+    .a8
+    bne @f09set
+    ; Never set: record zero duration + flag 0; the guard fails it.
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E01DC
+    sta f:$7E01DE
+    bra @f09done
+@f09busy:
+    ; Count $4212 polls until busy CLEARS -- the CPU-cycle-proportional duration proxy.
+    rep #$30
+    .a16
+    .i16
+    ldy #$0000
+    sep #$20
+    .a8
+@f09clear:
+    lda $4212
+    and #$01
+    beq @f09cleared
+    rep #$20
+    .a16
+    iny
+    cpy #$2000         ; bounded far beyond the ~3-scanline busy window
+    sep #$20
+    .a8
+    bne @f09clear
+    ; Never cleared within the bound: record the (saturated) count + flag 0; the guard fails it.
+    rep #$30
+    .a16
+    .i16
+    tya
+    sta f:$7E01DC
+    lda #$0000
+    sta f:$7E01DE
+    bra @f09done
+@f09cleared:
+    rep #$30
+    .a16
+    .i16
+    tya
+    sta f:$7E01DC         ; poll iterations while busy = duration proxy
+    lda #$0001
+    sta f:$7E01DE         ; set-and-cleared flag
+@f09done:
+    sep #$20
+    .a8
+    stz $4200
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E01DC
+    ; record slot 251: F1.09 auto-read busy duration ($4212 polls while busy)
+    sta f:$7EE3F6
+    lda f:$7E01DE
+    ; record slot 252: F1.09 busy set and then cleared (1) / not (0)
+    sta f:$7EE3F8
+    ; Guard: the count is only a duration if busy both set and cleared within the window.
+    sep #$20
+    .a8
+    lda f:$7E01DE
+    cmp #$01
+    beq :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the armed automatic read did not both set and clear $4212 busy within the sampled window, so the recorded poll count is not a duration
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; F1.10 — Auto-read start race
 ; provenance: Documented (fullsnes: the automatic joypad read begins ~dot 32.5-95.5 of the first vblank line, not at the vblank edge, so $4212 bit 0 reads not-busy for that window and a $4212 poll at NMI entry sees the read not yet started)
 .proc test_f1_10
@@ -32515,7 +32805,7 @@ apu_prog_112:
 .export _test_flags
 
 _test_count:
-    .word 330
+    .word 332
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -32799,6 +33089,8 @@ _test_entries:
     .faraddr test_f1_07
     .faraddr test_f1_05
     .faraddr test_f1_06
+    .faraddr test_f1_08
+    .faraddr test_f1_09
     .faraddr test_f1_10
     .faraddr test_f1_11
     .faraddr test_f1_12
@@ -33132,6 +33424,8 @@ _test_flags:
     .byte $01   ; F1.07
     .byte $01   ; F1.05
     .byte $01   ; F1.06
+    .byte $02   ; F1.08
+    .byte $02   ; F1.09
     .byte $01   ; F1.10
     .byte $01   ; F1.11
     .byte $02   ; F1.12
@@ -33465,6 +33759,8 @@ _test_names:
     .addr @n_f1_07
     .addr @n_f1_05
     .addr @n_f1_06
+    .addr @n_f1_08
+    .addr @n_f1_09
     .addr @n_f1_10
     .addr @n_f1_11
     .addr @n_f1_12
@@ -34355,6 +34651,12 @@ _test_names:
 @n_f1_06:
     .byte 22
     .byte "First bit clocked is B"
+@n_f1_08:
+    .byte 19
+    .byte "Auto-read start dot"
+@n_f1_09:
+    .byte 18
+    .byte "Auto-read duration"
 @n_f1_10:
     .byte 20
     .byte "Auto-read start race"
@@ -34771,7 +35073,7 @@ _page_len:
     .byte 7
     .byte 6
     .byte 10
-    .byte 1
+    .byte 3
     .byte 10
     .byte 1
 
@@ -34825,8 +35127,8 @@ _page_off:
     .word 302
     .word 308
     .word 318
-    .word 319
-    .word 329
+    .word 321
+    .word 331
 
 _page_tests:
     .word 0
@@ -34878,8 +35180,6 @@ _page_tests:
     .word 50
     .word 69
     .word 70
-    .word 295
-    .word 296
     .word 297
     .word 298
     .word 299
@@ -34913,6 +35213,8 @@ _page_tests:
     .word 327
     .word 328
     .word 329
+    .word 330
+    .word 331
     .word 30
     .word 31
     .word 32
@@ -35159,3 +35461,5 @@ _page_tests:
     .word 292
     .word 293
     .word 294
+    .word 295
+    .word 296

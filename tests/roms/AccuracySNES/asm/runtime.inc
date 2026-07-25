@@ -446,6 +446,7 @@ PAD_X           = $0040
     .import frame_step_far
     .import hv_begin_far
     .import hv_end_far
+    .import hv_read_raw_far
 .endif
 .ifndef CATALOG_IMPL
     .import _test_count

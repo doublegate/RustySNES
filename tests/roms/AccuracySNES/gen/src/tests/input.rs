@@ -44,6 +44,8 @@ pub fn all() -> Vec<Test> {
         f1_07(),
         f1_05(),
         f1_06(),
+        f1_08(),
+        f1_09(),
         f1_10(),
         f1_11(),
         f1_12(),
@@ -544,6 +546,222 @@ fn f1_10() -> Test {
              NMI entry sees the read not yet started",
         ),
         Kind::Scored,
+        None,
+    )
+}
+
+/// `F1.08` — the automatic joypad read begins ~dot 32.5-95.5 of the first vblank line, not at the
+/// vblank edge (fullsnes; RustySNES delays it 256 master clocks ≈ dot 64). This golden records the
+/// **absolute H counter at the closed→open transition** of `$4212` busy (bit 0) — the observed
+/// start dot.
+///
+/// # Catch the transition, latch the real counter
+///
+/// After catching the vblank-flag rising edge, the first read of bit 0 must be *closed* (the read
+/// has not started — the qualitative F1.08 fact — and this proves the poll began before the open, so
+/// the latch below is the real transition rather than "wherever H happens to be"). The poll then runs
+/// until busy opens and latches H through `hv_read_raw_far` (SLHV). The value is the open dot plus a
+/// fixed poll + jsl instrument latency (~70 dots), so it reads ~134 rather than the raw 64 — but that
+/// latency is pure CPU cycles, identical across the 0-diff-oracle cores, so the number reproduces and
+/// is a tight regression gate: revert the 256-clock delay and the dot collapses toward the edge (and
+/// the closed-at-edge guard fails outright). Anchoring to the H counter's own line origin via SLHV is
+/// deliberate — it carries none of the vblank-flag-vs-NMI-edge offset that a dots-from-the-edge count
+/// would. Two rejected drafts: a poll *count* from edge to busy (~1) whose ~33-dot granularity
+/// straddled the 64-dot delay; and an edge→open *difference*, where the edge latch delayed the busy
+/// poll past the open so it caught busy already-open (241) and the difference (156) was meaningless.
+///
+/// A **golden**, not scored: the cores split on the exact delay — Mesen2 pins the 32.5-95.5 window;
+/// snes9x latches instantly (busy is already open at the edge → the guard's closed-at-edge check
+/// takes the flag=0 path, a documented `crossval.sh` difference). The guard asserts a clean
+/// closed→open transition, so the recorded dot is a real measurement. Same family as `F1.10` (the
+/// race, scored) and `F1.09` (the duration).
+fn f1_08() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    f1_require_contract(&mut a, "c08");
+    a.c("Arm auto-read; scheduled at the vblank edge but only begins ~dot 64 into the line.");
+    a.l("sep #$20");
+    a.l("lda #$01");
+    a.l("sta $4200");
+    a.c("Get into active display first so the next $4212 bit-7 rise is a FRESH vblank edge.");
+    a.label("f08active");
+    a.l("lda $4212");
+    a.l("and #$80");
+    a.l("bne @f08active     ; spin while in vblank -> falls through in active display");
+    a.c("Poll $4212 until bit 7 (vblank) sets -- the rising edge, at the top of line V=225.");
+    a.label("f08edge");
+    a.l("lda $4212");
+    a.l("and #$80");
+    a.l("beq @f08edge");
+    a.c("First read of bit 0 right at the edge MUST be closed: the read has not started yet (the F1.08");
+    a.c("subject), AND it proves the poll began before the ~dot-64 open, so the latched dot below is the");
+    a.c("real open transition and not just 'wherever H is now'. Busy-already-open here (a regression that");
+    a.c("starts the read at the vblank edge, or an instrument too slow) takes the flag=0 path -> guard fails.");
+    a.l("lda $4212");
+    a.l("and #$01");
+    a.l("bne @f08bad");
+    a.c("Poll bit 0 until busy opens, then latch the absolute H (SLHV) -- the dot at which the cart");
+    a.c("observes the read start. That is ~the 256-clock/dot-64 open plus a fixed poll+jsl instrument");
+    a.c("latency; all cores share the CPU 0-diff timing, so the value reproduces and is a tight regression");
+    a.c("gate (revert the start delay and the dot collapses toward the edge). Anchored to the H counter's");
+    a.c("own line origin via SLHV, so it carries none of the vblank-flag-vs-NMI-edge offset a from-the-edge");
+    a.c("count would. Rejected drafts: a poll COUNT (~1, granularity straddled the delay) and an edge->open");
+    a.c("DIFFERENCE (the edge latch delayed the poll past the open, so it never caught the transition).");
+    a.l("rep #$10             ; X 16-bit for the bound; A stays 8-bit for the register poll");
+    a.l("ldx #$0000");
+    a.l("sep #$20");
+    a.label("f08busy");
+    a.l("lda $4212");
+    a.l("and #$01");
+    a.l("bne @f08started");
+    a.l("inx");
+    a.l("cpx #$0400         ; bounded: busy opens well within one line of the edge");
+    a.l("bne @f08busy");
+    a.c("Busy open at the edge, or never opened within the window: record dot 0 + not-started; guard fails.");
+    a.label("f08bad");
+    a.l("rep #$30");
+    a.l("lda #$0000");
+    a.l("sta f:$7E01D8");
+    a.l("sta f:$7E01DA");
+    a.l("bra @f08done");
+    a.label("f08started");
+    a.l("jsl hv_read_raw_far   ; C = absolute H at the open transition = the start dot");
+    a.l("sta f:$7E01D8");
+    a.l("lda #$0001");
+    a.l("sta f:$7E01DA         ; started flag");
+    a.label("f08done");
+    a.l("sep #$20");
+    a.l("stz $4200             ; disarm before judging");
+    a.l("rep #$30");
+    a.l("lda f:$7E01D8");
+    a.record(
+        249,
+        "F1.08 auto-read start dot (absolute H at the closed->open transition)",
+    );
+    a.l("lda f:$7E01DA");
+    a.record(
+        250,
+        "F1.08 read started after the edge (1) / open-at-edge or never (0)",
+    );
+    a.c("Guard: the read must have been closed at the edge and then opened -- otherwise the dot is meaningless.");
+    a.l("sep #$20");
+    a.l("lda f:$7E01DA");
+    a.l("cmp #$01");
+    a.fail_if_ne(
+        "the armed automatic read was either already busy at the vblank edge (it must start ~dot 64, \
+         not at the edge) or never set $4212 busy within several scanlines, so there is no clean \
+         start transition whose dot to measure",
+    );
+    a.finish(
+        "F1.08",
+        'F',
+        "Auto-read start dot",
+        Provenance::Documented(
+            "fullsnes: the automatic joypad read begins ~dot 32.5-95.5 of the first vblank line \
+             (RustySNES delays it 256 master clocks ~ dot 64), not at the vblank edge",
+        ),
+        Kind::Golden,
+        None,
+    )
+}
+
+/// `F1.09` — the automatic joypad read is busy for exactly 4224 master cycles (≈3.097 scanlines,
+/// fullsnes). The busy window spans several scanlines, so `measure_begin`/`measure_end` (limited to
+/// one line) cannot time it; instead this counts `$4212`-bit-0 polls from busy-set to busy-clear.
+/// The poll loop is a fixed CPU-cycle cost per iteration, so the count is proportional to the busy
+/// duration and cores whose CPU timing agrees (the 0-diff oracle) agree on it.
+///
+/// A **golden**: fullsnes gives 4224 but the cores split on the exact duration (snes9x's instant
+/// latch clears immediately → a count near zero, a documented `crossval.sh` difference). The guard
+/// asserts busy both set and cleared within the window, so the count is a real duration.
+fn f1_09() -> Test {
+    let mut a = Asm::new();
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    f1_require_contract(&mut a, "c09");
+    a.c("Arm auto-read and land on a fresh vblank line, like F1.08 / F1.10.");
+    a.l("sep #$20");
+    a.l("lda #$01");
+    a.l("sta $4200");
+    a.l("jsl wait_vblank_far");
+    a.l("jsl wait_vblank_far");
+    a.c("Wait for busy to SET (bounded).");
+    a.l("rep #$30");
+    a.l("ldx #$0000");
+    a.l("sep #$20");
+    a.label("f09set");
+    a.l("lda $4212");
+    a.l("and #$01");
+    a.l("bne @f09busy");
+    a.l("rep #$20");
+    a.l("inx");
+    a.l("cpx #$0800");
+    a.l("sep #$20");
+    a.l("bne @f09set");
+    a.c("Never set: record zero duration + flag 0; the guard fails it.");
+    a.l("rep #$30");
+    a.l("lda #$0000");
+    a.l("sta f:$7E01DC");
+    a.l("sta f:$7E01DE");
+    a.l("bra @f09done");
+    a.label("f09busy");
+    a.c("Count $4212 polls until busy CLEARS -- the CPU-cycle-proportional duration proxy.");
+    a.l("rep #$30");
+    a.l("ldy #$0000");
+    a.l("sep #$20");
+    a.label("f09clear");
+    a.l("lda $4212");
+    a.l("and #$01");
+    a.l("beq @f09cleared");
+    a.l("rep #$20");
+    a.l("iny");
+    a.l("cpy #$2000         ; bounded far beyond the ~3-scanline busy window");
+    a.l("sep #$20");
+    a.l("bne @f09clear");
+    a.c("Never cleared within the bound: record the (saturated) count + flag 0; the guard fails it.");
+    a.l("rep #$30");
+    a.l("tya");
+    a.l("sta f:$7E01DC");
+    a.l("lda #$0000");
+    a.l("sta f:$7E01DE");
+    a.l("bra @f09done");
+    a.label("f09cleared");
+    a.l("rep #$30");
+    a.l("tya");
+    a.l("sta f:$7E01DC         ; poll iterations while busy = duration proxy");
+    a.l("lda #$0001");
+    a.l("sta f:$7E01DE         ; set-and-cleared flag");
+    a.label("f09done");
+    a.l("sep #$20");
+    a.l("stz $4200");
+    a.l("rep #$30");
+    a.l("lda f:$7E01DC");
+    a.record(
+        251,
+        "F1.09 auto-read busy duration ($4212 polls while busy)",
+    );
+    a.l("lda f:$7E01DE");
+    a.record(252, "F1.09 busy set and then cleared (1) / not (0)");
+    a.c("Guard: the count is only a duration if busy both set and cleared within the window.");
+    a.l("sep #$20");
+    a.l("lda f:$7E01DE");
+    a.l("cmp #$01");
+    a.fail_if_ne(
+        "the armed automatic read did not both set and clear $4212 busy within the sampled window, \
+         so the recorded poll count is not a duration",
+    );
+    a.finish(
+        "F1.09",
+        'F',
+        "Auto-read duration",
+        Provenance::Documented(
+            "fullsnes: the automatic joypad read is busy for exactly 4224 master cycles \
+             (~3.097 scanlines); the poll count is a CPU-cycle-proportional proxy for it",
+        ),
+        Kind::Golden,
         None,
     )
 }

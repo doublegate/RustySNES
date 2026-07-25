@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **AccuracySNES `F1.08` (auto-read start dot) and `F1.09` (auto-read busy duration) golden rows**,
+  taking the first-party battery to **344 of 443** dossier assertions (291 on-cart + 53 rendered
+  scenes) across **332 tests**, 100% on-cart pass. `F1.08` catches the automatic joypad read's
+  closed→open transition on the first vblank line — the first `$4212` bit-0 read after the vblank
+  edge must be *closed* (the read has not started — the qualitative fact — and proof the poll began
+  before the ~dot-64 open), then it latches the H counter (new `hv_read_raw_far` runtime wrapper) at
+  the transition as the observed start dot (~149 with fixed poll+jsl instrument latency, anchored to
+  the SLHV counter's own line origin so it carries none of the vblank-flag-vs-NMI-edge offset a
+  from-the-edge count would). `F1.09` counts `$4212` bit-0 polls across the ~4224-clock busy window
+  (fullsnes) as a duration proxy. Both are **golden** (recorded, host cross-validated): a
+  cycle-accurate core delays the start and agrees; snes9x's instant latch has busy already open at
+  the edge, so `F1.08` fails there in the documented way (the `F1.10` family) and `F1.09` records a
+  slightly shorter duration (22 vs 24) — the `SNES9X_KNOWN_FAILURES` baseline moves 11 → 12 with a
+  cited note in `scripts/accuracysnes/crossval.sh`. Same subject as the `bus.rs` 256-master-clock
+  start delay (`AUTO_JOYPAD_START_DELAY`); no serialized state, so no save-format change.
+
 ### Changed
 
 - **The 65C816 `(dp,X)` addressing now models the WDC emulation-mode `DL!=0` high-byte page-wrap
