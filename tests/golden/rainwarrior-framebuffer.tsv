@@ -1,18 +1,27 @@
-# rainwarrior (Brad Smith) SNES hi-res demo ROMs — FNV-1a framebuffer golden hashes.
+# rainwarrior (Brad Smith) SNES test ROMs — FNV-1a framebuffer golden hashes (60 frames).
 #
 # The ROMs live in the gitignored tests/roms/external/rainwarrior/ tier (no explicit upstream
 # license — usable locally, NOT redistributable, so only these DERIVED hashes are committed, per
-# docs/adr/0003). The gate self-skips when the ROM dir is absent, so CI (which lacks the ROMs) is
-# unaffected; a local developer who downloads them from
-# https://github.com/bbbradsmith/SNES_stuff gets the check.
+# docs/adr/0003). The gate (crates/rustysnes-test-harness/tests/rainwarrior_golden.rs) self-skips
+# when the ROM dir is absent, so CI (which lacks the ROMs) is unaffected; a local developer downloads
+# them from https://github.com/bbbradsmith/SNES_stuff.
 #
-# Blessed at 60 frames and cross-validated against MesenCE (scripts/perdot_capture.lua, MCE_FRAMES=60)
-# via canonical distinct-color SETS (docs/adr/0013 posture): twoship matches MesenCE exactly (26/26
-# colors, 0 diff — validates the Mode 5 hi-res path); elasticity shares all 1509 of its colors with
-# MesenCE, which renders 2 extra ($1999/$5fbf) attributable to MesenCE's known-wrong master-brightness
-# formula (N/15 vs RustySNES's hardware-correct (N+1)/16 per fullsnes; see the MesenCE brightness
-# caveat in scripts/perdot_crossval.sh), NOT a RustySNES defect.
+# Per-ROM input is fixed in the gate's config table (so the frame is deterministic):
+#   twoship / elasticity : no input (hi-res / high-colour demos)
+#   ctrltest*            : PAD_CONTRACT held on both ports ($9050 / $60A0, AccuracySNES Group F style)
+#                          — exercises the $4016/$4017 manual + $4218-$421F auto-read display path
+#   mset                 : a Mouse connected on port 2 and driven (dx=5,dy=-3,left) — exercises the
+#                          32-bit mouse report read path (confirmed to change the display vs no-mouse)
+#
+# hi-res pair cross-validated vs MesenCE (twoship 26/26 colors exact; elasticity +2 MesenCE-brightness
+# colors) — see the gate module doc. The ctrltest/mset hashes are regression baselines; the controller
+# read path they exercise is independently cross-validated by AccuracySNES Group F (Mesen2 + snes9x).
+# (multest_mul16 / multest_div16 are self-scoring and gated separately — no framebuffer golden.)
 #
 # name	fnv1a_hash
 twoship	70686b4adf16cd63
 elasticity	a85a7d5e6a73b2de
+ctrltest	9bdeb49cddc2d475
+ctrltest_auto	0c9e0021e422343f
+ctrltest_simple	69589e245d15f0c8
+mset	6ff86b3fc98f4e1f
