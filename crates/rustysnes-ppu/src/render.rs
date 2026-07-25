@@ -315,24 +315,40 @@ impl Ppu {
             opaque: false,
             ..Pixel::default()
         };
+        // A mid-line `BGMODE` write that flips this line INTO Mode 7 (it started non-Mode-7, so the
+        // cursor is running incrementally) must NOT drive the remaining columns through the tiled
+        // `fetch_bg_column` path — Mode 7 is affine (`render_mode7`), and a tiled fetch of its VRAM
+        // is garbage. Skip the BG fetch for those columns (backdrop + sprite only); an incremental
+        // affine fetch is out of scope (Mode 7 is composited whole-line at line start). The reverse
+        // flip (7 -> non-7) leaves `pd_fetch_x == SCREEN_WIDTH` from the line-start Mode-7 fetch, so
+        // this loop never runs and the write is a no-op on the current line — the pre-4c behaviour.
+        let mode7 = self.io.bg_mode == 7;
         while usize::from(self.pd_fetch_x) < fetch_target {
             let x = usize::from(self.pd_fetch_x);
             let mut a = backdrop;
             let mut b = backdrop;
-            for bg in 0..4 {
-                if !pr.active[bg] {
-                    continue;
-                }
-                let px = self.fetch_bg_column(bg, x, &pr);
-                if !px.opaque {
-                    continue;
-                }
-                let prio = px.priority;
-                if self.io.main_enable[bg] && !self.windowed_out(bg, x, true) && prio > a.priority {
-                    a = px;
-                }
-                if self.io.sub_enable[bg] && !self.windowed_out(bg, x, false) && prio > b.priority {
-                    b = px;
+            if !mode7 {
+                for bg in 0..4 {
+                    if !pr.active[bg] {
+                        continue;
+                    }
+                    let px = self.fetch_bg_column(bg, x, &pr);
+                    if !px.opaque {
+                        continue;
+                    }
+                    let prio = px.priority;
+                    if self.io.main_enable[bg]
+                        && !self.windowed_out(bg, x, true)
+                        && prio > a.priority
+                    {
+                        a = px;
+                    }
+                    if self.io.sub_enable[bg]
+                        && !self.windowed_out(bg, x, false)
+                        && prio > b.priority
+                    {
+                        b = px;
+                    }
                 }
             }
             // Sprites compose last (highest layer), with `>=` so an obj ties over a BG of equal
@@ -2489,10 +2505,8 @@ mod tests {
             core::array::from_fn(|x| fb[x])
         };
 
-        let d = 128u16; // inject mid-line, well past ACTIVE_DOT_START (22)
         let s0 = render(0, None); // whole line at hofs 0
         let s3 = render(3, None); // whole line at hofs 3
-        let split = render(0, Some((d, 3))); // hofs 0, then 3 at dot d
 
         // The ramp + sub-tile shift makes the two static lines differ at EVERY column, so each
         // `split` column is unambiguously one scroll or the other.
@@ -2501,39 +2515,49 @@ mod tests {
             "setup: a hofs 0->3 shift must change every column's colour"
         );
 
-        // Every split column must be exactly the old-scroll or the new-scroll colour (no garbage),
-        // and the boundary must be monotone: old scroll on the left, new scroll on the right.
-        let mut boundary = None;
-        for x in 0..SCREEN_WIDTH {
-            let is_old = split[x] == s0[x];
-            let is_new = split[x] == s3[x];
-            assert!(
-                is_old || is_new,
-                "column {x} is neither the old nor the new scroll colour (garbage)"
-            );
-            match boundary {
-                None if is_new => boundary = Some(x),
-                None => {} // still in the old-scroll run
-                Some(_) => assert!(
-                    is_new,
-                    "column {x} reverted to the old scroll after the boundary — not a monotone split"
-                ),
+        // Inject the scroll change at dot `d`, then find the split boundary: every column must be
+        // exactly the old- or new-scroll colour (no garbage), monotone (old left / new right), and
+        // the write must affect SOME columns (not the old whole-line no-op).
+        let boundary_at = |d: u16| -> usize {
+            let split = render(0, Some((d, 3)));
+            let mut boundary = None;
+            for x in 0..SCREEN_WIDTH {
+                let is_old = split[x] == s0[x];
+                let is_new = split[x] == s3[x];
+                assert!(
+                    is_old || is_new,
+                    "d={d}: column {x} is neither the old nor the new scroll colour (garbage)"
+                );
+                match boundary {
+                    None if is_new => boundary = Some(x),
+                    None => {} // still in the old-scroll run
+                    Some(_) => assert!(
+                        is_new,
+                        "d={d}: column {x} reverted to the old scroll after the boundary (not monotone)"
+                    ),
+                }
             }
-        }
+            let boundary = boundary
+                .unwrap_or_else(|| panic!("d={d}: the mid-line write must affect SOME columns"));
+            assert!(
+                boundary > 0,
+                "d={d}: column 0 (fetched first, before the write) must keep the old scroll"
+            );
+            boundary
+        };
 
-        let boundary =
-            boundary.expect("the mid-line write must affect SOME columns (not old behaviour)");
-        assert!(
-            boundary > 0,
-            "column 0 (fetched first, before the write) must keep the old scroll"
-        );
         // A write at dot `d` reaches the column the fetch cursor is about to build, which runs
-        // BG_FETCH_AHEAD ahead of the draw — so the boundary lands at ~column `d` (draw is then at
-        // ~d-22). Allow a couple of columns of off-by-one slack in the cursor conventions.
-        assert!(
-            boundary.abs_diff(usize::from(d)) <= 2,
-            "fetch-ahead boundary {boundary} should be ~dot {d} (write reaches the fetch cursor, \
-             which is {BG_FETCH_AHEAD} columns ahead of the draw)"
-        );
+        // BG_FETCH_AHEAD ahead of the draw, so the boundary lands at ~column `d` (the draw is then at
+        // ~d - BG_FETCH_AHEAD). Two dots pin the *relation* boundary == d, not one coincidental
+        // point: a constant cursor offset that happened to give boundary == 128 would miss at 60. A
+        // draw-cursor fetch (BG_FETCH_AHEAD effectively 0) would land ~22 columns low and fail both.
+        for d in [60u16, 128] {
+            let boundary = boundary_at(d);
+            assert!(
+                boundary.abs_diff(usize::from(d)) <= 2,
+                "fetch-ahead boundary {boundary} should be ~dot {d} (write reaches the fetch cursor, \
+                 {BG_FETCH_AHEAD} columns ahead of the draw)"
+            );
+        }
     }
 }
