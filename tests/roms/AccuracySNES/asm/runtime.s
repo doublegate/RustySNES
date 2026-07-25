@@ -3858,6 +3858,17 @@ test_restore := test_restore_impl
     rtl
 .endproc
 
+; A single H-counter latch reachable from a relocated group. `hv_read_raw` addresses $2137/$213C
+; absolutely (DBR-relative), but the PPU register quarter $2100-$21FF is mapped identically in every
+; LoROM bank $00-$3F, so a Group F caller with DBR=$03 still latches the real counters. Used by F1.08
+; to read the absolute H at which the automatic-read busy window opens (the start dot), which is a
+; dot-resolution regression gate on the 256-master-clock start delay that a poll count cannot be.
+.export hv_read_raw_far
+.proc hv_read_raw_far
+    jsr hv_read_raw
+    rtl
+.endproc
+
 .export nmi_trampoline
 .proc nmi_trampoline
     jmp (V_NMI_VEC)
