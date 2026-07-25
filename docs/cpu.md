@@ -241,8 +241,10 @@ full; leaving it linear to keep the SST cases would fail real hardware and every
   cross-check (see the runner's MVN/MVP note). With that, the four block-move files pass.
 - Cycle counts are per-instruction tallies, not a cycle-by-cycle bus-pin trace. The **read/write
   access order** is now cross-checked against the SingleStepTests per-cycle trace by
-  `tests/cpu_oracle.rs` (T-CA-11): final state passes 99.99% and cycle *count* 100%, but the access
-  *order* matches only ~25% — the divergence is confined to the **dummy cycles** of read-modify-write
+  `tests/cpu_oracle.rs` (T-CA-11): final state passes 99.99% and cycle *count* 100%, but among the
+  state-and-cycle-exact, non-block-move cases the access *order* matches only ~25% (state/cycle-failing
+  cases are excluded from that denominator — their access mismatch would be a symptom of the semantic
+  divergence, not a dummy-cycle fact). The divergence is confined to the **dummy cycles** of read-modify-write
   (`ASL/LSR/ROL/ROR/INC/DEC/TSB/TRB`), indexed-indirect pointer fetches, and stack pushes, where the
   emulator performs an internal `io` where hardware drives a real dummy read/write. Because the end
   state and cycle count are exact and the only open-bus-order case that mattered is handled

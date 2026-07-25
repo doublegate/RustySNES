@@ -59,8 +59,19 @@ fn sst_accesses(t: &Value) -> Vec<(u32, bool)> {
         .into_iter()
         .flatten()
         .filter_map(|c| {
-            let pins = c[2].as_str()?;
-            let addr = (c[0].as_u64()? as u32) & 0x00FF_FFFF;
+            // A well-formed SST cycle always carries a numeric address and a pin string; only the
+            // data byte is legitimately null (on internal cycles). Treat a missing/typed-wrong
+            // address or pins as corrupt fixture data (panic loudly) rather than silently dropping
+            // the row — a dropped access could otherwise mask a real order mismatch.
+            let pins = c[2]
+                .as_str()
+                .expect("SST cycle: pin string (fixture malformed)");
+            let addr = (c[0]
+                .as_u64()
+                .expect("SST cycle: numeric address (fixture malformed)")
+                as u32)
+                & 0x00FF_FFFF;
+            // `r`/`w` = a real bus access; neither = a valid internal cycle, correctly skipped.
             if pins.contains('r') {
                 Some((addr, false))
             } else if pins.contains('w') {
@@ -211,7 +222,10 @@ fn cpu_65816_oracle_cross_check() {
     }
 
     let (mut total, mut full_pass, mut reg_pass, mut cyc_pass) = (0u64, 0u64, 0u64, 0u64);
-    let (mut acc_total, mut acc_pass) = (0u64, 0u64);
+    // Access-order is only meaningful when the execution is otherwise exact (state + cycle count);
+    // a state/cycle mismatch is a semantic divergence, not a dummy-cycle ordering fact. So we bucket
+    // access-order over the fully-passing, non-block-move cases and report how many were excluded.
+    let (mut acc_total, mut acc_pass, mut acc_excluded) = (0u64, 0u64, 0u64);
     let mut worst: HashMap<String, u64> = HashMap::new();
     let mut acc_worst: HashMap<String, u64> = HashMap::new();
 
@@ -243,11 +257,17 @@ fn cpu_65816_oracle_cross_check() {
                 full_pass += 1;
             }
             if let Some(ok) = acc_ok {
-                acc_total += 1;
-                if ok {
-                    acc_pass += 1;
+                if reg_ok && ram_ok && cyc_ok {
+                    acc_total += 1;
+                    if ok {
+                        acc_pass += 1;
+                    } else {
+                        *acc_worst.entry(stem.clone()).or_default() += 1;
+                    }
                 } else {
-                    *acc_worst.entry(stem.clone()).or_default() += 1;
+                    // A state/cycle failure — not counted in the order metric (its access mismatch,
+                    // if any, is a symptom of the semantic divergence, not a dummy-cycle fact).
+                    acc_excluded += 1;
                 }
             }
         }
@@ -289,7 +309,7 @@ fn cpu_65816_oracle_cross_check() {
         acc_pass as f64 * 100.0 / acc_total as f64
     };
     eprintln!(
-        "  access order     : {acc_pass:>7} / {acc_total} = {acc_pct:.2}%  (T-CA-11: read/write sequence vs the SST trace)"
+        "  access order     : {acc_pass:>7} / {acc_total} = {acc_pct:.2}%  (T-CA-11: read/write sequence vs the SST trace; over state+cycle-exact non-block-move cases; {acc_excluded} excluded as state/cycle-failing)"
     );
     let mut top: Vec<_> = worst.iter().collect();
     top.sort_by(|a, b| b.1.cmp(a.1));

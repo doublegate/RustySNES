@@ -192,11 +192,14 @@ already pass), `docs/st018-arm-notes.md` (ST018 cycle timing deliberately not ga
 speculatively — no red test to turn green — risks regressing
 CPU/DSP/coprocessor timing for **no ROM-observable benefit**, which the pin-a-failing-oracle-first
 discipline exists to prevent. They should each wait for a concrete failing vector (a game or a stricter test that
-actually diverges) rather than being remediated blind. **The genuine remaining Tier-1 work with a
-real ROM-observable payoff is T-CA-10 (the per-dot compositor)** — it unblocks the hi-res scene
-cluster (~15-20 AccuracySNES rows) and mid-line register-write accuracy. T-CA-12 is now **done**
-(open-bus-via-DMA/HDMA). T-CA-11 (large) remains deferred, needed only if an open-bus/DMA-order
-edge case that the current model gets wrong is ever demonstrated (none is, see its row).
+actually diverges) rather than being remediated blind. **T-CA-10 (the per-dot compositor) has
+LANDED** (shipped as the sole renderer in `v1.21.0`; Phase 4c landed 2026-07-25); the only remaining
+Tier-1 work there is its narrower sub-scope (Mode-7 fetch-ahead, window-at-draw-cursor, the raster
+cross-check — see the T-CA-10 row). T-CA-12 is now **done** (open-bus-via-DMA/HDMA). **T-CA-11
+(large) remains deferred until any ROM or test demonstrates an observable dependency on the exact
+dummy-cycle reads/writes** — not only an open-bus/DMA-order case, but any effect of a dummy read
+hitting a clear-on-read / latching I/O register (the side effect the current internal `io` avoids).
+None is demonstrated; the oracle metric now tracks it (see its row).
 
 ## Progress log
 
