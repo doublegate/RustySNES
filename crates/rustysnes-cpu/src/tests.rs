@@ -733,6 +733,7 @@ fn wai_wake_adds_one_cycle_before_an_nmi() {
     bus.nmi = true;
     let waking = cpu.step(&mut bus);
     assert!(!cpu.waiting);
+    assert_eq!(cpu.regs.pc, 0xA000, "WAI+NMI vectors to the NMI handler");
     assert_eq!(
         waking,
         baseline + 1,
