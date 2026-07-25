@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`WAI` wake cycle — the internal cycle the CPU spends leaving `WAI`** before the interrupt
+  sequence begins (`Cpu::wake_from_wai`). Both references model it — ares' trailing `idle()` in
+  `instructionWait`, MesenCE's `Idle()` in `ProcessHaltedState` — and RustySNES was missing it, so a
+  `WAI`-gated interrupt handler's first store landed ~1.5 dots early. Adding it makes `undisbeliever`'s
+  `inidisp_brightness_delay` match MesenCE **exactly** (was 2 px off) and moves the `hdmaen_latch`
+  banding toward the reference (80 → 68 red rows vs MesenCE's 45; the exact count stays power-cycle-
+  dependent — the test is not stable on hardware). The residual raster-boundary offset vs MesenCE is
+  now ~2 dots, the irreducible ares(`HTIME+3.5`)-vs-MesenCE(`HTIME+4.5`) H-IRQ-trigger disagreement,
+  which RustySNES resolves toward ares (the AccuracySNES B-group oracle). No-op off the `WAI`-wake
+  path, so the CPU oracle and instruction cycle counts are unchanged; battery stays 298/298. The four
+  `WAI`+IRQ-gated `undisbeliever` timing goldens were re-blessed. `docs/cpu.md`, `docs/scheduler.md`
+  §H/V-IRQ.
 - **DRAM refresh — the once-per-scanline CPU stall** (`docs/dram-refresh.md`). The 5A22 freezes the
   65C816 for **40 master clocks (10 dots) once per scanline at line-clock ≈ 536** to refresh work RAM;
   RustySNES now models it in the scheduler (`bus.rs` `DRAM_REFRESH_CLOCKS`/`DRAM_REFRESH_DOT`, a nested

@@ -678,10 +678,10 @@ impl Cpu {
         let irq = bus.poll_irq();
 
         if nmi {
-            self.waiting = false;
+            self.wake_from_wai(bus);
             self.service_interrupt(bus, false, true);
         } else if irq && !self.regs.p.contains(Status::I) {
-            self.waiting = false;
+            self.wake_from_wai(bus);
             self.service_interrupt(bus, false, false);
         } else if self.waiting {
             // WAI exits on ANY asserted interrupt line (NMI/IRQ/ABORT/RESET) regardless of the
@@ -714,6 +714,21 @@ impl Cpu {
             self.regs.set_flag(Status::X, true);
             self.regs.x &= 0x00FF;
             self.regs.y &= 0x00FF;
+        }
+    }
+
+    /// Consume the extra internal cycle the CPU spends leaving `WAI` before it begins the interrupt
+    /// sequence, then clear the latch. Both references model this wake cycle: ares' `instructionWait`
+    /// runs one trailing `idle()` after the wait loop exits (`component/processor/wdc65816`), and
+    /// MesenCE's `ProcessHaltedState` runs one `Idle()` before it flips `StopState` to `Running` and
+    /// checks interrupts. Without it, a `WAI`-gated interrupt handler's first store lands ~1.5 dots
+    /// early — one input to the residual `hdmaen_latch_test` / raster-boundary offset vs MesenCE
+    /// (`docs/scheduler.md` §H/V-IRQ). A no-op (no cycle charged) when the CPU was not waiting, so the
+    /// normal instruction-boundary interrupt path is unchanged.
+    fn wake_from_wai(&mut self, bus: &mut impl Bus) {
+        if self.waiting {
+            self.io(bus);
+            self.waiting = false;
         }
     }
 
