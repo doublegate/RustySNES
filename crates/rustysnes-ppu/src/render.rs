@@ -32,6 +32,13 @@
 
 use crate::{Object, Ppu, SCREEN_WIDTH, VideoBus};
 
+/// How many columns the BG fetch cursor runs ahead of the draw cursor (`docs/adr/0014` Phase 4c).
+/// MesenCE fetches BG tile data one tile-column-plus ahead of the draw (`_fetchBgEnd = min(hPos,263)`
+/// vs `_drawEndX = min(hPos-22,255)`), so a mid-line BG-data write takes effect ~22 columns to the
+/// right of where a composite-register write would. On a static line the offset is irrelevant (every
+/// column is fetched with identical registers); it only shapes where a raster write's boundary lands.
+const BG_FETCH_AHEAD: usize = 22;
+
 /// The DAC state one composited column hands to the NEXT column's hi-res below-pass.
 ///
 /// ares recomputes the hi-res subscreen's blend-mode/halve gates from each column's OWN
@@ -214,48 +221,49 @@ impl Ppu {
         crate::hdtag::TileTag { hash, hflip, vflip }
     }
 
-    /// Per-dot compositor (`docs/adr/0014` T-CA-10 Phase 4): fetch this visible line's `above`/`below`
-    /// pixels once (backdrop + backgrounds + sprites, without the per-column composite), seed the DAC
-    /// carry, and reset the draw cursor. Called lazily by [`Self::pd_render_to_dot`] at each line's
-    /// first active dot (or after a save-state load). Fetch happens once per line, before this line's
-    /// HDMA, so on a static line it reads the register state a whole-line composite at `RENDER_DOT`
-    /// would.
+    /// Per-dot compositor line-start setup (`docs/adr/0014` T-CA-10 Phase 4/4c). Resets the DAC carry
+    /// and the draw + fetch cursors, seeds the backdrop, and resolves this line's SPRITES into
+    /// `pd_sprite` (latched — sprites do not change from a mid-line BG-data write). It does NOT fetch
+    /// the non-Mode-7 BGs: the fetch cursor builds those incrementally, ~`BG_FETCH_AHEAD` columns
+    /// ahead of the draw, reading live registers ([`Self::pd_fetch_bg_to`]). Mode 7 has no per-column
+    /// fetch-ahead yet, so its whole line (BGs + sprites) is composited here. Called lazily by
+    /// [`Self::pd_render_to_dot`] at each line's first active dot (or after a save-state load).
     fn pd_fetch_line(&mut self, bus: &mut impl VideoBus) {
         let row = (self.v - 1) as usize;
         if row == 0 {
             self.frame_hires = self.is_hires();
         }
-        // ALWAYS build the line, even under force-blank: display-disable is a compose-time decision
-        // (`pd_render_to_dot` outputs black per column while it is set), so a line that is blanked at
-        // its start but UN-blanked mid-line must still have real pixels ready to draw. (The batch
-        // early-returns on force-blank because it composites the whole line at once; the per-dot path
-        // cannot, since blank can toggle within the line — MesenCE fetches regardless of force-blank.)
-        let mut above = [Pixel::default(); SCREEN_WIDTH];
-        let mut below = [Pixel::default(); SCREEN_WIDTH];
         let pr = self.mode_priorities();
-        for x in 0..SCREEN_WIDTH {
-            above[x] = Pixel {
-                palette: 0,
-                priority: 0,
-                layer: 5,
-                palette_group: 0,
-                opaque: false,
-                ..Pixel::default()
-            };
-            below[x] = above[x];
-        }
+        // Backdrop base for every column; the fetch (BGs) + composite (sprite) build over it. ALWAYS
+        // build the line even under force-blank: display-disable is a compose-time decision
+        // (`pd_render_to_dot` outputs black per column while set), so a line blanked at its start but
+        // un-blanked mid-line must still have real pixels ready — MesenCE fetches regardless of blank.
+        let backdrop = Pixel {
+            palette: 0,
+            priority: 0,
+            layer: 5,
+            palette_group: 0,
+            opaque: false,
+            ..Pixel::default()
+        };
         if self.io.bg_mode == 7 {
+            // Mode 7 is not fetch-ahead yet: composite the whole line now (backgrounds + sprites).
+            let mut above = [backdrop; SCREEN_WIDTH];
+            let mut below = [backdrop; SCREEN_WIDTH];
             self.render_mode7(bus, &pr, &mut above, &mut below);
+            self.render_objects(&pr, &mut above, &mut below);
+            self.pd_above.copy_from_slice(&above);
+            self.pd_below.copy_from_slice(&below);
+            self.pd_fetch_x = SCREEN_WIDTH as u16;
         } else {
-            for bg in 0..4 {
-                if pr.active[bg] {
-                    self.render_bg(bg, &pr, &mut above, &mut below);
-                }
-            }
+            // Non-Mode-7: seed the backdrop; the fetch cursor composites BGs + sprite per column.
+            self.pd_above.fill(backdrop);
+            self.pd_below.fill(backdrop);
+            let mut sprite = [Pixel::default(); SCREEN_WIDTH];
+            self.resolve_sprite_line(&pr, &mut sprite);
+            self.pd_sprite.copy_from_slice(&sprite);
+            self.pd_fetch_x = 0;
         }
-        self.render_objects(&pr, &mut above, &mut below);
-        self.pd_above.copy_from_slice(&above);
-        self.pd_below.copy_from_slice(&below);
         self.pd_carry = DacCarry {
             above_enable: false,
             below_enable: false,
@@ -284,13 +292,69 @@ impl Ppu {
         self.pd_fetched_line = self.v;
     }
 
-    /// Per-dot compositor driver, called every dot from [`crate::Ppu::tick_dot`]. Composites the
-    /// visible line's columns incrementally up to the column the DAC has reached at the current dot,
-    /// using **live** register state per column (so a mid-line color-math/brightness/force-blank write
-    /// only affects columns drawn after it), and tracks [`crate::Ppu::internal_cgram_address`] = the
-    /// last drawn palette (the exact CGRAM-redirect target). All columns finish by `RENDER_DOT` so the
-    /// composite still reads pre-line-HDMA state (a static line composites identically to a whole-line
-    /// pass at `RENDER_DOT`).
+    /// Advance the BG fetch cursor up to `fetch_target`, composing each newly-reached column's
+    /// `pd_above`/`pd_below` from LIVE registers: backdrop, then each active BG's fetched pixel
+    /// ([`Self::fetch_bg_column`]) by window + enable + priority, then this line's latched sprite
+    /// (`pd_sprite`). Non-Mode-7 only (Mode 7 is composited whole-line at line start). On a static
+    /// line every column reads identical registers, so the result is byte-identical to the old
+    /// whole-line fetch; a mid-line BG-data write only reaches columns beyond the cursor
+    /// (`docs/adr/0014` Phase 4c). Idempotent per line: each column is built exactly once.
+    fn pd_fetch_bg_to(&mut self, fetch_target: usize) {
+        let pr = self.mode_priorities();
+        let backdrop = Pixel {
+            palette: 0,
+            priority: 0,
+            layer: 5,
+            palette_group: 0,
+            opaque: false,
+            ..Pixel::default()
+        };
+        while usize::from(self.pd_fetch_x) < fetch_target {
+            let x = usize::from(self.pd_fetch_x);
+            let mut a = backdrop;
+            let mut b = backdrop;
+            for bg in 0..4 {
+                if !pr.active[bg] {
+                    continue;
+                }
+                let px = self.fetch_bg_column(bg, x, &pr);
+                if !px.opaque {
+                    continue;
+                }
+                let prio = px.priority;
+                if self.io.main_enable[bg] && !self.windowed_out(bg, x, true) && prio > a.priority {
+                    a = px;
+                }
+                if self.io.sub_enable[bg] && !self.windowed_out(bg, x, false) && prio > b.priority {
+                    b = px;
+                }
+            }
+            // Sprites compose last (highest layer), with `>=` so an obj ties over a BG of equal
+            // priority — matching the old `render_objects` drain. `pd_sprite` already resolved the
+            // inter-sprite winner; here only the window + enable + BG-priority test remains.
+            let sp = self.pd_sprite[x];
+            if sp.opaque {
+                let prio = sp.priority;
+                if self.io.main_enable[4] && !self.windowed_out(4, x, true) && prio >= a.priority {
+                    a = sp;
+                }
+                if self.io.sub_enable[4] && !self.windowed_out(4, x, false) && prio >= b.priority {
+                    b = sp;
+                }
+            }
+            self.pd_above[x] = a;
+            self.pd_below[x] = b;
+            self.pd_fetch_x += 1;
+        }
+    }
+
+    /// Per-dot compositor driver, called every dot from [`crate::Ppu::tick_dot`]. First advances the
+    /// BG fetch cursor to `BG_FETCH_AHEAD` columns ahead of the draw (building `pd_above`/`pd_below`
+    /// from live BG-data registers), then composites the visible line's columns to the framebuffer up
+    /// to the column the DAC has reached, using **live** composite registers per column (so a mid-line
+    /// color-math/brightness/force-blank write only affects columns drawn after it), tracking
+    /// [`crate::Ppu::internal_cgram_address`] = the last drawn palette. All columns finish by
+    /// `RENDER_DOT` (pre-line-HDMA), so a static line composites identically to a whole-line pass.
     pub(crate) fn pd_render_to_dot(&mut self, bus: &mut impl VideoBus) {
         if self.v < 1 || self.v > self.visible_height() {
             return;
@@ -305,6 +369,9 @@ impl Ppu {
         } else {
             usize::from(self.h - crate::ACTIVE_DOT_START + 1).min(SCREEN_WIDTH)
         };
+        // Keep the BG fetch cursor ahead of the draw cursor (a no-op once the line is fully fetched,
+        // e.g. Mode 7 where `pd_fetch_x` is seeded at `SCREEN_WIDTH`).
+        self.pd_fetch_bg_to((target + BG_FETCH_AHEAD).min(SCREEN_WIDTH));
         let base = (self.v - 1) as usize * self.visible_width();
         let hires = self.frame_hires;
         while usize::from(self.pd_draw_x) < target {
@@ -470,45 +537,6 @@ impl Ppu {
             );
         }
         pixel
-    }
-
-    /// Render one non-Mode-7 background into the above/below pixel buffers. FETCH (per-column,
-    /// [`Self::fetch_bg_column`]) is split from the DRAIN (window + priority write) so a future
-    /// fetch cursor can advance the fetch ahead of the draw; here both run at line start, so the
-    /// result is byte-identical to the fused loop (each column touches only its own `above[x]`/
-    /// `below[x]` and reads none of its own line's prior columns).
-    fn render_bg(&self, bg: usize, pr: &ModePriorities, above: &mut [Pixel], below: &mut [Pixel]) {
-        let bpp = self.bg_bpp(bg);
-        if bpp == 0 {
-            return;
-        }
-        let main = self.io.main_enable[bg];
-        let sub = self.io.sub_enable[bg];
-        if !main && !sub {
-            return;
-        }
-
-        // FETCH the whole line into a fixed-size stack buffer (no allocation on the hot path),
-        // then DRAIN it. `Pixel::default()` is transparent (`opaque == false`).
-        let mut bg_line = [Pixel::default(); SCREEN_WIDTH];
-        for (xi, slot) in bg_line.iter_mut().enumerate() {
-            *slot = self.fetch_bg_column(bg, xi, pr);
-        }
-
-        // DRAIN: composite the fetched line into `above`/`below`.
-        for xi in 0..SCREEN_WIDTH {
-            let pixel = bg_line[xi];
-            if !pixel.opaque {
-                continue;
-            }
-            let prio = pixel.priority;
-            if main && !self.windowed_out(bg, xi, true) && prio > above[xi].priority {
-                above[xi] = pixel;
-            }
-            if sub && !self.windowed_out(bg, xi, false) && prio > below[xi].priority {
-                below[xi] = pixel;
-            }
-        }
     }
 
     /// Read a raw BG3 tilemap entry at world `(hoffset, voffset)` — the offset-per-tile source for
@@ -959,11 +987,40 @@ impl Ppu {
         (range_dot, time_dot)
     }
 
-    /// Render sprites for the current scanline: range evaluation + pixel fetch. (The STAT77 over-flags
-    /// are timed separately by [`Self::pd_eval_over_flags`], one line ahead.)
+    /// Render sprites for the current scanline directly into `above`/`below` (whole-line; used by the
+    /// Mode-7 path). Equivalent to resolving the sprite line and compositing it: the sprite layer is
+    /// evaluated + fetched into a buffer, then merged by window + enable + priority. (The STAT77
+    /// over-flags are timed separately by [`Self::pd_eval_over_flags`], one line ahead.)
     fn render_objects(&self, pr: &ModePriorities, above: &mut [Pixel], below: &mut [Pixel]) {
+        let mut sprite = [Pixel::default(); SCREEN_WIDTH];
+        self.resolve_sprite_line(pr, &mut sprite);
+        let main = self.io.main_enable[4];
+        let sub = self.io.sub_enable[4];
+        for xi in 0..SCREEN_WIDTH {
+            let sp = sprite[xi];
+            if !sp.opaque {
+                continue;
+            }
+            let prio = sp.priority;
+            if main && !self.windowed_out(4, xi, true) && prio >= above[xi].priority {
+                above[xi] = sp;
+            }
+            if sub && !self.windowed_out(4, xi, false) && prio >= below[xi].priority {
+                below[xi] = sp;
+            }
+        }
+    }
+
+    /// Resolve this line's sprites into a per-column buffer (`docs/adr/0014` Phase 4c). Inter-sprite
+    /// priority is decided here — [`Self::paint_objects`] paints high-index → low with `>=` into the
+    /// transparent buffer, so the lowest-index highest-priority sprite wins — but the window and
+    /// main/sub gating are deferred to the composite. This is equivalent to the old fused
+    /// `render_objects` drain because the inter-sprite winner does not depend on the BG underneath:
+    /// the composite (here or in [`Self::pd_fetch_bg_to`]) applies the same window + enable + the
+    /// `sprite.priority >= layer.priority` test against whatever the BGs left in the column.
+    fn resolve_sprite_line(&self, pr: &ModePriorities, sprite: &mut [Pixel]) {
         let (in_range, count, budget_ok) = self.eval_objects_range();
-        self.paint_objects(pr, above, below, &in_range, count, &budget_ok);
+        self.paint_objects(pr, sprite, &in_range, count, &budget_ok);
     }
 
     /// Sprite range + tile-budget evaluation for the current scanline (the `render_objects`
@@ -1040,21 +1097,21 @@ impl Ppu {
         (in_range, count, budget_ok)
     }
 
-    /// Paint the evaluated, budget-surviving sprites into the `above`/`below` line buffers (the
-    /// `render_objects` second phase). Consumes the `(in_range, count, budget_ok)` produced by
-    /// [`Ppu::eval_objects_range`]. Kept a distinct phase so the per-dot compositor can fetch and
-    /// paint sprite columns independently of range evaluation (`docs/adr/0014`, phase 4b).
+    /// Paint the evaluated, budget-surviving sprites into a single per-column sprite buffer (the
+    /// `resolve_sprite_line` second phase). Consumes the `(in_range, count, budget_ok)` produced by
+    /// [`Ppu::eval_objects_range`]. Only inter-sprite priority is resolved here — highest index →
+    /// lowest with `>=`, so the lowest-index highest-priority sprite ends up in `sprite[x]`; window
+    /// and main/sub gating are applied later by whichever composite consumes the buffer. Kept a
+    /// distinct phase so the per-dot compositor can fetch/paint sprite columns independently of range
+    /// evaluation (`docs/adr/0014`, phase 4b).
     fn paint_objects(
         &self,
         pr: &ModePriorities,
-        above: &mut [Pixel],
-        below: &mut [Pixel],
+        sprite: &mut [Pixel],
         in_range: &[u8; 32],
         count: usize,
         budget_ok: &[bool; 32],
     ) {
-        let main = self.io.main_enable[4];
-        let sub = self.io.sub_enable[4];
         let scan_y = u32::from(self.v - 1);
 
         // Paint from highest index to lowest (so lowest index wins ties).
@@ -1169,12 +1226,11 @@ impl Ppu {
                         pixel.tag = tag;
                     }
                     // We paint high-index sprites first, so a `>=` test lets a lower-index
-                    // sprite at the same priority win the tie (it is painted later).
-                    if main && !self.windowed_out(4, xi, true) && prio >= above[xi].priority {
-                        above[xi] = pixel;
-                    }
-                    if sub && !self.windowed_out(4, xi, false) && prio >= below[xi].priority {
-                        below[xi] = pixel;
+                    // sprite at the same priority win the tie (it is painted later). The buffer
+                    // starts transparent (priority 0) and obj priorities are always >= 1, so any
+                    // opaque sprite wins the first write. Window/enable are applied by the composite.
+                    if prio >= sprite[xi].priority {
+                        sprite[xi] = pixel;
                     }
                 }
             }
