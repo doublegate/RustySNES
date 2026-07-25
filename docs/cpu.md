@@ -145,9 +145,15 @@ inter-reference divergences resolved toward hardware (`docs/adr/0002`), not bugs
   silicon bug that wraps the `(dp,X)` pointer high byte within the page when `E=1 && DL!=0`.
   bsnes/ares `readDirectX` and MesenCE `GetDirectAddressIndirectWordWithPageWrap` both model it and
   call it a CPU bug; gilyon's `cputest-full` tests it (and now passes). SST reads it linearly.
-- **43** in `fc.e` (`JSR (addr,X)`, emulation): the return-address push uses `pushN` (full-16-bit
-  `S`, escaping page 1 mid-instruction) per bsnes `instructionCallIndexedIndirect`, cross-validated
-  by AccuracySNES `A3.08` on snes9x + Mesen2. SST confines the push to page 1.
+- **43** in `fc.e` (`JSR (addr,X)`, emulation): the return-address push **escapes the emulation-mode
+  page-1 stack bound** — on a page crossing (`S=$xx00`) the second byte lands at `$00FF`, not
+  `$01FF`. Confirmed by three independent SNES-accurate implementations: bsnes/ares (one lineage)
+  `instructionCallIndexedIndirect` (`pushN`), snes9x `OpFCE1` (`PushW`/`WRAP_BANK`, source comment
+  *"JSR (a,X) is a new instruction, and so doesn't respect the emu-mode stack bounds"*), and MesenCE
+  `JSR_AbsIdxXInd` (`PushWord(PC, allowEmulationMode=false)` + `RestrictStackPointerValue()`); the
+  AccuracySNES `A3.08` result is cross-validation on snes9x + Mesen2, not a separate oracle. SST
+  confines the push to page 1 and is the lone outlier; RustySNES matches these implementations on
+  every physically-reachable state (`S.h=$01`).
 
 An earlier figure of `5,119,999 / 5,120,000` in this doc predated both the `A3.08` `$FC` push fix
 and the `(dp,X)` wrap; sampled runs (`RUSTYSNES_ORACLE_PER_FILE=200`) miss most of these page-edge
