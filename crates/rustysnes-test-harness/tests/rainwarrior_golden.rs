@@ -59,18 +59,26 @@ fn boot_and_hash(path: &std::path::Path) -> Option<u64> {
 }
 
 fn load_golden() -> HashMap<String, u64> {
-    let text = std::fs::read_to_string(golden_path()).unwrap_or_default();
-    text.lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .filter_map(|l| {
-            let (name, hash) = l.split_once('\t')?;
-            Some((
-                name.trim().to_string(),
-                u64::from_str_radix(hash.trim(), 16).ok()?,
-            ))
-        })
-        .collect()
+    let text = std::fs::read_to_string(golden_path()).expect("read rainwarrior golden TSV");
+    let mut map = HashMap::new();
+    for (n, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (name, hash) = line
+            .split_once('\t')
+            .unwrap_or_else(|| panic!("golden line {}: not `name<TAB>hash`: {line:?}", n + 1));
+        let name = name.trim().to_string();
+        let hash = u64::from_str_radix(hash.trim(), 16)
+            .unwrap_or_else(|_| panic!("golden line {}: hash not hex: {hash:?}", n + 1));
+        assert!(
+            map.insert(name.clone(), hash).is_none(),
+            "golden line {}: duplicate baseline for {name:?}",
+            n + 1
+        );
+    }
+    map
 }
 
 #[test]
@@ -92,7 +100,7 @@ fn rainwarrior_framebuffers_match_golden() {
     roms.sort();
 
     let mut mismatches = Vec::new();
-    let mut checked = 0u32;
+    let mut matched: std::collections::HashSet<String> = std::collections::HashSet::new();
     for p in &roms {
         let name = p
             .file_stem()
@@ -111,9 +119,23 @@ fn rainwarrior_framebuffers_match_golden() {
         );
 
         match golden.get(&name) {
-            Some(&exp) if exp == got => checked += 1,
+            Some(&exp) if exp == got => {
+                matched.insert(name);
+            }
             Some(&exp) => mismatches.push(format!("{name}: got {got:#018x} expected {exp:#018x}")),
-            None => eprintln!("rainwarrior_golden: no golden for {name} (present but unpinned)"),
+            None => mismatches.push(format!(
+                "{name}: present in corpus but unpinned in the golden"
+            )),
+        }
+    }
+
+    // The corpus tier is present (we did not self-skip above), so require EVERY pinned ROM to be
+    // present and matched — reject partial coverage where one ROM is missing while another passes.
+    for name in golden.keys() {
+        if !matched.contains(name) {
+            mismatches.push(format!(
+                "{name}: pinned in the golden but not present/matched in the corpus"
+            ));
         }
     }
 
@@ -122,9 +144,8 @@ fn rainwarrior_framebuffers_match_golden() {
         "rainwarrior framebuffer golden mismatches:\n  {}",
         mismatches.join("\n  ")
     );
-    assert!(
-        checked > 0,
-        "no rainwarrior ROMs were checked against the golden"
+    eprintln!(
+        "rainwarrior_golden: all {} pinned framebuffer(s) matched",
+        golden.len()
     );
-    eprintln!("rainwarrior_golden: {checked} framebuffer(s) matched the golden");
 }
