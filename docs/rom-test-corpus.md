@@ -89,6 +89,27 @@ already fully staged:
 | Super FX/GSU opcode + framebuffer | `tests/roms/external/krom/CHIP/GSU/` | 58 ROMs across `2BPP`/`4BPP`/`8BPP` × `128`/`160`/`192` × `FillPoly`/`PlotLine`/`PlotPixel`, plus per-opcode `GSUTest` ROMs. |
 | General PPU/HDMA/Mode 7/interlace homebrew | `tests/roms/external/krom/PPU/`, `BANK/`, `CPUTest/`, `INPUT/`, `MSU/`, `Compress/`, `Translate/` | Broad homebrew coverage for bank-crossing, mosaic, windows, Mode 7, interlace, HDMA variants, MSU-1 audio/video, LZ77 decompression, and ROM-hacking-adjacent translate-table tooling. |
 | 240p test suite | `tests/roms/external/240p/SNES-source/` | Display-timing/geometry reference (source form, not a prebuilt ROM). |
+| PPU hi-res / high-colour (rainwarrior) | `tests/roms/external/rainwarrior/` (gitignored) + golden `tests/golden/rainwarrior-framebuffer.tsv` (committed) | `twoship` (Mode 5 512-px hi-res) and `elasticity` (per-scanline high-colour) — the PPU paths the AccuracySNES scenes cover least. Gated by `crates/rustysnes-test-harness/tests/rainwarrior_golden.rs` (deterministic framebuffer hash, self-skips when the ROM dir is absent). Cross-validated vs MesenCE at bless time: `twoship` matches exactly (26/26 colors); `elasticity` shares all 1509 colors, MesenCE renders 2 extra from its known-wrong brightness formula. |
+
+### License-checked homebrew candidates (2026-07-24 pass)
+
+The SNESdev wiki [Emulator tests](https://snes.nesdev.org/wiki/Emulator_tests) list has several more
+homebrew ROMs, but **none carries a redistributable license**, so like the commercial dumps and
+`krom` they can only live in the gitignored `external/` tier (used locally, hashes committed) — never
+committed as ROMs:
+
+| ROM (author) | Repo/source | License | Disposition |
+|---|---|---|---|
+| `twoship`, `elasticity` (rainwarrior) | [bbbradsmith/SNES_stuff](https://github.com/bbbradsmith/SNES_stuff) | **none stated** (no LICENSE; only the OpenGameArt graphics are CC0) | **Added** — gitignored ROMs + committed golden (above). |
+| `ctrltest`, `mset` (rainwarrior) | same repo | **none stated** | Not wired — controller/mouse tests need host input driving (cf. AccuracySNES Group F contract); available locally to add the same way. |
+| `multest` (rainwarrior) | same repo | **none stated** | Not wired — self-scoring `$4203`-written-twice multiplier quirk; overlaps AccuracySNES Group B5. Addable as a pass/fail gate if a gap is confirmed. |
+| `gradient-test` (NovaSquirrel) | single `.sfc` on smwcentral | **none stated** (bare file host) | Not added — CGWSEL accuracy overlaps AccuracySNES C3 / undisbeliever; no license to commit. |
+| PPU bus activity (lidnariq), Two Ship forum build | nesdev forum attachments | **none stated** | Not added. |
+
+The genuinely committable expansion path is **more `undisbeliever`** (MIT), but its upstream
+([undisbeliever/snes-test-roms](https://github.com/undisbeliever/snes-test-roms)) ships **source**
+(`src/`, built with `ca65`), not prebuilt ROMs — our committed 29 are the curated golden-backed
+subset; adding categories means building them, tracked as a follow-up.
 
 ## Coprocessor framebuffer goldens are secondary — and must be re-blessed after PPU accuracy work
 
