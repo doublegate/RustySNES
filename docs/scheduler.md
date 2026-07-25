@@ -513,7 +513,8 @@ DMA/HDMA) plus the `System` run loop (`scheduler.rs`):
   booted NTSC frame measures 357,368 master clocks on average (spec 357,368 exactly), within
   ±20-40 clocks of natural instruction-boundary quantization noise per individual frame — measured
   across 500 frames × 3 unrelated ROMs, `v1.1.0`; see §DRAM refresh for the full methodology and
-  why this rules out an additive refresh stall.
+  why this metric is refresh-*insensitive* (the frame length is the same with the per-line refresh
+  stall on or off, because it is fixed by the PPU dot-counter rollover, not by CPU work).
 - **DMA/HDMA** is `dma.rs` (clean-room from ares `dma.cpp`): GP-DMA halts the CPU and charges
   `8`/byte; HDMA runs per visible scanline with the per-mode lengths `{1,2,2,4,4,4,2,4}`, indirect
   pointers, and the line counter. `Bus::advance_master` fires HDMA's per-frame setup at V=0 and
@@ -557,17 +558,31 @@ DMA/HDMA) plus the `System` run loop (`scheduler.rs`):
   deadline self-settle each dot and **are** in the save state (`FORMAT_VERSION` 5 for the busy window,
   9 for the scheduled start; `docs/adr/0006`), so a save taken in either window restores identical
   state. Tier-1 remediation T-CA-01/03.
-- **Deferred refinements** (no committed ROM depends on them yet): the 40-clock DRAM-refresh CPU
-  stall (researched, not yet implemented — see §DRAM refresh above) and the PAL-frame
-  master-clock cycle-check.
+- **DRAM refresh** (the 40-clock per-line CPU stall): **implemented** — see §DRAM refresh below and
+  `docs/dram-refresh.md`. **Deferred refinements** (no committed ROM depends on them yet): the
+  PAL-frame master-clock cycle-check.
 
-### DRAM refresh — empirically measured, NOT implemented (`v1.1.0` conclusion: adding it would regress)
+### DRAM refresh — implemented as reallocation (supersedes the `v1.1.0` "not implemented" conclusion)
 
-**Status: the mechanism is well-understood (ares' model, below), but this pass's empirical
-measurement — which the original `v0.5.0` note explicitly required *before* implementing the
-stall — shows there is no gap for a 40-clocks/scanline stall to fill. Implementing it as
-literally described would introduce a genuine, large, wrong regression against the
-now-confirmed-correct current baseline. Deliberately not implemented.**
+**Status: implemented.** A 40-master-clock CPU stall fires once per scanline at line-clock 536
+(`DRAM_REFRESH_DOT` = 134, `DRAM_REFRESH_CLOCKS` = 40 in `bus.rs`), via a nested `advance_master`
+guarded by `in_refresh` on the sub-tick that completes dot 133. Full narrative — what the behaviour
+is, why the effect is real, and why some games' rendered frames shift by a few frames — is in
+`docs/dram-refresh.md`; this section is the scheduler-side contract and the correction of the
+`v1.1.0` reasoning that had deferred it.
+
+**Why the `v1.1.0` "adding it would regress" conclusion was wrong.** That conclusion rested on the
+frame-length measurement below — and frame length here is *refresh-insensitive*, so it could neither
+detect the gap nor bound the fix. `advance_master` couples the master clock and the PPU dot counter
+1:1, and `run_frame` ends when the PPU rolls a fixed 357,368-clock NTSC frame; the 40-clock stall
+advances the PPU toward that fixed rollover, so the frame **stays** 357,368 clocks and the CPU merely
+supplies ~10,480 fewer access-clocks. It is a **reallocation** (the CPU falls behind the video clock
+by a fixed amount at a fixed point, like a slow access), never an addition — so it does not inflate
+the frame. Re-running the `v1.1.0` steady-state probe (500 frames × 3 ROMs) with the stall in place
+confirms this directly: the per-frame master-clock delta is unchanged at 357,368 ± quantization
+noise. The old "charge an extra `advance_master(40)`/line would inflate every frame by ~10,480 clocks"
+prediction assumed a CPU-work-driven frame length; the frame is PPU-driven, so the prediction never
+held.
 
 ares' model (`sfc/cpu/timing.cpp`/`cpu.hpp`): `CPU::step` checks `hcounter() >=
 dramRefreshPosition` on every tick; the first time it trips each scanline it runs 5 iterations of
@@ -588,8 +603,12 @@ per scanline, mirroring how HDMA already charges its own per-line cost) assumed 
 CPU-driven total *undershoots* 357,368 by roughly that much, and that adding the stall would close
 the gap.
 
-**The empirical measurement (this pass) shows the opposite: there is no gap to close.** A
-throwaway diagnostic (`cargo test`-only, not committed) ran `System::run_frame()` for 500
+**The measurement below is refresh-*insensitive* — that is the real lesson, not "no gap".** It
+was originally read as "the frame is already correct, so a stall would over-inflate it"; in fact a
+PPU-driven frame is 357,368 clocks whether or not the CPU stalls, so this metric cannot see refresh
+at all and cannot bound its cost. The same diagnostic re-run *with* the stall (below) returns the
+same numbers, which is what confirms the reallocation adds no frame-length drift. A throwaway
+diagnostic (`cargo test`-only, not committed) ran `System::run_frame()` for 500
 steady-state frames (past the first, DMA-heavy boot frame) across three independent, unrelated
 test ROMs (`tests/roms/gilyon/cputest/cputest-basic.sfc`, `cputest-full.sfc`, and
 `tests/roms/gilyon/spctest/spctest.sfc`), recording `Clock::master`'s per-frame delta against the
@@ -611,23 +630,20 @@ previously cited as the working assumption — that number was very likely a sin
 small sample) measurement that happened to land on the high side of this same ±20-40 clock noise
 band, not a persistent bias.
 
-**Conclusion: implementing the naive 40-clocks/scanline stall now would be wrong.** Charging an
-additional, unconditional `advance_master(40)` once per scanline on top of a model that already
-averages to the correct 357,368-clock total would inflate every frame by ~40×262≈10,480 clocks —
-a large, obviously-wrong overshoot against the now-empirically-confirmed-correct baseline, not a
-missing-clocks fix. This means one of two things is true, and distinguishing them is real future
-work, not assumed here: either (a) the existing per-opcode/per-access cost table (`Bus::access_speed`,
-ported from ares' own `CPU::wait` map) already implicitly absorbs DRAM refresh's real-hardware
-effect through however its costs were originally calibrated, and no further change is needed at
-all; or (b) refresh really does need to be modeled explicitly, but only by *reallocating* an
-equivalent ~40 clocks/scanline out of the existing cost table (finding and trimming ~0.15
-clocks/access somewhere across the ~262 accesses/scanline a typical frame makes) rather than
-*adding* a new stall on top — a materially harder, more invasive change than the original
-"just add a stall" plan assumed, and not undertaken in this pass given the empirical result
-removes the urgency (the current model is already correct at the whole-frame-length level).
+**Resolution: the stall was safe to add directly, and is added.** The `v1.1.0` fear — that an
+unconditional `advance_master(40)`/line would inflate every frame by ~40×262≈10,480 clocks — assumed
+a CPU-work-driven frame length. The frame length is PPU-driven (357,368 clocks by dot-counter
+rollover, independent of CPU work), so the injected clocks advance the PPU toward that fixed rollover
+and `run_frame` completes after the CPU supplies ~10,480 *fewer* access-clocks: the frame does not
+grow. The reallocation the `v1.1.0` note imagined as "the materially harder option (b) — trim ~0.15
+clocks/access across the line" is not needed, because the CPU-driven clock already *is* the
+reallocation mechanism — a stall spends the frame's fixed budget on refresh instead of on CPU work
+automatically. The stall is now injected directly at line-clock 536 (see the status paragraph above),
+validated against the raster cross-check, AccuracySNES `B3.01`, and the re-run frame-length probe.
 
-**For whoever revisits this:** re-run this same measurement methodology (steady-state
-`run_frame()` deltas averaged over hundreds of frames, multiple unrelated ROMs, outlier-filtered
+**Historical note for anyone re-examining the frame-length model:** re-run this same measurement
+methodology (steady-state `run_frame()` deltas averaged over hundreds of frames, multiple unrelated
+ROMs, outlier-filtered
 to exclude boot-frame DMA spikes) before ever re-attempting the stall — it is cheap, decisive, and
 this pass's result should be treated as the current baseline to compare against, not re-derived
 from scratch. If a future change to the per-opcode cost model (e.g. closing the CPU oracle's one

@@ -29,10 +29,15 @@ const FRAMES: u32 = 60;
 /// PPU access during active display without force-blank; per-dot returns `7fff` where MesenCE returns
 /// `7fc6` — a Phase 4d (PPU access-during-render) gap. When 4d lands, remove the entry and re-bless.
 ///
+/// The pinned hash was refreshed for the DRAM-refresh stall (`docs/dram-refresh.md`): the 4d gap is
+/// unchanged, but the per-line refresh shifts the whole frame's timing, so the wrong output lands at
+/// a different instant and hashes differently. The golden TSV entry stays the pre-refresh batch value
+/// (it only needs to differ from the pinned value to route through this known-gap branch).
+///
 /// Unconditional: the per-dot PPU is the only compositor (the batch path was removed), so this crate
 /// always exercises it and the gap list is not gated on any feature.
 const PERDOT_KNOWN_GAPS: &[(&str, u64)] =
-    &[("inidisp_forgot_to_force_blank", 0xc50c_9a26_7678_0d05)];
+    &[("inidisp_forgot_to_force_blank", 0xaeb6_78a4_165b_28c5)];
 
 fn roms_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/roms/undisbeliever")

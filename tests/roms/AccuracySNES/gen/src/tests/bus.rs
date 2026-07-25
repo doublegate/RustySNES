@@ -1783,13 +1783,15 @@ fn irq_within_frames(a: &mut Asm, frames: u8, tag: &str) {
 ///
 /// # Why it records rather than asserts
 ///
-/// Three separate reasons, any one of which would be enough:
+/// RustySNES now **models** the refresh pause (`bus.rs` `DRAM_REFRESH_*`; `docs/dram-refresh.md`),
+/// so this loop reports variant 2 (one interval ~10 dots longer) and the `excess` slot reads ~10.
+/// It stays a recorded golden rather than a self-scored assertion for two reasons that survive the
+/// implementation:
 ///
-/// * `docs/accuracy-ledger.md` scopes refresh out of RustySNES *empirically* -- measured over 500
-///   frames across 3 ROMs, the CPU-driven model already produces the correct ~357,368-clock NTSC
-///   frame, so bolting on an extra stall would make frame length wrong.
-/// * ares says in its own source that its refresh pattern is "technically" wrong and only averages
-///   out (`sfc/cpu/timing.cpp:23`). A reference that disclaims itself is not an oracle.
+/// * ares says in its own source that its refresh *pattern* is "technically" wrong and only averages
+///   out (`sfc/cpu/timing.cpp:23`); fullsnes/anomie fix the position only to the multiple of 8 near
+///   536. The pause's existence and ~40-clock length are solid, but its exact per-line position is
+///   not oracle-grade, so the cart records the shape and lets the host cross-validate.
 /// * The loop's own period is far coarser than the pause. Each iteration costs four bus accesses
 ///   from an 8-clock bank plus the index work -- about 60 dots -- so with three intervals the
 ///   pause is resolved as an outlier, nowhere near the multiple-of-8 precision `B3.02` states.
@@ -1866,10 +1868,11 @@ fn b3_01() -> Test {
         'B',
         "DRAM refresh pause",
         Provenance::Contested(
-            "fullsnes and anomie put the pause at 40 clocks near line-clock 536, but ares' own \
-             source calls its refresh pattern technically wrong and only right on average, and \
-             docs/accuracy-ledger.md scopes refresh out of RustySNES on the measurement that its \
-             frame length is already correct without one",
+            "fullsnes and anomie put the pause at 40 clocks near line-clock 536, and RustySNES now \
+             models it there (docs/dram-refresh.md), so this loop records variant 2 (one interval \
+             ~10 dots longer); ares' own source still calls its refresh *pattern* technically wrong \
+             and only right on average, so the exact per-line position stays host-cross-validated \
+             rather than self-asserted",
         ),
         Kind::Golden,
         None,
