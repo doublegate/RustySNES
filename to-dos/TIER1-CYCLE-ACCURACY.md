@@ -39,7 +39,7 @@ any golden that legitimately changes is re-blessed **only** from a render the re
 
 | # | Ticket | Gap | Source | Status |
 |---|---|---|---|---|
-| T-CA-10 | **Per-dot PPU compositor** | per-scanline; mid-line register writes, offset-per-tile, interlace, live `frame_hires` all wrong at dot resolution | `docs/adr/0014`, `ppu.md` | **[x] LANDED — shipped as the sole renderer in `v1.21.0` (ADR 0014 Accepted; batch path deleted, single code path).** Phase 1 (#205): extracted `compose_pixel`/`DacCarry` — bit-identical. Phase 2 (#210): split `render_bg` FETCH/DRAIN — bit-identical. Phase 3+ (#218 CGRAM redirect, #223 OAM `$2138` redirect, #231 per-dot over-flag, then the default flip): the scanline composites one column at a time against live registers; validated 29/29 on undisbeliever vs a headless MesenCE built as blueprint + exact-frame oracle. Unblocked the scored rows `C1.08`/`C3.04`/`C7.16`. |
+| T-CA-10 | **Per-dot PPU compositor** | per-scanline; mid-line register writes, offset-per-tile, interlace, live `frame_hires` all wrong at dot resolution | `docs/adr/0014`, `ppu.md` | **[x] LANDED — shipped as the sole renderer in `v1.21.0` (ADR 0014 Accepted; batch path deleted, single code path).** Phase 1 (#205): extracted `compose_pixel`/`DacCarry` — bit-identical. Phase 2 (#210): split `render_bg` FETCH/DRAIN — bit-identical. Phase 3+ (#218 CGRAM redirect, #223 OAM `$2138` redirect, #231 per-dot over-flag, then the default flip): the scanline composites one column at a time against live registers; validated 28/29 on undisbeliever (+1 documented per-dot gap, `inidisp_forgot_to_force_blank`, folded into the remaining **4c** work) vs a headless MesenCE built as blueprint + exact-frame oracle. Unblocked the scored rows `C1.08`/`C3.04`/`C7.16`. The one remaining T-CA-10 item is **4c (incremental BG fetch-ahead)** — see the phasing notes below. |
 
 ### T-CA-10 Phase 3 — concrete implementation plan + traps (scoped 2026-07-23)
 
@@ -112,25 +112,42 @@ ONLY `inidisp_forgot_to_force_blank` is genuinely wrong (`7fff` vs MesenCE `7fc6
 the per-dot COMPOSE is correct on 28/29, not merely byte-identical-on-static. **CONSTRAINT: the undisbeliever
 golden is shared flag-on/off, so it CANNOT re-bless to the more-accurate per-dot values without breaking
 flag-OFF — it stays batch-valued until Phase 6's default flip; flag-ON "failing" the 3 INIDISP goldens is
-expected and fine.** MesenCE applies INIDISP live per-segment, no write-delay. **DON'T chase inidisp_forgot;
-do the systematic phases:**
+expected and fine.** MesenCE applies INIDISP live per-segment, no write-delay.
 
-- **4b — incremental sprite-eval cursor.** Split `render_objects` range/time eval (sets `$213E` over-flags) from
-  paint; run the eval incrementally over dots per MesenCE `EvaluateNextLineSprites`. Fixes over-flag DOT timing
-  (needed for AccuracySNES C7.x) and mid-line OAM changes. Milestone: framebuffer byte-identical + over-flag reads.
-- **4c — incremental BG fetch-ahead.** Run `render_bg`'s FETCH incrementally over `_fetchBgStart..End` (≤ dot 263,
-  draw ≤ 255) so a mid-line scroll write only reaches not-yet-fetched columns. Unblocks mid-line scroll rasters.
-- **4d — deep mid-line access + hi-res/interlace.** PPU VRAM/OAM/CGRAM access-during-render redirect/drop model
-  (the inidisp_forgot class), MPY-during-render (C11.08), `$2138` mid-frame (C1.08), two-sub-pixel hi-res +
-  interlace at dot resolution. Re-bless the legitimately-shifted goldens (incl. the 3 INIDISP ROMs) vs MesenCE.
-- **Item 3 — OAM redirect (C7.16 Uniracers), integrated with 4b's sprite-eval cursor** (`oam_write_target` in
-  regs.rs mirroring the CGRAM one, using the eval index; port the high-table-also-written quirk).
-- **Phase 6 — flip default** after 4b-4d+OAM land and the full corpus re-blesses vs MesenCE/ares; then add the
-  AccuracySNES SCORED rows (C3.04, C11.08, C1.08, C7.16, hi-res) → coverage climbs past 339/443.
+**STATUS (2026-07-25): 4a, 4b, the clean 4d access model, and Phase 6 are all DONE and on `main`.
+Only 4c remains — it is the last T-CA-10 accuracy item.**
+
+- **4b — incremental sprite-eval cursor. DONE (PR #231).** Over-flag (`$213E`) DOT timing via the incremental
+  eval cursor; OAM redirect (C7.16 Uniracers) landed with it.
+- **4d — deep mid-line access model. DONE (clean part).** VRAM writes during render are dropped
+  (`regs.rs vram_accessible`, matches MesenCE `CanAccessVram`); CGRAM/OAM writes are redirected (C3.04/C7.16
+  shipped); `$2138` mid-frame (C1.08) scored. MPY-during-render (C11.08) is NOT convertible (per-pixel
+  intermediate unmodeled — parked, contested). Hi-res two-sub-pixel/interlace: not pursued (no reference-agreed
+  target — ADR 0013). The ONE residual is `inidisp_forgot_to_force_blank` (see 4c).
+- **Phase 6 — flip default + REMOVE batch. DONE (commit `aa9eff0`, merged to `main`).** The per-dot compositor is
+  the emulator's ONLY renderer; `render_scanline`/`compose_dac`/the batch `tick_dot` branch and the
+  `per-dot-compositor` feature are all gone (`compose_dac` kept only as a `#[cfg(test)]` hi-res-DAC driver). The
+  scored rows C1.08/C3.04/C7.16 landed with the flip (294→297 on-cart). ADR 0014 → Accepted.
+
+- **4c — incremental BG fetch-ahead. THE LAST ITEM, NOT YET STARTED (deferred to a fresh session, 2026-07-25).**
+  Run `render_bg`'s FETCH incrementally over `_fetchBgStart..End` (fetch cursor ~22 columns AHEAD of the draw
+  cursor, which already matches MesenCE) so a mid-line BG-data write (BGnSC/BGnNBA/BGnHOFS/VOFS/BGMODE/MOSAIC/OPT)
+  reaches only not-yet-fetched columns. Restructures `render_bg` from "read regs once, loop 256" to "per-column
+  fetch reading live regs"; touches every BG mode + OPT + mosaic + Mode 7. Byte-identical on static lines.
+  **Two hard caveats (see the [[4c-bg-fetch-ahead-scope]] memory):** (1) NO current validation target — no corpus
+  ROM does a mid-line BG-data write, so building a NEW synthetic mid-line-scroll test ROM + MesenCE cross-check is
+  PART of 4c's cost, not a side note; (2) 4c does NOT obviously fix `inidisp_forgot` (its artifact is on the
+  draw-cursor/`internal_cgram_address` side, which already matches MesenCE) — do a per-pixel per-dot-vs-MesenCE
+  frame diff on `inidisp_forgot` FIRST to confirm/refute before assuming a phase fixes it. Suggested phasing:
+  (0) confirm the `inidisp_forgot` mechanism empirically; (1) build the scroll validation ROM + MesenCE check;
+  (2) restructure `render_bg` for per-column-range fetch, one mode first, byte-identical on static; (3) extend to
+  all modes + OPT + mosaic + Mode 7; (4) wire the fetch cursor into `pd_render_to_dot`. Biggest risk: the
+  fetch-ahead offset is subtle (off-by-one passes every static line, wrong only on rasters). **Start FRESH — the
+  undisbeliever ROMs (needed for the diff) are gitignored/absent in headless environments.**
 
 Determinism/save-state: serialize any CPU-observable new cursor state at the point mid-line saves become possible;
-keep transient line buffers re-derived. Every phase: byte-identical milestone → save-state round-trip → determinism
-→ clippy/fmt both feature states → MesenCE frame agreement for any re-blessed golden.
+keep transient line buffers re-derived. Every step: byte-identical milestone → save-state round-trip → determinism
+→ clippy/fmt clean → MesenCE frame agreement for any re-blessed golden.
 
 | T-CA-11 | 65816 cycle-by-cycle bus trace | cycle counts are per-instruction tallies, access **order** not pin-validated | `cpu.md:186`, timing-oracle | [ ] Large: model per-cycle bus access (address driven each internal cycle) so open-bus/DMA-interaction is exact. |
 | T-CA-12 | Open-bus-via-HDMA-latch | correct fix breaks 24 GSU goldens, root cause unknown | `accuracy-ledger.md`, `scheduler.md` | [BLOCKED] Blocked on an access-level trace of GSU VRAM/CGRAM writes vs the failing DMA transfers. |
