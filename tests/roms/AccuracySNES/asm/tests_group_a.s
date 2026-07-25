@@ -29978,6 +29978,9 @@ CATALOG_IMPL = 1
     bra @f08done
 @f08started:
     jsl hv_read_raw_far   ; C = absolute H at the open transition = the start dot
+    rep #$30              ; hv_read_raw_far returns 16-bit; make the two 16-bit stores explicit
+    .a16
+    .i16
     sta f:$7E01D8
     lda #$0001
     sta f:$7E01DA         ; started flag
@@ -30082,12 +30085,8 @@ CATALOG_IMPL = 1
     lda $4212
     and #$01
     bne @f09busy
-    rep #$20
-    .a16
-    inx
+    inx                ; X is 16-bit (x flag); the m-flag width is irrelevant to inx/cpx
     cpx #$0800
-    sep #$20
-    .a8
     bne @f09set
     ; Never set: record zero duration + flag 0; the guard fails it.
     rep #$30
@@ -30109,12 +30108,8 @@ CATALOG_IMPL = 1
     lda $4212
     and #$01
     beq @f09cleared
-    rep #$20
-    .a16
-    iny
-    cpy #$2000         ; bounded far beyond the ~3-scanline busy window
-    sep #$20
-    .a8
+    iny                ; Y is 16-bit (x flag); no per-iteration width toggle -- toggling m
+    cpy #$2000         ; only adds ~6 dead cycles/iter and skews the duration proxy
     bne @f09clear
     ; Never cleared within the bound: record the (saturated) count + flag 0; the guard fails it.
     rep #$30

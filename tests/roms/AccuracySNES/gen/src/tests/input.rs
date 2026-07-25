@@ -628,6 +628,7 @@ fn f1_08() -> Test {
     a.l("bra @f08done");
     a.label("f08started");
     a.l("jsl hv_read_raw_far   ; C = absolute H at the open transition = the start dot");
+    a.l("rep #$30              ; hv_read_raw_far returns 16-bit; make the two 16-bit stores explicit");
     a.l("sta f:$7E01D8");
     a.l("lda #$0001");
     a.l("sta f:$7E01DA         ; started flag");
@@ -696,10 +697,8 @@ fn f1_09() -> Test {
     a.l("lda $4212");
     a.l("and #$01");
     a.l("bne @f09busy");
-    a.l("rep #$20");
-    a.l("inx");
+    a.l("inx                ; X is 16-bit (x flag); the m-flag width is irrelevant to inx/cpx");
     a.l("cpx #$0800");
-    a.l("sep #$20");
     a.l("bne @f09set");
     a.c("Never set: record zero duration + flag 0; the guard fails it.");
     a.l("rep #$30");
@@ -716,10 +715,8 @@ fn f1_09() -> Test {
     a.l("lda $4212");
     a.l("and #$01");
     a.l("beq @f09cleared");
-    a.l("rep #$20");
-    a.l("iny");
-    a.l("cpy #$2000         ; bounded far beyond the ~3-scanline busy window");
-    a.l("sep #$20");
+    a.l("iny                ; Y is 16-bit (x flag); no per-iteration width toggle -- toggling m");
+    a.l("cpy #$2000         ; only adds ~6 dead cycles/iter and skews the duration proxy");
     a.l("bne @f09clear");
     a.c("Never cleared within the bound: record the (saturated) count + flag 0; the guard fails it.");
     a.l("rep #$30");

@@ -145,7 +145,7 @@ ran=0
 #   and a cycle-accurate core agree). snes9x's instant latch has busy already open at the edge, so the
 #   closed-at-edge guard takes the not-started path and the row fails — the same instant-latch divergence
 #   as F1.10, on the same nocash-documented behaviour. (F1.09, the busy *duration* golden, still PASSES on
-#   snes9x: its latch both sets and clears within the window at a slightly shorter count — 22 vs 24 — a
+#   snes9x: its latch both sets and clears within the window at a slightly shorter count — 30 vs 33 — a
 #   recorded golden difference, not a failing test.) Region-independent.
 SNES9X_KNOWN_FAILURES=12
 

@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (fullsnes) as a duration proxy. Both are **golden** (recorded, host cross-validated): a
   cycle-accurate core delays the start and agrees; snes9x's instant latch has busy already open at
   the edge, so `F1.08` fails there in the documented way (the `F1.10` family) and `F1.09` records a
-  slightly shorter duration (22 vs 24) — the `SNES9X_KNOWN_FAILURES` baseline moves 11 → 12 with a
+  slightly shorter duration (30 vs 33) — the `SNES9X_KNOWN_FAILURES` baseline moves 11 → 12 with a
   cited note in `scripts/accuracysnes/crossval.sh`. Same subject as the `bus.rs` 256-master-clock
   start delay (`AUTO_JOYPAD_START_DELAY`); no serialized state, so no save-format change.
 
