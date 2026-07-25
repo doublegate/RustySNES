@@ -145,7 +145,7 @@ impl Cpu {
 Phase-1 instruction core in `crates/rustysnes-cpu` (modules `regs.rs`, `addr.rs`, `exec.rs`).
 Behavior modelled clean-room on the bsnes / ares `wdc65816` reference cores (study-only).
 
-**Oracle results** (SingleStepTests/65816, `tests/cpu_oracle.rs`): **5,119,710 / 5,120,000
+**Oracle results** (SingleStepTests/65816, `crates/rustysnes-test-harness/tests/cpu_oracle.rs`): **5,119,710 / 5,120,000
 (99.994%)** full passes (state + RAM + cycle) across the entire set (512 opcode files × 10,000
 tests, both emulation `.e` and native `.n`). The **290 residuals are all emulation-mode cases where
 SingleStepTests is the lone outlier** and RustySNES matches the SNES-accurate references
@@ -237,11 +237,11 @@ full; leaving it linear to keep the SST cases would fail real hardware and every
   PC rewound to re-enter (`if(A.w--) PC.w -= 3`, ares `instructionBlockMove`), so a real N-byte
   move takes N steps and a 3-byte move is correct. The SingleStepTests block-move fixtures cap
   each case at a fixed, non-architectural cycle budget (A never wraps; every test moves exactly
-  14 bytes), so `tests/cpu_oracle.rs` replays the move to that recorded budget for the
+  14 bytes), so `crates/rustysnes-test-harness/tests/cpu_oracle.rs` replays the move to that recorded budget for the
   cross-check (see the runner's MVN/MVP note). With that, the four block-move files pass.
 - Cycle counts are per-instruction tallies, not a cycle-by-cycle bus-pin trace. The **read/write
   access order** is now cross-checked against the SingleStepTests per-cycle trace by
-  `tests/cpu_oracle.rs` (T-CA-11): final state passes 99.99% and cycle *count* 100%, but among the
+  `crates/rustysnes-test-harness/tests/cpu_oracle.rs` (T-CA-11): final state passes 99.99% and cycle *count* 100%, but among the
   state-and-cycle-exact, non-block-move cases the access *order* matches only ~25% (state/cycle-failing
   cases are excluded from that denominator — their access mismatch would be a symptom of the semantic
   divergence, not a dummy-cycle fact). The divergence is confined to the **dummy cycles** of read-modify-write
