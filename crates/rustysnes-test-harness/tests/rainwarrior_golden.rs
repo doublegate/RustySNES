@@ -28,6 +28,11 @@ use rustysnes_core::{System, cart::Cart};
 /// Frames to run before hashing — matches the MesenCE cross-validation (`MCE_FRAMES=60`).
 const FRAMES: u32 = 60;
 
+/// The exact ROM set this gate covers. Pinned here (not just inferred from the golden TSV) so the
+/// gate cannot be silently narrowed by editing the TSV — the golden must name exactly these, and
+/// each must be present and match.
+const REQUIRED_ROMS: [&str; 2] = ["twoship", "elasticity"];
+
 fn roms_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/roms/external/rainwarrior")
 }
@@ -89,7 +94,14 @@ fn rainwarrior_framebuffers_match_golden() {
         return;
     }
     let golden = load_golden();
-    assert!(!golden.is_empty(), "golden baseline TSV is empty/missing");
+    // The golden must name EXACTLY the required set — no silent narrowing (a trimmed TSV) and no
+    // stray extras.
+    let golden_names: std::collections::HashSet<&str> = golden.keys().map(String::as_str).collect();
+    let required: std::collections::HashSet<&str> = REQUIRED_ROMS.into_iter().collect();
+    assert_eq!(
+        golden_names, required,
+        "golden TSV must pin exactly {REQUIRED_ROMS:?}, found {golden_names:?}"
+    );
 
     let mut roms: Vec<_> = std::fs::read_dir(&dir)
         .expect("read rainwarrior dir")
