@@ -331,20 +331,20 @@ impl Ppu {
         }
     }
 
-    /// Render one non-Mode-7 background into the above/below pixel buffers.
+    /// Fetch one non-Mode-7 BG's pixel at screen column `x`, reading every BG-data register LIVE
+    /// (`docs/adr/0014` Phase 4c): scroll (`BGnHOFS`/`VOFS`), tilemap (`BGnSC`), char base
+    /// (`BGnNBA`), tile size, mosaic, and the BG3 offset-per-tile lookup. Returns a transparent
+    /// [`Pixel`] (`opaque == false`) for a colour-0 dot or a disabled BG. Extracted verbatim from
+    /// `render_bg`'s per-column loop so an incremental fetch cursor can call it one column at a time
+    /// mid-line; while it is still invoked whole-line at line start (`render_bg`), a static line
+    /// reads identical registers every column, so the result is byte-identical to the old fused loop.
     // `bg3_hofs`/`bg3_vofs` (offset-per-tile) intentionally mirror the `hofs`/`vofs` naming.
     #[allow(clippy::similar_names)]
-    fn render_bg(&self, bg: usize, pr: &ModePriorities, above: &mut [Pixel], below: &mut [Pixel]) {
+    fn fetch_bg_column(&self, bg: usize, x: usize, pr: &ModePriorities) -> Pixel {
         let bpp = self.bg_bpp(bg);
         if bpp == 0 {
-            return;
+            return Pixel::default();
         }
-        let main = self.io.main_enable[bg];
-        let sub = self.io.sub_enable[bg];
-        if !main && !sub {
-            return;
-        }
-
         let tile_w = if self.io.tile_size[bg] { 16u32 } else { 8 };
         let tile_h = tile_w;
 
@@ -363,7 +363,7 @@ impl Ppu {
             // Cannot underflow: the caller renders only for `self.v >= 1` (see `tick_ppu_dot`),
             // and `line_y` is `self.v` until this point. Saturating here instead would turn a
             // broken invariant into a silently wrong picture, which is the harder bug to find.
-            debug_assert!(line_y >= 1, "render_bg called for scanline 0");
+            debug_assert!(line_y >= 1, "fetch_bg_column called for scanline 0");
             let screen_y = line_y - 1;
             line_y = (screen_y / m) * m + 1;
         }
@@ -377,116 +377,125 @@ impl Ppu {
         let opt_valid = 0x2000u16 << bg; // BG1 => 0x2000, BG2 => 0x4000
         let hofs_fine = hofs & 7;
 
-        // Per-dot compositor, Phase 2 (`docs/adr/0014`): the per-column FETCH fills a per-line pixel
-        // buffer (an opaque `Pixel` per column, or a transparent default), and a separate DRAIN pass
-        // below composites it into `above`/`below`. Splitting fetch from composite is the structural
-        // step toward driving the drain one dot at a time; under static state (the whole line fetched
-        // before any composite, as here) it is BYTE-IDENTICAL to the fused per-column write, because
-        // each column touches only its own `above[x]`/`below[x]` and reads none of its own line's
-        // prior columns. Fixed-size stack buffer — no allocation on the hot path.
-        let mut bg_line = [Pixel::default(); SCREEN_WIDTH];
-
-        for x in 0..SCREEN_WIDTH as u32 {
-            let px = if self.io.mosaic_enable[bg] && self.io.mosaic_size > 1 {
-                let m = u32::from(self.io.mosaic_size);
-                (x / m) * m
-            } else {
-                x
-            };
-            let mut world_x = px.wrapping_add(hofs);
-            let mut world_y = line_y.wrapping_add(vofs);
-            if opt_mode {
-                let offset_x = (px + hofs_fine) & !7;
-                if offset_x >= tile_w {
-                    // first tile column(s) are exempt
-                    let bg3_hofs = u32::from(self.io.bg_hofs[2]);
-                    let bg3_vofs = u32::from(self.io.bg_vofs[2]);
-                    let base_x = (offset_x - tile_w).wrapping_add(bg3_hofs & !7);
-                    let hlookup = self.bg3_opt_tile(base_x, bg3_vofs);
-                    let fine = (px + hofs_fine) & 7;
-                    if self.io.bg_mode == 4 {
-                        if hlookup & opt_valid != 0 {
-                            if hlookup & 0x8000 == 0 {
-                                world_x = offset_x + (u32::from(hlookup) & !7) + fine;
-                            } else {
-                                world_y = line_y.wrapping_add(u32::from(hlookup));
-                            }
-                        }
-                    } else {
-                        let vlookup = self.bg3_opt_tile(base_x, bg3_vofs.wrapping_add(8));
-                        if hlookup & opt_valid != 0 {
+        let x = x as u32;
+        let px = if self.io.mosaic_enable[bg] && self.io.mosaic_size > 1 {
+            let m = u32::from(self.io.mosaic_size);
+            (x / m) * m
+        } else {
+            x
+        };
+        let mut world_x = px.wrapping_add(hofs);
+        let mut world_y = line_y.wrapping_add(vofs);
+        if opt_mode {
+            let offset_x = (px + hofs_fine) & !7;
+            if offset_x >= tile_w {
+                // first tile column(s) are exempt
+                let bg3_hofs = u32::from(self.io.bg_hofs[2]);
+                let bg3_vofs = u32::from(self.io.bg_vofs[2]);
+                let base_x = (offset_x - tile_w).wrapping_add(bg3_hofs & !7);
+                let hlookup = self.bg3_opt_tile(base_x, bg3_vofs);
+                let fine = (px + hofs_fine) & 7;
+                if self.io.bg_mode == 4 {
+                    if hlookup & opt_valid != 0 {
+                        if hlookup & 0x8000 == 0 {
                             world_x = offset_x + (u32::from(hlookup) & !7) + fine;
+                        } else {
+                            world_y = line_y.wrapping_add(u32::from(hlookup));
                         }
-                        if vlookup & opt_valid != 0 {
-                            world_y = line_y.wrapping_add(u32::from(vlookup));
-                        }
+                    }
+                } else {
+                    let vlookup = self.bg3_opt_tile(base_x, bg3_vofs.wrapping_add(8));
+                    if hlookup & opt_valid != 0 {
+                        world_x = offset_x + (u32::from(hlookup) & !7) + fine;
+                    }
+                    if vlookup & opt_valid != 0 {
+                        world_y = line_y.wrapping_add(u32::from(vlookup));
                     }
                 }
             }
-
-            let (palette_idx, group, priority_hi, tile_base, hflip, vflip) = self.fetch_bg_pixel(
-                world_x,
-                world_y,
-                tile_w,
-                tile_h,
-                screen_size,
-                screen_addr,
-                char_addr,
-                bpp,
-            );
-            if palette_idx == 0 {
-                continue;
-            }
-            // Only the `hd-pack` tile-tagging hook below consumes these; keep them from
-            // triggering an unused-variable warning when that feature is compiled out.
-            #[cfg(not(feature = "hd-pack"))]
-            let _ = (tile_base, hflip, vflip);
-
-            // BG palette index: Mode 0 gives each BG its own 32-color region; every other mode
-            // shares the 256-entry CGRAM. The tilemap's 3-bit palette group selects a sub-palette
-            // of `2^bpp` colors, contributing `group << bpp` (masked to a byte; 8bpp ignores the
-            // group). Dropping this group offset is what collapsed every BG tile onto palette
-            // group 0 and washed the SMW logo/border colors. Matches ares `background.cpp`:
-            //   paletteIndex = paletteBase + (paletteNumber << paletteShift) & 0xff
-            let pal_base: u16 = if self.io.bg_mode == 0 {
-                (bg as u16) << 5
-            } else {
-                0
-            };
-            let group_off = (u16::from(group) << bpp) & 0xff;
-            let final_pal = (pal_base + group_off + u16::from(palette_idx)) as u8;
-            let prio = pr.bg[bg][usize::from(priority_hi)];
-
-            let xi = x as usize;
-            #[allow(unused_mut)]
-            let mut pixel = Pixel {
-                palette: final_pal,
-                priority: prio,
-                layer: bg as u8,
-                palette_group: group,
-                opaque: true,
-                ..Pixel::default()
-            };
-            #[cfg(feature = "hd-pack")]
-            if self.hd_pack_tagging {
-                let group_base = ((pal_base + group_off) & 0xff) as u8;
-                pixel.tag = self.tile_tag(
-                    crate::hdtag::TileClass::Bg,
-                    bpp,
-                    tile_base,
-                    group_base,
-                    hflip,
-                    vflip,
-                );
-            }
-            // FETCH: stash the resolved pixel; the DRAIN pass below does the window+priority write
-            // (the priority travels in `pixel.priority`).
-            bg_line[xi] = pixel;
         }
 
-        // DRAIN: composite the fetched line into `above`/`below`. This is the pass a future per-dot
-        // compositor will step one dot at a time; here it runs after the full-line fetch, so the
-        // result is byte-identical to the fused loop (see the buffer's doc comment above).
+        let (palette_idx, group, priority_hi, tile_base, hflip, vflip) = self.fetch_bg_pixel(
+            world_x,
+            world_y,
+            tile_w,
+            tile_h,
+            screen_size,
+            screen_addr,
+            char_addr,
+            bpp,
+        );
+        if palette_idx == 0 {
+            return Pixel::default();
+        }
+        // Only the `hd-pack` tile-tagging hook below consumes these; keep them from
+        // triggering an unused-variable warning when that feature is compiled out.
+        #[cfg(not(feature = "hd-pack"))]
+        let _ = (tile_base, hflip, vflip);
+
+        // BG palette index: Mode 0 gives each BG its own 32-color region; every other mode
+        // shares the 256-entry CGRAM. The tilemap's 3-bit palette group selects a sub-palette
+        // of `2^bpp` colors, contributing `group << bpp` (masked to a byte; 8bpp ignores the
+        // group). Dropping this group offset is what collapsed every BG tile onto palette
+        // group 0 and washed the SMW logo/border colors. Matches ares `background.cpp`:
+        //   paletteIndex = paletteBase + (paletteNumber << paletteShift) & 0xff
+        let pal_base: u16 = if self.io.bg_mode == 0 {
+            (bg as u16) << 5
+        } else {
+            0
+        };
+        let group_off = (u16::from(group) << bpp) & 0xff;
+        let final_pal = (pal_base + group_off + u16::from(palette_idx)) as u8;
+        let prio = pr.bg[bg][usize::from(priority_hi)];
+
+        #[allow(unused_mut)]
+        let mut pixel = Pixel {
+            palette: final_pal,
+            priority: prio,
+            layer: bg as u8,
+            palette_group: group,
+            opaque: true,
+            ..Pixel::default()
+        };
+        #[cfg(feature = "hd-pack")]
+        if self.hd_pack_tagging {
+            let group_base = ((pal_base + group_off) & 0xff) as u8;
+            pixel.tag = self.tile_tag(
+                crate::hdtag::TileClass::Bg,
+                bpp,
+                tile_base,
+                group_base,
+                hflip,
+                vflip,
+            );
+        }
+        pixel
+    }
+
+    /// Render one non-Mode-7 background into the above/below pixel buffers. FETCH (per-column,
+    /// [`Self::fetch_bg_column`]) is split from the DRAIN (window + priority write) so a future
+    /// fetch cursor can advance the fetch ahead of the draw; here both run at line start, so the
+    /// result is byte-identical to the fused loop (each column touches only its own `above[x]`/
+    /// `below[x]` and reads none of its own line's prior columns).
+    fn render_bg(&self, bg: usize, pr: &ModePriorities, above: &mut [Pixel], below: &mut [Pixel]) {
+        let bpp = self.bg_bpp(bg);
+        if bpp == 0 {
+            return;
+        }
+        let main = self.io.main_enable[bg];
+        let sub = self.io.sub_enable[bg];
+        if !main && !sub {
+            return;
+        }
+
+        // FETCH the whole line into a fixed-size stack buffer (no allocation on the hot path),
+        // then DRAIN it. `Pixel::default()` is transparent (`opaque == false`).
+        let mut bg_line = [Pixel::default(); SCREEN_WIDTH];
+        for (xi, slot) in bg_line.iter_mut().enumerate() {
+            *slot = self.fetch_bg_column(bg, xi, pr);
+        }
+
+        // DRAIN: composite the fetched line into `above`/`below`.
         for xi in 0..SCREEN_WIDTH {
             let pixel = bg_line[xi];
             if !pixel.opaque {
