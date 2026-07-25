@@ -378,6 +378,20 @@ delay lands an IRQ-gated register write (e.g. `hdmaen_latch_test`'s `STA $420C` 
 the hardware-correct dot; without it the write drifts ~3–4 dots early and — against the fixed
 dot-1104 HDMA latch — collapses the test's banded crossing into a uniform per-line alternation.
 
+The **`WAI` wake cycle** is the second half of landing that write on the right dot: leaving `WAI`
+costs one extra internal cycle before the interrupt sequence starts (ares' trailing `idle()` in
+`instructionWait`, MesenCE's `Idle()` in `ProcessHaltedState`; `Cpu::wake_from_wai`). Modelling it
+moved the `WAI`-gated write ~1.5 dots later — making `undisbeliever`'s `inidisp_brightness_delay`
+match MesenCE **exactly** and the `hdmaen_latch` banding shift toward the reference (80→68 red rows
+vs MesenCE's 45; the exact count stays power-cycle-dependent per the determinism note below). The
+raster boundary is now within ~2 dots of MesenCE — the remainder is the ares(`HTIME+3.5`)-vs-MesenCE
+(`HTIME+4.5`) trigger disagreement, which RustySNES resolves toward ares (the AccuracySNES B-group
+oracle). All four `WAI`+IRQ-gated `undisbeliever` timing goldens were re-blessed to the WAI-wake
+realization: `hdmaen_latch_test` / `_2` (self-blessed regression snapshots of the non-deterministic
+banding) and `inidisp_brightness_delay` / `inidisp_enable_display_mid_frame` (the `inidisp_*` pair
+was cross-checked against MesenCE — `brightness_delay` now matches it exactly, `enable` within tens
+of pixels — so their re-bless is oracle-corroborated, not just a self-snapshot).
+
 **V-only IRQ (`$4200` bit 5 without bit 4) is sampled at one dot, not held across the line.**
 The comparator fires at `V = VTIME, H = VIRQ_TRIGGER_DOT (2)` — the dossier's documented `H ~ 2.5`
 rounded to the nearest whole dot. Modelling the horizontal half as unconditionally true when H-IRQ

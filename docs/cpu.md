@@ -241,5 +241,12 @@ full; leaving it linear to keep the SST cases would fail real hardware and every
   cross-check (see the runner's MVN/MVP note). With that, the four block-move files pass.
 - Cycle counts are per-instruction tallies, not a cycle-by-cycle bus-pin trace; access *order*
   is reasonable but not validated against the SingleStepTests pin traces.
-- `STP` idles until reset; `WAI` idles until a polled NMI/IRQ — exact wake-edge timing approx.
+- `STP` idles until reset; `WAI` idles until a polled NMI/IRQ, then spends **one extra internal
+  cycle leaving the wait** before the interrupt sequence begins (`Cpu::wake_from_wai`) — matching
+  ares' trailing `idle()` in `instructionWait` and MesenCE's `Idle()` in `ProcessHaltedState`.
+  Without it a `WAI`-gated handler's first store landed ~1.5 dots early; adding it makes
+  `undisbeliever`'s `inidisp_brightness_delay` match MesenCE exactly and moves the `hdmaen_latch`
+  banding toward the reference (`docs/scheduler.md` §H/V-IRQ). The residual raster-boundary offset
+  vs MesenCE is now the irreducible ares(`HTIME+3.5`)-vs-MesenCE(`HTIME+4.5`) trigger disagreement
+  plus the interrupt-open read-vs-idle nuance — RustySNES follows ares (AccuracySNES B-group).
 - ABORT and sub-instruction interrupt injection mid-RMW are not modelled.

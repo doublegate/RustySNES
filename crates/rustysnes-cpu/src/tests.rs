@@ -685,6 +685,104 @@ fn register_file_round_trips_through_save_state() {
     assert_eq!(r.remaining(), 0);
 }
 
+/// Leaving `WAI` for an **unmasked IRQ** costs exactly one internal cycle more than the same IRQ
+/// taken without a prior `WAI` — the wake cycle (`Cpu::wake_from_wai`), and it clears the latch.
+#[test]
+fn wai_wake_adds_one_cycle_before_an_unmasked_irq() {
+    let mut base_bus = TestBus::new();
+    base_bus.set16(vectors::IRQ_NATIVE, 0x9000);
+    let mut base = native_cpu(&mut base_bus);
+    base.regs.set_flag(Status::I, false);
+    base_bus.irq = true;
+    let baseline = base.step(&mut base_bus); // IRQ, never in WAI
+    assert_eq!(base.regs.pc, 0x9000, "baseline vectored to the IRQ handler");
+
+    let mut bus = TestBus::new();
+    bus.set16(vectors::IRQ_NATIVE, 0x9000);
+    let mut cpu = native_cpu(&mut bus);
+    cpu.regs.set_flag(Status::I, false);
+    cpu.waiting = true;
+    bus.irq = true;
+    let waking = cpu.step(&mut bus);
+    assert_eq!(
+        cpu.regs.pc, 0x9000,
+        "WAI+IRQ still vectors to the IRQ handler"
+    );
+    assert!(!cpu.waiting, "the WAI latch is cleared on wake");
+    assert_eq!(
+        waking,
+        baseline + 1,
+        "WAI wake adds exactly one internal cycle"
+    );
+}
+
+/// Same for **NMI** — the wake cycle precedes the NMI sequence.
+#[test]
+fn wai_wake_adds_one_cycle_before_an_nmi() {
+    let mut base_bus = TestBus::new();
+    base_bus.set16(vectors::NMI_NATIVE, 0xA000);
+    let mut base = native_cpu(&mut base_bus);
+    base_bus.nmi = true;
+    let baseline = base.step(&mut base_bus);
+    assert_eq!(base.regs.pc, 0xA000);
+
+    let mut bus = TestBus::new();
+    bus.set16(vectors::NMI_NATIVE, 0xA000);
+    let mut cpu = native_cpu(&mut bus);
+    cpu.waiting = true;
+    bus.nmi = true;
+    let waking = cpu.step(&mut bus);
+    assert!(!cpu.waiting);
+    assert_eq!(cpu.regs.pc, 0xA000, "WAI+NMI vectors to the NMI handler");
+    assert_eq!(
+        waking,
+        baseline + 1,
+        "WAI wake adds one cycle before NMI too"
+    );
+}
+
+/// A **masked** IRQ (`I=1`) wakes `WAI` too, and it *also* consumes the one wake cycle — directly on
+/// the `else if self.waiting` path (`self.io(bus)`), not `wake_from_wai`. It does **not** vector, so
+/// execution resumes at the instruction after `WAI`. (Refutes the "masked wake skips the cycle" read.)
+#[test]
+fn masked_irq_wai_wake_consumes_the_wake_cycle_without_vectoring() {
+    let mut bus = TestBus::new();
+    bus.load(0x00_8000, &[0xEA]); // NOP sitting after the WAI
+    let mut cpu = native_cpu(&mut bus);
+    cpu.regs.pc = 0x8000;
+    cpu.regs.set_flag(Status::I, true); // masked
+    cpu.waiting = true;
+    bus.irq = true;
+    let wake = cpu.step(&mut bus);
+    assert!(!cpu.waiting, "a masked IRQ still clears the WAI latch");
+    assert_eq!(
+        cpu.regs.pc, 0x8000,
+        "no vectoring: PC stays at the post-WAI instruction"
+    );
+    assert_eq!(
+        wake, 1,
+        "the masked wake consumes exactly one internal cycle"
+    );
+}
+
+/// `wake_from_wai` is a no-op when the CPU was not in `WAI`: an interrupt taken outside `WAI` costs
+/// the same whether the helper is on the path or not (pinned by the `baseline` equalities above; this
+/// asserts the latch is untouched).
+#[test]
+fn interrupt_outside_wai_does_not_touch_the_waiting_latch() {
+    let mut bus = TestBus::new();
+    bus.set16(vectors::IRQ_NATIVE, 0x9000);
+    let mut cpu = native_cpu(&mut bus);
+    cpu.regs.set_flag(Status::I, false);
+    assert!(!cpu.waiting);
+    bus.irq = true;
+    cpu.step(&mut bus);
+    assert!(
+        !cpu.waiting,
+        "wake_from_wai leaves `waiting` false when it was already false"
+    );
+}
+
 /// The WDC 65816 `(dp,X)` silicon bug: in emulation mode with `DL != 0`, the pointer *high* byte
 /// wraps within the page of the low byte (bsnes/ares `readDirectX`, MesenCE
 /// `GetDirectAddressIndirectWordWithPageWrap`, gilyon cputest-full). gilyon's own example:
