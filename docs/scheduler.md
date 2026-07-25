@@ -386,7 +386,11 @@ match MesenCE **exactly** and the `hdmaen_latch` banding shift toward the refere
 vs MesenCE's 45; the exact count stays power-cycle-dependent per the determinism note below). The
 raster boundary is now within ~2 dots of MesenCE — the remainder is the ares(`HTIME+3.5`)-vs-MesenCE
 (`HTIME+4.5`) trigger disagreement, which RustySNES resolves toward ares (the AccuracySNES B-group
-oracle). `hdmaen_latch_test` / `_2` were re-blessed to the WAI-wake realization.
+oracle). All four `WAI`+IRQ-gated `undisbeliever` timing goldens were re-blessed to the WAI-wake
+realization: `hdmaen_latch_test` / `_2` (self-blessed regression snapshots of the non-deterministic
+banding) and `inidisp_brightness_delay` / `inidisp_enable_display_mid_frame` (the `inidisp_*` pair
+was cross-checked against MesenCE — `brightness_delay` now matches it exactly, `enable` within tens
+of pixels — so their re-bless is oracle-corroborated, not just a self-snapshot).
 
 **V-only IRQ (`$4200` bit 5 without bit 4) is sampled at one dot, not held across the line.**
 The comparator fires at `V = VTIME, H = VIRQ_TRIGGER_DOT (2)` — the dossier's documented `H ~ 2.5`

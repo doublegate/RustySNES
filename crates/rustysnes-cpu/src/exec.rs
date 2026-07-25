@@ -723,8 +723,11 @@ impl Cpu {
     /// MesenCE's `ProcessHaltedState` runs one `Idle()` before it flips `StopState` to `Running` and
     /// checks interrupts. Without it, a `WAI`-gated interrupt handler's first store lands ~1.5 dots
     /// early — one input to the residual `hdmaen_latch_test` / raster-boundary offset vs MesenCE
-    /// (`docs/scheduler.md` §H/V-IRQ). A no-op (no cycle charged) when the CPU was not waiting, so the
-    /// normal instruction-boundary interrupt path is unchanged.
+    /// (`docs/scheduler.md` §H/V-IRQ). When the CPU *was* waiting this charges the wake cycle **and
+    /// clears the `waiting` latch**; when it was not, it is a no-op (no cycle, latch untouched), so
+    /// the normal instruction-boundary interrupt path is unchanged. The masked-IRQ wake takes the one
+    /// cycle on the other path (the `else if self.waiting` `io` in [`Cpu::step`]), so all three ways
+    /// out of `WAI` — NMI, unmasked IRQ, masked IRQ — spend exactly one wake cycle (unit-tested).
     fn wake_from_wai(&mut self, bus: &mut impl Bus) {
         if self.waiting {
             self.io(bus);
