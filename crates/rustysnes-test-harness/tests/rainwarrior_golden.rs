@@ -1,7 +1,7 @@
 #![allow(missing_docs)]
 //! rainwarrior (Brad Smith / bbbradsmith) SNES test ROMs — deterministic gates.
 //!
-//! Three categories of homebrew test ROM from <https://github.com/bbbradsmith/SNES_stuff>, covering
+//! Homebrew test ROMs from <https://github.com/bbbradsmith/SNES_stuff>, in two gate styles, covering
 //! PPU and input paths the AccuracySNES suites cover least:
 //!
 //! - **Framebuffer goldens** (`rainwarrior_framebuffers_match_golden`): boot on a real
@@ -187,22 +187,28 @@ fn rainwarrior_multest_runs_without_failure() {
         eprintln!("SKIP rainwarrior_multest: ROM dir absent (gitignored external tier)");
         return;
     }
+    // Check every ROM before reporting so one halting ROM doesn't hide the other's result.
     let mut checked = 0u32;
+    let mut failures = Vec::new();
     for name in MULTEST_ROMS {
         let Some(mut sys) = load_system(name) else {
             eprintln!("multest {name}: absent — skipping this ROM");
             continue;
         };
+        checked += 1;
         let mut last_pc = u16::MAX;
         let mut stable = 0u32;
-        let mut halted = false;
         for _ in 0..MULTEST_SAMPLE_FRAMES {
             sys.run_frame();
             let pc = sys.cpu.regs.pc;
             if pc == last_pc {
                 stable += 1;
                 if stable >= MULTEST_HALT_FRAMES {
-                    halted = true;
+                    failures.push(format!(
+                        "{name}: HALTED at {:02X}:{:04X} within {MULTEST_SAMPLE_FRAMES} frames \
+                         (hardware multiply/divide sweep found a wrong result)",
+                        sys.cpu.regs.pbr, sys.cpu.regs.pc
+                    ));
                     break;
                 }
             } else {
@@ -210,14 +216,12 @@ fn rainwarrior_multest_runs_without_failure() {
             }
             last_pc = pc;
         }
-        assert!(
-            !halted,
-            "{name}: HALTED at {:02X}:{:04X} within {MULTEST_SAMPLE_FRAMES} frames — the hardware \
-             multiply/divide sweep found a wrong result (mul/div accuracy regression)",
-            sys.cpu.regs.pbr, sys.cpu.regs.pc
-        );
-        checked += 1;
     }
+    assert!(
+        failures.is_empty(),
+        "multest mul/div accuracy regression:\n  {}",
+        failures.join("\n  ")
+    );
     assert!(checked > 0, "no multest ROMs were present to check");
     eprintln!("rainwarrior_multest: {checked} ROM(s) swept without a mul/div failure");
 }
