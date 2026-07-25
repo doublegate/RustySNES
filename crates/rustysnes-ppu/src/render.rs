@@ -308,7 +308,6 @@ impl Ppu {
             opaque: false,
             ..Pixel::default()
         };
-        let mode7 = self.io.bg_mode == 7;
         while usize::from(self.pd_fetch_x) < fetch_target {
             let x = usize::from(self.pd_fetch_x);
             let mut a = backdrop;
@@ -316,7 +315,8 @@ impl Ppu {
             // TODO(4c refinement): window + `TM`/`TS` are composite-side registers and should be read
             // at the DRAW cursor, not here at the fetch cursor (~22 dots early). A static-line no-op
             // today; only a mid-line window/enable write differs.
-            if mode7 {
+            // `bg_mode` is read per column so a mid-line `BGMODE` flip switches the fetch path here.
+            if self.io.bg_mode == 7 {
                 // Mode 7: the affine BG1 layer, then the EXTBG BG2 layer (present only under EXTBG,
                 // which `fetch_mode7_column` already gates). BG1 uses `main_enable[0]`/`sub_enable[0]`.
                 let (bg1, bg2) = self.fetch_mode7_column(x, &pr);
