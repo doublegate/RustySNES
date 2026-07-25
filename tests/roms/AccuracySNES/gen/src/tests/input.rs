@@ -561,7 +561,7 @@ fn f1_10() -> Test {
 /// has not started — the qualitative F1.08 fact — and this proves the poll began before the open, so
 /// the latch below is the real transition rather than "wherever H happens to be"). The poll then runs
 /// until busy opens and latches H through `hv_read_raw_far` (SLHV). The value is the open dot plus a
-/// fixed poll + jsl instrument latency (~70 dots), so it reads ~134 rather than the raw 64 — but that
+/// fixed poll + jsl instrument latency (~85 dots), so it reads ~149 rather than the raw 64 — but that
 /// latency is pure CPU cycles, identical across the 0-diff-oracle cores, so the number reproduces and
 /// is a tight regression gate: revert the 256-clock delay and the dot collapses toward the edge (and
 /// the closed-at-edge guard fails outright). Anchoring to the H counter's own line origin via SLHV is
