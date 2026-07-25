@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A mid-line-raster cross-check against MesenCE** (`scripts/raster_crossval/`) for the per-dot
+  compositor's fetch-vs-composite cursor split (T-CA-10 Phase 4c). A synthetic ROM (HDMA restores
+  BG1-shown at each line start; an H-IRQ writes a register mid-line) renders in both RustySNES and
+  headless MesenCE, in a composite-write (draw-cursor) and a BG-data-write (fetch-cursor) variant; the
+  driver reports each boundary and the fetch-minus-draw offset. The offset — the compositor-specific,
+  IRQ-latency-independent quantity — agrees with the reference (RustySNES ~27 = the 22-column
+  `BG_FETCH_AHEAD` + ISR latency; MesenCE the same within its sub-dot-phase noise), confirming the
+  two-cursor architecture against MesenCE. The RustySNES side is a self-skipping harness test
+  (`raster_crossval`, CI-neutral without the built ROM). See the tooling's `README.md`.
 - **AccuracySNES `F1.08` (auto-read start dot) and `F1.09` (auto-read busy duration) golden rows**,
   taking the first-party battery to **344 of 443** dossier assertions (291 on-cart + 53 rendered
   scenes) across **332 tests**, 100% on-cart pass. `F1.08` catches the automatic joypad read's

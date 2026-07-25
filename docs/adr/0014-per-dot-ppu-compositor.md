@@ -129,8 +129,13 @@ and the commercial-screenshot suite. The port must not cost any of that. Therefo
      enable + priority live at draw time, so a windowed-out or disabled layer reveals the lower layers
      beneath it exactly at the draw column — validated by `mid_line_tm_write_takes_effect_at_the_draw_cursor`,
      which shows the enable boundary lands `BG_FETCH_AHEAD` columns behind a BG-data write's boundary.
-     Scope not yet covered: an external reference (MesenCE/synthetic-ROM) cross-check of the exact
-     raster boundary vs hardware.
+     **Cross-checked against MesenCE** (`scripts/raster_crossval/`): a synthetic mid-line-raster ROM
+     rendered in both, in a composite-write (draw-cursor) and a BG-data-write (fetch-cursor) variant.
+     The fetch-vs-draw OFFSET — the compositor-specific, IRQ-latency-independent quantity — agrees
+     with the reference (RustySNES a stable ~27 = the 22-col fetch-ahead + ISR latency; MesenCE the
+     same within its sub-dot-phase noise). The residual ~14-dot absolute-boundary difference cancels in
+     the offset and is an H-IRQ-recognition/ISR-latency modelling difference (CPU side), left as a
+     follow-up outside the compositor's fetch-ahead subject.
   4. **[LANDED]** The composite is wired to `tick_dot` per-dot (the single dot-276 call retired).
      Remaining: hi-res two-sub-pixel output and interlace at dot resolution (deferred — no
      reference-agreed target, ADR 0013).
