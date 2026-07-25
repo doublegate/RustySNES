@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **DRAM refresh — the once-per-scanline CPU stall** (`docs/dram-refresh.md`). The 5A22 freezes the
+  65C816 for **40 master clocks (10 dots) once per scanline at line-clock ≈ 536** to refresh work RAM;
+  RustySNES now models it in the scheduler (`bus.rs` `DRAM_REFRESH_CLOCKS`/`DRAM_REFRESH_DOT`, a nested
+  `advance_master` on the sub-tick completing dot 133). This is a **reallocation, not an addition**:
+  the master clock is PPU-driven, so the stall spends the frame's fixed 357,368-clock budget on refresh
+  instead of on CPU work — the frame length is unchanged (re-run steady-state probe confirms no drift),
+  the CPU simply does ~10,480 clocks/frame less, as on hardware. This corrects the long-standing
+  "adding a stall would inflate the frame" conclusion, which had measured a refresh-*insensitive*
+  metric. Effect: a mid-line register write from an H-IRQ handler now lands ~10 dots later when the
+  ISR straddles the refresh point (matching MesenCE's variable H-IRQ→write latency, the item the
+  `scripts/raster_crossval/` cross-check surfaced), and AccuracySNES **`B3.01`** now detects the pause
+  (its H-counter loop measures one interval 10 dots longer — variant 1 → variant 2). Stateless
+  (derived from dot position), so no `FORMAT_VERSION` change and determinism is preserved. Framebuffer
+  *regression* goldens whose games reach a scene a few frames earlier/later under the more-accurate CPU
+  pacing (dsp1/sa1/superfx boot captures, blargg, the undisbeliever `inidisp_*`/`hdmaen_*` timing ROMs)
+  were re-blessed; the MesenCE-validated accuracy goldens (AccuracySNES scenes, `inidisp_*`
+  cross-checks) still agree. `docs/scheduler.md` §DRAM refresh, `docs/accuracy-ledger.md`.
 - **A mid-line-raster cross-check against MesenCE** (`scripts/raster_crossval/`) for the per-dot
   compositor's fetch-vs-composite cursor split (T-CA-10 Phase 4c). A synthetic ROM (HDMA restores
   BG1-shown at each line start; an H-IRQ writes a register mid-line) renders in both RustySNES and

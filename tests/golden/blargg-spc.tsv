@@ -1,4 +1,4 @@
-spc_smp	0x1d73607a76a68139
-spc_timer	0xd3c9f27de6164f2d
-spc_mem_access_times	0x268dfe6beb7f6113
-spc_dsp6	0x24cfb690dd87c394
+spc_smp	0xcbecb613e11604a6
+spc_timer	0x22cb2d098b4fdf2d
+spc_mem_access_times	0xc381ad98c46d745c
+spc_dsp6	0x6437936d77a78087

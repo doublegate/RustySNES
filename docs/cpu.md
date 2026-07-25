@@ -81,6 +81,16 @@ This phase is load-bearing: it fixes the exact hcounter at which a register writ
 the PPU/HDMA (a store is seen a cycle later than a same-address read). It does not change instruction
 cycle *counts*.
 
+**Per-scanline DRAM-refresh stall (external to instruction timing).** Independently of any opcode,
+the 5A22's memory controller steals the bus once per scanline to refresh work RAM, freezing the
+65C816 for 40 master clocks at line-clock ≈ 536. RustySNES injects this in the scheduler
+(`Bus::advance_master`), **not** in opcode cycle counts — so the single-step CPU oracle is unaffected
+— but it does move where an in-flight instruction's remaining accesses land relative to the beam: an
+ISR whose execution straddles the refresh point commits its register write ~10 dots later, which is
+the observable behind mid-line raster timing. Because the master clock is PPU-driven, the stall
+reallocates the CPU's share of the frame's fixed budget rather than lengthening the frame. See
+`docs/dram-refresh.md` and `docs/scheduler.md` §DRAM refresh.
+
 ## Interfaces (sketch)
 
 ```rust

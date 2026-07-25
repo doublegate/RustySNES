@@ -99,6 +99,21 @@ const fn dot_length(dot: u16) -> u32 {
 /// fundamentally a video-timing fact) — `hdma_run_dot_matches_ppu_render_dot` below asserts the
 /// two never drift apart.
 const HDMA_RUN_DOT: u16 = rustysnes_ppu::RENDER_DOT;
+/// The 5A22 stalls the CPU once per scanline to refresh WRAM. `DRAM_REFRESH_CLOCKS` is the
+/// pause length (fullsnes/anomie; ares `sfc/cpu/timing.cpp` `step(6)×5 + step(2)`; MesenCE
+/// `SnesMemoryManager::IncMasterClock40`). Modelled as a **reallocation**, not an addition: the
+/// stall advances the (PPU-rollover-fixed) master clock, so it costs the *CPU* 40 clocks of work
+/// per line without lengthening the 357,368-clock NTSC frame — it is the CPU falling behind the
+/// PPU by a fixed amount at a fixed point, exactly like a slow access. This is what makes a
+/// mid-line raster write whose ISR straddles the pause land ~10 dots later, matching MesenCE
+/// (`scripts/raster_crossval/`), while frame length stays correct (`docs/scheduler.md` §DRAM
+/// refresh; the `zzz_refresh_frame_probe` measurement confirms no per-frame drift).
+const DRAM_REFRESH_CLOCKS: u32 = 40;
+/// The dot on whose completion the refresh pause fires — line-clock `134 × 4 = 536`, the
+/// "multiple of 8 closest to 536" AccuracySNES `B3.02` and ares (`530 + 8 − dmaCounter`) both
+/// name. Well before `HDMA_RUN_DOT` (276) and both long dots (`H ≥ 323`), so the +40-clock
+/// injection never crosses a scanline boundary or perturbs HDMA/long-dot alignment.
+const DRAM_REFRESH_DOT: u16 = 134;
 /// SPC700 fractional-clock numerator (master ticks → SMP **base** clocks).
 ///
 /// The unit the APU advances per [`rustysnes_apu::Apu::advance_smp_cycle`] call is one SMP *base*
@@ -351,6 +366,11 @@ pub struct Bus {
     /// Whether this frame's V=0 HDMA setup (table reset + reload) has already fired, so it runs
     /// exactly once per frame independent of the per-line run at [`HDMA_RUN_DOT`].
     hdma_setup_done: bool,
+    /// Re-entrancy guard: true while a DRAM-refresh pause is charging its own `advance_master(40)`,
+    /// so the nested advance can't recursively re-trigger the refresh. Purely transient (the pause
+    /// fires statelessly, once per scanline, on the single sub-tick that completes dot 133 =
+    /// [`DRAM_REFRESH_DOT`] − 1), so it is neither serialized nor part of determinism.
+    in_refresh: bool,
     /// Active cheat-code patches (`v0.8.0`, T-81-003) — checked on every CPU-visible read in
     /// [`CpuBus::read24`]. Empty (the default, and the only state possible unless a frontend
     /// explicitly calls [`Self::set_cheats`]) costs exactly one `is_empty()` branch per read.
@@ -409,6 +429,7 @@ impl Bus {
             last_hdma_line: u16::MAX,
             in_hdma: false,
             hdma_setup_done: false,
+            in_refresh: false,
             cheats: alloc::vec::Vec::new(),
             #[cfg(feature = "debug-hooks")]
             watchpoints: crate::watchpoint::WatchpointState::default(),
@@ -785,6 +806,21 @@ impl Bus {
                         self.service_hdma(v, vh);
                     }
                 }
+            }
+            // DRAM refresh: the CPU stalls [`DRAM_REFRESH_CLOCKS`] once per scanline at line-clock
+            // 536 (the completion of [`DRAM_REFRESH_DOT`]`- 1`, since every dot up to there is
+            // `MASTER_PER_DOT` long). Fired statelessly on that single sub-tick — it occurs exactly
+            // once per line because `h` is monotone within a line — so no per-line flag, no
+            // serialized state, no determinism impact. The nested `advance_master` advances the PPU
+            // (and SPC/coprocessor, which keep running through a CPU refresh, as on hardware) by 40
+            // clocks toward the frame's fixed length, so the *CPU* falls 40 clocks behind the PPU
+            // here without the frame growing — the reallocation `docs/scheduler.md` §DRAM refresh
+            // calls for. `in_refresh` stops the nested advance from re-entering; dots 134-144 can't
+            // match the trigger anyway, but the guard makes that explicit.
+            if dot_ticked && pre_tick_dot == DRAM_REFRESH_DOT - 1 && !self.in_refresh {
+                self.in_refresh = true;
+                self.advance_master(DRAM_REFRESH_CLOCKS);
+                self.in_refresh = false;
             }
             // Super Scope beam-position auto-latch (`v0.9.0`) — gated to the one sub-tick that
             // actually advanced the dot, same granularity `dot_ticked` already gives the HDMA
@@ -2115,6 +2151,42 @@ mod tests {
         assert_eq!(
             ophct_lo, target_dot as u8,
             "the beam crossing the target should have auto-latched OPHCT to it"
+        );
+    }
+
+    #[test]
+    fn dram_refresh_stalls_the_cpu_forty_clocks_once_per_scanline() {
+        // A fresh bus sits at line 0, dot 0. Drive the master clock one dot of CPU work at a time.
+        // With no refresh, N steps leave the PPU at dot N. The once-per-line pause at
+        // `DRAM_REFRESH_DOT` reallocates `DRAM_REFRESH_CLOCKS` (= 10 dots) of the line to the CPU:
+        // the instant dot `DRAM_REFRESH_DOT - 1` completes, the PPU jumps 10 dots ahead of the CPU's
+        // own progress — the CPU has "fallen behind" exactly as it does on hardware losing the bus
+        // to WRAM refresh. The frame stays the same length (the 40 clocks are PPU dots either way);
+        // only the CPU-vs-PPU phase moves, which is what a mid-line raster write observes.
+        let stall_dots = (DRAM_REFRESH_CLOCKS / MASTER_PER_DOT) as u16;
+        let mut bus = Bus::default();
+        for _ in 0..DRAM_REFRESH_DOT - 1 {
+            bus.advance_master(MASTER_PER_DOT);
+        }
+        assert_eq!(
+            bus.ppu.dot(),
+            DRAM_REFRESH_DOT - 1,
+            "no stall before the refresh dot: {DRAM_REFRESH_DOT} dots of work, {DRAM_REFRESH_DOT} dots elapsed"
+        );
+        bus.advance_master(MASTER_PER_DOT); // completes DRAM_REFRESH_DOT-1 → triggers the pause
+        assert_eq!(
+            bus.ppu.dot(),
+            DRAM_REFRESH_DOT + stall_dots,
+            "the {DRAM_REFRESH_CLOCKS}-clock refresh pause jumps the PPU {stall_dots} dots ahead of the CPU"
+        );
+        // And it fires exactly once per line: ten more dots of work advance ten dots, no second jump.
+        for _ in 0..10 {
+            bus.advance_master(MASTER_PER_DOT);
+        }
+        assert_eq!(
+            bus.ppu.dot(),
+            DRAM_REFRESH_DOT + stall_dots + 10,
+            "the pause does not re-fire later in the same scanline"
         );
     }
 

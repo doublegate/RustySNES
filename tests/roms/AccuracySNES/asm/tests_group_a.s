@@ -6547,7 +6547,7 @@ CATALOG_IMPL = 1
 .endproc
 
 ; B3.01 — DRAM refresh pause
-; provenance: Contested (fullsnes and anomie put the pause at 40 clocks near line-clock 536, but ares' own source calls its refresh pattern technically wrong and only right on average, and docs/accuracy-ledger.md scopes refresh out of RustySNES on the measurement that its frame length is already correct without one)
+; provenance: Contested (fullsnes and anomie put the pause at 40 clocks near line-clock 536, and RustySNES now models it there (docs/dram-refresh.md), so this loop records variant 2 (one interval ~10 dots longer); ares' own source still calls its refresh *pattern* technically wrong and only right on average, so the exact per-line position stays host-cross-validated rather than self-asserted)
 .proc test_b3_01
     .a16
     .i16
