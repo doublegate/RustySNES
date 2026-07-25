@@ -39,7 +39,7 @@ any golden that legitimately changes is re-blessed **only** from a render the re
 
 | # | Ticket | Gap | Source | Status |
 |---|---|---|---|---|
-| T-CA-10 | **Per-dot PPU compositor** | per-scanline; mid-line register writes, offset-per-tile, interlace, live `frame_hires` all wrong at dot resolution | `docs/adr/0014`, `ppu.md` | **[x] LANDED — shipped as the sole renderer in `v1.21.0` (ADR 0014 Accepted; batch path deleted, single code path).** Phase 1 (#205): extracted `compose_pixel`/`DacCarry` — bit-identical. Phase 2 (#210): split `render_bg` FETCH/DRAIN — bit-identical. Phase 3+ (#218 CGRAM redirect, #223 OAM `$2138` redirect, #231 per-dot over-flag, then the default flip): the scanline composites one column at a time against live registers; validated 28/29 on undisbeliever (+1 documented per-dot gap, `inidisp_forgot_to_force_blank`, folded into the remaining **4c** work) vs a headless MesenCE built as blueprint + exact-frame oracle. Unblocked the scored rows `C1.08`/`C3.04`/`C7.16`. The one remaining T-CA-10 item is **4c (incremental BG fetch-ahead)** — see the phasing notes below. |
+| T-CA-10 | **Per-dot PPU compositor** | per-scanline; mid-line register writes, offset-per-tile, interlace, live `frame_hires` all wrong at dot resolution | `docs/adr/0014`, `ppu.md` | **[x] LANDED — shipped as the sole renderer in `v1.21.0` (ADR 0014 Accepted; batch path deleted, single code path).** Phase 1 (#205): extracted `compose_pixel`/`DacCarry` — bit-identical. Phase 2 (#210): split `render_bg` FETCH/DRAIN — bit-identical. Phase 3+ (#218 CGRAM redirect, #223 OAM `$2138` redirect, #231 per-dot over-flag, then the default flip): the scanline composites one column at a time against live registers; validated 28/29 on undisbeliever (+1 documented per-dot gap, `inidisp_forgot_to_force_blank`, folded into the remaining **4c** work) vs a headless MesenCE built as blueprint + exact-frame oracle. Unblocked the scored rows `C1.08`/`C3.04`/`C7.16`. **4c (incremental BG fetch-ahead) landed 2026-07-25** — the non-Mode-7 BG fetch is now per-dot (fetch cursor 22 cols ahead of draw); sub-scope remaining is Mode-7 fetch-ahead, window-at-draw-cursor, and an external raster-boundary cross-check (see the notes below). |
 
 ### T-CA-10 Phase 3 — concrete implementation plan + traps (scoped 2026-07-23)
 
@@ -129,21 +129,22 @@ Only 4c remains — it is the last T-CA-10 accuracy item.**
   `per-dot-compositor` feature are all gone (`compose_dac` kept only as a `#[cfg(test)]` hi-res-DAC driver). The
   scored rows C1.08/C3.04/C7.16 landed with the flip (294→297 on-cart). ADR 0014 → Accepted.
 
-- **4c — incremental BG fetch-ahead. THE LAST ITEM, NOT YET STARTED (deferred to a fresh session, 2026-07-25).**
-  Run `render_bg`'s FETCH incrementally over `_fetchBgStart..End` (fetch cursor ~22 columns AHEAD of the draw
-  cursor, which already matches MesenCE) so a mid-line BG-data write (BGnSC/BGnNBA/BGnHOFS/VOFS/BGMODE/MOSAIC/OPT)
-  reaches only not-yet-fetched columns. Restructures `render_bg` from "read regs once, loop 256" to "per-column
-  fetch reading live regs"; touches every BG mode + OPT + mosaic + Mode 7. Byte-identical on static lines.
-  **Two hard caveats (see the [[4c-bg-fetch-ahead-scope]] memory):** (1) NO current validation target — no corpus
-  ROM does a mid-line BG-data write, so building a NEW synthetic mid-line-scroll test ROM + MesenCE cross-check is
-  PART of 4c's cost, not a side note; (2) 4c does NOT obviously fix `inidisp_forgot` (its artifact is on the
-  draw-cursor/`internal_cgram_address` side, which already matches MesenCE) — do a per-pixel per-dot-vs-MesenCE
-  frame diff on `inidisp_forgot` FIRST to confirm/refute before assuming a phase fixes it. Suggested phasing:
-  (0) confirm the `inidisp_forgot` mechanism empirically; (1) build the scroll validation ROM + MesenCE check;
-  (2) restructure `render_bg` for per-column-range fetch, one mode first, byte-identical on static; (3) extend to
-  all modes + OPT + mosaic + Mode 7; (4) wire the fetch cursor into `pd_render_to_dot`. Biggest risk: the
-  fetch-ahead offset is subtle (off-by-one passes every static line, wrong only on rasters). **Start FRESH — the
-  undisbeliever ROMs (needed for the diff) are gitignored/absent in headless environments.**
+- **4c — incremental BG fetch-ahead. LANDED (2026-07-25).** The non-Mode-7 BG fetch is now per-dot: `pd_fetch_bg_to`
+  runs a fetch cursor `BG_FETCH_AHEAD` (22) columns ahead of the draw, building each column's `above`/`below` from
+  live BG-data registers (`fetch_bg_column` — scroll/tilemap/char-base/size/mosaic/OPT) over the backdrop, then the
+  line's latched sprites (`pd_sprite`, resolved once — sprites do not change from a BG-data write). So a mid-line
+  BGnSC/BGnNBA/BGnHOFS/VOFS/BGMODE/MOSAIC/OPT write reaches only not-yet-fetched columns. Implemented in three
+  commits: `fetch_bg_column` extraction (byte-identical factor), the fetch cursor + sprite-buffer restructure, and
+  a white-box validation test. Verified byte-identical on the static corpus (ppu 42, AccuracySNES scenes match
+  goldens, battery 298/298, save-state + movie determinism); the fetch-ahead itself is pinned by a unit test that
+  splits a line with a mid-line scroll write and asserts the boundary lands at the 22-column offset.
+  **Remaining sub-scope (NOT this landing):** (1) **Mode 7** fetch-ahead — still whole-line at line start;
+  (2) window/`TM`/`TS` at the *draw* cursor — currently applied at the fetch cursor (a static-line no-op, ~22 cols
+  early only on a mid-line window write); (3) an EXTERNAL cross-check (MesenCE render of a synthetic mid-line-scroll
+  ROM, or an AccuracySNES scene) of the exact raster boundary vs hardware — the unit test pins it to RustySNES's own
+  model, not to a reference; (4) whether 4c moves `inidisp_forgot_to_force_blank` (still the one documented per-dot
+  gap) is UNCONFIRMED — needs the per-pixel per-dot-vs-MesenCE diff, which needs the gitignored undisbeliever ROMs
+  present. See [[4c-bg-fetch-ahead-scope]].
 
 Determinism/save-state: serialize any CPU-observable new cursor state at the point mid-line saves become possible;
 keep transient line buffers re-derived. Every step: byte-identical milestone → save-state round-trip → determinism

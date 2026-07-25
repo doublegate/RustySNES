@@ -112,13 +112,21 @@ and the commercial-screenshot suite. The port must not cost any of that. Therefo
      composite into `above`/`below`. Byte-identical because each column touches only its own
      `above[x]`/`below[x]`; verified against the 53 scene goldens, the undisbeliever framebuffers, and
      the 29 PPU unit tests. This decouples fetch from composite so Phase 4 can drive the drain per-dot.
-  3. Introduce the 14-dot fetch-ahead and the in-render CGRAM/OAM address latch — the first
-     behaviors that *intentionally* differ from the per-line model, each validated against a
-     reference render and an AccuracySNES/undisbeliever ROM that exercises it, and any golden that
-     legitimately changes re-blessed **only** from a render the references agree on (ADR 0013 rule
-     4), never blind-re-blessed.
-  4. Wire the composite to `tick_dot` per-dot (retire the single dot-276 call), then hi-res
-     two-sub-pixel output, then offset-per-tile / interlace at dot resolution.
+  3. **[LANDED]** The in-render CGRAM/OAM address latch (Phase 4b/4d, C1.08/C3.04/C7.16) and the
+     background **fetch-ahead** (Phase 4c). The non-Mode-7 BG fetch is now per-dot: a fetch cursor
+     (`pd_fetch_bg_to`) runs `BG_FETCH_AHEAD` (22) columns ahead of the draw, building each column's
+     `above`/`below` from live BG-data registers (`fetch_bg_column`) plus this line's latched sprite
+     line (`pd_sprite`). A mid-line scroll/tilemap/OPT/mosaic write thus reaches only not-yet-fetched
+     columns — the first BG behavior that *intentionally* differs from the per-line model. Byte-
+     identical on the whole static corpus (no committed ROM does a mid-line BG-data write); the
+     fetch-ahead itself is validated by a white-box unit test (`mid_line_bg_scroll_shifts_only_
+     columns_past_the_fetch_cursor`) that pins the split boundary to the 22-column offset. Scope not
+     yet covered: **Mode 7** fetch-ahead (whole-line at line start), window/`TM`/`TS` at the draw
+     cursor (currently applied at the fetch cursor — a static-line no-op), and an external reference
+     (MesenCE/synthetic-ROM) cross-check of the exact raster boundary vs hardware.
+  4. **[LANDED]** The composite is wired to `tick_dot` per-dot (the single dot-276 call retired).
+     Remaining: hi-res two-sub-pixel output and interlace at dot resolution (deferred — no
+     reference-agreed target, ADR 0013).
 - **Determinism** (`docs/adr/0004`) is unchanged: the per-dot loop is driven by the same
   master-clock scheduler; same seed+ROM+input ⇒ byte-identical frame.
 - **Performance:** the hot path stays allocation-free (fixed `tiles[]`/shift-register buffers, no
