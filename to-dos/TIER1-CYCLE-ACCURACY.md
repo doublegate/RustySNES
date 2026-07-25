@@ -144,11 +144,21 @@ Only 4c remains — it is the last T-CA-10 accuracy item.**
   `TM`/`TS` write reaches only columns past the draw cursor (a windowed-out/disabled layer reveals the layers
   beneath it) — validated by `mid_line_tm_write_takes_effect_at_the_draw_cursor` (the enable boundary lands
   `BG_FETCH_AHEAD` columns behind a BG-data write's).
-  **Remaining sub-scope (NOT landed):** (1) an EXTERNAL cross-check (MesenCE render of a synthetic mid-line-scroll
-  ROM, or an AccuracySNES scene) of the exact raster boundary vs hardware — the unit tests pin it to RustySNES's
-  own model, not to a reference; (2) whether 4c moves `inidisp_forgot_to_force_blank` (still the one documented
-  per-dot gap) is UNCONFIRMED — needs the per-pixel per-dot-vs-MesenCE diff, which needs the gitignored undisbeliever
-  ROMs present. See [[4c-bg-fetch-ahead-scope]].
+  **The EXTERNAL MesenCE cross-check is DONE** (`scripts/raster_crossval/`): a synthetic mid-line-raster ROM
+  (HDMA restores BG1-shown at each line start; an H-IRQ writes a register mid-line) rendered in both RustySNES and
+  headless MesenCE, in a DRAW variant (`TM`, composite → draw cursor) and a FETCH variant (`BGnNBA`, BG-data →
+  fetch cursor). The compositor's **fetch-vs-draw OFFSET agrees** (RustySNES a stable 26-27 = the 22-col
+  `BG_FETCH_AHEAD` + the longer FETCH ISR; MesenCE the same within its sub-dot-phase noise) — the two-cursor split
+  is confirmed against the reference. The absolute boundary differs ~14 dots (draw 152 vs 166 at dot 128) but that
+  cancels in the offset and is an **H-IRQ-recognition / ISR-latency modelling** difference (RustySNES's constant
+  latency vs MesenCE's dot-varying one), a CPU-side follow-up outside the compositor's fetch-ahead subject. See the
+  `scripts/raster_crossval/README.md` table.
+  **Remaining sub-scope (NOT landed):** (1) the residual H-IRQ→write-latency modelling difference the cross-check
+  surfaced (absolute boundary ~14 dots; RustySNES's constant `RASTER_DOT+24` vs MesenCE's dot-varying offset) —
+  RustySNES's H-IRQ position is separately validated by AccuracySNES Group B, so this is a subtle
+  IRQ-during-active-display / dot-phase item; (2) whether 4c moves `inidisp_forgot_to_force_blank` (still the one
+  documented per-dot gap) is UNCONFIRMED — needs the per-pixel per-dot-vs-MesenCE diff, which needs the gitignored
+  undisbeliever ROMs present. See [[4c-bg-fetch-ahead-scope]].
 
 Determinism/save-state: serialize any CPU-observable new cursor state at the point mid-line saves become possible;
 keep transient line buffers re-derived. Every step: byte-identical milestone → save-state round-trip → determinism
