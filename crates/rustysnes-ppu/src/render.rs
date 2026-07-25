@@ -298,16 +298,16 @@ impl Ppu {
                 // when EXTBG is off, `fetch_mode7_column` gates it). Layers 2/3 do not exist — clear
                 // them so a prior tiled line's pixels are not composited.
                 let (bg1, bg2) = self.fetch_mode7_column(x, &pr);
-                self.pd_bg[0][x] = bg1.unwrap_or_default();
-                self.pd_bg[1][x] = bg2.unwrap_or_default();
-                self.pd_bg[2][x] = Pixel::default();
-                self.pd_bg[3][x] = Pixel::default();
+                self.pd_bg[x][0] = bg1.unwrap_or_default();
+                self.pd_bg[x][1] = bg2.unwrap_or_default();
+                self.pd_bg[x][2] = Pixel::default();
+                self.pd_bg[x][3] = Pixel::default();
             } else {
                 // Tiled: store each active layer's fetched pixel (transparent for a colour-0 dot);
                 // an inactive layer in this mode is cleared to transparent so a prior line's or a
                 // prior mode's pixel is not composited.
                 for bg in 0..4 {
-                    self.pd_bg[bg][x] = if pr.active[bg] {
+                    self.pd_bg[x][bg] = if pr.active[bg] {
                         self.fetch_bg_column(bg, x, &pr)
                     } else {
                         Pixel::default()
@@ -318,8 +318,8 @@ impl Ppu {
         }
     }
 
-    /// Resolve one column's main/sub pixels from the fetched per-layer BG pixels (`pd_bg`) and the
-    /// latched sprite (`pd_sprite`), applying the DRAW-cursor-timed composite registers LIVE: the
+    /// Resolve one column's `(main, sub)` pixels from the fetched per-layer BG pixels (`pd_bg`) and
+    /// the latched sprite (`pd_sprite`), applying the DRAW-cursor-timed composite registers LIVE: the
     /// `TM`/`TS` layer enables, the windows, and cross-layer priority. Called at the draw cursor, so a
     /// mid-line window/`TM`/`TS` write takes effect only on later columns (MesenCE's split between
     /// BG-data at the fetch cursor and composite registers at the draw cursor). Layer active-ness and
@@ -338,7 +338,7 @@ impl Ppu {
         let mut a = backdrop;
         let mut b = backdrop;
         for bg in 0..4 {
-            let px = self.pd_bg[bg][x];
+            let px = self.pd_bg[x][bg];
             if !px.opaque {
                 continue;
             }
