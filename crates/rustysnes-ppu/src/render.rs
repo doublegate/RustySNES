@@ -1527,6 +1527,7 @@ fn apply_brightness(color: u16, brightness: u32) -> u16 {
 
 #[cfg(test)]
 mod tests {
+    use super::BG_FETCH_AHEAD;
     use crate::bus::NullVideoBus;
     use crate::{DOTS_PER_LINE, Ppu, SCREEN_WIDTH};
 
@@ -2407,6 +2408,126 @@ mod tests {
         assert_eq!(
             p.pd_oam_eval_seed, 0x2A,
             "a line-start fetch (h == 0) captures the seed from OAMADDR"
+        );
+    }
+
+    /// Phase 4c: a mid-line BG horizontal-scroll write reaches only the columns the fetch cursor has
+    /// NOT yet fetched (MesenCE `_fetchBgStart..End`), running `BG_FETCH_AHEAD` columns ahead of the
+    /// draw. Under the old whole-line-at-line-start fetch the write would have affected nothing (the
+    /// line was already fetched); this pins the incremental behaviour AND the fetch-ahead offset.
+    #[test]
+    fn mid_line_bg_scroll_shifts_only_columns_past_the_fetch_cursor() {
+        // A 4bpp BG1 (Mode 1) whose tile 0 is a horizontal colour ramp — pixel i has colour i+1 —
+        // so the colour at screen column x is CGRAM[((x + hofs) & 7) + 1]. A sub-tile scroll change
+        // (0 -> 3) therefore shifts EVERY column's colour, so each column's value reveals which
+        // scroll it was fetched with.
+        fn setup() -> Ppu {
+            let mut p = Ppu::new();
+            p.write_reg(0x2100, 0x80); // force-blank for VRAM/CGRAM setup
+            for y in 0..8u16 {
+                let (mut w0, mut w1) = (0u16, 0u16); // planes 0/1 and 2/3 for this row
+                for i in 0..8u16 {
+                    let c = i + 1; // colour 1..=8 across the 8 pixels
+                    let b = 7 - i; // read_planar uses bit = 7 - fine_x
+                    if c & 1 != 0 {
+                        w0 |= 1 << b;
+                    }
+                    if c & 2 != 0 {
+                        w0 |= 1 << (8 + b);
+                    }
+                    if c & 4 != 0 {
+                        w1 |= 1 << b;
+                    }
+                    if c & 8 != 0 {
+                        w1 |= 1 << (8 + b);
+                    }
+                }
+                vram_set(&mut p, y, w0); // tile 0 (char base 0): plane 0/1 row y
+                vram_set(&mut p, 8 + y, w1); // plane 2/3 row y (a plane-pair is 8 words on)
+            }
+            for c in 1..=8u16 {
+                cgram_set(&mut p, c as u8, (c * 0x0841) & 0x7fff); // 8 distinct non-zero colours
+            }
+            // Tilemap base 0x0400: default-zero entries = character 0, palette group 0, no flip.
+            p.io.bg_mode = 1;
+            p.io.bg_tiledata_addr[0] = 0;
+            p.io.bg_screen_addr[0] = 0x0400;
+            p.io.bg_screen_size[0] = 0;
+            p.io.tile_size[0] = false;
+            p.io.bg_vofs[0] = 0;
+            p.io.mosaic_enable[0] = false;
+            p.io.main_enable[0] = true;
+            p.io.display_disable = false;
+            p.io.display_brightness = 15;
+            p
+        }
+
+        // Render visible line 1 by stepping the per-dot compositor, optionally writing a new hofs at
+        // dot `d` (mid-line). Returns the 256 framebuffer colours of row 0.
+        let render = |start: u16, inject: Option<(u16, u16)>| -> [u16; SCREEN_WIDTH] {
+            let mut p = setup();
+            let mut bus = NullVideoBus;
+            p.io.bg_hofs[0] = start;
+            p.v = 1;
+            p.pd_fetched_line = u16::MAX;
+            for h in 0..=crate::RENDER_DOT {
+                if let Some((d, new_hofs)) = inject
+                    && h == d
+                {
+                    p.io.bg_hofs[0] = new_hofs;
+                }
+                p.h = h;
+                p.pd_render_to_dot(&mut bus);
+            }
+            let fb = p.framebuffer();
+            core::array::from_fn(|x| fb[x])
+        };
+
+        let d = 128u16; // inject mid-line, well past ACTIVE_DOT_START (22)
+        let s0 = render(0, None); // whole line at hofs 0
+        let s3 = render(3, None); // whole line at hofs 3
+        let split = render(0, Some((d, 3))); // hofs 0, then 3 at dot d
+
+        // The ramp + sub-tile shift makes the two static lines differ at EVERY column, so each
+        // `split` column is unambiguously one scroll or the other.
+        assert!(
+            (0..SCREEN_WIDTH).all(|x| s0[x] != s3[x]),
+            "setup: a hofs 0->3 shift must change every column's colour"
+        );
+
+        // Every split column must be exactly the old-scroll or the new-scroll colour (no garbage),
+        // and the boundary must be monotone: old scroll on the left, new scroll on the right.
+        let mut boundary = None;
+        for x in 0..SCREEN_WIDTH {
+            let is_old = split[x] == s0[x];
+            let is_new = split[x] == s3[x];
+            assert!(
+                is_old || is_new,
+                "column {x} is neither the old nor the new scroll colour (garbage)"
+            );
+            match boundary {
+                None if is_new => boundary = Some(x),
+                None => {} // still in the old-scroll run
+                Some(_) => assert!(
+                    is_new,
+                    "column {x} reverted to the old scroll after the boundary — not a monotone split"
+                ),
+            }
+        }
+
+        let boundary =
+            boundary.expect("the mid-line write must affect SOME columns (not old behaviour)");
+        assert!(
+            boundary > 0,
+            "column 0 (fetched first, before the write) must keep the old scroll"
+        );
+        // A write at dot `d` reaches the column the fetch cursor is about to build, which runs
+        // BG_FETCH_AHEAD ahead of the draw — so the boundary lands at ~column `d` (draw is then at
+        // ~d-22). Allow a couple of columns of off-by-one slack in the cursor conventions.
+        assert!(
+            boundary.abs_diff(usize::from(d)) <= 2,
+            "fetch-ahead boundary {boundary} should be ~dot {d} (write reaches the fetch cursor, \
+             which is {BG_FETCH_AHEAD} columns ahead of the draw)"
         );
     }
 }
