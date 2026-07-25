@@ -100,18 +100,22 @@ const fn dot_length(dot: u16) -> u32 {
 /// two never drift apart.
 const HDMA_RUN_DOT: u16 = rustysnes_ppu::RENDER_DOT;
 /// The 5A22 stalls the CPU once per scanline to refresh WRAM. `DRAM_REFRESH_CLOCKS` is the
-/// pause length (fullsnes/anomie; ares `sfc/cpu/timing.cpp` `step(6)×5 + step(2)`; MesenCE
+/// pause length (fullsnes/anomie; ares `sfc/cpu/timing.cpp` `step(6)*5 + step(2)`; MesenCE
 /// `SnesMemoryManager::IncMasterClock40`). Modelled as a **reallocation**, not an addition: the
 /// stall advances the (PPU-rollover-fixed) master clock, so it costs the *CPU* 40 clocks of work
 /// per line without lengthening the 357,368-clock NTSC frame — it is the CPU falling behind the
 /// PPU by a fixed amount at a fixed point, exactly like a slow access. This is what makes a
 /// mid-line raster write whose ISR straddles the pause land ~10 dots later, matching MesenCE
 /// (`scripts/raster_crossval/`), while frame length stays correct (`docs/scheduler.md` §DRAM
-/// refresh; the `zzz_refresh_frame_probe` measurement confirms no per-frame drift).
+/// refresh; a steady-state per-frame master-clock probe confirms no drift).
 const DRAM_REFRESH_CLOCKS: u32 = 40;
-/// The dot on whose completion the refresh pause fires — line-clock `134 × 4 = 536`, the
-/// "multiple of 8 closest to 536" AccuracySNES `B3.02` and ares (`530 + 8 − dmaCounter`) both
-/// name. Well before `HDMA_RUN_DOT` (276) and both long dots (`H ≥ 323`), so the +40-clock
+/// The stall must be a whole number of dots (the pause lands cleanly at the start of a dot, and the
+/// regression test measures it in dots); pin that at compile time so a clock-constant refactor can't
+/// silently break it.
+const _: () = assert!(DRAM_REFRESH_CLOCKS.is_multiple_of(MASTER_PER_DOT));
+/// The dot on whose completion the refresh pause fires — line-clock `134 * 4 = 536`, the
+/// "multiple of 8 closest to 536" AccuracySNES `B3.02` and ares (`530 + 8 - dmaCounter`) both
+/// name. Well before `HDMA_RUN_DOT` (276) and both long dots (`H >= 323`), so the +40-clock
 /// injection never crosses a scanline boundary or perturbs HDMA/long-dot alignment.
 const DRAM_REFRESH_DOT: u16 = 134;
 /// SPC700 fractional-clock numerator (master ticks → SMP **base** clocks).
@@ -369,7 +373,7 @@ pub struct Bus {
     /// Re-entrancy guard: true while a DRAM-refresh pause is charging its own `advance_master(40)`,
     /// so the nested advance can't recursively re-trigger the refresh. Purely transient (the pause
     /// fires statelessly, once per scanline, on the single sub-tick that completes dot 133 =
-    /// [`DRAM_REFRESH_DOT`] − 1), so it is neither serialized nor part of determinism.
+    /// [`DRAM_REFRESH_DOT`] - 1), so it is neither serialized nor part of determinism.
     in_refresh: bool,
     /// Active cheat-code patches (`v0.8.0`, T-81-003) — checked on every CPU-visible read in
     /// [`CpuBus::read24`]. Empty (the default, and the only state possible unless a frontend
@@ -807,8 +811,8 @@ impl Bus {
                     }
                 }
             }
-            // DRAM refresh: the CPU stalls [`DRAM_REFRESH_CLOCKS`] once per scanline at line-clock
-            // 536 (the completion of [`DRAM_REFRESH_DOT`]`- 1`, since every dot up to there is
+            // DRAM refresh: the CPU stalls `DRAM_REFRESH_CLOCKS` once per scanline at line-clock
+            // 536 (the completion of `DRAM_REFRESH_DOT - 1`, since every dot up to there is
             // `MASTER_PER_DOT` long). Fired statelessly on that single sub-tick — it occurs exactly
             // once per line because `h` is monotone within a line — so no per-line flag, no
             // serialized state, no determinism impact. The nested `advance_master` advances the PPU
