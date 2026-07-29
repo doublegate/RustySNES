@@ -69,7 +69,14 @@ use crate::sa1_bus::Sa1Bus;
 /// begin. Hardware starts the read ~dot 32.5-95.5 into the first vblank line, not at the vblank edge,
 /// so a save taken in that window must restore the pending start or the read never begins on load
 /// (`$4212` bit 0 and `$4218-$421F` would desync). Same old-blob-fails-loudly guarantee.
-const FORMAT_VERSION: u16 = 9;
+///
+/// `10` (NEC DSP pin-exact clock): the `NDSP` coprocessor section grew by eight bytes — `dsp_accum`,
+/// the µPD77C25/µPD96050's master-clock fractional-accumulator phase. The DSP now free-runs on its
+/// own 7.6/11 MHz divisor (stepped every master tick via `coprocessor_tick`) instead of catching up
+/// synchronously on each host DR access, so its sub-master-clock position must persist or a
+/// mid-computation save would restore the wrong RQM-handshake timing. Same old-blob-fails-loudly
+/// guarantee (only carts carrying a NEC DSP — DSP-1/2/4/ST010 — have an `NDSP` section at all).
+const FORMAT_VERSION: u16 = 10;
 /// The save-state envelope's leading magic bytes — identifies the blob as a RustySNES save-state
 /// before anything else is trusted.
 const MAGIC: &[u8; 4] = b"RSNS";

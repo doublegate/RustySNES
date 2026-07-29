@@ -99,18 +99,29 @@ multiplier pipeline, the dual accumulators + 6-flag condition sets, the 16-deep 
 program/data ROM + data RAM, and the DR / SR / DP host ports. Registers wrap at the revision's
 PC/RP/DP widths.
 
-**Host synchronization (the only cross-clock coupling):** the chip free-runs on its ~7.6 MHz
-oscillator and hand-shakes the CPU solely through the **RQM** ("request for master") status bit —
-DSP-1 games always poll `SR.rqm`, never a wall-clock cycle count. The engine therefore advances to
-its next **host-wait spin** after every host DR access (`run_until_rqm`, capped) — i.e. until the
-firmware is looping on a `JRQM`/`JNRQM` self-loop, blocked until the next host access. It must run to
-that spin, **not** merely to the first `RQM=set`: reading a host input word (`src == 8`) raises RQM
-as a side effect while the firmware still has pending setup — notably clearing DRC to 16-bit for the
-following transfer — and stopping early would defer that past the next host write, mis-framing a
-multi-word parameter block (this was the DSP-1 continuous-mode Mode-7 flat-floor bug; running to the
-spin matches ares' continuous clock-stepping to the wait point). This keeps the bus boundary
-byte-exact and fully deterministic (`docs/adr/0004`) without a free-running per-master-clock tick,
-and needs no core-scheduler hook.
+**Host synchronization (the only cross-clock coupling), pin-exact / master-clock-stepped:** the chip
+free-runs on its own oscillator (~7.6 MHz µPD7725, 11 MHz µPD96050) and hand-shakes the CPU solely
+through the **RQM** ("request for master") status bit — DSP-1 games always poll `SR.rqm`, never a
+wall-clock cycle count. The engine models that literally as a free-running core clocked off the
+master scheduler: `Upd77c25::tick_master`, driven once per master clock from each NEC-DSP board's
+`Board::coprocessor_tick`, advances the DSP on its own gcd-reduced fractional divisor
+(`Revision::rates` → `760_000/2_147_727` for the µPD7725, `1_100_000/2_147_727` for the µPD96050),
+using the same *integer* accumulator (`dsp_accum`) the SPC700 uses (`bus.rs`, `docs/adr/0004`) — no
+floats, fully deterministic, serialized in the `NDSP` save-state section. Host reads/writes
+(`read_dr`/`write_dr`) just exchange the *current* `DR`/`SR`; the DSP has already produced the value
+on its own clock, exactly as hardware does, so the RQM handshake now takes a hardware-realistic
+number of cycles rather than resolving in zero emulated time. `run_until_rqm` survives only for the
+one-time firmware-load prime (the power-on head-start, before the game's first poll) and for
+standalone unit tests that have no bus to tick the chip; the live bus path never calls it.
+
+This replaced an earlier *catch-up-on-host-access* model that drained the DSP synchronously inside
+`read_dr`/`write_dr`. Its one subtle misuse — stopping at the first `RQM=set` (which a host-input
+read, `src == 8`, raises as a side effect while the firmware still has pending setup, notably
+clearing DRC to 16-bit) instead of at the firmware's genuine `JRQM`/`JNRQM` host-wait spin —
+mis-framed the DSP-1 continuous-mode parameter block by one host write and was the Mode-7 flat-floor
+bug. A continuously-clocked free-runner structurally cannot stop early, so that entire hazard class
+is gone (v1.22.0 fixed the visible symptom value-exact; the free-running rewrite retired the model
+debt and aligned the DSP with the SPC700/GSU/ST018 pattern).
 
 ### The GSU core + the Super FX board (implemented — `crate::coproc::gsu` + `crate::coproc::superfx`)
 
@@ -136,8 +147,9 @@ byte at `$301F`, which sets **Go** and begins execution at `(PBR:R15)`; the chip
 `STOP` clears Go (and, unless CFGR masks it, raises the cart IRQ), and software polls SFR for Go.
 Because Go is the only observable coupling — exactly the RQM role the DSP-1 uses — the board runs
 the GSU to completion the instant Go is set (`Gsu::run_until_stopped`, capped against a runaway
-program). This is byte-exact and fully deterministic (`docs/adr/0004`) and needs **no
-free-running core-scheduler tick** — the same economy as the DSP-1 `run_until_rqm`.
+program). This is byte-exact and fully deterministic (`docs/adr/0004`) and needs no free-running
+core-scheduler tick of its own. (The NEC DSP, by contrast, is polled *mid-run* through RQM, so that
+engine is now master-clock-stepped — see "the shared NEC core" above.)
 
 **The Super FX board (`coproc::superfx::SuperFxBoard`)** owns the ROM (shared, read-only) and the
 Game Pak RAM (the GSU plot bitmap, sized from the header clamped to a 64 KiB minimum, power-of-two

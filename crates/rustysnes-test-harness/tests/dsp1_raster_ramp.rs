@@ -37,17 +37,25 @@ fn dsp1_continuous_raster_ramps_per_scanline() {
     let mut dsp = Upd77c25::new(Revision::Upd7725);
     assert!(dsp.load_firmware(&fw), "firmware loaded");
 
-    // Host command byte (8-bit while parked) then 16-bit LE parameter words.
+    // Host command byte (8-bit while parked) then 16-bit LE parameter words. In the pin-exact model
+    // read_dr/write_dr no longer advance the DSP (only the master-clock tick does), so this standalone
+    // harness — which has no bus — drives the chip explicitly with `run_until_rqm` after each host op,
+    // exactly the catch-up the Bus performs continuously in-game.
     let cmd = |dsp: &mut Upd77c25, c: u8, params: &[u16]| {
         dsp.write_dr(c);
+        dsp.run_until_rqm();
         for &p in params {
             dsp.write_dr((p & 0xff) as u8);
+            dsp.run_until_rqm();
             dsp.write_dr((p >> 8) as u8);
+            dsp.run_until_rqm();
         }
     };
     let read_word = |dsp: &mut Upd77c25| -> u16 {
         let lo = dsp.read_dr();
+        dsp.run_until_rqm();
         let hi = dsp.read_dr();
+        dsp.run_until_rqm();
         u16::from(lo) | (u16::from(hi) << 8)
     };
 

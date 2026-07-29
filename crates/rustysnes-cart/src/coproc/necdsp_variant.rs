@@ -239,6 +239,13 @@ impl Board for NecDspVariantBoard {
         self.dsp.host_accesses()
     }
 
+    /// Pin-exact model: free-run the NEC DSP on its own divisor (DSP-2/4 at 7.6 MHz, ST010's
+    /// µPD96050 at 11 MHz — selected automatically by `Revision` inside `tick_master`), one call per
+    /// master clock from the Bus. Replaces the old catch-up-on-DR-access.
+    fn coprocessor_tick(&mut self) {
+        self.dsp.tick_master();
+    }
+
     fn firmware_hint(&self) -> Option<&'static str> {
         Some(self.variant.firmware_name())
     }

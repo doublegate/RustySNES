@@ -165,6 +165,12 @@ impl Board for Dsp1Board {
         self.dsp.host_accesses()
     }
 
+    /// Pin-exact model: free-run the DSP on its own 7.6 MHz divisor, one call per master clock (the
+    /// Bus drives this every tick via `advance_master`), instead of the old catch-up-on-DR-access.
+    fn coprocessor_tick(&mut self) {
+        self.dsp.tick_master();
+    }
+
     // `window` is fixed at construction (derived from map mode + ROM size, never mutated), so it
     // needs no save-state entry — only the engine's own mutable register/RAM state does.
     fn save_state(&self, w: &mut SaveWriter) {

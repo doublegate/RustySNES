@@ -12,16 +12,25 @@
 //! interface (the DR data register, the SR status register, and the DP data-RAM port) is the
 //! memory-mapped surface the SNES CPU sees.
 //!
-//! ## Host synchronization model
+//! ## Host synchronization model (pin-exact / master-clock-stepped)
 //!
-//! The real chip free-runs on its own ~7.6 MHz oscillator and hand-shakes the SNES CPU purely
-//! through the **RQM** ("request for master") status bit: the DSP raises RQM when it wants the
-//! host to service the data register, the host's access clears it, and the DSP spins on a
-//! `JRQM`/`JNRQM` wait loop until serviced. Because RQM is the *only* observable coupling
-//! between the two clocks (DSP-1 games always poll `SR.rqm`, never a wall-clock cycle count),
-//! [`Upd77c25::run_until_rqm`] advances the engine to its next parked state after every host
-//! data-register access. This keeps the bus boundary byte-exact and fully deterministic
-//! (`docs/adr/0004`) without a free-running per-master-clock tick.
+//! The real chip free-runs on its own oscillator (~7.6 MHz µPD7725, 11 MHz µPD96050) and hand-shakes
+//! the SNES CPU purely through the **RQM** ("request for master") status bit: the DSP raises RQM when
+//! it wants the host to service the data register, the host's access clears it, and the DSP spins on a
+//! `JRQM`/`JNRQM` wait loop until serviced. This engine models that literally — a **free-running,
+//! master-clock-stepped** core: [`Upd77c25::tick_master`] advances the DSP on its own fractional
+//! divisor (`Revision::rates`, an *integer* accumulator per `docs/adr/0004`, mirroring the SPC700's
+//! `spc_accum` in `rustysnes-core::Bus`), driven once per master clock from each NEC-DSP board's
+//! `coprocessor_tick`. Host accesses (`read_dr`/`write_dr`) just exchange the *current* DR/SR — the DSP
+//! has already produced the value on its own clock, exactly as hardware does; there is no synchronous
+//! catch-up on access. [`Upd77c25::run_until_rqm`] survives only for the one-time firmware-load prime
+//! (the power-on head-start, before the game's first poll) and for standalone unit tests that have no
+//! bus to tick the chip; the live bus path never calls it.
+//!
+//! (This replaced an earlier *catch-up-on-host-access* model that ran the DSP synchronously inside
+//! `read_dr`/`write_dr`. Its one subtle misuse — stopping at the first RQM instead of the firmware's
+//! host-wait spin — mis-framed the DSP-1 parameter block and was the Mode-7 flat-floor bug; the
+//! free-running model structurally cannot have that class of hazard.)
 
 // The NEC DSP treats every register as both a signed and an unsigned view of the same 16 bits,
 // so the faithful port is dense with deliberate bit-pattern casts; the status/condition-flag
@@ -92,7 +101,33 @@ impl Revision {
             Self::Upd96050 => 2048,
         }
     }
+
+    /// The chip clock as a gcd-reduced rational of the NTSC master clock (21_477_270 Hz), for the
+    /// master-clock fractional accumulator ([`Upd77c25::tick_master`]) — `(num, den)` with `num < den`
+    /// so at most one instruction runs per master tick, and both revisions share `den = master / 10`.
+    /// µPD7725 (DSP-1/2/4) runs at 7.6 MHz, µPD96050 (ST010) at 11 MHz — ares' `necdsp.Frequency`
+    /// defaults (`ref-proj/ares/.../sfc/cartridge/load.cpp`); `docs/cart.md`'s ~8/10/15 MHz are the
+    /// nominal-range figures, not the emulated rate. Integer-only, no floats (determinism, ADR 0004).
+    const fn rates(self) -> (u64, u64) {
+        match self {
+            Self::Upd7725 => (760_000, 2_147_727), // 7_600_000 / 21_477_270
+            Self::Upd96050 => (1_100_000, 2_147_727), // 11_000_000 / 21_477_270
+        }
+    }
 }
+
+/// Compile-time check that the reduced [`Revision::rates`] equal the true DSP:master ratio (a typo in
+/// the hand-reduced constants would otherwise silently mistime the DSP). `num/den == freq/master` iff
+/// `num*master == freq*den`. Evaluating `rates()` (a `const fn`) here keeps the proof in lockstep with
+/// the source rather than re-stating the reduced literals a second time.
+#[allow(clippy::assertions_on_constants)]
+const _: () = {
+    const MASTER_HZ: u64 = 21_477_270;
+    let (num7, den7) = Revision::Upd7725.rates();
+    assert!(num7 * MASTER_HZ == 7_600_000 * den7);
+    let (num96, den96) = Revision::Upd96050.rates();
+    assert!(num96 * MASTER_HZ == 11_000_000 * den96);
+};
 
 /// The six condition/ALU flags carried per accumulator (`flags.a` / `flags.b`).
 #[derive(Debug, Clone, Copy, Default)]
@@ -202,6 +237,10 @@ pub struct Upd77c25 {
     sr: Status,
     flag_a: Flag,
     flag_b: Flag,
+    /// Master-clock fractional accumulator — the DSP's sub-master-clock phase, advanced by
+    /// [`Self::tick_master`] (mirrors `Clock.spc_accum` in the core Bus). Emulated hardware state:
+    /// serialized, integer-only (determinism, ADR 0004).
+    dsp_accum: u64,
 }
 
 impl Upd77c25 {
@@ -243,6 +282,7 @@ impl Upd77c25 {
             sr: Status::default(),
             flag_a: Flag::default(),
             flag_b: Flag::default(),
+            dsp_accum: 0,
         };
         me.power();
         me
@@ -269,6 +309,7 @@ impl Upd77c25 {
         self.sr = Status::default();
         self.flag_a = Flag::default();
         self.flag_b = Flag::default();
+        self.dsp_accum = 0;
     }
 
     /// Whether a firmware image has been loaded (the chip is functional).
@@ -324,14 +365,16 @@ impl Upd77c25 {
     /// hardware; kept for surface symmetry.
     pub fn write_sr(&mut self, _data: u8) {}
 
-    /// Read a byte from the data register, then catch the engine up to its next parked state.
+    /// Read a byte from the data register. In the pin-exact model the DSP free-runs via
+    /// [`Self::tick_master`], so this returns the DR the chip has already produced — no synchronous
+    /// catch-up.
     #[must_use]
     pub fn read_dr(&mut self) -> u8 {
         if !self.firmware_loaded {
             return 0;
         }
         self.host_accesses += 1;
-        let value = if self.sr.drc {
+        if self.sr.drc {
             // 8-bit transfer.
             self.sr.rqm = false;
             self.dr as u8
@@ -344,12 +387,12 @@ impl Upd77c25 {
             // 16-bit transfer, low byte (begins the word).
             self.sr.drs = true;
             self.dr as u8
-        };
-        self.run_until_rqm();
-        value
+        }
     }
 
-    /// Write a byte to the data register, then catch the engine up to its next parked state.
+    /// Write a byte to the data register. In the pin-exact model the DSP consumes it when its
+    /// free-running clock next reaches the firmware's input read ([`Self::tick_master`]) — no
+    /// synchronous drain here.
     pub fn write_dr(&mut self, data: u8) {
         if !self.firmware_loaded {
             return;
@@ -369,7 +412,6 @@ impl Upd77c25 {
             self.sr.drs = true;
             self.dr = (self.dr & 0xFF00) | u16::from(data);
         }
-        self.run_until_rqm();
     }
 
     /// Read a byte from the data-RAM host port (`address` is the byte address into the window).
@@ -427,6 +469,24 @@ impl Upd77c25 {
             if self.sr.rqm && self.pc == pc_before {
                 break; // firmware is spinning on RQM, waiting for the host
             }
+        }
+    }
+
+    /// Advance the DSP by one **master** clock via its fractional divisor — the pin-exact
+    /// free-running model. Each NEC-DSP board calls this from `coprocessor_tick` on every master
+    /// tick; the accumulator releases DSP clocks (one `exec()` each) at the chip's own 7.6/11 MHz
+    /// rate. This mirrors the SPC700's `spc_accum` loop in `rustysnes-core::Bus::advance_master`:
+    /// integer accumulator, no floats (determinism, ADR 0004), and at most one `exec()` per call
+    /// because `num < den`. A no-op until firmware is loaded.
+    pub fn tick_master(&mut self) {
+        if !self.firmware_loaded {
+            return;
+        }
+        let (num, den) = self.revision.rates();
+        self.dsp_accum += num;
+        while self.dsp_accum >= den {
+            self.dsp_accum -= den;
+            self.exec();
         }
     }
 
@@ -770,6 +830,7 @@ impl Upd77c25 {
             write_status(s, self.sr);
             write_flag(s, self.flag_a);
             write_flag(s, self.flag_b);
+            s.write_u64(self.dsp_accum); // pin-exact master-clock accumulator phase
             for &word in &self.data_ram {
                 s.write_u16(word);
             }
@@ -814,6 +875,18 @@ impl Upd77c25 {
         self.sr = read_status(&mut s)?;
         self.flag_a = read_flag(&mut s)?;
         self.flag_b = read_flag(&mut s)?;
+        // Pin-exact master-clock accumulator phase. `tick_master` keeps it reduced below the
+        // divisor, so a valid saved phase is always `< den`. Bounds-check the untrusted value: a
+        // crafted `NDSP` payload with a huge phase would otherwise make the next `tick_master`
+        // execute billions of `exec()` iterations before the accumulator drained (module 60).
+        let dsp_accum = s.read_u64()?;
+        let (_, den) = self.revision.rates();
+        if dsp_accum >= den {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "NDSP accumulator phase {dsp_accum} exceeds divisor {den}"
+            )));
+        }
+        self.dsp_accum = dsp_accum;
         for slot in &mut self.data_ram {
             *slot = s.read_u16()?;
         }
@@ -975,8 +1048,21 @@ mod tests {
         assert_eq!(eng.read_sr() & 0x80, 0x80, "SR high bit = RQM");
 
         assert_eq!(eng.read_dr(), 0x34); // low byte (drs set, rqm held)
-        assert_eq!(eng.read_dr(), 0x12); // high byte (rqm cleared, then re-armed by the loop)
-        assert!(eng.rqm(), "loop re-loaded DR and re-raised RQM");
+        assert_eq!(eng.read_dr(), 0x12); // high byte (rqm cleared)
+        // Pin-exact: the loop re-loads DR and re-raises RQM as the DSP's own free-running clock
+        // advances, NOT synchronously inside read_dr. Drive master ticks until it re-arms.
+        let mut re_armed = false;
+        for _ in 0..16 {
+            eng.tick_master();
+            if eng.rqm() {
+                re_armed = true;
+                break;
+            }
+        }
+        assert!(
+            re_armed,
+            "loop re-loaded DR and re-raised RQM via the free-running clock"
+        );
     }
 
     #[test]
@@ -1013,6 +1099,7 @@ mod tests {
             for _ in 0..12 {
                 s.write_bool(false);
             } // flag_a + flag_b
+            s.write_u64(0); // dsp_accum (pin-exact master-clock accumulator)
             for _ in 0..2048 {
                 s.write_u16(0);
             } // data_ram
@@ -1031,5 +1118,60 @@ mod tests {
         let _ = eng.program_rom[usize::from(eng.pc)];
         let _ = eng.data_rom[usize::from(eng.rp)];
         let _ = eng.stack[usize::from(eng.sp)];
+    }
+
+    #[test]
+    fn out_of_range_accumulator_phase_is_rejected_not_spun_on() {
+        // A valid saved `dsp_accum` is always below the divisor (`tick_master` keeps it reduced).
+        // A crafted `NDSP` phase `>= den` must be rejected at the boundary, not accepted — otherwise
+        // the next `tick_master` would spin for ~`den` extra `exec()` iterations per unit over the
+        // divisor. Build an otherwise-valid blob whose only defect is the accumulator phase.
+        let (_, den) = Revision::Upd7725.rates();
+        let build = |accum: u64| {
+            let mut w = SaveWriter::new();
+            w.section(*b"NDSP", |s| {
+                for _ in 0..16 {
+                    s.write_u16(0);
+                } // stack
+                s.write_u16(0); // pc
+                s.write_u16(0); // rp
+                s.write_u16(0); // dp
+                s.write_u8(0); // sp
+                for _ in 0..10 {
+                    s.write_u16(0);
+                } // si/so/k/l/m/n/a/b/tr/trb
+                s.write_u16(0); // dr
+                for _ in 0..13 {
+                    s.write_bool(false);
+                } // sr
+                for _ in 0..12 {
+                    s.write_bool(false);
+                } // flag_a + flag_b
+                s.write_u64(accum); // dsp_accum
+                for _ in 0..2048 {
+                    s.write_u16(0);
+                } // data_ram
+            });
+            w.into_bytes()
+        };
+
+        // `den` (the smallest out-of-range value) and a pathological huge value both fail.
+        for bad in [den, den + 1, u64::MAX] {
+            let bytes = build(bad);
+            let mut eng = Upd77c25::new(Revision::Upd7725);
+            let mut r = SaveReader::new(&bytes);
+            assert!(
+                matches!(eng.load_state(&mut r), Err(SaveStateError::Invalid(_))),
+                "accumulator phase {bad} (>= divisor {den}) must be rejected as Invalid"
+            );
+        }
+
+        // The largest in-range phase (`den - 1`) loads cleanly.
+        let bytes = build(den - 1);
+        let mut eng = Upd77c25::new(Revision::Upd7725);
+        let mut r = SaveReader::new(&bytes);
+        eng.load_state(&mut r)
+            .expect("in-range accumulator phase loads");
+        assert_eq!(eng.dsp_accum, den - 1);
     }
 }
