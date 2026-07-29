@@ -269,14 +269,20 @@ as open bus, the game wedges on its first DSP poll — it is never silently degr
   (`coproc::epsonrtc::EpsonRtc`) is implemented as a 3-register (`$4840` chip-select/`$4841`
   data/`$4842` ready) handshake over a 16-nibble register file, seeded to an all-zero epoch and
   never advanced except by explicit register writes.
-+ **DSP-2 / DSP-4** (`BestEffort`, **implemented** — `coproc::necdsp_variant`): the same
++ **DSP-2 / DSP-3 / DSP-4** (`BestEffort`, **implemented** — `coproc::necdsp_variant`): the same
   µPD77C25 LLE engine as DSP-1, title-detected and wired via `NecDspVariantBoard`. DSP-2 uses the
-  generic bit-0 DR/SR split; DSP-4 needed a DSP-1-style half-window-boundary split instead (found
-  by tracing a real Top Gear 3000 boot-time hardware check that expects both bytes of a 16-bit
-  compare to come from the same port). Validated against real Dungeon Master / Top Gear 3000.
+  generic bit-0 DR/SR split; **DSP-3** (`v1.24.0`, SD Gundam GX) shares that split over the full
+  `$8000–FFFF` window (snes9x `M_DSP3_LOROM`) — its Shift-JIS title decodes to an empty UTF-8 string,
+  so it is detected by raw title bytes, which also corrects its prior mis-detection as DSP-1; DSP-4
+  needed a DSP-1-style half-window-boundary split instead (found by tracing a real Top Gear 3000
+  boot-time hardware check that expects both bytes of a 16-bit compare to come from the same port).
+  Validated against real Dungeon Master / SD Gundam GX / Top Gear 3000 (detection + chip liveness).
 + **ST010 / ST011** (`BestEffort`, **implemented** — `coproc::necdsp_variant`): the µPD96050 LLE
-  engine (also `coproc::upd77c25`), bit-0 DR/SR split + the DP battery data-RAM window. Validated
-  against real F1 ROC II.
+  engine (also `coproc::upd77c25`), bit-0 DR/SR split + the DP battery data-RAM window. **ST011**
+  (`v1.24.0`, 2-dan Morita Shougi) is the identical board to ST010 but runs at **15 MHz** (vs ST010's
+  11 MHz — the engine takes an explicit rate via `Upd77c25::with_rate`), and declares the `$F`
+  "custom" chipset nibble so it is routed to the DSP family by title. Validated against real F1 ROC II
+  (ST010) and 2-dan Morita Shougi (ST011).
 + **S-DD1** (`BestEffort`, **implemented** — `coproc::sdd1`): a Golomb-code + adaptive-binary-
   probability decompressor that streams during a fixed-address DMA transfer (a new
   `Board::notify_dma_channel` hook lets the cart snoop `$43n2-$43n6` DMA-register writes, since

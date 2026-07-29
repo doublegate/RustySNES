@@ -292,6 +292,11 @@ pub fn select(header: &Header, rom: &[u8]) -> Box<dyn Board> {
         .get(header.offset..header.offset + 21)
         .and_then(|b| core::str::from_utf8(b).ok())
         .map(str::to_uppercase);
+    // DSP-3 (SD Gundam GX) has a Shift-JIS title, so `title_upper` is empty (invalid UTF-8) and it
+    // cannot be matched by string like the other variants — match the raw title bytes instead.
+    let is_dsp3 = rom
+        .get(header.offset..header.offset + 21)
+        .is_some_and(crate::coproc::NecDspVariant::detect_dsp3_raw);
     let rom: Box<[u8]> = Box::from(rom);
 
     // Super FX / GSU owns its own ROM/RAM mapping (no base-board delegation): the GSU program
@@ -349,7 +354,8 @@ pub fn select(header: &Header, rom: &[u8]) -> Box<dyn Board> {
         CoproId::Dsp => {
             let variant = title_upper
                 .as_deref()
-                .and_then(crate::coproc::NecDspVariant::detect);
+                .and_then(crate::coproc::NecDspVariant::detect)
+                .or_else(|| is_dsp3.then_some(crate::coproc::NecDspVariant::Dsp3));
             match variant {
                 Some(v) => Box::new(crate::coproc::NecDspVariantBoard::new(base, v)),
                 None => Box::new(crate::coproc::Dsp1Board::new(
