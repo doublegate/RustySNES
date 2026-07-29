@@ -102,10 +102,11 @@ impl Revision {
         }
     }
 
-    /// The chip clock as a rational of the NTSC master clock (21_477_270 Hz), reduced by the common
-    /// factor 10 (`num = freq / 10`, `den = master / 10 = 2_147_727`), for the master-clock fractional
-    /// accumulator ([`Upd77c25::tick_master`]) — `(num, den)` with `num < den` so at most one
-    /// instruction runs per master tick.
+    /// The chip clock as a rational of the NTSC master clock (21_477_270 Hz), scaled down by the
+    /// common factor 10 (`num = freq / 10`, `den = master / 10 = 2_147_727`), for the master-clock
+    /// fractional accumulator ([`Upd77c25::tick_master`]) — `(num, den)` with `num < den` so at most
+    /// one instruction runs per master tick. This common-factor-10 scaling (not a full gcd reduction)
+    /// keeps every rate over the same `2_147_727` denominator; here the two happen to also be coprime.
     ///
     /// µPD7725 (DSP-1/2/3/4) runs at 7.6 MHz. µPD96050 runs at **11 MHz on the ST010 but 15 MHz on the
     /// ST011** (ares/bsnes agree — `firmwareEXNEC() == "ST010" ? 11'000'000 : 15'000'000`), so the
@@ -120,8 +121,15 @@ impl Revision {
     }
 }
 
-/// The µPD96050 **ST011** clock (15 MHz) as the same common-factor-10 reduced rational —
-/// `15_000_000 / 21_477_270` → `(1_500_000, 2_147_727)`, `num < den` like the others.
+/// The µPD96050 **ST011** clock (15 MHz) over the master clock, scaled by the same common factor 10 —
+/// `15_000_000 / 21_477_270` → `(1_500_000, 2_147_727)` (`num = freq/10`, `den = master/10`),
+/// `num < den` like the others.
+///
+/// This deliberately shares the `2_147_727` denominator with the other rates rather than being the
+/// *fully* gcd-reduced form `(500_000, 715_909)` (numerator and denominator here both divide by 3).
+/// The two are the same rational and step the accumulator identically; the const assert below checks
+/// the frequency ratio, not coprimality, so either form passes and the shared denominator is the
+/// deliberate choice.
 ///
 /// ST010 and ST011 share the `Upd96050` register-width revision but NOT the oscillator (ares/bsnes:
 /// ST010 = 11 MHz, ST011 = 15 MHz), so `Revision::rates` cannot distinguish them — a wired ST011
@@ -129,7 +137,7 @@ impl Revision {
 /// is wired (that wiring is held pending a validation ROM — see `coproc::necdsp_variant`).
 pub(crate) const UPD96050_ST011_RATE: (u64, u64) = (1_500_000, 2_147_727);
 
-/// Compile-time check that each reduced rate equals the true DSP:master ratio (a typo in the
+/// Compile-time check that each scaled rate equals the true DSP:master ratio (a typo in the
 /// hand-reduced constants would otherwise silently mistime the DSP). `num/den == freq/master` iff
 /// `num*master == freq*den`. Evaluating `Revision::rates` (a `const fn`) keeps the proof in lockstep
 /// with the source; the ST011 rate is covered too so its 15 MHz reduction cannot silently rot.
