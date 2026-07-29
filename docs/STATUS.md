@@ -3,7 +3,7 @@
 This file is authoritative for per-suite pass counts, the board / coprocessor matrix, and
 version policy. Everything else defers to it.
 
-**Current release:** `v1.22.0 "Horizon"` (`v1.21.0 "Touchstone"`, `v0.1.0 "Foundation"`,
+**Current release:** `v1.23.0 "Cadence"` (`v1.22.0 "Horizon"`, `v1.21.0 "Touchstone"`, `v0.1.0 "Foundation"`,
 `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"`, `v0.4.0 "Completion"`, `v0.5.0 "Fidelity"`,
 `v0.6.0 "Shippable"`, `v0.7.0 "Resolution"`, `v0.8.0 "Community"`, `v0.9.0 "Threshold"`,
 `v1.0.0 "Zenith"`, `v1.0.1 "Aftertouch"`, `v1.1.0 "Latchkey"`, `v1.2.0 "Phosphor"`,
@@ -32,6 +32,15 @@ DSP-1 parameter block into a degenerate, constant-across-scanlines projection. R
 the firmware's true host-wait spin (matching ares) restores the per-scanline perspective ramp,
 verified against a MesenCE reference with **zero change** to any non-flight NEC-coprocessor rendering
 (DSP-1/2/4 title/attract framebuffers byte-identical before and after).
+**`v1.23.0 "Cadence"` completes that work by rewriting the NEC-DSP host interface to be pin-exact:**
+the shared µPD77C25 / µPD96050 engine (DSP-1/2/4, ST010) — the last coprocessor still resolving its
+host handshake in zero emulated time — now free-runs on the master-clock scheduler like the SPC700,
+GSU, and ST018, advancing on its own gcd-reduced fractional divisor via the SPC700's integer
+accumulator (`Upd77c25::tick_master` from `Board::coprocessor_tick`; `read_dr`/`write_dr` now pure).
+It is a model-consistency + response-latency change, **not** a rendering change — all four wired NEC
+chips are byte-identical to the `v1.22.0` baseline — and it structurally retires the "stop at first
+`RQM=set`" hazard class. The DSP sub-clock phase is serialized, so save-state `FORMAT_VERSION` bumps
+`9 → 10` (older blobs loud-fail per `docs/adr/0006`).
 See `CHANGELOG.md` for full per-release detail. `v1.0.0` closes the production-cut
 gate: `Board: Send` (unblocking `emu-thread` to compile/test/lint clean for the first time, though
 it stays off-by-default pending full feature parity — see `docs/frontend.md`), the five

@@ -1438,4 +1438,39 @@ behaviour changes.
   scheduler like ares, for cycle-accurate response latency) remains a scoped future effort — the
   value-exact fix here is byte-exact at the RQM bus boundary, which is all DSP-1 games observe. The
   DSP-1 Mode-7 investigation's throwaway diagnostic scaffolding stays on the `fix/dsp1-mode7` branch
-  and is intentionally not part of this release.
+  and is intentionally not part of this release. *(Delivered in `v1.23.0`, below.)*
+
+### `v1.23.0 "Cadence"` — pin-exact master-clock-stepped NEC DSP — **RELEASED 2026-07-29**
+
+The follow-up `v1.22.0` scoped out: rewrite the shared NEC-DSP host interface to be pin-exact, so the
+DSP joins every other timed subsystem on the master clock instead of resolving its host handshake in
+zero emulated time. A **model-consistency + response-latency** release — deliberately **not** a
+rendering change — that retires the last synchronous "catch-up on host access" coprocessor and
+structurally eliminates the hazard class that caused the `v1.22.0` flat floor.
+
+- **What changed.** The µPD77C25 / µPD96050 engine (DSP-1/2/4, ST010) was the only timed subsystem
+  still drained synchronously inside `Upd77c25::read_dr`/`write_dr`. It now free-runs on the
+  master-clock scheduler like the SPC700, GSU/Super FX, and ST018 ARMv3: `Upd77c25::tick_master`,
+  driven once per master clock from each NEC-DSP board's `Board::coprocessor_tick`, advances the DSP
+  on its own gcd-reduced fractional divisor (`Revision::rates` → `760_000/2_147_727` for the 7.6 MHz
+  µPD7725, `1_100_000/2_147_727` for the 11 MHz µPD96050) via the same *integer* accumulator
+  (`dsp_accum`) the SPC700 uses — no floats, fully deterministic (`docs/adr/0004`), guarded by a
+  compile-time reduction assertion. Host reads/writes now exchange the **current** `DR`/`SR`, so the
+  RQM handshake takes a hardware-realistic number of cycles. `run_until_rqm` survives only for the
+  one-time firmware-load prime and standalone tests.
+
+- **Why it is safe (and not a picture change).** All four wired NEC chips render **byte-identical** to
+  the `v1.22.0` value-exact baseline — the Pilotwings flight framebuffer content-hash
+  (`0x5dba62c02af9a44a`) is unchanged, and DSP-2 (Dungeon Master) / DSP-4 (Top Gear 3000) / ST010
+  (F1 ROC II) framebuffers match before and after. A continuously-clocked free-runner **cannot** stop
+  at the first `RQM=set`, so the entire hazard class behind the `v1.22.0` Mode-7 flat floor is gone by
+  construction, not by special-casing.
+
+- **Save-state.** The DSP sub-clock phase (`dsp_accum`) is serialized in the `NDSP` section →
+  `FORMAT_VERSION 9 → 10`; older blobs loud-fail (`docs/adr/0006`, no silent migration).
+
+- **Verification.** `cargo test --workspace` 527/527; fmt, clippy (default workspace + per-feature),
+  no_std `thumbv7em-none-eabihf`, `RUSTDOCFLAGS=-D warnings` doc — all green. Docs-as-spec updated:
+  the `upd77c25.rs` module doc + `docs/cart.md` §the shared NEC core describe the master-clock-stepped
+  model, and the GSU host-sync cross-reference (previously citing DSP-1's `run_until_rqm`) is
+  corrected. Session-only pin-exact diagnostic harnesses were kept off the release (throwaway).

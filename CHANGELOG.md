@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.23.0] "Cadence" - 2026-07-29
+
+The timing release. **The NEC DSP is no longer the last synchronous coprocessor.** v1.22.0 fixed the
+*visible* DSP-1 Mode-7 flat floor value-exact but left a scoped follow-up on the table: the shared
+µPD77C25 / µPD96050 engine (DSP-1/2/4, ST010) still resolved every host handshake in **zero emulated
+time** — `Upd77c25::read_dr` / `write_dr` drained the chip synchronously (a lazy *catch-up on host
+access* model), the odd one out among timed subsystems that already free-run on the master clock
+(SPC700, GSU/Super FX, ST018 ARMv3, SPC7110). This release retires that debt: the DSP now **free-runs
+on the master-clock scheduler**, advancing on its own gcd-reduced fractional divisor via the same
+*integer* accumulator the SPC700 uses, so the RQM handshake takes a hardware-realistic number of
+cycles. It is a **model-consistency + response-latency** upgrade, deliberately **not** a rendering
+change — all four wired NEC chips render **byte-identical** to the v1.22.0 baseline (the Pilotwings
+flight framebuffer hash is unchanged) — and, structurally, a continuously-clocked core **cannot**
+recreate the "stop at the first `RQM=set`" hazard class that produced the Mode-7 flat floor in the
+first place. The only externally-visible change is the save-state format: the DSP's sub-clock phase
+must be preserved for the determinism contract, so `FORMAT_VERSION` bumps 9 → 10 and older blobs
+loud-fail (no silent migration, per `docs/adr/0006`).
+
 ### Changed
 
 - **NEC DSP — pin-exact, master-clock-stepped host interface (the "scoped future effort" v1.22.0
@@ -29,6 +47,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hazard class that produced the Mode-7 flat floor.
 - **Save-state `FORMAT_VERSION` 9 → 10** — the sub-clock phase (`dsp_accum`) is serialized in the
   `NDSP` section; older blobs loud-fail per `docs/adr/0006` (no silent migration).
+
+### Internal
+
+- Documented the new host-synchronization model in the spec (docs-as-spec): the `upd77c25.rs` module
+  doc and `docs/cart.md` "the shared NEC core" now describe the master-clock-stepped free-runner, and
+  the Super FX / GSU host-sync cross-reference (which previously cited DSP-1's `run_until_rqm` as "the
+  same economy") is corrected — the GSU stays run-to-completion because nothing is observable between
+  Go-set and Go-clear, whereas the DSP's RQM is polled mid-run.
 
 ## [1.22.0] "Horizon" - 2026-07-29
 
