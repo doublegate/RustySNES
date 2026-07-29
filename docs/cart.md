@@ -102,9 +102,15 @@ PC/RP/DP widths.
 **Host synchronization (the only cross-clock coupling):** the chip free-runs on its ~7.6 MHz
 oscillator and hand-shakes the CPU solely through the **RQM** ("request for master") status bit —
 DSP-1 games always poll `SR.rqm`, never a wall-clock cycle count. The engine therefore advances to
-its next parked (RQM-set) state after every host DR access (`run_until_rqm`, capped). This keeps
-the bus boundary byte-exact and fully deterministic (`docs/adr/0004`) without a free-running
-per-master-clock tick, and needs no core-scheduler hook.
+its next **host-wait spin** after every host DR access (`run_until_rqm`, capped) — i.e. until the
+firmware is looping on a `JRQM`/`JNRQM` self-loop, blocked until the next host access. It must run to
+that spin, **not** merely to the first `RQM=set`: reading a host input word (`src == 8`) raises RQM
+as a side effect while the firmware still has pending setup — notably clearing DRC to 16-bit for the
+following transfer — and stopping early would defer that past the next host write, mis-framing a
+multi-word parameter block (this was the DSP-1 continuous-mode Mode-7 flat-floor bug; running to the
+spin matches ares' continuous clock-stepping to the wait point). This keeps the bus boundary
+byte-exact and fully deterministic (`docs/adr/0004`) without a free-running per-master-clock tick,
+and needs no core-scheduler hook.
 
 ### The GSU core + the Super FX board (implemented — `crate::coproc::gsu` + `crate::coproc::superfx`)
 

@@ -9,6 +9,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.22.0] "Horizon" - 2026-07-29
+
+The Mode-7 release. **DSP-1 games finally draw a correct, perspective-correct Mode-7 floor** —
+Pilotwings' flight lessons and Super Mario Kart's track — closing the last major *visible* accuracy
+gap in the coprocessor set. A single root cause in the shared NEC-DSP host interface
+(`Upd77c25::run_until_rqm`) stopped the engine one host-write too early: it parked at the **first
+`RQM=set`**, which reading a host input word (`src == 8`) raises as a side effect, **before** the
+firmware had cleared DRC to 16-bit for the next transfer — so a multi-word parameter block landed
+8-bit-misaligned and the DSP computed a degenerate, **constant-across-scanlines** matrix (a flat
+ground). Running the engine on to the firmware's genuine **host-wait spin** (a single-instruction
+`JRQM`/`JNRQM` self-loop, matching ares' continuous clock-stepping to the wait point) restores the
+per-scanline ramp. The bug was pinned by capturing a real flight's DR command stream against a
+headless **MesenCE** reference — RustySNES received byte-identical DSP-1 *input* but produced
+constant *output* (8 distinct words/frame vs the reference's 264) — then reproducing it by replaying
+that stream through a fresh core, after verifying the NEC core's `readDR`/`writeDR`, ALU/multiplier/
+flags, `execLD`, and SR-write mask are line-for-line identical to ares. The fix is **byte-exact at
+the RQM bus boundary** (all a DSP-1 game observes); `run_until_rqm` is shared by all six NEC
+coprocessors (DSP-1/2/3/4, ST010/011) and every non-flight framebuffer — DSP-1/2/4 title/attract —
+is byte-identical before and after. A pinned `dsp1_raster_ramp` regression test replays the real
+params and asserts the ramp (it fails on the pre-fix core, passes after). The full **pin-exact
+rewrite** — stepping the DSP on the master-clock scheduler for cycle-accurate response *latency* —
+remains a scoped future effort; nothing DSP-1 games observe needs it.
+
+Around the headline, this release cuts the 65C816 / 5A22 **cycle-timing** work that had accumulated
+in `[Unreleased]` since `v1.21.0`. The **`WAI` wake cycle** (the internal tick the CPU spends leaving
+`WAI` before the interrupt sequence) is now modelled — it had a `WAI`-gated handler's first store
+landing ~1.5 dots early; the **DRAM-refresh CPU stall** (the 40-master-clock, once-per-scanline
+5A22 freeze at line-clock ≈ 536) is modelled as a *reallocation* of the fixed frame budget, so an
+H-IRQ handler's mid-line write now lands ~10 dots later when the ISR straddles the refresh point
+(AccuracySNES `B3.01` detects the pause); and the emulation-mode **`(dp,X)` `DL != 0` high-byte
+page-wrap** is corrected. The **per-dot PPU compositor gains its background fetch-ahead**
+(T-CA-10 Phase 4c): mid-line scroll and tilemap changes now reach the columns not yet drawn,
+completing the per-dot renderer story `v1.21.0` began (the BG/sprite fetch is no longer whole-line).
+AccuracySNES adds the **`F1.08` / `F1.09`** auto-read-timing golden rows, and a new
+**`scripts/raster_crossval/`** MesenCE cross-check pins the compositor's mid-line fetch-vs-composite
+cursor split. Default-build behaviour is more accurate throughout; the DSP-1 Mode-7 fix and the
+compositor fetch-ahead are the two user-visible rendering changes.
+
+### Fixed
+
+- **DSP-1 continuous-mode Mode-7 flat floor (Pilotwings flight, SMK track).** DSP-1 games rendered a
+  flat/degenerate Mode-7 ground because `Upd77c25::run_until_rqm` stopped at the first `RQM=set`
+  after a host access — which reading a host input word (`src == 8`) raises as a side effect —
+  *before* the firmware finished dispatching the command and clearing DRC to 16-bit for the parameter
+  transfer. The next host write then used the stale 8-bit framing, so the whole 7-word parameter block
+  landed misaligned and the DSP computed a projection that was constant across scanlines (no
+  perspective). The engine now runs to the firmware's genuine host-wait spin (a `JRQM`/`JNRQM`
+  self-loop), matching ares' continuous clock-stepping to the wait point. Captured against a MesenCE
+  reference — identical DSP-1 command *input*, but RustySNES *output* was constant (8 distinct
+  words/frame) vs the reference's per-scanline ramp (264) — and confirmed by replaying the real command
+  stream through a fresh core. The NEC core's instruction execution, ALU/multiplier/flags,
+  `readDR`/`writeDR`, and SR-write mask were verified line-for-line identical to ares; only the
+  host-wait stepping was wrong. **No change to any non-flight rendering:** DSP-1/2/4 title/attract
+  framebuffers are byte-identical before and after (`run_until_rqm` is shared by all six NEC
+  coprocessors — DSP-1/2/3/4, ST010/011 — so this was verified across them). In-game, Pilotwings flight
+  went from a fully degenerate matrix (150/150 flight frames flat) to a per-scanline ramp on every
+  frame. New regression test `dsp1_raster_ramp` replays Pilotwings' real cmd-`0x02` params + cmd `0x0a`
+  and asserts the raster ramps (confirmed it fails on the pre-fix core, `[fe7f 01ff fe00 fe7f]`, and
+  passes after); `dsp1_oncart` and the 156 cart-crate unit tests stay green. `docs/cart.md` §the shared
+  NEC core.
+
 ### Added
 
 - **`WAI` wake cycle — the internal cycle the CPU spends leaving `WAI`** before the interrupt

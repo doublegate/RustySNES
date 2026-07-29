@@ -3,7 +3,7 @@
 This file is authoritative for per-suite pass counts, the board / coprocessor matrix, and
 version policy. Everything else defers to it.
 
-**Current release:** `v1.21.0 "Touchstone"` (`v0.1.0 "Foundation"`,
+**Current release:** `v1.22.0 "Horizon"` (`v1.21.0 "Touchstone"`, `v0.1.0 "Foundation"`,
 `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"`, `v0.4.0 "Completion"`, `v0.5.0 "Fidelity"`,
 `v0.6.0 "Shippable"`, `v0.7.0 "Resolution"`, `v0.8.0 "Community"`, `v0.9.0 "Threshold"`,
 `v1.0.0 "Zenith"`, `v1.0.1 "Aftertouch"`, `v1.1.0 "Latchkey"`, `v1.2.0 "Phosphor"`,
@@ -24,7 +24,15 @@ per-dot against live registers (mid-line CGRAM/OAM/`INIDISP` at dot resolution; 
 Phase 4c, not yet landed) — and the first-party AccuracySNES
 cartridge matures into a usable instrument (AccuracyCoin-style paged menu + automatic skyline
 results + per-test B-skip + a Select WRAM debug viewer) with its battery at **344 of 443** dossier
-assertions (291 on-cart + 53 rendered scenes). See `CHANGELOG.md` for full per-release detail. `v1.0.0` closes the production-cut
+assertions (291 on-cart + 53 rendered scenes).
+**`v1.22.0 "Horizon"` fixes the long-standing DSP-1 continuous-mode Mode-7 flat floor** (Pilotwings
+flight, SMK track): the shared NEC-DSP host-sync (`run_until_rqm`) stopped one host-write too early,
+so reading a host input word raised RQM before the firmware cleared DRC to 16-bit — mis-framing the
+DSP-1 parameter block into a degenerate, constant-across-scanlines projection. Running the engine to
+the firmware's true host-wait spin (matching ares) restores the per-scanline perspective ramp,
+verified against a MesenCE reference with **zero change** to any non-flight NEC-coprocessor rendering
+(DSP-1/2/4 title/attract framebuffers byte-identical before and after).
+See `CHANGELOG.md` for full per-release detail. `v1.0.0` closes the production-cut
 gate: `Board: Send` (unblocking `emu-thread` to compile/test/lint clean for the first time, though
 it stays off-by-default pending full feature parity — see `docs/frontend.md`), the five
 desktop-UX-shell-maturity items (thumbnail Save States manager, key-rebind grid, themes, speed

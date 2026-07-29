@@ -1401,3 +1401,41 @@ Default-build behaviour is unchanged except that the per-dot compositor is now t
 renderer; the on-cart cartridge is developer tooling and does not touch the emulator binary. The
 state-of-play doc for the ongoing accuracy program is `docs/accuracysnes-plan.md`; the coverability
 ceiling analysis is `docs/accuracysnes-coverability-audit-2026-07-23.md`.
+
+### `v1.22.0 "Horizon"` — DSP-1 continuous-mode Mode-7 fix — **RELEASED 2026-07-29**
+
+A focused correctness release resolving the long-standing bug where DSP-1 games render a flat,
+perspective-less Mode-7 ground (Pilotwings flight, SMK track) — the last major visible accuracy gap
+in the coprocessor set. It is a **one-function fix** in the shared NEC-DSP host-synchronization,
+verified against a captured MesenCE reference and shipped with a pinned regression test; no other
+behaviour changes.
+
+- **Root cause — `run_until_rqm` stopped one host-write too early.** The µPD77C25 host interface
+  advances the engine to its parked state after each host DR access. It stopped at the *first*
+  `RQM=set`, but reading a host input word (`src == 8`) raises RQM as a side effect while the firmware
+  still has pending setup — notably clearing DRC to 16-bit for the next transfer. Stopping there
+  deferred the DRC clear past the next host write, so Pilotwings' 7-word `cmd 0x02` projection block
+  was transferred 8-bit-misaligned and the DSP computed a degenerate, constant-across-scanlines matrix
+  → a flat floor. The fix runs the engine to the firmware's genuine host-wait spin (a `JRQM`/`JNRQM`
+  self-loop), matching ares' continuous clock-stepping to the wait point.
+
+- **How it was pinned.** A MesenCE Lua tracer captured a real flight's DR command stream; RustySNES
+  received byte-identical DSP-1 *input* but produced constant *output* (8 distinct words/frame) vs the
+  reference's per-scanline ramp (264). Replaying the real command stream through a fresh core
+  reproduced the flat result deterministically, ruling out bus/timing. ares' `readDR`/`writeDR`,
+  ALU/multiplier/flag logic, `execLD`, and the SR-write mask were verified line-for-line identical to
+  RustySNES — isolating the single structural difference (the host-wait stepping).
+
+- **Verification + no-regression.** In-game Pilotwings flight went from 150/150 flat frames to a
+  per-scanline ramp on every frame. `run_until_rqm` is shared by all six NEC coprocessors
+  (DSP-1/2/3/4, ST010/011); before/after framebuffer content-hashes are byte-identical for Pilotwings
+  title/attract, Dungeon Master (DSP-2), and Top Gear 3000 (DSP-4). New `dsp1_raster_ramp` regression
+  test (replays the real params, asserts the ramp; fails on the pre-fix core, passes after);
+  `dsp1_oncart` + 156 cart-crate unit tests green; all gates (fmt, clippy default + per-feature,
+  no_std, doc) green. `docs/cart.md` §the shared NEC core.
+
+- **Not included (deliberately):** the full pin-exact rewrite (stepping the DSP on the master-clock
+  scheduler like ares, for cycle-accurate response latency) remains a scoped future effort — the
+  value-exact fix here is byte-exact at the RQM bus boundary, which is all DSP-1 games observe. The
+  DSP-1 Mode-7 investigation's throwaway diagnostic scaffolding stays on the `fix/dsp1-mode7` branch
+  and is intentionally not part of this release.

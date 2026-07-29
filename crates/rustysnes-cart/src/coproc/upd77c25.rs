@@ -397,16 +397,36 @@ impl Upd77c25 {
         }
     }
 
-    /// Advance the engine until it parks waiting for the host (RQM set), capped at `RUN_CAP`
-    /// instructions. A no-op when already parked or when no firmware is loaded.
+    /// Advance the engine until it parks in its host-wait spin, capped at `RUN_CAP` instructions.
+    /// A no-op when no firmware is loaded.
+    ///
+    /// The firmware blocks for host I/O by SPINNING — a jump-to-self (`JRQM`/`JNRQM` back to its
+    /// own address) with RQM set, broken only when a host DR access flips RQM. Stop there, NOT merely
+    /// at the first `RQM=set`: reading a host input word (`src == 8`) raises RQM as a side effect
+    /// while the firmware still has pending setup — notably clearing DRC to 16-bit for the next
+    /// transfer. Stopping at that early RQM would defer the DRC clear past the next host write, so a
+    /// multi-word parameter block is transferred 8-bit-misaligned (this was the DSP-1 continuous-mode
+    /// Mode-7 flat-floor bug: Pilotwings' projection block landed garbled → a constant-across-scanlines
+    /// matrix). Running to the spin matches ares' continuous clock-stepping, which reaches the wait
+    /// point regardless of when RQM first sets.
+    ///
+    /// The spin is detected as a **single-instruction** self-loop (`self.pc == pc_before` with RQM
+    /// set), which is what every NEC DSP firmware this core runs (DSP-1/2/3/4, ST010/011) uses for its
+    /// host-wait — a one-word `JRQM`/`JNRQM` to its own address. A hypothetical firmware using a
+    /// multi-instruction spin would fall through to the `RUN_CAP` budget cap instead (still correct,
+    /// just one wasted catch-up per host access); no such firmware exists in this fixed chip set.
     pub fn run_until_rqm(&mut self) {
         if !self.firmware_loaded {
             return;
         }
         let mut budget = Self::RUN_CAP;
-        while !self.sr.rqm && budget > 0 {
+        while budget > 0 {
+            let pc_before = self.pc;
             self.exec();
             budget -= 1;
+            if self.sr.rqm && self.pc == pc_before {
+                break; // firmware is spinning on RQM, waiting for the host
+            }
         }
     }
 
