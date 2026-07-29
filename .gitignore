@@ -139,6 +139,10 @@ flamegraph.svg
 /pgo-data/
 /target/pgo/
 
+# --- Local tooling artifacts ---
+# codegraph's workspace knowledge-graph index + daemon runtime (SQLite DB/WAL, socket, PID, log).
+/.codegraph/
+
 # --- Documentation ---
 /docs/_site/
 # Local SNESdev Wiki mirror (scripts/snesdev_wiki_mirror.py). Contributor-licensed upstream
