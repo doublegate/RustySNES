@@ -138,13 +138,6 @@ impl Cart {
     pub fn coprocessor_host_accesses(&self) -> u64 {
         self.board.coprocessor_host_accesses()
     }
-
-    /// TRANSIENT (pin-exact Phase A): NEC-DSP `read_dr` hybrid-fallback fire count (must be zero at
-    /// the right tick rate). Removed with the fallback in the pure model.
-    #[must_use]
-    pub fn coprocessor_hybrid_fires(&self) -> u64 {
-        self.board.coprocessor_hybrid_fires()
-    }
 }
 
 impl core::fmt::Debug for Cart {

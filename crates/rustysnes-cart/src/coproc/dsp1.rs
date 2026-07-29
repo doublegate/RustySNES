@@ -165,10 +165,6 @@ impl Board for Dsp1Board {
         self.dsp.host_accesses()
     }
 
-    fn coprocessor_hybrid_fires(&self) -> u64 {
-        self.dsp.hybrid_fires()
-    }
-
     /// Pin-exact model: free-run the DSP on its own 7.6 MHz divisor, one call per master clock (the
     /// Bus drives this every tick via `advance_master`), instead of the old catch-up-on-DR-access.
     fn coprocessor_tick(&mut self) {

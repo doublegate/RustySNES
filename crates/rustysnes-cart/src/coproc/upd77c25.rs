@@ -228,11 +228,6 @@ pub struct Upd77c25 {
     /// [`Self::tick_master`] (mirrors `Clock.spc_accum` in the core Bus). Emulated hardware state:
     /// serialized, integer-only (determinism, ADR 0004).
     dsp_accum: u64,
-    /// TRANSIENT (Phase A pin-exact rollout): count of `read_dr` hybrid-fallback catch-ups. A
-    /// correctly-polling DSP corpus at the right clock rate fires this **zero** times; that zero is
-    /// the proof the tick rate is right. Removed with the fallback when the pure model lands. A
-    /// debugger counter, not serialized (same posture as `host_accesses`).
-    hybrid_fires: u64,
 }
 
 impl Upd77c25 {
@@ -275,7 +270,6 @@ impl Upd77c25 {
             flag_a: Flag::default(),
             flag_b: Flag::default(),
             dsp_accum: 0,
-            hybrid_fires: 0,
         };
         me.power();
         me
@@ -367,14 +361,6 @@ impl Upd77c25 {
             return 0;
         }
         self.host_accesses += 1;
-        // TRANSIENT Phase-A hybrid net: a correctly-polling game reads only once RQM is set (the DSP
-        // has produced the value), so this must never fire. If RQM is somehow clear, catch up
-        // synchronously and count it — a zero count on the DSP corpus is the proof the tick rate is
-        // right. Phase B deletes this block for pure pin-exact.
-        if !self.sr.rqm {
-            self.hybrid_fires += 1;
-            self.run_until_rqm();
-        }
         if self.sr.drc {
             // 8-bit transfer.
             self.sr.rqm = false;
@@ -489,13 +475,6 @@ impl Upd77c25 {
             self.dsp_accum -= den;
             self.exec();
         }
-    }
-
-    /// TRANSIENT (Phase A): how many times `read_dr`'s hybrid fallback fired (see the field doc).
-    /// Must be zero on a correctly-polling DSP corpus at the right clock rate.
-    #[must_use]
-    pub const fn hybrid_fires(&self) -> u64 {
-        self.hybrid_fires
     }
 
     // --- The instruction core. ---
