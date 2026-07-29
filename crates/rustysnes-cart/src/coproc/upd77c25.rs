@@ -92,7 +92,29 @@ impl Revision {
             Self::Upd96050 => 2048,
         }
     }
+
+    /// The chip clock as a gcd-reduced rational of the NTSC master clock (21_477_270 Hz), for the
+    /// master-clock fractional accumulator ([`Upd77c25::tick_master`]) — `(num, den)` with `num < den`
+    /// so at most one instruction runs per master tick, and both revisions share `den = master / 10`.
+    /// µPD7725 (DSP-1/2/4) runs at 7.6 MHz, µPD96050 (ST010) at 11 MHz — ares' `necdsp.Frequency`
+    /// defaults (`ref-proj/ares/.../sfc/cartridge/load.cpp`); `docs/cart.md`'s ~8/10/15 MHz are the
+    /// nominal-range figures, not the emulated rate. Integer-only, no floats (determinism, ADR 0004).
+    const fn rates(self) -> (u64, u64) {
+        match self {
+            Self::Upd7725 => (760_000, 2_147_727), // 7_600_000 / 21_477_270
+            Self::Upd96050 => (1_100_000, 2_147_727), // 11_000_000 / 21_477_270
+        }
+    }
 }
+
+/// Compile-time check that the reduced [`Revision::rates`] equal the true DSP:master ratio (a typo in
+/// the hand-reduced constants would otherwise silently mistime the DSP). `num/den == freq/master` iff
+/// `num*master == freq*den`. (The assert is *meant* to be a constant — that is the whole point.)
+#[allow(clippy::assertions_on_constants, clippy::eq_op)]
+const _: () = {
+    assert!(760_000_u64 * 21_477_270 == 7_600_000_u64 * 2_147_727);
+    assert!(1_100_000_u64 * 21_477_270 == 11_000_000_u64 * 2_147_727);
+};
 
 /// The six condition/ALU flags carried per accumulator (`flags.a` / `flags.b`).
 #[derive(Debug, Clone, Copy, Default)]
@@ -202,6 +224,15 @@ pub struct Upd77c25 {
     sr: Status,
     flag_a: Flag,
     flag_b: Flag,
+    /// Master-clock fractional accumulator — the DSP's sub-master-clock phase, advanced by
+    /// [`Self::tick_master`] (mirrors `Clock.spc_accum` in the core Bus). Emulated hardware state:
+    /// serialized, integer-only (determinism, ADR 0004).
+    dsp_accum: u64,
+    /// TRANSIENT (Phase A pin-exact rollout): count of `read_dr` hybrid-fallback catch-ups. A
+    /// correctly-polling DSP corpus at the right clock rate fires this **zero** times; that zero is
+    /// the proof the tick rate is right. Removed with the fallback when the pure model lands. A
+    /// debugger counter, not serialized (same posture as `host_accesses`).
+    hybrid_fires: u64,
 }
 
 impl Upd77c25 {
@@ -243,6 +274,8 @@ impl Upd77c25 {
             sr: Status::default(),
             flag_a: Flag::default(),
             flag_b: Flag::default(),
+            dsp_accum: 0,
+            hybrid_fires: 0,
         };
         me.power();
         me
@@ -269,6 +302,7 @@ impl Upd77c25 {
         self.sr = Status::default();
         self.flag_a = Flag::default();
         self.flag_b = Flag::default();
+        self.dsp_accum = 0;
     }
 
     /// Whether a firmware image has been loaded (the chip is functional).
@@ -324,14 +358,24 @@ impl Upd77c25 {
     /// hardware; kept for surface symmetry.
     pub fn write_sr(&mut self, _data: u8) {}
 
-    /// Read a byte from the data register, then catch the engine up to its next parked state.
+    /// Read a byte from the data register. In the pin-exact model the DSP free-runs via
+    /// [`Self::tick_master`], so this returns the DR the chip has already produced — no synchronous
+    /// catch-up.
     #[must_use]
     pub fn read_dr(&mut self) -> u8 {
         if !self.firmware_loaded {
             return 0;
         }
         self.host_accesses += 1;
-        let value = if self.sr.drc {
+        // TRANSIENT Phase-A hybrid net: a correctly-polling game reads only once RQM is set (the DSP
+        // has produced the value), so this must never fire. If RQM is somehow clear, catch up
+        // synchronously and count it — a zero count on the DSP corpus is the proof the tick rate is
+        // right. Phase B deletes this block for pure pin-exact.
+        if !self.sr.rqm {
+            self.hybrid_fires += 1;
+            self.run_until_rqm();
+        }
+        if self.sr.drc {
             // 8-bit transfer.
             self.sr.rqm = false;
             self.dr as u8
@@ -344,12 +388,12 @@ impl Upd77c25 {
             // 16-bit transfer, low byte (begins the word).
             self.sr.drs = true;
             self.dr as u8
-        };
-        self.run_until_rqm();
-        value
+        }
     }
 
-    /// Write a byte to the data register, then catch the engine up to its next parked state.
+    /// Write a byte to the data register. In the pin-exact model the DSP consumes it when its
+    /// free-running clock next reaches the firmware's input read ([`Self::tick_master`]) — no
+    /// synchronous drain here.
     pub fn write_dr(&mut self, data: u8) {
         if !self.firmware_loaded {
             return;
@@ -369,7 +413,6 @@ impl Upd77c25 {
             self.sr.drs = true;
             self.dr = (self.dr & 0xFF00) | u16::from(data);
         }
-        self.run_until_rqm();
     }
 
     /// Read a byte from the data-RAM host port (`address` is the byte address into the window).
@@ -428,6 +471,31 @@ impl Upd77c25 {
                 break; // firmware is spinning on RQM, waiting for the host
             }
         }
+    }
+
+    /// Advance the DSP by one **master** clock via its fractional divisor — the pin-exact
+    /// free-running model. Each NEC-DSP board calls this from `coprocessor_tick` on every master
+    /// tick; the accumulator releases DSP clocks (one `exec()` each) at the chip's own 7.6/11 MHz
+    /// rate. This mirrors the SPC700's `spc_accum` loop in `rustysnes-core::Bus::advance_master`:
+    /// integer accumulator, no floats (determinism, ADR 0004), and at most one `exec()` per call
+    /// because `num < den`. A no-op until firmware is loaded.
+    pub fn tick_master(&mut self) {
+        if !self.firmware_loaded {
+            return;
+        }
+        let (num, den) = self.revision.rates();
+        self.dsp_accum += num;
+        while self.dsp_accum >= den {
+            self.dsp_accum -= den;
+            self.exec();
+        }
+    }
+
+    /// TRANSIENT (Phase A): how many times `read_dr`'s hybrid fallback fired (see the field doc).
+    /// Must be zero on a correctly-polling DSP corpus at the right clock rate.
+    #[must_use]
+    pub const fn hybrid_fires(&self) -> u64 {
+        self.hybrid_fires
     }
 
     // --- The instruction core. ---
@@ -770,6 +838,7 @@ impl Upd77c25 {
             write_status(s, self.sr);
             write_flag(s, self.flag_a);
             write_flag(s, self.flag_b);
+            s.write_u64(self.dsp_accum); // pin-exact master-clock accumulator phase
             for &word in &self.data_ram {
                 s.write_u16(word);
             }
@@ -814,6 +883,7 @@ impl Upd77c25 {
         self.sr = read_status(&mut s)?;
         self.flag_a = read_flag(&mut s)?;
         self.flag_b = read_flag(&mut s)?;
+        self.dsp_accum = s.read_u64()?; // pin-exact master-clock accumulator phase
         for slot in &mut self.data_ram {
             *slot = s.read_u16()?;
         }
@@ -975,8 +1045,21 @@ mod tests {
         assert_eq!(eng.read_sr() & 0x80, 0x80, "SR high bit = RQM");
 
         assert_eq!(eng.read_dr(), 0x34); // low byte (drs set, rqm held)
-        assert_eq!(eng.read_dr(), 0x12); // high byte (rqm cleared, then re-armed by the loop)
-        assert!(eng.rqm(), "loop re-loaded DR and re-raised RQM");
+        assert_eq!(eng.read_dr(), 0x12); // high byte (rqm cleared)
+        // Pin-exact: the loop re-loads DR and re-raises RQM as the DSP's own free-running clock
+        // advances, NOT synchronously inside read_dr. Drive master ticks until it re-arms.
+        let mut re_armed = false;
+        for _ in 0..16 {
+            eng.tick_master();
+            if eng.rqm() {
+                re_armed = true;
+                break;
+            }
+        }
+        assert!(
+            re_armed,
+            "loop re-loaded DR and re-raised RQM via the free-running clock"
+        );
     }
 
     #[test]
@@ -1013,6 +1096,7 @@ mod tests {
             for _ in 0..12 {
                 s.write_bool(false);
             } // flag_a + flag_b
+            s.write_u64(0); // dsp_accum (pin-exact master-clock accumulator)
             for _ in 0..2048 {
                 s.write_u16(0);
             } // data_ram

@@ -163,6 +163,13 @@ pub trait Board: Send {
         0
     }
 
+    /// TRANSIENT (pin-exact Phase A): count of a NEC-DSP board's `read_dr` hybrid-fallback fires.
+    /// Must be zero once the DSP free-runs at the right clock rate; the field/method are removed with
+    /// the fallback when the pure model lands. Default `0`.
+    fn coprocessor_hybrid_fires(&self) -> u64 {
+        0
+    }
+
     // --- Save-state hooks (`docs/adr/0006`). --------------------------------------------------
     //
     // ROM and SRAM are NOT written here — `System::save_state` captures SRAM separately (it's
