@@ -102,24 +102,37 @@ impl Revision {
         }
     }
 
-    /// The chip clock as a gcd-reduced rational of the NTSC master clock (21_477_270 Hz), for the
-    /// master-clock fractional accumulator ([`Upd77c25::tick_master`]) — `(num, den)` with `num < den`
-    /// so at most one instruction runs per master tick, and both revisions share `den = master / 10`.
-    /// µPD7725 (DSP-1/2/4) runs at 7.6 MHz, µPD96050 (ST010) at 11 MHz — ares' `necdsp.Frequency`
-    /// defaults (`ref-proj/ares/.../sfc/cartridge/load.cpp`); `docs/cart.md`'s ~8/10/15 MHz are the
-    /// nominal-range figures, not the emulated rate. Integer-only, no floats (determinism, ADR 0004).
+    /// The chip clock as a rational of the NTSC master clock (21_477_270 Hz), reduced by the common
+    /// factor 10 (`num = freq / 10`, `den = master / 10 = 2_147_727`), for the master-clock fractional
+    /// accumulator ([`Upd77c25::tick_master`]) — `(num, den)` with `num < den` so at most one
+    /// instruction runs per master tick.
+    ///
+    /// µPD7725 (DSP-1/2/3/4) runs at 7.6 MHz. µPD96050 runs at **11 MHz on the ST010 but 15 MHz on the
+    /// ST011** (ares/bsnes agree — `firmwareEXNEC() == "ST010" ? 11'000'000 : 15'000'000`), so the
+    /// clock is NOT a function of the register-width revision: this returns the ST010 (11 MHz) rate for
+    /// `Upd96050`, and a wired ST011 must instead select `UPD96050_ST011_RATE` below. Integer-only, no
+    /// floats (determinism, ADR 0004).
     const fn rates(self) -> (u64, u64) {
         match self {
-            Self::Upd7725 => (760_000, 2_147_727), // 7_600_000 / 21_477_270
-            Self::Upd96050 => (1_100_000, 2_147_727), // 11_000_000 / 21_477_270
+            Self::Upd7725 => (760_000, 2_147_727), // 7_600_000 / 21_477_270 (DSP-1/2/3/4)
+            Self::Upd96050 => (1_100_000, 2_147_727), // 11_000_000 / 21_477_270 (ST010)
         }
     }
 }
 
-/// Compile-time check that the reduced [`Revision::rates`] equal the true DSP:master ratio (a typo in
-/// the hand-reduced constants would otherwise silently mistime the DSP). `num/den == freq/master` iff
-/// `num*master == freq*den`. Evaluating `rates()` (a `const fn`) here keeps the proof in lockstep with
-/// the source rather than re-stating the reduced literals a second time.
+/// The µPD96050 **ST011** clock (15 MHz) as the same common-factor-10 reduced rational —
+/// `15_000_000 / 21_477_270` → `(1_500_000, 2_147_727)`, `num < den` like the others.
+///
+/// ST010 and ST011 share the `Upd96050` register-width revision but NOT the oscillator (ares/bsnes:
+/// ST010 = 11 MHz, ST011 = 15 MHz), so `Revision::rates` cannot distinguish them — a wired ST011
+/// board selects this rate explicitly. Pinned + compile-time verified here so it is ready when ST011
+/// is wired (that wiring is held pending a validation ROM — see `coproc::necdsp_variant`).
+pub(crate) const UPD96050_ST011_RATE: (u64, u64) = (1_500_000, 2_147_727);
+
+/// Compile-time check that each reduced rate equals the true DSP:master ratio (a typo in the
+/// hand-reduced constants would otherwise silently mistime the DSP). `num/den == freq/master` iff
+/// `num*master == freq*den`. Evaluating `Revision::rates` (a `const fn`) keeps the proof in lockstep
+/// with the source; the ST011 rate is covered too so its 15 MHz reduction cannot silently rot.
 #[allow(clippy::assertions_on_constants)]
 const _: () = {
     const MASTER_HZ: u64 = 21_477_270;
@@ -127,6 +140,8 @@ const _: () = {
     assert!(num7 * MASTER_HZ == 7_600_000 * den7);
     let (num96, den96) = Revision::Upd96050.rates();
     assert!(num96 * MASTER_HZ == 11_000_000 * den96);
+    // ST011 (also Upd96050) runs at 15 MHz, not ST010's 11 MHz.
+    assert!(UPD96050_ST011_RATE.0 * MASTER_HZ == 15_000_000 * UPD96050_ST011_RATE.1);
 };
 
 /// The six condition/ALU flags carried per accumulator (`flags.a` / `flags.b`).

@@ -22,6 +22,35 @@
 //! (unmapped coprocessor window) until one can be pinned against a real cart, exactly like every
 //! other not-yet-implemented coprocessor.
 //!
+//! **Wiring these two is a deliberate hold, not an oversight (decided 2026-07-29).** The firmware
+//! dumps are already present (`dsp3.rom`, µPD7725; `st011.rom`, µPD96050) and the shared engine
+//! (`coproc::upd77c25`, master-clock-stepped since v1.23.0) already backs both revisions, so the
+//! only blocker is a **validation game ROM** for each — the boot-checked, empirically-pinned path
+//! DSP-2/4 and ST010 all went through (e.g. DSP-4's DR/SR split was found against Top Gear 3000's
+//! boot-time hardware check). Rather than blind-wire from ares/bsnes windows as BestEffort (the
+//! ST018 precedent), we keep the strict posture until the carts are in hand:
+//!   - **DSP-3** — *SD Gundam GX*, internal title `SDガンダムGX`.
+//!   - **ST011** — *Hayazashi 2-dan Morita Shougi*, internal title `2DAN MORITA SHOUGI` (distinct
+//!     from ST018's *Morita Shogi 2* = `NIDAN MORITASHOGI2`).
+//!
+//! Both wiring specifics have now been **pinned from the reference emulators** (snes9x/bsnes/ares);
+//! the game ROMs are still needed to *validate* them on real hardware, but the values are settled:
+//!
+//!   - **DSP-3 window + DR/SR split.** Banks `$20–3F,$A0–BF : $8000–FFFF` (snes9x `M_DSP3_LOROM`,
+//!     `memmap.cpp`), with the **generic low-address-bit split** (even = DR, odd = SR — bsnes
+//!     `NECDSP::read`/`write` do `addr & 1`), the same split DSP-2/ST010 use, NOT DSP-4's half-window
+//!     boundary. It is "not simply DSP-2's" in the *window*, not the split: DSP-2 occupies
+//!     `$6000–6FFF + $8000–BFFF`, DSP-3 the whole `$8000–FFFF`. Same 7.6 MHz `Upd7725` rate as
+//!     DSP-1/2/4 (no new rate). DSP-3 (SD Gundam GX) also exposes its 256-word data RAM as a bus
+//!     window (bsnes maps `NECDSP::readRAM`/`writeRAM`), which DSP-2 does not.
+//!   - **ST011 window + rate.** Same `EXNEC` board as ST010 — register window `$60–67,$E0–E7` plus the
+//!     direct battery data-RAM window `$68–6F,$E8–EF` — but the oscillator is **15 MHz, not ST010's
+//!     11 MHz** (ares + bsnes: `firmwareEXNEC() == "ST010" ? 11'000'000 : 15'000'000`). Because
+//!     ST010/ST011 share the `Upd96050` register-width revision but not the clock, `Revision::rates`
+//!     cannot distinguish them; the 15 MHz reduced rate `(1_500_000, 2_147_727)` is pinned and
+//!     compile-time verified as `upd77c25::UPD96050_ST011_RATE`, which a wired ST011 board selects
+//!     instead of the `Upd96050` default.
+//!
 //! There is no header-byte signal that distinguishes DSP-1 from DSP-2/4/ST010 (the chipset byte
 //! only flags "has an NEC DSP" generically) — real emulators resolve this via a cartridge
 //! database; lacking one, `detect` matches the 21-byte internal title against each chip's one
