@@ -103,11 +103,12 @@ impl Variant {
 
     /// Detect DSP-3 from the raw (un-decoded) 21-byte title field. SD Gundam GX's title is the
     /// Shift-JIS `"SD" ｶﾞﾝﾀﾞﾑ "GX"` — `53 44 B6 DE DD C0 DE D1 47 58` — which cannot be matched as a
-    /// UTF-8 string; match the ASCII `SD` prefix + `GX` immediately after the katakana run so no
-    /// other cart collides (a plain DSP-1 `SD ...` title would not have `GX` at bytes 8–9).
+    /// UTF-8 string. Match the **exact** 10-byte prefix (`SD` + the six katakana bytes + `GX`) so it
+    /// is this one cart and nothing else: a looser `SD…GX` check would classify any title that merely
+    /// begins `SD` and has `GX` at bytes 8–9 (whatever lies between) as DSP-3.
     #[must_use]
     pub fn detect_dsp3_raw(title_bytes: &[u8]) -> bool {
-        title_bytes.len() >= 10 && &title_bytes[0..2] == b"SD" && &title_bytes[8..10] == b"GX"
+        title_bytes.starts_with(b"SD\xb6\xde\xdd\xc0\xde\xd1GX")
     }
 
     const fn revision(self) -> Revision {
@@ -372,8 +373,11 @@ mod tests {
         // SD Gundam GX's raw title: "SD" + Shift-JIS ｶﾞﾝﾀﾞﾑ (b6 de dd c0 de d1) + "GX" + padding.
         let sd_gundam = b"SD\xb6\xde\xdd\xc0\xde\xd1GX          ";
         assert!(Variant::detect_dsp3_raw(sd_gundam));
-        // A plain DSP-1 `SD ...` title without `GX` at bytes 8-9 must not match.
-        assert!(!Variant::detect_dsp3_raw(b"SD KID           GX  ")); // GX not at 8-9
+        // The exact-prefix match rejects titles a looser `SD…GX` check would have accepted: `SD`
+        // then non-katakana middle bytes then `GX` at 8-9.
+        assert!(!Variant::detect_dsp3_raw(b"SDABCDEFGX          "));
+        // A plain `SD ...` title without `GX` at bytes 8-9 must not match either.
+        assert!(!Variant::detect_dsp3_raw(b"SD KID           GX  "));
         assert!(!Variant::detect_dsp3_raw(b"SUPER MARIO KART     "));
         assert!(!Variant::detect_dsp3_raw(b"SDGX")); // too short
     }
