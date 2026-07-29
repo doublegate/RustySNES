@@ -12,16 +12,25 @@
 //! interface (the DR data register, the SR status register, and the DP data-RAM port) is the
 //! memory-mapped surface the SNES CPU sees.
 //!
-//! ## Host synchronization model
+//! ## Host synchronization model (pin-exact / master-clock-stepped)
 //!
-//! The real chip free-runs on its own ~7.6 MHz oscillator and hand-shakes the SNES CPU purely
-//! through the **RQM** ("request for master") status bit: the DSP raises RQM when it wants the
-//! host to service the data register, the host's access clears it, and the DSP spins on a
-//! `JRQM`/`JNRQM` wait loop until serviced. Because RQM is the *only* observable coupling
-//! between the two clocks (DSP-1 games always poll `SR.rqm`, never a wall-clock cycle count),
-//! [`Upd77c25::run_until_rqm`] advances the engine to its next parked state after every host
-//! data-register access. This keeps the bus boundary byte-exact and fully deterministic
-//! (`docs/adr/0004`) without a free-running per-master-clock tick.
+//! The real chip free-runs on its own oscillator (~7.6 MHz µPD7725, 11 MHz µPD96050) and hand-shakes
+//! the SNES CPU purely through the **RQM** ("request for master") status bit: the DSP raises RQM when
+//! it wants the host to service the data register, the host's access clears it, and the DSP spins on a
+//! `JRQM`/`JNRQM` wait loop until serviced. This engine models that literally — a **free-running,
+//! master-clock-stepped** core: [`Upd77c25::tick_master`] advances the DSP on its own fractional
+//! divisor (`Revision::rates`, an *integer* accumulator per `docs/adr/0004`, mirroring the SPC700's
+//! `spc_accum` in `rustysnes-core::Bus`), driven once per master clock from each NEC-DSP board's
+//! `coprocessor_tick`. Host accesses (`read_dr`/`write_dr`) just exchange the *current* DR/SR — the DSP
+//! has already produced the value on its own clock, exactly as hardware does; there is no synchronous
+//! catch-up on access. [`Upd77c25::run_until_rqm`] survives only for the one-time firmware-load prime
+//! (the power-on head-start, before the game's first poll) and for standalone unit tests that have no
+//! bus to tick the chip; the live bus path never calls it.
+//!
+//! (This replaced an earlier *catch-up-on-host-access* model that ran the DSP synchronously inside
+//! `read_dr`/`write_dr`. Its one subtle misuse — stopping at the first RQM instead of the firmware's
+//! host-wait spin — mis-framed the DSP-1 parameter block and was the Mode-7 flat-floor bug; the
+//! free-running model structurally cannot have that class of hazard.)
 
 // The NEC DSP treats every register as both a signed and an unsigned view of the same 16 bits,
 // so the faithful port is dense with deliberate bit-pattern casts; the status/condition-flag

@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **NEC DSP — pin-exact, master-clock-stepped host interface (the "scoped future effort" v1.22.0
+  named).** The shared µPD77C25 / µPD96050 engine (DSP-1/2/4, ST010) was the last coprocessor still
+  using a lazy *catch-up on host access* model, where `Upd77c25::read_dr`/`write_dr` drained the chip
+  synchronously so it responded in **zero emulated time**. It now free-runs on the master-clock
+  scheduler like the SPC700, GSU, and ST018 ARMv3: `Upd77c25::tick_master`, driven once per master
+  clock from each NEC-DSP board's `Board::coprocessor_tick`, advances the DSP on its own gcd-reduced
+  fractional divisor (`Revision::rates` → `760_000/2_147_727` for the 7.6 MHz µPD7725,
+  `1_100_000/2_147_727` for the 11 MHz µPD96050) using the same *integer* accumulator (`dsp_accum`)
+  the SPC700 uses — no floats, fully deterministic (`docs/adr/0004`), guarded by a compile-time
+  reduction assertion. Host reads/writes now exchange the **current** `DR`/`SR`, so the RQM handshake
+  takes a hardware-realistic number of cycles instead of resolving instantly. `run_until_rqm` remains
+  only for the one-time firmware-load prime and standalone tests. This is a **model-consistency +
+  response-latency** upgrade, **not** a rendering change: all four wired NEC chips render
+  **byte-identical** to the v1.22.0 value-exact baseline (the Pilotwings flight framebuffer hash is
+  unchanged), and the free-running model structurally cannot recreate the "stop at first `RQM=set`"
+  hazard class that produced the Mode-7 flat floor.
+- **Save-state `FORMAT_VERSION` 9 → 10** — the sub-clock phase (`dsp_accum`) is serialized in the
+  `NDSP` section; older blobs loud-fail per `docs/adr/0006` (no silent migration).
+
 ## [1.22.0] "Horizon" - 2026-07-29
 
 The Mode-7 release. **DSP-1 games finally draw a correct, perspective-correct Mode-7 floor** —
