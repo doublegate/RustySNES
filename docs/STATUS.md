@@ -34,8 +34,8 @@ verified against a MesenCE reference with **zero change** to any non-flight NEC-
 (DSP-1/2/4 title/attract framebuffers byte-identical before and after).
 **`v1.23.0 "Cadence"` completes that work by rewriting the NEC-DSP host interface to be pin-exact:**
 the shared µPD77C25 / µPD96050 engine (DSP-1/2/4, ST010) — the last coprocessor still resolving its
-host handshake in zero emulated time — now free-runs on the master-clock scheduler like the SPC700,
-GSU, and ST018, advancing on its own gcd-reduced fractional divisor via the SPC700's integer
+host handshake in zero emulated time — now free-runs on the master-clock scheduler like the SPC700
+and ST018, advancing on its own gcd-reduced fractional divisor via the SPC700's integer
 accumulator (`Upd77c25::tick_master` from `Board::coprocessor_tick`; `read_dr`/`write_dr` now pure).
 It is a model-consistency + response-latency change, **not** a rendering change — all four wired NEC
 chips are byte-identical to the `v1.22.0` baseline — and it structurally retires the "stop at first

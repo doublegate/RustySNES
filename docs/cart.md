@@ -147,10 +147,9 @@ byte at `$301F`, which sets **Go** and begins execution at `(PBR:R15)`; the chip
 `STOP` clears Go (and, unless CFGR masks it, raises the cart IRQ), and software polls SFR for Go.
 Because Go is the only observable coupling — exactly the RQM role the DSP-1 uses — the board runs
 the GSU to completion the instant Go is set (`Gsu::run_until_stopped`, capped against a runaway
-program). This is byte-exact and fully deterministic (`docs/adr/0004`). Unlike the NEC DSP — whose
-RQM handshake is polled *mid-run*, so that engine is now free-running / master-clock-stepped (above)
-— the GSU exposes nothing observable between Go-set and Go-clear, so running it to completion in one
-step is equivalent to clocking it and needs no free-running core-scheduler tick.
+program). This is byte-exact and fully deterministic (`docs/adr/0004`) and needs no free-running
+core-scheduler tick of its own. (The NEC DSP, by contrast, is polled *mid-run* through RQM, so that
+engine is now master-clock-stepped — see "the shared NEC core" above.)
 
 **The Super FX board (`coproc::superfx::SuperFxBoard`)** owns the ROM (shared, read-only) and the
 Game Pak RAM (the GSU plot bitmap, sized from the header clamped to a 64 KiB minimum, power-of-two

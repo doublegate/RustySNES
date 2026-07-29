@@ -1450,7 +1450,7 @@ structurally eliminates the hazard class that caused the `v1.22.0` flat floor.
 
 - **What changed.** The µPD77C25 / µPD96050 engine (DSP-1/2/4, ST010) was the only timed subsystem
   still drained synchronously inside `Upd77c25::read_dr`/`write_dr`. It now free-runs on the
-  master-clock scheduler like the SPC700, GSU/Super FX, and ST018 ARMv3: `Upd77c25::tick_master`,
+  master-clock scheduler like the SPC700 and ST018 ARMv3: `Upd77c25::tick_master`,
   driven once per master clock from each NEC-DSP board's `Board::coprocessor_tick`, advances the DSP
   on its own gcd-reduced fractional divisor (`Revision::rates` → `760_000/2_147_727` for the 7.6 MHz
   µPD7725, `1_100_000/2_147_727` for the 11 MHz µPD96050) via the same *integer* accumulator
@@ -1472,5 +1472,5 @@ structurally eliminates the hazard class that caused the `v1.22.0` flat floor.
 - **Verification.** `cargo test --workspace` 527/527; fmt, clippy (default workspace + per-feature),
   no_std `thumbv7em-none-eabihf`, `RUSTDOCFLAGS=-D warnings` doc — all green. Docs-as-spec updated:
   the `upd77c25.rs` module doc + `docs/cart.md` §the shared NEC core describe the master-clock-stepped
-  model, and the GSU host-sync cross-reference (previously citing DSP-1's `run_until_rqm`) is
-  corrected. Session-only pin-exact diagnostic harnesses were kept off the release (throwaway).
+  model, and the stale GSU host-sync cross-reference to DSP-1's `run_until_rqm` was retired.
+  Session-only pin-exact diagnostic harnesses were kept off the release (throwaway).
