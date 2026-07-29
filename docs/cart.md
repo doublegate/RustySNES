@@ -100,7 +100,9 @@ program/data ROM + data RAM, and the DR / SR / DP host ports. Registers wrap at 
 PC/RP/DP widths.
 
 **Host synchronization (the only cross-clock coupling), pin-exact / master-clock-stepped:** the chip
-free-runs on its own oscillator (~7.6 MHz µPD7725, 11 MHz µPD96050) and hand-shakes the CPU solely
+free-runs on its own oscillator (~7.6 MHz µPD7725; µPD96050 at 11 MHz on the ST010 but **15 MHz on
+the ST011** — a wired board selects its own rate via `Upd77c25::with_rate`, since the two share the
+`Upd96050` register-width revision but not the clock) and hand-shakes the CPU solely
 through the **RQM** ("request for master") status bit — DSP-1 games always poll `SR.rqm`, never a
 wall-clock cycle count. The engine models that literally as a free-running core clocked off the
 master scheduler: `Upd77c25::tick_master`, driven once per master clock from each NEC-DSP board's
