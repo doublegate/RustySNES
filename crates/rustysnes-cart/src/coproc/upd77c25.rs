@@ -118,11 +118,15 @@ impl Revision {
 
 /// Compile-time check that the reduced [`Revision::rates`] equal the true DSP:master ratio (a typo in
 /// the hand-reduced constants would otherwise silently mistime the DSP). `num/den == freq/master` iff
-/// `num*master == freq*den`. (The assert is *meant* to be a constant — that is the whole point.)
-#[allow(clippy::assertions_on_constants, clippy::eq_op)]
+/// `num*master == freq*den`. Evaluating `rates()` (a `const fn`) here keeps the proof in lockstep with
+/// the source rather than re-stating the reduced literals a second time.
+#[allow(clippy::assertions_on_constants)]
 const _: () = {
-    assert!(760_000_u64 * 21_477_270 == 7_600_000_u64 * 2_147_727);
-    assert!(1_100_000_u64 * 21_477_270 == 11_000_000_u64 * 2_147_727);
+    const MASTER_HZ: u64 = 21_477_270;
+    let (num7, den7) = Revision::Upd7725.rates();
+    assert!(num7 * MASTER_HZ == 7_600_000 * den7);
+    let (num96, den96) = Revision::Upd96050.rates();
+    assert!(num96 * MASTER_HZ == 11_000_000 * den96);
 };
 
 /// The six condition/ALU flags carried per accumulator (`flags.a` / `flags.b`).
@@ -871,7 +875,18 @@ impl Upd77c25 {
         self.sr = read_status(&mut s)?;
         self.flag_a = read_flag(&mut s)?;
         self.flag_b = read_flag(&mut s)?;
-        self.dsp_accum = s.read_u64()?; // pin-exact master-clock accumulator phase
+        // Pin-exact master-clock accumulator phase. `tick_master` keeps it reduced below the
+        // divisor, so a valid saved phase is always `< den`. Bounds-check the untrusted value: a
+        // crafted `NDSP` payload with a huge phase would otherwise make the next `tick_master`
+        // execute billions of `exec()` iterations before the accumulator drained (module 60).
+        let dsp_accum = s.read_u64()?;
+        let (_, den) = self.revision.rates();
+        if dsp_accum >= den {
+            return Err(SaveStateError::Invalid(alloc::format!(
+                "NDSP accumulator phase {dsp_accum} exceeds divisor {den}"
+            )));
+        }
+        self.dsp_accum = dsp_accum;
         for slot in &mut self.data_ram {
             *slot = s.read_u16()?;
         }
@@ -1103,5 +1118,60 @@ mod tests {
         let _ = eng.program_rom[usize::from(eng.pc)];
         let _ = eng.data_rom[usize::from(eng.rp)];
         let _ = eng.stack[usize::from(eng.sp)];
+    }
+
+    #[test]
+    fn out_of_range_accumulator_phase_is_rejected_not_spun_on() {
+        // A valid saved `dsp_accum` is always below the divisor (`tick_master` keeps it reduced).
+        // A crafted `NDSP` phase `>= den` must be rejected at the boundary, not accepted — otherwise
+        // the next `tick_master` would spin for ~`den` extra `exec()` iterations per unit over the
+        // divisor. Build an otherwise-valid blob whose only defect is the accumulator phase.
+        let (_, den) = Revision::Upd7725.rates();
+        let build = |accum: u64| {
+            let mut w = SaveWriter::new();
+            w.section(*b"NDSP", |s| {
+                for _ in 0..16 {
+                    s.write_u16(0);
+                } // stack
+                s.write_u16(0); // pc
+                s.write_u16(0); // rp
+                s.write_u16(0); // dp
+                s.write_u8(0); // sp
+                for _ in 0..10 {
+                    s.write_u16(0);
+                } // si/so/k/l/m/n/a/b/tr/trb
+                s.write_u16(0); // dr
+                for _ in 0..13 {
+                    s.write_bool(false);
+                } // sr
+                for _ in 0..12 {
+                    s.write_bool(false);
+                } // flag_a + flag_b
+                s.write_u64(accum); // dsp_accum
+                for _ in 0..2048 {
+                    s.write_u16(0);
+                } // data_ram
+            });
+            w.into_bytes()
+        };
+
+        // `den` (the smallest out-of-range value) and a pathological huge value both fail.
+        for bad in [den, den + 1, u64::MAX] {
+            let bytes = build(bad);
+            let mut eng = Upd77c25::new(Revision::Upd7725);
+            let mut r = SaveReader::new(&bytes);
+            assert!(
+                matches!(eng.load_state(&mut r), Err(SaveStateError::Invalid(_))),
+                "accumulator phase {bad} (>= divisor {den}) must be rejected as Invalid"
+            );
+        }
+
+        // The largest in-range phase (`den - 1`) loads cleanly.
+        let bytes = build(den - 1);
+        let mut eng = Upd77c25::new(Revision::Upd7725);
+        let mut r = SaveReader::new(&bytes);
+        eng.load_state(&mut r)
+            .expect("in-range accumulator phase loads");
+        assert_eq!(eng.dsp_accum, den - 1);
     }
 }
