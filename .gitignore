@@ -260,8 +260,7 @@ WARP.md
 /*-[0-9][0-9][0-9][0-9].png
 
 # The recommended destination for captures — point the emulator here and nothing above has to be
-# relied on at all.
-/captures/
+# relied on at all. `**/` already covers the repo root, so no separate `/captures/` is needed.
 **/captures/
 
 # Shader presets and symbol maps a user drops in to try (inputs, never project files). Zero
