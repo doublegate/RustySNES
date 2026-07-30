@@ -1,4 +1,4 @@
-//! Single-game NEC DSP variant boards — DSP-2, DSP-4, ST010.
+//! Single-game NEC DSP variant boards — DSP-2, DSP-3, DSP-4, ST010, ST011.
 //!
 //! Riding the shared [`crate::coproc::upd77c25::Upd77c25`] engine
 //! ([`Dsp1Board`](super::dsp1::Dsp1Board) covers DSP-1 itself, which uses a different,
@@ -13,43 +13,37 @@
 //! | Chip (game)                    | Board          | Register window (bank:addr)         | DR/SR split | Revision  |
 //! |---------------------------------|----------------|--------------------------------------|-------------|-----------|
 //! | DSP-2 (Dungeon Master)          | SHVC-1B5B-02   | `$20–3F,$A0–BF:$8000–FFFF` mask `$3FFF` | low bit (even=DR) | `Upd7725`  |
+//! | DSP-3 (SD Gundam GX)            | SHVC-1B3B-20   | `$20–3F,$A0–BF:$8000–FFFF` (full upper half) | low bit (even=DR) | `Upd7725`  |
 //! | DSP-4 (Top Gear 3000)           | SHVC-1B0N-03   | `$30–3F,$B0–BF:$8000–FFFF` mask `$3FFF` | half-window boundary at `$2000` (below=DR) | `Upd7725`  |
 //! | ST010 (F1 ROC II)               | SHVC-1DS0B-20  | `$60–67,$E0–E7:$0000–3FFF` (registers) + `$68–6F,$E8–EF:$0000–7FFF` (battery data RAM, direct [`Upd77c25::read_dp`]/[`write_dp`](Upd77c25::write_dp) port) | low bit (even=DR) | `Upd96050` |
+//! | ST011 (2-dan Morita Shougi)     | SHVC-1DS0B-20  | same windows as ST010 | low bit (even=DR) | `Upd96050` **@ 15 MHz** |
 //!
-//! DSP-3 and ST011 are NOT wired here: neither has a verified board/window entry (no game ROM in
-//! this project's local corpus to validate against), so guessing a window would be an unverified,
-//! untestable claim — `docs/adr/0003`'s honesty gate means the cart simply runs as its base board
-//! (unmapped coprocessor window) until one can be pinned against a real cart, exactly like every
-//! other not-yet-implemented coprocessor.
+//! **DSP-3 and ST011 are now wired (v1.24.0), validated against their real carts.** They were held
+//! until a validation ROM existed for each (`docs/adr/0003`: an unvalidated window is an untestable
+//! claim); once *SD Gundam GX* and *Hayazashi 2-dan Morita Shougi* were supplied, both were wired
+//! from their reference-pinned specs and confirmed live (`dsp3_st011_oncart`: the game reaches the
+//! register window, `host_accesses > 0`, deterministically):
 //!
-//! **Wiring these two is a deliberate hold, not an oversight (decided 2026-07-29).** The firmware
-//! dumps are already present (`dsp3.rom`, µPD7725; `st011.rom`, µPD96050) and the shared engine
-//! (`coproc::upd77c25`, master-clock-stepped since v1.23.0) already backs both revisions, so the
-//! only blocker is a **validation game ROM** for each — the boot-checked, empirically-pinned path
-//! DSP-2/4 and ST010 all went through (e.g. DSP-4's DR/SR split was found against Top Gear 3000's
-//! boot-time hardware check). Rather than blind-wire from ares/bsnes windows as BestEffort (the
-//! ST018 precedent), we keep the strict posture until the carts are in hand:
-//!   - **DSP-3** — *SD Gundam GX*, internal title `SDガンダムGX`.
-//!   - **ST011** — *Hayazashi 2-dan Morita Shougi*, internal title `2DAN MORITA SHOUGI` (distinct
-//!     from ST018's *Morita Shogi 2* = `NIDAN MORITASHOGI2`).
+//!   - **DSP-3 (SD Gundam GX).** Window banks `$20–3F,$A0–BF` over the FULL `$8000–FFFF` (snes9x
+//!     `M_DSP3_LOROM`), generic low-bit split (even=DR, odd=SR — bsnes `NECDSP::read`/`write`
+//!     `addr & 1`), NOT DSP-4's half-boundary. It is "not simply DSP-2's" in the *window* (DSP-2 is
+//!     `$6000–6FFF + $8000–BFFF`), not the split. Same 7.6 MHz `Upd7725` rate. Detection is special:
+//!     the internal title is Shift-JIS (`SDｶﾞﾝﾀﾞﾑGX`), so the header's UTF-8 title decode is empty and
+//!     the string [`Variant::detect`] cannot see it — it is matched on the raw title bytes by
+//!     [`Variant::detect_dsp3_raw`] from the DSP board-selection path instead.
+//!   - **ST011 (2-dan Morita Shougi).** Identical `EXNEC`/`Upd96050` board to ST010 — same register
+//!     window `$60–67,$E0–E7` and battery data-RAM window `$68–6F,$E8–EF` — but the oscillator is
+//!     **15 MHz, not ST010's 11 MHz** (ares + bsnes). Since the two share the `Upd96050`
+//!     register-width revision but not the clock, the board constructs the engine with the pinned,
+//!     compile-time-verified `upd77c25::UPD96050_ST011_RATE` (`1_500_000/2_147_727`) via
+//!     [`Upd77c25::with_rate`] rather than the revision default. Its shogi AI is gated behind menu
+//!     input, so the liveness test drives Start/A to reach it (the same gameplay-gated signal DSP-1's
+//!     Pilotwings/SMK carry). ST011 declares the `$F` "custom" chipset nibble rather than the DSP
+//!     family's usual `$0`, so `header::coprocessor_from_chipset` routes its ASCII title back to the
+//!     DSP family; distinct from ST018's `NIDAN MORITASHOGI2` (SHOUGI vs SHOGI2).
 //!
-//! Both wiring specifics have now been **pinned from the reference emulators** (snes9x/bsnes/ares);
-//! the game ROMs are still needed to *validate* them on real hardware, but the values are settled:
-//!
-//!   - **DSP-3 window + DR/SR split.** Banks `$20–3F,$A0–BF : $8000–FFFF` (snes9x `M_DSP3_LOROM`,
-//!     `memmap.cpp`), with the **generic low-address-bit split** (even = DR, odd = SR — bsnes
-//!     `NECDSP::read`/`write` do `addr & 1`), the same split DSP-2/ST010 use, NOT DSP-4's half-window
-//!     boundary. It is "not simply DSP-2's" in the *window*, not the split: DSP-2 occupies
-//!     `$6000–6FFF + $8000–BFFF`, DSP-3 the whole `$8000–FFFF`. Same 7.6 MHz `Upd7725` rate as
-//!     DSP-1/2/4 (no new rate). DSP-3 (SD Gundam GX) also exposes its 256-word data RAM as a bus
-//!     window (bsnes maps `NECDSP::readRAM`/`writeRAM`), which DSP-2 does not.
-//!   - **ST011 window + rate.** Same `EXNEC` board as ST010 — register window `$60–67,$E0–E7` plus the
-//!     direct battery data-RAM window `$68–6F,$E8–EF` — but the oscillator is **15 MHz, not ST010's
-//!     11 MHz** (ares + bsnes: `firmwareEXNEC() == "ST010" ? 11'000'000 : 15'000'000`). Because
-//!     ST010/ST011 share the `Upd96050` register-width revision but not the clock, `Revision::rates`
-//!     cannot distinguish them; the 15 MHz reduced rate `(1_500_000, 2_147_727)` is pinned and
-//!     compile-time verified as `upd77c25::UPD96050_ST011_RATE`, which a wired ST011 board selects
-//!     instead of the `Upd96050` default.
+//! Both are `BestEffort` (`docs/adr/0003`): liveness- and determinism-validated against the real
+//! games, but not golden-framebuffer-blessed (no multi-reference agreement is pinned for them here).
 //!
 //! There is no header-byte signal that distinguishes DSP-1 from DSP-2/4/ST010 (the chipset byte
 //! only flags "has an NEC DSP" generically) — real emulators resolve this via a cartridge
@@ -71,15 +65,25 @@ use crate::coproc::upd77c25::{Revision, Upd77c25};
 pub enum Variant {
     /// DSP-2 — Dungeon Master.
     Dsp2,
+    /// DSP-3 — SD Gundam GX. Same µPD7725 engine + generic low-bit DR/SR split as DSP-2, but the
+    /// register window is the full `$8000–FFFF` (snes9x `M_DSP3_LOROM`), not DSP-2's split range.
+    Dsp3,
     /// DSP-4 — Top Gear 3000.
     Dsp4,
     /// ST010 — F1 ROC II: Race of Champions.
     St010,
+    /// ST011 — Hayazashi 2-dan Morita Shougi. Identical board to ST010 (same µPD96050 window, split,
+    /// and battery-RAM port) except the firmware dump and the **15 MHz** clock (ST010 is 11 MHz).
+    St011,
 }
 
 impl Variant {
-    /// Detect the variant from the cart's 21-byte internal title (uppercased), if it matches one
-    /// of the three known single-game carts. `None` for every other ROM (including plain DSP-1).
+    /// Detect the variant from the cart's 21-byte internal title (uppercased), if it matches one of
+    /// the title-detectable single-game carts. `None` for every other ROM (including plain DSP-1).
+    ///
+    /// DSP-3 (SD Gundam GX) is NOT detected here: its internal title is Shift-JIS (`SDｶﾞﾝﾀﾞﾑGX`), so
+    /// the header's `from_utf8` title decode yields an empty string — it is matched on the raw title
+    /// bytes instead, by [`Variant::detect_dsp3_raw`], from the DSP board-selection path.
     #[must_use]
     pub fn detect(title_upper: &str) -> Option<Self> {
         if title_upper.contains("DUNGEON MASTER") {
@@ -88,33 +92,58 @@ impl Variant {
             Some(Self::Dsp4)
         } else if title_upper.contains("F1 ROC") {
             Some(Self::St010)
+        } else if title_upper.contains("2DAN MORITA SHOUGI") {
+            // ST011 — Hayazashi 2-dan Morita Shougi (ASCII title). Distinct from ST018's
+            // `NIDAN MORITASHOGI2`, which is handled in `header::coprocessor_from_chipset`.
+            Some(Self::St011)
         } else {
             None
         }
     }
 
+    /// Detect DSP-3 from the raw (un-decoded) 21-byte title field. SD Gundam GX's title is the
+    /// Shift-JIS `"SD" ｶﾞﾝﾀﾞﾑ "GX"` — `53 44 B6 DE DD C0 DE D1 47 58` — which cannot be matched as a
+    /// UTF-8 string. Match the **exact** 10-byte prefix (`SD` + the six katakana bytes + `GX`) so it
+    /// is this one cart and nothing else: a looser `SD…GX` check would classify any title that merely
+    /// begins `SD` and has `GX` at bytes 8–9 (whatever lies between) as DSP-3.
+    #[must_use]
+    pub fn detect_dsp3_raw(title_bytes: &[u8]) -> bool {
+        title_bytes.starts_with(b"SD\xb6\xde\xdd\xc0\xde\xd1GX")
+    }
+
     const fn revision(self) -> Revision {
         match self {
-            Self::Dsp2 | Self::Dsp4 => Revision::Upd7725,
-            Self::St010 => Revision::Upd96050,
+            Self::Dsp2 | Self::Dsp3 | Self::Dsp4 => Revision::Upd7725,
+            Self::St010 | Self::St011 => Revision::Upd96050,
+        }
+    }
+
+    /// The master-clock divisor `(num, den)` the engine steps on. Defaults to the revision's rate;
+    /// the ST011 shares the µPD96050 revision with the ST010 but runs at 15 MHz, not 11 MHz.
+    const fn rate(self) -> (u64, u64) {
+        match self {
+            Self::St011 => crate::coproc::upd77c25::UPD96050_ST011_RATE,
+            _ => self.revision().rates(),
         }
     }
 
     /// `(register-bank-lo, register-bank-hi, register-mirror-bank-lo, register-mirror-bank-hi)`.
     const fn reg_banks(self) -> (u8, u8, u8, u8) {
         match self {
-            Self::Dsp2 => (0x20, 0x3F, 0xA0, 0xBF),
+            // DSP-3's window matches DSP-2's banks (`$20–3F,$A0–BF`); the difference is the address
+            // range, handled in `classify` (DSP-3 spans the full `$8000–FFFF`).
+            Self::Dsp2 | Self::Dsp3 => (0x20, 0x3F, 0xA0, 0xBF),
             Self::Dsp4 => (0x30, 0x3F, 0xB0, 0xBF),
-            Self::St010 => (0x60, 0x67, 0xE0, 0xE7),
+            Self::St010 | Self::St011 => (0x60, 0x67, 0xE0, 0xE7),
         }
     }
 
-    /// `Some((lo, hi, mirror-lo, mirror-hi))` battery data-RAM banks (ST010/011 only — the other
-    /// two chips have no separate directly-mapped data-RAM window).
+    /// `Some((lo, hi, mirror-lo, mirror-hi))` battery data-RAM banks (ST010/011 only — the DSP-2/3/4
+    /// µPD7725 carts have no separate directly-mapped data-RAM window).
     const fn dp_banks(self) -> Option<(u8, u8, u8, u8)> {
         match self {
-            Self::St010 => Some((0x68, 0x6F, 0xE8, 0xEF)),
-            Self::Dsp2 | Self::Dsp4 => None,
+            Self::St010 | Self::St011 => Some((0x68, 0x6F, 0xE8, 0xEF)),
+            Self::Dsp2 | Self::Dsp3 | Self::Dsp4 => None,
         }
     }
 
@@ -123,8 +152,10 @@ impl Variant {
     pub const fn firmware_name(self) -> &'static str {
         match self {
             Self::Dsp2 => "dsp2.rom",
+            Self::Dsp3 => "dsp3.rom",
             Self::Dsp4 => "dsp4.rom",
             Self::St010 => "st010.rom",
+            Self::St011 => "st011.rom",
         }
     }
 }
@@ -166,8 +197,12 @@ fn classify(variant: Variant, addr24: u32) -> Option<Hit> {
             Hit::Dr
         });
     }
-    // ST010's registers sit in `$0000-$3FFF` (no `>= 0x8000` gate, unlike DSP-2/4).
-    if variant == Variant::St010 && in_bank(bank, lo, hi, mlo, mhi) && addr <= 0x3FFF {
+    // ST010/ST011 registers sit in `$0000-$3FFF` (no `>= 0x8000` gate, unlike DSP-2/3/4). ST011 is
+    // the same µPD96050 board as ST010 (only firmware + clock differ), so it classifies identically.
+    if matches!(variant, Variant::St010 | Variant::St011)
+        && in_bank(bank, lo, hi, mlo, mhi)
+        && addr <= 0x3FFF
+    {
         return Some(if addr & 1 != 0 { Hit::Sr } else { Hit::Dr });
     }
     if let Some((dlo, dhi, dmlo, dmhi)) = variant.dp_banks()
@@ -203,7 +238,9 @@ impl NecDspVariantBoard {
     pub fn new(inner: Box<dyn Board>, variant: Variant) -> Self {
         Self {
             inner,
-            dsp: Upd77c25::new(variant.revision()),
+            // `.with_rate` is a no-op for every variant except ST011 (15 MHz vs ST010's 11 MHz),
+            // since `variant.rate()` defaults to the revision's own rate.
+            dsp: Upd77c25::new(variant.revision()).with_rate(variant.rate()),
             variant,
         }
     }
@@ -213,8 +250,10 @@ impl Board for NecDspVariantBoard {
     fn name(&self) -> &'static str {
         match self.variant {
             Variant::Dsp2 => "LoROM+DSP-2",
+            Variant::Dsp3 => "LoROM+DSP-3",
             Variant::Dsp4 => "LoROM+DSP-4",
             Variant::St010 => "LoROM+ST010",
+            Variant::St011 => "LoROM+ST011",
         }
     }
 
@@ -320,7 +359,27 @@ mod tests {
             Variant::detect("F1 ROC II            "),
             Some(Variant::St010)
         );
+        assert_eq!(
+            Variant::detect("2DAN MORITA SHOUGI   "),
+            Some(Variant::St011)
+        );
+        // ST018's `NIDAN MORITASHOGI2` must NOT collide with ST011's `2DAN MORITA SHOUGI`.
+        assert_eq!(Variant::detect("NIDAN MORITASHOGI2   "), None);
         assert_eq!(Variant::detect("SUPER MARIO KART     "), None);
+    }
+
+    #[test]
+    fn detect_dsp3_from_raw_shift_jis_title() {
+        // SD Gundam GX's raw title: "SD" + Shift-JIS ｶﾞﾝﾀﾞﾑ (b6 de dd c0 de d1) + "GX" + padding.
+        let sd_gundam = b"SD\xb6\xde\xdd\xc0\xde\xd1GX          ";
+        assert!(Variant::detect_dsp3_raw(sd_gundam));
+        // The exact-prefix match rejects titles a looser `SD…GX` check would have accepted: `SD`
+        // then non-katakana middle bytes then `GX` at 8-9.
+        assert!(!Variant::detect_dsp3_raw(b"SDABCDEFGX          "));
+        // A plain `SD ...` title without `GX` at bytes 8-9 must not match either.
+        assert!(!Variant::detect_dsp3_raw(b"SD KID           GX  "));
+        assert!(!Variant::detect_dsp3_raw(b"SUPER MARIO KART     "));
+        assert!(!Variant::detect_dsp3_raw(b"SDGX")); // too short
     }
 
     #[test]
@@ -361,6 +420,41 @@ mod tests {
             Some(Hit::Dp(0x10))
         ));
         assert!(classify(b.variant, 0x00_8000).is_none()); // ROM, not ST010
+    }
+
+    #[test]
+    fn dsp3_window_split() {
+        // DSP-3 (snes9x M_DSP3_LOROM): banks $20-3F,$A0-BF over the FULL $8000-FFFF, generic low-bit
+        // split (even=DR, odd=SR) — same banks as DSP-2 but the whole upper half, and NOT DSP-4's
+        // half-boundary. Verified against SD Gundam GX by the dsp3_st011_oncart liveness test.
+        let b = board(Variant::Dsp3);
+        assert!(matches!(classify(b.variant, 0x20_8000), Some(Hit::Dr)));
+        assert!(matches!(classify(b.variant, 0x20_8001), Some(Hit::Sr)));
+        assert!(matches!(classify(b.variant, 0xA0_8000), Some(Hit::Dr))); // mirror bank
+        // The full upper half is the window, including $C000+ (which DSP-4 splits to SR) — DSP-3
+        // keeps alternating low-bit up there.
+        assert!(matches!(classify(b.variant, 0x20_C000), Some(Hit::Dr)));
+        assert!(matches!(classify(b.variant, 0x20_C001), Some(Hit::Sr)));
+        assert!(classify(b.variant, 0x00_8000).is_none()); // ROM, not DSP-3
+    }
+
+    #[test]
+    fn st011_is_st010_board_at_15mhz() {
+        // ST011 classifies identically to ST010 (same µPD96050 window + battery-RAM port)...
+        let (st010, st011) = (Variant::St010, Variant::St011);
+        for addr in [
+            0x60_0000, 0x60_0001, 0xE0_0000, 0x68_0000, 0xE8_0010, 0x00_8000,
+        ] {
+            assert_eq!(
+                classify(st010, addr).map(|h| core::mem::discriminant(&h)),
+                classify(st011, addr).map(|h| core::mem::discriminant(&h)),
+                "ST011 must classify {addr:#08x} the same as ST010"
+            );
+        }
+        // ...but runs at 15 MHz, not ST010's 11 MHz.
+        assert_eq!(st010.rate(), (1_100_000, 2_147_727));
+        assert_eq!(st011.rate(), (1_500_000, 2_147_727));
+        assert_eq!(st011.rate(), crate::coproc::upd77c25::UPD96050_ST011_RATE);
     }
 
     #[test]

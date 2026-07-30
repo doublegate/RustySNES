@@ -1474,3 +1474,29 @@ structurally eliminates the hazard class that caused the `v1.22.0` flat floor.
   the `upd77c25.rs` module doc + `docs/cart.md` §the shared NEC core describe the master-clock-stepped
   model, and the stale GSU host-sync cross-reference to DSP-1's `run_until_rqm` was retired.
   Session-only pin-exact diagnostic harnesses were kept off the release (throwaway).
+
+### `v1.24.0 "Ensemble"` — DSP-3 + ST011 wired: the NEC DSP family is complete — **RELEASED 2026-07-29**
+
+The last two NEC coprocessors join the set. Held until a validation cart existed for each
+(`docs/adr/0003`: an unvalidated window is an untestable claim); once *SD Gundam GX* (DSP-3) and
+*Hayazashi 2-dan Morita Shougi* (ST011) were supplied, both were wired from their reference-pinned
+specs (snes9x/bsnes/ares) and confirmed to actually drive their chip. Purely additive — every existing
+board renders byte-identically; no save-state format change.
+
+- **DSP-3 (SD Gundam GX).** `Variant::Dsp3` on the shared µPD7725 engine: window `$20–3F,$A0–BF` over
+  the full `$8000–FFFF` (snes9x `M_DSP3_LOROM`), generic low-bit split, 7.6 MHz. Detection is special:
+  its title is Shift-JIS (`SDｶﾞﾝﾀﾞﾑGX`), so the header's UTF-8 decode is empty — DSP-3 is matched on
+  the raw title bytes (`Variant::detect_dsp3_raw`), which also fixes its prior mis-detection as DSP-1.
+  Live in the attract (30k+ host accesses).
+- **ST011 (2-dan Morita Shougi).** `Variant::St011`: the identical µPD96050 board to ST010 but at
+  **15 MHz** (ares + bsnes), so the engine gained an explicit `(num, den)` rate + `Upd77c25::with_rate`
+  builder (a shared revision can't carry two clocks). Routed from the `$F` chipset nibble by its ASCII
+  title (distinct from ST018's `NIDAN MORITASHOGI2`). Its shogi AI is behind menu input, so the
+  liveness test drives Start/A to reach the chip.
+- **Validation + scope.** New `dsp3_st011_oncart` test (detection + `host_accesses > 0` liveness +
+  determinism, self-skipping without the dumps) + `necdsp_variant` unit tests (raw DSP-3 detection,
+  DSP-3 window, ST011-equals-ST010-at-15 MHz). Both are `BestEffort` — liveness/determinism-validated,
+  not golden-framebuffer-blessed. Docs flipped from "held" to "wired" across `necdsp_variant.rs`,
+  `docs/cart.md`, `docs/STATUS.md`. `cargo test --workspace` green; fmt, clippy (default + per-feature),
+  no_std, doc all green. This completes the NEC DSP family: DSP-1/2/3/4 + ST010/011, six chips, one
+  engine.

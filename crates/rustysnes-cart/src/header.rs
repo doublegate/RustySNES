@@ -295,6 +295,14 @@ fn coprocessor_from_chipset(chipset: u8, title_upper: &str) -> Coprocessor {
                 || title_upper.contains("DAIKAIJU MONOGATARI")
             {
                 Coprocessor::Srtc
+            } else if title_upper.contains("2DAN MORITA SHOUGI") {
+                // ST011 (Hayazashi 2-dan Morita Shougi) — a µPD96050 NEC DSP that declares the `$F`
+                // "custom" chipset nibble rather than the DSP family's usual `$0`, so it lands here
+                // instead of the `0x0 => Dsp` arm above. Route it back to the DSP family; the exact
+                // ST011 variant (window/split/15 MHz rate) is then resolved by
+                // [`crate::coproc::necdsp_variant::Variant::detect`] from the same ASCII title.
+                // Distinct from ST018's `NIDAN MORITASHOGI2` (SHOUGI vs SHOGI2), handled just below.
+                Coprocessor::Dsp
             } else if title_upper.contains("MORITASHOGI2") || title_upper.contains("MORITA SHOGI2")
             {
                 // ST018 (Hayazashi Nidan Morita Shogi 2) — internal title `NIDAN MORITASHOGI2`

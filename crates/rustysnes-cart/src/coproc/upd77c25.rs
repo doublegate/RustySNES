@@ -113,7 +113,7 @@ impl Revision {
     /// clock is NOT a function of the register-width revision: this returns the ST010 (11 MHz) rate for
     /// `Upd96050`, and a wired ST011 must instead select `UPD96050_ST011_RATE` below. Integer-only, no
     /// floats (determinism, ADR 0004).
-    const fn rates(self) -> (u64, u64) {
+    pub(crate) const fn rates(self) -> (u64, u64) {
         match self {
             Self::Upd7725 => (760_000, 2_147_727), // 7_600_000 / 21_477_270 (DSP-1/2/3/4)
             Self::Upd96050 => (1_100_000, 2_147_727), // 11_000_000 / 21_477_270 (ST010)
@@ -264,6 +264,11 @@ pub struct Upd77c25 {
     /// [`Self::tick_master`] (mirrors `Clock.spc_accum` in the core Bus). Emulated hardware state:
     /// serialized, integer-only (determinism, ADR 0004).
     dsp_accum: u64,
+    /// The `(num, den)` master-clock divisor this chip steps on. Fixed at construction from the
+    /// chip's oscillator — defaults to [`Revision::rates`], but the ST011 (µPD96050 at 15 MHz, not
+    /// ST010's 11 MHz) overrides it via [`Self::with_rate`]. Chip identity, not mutable state, so it
+    /// is NOT serialized (like a board's fixed window) — power/load leave it untouched.
+    rate: (u64, u64),
 }
 
 impl Upd77c25 {
@@ -306,9 +311,19 @@ impl Upd77c25 {
             flag_a: Flag::default(),
             flag_b: Flag::default(),
             dsp_accum: 0,
+            rate: revision.rates(),
         };
         me.power();
         me
+    }
+
+    /// Override the master-clock divisor (the `rate` field). The one caller is the ST011 board,
+    /// which shares the `Upd96050` register-width revision with the ST010 but runs at 15 MHz, not
+    /// 11 MHz — it constructs `Upd77c25::new(Upd96050).with_rate(UPD96050_ST011_RATE)`.
+    #[must_use]
+    pub fn with_rate(mut self, rate: (u64, u64)) -> Self {
+        self.rate = rate;
+        self
     }
 
     /// Reset all programmer-visible state (NEC power-on). Firmware contents are retained.
@@ -505,7 +520,7 @@ impl Upd77c25 {
         if !self.firmware_loaded {
             return;
         }
-        let (num, den) = self.revision.rates();
+        let (num, den) = self.rate;
         self.dsp_accum += num;
         while self.dsp_accum >= den {
             self.dsp_accum -= den;
@@ -903,7 +918,7 @@ impl Upd77c25 {
         // crafted `NDSP` payload with a huge phase would otherwise make the next `tick_master`
         // execute billions of `exec()` iterations before the accumulator drained (module 60).
         let dsp_accum = s.read_u64()?;
-        let (_, den) = self.revision.rates();
+        let (_, den) = self.rate;
         if dsp_accum >= den {
             return Err(SaveStateError::Invalid(alloc::format!(
                 "NDSP accumulator phase {dsp_accum} exceeds divisor {den}"

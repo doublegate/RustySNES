@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.24.0] "Ensemble" - 2026-07-29
+
+The NEC DSP family is complete. **DSP-3 (SD Gundam GX) and ST011 (Hayazashi 2-dan Morita Shougi) are
+now wired and validated**, joining DSP-1/2/4 + ST010 on the shared µPD77C25 / µPD96050 engine — every
+NEC coprocessor the SNES shipped is now emulated. Both had been held pending a validation cart
+(`docs/adr/0003`: an unvalidated coprocessor window is an untestable claim, so the honesty gate keeps
+it unmapped rather than guessing); once the two Japan-only dumps were supplied, each was wired from
+its reference-pinned spec and confirmed to actually drive its chip — the game reaches the register
+window (`host_accesses > 0`) and boots deterministically. Both are `BestEffort`: liveness- and
+determinism-validated against the real games, not golden-framebuffer-blessed (no multi-reference
+agreement is pinned for them). Purely additive — DSP-1/2/4, ST010, and every non-NEC board render
+byte-identically; no save-state format change.
+
+### Added
+
+- **DSP-3 (SD Gundam GX) — wired + validated.** `Variant::Dsp3` on the shared µPD7725 engine: register
+  window banks `$20–3F,$A0–BF` over the full `$8000–FFFF` (snes9x `M_DSP3_LOROM`), the generic
+  low-address-bit DR/SR split (even=DR, odd=SR — bsnes `NECDSP::read`/`write`), the same 7.6 MHz rate
+  as DSP-1/2/4. **Detection is special:** SD Gundam GX's internal title is Shift-JIS (`SDｶﾞﾝﾀﾞﾑGX`), so
+  the header's UTF-8 title decode is empty and the usual string match can't see it — DSP-3 is matched
+  on the *raw* title bytes (`Variant::detect_dsp3_raw`) from the board-selection path, which also
+  corrects SD Gundam GX's prior mis-detection as a plain DSP-1. Confirmed live (30k+ host accesses in
+  the attract).
+- **ST011 (Hayazashi 2-dan Morita Shougi) — wired + validated.** `Variant::St011`: the identical
+  µPD96050 board as ST010 (same register + battery-RAM windows and low-bit split) but at **15 MHz, not
+  ST010's 11 MHz** (ares + bsnes agree). ST011 declares the `$F` "custom" chipset nibble rather than
+  the DSP family's usual `$0`, so `header::coprocessor_from_chipset` routes its ASCII title
+  (`2DAN MORITA SHOUGI`, distinct from ST018's `NIDAN MORITASHOGI2`) back to the DSP family. Its shogi
+  AI is gated behind menu input, so its liveness test drives Start/A to reach the chip.
+- **`dsp3_st011_oncart` regression test** — boots both games with firmware and asserts detection +
+  chip liveness (`host_accesses > 0`) + determinism (self-skips when the gitignored dumps are absent).
+
+### Changed
+
+- **The NEC-DSP engine takes an explicit master-clock rate.** `Upd77c25` now carries its `(num, den)`
+  divisor (defaulting to the revision's rate) with an `Upd77c25::with_rate` builder, so the ST011 can
+  run at 15 MHz while sharing the `Upd96050` register-width revision with the 11 MHz ST010 —
+  `Revision::rates` alone could not distinguish them. `Revision::rates` is now `pub(crate)`; the rate
+  is chip identity, not mutable state, so it is not serialized (no `FORMAT_VERSION` change).
+
 ## [1.23.0] "Cadence" - 2026-07-29
 
 The timing release. **The NEC DSP is no longer the last synchronous coprocessor.** v1.22.0 fixed the
