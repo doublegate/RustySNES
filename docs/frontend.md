@@ -526,6 +526,79 @@ not a fixed 2048 that was only ever correct for the WebGL2 downlevel case.
   `EmuCore::hd_pack_composite_inputs` the same way `app.rs`'s synchronous path already did —
   previously a threaded build with a pack selected silently rendered the native framebuffer.
 
+## Audio mixer, rewind compression, and the run-ahead fast path (`v1.25.0`, T-FP-F)
+
+### Per-voice gain (`Dsp::set_voice_gains`)
+
+The `v1.0.1` debugger already had per-voice **mute**. What it could not do is the thing a mixer is
+for — turning one voice down to hear what another is doing — which needs a continuous gain.
+
+The gain applies at the **existing** per-voice-mute site (`apu/src/dsp.rs`'s `voice_output`), which
+already drops a voice from both the main mix and the echo send. Everything upstream — envelope, BRR
+decode, pitch, `OUTX`/`ENDX`/`ENVX` — is untouched, so a ROM cannot observe a gain change and
+adjusting one mid-note resumes exactly where the voice already was.
+
+Three properties, each deliberate:
+
+- **`1.0` is a bit-exact bypass**, checked with an *exact* comparison. A tolerance — which the
+  `float_cmp` lint suggests — would make gains near but not at unity silently skip the multiply,
+  which is the opposite of the guarantee. Same reasoning as `crate::eq`'s exact flat bypass.
+- **Never in a save state.** Like mutes, cheats, and watchpoints, this is host UI state; a save-state
+  round-trip must not reset or preserve it as if it were emulated hardware.
+- **Bounded at 4x** (`MAX_VOICE_GAIN`). The mix saturates rather than overflowing, so an enormous
+  gain does not corrupt anything — it just clips everything else out, which reads as "the emulator
+  broke" rather than "that slider is too high". A non-finite or negative value falls back to unity
+  rather than silencing or inverting a voice permanently.
+
+`Dsp::voice_taps` reports what each voice contributed to the **most recent sample**. That is the
+honest primitive: a meter needs a decay constant, and a decay constant in the DSP would be a UI
+concern living in the emulation core. The mixer panel does the smoothing, where the frame rate is
+known — rise is instant, fall is exponential, because a symmetric response averages a drum hit down
+to nothing between frames.
+
+**Solo wins over mute**, computed in one place (`MixerState::mutes`) so the two buttons cannot
+disagree about which is authoritative.
+
+### Rewind compression (`crate::delta`)
+
+Successive save-states are **overwhelmingly identical**: a few hundred bytes of WRAM, some PPU
+registers, and the CPU's registers change out of hundreds of kilobytes. Storing them whole spent
+almost all of a rewind buffer's memory on identical data.
+
+XOR against the previous state turns that into a buffer that is almost entirely zero, which
+run-length encodes to a few dozen bytes. That is a better fit than a general compressor **and needs
+no new dependency** — a rewind buffer pulling in a compression crate to store data that is already
+99% zeros is paying for the wrong tool.
+
+- **Keyframes every 16 snapshots.** Without them, reaching the oldest state means replaying every
+  delta from the start — and the ring evicts from the *front*, so the base a delta chain depends on
+  is exactly what disappears first. A keyframe bounds both the replay cost and that dependency.
+- **The round-trip is bit-identical.** Anything less is not a rewind: a nearly-right state resumes
+  emulation from a machine that never existed, and the divergence surfaces later as an unexplainable
+  bug rather than as a failed decompress.
+- **Corrupt input is refused, never partially decoded.** A length is checked before allocating, so a
+  corrupt run cannot ask for a gigabyte; a varint shift is checked *before* shifting, because
+  `1u64 << 70` is a panic in debug and a wrong answer in release.
+- A **length change forces a keyframe**: two states of different sizes have no meaningful XOR, and
+  delta-ing the common prefix would decode to a truncated state.
+
+### Run-ahead's per-frame allocation (`save_state_into`)
+
+Run-ahead snapshots the machine **every frame**. `EmuCore::save_state` allocates a fresh
+hundreds-of-kilobyte `Vec` each time, which `docs/frontend.md` has recorded as the blocker on making
+run-ahead default-on.
+
+`System::save_state_into` (and its `SaveWriter::with_buffer`) reuse a caller-owned buffer, clearing
+it but **keeping its capacity**. Output is byte-for-byte identical; the only difference is that the
+allocation happens once instead of sixty times a second.
+
+The buffer is owned by the caller for a reason: a local `Vec` inside the run-ahead function would
+allocate just the same. The synchronous path keeps one on `Active`; the `emu-thread` build keeps its
+own in `emu_thread::run_loop`, because frame production there lives on a different thread — and a
+buffer on `Active` for that build would be written by nobody and read by nobody, which is exactly
+the inert-feature trap this project has hit before (see the `emu-thread` note in the parity
+CHANGELOG entries).
+
 ## Global hotkeys (`v1.0.1`)
 
 Every system/emulation action used to be menu-bar-only (`rustysnes help hotkeys` said so

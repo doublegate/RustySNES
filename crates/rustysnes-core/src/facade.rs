@@ -404,6 +404,13 @@ impl EmuCore {
         self.system.save_state()
     }
 
+    /// [`Self::save_state`] reusing `buf`'s allocation (`v1.25.0`, T-FP-F) — see
+    /// [`crate::scheduler::System::save_state_into`].
+    #[must_use]
+    pub fn save_state_into(&self, buf: Vec<u8>) -> Vec<u8> {
+        self.system.save_state_into(buf)
+    }
+
     /// Restore a snapshot taken by [`Self::save_state`] from a `System` with the SAME cart
     /// already loaded (a save-state never embeds ROM bytes, `docs/adr/0006`) — the caller must
     /// have already `load_rom`'d the matching ROM. Re-renders the framebuffer immediately so a

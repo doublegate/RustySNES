@@ -296,6 +296,18 @@ struct Active {
     /// The loaded symbol map (`v1.25.0`, T-FP-C2), or `None` until one is loaded. Names addresses
     /// in the disassembly, trace, and call-stack views.
     symbols: Option<crate::symbols::SymbolMap>,
+    /// The run-ahead snapshot buffer (`v1.25.0`, T-FP-F), reused every frame.
+    ///
+    /// Owned here rather than local to the run-ahead call so its capacity survives: run-ahead
+    /// snapshots every frame, and a fresh hundreds-of-kilobyte `Vec` sixty times a second is the
+    /// documented blocker on making run-ahead default-on.
+    ///
+    /// Synchronous path only: under `emu-thread` frame production lives on the emu thread, which
+    /// owns its own scratch buffer (`emu_thread::run_loop`). A field kept here for that build
+    /// would be written by nobody and read by nobody — the inert-feature trap this project has
+    /// hit before.
+    #[cfg(not(feature = "emu-thread"))]
+    run_ahead_scratch: Vec<u8>,
     /// A chain built from a loaded `.slangp` preset (`v1.25.0`, T-FP-E), or `None`.
     ///
     /// Held here rather than rebuilt per present because building it reads files off disk and runs
@@ -794,6 +806,20 @@ impl App {
     // control/present/producer + the `Active` literal); the length is inherent to how much
     // state one session needs to stand up once, not a sign this needs splitting.
     #[allow(clippy::too_many_lines)]
+    /// Push the mixer's gains and mutes into the DSP (`v1.25.0`, T-FP-F).
+    ///
+    /// A neutral mixer defers to `config.audio.voice_mutes` (the persisted baseline) and pushes
+    /// unity gains, so a build that never opens the mixer is bit-identical to one without it.
+    fn sync_mixer(mixer: &crate::debugger::MixerState, config: &Config, emu: &mut EmuCore) {
+        if mixer.is_neutral() {
+            emu.set_voice_mutes(config.audio.voice_mutes);
+            emu.set_voice_gains([1.0; 8]);
+        } else {
+            emu.set_voice_mutes(mixer.mutes());
+            emu.set_voice_gains(mixer.gains());
+        }
+    }
+
     /// Apply the Memory editor's pending one-shot pokes and its freeze list (`v1.25.0`, T-FP-C1).
     ///
     /// Pokes are **drained** (each write happens once); freezes are re-applied every present, which
@@ -1104,6 +1130,8 @@ impl App {
             freezes: Vec::new(),
             pokes: Vec::new(),
             symbols: None,
+            #[cfg(not(feature = "emu-thread"))]
+            run_ahead_scratch: Vec::new(),
             // Restored from `video.preset_path` (`v1.25.0`, T-FP-E). Without this the path
             // round-trips through `config.toml` and the Settings panel says "a preset is active"
             // while nothing renders it — the setting would be decoration.
@@ -1540,7 +1568,10 @@ impl App {
                     emu.set_breakpoints(&active.breakpoints);
                     // Per-voice audio mutes (`v1.0.1`) — same re-sync pattern as above; all-false
                     // (unmuted) is the default, byte-identical to every prior release.
-                    emu.set_voice_mutes(config.audio.voice_mutes);
+                    // The mixer (`v1.25.0`, T-FP-F) is authoritative when it is not neutral; the
+                    // config's own `voice_mutes` remain the persisted baseline. Both are pushed
+                    // through the same "re-sync unconditionally once per frame" convention.
+                    Self::sync_mixer(&active.shell.mixer, config, &mut emu);
                     // Run-ahead (config-driven, off by default): peeks `run_ahead.frames` frames
                     // ahead for the PRESENTED video, while `emu`'s own persisted state (and audio
                     // — the continuous stream) only ever advances by exactly one real frame, same
@@ -1557,9 +1588,13 @@ impl App {
                             .last_frame_time_ms
                             .is_some_and(|ms| ms > config.run_ahead.throttle_ms);
                     if config.run_ahead.frames > 0 && !throttled {
-                        run_ahead_frame = Some(crate::rewind::step_with_run_ahead(
+                        // The scratch buffer (`v1.25.0`, T-FP-F) keeps the per-frame save-state
+                        // allocation out of the run-ahead path — the documented blocker on making
+                        // run-ahead default-on.
+                        run_ahead_frame = Some(crate::rewind::step_with_run_ahead_reusing(
                             &mut emu,
                             config.run_ahead.frames,
+                            &mut active.run_ahead_scratch,
                         ));
                     } else {
                         emu.run_frame();
@@ -1638,7 +1673,10 @@ impl App {
                     config.port2_peripheral.into(),
                 );
                 emu.set_breakpoints(&active.breakpoints);
-                emu.set_voice_mutes(config.audio.voice_mutes);
+                // The mixer (`v1.25.0`, T-FP-F) is authoritative when it is not neutral; the
+                // config's own `voice_mutes` remain the persisted baseline. Both are pushed
+                // through the same "re-sync unconditionally once per frame" convention.
+                Self::sync_mixer(&active.shell.mixer, config, &mut emu);
 
                 // Netplay-aware pause (post-`v1.3.0`): the emu thread must idle whenever a
                 // netplay session is connected (its `RollbackSession` is the sole authority over
@@ -1790,6 +1828,15 @@ impl App {
                 #[cfg(feature = "hd-pack")]
                 active_hd_pack,
             };
+            // Mixer meters (`v1.25.0`, T-FP-F): only while the panel is open, since a meter
+            // nobody is looking at is pure cost. `voice_taps` is a field read, but the smoothing
+            // it feeds is per-present state that must not advance unobserved.
+            if active.shell.debugger_open
+                && active.shell.panel == crate::debugger::DebugPanel::Mixer
+            {
+                let taps = emu.voice_taps();
+                active.shell.mixer.update_meters(taps);
+            }
             // Only build the debugger snapshot when the window is actually open — a real,
             // avoidable per-frame cost otherwise (`docs/frontend.md` §Debugger overlay).
             // Tell the core whether the Trace panel is open BEFORE snapshotting, so it knows

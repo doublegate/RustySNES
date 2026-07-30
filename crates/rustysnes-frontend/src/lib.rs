@@ -47,7 +47,10 @@ pub mod cheats;
 #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
 pub mod cheevos;
 pub mod config;
+// XOR-delta + RLE compression for the rewind ring (`v1.25.0`, T-FP-F). No new dependency: the
+// input is already ~99% zeros, so a general compressor would be the wrong tool.
 pub mod debug_snapshot;
+pub mod delta;
 // The debugger overlay's panels (`v1.7.0 "Telemetry"`, extracted out of `ui_shell.rs`). Compiled
 // unconditionally, matching `ui_shell.rs` itself — only the Debug menu entry that makes the
 // overlay reachable is gated behind the `debug-hooks` feature (see that module's own doc).

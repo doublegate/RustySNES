@@ -543,6 +543,18 @@ impl Apu {
         self.dsp.set_voice_mutes(mutes);
     }
 
+    /// Set the 8 per-voice output gains (`v1.25.0`, T-FP-F) — see
+    /// [`dsp::Dsp::set_voice_gains`]. `1.0` is unity and bit-exact.
+    pub const fn set_voice_gains(&mut self, gains: [f32; 8]) {
+        self.dsp.set_voice_gains(gains);
+    }
+
+    /// The 8 per-voice output taps, for the mixer's VU meters (`v1.25.0`, T-FP-F).
+    #[must_use]
+    pub const fn voice_taps(&self) -> [(i16, i16); 8] {
+        self.dsp.voice_taps()
+    }
+
     /// Borrow ARAM (read-only) — for save-states / debug.
     #[must_use]
     pub fn aram(&self) -> &[u8; ARAM_SIZE] {

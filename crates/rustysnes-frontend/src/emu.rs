@@ -357,6 +357,16 @@ impl EmuCore {
         self.inner.set_voice_mutes(mutes);
     }
 
+    /// Set the 8 per-voice output gains (`v1.25.0`, T-FP-F). `1.0` is unity and bit-exact.
+    pub fn set_voice_gains(&mut self, gains: [f32; 8]) {
+        self.inner.system_mut().bus.set_voice_gains(gains);
+    }
+
+    /// The 8 per-voice output taps, for the mixer's VU meters (`v1.25.0`, T-FP-F).
+    pub fn voice_taps(&mut self) -> [(i16, i16); 8] {
+        self.inner.system_mut().bus.voice_taps()
+    }
+
     /// Feed one frame's worth of Super Scope input for port `port` — see
     /// [`facade::EmuCore::set_superscope`].
     pub fn set_superscope(&mut self, port: usize, x: i32, y: i32, buttons: u8) {
@@ -969,6 +979,15 @@ impl EmuCore {
     #[must_use]
     pub fn save_state(&self) -> Vec<u8> {
         self.inner.save_state()
+    }
+
+    /// [`Self::save_state`] reusing `buf`'s allocation (`v1.25.0`, T-FP-F).
+    ///
+    /// Byte-identical output. Used by run-ahead, which snapshots every frame — the per-frame
+    /// allocation this removes is the documented blocker on making run-ahead default-on.
+    #[must_use]
+    pub fn save_state_into(&self, buf: Vec<u8>) -> Vec<u8> {
+        self.inner.save_state_into(buf)
     }
 
     /// Restore a snapshot taken by [`Self::save_state`] — see [`facade::EmuCore::load_state`].

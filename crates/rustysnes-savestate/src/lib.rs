@@ -85,6 +85,17 @@ pub struct SaveWriter {
 }
 
 impl SaveWriter {
+    /// A writer that reuses an existing buffer (`v1.25.0`, T-FP-F).
+    ///
+    /// The buffer is cleared but its **capacity is kept**, which is the whole point: run-ahead
+    /// takes a save-state every frame, and allocating a fresh hundreds-of-kilobyte `Vec` sixty
+    /// times a second is the documented blocker on making run-ahead default-on.
+    #[must_use]
+    pub fn with_buffer(mut buf: Vec<u8>) -> Self {
+        buf.clear();
+        Self { buf }
+    }
+
     /// A fresh, empty writer.
     #[must_use]
     pub const fn new() -> Self {
