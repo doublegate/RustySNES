@@ -99,7 +99,10 @@ impl MixerState {
 
     /// Fold this present's taps into the smoothed meters.
     ///
-    /// Rise is instant, fall is exponential — see [`METER_DECAY`].
+    /// Rise is instant, fall is exponential — see this module's `METER_DECAY`. A plain code span
+    /// rather than an intra-doc link, since that constant is private and the doc build rejects a
+    /// public item linking to one (`docs/`'s own rule about links that only resolve with
+    /// `--document-private-items`).
     pub fn update_meters(&mut self, taps: [(i16, i16); VOICES]) {
         for (meter, (l, r)) in self.meters.iter_mut().zip(taps.iter()) {
             #[allow(clippy::cast_precision_loss)]
