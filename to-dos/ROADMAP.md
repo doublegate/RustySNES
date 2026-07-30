@@ -773,13 +773,14 @@ minimises rework. Full rationale + per-PR verification: `docs/frontend.md` and t
 
 **One defect class recurred four times and will recur again:** a config field that round-trips
 through `config.toml` while **nothing reads it** (`gilrs`, `video.integer_scale`, `config.p2`,
-`audio.device` were all like this — the knob looked functional and did nothing). When touching an
+`audio.device`, and `video.pacing` were all like this — the knob looked functional and did nothing;
+the last was found and fixed in T-FP-B). When touching an
 existing setting, grep for its *readers*, not its definition.
 
 | Ticket | Scope | Size | Blocked on |
 |---|---|---:|---|
-| **T-FP-A** | **Infrastructure, first because everything plugs into it.** `debugger/settings_panel.rs` (the tabbed live-apply Settings home the later knobs need), `i18n.rs` + `t!` macro + language picker, `perf.rs` percentile primitives, fuller menu bar + a populated Help menu, global-hotkey rebinding | ~5 | nothing |
-| **T-FP-B** | Observability: `perf_panel.rs`, `perf_log.rs` (CSV), a `gpu-timing` feature (`TIMESTAMP_QUERY` + `TIMESTAMP_QUERY_INSIDE_ENCODERS`, `resolve_query_set`, `Queue::get_timestamp_period`), advanced pacing (the display-sync/VRR/wallclock matrix `PacingMode` already *declares* but does not implement), hybrid sleep-then-spin, occlusion watchdog | ~4 | T-FP-A's `perf.rs` |
+| **T-FP-A** (landed `v1.25.0`) | **Infrastructure, first because everything plugs into it.** `debugger/settings_panel.rs` (the tabbed live-apply Settings home the later knobs need), `i18n.rs` + `t!` macro + language picker, `perf.rs` percentile primitives, fuller menu bar + a populated Help menu, global-hotkey rebinding | ~5 | nothing |
+| **T-FP-B** (landed `v1.25.0`) | Observability: `perf_panel.rs`, `perf_log.rs` (CSV), a `gpu-timing` feature (`TIMESTAMP_QUERY` + `TIMESTAMP_QUERY_INSIDE_ENCODERS`, `resolve_query_set`, `Queue::get_timestamp_period`), advanced pacing (the display-sync/VRR/wallclock matrix `PacingMode` already *declares* but does not implement), hybrid sleep-then-spin, occlusion watchdog | ~4 | T-FP-A's `perf.rs` |
 | **T-FP-C** | Debugger: opt-in per-instruction/access/event callbacks in `rustysnes-core` behind the existing `debug-hooks` feature, then hex memory editor (`Bus::poke_wram` already exists), OAM/sprite viewer (`Ppu::oam` already public), cheat panel UI, `expr.rs` + conditional breakpoints, access counter, symbol map, header editor, mapper/bank panel, trace/callstack/event viewers, inline 65C816 assembler | ~12 | T-FP-A (panel home) |
 | **T-FP-D** | Video, low-risk half: `shader_pass.rs` multi-pass ping-pong stack (per-pass `scale_type`/`filter_linear`/`wrap_mode`/`float_framebuffer`/`mipmap_input`/alias/`frame_count_mod`), generic `#pragma parameter` sliders replacing the hardcoded `f32` args threaded through `Gfx::present`, richer CRT (curvature/beam/glow/mask), **NTSC composite** | ~4 | nothing |
 | **T-FP-E** | Video, high-risk half: `slang_preset.rs` (`.slangp`/`.cgp` parse + LUT textures) and a **GLSL->WGSL bridge** via naga's `glsl-in`. Best-effort by construction — naga's GLSL frontend covers a subset of `#version 450`, so every failure must name an `Unsupported` reason and fall back to T-FP-D's built-in chain, never a silent black frame | ~2 | T-FP-D |

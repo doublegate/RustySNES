@@ -40,6 +40,10 @@ pub enum MenuAction {
     OpenRecent(std::path::PathBuf),
     /// Forget every Recent ROMs entry (`v1.25.0`).
     ClearRecent,
+    /// Clear every performance metric and counter (`v1.25.0`, T-FP-B).
+    ResetPerfStats,
+    /// Start or stop the per-present CSV performance log (`v1.25.0`, T-FP-B).
+    TogglePerfLog,
     /// Store the current settings as overrides for the loaded ROM (`v1.25.0`).
     SavePerGame,
     /// Delete the loaded ROM's per-game overrides (`v1.25.0`).
@@ -225,18 +229,10 @@ pub struct ShellState {
     /// `Config::first_run_seen` was `false` at launch; dismissing it flips `first_run_seen` to
     /// `true` and persists the config so it never reappears.
     pub welcome_open: bool,
-    /// Rolling frame-time history for the Performance panel's sparkline (`v1.0.0`), capped at
-    /// `FRAME_TIME_HISTORY_LEN` samples (~2s at 60 fps). Pushed once per present whenever the
-    /// panel is open, regardless of whether a real measurement exists that present (a paused
-    /// present pushes `0.0`, same "no gap in the timeline" convention a real frame-time HUD uses).
-    pub frame_time_history: std::collections::VecDeque<f32>,
     /// The Memory Compare panel's captured baseline (`debug.memory_window` bytes + the address it
     /// started at), or `None` before the first "Capture baseline" click (`v1.8.0 "Tracepoint"`).
     pub memcmp_baseline: Option<([u8; MEMORY_WINDOW_LEN], u32)>,
 }
-
-/// `ShellState::frame_time_history`'s cap.
-const FRAME_TIME_HISTORY_LEN: usize = 120;
 
 /// Read-only `RetroAchievements` session state the shell needs to render the login window,
 /// copied out (never behind the emu lock — `CheevosState` isn't emu state) by the app each frame.
@@ -311,6 +307,15 @@ pub struct ShellInfo {
     /// Names of the connected gamepads in player order (`v1.25.0`). Empty when none are detected
     /// (or on `wasm32`, which has no `gilrs` runtime).
     pub gamepads: Vec<String>,
+    /// The resolved frame-pacing plan, already formatted for display (`v1.25.0`, T-FP-B). `None`
+    /// before the surface exists (so nothing has been resolved yet).
+    pub pacing: Option<String>,
+    /// Rolling percentile summaries for the Performance panel (`v1.25.0`, T-FP-B). Snapshotted only
+    /// while the panel is open — [`crate::perf::PerfStats::report`] allocates.
+    pub perf: Option<crate::perf::PerfReport>,
+    /// A one-line description of the running CSV performance log (`v1.25.0`, T-FP-B), or `None`
+    /// when it is off.
+    pub perf_log: Option<String>,
     /// HD texture pack names available for the current ROM (`v1.3.0`, `hd-pack` feature) — the
     /// Settings pack-selector's candidate list. Empty when no ROM is loaded.
     #[cfg(feature = "hd-pack")]
@@ -833,7 +838,7 @@ impl ShellState {
             self.render_save_states(&ctx, save_slots, &mut actions);
         }
         if self.performance_open {
-            self.render_performance(&ctx, info);
+            actions.extend(self.render_performance(&ctx, info));
         }
         #[cfg(feature = "cheats")]
         if self.cheats_open {
@@ -961,6 +966,31 @@ impl ShellState {
         });
     }
 
+    /// The pacing + present-mode pair (`v1.25.0`, T-FP-B), split out of `settings_video` for the
+    /// same reason `settings_video_overscan` was: they are one decision (pacing *chooses* the
+    /// present mode when it is left on `auto`), and keeping them together keeps their parent under
+    /// the 100-line lint.
+    fn settings_video_pacing(ui: &mut egui::Ui, cfg: &mut Config, info: &ShellInfo) {
+        ui.label(format!("{}:", t!(cfg.locale, Msg::FramePacing)));
+        ui.horizontal(|ui| {
+            for mode in crate::config::PacingMode::all() {
+                ui.radio_value(&mut cfg.video.pacing, mode, mode.display_name());
+            }
+        });
+        // The resolved plan, verbatim. A request the display or surface cannot honour is silently
+        // downgraded, and an unreported downgrade is indistinguishable from a bug — so say so.
+        if let Some(plan) = info.pacing.as_ref() {
+            ui.label(egui::RichText::new(format!("→ {plan}")).weak());
+        }
+        ui.separator();
+        ui.label(format!("{}:", t!(cfg.locale, Msg::PresentMode)));
+        for m in ["auto", "fifo", "mailbox", "immediate"] {
+            if ui.radio(cfg.video.present_mode == m, m).clicked() {
+                cfg.video.present_mode = m.to_string();
+            }
+        }
+    }
+
     /// Settings -> Video (`v1.25.0`, T-FP-A: extracted from `render_settings`, which had grown past
     /// the 100-line lint as each parity wave added a section).
     fn settings_video(
@@ -969,15 +999,12 @@ impl ShellState {
         info: &ShellInfo,
         actions: &mut Vec<MenuAction>,
     ) {
-        // Only the `hd-pack` pack-selector block reads these.
+        // Only the `hd-pack` pack-selector block pushes an action. The reborrow (not a plain
+        // `let _ =`) is what keeps `needless_pass_by_ref_mut` quiet without changing the shared
+        // signature every tab renderer has.
         #[cfg(not(feature = "hd-pack"))]
-        let _ = (info, actions);
-        ui.label(format!("{}:", t!(cfg.locale, Msg::PresentMode)));
-        for m in ["fifo", "mailbox", "immediate"] {
-            if ui.radio(cfg.video.present_mode == m, m).clicked() {
-                cfg.video.present_mode = m.to_string();
-            }
-        }
+        let _ = &mut *actions;
+        Self::settings_video_pacing(ui, cfg, info);
         ui.checkbox(
             &mut cfg.video.integer_scale,
             t!(cfg.locale, Msg::IntegerScale),
@@ -1449,89 +1476,36 @@ impl ShellState {
         self.save_states_open = open;
     }
 
-    /// The Performance panel (`v1.0.0`): a read-only diagnostic view of `info`'s live
-    /// frame-timing/audio-health fields, plus a rolling frame-time sparkline
-    /// (`frame_time_history`). No controls — this is purely informational, unlike
-    /// Settings/Save States.
-    fn render_performance(&mut self, ctx: &egui::Context, info: &ShellInfo) {
-        self.frame_time_history
-            .push_back(info.frame_time_ms.unwrap_or(0.0));
-        if self.frame_time_history.len() > FRAME_TIME_HISTORY_LEN {
-            self.frame_time_history.pop_front();
-        }
-
+    /// The Performance panel (`v1.0.0`; rebuilt in `v1.25.0`, T-FP-B).
+    ///
+    /// The body lives in [`crate::perf_panel`] — percentile summaries and per-metric sparklines
+    /// over `info.perf`, the resolved pacing plan, produced-vs-presented, and the CSV-log control.
+    /// The `v1.0.0` single-mean readout it replaces could not answer "how bad is the tail?", which
+    /// is the only question that matters when frames hitch.
+    fn render_performance(&mut self, ctx: &egui::Context, info: &ShellInfo) -> Vec<MenuAction> {
+        let mut actions = Vec::new();
         let mut open = self.performance_open;
         egui::Window::new("Performance")
             .open(&mut open)
             .resizable(false)
             .show(ctx, |ui| {
-                egui::Grid::new("performance_grid")
-                    .num_columns(2)
-                    .show(ui, |ui| {
-                        ui.label("FPS:");
-                        ui.label(format!("{:.1}", info.fps));
-                        ui.end_row();
-
-                        ui.label("Speed:");
-                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                        let pct = (info.speed * 100.0).round() as u32;
-                        ui.label(format!("{pct}%"));
-                        ui.end_row();
-
-                        ui.label("Frame time:");
-                        ui.label(
-                            info.frame_time_ms
-                                .map_or_else(|| "n/a".to_string(), |ms| format!("{ms:.2} ms")),
-                        );
-                        ui.end_row();
-
-                        ui.label("Audio ring:");
-                        ui.label(
-                            info.audio_health_pct
-                                .map_or_else(|| "n/a".to_string(), |pct| format!("{pct:.0}%")),
-                        );
-                        ui.end_row();
-                    });
-                ui.separator();
-                ui.label("Frame time history (last ~2s):");
-                Self::draw_frame_time_sparkline(ui, &self.frame_time_history);
+                let panel = crate::perf_panel::render(
+                    ui,
+                    info.perf.as_ref(),
+                    info.pacing.as_deref(),
+                    info.fps,
+                    info.speed,
+                    info.perf_log.as_deref(),
+                );
+                if panel.reset {
+                    actions.push(MenuAction::ResetPerfStats);
+                }
+                if panel.toggle_log {
+                    actions.push(MenuAction::TogglePerfLog);
+                }
             });
         self.performance_open = open;
-    }
-
-    /// Draw `history` as a simple line sparkline in a fixed-size box, scaled to its own max
-    /// (never below `1.0` ms, so a silent/all-zero history — paused, or `emu-thread` — draws a
-    /// flat line at the bottom rather than dividing by ~0). No `egui_plot` dependency: a
-    /// sparkline is exactly `Painter::line` over a handful of points, not worth a new crate.
-    fn draw_frame_time_sparkline(ui: &mut egui::Ui, history: &std::collections::VecDeque<f32>) {
-        let desired_size = egui::vec2(ui.available_width().min(240.0), 40.0);
-        let (rect, _response) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
-        let painter = ui.painter();
-        painter.rect_filled(rect, 2.0, ui.visuals().extreme_bg_color);
-        if history.len() < 2 {
-            return;
-        }
-        #[allow(clippy::cast_precision_loss)]
-        let max = history.iter().copied().fold(1.0_f32, f32::max);
-        #[allow(clippy::cast_precision_loss)]
-        let last_idx = (history.len() - 1) as f32;
-        let points: Vec<egui::Pos2> = history
-            .iter()
-            .enumerate()
-            .map(|(i, &ms)| {
-                #[allow(clippy::cast_precision_loss)]
-                let t = i as f32 / last_idx;
-                let x = rect.left() + t * rect.width();
-                let y = (ms / max)
-                    .clamp(0.0, 1.0)
-                    .mul_add(-rect.height(), rect.bottom());
-                egui::pos2(x, y)
-            })
-            .collect();
-        painter.add(egui::Shape::line(
-            points,
-            egui::Stroke::new(1.5, ui.visuals().selection.bg_fill),
-        ));
+        actions
     }
 
     /// The first-run welcome modal (`v1.0.0`) — a brief orientation shown once on the very first

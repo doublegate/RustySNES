@@ -81,6 +81,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Settings gained Video (aspect, overscan grid), Audio (latency, kernel, health readout), and Input
     (autofire, gamepad list + deadzone) controls for all of the above.
 
+- **Frontend parity with RustyNES: observability and pacing (T-FP-B).**
+  - **`PacingMode` is now a real setting.** It was declared in `config.toml`, serialized, and read by
+    **nothing** — `Auto`/`Display`/`Vrr`/`Wallclock` all behaved identically. `crate::pacing::resolve`
+    now resolves the request against the monitor's reported refresh (winit's
+    `refresh_rate_millihertz`) and the surface's actual present-mode caps, producing a `PacingPlan`
+    the frame loop and the present mode both follow. A request the hardware cannot honour — display
+    sync on a 75 Hz panel, VRR with no mailbox mode — is **reported as declined with a reason** in
+    Settings and the Performance panel, not silently downgraded; an invisible downgrade is
+    indistinguishable from a bug. `video.present_mode` gained an `"auto"` value (the new default)
+    that defers to the plan; an explicit `"fifo"`/`"mailbox"`/`"immediate"` still wins, so a config
+    written by an earlier release behaves exactly as before.
+  - **Hybrid sleep-then-spin pacing and an occlusion watchdog.** A self-paced plan waits out the
+    frame period with a coarse sleep to `deadline - 2 ms` plus a short spin, because an OS sleep is
+    only accurate to the scheduler's granularity and sleeping the whole way overshoots and drops the
+    frame. A window the compositor reports as occluded is treated as self-paced regardless of the
+    plan — a hidden window may stop receiving vsync entirely, which under display-sync stalls the
+    loop and silently stops the emulator. The deadline **charges the render time already spent**:
+    `Pacer::tick` last touched the accumulator at the start of the present, and the wait happens
+    after that present has produced frames, run egui, and submitted the swapchain image, so
+    answering "one period minus the accumulator" would sleep a full period *on top of* every frame's
+    own render cost — capping the self-paced rate at `1 / (period + render)`, about 38 fps for a
+    10 ms render rather than 60.
+  - **Rebuilt Performance panel** (`crate::perf_panel`) — per-metric sparklines and p50/p95/p99/max
+    over emulation time, present time, GPU time, and audio occupancy, plus the emulated-vs-presented
+    counters that make a catch-up burst visible. Replaces the single-mean readout, which could not
+    answer "how bad is the tail?".
+  - **Opt-in CSV session log** (`crate::perf_log`) — one row per present, written to the data
+    directory. The rolling window answers "how is it running now"; this answers "what happened during
+    that 20-minute session". A missing measurement is an **empty field**, never `0` — a paused
+    present did not take zero milliseconds to emulate. Off by default: a row per present is a syscall
+    per present, which would perturb what it measures. Flushed explicitly both when the log is turned
+    off and on application exit, with any failure reported — `Drop` also flushes, but has nowhere to
+    report a full disk to, so it would silently truncate the log's tail at the moment the user goes
+    to read it.
+  - **New `gpu-timing` feature** — GPU pass duration via `wgpu` timestamp queries, bracketing the
+    frame encoder and read back one frame later so the render thread never blocks on the GPU. The
+    device request intersects with what the adapter reports rather than demanding the feature, so a
+    `gpu-timing` build still launches on hardware without `TIMESTAMP_QUERY`; the panel names the
+    reason instead of showing a fabricated number. The tick delta widens to `f64` before it is
+    scaled: an `f32` mantissa is 24 bits, so past ~16.7M ticks — about 16.7 ms on a 1 ns/tick timer,
+    squarely inside the range being reported — the quantisation happens in the cast itself, and
+    consecutive readings collapse onto the same value.
+  - Removed `ShellState::frame_time_history`, which after this change was written every present and
+    read by nothing.
+
 - **Frontend parity with RustyNES: infrastructure (T-FP-A).** The scaffold the remaining parity
   clusters plug into, sequenced first deliberately.
   - **Localisation** (`crate::i18n`) — a compile-time catalogue plus a `t!` macro, in English,

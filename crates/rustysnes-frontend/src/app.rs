@@ -239,6 +239,24 @@ struct Active {
     /// The present-mode string currently applied to the surface; compared against the live config
     /// each present so a Settings → Video toggle reconfigures the wgpu surface.
     applied_present_mode: String,
+    /// The resolved pacing strategy for this session (`v1.25.0`, T-FP-B).
+    ///
+    /// `config.video.pacing` is a *request*; this is what the display refresh and the surface's
+    /// present-mode caps allow. Before T-FP-B `PacingMode` was serialized and read by nothing, so
+    /// all four variants behaved identically — see `crate::pacing::resolve`.
+    pacing_plan: crate::pacing::PacingPlan,
+    /// The [`crate::config::PacingMode`] the live `pacing_plan` was resolved from; compared against
+    /// the live config each present so a Settings → Video change re-resolves, the same change-guard
+    /// pattern as `applied_present_mode`/`applied_theme`.
+    applied_pacing: crate::config::PacingMode,
+    /// The running per-present CSV performance log (`v1.25.0`, T-FP-B), or `None` (the default —
+    /// a row per present is a syscall per present, so it stays off until asked for).
+    #[cfg(not(target_arch = "wasm32"))]
+    perf_log: Option<crate::perf_log::PerfLog>,
+    /// How many CSV logs this session has started, so each gets its own file rather than
+    /// truncating the previous one on the next toggle.
+    #[cfg(not(target_arch = "wasm32"))]
+    perf_log_session: u32,
     /// The egui [`crate::config::AppTheme`] currently applied to `egui_ctx`; compared against the
     /// live config each frame (`v1.0.0`) so a Settings → System theme change re-themes the shell,
     /// same change-guard pattern as `applied_present_mode` above.
@@ -514,6 +532,13 @@ impl ApplicationHandler<AppEvent> for App {
             WindowEvent::Resized(size) => {
                 active.gfx.resize(size.width, size.height);
             }
+            // Occlusion watchdog (`v1.25.0`, T-FP-B). A compositor may stop delivering vsync to a
+            // fully hidden window, which under display-sync stalls the present loop and silently
+            // stops the emulator; `pace_before_redraw` treats an occluded window as self-paced so
+            // it keeps running (and the pacer drops the hidden interval instead of bursting).
+            WindowEvent::Occluded(occluded) => {
+                active.pacer.set_occluded(occluded);
+            }
             WindowEvent::KeyboardInput {
                 event: key_event, ..
             } => {
@@ -574,7 +599,26 @@ impl ApplicationHandler<AppEvent> for App {
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
         if let Some(active) = self.active.as_ref() {
+            Self::pace_before_redraw(active);
             active.window.request_redraw();
+        }
+    }
+
+    /// Flush the perf log on the way out (`v1.25.0`, T-FP-B).
+    ///
+    /// `PerfLog`'s `Drop` also flushes, but a `Drop` has nowhere to report a failure to, so a full
+    /// disk or a revoked permission would silently truncate the log's last rows at exactly the
+    /// moment the user goes to read it. The turn-off path in `dispatch_actions` already flushes
+    /// explicitly and surfaces the error; this is the other exit, and it is the common one.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(log) = self.active.as_mut().and_then(|a| a.perf_log.as_mut())
+            && let Err(e) = log.flush()
+        {
+            eprintln!(
+                "rustysnes: perf log {} may be truncated: {e}",
+                log.path().display()
+            );
         }
     }
 }
@@ -695,7 +739,77 @@ impl App {
     // control/present/producer + the `Active` literal); the length is inherent to how much
     // state one session needs to stand up once, not a sign this needs splitting.
     #[allow(clippy::too_many_lines)]
-    fn on_gfx_ready(&mut self, gfx: Gfx, window: Arc<Window>) {
+    /// Wait out the remainder of the current frame period before asking for the next redraw, when
+    /// the resolved plan is self-paced (`v1.25.0`, T-FP-B).
+    ///
+    /// Under display-sync this does nothing: the swapchain's own vsync block *is* the wait, and
+    /// sleeping on top of it would only add latency. Under a self-paced plan (wall-clock, VRR, or
+    /// any window the compositor has occluded) nothing else blocks, so without this the event loop
+    /// spins a core flat out redrawing frames the pacer will decline to advance.
+    ///
+    /// The wait is [`crate::pacing::sleep_spin_split`]'s coarse-sleep-then-spin: an OS sleep is only
+    /// accurate to the scheduler's granularity, so sleeping the whole way overshoots and drops the
+    /// frame. Not compiled for `wasm32`, where `requestAnimationFrame` drives the loop and blocking
+    /// the browser's main thread is never acceptable.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn pace_before_redraw(active: &Active) {
+        if !(active.pacing_plan.self_paced || active.pacer.is_occluded()) {
+            return;
+        }
+        let remaining = active.pacer.time_to_next_frame();
+        let (sleep_for, spin) =
+            crate::pacing::sleep_spin_split(remaining, crate::pacing::SPIN_MARGIN);
+        if !sleep_for.is_zero() {
+            std::thread::sleep(sleep_for);
+        }
+        if spin {
+            let deadline = web_time::Instant::now() + crate::pacing::SPIN_MARGIN.min(remaining);
+            while web_time::Instant::now() < deadline {
+                std::hint::spin_loop();
+            }
+        }
+    }
+
+    /// `wasm32`: `requestAnimationFrame` owns the cadence and the main thread must never block, so
+    /// pacing is the `Pacer`'s accumulator alone (see `pacing.rs`'s module doc).
+    #[cfg(target_arch = "wasm32")]
+    fn pace_before_redraw(_active: &Active) {}
+
+    /// Resolve `config.video.pacing` against the monitor's refresh rate and the surface's
+    /// present-mode caps (`v1.25.0`, T-FP-B).
+    ///
+    /// `winit` reports the refresh in **millihertz**, and `None` when the windowing system does not
+    /// expose one at all (headless, some Wayland compositors, wasm) — which
+    /// [`crate::pacing::resolve`] treats as "cannot honour display-sync", the honest reading.
+    fn resolve_pacing(config: &Config, gfx: &Gfx, window: &Window) -> crate::pacing::PacingPlan {
+        let display_hz = window
+            .current_monitor()
+            .and_then(|m| m.refresh_rate_millihertz())
+            .map(|mhz| f64::from(mhz) / 1000.0);
+        let (mailbox, immediate) = gfx.present_mode_caps();
+        crate::pacing::resolve(
+            config.video.pacing,
+            display_hz,
+            config.region.frame_rate(),
+            mailbox,
+            immediate,
+        )
+    }
+
+    /// The present-mode string to hand the surface: an explicit `config.video.present_mode` always
+    /// wins; `"auto"` (the `v1.25.0` default) defers to the resolved pacing plan.
+    fn effective_present_mode(config: &Config, plan: crate::pacing::PacingPlan) -> &str {
+        if config.video.present_mode.eq_ignore_ascii_case("auto") {
+            plan.present_mode
+        } else {
+            &config.video.present_mode
+        }
+    }
+
+    // One straight-line construction of every `Active` field; the length is inherent to the
+    // number of subsystems the frontend owns, not to any branching.
+    #[allow(clippy::too_many_lines)]
+    fn on_gfx_ready(&mut self, mut gfx: Gfx, window: Arc<Window>) {
         let egui_ctx = egui::Context::default();
         // Apply the configured theme immediately (`v1.0.0`) rather than leaving egui's own
         // built-in dark default in place until the first `render()` change-check happens to
@@ -827,6 +941,12 @@ impl App {
             Arc::clone(&present),
         );
 
+        // Resolve pacing once the surface exists, since the plan depends on which present modes it
+        // actually offers, and apply the present mode it implies (`v1.25.0`, T-FP-B).
+        let pacing_plan = Self::resolve_pacing(&self.config, &gfx, &window);
+        let present_pref = Self::effective_present_mode(&self.config, pacing_plan).to_string();
+        gfx.set_present_mode(&present_pref);
+
         self.active = Some(Active {
             window,
             gfx,
@@ -884,7 +1004,13 @@ impl App {
             perf: crate::perf::PerfStats::new(),
             frames_this_present: 0,
             produce_sample_ms: None,
-            applied_present_mode: self.config.video.present_mode.clone(),
+            applied_present_mode: present_pref,
+            pacing_plan,
+            applied_pacing: self.config.video.pacing,
+            #[cfg(not(target_arch = "wasm32"))]
+            perf_log: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            perf_log_session: 0,
             applied_theme: self.config.theme,
             applied_fullscreen: false,
             rewind: crate::rewind::RewindBuffer::new(
@@ -1169,14 +1295,19 @@ impl App {
     // is inherent to the wgpu/egui frame sequence and reads more clearly as a unit.
     #[allow(clippy::too_many_lines)]
     fn render(active: &mut Active, config: &mut Config) -> Vec<MenuAction> {
-        // --- (0) Apply a pending Settings → Video present-mode change to the live surface. ---
-        // The Settings window mutates `config.video.present_mode` during the prior egui pass; the
-        // surface was only ever configured once at startup, so the toggle did nothing until now.
-        if config.video.present_mode != active.applied_present_mode {
-            let applied = active.gfx.set_present_mode(&config.video.present_mode);
-            active
-                .applied_present_mode
-                .clone_from(&config.video.present_mode);
+        // --- (0) Apply a pending Settings → Video pacing / present-mode change to the surface. ---
+        // The Settings window mutates these during the prior egui pass; the surface was only ever
+        // configured once at startup, so the toggles did nothing until now. Pacing is re-resolved
+        // first (`v1.25.0`, T-FP-B) because with `present_mode = "auto"` it is what *chooses* the
+        // present mode the guard below then compares against.
+        if config.video.pacing != active.applied_pacing {
+            active.pacing_plan = Self::resolve_pacing(config, &active.gfx, &active.window);
+            active.applied_pacing = config.video.pacing;
+        }
+        let want_present = Self::effective_present_mode(config, active.pacing_plan);
+        if want_present != active.applied_present_mode {
+            let applied = active.gfx.set_present_mode(want_present);
+            active.applied_present_mode = want_present.to_string();
             eprintln!("rustysnes: present mode applied -> {applied:?}");
         }
 
@@ -1546,6 +1677,18 @@ impl App {
                     .unwrap_or_default(),
                 #[cfg(target_arch = "wasm32")]
                 gamepads: Vec::new(),
+                // `v1.25.0` (T-FP-B). Both are shown only in windows the user has open, and
+                // `report()` allocates (it sorts each window), so neither is built otherwise —
+                // the same guard `available_hd_packs`/`debug`/`save_slots` already use.
+                pacing: (active.shell.settings_open || active.shell.performance_open)
+                    .then(|| active.pacing_plan.to_string()),
+                perf: active.shell.performance_open.then(|| active.perf.report()),
+                #[cfg(not(target_arch = "wasm32"))]
+                perf_log: active.perf_log.as_ref().map(|log| {
+                    format!("Logging to {} ({} rows)", log.path().display(), log.rows())
+                }),
+                #[cfg(target_arch = "wasm32")]
+                perf_log: None,
                 #[cfg(feature = "hd-pack")]
                 available_hd_packs,
                 #[cfg(feature = "hd-pack")]
@@ -1686,6 +1829,20 @@ impl App {
                     label: Some("rustysnes-frame"),
                 });
 
+        // GPU pass timing (`v1.25.0`, T-FP-B). Skipped while a previous readback is still in
+        // flight — a frame that is not timed is fine for a rolling distribution; one timed against
+        // a buffer another map is reading is not. `timing_this_frame` gates the matching `end`.
+        #[cfg(feature = "gpu-timing")]
+        let timing_this_frame = active
+            .gfx
+            .gpu_timer
+            .as_ref()
+            .is_some_and(crate::gpu_timer::GpuTimer::is_idle);
+        #[cfg(feature = "gpu-timing")]
+        if timing_this_frame && let Some(timer) = active.gfx.gpu_timer.as_ref() {
+            timer.begin(&mut encoder);
+        }
+
         // --- (3) Present the framebuffer (clears then draws the fullscreen triangle, through
         // the active post-filter if any -- `v1.2.0`, `PostFilter::None` is byte-identical to the
         // pre-filter-pipeline direct blit). ---
@@ -1785,7 +1942,22 @@ impl App {
         }
 
         // --- (5) Submit + present. ---
+        #[cfg(feature = "gpu-timing")]
+        if timing_this_frame && let Some(timer) = active.gfx.gpu_timer.as_ref() {
+            timer.end(&mut encoder);
+        }
         active.gfx.queue.submit(Some(encoder.finish()));
+        #[cfg(feature = "gpu-timing")]
+        if let Some(timer) = active.gfx.gpu_timer.as_ref() {
+            if timing_this_frame {
+                timer.after_submit();
+            }
+            // Collect whatever a PREVIOUS frame's query has finished — never this one's, which the
+            // GPU has not executed yet. Deliberately non-blocking; see `gpu_timer`'s module doc.
+            if let Some(ms) = timer.poll(&active.gfx.device) {
+                active.perf.record_gpu(ms);
+            }
+        }
         frame.present();
         // One sample per present. `produce_sample_ms` is None on an idle present (paused, or zero
         // frames earned this tick) and no produce sample is recorded then — a 0.0 would drag every
@@ -1799,6 +1971,24 @@ impl App {
             info.audio_health_pct,
             active.frames_this_present,
         );
+        // The CSV session log (`v1.25.0`, T-FP-B) — the same measurements, kept past the ~5 s the
+        // ring holds. Off unless the user turned it on; a write error stops the log (and says so)
+        // rather than repeating a failing syscall every present for the rest of the session.
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(log) = active.perf_log.as_mut() {
+            let gpu_ms = active.perf.gpu_ms.last();
+            if let Err(e) = log.row(
+                active.last_frame_time_ms,
+                present_ms,
+                gpu_ms,
+                info.audio_health_pct,
+                active.frames_this_present,
+                active.pacer.fps,
+            ) {
+                active.shell.status = format!("Perf log stopped: {e}");
+                active.perf_log = None;
+            }
+        }
         active.frames_this_present = 0;
         active.produce_sample_ms = None;
         actions
@@ -1968,6 +2158,41 @@ impl App {
                     config.recent.clear();
                     let _ = config.save();
                     active.shell.status = "Recent ROMs cleared".into();
+                }
+                MenuAction::ResetPerfStats => {
+                    active.perf.reset();
+                    active.shell.status = "Performance stats reset".into();
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                MenuAction::TogglePerfLog => {
+                    if let Some(mut log) = active.perf_log.take() {
+                        // Flush explicitly so the status line can report a path the user can open
+                        // right now, not one that is still missing its last second of rows.
+                        let path = log.path().display().to_string();
+                        active.shell.status = match log.flush() {
+                            Ok(()) => format!("Perf log written to {path}"),
+                            Err(e) => format!("Perf log flush failed: {e}"),
+                        };
+                    } else {
+                        let path = crate::perf_log::default_log_path(active.perf_log_session);
+                        active.perf_log_session += 1;
+                        match crate::perf_log::PerfLog::create(&path) {
+                            Ok(log) => {
+                                active.shell.status =
+                                    format!("Logging to {}", log.path().display());
+                                active.perf_log = Some(log);
+                            }
+                            Err(e) => {
+                                active.shell.status = format!("Perf log failed: {e}");
+                            }
+                        }
+                    }
+                }
+                // `wasm32` has no filesystem to log to; the panel's button is inert rather than
+                // absent so the two builds' UIs stay identical.
+                #[cfg(target_arch = "wasm32")]
+                MenuAction::TogglePerfLog => {
+                    active.shell.status = "Perf logging is unavailable in the browser".into();
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 MenuAction::Screenshot => {

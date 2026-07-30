@@ -67,13 +67,24 @@ pub mod i18n;
 pub mod input;
 pub mod patch;
 pub mod per_game;
+// GPU pass timing via wgpu timestamp queries (`v1.25.0`, T-FP-B). The module is itself
+// `#![cfg]`-gated; this mirrors the gate so it is visible from the module list.
+#[cfg(feature = "gpu-timing")]
+pub mod gpu_timer;
 pub mod perf;
+// Opt-in per-present CSV performance log (`v1.25.0`, T-FP-B). Native only — no filesystem on
+// `wasm32` (the module is itself `#![cfg]`-gated, this mirrors it so the gate is visible here).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod perf_log;
+pub mod perf_panel;
 pub mod screenshot;
 // Native rollback netplay (`v0.8.0` T-82-002). Native-only: browser WebRTC signaling UI is a
 // separate, deferred scope (`netplay.rs`'s own module doc has the detail).
 #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
 pub mod netplay;
-pub(crate) mod pacing;
+// Public since `v1.25.0` (T-FP-B): `PacingPlan`/`resolve` are referenced from `config`'s own
+// public docs, and a `pub(crate)` module there would leave those intra-doc links dangling.
+pub mod pacing;
 // Host-input capture for Mouse/Super Scope (`v1.20.0`) — no target_arch/feature gate, matching
 // `set_port_device`'s own unconditional compilation; see the module's own doc for why.
 pub mod peripherals;

@@ -280,6 +280,96 @@ impl PerfStats {
     pub const fn is_catching_up(&self) -> bool {
         self.frames_produced > self.frames_presented
     }
+
+    /// Snapshot every metric for display (`v1.25.0`, T-FP-B).
+    ///
+    /// Allocates (sorting + `ordered()` copies), so it is called only while the Performance panel
+    /// is open — never on the unconditional present path, which is exactly the boundary that keeps
+    /// [`Metric::push`] allocation-free.
+    #[must_use]
+    pub fn report(&self) -> PerfReport {
+        PerfReport {
+            produce: MetricReport::of("Emulation", "ms", &self.produce_ms),
+            present: MetricReport::of("Present", "ms", &self.present_ms),
+            // Absent rather than an empty chart: no GPU samples means the `gpu-timing` feature is
+            // off or the adapter lacks TIMESTAMP_QUERY, and the panel must say so rather than draw
+            // a flat zero line that reads as "the GPU costs nothing".
+            gpu: (!self.gpu_ms.is_empty()).then(|| MetricReport::of("GPU", "ms", &self.gpu_ms)),
+            audio: MetricReport::of("Audio buffer", "%", &self.audio_pct),
+            frames_produced: self.frames_produced,
+            frames_presented: self.frames_presented,
+            catching_up: self.is_catching_up(),
+        }
+    }
+}
+
+/// One metric, snapshotted for display.
+#[derive(Debug, Clone)]
+pub struct MetricReport {
+    /// Human-readable name ("Emulation", "Present", …).
+    pub label: &'static str,
+    /// Unit suffix for the readouts ("ms", "%").
+    pub unit: &'static str,
+    /// The window oldest-first, for a sparkline.
+    pub series: Vec<f32>,
+    /// The newest sample, or `None` when nothing has been recorded.
+    pub last: Option<f32>,
+    /// The `p50/p95/p99/max` line ([`Metric::summary`]).
+    pub summary: String,
+    /// The window's largest sample, for scaling a sparkline's y-axis.
+    pub max: Option<f32>,
+}
+
+impl MetricReport {
+    fn of(label: &'static str, unit: &'static str, m: &Metric) -> Self {
+        Self {
+            label,
+            unit,
+            series: m.ordered(),
+            last: m.last(),
+            summary: m.summary(),
+            max: m.max(),
+        }
+    }
+
+    /// The newest sample formatted with its unit, or `"—"` when there is none.
+    #[must_use]
+    pub fn last_text(&self) -> String {
+        self.last
+            .map_or_else(|| "—".to_string(), |v| format!("{v:.2} {}", self.unit))
+    }
+}
+
+/// A display snapshot of every tracked metric ([`PerfStats::report`]).
+#[derive(Debug, Clone)]
+pub struct PerfReport {
+    /// Time spent producing emulated frames.
+    pub produce: MetricReport,
+    /// Time spent on the whole present.
+    pub present: MetricReport,
+    /// GPU pass time, or `None` when no timestamp was ever resolved (feature off / unsupported).
+    pub gpu: Option<MetricReport>,
+    /// Audio ring occupancy.
+    pub audio: MetricReport,
+    /// Emulated frames produced since the last reset.
+    pub frames_produced: u64,
+    /// Presents performed since the last reset.
+    pub frames_presented: u64,
+    /// Whether production is outrunning presentation.
+    pub catching_up: bool,
+}
+
+impl PerfReport {
+    /// Every metric in display order, GPU included only when it has data.
+    #[must_use]
+    pub fn metrics(&self) -> Vec<&MetricReport> {
+        let mut v = vec![&self.produce, &self.present];
+        if let Some(gpu) = self.gpu.as_ref() {
+            v.push(gpu);
+        }
+        v.push(&self.audio);
+        v
+    }
 }
 
 #[cfg(test)]
