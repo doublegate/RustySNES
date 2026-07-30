@@ -105,9 +105,14 @@ impl MixerState {
     /// `--document-private-items`).
     pub fn update_meters(&mut self, taps: [(i16, i16); VOICES]) {
         for (meter, (l, r)) in self.meters.iter_mut().zip(taps.iter()) {
+            // Clamped: `i16::MIN.saturating_abs()` is `32767`… but the tap arrives as an `i16`
+            // whose magnitude can legitimately be `32768` before saturation, and dividing by
+            // `i16::MAX` puts a full-scale negative sample fractionally over `1.0`. A meter that
+            // reads 100.003% draws outside its own bar.
             #[allow(clippy::cast_precision_loss)]
-            let level = (i32::from(l.saturating_abs()).max(i32::from(r.saturating_abs())) as f32)
-                / f32::from(i16::MAX);
+            let level = ((i32::from(l.saturating_abs()).max(i32::from(r.saturating_abs())) as f32)
+                / f32::from(i16::MAX))
+            .min(1.0);
             *meter = if level > *meter {
                 level
             } else {

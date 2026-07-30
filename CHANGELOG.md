@@ -87,7 +87,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     perturbed — a ROM cannot observe a gain change. `1.0` is a **bit-exact bypass**, checked with an
     exact comparison because a tolerance would make near-unity gains silently skip the multiply.
     Host state, never in a save state; bounded at 4x, with non-finite and negative values falling
-    back to unity rather than silencing a voice permanently.
+    back to unity rather than silencing a voice permanently. The tap's `i16` clamp applies to the
+    **meter copy only** — `amp` legitimately exceeds `i16` (a full-scale sample at volume `-128`
+    gives `32768`) and the mix has always accumulated it unclamped, letting `sclamp16` saturate the
+    sum, so clamping `amp` itself would shift that sum and break the exact bypass it exists to
+    protect. `docs/apu.md` documents all three properties.
   - **8-voice mixer panel** with gain, mute, solo, and VU meters. Solo wins over mute, computed in
     one place so the two buttons cannot disagree. The meter's decay lives in the UI, not the DSP —
     `voice_taps` reports the most recent sample and a decay constant in the emulation core would be
@@ -98,7 +102,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the input is already ~99% zeros. Keyframes bound both the replay cost and the chain's exposure
     to eviction removing the base a delta needs. The round-trip is **bit-identical** — anything less
     resumes emulation from a machine that never existed. Corrupt input is refused, never partially
-    decoded.
+    decoded, including a varint whose final group does not fit in a `u64` (which would otherwise
+    lose its high bits and decode to a plausible wrong length). **Evicting a keyframe promotes the
+    new front**: it is reconstructed while its base is still present and stored back whole, because
+    a plain `pop_front` orphans every delta that referenced the evicted key and silently makes most
+    of the ring undecodable once it has wrapped — which presents as rewind refusing to step, a
+    symptom several layers from the cause.
   - **`save_state_into`** (`SaveWriter::with_buffer` → `System` → `EmuCore`) reuses a caller-owned
     buffer, removing run-ahead's per-frame allocation — the documented blocker on making run-ahead
     default-on. The synchronous path and the `emu-thread` path each own their own buffer, because a

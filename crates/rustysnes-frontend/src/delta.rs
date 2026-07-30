@@ -193,6 +193,14 @@ fn read_varint(data: &[u8]) -> Option<(u64, usize)> {
         if shift >= 64 {
             return None;
         }
+        // The last group a `u64` can hold starts at bit 63, so it has room for exactly ONE bit.
+        // A wider group there is not representable: the shift itself is well-defined (Rust only
+        // traps when the shift *amount* reaches the width, which the guard above prevents), so
+        // without this the extra bits are discarded and a corrupt varint decodes to a plausible
+        // wrong length instead of being refused.
+        if shift == 63 && byte & 0x7F > 1 {
+            return None;
+        }
         value |= u64::from(byte & 0x7F) << shift;
         if byte & 0x80 == 0 {
             return Some((value, i + 1));
@@ -282,10 +290,31 @@ impl Chain {
         self.frames.push_back(frame);
         self.newest = Some(state.to_vec());
         while self.frames.len() > self.capacity {
-            self.frames.pop_front();
-            // If the front is now a delta, the chain no longer starts at a keyframe. Rather than
-            // rewrite history, the front delta is promoted by re-keying at the next push — and
-            // `pop` below refuses a chain it cannot decode rather than returning a wrong state.
+            self.evict_front();
+        }
+    }
+
+    /// Drop the oldest frame, keeping the chain decodable.
+    ///
+    /// Evicting a keyframe orphans every delta that referenced it: `reconstruct` walks backward for
+    /// a key and gives up when it runs off the front, so a plain `pop_front` silently turns the
+    /// whole surviving prefix into states the buffer can no longer produce. Once the ring has
+    /// wrapped that is *most* of the rewind history, and it presents as rewind simply refusing to
+    /// step — not as an error anyone could trace back to here.
+    ///
+    /// So the new front is materialised **before** the old one is removed, while its base still
+    /// exists, and stored back as a keyframe. Cost is one reconstruction per eviction, and only
+    /// when the frame being promoted is a delta.
+    fn evict_front(&mut self) {
+        // Reconstruct index 1 while index 0 is still present; `reconstruct` needs that base.
+        let promoted = (self.frames.len() > 1 && !self.frames[1].is_key())
+            .then(|| self.reconstruct(1))
+            .flatten();
+        let _ = self.frames.pop_front();
+        if let Some(state) = promoted
+            && let Some(front) = self.frames.front_mut()
+        {
+            *front = Frame::Key(state);
         }
     }
 
@@ -330,6 +359,68 @@ mod tests {
         (0..len)
             .map(|i| seed.wrapping_add(u8::try_from(i % 251).unwrap_or(0)))
             .collect()
+    }
+
+    /// Every surviving frame stays reconstructable after the ring has wrapped many times.
+    ///
+    /// Evicting a keyframe orphans the deltas that referenced it — `reconstruct` walks backward for
+    /// a key and gives up at the front — so a plain `pop_front` silently turns most of the rewind
+    /// history into states the buffer can no longer produce. It presents as rewind refusing to
+    /// step, which is a symptom several layers away from the cause.
+    #[test]
+    fn eviction_leaves_every_surviving_frame_reconstructable() {
+        // Capacity deliberately NOT a multiple of the keyframe interval, so evictions land on
+        // keyframes and deltas alike.
+        let mut chain = Chain::new(7, 4);
+        for seed in 0..60u8 {
+            chain.push(&state(seed, 64));
+        }
+        // Drain the whole ring newest-first. Every frame must decode, and to the state that was
+        // actually pushed — `pop` returning `None` partway through is the bug this pins.
+        let held = chain.len();
+        assert_eq!(held, 7);
+        for back in 0..held {
+            let want = state(59 - u8::try_from(back).expect("small"), 64);
+            assert_eq!(
+                chain.pop().as_deref(),
+                Some(want.as_slice()),
+                "frame {back} back from newest"
+            );
+        }
+        assert!(chain.is_empty());
+    }
+
+    /// A capacity below the keyframe interval is the degenerate case of the above: nearly every
+    /// eviction removes a key, so without promotion the buffer would be permanently undecodable.
+    #[test]
+    fn a_capacity_smaller_than_the_keyframe_interval_still_decodes() {
+        let mut chain = Chain::new(3, 16);
+        for seed in 0..40u8 {
+            chain.push(&state(seed, 32));
+        }
+        assert_eq!(chain.len(), 3);
+        for back in 0..3u8 {
+            let want = state(39 - back, 32);
+            assert_eq!(chain.pop().as_deref(), Some(want.as_slice()), "{back} back");
+        }
+    }
+
+    /// A varint whose final group does not fit in a `u64` is refused rather than silently
+    /// truncated. The shift itself is well-defined — Rust only traps when the shift AMOUNT reaches
+    /// the width, which the `shift >= 64` guard already prevents — so without this check the extra
+    /// bits are discarded and a corrupt stream decodes to a plausible wrong length.
+    #[test]
+    fn an_unrepresentable_varint_is_refused_not_truncated() {
+        // Nine continuation groups of 7 bits reach shift 63; a final group of 1 fits.
+        let mut ok = vec![0x80u8; 9];
+        ok.push(0x01);
+        assert!(super::read_varint(&ok).is_some());
+        // The same stream with 2 in the last group needs bit 64 and cannot be represented.
+        let mut bad = vec![0x80u8; 9];
+        bad.push(0x02);
+        assert_eq!(super::read_varint(&bad), None);
+        // And a stream that never terminates is still refused rather than looping.
+        assert_eq!(super::read_varint(&[0x80u8; 32]), None);
     }
 
     /// The contract: a round-trip is BIT-IDENTICAL. Anything less resumes emulation from a machine

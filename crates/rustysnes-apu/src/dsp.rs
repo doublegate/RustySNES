@@ -1154,9 +1154,14 @@ impl Dsp {
                 amp = (amp as f32 * g) as i32;
             }
         }
-        let amp = amp.clamp(i32::from(i16::MIN), i32::from(i16::MAX));
+        // The clamp is for the METER, not for the mix. `amp` genuinely exceeds `i16` — a full-scale
+        // sample at volume `-128` gives `(-32768 * -128) >> 7 == 32768` — and the mix has always
+        // accumulated it unclamped, letting `sclamp16` saturate the SUM. Clamping `amp` itself
+        // before the add changes that sum whenever the running total is non-zero (an off-by-one at
+        // minimum), so the unity-gain path would no longer be bit-identical to the DSP without this
+        // feature — which is exactly the guarantee the exact-bypass check above exists to give.
         #[allow(clippy::cast_possible_truncation)]
-        let tap = amp as i16;
+        let tap = amp.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16;
         match channel {
             0 => self.voice_tap[vi].0 = tap,
             _ => self.voice_tap[vi].1 = tap,
@@ -1554,6 +1559,50 @@ mod tests {
 
     fn empty_aram() -> Box<[u8; ARAM_SIZE]> {
         Box::new([0; ARAM_SIZE])
+    }
+
+    /// Unity gain must leave the MIX bit-identical to a build without the mixer, including at the
+    /// one value where `amp` exceeds `i16`.
+    ///
+    /// `(latch * volume) >> 7` reaches `32768` for a full-scale sample at volume `-128`, and the
+    /// main mix has always accumulated that unclamped, letting `sclamp16` saturate the SUM. A clamp
+    /// on `amp` itself would change the result whenever the accumulator is non-zero — which is the
+    /// exact-bypass guarantee failing, in the one case a casual test would not reach.
+    #[test]
+    fn unity_gain_accumulates_the_unclamped_amp() {
+        for gains in [None, Some([1.0f32; 8])] {
+            let mut dsp = Dsp::new();
+            if let Some(g) = gains {
+                dsp.set_voice_gains(g);
+            }
+            // Seed the accumulator negative so a clamped `amp` would show up as an off-by-one.
+            dsp.mainvol.output[0] = -100;
+            dsp.latch.output = i16::MIN;
+            dsp.voice[0].volume[0] = -128;
+            dsp.voice_output(0, 0);
+            // (-32768 * -128) >> 7 == 32768; -100 + 32768 == 32668, inside i16 so no saturation.
+            assert_eq!(
+                dsp.mainvol.output[0], 32668,
+                "gains={gains:?}: the mix must add the unclamped amp"
+            );
+            // The METER tap is the thing that clamps, and it clamps to i16::MAX.
+            assert_eq!(dsp.voice_tap[0].0, i16::MAX);
+        }
+    }
+
+    /// A gain that is not exactly unity does take the multiply path — otherwise "exact bypass"
+    /// would just be "never applies the gain".
+    #[test]
+    fn a_non_unity_gain_actually_scales() {
+        let mut dsp = Dsp::new();
+        let mut gains = [1.0f32; 8];
+        gains[0] = 0.5;
+        dsp.set_voice_gains(gains);
+        dsp.latch.output = 1000;
+        dsp.voice[0].volume[0] = 64;
+        dsp.voice_output(0, 0);
+        // (1000 * 64) >> 7 == 500, halved == 250.
+        assert_eq!(dsp.mainvol.output[0], 250);
     }
 
     #[test]

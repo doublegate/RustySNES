@@ -106,6 +106,32 @@ re-synced from the frontend once per real frame (`Bus::set_voice_mutes`, wired f
 `config.audio.voice_mutes` via Settings → Audio's 8 checkboxes). All-`false` (unmuted) is the
 default, byte-identical to every prior release.
 
+### Per-voice gain and output taps (`v1.25.0`, T-FP-F — also not real hardware)
+
+The same posture as the mute above, and for the same reason: the S-DSP has no per-voice gain
+register, so `Dsp::set_voice_gains([f32; 8])` is an additive frontend knob applied at the identical
+site in `voice_output`, and it is excluded from `save_state`/`load_state` exactly as the mutes are.
+
+Three properties are load-bearing:
+
+- **Unity is an exact bypass.** `gain == 1.0` is compared *exactly* and short-circuits the multiply
+  entirely, so a build with the mixer untouched is bit-identical to one without the feature. An
+  approximate comparison — which the float-equality lint suggests — would let a gain near but not at
+  unity silently skip the multiply, which is the opposite of the guarantee. Same contract
+  `rustysnes_frontend::eq` holds for the audio EQ.
+- **The gain is clamped, not rejected.** A non-finite or negative value would silence or invert a
+  voice permanently; a slider mid-drag must not be able to do that, so the clamp lives at the use
+  site rather than at the setter.
+- **The clamp on the tap is not a clamp on the mix.** `amp` legitimately exceeds `i16` — a
+  full-scale sample at volume `-128` gives `(-32768 * -128) >> 7 == 32768` — and the mix has always
+  accumulated it *unclamped*, letting `sclamp16` saturate the running sum. `voice_tap` therefore
+  clamps a **copy** for the meter. Clamping `amp` itself before the add would change the sum
+  whenever the accumulator is non-zero, and the unity-gain path would stop being bit-identical.
+
+`voice_tap[8]` holds the last per-voice, per-channel contribution purely so the frontend's mixer can
+draw VU meters. A muted voice writes `0` to its tap rather than keeping its last pre-mute value — a
+meter frozen at the old level is worse than one reading zero.
+
 #### blargg status (honest) — all four literal PASSes
 
 The **timer-phase** fix closed the SPC700 timer suite: `RecordingSmpBus::write` now advances the SMP
