@@ -63,10 +63,18 @@ pub mod hd_pack;
 pub mod eq;
 #[cfg(feature = "hd-pack")]
 pub mod hd_compositor;
+// A one-line inline 65C816 assembler for the debugger (`v1.25.0`, T-FP-C2). Encodes by searching
+// the real disassembler rather than carrying a second opcode table — see its module doc.
+pub mod asm65816;
+// A small integer expression evaluator for conditional breakpoints/watchpoints (`v1.25.0`,
+// T-FP-C2).
+pub mod expr;
 pub mod i18n;
+// Address-to-name maps (WLA `.sym` and flat forms) for the debugger (`v1.25.0`, T-FP-C2).
 pub mod input;
 pub mod patch;
 pub mod per_game;
+pub mod symbols;
 // GPU pass timing via wgpu timestamp queries (`v1.25.0`, T-FP-B). The module is itself
 // `#![cfg]`-gated; this mirrors the gate so it is visible from the module list.
 #[cfg(feature = "gpu-timing")]

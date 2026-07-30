@@ -81,6 +81,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Settings gained Video (aspect, overscan grid), Audio (latency, kernel, health readout), and Input
     (autofire, gamepad list + deadzone) controls for all of the above.
 
+- **Frontend parity with RustyNES: advanced debugger (T-FP-C2).**
+  - **Conditional breakpoints** (`crate::expr`) — an integer expression evaluator with registers,
+    flags, and read-only memory access (`[addr]`, `{addr}`), so a breakpoint on a routine called
+    thousands of times a frame can fire on the one call that misbehaves. Evaluation is **total**:
+    division by zero yields `0` and out-of-range shifts saturate rather than wrapping, because a
+    breakpoint that silently stopped working mid-session is worse than one that briefly reads a
+    wrong value. A condition that does not parse **never arms** — the error is shown beside the
+    entry. The address is compared before the condition is evaluated, so a conditional breakpoint
+    costs the same per instruction as an unconditional one; on a hit the 128 KiB WRAM snapshot is
+    taken **once for all conditions at that address**, into a buffer reused across hits, and an
+    unconditional breakpoint there short-circuits before any snapshot is taken at all.
+  - **Symbol maps** (`crate::symbols`) — WLA-DX `.sym` and flat forms, naming addresses across the
+    disassembly, trace, call stack, and hot-address views. `symbol+offset` resolution is bounded so
+    one symbol cannot claim the whole ROM, and lookups mask to 24 bits to match what is stored — an
+    unmasked address would otherwise search past every symbol and attach the last one in the map to
+    it, which is a confidently wrong label rather than no label. Parsing is tolerant of junk lines but reports how many it
+    skipped, so a file that produced nothing says so; non-`[labels]` sections are skipped entirely
+    rather than poisoning the map with breakpoint addresses.
+  - **Trace panel** — the reader for T-FP-C1's recording: disassembled instructions with their
+    pre-execution registers, the raw event log, the hottest addresses, and a **call stack
+    reconstructed from the event log rather than walked**. The 65C816 stack holds return addresses
+    but nothing distinguishes one from any other pushed word, so walking it invents frames that
+    never existed; replaying recorded enters and leaves produces the stack that is actually there,
+    at the cost of only reaching back to when recording started — which the panel states.
+  - **Inline 65C816 assembler** (`crate::asm65816`) — one instruction at the CPU's current address
+    and `M`/`X` widths, both of which change the encoding. It assembles by **searching the real
+    disassembler** rather than carrying a second opcode table: a duplicated table stays plausible
+    while being wrong for one opcode, and the assembler is exactly the tool you would use to
+    investigate the resulting bug. An unreachable branch reports its distance rather than a generic
+    failure — for every 8-bit-displacement branch, `BVS` included. `0x`-prefixed literals assemble
+    as documented: they are rewritten to `$` during normalisation, since the search compares against
+    what the *disassembler* prints.
+
 - **Frontend parity with RustyNES: debugger instrumentation (T-FP-C1).**
   - **`rustysnes_core::trace`** — an instruction trace, a control-flow event log, and a WRAM access
     heat map, all under the existing `debug-hooks` gate and written to `watchpoint.rs`'s contract:

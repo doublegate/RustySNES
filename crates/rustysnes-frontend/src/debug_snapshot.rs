@@ -63,6 +63,57 @@ pub struct DebugSnapshot {
     pub counting_armed: bool,
     /// The loaded cart's decoded bank map (`v1.25.0`, T-FP-C1). Empty with no cart loaded.
     pub map: Vec<BankRange>,
+    /// The recorded instruction trace, already disassembled (`v1.25.0`, T-FP-C2). **Empty unless
+    /// the trace panel is open** — disassembling up to 4,096 rows every present for a closed panel
+    /// would be a real, avoidable cost, the same guard `available_hd_packs`/`save_slots` use.
+    pub trace: Vec<TraceRow>,
+    /// The recorded control-flow events, likewise only while the panel is open.
+    pub trace_events: Vec<TraceEventRow>,
+    /// Non-zero access counts for the hot-address list, likewise panel-gated.
+    pub hot: Vec<crate::debugger::HotAddress>,
+}
+
+/// One disassembled trace row (`v1.25.0`, T-FP-C2).
+///
+/// The disassembly is done at snapshot time rather than in the panel, because decoding needs
+/// `Bus::peek` and the panel is on the far side of the no-emu-lock rule.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TraceRow {
+    /// `PBR:PC` of the instruction.
+    pub pbr_pc: u32,
+    /// The decoded instruction text.
+    pub text: String,
+    /// Accumulator before it ran.
+    pub a: u16,
+    /// X before it ran.
+    pub x: u16,
+    /// Y before it ran.
+    pub y: u16,
+    /// Stack pointer before it ran.
+    pub sp: u16,
+    /// Status byte before it ran.
+    pub p: u8,
+    /// Whether the CPU was in emulation mode.
+    pub emulation: bool,
+}
+
+/// One control-flow event row (`v1.25.0`, T-FP-C2).
+///
+/// `kind` is a `&'static str` rather than the core enum for the same reason [`WatchHit`] is
+/// decoupled: `rustysnes_core::trace` only exists under the core's `debug-hooks` feature, and
+/// [`DebugSnapshot`] is unconditionally compiled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TraceEventRow {
+    /// `"Call"`, `"Return"`, `"Nmi"`, …
+    pub kind: &'static str,
+    /// Where control came from.
+    pub from: u32,
+    /// Where it went.
+    pub to: u32,
+    /// Call depth after the event.
+    pub depth: u16,
+    /// Whether this event pushed a frame (as opposed to popping one).
+    pub is_enter: bool,
 }
 
 /// Read/write counts for one address (`v1.25.0`, T-FP-C1).

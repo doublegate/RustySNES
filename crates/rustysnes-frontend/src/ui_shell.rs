@@ -48,6 +48,14 @@ pub enum MenuAction {
     ClearAccessCounts,
     /// Arm or disarm the core's instruction/event trace (`v1.25.0`, T-FP-C1).
     SetTracing(bool),
+    /// Write a run of bytes at an address (`v1.25.0`, T-FP-C2) — the inline assembler's patch.
+    PokeBytes(u32, Vec<u8>),
+    /// Load a symbol map from a file the user picks (`v1.25.0`, T-FP-C2).
+    LoadSymbols,
+    /// Forget every loaded symbol.
+    ClearSymbols,
+    /// Discard the recorded instruction trace and event log.
+    ClearTrace,
     /// Start or stop the per-present CSV performance log (`v1.25.0`, T-FP-B).
     TogglePerfLog,
     /// Store the current settings as overrides for the loaded ROM (`v1.25.0`).
@@ -217,6 +225,14 @@ pub struct ShellState {
     /// The 65C816 panel's last breakpoint address-parse error, if the most recent "Add" attempt
     /// failed.
     pub bp_addr_error: Option<String>,
+    /// The 65C816 panel's optional breakpoint-condition entry (`v1.25.0`, T-FP-C2).
+    pub bp_cond_input: String,
+    /// The inline assembler's source line (`v1.25.0`, T-FP-C2).
+    pub asm_input: String,
+    /// The inline assembler's last result — the encoded bytes, or why the line was refused.
+    pub asm_status: Option<String>,
+    /// Which sub-view of the Trace panel is showing (`v1.25.0`, T-FP-C2).
+    pub trace_view: crate::debugger::TraceView,
     /// The Memory editor's "go to" address entry (`v1.25.0`, T-FP-C1).
     pub mem_goto_input: String,
     /// A requested new window start, consumed by `app.rs` (which owns `set_debug_memory_scroll`)
@@ -464,11 +480,12 @@ impl ShellState {
         cfg: &mut Config,
         debug: Option<&DebugSnapshot>,
         watchpoints: &mut Vec<WatchpointEntry>,
-        breakpoints: &mut Vec<u32>,
+        breakpoints: &mut Vec<crate::emu::Breakpoint>,
         save_slots: Option<&[SlotMeta]>,
         rom_info: Option<&RomInfo>,
         freezes: &mut Vec<crate::debugger::FreezeEntry>,
         pokes: &mut Vec<crate::debugger::PokeRequest>,
+        symbols: Option<&crate::symbols::SymbolMap>,
         #[cfg(feature = "cheats")] cheats: &mut Vec<CheatEntry>,
         #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))] netplay_connected: bool,
         #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
@@ -856,6 +873,7 @@ impl ShellState {
                 rom_info,
                 freezes,
                 pokes,
+                symbols,
             );
         }
         if self.save_states_open {

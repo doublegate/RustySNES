@@ -293,6 +293,9 @@ struct Active {
     /// One-shot byte writes the Memory editor requested during the last egui pass, drained and
     /// applied under the same brief emu lock everything else uses.
     pokes: Vec<crate::debugger::PokeRequest>,
+    /// The loaded symbol map (`v1.25.0`, T-FP-C2), or `None` until one is loaded. Names addresses
+    /// in the disassembly, trace, and call-stack views.
+    symbols: Option<crate::symbols::SymbolMap>,
     /// The debugger's armed read/write watchpoint list (`v0.8.0`, T-81-001b). Empty until the
     /// debugger overlay's Watch panel adds entries. Not feature-gated (unlike `cheats` above) —
     /// [`WatchpointEntry`] is one of `debug_snapshot.rs`'s always-compiled types (see that
@@ -302,7 +305,7 @@ struct Active {
     /// The debugger's armed PC-breakpoint list (`v0.9.0`, T-81-001 PR B). Empty until the
     /// debugger overlay's 65C816 panel adds entries — same always-compiled, unconditional-`Vec`
     /// posture as `watchpoints` above.
-    breakpoints: Vec<u32>,
+    breakpoints: Vec<crate::emu::Breakpoint>,
     /// Native rollback netplay connection state (`v0.8.0`, T-82-002). `Idle` until
     /// `MenuAction::ConnectNetplay`.
     #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
@@ -1056,6 +1059,7 @@ impl App {
             cheats: Vec::new(),
             freezes: Vec::new(),
             pokes: Vec::new(),
+            symbols: None,
             watchpoints: Vec::new(),
             breakpoints: Vec::new(),
             #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
@@ -1732,6 +1736,13 @@ impl App {
             };
             // Only build the debugger snapshot when the window is actually open — a real,
             // avoidable per-frame cost otherwise (`docs/frontend.md` §Debugger overlay).
+            // Tell the core whether the Trace panel is open BEFORE snapshotting, so it knows
+            // whether to pay for the trace/event/heat read-out (`v1.25.0`, T-FP-C2). Same guard
+            // posture as `debugger_open` itself, one level finer.
+            emu.set_trace_panel_open(
+                active.shell.debugger_open
+                    && active.shell.panel == crate::debugger::DebugPanel::Trace,
+            );
             let debug = active.shell.debugger_open.then(|| emu.debug_snapshot());
             // Same guard for the Save States slot grid (`v1.0.0`, `save_states.rs`): only read
             // the per-ROM slot directory from disk while the manager window is actually open.
@@ -1920,6 +1931,7 @@ impl App {
                 active.rom_info.as_ref(),
                 &mut active.freezes,
                 &mut active.pokes,
+                active.symbols.as_ref(),
                 #[cfg(feature = "cheats")]
                 &mut active.cheats,
                 #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
@@ -2240,6 +2252,61 @@ impl App {
                     } else {
                         "Instruction tracing off".into()
                     };
+                }
+                // The inline assembler's patch (`v1.25.0`, T-FP-C2). Queued as individual pokes
+                // so it goes through the same WRAM-only path the Memory editor uses — one place
+                // decides what is writable.
+                MenuAction::PokeBytes(addr, bytes) => {
+                    let len = bytes.len();
+                    for (i, value) in bytes.into_iter().enumerate() {
+                        let address =
+                            (addr.wrapping_add(u32::try_from(i).unwrap_or(0))) & 0x00FF_FFFF;
+                        active
+                            .pokes
+                            .push(crate::debugger::PokeRequest { address, value });
+                    }
+                    active.shell.status = format!("Queued {len} byte patch at ${addr:06X}");
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                MenuAction::LoadSymbols => {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("Symbol map", &["sym", "cpu", "txt", "map"])
+                        .pick_file()
+                    {
+                        match std::fs::read_to_string(&path) {
+                            Ok(text) => {
+                                let map = active
+                                    .symbols
+                                    .get_or_insert_with(crate::symbols::SymbolMap::new);
+                                let stats = map.load(&text);
+                                // The skipped count is reported, not swallowed: a file that
+                                // produced nothing must say so rather than look loaded.
+                                active.shell.status = format!(
+                                    "Loaded {} symbol(s), skipped {} line(s)",
+                                    stats.added, stats.skipped
+                                );
+                            }
+                            Err(e) => {
+                                active.shell.status = format!("Symbol load failed: {e}");
+                            }
+                        }
+                    }
+                }
+                #[cfg(target_arch = "wasm32")]
+                MenuAction::LoadSymbols => {
+                    active.shell.status = "Symbol loading needs a native build".into();
+                }
+                MenuAction::ClearSymbols => {
+                    active.symbols = None;
+                    active.shell.status = "Symbols cleared".into();
+                }
+                MenuAction::ClearTrace => {
+                    active
+                        .core
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .clear_trace();
+                    active.shell.status = "Trace cleared".into();
                 }
                 MenuAction::ResetPerfStats => {
                     active.perf.reset();
