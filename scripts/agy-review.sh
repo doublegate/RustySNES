@@ -100,6 +100,22 @@ AGY_RETRIES="${AGY_RETRIES:-3}"            # attempts to get a usable agy respon
 AGY_RETRY_DELAY="${AGY_RETRY_DELAY:-15}"   # base backoff seconds between retries (grows per attempt)
 MARKER="<!-- antigravity-pr-review -->"
 
+# The jq program that picks which prior review comments to delete. Named, and exercised directly
+# by `scripts/agy-review-selftest.sh`, because this filter has now been wrong TWICE in ways
+# nothing observed: first the just-posted comment was not excluded (so it deleted itself), then
+# jq's `--arg` was handed to `gh api`, which has no such flag (so the whole step died silently and
+# stale comments accumulated). Both were invisible from the outside — the review still posted.
+#
+# The two `select`s that matter: the AUTHOR filter (without it, any user could put the marker in a
+# comment and have this bot delete arbitrary comments) and the ID exclusion (without it, the run
+# deletes the comment it just published).
+SELECT_STALE_JQ='.[]
+  | select(.user.type == "Bot" and .user.login == "github-actions[bot]")
+  | select(.body | contains($marker))
+  | select(.id != $new_id)
+  | .id'
+readonly SELECT_STALE_JQ
+
 REPO="${GITHUB_REPOSITORY:?GITHUB_REPOSITORY not set}"
 
 # --- resolve the PR number from the triggering event --------------------------
@@ -584,8 +600,7 @@ else
   # fine, applying `.[]` to each.)
   stale_ids="$(
     gh api "repos/${REPO}/issues/${PR}/comments" --paginate \
-      | jq -r --arg marker "$MARKER" --argjson new_id "$new_comment_id" \
-          '.[] | select(.user.type == "Bot" and .user.login == "github-actions[bot]") | select(.body | contains($marker)) | select(.id != $new_id) | .id'
+      | jq -r --arg marker "$MARKER" --argjson new_id "$new_comment_id" "$SELECT_STALE_JQ"
   )" || {
     log "warning: could not list prior review comments; leaving them in place"
     stale_ids=""
