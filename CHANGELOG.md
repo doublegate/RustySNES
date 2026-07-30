@@ -20,6 +20,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Frontend parity with RustyNES, wave 1 (12 items).** RustySNES's egui shell was behind its NES
+  sibling's mature frontend in several places; this closes the highest-value gaps. Every new config
+  field defaults to the previous behaviour, so an existing `config.toml` presents identically.
+  - **Physical gamepad support** (`crate::gamepad`, `gilrs`). `gilrs` was already a declared
+    dependency and `input::gamepad_button` (the Xbox→SNES diamond rotation) was already unit-tested,
+    but nothing ever instantiated the backend — port 1 was keyboard-only however many pads were
+    plugged in. Pads now map to players in connection order, with hotplug, a configurable stick
+    deadzone, analog-stick-to-D-pad translation, and **live P2 input**, which previously had no
+    source at all. State is polled rather than accumulated from events, so a missed event
+    self-corrects instead of desynchronising permanently.
+  - **Autofire ("turbo")** per face button with a configurable cycle length. It only ever *clears*
+    button bits, so an autofire button never fires while untouched.
+  - **Screenshots** to a numbered PNG and to the system clipboard (`crate::screenshot`, `arboard`),
+    captured from the presented framebuffer at native resolution so the image does not vary with
+    window size. `png` is now an unconditional dependency (it was gated behind `hd-pack`).
+  - **Drag-and-drop ROM loading** and a **Recent ROMs** menu (newest-first, de-duplicated, capped at
+    10, stale entries pruned on use). Both route through the existing `OpenRom` load path, so
+    firmware install, HD-pack re-select, RetroAchievements re-identify, ROM-info re-hash, and
+    snapshot invalidation all still happen.
+  - **Aspect-ratio modes**: 4:3 (default, unchanged), 8:7 pixel-aspect, and 1:1 square pixels — the
+    target shape was previously a hardcoded constant.
+  - **Integer scaling now works.** `video.integer_scale` and its two Settings checkboxes already
+    existed but the value was never read; the fit is now quantised to a whole multiple of the
+    framebuffer's scanline count, falling back to the continuous fit when not even 1x fits.
+  - **Per-side overscan crop** (top/bottom/left/right, in SNES pixels), scaled by the frame's upscale
+    factor and clamped so a hand-edited config can never crop the picture out of existence.
+    Complements the existing all-or-nothing `hide_overscan`.
+  - **Audio: 4-tap Catmull-Rom (Hermite) resampling** replaces 2-point linear interpolation as the
+    default, matching RustyNES. `Linear` stays selectable to reproduce earlier output exactly.
+  - **Audio: a configurable latency target** (`audio.latency_ms`, default 60 ms). The DRC servo now
+    holds that setpoint (±1%) instead of the ring's midpoint, and the ring is sized from it, so the
+    achieved latency is what was asked for rather than a side effect of the device's sample rate.
+  - **Audio: buffer-health instrumentation and a refill gate.** Underruns and dropped samples are
+    counted and surfaced in Settings; an underrun re-arms a start-gate so the ring re-buffers once
+    instead of emitting a silence sample every callback (one short gap instead of continuous
+    crackle). A pause mutes without counting as starvation.
+  - **Run-ahead frame-budget throttle** (`run_ahead.throttle_ms`): skips the peek for one frame after
+    an overrun, so the feature degrades to plain emulation instead of compounding stutter.
+  - Settings gained Video (aspect, overscan grid), Audio (latency, kernel, health readout), and Input
+    (autofire, gamepad list + deadzone) controls for all of the above.
+
 - **ST018 (Nidan Morita Shogi 2) + S-RTC (Daikaijuu Monogatari II) validated against real carts.**
   Both were previously implemented but unit-test-only (no dump in the corpus); with real dumps
   supplied they now detect to the right board, boot, and are deterministic (new `srtc_st018_oncart`,

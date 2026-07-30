@@ -63,6 +63,8 @@ pub mod hd_pack;
 #[cfg(feature = "hd-pack")]
 pub mod hd_compositor;
 pub mod input;
+/// Screenshot capture (`v1.25.0`) — PNG encode, save-to-file, clipboard copy.
+pub mod screenshot;
 // Native rollback netplay (`v0.8.0` T-82-002). Native-only: browser WebRTC signaling UI is a
 // separate, deferred scope (`netplay.rs`'s own module doc has the detail).
 #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
@@ -89,6 +91,9 @@ pub mod app;
 pub mod audio;
 #[cfg(all(not(target_arch = "wasm32"), feature = "emu-thread"))]
 pub mod emu_thread;
+/// Physical gamepad input via `gilrs` (`v1.25.0`). Native only — no wasm equivalent.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod gamepad;
 #[cfg(all(not(target_arch = "wasm32"), feature = "emu-thread"))]
 pub mod present_buffer;
 

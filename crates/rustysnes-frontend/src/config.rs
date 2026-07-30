@@ -191,6 +191,128 @@ impl PostFilter {
     }
 }
 
+/// How the framebuffer's pixels are shaped when fitted to the window.
+///
+/// The SNES's 256x224 framebuffer is not square-pixel: it was designed for a 4:3 television, which
+/// stretches each pixel horizontally. Which correction is "right" is a genuine preference, so all
+/// three are offered rather than one being hardcoded (as it was before `v1.25.0`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AspectMode {
+    /// Stretch to a 4:3 display, the shape a CRT television actually presented (default —
+    /// identical to every release before this setting existed).
+    #[default]
+    #[serde(rename = "4:3")]
+    FourThree,
+    /// Correct by the 8:7 pixel aspect ratio the hardware's dot clock implies. Very close to 4:3
+    /// at 224 lines, and noticeably different at PAL's 239 — the arithmetically-derived shape
+    /// rather than the television's.
+    #[serde(rename = "8:7")]
+    Par,
+    /// Square pixels: no correction at all, the framebuffer's own 256:H ratio. Geometrically
+    /// "wrong" versus hardware, but what pixel-art purists often want.
+    #[serde(rename = "1:1")]
+    Square,
+}
+
+impl AspectMode {
+    /// Human-readable label for the Settings radio row.
+    #[must_use]
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::FourThree => "4:3 (CRT)",
+            Self::Par => "8:7 (pixel aspect)",
+            Self::Square => "1:1 (square pixels)",
+        }
+    }
+
+    /// All modes in display order — the single source of truth the Settings row iterates.
+    #[must_use]
+    pub const fn all() -> [Self; 3] {
+        [Self::FourThree, Self::Par, Self::Square]
+    }
+
+    /// The target display aspect for a framebuffer of `fb_w` x `fb_h`.
+    ///
+    /// `fb_h` is the *measured* framebuffer height, not the region — a hi-res or overscan frame
+    /// must correct by what is actually being displayed, and keying off the region bit instead is
+    /// how a 239-line image ends up squashed into a 224-line shape.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn ratio(self, fb_w: u32, fb_h: u32) -> f32 {
+        let w = fb_w.max(1) as f32;
+        let h = fb_h.max(1) as f32;
+        match self {
+            // The same constant `app.rs` derives its window size from, so the window it opens and
+            // the shape drawn inside it cannot disagree.
+            Self::FourThree => crate::gfx::TARGET_ASPECT,
+            Self::Par => (w * (8.0 / 7.0)) / h,
+            Self::Square => w / h,
+        }
+    }
+}
+
+/// Per-side presentation crop, in framebuffer pixels.
+///
+/// A real television hid a few pixels behind the bezel, and some games leave garbage there (a
+/// partially-scrolled column, an uninitialised row). Cropping is **presentation-only** — the
+/// deterministic core still renders every pixel — which is the same boundary every post-filter in
+/// this crate respects. All zero by default, so the default build presents the full framebuffer
+/// exactly as before.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Overscan {
+    /// Scanlines removed from the top.
+    pub top: u32,
+    /// Scanlines removed from the bottom.
+    pub bottom: u32,
+    /// Columns removed from the left.
+    pub left: u32,
+    /// Columns removed from the right.
+    pub right: u32,
+}
+
+impl Overscan {
+    /// Whether any side actually crops (the fast path skips the copy entirely when not).
+    #[must_use]
+    pub const fn is_zero(self) -> bool {
+        self.top == 0 && self.bottom == 0 && self.left == 0 && self.right == 0
+    }
+
+    /// Clamp the crop so at least a 16x16 image survives, whatever the config file asked for.
+    ///
+    /// A hand-edited `config.toml` must not be able to crop the picture out of existence — that
+    /// would produce a zero-sized texture upload, which is a wgpu validation error rather than a
+    /// merely-ugly result.
+    #[must_use]
+    pub const fn clamped(self, fb_w: u32, fb_h: u32) -> Self {
+        const MIN: u32 = 16;
+        let max_x = fb_w.saturating_sub(MIN);
+        let max_y = fb_h.saturating_sub(MIN);
+        let (mut left, mut right) = (self.left, self.right);
+        let (mut top, mut bottom) = (self.top, self.bottom);
+        if left + right > max_x {
+            right = max_x.saturating_sub(left);
+            if left > max_x {
+                left = max_x;
+                right = 0;
+            }
+        }
+        if top + bottom > max_y {
+            bottom = max_y.saturating_sub(top);
+            if top > max_y {
+                top = max_y;
+                bottom = 0;
+            }
+        }
+        Self {
+            top,
+            bottom,
+            left,
+            right,
+        }
+    }
+}
+
 /// Video / windowing settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -228,6 +350,13 @@ pub struct VideoConfig {
     /// Additive, `false` by default — byte-identical presentation to every prior release when
     /// unchanged.
     pub hide_overscan: bool,
+    /// How framebuffer pixels are shaped when fitted to the window (`v1.25.0`). Default
+    /// [`AspectMode::FourThree`] reproduces the previously-hardcoded behaviour exactly.
+    pub aspect: AspectMode,
+    /// Per-side presentation crop in framebuffer pixels (`v1.25.0`). All-zero by default. This is
+    /// the fine-grained companion to [`Self::hide_overscan`], which only drops PAL's 239-line
+    /// extension wholesale; both apply, this one second.
+    pub overscan: Overscan,
 }
 
 impl Default for VideoConfig {
@@ -243,6 +372,8 @@ impl Default for VideoConfig {
             xbrz_strength: 0.6,
             hd_pack_name: None,
             hide_overscan: false,
+            aspect: AspectMode::default(),
+            overscan: Overscan::default(),
         }
     }
 }
@@ -263,6 +394,39 @@ pub struct AudioConfig {
     /// §Per-voice mute has the full mechanism). All `false` (unmuted) by default, byte-identical
     /// to every prior release.
     pub voice_mutes: [bool; 8],
+    /// Target output latency in milliseconds (`v1.25.0`; clamped to `10..=250` by
+    /// [`Self::latency_ms_clamped`]).
+    ///
+    /// This is the setpoint the dynamic-rate-control servo holds
+    /// ([`crate::audio_core::drc_ratio_latency`]) and the size the ring is derived from, replacing
+    /// the previous fixed 8192-sample buffer whose achieved latency silently depended on the
+    /// device's rate. Lower is more responsive and more dropout-prone; 60 ms matches RustyNES.
+    pub latency_ms: u32,
+    /// Which interpolation kernel the producer-side resampler uses (`v1.25.0`).
+    pub resampler: crate::audio_core::ResampleKernel,
+    /// Preferred output device name, or `None` for the host default (`v1.25.0`). A name that no
+    /// longer matches any present device falls back to the default rather than refusing to start —
+    /// devices legitimately disappear between sessions.
+    pub device: Option<String>,
+}
+
+impl AudioConfig {
+    /// [`Self::latency_ms`] clamped to the supported `10..=250` ms range.
+    ///
+    /// Below ~10 ms no amount of servoing keeps a general-purpose OS audio callback fed; above
+    /// 250 ms the added input lag is worse than the dropouts it prevents.
+    // Written as comparisons rather than `u32::clamp`, which is not const-callable on the pinned
+    // toolchain (`Ord` is not a const trait yet).
+    #[must_use]
+    pub const fn latency_ms_clamped(&self) -> u32 {
+        if self.latency_ms < 10 {
+            10
+        } else if self.latency_ms > 250 {
+            250
+        } else {
+            self.latency_ms
+        }
+    }
 }
 
 impl Default for AudioConfig {
@@ -272,6 +436,9 @@ impl Default for AudioConfig {
             volume: 0.8,
             enabled: true,
             voice_mutes: [false; 8],
+            latency_ms: 60,
+            resampler: crate::audio_core::ResampleKernel::default(),
+            device: None,
         }
     }
 }
@@ -307,6 +474,164 @@ pub struct RunAheadConfig {
     /// Frames to peek ahead each displayed frame. `0` disables run-ahead entirely
     /// (additive-default-off) — `step_with_run_ahead` degrades to a plain `run_frame`.
     pub frames: u32,
+    /// Skip run-ahead for the next displayed frame whenever the previous one took longer than
+    /// this many milliseconds (`0` disables the throttle). `v1.25.0`.
+    ///
+    /// Run-ahead multiplies emulation cost by `frames + 1`, so on a machine that is already
+    /// missing its frame deadline it converts a latency improvement into visible stutter. RustyNES
+    /// throttles on a frame budget for exactly this reason; without it the feature cannot safely
+    /// be on by default.
+    pub throttle_ms: f32,
+}
+
+/// Autofire ("turbo") settings — hold a face button and the frontend pulses it (`v1.25.0`).
+///
+/// Purely a host-input convenience: the pulsing happens where host input is sampled, so the core
+/// still sees an ordinary button stream and determinism is unaffected. All off by default.
+// One independent flag per face button IS the data model here: they are four unrelated toggles the
+// user sets individually, not a state machine that a struct/enum would express better.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TurboConfig {
+    /// Autofire the A button.
+    pub a: bool,
+    /// Autofire the B button.
+    pub b: bool,
+    /// Autofire the X button.
+    pub x: bool,
+    /// Autofire the Y button.
+    pub y: bool,
+    /// Full on/off cycle length in frames (minimum 2 — one frame pressed, one released; clamped by
+    /// [`Self::period_clamped`]).
+    pub period_frames: u32,
+}
+
+impl TurboConfig {
+    /// [`Self::period_frames`] clamped to a physically meaningful `2..=60`.
+    ///
+    /// A period of 1 would hold the button permanently (never releasing), i.e. silently *disable*
+    /// the feature it looks like it is configuring — hence the floor of 2.
+    // Comparisons rather than `u32::clamp` for the same const-callability reason as
+    // `AudioConfig::latency_ms_clamped`.
+    #[must_use]
+    pub const fn period_clamped(&self) -> u32 {
+        if self.period_frames < 2 {
+            2
+        } else if self.period_frames > 60 {
+            60
+        } else {
+            self.period_frames
+        }
+    }
+
+    /// Whether any button is set to autofire (the fast path skips the per-frame work when not).
+    #[must_use]
+    pub const fn any(&self) -> bool {
+        self.a || self.b || self.x || self.y
+    }
+
+    /// The [`crate::input::Buttons`] bit mask of the autofire-enabled buttons.
+    #[must_use]
+    pub const fn mask(&self) -> u16 {
+        use crate::input::Button;
+        let mut m = 0u16;
+        if self.a {
+            m |= Button::A.mask();
+        }
+        if self.b {
+            m |= Button::B.mask();
+        }
+        if self.x {
+            m |= Button::X.mask();
+        }
+        if self.y {
+            m |= Button::Y.mask();
+        }
+        m
+    }
+}
+
+impl Default for TurboConfig {
+    fn default() -> Self {
+        Self {
+            a: false,
+            b: false,
+            x: false,
+            y: false,
+            // ~8 presses/second at 60 Hz, the usual "turbo controller" rate.
+            period_frames: 8,
+        }
+    }
+}
+
+/// Physical gamepad settings (`v1.25.0`, the `gilrs` runtime).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GamepadConfig {
+    /// Whether to open the gamepad backend at all. On by default — a machine with no pad simply
+    /// enumerates none, and keyboard input is unaffected either way.
+    pub enabled: bool,
+    /// Analog-stick magnitude below which axis motion is ignored, `0.0..=0.9`.
+    ///
+    /// Sticks rest slightly off-centre, so without a deadzone a worn pad holds a direction
+    /// permanently — which reads as "the d-pad is stuck", not "the stick drifts".
+    pub deadzone: f32,
+}
+
+impl GamepadConfig {
+    /// [`Self::deadzone`] clamped to a usable `0.0..=0.9`.
+    // Comparisons rather than `f32::clamp` so this can be `const`, matching the other clamp
+    // helpers in this module.
+    #[must_use]
+    pub const fn deadzone_clamped(&self) -> f32 {
+        if self.deadzone < 0.0 {
+            0.0
+        } else if self.deadzone > 0.9 {
+            0.9
+        } else {
+            self.deadzone
+        }
+    }
+}
+
+impl Default for GamepadConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            deadzone: 0.35,
+        }
+    }
+}
+
+/// The most-recently-used ROM list (`v1.25.0`).
+///
+/// Newest first, de-duplicated by path, capped at [`Self::CAP`]. Stored as strings rather than
+/// `PathBuf` so the TOML round-trip is platform-agnostic text.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RecentRoms {
+    /// The paths, newest first.
+    pub paths: Vec<String>,
+}
+
+impl RecentRoms {
+    /// Maximum retained entries.
+    pub const CAP: usize = 10;
+
+    /// Record `path` as the most recently used ROM, moving an existing entry to the front rather
+    /// than duplicating it, and dropping the oldest beyond [`Self::CAP`].
+    pub fn touch(&mut self, path: &std::path::Path) {
+        let s = path.to_string_lossy().into_owned();
+        self.paths.retain(|p| p != &s);
+        self.paths.insert(0, s);
+        self.paths.truncate(Self::CAP);
+    }
+
+    /// Forget every entry (the menu's "Clear" item).
+    pub fn clear(&mut self) {
+        self.paths.clear();
+    }
 }
 
 /// The full frontend config (serialized to `config.toml`).
@@ -338,6 +663,14 @@ pub struct Config {
     /// Whether the first-run welcome modal has already been dismissed (`v1.0.0`). `false` (the
     /// default) shows it once on the very next launch; dismissing it flips this and saves.
     pub first_run_seen: bool,
+    /// Autofire settings (`v1.25.0`).
+    pub turbo: TurboConfig,
+    /// Physical gamepad settings (`v1.25.0`).
+    pub gamepad: GamepadConfig,
+    /// Recently-opened ROMs, newest first (`v1.25.0`).
+    pub recent: RecentRoms,
+    /// Directory screenshots are written to, or `None` for the platform picture dir (`v1.25.0`).
+    pub screenshot_dir: Option<String>,
 }
 
 impl Config {
@@ -425,6 +758,144 @@ mod tests {
             let back: Config = toml::from_str(&s).expect("deserialize");
             assert_eq!(back.theme, theme);
         }
+    }
+
+    #[test]
+    fn new_v1_25_defaults_preserve_prior_behaviour() {
+        let cfg = Config::default();
+        // Presentation must be identical to every prior release out of the box.
+        assert_eq!(cfg.video.aspect, AspectMode::FourThree);
+        assert!(cfg.video.overscan.is_zero());
+        assert!(!cfg.video.integer_scale);
+        // New input/audio features are off / at RustyNES's defaults.
+        assert!(!cfg.turbo.any());
+        assert!(cfg.recent.paths.is_empty());
+        assert_eq!(cfg.audio.latency_ms, 60);
+        assert!(cfg.audio.device.is_none());
+    }
+
+    #[test]
+    fn aspect_ratio_is_measured_from_the_framebuffer_not_the_region() {
+        // 4:3 ignores the framebuffer entirely (it is the television's shape).
+        assert!((AspectMode::FourThree.ratio(256, 224) - 4.0 / 3.0).abs() < 1e-6);
+        assert!((AspectMode::FourThree.ratio(256, 239) - 4.0 / 3.0).abs() < 1e-6);
+        // 8:7 and 1:1 both track the measured height, so PAL differs from NTSC.
+        assert!(AspectMode::Par.ratio(256, 239) < AspectMode::Par.ratio(256, 224));
+        assert!((AspectMode::Square.ratio(256, 224) - 256.0 / 224.0).abs() < 1e-6);
+        // 8:7 sits close to, but not on, 4:3 at 224 lines.
+        let par = AspectMode::Par.ratio(256, 224);
+        assert!((par - 4.0 / 3.0).abs() < 0.03 && (par - 4.0 / 3.0).abs() > 1e-4);
+        // Degenerate dimensions must not divide by zero.
+        assert!(AspectMode::Square.ratio(0, 0).is_finite());
+    }
+
+    #[test]
+    fn overscan_clamp_always_leaves_a_usable_image() {
+        // A hand-edited config asking to crop everything still leaves >= 16x16.
+        let absurd = Overscan {
+            top: 500,
+            bottom: 500,
+            left: 500,
+            right: 500,
+        };
+        let c = absurd.clamped(256, 224);
+        assert!(
+            c.left + c.right <= 256 - 16,
+            "left+right={}",
+            c.left + c.right
+        );
+        assert!(
+            c.top + c.bottom <= 224 - 16,
+            "top+bottom={}",
+            c.top + c.bottom
+        );
+        // A sane crop is passed through untouched.
+        let sane = Overscan {
+            top: 8,
+            bottom: 8,
+            left: 8,
+            right: 8,
+        };
+        assert_eq!(sane.clamped(256, 224), sane);
+        assert!(!sane.is_zero() && Overscan::default().is_zero());
+    }
+
+    #[test]
+    fn recent_roms_dedupe_promote_and_cap() {
+        let mut r = RecentRoms::default();
+        for i in 0..(RecentRoms::CAP + 5) {
+            r.touch(std::path::Path::new(&format!("/roms/game{i}.sfc")));
+        }
+        assert_eq!(r.paths.len(), RecentRoms::CAP, "must cap");
+        assert!(
+            r.paths[0].ends_with(&format!("game{}.sfc", RecentRoms::CAP + 4)),
+            "newest first"
+        );
+        // Re-touching an existing entry promotes it instead of duplicating.
+        let again = r.paths[3].clone();
+        r.touch(std::path::Path::new(&again));
+        assert_eq!(r.paths[0], again);
+        assert_eq!(r.paths.iter().filter(|p| **p == again).count(), 1);
+        r.clear();
+        assert!(r.paths.is_empty());
+    }
+
+    #[test]
+    fn clamps_reject_values_that_would_disable_the_feature_they_configure() {
+        // period 1 would hold the button forever; the floor of 2 is what makes it pulse.
+        let t = TurboConfig {
+            period_frames: 1,
+            ..TurboConfig::default()
+        };
+        assert_eq!(t.period_clamped(), 2);
+        let audio = AudioConfig {
+            latency_ms: 0,
+            ..AudioConfig::default()
+        };
+        assert_eq!(audio.latency_ms_clamped(), 10);
+        let audio_hi = AudioConfig {
+            latency_ms: 10_000,
+            ..AudioConfig::default()
+        };
+        assert_eq!(audio_hi.latency_ms_clamped(), 250);
+        let g = GamepadConfig {
+            deadzone: 5.0,
+            ..GamepadConfig::default()
+        };
+        assert!((g.deadzone_clamped() - 0.9).abs() < 1e-6);
+    }
+
+    #[test]
+    fn new_fields_round_trip_through_toml() {
+        let mut cfg = Config::default();
+        cfg.video.aspect = AspectMode::Par;
+        cfg.video.overscan = Overscan {
+            top: 8,
+            bottom: 8,
+            left: 4,
+            right: 4,
+        };
+        cfg.audio.latency_ms = 32;
+        cfg.audio.resampler = crate::audio_core::ResampleKernel::Linear;
+        cfg.audio.device = Some("Speakers".into());
+        cfg.turbo.b = true;
+        cfg.gamepad.deadzone = 0.5;
+        cfg.recent.touch(std::path::Path::new("/roms/a.sfc"));
+        cfg.run_ahead.throttle_ms = 20.0;
+        let s = toml::to_string_pretty(&cfg).expect("serialize");
+        let back: Config = toml::from_str(&s).expect("deserialize");
+        assert_eq!(back.video.aspect, AspectMode::Par);
+        assert_eq!(back.video.overscan, cfg.video.overscan);
+        assert_eq!(back.audio.latency_ms, 32);
+        assert_eq!(
+            back.audio.resampler,
+            crate::audio_core::ResampleKernel::Linear
+        );
+        assert_eq!(back.audio.device.as_deref(), Some("Speakers"));
+        assert!(back.turbo.b);
+        assert!((back.gamepad.deadzone - 0.5).abs() < 1e-6);
+        assert_eq!(back.recent.paths.len(), 1);
+        assert!((back.run_ahead.throttle_ms - 20.0).abs() < 1e-6);
     }
 
     #[test]

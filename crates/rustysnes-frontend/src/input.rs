@@ -204,9 +204,76 @@ pub fn gamepad_button(gilrs_button: &str) -> Option<Button> {
     })
 }
 
+/// Apply autofire ("turbo") to a button word (`v1.25.0`).
+///
+/// `turbo_mask` selects which buttons pulse, `period` is the full on/off cycle in frames, and
+/// `frame` is a monotonically increasing frame counter. Buttons in the mask are **released** during
+/// the off half of the cycle; buttons the player is not holding are never pressed, because this only
+/// ever clears bits. That direction matters: an implementation that *set* bits would make an
+/// autofire button fire while untouched.
+///
+/// This runs where host input is sampled, so the core still receives an ordinary button stream and
+/// the determinism contract is untouched — the same boundary the DRC servo and post-filters respect.
+#[must_use]
+pub const fn apply_turbo(
+    mut buttons: Buttons,
+    turbo_mask: u16,
+    period: u32,
+    frame: u64,
+) -> Buttons {
+    if turbo_mask == 0 {
+        return buttons;
+    }
+    // A period below 2 cannot pulse at all (the off half would be empty); callers clamp, and this
+    // guards anyway so a bad value degrades to "held" rather than dividing by zero.
+    let period = if period < 2 { 2 } else { period };
+    let half = (period / 2) as u64;
+    let on_phase = frame % (period as u64) < half;
+    if !on_phase {
+        buttons.0 &= !turbo_mask;
+    }
+    buttons
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn turbo_pulses_held_buttons_and_never_presses_unheld_ones() {
+        let mask = Button::B.mask() | Button::Y.mask();
+        // A held button alternates across the cycle.
+        let held = Buttons(mask);
+        let states: Vec<bool> = (0..8)
+            .map(|f| apply_turbo(held, mask, 8, f).is_pressed(Button::B))
+            .collect();
+        assert!(states.iter().any(|s| *s), "must be pressed some frames");
+        assert!(states.iter().any(|s| !*s), "must be released some frames");
+        // An unheld button is never synthesised into a press.
+        let idle = Buttons::default();
+        for f in 0..32 {
+            assert_eq!(
+                apply_turbo(idle, mask, 8, f).0,
+                0,
+                "frame {f} invented a press"
+            );
+        }
+        // Buttons outside the mask are untouched even during the off phase.
+        let other = Buttons(Button::A.mask() | mask);
+        for f in 0..32 {
+            assert!(
+                apply_turbo(other, mask, 8, f).is_pressed(Button::A),
+                "frame {f} disturbed a non-turbo button"
+            );
+        }
+        // An empty mask is a pure pass-through.
+        assert_eq!(apply_turbo(other, 0, 8, 3).0, other.0);
+        // A degenerate period must not divide by zero or hold permanently-off.
+        let pulses: Vec<bool> = (0..4)
+            .map(|f| apply_turbo(held, mask, 0, f).is_pressed(Button::B))
+            .collect();
+        assert!(pulses.iter().any(|p| *p) && pulses.iter().any(|p| !*p));
+    }
 
     #[test]
     fn masks_are_unique_and_in_high_12_bits() {

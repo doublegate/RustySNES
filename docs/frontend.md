@@ -216,6 +216,42 @@ defaults to `false` — byte-identical presentation to every prior release when 
 unit tests (`app.rs`'s `overscan_tests` module) cover native resolution, an HD-pack-scaled
 resolution, and that the kept (leading) bytes are untouched, not re-derived.
 
+### Per-side overscan crop (`v1.25.0`)
+
+`config.video.overscan` crops an independent number of SNES pixels from each of the four sides, the
+fine-grained companion to the all-or-nothing Hide Overscan above (both apply; this one second).
+`app.rs`'s `apply_overscan` scales the request by the frame's integer upscale factor, so a configured
+"8 pixels" means 8 *SNES* pixels whether or not an HD pack has upscaled the buffer — a fixed byte
+count would crop a quarter of the picture at 4x. `Overscan::clamped` guarantees at least a 16x16
+image survives however absurd the config file is, because a zero-sized texture upload is a wgpu
+validation error rather than a merely-ugly result. Row-only crops take a `truncate`/`copy_within` fast
+path; a column crop necessarily moves every row and compacts in place, so neither path allocates a
+second buffer. Presentation-only, all zero by default.
+
+### Aspect ratio and integer scaling (`v1.25.0`)
+
+The letterbox target was a hardcoded `TARGET_ASPECT` constant; `config.video.aspect` now selects
+between **4:3** (the television's shape, the default and unchanged), **8:7** (the pixel aspect the dot
+clock implies — close to 4:3 at 224 lines and visibly different at PAL's 239), and **1:1** (square
+pixels, no correction). `AspectMode::ratio` keys off the *measured* framebuffer size, never the region
+bit, so a hi-res or overscan frame corrects by what is actually on screen.
+
+`config.video.integer_scale` **now has an effect**: the flag and two Settings checkboxes had existed
+since early on, but `letterbox_scale` never read the value. `gfx::letterbox_scale_for` quantises the
+fit to a whole multiple of the framebuffer's scanline count — which is what keeps a scanline a uniform
+height instead of alternating between one and two output pixels, the shimmer non-integer scaling
+causes on pixel art. Only the vertical axis is quantised (the horizontal is already being stretched by
+aspect correction, so there is no whole-pixel grid to land on there), and if not even 1x fits the
+continuous fit is kept, since an image cropped by the window edge is worse than a slightly soft one.
+Both knobs live on `Gfx` as state rather than as `letterbox_scale` parameters because
+`crate::peripherals` calls that same method through a shared `&Gfx` to map host pointer coordinates
+into SNES pixel space: if the two disagreed about the display shape, Super Scope aim would land
+somewhere the picture is not.
+
+The previous test-only hand-copied mirror of the letterbox formula was deleted in favour of the tests
+calling the real function — a formula duplicated for testability is a formula that can silently
+diverge from the one that ships, which is the very thing the test exists to prevent.
+
 ## HD texture packs (`v1.3.0`, `hd-pack` feature)
 
 **Status: fully implemented and wired into the live present path.** See `docs/ppu.md`'s own "HD
@@ -347,6 +383,32 @@ Netplay rollback is likewise frontend-orchestrated against the deterministic cor
   and why it's excluded from save-states. All unmuted by default, byte-identical to every prior
   release.
 
+### Resampling, latency, and buffer health (`v1.25.0`)
+
+Three related changes, all in `crate::audio_core` (still console-agnostic and still shared with the
+wasm `AudioWorklet` path):
+
+- **Kernel.** `ResampleKernel::Hermite` — a 4-tap Catmull-Rom cubic, matching RustyNES — replaces
+  2-point linear interpolation as the default. It is continuous in the first derivative across sample
+  boundaries, which removes the aliasing a linear blend leaves on the S-DSP's 32 kHz output. The
+  resampler holds a four-sample window (`hist`) so the cubic can see one sample either side of the
+  interval it is interpolating, which costs exactly one source sample of delay (~31 µs).
+  `ResampleKernel::Linear` remains selectable to reproduce earlier output exactly.
+- **Latency as a setpoint.** `config.audio.latency_ms` (default 60, clamped `10..=250`) is now the
+  target the DRC servo holds, via `drc_ratio_latency` (error normalised by the target, correction
+  clamped to ±1%). The ring is sized at 4x the target rather than a fixed 8192 samples, whose achieved
+  latency silently varied with the device's negotiated rate. Latency is therefore what the user asked
+  for, and the buffer is merely headroom around it.
+- **Health + the refill gate.** `AudioRing` counts `underruns` (a pop with nothing queued) and
+  `overrun_dropped` (a push onto a full ring), surfaced in Settings → Audio. More importantly, an
+  underrun is not a one-off click: once the consumer catches up to the producer it tends to *stay*
+  caught up, emitting a silence sample every callback and turning one dropout into continuous crackle.
+  So the ring has a **refill gate** — armed at half the latency target — which feeds silence until the
+  buffer has rebuilt, and which an underrun **re-arms**. One short gap replaces the crackle. A paused
+  emulator mutes the ring instead, deliberately *not* counting as starvation, or every callback while
+  paused would bury the real signal. The gate defaults to disabled (threshold `0`), which is exactly
+  the ungated behaviour of every prior release; the app opts in when it opens the device.
+
 ### Fixed-timestep wall-clock pacing (synchronous drive)
 
 winit's `RedrawRequested` fires once per **display** vsync, so stepping exactly one emulated
@@ -450,9 +512,39 @@ startup, so the toggle had no effect.
 
 ## Input
 
-- USB gamepads auto-bind to P1; keyboard fallback for P1/P2.
+- USB gamepads auto-bind to P1 (and a second pad to P2) — `v1.25.0`, see below; keyboard drives P1.
 - Late-latched input (sampled as close to the frame as possible) for responsiveness without
   breaking determinism.
+
+### Physical gamepads (`v1.25.0`, `crate::gamepad`, native only)
+
+`gilrs` had been a declared dependency and `input::gamepad_button` — the Xbox-diamond-to-SNES-diamond
+rotation — had been unit-tested since early on, but **nothing instantiated the backend**, so port 1
+was keyboard-only no matter how many pads were attached. `GamepadRuntime` closes that:
+
+- **Assignment is by connection order** — first pad connected drives P1, second drives P2. That is
+  what makes an unplug/replug land back on the same player instead of shuffling; disconnecting P1
+  promotes P2, as pulling a controller does on hardware.
+- **State is polled, not accumulated.** The event queue is drained purely so `gilrs` updates its own
+  internal state, which is then read outright each frame. A frontend that only summed press/release
+  deltas would desynchronise permanently the first time an event was missed (a button released while
+  unfocused, a pad re-enumerated mid-session); polling self-corrects on the next frame.
+- The left analog stick translates to the D-pad past `config.gamepad.deadzone` (default `0.35`).
+  Sticks rest slightly off-centre, so without a deadzone a worn pad holds a direction permanently —
+  which reads as "the D-pad is stuck", not "the stick drifts". Opposing directions are cancelled by
+  `Buttons::sanitize_dpad`, the same treatment keyboard input gets.
+- Keyboard and pad are **OR-ed**, so either works at any moment with no mode switch
+  (`App::effective_pads`). **P2 is now live-driven**; before this it was explicitly zeroed every
+  frame, and only TAS playback or netplay ever set it.
+
+### Autofire / turbo (`v1.25.0`)
+
+`config.turbo` selects any of A/B/X/Y and a cycle length in frames (`period_frames`, clamped to
+`2..=60` — a period of 1 would hold the button permanently and thereby silently *disable* the feature
+it looks like it configures). `input::apply_turbo` only ever **clears** bits in the mask, never sets
+them: an implementation that set bits would make an autofire button fire while untouched. It runs
+where host input is sampled, so the core still receives an ordinary button stream and the determinism
+contract is untouched — the same boundary the DRC servo and the post-filters respect.
 
 ### Key rebinding (`v1.0.0`)
 
@@ -503,6 +595,31 @@ input needs a genuinely new prerequisite (a live `Gilrs` instance + per-frame ev
 not a small addition on top of the Mouse/Super Scope wiring above — see
 `to-dos/ROADMAP.md`/the UI/UX-parity plan's Phase B/C backlog for where this is tracked.
 
+## ROM loading, Recent ROMs, and screenshots (`v1.25.0`)
+
+Three entry points now open a ROM — the File → Open picker, **drag-and-drop**
+(`WindowEvent::DroppedFile`), and the **Recent ROMs** menu — and all three funnel through the single
+`MenuAction::OpenRom` handler rather than reimplementing parts of it. The mechanism is
+`Active::queued_rom`: the out-of-band paths set it and queue the action via
+`ShellState::pending_actions` (drained into the present's action list after the egui pass, which
+*assigns* `actions` and would otherwise discard them), and the handler prefers a queued path over
+opening the picker. That keeps firmware install, HD-pack re-select, RetroAchievements re-identify,
+ROM-info re-hash, and rewind/quick-save invalidation on every path.
+
+`config.recent` keeps 10 entries, newest first, de-duplicated by path (re-opening promotes rather than
+duplicates), and only records on the `"Loaded "` success prefix so a rejected file never enters a list
+of things you can open. A recent entry whose file has moved reports that and prunes itself.
+
+**Screenshots** (`crate::screenshot`) write a numbered PNG into the platform picture directory (or
+`config.screenshot_dir`) or copy to the system clipboard via `arboard`. Capture happens at the one
+point in `render` where the finalized RGBA buffer is in hand, so it costs a single encode of a buffer
+that already exists rather than retaining a copy of every frame against the chance one is wanted. The
+captured pixels are the emulator's output at **native resolution** — after the overscan crop and any
+HD-pack composite, before the letterbox/post-filter GPU pass — so two screenshots of the same frame are
+byte-identical regardless of window size, which is what makes them usable as reference images. ROM
+titles are sanitised to `[A-Za-z0-9_-]` before entering a filename, because internal SNES titles
+legitimately contain punctuation and path separators.
+
 ## Save-states, rewind, run-ahead
 
 - **Save-states** (`v0.2.0 "Persistence"`, `docs/adr/0006`) serialize the deterministic core
@@ -543,6 +660,15 @@ not a small addition on top of the Mouse/Super Scope wiring above — see
   persisted state (and its audio, the continuous stream — peek audio is never played) only ever
   advances by one frame per call, regardless of the peek depth. `frames: 0` (the shipped default)
   degrades to a plain `run_frame` — off by default.
+  - **Frame-budget throttle (`v1.25.0`, `config.run_ahead.throttle_ms`).** Run-ahead multiplies
+    emulation cost by `frames + 1`, so on a machine already missing its frame deadline it converts a
+    latency win into visible stutter. When the previous frame's measured production time
+    (`Active::last_frame_time_ms`) exceeded `throttle_ms`, the peek is skipped for that frame and the
+    plain (correct, cheaper) path runs instead, so an overrun cannot compound. `0` disables the
+    throttle. RustyNES throttles for the same reason; without it the feature cannot safely be left on.
+    Note RustyNES additionally uses a **dedicated lightweight snapshot** for the peek rather than the
+    full `save_state`/`load_state` round trip `step_with_run_ahead` performs — that fast path is not
+    yet ported, and is why `frames` remains `0` by default here.
 - Both are pure re-simulation of the SAME deterministic core (`docs/adr/0004`): no injected
   timing/RNG, just running the existing `run_frame`/`save_state`/`load_state` extra times. Proven
   by `rewind.rs`'s tests, which hand-assemble a tiny 65C816 program (NMI-driven WRAM counter →
