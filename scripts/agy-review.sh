@@ -574,13 +574,30 @@ else
   # `--arg`/`--argjson` rather than shell interpolation into the filter: the marker is an HTML
   # comment today, but a quote or a backslash in it would otherwise break the jq program itself
   # rather than simply not matching.
-  gh api "repos/${REPO}/issues/${PR}/comments" --paginate \
-      --arg marker "$MARKER" --argjson new_id "$new_comment_id" \
-      --jq '.[] | select(.user.type == "Bot" and .user.login == "github-actions[bot]") | select(.body | contains($marker)) | select(.id != $new_id) | .id' 2>/dev/null \
-    | while read -r cid; do
-        [ -n "$cid" ] || continue
-        if ! gh api -X DELETE "repos/${REPO}/issues/comments/${cid}" >/dev/null 2>&1; then
-          log "warning: could not delete prior review comment ${cid}; a duplicate may result"
-        fi
-      done
+  #
+  # Those are JQ flags, so the JSON is fetched raw and piped into a real `jq` — `gh api` has no
+  # `--arg`/`--argjson` of its own and rejects them. Handing them to `gh api --jq` made it exit
+  # non-zero on every run; with the old `2>/dev/null` swallowing the message and `set -o pipefail`
+  # in force, the script then died *after* posting, so the stale comments were never deleted and
+  # the job went red for a reason nothing printed. stderr is kept this time for exactly that
+  # reason. (`--paginate` without `--jq` emits one JSON array per page; `jq` reads that stream
+  # fine, applying `.[]` to each.)
+  stale_ids="$(
+    gh api "repos/${REPO}/issues/${PR}/comments" --paginate \
+      | jq -r --arg marker "$MARKER" --argjson new_id "$new_comment_id" \
+          '.[] | select(.user.type == "Bot" and .user.login == "github-actions[bot]") | select(.body | contains($marker)) | select(.id != $new_id) | .id'
+  )" || {
+    log "warning: could not list prior review comments; leaving them in place"
+    stale_ids=""
+  }
+  while read -r cid; do
+    [ -n "$cid" ] || continue
+    if ! gh api -X DELETE "repos/${REPO}/issues/comments/${cid}" >/dev/null 2>&1; then
+      log "warning: could not delete prior review comment ${cid}; a duplicate may result"
+    fi
+  done <<< "$stale_ids"
 fi
+
+# The delete loop above is the last real work; end on a defined status so a stray non-zero from
+# it can never be mistaken for "the review failed" once the comment is already published.
+exit 0
