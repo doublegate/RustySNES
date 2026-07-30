@@ -21,7 +21,8 @@ use rustysnes_core::scheduler::System;
 use crate::config::Region;
 use crate::debug_snapshot::{
     AccessHeat, ApuSnapshot, BankRange, CartSnapshot, DebugSnapshot, GsuSnapshot,
-    MEMORY_WINDOW_LEN, PpuSnapshot, VRAM_WINDOW_LEN, VoiceSnapshot, WatchHit,
+    MEMORY_WINDOW_LEN, PpuSnapshot, TraceEventRow, TraceRow, VRAM_WINDOW_LEN, VoiceSnapshot,
+    WatchHit,
 };
 use crate::input::Buttons;
 
@@ -51,12 +52,15 @@ pub struct EmuCore {
     /// starting point for a general-purpose memory viewer, same "cheap, unconditional" posture
     /// as `debug_vram_scroll` above.
     debug_memory_scroll: u32,
+    /// Whether the debugger's Trace panel is open (`v1.25.0`, T-FP-C2). Gates the per-present
+    /// trace/event/heat read-out, which is real cost for a panel that is usually closed.
+    trace_panel_open: bool,
     /// Armed 65C816 PC breakpoints (`v0.9.0`, T-81-001 PR B) — 24-bit `pbr:pc` addresses. Checked
     /// once per instruction (not per bus access, unlike read/write watchpoints — a PC breakpoint
     /// is an instruction-boundary concept), so this costs nothing on the fast path when empty and
     /// `Vec::contains`'s linear scan otherwise (this list is normally a handful of entries, never
     /// a hot-loop concern).
-    breakpoints: Vec<u32>,
+    breakpoints: Vec<Breakpoint>,
     /// Whether the debugger has paused execution (a breakpoint fired, or the user clicked Pause).
     /// While `true`, [`Self::run_frame`] does not advance the `System` at all — the debugger's
     /// Step Into / Step Over buttons single-step it instead.
@@ -101,6 +105,7 @@ impl EmuCore {
             inner: facade::EmuCore::new(seed, to_core_region(region)),
             debug_vram_scroll: 0,
             debug_memory_scroll: 0x7E_0000,
+            trace_panel_open: false,
             breakpoints: Vec::new(),
             paused: false,
             #[cfg(feature = "hd-pack")]
@@ -400,7 +405,7 @@ impl EmuCore {
             self.inner.system_mut().step_instruction();
             steps += 1;
             let pc = self.pbr_pc();
-            if self.breakpoints.contains(&pc) {
+            if self.breakpoint_hit(pc) {
                 self.paused = true;
                 return;
             }
@@ -417,9 +422,38 @@ impl EmuCore {
     /// Install the debugger's armed PC-breakpoint list (`v0.9.0`, T-81-001 PR B), replacing any
     /// previously installed set — same "always replace, re-synced once per frame" convention as
     /// [`Self::set_pad`]/cheats/watchpoints.
-    pub fn set_breakpoints(&mut self, addrs: &[u32]) {
+    pub fn set_breakpoints(&mut self, points: &[Breakpoint]) {
         self.breakpoints.clear();
-        self.breakpoints.extend_from_slice(addrs);
+        self.breakpoints.extend_from_slice(points);
+    }
+
+    /// Whether an armed breakpoint fires at `pc` (`v1.25.0`, T-FP-C2 adds the condition).
+    ///
+    /// An address match is checked first and a condition is evaluated **only** on a match, so the
+    /// per-instruction cost of a conditional breakpoint is the same address compare an
+    /// unconditional one already paid — the expression runs once per hit, not once per instruction.
+    ///
+    /// A breakpoint whose condition failed to parse fires unconditionally rather than silently
+    /// never firing. A debugger that quietly stops working is far worse than one that stops too
+    /// often, and the panel shows the parse error beside the entry either way.
+    fn breakpoint_hit(&mut self, pc: u32) -> bool {
+        // Collected first because evaluating a condition needs `&mut self` for `Bus::peek`, which
+        // cannot be held while iterating `self.breakpoints`.
+        let conditions: Vec<Option<crate::expr::Expr>> = self
+            .breakpoints
+            .iter()
+            .filter(|b| b.address == pc)
+            .map(|b| b.condition.clone())
+            .collect();
+        if conditions.is_empty() {
+            return false;
+        }
+        conditions.into_iter().any(|cond| {
+            cond.is_none_or(|expr| {
+                let ctx = MachineContext::capture(self);
+                expr.is_true(&ctx)
+            })
+        })
     }
 
     /// Whether the debugger currently has execution paused (a breakpoint fired, or the user
@@ -486,7 +520,7 @@ impl EmuCore {
                 break;
             }
             let pc = self.pbr_pc();
-            if self.breakpoints.contains(&pc) {
+            if self.breakpoint_hit(pc) {
                 break; // stay paused on a breakpoint hit mid-subroutine, same as a full run.
             }
         }
@@ -646,6 +680,7 @@ impl EmuCore {
         };
         let (heat, heat_peak, trace_armed, trace_len, counting_armed) =
             self.debug_trace_state(memory_window_start);
+        let (trace, trace_events, hot) = self.debug_trace_readout();
 
         DebugSnapshot {
             cpu,
@@ -663,7 +698,117 @@ impl EmuCore {
             trace_len,
             counting_armed,
             map,
+            trace,
+            trace_events,
+            hot,
         }
+    }
+
+    /// Whether the trace panel is open, so `debug_snapshot` knows to pay for the trace read-out.
+    ///
+    /// Disassembling up to 4,096 rows and scanning 128 K counters every present for a panel nobody
+    /// has open is exactly the avoidable cost the other panel guards already avoid.
+    pub const fn set_trace_panel_open(&mut self, open: bool) {
+        self.trace_panel_open = open;
+    }
+
+    /// Read out the trace ring, the event log, and the non-zero access counts for the panel.
+    #[cfg(feature = "debug-hooks")]
+    fn debug_trace_readout(
+        &mut self,
+    ) -> (
+        Vec<TraceRow>,
+        Vec<TraceEventRow>,
+        Vec<crate::debugger::HotAddress>,
+    ) {
+        use rustysnes_core::trace::EventKind;
+        if !self.trace_panel_open {
+            return (Vec::new(), Vec::new(), Vec::new());
+        }
+        let system = self.inner.system_mut();
+        let entries = system.bus.trace().entries();
+        let events = system
+            .bus
+            .trace()
+            .events()
+            .into_iter()
+            .map(|e| TraceEventRow {
+                kind: match e.kind {
+                    EventKind::Call => "Call",
+                    EventKind::Return => "Return",
+                    EventKind::Nmi => "NMI",
+                    EventKind::Irq => "IRQ",
+                    EventKind::Brk => "BRK",
+                    EventKind::Cop => "COP",
+                    EventKind::Rti => "RTI",
+                },
+                from: e.from,
+                to: e.to,
+                depth: e.depth,
+                is_enter: matches!(
+                    e.kind,
+                    EventKind::Call
+                        | EventKind::Nmi
+                        | EventKind::Irq
+                        | EventKind::Brk
+                        | EventKind::Cop
+                ),
+            })
+            .collect();
+        // Every non-zero counter, so the panel can sort. `counts` over the whole map is one pass
+        // over 128 K entries, paid only while the panel is open.
+        let hot = (0..rustysnes_core::trace::HEATMAP_LEN)
+            .filter_map(|i| {
+                let addr = 0x7E_0000 | u32::try_from(i).ok()?;
+                let c = system.bus.trace().counts(addr, 1);
+                let c = c.first()?;
+                (!c.is_zero()).then_some(crate::debugger::HotAddress {
+                    address: addr,
+                    reads: c.reads,
+                    writes: c.writes,
+                })
+            })
+            .collect();
+        // Disassembly needs `&mut` for `Bus::peek`, so it runs after the immutable reads above.
+        let trace = entries
+            .into_iter()
+            .map(|e| {
+                let m8 = e.p & 0x20 != 0;
+                let x8 = e.p & 0x10 != 0;
+                #[allow(clippy::cast_possible_truncation)]
+                let (text, _) = rustysnes_core::cpu::disasm::disassemble_one(
+                    |addr| self.inner.system_mut().bus.peek(addr),
+                    (e.pbr_pc >> 16) as u8,
+                    e.pbr_pc as u16,
+                    m8,
+                    x8,
+                );
+                TraceRow {
+                    pbr_pc: e.pbr_pc,
+                    text,
+                    a: e.a,
+                    x: e.x,
+                    y: e.y,
+                    sp: e.sp,
+                    p: e.p,
+                    emulation: e.emulation,
+                }
+            })
+            .collect();
+        (trace, events, hot)
+    }
+
+    // Feature-off stub, same posture as `take_watchpoint_hits`/`debug_trace_state`.
+    #[cfg(not(feature = "debug-hooks"))]
+    #[allow(clippy::unused_self)]
+    const fn debug_trace_readout(
+        &self,
+    ) -> (
+        Vec<TraceRow>,
+        Vec<TraceEventRow>,
+        Vec<crate::debugger::HotAddress>,
+    ) {
+        (Vec::new(), Vec::new(), Vec::new())
     }
 
     /// The Memory panel's heat column + the trace/counting armed flags (`v1.25.0`, T-FP-C1).
@@ -725,6 +870,13 @@ impl EmuCore {
         self.inner.system_mut().bus.trace_mut().set_counting(on);
         #[cfg(not(feature = "debug-hooks"))]
         let _ = on;
+    }
+
+    /// Discard the recorded instruction trace and event log, keeping the armed flag.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn clear_trace(&mut self) {
+        #[cfg(feature = "debug-hooks")]
+        self.inner.system_mut().bus.trace_mut().clear_trace();
     }
 
     /// Zero every access count, keeping the allocation.
@@ -811,6 +963,103 @@ impl EmuCore {
 /// Ranges are the ones a debugger needs to reason about an address — where ROM, SRAM, WRAM, and
 /// I/O live — not an exhaustive transcription of every mirror the hardware honours.
 #[must_use]
+/// One armed 65C816 breakpoint (`v0.9.0`; a condition since `v1.25.0`, T-FP-C2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Breakpoint {
+    /// The 24-bit `pbr:pc` to break at.
+    pub address: u32,
+    /// An optional condition, checked only when the address matches.
+    ///
+    /// A plain address breakpoint answers "did execution reach here", which is the wrong question
+    /// for a routine called two thousand times a frame where one call misbehaves. See
+    /// [`crate::expr`].
+    pub condition: Option<crate::expr::Expr>,
+}
+
+impl Breakpoint {
+    /// An unconditional breakpoint at `address`.
+    pub const fn at(address: u32) -> Self {
+        Self {
+            address,
+            condition: None,
+        }
+    }
+}
+
+/// A snapshot of the machine state a breakpoint condition reads (`v1.25.0`, T-FP-C2).
+///
+/// Registers are captured up front and a small memory window is *not* — `peek` reads live through a
+/// captured copy of only what an expression asked for. Capturing WRAM wholesale per hit would cost
+/// 128 KiB per evaluation; reading live through `&mut` is impossible because [`crate::expr::Context`]
+/// takes `&self` (deliberately, so a condition cannot mutate the machine it is inspecting). The
+/// compromise is a bounded read-through cache filled during capture from the addresses the
+/// expression names.
+struct MachineContext {
+    regs: rustysnes_core::cpu::Regs,
+    /// Every byte of WRAM plus the low mirror, as one borrow-free copy taken at hit time.
+    ///
+    /// Only allocated when a condition actually exists (see `breakpoint_hit`), and only on a hit,
+    /// so an unconditional breakpoint and an un-hit conditional one both cost nothing.
+    wram: Vec<u8>,
+}
+
+impl MachineContext {
+    fn capture(emu: &mut EmuCore) -> Self {
+        let regs = emu.inner.system_mut().cpu.regs;
+        let bus = &mut emu.inner.system_mut().bus;
+        // 128 KiB. Taken per *hit*, not per instruction — a conditional breakpoint on a routine
+        // that runs once a frame pays this once a frame.
+        let wram = (0..0x2_0000u32).map(|i| bus.peek(0x7E_0000 | i)).collect();
+        Self { regs, wram }
+    }
+}
+
+impl crate::expr::Context for MachineContext {
+    fn reg(&self, reg: crate::expr::Reg) -> i64 {
+        use crate::expr::Reg;
+        use rustysnes_core::cpu::Status;
+        let r = &self.regs;
+        match reg {
+            Reg::A => i64::from(r.a),
+            Reg::X => i64::from(r.x),
+            Reg::Y => i64::from(r.y),
+            Reg::S => i64::from(r.s),
+            Reg::D => i64::from(r.d),
+            Reg::P => i64::from(r.p.bits()),
+            Reg::Pb => i64::from(r.pbr),
+            Reg::Db => i64::from(r.dbr),
+            Reg::Pc => i64::from(r.pc),
+            Reg::Flag(c) => {
+                let bit = match c {
+                    'c' => Status::C,
+                    'z' => Status::Z,
+                    'i' => Status::I,
+                    'd' => Status::D,
+                    'x' => Status::X,
+                    'm' => Status::M,
+                    'v' => Status::V,
+                    _ => Status::N,
+                };
+                i64::from(r.p.contains(bit))
+            }
+        }
+    }
+
+    fn peek(&self, addr: u32) -> u8 {
+        // WRAM only, matching the capture. Anything else reads 0 — the same posture `Bus::peek`
+        // itself takes for register space, and stated in the panel so a condition on cart ROM is
+        // not silently always-false.
+        let bank = (addr >> 16) & 0xFF;
+        let offset = addr & 0xFFFF;
+        let idx = match bank {
+            0x7E..=0x7F => (addr & 0x1_FFFF) as usize,
+            0x00..=0x3F | 0x80..=0xBF if offset < 0x2000 => (offset & 0x1FFF) as usize,
+            _ => return 0,
+        };
+        self.wram.get(idx).copied().unwrap_or(0)
+    }
+}
+
 pub(crate) fn cart_bank_map(mapping: Option<rustysnes_core::cart::MapMode>) -> Vec<BankRange> {
     use rustysnes_core::cart::MapMode;
     let Some(mapping) = mapping else {
@@ -1089,7 +1338,7 @@ mod tests {
     #[test]
     fn breakpoint_pauses_at_the_armed_pc() {
         let mut core = minimal_lorom_core();
-        core.set_breakpoints(&[0x00_0000]);
+        core.set_breakpoints(&[Breakpoint::at(0x00_0000)]);
         core.run_frame();
         assert!(
             core.is_paused(),
@@ -1141,12 +1390,59 @@ mod tests {
     #[test]
     fn breakpoints_sync_replaces_the_previous_set() {
         let mut core = minimal_lorom_core();
-        core.set_breakpoints(&[0x00_0000]);
+        core.set_breakpoints(&[Breakpoint::at(0x00_0000)]);
         core.set_breakpoints(&[]); // replace with an empty set
         core.run_frame();
         assert!(
             !core.is_paused(),
             "clearing the breakpoint list should stop it from firing"
+        );
+    }
+
+    /// A condition is checked only on an address match, and a false one must not stop execution —
+    /// otherwise "break here when A > $80" degenerates back into "break here".
+    #[test]
+    fn a_false_condition_does_not_fire_the_breakpoint() {
+        let mut core = minimal_lorom_core();
+        core.run_frame();
+        let pc = core.pbr_pc();
+        // Impossible: the accumulator is 16 bits, so nothing can exceed $FFFFF.
+        core.set_breakpoints(&[Breakpoint {
+            address: pc,
+            condition: Some(crate::expr::Expr::parse("a > $FFFFF").expect("parse")),
+        }]);
+        core.run_frame();
+        assert!(
+            !core.is_paused(),
+            "a condition that cannot be true must not pause execution"
+        );
+
+        // The same address with an always-true condition does fire, proving the address itself
+        // was reachable and the previous result was the condition, not a missed address.
+        core.set_breakpoints(&[Breakpoint {
+            address: pc,
+            condition: Some(crate::expr::Expr::parse("1").expect("parse")),
+        }]);
+        core.run_frame();
+        assert!(core.is_paused(), "an always-true condition must fire");
+    }
+
+    /// A conditional breakpoint reads the live register file, not a stale copy.
+    #[test]
+    fn a_condition_reads_the_current_registers() {
+        let mut core = minimal_lorom_core();
+        core.run_frame();
+        let pc = core.pbr_pc();
+        let a = core.system_mut().cpu.regs.a;
+        let src = format!("a == ${a:X}");
+        core.set_breakpoints(&[Breakpoint {
+            address: pc,
+            condition: Some(crate::expr::Expr::parse(&src).expect("parse")),
+        }]);
+        core.run_frame();
+        assert!(
+            core.is_paused(),
+            "condition {src} should have matched the live A register"
         );
     }
 

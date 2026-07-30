@@ -24,10 +24,12 @@ pub mod memory_panel;
 mod oam_panel;
 mod ppu_panel;
 mod rom_info_panel;
+mod trace_panel;
 mod watch_panel;
 
 pub use memory_panel::{FreezeEntry, PokeRequest};
 pub use rom_info_panel::RomInfo;
+pub use trace_panel::{Frame, HotAddress, TraceView};
 
 use crate::debug_snapshot::{DebugSnapshot, WatchpointEntry};
 use crate::ui_shell::{MenuAction, ShellState};
@@ -58,6 +60,8 @@ pub enum DebugPanel {
     Oam,
     /// The cart's CPU-bus memory map, derived from the detected mapping (`v1.25.0`, T-FP-C1).
     Map,
+    /// Instruction trace, call stack, events, and hot addresses (`v1.25.0`, T-FP-C2).
+    Trace,
 }
 
 /// Format a row of 16-bit words as space-separated 4-hex-digit groups — shared by the PPU (VRAM/
@@ -98,11 +102,12 @@ impl ShellState {
         ctx: &egui::Context,
         debug: Option<&DebugSnapshot>,
         watchpoints: &mut Vec<WatchpointEntry>,
-        breakpoints: &mut Vec<u32>,
+        breakpoints: &mut Vec<crate::emu::Breakpoint>,
         actions: &mut Vec<MenuAction>,
         rom_info: Option<&RomInfo>,
         freezes: &mut Vec<FreezeEntry>,
         pokes: &mut Vec<PokeRequest>,
+        symbols: Option<&crate::symbols::SymbolMap>,
     ) {
         let mut open = self.debugger_open;
         egui::Window::new("Debugger")
@@ -118,6 +123,7 @@ impl ShellState {
                     ui.selectable_value(&mut self.panel, DebugPanel::Memory, "Memory");
                     ui.selectable_value(&mut self.panel, DebugPanel::Oam, "OAM");
                     ui.selectable_value(&mut self.panel, DebugPanel::Map, "Map");
+                    ui.selectable_value(&mut self.panel, DebugPanel::Trace, "Trace");
                     ui.selectable_value(&mut self.panel, DebugPanel::MemCompare, "Compare");
                     ui.selectable_value(&mut self.panel, DebugPanel::Doc, "Docs");
                     ui.selectable_value(&mut self.panel, DebugPanel::RomInfo, "ROM Info");
@@ -152,6 +158,10 @@ impl ShellState {
                         self.render_map_panel(ui, debug);
                         return;
                     }
+                    DebugPanel::Trace => {
+                        self.render_trace_panel(ui, debug, symbols, actions);
+                        return;
+                    }
                     DebugPanel::Cpu
                     | DebugPanel::Ppu
                     | DebugPanel::Apu
@@ -170,7 +180,11 @@ impl ShellState {
                         debug,
                         breakpoints,
                         &mut self.bp_addr_input,
+                        &mut self.bp_cond_input,
                         &mut self.bp_addr_error,
+                        &mut self.asm_input,
+                        &mut self.asm_status,
+                        symbols,
                         actions,
                     ),
                     DebugPanel::Ppu => ppu_panel::render(ui, debug),
@@ -182,7 +196,8 @@ impl ShellState {
                     | DebugPanel::Doc
                     | DebugPanel::RomInfo
                     | DebugPanel::Memory
-                    | DebugPanel::Map => {
+                    | DebugPanel::Map
+                    | DebugPanel::Trace => {
                         unreachable!("handled above")
                     }
                 }

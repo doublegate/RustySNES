@@ -1126,6 +1126,91 @@ reports as uncovered rather than being forced into the nearest one — "open bus
 a wrong guess sends someone hunting a bug that is not there. Coprocessor windows are board-specific
 and are explicitly out of scope here, with a note in the panel saying so.
 
+### Conditional breakpoints and the expression evaluator (`v1.25.0`, T-FP-C2)
+
+A plain address breakpoint answers "did execution reach here", which is the wrong question for the
+bugs that are actually hard: a routine called two thousand times a frame where one call misbehaves.
+`crate::expr` adds a condition — `a > $80 && [$7E0300] == 3` — turning that into a breakpoint that
+fires once.
+
+The evaluator is integer-only, with no assignment, no calls, and read-only memory access (`[addr]`
+for a byte, `{addr}` for a little-endian word). It cannot have side effects on the machine it is
+inspecting, which is a requirement rather than a simplification: a condition is evaluated on every
+hit of its address.
+
+Three properties worth knowing:
+
+- **Evaluation is total.** Division and modulo by zero yield `0`, and out-of-range shifts saturate
+  rather than wrapping (`1 << 64` is `0`, not `1 << 0`). A breakpoint that stopped working
+  mid-session because a divisor transiently hit zero would be worse than one that briefly reads a
+  wrong value, and a shift that silently wrapped to a no-op would be a wrong answer with no signal.
+- **`&&`/`||` short-circuit**, so `[ptr] != 0 && [[ptr]] == 5` genuinely guards its own deref.
+- **A condition that does not parse never arms.** The panel shows the parse error beside the entry.
+  A breakpoint that means something other than what it reads as is worse than one that refuses.
+
+The cost model: the address is compared first and the condition is evaluated **only** on a match, so
+a conditional breakpoint costs the same per instruction as an unconditional one. On a hit it
+captures the register file plus a 128 KiB WRAM copy — paid once per hit, not once per instruction.
+
+`x` deliberately stays the index register; the width flags are spelled `fm`/`fx`, because a
+condition asks about X far more often than about the `X` status bit.
+
+### Symbol maps (`v1.25.0`, T-FP-C2)
+
+`JSR $9A3C` says nothing; `JSR update_sprites` says what the program is doing. `crate::symbols`
+loads WLA-DX-style `.sym` files (`[labels]` sections of `BB:AAAA name`) and flat/assignment forms,
+and names addresses in the disassembly, trace, call stack, and hot-address views.
+
+`nearest` resolves an address to `symbol+offset`, bounded at 4 KiB — exact-match-only would name the
+entry point and leave every instruction after it anonymous, while an unbounded search lets one
+symbol claim the whole ROM.
+
+Parsing is **tolerant**: an unrecognised line is skipped rather than failing the load, because
+refusing 4,000 good symbols over one stray directive trades the feature for pedantry. It is not
+*silent*, though — the load reports how many lines it skipped, so a file that produced nothing says
+so. Non-`[labels]` sections are skipped entirely: a WLA `.sym` also carries `[breakpoints]` and
+`[definitions]` whose lines look enough like symbols to poison the map.
+
+### Trace panel (`v1.25.0`, T-FP-C2)
+
+The reader for T-FP-C1's recording, with four views:
+
+- **Instructions** — the trace ring disassembled and symbol-labelled, with the register file as it
+  was before each instruction ran.
+- **Call stack** — **reconstructed from the event log**, not walked. The 65C816 stack holds return
+  addresses but nothing distinguishes one from any other pushed word, so walking `S` upward
+  confidently invents frames that never existed. Replaying the recorded enters and leaves produces
+  the stack that is actually there; the cost is that it reaches back only to when recording started,
+  which the panel says rather than papers over. An unmatched leave is dropped, never turned into a
+  fabricated caller.
+- **Events** — the raw call/return/interrupt log, indented by depth.
+- **Hot addresses** — the access counter's top 32, ties broken by address so the list does not
+  reshuffle every frame while counts are still climbing.
+
+The whole read-out (disassembling up to 4,096 rows, scanning 128 K counters) is gated on this panel
+being the open one — the same guard `available_hd_packs` and the save-slot grid already use.
+
+### Inline assembler (`v1.25.0`, T-FP-C2)
+
+`crate::asm65816` assembles one instruction at the CPU's current `PBR:PC` and `M`/`X` widths. Both
+matter: a branch operand is PC-relative, so the same source assembles to a different byte at every
+address, and `LDA #$12` is two bytes with `M=1` and three with `M=0`.
+
+**It assembles by searching the disassembler.** For each candidate opcode it synthesizes bytes, runs
+the *real* `rustysnes_cpu::disasm` over them, and keeps the encoding whose disassembly matches the
+requested text. The obvious alternative — a second, hand-maintained opcode table — has the worst
+possible failure mode: it stays plausible while being wrong for one opcode, and the assembler is
+exactly the tool you would reach for to investigate the bug that causes. This way the encoder is
+correct by construction against the decoder, the round-trip is the natural test, and adding an
+opcode to the decoder makes it assemblable for free.
+
+Scope: one instruction, no labels, no directives, no expressions. A debugger patch is "make this
+branch unconditional", not a build system. Patches go through the Memory editor's WRAM-only poke
+path, so one place decides what is writable, and the panel says so.
+
+An unreachable branch reports as **out of range with the distance**, not as an unknown encoding —
+that is the one failure the user fixes by moving the target rather than rewriting the line.
+
 ## Scripting + TAS movies (`v0.8.0 "Instrumentation"`, T-81-002)
 
 A Tools menu (native only, `#[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]`)
