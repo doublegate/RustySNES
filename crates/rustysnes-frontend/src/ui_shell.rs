@@ -42,6 +42,13 @@ pub enum MenuAction {
     ClearRecent,
     /// Clear every performance metric and counter (`v1.25.0`, T-FP-B).
     ResetPerfStats,
+    /// Discard every cached TAS state from this frame onward (`v1.25.0`, T-FP-G2).
+    ///
+    /// Raised by **every** piano-roll edit, because emulation is deterministic: changing frame N
+    /// makes every cached state from N onward describe a machine that no longer exists.
+    TasInvalidate(usize),
+    /// Seek the emulator to a TAS frame, restoring the nearest cached state and replaying forward.
+    TasSeek(usize),
     /// Pick and load a `.slangp`/`.cgp` shader preset (`v1.25.0`, T-FP-E).
     LoadShaderPreset,
     /// Discard the loaded preset and go back to the built-in chains.
@@ -240,6 +247,10 @@ pub struct ShellState {
     /// The audio mixer's per-voice gains, mutes, solos, and meters (`v1.25.0`, T-FP-F). Host state
     /// — never in a save state, and neutral by default (a bit-exact bypass).
     pub mixer: crate::debugger::MixerState,
+    /// Whether the `TAStudio` window is open (`v1.25.0`, T-FP-G2).
+    pub tastudio_open: bool,
+    /// The `TAStudio` timeline and its editing state.
+    pub tas: crate::tastudio::TasState,
     /// The Memory editor's "go to" address entry (`v1.25.0`, T-FP-C1).
     pub mem_goto_input: String,
     /// A requested new window start, consumed by `app.rs` (which owns `set_debug_memory_scroll`)
@@ -767,6 +778,9 @@ impl ShellState {
                         t!(cfg.locale, Msg::IntegerScale),
                     );
                     ui.checkbox(&mut self.performance_open, "Performance panel");
+                    // "TAStudio" is a proper noun, so it stays untranslated — the same treatment
+                    // the other tool names get.
+                    ui.checkbox(&mut self.tastudio_open, "TAStudio");
                     ui.checkbox(&mut self.fullscreen, t!(cfg.locale, Msg::Fullscreen));
                     ui.menu_button(t!(cfg.locale, Msg::PostFilter), |ui| {
                         for filter in crate::config::PostFilter::all() {
@@ -888,6 +902,9 @@ impl ShellState {
         }
         if self.performance_open {
             actions.extend(self.render_performance(&ctx, info));
+        }
+        if self.tastudio_open {
+            actions.extend(self.render_tastudio(&ctx));
         }
         #[cfg(feature = "cheats")]
         if self.cheats_open {

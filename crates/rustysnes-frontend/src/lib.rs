@@ -126,6 +126,9 @@ pub mod pacing;
 pub mod peripherals;
 pub mod rewind;
 pub mod save_states;
+// TAStudio: the frame-by-frame input editor + its greenzone (`v1.25.0`, T-FP-G2). The greenzone
+// reuses `crate::delta`'s compression, which is why T-FP-F was sequenced first.
+pub mod tastudio;
 pub mod ui_shell;
 // The on-screen controller (`v1.25.0`, T-FP-G1) — a touch input surface and a visual input display,
 // with one source of geometry so the hit test and the renderer cannot disagree.

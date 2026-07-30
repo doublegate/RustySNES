@@ -81,6 +81,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Settings gained Video (aspect, overscan grid), Audio (latency, kernel, health readout), and Input
     (autofire, gamepad list + deadzone) controls for all of the above.
 
+- **Frontend parity with RustyNES: `TAStudio` (T-FP-G2).** The frame-by-frame input editor — a piano
+  roll (`PianoRoll`), the state cache that makes seeking into it usable (`Greenzone`), and the grid
+  panel. Every edit **returns** the frame from which cached state is invalid, so ignoring the
+  invalidation would mean actively discarding a value; it is at-or-after the edited frame, because
+  the state *at* frame N is computed from the input *at* frame N. The greenzone reuses
+  `crate::delta`'s compression unchanged — which is why T-FP-F was sequenced first — and caches
+  every 30 frames rather than every frame. Recording and state capture happen only while the window
+  is open.
+  - **Fixes a real defect in `crate::delta::Chain`** that building the greenzone exposed: the chain
+    evicts from the front, which is where a delta chain's keyframe base lives, so evicting a keyframe
+    left every following delta undecodable. The chain reported N entries and could restore only the
+    newest few — a capacity of 4 against a keyframe interval of 8 restored exactly **one** of its
+    four claimed states. `evict_front` now reconstructs the new front while its base still exists and
+    re-stores it whole, and a test asserts every claimed entry survives eviction across several
+    capacity/interval combinations. This affected the **rewind buffer** as well, since it is the same
+    chain.
+
 - **Frontend parity with RustyNES: A/V capture, virtual pad, databases, macros (T-FP-G1).**
   - **A/V capture** (`crate::av_record`) to raw `.y4m` + `.wav`, printing the `ffmpeg` mux command on
     stop. Raw streams rather than a container: muxing means either an `FFmpeg` dependency or

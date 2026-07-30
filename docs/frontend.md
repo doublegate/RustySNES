@@ -703,6 +703,59 @@ contract or make the macro claim a guarantee it does not meet.
 - Playing an empty slot is a no-op rather than a playback that emits nothing, which would be
   indistinguishable from "playing silence".
 
+## TAStudio (`v1.25.0`, T-FP-G2)
+
+A TAS is written by editing a **timeline**, not by playing it. `crate::tastudio` is that timeline
+(`PianoRoll`), the cache that makes seeking into it usable (`greenzone::Greenzone`), and the grid
+(`tastudio::panel`).
+
+### Invalidation is the whole correctness story
+
+Emulation is deterministic: a machine state is a function of the initial state and every input up to
+it. Change frame 500's input and every cached state from **500 onward** describes a machine that no
+longer exists.
+
+So every `PianoRoll` edit **returns** the frame from which cached state is invalid, and the panel
+forwards it as `MenuAction::TasInvalidate`. Returning it rather than leaving it implicit is
+deliberate: a caller that ignored the invalidation would have to actively discard a value.
+
+It is at-or-after, not after. The state *at* frame N is computed from the input *at* frame N, so
+invalidating from N+1 would leave exactly the one stale state about to be resumed from.
+
+### The greenzone reuses the rewind compression
+
+A greenzone of raw save-states is gigabytes. But TAS states have precisely the property
+`crate::delta` exploits — successive states differ in a few hundred bytes — so the same XOR-delta +
+RLE chain applies unchanged. **This is why T-FP-F was sequenced before T-FP-G2** rather than the
+reverse.
+
+States are kept every 30 frames, not every frame: replaying up to 29 frames from a cached state is
+microseconds, while storing every frame is the whole problem.
+
+A seek with no cached state at or before the target **says so** rather than appearing to work — the
+alternative is replaying from power-on, which looks like a hang.
+
+### A bug this found in the compression
+
+Building the greenzone exposed a real defect in `crate::delta::Chain`, which T-FP-F had already
+landed: the chain evicts from the **front**, which is exactly where a delta chain's keyframe base
+lives. Evicting a keyframe left every following delta undecodable, so the chain reported N entries
+and could restore only the newest few — a capacity of 4 against a keyframe interval of 8 restored
+exactly **one** of its four claimed states.
+
+`Chain::evict_front` now reconstructs the new front **while its base still exists** and re-stores it
+whole. That costs one reconstruct per eviction and is what makes "the ring holds N states" mean N
+*recoverable* states. A test now asserts that property directly across several
+capacity/keyframe-interval combinations, including ones where the interval exceeds the capacity.
+
+This mattered for the rewind buffer too, not just the greenzone: it is the same chain.
+
+### Recording and cost
+
+The timeline records played input and offers a state at each checkpoint **only while the TAStudio
+window is open**. A greenzone nobody is editing against is pure cost, and without the guard the app
+would take a save-state every 30 frames for the whole session.
+
 ## The determinism boundary
 
 Rate control (the dynamic-rate-control resampler) and run-ahead (snapshot/restore
