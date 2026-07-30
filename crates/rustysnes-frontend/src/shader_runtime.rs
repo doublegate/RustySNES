@@ -30,10 +30,14 @@ use crate::shader_pass::{MAX_PARAMS, PassDesc, ShaderChain};
 pub struct Uniforms {
     /// `x`/`y` = input size in pixels, `z`/`w` = output size in pixels.
     pub sizes: [f32; 4],
-    /// `x` = this pass's frame counter, `y`/`z`/`w` = reserved (zero).
+    /// `x` = this pass's frame counter, `y`/`z` = the live sub-rect fraction of the bound texture,
+    /// `w` = reserved (zero).
     ///
-    /// Reserved rather than removed so adding a global (a time value, a pass index) later does not
-    /// change the struct's size and silently shift every parameter by one row.
+    /// The sub-rect matters because pass 0 samples the emulator's **backing** texture, which is
+    /// allocated at the maximum framebuffer size and holds the live 256x224 (or hi-res) image in
+    /// its top-left corner. Sampling `0..1` across it would stretch a mostly-unwritten texture over
+    /// the screen. Later passes sample an intermediate that is exactly its own size, so their
+    /// fraction is `(1, 1)`.
     pub frame: [f32; 4],
     /// The pass's parameters, one per slot, zero past the declared count.
     pub params: [f32; MAX_PARAMS],
@@ -45,8 +49,19 @@ const _: () = assert!(size_of::<Uniforms>().is_multiple_of(16));
 
 impl Uniforms {
     /// Build the uniform block for one pass.
+    ///
+    /// `source_rect` is the fraction of the **bound texture** that actually holds the input image
+    /// — `(1.0, 1.0)` for every pass whose input is an intermediate sized to match, and
+    /// `(fb_w / texture_w, fb_h / texture_h)` for pass 0, whose input is the oversized backing
+    /// framebuffer. See [`Self::frame`].
     #[must_use]
-    pub fn for_pass(pass: &PassDesc, input: (u32, u32), output: (u32, u32), frame: u32) -> Self {
+    pub fn for_pass(
+        pass: &PassDesc,
+        input: (u32, u32),
+        output: (u32, u32),
+        frame: u32,
+        source_rect: (f32, f32),
+    ) -> Self {
         #[allow(clippy::cast_precision_loss)]
         Self {
             sizes: [
@@ -55,7 +70,12 @@ impl Uniforms {
                 output.0 as f32,
                 output.1 as f32,
             ],
-            frame: [pass.frame_counter(frame) as f32, 0.0, 0.0, 0.0],
+            frame: [
+                pass.frame_counter(frame) as f32,
+                source_rect.0,
+                source_rect.1,
+                0.0,
+            ],
             params: pass.pack_params(),
         }
     }
@@ -95,6 +115,37 @@ struct StackUniforms {
 fn source_size() -> vec2<f32> { return stack.sizes.xy; }
 fn output_size() -> vec2<f32> { return stack.sizes.zw; }
 fn frame_count() -> f32 { return stack.frame.x; }
+// The fraction of the bound texture that holds the input image. `(1,1)` for an intermediate;
+// less for pass 0, whose input is the oversized backing framebuffer. `vs_main` already applies
+// it to `in.uv`, so a pass only needs this to convert `in.uv` BACK to a 0..1 image coordinate.
+fn source_rect() -> vec2<f32> { return stack.frame.yz; }
+// `in.uv` renormalised to 0..1 over the live image, for anything that reasons in image space
+// (barrel distortion, a vignette centre) rather than in texture space.
+fn image_uv(uv: vec2<f32>) -> vec2<f32> { return uv / max(source_rect(), vec2<f32>(1e-6, 1e-6)); }
+// The inverse: a 0..1 image coordinate back to the texture coordinate that samples it.
+fn tex_uv(uv: vec2<f32>) -> vec2<f32> { return uv * source_rect(); }
+// One SOURCE pixel as a texture-space step. A pass that wants to reach a neighbouring input texel
+// must use this, not `1 / source_size()` — that is an image-space step, and the two differ by
+// exactly the sub-rect fraction whenever the bound texture is larger than the image.
+fn texel() -> vec2<f32> {
+    return source_rect() / max(source_size(), vec2<f32>(1.0, 1.0));
+}
+// One OUTPUT pixel as a texture-space step, for effects sized to the destination (a glow ring).
+fn out_texel() -> vec2<f32> {
+    return source_rect() / max(output_size(), vec2<f32>(1.0, 1.0));
+}
+// Clamp a texture coordinate to the live sub-rect.
+//
+// The sampler's own `ClampToEdge` clamps to the edge of the whole TEXTURE, which for pass 0 is
+// the edge of the oversized backing allocation — so a neighbour tap that walks off the picture
+// reads never-written black instead of the edge pixel, and every effect with a kernel grows a
+// dark rim along the right and bottom edges. Any pass that offsets its UV must route the result
+// through this. The half-texel inset keeps the clamp on the last real texel's centre rather than
+// on the boundary between it and the padding.
+fn clamp_uv(uv: vec2<f32>) -> vec2<f32> {
+    let half = texel() * 0.5;
+    return clamp(uv, half, source_rect() - half);
+}
 
 // Parameters are packed four to a vec4 to satisfy the uniform array-stride rule (a
 // `array<f32, N>` in the uniform address space has a 16-byte stride per element in WGSL, which
@@ -121,7 +172,9 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> StackVsOut {
     var out: StackVsOut;
     let x = f32((idx << 1u) & 2u);
     let y = f32(idx & 2u);
-    out.uv = vec2<f32>(x, y);
+    // Scaled to the live sub-rect, so pass 0 samples the emulator's image rather than the
+    // unwritten remainder of an oversized backing texture.
+    out.uv = vec2<f32>(x, y) * source_rect();
     out.pos = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
     return out;
 }
@@ -229,10 +282,14 @@ fn fs_main(in: StackVsOut) -> @location(0) vec4<f32> {
             Param::unit("a", "A", 0.25),
             Param::unit("b", "B", 0.75),
         ]);
-        let u = Uniforms::for_pass(&pass, (256, 224), (512, 448), 7);
+        let u = Uniforms::for_pass(&pass, (256, 224), (512, 448), 7, (0.5, 0.25));
         assert!((u.sizes[0] - 256.0).abs() < 1e-6);
         assert!((u.sizes[3] - 448.0).abs() < 1e-6);
         assert!((u.frame[0] - 7.0).abs() < 1e-6);
+        // The sub-rect rides in the reserved lanes rather than growing the struct, which would
+        // shift every parameter by one row against the WGSL side.
+        assert!((u.frame[1] - 0.5).abs() < 1e-6);
+        assert!((u.frame[2] - 0.25).abs() < 1e-6);
         assert!((u.params[0] - 0.25).abs() < 1e-6);
         assert!((u.params[1] - 0.75).abs() < 1e-6);
 

@@ -1917,7 +1917,11 @@ impl App {
             // `frames_presented` is the stack's frame counter: it advances once per present, which
             // is what an animated pass (NTSC dot crawl) needs, and a pass with `frame_count_mod`
             // folds it down itself.
-            let frame = u32::try_from(active.perf.frames_presented & 0xFFFF_FFFF).unwrap_or(0);
+            // The mask already guarantees the value fits, so the cast is exact and the previous
+            // `try_from(..).unwrap_or(0)` could only ever have taken its success arm — a fallback
+            // that reads as if it handles something it cannot.
+            #[allow(clippy::cast_possible_truncation)]
+            let frame = active.perf.frames_presented as u32;
             active.gfx.present_chain(&mut encoder, &view, &chain, frame);
         }
 

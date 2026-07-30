@@ -284,6 +284,24 @@ The prelude (`shader_runtime::PRELUDE`) is prepended to every pass, so the bindi
 exactly one place. It supplies the bindings, `source_size()`/`output_size()`/`frame_count()`/
 `param(i)`, and the fullscreen-triangle vertex stage; a pass supplies only its `fs_main`.
 
+### The input is a sub-rect, and every pass must know it
+
+Pass 0's input is the emulator's **backing** framebuffer texture, which is allocated once at the
+maximum size and holds the live 256x224 (or hi-res) image in its **top-left corner**. Sampling
+`0..1` across it therefore stretches a mostly-unwritten allocation over the screen. The uniform
+block carries the live fraction (`source_rect()`), the shared vertex stage applies it to `in.uv`,
+and every later pass gets `(1, 1)` because an intermediate is sized exactly to its own image.
+
+That one fact generates four prelude helpers, and a pass that ignores them is subtly wrong rather
+than obviously broken:
+
+| helper | for |
+|---|---|
+| `image_uv(uv)` / `tex_uv(uv)` | effects centred on the **picture** — barrel distortion, a vignette |
+| `texel()` | a neighbouring **source** pixel. NOT `1 / source_size()`, which is an image-space step |
+| `out_texel()` | a neighbouring **output** pixel, for effects sized to the destination |
+| `clamp_uv(uv)` | any offset tap. The sampler's own `ClampToEdge` clamps to the edge of the whole *texture*, so an unclamped tap past the picture reads never-written black and draws a dark rim down the right and bottom edges |
+
 Two layout facts that do not error when wrong, they just read the wrong data:
 
 - `Uniforms` must be 16-byte aligned (WGSL's uniform address space). A `const` assertion enforces it.
@@ -297,6 +315,15 @@ Pipelines and intermediate targets are rebuilt only when the chain's identity or
 changes, tracked by a cheap signature string. Compiling a pipeline and allocating a texture every
 present is the difference between a shader stack being usable and being a slideshow. A slider move
 writes a uniform; it does not rebuild.
+
+**Everything a built pass captures must appear in that signature**, because anything omitted is a
+stale binding waiting to happen — and the failure lands at *draw* time as a wgpu validation error,
+not at build time. It therefore covers: the target format; the **backing texture's dimensions**,
+which are its identity here since `ensure_texture_capacity` recreates it exactly when one of them
+grows (an HD pack, a hi-res mode) while pass 0's bind group still holds a view of the old one; a
+CRC of each pass's source rather than its length, since a length collision would keep silently
+running the previous pipeline; and `filter_linear`/`wrap_mode`, which `BuiltPass::build` bakes into
+a sampler it captures.
 
 A pass's pipeline format matches **its own target**, not the surface: only the last pass renders to
 the swapchain. Using the surface format throughout is a validation error at *draw* time, so it would

@@ -377,22 +377,29 @@ fn fs_main(in: StackVsOut) -> @location(0) vec4<f32> {
     let glow      = clamp(param(4u), 0.0, 1.0);
     let vignette  = clamp(param(5u), 0.0, 1.0);
 
-    let uv = curve(in.uv, curvature);
+    // Distortion is an IMAGE-space effect: its centre is the picture's centre, not the centre of
+    // whatever backing texture the picture happens to sit in. So renormalise, curve, bounds-check
+    // against the image, and only then map back to texture space to sample.
+    let iuv = curve(image_uv(in.uv), curvature);
     // Outside the curved border: black, not a clamped edge texel smeared around the corner.
-    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+    if (iuv.x < 0.0 || iuv.x > 1.0 || iuv.y < 0.0 || iuv.y > 1.0) {
         return vec4<f32>(0.0, 0.0, 0.0, 1.0);
     }
+    let uv = tex_uv(iuv);
 
     var color = textureSample(stack_tex, stack_samp, uv).rgb;
 
     // Glow: a cheap 4-tap ring at one output texel, added rather than blended so glow = 0 is exact.
     if (glow > 0.0) {
-        let px = 1.0 / max(output_size(), vec2<f32>(1.0, 1.0));
+        let px = out_texel();
         var bloom = vec3<f32>(0.0);
-        bloom = bloom + textureSample(stack_tex, stack_samp, uv + vec2<f32>( px.x, 0.0)).rgb;
-        bloom = bloom + textureSample(stack_tex, stack_samp, uv + vec2<f32>(-px.x, 0.0)).rgb;
-        bloom = bloom + textureSample(stack_tex, stack_samp, uv + vec2<f32>(0.0,  px.y)).rgb;
-        bloom = bloom + textureSample(stack_tex, stack_samp, uv + vec2<f32>(0.0, -px.y)).rgb;
+        // Every tap clamped to the live sub-rect: the sampler's own clamp stops at the edge of
+        // the oversized BACKING texture, so an unclamped tap past the picture reads never-written
+        // black and draws a dark rim down the right and bottom edges.
+        bloom = bloom + textureSample(stack_tex, stack_samp, clamp_uv(uv + vec2<f32>( px.x, 0.0))).rgb;
+        bloom = bloom + textureSample(stack_tex, stack_samp, clamp_uv(uv + vec2<f32>(-px.x, 0.0))).rgb;
+        bloom = bloom + textureSample(stack_tex, stack_samp, clamp_uv(uv + vec2<f32>(0.0,  px.y))).rgb;
+        bloom = bloom + textureSample(stack_tex, stack_samp, clamp_uv(uv + vec2<f32>(0.0, -px.y))).rgb;
         color = color + bloom * (glow * 0.25 * 0.5);
     }
 
@@ -419,7 +426,8 @@ fn fs_main(in: StackVsOut) -> @location(0) vec4<f32> {
     }
 
     if (vignette > 0.0) {
-        let c = in.uv * 2.0 - 1.0;
+        // Centred on the IMAGE, for the same reason the curvature is.
+        let c = image_uv(in.uv) * 2.0 - 1.0;
         let falloff = 1.0 - vignette * clamp(dot(c, c) * 0.35, 0.0, 1.0);
         color = color * falloff;
     }
@@ -470,7 +478,9 @@ fn fs_main(in: StackVsOut) -> @location(0) vec4<f32> {
     let fringing  = clamp(param(2u), 0.0, 1.0);
     let crawl     = clamp(param(3u), 0.0, 1.0);
 
-    let px = 1.0 / max(source_size(), vec2<f32>(1.0, 1.0));
+    // A texture-space step of one source pixel — NOT `1 / source_size()`, which is an image-space
+    // step and lands in the wrong place whenever the bound texture is larger than the image.
+    let px = texel();
     let here = textureSample(stack_tex, stack_samp, in.uv).rgb;
 
     // Every knob at zero must be a bit-exact bypass, the same contract the audio EQ holds — that
@@ -489,7 +499,7 @@ fn fs_main(in: StackVsOut) -> @location(0) vec4<f32> {
         var weight = 0.0;
         for (var i = -2; i <= 2; i = i + 1) {
             let o = f32(i) * span;
-            let s = to_yiq(textureSample(stack_tex, stack_samp, in.uv + vec2<f32>(o, 0.0)).rgb);
+            let s = to_yiq(textureSample(stack_tex, stack_samp, clamp_uv(in.uv + vec2<f32>(o, 0.0))).rgb);
             let w = 1.0 - abs(f32(i)) * 0.25;
             chroma = chroma + s.yz * w;
             weight = weight + w;
@@ -515,8 +525,8 @@ fn fs_main(in: StackVsOut) -> @location(0) vec4<f32> {
 
     // Colour fringing on a vertical edge, applied in RGB so it survives the YIQ round-trip.
     if (fringing > 0.0) {
-        let r = textureSample(stack_tex, stack_samp, in.uv + vec2<f32>(px.x * fringing, 0.0)).r;
-        let b = textureSample(stack_tex, stack_samp, in.uv - vec2<f32>(px.x * fringing, 0.0)).b;
+        let r = textureSample(stack_tex, stack_samp, clamp_uv(in.uv + vec2<f32>(px.x * fringing, 0.0))).r;
+        let b = textureSample(stack_tex, stack_samp, clamp_uv(in.uv - vec2<f32>(px.x * fringing, 0.0))).b;
         rgb = vec3<f32>(mix(rgb.r, r, fringing * 0.5), rgb.g, mix(rgb.b, b, fringing * 0.5));
     }
 

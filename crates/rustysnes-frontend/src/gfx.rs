@@ -983,6 +983,7 @@ impl Gfx {
             chain,
             &sizes,
             &self.texture,
+            (self.texture_w, self.texture_h),
             self.config.format,
         );
         if self.stack.passes.len() != chain.passes.len() {
@@ -993,16 +994,24 @@ impl Gfx {
             return;
         }
 
-        // Pass 0 samples the live framebuffer sub-rect; later passes sample a full intermediate.
+        // Pass 0's input is the emulator's BACKING texture, allocated at the maximum framebuffer
+        // size with the live image in its top-left corner — so it samples a sub-rect, and the
+        // fraction is handed to the shader (`source_rect()`, applied in the shared vertex stage).
+        // Every later pass reads an intermediate sized exactly to its input, so its fraction is 1.
+        #[allow(clippy::cast_precision_loss)]
+        let source_rect = (
+            self.fb_w as f32 / self.texture_w.max(1) as f32,
+            self.fb_h as f32 / self.texture_h.max(1) as f32,
+        );
         for (i, pass) in chain.passes.iter().enumerate() {
             let built = &self.stack.passes[i];
-            let input_size = if i == 0 {
-                (self.fb_w, self.fb_h)
+            let (input_size, rect) = if i == 0 {
+                ((self.fb_w, self.fb_h), source_rect)
             } else {
-                sizes[i - 1]
+                (sizes[i - 1], (1.0, 1.0))
             };
             let uniforms =
-                crate::shader_runtime::Uniforms::for_pass(pass, input_size, sizes[i], frame);
+                crate::shader_runtime::Uniforms::for_pass(pass, input_size, sizes[i], frame, rect);
             self.queue
                 .write_buffer(&built.uniform_buf, 0, &uniforms.as_bytes());
 
@@ -1269,9 +1278,10 @@ impl StackState {
         chain: &crate::shader_pass::ShaderChain,
         sizes: &[(u32, u32)],
         source_view: &wgpu::Texture,
+        source_dims: (u32, u32),
         target_format: wgpu::TextureFormat,
     ) {
-        let signature = Self::signature_of(chain, sizes, target_format);
+        let signature = Self::signature_of(chain, sizes, source_dims, target_format);
         if signature == self.signature && self.passes.len() == chain.passes.len() {
             return;
         }
@@ -1335,26 +1345,43 @@ impl StackState {
     }
 
     /// A cheap value identifying what the built state corresponds to.
+    ///
+    /// Everything a built pass *captures* must appear here, because anything that does not is a
+    /// stale binding waiting to happen. In particular `source` identifies the **backing texture**:
+    /// pass 0's bind group holds a view of it, and `Gfx::ensure_texture_capacity` replaces that
+    /// texture outright when the framebuffer grows (an HD pack, a hi-res mode). Without it in the
+    /// signature the cache reports a hit and pass 0 keeps a view of a destroyed texture, which
+    /// wgpu rejects at draw time — a mid-frame validation failure, not a build error.
     fn signature_of(
         chain: &crate::shader_pass::ShaderChain,
         sizes: &[(u32, u32)],
+        source: (u32, u32),
         target_format: wgpu::TextureFormat,
     ) -> String {
         use core::fmt::Write as _;
         let mut out = String::with_capacity(64);
-        let _ = write!(out, "{target_format:?}|");
+        // The backing texture's dimensions ARE its identity here: it is only ever recreated by
+        // `ensure_texture_capacity`, which recreates it exactly when one of them grows.
+        let _ = write!(out, "{target_format:?}|{}x{}|", source.0, source.1);
         for (pass, size) in chain.passes.iter().zip(sizes.iter()) {
-            // The source length rather than the source: a full-source compare per present would
-            // hash kilobytes of WGSL every frame for a value that changes only when a shader is
-            // reloaded, and a length collision rebuilds nothing worse than one extra time.
+            // A CRC of the source, not its length: a length collision between two different
+            // shaders would silently keep running the old pipeline, and "silently the wrong
+            // shader" is a worse failure than one extra rebuild. `crc32fast` is already a
+            // dependency and hashing a few kilobytes per *present* is not measurable against a
+            // pass that then samples every pixel on screen.
+            //
+            // `filter_linear`/`wrap_mode` are here because `BuiltPass::build` bakes them into a
+            // sampler it captures; changing one otherwise leaves the old sampler in place.
             let _ = write!(
                 out,
-                "{}:{}:{}x{}:{};",
+                "{}:{:08x}:{}x{}:{}{}{};",
                 pass.name,
-                pass.source.len(),
+                crc32fast::hash(pass.source.as_bytes()),
                 size.0,
                 size.1,
-                u8::from(pass.float_framebuffer)
+                u8::from(pass.float_framebuffer),
+                u8::from(pass.filter_linear),
+                pass.wrap_mode as u8,
             );
         }
         out

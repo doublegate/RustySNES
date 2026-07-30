@@ -28,18 +28,35 @@ use crate::shader_pass::{Param, PassDesc};
 use crate::shader_runtime::{Uniforms, compose};
 
 /// Render one pass over a generated source image and read the result back.
+fn render_pass(gpu: &TestGpu, pass: &PassDesc, src: &Readback, frame: u32) -> Readback {
+    render_pass_padded(gpu, pass, src, frame, 1)
+}
+
+/// As [`render_pass`], but the input image is placed in the **top-left corner** of a texture
+/// `pad` times larger in each axis, exactly as the live frontend's oversized backing framebuffer
+/// holds it. `pad = 1` is the ordinary case.
+///
+/// This exists to test the sub-rect handling: with `pad > 1` the pass must produce the same image
+/// it does at `pad = 1`, because the extra texture is not part of the picture.
 // One straight-line wgpu recipe (upload, sampler, uniforms, module, layout, bind group, pipeline,
 // pass, readback); splitting it would scatter one sequence across functions taking the same args.
 #[allow(clippy::too_many_lines)]
-fn render_pass(gpu: &TestGpu, pass: &PassDesc, src: &Readback, frame: u32) -> Readback {
+fn render_pass_padded(
+    gpu: &TestGpu,
+    pass: &PassDesc,
+    src: &Readback,
+    frame: u32,
+    pad: u32,
+) -> Readback {
     let (w, h) = (src.width, src.height);
+    let (tex_w, tex_h) = (w * pad, h * pad);
 
-    // Upload the source image as the pass's input texture.
+    // Upload the source image into the top-left of the (possibly larger) input texture.
     let input = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("golden-input"),
         size: wgpu::Extent3d {
-            width: w,
-            height: h,
+            width: tex_w,
+            height: tex_h,
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
@@ -83,7 +100,12 @@ fn render_pass(gpu: &TestGpu, pass: &PassDesc, src: &Readback, frame: u32) -> Re
         ..Default::default()
     });
 
-    let uniforms = Uniforms::for_pass(pass, (w, h), (w, h), frame);
+    // The live fraction of the bound texture. `pad = 1` makes this `(1, 1)`, which is what keeps
+    // a golden hash portable — it must not depend on how large a backing texture the frontend
+    // happened to allocate.
+    #[allow(clippy::cast_precision_loss)]
+    let source_rect = (w as f32 / tex_w as f32, h as f32 / tex_h as f32);
+    let uniforms = Uniforms::for_pass(pass, (w, h), (w, h), frame, source_rect);
     let ubuf = gpu.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("golden-uniforms"),
         size: size_of::<Uniforms>() as u64,
@@ -257,6 +279,48 @@ fn the_harness_round_trips_an_image_exactly() {
     let out = render_pass(&gpu, &PassDesc::new("identity", IDENTITY), &src, 0);
     assert_eq!(out.rgba, src.rgba, "identity pass must be byte-exact");
     assert_eq!(out.hash(), src.hash());
+}
+
+/// A pass sees the IMAGE, not the backing texture it happens to sit in.
+///
+/// The live frontend allocates one framebuffer texture at the maximum size and writes the current
+/// 256x224 (or hi-res) image into its top-left corner, so pass 0's input is a sub-rect. Before the
+/// `source_rect` uniform existed, the shared vertex stage emitted plain `0..1` UVs, so pass 0
+/// stretched the whole allocation — mostly never-written texels — across the screen. Rendering the
+/// same image at `pad = 1` and `pad = 2` must therefore agree byte for byte.
+#[test]
+fn a_padded_backing_texture_renders_the_same_image() {
+    crate::gpu_test!(gpu);
+    let src = test_image(64, 32);
+    // Nearest sampling and an identity pass, so any difference is the UV mapping and nothing else.
+    let pass = PassDesc::new("identity", IDENTITY);
+    let exact = render_pass_padded(&gpu, &pass, &src, 0, 1);
+    let padded = render_pass_padded(&gpu, &pass, &src, 0, 2);
+    assert_eq!(
+        padded.rgba, exact.rgba,
+        "a 2x-oversized backing texture must not change the picture"
+    );
+    // And the image is genuinely the source, not merely self-consistent between the two runs.
+    assert_eq!(padded.rgba, src.rgba);
+}
+
+/// The effects that reason in image space stay put when the backing texture grows.
+///
+/// The CRT pass curves, vignettes, and glows around the *picture's* centre. Those are computed
+/// from `image_uv`/`out_texel` rather than from the raw UV precisely so an oversized backing
+/// texture cannot move them — this asserts that, for a pass with every such knob engaged.
+#[test]
+fn image_space_effects_are_independent_of_the_backing_texture_size() {
+    crate::gpu_test!(gpu);
+    let src = test_image(64, 32);
+    let pass = crt_pass(0.5, 0.5, 0.4, 0.5, 0.3, 0.4);
+    let exact = render_pass_padded(&gpu, &pass, &src, 0, 1);
+    let padded = render_pass_padded(&gpu, &pass, &src, 0, 2);
+    assert_eq!(
+        padded.hash(),
+        exact.hash(),
+        "curvature/vignette/glow must key on the image, not the allocation"
+    );
 }
 
 #[test]

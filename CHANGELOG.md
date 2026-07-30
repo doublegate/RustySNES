@@ -93,6 +93,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     in the wrong slot.
   - **`video.stack` defaults to `Off`**, which builds an empty chain — so an existing `config.toml`
     renders byte-identically and the `v1.2.0` `PostFilter` path is untouched.
+  - **The input is a sub-rect, and the prelude says so.** Pass 0 samples the emulator's *backing*
+    framebuffer, allocated at the maximum size with the live image in its top-left corner, so the
+    uniform block carries the live fraction and the shared vertex stage applies it; later passes read
+    intermediates sized exactly to their input and get `(1, 1)`. Four helpers follow from that —
+    `image_uv`/`tex_uv` for effects centred on the picture (curvature, vignette), `texel`/`out_texel`
+    for a neighbouring source/output pixel, and `clamp_uv` for any offset tap, because the sampler's
+    own clamp stops at the edge of the whole *texture* and an unclamped tap past the picture reads
+    never-written black — a dark rim down the right and bottom edges.
+  - **The rebuild signature covers everything a built pass captures**, since anything omitted is a
+    stale binding that fails at *draw* time rather than at build time: the backing texture's
+    dimensions (it is recreated exactly when one of them grows, while pass 0 still holds a view of
+    the old one), a CRC of each pass's source rather than its length (a collision would keep silently
+    running the previous pipeline), and `filter_linear`/`wrap_mode` (baked into a captured sampler).
   - **Richer CRT** (scanlines, mask, curvature, beam shape, glow, vignette) and an **NTSC composite**
     pass (chroma bleed, artefacts, fringing, dot crawl). NTSC is an RGB-domain approximation
     deliberately: the full technique needs a palette-index framebuffer, which is a NES property — the
