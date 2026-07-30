@@ -1550,6 +1550,9 @@ impl App {
         {
             active.resampler.set_volume(config.audio.volume);
             active.resampler.set_kernel(config.audio.resampler);
+            active
+                .resampler
+                .set_eq(config.audio.eq.enabled, config.audio.eq.gains_db);
             let cap = audio.ring.capacity();
             // `v1.25.0`: servo to the configured LATENCY setpoint rather than the ring's midpoint,
             // so the achieved latency is what the user asked for instead of a side effect of the
@@ -1796,6 +1799,15 @@ impl App {
                                 config.recent.touch(&path);
                                 active.rom_title =
                                     path.file_stem().map(|s| s.to_string_lossy().into_owned());
+                                // Per-game overrides (`v1.25.0`) applied after the global config is
+                                // otherwise settled and before the next present reads it, so the
+                                // ROM's first frame already honours them.
+                                if let Some(stem) = active.rom_title.as_deref()
+                                    && let Some(ov) = crate::per_game::load(stem)
+                                {
+                                    ov.apply(config);
+                                    active.shell.status.push_str(" + per-game settings");
+                                }
                                 let _ = config.save();
                             }
                         }
@@ -1829,6 +1841,33 @@ impl App {
                 MenuAction::OpenRecent(_) => {
                     active.shell.status =
                         "Recent ROMs need a filesystem; use the file picker".into();
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                MenuAction::SavePerGame => {
+                    if let Some(stem) = active.rom_title.clone() {
+                        let ov = crate::per_game::PerGameOverrides::capture(config);
+                        active.shell.status = match crate::per_game::save(&stem, &ov) {
+                            Ok(()) => format!("Saved per-game settings for {stem}"),
+                            Err(e) => format!("Could not save per-game settings: {e}"),
+                        };
+                    } else {
+                        active.shell.status = "Load a ROM first".into();
+                    }
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                MenuAction::ForgetPerGame => {
+                    if let Some(stem) = active.rom_title.clone() {
+                        active.shell.status = match crate::per_game::forget(&stem) {
+                            Ok(()) => format!("Cleared per-game settings for {stem}"),
+                            Err(e) => format!("Could not clear per-game settings: {e}"),
+                        };
+                    } else {
+                        active.shell.status = "Load a ROM first".into();
+                    }
+                }
+                #[cfg(target_arch = "wasm32")]
+                MenuAction::SavePerGame | MenuAction::ForgetPerGame => {
+                    active.shell.status = "Per-game settings need a filesystem".into();
                 }
                 MenuAction::ClearRecent => {
                     config.recent.clear();

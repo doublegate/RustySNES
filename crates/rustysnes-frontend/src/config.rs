@@ -404,6 +404,8 @@ pub struct AudioConfig {
     pub latency_ms: u32,
     /// Which interpolation kernel the producer-side resampler uses (`v1.25.0`).
     pub resampler: crate::audio_core::ResampleKernel,
+    /// Graphic equaliser (`v1.25.0`).
+    pub eq: EqConfig,
     /// Preferred output device name, or `None` for the host default (`v1.25.0`). A name that no
     /// longer matches any present device falls back to the default rather than refusing to start —
     /// devices legitimately disappear between sessions.
@@ -438,7 +440,31 @@ impl Default for AudioConfig {
             voice_mutes: [false; 8],
             latency_ms: 60,
             resampler: crate::audio_core::ResampleKernel::default(),
+            eq: EqConfig::default(),
             device: None,
+        }
+    }
+}
+
+/// Graphic-equaliser settings (`v1.25.0`, `crate::eq`).
+///
+/// Off by default with every band flat, so the default build's audio path is bit-identical to before
+/// this existed — `Equalizer` detects flat and bypasses exactly.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EqConfig {
+    /// Whether the EQ stage runs at all.
+    pub enabled: bool,
+    /// Per-band gain in dB, clamped to +/-12 by `crate::eq::Equalizer::set_gains`. Band centres are
+    /// `crate::eq::CENTRES_HZ`.
+    pub gains_db: [f32; crate::eq::BANDS],
+}
+
+impl Default for EqConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            gains_db: [0.0; crate::eq::BANDS],
         }
     }
 }

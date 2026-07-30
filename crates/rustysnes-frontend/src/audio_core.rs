@@ -207,6 +207,12 @@ pub struct Resampler {
     volume: f32,
     /// Which interpolation kernel [`Self::resample`] applies.
     kernel: ResampleKernel,
+    /// The graphic-equaliser stage (`v1.25.0`), applied to the interpolated output.
+    ///
+    /// Lives here rather than in the caller because this is where source samples become `f32` — an
+    /// EQ applied to the 32 kHz `i16` input instead would be filtering at the wrong rate, and its
+    /// band centres would land in the wrong place.
+    eq: crate::eq::Equalizer,
 }
 
 /// The interpolation kernel a [`Resampler`] applies between source samples.
@@ -271,7 +277,21 @@ impl Resampler {
             hist: [(0.0, 0.0); 4],
             volume,
             kernel,
+            eq: crate::eq::Equalizer::new(dst_rate, [0.0; crate::eq::BANDS], false),
         }
+    }
+
+    /// Update the equaliser (from the Settings sliders). Filter state is preserved, so moving a
+    /// slider does not click.
+    pub fn set_eq(&mut self, enabled: bool, gains_db: [f32; crate::eq::BANDS]) {
+        self.eq.set_enabled(enabled);
+        self.eq.set_gains(gains_db);
+    }
+
+    /// Whether the equaliser is currently altering samples.
+    #[must_use]
+    pub const fn eq_active(&self) -> bool {
+        self.eq.is_active()
     }
 
     /// Swap the interpolation kernel (from the Settings row) without discarding ring state.
@@ -336,6 +356,7 @@ impl Resampler {
                         catmull_rom(p0.1, p1.1, p2.1, p3.1, t),
                     ),
                 };
+                let (left, right) = self.eq.process(left, right);
                 emit(left, right);
                 self.frac += step;
             }

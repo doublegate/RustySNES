@@ -595,6 +595,45 @@ input needs a genuinely new prerequisite (a live `Gilrs` instance + per-frame ev
 not a small addition on top of the Mouse/Super Scope wiring above — see
 `to-dos/ROADMAP.md`/the UI/UX-parity plan's Phase B/C backlog for where this is tracked.
 
+## Per-game overrides (`v1.25.0`, `crate::per_game`)
+
+A ROM's own settings live in `<config-dir>/RustySNES/per-game/<key>.toml`, keyed by the ROM's file
+stem sanitised to a safe filename (the same rule `crate::screenshot` uses, for the same reason).
+File -> "Save Settings for This Game" captures the overridable knobs; they are applied right after a
+successful load, before the next present reads the config, so the ROM's first frame already honours
+them. "Clear Settings for This Game" deletes the file, and a missing file counts as success.
+
+The overlay is a **flat set of `Option` fields**, not an optional nested `Config`. That is the
+load-bearing decision: an "optional whole Config" cannot distinguish "this game wants the default"
+from "this game was saved before that field existed", so every absent field would silently resolve to
+whatever the *current* default is — freezing it — and a later global change would stop reaching every
+game that had ever been saved. `capture` records every knob (the user's intent is "keep it looking
+like this"), `apply` writes only the present ones, and a corrupt file degrades to "no overrides"
+rather than blocking the load.
+
+## Graphic equaliser (`v1.25.0`, `crate::eq`)
+
+Five RBJ peaking biquads at 60 / 240 / 1k / 3.5k / 10k Hz, +/-12 dB each, shared Q of 0.9 so adjacent
+bands overlap gently rather than leaving a notch between sliders. The top band sits at 10 kHz because
+the S-DSP's 32 kHz output has a 16 kHz Nyquist limit — a band above that would filter content that
+cannot exist. It runs on the resampled `f32` stream inside `Resampler` (where samples become floats;
+filtering the 32 kHz `i16` input instead would put every band centre in the wrong place), which keeps
+it on the frontend side of the determinism boundary.
+
+Three properties are asserted by tests rather than assumed:
+
+- **Flat or disabled is an exact, bit-identical pass-through.** Mathematically the filters are an
+  identity at 0 dB, but running them would still perturb the output by float rounding. Detecting flat
+  and returning the input untouched is what makes the stage safe to leave permanently in the path.
+- **The channels are filtered independently.** Sharing biquad state across L/R collapses stereo into a
+  smear while still sounding like EQ, so a test drives the left channel hard and requires the right to
+  stay silent.
+- **A boost raises measured energy and a cut lowers it**, which is what actually catches a sign error
+  in the coefficients — something no "it runs without panicking" test would notice.
+
+Output is clamped to full scale after the cascade: a boosted chain can exceed 1.0, and letting it wrap
+is the difference between "loud" and "harsh digital distortion".
+
 ## ROM soft-patching (`v1.25.0`, `crate::patch`)
 
 A same-stem `.ips` / `.bps` / `.ups` sitting beside the ROM is applied **in memory** at load time, so

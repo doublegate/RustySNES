@@ -61,6 +61,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Settings gained Video (aspect, overscan grid), Audio (latency, kernel, health readout), and Input
     (autofire, gamepad list + deadzone) controls for all of the above.
 
+- **Frontend parity with RustyNES, wave 3.** Again all-additive; both default to inert.
+  - **Per-game configuration overrides** (`crate::per_game`). Region, aspect, integer-scale,
+    post-filter, overscan, audio latency, volume, and run-ahead depth can be remembered per ROM
+    (File -> Save/Clear Settings for This Game), stored as `<config-dir>/per-game/<key>.toml` and
+    applied on load before the ROM's first frame. The overlay is an explicit set of `Option` fields
+    rather than a nested whole `Config`: an "optional Config" cannot distinguish "this game wants the
+    default" from "this game was saved before that field existed", so every absent field would
+    silently freeze to whatever the current default happened to be and global changes would stop
+    reaching any game ever saved.
+  - **Five-band graphic equaliser** (`crate::eq`) — RBJ peaking biquads at 60/240/1k/3.5k/10k Hz,
+    +/-12 dB, applied to the resampled `f32` stream in the frontend so the deterministic core is
+    unaffected. Flat or disabled is an **exact** bit-identical bypass, which is what makes the stage
+    safe to leave in the path. Per-channel filter state is kept separate (shared state collapses
+    stereo to a smear while still sounding like EQ) and filter state survives a slider move, so
+    adjusting a band does not click.
+
 - **Frontend parity with RustyNES, wave 2.** Continues the above; again all-additive.
   - **Local two-player keyboard input.** `config.p2` had round-tripped through `config.toml` since the
     schema was written but **no gameplay path ever read it**, so P2 keyboard play was impossible.

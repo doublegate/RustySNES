@@ -38,6 +38,10 @@ pub enum MenuAction {
     OpenRecent(std::path::PathBuf),
     /// Forget every Recent ROMs entry (`v1.25.0`).
     ClearRecent,
+    /// Store the current settings as overrides for the loaded ROM (`v1.25.0`).
+    SavePerGame,
+    /// Delete the loaded ROM's per-game overrides (`v1.25.0`).
+    ForgetPerGame,
     /// Write the next presented frame to a numbered PNG (`v1.25.0`).
     Screenshot,
     /// Copy the next presented frame to the system clipboard (`v1.25.0`).
@@ -457,6 +461,30 @@ impl ShellState {
                             }
                         });
                     });
+                    ui.separator();
+                    if ui
+                        .add_enabled(
+                            info.rom_loaded,
+                            egui::Button::new("Save Settings for This Game"),
+                        )
+                        .on_hover_text(
+                            "Remember the current video/audio settings for this ROM only",
+                        )
+                        .clicked()
+                    {
+                        actions.push(MenuAction::SavePerGame);
+                        ui.close();
+                    }
+                    if ui
+                        .add_enabled(
+                            info.rom_loaded,
+                            egui::Button::new("Clear Settings for This Game"),
+                        )
+                        .clicked()
+                    {
+                        actions.push(MenuAction::ForgetPerGame);
+                        ui.close();
+                    }
                     ui.separator();
                     if ui
                         .add_enabled(info.rom_loaded, egui::Button::new("Screenshot"))
@@ -970,6 +998,35 @@ impl ShellState {
                                     kernel,
                                     kernel.display_name(),
                                 );
+                            }
+                        });
+                        ui.separator();
+                        // Graphic EQ (`v1.25.0`). Flat + disabled is an exact bypass.
+                        ui.checkbox(&mut cfg.audio.eq.enabled, "Graphic equaliser");
+                        ui.add_enabled_ui(cfg.audio.eq.enabled, |ui| {
+                            ui.horizontal(|ui| {
+                                for (i, centre) in crate::eq::CENTRES_HZ.iter().enumerate() {
+                                    let label = if *centre >= 1000.0 {
+                                        format!("{:.0}k", centre / 1000.0)
+                                    } else {
+                                        format!("{centre:.0}")
+                                    };
+                                    ui.vertical(|ui| {
+                                        ui.add(
+                                            egui::Slider::new(
+                                                &mut cfg.audio.eq.gains_db[i],
+                                                -crate::eq::GAIN_LIMIT_DB
+                                                    ..=crate::eq::GAIN_LIMIT_DB,
+                                            )
+                                            .vertical()
+                                            .show_value(false),
+                                        );
+                                        ui.label(label);
+                                    });
+                                }
+                            });
+                            if ui.button("Flatten").clicked() {
+                                cfg.audio.eq.gains_db = [0.0; crate::eq::BANDS];
                             }
                         });
                         // Live health readout (`v1.25.0`): occupancy alone cannot distinguish a
