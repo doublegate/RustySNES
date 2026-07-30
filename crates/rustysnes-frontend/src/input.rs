@@ -11,8 +11,11 @@
 //! lock-free `SharedInput`), different button set + bit order.
 //!
 //! Default keyboard binds (P1): D-pad = arrows; **A = X**, **B = Z**, **X = S**, **Y = A**,
-//! **L = Q**, **R = W**, Select = `RShift`, Start = Enter. (P2 defaults are a TODO; the config
-//! schema already carries a second binding table.)
+//! **L = Q**, **R = W**, Select = `RShift`, Start = Enter.
+//!
+//! Default keyboard binds (P2, `v1.25.0` — [`KeyBindings::default_p2`]): D-pad = numpad 8/2/4/6;
+//! **A = L**, **B = K**, **X = O**, **Y = I**, **L = U**, **R = P**, Select = `,`, Start = `.`.
+//! Chosen to share no physical key with P1, since both tables are now live simultaneously.
 
 #![allow(clippy::cast_possible_truncation)]
 
@@ -156,6 +159,49 @@ impl Default for KeyBindings {
 }
 
 impl KeyBindings {
+    /// The default **player 2** keyboard layout (`v1.25.0`).
+    ///
+    /// Deliberately disjoint from [`Self::default`] (the P1 layout): d-pad on the numpad, face
+    /// buttons on the right-hand letter cluster. Before this existed, `Config::p2` defaulted to the *same*
+    /// table as P1 — which was harmless only because nothing read `p2`. Now that P2 keyboard input
+    /// is live, an identical table would make every P1 key drive both pads at once.
+    ///
+    /// `crate::app`'s key handler additionally resolves P1 **first** and only consults P2 when P1
+    /// did not claim the key, so even a hand-edited config that binds one key to both players drives
+    /// P1 alone rather than both — a config file predating this change carries exactly that
+    /// collision, so the precedence rule is what keeps those setups working.
+    #[must_use]
+    pub fn default_p2() -> Self {
+        let binds = vec![
+            ("Numpad8".into(), Button::Up),
+            ("Numpad2".into(), Button::Down),
+            ("Numpad4".into(), Button::Left),
+            ("Numpad6".into(), Button::Right),
+            ("KeyL".into(), Button::A),
+            ("KeyK".into(), Button::B),
+            ("KeyO".into(), Button::X),
+            ("KeyI".into(), Button::Y),
+            ("KeyU".into(), Button::L),
+            ("KeyP".into(), Button::R),
+            ("Comma".into(), Button::Select),
+            ("Period".into(), Button::Start),
+        ];
+        Self { binds }
+    }
+
+    /// Whether any physical key in this table is also bound in `other` (`v1.25.0`).
+    ///
+    /// Surfaced in Settings so a player can see *why* one key is moving two pads, instead of the
+    /// precedence rule silently making P2's bind look broken.
+    #[must_use]
+    pub fn conflicts_with(&self, other: &Self) -> Vec<String> {
+        self.binds
+            .iter()
+            .filter(|(name, _)| other.binds.iter().any(|(o, _)| o == name))
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
     /// Resolve a winit `KeyCode` debug-name (e.g. `"ArrowUp"`, `"KeyZ"`) to the button it's
     /// bound to, if any. The frontend's window handler converts the live key event to its name
     /// via `format!("{key:?}")` and calls this.
@@ -204,9 +250,115 @@ pub fn gamepad_button(gilrs_button: &str) -> Option<Button> {
     })
 }
 
+/// Apply autofire ("turbo") to a button word (`v1.25.0`).
+///
+/// `turbo_mask` selects which buttons pulse, `period` is the full on/off cycle in frames, and
+/// `frame` is a monotonically increasing frame counter. Buttons in the mask are **released** during
+/// the off half of the cycle; buttons the player is not holding are never pressed, because this only
+/// ever clears bits. That direction matters: an implementation that *set* bits would make an
+/// autofire button fire while untouched.
+///
+/// This runs where host input is sampled, so the core still receives an ordinary button stream and
+/// the determinism contract is untouched — the same boundary the DRC servo and post-filters respect.
+#[must_use]
+pub const fn apply_turbo(
+    mut buttons: Buttons,
+    turbo_mask: u16,
+    period: u32,
+    frame: u64,
+) -> Buttons {
+    if turbo_mask == 0 {
+        return buttons;
+    }
+    // A period below 2 cannot pulse at all (the off half would be empty); callers clamp, and this
+    // guards anyway so a bad value degrades to "held" rather than dividing by zero.
+    let period = if period < 2 { 2 } else { period };
+    let half = (period / 2) as u64;
+    let on_phase = frame % (period as u64) < half;
+    if !on_phase {
+        buttons.0 &= !turbo_mask;
+    }
+    buttons
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn turbo_pulses_held_buttons_and_never_presses_unheld_ones() {
+        let mask = Button::B.mask() | Button::Y.mask();
+        // A held button alternates across the cycle.
+        let held = Buttons(mask);
+        let states: Vec<bool> = (0..8)
+            .map(|f| apply_turbo(held, mask, 8, f).is_pressed(Button::B))
+            .collect();
+        assert!(states.iter().any(|s| *s), "must be pressed some frames");
+        assert!(states.iter().any(|s| !*s), "must be released some frames");
+        // An unheld button is never synthesised into a press.
+        let idle = Buttons::default();
+        for f in 0..32 {
+            assert_eq!(
+                apply_turbo(idle, mask, 8, f).0,
+                0,
+                "frame {f} invented a press"
+            );
+        }
+        // Buttons outside the mask are untouched even during the off phase.
+        let other = Buttons(Button::A.mask() | mask);
+        for f in 0..32 {
+            assert!(
+                apply_turbo(other, mask, 8, f).is_pressed(Button::A),
+                "frame {f} disturbed a non-turbo button"
+            );
+        }
+        // An empty mask is a pure pass-through.
+        assert_eq!(apply_turbo(other, 0, 8, 3).0, other.0);
+        // A degenerate period must not divide by zero or hold permanently-off.
+        let pulses: Vec<bool> = (0..4)
+            .map(|f| apply_turbo(held, mask, 0, f).is_pressed(Button::B))
+            .collect();
+        assert!(pulses.iter().any(|p| *p) && pulses.iter().any(|p| !*p));
+    }
+
+    #[test]
+    fn p2_defaults_are_disjoint_from_p1_and_complete() {
+        let p1 = KeyBindings::default();
+        let p2 = KeyBindings::default_p2();
+        // The whole point: no shared physical key, or one press would move both pads.
+        assert!(
+            p2.conflicts_with(&p1).is_empty(),
+            "P2 defaults collide with P1: {:?}",
+            p2.conflicts_with(&p1)
+        );
+        // And P2 must still be able to press every button.
+        for b in Button::ALL {
+            assert!(
+                p2.binds.iter().any(|(_, bound)| *bound == b),
+                "missing P2 default bind for {b:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn conflict_detection_finds_shared_keys_in_both_directions() {
+        let p1 = KeyBindings::default();
+        // A config predating the distinct P2 layout has p2 == p1; every key collides.
+        let same = KeyBindings::default();
+        let clashes = same.conflicts_with(&p1);
+        assert_eq!(
+            clashes.len(),
+            12,
+            "an identical table must report every key"
+        );
+        // Detection is symmetric.
+        assert_eq!(p1.conflicts_with(&same).len(), 12);
+        // One deliberate overlap is reported precisely, not wholesale.
+        let mut p2 = KeyBindings::default_p2();
+        p2.rebind("KeyZ".into(), Button::A); // KeyZ is P1's B
+        let one = p2.conflicts_with(&p1);
+        assert_eq!(one, vec!["KeyZ".to_string()]);
+    }
 
     #[test]
     fn masks_are_unique_and_in_high_12_bits() {

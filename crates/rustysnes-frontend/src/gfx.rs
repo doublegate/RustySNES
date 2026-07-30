@@ -46,8 +46,52 @@ pub use rustysnes_core::facade::{
 // — see that crate's module doc and this module's own `v1.12.0` doc note above).
 use rustysnes_gfx_shaders::{BLIT_WGSL, CRT_WGSL, HQX_WGSL, XBRZ_WGSL};
 
-/// The SNES display aspect ratio (4:3) the blit letterboxes the framebuffer into.
-const TARGET_ASPECT: f32 = 4.0 / 3.0;
+/// The SNES display aspect ratio (4:3) — the default target
+/// ([`crate::config::AspectMode::FourThree`]) and the shape `app.rs` derives its window size from.
+pub(crate) const TARGET_ASPECT: f32 = 4.0 / 3.0;
+
+/// Fit a `target_aspect` image into a `win_w` x `win_h` window, as clip-space scale fractions.
+///
+/// Returns the `(pos_x, pos_y)` the fullscreen triangle's clip-space position is multiplied by, so
+/// `1.0` means "fills that axis". The continuous fit pillarboxes a too-wide window and letterboxes
+/// a too-tall one.
+///
+/// # Integer scaling
+///
+/// When `integer_scale` is set the fit is quantised so the image is a **whole-number multiple of
+/// the framebuffer's scanline count**, which is what keeps a scanline exactly one or two output
+/// pixels tall instead of alternating between them — the shimmer that non-integer scaling causes on
+/// pixel art. Quantising the vertical axis and deriving the width from `target_aspect` (rather than
+/// quantising both) is deliberate: the horizontal axis is already being stretched by aspect
+/// correction, so there is no whole-pixel grid to land on there. If not even 1x fits, the
+/// continuous fit is kept — an image cropped by the window edge is worse than a slightly-soft one.
+#[allow(clippy::cast_precision_loss)]
+pub(crate) fn letterbox_scale_for(
+    win_w: f32,
+    win_h: f32,
+    target_aspect: f32,
+    fb_h: u32,
+    integer_scale: bool,
+) -> (f32, f32) {
+    let win_aspect = win_w / win_h;
+    let (mut sx, mut sy) = if win_aspect > target_aspect {
+        (target_aspect / win_aspect, 1.0) // window too wide -> pillarbox
+    } else {
+        (1.0, win_aspect / target_aspect) // window too tall -> letterbox
+    };
+    if integer_scale && fb_h > 0 {
+        let fb_h_f = fb_h as f32;
+        let scale = (win_h * sy / fb_h_f).floor().max(1.0);
+        let out_h = scale * fb_h_f;
+        let out_w = out_h * target_aspect;
+        // Only adopt the quantised fit if it actually fits; at 1x in a tiny window it may not.
+        if out_h <= win_h && out_w <= win_w {
+            sx = out_w / win_w;
+            sy = out_h / win_h;
+        }
+    }
+    (sx.min(1.0), sy.min(1.0))
+}
 
 /// Resolve the configured present-mode string against the surface's supported modes.
 ///
@@ -128,6 +172,15 @@ pub struct Gfx {
     hqx: FilterPipeline,
     /// The [`crate::config::PostFilter::Xbrz`] pipeline (`v1.12.0`) — see [`Self::crt`].
     xbrz: FilterPipeline,
+    /// How framebuffer pixels are shaped when fitted to the window (`v1.25.0`).
+    ///
+    /// Held as state rather than passed to [`Self::letterbox_scale`] because `crate::peripherals`
+    /// calls that method through a shared `&Gfx` to map host pointer coordinates into SNES pixel
+    /// space: if the two disagreed about the display shape, the aim point would land somewhere the
+    /// picture is not. One field, one answer, both callers.
+    aspect: crate::config::AspectMode,
+    /// Whether to quantise the fit to a whole-pixel multiple (`v1.25.0`).
+    integer_scale: bool,
 }
 
 /// A post-filter's pipeline + its own bind group + its own uniform buffer (`v1.2.0`). [`Gfx::crt`]
@@ -390,6 +443,8 @@ impl Gfx {
             crt,
             hqx,
             xbrz,
+            aspect: crate::config::AspectMode::default(),
+            integer_scale: false,
         })
     }
 
@@ -872,16 +927,23 @@ impl Gfx {
     /// map host pointer coordinates into SNES pixel space for Mouse/Super Scope input, rather than
     /// re-deriving the letterbox math a second time and risking the two implementations drifting
     /// apart.
+    /// Set the display geometry knobs (`v1.25.0`) — cheap, so the caller may re-apply every frame
+    /// rather than tracking config changes.
+    pub const fn set_display_geometry(
+        &mut self,
+        aspect: crate::config::AspectMode,
+        integer_scale: bool,
+    ) {
+        self.aspect = aspect;
+        self.integer_scale = integer_scale;
+    }
+
     #[allow(clippy::cast_precision_loss)]
     pub(crate) fn letterbox_scale(&self) -> (f32, f32) {
         let win_w = self.config.width.max(1) as f32;
         let win_h = self.config.height.max(1) as f32;
-        let win_aspect = win_w / win_h;
-        if win_aspect > TARGET_ASPECT {
-            (TARGET_ASPECT / win_aspect, 1.0) // window too wide -> pillarbox
-        } else {
-            (1.0, win_aspect / TARGET_ASPECT) // window too tall -> letterbox
-        }
+        let target = self.aspect.ratio(self.fb_w, self.fb_h);
+        letterbox_scale_for(win_w, win_h, target, self.fb_h, self.integer_scale)
     }
 
     /// Shared render-pass setup (clear to black, single color attachment) — the only difference
@@ -1028,15 +1090,90 @@ mod tests {
         assert!((py2 - (600.0 / 800.0) / (4.0 / 3.0)).abs() < 1e-6);
     }
 
-    /// A free-function mirror of [`Gfx::letterbox_scale`]'s math (which needs a live `Gfx` with a
-    /// real wgpu device to construct) — kept byte-for-byte identical to that method's body so this
-    /// test exercises the exact same formula without needing a GPU in CI.
+    /// Calls the REAL [`letterbox_scale_for`] with 4:3 and integer-scaling off, which is exactly
+    /// what [`Gfx::letterbox_scale`] does by default.
+    ///
+    /// `v1.25.0` replaced a hand-copied mirror of the method body with this delegation. The mirror
+    /// existed because `Gfx` needs a live wgpu device to construct, but a formula duplicated for
+    /// testability is a formula that can silently diverge from the one that ships — and the whole
+    /// point of the test is that it does not.
     fn letterbox_scale_pure(win_w: f32, win_h: f32) -> (f32, f32) {
-        let win_aspect = win_w / win_h;
-        if win_aspect > TARGET_ASPECT {
-            (TARGET_ASPECT / win_aspect, 1.0)
-        } else {
-            (1.0, win_aspect / TARGET_ASPECT)
+        letterbox_scale_for(win_w, win_h, TARGET_ASPECT, SNES_H_NTSC, false)
+    }
+
+    /// Integer scaling must land the image on a whole multiple of the framebuffer's scanline
+    /// count, and must never grow past the window.
+    #[test]
+    fn integer_scale_quantises_to_whole_framebuffer_multiples() {
+        let fb_h = SNES_H_NTSC; // 224
+        // A 1000px-tall window continuously fits 1000 lines; the largest whole multiple of 224
+        // that fits is 4x = 896.
+        let (_sx, sy) = letterbox_scale_for(2000.0, 1000.0, TARGET_ASPECT, fb_h, true);
+        let out_h = sy * 1000.0;
+        assert!(
+            (out_h - 896.0).abs() < 0.5,
+            "expected 4x=896 scanlines, got {out_h}"
+        );
+        // The quantised height is an exact multiple of the framebuffer height.
+        let mult = out_h / f32::from(u16::try_from(fb_h).unwrap());
+        assert!(
+            (mult - mult.round()).abs() < 1e-3,
+            "not an integer multiple: {mult}"
+        );
+        // Never exceeds the window on either axis.
+        for (w, h) in [
+            (2000.0, 1000.0),
+            (640.0, 480.0),
+            (100.0, 90.0),
+            (4000.0, 200.0),
+        ] {
+            let (sx, sy) = letterbox_scale_for(w, h, TARGET_ASPECT, fb_h, true);
+            assert!(
+                sx <= 1.0 + 1e-6 && sy <= 1.0 + 1e-6,
+                "overflowed at {w}x{h}"
+            );
+            assert!(sx > 0.0 && sy > 0.0);
         }
+        // A window too small for even 1x keeps the continuous fit rather than cropping.
+        let (sx, sy) = letterbox_scale_for(120.0, 90.0, TARGET_ASPECT, fb_h, true);
+        let (csx, csy) = letterbox_scale_for(120.0, 90.0, TARGET_ASPECT, fb_h, false);
+        assert!((sx - csx).abs() < 1e-6 && (sy - csy).abs() < 1e-6);
+    }
+
+    /// The aspect mode must actually change the fitted shape (and 4:3 must be unchanged from the
+    /// pre-`v1.25.0` hardcoded behaviour).
+    #[test]
+    fn aspect_mode_changes_the_fitted_shape() {
+        use crate::config::AspectMode;
+        let (win_w, win_h) = (1600.0, 1200.0); // exactly 4:3
+        let four_three = letterbox_scale_for(
+            win_w,
+            win_h,
+            AspectMode::FourThree.ratio(SNES_W, SNES_H_NTSC),
+            SNES_H_NTSC,
+            false,
+        );
+        assert!((four_three.0 - 1.0).abs() < 1e-6 && (four_three.1 - 1.0).abs() < 1e-6);
+        // Square pixels (256:224 = 1.143) are narrower than 4:3, so they pillarbox in a 4:3 window.
+        let square = letterbox_scale_for(
+            win_w,
+            win_h,
+            AspectMode::Square.ratio(SNES_W, SNES_H_NTSC),
+            SNES_H_NTSC,
+            false,
+        );
+        assert!(
+            square.0 < 1.0,
+            "square pixels must pillarbox in a 4:3 window"
+        );
+        // 8:7 lands between the two.
+        let par = letterbox_scale_for(
+            win_w,
+            win_h,
+            AspectMode::Par.ratio(SNES_W, SNES_H_NTSC),
+            SNES_H_NTSC,
+            false,
+        );
+        assert!(par.0 > square.0 && par.0 <= 1.0);
     }
 }

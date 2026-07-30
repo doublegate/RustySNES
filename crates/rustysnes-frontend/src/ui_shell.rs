@@ -34,6 +34,18 @@ pub enum MenuAction {
     OpenRom,
     /// Close the currently loaded ROM (present a blank frame).
     CloseRom,
+    /// Load a specific ROM path from the Recent ROMs list (`v1.25.0`).
+    OpenRecent(std::path::PathBuf),
+    /// Forget every Recent ROMs entry (`v1.25.0`).
+    ClearRecent,
+    /// Store the current settings as overrides for the loaded ROM (`v1.25.0`).
+    SavePerGame,
+    /// Delete the loaded ROM's per-game overrides (`v1.25.0`).
+    ForgetPerGame,
+    /// Write the next presented frame to a numbered PNG (`v1.25.0`).
+    Screenshot,
+    /// Copy the next presented frame to the system clipboard (`v1.25.0`).
+    ScreenshotToClipboard,
     /// Reset (soft) the console.
     Reset,
     /// Power-cycle (hard reset) the console.
@@ -135,6 +147,15 @@ pub struct ShellState {
     pub status: String,
     /// Whether emulation is paused (mirrored from the app for the menu checkmark).
     pub paused: bool,
+    /// Which P2 button is awaiting a key press for rebinding (`v1.25.0`), if any.
+    pub awaiting_bind_p2: Option<Button>,
+    /// Actions raised OUTSIDE the egui pass (`v1.25.0`) — a dropped file, a global hotkey — drained
+    /// into this present's action list.
+    ///
+    /// Needed because those events arrive in `window_event`, which has no access to the `actions`
+    /// vector the UI closure builds; queueing here lets them run through the exact same dispatch
+    /// rather than a parallel implementation that would drift.
+    pub pending_actions: Vec<MenuAction>,
     /// Whether the Cheats window is visible (`v0.8.0` T-81-003).
     #[cfg(feature = "cheats")]
     pub cheats_open: bool,
@@ -225,6 +246,21 @@ pub struct CheevosStatus<'a> {
     pub error: Option<&'a str>,
 }
 
+/// Live audio-buffer health (`v1.25.0`).
+///
+/// Occupancy alone cannot tell a brief dip from repeated starvation, so the monotonic counters
+/// travel with it — that is the difference between "the buffer looks low right now" and "this
+/// machine cannot hold this latency", which is the question the Settings readout has to answer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AudioHealth {
+    /// Ring occupancy as a percentage of capacity.
+    pub occupancy_pct: f32,
+    /// Consumer pops that found the ring empty.
+    pub underruns: u64,
+    /// Producer samples dropped because the ring was full.
+    pub overruns: u64,
+}
+
 /// Read-only facts the shell needs to render the status bar + window title without taking the
 /// emu lock (the app copies these out under the brief lock, then renders).
 #[derive(Debug, Clone, Default)]
@@ -246,6 +282,15 @@ pub struct ShellInfo {
     /// The audio ring's occupancy as a percentage of its capacity (`v1.0.0`, the Performance
     /// panel). `None` on `wasm32` or when no audio device opened.
     pub audio_health_pct: Option<f32>,
+    /// Full audio-buffer health including the starvation counters (`v1.25.0`). `None` on `wasm32`
+    /// or when no audio device opened.
+    pub audio_health: Option<AudioHealth>,
+    /// Output device names for the Settings picker (`v1.25.0`). Populated only while the Settings
+    /// window is open, since enumeration touches the audio host.
+    pub audio_devices: Vec<String>,
+    /// Names of the connected gamepads in player order (`v1.25.0`). Empty when none are detected
+    /// (or on `wasm32`, which has no `gilrs` runtime).
+    pub gamepads: Vec<String>,
     /// HD texture pack names available for the current ROM (`v1.3.0`, `hd-pack` feature) — the
     /// Settings pack-selector's candidate list. Empty when no ROM is loaded.
     #[cfg(feature = "hd-pack")]
@@ -392,6 +437,74 @@ impl ShellState {
                         actions.push(MenuAction::OpenRom);
                         ui.close();
                     }
+                    // Recent ROMs (`v1.25.0`). Disabled rather than hidden when empty, so the entry
+                    // point is discoverable before it has ever been used.
+                    ui.add_enabled_ui(!cfg.recent.paths.is_empty(), |ui| {
+                        ui.menu_button("Open Recent", |ui| {
+                            for p in cfg.recent.paths.clone() {
+                                let path = std::path::PathBuf::from(&p);
+                                // Show the file name; the full path is the hover text, since a
+                                // menu of long absolute paths is unreadable.
+                                let label = path.file_name().map_or_else(
+                                    || p.clone(),
+                                    |n| n.to_string_lossy().into_owned(),
+                                );
+                                if ui.button(label).on_hover_text(&p).clicked() {
+                                    actions.push(MenuAction::OpenRecent(path));
+                                    ui.close();
+                                }
+                            }
+                            ui.separator();
+                            if ui.button("Clear List").clicked() {
+                                actions.push(MenuAction::ClearRecent);
+                                ui.close();
+                            }
+                        });
+                    });
+                    ui.separator();
+                    if ui
+                        .add_enabled(
+                            info.rom_loaded,
+                            egui::Button::new("Save Settings for This Game"),
+                        )
+                        .on_hover_text(
+                            "Remember the current video/audio settings for this ROM only",
+                        )
+                        .clicked()
+                    {
+                        actions.push(MenuAction::SavePerGame);
+                        ui.close();
+                    }
+                    if ui
+                        .add_enabled(
+                            info.rom_loaded,
+                            egui::Button::new("Clear Settings for This Game"),
+                        )
+                        .clicked()
+                    {
+                        actions.push(MenuAction::ForgetPerGame);
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui
+                        .add_enabled(info.rom_loaded, egui::Button::new("Screenshot"))
+                        .on_hover_text("Save a PNG of the emulator's output at native resolution")
+                        .clicked()
+                    {
+                        actions.push(MenuAction::Screenshot);
+                        ui.close();
+                    }
+                    if ui
+                        .add_enabled(
+                            info.rom_loaded,
+                            egui::Button::new("Screenshot to Clipboard"),
+                        )
+                        .clicked()
+                    {
+                        actions.push(MenuAction::ScreenshotToClipboard);
+                        ui.close();
+                    }
+                    ui.separator();
                     if ui
                         .add_enabled(info.rom_loaded, egui::Button::new("Close ROM"))
                         .clicked()
@@ -697,7 +810,40 @@ impl ShellState {
                                 cfg.video.present_mode = m.to_string();
                             }
                         }
-                        ui.checkbox(&mut cfg.video.integer_scale, "Integer scale");
+                        ui.checkbox(&mut cfg.video.integer_scale, "Integer scale")
+                            .on_hover_text(
+                                "Snap the image to a whole multiple of the framebuffer's scanline \
+                                 count, so scanlines stay a uniform height",
+                            );
+                        ui.separator();
+                        // Aspect ratio (`v1.25.0`).
+                        ui.label("Aspect ratio:");
+                        ui.horizontal(|ui| {
+                            for mode in crate::config::AspectMode::all() {
+                                ui.radio_value(&mut cfg.video.aspect, mode, mode.display_name());
+                            }
+                        });
+                        ui.separator();
+                        // Per-side overscan crop (`v1.25.0`).
+                        ui.label("Overscan crop (SNES pixels, presentation only):");
+                        egui::Grid::new("overscan_grid").show(ui, |ui| {
+                            ui.label("Top");
+                            ui.add(egui::DragValue::new(&mut cfg.video.overscan.top).range(0..=32));
+                            ui.label("Bottom");
+                            ui.add(
+                                egui::DragValue::new(&mut cfg.video.overscan.bottom).range(0..=32),
+                            );
+                            ui.end_row();
+                            ui.label("Left");
+                            ui.add(
+                                egui::DragValue::new(&mut cfg.video.overscan.left).range(0..=32),
+                            );
+                            ui.label("Right");
+                            ui.add(
+                                egui::DragValue::new(&mut cfg.video.overscan.right).range(0..=32),
+                            );
+                            ui.end_row();
+                        });
                         ui.separator();
                         ui.label("Post-filter (`v1.2.0`):");
                         ui.horizontal(|ui| {
@@ -802,6 +948,104 @@ impl ShellState {
                                 ui.checkbox(muted, format!("V{i}"));
                             }
                         });
+                        ui.separator();
+                        // Output device picker (`v1.25.0`). `audio.device` round-tripped through
+                        // `config.toml` before this but nothing read it.
+                        ui.label("Output device:");
+                        let current_dev = cfg.audio.device.clone();
+                        egui::ComboBox::from_id_salt("audio_device_selector")
+                            .selected_text(current_dev.as_deref().unwrap_or("(system default)"))
+                            .show_ui(ui, |ui| {
+                                if ui
+                                    .selectable_label(current_dev.is_none(), "(system default)")
+                                    .clicked()
+                                {
+                                    cfg.audio.device = None;
+                                }
+                                for name in &info.audio_devices {
+                                    if ui
+                                        .selectable_label(
+                                            current_dev.as_deref() == Some(name.as_str()),
+                                            name,
+                                        )
+                                        .clicked()
+                                    {
+                                        cfg.audio.device = Some(name.clone());
+                                    }
+                                }
+                            });
+                        ui.label(
+                            egui::RichText::new("Device changes take effect on restart.").weak(),
+                        );
+                        ui.separator();
+                        // Latency + resampler (`v1.25.0`). Both take effect on the next launch for
+                        // the ring size (it is allocated once at device open); the DRC setpoint and
+                        // the kernel are re-read every frame, so those change immediately.
+                        ui.add(
+                            egui::Slider::new(&mut cfg.audio.latency_ms, 10..=250)
+                                .text("Target latency (ms)"),
+                        )
+                        .on_hover_text(
+                            "The buffer level the rate-control servo holds. Lower is more \
+                             responsive; too low and the audio device starves. Buffer resizing \
+                             takes effect on restart.",
+                        );
+                        ui.label("Resampler kernel:");
+                        ui.horizontal(|ui| {
+                            for kernel in crate::audio_core::ResampleKernel::all() {
+                                ui.radio_value(
+                                    &mut cfg.audio.resampler,
+                                    kernel,
+                                    kernel.display_name(),
+                                );
+                            }
+                        });
+                        ui.separator();
+                        // Graphic EQ (`v1.25.0`). Flat + disabled is an exact bypass.
+                        ui.checkbox(&mut cfg.audio.eq.enabled, "Graphic equaliser");
+                        ui.add_enabled_ui(cfg.audio.eq.enabled, |ui| {
+                            ui.horizontal(|ui| {
+                                for (i, centre) in crate::eq::CENTRES_HZ.iter().enumerate() {
+                                    let label = if *centre >= 1000.0 {
+                                        format!("{:.0}k", centre / 1000.0)
+                                    } else {
+                                        format!("{centre:.0}")
+                                    };
+                                    ui.vertical(|ui| {
+                                        ui.add(
+                                            egui::Slider::new(
+                                                &mut cfg.audio.eq.gains_db[i],
+                                                -crate::eq::GAIN_LIMIT_DB
+                                                    ..=crate::eq::GAIN_LIMIT_DB,
+                                            )
+                                            .vertical()
+                                            .show_value(false),
+                                        );
+                                        ui.label(label);
+                                    });
+                                }
+                            });
+                            if ui.button("Flatten").clicked() {
+                                cfg.audio.eq.gains_db = [0.0; crate::eq::BANDS];
+                            }
+                        });
+                        // Live health readout (`v1.25.0`): occupancy alone cannot distinguish a
+                        // brief dip from repeated starvation, so the counters are surfaced too.
+                        if let Some(h) = info.audio_health {
+                            ui.separator();
+                            ui.label(format!(
+                                "Buffer {:.0}% · underruns {} · dropped {}",
+                                h.occupancy_pct, h.underruns, h.overruns
+                            ));
+                            if h.underruns > 0 {
+                                ui.label(
+                                    egui::RichText::new(
+                                        "Underruns present — raise the target latency.",
+                                    )
+                                    .weak(),
+                                );
+                            }
+                        }
                     }
                     2 => {
                         ui.label("P1 key bindings:");
@@ -832,6 +1076,91 @@ impl ShellState {
                             });
                         if self.awaiting_bind.is_some() {
                             ui.label("Waiting for a key press — Esc cancels.");
+                        }
+                        ui.separator();
+                        // P2 key bindings (`v1.25.0`) — previously unreachable: `config.p2` existed
+                        // and round-tripped, but no gameplay path consulted it.
+                        ui.collapsing("P2 key bindings", |ui| {
+                            let conflicts = cfg.p2.conflicts_with(&cfg.p1);
+                            if !conflicts.is_empty() {
+                                // Surfaced rather than silently resolved: the precedence rule makes
+                                // P1 win, which would otherwise look like P2's bind is just broken.
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{} key(s) also bound to P1 ({}) — P1 takes precedence.",
+                                        conflicts.len(),
+                                        conflicts.join(", ")
+                                    ))
+                                    .weak(),
+                                );
+                                if ui.button("Reset P2 to defaults").clicked() {
+                                    cfg.p2 = crate::input::KeyBindings::default_p2();
+                                }
+                            }
+                            egui::Grid::new("p2_rebind_grid")
+                                .num_columns(3)
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    for button in Button::ALL {
+                                        ui.label(format!("{button:?}"));
+                                        let bound = cfg
+                                            .p2
+                                            .binds
+                                            .iter()
+                                            .find(|(_, b)| *b == button)
+                                            .map_or("(unbound)", |(name, _)| name.as_str());
+                                        ui.label(bound);
+                                        let listening = self.awaiting_bind_p2 == Some(button);
+                                        let label = if listening {
+                                            "Press a key…"
+                                        } else {
+                                            "Rebind"
+                                        };
+                                        if ui.button(label).clicked() && !listening {
+                                            self.awaiting_bind_p2 = Some(button);
+                                            self.awaiting_bind = None;
+                                        }
+                                        ui.end_row();
+                                    }
+                                });
+                        });
+                        ui.separator();
+                        // Autofire (`v1.25.0`).
+                        ui.label("Autofire (turbo):");
+                        ui.horizontal(|ui| {
+                            ui.checkbox(&mut cfg.turbo.a, "A");
+                            ui.checkbox(&mut cfg.turbo.b, "B");
+                            ui.checkbox(&mut cfg.turbo.x, "X");
+                            ui.checkbox(&mut cfg.turbo.y, "Y");
+                        });
+                        ui.add_enabled(
+                            cfg.turbo.any(),
+                            egui::Slider::new(&mut cfg.turbo.period_frames, 2..=60)
+                                .text("Cycle (frames)"),
+                        )
+                        .on_hover_text(
+                            "Full press+release cycle length. 8 frames is about 8 presses/second \
+                             at 60 Hz.",
+                        );
+                        ui.separator();
+                        // Physical gamepads (`v1.25.0`).
+                        ui.label("Gamepads:");
+                        ui.checkbox(&mut cfg.gamepad.enabled, "Enable gamepad input")
+                            .on_hover_text("Takes effect on restart");
+                        ui.add_enabled(
+                            cfg.gamepad.enabled,
+                            egui::Slider::new(&mut cfg.gamepad.deadzone, 0.0..=0.9)
+                                .text("Stick deadzone"),
+                        );
+                        match &info.gamepads {
+                            g if g.is_empty() => {
+                                ui.label("(no gamepads detected)");
+                            }
+                            g => {
+                                for (i, name) in g.iter().enumerate() {
+                                    ui.label(format!("P{}: {name}", i + 1));
+                                }
+                            }
                         }
                         ui.separator();
                         ui.label("Controller port 2 peripheral:");

@@ -81,7 +81,9 @@ debug-hooks = ["rustysnes-core/debug-hooks"]
 # `rustysnes-ppu/hd-pack`) so `EmuCore::system_mut().bus.ppu`'s tagging hook actually exists.
 # Wiring the compositor into the live wgpu present path + the Settings UI pack selector are a
 # follow-up (`gfx.rs`/`ui_shell.rs` are unchanged so far).
-hd-pack = ["dep:png", "rustysnes-core/hd-pack"]
+# `png` is unconditional since `v1.25.0` (screenshots need it in default builds), so it is no
+# longer listed here as `dep:png`.
+hd-pack = ["rustysnes-core/hd-pack"]
 # `v0.8.0 "Instrumentation"`, T-81-002: sandboxed Lua scripting (`rustysnes-script`, native-only —
 # `dep:` keeps the optional dependency out of the wasm32 dependency graph even if this feature
 # were ever selected there, on top of the `target.'cfg(...)'` gate below already doing so).
@@ -150,7 +152,10 @@ toml = "1.1"
 # HD texture pack tile image decode (`v1.3.0`, `hd-pack` feature) -- pure-Rust PNG decoder, no
 # system libpng dependency, so this stays cross-platform (and wasm32-buildable, though the
 # feature has no filesystem discovery path there yet -- `hd_pack.rs`'s own module doc has detail).
-png = { version = "0.18", optional = true }
+# Non-optional since `v1.25.0`: screenshots (`crate::screenshot`) are a default-build feature, so
+# the PNG encoder can no longer be gated behind `hd-pack`. Still the same crate/version the HD-pack
+# decoder already used, so this widens no supply-chain surface.
+png = "0.18"
 
 # Already transitive deps of wgpu; direct here is free.
 pollster = "0.4"
@@ -178,6 +183,11 @@ crc32fast = "1.5"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gilrs = "0.11"
 rfd = "0.17"
+# `v1.25.0` — screenshot-to-clipboard. `arboard` provides the cross-platform system clipboard
+# including image support (`set_image`). Native-only by construction (this whole target block is):
+# the browser has no equivalent synchronous image-clipboard API, so the wasm builds expose
+# save-to-file only.
+arboard = "3"
 directories = "6"
 # clap 4 styled `--help` + `help <topic>` + shell completions (unconditional);
 # the interactive ratatui TUI browser is behind the default-on `help-tui` feature.

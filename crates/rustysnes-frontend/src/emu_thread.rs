@@ -190,6 +190,18 @@ impl EmuControl {
         self.run_ahead_frames.load(Ordering::Acquire)
     }
 
+    /// Re-set the base frame rate (`v1.25.0`) — a region change, from Settings or a per-game
+    /// override.
+    ///
+    /// Without this the emu thread keeps pacing at whatever rate it was created with, so a PAL
+    /// override would run the game ~20% fast on this build while the synchronous build honoured it.
+    pub fn set_frame_duration(&self, frame_rate: f64) {
+        self.base_frame_nanos.store(
+            dur_nanos(Duration::from_secs_f64(1.0 / frame_rate.max(1.0))),
+            Ordering::Release,
+        );
+    }
+
     fn frame_duration(&self) -> Duration {
         let base = self.base_frame_nanos.load(Ordering::Acquire);
         // `base` is a real nanosecond count (always non-negative) and `speed` is clamped to a

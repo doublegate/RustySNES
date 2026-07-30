@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Soft-patching: a hostile BPS patch could panic instead of erroring.** Two arithmetic paths took
+  untrusted values without checking: the source/target relative offsets accumulated a signed delta
+  and then the copy length with plain `+=` (a crafted varint pair overflows `i64`), and the
+  output-size guard computed `out.len() + length` — its *own* addition — before comparing against the
+  cap, so a length near `usize::MAX` wrapped and the guard passed the very write it exists to reject.
+  Both are now checked arithmetic that returns a typed `PatchError`. Two regression tests feed the
+  hostile encodings.
+- **Screenshot numbering had a TOCTOU race.** The next free filename was chosen with `Path::exists`
+  and then written with `fs::write`, so two captures in the same instant could pick the same name and
+  the second would silently overwrite the first. The write now uses `create_new(true)` and advances
+  to the next index on `AlreadyExists`, making the claim atomic.
+- **Region changes now take effect immediately.** `Settings -> Region` and a per-game region override
+  both wrote the config without touching the live pacer, so a PAL selection kept the host paced at the
+  NTSC rate — ~20% fast, with nothing on screen saying so. Both sites now push the new rate (and the
+  `emu-thread` frame duration). The status message names the half that actually changed: the
+  *emulated* region is auto-detected from the cart header at reset, so no restart was ever going to
+  change a loaded cart's timing.
+- **Gamepad polling no longer formats a string per button per frame.** The `gilrs`→SNES mapping went
+  through `format!("{button:?}")` and a string match; it is now a `const fn` match on the enum.
+
 - **S-RTC (Daikaijuu Monogatari II) detection was structurally broken; now fixed + validated.** The
   real cart declares chipset `$55` (high nibble `$5`, not the `$F` "custom" family), so the S-RTC
   title check — which lived in the `$F` match arm — was never reached; and the check used the guessed
@@ -19,6 +39,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   against a real dump (`ExHiROM+S-RTC`, boots deterministically).
 
 ### Added
+
+- **Frontend parity with RustyNES, wave 1 (12 items).** RustySNES's egui shell was behind its NES
+  sibling's mature frontend in several places; this closes the highest-value gaps. Every new config
+  field defaults to the previous behaviour, so an existing `config.toml` presents identically.
+  - **Physical gamepad support** (`crate::gamepad`, `gilrs`). `gilrs` was already a declared
+    dependency and `input::gamepad_button` (the Xbox→SNES diamond rotation) was already unit-tested,
+    but nothing ever instantiated the backend — port 1 was keyboard-only however many pads were
+    plugged in. Pads now map to players in connection order, with hotplug, a configurable stick
+    deadzone, analog-stick-to-D-pad translation, and **live P2 input**, which previously had no
+    source at all. State is polled rather than accumulated from events, so a missed event
+    self-corrects instead of desynchronising permanently.
+  - **Autofire ("turbo")** per face button with a configurable cycle length. It only ever *clears*
+    button bits, so an autofire button never fires while untouched.
+  - **Screenshots** to a numbered PNG and to the system clipboard (`crate::screenshot`, `arboard`),
+    captured from the presented framebuffer at native resolution so the image does not vary with
+    window size. `png` is now an unconditional dependency (it was gated behind `hd-pack`).
+  - **Drag-and-drop ROM loading** and a **Recent ROMs** menu (newest-first, de-duplicated, capped at
+    10, stale entries pruned on use). Both route through the existing `OpenRom` load path, so
+    firmware install, HD-pack re-select, RetroAchievements re-identify, ROM-info re-hash, and
+    snapshot invalidation all still happen.
+  - **Aspect-ratio modes**: 4:3 (default, unchanged), 8:7 pixel-aspect, and 1:1 square pixels — the
+    target shape was previously a hardcoded constant.
+  - **Integer scaling now works.** `video.integer_scale` and its two Settings checkboxes already
+    existed but the value was never read; the fit is now quantised to a whole multiple of the
+    framebuffer's scanline count, falling back to the continuous fit when not even 1x fits.
+  - **Per-side overscan crop** (top/bottom/left/right, in SNES pixels), scaled by the frame's upscale
+    factor and clamped so a hand-edited config can never crop the picture out of existence.
+    Complements the existing all-or-nothing `hide_overscan`.
+  - **Audio: 4-tap Catmull-Rom (Hermite) resampling** replaces 2-point linear interpolation as the
+    default, matching RustyNES. `Linear` stays selectable to reproduce earlier output exactly.
+  - **Audio: a configurable latency target** (`audio.latency_ms`, default 60 ms). The DRC servo now
+    holds that setpoint (±1%) instead of the ring's midpoint, and the ring is sized from it, so the
+    achieved latency is what was asked for rather than a side effect of the device's sample rate.
+  - **Audio: buffer-health instrumentation and a refill gate.** Underruns and dropped samples are
+    counted and surfaced in Settings; an underrun re-arms a start-gate so the ring re-buffers once
+    instead of emitting a silence sample every callback (one short gap instead of continuous
+    crackle). A pause mutes without counting as starvation.
+  - **Run-ahead frame-budget throttle** (`run_ahead.throttle_ms`): skips the peek for one frame after
+    an overrun, so the feature degrades to plain emulation instead of compounding stutter.
+  - Settings gained Video (aspect, overscan grid), Audio (latency, kernel, health readout), and Input
+    (autofire, gamepad list + deadzone) controls for all of the above.
+
+- **Frontend parity with RustyNES, wave 3.** Again all-additive; both default to inert.
+  - **Per-game configuration overrides** (`crate::per_game`). Region, aspect, integer-scale,
+    post-filter, overscan, audio latency, volume, and run-ahead depth can be remembered per ROM
+    (File -> Save/Clear Settings for This Game), stored as `<config-dir>/per-game/<key>.toml` and
+    applied on load before the ROM's first frame. The overlay is an explicit set of `Option` fields
+    rather than a nested whole `Config`: an "optional Config" cannot distinguish "this game wants the
+    default" from "this game was saved before that field existed", so every absent field would
+    silently freeze to whatever the current default happened to be and global changes would stop
+    reaching any game ever saved.
+  - **Five-band graphic equaliser** (`crate::eq`) — RBJ peaking biquads at 60/240/1k/3.5k/10k Hz,
+    +/-12 dB, applied to the resampled `f32` stream in the frontend so the deterministic core is
+    unaffected. Flat or disabled is an **exact** bit-identical bypass, which is what makes the stage
+    safe to leave in the path. Per-channel filter state is kept separate (shared state collapses
+    stereo to a smear while still sounding like EQ) and filter state survives a slider move, so
+    adjusting a band does not click.
+
+- **Frontend parity with RustyNES, wave 2.** Continues the above; again all-additive.
+  - **Local two-player keyboard input.** `config.p2` had round-tripped through `config.toml` since the
+    schema was written but **no gameplay path ever read it**, so P2 keyboard play was impossible.
+    P2 is now live, with its own default layout (numpad d-pad + right-hand letters) chosen to share no
+    physical key with P1, a Settings rebind grid of its own, and a conflict report. The key handler
+    resolves P1 **first** and only then P2, so a config predating the distinct P2 layout — which
+    carries p2 == p1 — drives P1 alone instead of moving both pads at once.
+  - **Audio output device picker.** `config.audio.device` also round-tripped without ever being read;
+    the device is now honoured, falling back to the host default when a remembered device has
+    disappeared. The stream additionally supports **I16 and U16** device formats, not just F32 —
+    requesting F32 unconditionally simply failed to open on integer-only devices, which presented as
+    "this machine has no audio".
+  - **ROM soft-patching (IPS / UPS / BPS)** — `crate::patch`. A same-stem patch beside the ROM is
+    applied in memory, leaving the dump untouched. Detected by magic rather than extension, parsed
+    defensively as untrusted input (every prefix of a valid patch is required to error cleanly, output
+    size capped at 32 MiB), and a patch that fails to apply is reported while the unpatched ROM still
+    boots.
 
 - **ST018 (Nidan Morita Shogi 2) + S-RTC (Daikaijuu Monogatari II) validated against real carts.**
   Both were previously implemented but unit-test-only (no dump in the corpus); with real dumps
