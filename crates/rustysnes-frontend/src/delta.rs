@@ -294,19 +294,22 @@ impl Chain {
         }
     }
 
-    /// Drop the oldest frame, keeping the chain decodable.
+    /// Drop the oldest entry, promoting the new front to a keyframe if it needs one.
     ///
-    /// Evicting a keyframe orphans every delta that referenced it: `reconstruct` walks backward for
-    /// a key and gives up when it runs off the front, so a plain `pop_front` silently turns the
-    /// whole surviving prefix into states the buffer can no longer produce. Once the ring has
-    /// wrapped that is *most* of the rewind history, and it presents as rewind simply refusing to
-    /// step — not as an error anyone could trace back to here.
+    /// The ring evicts from the front, which is exactly where a delta chain's base lives. Evicting
+    /// a keyframe therefore orphans every delta that referenced it: `reconstruct` walks backward
+    /// looking for a key and gives up when it runs off the front, so a plain `pop_front` silently
+    /// turns the whole surviving prefix into states the buffer can no longer produce. Once the ring
+    /// has wrapped that is *most* of the rewind history, and it presents as rewind simply refusing
+    /// to step — not as an error anyone would trace back to here.
     ///
     /// So the new front is materialised **before** the old one is removed, while its base still
-    /// exists, and stored back as a keyframe. Cost is one reconstruction per eviction, and only
-    /// when the frame being promoted is a delta.
+    /// exists, and stored back whole. That costs one reconstruction per eviction — and only when
+    /// the frame being promoted is a delta — and it is what makes "the ring holds N states" mean N
+    /// *recoverable* states. A greenzone test measured the alternative directly: a capacity of 4
+    /// against a keyframe interval of 8 could restore exactly one of its four claimed states.
     fn evict_front(&mut self) {
-        // Reconstruct index 1 while index 0 is still present; `reconstruct` needs that base.
+        // Reconstruct index 1 BEFORE removing index 0, while its base is still present.
         let promoted = (self.frames.len() > 1 && !self.frames[1].is_key())
             .then(|| self.reconstruct(1))
             .flatten();
@@ -587,6 +590,42 @@ mod tests {
             "compressed to {} of {raw} raw bytes",
             chain.bytes()
         );
+    }
+
+    /// After heavy eviction, EVERY entry the chain still claims to hold must be recoverable.
+    ///
+    /// This is the property `evict_front` exists for, and it was not true before: evicting a
+    /// keyframe left the following deltas with no base, so the chain reported N entries and could
+    /// restore only the newest few. A greenzone test caught it — a capacity of 4 against a
+    /// keyframe interval of 8 restored exactly one of its four claimed states.
+    #[test]
+    fn every_claimed_entry_survives_eviction() {
+        // A keyframe interval LARGER than the capacity is the worst case: without promotion the
+        // keyframe is always the first thing evicted.
+        for (capacity, keyframes) in [(4usize, 8usize), (3, 16), (8, 2), (5, 5)] {
+            let mut chain = Chain::new(capacity, keyframes);
+            let total = 60u8;
+            for i in 0..total {
+                chain.push(&state(i, 1024));
+            }
+            let claimed = chain.len();
+            assert_eq!(claimed, capacity, "capacity {capacity}/{keyframes}");
+            let mut recovered = 0usize;
+            let mut expected = usize::from(total) - 1;
+            while let Some(got) = chain.pop() {
+                assert_eq!(
+                    got,
+                    state(u8::try_from(expected).expect("fits"), 1024),
+                    "capacity {capacity}/{keyframes}: entry for frame {expected} is wrong"
+                );
+                recovered += 1;
+                expected = expected.wrapping_sub(1);
+            }
+            assert_eq!(
+                recovered, claimed,
+                "capacity {capacity}/{keyframes}: claimed {claimed} but recovered {recovered}"
+            );
+        }
     }
 
     /// A zero-capacity chain is a permanent no-op — the additive-default-off posture.

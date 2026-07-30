@@ -81,6 +81,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Settings gained Video (aspect, overscan grid), Audio (latency, kernel, health readout), and Input
     (autofire, gamepad list + deadzone) controls for all of the above.
 
+- **Frontend parity with RustyNES: `TAStudio` (T-FP-G2).** The frame-by-frame input editor — a piano
+  roll (`PianoRoll`), the state cache that makes seeking into it usable (`Greenzone`), and the grid
+  panel. Every edit **returns** the frame from which cached state is invalid, so ignoring the
+  invalidation would mean actively discarding a value; it is at-or-after the edited frame, because
+  the state *at* frame N is computed from the input *at* frame N. The greenzone reuses
+  `crate::delta`'s compression unchanged — which is why T-FP-F was sequenced first — and caches
+  every 30 frames rather than every frame. Recording and state capture happen only while the window
+  is open.
+  - **Where the `delta::Chain` eviction defect came from.** Building the greenzone is what exposed
+    it — a capacity of 4 against a keyframe interval of 8 restored exactly **one** of its four
+    claimed states — but the fix belongs to the chain, so it landed with T-FP-F above, where the
+    chain does. Recorded here because the measurement that found it is a greenzone one.
+  - **A seek keeps the state it returns**, consuming only those after it. Reading the target means
+    popping it, since the chain is readable only from its end, but it is re-stored immediately: the
+    caller has just restored *to* that frame, and it is the state most likely to be wanted again
+    (seek to 60, edit, run, seek to 60). Two tests had encoded the opposite — one asserting a newest
+    frame that contradicted the comment directly above it, the other using `seek` as a destructive
+    iterator to drain the cache.
+  - **The first state is seeded whatever frame it lands on.** Emulation starts at frame 0 and the
+    first checkpoint is a whole interval later, so until then a seek had nothing at or before it and
+    failed outright — every frame under the interval was unreachable.
+
 - **Frontend parity with RustyNES: A/V capture, virtual pad, databases, macros (T-FP-G1).**
   - **A/V capture** (`crate::av_record`) to raw `.y4m` + `.wav`, printing the `ffmpeg` mux command on
     stop. Raw streams rather than a container: muxing means either an `FFmpeg` dependency or

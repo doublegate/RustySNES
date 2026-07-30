@@ -92,6 +92,12 @@ pub(crate) const HD_PACK_SCALE: u32 = 2;
 /// `create_window`'s requested inner size, so this applies there too, not just to native windows.
 const INITIAL_SCALE: u32 = 3;
 
+/// Cached TAS states the greenzone retains (`v1.25.0`, T-FP-G2).
+///
+/// At the default 30-frame interval that is ~40 minutes of timeline. Compressed
+/// (`crate::delta`), so the memory cost is a small fraction of 80 raw save-states.
+const GREENZONE_CAPACITY: usize = 80;
+
 /// A floor on the requested window width (`v1.3.0`, View → Window Size), padding past the
 /// 4:3-derived width (see `App::chrome_padded_size`) so the egui menu bar (File / Emulation /
 /// Tools / View / Debug / Help) never gets clipped at `1x`. Used by both native and `wasm32`'s
@@ -308,6 +314,10 @@ struct Active {
     /// hit before.
     #[cfg(not(feature = "emu-thread"))]
     run_ahead_scratch: Vec<u8>,
+    /// Cached machine states along the TAS timeline (`v1.25.0`, T-FP-G2).
+    ///
+    /// Reuses `crate::delta`'s compression, which is why T-FP-F was sequenced before this.
+    greenzone: crate::tastudio::greenzone::Greenzone,
     /// A chain built from a loaded `.slangp` preset (`v1.25.0`, T-FP-E), or `None`.
     ///
     /// Held here rather than rebuilt per present because building it reads files off disk and runs
@@ -1132,6 +1142,10 @@ impl App {
             symbols: None,
             #[cfg(not(feature = "emu-thread"))]
             run_ahead_scratch: Vec::new(),
+            greenzone: crate::tastudio::greenzone::Greenzone::new(
+                GREENZONE_CAPACITY,
+                crate::tastudio::greenzone::DEFAULT_INTERVAL,
+            ),
             // Restored from `video.preset_path` (`v1.25.0`, T-FP-E). Without this the path
             // round-trips through `config.toml` and the Settings panel says "a preset is active"
             // while nothing renders it — the setting would be decoration.
@@ -1621,6 +1635,37 @@ impl App {
                     active.last_frame_time_ms = produce_ms;
                 }
                 active.produce_sample_ms = produce_ms;
+                // TAStudio (`v1.25.0`, T-FP-G2): record the played input into the timeline and
+                // offer a state at each checkpoint. Only while the window is open — a greenzone
+                // nobody is editing against is pure cost, and `offer` would otherwise take a
+                // save-state every 30 frames for the whole session.
+                if active.shell.tastudio_open && frames > 0 {
+                    // Seed the greenzone before advancing. `play_frame` is incremented per
+                    // emulated frame and the checkpoint test runs on the result, so frame 0's
+                    // state — the one every seek below the first interval needs — was never
+                    // offered: `is_checkpoint(1)` is false, and by frame 30 the state on offer is
+                    // frame 30's. A seek to any frame under the interval then found nothing at or
+                    // before it and failed outright.
+                    if active.greenzone.is_empty() {
+                        let at = active.shell.tas.play_frame;
+                        active.greenzone.offer_seed(at, &emu.save_state());
+                    }
+                    for _ in 0..frames {
+                        let played = active.shell.tas.play_frame;
+                        let _ = active.shell.tas.roll.record(
+                            played,
+                            eff_pad1.sanitize_dpad(),
+                            eff_pad2.sanitize_dpad(),
+                        );
+                        active.shell.tas.play_frame = played.saturating_add(1);
+                    }
+                    let at = active.shell.tas.play_frame;
+                    if active.greenzone.is_checkpoint(at) {
+                        active.greenzone.offer(at, &emu.save_state());
+                    }
+                    active.shell.tas.greenzone_states = active.greenzone.len();
+                    active.shell.tas.greenzone_bytes = active.greenzone.bytes();
+                }
                 // `v1.25.0`: remember the count so `record_present` below can expose the
                 // produced-vs-presented divergence (a catch-up burst emulates several frames for
                 // one present, which a single combined metric hides).
@@ -2495,6 +2540,57 @@ impl App {
                     config.video.preset_path = None;
                     let _ = config.save();
                     active.shell.status = "Shader preset unloaded".into();
+                }
+                // TAStudio (`v1.25.0`, T-FP-G2). Invalidation is raised by EVERY piano-roll
+                // edit, because emulation is deterministic: changing frame N makes every cached
+                // state from N onward describe a machine that no longer exists.
+                MenuAction::TasInvalidate(frame) => {
+                    active.greenzone.invalidate_from(frame);
+                    active.shell.tas.greenzone_states = active.greenzone.len();
+                    active.shell.tas.greenzone_bytes = active.greenzone.bytes();
+                }
+                MenuAction::TasSeek(frame) => {
+                    let restored = active.greenzone.seek(frame);
+                    active.shell.tas.greenzone_states = active.greenzone.len();
+                    active.shell.tas.greenzone_bytes = active.greenzone.bytes();
+                    match restored {
+                        Some((at, state)) => {
+                            // The lock is scoped to the restore + replay only, so the status
+                            // formatting below happens outside it — the shell's brief-lock rule.
+                            let ok = {
+                                let mut emu =
+                                    active.core.lock().unwrap_or_else(PoisonError::into_inner);
+                                let restored_ok = emu.load_state(&state).is_ok();
+                                if restored_ok {
+                                    // Replay the frames between the cached state and the target
+                                    // from the timeline — what makes a sparse greenzone work.
+                                    for f in at..frame {
+                                        let (p1, p2) = active.shell.tas.roll.at(f);
+                                        emu.set_pad(0, p1);
+                                        emu.set_pad(1, p2);
+                                        emu.run_frame();
+                                    }
+                                }
+                                restored_ok
+                            };
+                            if ok {
+                                active.shell.tas.play_frame = frame;
+                                active.shell.status =
+                                    format!("Seeked to frame {frame} (from cached {at})");
+                            } else {
+                                active.shell.status =
+                                    "TAS seek failed: the cached state did not restore".into();
+                            }
+                        }
+                        None => {
+                            // Honest: no cached state at or before the target, so the seek would
+                            // mean replaying from power-on. Say so rather than appearing to work.
+                            active.shell.status = format!(
+                                "No cached state at or before frame {frame}; play forward to \
+                                 build the greenzone"
+                            );
+                        }
+                    }
                 }
                 MenuAction::ResetPerfStats => {
                     active.perf.reset();
