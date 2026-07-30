@@ -36,7 +36,11 @@
 // the chip stack stays `#![forbid(unsafe_code)]`.
 #![allow(unsafe_code)]
 
+// A/V capture to raw Y4M + WAV (`v1.25.0`, T-FP-G1). Native only; the module is itself
+// `#![cfg]`-gated, mirrored here so the gate is visible in the module list.
 pub mod audio_core;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod av_record;
 // The in-session cheat-code list (`v0.8.0` T-81-003). No platform constraint like `scripting`'s
 // `mlua` — decode is pure computation and application reuses `Bus::poke_wram`, so this is not
 // `target_arch`-gated, only feature-gated.
@@ -76,9 +80,13 @@ pub mod asm65816;
 // A small integer expression evaluator for conditional breakpoints/watchpoints (`v1.25.0`,
 // T-FP-C2).
 pub mod expr;
+// CRC32-keyed game + Game Genie databases (`v1.25.0`, T-FP-G1).
+pub mod game_db;
 pub mod i18n;
 // Address-to-name maps (WLA `.sym` and flat forms) for the debugger (`v1.25.0`, T-FP-C2).
 pub mod input;
+// Recorded input macros (`v1.25.0`, T-FP-G1) — deliberately NOT a TAS movie; see the module doc.
+pub mod input_macros;
 pub mod patch;
 pub mod per_game;
 pub mod symbols;
@@ -119,6 +127,9 @@ pub mod peripherals;
 pub mod rewind;
 pub mod save_states;
 pub mod ui_shell;
+// The on-screen controller (`v1.25.0`, T-FP-G1) — a touch input surface and a visual input display,
+// with one source of geometry so the hit test and the renderer cannot disagree.
+pub mod virtual_pad;
 // Read/write watchpoint sync (`v0.8.0` T-81-001b). Needs the `rustysnes-core` side of the gate
 // (`Cargo.toml`'s `debug-hooks = ["rustysnes-core/debug-hooks"]`), so this module only exists
 // when both are on.

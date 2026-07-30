@@ -81,6 +81,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Settings gained Video (aspect, overscan grid), Audio (latency, kernel, health readout), and Input
     (autofire, gamepad list + deadzone) controls for all of the above.
 
+- **Frontend parity with RustyNES: A/V capture, virtual pad, databases, macros (T-FP-G1).**
+  - **A/V capture** (`crate::av_record`) to raw `.y4m` + `.wav`, printing the `ffmpeg` mux command on
+    stop. Raw streams rather than a container: muxing means either an `FFmpeg` dependency or
+    hand-rolled format code whose bugs surface months later. The Y4M frame rate is an **exact
+    rational**, since rounding 60.0988 to `60:1` drifts a 20-minute recording ~2 s against its own
+    audio; the WAV size fields are patched on finish, since a placeholder reads as a zero-length
+    file. A resolution change mid-recording is **refused by name**, and A/V drift is **reported, not
+    corrected** — silently resampling would make a broken capture look fine. A non-positive or
+    non-finite frame rate, and a zero dimension, are rejected at `start` rather than defended
+    against at each use: a saturating float-to-int cast would turn the drift readout into a
+    confident wrong number, which is the one thing it must not be. The YUV planes are allocated once
+    and reused, since three plane-sized `Vec`s per frame is ~180 KiB of allocation on a 60 Hz path;
+    the WAV `RIFF` and `data` sizes saturate **together**, so a recording past what the 32-bit format
+    can describe writes a header that is as truthful as possible instead of overflowing while being
+    finished; and the printed `ffmpeg` command shell-quotes its paths, since capture directories
+    routinely contain spaces.
+  - **Virtual pad** (`crate::virtual_pad`) — an on-screen controller for touch and as a visual input
+    display. The hit test and the renderer share **one** source of geometry, so a button cannot
+    highlight without pressing; the overlap test caught a real layout bug where two face buttons
+    shared a float-ambiguous edge. All simultaneous touches resolve together, since holding a
+    direction while tapping a face button is the normal case. Buttons are separated by small gaps
+    (abutting rectangles are ambiguous at their shared edge), so a near miss **snaps to the nearest
+    button** within a bounded radius — measured to the rectangle rather than its centre, so a wide
+    button does not lose to a small neighbour. Without that, a thumb sliding from Up to Left crossed
+    a dead zone and the input dropped; with the radius bounded, genuinely empty screen still presses
+    nothing.
+  - **Game and Game Genie databases** (`crate::game_db`), CRC32-keyed because every existing SNES
+    list is. A cart's internal title is often blank, mojibake, or a codename; a hash is not. Junk
+    lines are skipped but **counted**, and a half-formed entry is refused rather than stored blank.
+    Only a `#` that **opens a line** starts a comment: these files are tab/pipe-separated and both
+    columns legitimately contain one (`Bases Loaded #2`, `Player #1 infinite HP`), so splitting on
+    the first `#` silently truncated real rows. Trailing comments are not a feature of the format,
+    which is the cheaper thing to give up.
+  - **Input macros** (`crate::input_macros`) — deliberately not a TAS movie, since a movie's seed and
+    ROM-hash guarantees are exactly what a macro cannot have. Playback is OR-ed onto live input (so a
+    held direction survives), recordings trim dead frames at both ends, and a recording stops itself
+    at 512 frames because forgetting the stop hotkey is the real failure mode. Switching modes
+    **finalises** an in-progress recording rather than abandoning it: an untrimmed slot replays with
+    the dead frames `stop` exists to remove, and a user who never pressed stop has no reason to
+    suspect that one macro is in a different state from every other. Trimming locates its boundaries
+    and drains once, rather than shifting the whole buffer per removed frame.
+
 - **Frontend parity with RustyNES: audio mixer, rewind compression, run-ahead fast path (T-FP-F).**
   - **Per-voice gain** (`Dsp::set_voice_gains`) plus per-voice output taps, applied at the existing
     per-voice-mute site so nothing upstream (envelope, BRR decode, pitch, `OUTX`/`ENDX`/`ENVX`) is
