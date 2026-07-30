@@ -314,8 +314,10 @@ added to this table; hi-res color-math precision itself closed in `v0.7.0 "Resol
   confirming the 6/8/12 access map + dot timeline.
 - **Accuracy battery (the composed multi-layer oracle):** see the "Accuracy dashboard" section at
   the top of this document for the always-current, per-layer status table — the CPU, SPC700,
-  on-cart CPU, PPU/DMA golden, and audio layers are all green; the coprocessor layer is 6/9
-  BestEffort boards real-title validated plus all 3 Core/Curated boards honesty-gate green.
+  on-cart CPU, PPU/DMA golden, and audio layers are all green; the coprocessor layer is 10/11
+  BestEffort boards real-title-validated (DSP-3/ST011 liveness-validated, ST018/S-RTC
+  detection+boot-validated — only SPC7110 lacks a booting dump) plus all 3 Core/Curated boards
+  honesty-gate green.
 - **Determinism contract:** the framebuffer is verified bit-identical across runs (same seed +
   ROM ⇒ identical hash) for all 29 undisbeliever ROMs; the full save-state round-trip (save,
   restore onto a fresh `System`, continue both, compare framebuffer + audio) is proven for a

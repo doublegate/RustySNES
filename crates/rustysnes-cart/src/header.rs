@@ -264,9 +264,11 @@ fn decode_title(title_bytes: &[u8]) -> String {
 /// database, title-match the two known CX4 games here, the same single-game-chip approach
 /// [`crate::coproc::necdsp_variant::Variant::detect`] uses for the DSP family's singles.
 fn coprocessor_from_chipset(chipset: u8, title_upper: &str) -> Coprocessor {
-    // S-RTC (Daikaijuu Monogatari II) declares a non-`$F` chipset nibble (`$5` on the real cart), so
-    // the nibble gate + `$F` arm below never see it — title-detect it up front. Its internal title is
-    // the no-space, `JYU`-romanized `DAIKAIJYUMONOGATARI2` (verified against a real dump); the spaced
+    // S-RTC (Daikaijuu Monogatari II) declares chipset `$55` on the real cart: low nibble `$5`
+    // passes the presence gate below, but the `match chipset >> 4` then routes high nibble `$5` to
+    // the `_ => None` arm (S-RTC's title check lives in the `$F` arm, which `$5` never reaches). So
+    // title-detect it up front, nibble-agnostically. Its internal title is the no-space,
+    // `JYU`-romanized `DAIKAIJYUMONOGATARI2` (verified against a real dump); the spaced
     // `DAIKAIJUU/DAIKAIJU MONOGATARI` variants were earlier best-effort guesses, kept as fallbacks.
     if title_upper.contains("DAIKAIJYUMONOGATARI")
         || title_upper.contains("DAIKAIJUU MONOGATARI")
