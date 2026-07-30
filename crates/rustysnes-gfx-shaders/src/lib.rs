@@ -338,3 +338,198 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     return vec4<f32>(clamp(rgb, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0)), 1.0);
 }
 ";
+
+/// A richer CRT pass for the multi-pass stack (`v1.25.0`, T-FP-D).
+///
+/// Unlike [`CRT_WGSL`] — which is the `v1.2.0` two-knob single-pass filter and stays as it is for
+/// the legacy `PostFilter::Crt` path — this one is written against `shader_runtime`'s prelude and
+/// takes its knobs from `param(i)`, so its controls are generated from the pass rather than
+/// hardcoded on both sides.
+///
+/// | slot | knob | effect |
+/// |---|---|---|
+/// | 0 | scanlines | darkening of alternate output rows |
+/// | 1 | mask | RGB aperture-mask strength |
+/// | 2 | curvature | barrel distortion of the sampled UV |
+/// | 3 | beam | how sharply a scanline's brightness falls off from its centre |
+/// | 4 | glow | bloom pulled from neighbouring texels |
+/// | 5 | vignette | corner darkening |
+///
+/// Curvature samples **outside** the image at the corners; the shader returns black there rather
+/// than clamping, because a clamped edge texel smeared around a curved border is the classic
+/// "stretched corner" artefact that makes a curved CRT shader look broken.
+pub const CRT_STACK_WGSL: &str = r"
+fn curve(uv: vec2<f32>, amount: f32) -> vec2<f32> {
+    // Centre-relative barrel distortion. `amount` 0 leaves the UV untouched exactly, so the knob
+    // at zero is a true bypass rather than an almost-bypass.
+    let c = uv * 2.0 - 1.0;
+    let r2 = dot(c, c);
+    let warped = c * (1.0 + amount * r2 * 0.25);
+    return warped * 0.5 + 0.5;
+}
+
+@fragment
+fn fs_main(in: StackVsOut) -> @location(0) vec4<f32> {
+    let scanline = clamp(param(0u), 0.0, 1.0);
+    let mask      = clamp(param(1u), 0.0, 1.0);
+    let curvature = clamp(param(2u), 0.0, 1.0);
+    let beam      = clamp(param(3u), 0.0, 1.0);
+    let glow      = clamp(param(4u), 0.0, 1.0);
+    let vignette  = clamp(param(5u), 0.0, 1.0);
+
+    // Distortion is an IMAGE-space effect: its centre is the picture's centre, not the centre of
+    // whatever backing texture the picture happens to sit in. So renormalise, curve, bounds-check
+    // against the image, and only then map back to texture space to sample.
+    let iuv = curve(image_uv(in.uv), curvature);
+    // Outside the curved border: black, not a clamped edge texel smeared around the corner.
+    if (iuv.x < 0.0 || iuv.x > 1.0 || iuv.y < 0.0 || iuv.y > 1.0) {
+        return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    }
+    let uv = tex_uv(iuv);
+
+    var color = textureSample(stack_tex, stack_samp, uv).rgb;
+
+    // Glow: a cheap 4-tap ring at one output texel, added rather than blended so glow = 0 is exact.
+    if (glow > 0.0) {
+        let px = out_texel();
+        var bloom = vec3<f32>(0.0);
+        // Every tap clamped to the live sub-rect: the sampler's own clamp stops at the edge of
+        // the oversized BACKING texture, so an unclamped tap past the picture reads never-written
+        // black and draws a dark rim down the right and bottom edges.
+        bloom = bloom + textureSample(stack_tex, stack_samp, clamp_uv(uv + vec2<f32>( px.x, 0.0))).rgb;
+        bloom = bloom + textureSample(stack_tex, stack_samp, clamp_uv(uv + vec2<f32>(-px.x, 0.0))).rgb;
+        bloom = bloom + textureSample(stack_tex, stack_samp, clamp_uv(uv + vec2<f32>(0.0,  px.y))).rgb;
+        bloom = bloom + textureSample(stack_tex, stack_samp, clamp_uv(uv + vec2<f32>(0.0, -px.y))).rgb;
+        color = color + bloom * (glow * 0.25 * 0.5);
+    }
+
+    // Scanlines with a beam-shape falloff: `beam` 0 gives the flat every-other-row darkening the
+    // v1.2.0 filter had; higher values concentrate brightness at each line's centre.
+    if (scanline > 0.0) {
+        let row = in.pos.y;
+        let phase = fract(row * 0.5);
+        let dist = abs(phase - 0.25) * 4.0;
+        let flat_shape = step(0.5, phase);
+        let beam_shape = clamp(dist, 0.0, 1.0);
+        let shape = mix(flat_shape, beam_shape, beam);
+        color = color * (1.0 - scanline * shape);
+    }
+
+    // Aperture mask: each output column favours one primary, cycling R/G/B.
+    if (mask > 0.0) {
+        let col = u32(in.pos.x) % 3u;
+        var tint = vec3<f32>(1.0, 1.0, 1.0);
+        if (col == 0u) { tint = vec3<f32>(1.0, 1.0 - mask, 1.0 - mask); }
+        else if (col == 1u) { tint = vec3<f32>(1.0 - mask, 1.0, 1.0 - mask); }
+        else { tint = vec3<f32>(1.0 - mask, 1.0 - mask, 1.0); }
+        color = color * tint;
+    }
+
+    if (vignette > 0.0) {
+        // Centred on the IMAGE, for the same reason the curvature is.
+        let c = image_uv(in.uv) * 2.0 - 1.0;
+        let falloff = 1.0 - vignette * clamp(dot(c, c) * 0.35, 0.0, 1.0);
+        color = color * falloff;
+    }
+
+    return vec4<f32>(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+}
+";
+
+/// An NTSC composite-artefact pass for the multi-pass stack (`v1.25.0`, T-FP-D).
+///
+/// An **RGB-domain** approximation in the [LMP88959](https://github.com/LMP88959/NTSC-CRT) style:
+/// horizontal chroma bandwidth reduction, luma/chroma bleed between neighbouring columns, and an
+/// optional dot-crawl phase that advances with the frame counter.
+///
+/// It works in RGB deliberately. The full technique encodes to a composite signal and decodes back,
+/// which for a NES needs the emulator to export a palette-index framebuffer — but the SNES PPU emits
+/// 15-bit BGR555 **direct colour**, so there is no index to export and no core change to make. What
+/// is reproducible in RGB is the visible half: the chroma smear and the dot crawl. Claiming more
+/// than that would be the dishonest version.
+///
+/// | slot | knob | effect |
+/// |---|---|---|
+/// | 0 | bleed | horizontal chroma bleed distance |
+/// | 1 | artifacts | luma/chroma cross-talk strength |
+/// | 2 | fringing | colour fringe on vertical edges |
+/// | 3 | crawl | dot-crawl phase advance per frame |
+pub const NTSC_STACK_WGSL: &str = r"
+fn to_yiq(rgb: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(
+        dot(rgb, vec3<f32>(0.299, 0.587, 0.114)),
+        dot(rgb, vec3<f32>(0.596, -0.274, -0.322)),
+        dot(rgb, vec3<f32>(0.211, -0.523, 0.312))
+    );
+}
+
+fn to_rgb(yiq: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(
+        yiq.x + 0.956 * yiq.y + 0.621 * yiq.z,
+        yiq.x - 0.272 * yiq.y - 0.647 * yiq.z,
+        yiq.x - 1.106 * yiq.y + 1.703 * yiq.z
+    );
+}
+
+@fragment
+fn fs_main(in: StackVsOut) -> @location(0) vec4<f32> {
+    let bleed     = clamp(param(0u), 0.0, 1.0);
+    let artifacts = clamp(param(1u), 0.0, 1.0);
+    let fringing  = clamp(param(2u), 0.0, 1.0);
+    let crawl     = clamp(param(3u), 0.0, 1.0);
+
+    // A texture-space step of one source pixel — NOT `1 / source_size()`, which is an image-space
+    // step and lands in the wrong place whenever the bound texture is larger than the image.
+    let px = texel();
+    let here = textureSample(stack_tex, stack_samp, in.uv).rgb;
+
+    // Every knob at zero must be a bit-exact bypass, the same contract the audio EQ holds — that
+    // is what makes the pass safe to leave in the chain.
+    if (bleed <= 0.0 && artifacts <= 0.0 && fringing <= 0.0 && crawl <= 0.0) {
+        return vec4<f32>(here, 1.0);
+    }
+
+    var yiq = to_yiq(here);
+
+    // Chroma bandwidth reduction: average I/Q horizontally, leaving luma sharp. That asymmetry is
+    // the defining property of composite video and most of what makes it recognisable.
+    if (bleed > 0.0) {
+        let span = px.x * (1.0 + bleed * 3.0);
+        var chroma = vec2<f32>(0.0);
+        var weight = 0.0;
+        for (var i = -2; i <= 2; i = i + 1) {
+            let o = f32(i) * span;
+            let s = to_yiq(textureSample(stack_tex, stack_samp, clamp_uv(in.uv + vec2<f32>(o, 0.0))).rgb);
+            let w = 1.0 - abs(f32(i)) * 0.25;
+            chroma = chroma + s.yz * w;
+            weight = weight + w;
+        }
+        yiq = vec3<f32>(yiq.x, chroma.x / weight, chroma.y / weight);
+    }
+
+    // Luma/chroma cross-talk: a luma edge leaks into chroma, which is the artefact colour.
+    if (artifacts > 0.0) {
+        let left = to_yiq(textureSample(stack_tex, stack_samp, in.uv - vec2<f32>(px.x, 0.0)).rgb);
+        let edge = yiq.x - left.x;
+        yiq = vec3<f32>(yiq.x, yiq.y + edge * artifacts * 0.5, yiq.z - edge * artifacts * 0.5);
+    }
+
+    // Dot crawl: the chroma subcarrier phase walks with the frame, so a vertical edge shimmers.
+    if (crawl > 0.0) {
+        let phase = (in.pos.y + frame_count()) * 1.5707963;
+        let wobble = sin(phase) * crawl * 0.06;
+        yiq = vec3<f32>(yiq.x, yiq.y + wobble, yiq.z - wobble);
+    }
+
+    var rgb = to_rgb(yiq);
+
+    // Colour fringing on a vertical edge, applied in RGB so it survives the YIQ round-trip.
+    if (fringing > 0.0) {
+        let r = textureSample(stack_tex, stack_samp, clamp_uv(in.uv + vec2<f32>(px.x * fringing, 0.0))).r;
+        let b = textureSample(stack_tex, stack_samp, clamp_uv(in.uv - vec2<f32>(px.x * fringing, 0.0))).b;
+        rgb = vec3<f32>(mix(rgb.r, r, fringing * 0.5), rgb.g, mix(rgb.b, b, fringing * 0.5));
+    }
+
+    return vec4<f32>(clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+}
+";

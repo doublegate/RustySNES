@@ -81,6 +81,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Settings gained Video (aspect, overscan grid), Audio (latency, kernel, health readout), and Input
     (autofire, gamepad list + deadzone) controls for all of the above.
 
+- **Frontend parity with RustyNES: the multi-pass shader stack (T-FP-D).**
+  - **`crate::shader_pass` / `crate::shader_runtime` / `Gfx::present_chain`** — an ordered chain of
+    passes, each with its own scale (`source`/`viewport`/`absolute`), input filtering, wrap mode,
+    float framebuffer, alias, and frame-counter modulus. Replaces a shape that could apply exactly
+    one filter and grew an argument per knob. Per-pass fields are named after `RetroArch`'s
+    `.slangp` keys so T-FP-E's parser needs no translation layer.
+  - **Parameters are declared by the shader**, not by Rust: a name-indexed list packed into one
+    uniform, with Settings sliders **generated from the pass**. Adding a knob touches no UI or config
+    code, and a saved override for a knob a shader no longer declares is ignored rather than landing
+    in the wrong slot.
+  - **`video.stack` defaults to `Off`**, which builds an empty chain — so an existing `config.toml`
+    renders byte-identically and the `v1.2.0` `PostFilter` path is untouched.
+  - **The input is a sub-rect, and the prelude says so.** Pass 0 samples the emulator's *backing*
+    framebuffer, allocated at the maximum size with the live image in its top-left corner, so the
+    uniform block carries the live fraction and the shared vertex stage applies it; later passes read
+    intermediates sized exactly to their input and get `(1, 1)`. Four helpers follow from that —
+    `image_uv`/`tex_uv` for effects centred on the picture (curvature, vignette), `texel`/`out_texel`
+    for a neighbouring source/output pixel, and `clamp_uv` for any offset tap, because the sampler's
+    own clamp stops at the edge of the whole *texture* and an unclamped tap past the picture reads
+    never-written black — a dark rim down the right and bottom edges.
+  - **The rebuild signature covers everything a built pass captures**, since anything omitted is a
+    stale binding that fails at *draw* time rather than at build time: the backing texture's
+    dimensions (it is recreated exactly when one of them grows, while pass 0 still holds a view of
+    the old one), a CRC of each pass's source rather than its length (a collision would keep silently
+    running the previous pipeline), and `filter_linear`/`wrap_mode` (baked into a captured sampler).
+  - **Richer CRT** (scanlines, mask, curvature, beam shape, glow, vignette) and an **NTSC composite**
+    pass (chroma bleed, artefacts, fringing, dot crawl). NTSC is an RGB-domain approximation
+    deliberately: the full technique needs a palette-index framebuffer, which is a NES property — the
+    SNES PPU emits direct colour, so there is nothing to export and no core change to make. `NTSC +
+    CRT` runs them in that order, because artefacts happen in the signal and the mask at the phosphor.
+  - **Offscreen golden tests.** `gfx.rs`'s tests previously only validated WGSL — no device, no
+    pixel — so a shader that compiled and rendered wrongly passed. The new harness renders to an
+    offscreen texture and asserts that every knob at zero is a **bit-exact** bypass, that each knob
+    changes the image in the direction it claims, and that the same render hashes identically. It
+    self-skips with a printed reason where no adapter exists.
+  - A pass's WGSL is validated with naga **before** `create_shader_module`, because wgpu reports a
+    shader error by panicking the device — a typo in a user shader must not take down the emulator.
+    A failed pass falls back to the plain blit and is **named** in Settings.
+
 - **Frontend parity with RustyNES: advanced debugger (T-FP-C2).**
   - **Conditional breakpoints** (`crate::expr`) — an integer expression evaluator with registers,
     flags, and read-only memory access (`[addr]`, `{addr}`), so a breakpoint on a routine called

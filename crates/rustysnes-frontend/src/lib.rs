@@ -54,6 +54,10 @@ pub mod debug_snapshot;
 pub mod debugger;
 pub mod emu;
 pub mod gfx;
+// Offscreen wgpu rendering for shader tests (`v1.25.0`, T-FP-D). `#[cfg(test)]` inside the module
+// itself; this mirrors the gate so it is visible in the module list.
+#[cfg(test)]
+pub mod gfx_test_support;
 // HD texture pack manifest + loader (`v1.3.0` T-PS, `hd-pack` feature) -- schema, `pack.toml`
 // parse, PNG decode, and per-ROM pack discovery (`hd_pack.rs`'s own module doc has the detail).
 #[cfg(feature = "hd-pack")]
@@ -86,6 +90,14 @@ pub mod perf;
 pub mod perf_log;
 pub mod perf_panel;
 pub mod screenshot;
+// The multi-pass presentation shader stack (`v1.25.0`, T-FP-D) — the chain description plus the
+// runtime that executes it. See each module's doc.
+pub mod shader_pass;
+// Offscreen golden tests for the stack's shaders (`v1.25.0`, T-FP-D) — pixels, not just WGSL
+// validation. `#[cfg(test)]` inside the module; mirrored here so the gate is visible.
+#[cfg(test)]
+pub mod shader_golden;
+pub mod shader_runtime;
 // Native rollback netplay (`v0.8.0` T-82-002). Native-only: browser WebRTC signaling UI is a
 // separate, deferred scope (`netplay.rs`'s own module doc has the detail).
 #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]

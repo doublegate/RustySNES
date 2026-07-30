@@ -252,6 +252,130 @@ The previous test-only hand-copied mirror of the letterbox formula was deleted i
 calling the real function — a formula duplicated for testability is a formula that can silently
 diverge from the one that ships, which is the very thing the test exists to prevent.
 
+## The multi-pass shader stack (`v1.25.0`, T-FP-D)
+
+`Gfx::present` took a `PostFilter` enum plus four hardcoded `f32` arguments, applied exactly **one**
+filter, and gained an argument every time a filter gained a knob. That shape cannot express what
+presentation shaders are: an ordered chain, each pass rendering into a target the next one samples,
+each with its own scale, filtering, and parameter set.
+
+`crate::shader_pass` describes such a chain; `crate::shader_runtime` and `Gfx::present_chain` run it.
+The per-pass fields are named after `RetroArch`'s `.slangp` keys (`scale_type`, `filter_linear`,
+`wrap_mode`, `float_framebuffer`, `mipmap_input`, `alias`, `frame_count_mod`) so T-FP-E's preset
+parser maps onto this with no translation layer.
+
+**The `v1.2.0` `PostFilter` path is untouched.** `video.stack` defaults to `Off`, which builds an
+*empty* chain, and `present_chain` falls straight through to the plain blit — so an existing
+`config.toml` renders byte-identically and the two systems never both apply.
+
+### Parameters are declared by the shader
+
+A `#pragma parameter` declares a named, ranged, defaulted knob. Modelling those as Rust struct
+fields would mean the Rust side has to know every shader's knobs at compile time, which is exactly
+what makes a shader stack unable to load a shader it was not built with. Here they are a
+name-indexed list packed into one uniform, the Settings sliders are **generated from the pass**, and
+edits are stored as `"<chain>.<param>"` overrides — so adding a knob touches no UI or config code,
+and a saved value for a knob a shader no longer declares is ignored rather than landing in the wrong
+slot.
+
+### The uniform layout, declared once
+
+The prelude (`shader_runtime::PRELUDE`) is prepended to every pass, so the binding layout exists in
+exactly one place. It supplies the bindings, `source_size()`/`output_size()`/`frame_count()`/
+`param(i)`, and the fullscreen-triangle vertex stage; a pass supplies only its `fs_main`.
+
+### The input is a sub-rect, and every pass must know it
+
+Pass 0's input is the emulator's **backing** framebuffer texture, which is allocated once at the
+maximum size and holds the live 256x224 (or hi-res) image in its **top-left corner**. Sampling
+`0..1` across it therefore stretches a mostly-unwritten allocation over the screen. The uniform
+block carries the live fraction (`source_rect()`), the shared vertex stage applies it to `in.uv`,
+and every later pass gets `(1, 1)` because an intermediate is sized exactly to its own image.
+
+That one fact generates four prelude helpers, and a pass that ignores them is subtly wrong rather
+than obviously broken:
+
+| helper | for |
+|---|---|
+| `image_uv(uv)` / `tex_uv(uv)` | effects centred on the **picture** — barrel distortion, a vignette |
+| `texel()` | a neighbouring **source** pixel. NOT `1 / source_size()`, which is an image-space step |
+| `out_texel()` | a neighbouring **output** pixel, for effects sized to the destination |
+| `clamp_uv(uv)` | any offset tap. The sampler's own `ClampToEdge` clamps to the edge of the whole *texture*, so an unclamped tap past the picture reads never-written black and draws a dark rim down the right and bottom edges |
+
+Two layout facts that do not error when wrong, they just read the wrong data:
+
+- `Uniforms` must be 16-byte aligned (WGSL's uniform address space). A `const` assertion enforces it.
+- Parameters are packed **four to a `vec4`**, because a `array<f32, N>` in the uniform address space
+  has a 16-byte *stride per element* in WGSL — a tight Rust-side array against that declaration
+  misaligns silently.
+
+### Rebuild discipline
+
+Pipelines and intermediate targets are rebuilt only when the chain's identity or a target size
+changes, tracked by a cheap signature string. Compiling a pipeline and allocating a texture every
+present is the difference between a shader stack being usable and being a slideshow. A slider move
+writes a uniform; it does not rebuild.
+
+**Everything a built pass captures must appear in that signature**, because anything omitted is a
+stale binding waiting to happen — and the failure lands at *draw* time as a wgpu validation error,
+not at build time. It therefore covers: the target format; the **backing texture's dimensions**,
+which are its identity here since `ensure_texture_capacity` recreates it exactly when one of them
+grows (an HD pack, a hi-res mode) while pass 0's bind group still holds a view of the old one; a
+CRC of each pass's source rather than its length, since a length collision would keep silently
+running the previous pipeline; and `filter_linear`/`wrap_mode`, which `BuiltPass::build` bakes into
+a sampler it captures.
+
+A pass's pipeline format matches **its own target**, not the surface: only the last pass renders to
+the swapchain. Using the surface format throughout is a validation error at *draw* time, so it would
+surface as a mid-frame crash rather than a failed build.
+
+### Failure is named, never silent
+
+Each pass's WGSL is validated with naga *before* `create_shader_module`, because wgpu reports a
+shader error by panicking the device — which for a user-supplied shader would mean a typo takes down
+the emulator. A pass that fails to build stops the chain, `present_chain` falls back to the plain
+blit, and Settings names the failing pass with the compiler's message. `ShaderChain::unsupported`
+carries passes a *preset* could not produce at all, which is what makes T-FP-E's GLSL bridge able to
+be best-effort rather than all-or-nothing.
+
+### The richer CRT and NTSC passes
+
+`CRT_STACK_WGSL` takes six knobs: scanlines, aperture mask, curvature, beam shape, glow, vignette.
+Curvature samples outside the image at the corners and returns **black** there rather than clamping —
+a clamped edge texel smeared around a curved border is the classic "stretched corner" artefact.
+
+`NTSC_STACK_WGSL` is an **RGB-domain** approximation in the [LMP88959](https://github.com/LMP88959/NTSC-CRT)
+style: horizontal chroma bandwidth reduction, luma/chroma cross-talk, colour fringing, and a
+frame-advancing dot crawl. It works in RGB deliberately — the full encode/decode technique needs a
+palette-index framebuffer, which is a *NES* property; the SNES PPU emits 15-bit BGR555 direct
+colour, so there is no index to export and no core change to make. What is reproducible in RGB is
+the visible half, and claiming more would be the dishonest version.
+
+`NtscCrt` runs NTSC **then** CRT: composite artefacts happen in the signal, scanlines and the mask
+at the phosphor. Reversing them would smear the mask itself.
+
+### Offscreen golden tests (`gfx_test_support`, `shader_golden`)
+
+Before this, `gfx.rs`'s tests only asked naga to *validate* the WGSL — no device was created and no
+pixel produced, so a shader that compiled and rendered the wrong thing passed. `gfx_test_support`
+renders to an **offscreen** texture (no window, no surface — the windowed path hangs under Xvfb here,
+and CI has no GPU at all), reads it back, and hashes it. It returns `None` with a printed reason when
+no adapter exists, so CI self-skips visibly rather than quietly passing.
+
+`shader_golden` asserts **properties**, not committed hashes:
+
+- every knob at zero is a **bit-exact** pass-through (the same contract `crate::eq` holds for audio,
+  and what makes a pass safe to leave in the chain);
+- a knob turned up changes the image *in the direction it claims* — chroma bleed measurably reduces
+  horizontal colour variation, scanlines darken alternate rows below their source value, curvature
+  blacks out corners while leaving the centre untouched, the mask keeps exactly one channel per
+  column;
+- dot crawl differs between frames and **cycles** with its period;
+- the same render hashes identically, so the stability a golden depends on is itself verified.
+
+That is a stronger statement than a committed hash, which only says "the same as last time" —
+including the last time it was wrong.
+
 ## HD texture packs (`v1.3.0`, `hd-pack` feature)
 
 **Status: fully implemented and wired into the live present path.** See `docs/ppu.md`'s own "HD

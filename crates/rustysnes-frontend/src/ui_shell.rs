@@ -987,6 +987,79 @@ impl ShellState {
         });
     }
 
+    /// The multi-pass shader stack picker plus its generated parameter sliders (`v1.25.0`,
+    /// T-FP-D).
+    ///
+    /// The sliders are **generated from the chain**, not hardcoded: a pass declares its knobs, so
+    /// adding one touches no UI code. Edits are stored as `"<chain>.<param>"` overrides rather than
+    /// typed config fields, for the same reason.
+    fn settings_shader_stack(ui: &mut egui::Ui, cfg: &mut Config) {
+        ui.label("Shader stack:");
+        ui.horizontal(|ui| {
+            for stack in crate::config::ShaderStack::all() {
+                ui.radio_value(&mut cfg.video.stack, stack, stack.display_name());
+            }
+        });
+        if cfg.video.stack == crate::config::ShaderStack::Off {
+            ui.label(
+                egui::RichText::new(
+                    "Off is a true bypass \u{2014} the picture is byte-identical to a build \
+                     without the stack. The post-filter below is the separate v1.2.0 \
+                     single-pass path.",
+                )
+                .small()
+                .weak(),
+            );
+            return;
+        }
+
+        let chain = crate::shader_pass::build_chain(cfg.video.stack, &cfg.video.stack_params);
+        // Report which passes actually compile BEFORE anything renders, so a broken shader is
+        // named here rather than showing as a black frame.
+        for result in &crate::shader_runtime::validate(&chain) {
+            if let Err(e) = result {
+                ui.colored_label(ui.visuals().error_fg_color, e);
+            }
+        }
+        for u in &chain.unsupported {
+            ui.colored_label(
+                ui.visuals().warn_fg_color,
+                format!("pass {} ({}) unsupported: {}", u.pass, u.name, u.reason),
+            );
+        }
+
+        let prefix = cfg.video.stack.display_name().to_string();
+        for pass in &chain.passes {
+            ui.label(egui::RichText::new(&pass.name).strong());
+            for param in &pass.params {
+                let key = format!("{prefix}.{}", param.name);
+                let mut value = cfg
+                    .video
+                    .stack_params
+                    .get(&key)
+                    .copied()
+                    .unwrap_or(param.value);
+                if ui
+                    .add(
+                        egui::Slider::new(&mut value, param.min..=param.max)
+                            .step_by(f64::from(param.step))
+                            .text(&param.label),
+                    )
+                    .changed()
+                {
+                    let _ = cfg.video.stack_params.insert(key, value);
+                }
+            }
+        }
+        if ui.button("Reset stack parameters").clicked() {
+            // Remove only THIS chain's keys, so resetting CRT does not silently discard the NTSC
+            // knobs the user tuned earlier.
+            cfg.video
+                .stack_params
+                .retain(|k, _| !k.starts_with(&format!("{prefix}.")));
+        }
+    }
+
     /// The per-side overscan crop grid (`v1.25.0`, T-FP-A) — split out of `settings_video` to keep
     /// each tab renderer under the line lint as the parity waves added sections.
     fn settings_video_overscan(ui: &mut egui::Ui, cfg: &mut Config) {
@@ -1067,6 +1140,19 @@ impl ShellState {
         // Per-side overscan crop (`v1.25.0`).
         Self::settings_video_overscan(ui, cfg);
         ui.separator();
+        // The multi-pass shader stack (`v1.25.0`, T-FP-D). Placed above the `v1.2.0` post-filter
+        // because it takes precedence when a chain is selected.
+        Self::settings_shader_stack(ui, cfg);
+        ui.separator();
+        Self::settings_post_filter(ui, cfg);
+        Self::settings_hd_pack(ui, cfg, info, actions);
+    }
+
+    /// The `v1.2.0` single-pass post-filter picker and its per-filter strength sliders.
+    ///
+    /// Split out of `settings_video` (`v1.25.0`, T-FP-D) when the shader-stack section pushed that
+    /// function over the line lint — a pure move, same as T-FP-A's original tab split.
+    fn settings_post_filter(ui: &mut egui::Ui, cfg: &mut Config) {
         ui.label(format!("{}:", t!(cfg.locale, Msg::PostFilter)));
         ui.horizontal(|ui| {
             for filter in crate::config::PostFilter::all() {
@@ -1092,6 +1178,23 @@ impl ShellState {
                 );
             }
         }
+    }
+
+    /// The `hd-pack` selector (`v1.3.0`). Split out of `settings_video` alongside
+    /// `settings_post_filter` (`v1.25.0`, T-FP-D) — a pure move.
+    // `const fn` only on the feature-off path (the body is empty there); a cfg-split signature
+    // would be two functions to keep in step for no caller-visible difference.
+    #[allow(unused_variables, clippy::missing_const_for_fn)]
+    fn settings_hd_pack(
+        ui: &mut egui::Ui,
+        cfg: &mut Config,
+        info: &ShellInfo,
+        actions: &mut Vec<MenuAction>,
+    ) {
+        // Only the `hd-pack` block below reads these; the parameters stay in the signature so the
+        // two builds' call sites are identical.
+        #[cfg(not(feature = "hd-pack"))]
+        let _ = (ui, cfg, info, actions);
         #[cfg(feature = "hd-pack")]
         {
             ui.separator();
