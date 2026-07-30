@@ -1150,7 +1150,17 @@ Three properties worth knowing:
 
 The cost model: the address is compared first and the condition is evaluated **only** on a match, so
 a conditional breakpoint costs the same per instruction as an unconditional one. On a hit it
-captures the register file plus a 128 KiB WRAM copy — paid once per hit, not once per instruction.
+captures the register file plus a 128 KiB WRAM copy — paid once per hit, not once per instruction,
+and **once per hit rather than once per condition**, since several breakpoints can share an address
+and all of them read the same non-advancing machine. The buffer lives on `EmuCore` and is refilled
+in place, so a condition on a frequently-hit address does not churn an allocation each time; an
+unconditional breakpoint at the same address short-circuits before any snapshot is taken.
+
+The snapshot is whole-WRAM rather than a read-through cache of "just the addresses the condition
+names", and that is forced rather than lazy: `expr::Context::peek` takes `&self` (deliberately — a
+condition must not be able to mutate the machine it inspects) while `Bus::peek` needs `&mut`, and
+`Expr::Byte`/`Word` take an arbitrary sub-expression, so `[a + 4]`'s address is not known until the
+condition is already being evaluated.
 
 `x` deliberately stays the index register; the width flags are spelled `fm`/`fx`, because a
 condition asks about X far more often than about the `X` status bit.

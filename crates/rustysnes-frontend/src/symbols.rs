@@ -75,6 +75,10 @@ impl SymbolMap {
     /// ROM as belonging to it; past that distance the answer is honestly "no symbol".
     #[must_use]
     pub fn nearest(&self, addr: u32, max_offset: u32) -> Option<(&str, u32)> {
+        // Masked to match `insert`, which stores keys masked. Without it, a caller passing an
+        // address with stray high bits searches past every stored symbol and attaches the last
+        // one in the map to it — a confidently wrong label, which is worse than no label.
+        let addr = addr & 0x00FF_FFFF;
         let (found, name) = self.by_addr.range(..=addr).next_back()?;
         let offset = addr - found;
         (offset <= max_offset).then_some((name.as_str(), offset))
@@ -288,6 +292,20 @@ mod tests {
         assert_eq!(m.label(0x00_8100, 0x10), "$008100");
         // Below the lowest symbol there is nothing to attach to.
         assert!(m.nearest(0x00_7000, 0x1000).is_none());
+    }
+
+    /// Lookups mask to 24 bits, matching what `insert` stores. Without it a stray high bit sends
+    /// `range(..=addr)` past every symbol in the map, so the LAST one gets attached to an address
+    /// it has nothing to do with — a confidently wrong label, worse than no label at all.
+    #[test]
+    fn lookups_mask_to_the_24_bit_bus() {
+        let mut m = SymbolMap::new();
+        m.insert(0x00_8000, "reset");
+        m.insert(0x7E_0000, "wram_base");
+        // $0100_9000 is $00:9000 with a stray bit 24.
+        assert_eq!(m.nearest(0x0100_8004, 0x100), m.nearest(0x00_8004, 0x100));
+        assert_eq!(m.nearest(0x0100_8004, 0x100), Some(("reset", 4)));
+        assert_eq!(m.label(0x0100_8004, 0x100), "reset+4");
     }
 
     /// Loading is additive so several maps can be layered, and a later name wins for the same

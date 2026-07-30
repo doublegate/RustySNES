@@ -223,16 +223,33 @@ pub fn normalize(line: &str) -> String {
     let without_comment = line.split(';').next().unwrap_or("");
     let mut out = String::with_capacity(without_comment.len());
     let mut last_space = true;
-    for c in without_comment.chars() {
+    let mut chars = without_comment.chars().peekable();
+    while let Some(c) = chars.next() {
         if c.is_whitespace() {
             if !last_space {
                 out.push(' ');
                 last_space = true;
             }
-        } else {
-            out.push(c.to_ascii_uppercase());
-            last_space = false;
+            continue;
         }
+        // `0x12` -> `$12`. The assembler works by comparing against what the *disassembler* would
+        // print, and it prints `$`, so a `0x` literal would otherwise match no encoding at all and
+        // report `NoEncoding` — leaving the documented support for it a claim with no code behind
+        // it. A `0x` counts as a prefix only where a literal can start: at the beginning, or after
+        // a space or one of the operand punctuation characters (`#`, `(`, `[`, `,`). That rules
+        // out the `0x` inside a token like `$120X`, which is hex digits, not a prefix.
+        let literal_may_start = out
+            .chars()
+            .last()
+            .is_none_or(|p| p == ' ' || matches!(p, '#' | '(' | '[' | ','));
+        if c == '0' && literal_may_start && matches!(chars.peek(), Some('x' | 'X')) {
+            chars.next();
+            out.push('$');
+            last_space = false;
+            continue;
+        }
+        out.push(c.to_ascii_uppercase());
+        last_space = false;
     }
     out.trim().to_string()
 }
@@ -264,7 +281,12 @@ fn parse_operand_value(want: &str) -> Option<i64> {
 
 /// If `want` is a branch whose target is simply too far, describe that specifically.
 fn branch_range_error(want: &str, pbr: u8, pc: u16) -> Option<AsmError> {
-    const SHORT: [&str; 8] = ["BRA", "BEQ", "BNE", "BCC", "BCS", "BPL", "BMI", "BVC"];
+    // All eight 8-bit-displacement conditional branches plus `BRA`. `BVS` belongs here as much as
+    // `BVC` does; omitting it made an out-of-range `BVS` report the generic `NoEncoding` — "I don't
+    // know that instruction" — instead of naming the actual problem.
+    const SHORT: [&str; 9] = [
+        "BRA", "BEQ", "BNE", "BCC", "BCS", "BPL", "BMI", "BVC", "BVS",
+    ];
     let mnemonic = mnemonic_of(want);
     if !SHORT.contains(&mnemonic) {
         return None;
@@ -368,6 +390,44 @@ mod tests {
             }
             other => panic!("expected BranchOutOfRange, got {other}"),
         }
+    }
+
+    /// EVERY 8-bit-displacement branch reports out-of-range, not just the eight that happened to
+    /// be listed. `BVS` was missing, so an unreachable `BVS` said "I don't know that instruction".
+    #[test]
+    fn every_short_branch_reports_out_of_range() {
+        for m in [
+            "BRA", "BEQ", "BNE", "BCC", "BCS", "BPL", "BMI", "BVC", "BVS",
+        ] {
+            let Err(err) = assemble(&format!("{m} $9000"), 0x00, 0x8000, true, true) else {
+                panic!("{m} target should be too far to reach");
+            };
+            assert!(
+                matches!(err, AsmError::BranchOutOfRange { .. }),
+                "{m}: expected BranchOutOfRange, got {err}"
+            );
+        }
+    }
+
+    /// `0x` literals assemble, as the module doc says they do. They previously did not: the
+    /// comparison is against what the *disassembler* prints, which is `$`, so a `0x` operand
+    /// matched no encoding and came back as `NoEncoding`.
+    #[test]
+    fn zero_x_literals_assemble_identically_to_dollar_ones() {
+        for (a, b) in [
+            ("LDA #0x12", "LDA #$12"),
+            ("lda 0x1234", "LDA $1234"),
+            ("STA 0X7E", "STA $7E"),
+        ] {
+            let want = assemble(b, 0x00, 0x8000, true, true).expect("dollar form assembles");
+            assert_eq!(
+                assemble(a, 0x00, 0x8000, true, true),
+                Ok(want),
+                "{a} must assemble the same as {b}"
+            );
+        }
+        // A `0x` that is not at the start of a literal is hex digits, not a prefix.
+        assert_eq!(normalize("LDA $120X"), "LDA $120X");
     }
 
     /// Input the assembler cannot encode is refused by name rather than silently producing

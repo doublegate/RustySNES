@@ -467,7 +467,15 @@ fn reg_from_name(name: &str) -> Result<Reg, ParseError> {
         // Individual status flags. `x` and `m` collide with the index register and nothing
         // respectively, so the width flags are spelled `fm`/`fx` to stay unambiguous — `x` alone
         // must keep meaning the index register, which is what a condition asks about far more often.
-        "n" | "v" | "d_flag" | "i" | "z" | "c" => Reg::Flag(lower.chars().next().unwrap_or('n')),
+        // Spelled out per name rather than derived from the first character: `d_flag`'s letter
+        // happening to lead its own spelling is a coincidence, and a future alias whose first
+        // letter differs from its flag would silently resolve to the wrong bit.
+        "n" => Reg::Flag('n'),
+        "v" => Reg::Flag('v'),
+        "d_flag" => Reg::Flag('d'),
+        "i" => Reg::Flag('i'),
+        "z" => Reg::Flag('z'),
+        "c" => Reg::Flag('c'),
         "fm" => Reg::Flag('m'),
         "fx" => Reg::Flag('x'),
         _ => return Err(ParseError::UnknownName(name.to_string())),

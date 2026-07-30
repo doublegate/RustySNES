@@ -65,6 +65,11 @@ pub struct EmuCore {
     /// While `true`, [`Self::run_frame`] does not advance the `System` at all — the debugger's
     /// Step Into / Step Over buttons single-step it instead.
     paused: bool,
+    /// Reusable 128 KiB WRAM snapshot buffer for conditional-breakpoint evaluation (`v1.25.0`,
+    /// T-FP-C2). Empty until the first condition is evaluated, so a build that never sets one pays
+    /// nothing; from then on the snapshot is *refilled* rather than reallocated, which is what
+    /// keeps a condition on a hot address from churning 128 KiB per hit.
+    cond_wram: Vec<u8>,
     /// The active HD texture pack (`v1.3.0`, `hd-pack` feature), if any — see
     /// [`Self::set_hd_pack`]. `None` (the default) means [`rustysnes_core::ppu::Ppu::
     /// set_hd_pack_tagging`] is off, so the PPU's `TileTag` side-buffer is never populated and
@@ -108,6 +113,7 @@ impl EmuCore {
             trace_panel_open: false,
             breakpoints: Vec::new(),
             paused: false,
+            cond_wram: Vec::new(),
             #[cfg(feature = "hd-pack")]
             hd_pack: None,
             #[cfg(feature = "hd-pack")]
@@ -448,12 +454,32 @@ impl EmuCore {
         if conditions.is_empty() {
             return false;
         }
-        conditions.into_iter().any(|cond| {
-            cond.is_none_or(|expr| {
-                let ctx = MachineContext::capture(self);
-                expr.is_true(&ctx)
-            })
-        })
+        // An unconditional breakpoint at this address fires without any snapshot at all.
+        if conditions.iter().any(Option::is_none) {
+            return true;
+        }
+        // ONE snapshot for the whole hit, not one per condition: several breakpoints can share an
+        // address, and they all evaluate against the same instant of machine state anyway — so
+        // capturing inside the loop was both N times the cost and, strictly, N different reads of
+        // a machine that is not advancing between them.
+        //
+        // The buffer is taken out of `self` (rather than borrowed) because filling it needs
+        // `&mut self` for `Bus::peek` while `MachineContext` holds it by reference; it is put back
+        // immediately afterwards so the next hit refills the same allocation.
+        let mut wram = core::mem::take(&mut self.cond_wram);
+        MachineContext::fill(self, &mut wram);
+        let ctx = MachineContext {
+            regs: self.inner.system_mut().cpu.regs,
+            wram: &wram,
+        };
+        let hit = conditions
+            .into_iter()
+            .any(|cond| cond.is_some_and(|expr| expr.is_true(&ctx)));
+        // `ctx` borrows `wram`; letting it fall out of scope here is what releases the borrow so
+        // the buffer can go back into `self` for the next hit to refill.
+        let MachineContext { .. } = ctx;
+        self.cond_wram = wram;
+        hit
     }
 
     /// Whether the debugger currently has execution paused (a breakpoint fired, or the user
@@ -990,31 +1016,33 @@ impl Breakpoint {
 ///
 /// Registers are captured up front and a small memory window is *not* — `peek` reads live through a
 /// captured copy of only what an expression asked for. Capturing WRAM wholesale per hit would cost
-/// 128 KiB per evaluation; reading live through `&mut` is impossible because [`crate::expr::Context`]
-/// takes `&self` (deliberately, so a condition cannot mutate the machine it is inspecting). The
-/// compromise is a bounded read-through cache filled during capture from the addresses the
-/// expression names.
-struct MachineContext {
+/// A whole-WRAM snapshot rather than a read-through cache, because [`crate::expr::Context`] takes
+/// `&self` — deliberately, so a condition cannot mutate the machine it is inspecting — and
+/// `Bus::peek` needs `&mut`. Reading only "the addresses the expression names" is not available
+/// either: `Expr::Byte`/`Word` take an arbitrary sub-expression, so `[a + 4]`'s address is not
+/// known until the condition is already being evaluated.
+///
+/// The cost is therefore paid per *hit* — never per instruction — and the 128 KiB buffer is owned
+/// by [`EmuCore::cond_wram`] and refilled in place, so a condition on a hot address does not churn
+/// an allocation each time. See `breakpoint_hit`, which also snapshots once for all conditions
+/// sharing an address.
+struct MachineContext<'a> {
     regs: rustysnes_core::cpu::Regs,
-    /// Every byte of WRAM plus the low mirror, as one borrow-free copy taken at hit time.
-    ///
-    /// Only allocated when a condition actually exists (see `breakpoint_hit`), and only on a hit,
-    /// so an unconditional breakpoint and an un-hit conditional one both cost nothing.
-    wram: Vec<u8>,
+    /// Every byte of WRAM plus the low mirror, borrowed from the caller's reused buffer.
+    wram: &'a [u8],
 }
 
-impl MachineContext {
-    fn capture(emu: &mut EmuCore) -> Self {
-        let regs = emu.inner.system_mut().cpu.regs;
+impl MachineContext<'_> {
+    /// Refill `buf` with the current 128 KiB of WRAM, allocating only the first time.
+    fn fill(emu: &mut EmuCore, buf: &mut Vec<u8>) {
         let bus = &mut emu.inner.system_mut().bus;
-        // 128 KiB. Taken per *hit*, not per instruction — a conditional breakpoint on a routine
-        // that runs once a frame pays this once a frame.
-        let wram = (0..0x2_0000u32).map(|i| bus.peek(0x7E_0000 | i)).collect();
-        Self { regs, wram }
+        buf.clear();
+        buf.reserve(0x2_0000);
+        buf.extend((0..0x2_0000u32).map(|i| bus.peek(0x7E_0000 | i)));
     }
 }
 
-impl crate::expr::Context for MachineContext {
+impl crate::expr::Context for MachineContext<'_> {
     fn reg(&self, reg: crate::expr::Reg) -> i64 {
         use crate::expr::Reg;
         use rustysnes_core::cpu::Status;
