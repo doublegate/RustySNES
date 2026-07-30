@@ -41,6 +41,28 @@ FILTER="$(extract_filter)"
 [ -n "$MARKER" ] || { echo "FAIL: could not extract MARKER from agy-review.sh" >&2; exit 1; }
 [ -n "$FILTER" ] || { echo "FAIL: could not extract SELECT_STALE_JQ from agy-review.sh" >&2; exit 1; }
 
+# A non-empty extraction is not the same as a COMPLETE one. The `sed` range above ends at the
+# first line closing with a quote, so a filter whose body ever ends a line that way would be
+# truncated — and a truncated jq program can still be valid and still return ids, which is the
+# silent-wrong-answer this whole file exists to prevent. Two independent guards:
+#
+#   1. it must compile (a truncated program is usually, though not always, a syntax error);
+#   2. it must END with the projection, which is what makes it a complete pipeline rather than a
+#      prefix of one.
+# The named args must be supplied here too: the filter references `$marker`/`$new_id`, and jq
+# rejects an undefined variable at COMPILE time — so omitting them fails a perfectly good program.
+if ! printf '[]' | jq --arg marker x --argjson new_id 0 "$FILTER" >/dev/null 2>&1; then
+  echo "FAIL: extracted SELECT_STALE_JQ is not a valid jq program (truncated?):" >&2
+  printf '%s\n' "$FILTER" >&2
+  exit 1
+fi
+case "$(printf '%s' "$FILTER" | tr -d '[:space:]')" in
+  *'|.id') : ;;
+  *) echo "FAIL: extracted SELECT_STALE_JQ does not end in '| .id'; extraction truncated" >&2
+     printf '%s\n' "$FILTER" >&2
+     exit 1 ;;
+esac
+
 fixture() {
   cat <<JSON
 [
@@ -54,8 +76,10 @@ fixture() {
 JSON
 }
 
+# Ids as a single space-separated line, with no trailing space — so the expected values below read
+# as what they are rather than carrying padding an assertion would have to mirror.
 select_ids() {
-  fixture | jq -r --arg marker "$MARKER" --argjson new_id "$1" "$FILTER" | sort -n | tr '\n' ' '
+  fixture | jq -r --arg marker "$MARKER" --argjson new_id "$1" "$FILTER" | sort -n | paste -sd' ' -
 }
 
 fails=0
@@ -74,26 +98,30 @@ check() {
 echo "agy-review comment-selection self-test"
 
 # The whole point: the comment just published is never selected for deletion.
-check "excludes the just-posted comment" "111 222 " "$(select_ids 999)"
+check "excludes the just-posted comment" "111 222" "$(select_ids 999)"
 
 # The author filter is a security control, not tidiness: without it any user could paste the
 # marker into a comment and have the bot delete comments on the next run.
-check "ignores other users and other bots" "111 222 " "$(select_ids 999)"
+check "ignores other users and other bots" "111 222" "$(select_ids 999)"
 
 # A bot comment without the marker is somebody else's feature (a CI summary, a deploy note).
-check "ignores bot comments without the marker" "111 222 " "$(select_ids 999)"
+check "ignores bot comments without the marker" "111 222" "$(select_ids 999)"
 
 # Regression #1, pinned: an unknown id must not select everything. The caller now refuses to run
 # the delete at all in this case, but the filter itself is checked so the two guards are
 # independent rather than one relying on the other.
-check "an id of 0 still excludes nothing real" "111 222 999 " "$(select_ids 0)"
+check "an id of 0 still excludes nothing real" "111 222 999" "$(select_ids 0)"
 
 # A different id in the set behaves the same way, so the exclusion is genuinely by value.
-check "excludes whichever id it is given" "222 999 " "$(select_ids 111)"
+check "excludes whichever id it is given" "222 999" "$(select_ids 111)"
 
 # Regression #2, pinned: `--arg`/`--argjson` belong to jq. If they are ever moved onto `gh api`
 # again, that command exits non-zero — assert the flags are not passed to `gh api` in the script.
-if grep -nE 'gh api[^|]*--(arg|argjson)' "$SCRIPT_DIR/agy-review.sh" >/dev/null 2>&1; then
+# Line continuations are folded first: `--arg` moved onto a continuation line would otherwise sit
+# on a different physical line from `gh api`, and a line-by-line grep would report a false pass on
+# exactly the mistake this check exists to catch.
+if sed -e ':a' -e '/\\$/{N;s/\\\n//;ba' -e '}' "$SCRIPT_DIR/agy-review.sh" \
+     | grep -qE 'gh api[^|]*--(arg|argjson)'; then
   echo "  FAIL  --arg/--argjson passed to \`gh api\` (jq flags; gh api rejects them)"
   fails=$((fails + 1))
 else
