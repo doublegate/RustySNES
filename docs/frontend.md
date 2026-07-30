@@ -630,6 +630,79 @@ render/egui pass. `hotkey_menu_action` is a pure, unit-tested mapping (`app::hot
 independent of any live winit/wgpu context. The key-map deliberately avoids every default P1
 binding (Arrows/X/Z/S/A/Q/W/RShift/Enter).
 
+## A/V capture, virtual pad, databases, and input macros (`v1.25.0`, T-FP-G1)
+
+### A/V capture (`crate::av_record`, native)
+
+Writes **raw** streams — `.y4m` video and `.wav` audio — and prints the `ffmpeg` command that muxes
+them when the recording stops.
+
+Muxing MP4/MKV directly would mean either an `FFmpeg` dependency (a C toolchain on every platform, a
+licensing surface, and a build that breaks when the system library moves) or hand-rolling a
+container, whose bugs are invisible until someone tries to play the file six months later. Raw
+streams are what an emulator can produce *exactly*, and every tool reads them.
+
+Details that matter:
+
+- The Y4M header carries the frame rate as an **exact rational** (`F60099:1000`), not a rounded
+  `60:1`. NTSC is 60.0988 Hz, and rounding makes a 20-minute recording drift about two seconds
+  against its own audio.
+- The WAV header's two size fields are **patched on finish**. A streamed WAV cannot know its length
+  up front, and a player reading the placeholder reports a zero-length file — indistinguishable from
+  a failed capture.
+- A **resolution change mid-recording is refused**, by name. Y4M declares one size for the whole
+  stream, so writing a differently-sized frame produces a file whose header lies about its contents.
+- **Drift is reported, not corrected** (`sync_drift_samples`). Silently resampling to hide drift
+  would make a genuinely broken capture look fine; the number is what says whether it is usable.
+- 4:4:4 rather than 4:2:0 chroma: this is a lossless intermediate, and the re-encode is where size
+  is meant to be traded for quality.
+
+### Virtual pad (`crate::virtual_pad`)
+
+An on-screen controller, serving both as a touch input surface (the `wasm32` build on a phone has no
+keyboard) and as a visual input display for movies and netplay.
+
+**One source of geometry.** `Layout::hit` answers "which button is at this point" from the same
+rectangles the renderer draws. A renderer with its own hardcoded boxes plus a separate hit-test
+table drift apart the moment either is edited, and the symptom — a button that highlights but does
+not press — is maddening. A test asserts no two rectangles overlap, and it *caught a real layout
+bug*: two face buttons shared an edge that float rounding made ambiguous.
+
+Buttons carry the existing `input::Button` enum, not a raw mask, so the bit layout stays defined once.
+`buttons_for` resolves **all simultaneous touches at once** — holding a direction while tapping a
+face button is the normal case, and one-at-a-time resolution would drop one every frame — then
+sanitises, because a two-thumb touch genuinely can land Left and Right together.
+
+### Game and Game Genie databases (`crate::game_db`)
+
+CRC32-keyed, because that is what every existing SNES list (No-Intro, the Game Genie code sets) is
+keyed by; anything else would mean they cannot be imported. `crc32fast` was already a dependency.
+
+A cart's internal 21-byte title is frequently blank, mojibake, or a development codename — a hash is
+not, which is why a canonical title is worth looking up at all.
+
+Parsing is tab- or pipe-separated text (what these lists exist as in the wild), tolerant of junk
+lines but **reporting how many it skipped** — the same posture `crate::symbols` takes. A CRC with no
+title, or a cheat code with no description, is skipped rather than stored half-formed: a blank name
+in the UI is worse than falling back to the cart header.
+
+### Input macros (`crate::input_macros`)
+
+A short recorded pad sequence replayed on a hotkey. Deliberately **not** a TAS movie, and a separate
+type for a reason: a movie owns the whole session from a known start point with a seed and a ROM
+hash, which is exactly what a macro cannot have. One type with a flag would either weaken the movie's
+contract or make the macro claim a guarantee it does not meet.
+
+- Playback is **OR-ed onto live input**, not substituted. Replacing would drop a held direction the
+  instant a macro starts — the opposite of what a motion-plus-button macro is for.
+- Recording **trims dead frames at both ends**. A hand-started recording always has them, and
+  replaying them makes a macro feel laggy for a reason nobody would guess at. An internal gap is
+  preserved, since that is part of the timing.
+- Recording **stops itself** at 512 frames. A recording left running is the actual failure mode,
+  since stopping is a hotkey that is easy to forget.
+- Playing an empty slot is a no-op rather than a playback that emits nothing, which would be
+  indistinguishable from "playing silence".
+
 ## The determinism boundary
 
 Rate control (the dynamic-rate-control resampler) and run-ahead (snapshot/restore
