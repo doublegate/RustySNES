@@ -444,17 +444,115 @@ core itself never sees a speed concept; only the frontend's pacing + resampling 
 `Active::speed` into `EmuControl`, and the thread's own `Pacer` instance (which drives its cadence)
 picks it up on the next loop iteration — no longer the no-op it was before that port.
 
-### Performance panel (`v1.0.0`)
+### Frame pacing (`v1.25.0`, T-FP-B)
 
-View → Performance panel opens a small read-only diagnostic window: FPS, the current speed
-preset, frame time (`Active::last_frame_time_ms` — wall-clock time spent in the frame-production
-loop this present; `None`/"n/a" while paused or on the `emu-thread` build, where production
-happens on a different thread outside this timing scope), and audio ring health (occupancy as a
-percentage of capacity; `None`/"n/a" on `wasm32` or with no audio device). Unlike Settings/Save
-States, this window has no controls — it only reads `ShellInfo`'s fields the app already builds
-each present. It also plots a rolling ~2s frame-time sparkline (`ShellState::frame_time_history`,
-capped at 120 samples) via a handful of `Painter::line` segments — no `egui_plot` dependency for
-something this small.
+`config.video.pacing` (`auto` / `display` / `vrr` / `wallclock`) was, until `v1.25.0`, declared,
+serialized, and **read by nothing** — every variant behaved identically. `pacing::resolve` now turns
+the request into a `PacingPlan` by checking two things the request cannot know on its own: the
+monitor's reported refresh (winit's `Monitor::refresh_rate_millihertz`, `None` when the windowing
+system does not expose one) and which present modes the surface actually offers
+(`Gfx::present_mode_caps`).
+
+| requested | resolves to |
+|---|---|
+| `display` | display-sync (`fifo`, vsync blocks) **only if** the refresh is within `DISPLAY_SYNC_TOLERANCE_HZ` (1 Hz) of the region rate — otherwise wall-clock, reported as declined |
+| `vrr` | mailbox present **only if** the surface offers it — otherwise wall-clock, reported as declined |
+| `wallclock` | self-paced at the region rate; `immediate` present when available, else `fifo` |
+| `auto` | display-sync when the panel genuinely matches, then mailbox, then wall-clock |
+
+The tolerance is against the **region** rate, not a hardcoded 60: a PAL core on a 50 Hz panel is a
+match. A 60 Hz panel against NTSC's 60.0988 Hz is a 0.0988 Hz mismatch, which is exactly the case
+display-sync exists for; a 75 Hz panel would need the emulator to run 25% fast, so `auto` must not
+pick it.
+
+`PacingPlan::reason` is shown verbatim in Settings → Video and in the Performance panel. A downgrade
+the user cannot see is indistinguishable from a bug, so a declined request always says why.
+
+`video.present_mode` gained an `"auto"` value — the new default — which defers to the plan. An
+explicit `"fifo"`/`"mailbox"`/`"immediate"` still wins, so a `config.toml` written by an earlier
+release (which always carries an explicit value) behaves exactly as it did.
+
+**Emulation speed is unaffected by any of this.** A pacing mode governs presentation — tearing,
+latency, and whether the frontend blocks on vsync or on its own clock. The `Pacer` accumulator above
+remains the only thing that decides how many emulated frames run.
+
+#### Sleep-then-spin
+
+Under a self-paced plan nothing blocks, so `about_to_wait` waits out the remainder of the frame
+period itself: `pacing::sleep_spin_split` returns a coarse sleep to `deadline - SPIN_MARGIN` (2 ms)
+plus a spin for the rest. Sleeping the whole way routinely overshoots — an OS sleep is only accurate
+to the scheduler's granularity — and drops the frame. Under display-sync this is skipped entirely;
+the swapchain's vsync block *is* the wait, and spinning on top of it would only add latency.
+
+#### Occlusion watchdog
+
+`WindowEvent::Occluded` feeds `Pacer::set_occluded`. A compositor may stop delivering vsync to a
+fully hidden window, which under display-sync stalls the present loop and silently stops the
+emulator — so an occluded window is treated as self-paced regardless of the plan. Becoming visible
+again drops the accumulated hidden interval rather than replaying it as a catch-up burst, the same
+guarantee `Pacer::idle` gives around a pause.
+
+### Performance panel (`v1.0.0`; rebuilt `v1.25.0`, T-FP-B)
+
+View → Performance panel opens a diagnostic window rendered by `crate::perf_panel` over a
+`perf::PerfReport` snapshot. For each of **emulation time**, **present time**, **GPU time**, and
+**audio ring occupancy** it shows the latest reading, a `p50 / p95 / p99 / max` line, and a
+sparkline of the ~5 s window (`perf::WINDOW`, 300 samples). The `v1.0.0` panel showed a single
+current value per metric, which cannot answer the only question that matters when frames hitch: a
+16.6 ms mean hides a 40 ms p99 completely.
+
+Alongside those: the resolved pacing plan, and the **emulated-vs-presented** counters — tracked
+separately on purpose, because they diverge exactly when something is wrong (a catch-up burst
+emulates several frames for one present) and a single combined number hides that.
+
+Two controls: **Reset stats** clears every ring, and **Start/Stop CSV log** toggles the session log
+below. `PerfStats::report` allocates (it sorts each window), so the snapshot is taken only while the
+window is open — which is the boundary that keeps `Metric::push` allocation-free on the
+unconditional present path.
+
+An idle present records **no** emulation sample. A `0.0` there would drag every percentile toward
+zero and make a paused emulator look impossibly fast, which is precisely the reading that would hide
+a real problem.
+
+### CSV session log (`v1.25.0`, T-FP-B, native only)
+
+The Performance panel's **Start CSV log** button writes one row per present to
+`<data-dir>/rustysnes/perf/rustysnes-perf-<n>.csv`: `frame`, `elapsed_s`, `produce_ms`,
+`present_ms`, `gpu_ms`, `audio_pct`, `produced`, `fps`. The rolling window answers "how is it running
+now"; this answers "what happened during that 20-minute session, and does this build regress against
+the last one?" — a hitch four minutes ago is gone from the ring but is still a row here.
+
+CSV rather than a binary trace format deliberately: it opens in a spreadsheet, `csvlens`, pandas, or
+gnuplot without this project shipping a reader. A missing measurement is an **empty field**, never
+`0` — every CSV consumer treats an empty cell as missing, while a `0` silently drags an average down.
+
+**Off by default.** A row per present is a syscall per present, exactly the kind of thing that
+perturbs the measurement it is taking. Rows are buffered and flushed once a second so the logger's
+own I/O is not visible in the numbers it records, and the buffer is flushed on drop so a session that
+ends badly — the one worth having a log of — keeps its tail.
+
+### GPU pass timing (`v1.25.0`, T-FP-B, `gpu-timing` feature)
+
+`produce_ms` and `present_ms` are both **CPU** measurements. On a GPU-bound machine both can look
+healthy while the display still stutters, because the cost is entirely in passes the CPU only
+submits. `crate::gpu_timer` closes that blind spot with two `wgpu` timestamp queries bracketing the
+frame's command encoder, resolved into a buffer and read back **one or more frames later** — reading
+in the frame that wrote it would block the render thread on the GPU and make the measurement the
+largest thing being measured. A frame is skipped rather than timed while a previous readback is
+still in flight.
+
+Two honesty properties, both deliberate:
+
+- The device request **intersects** with `adapter.features()` instead of demanding
+  `TIMESTAMP_QUERY`/`TIMESTAMP_QUERY_INSIDE_ENCODERS`. Requesting an unsupported feature makes
+  `request_device` fail, which would turn a diagnostic build into one that cannot launch at all on
+  such hardware.
+- When the capability is absent the GPU row is **absent**, and the panel names the cause (feature not
+  compiled in, vs. adapter lacks `TIMESTAMP_QUERY`) — never a flat zero line that reads as "the GPU
+  costs nothing".
+
+Not in `full`, and off by default: a query set plus a per-frame resolve and readback is measurement
+apparatus, not something a normal play session should pay for.
 
 ### Fullscreen (`v1.0.0`)
 

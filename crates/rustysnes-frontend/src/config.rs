@@ -25,6 +25,25 @@ pub enum PacingMode {
     Wallclock,
 }
 
+impl PacingMode {
+    /// The label shown in Settings and in a resolved [`crate::pacing::PacingPlan`].
+    #[must_use]
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto",
+            Self::Display => "Display-sync",
+            Self::Vrr => "VRR",
+            Self::Wallclock => "Wall-clock",
+        }
+    }
+
+    /// Every variant, in Settings display order.
+    #[must_use]
+    pub const fn all() -> [Self; 4] {
+        [Self::Auto, Self::Display, Self::Vrr, Self::Wallclock]
+    }
+}
+
 /// Which peripheral is connected to controller port 2 (`v0.9.0`, Phase 7 niche peripherals).
 ///
 /// Port 1 is always a standard [`PeripheralKind::Gamepad`] — matching real hardware convention
@@ -317,9 +336,15 @@ impl Overscan {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct VideoConfig {
-    /// The wgpu present mode preference (`"fifo"` / `"mailbox"` / `"immediate"`).
+    /// The wgpu present mode preference: `"auto"` (default since `v1.25.0` — let [`Self::pacing`]
+    /// choose), or an explicit `"fifo"` / `"mailbox"` / `"immediate"` override.
+    ///
+    /// An explicit value always wins; only `"auto"` defers to the resolved
+    /// [`crate::pacing::PacingPlan`]. A config written by an earlier release carries an explicit
+    /// `"fifo"`, so upgrading changes nothing for an existing install.
     pub present_mode: String,
-    /// The display-sync pacing strategy.
+    /// The display-sync pacing strategy. Resolved against the monitor refresh and the surface's
+    /// present-mode caps by [`crate::pacing::resolve`] at window creation.
     pub pacing: PacingMode,
     /// Integer-scale the framebuffer (true) or fit-to-window with aspect correction (false).
     pub integer_scale: bool,
@@ -362,7 +387,7 @@ pub struct VideoConfig {
 impl Default for VideoConfig {
     fn default() -> Self {
         Self {
-            present_mode: "fifo".into(),
+            present_mode: "auto".into(),
             pacing: PacingMode::default(),
             integer_scale: false,
             filter: PostFilter::default(),

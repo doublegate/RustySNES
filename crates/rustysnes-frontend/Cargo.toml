@@ -106,6 +106,15 @@ netplay = ["dep:rustysnes-netplay"]
 # builds have no supported HTTP worker thread for the RA server calls. `dep:` keeps the optional
 # dependency out of the wasm32 dependency graph, on top of the `target.'cfg(...)'` gate below.
 retroachievements = ["dep:rustysnes-cheevos"]
+# `v1.25.0` T-FP-B: GPU-side pass timing via `wgpu::Features::TIMESTAMP_QUERY`, fed to the
+# Performance panel's `gpu_ms` metric. Opt-in and NOT in `full`, for two reasons that are the same
+# reason: requesting the feature changes what device is granted (an adapter without it fails the
+# request), and a timestamp query set plus a per-frame resolve+readback is measurement apparatus,
+# not something a normal play session should be paying for. The build stays functional on an
+# adapter that lacks the capability -- the panel reports it as unavailable rather than the frontend
+# refusing to launch, which is the honesty gate for this feature. No optional dependency: wgpu is
+# already a hard dependency and the capability is negotiated at runtime.
+gpu-timing = []
 
 # `v1.0.0` — the "cargo --full equivalent" (ported from RustyNES's own `full` feature +
 # `cargo full-build`/`full-run` aliases in `.cargo/config.toml`). Aggregates every NATIVE opt-in

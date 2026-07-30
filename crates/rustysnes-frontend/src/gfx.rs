@@ -126,6 +126,11 @@ pub struct Gfx {
     pub surface: wgpu::Surface<'static>,
     /// The negotiated surface configuration (format + size + present mode).
     pub config: wgpu::SurfaceConfiguration,
+    /// GPU pass timing (`v1.25.0`, T-FP-B, `gpu-timing` feature). `None` when the adapter did not
+    /// grant `TIMESTAMP_QUERY` — the frontend still runs, and the Performance panel reports the
+    /// capability as unavailable rather than showing a fabricated number.
+    #[cfg(feature = "gpu-timing")]
+    pub gpu_timer: Option<crate::gpu_timer::GpuTimer>,
     /// The streaming framebuffer texture. Initially sized to the hi-res worst case
     /// ([`MAX_W`]/[`MAX_H`]); [`Self::ensure_texture_capacity`] grows it (rare — only when an
     /// HD texture pack's composited output, `v1.3.0`, exceeds that) but never shrinks it.
@@ -255,10 +260,21 @@ impl Gfx {
             wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits());
         #[cfg(not(target_arch = "wasm32"))]
         let required_limits = wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits());
+        // `gpu-timing` (`v1.25.0`, T-FP-B): ask for timestamp queries only if the adapter reports
+        // them. Requesting an unsupported feature makes `request_device` FAIL, which would turn a
+        // diagnostic build into one that cannot launch at all on such a hardware — so this
+        // intersects with what is actually available and the panel reports the shortfall instead.
+        // `TIMESTAMP_QUERY_INSIDE_ENCODERS` is what permits `write_timestamp` on an encoder (as
+        // opposed to only the render-pass begin/end timestamps), which is the placement wanted here.
+        #[cfg(feature = "gpu-timing")]
+        let required_features = adapter.features()
+            & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS);
+        #[cfg(not(feature = "gpu-timing"))]
+        let required_features = wgpu::Features::empty();
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("rustysnes-device"),
-                required_features: wgpu::Features::empty(),
+                required_features,
                 required_limits,
                 memory_hints: wgpu::MemoryHints::Performance,
                 trace: wgpu::Trace::Off,
@@ -423,11 +439,15 @@ impl Gfx {
             XBRZ_WGSL,
             "rustysnes-xbrz",
         );
+        #[cfg(feature = "gpu-timing")]
+        let gpu_timer = crate::gpu_timer::GpuTimer::new(&device, &queue);
         Ok(Self {
             device,
             queue,
             surface,
             config,
+            #[cfg(feature = "gpu-timing")]
+            gpu_timer,
             texture,
             sampler,
             framebuffer_format,
@@ -723,6 +743,20 @@ impl Gfx {
         self.config.present_mode = mode;
         self.surface.configure(&self.device, &self.config);
         mode
+    }
+
+    /// Which optional present modes this surface actually offers, as `(mailbox, immediate)`
+    /// (`v1.25.0`, T-FP-B).
+    ///
+    /// `Fifo` is guaranteed by wgpu on every backend and so is not reported. Exposed for
+    /// [`crate::pacing::resolve`], which must not hand back a plan naming a mode the surface would
+    /// silently downgrade — that downgrade is precisely what the plan's `reason` exists to report.
+    #[must_use]
+    pub fn present_mode_caps(&self) -> (bool, bool) {
+        (
+            self.present_modes.contains(&wgpu::PresentMode::Mailbox),
+            self.present_modes.contains(&wgpu::PresentMode::Immediate),
+        )
     }
 
     /// Re-negotiate the surface on a window resize.

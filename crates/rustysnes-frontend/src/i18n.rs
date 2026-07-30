@@ -114,6 +114,8 @@ pub enum Msg {
     PostFilter,
     /// "Overscan crop"
     OverscanCrop,
+    /// "Frame pacing"
+    FramePacing,
     /// "Present mode"
     PresentMode,
     /// "Audio enabled"
@@ -286,6 +288,7 @@ static EN: [&str; Msg::COUNT] = [
     "Integer scale",
     "Post-filter",
     "Overscan crop",
+    "Frame pacing",
     "Present mode",
     "Audio enabled",
     "Volume",
@@ -347,6 +350,7 @@ static ES: [&str; Msg::COUNT] = [
     "Escala entera",
     "Post-filtro",
     "Recorte de sobrebarrido",
+    "Ritmo de fotogramas",
     "Modo de presentación",
     "Audio activado",
     "Volumen",
@@ -408,6 +412,7 @@ static FR: [&str; Msg::COUNT] = [
     "Échelle entière",
     "Post-filtre",
     "Rognage du surbalayage",
+    "Cadence des images",
     "Mode de présentation",
     "Audio activé",
     "Volume",
@@ -469,6 +474,7 @@ static DE: [&str; Msg::COUNT] = [
     "Ganzzahlige Skalierung",
     "Nachfilter",
     "Overscan-Beschnitt",
+    "Bildtaktung",
     "Darstellungsmodus",
     "Audio aktiviert",
     "Lautstärke",
@@ -530,6 +536,7 @@ static JA: [&str; Msg::COUNT] = [
     "整数倍スケール",
     "ポストフィルター",
     "オーバースキャンの切り取り",
+    "フレームペーシング",
     "表示モード",
     "音声を有効化",
     "音量",
@@ -611,6 +618,7 @@ mod tests {
         Msg::IntegerScale,
         Msg::PostFilter,
         Msg::OverscanCrop,
+        Msg::FramePacing,
         Msg::PresentMode,
         Msg::AudioEnabled,
         Msg::Volume,
