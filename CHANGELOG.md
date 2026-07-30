@@ -81,6 +81,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Settings gained Video (aspect, overscan grid), Audio (latency, kernel, health readout), and Input
     (autofire, gamepad list + deadzone) controls for all of the above.
 
+- **Frontend parity with RustyNES: `.slangp` presets and the GLSL bridge (T-FP-E).**
+  - **`crate::slang_preset`** — parses `.slangp`/`.cgp` into T-FP-D's per-pass description. Paths
+    resolve against the *preset's* directory, per-axis keys refine the combined one (`RetroArch`'s
+    own precedence), and recognised-but-unhonoured keys (`#reference`, `srgb_framebufferN`) are
+    **recorded with a reason** rather than dropped.
+  - **`crate::glsl_bridge`** — `.slang` to WGSL through naga's GLSL frontend, best-effort by
+    construction: a pass that will not translate becomes a named `Unsupported` carrying the
+    compiler's own message and the rest of the preset still runs. A preset with no translatable
+    pass is not adopted at all, since replacing a working picture with a pass-through would look
+    like it did nothing.
+  - Three source rewrites, each found by **running** a shader through naga rather than by reading
+    docs: `set = N` qualifiers dropped (the stack binds everything in group 0), `#pragma parameter`
+    stripped before parsing (it fails the GLSL *preprocessor*), and — load-bearing — combined
+    `sampler2D` split into Vulkan's separated `texture2D` + `sampler` pair with each use rewritten.
+    Every `.slang` shader uses the combined form because `RetroArch`'s spec mandates it, so without
+    that rewrite the bridge translated exactly zero real shaders. The `set = N` removal handles the
+    qualifier appearing **last** in its list, where the separator to remove is the comma *before* it
+    — leaving that behind produced `layout(binding = 1, )`, which naga rejects, so a valid shader
+    failed to translate for a reason that had nothing to do with the shader. The sampler match also
+    tolerates a precision qualifier (`uniform lowp sampler2D`), which is valid GLSL and does occur.
+  - Push constants are rewritten to a bound uniform block: wgpu exposes them only on native and not
+    at all on WebGL, so a shader using them would work in one build and fail in the other.
+  - `Translated` reports referenced **semantics** separately from applied **rewrites** — they answer
+    different questions, and a rendering difference is attributable only if both are visible.
+  - **A loaded preset survives a restart.** `video.preset_path` is re-read at startup and the chain
+    recompiled; without that the path persisted while nothing rendered it, and the Settings panel
+    said "a preset is active" over a picture that was not using it. A preset file since deleted or
+    moved fails silently *here only* — it must not block startup or claim the status line before the
+    first frame — while every interactive load still reports its outcome by name.
+  - The built-in chain is **cached**, rebuilt only when `video.stack` or a parameter override
+    changes. `build_chain` allocates every pass's WGSL as an owned `String`, so building it (or
+    cloning a loaded preset) once per present put kilobytes of allocation on the render hot path.
+
 - **Frontend parity with RustyNES: the multi-pass shader stack (T-FP-D).**
   - **`crate::shader_pass` / `crate::shader_runtime` / `Gfx::present_chain`** — an ordered chain of
     passes, each with its own scale (`source`/`viewport`/`absolute`), input filtering, wrap mode,

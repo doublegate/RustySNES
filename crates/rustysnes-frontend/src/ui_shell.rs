@@ -42,6 +42,10 @@ pub enum MenuAction {
     ClearRecent,
     /// Clear every performance metric and counter (`v1.25.0`, T-FP-B).
     ResetPerfStats,
+    /// Pick and load a `.slangp`/`.cgp` shader preset (`v1.25.0`, T-FP-E).
+    LoadShaderPreset,
+    /// Discard the loaded preset and go back to the built-in chains.
+    UnloadShaderPreset,
     /// Arm or disarm the core's WRAM access counter (`v1.25.0`, T-FP-C1).
     SetAccessCounting(bool),
     /// Zero every recorded access count.
@@ -993,7 +997,37 @@ impl ShellState {
     /// The sliders are **generated from the chain**, not hardcoded: a pass declares its knobs, so
     /// adding one touches no UI code. Edits are stored as `"<chain>.<param>"` overrides rather than
     /// typed config fields, for the same reason.
-    fn settings_shader_stack(ui: &mut egui::Ui, cfg: &mut Config) {
+    fn settings_shader_stack(ui: &mut egui::Ui, cfg: &mut Config, actions: &mut Vec<MenuAction>) {
+        // A loaded preset (`v1.25.0`, T-FP-E) takes precedence over the built-in chains: a user
+        // who loaded one means the preset.
+        ui.horizontal(|ui| {
+            if ui.button("Load .slangp preset…").clicked() {
+                actions.push(MenuAction::LoadShaderPreset);
+            }
+            match cfg.video.preset_path.as_deref() {
+                Some(p) => {
+                    ui.label(egui::RichText::new(p).small());
+                    if ui.button("Unload").clicked() {
+                        cfg.video.preset_path = None;
+                        actions.push(MenuAction::UnloadShaderPreset);
+                    }
+                }
+                None => {
+                    ui.label(egui::RichText::new("no preset loaded").weak().small());
+                }
+            }
+        });
+        if cfg.video.preset_path.is_some() {
+            ui.label(
+                egui::RichText::new(
+                    "A preset is active. Its passes and parameters come from the preset; any \
+                     pass that could not be translated is listed in the status bar.",
+                )
+                .small()
+                .weak(),
+            );
+            return;
+        }
         ui.label("Shader stack:");
         ui.horizontal(|ui| {
             for stack in crate::config::ShaderStack::all() {
@@ -1142,7 +1176,7 @@ impl ShellState {
         ui.separator();
         // The multi-pass shader stack (`v1.25.0`, T-FP-D). Placed above the `v1.2.0` post-filter
         // because it takes precedence when a chain is selected.
-        Self::settings_shader_stack(ui, cfg);
+        Self::settings_shader_stack(ui, cfg, actions);
         ui.separator();
         Self::settings_post_filter(ui, cfg);
         Self::settings_hd_pack(ui, cfg, info, actions);
