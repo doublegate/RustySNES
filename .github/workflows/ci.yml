@@ -98,6 +98,11 @@ jobs:
           components: rustfmt, clippy
           linux-frontend-deps: "true"
       - run: cargo fmt --all --check
+      # The reviewer's comment-selection filter decides which PR comments the bot DELETES, and
+      # it has been wrong twice in ways nothing observed (it posted its review fine both times).
+      # This check is offline — fixtures and `jq`, no network, no `gh`, no self-hosted runner —
+      # so it runs here on every PR rather than only where `agy` is installed.
+      - run: bash scripts/agy-review-selftest.sh
       # `--exclude rustysnes-android` (`v1.15.0 "Sideload"`): that crate's `ndk-sys` dependency
       # hard-fails (`compile_error!`) on every non-Android target, unconditionally -- it's not
       # feature-gated, so no `--features`/`--no-default-features` combination avoids it. Its own
