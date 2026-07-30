@@ -217,6 +217,25 @@ struct Active {
     /// the `emu-thread` build (frame production happens on a different thread, outside this
     /// timing scope; a known `emu-thread` gap, same posture as speed presets above).
     last_frame_time_ms: Option<f32>,
+    /// Rolling performance distributions (`v1.25.0`, T-FP-A).
+    ///
+    /// A single smoothed FPS float cannot answer "how bad is the tail?" — a 16.6 ms mean hides a
+    /// 40 ms p99 completely, and that difference is exactly what "smooth" vs "stuttering" is. See
+    /// `crate::perf`.
+    perf: crate::perf::PerfStats,
+    /// Emulated frames produced during the present currently being rendered (`v1.25.0`).
+    frames_this_present: u32,
+    /// The produce-time telemetry sample for **this** present specifically, or `None` if this
+    /// present produced no emulated frame (paused, or zero frames earned this tick).
+    ///
+    /// Deliberately NOT the same field as `last_frame_time_ms`, which is *sticky* on purpose: the
+    /// status-bar readout wants the last real measurement rather than a flicker to nothing, and the
+    /// run-ahead budget throttle wants the last real frame's cost rather than "no data". Recording
+    /// that sticky value into `perf` would feed the same historical measurement into the percentile
+    /// pool once per idle present, which is exactly the tail-latency signal the panel exists to
+    /// show — so telemetry reads this per-present field and the two consumers above keep the
+    /// sticky one.
+    produce_sample_ms: Option<f32>,
     /// The present-mode string currently applied to the surface; compared against the live config
     /// each present so a Settings → Video toggle reconfigures the wgpu surface.
     applied_present_mode: String,
@@ -862,6 +881,9 @@ impl App {
             pacer: Pacer::new(self.config.region.frame_rate()),
             speed: 1.0,
             last_frame_time_ms: None,
+            perf: crate::perf::PerfStats::new(),
+            frames_this_present: 0,
+            produce_sample_ms: None,
             applied_present_mode: self.config.video.present_mode.clone(),
             applied_theme: self.config.theme,
             applied_fullscreen: false,
@@ -1175,6 +1197,8 @@ impl App {
         }
 
         let paused = active.shell.paused;
+        // `v1.25.0`: time the whole present (upload + passes + egui + submit) for `crate::perf`.
+        let present_t0 = web_time::Instant::now();
         // Merge keyboard + gamepad + autofire into this real frame's pad words (`v1.25.0`). Done
         // BEFORE the emu lock is taken: it needs `&mut Active` for the gamepad poll, and the lock
         // guard below borrows `active.core` for the rest of the block.
@@ -1212,6 +1236,7 @@ impl App {
             let audio_samples = if paused {
                 active.pacer.idle();
                 active.last_frame_time_ms = None;
+                active.produce_sample_ms = None;
                 Vec::new()
             } else {
                 let frames = active.pacer.tick();
@@ -1326,9 +1351,19 @@ impl App {
                     #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
                     active.cheevos.do_frame(emu.system_mut());
                 }
-                if frames > 0 {
-                    active.last_frame_time_ms = Some(produce_t0.elapsed().as_secs_f32() * 1000.0);
+                // Measured only when at least one frame actually ran: `produce_sample_ms` is this
+                // present's telemetry sample (absent on an idle tick), while `last_frame_time_ms`
+                // is the sticky last-real-measurement the status bar and the run-ahead throttle
+                // read — see their field docs for why those two want opposite things.
+                let produce_ms = (frames > 0).then(|| produce_t0.elapsed().as_secs_f32() * 1000.0);
+                if produce_ms.is_some() {
+                    active.last_frame_time_ms = produce_ms;
                 }
+                active.produce_sample_ms = produce_ms;
+                // `v1.25.0`: remember the count so `record_present` below can expose the
+                // produced-vs-presented divergence (a catch-up burst emulates several frames for
+                // one present, which a single combined metric hides).
+                active.frames_this_present = frames;
                 samples
             };
             // Threaded build (`v1.1.0`): the emu thread owns frame production AND audio (via its
@@ -1752,6 +1787,20 @@ impl App {
         // --- (5) Submit + present. ---
         active.gfx.queue.submit(Some(encoder.finish()));
         frame.present();
+        // One sample per present. `produce_sample_ms` is None on an idle present (paused, or zero
+        // frames earned this tick) and no produce sample is recorded then — a 0.0 would drag every
+        // percentile toward zero, and re-recording the *previous* present's measurement (which the
+        // sticky `last_frame_time_ms` would supply) would duplicate one frame's cost into the pool
+        // once per idle tick, biasing exactly the tail the panel exists to show.
+        let present_ms = present_t0.elapsed().as_secs_f32() * 1000.0;
+        active.perf.record_present(
+            active.produce_sample_ms,
+            present_ms,
+            info.audio_health_pct,
+            active.frames_this_present,
+        );
+        active.frames_this_present = 0;
+        active.produce_sample_ms = None;
         actions
     }
 

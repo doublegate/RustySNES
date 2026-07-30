@@ -63,9 +63,11 @@ pub mod hd_pack;
 pub mod eq;
 #[cfg(feature = "hd-pack")]
 pub mod hd_compositor;
+pub mod i18n;
 pub mod input;
 pub mod patch;
 pub mod per_game;
+pub mod perf;
 pub mod screenshot;
 // Native rollback netplay (`v0.8.0` T-82-002). Native-only: browser WebRTC signaling UI is a
 // separate, deferred scope (`netplay.rs`'s own module doc has the detail).
