@@ -217,6 +217,14 @@ struct Active {
     /// the `emu-thread` build (frame production happens on a different thread, outside this
     /// timing scope; a known `emu-thread` gap, same posture as speed presets above).
     last_frame_time_ms: Option<f32>,
+    /// Rolling performance distributions (`v1.25.0`, T-FP-A).
+    ///
+    /// A single smoothed FPS float cannot answer "how bad is the tail?" — a 16.6 ms mean hides a
+    /// 40 ms p99 completely, and that difference is exactly what "smooth" vs "stuttering" is. See
+    /// `crate::perf`.
+    perf: crate::perf::PerfStats,
+    /// Emulated frames produced during the present currently being rendered (`v1.25.0`).
+    frames_this_present: u32,
     /// The present-mode string currently applied to the surface; compared against the live config
     /// each present so a Settings → Video toggle reconfigures the wgpu surface.
     applied_present_mode: String,
@@ -841,6 +849,8 @@ impl App {
             pacer: Pacer::new(self.config.region.frame_rate()),
             speed: 1.0,
             last_frame_time_ms: None,
+            perf: crate::perf::PerfStats::new(),
+            frames_this_present: 0,
             applied_present_mode: self.config.video.present_mode.clone(),
             applied_theme: self.config.theme,
             applied_fullscreen: false,
@@ -1154,6 +1164,8 @@ impl App {
         }
 
         let paused = active.shell.paused;
+        // `v1.25.0`: time the whole present (upload + passes + egui + submit) for `crate::perf`.
+        let present_t0 = web_time::Instant::now();
         // Merge keyboard + gamepad + autofire into this real frame's pad words (`v1.25.0`). Done
         // BEFORE the emu lock is taken: it needs `&mut Active` for the gamepad poll, and the lock
         // guard below borrows `active.core` for the rest of the block.
@@ -1308,6 +1320,10 @@ impl App {
                 if frames > 0 {
                     active.last_frame_time_ms = Some(produce_t0.elapsed().as_secs_f32() * 1000.0);
                 }
+                // `v1.25.0`: remember the count so `record_present` below can expose the
+                // produced-vs-presented divergence (a catch-up burst emulates several frames for
+                // one present, which a single combined metric hides).
+                active.frames_this_present = frames;
                 samples
             };
             // Threaded build (`v1.1.0`): the emu thread owns frame production AND audio (via its
@@ -1731,6 +1747,17 @@ impl App {
         // --- (5) Submit + present. ---
         active.gfx.queue.submit(Some(encoder.finish()));
         frame.present();
+        // One sample per present. `last_frame_time_ms` is None on an idle present (paused, or zero
+        // frames earned this tick) and is deliberately NOT recorded then — a 0.0 would drag every
+        // percentile toward zero and make an idle emulator look impossibly fast.
+        let present_ms = present_t0.elapsed().as_secs_f32() * 1000.0;
+        active.perf.record_present(
+            active.last_frame_time_ms,
+            present_ms,
+            info.audio_health_pct,
+            active.frames_this_present,
+        );
+        active.frames_this_present = 0;
         actions
     }
 

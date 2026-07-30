@@ -61,6 +61,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Settings gained Video (aspect, overscan grid), Audio (latency, kernel, health readout), and Input
     (autofire, gamepad list + deadzone) controls for all of the above.
 
+- **Frontend parity with RustyNES: infrastructure (T-FP-A).** The scaffold the remaining parity
+  clusters plug into, sequenced first deliberately.
+  - **Localisation** (`crate::i18n`) — a compile-time catalogue plus a `t!` macro, in English,
+    Spanish, French, German, and Japanese. Every string is a `Msg` enum variant and each locale is an
+    array indexed by it, so **adding a string without translating it fails the build**; a runtime
+    `HashMap` would instead surface a blank label that only someone eyeballing that exact screen
+    would notice. A locale may leave an entry empty ("not translated yet") and it falls back to
+    English rather than rendering blank. Language picker in Settings -> System, listed by endonym.
+    Scheduled *before* the later UI clusters on purpose — deferring it would mean retrofitting every
+    new panel's strings twice.
+  - **Performance telemetry primitives** (`crate::perf`) — fixed-capacity ring buffers with exact
+    p50/p95/p99/max over produce-time, present-time, GPU-time, and audio occupancy, plus a
+    produced-vs-presented split that makes a catch-up burst visible. The frontend previously exposed
+    only a smoothed FPS float, which cannot answer the question that matters when frames hitch: a
+    16.6 ms mean hides a 40 ms p99 completely. Allocation-free `push`, so it runs every present
+    unconditionally; percentiles sort on demand only when a panel reads them. Idle presents record
+    *no* produce sample, since a 0.0 there would drag every percentile toward zero and make a paused
+    emulator look impossibly fast.
+  - **A populated Help menu** — Documentation and Report-an-Issue links, plus **About** and
+    **Keyboard Shortcuts** windows. It was previously a bare version label. The shortcut sheet reads
+    the player's binds *live* from the config beside the fixed hotkeys, so it cannot lie after a
+    rebind.
+  - **Settings split into per-tab renderers.** `render_settings` had grown to 391 lines as each
+    parity wave added a section; it is now four tab renderers plus two helpers, which is what the
+    later clusters will extend instead of re-plumbing one giant function.
+
 - **Frontend parity with RustyNES, wave 3.** Again all-additive; both default to inert.
   - **Per-game configuration overrides** (`crate::per_game`). Region, aspect, integer-scale,
     post-filter, overscan, audio latency, volume, and run-ahead depth can be remembered per ROM

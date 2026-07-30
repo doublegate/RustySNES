@@ -701,6 +701,8 @@ pub struct Config {
     pub recent: RecentRoms,
     /// Directory screenshots are written to, or `None` for the platform picture dir (`v1.25.0`).
     pub screenshot_dir: Option<String>,
+    /// User-interface language (`v1.25.0`, T-FP-A). Defaults to English.
+    pub locale: crate::i18n::Locale,
 }
 
 impl Default for Config {
@@ -721,6 +723,7 @@ impl Default for Config {
             gamepad: GamepadConfig::default(),
             recent: RecentRoms::default(),
             screenshot_dir: None,
+            locale: crate::i18n::Locale::default(),
         }
     }
 }
