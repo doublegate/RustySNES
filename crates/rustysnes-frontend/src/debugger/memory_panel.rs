@@ -63,6 +63,23 @@ pub const fn is_editable(addr24: u32) -> bool {
     }
 }
 
+/// Reduce a WRAM address to its canonical linear `$7E`/`$7F` form.
+///
+/// The `$0000-$1FFF` low-RAM window in banks `$00-3F`/`$80-BF` is not a separate memory — it is the
+/// same 8 KiB as `$7E:0000-1FFF`. A freeze list keyed on the raw address would therefore accept
+/// `$00:0042` and `$7E:0042` as two independent entries holding two different values for one byte,
+/// and the per-frame poke loop would apply both in list order, so whichever came last would win and
+/// the other would silently do nothing. Everything else is returned unchanged.
+#[must_use]
+pub const fn canonical_wram(addr24: u32) -> u32 {
+    let bank = (addr24 >> 16) & 0xFF;
+    let offset = addr24 & 0xFFFF;
+    match bank {
+        0x00..=0x3F | 0x80..=0xBF if offset < 0x2000 => 0x7E_0000 | offset,
+        _ => addr24,
+    }
+}
+
 /// Parse a hex address from user input, tolerating a `$` or `0x` prefix and surrounding space.
 ///
 /// Returns `None` for anything that is not a valid 24-bit address, so a typo leaves the view where
@@ -286,6 +303,9 @@ impl ShellState {
                     parse_byte(&self.mem_poke_value),
                 ) {
                     (Some(address), Some(value)) if is_editable(address) => {
+                        // Keyed on the canonical address, so freezing a byte through the low-RAM
+                        // mirror and through linear `$7E` is one entry, not two that fight.
+                        let address = canonical_wram(address);
                         // Re-freezing an address replaces its held value rather than stacking a
                         // second entry that would fight the first every frame.
                         if let Some(existing) = freezes.iter_mut().find(|f| f.address == address) {
@@ -356,7 +376,30 @@ fn ascii_row(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ascii_row, heat_intensity, is_editable, parse_address, parse_byte};
+    use super::{
+        ascii_row, canonical_wram, heat_intensity, is_editable, parse_address, parse_byte,
+    };
+
+    /// A freeze list keyed on the raw address would treat `$00:0042` and `$7E:0042` as two
+    /// independent entries — but they are one byte, so the per-frame poke loop would apply both in
+    /// list order and whichever came last would silently win. Canonicalising collapses them.
+    #[test]
+    fn the_low_ram_mirror_canonicalises_onto_linear_wram() {
+        assert_eq!(canonical_wram(0x00_0042), 0x7E_0042);
+        assert_eq!(canonical_wram(0x3F_1FFF), 0x7E_1FFF);
+        assert_eq!(canonical_wram(0x80_0000), 0x7E_0000);
+        assert_eq!(canonical_wram(0xBF_0100), 0x7E_0100);
+        // Already linear, or past the mirror window, or not WRAM at all: unchanged.
+        assert_eq!(canonical_wram(0x7E_0042), 0x7E_0042);
+        assert_eq!(canonical_wram(0x7F_FFFF), 0x7F_FFFF);
+        assert_eq!(canonical_wram(0x00_2000), 0x00_2000);
+        assert_eq!(canonical_wram(0x40_0000), 0x40_0000);
+        // Every mirror alias of one byte must land on the SAME key.
+        let aliases = [0x00_0042, 0x01_0042, 0x3F_0042, 0x80_0042, 0xBF_0042];
+        for a in aliases {
+            assert_eq!(canonical_wram(a), 0x7E_0042, "${a:06X}");
+        }
+    }
 
     /// Only what `Bus::poke_wram` actually writes counts as editable — the UI must be able to
     /// disable an edit box rather than accept a write that silently does nothing.

@@ -14,6 +14,10 @@ use crate::debug_snapshot::DebugSnapshot;
 pub const SPRITE_COUNT: usize = 128;
 /// Where the high table begins (`SPRITE_COUNT * 4`).
 pub const HIGH_TABLE: usize = SPRITE_COUNT * 4;
+/// The tallest display the PPU produces: 239 lines, the `$2133` overscan mode. The off-screen
+/// heuristic keys on this rather than the 224 of a normal NTSC frame so it cannot mark a sprite
+/// that overscan genuinely puts on screen.
+pub const MAX_VISIBLE_LINES: u8 = 239;
 
 /// One decoded OAM entry.
 ///
@@ -28,7 +32,8 @@ pub struct Sprite {
     /// Screen X, **sign-extended** from the high table's per-sprite bit — the whole reason this
     /// panel exists, since the low table only holds the bottom 8 bits.
     pub x: i16,
-    /// Screen Y (0-255; a sprite at Y >= 224 is below a normal NTSC display).
+    /// Screen Y (0-255; a sprite at Y >= 224 is below a normal NTSC display, and at
+    /// Y >= 239 below even an overscan one).
     pub y: u8,
     /// Tile number within the sprite name table (0-255; `name_select` picks which table).
     pub tile: u8,
@@ -47,14 +52,18 @@ pub struct Sprite {
 }
 
 impl Sprite {
-    /// Whether the sprite is positioned entirely outside a 256x224 display.
+    /// Whether the sprite is positioned entirely outside the display.
     ///
-    /// A heuristic for the panel's "off-screen" marker, using the *maximum* sprite extent (64 px)
-    /// so it never claims a sprite is off-screen when the configured size might still put part of
-    /// it on. Being wrong in that direction would hide the very sprite being hunted for.
+    /// A heuristic for the panel's "off-screen" marker, deliberately biased toward *not* marking:
+    /// it uses the maximum sprite extent (64 px) rather than the configured size, and the taller
+    /// [`MAX_VISIBLE_LINES`] rather than 224 — a game running 239-line overscan puts real, visible
+    /// sprites on lines 224-238, and marking those off-screen would hide the very sprite being
+    /// hunted for. The panel does not know the current `$2133` overscan bit, so it assumes the
+    /// larger screen; the cost of that assumption is at most an unmarked sprite in a thin band,
+    /// which is the harmless direction.
     #[must_use]
     pub const fn likely_offscreen(self) -> bool {
-        self.x <= -64 || self.x >= 256 || self.y >= 224
+        self.x <= -64 || self.x >= 256 || self.y >= MAX_VISIBLE_LINES
     }
 }
 
@@ -213,7 +222,15 @@ mod tests {
         let s = decode(&oam);
         assert!(!s[0].likely_offscreen());
 
-        oam[1] = 230; // below a 224-line display
+        // 230 is below a 224-line display but ON a 239-line overscan one, and the panel cannot
+        // see the `$2133` bit — so it must NOT mark it. This assertion used to read the other
+        // way, which is how the heuristic came to hide real sprites in the overscan band.
+        oam[1] = 230;
+        let s = decode(&oam);
+        assert!(!s[0].likely_offscreen());
+
+        // Past even the overscan display, it is off-screen on any configuration.
+        oam[1] = 245;
         let s = decode(&oam);
         assert!(s[0].likely_offscreen());
 

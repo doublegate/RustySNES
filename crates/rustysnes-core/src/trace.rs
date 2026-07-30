@@ -338,9 +338,15 @@ impl TraceState {
 /// `$0000-$1FFF` low-RAM mirror in banks `$00-3F`/`$80-BF`, which alias the SAME bytes. Counting
 /// them as one slot each is the point — a game that writes low RAM through the mirror and reads it
 /// through `$7E` is touching one address, and two separate counters would show two cold ones.
+///
+/// The argument is masked to 24 bits first, which is both the hardware truth (the CPU bus wraps at
+/// `$FF:FFFF`) and what keeps a caller walking a range off the top of memory honest: without it,
+/// `$FF:FFFF + 1` is `0x0100_0000`, whose bank byte reads back as `$00` — so a window near the end
+/// of the address space would report low-RAM heat that belongs to a completely different address.
 #[must_use]
 pub const fn heatmap_index(addr24: u32) -> Option<usize> {
-    let bank = (addr24 >> 16) & 0xFF;
+    let addr24 = addr24 & 0x00FF_FFFF;
+    let bank = addr24 >> 16;
     let offset = addr24 & 0xFFFF;
     match bank {
         0x7E..=0x7F => Some((addr24 & 0x1_FFFF) as usize),
@@ -520,5 +526,31 @@ mod tests {
         assert_eq!(counts[1].writes, 1);
         // $800000 is not WRAM.
         assert!(counts[2].is_zero() && counts[3].is_zero());
+    }
+
+    /// A window walking off the top of the address space must not report someone else's heat.
+    ///
+    /// `$FF:FFFF + 1` is `0x0100_0000`, whose bank byte reads back as `$00` once truncated — so
+    /// without a 24-bit mask the row past the end of memory reports the low-RAM mirror's counts,
+    /// which belong to an entirely different address. The mask also happens to be the hardware
+    /// truth: the CPU bus wraps at `$FF:FFFF`.
+    #[test]
+    fn a_window_past_the_top_of_memory_wraps_rather_than_aliasing_low_ram() {
+        let mut st = TraceState::default();
+        st.set_counting(true);
+        // Heat at the very first WRAM byte, reachable as $00:0000 and as $7E:0000.
+        st.note_access(0x00_0000, true);
+        assert_eq!(st.counts(0x7E_0000, 1)[0].writes, 1);
+
+        // Read four bytes starting one before the end of the bus. The first two are $FF:xxxx
+        // (not WRAM, zero); the next two wrap to $00:0000/$00:0001, which IS the low-RAM mirror,
+        // so index 2 legitimately reports that byte's count — and index 3 the untouched next one.
+        let counts = st.counts(0x00FF_FFFE, 4);
+        assert!(counts[0].is_zero() && counts[1].is_zero());
+        assert_eq!(counts[2].writes, 1, "wrapped to $00:0000, the counted byte");
+        assert!(counts[3].is_zero());
+
+        // And an already-out-of-range address is masked rather than truncated into bank $00.
+        assert_eq!(super::heatmap_index(0x0100_0000), super::heatmap_index(0));
     }
 }

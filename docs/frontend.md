@@ -1060,13 +1060,23 @@ Two design points that are not obvious:
   leaves it off.
 - **Events are classified from the actual post-step `PBR:PC`, not from decoding the operand.** A
   `JSR (a,X)` has no static destination and a conditional path would need the CPU re-implemented to
-  know whether it was taken; reading where the CPU actually went cannot be wrong about either. The
-  same read catches an interrupt taken *between* instructions, since its post-step PC lands in a
-  vector — which is why this is one classifier rather than separate call and interrupt hooks.
+  know whether it was taken; reading where the CPU actually went cannot be wrong about either.
+- **An interrupt is detected before the opcode is consulted, and has to be.** On a step that vectors
+  an NMI/IRQ the CPU fetches no opcode at all, so the carried `pending_trace_opcode` still holds the
+  *previous* instruction's byte. Classifying from it does not merely miss the interrupt: an NMI
+  arriving right after a `JSR` is recorded as a second `Call` whose `to` points at the NMI vector's
+  target. `Cpu::interrupts_taken` — a counter written only on the interrupt path, never per
+  instruction — is the unambiguous signal, snapshotted before the step and compared after. This is
+  still one classifier rather than separate call and interrupt hooks; it just asks the right
+  question first.
 
 The heat map covers WRAM only, and folds the `$0000-$1FFF` low-RAM mirror onto the same slots as the
 `$7E` linear window: they are the same bytes, and two counters would show one hot address as two
-cold ones.
+cold ones. `heatmap_index` masks its argument to 24 bits, which is both the CPU bus's own wrap at
+`$FF:FFFF` and what stops a window walking off the top of memory from reporting low-RAM heat that
+belongs to a different address (`$FF:FFFF + 1` truncates to bank `$00`). The **freeze list** keys on
+the same canonical form for the same reason: `$00:0042` and `$7E:0042` are one byte, and two entries
+holding different values would fight every frame with the later one silently winning.
 
 ### Memory editor panel (`v1.25.0`, T-FP-C1)
 

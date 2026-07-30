@@ -71,6 +71,22 @@ pub struct Cpu {
     pub waiting: bool,
     /// `STP` latch: the CPU has been stopped and resumes only on reset.
     pub stopped: bool,
+    /// Count of **hardware** interrupts (NMI/IRQ) vectored so far, and which kind the last one was.
+    ///
+    /// Bookkeeping for an observer that needs to tell "this step ran the instruction at `PC`" from
+    /// "this step vectored instead" — a debugger's control-flow trace cannot classify an interrupt
+    /// from the opcode, because on an interrupt step no opcode is fetched at all and the previous
+    /// step's opcode is what is left lying around. Counted rather than a per-step flag so nothing
+    /// is written on the ordinary instruction path: an observer snapshots the count before a step
+    /// and compares after.
+    ///
+    /// `BRK`/`COP` are **not** counted — they are software traps with their own opcodes, which an
+    /// observer can classify directly. Deliberately excluded from [`Self::save_state`]: it is
+    /// transient within a step, and a save-state must not gain a field for a debug affordance.
+    pub interrupts_taken: u64,
+    /// Whether the interrupt counted most recently by [`Self::interrupts_taken`] was an NMI (`true`)
+    /// or an IRQ (`false`). Meaningless until that counter is non-zero.
+    pub last_interrupt_was_nmi: bool,
     /// Per-instruction CPU-cycle accumulator (reset at the start of each [`Cpu::step`]).
     cyc: u32,
 }
@@ -91,6 +107,8 @@ impl Cpu {
             cycles: 0,
             waiting: false,
             stopped: false,
+            interrupts_taken: 0,
+            last_interrupt_was_nmi: false,
             cyc: 0,
         }
     }

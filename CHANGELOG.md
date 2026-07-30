@@ -89,8 +89,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     list is naturally empty until the user adds one while a trace records everything by nature; the
     heat map's allocation happens on the first enable and never on a build that leaves it off.
     Control-flow events are classified from the *actual* post-step `PBR:PC` rather than by decoding
-    the operand — a `JSR (a,X)` has no static destination, and the same read catches an interrupt
-    taken between instructions for free.
+    the operand — a `JSR (a,X)` has no static destination. An interrupt is detected **before** the
+    opcode is consulted, via a new `Cpu::interrupts_taken` counter written only on the NMI/IRQ path
+    (never per instruction, and excluded from save states): a step that vectors fetches no opcode at
+    all, so the previous instruction's byte is what is left lying around, and classifying from it
+    would record an NMI arriving after a `JSR` as a second `Call` pointing at the NMI vector.
+  - The heat map masks its address to 24 bits, matching the CPU bus's own wrap at `$FF:FFFF`, so a
+    window walking off the top of memory cannot report low-RAM heat belonging to a different
+    address; and the **freeze list** keys on a canonical WRAM address, so `$00:0042` and `$7E:0042`
+    — one byte — cannot become two entries whose per-frame pokes fight, with the later one silently
+    winning.
   - **Memory editor panel** — go-to and paging, byte editing, freezes, and a heat column. Edits reach
     WRAM only and non-WRAM rows are greyed with the refusal stated by name, because a debugger that
     appeared to edit a ROM byte which then read back unchanged would look like an emulation bug. A
@@ -100,8 +108,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **OAM panel** — the 544 OAM bytes had been in the snapshot since the overlay existed with nothing
     reading them. Each sprite's X sign bit and size bit live in a separate high table at
     `(index % 4) * 2`, so "why is this sprite off-screen" is answerable by the decode and not by the
-    hex. Off-screen rows are dimmed rather than hidden, and the test uses the maximum sprite extent so
-    it never hides a sprite that might be partly visible.
+    hex. Off-screen rows are dimmed rather than hidden, and the marker is biased toward *not*
+    marking: it uses the maximum sprite extent (64 px) and the 239-line overscan display height, not
+    224 — the panel cannot see the live `$2133` bit, and a game running overscan puts real sprites on
+    lines 224-238.
   - **Map panel** — where ROM, SRAM, WRAM, and I/O land on the CPU bus, **derived from the detected
     mapping** so a LoROM and a HiROM cart genuinely differ. An address no range covers reports as
     uncovered rather than being forced into the nearest one.
