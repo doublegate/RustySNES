@@ -237,3 +237,20 @@ WARP.md
 
 # Antigravity PR reviewer: large-diff on-disk handoff (transient, removed by the script).
 /.agy-review-work/
+
+# --- Frontend capture / telemetry output (`v1.25.0`, T-FP-B / T-FP-G1) ---
+# These land in the user's data directory by default, but the emulator can be pointed anywhere and
+# is routinely run straight out of a checkout — so a stray capture must not become a commit
+# candidate. Anchored to the repo root and named specifically rather than a bare `*.wav`/`*.png`,
+# which would also swallow committed test fixtures and the README's screenshots.
+/rustysnes-perf-*.csv
+/*.y4m
+/*.wav
+/rustysnes-*.png
+/captures/
+
+# Shader presets and symbol maps a user drops in to try (inputs, never project files).
+/presets/
+/*.slangp
+/*.cgp
+/*.sym

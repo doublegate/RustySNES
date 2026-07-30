@@ -3,7 +3,7 @@
 This file is authoritative for per-suite pass counts, the board / coprocessor matrix, and
 version policy. Everything else defers to it.
 
-**Current release:** `v1.24.0 "Ensemble"` (`v1.23.0 "Cadence"`, `v1.22.0 "Horizon"`, `v1.21.0 "Touchstone"`, `v0.1.0 "Foundation"`,
+**Current release:** `v1.25.0 "Workbench"` (`v1.24.0 "Ensemble"`, `v1.23.0 "Cadence"`, `v1.22.0 "Horizon"`, `v1.21.0 "Touchstone"`, `v0.1.0 "Foundation"`,
 `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"`, `v0.4.0 "Completion"`, `v0.5.0 "Fidelity"`,
 `v0.6.0 "Shippable"`, `v0.7.0 "Resolution"`, `v0.8.0 "Community"`, `v0.9.0 "Threshold"`,
 `v1.0.0 "Zenith"`, `v1.0.1 "Aftertouch"`, `v1.1.0 "Latchkey"`, `v1.2.0 "Phosphor"`,
@@ -41,6 +41,24 @@ It is a model-consistency + response-latency change, **not** a rendering change 
 chips are byte-identical to the `v1.22.0` baseline — and it structurally retires the "stop at first
 `RQM=set`" hazard class. The DSP sub-clock phase is serialized, so save-state `FORMAT_VERSION` bumps
 `9 → 10` (older blobs loud-fail per `docs/adr/0006`).
+**`v1.25.0 "Workbench"` is a frontend release — it changes no emulation behaviour at all.** The
+engine has been at the accuracy bar for several versions while the egui shell lagged its own NES
+sibling; this closes that gap in ten reviewed increments (`T-FP-A`-`T-FP-G2`): a real debugger
+(expression-conditional breakpoints, instruction trace, control-flow event log, WRAM access heat
+map, symbol maps, memory editor with freezes, OAM viewer, cart map, inline 65C816 assembler), a
+multi-pass shader stack with `.slangp` parsing and a best-effort GLSL→WGSL naga bridge (verified by
+**offscreen GPU goldens** — new infrastructure; the prior shader tests only checked that WGSL
+parsed), p50/p95/p99/max performance distributions plus a CSV session log, hardware-resolved frame
+pacing, an 8-voice audio mixer, XOR-delta+RLE rewind compression, A/V capture, a virtual pad, and
+TAStudio. Everything is additive and **default-off or default-inert** — `video.stack` defaults to
+`Off`, the debugger needs `debug-hooks`, GPU timing needs `gpu-timing`, and a unity per-voice gain is
+a bit-exact bypass in the DSP — so an existing `config.toml` renders and sounds byte-identically.
+**No save-state format change** (`FORMAT_VERSION` stays at 10), and the accuracy dashboard,
+per-suite pass counts, and coprocessor tier matrix below are unchanged. Two engine-side fixes ride
+along, both found by frontend work and both invisible to rendering: `Cpu::interrupts_taken`
+bookkeeping so a debugger can tell a vectored step from an executed one, and a `delta::Chain`
+eviction defect (a keyframe evicted from the front orphaned every delta that referenced it) that
+affected the **rewind buffer** as much as the new greenzone.
 See `CHANGELOG.md` for full per-release detail. `v1.0.0` closes the production-cut
 gate: `Board: Send` (unblocking `emu-thread` to compile/test/lint clean for the first time, though
 it stays off-by-default pending full feature parity — see `docs/frontend.md`), the five

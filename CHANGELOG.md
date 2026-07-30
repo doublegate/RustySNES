@@ -9,6 +9,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.25.0] "Workbench" - 2026-07-30
+
+**The frontend catches up with the engine.** RustySNES's emulation core has been at the Mesen2/ares
+bar for several releases while its egui shell lagged its own NES sibling; this release closes that
+gap in ten reviewed increments (`T-FP-A` … `T-FP-G2`), taking the frontend from "boots games" to a
+tool you can debug, profile, record, retime, and author a TAS with.
+
+Everything here is **additive and default-off or default-inert**: `video.stack` defaults to `Off`,
+the preset chain is empty, the debugger needs `debug-hooks`, GPU timing needs `gpu-timing`, and the
+per-voice mixer's unity gain is a bit-exact bypass in the DSP. An existing `config.toml` renders and
+sounds byte-identically, and no save-state format changed (`FORMAT_VERSION` stays at 10).
+
+The five headline capabilities:
+
+- **A real debugger** — conditional breakpoints over an expression evaluator, an instruction trace,
+  a control-flow event log, a WRAM access heat map, symbol maps, a memory editor with freezes, an
+  OAM viewer, a cart memory map, and an inline 65C816 assembler that assembles by *searching the
+  real disassembler* rather than carrying a second opcode table.
+- **A multi-pass shader stack** with `RetroArch`-shaped per-pass semantics, richer CRT and an NTSC
+  composite pass, `.slangp`/`.cgp` preset parsing, and a best-effort GLSL→WGSL bridge through naga —
+  every untranslatable pass named rather than silently black. Verified by **offscreen GPU goldens**,
+  which is new infrastructure: the previous shader tests only checked that WGSL parsed.
+- **Observability and honest pacing** — p50/p95/p99/max distributions over emulation, present, GPU
+  and audio-buffer time, an opt-in CSV session log, and `PacingMode` turned from a setting nothing
+  read into one resolved against the monitor's real refresh and the surface's real present-mode caps,
+  with any declined request **reported** rather than silently downgraded.
+- **An 8-voice audio mixer** (gain, mute, solo, VU meters) plus **compressed rewind** — XOR-delta and
+  RLE with periodic keyframes, no new dependency, bit-identical round-trip.
+- **TAStudio** — a piano roll, a greenzone that reuses the rewind compression, and invalidation as
+  the *default* consequence of an edit.
+
+Plus the infrastructure the above plugs into: compile-time-checked localisation in five languages
+wired through the whole menu bar and every Settings tab, a populated Help menu, and `Settings` split
+into per-tab renderers.
+
+### A recurring defect this release was written to remove
+
+Five settings shipped in earlier versions that **round-tripped through `config.toml` while nothing
+read them** — `gamepad`, `video.integer_scale`, `config.p2`, `audio.device`, and `PacingMode`. Each
+looked functional and did nothing. All five are now live, and the pattern was explicitly hunted:
+grep a setting's *readers*, not its definition. Two more instances were caught during review of this
+very release — a shader preset path that persisted while nothing loaded it at startup, and an i18n
+catalogue with sixty translated strings and eight consumers.
+
 ### Fixed
 
 - **Soft-patching: a hostile BPS patch could panic instead of erroring.** Two arithmetic paths took

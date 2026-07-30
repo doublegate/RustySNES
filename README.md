@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/doublegate/RustySNES/actions"><img src="https://github.com/doublegate/RustySNES/workflows/CI/badge.svg" alt="Build Status"></a> <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a> <a href="https://github.com/doublegate/RustySNES/releases"><img src="https://img.shields.io/badge/version-v1.24.0-blue.svg" alt="Version"></a> <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/rust-1.96-orange.svg" alt="Rust: 1.96"></a><br>
+  <a href="https://github.com/doublegate/RustySNES/actions"><img src="https://github.com/doublegate/RustySNES/workflows/CI/badge.svg" alt="Build Status"></a> <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a> <a href="https://github.com/doublegate/RustySNES/releases"><img src="https://img.shields.io/badge/version-v1.25.0-blue.svg" alt="Version"></a> <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/rust-1.96-orange.svg" alt="Rust: 1.96"></a><br>
   <a href="#compatibility-and-accuracy"><img src="https://img.shields.io/badge/65C816%20oracle-0--diff-brightgreen.svg" alt="65C816 oracle: 0-diff"></a> <a href="#compatibility-and-accuracy"><img src="https://img.shields.io/badge/SPC700%20oracle-0--diff-brightgreen.svg" alt="SPC700 oracle: 0-diff"></a> <a href="https://doublegate.github.io/RustySNES/"><img src="https://img.shields.io/badge/pages-demo%20%2B%20rustdoc%20%2B%20docs-success.svg" alt="GitHub Pages"></a><br>
   <a href="#platform-support"><img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS%20%7C%20Web-lightgrey.svg" alt="Platform"></a>
 </p>
@@ -623,9 +623,14 @@ Material-for-MkDocs documentation handbook at
 
 ## Current Release
 
-RustySNES's current release is **v1.8.0 "Tracepoint"**. See [`docs/STATUS.md`](docs/STATUS.md)
-and [`CHANGELOG.md`](CHANGELOG.md) for the full release history (`v0.1.0` through `v1.8.0`) and
-per-release detail.
+RustySNES's current release is **v1.25.0 "Workbench"** — the frontend release that brings the
+egui shell up to the engine's level: a full debugger, a multi-pass shader stack with `.slangp`
+support, performance distributions and hardware-resolved frame pacing, an 8-voice audio mixer with
+compressed rewind, A/V capture, a virtual pad, and TAStudio. It is **additive throughout**: an
+existing `config.toml` renders and sounds byte-identically, and no save-state format changed.
+
+See [`docs/STATUS.md`](docs/STATUS.md) and [`CHANGELOG.md`](CHANGELOG.md) for the full release
+history (`v0.1.0` through `v1.25.0`) and per-release detail.
 
 - **Download:** the [GitHub Releases](https://github.com/doublegate/RustySNES/releases) page —
   desktop binaries for Linux, macOS (aarch64), and Windows.
@@ -656,6 +661,16 @@ emulator, tracked in lockstep rather than a frozen snapshot
   native 3x default.
 - **`v1.8.0 "Tracepoint"`** — debugger depth II: a Memory Compare panel and an in-app Docs/glossary
   panel.
+- **`v1.9.0 "Marionette"` - `v1.20.0 "Aperture"`** — scripting reach, HD packs, RetroAchievements,
+  shaders and accessibility, the Android/iOS mobile ladder, a PGO/BOLT pipeline, and a UI/UX-parity
+  pass — all with the accuracy dashboard unchanged.
+- **`v1.21.0 "Touchstone"` - `v1.24.0 "Ensemble"`** — the accuracy rungs: the per-dot PPU compositor
+  becomes the sole renderer, the DSP-1 Mode-7 floor is fixed and then the NEC-DSP host interface
+  made pin-exact, and DSP-3 + ST011 complete the NEC coprocessor family.
+- **`v1.25.0 "Workbench"`** — the frontend catches up with the engine, in ten reviewed increments
+  (`T-FP-A`-`T-FP-G2`): debugger, shader stack + `.slangp`/GLSL bridge, observability + real pacing,
+  audio mixer + compressed rewind, A/V capture + virtual pad + databases, and TAStudio. Five
+  settings that had round-tripped through `config.toml` while nothing read them are now live.
 
 The full roadmap lives in [`to-dos/ROADMAP.md`](to-dos/ROADMAP.md) (the phase spine) and
 [`to-dos/VERSION-PLAN.md`](to-dos/VERSION-PLAN.md) (the named release ladder, including the
