@@ -81,6 +81,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Settings gained Video (aspect, overscan grid), Audio (latency, kernel, health readout), and Input
     (autofire, gamepad list + deadzone) controls for all of the above.
 
+- **Frontend parity with RustyNES: the multi-pass shader stack (T-FP-D).**
+  - **`crate::shader_pass` / `crate::shader_runtime` / `Gfx::present_chain`** — an ordered chain of
+    passes, each with its own scale (`source`/`viewport`/`absolute`), input filtering, wrap mode,
+    float framebuffer, alias, and frame-counter modulus. Replaces a shape that could apply exactly
+    one filter and grew an argument per knob. Per-pass fields are named after `RetroArch`'s
+    `.slangp` keys so T-FP-E's parser needs no translation layer.
+  - **Parameters are declared by the shader**, not by Rust: a name-indexed list packed into one
+    uniform, with Settings sliders **generated from the pass**. Adding a knob touches no UI or config
+    code, and a saved override for a knob a shader no longer declares is ignored rather than landing
+    in the wrong slot.
+  - **`video.stack` defaults to `Off`**, which builds an empty chain — so an existing `config.toml`
+    renders byte-identically and the `v1.2.0` `PostFilter` path is untouched.
+  - **Richer CRT** (scanlines, mask, curvature, beam shape, glow, vignette) and an **NTSC composite**
+    pass (chroma bleed, artefacts, fringing, dot crawl). NTSC is an RGB-domain approximation
+    deliberately: the full technique needs a palette-index framebuffer, which is a NES property — the
+    SNES PPU emits direct colour, so there is nothing to export and no core change to make. `NTSC +
+    CRT` runs them in that order, because artefacts happen in the signal and the mask at the phosphor.
+  - **Offscreen golden tests.** `gfx.rs`'s tests previously only validated WGSL — no device, no
+    pixel — so a shader that compiled and rendered wrongly passed. The new harness renders to an
+    offscreen texture and asserts that every knob at zero is a **bit-exact** bypass, that each knob
+    changes the image in the direction it claims, and that the same render hashes identically. It
+    self-skips with a printed reason where no adapter exists.
+  - A pass's WGSL is validated with naga **before** `create_shader_module`, because wgpu reports a
+    shader error by panicking the device — a typo in a user shader must not take down the emulator.
+    A failed pass falls back to the plain blit and is **named** in Settings.
+
 - **Frontend parity with RustyNES: advanced debugger (T-FP-C2).**
   - **Conditional breakpoints** (`crate::expr`) — an integer expression evaluator with registers,
     flags, and read-only memory access (`[addr]`, `{addr}`), so a breakpoint on a routine called

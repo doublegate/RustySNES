@@ -135,6 +135,9 @@ pub struct Gfx {
     /// ([`MAX_W`]/[`MAX_H`]); [`Self::ensure_texture_capacity`] grows it (rare — only when an
     /// HD texture pack's composited output, `v1.3.0`, exceeds that) but never shrinks it.
     texture: wgpu::Texture,
+    /// The multi-pass shader stack's live pipelines + ping-pong targets (`v1.25.0`, T-FP-D).
+    /// Empty until a non-pass-through chain is presented; see [`StackState`].
+    stack: StackState,
     /// The nearest-neighbor sampler bound to every bind group below — stored (not a one-off
     /// local) so [`Self::ensure_texture_capacity`] can rebuild bind groups against a new texture
     /// view without recreating the sampler too.
@@ -446,6 +449,7 @@ impl Gfx {
             queue,
             surface,
             config,
+            stack: StackState::default(),
             #[cfg(feature = "gpu-timing")]
             gpu_timer,
             texture,
@@ -952,6 +956,72 @@ impl Gfx {
         pass.draw(0..3, 0..1);
     }
 
+    /// Render a [`crate::shader_pass::ShaderChain`] into `target` (`v1.25.0`, T-FP-D).
+    ///
+    /// The chain's passes render into ping-pong intermediates; the last renders into `target`. An
+    /// empty chain falls through to the plain blit, so "no shader" costs exactly what it did before
+    /// the stack existed.
+    ///
+    /// Pipelines and intermediates live in `stack`, rebuilt only when the chain or a size actually
+    /// changes — compiling a pipeline and allocating a texture every present is what makes a shader
+    /// stack unusable rather than merely slow.
+    pub fn present_chain(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        chain: &crate::shader_pass::ShaderChain,
+        frame: u32,
+    ) {
+        if chain.is_passthrough() {
+            self.blit(encoder, target);
+            return;
+        }
+        let viewport = (self.config.width.max(1), self.config.height.max(1));
+        let sizes = chain.output_sizes((self.fb_w, self.fb_h), viewport);
+        self.stack.ensure(
+            &self.device,
+            chain,
+            &sizes,
+            &self.texture,
+            self.config.format,
+        );
+        if self.stack.passes.len() != chain.passes.len() {
+            // A pass failed to build. Falling back to the plain blit keeps a picture on screen;
+            // the Settings panel names the failing pass separately (`shader_runtime::validate`),
+            // so this is a degraded render, never a silent black frame.
+            self.blit(encoder, target);
+            return;
+        }
+
+        // Pass 0 samples the live framebuffer sub-rect; later passes sample a full intermediate.
+        for (i, pass) in chain.passes.iter().enumerate() {
+            let built = &self.stack.passes[i];
+            let input_size = if i == 0 {
+                (self.fb_w, self.fb_h)
+            } else {
+                sizes[i - 1]
+            };
+            let uniforms =
+                crate::shader_runtime::Uniforms::for_pass(pass, input_size, sizes[i], frame);
+            self.queue
+                .write_buffer(&built.uniform_buf, 0, &uniforms.as_bytes());
+
+            let last = i + 1 == chain.passes.len();
+            let view_owned;
+            let out_view = if last {
+                target
+            } else {
+                view_owned =
+                    self.stack.targets[i].create_view(&wgpu::TextureViewDescriptor::default());
+                &view_owned
+            };
+            let mut render = Self::begin_pass(encoder, out_view, built.label);
+            render.set_pipeline(&built.pipeline);
+            render.set_bind_group(0, &built.bind_group, &[]);
+            render.draw(0..3, 0..1);
+        }
+    }
+
     /// The aspect-correct letterbox scale `(pos_x, pos_y)` applied to the fullscreen triangle's
     /// clip-space position so the 4:3 SNES display fits inside the current surface regardless of
     /// window shape — shared by [`Self::blit`] and [`Self::present`]'s filter passes (`v1.2.0`;
@@ -1033,6 +1103,262 @@ pub enum GfxError {
     /// Device request failed.
     #[error("wgpu device request failed: {0}")]
     Device(String),
+}
+
+/// The live GPU objects for a [`crate::shader_pass::ShaderChain`] (`v1.25.0`, T-FP-D).
+///
+/// Rebuilt only when the chain's identity or a target size actually changes — the `signature`
+/// field is what makes that check cheap enough to run every present. Compiling a pipeline per
+/// frame is the difference between a shader stack being usable and being a slideshow.
+#[derive(Default)]
+struct StackState {
+    passes: Vec<BuiltPass>,
+    /// One intermediate target per pass. The last pass renders to the surface, so its slot is
+    /// allocated but unused — kept rather than special-cased so indices line up with `passes`.
+    targets: Vec<wgpu::Texture>,
+    /// What `passes`/`targets` were built for: the chain's pass names and sources plus the sizes.
+    /// Compared by value, so an edited shader source rebuilds and a slider move does not.
+    signature: String,
+}
+
+/// One pass's pipeline, bind group, and uniform buffer.
+struct BuiltPass {
+    pipeline: wgpu::RenderPipeline,
+    bind_group: wgpu::BindGroup,
+    uniform_buf: wgpu::Buffer,
+    label: &'static str,
+}
+
+impl BuiltPass {
+    /// Compile one pass, or `None` if its WGSL does not validate.
+    ///
+    /// Validated with naga *before* `create_shader_module`, because wgpu's own module creation
+    /// reports a shader error by panicking the device rather than returning it — which for a
+    /// user-supplied shader would mean a typo takes down the emulator.
+    // One straight-line construction of the six wgpu objects a pass needs (module, sampler,
+    // uniform buffer, layout, bind group, pipeline); splitting it would only scatter one
+    // sequential recipe across several functions that each take the same arguments.
+    #[allow(clippy::too_many_lines)]
+    fn build(
+        device: &wgpu::Device,
+        pass: &crate::shader_pass::PassDesc,
+        input_view: &wgpu::TextureView,
+        target_format: wgpu::TextureFormat,
+    ) -> Option<Self> {
+        let wgsl = crate::shader_runtime::compose(&pass.source);
+        let module = naga::front::wgsl::parse_str(&wgsl).ok()?;
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::empty(),
+        )
+        .validate(&module)
+        .ok()?;
+
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("rustysnes-stack-pass"),
+            source: wgpu::ShaderSource::Wgsl(wgsl.into()),
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("rustysnes-stack-sampler"),
+            address_mode_u: pass.wrap_mode.to_wgpu(),
+            address_mode_v: pass.wrap_mode.to_wgpu(),
+            address_mode_w: pass.wrap_mode.to_wgpu(),
+            mag_filter: if pass.filter_linear {
+                wgpu::FilterMode::Linear
+            } else {
+                wgpu::FilterMode::Nearest
+            },
+            min_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("rustysnes-stack-uniforms"),
+            size: size_of::<crate::shader_runtime::Uniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("rustysnes-stack-bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("rustysnes-stack-bg"),
+            layout: &layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(input_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: uniform_buf.as_entire_binding(),
+                },
+            ],
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("rustysnes-stack-pl"),
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("rustysnes-stack-pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(target_format.into())],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        Some(Self {
+            pipeline,
+            bind_group,
+            uniform_buf,
+            label: "rustysnes-stack",
+        })
+    }
+}
+
+impl StackState {
+    /// Rebuild if the chain or the sizes changed; otherwise leave everything in place.
+    fn ensure(
+        &mut self,
+        device: &wgpu::Device,
+        chain: &crate::shader_pass::ShaderChain,
+        sizes: &[(u32, u32)],
+        source_view: &wgpu::Texture,
+        target_format: wgpu::TextureFormat,
+    ) {
+        let signature = Self::signature_of(chain, sizes, target_format);
+        if signature == self.signature && self.passes.len() == chain.passes.len() {
+            return;
+        }
+        self.passes.clear();
+        self.targets.clear();
+        self.signature = signature;
+
+        for (i, pass) in chain.passes.iter().enumerate() {
+            let (w, h) = sizes.get(i).copied().unwrap_or((1, 1));
+            let format = if pass.float_framebuffer {
+                wgpu::TextureFormat::Rgba16Float
+            } else {
+                wgpu::TextureFormat::Rgba8Unorm
+            };
+            self.targets
+                .push(device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("rustysnes-stack-target"),
+                    size: wgpu::Extent3d {
+                        width: w,
+                        height: h,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                }));
+        }
+
+        // Pipelines are built in a second loop, because pass N's bind group samples pass N-1's
+        // target and every target must exist first.
+        let last = chain.passes.len().saturating_sub(1);
+        for (i, pass) in chain.passes.iter().enumerate() {
+            let input_view = if i == 0 {
+                source_view.create_view(&wgpu::TextureViewDescriptor::default())
+            } else {
+                self.targets[i - 1].create_view(&wgpu::TextureViewDescriptor::default())
+            };
+            // A pipeline's fragment target format must match the texture it renders into. Only the
+            // LAST pass renders to the surface; every intermediate renders into its own target,
+            // whose format `ensure` chose from `float_framebuffer`. Using the surface format for
+            // all of them is a validation error at draw time, not at build time — so it would
+            // surface as a crash mid-frame rather than as a failed build.
+            let pass_format = if i == last {
+                target_format
+            } else {
+                self.targets[i].format()
+            };
+            let Some(built) = BuiltPass::build(device, pass, &input_view, pass_format) else {
+                // Stop at the first pass that will not build. `present_chain` sees the short
+                // `passes` vec and falls back to the plain blit rather than rendering a partial
+                // chain into the surface, which would look like a corrupted frame.
+                self.passes.clear();
+                return;
+            };
+            self.passes.push(built);
+        }
+    }
+
+    /// A cheap value identifying what the built state corresponds to.
+    fn signature_of(
+        chain: &crate::shader_pass::ShaderChain,
+        sizes: &[(u32, u32)],
+        target_format: wgpu::TextureFormat,
+    ) -> String {
+        use core::fmt::Write as _;
+        let mut out = String::with_capacity(64);
+        let _ = write!(out, "{target_format:?}|");
+        for (pass, size) in chain.passes.iter().zip(sizes.iter()) {
+            // The source length rather than the source: a full-source compare per present would
+            // hash kilobytes of WGSL every frame for a value that changes only when a shader is
+            // reloaded, and a length collision rebuilds nothing worse than one extra time.
+            let _ = write!(
+                out,
+                "{}:{}:{}x{}:{};",
+                pass.name,
+                pass.source.len(),
+                size.0,
+                size.1,
+                u8::from(pass.float_framebuffer)
+            );
+        }
+        out
+    }
 }
 
 #[cfg(test)]

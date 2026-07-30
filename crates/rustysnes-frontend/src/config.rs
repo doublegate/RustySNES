@@ -332,6 +332,44 @@ impl Overscan {
     }
 }
 
+/// Which built-in multi-pass chain the shader stack runs (`v1.25.0`, T-FP-D).
+///
+/// `Off` is the default and is **byte-identical** to a build without the stack — the chain is empty
+/// so `Gfx::present_chain` falls straight through to the plain blit.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ShaderStack {
+    /// No stack; the `v1.2.0` `PostFilter` path is used unchanged.
+    #[default]
+    Off,
+    /// The richer CRT pass (scanlines, mask, curvature, beam shape, glow, vignette).
+    Crt,
+    /// The NTSC composite-artefact pass (chroma bleed, artefacts, fringing, dot crawl).
+    Ntsc,
+    /// NTSC into CRT — the chain most people actually want, and the case a single-filter enum
+    /// structurally cannot express.
+    NtscCrt,
+}
+
+impl ShaderStack {
+    /// The label shown in Settings.
+    #[must_use]
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::Crt => "CRT",
+            Self::Ntsc => "NTSC",
+            Self::NtscCrt => "NTSC + CRT",
+        }
+    }
+
+    /// Every variant, in Settings order.
+    #[must_use]
+    pub const fn all() -> [Self; 4] {
+        [Self::Off, Self::Crt, Self::Ntsc, Self::NtscCrt]
+    }
+}
+
 /// Video / windowing settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -360,6 +398,20 @@ pub struct VideoConfig {
     /// [`PostFilter::Xbrz`] context-gated corner-blend strength, `0.0..=1.0` (0 = plain
     /// bilinear) — `v1.12.0 "Refraction"`.
     pub xbrz_strength: f32,
+    /// The multi-pass shader stack's selected chain (`v1.25.0`, T-FP-D).
+    ///
+    /// Independent of [`Self::filter`], which stays the `v1.2.0` single-pass path and is
+    /// byte-identical when [`ShaderStack::Off`] (the default) is selected here. The two are
+    /// separate because the stack replaces the *architecture*, not the existing filters, and an
+    /// existing `config.toml` must keep rendering exactly as it did.
+    pub stack: ShaderStack,
+    /// Per-chain parameter overrides, keyed `"<chain>.<param>"` (`v1.25.0`, T-FP-D).
+    ///
+    /// A flat map rather than typed fields, for the same reason the parameters themselves are a
+    /// name-indexed list: a shader's knobs are declared by the *shader*, so a typed config would
+    /// mean the Rust side has to know every shader it might ever load.
+    #[serde(default)]
+    pub stack_params: std::collections::BTreeMap<String, f32>,
     /// The active HD texture pack's name for the current ROM (`v1.3.0`), or `None` (the default
     /// — byte-identical config round-trip for every prior release). Present regardless of
     /// whether this build has the `hd-pack` Cargo feature on, matching every other config field's
@@ -395,6 +447,8 @@ impl Default for VideoConfig {
             crt_mask: 0.15,
             hqx_strength: 0.6,
             xbrz_strength: 0.6,
+            stack: ShaderStack::default(),
+            stack_params: std::collections::BTreeMap::new(),
             hd_pack_name: None,
             hide_overscan: false,
             aspect: AspectMode::default(),

@@ -1899,15 +1899,27 @@ impl App {
         active
             .gfx
             .set_display_geometry(config.video.aspect, config.video.integer_scale);
-        active.gfx.present(
-            &mut encoder,
-            &view,
-            config.video.filter,
-            config.video.crt_scanline,
-            config.video.crt_mask,
-            config.video.hqx_strength,
-            config.video.xbrz_strength,
-        );
+        // The multi-pass stack (`v1.25.0`, T-FP-D) takes precedence when a chain is selected;
+        // `ShaderStack::Off` (the default) builds an empty chain, so the legacy `PostFilter` path
+        // below is reached unchanged and an existing config renders byte-identically.
+        let chain = crate::shader_pass::build_chain(config.video.stack, &config.video.stack_params);
+        if chain.is_passthrough() {
+            active.gfx.present(
+                &mut encoder,
+                &view,
+                config.video.filter,
+                config.video.crt_scanline,
+                config.video.crt_mask,
+                config.video.hqx_strength,
+                config.video.xbrz_strength,
+            );
+        } else {
+            // `frames_presented` is the stack's frame counter: it advances once per present, which
+            // is what an animated pass (NTSC dot crawl) needs, and a pass with `frame_count_mod`
+            // folds it down itself.
+            let frame = u32::try_from(active.perf.frames_presented & 0xFFFF_FFFF).unwrap_or(0);
+            active.gfx.present_chain(&mut encoder, &view, &chain, frame);
+        }
 
         // --- (4) Run the always-on egui shell pass. The shell NEVER touches the emu lock. ---
         #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
