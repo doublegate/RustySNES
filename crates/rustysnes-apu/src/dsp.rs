@@ -38,6 +38,13 @@ use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
 /// recording the already-emitted DAC samples does not touch synthesis, so determinism is intact.
 const AUDIO_FIFO_CAP: usize = 16_384;
 
+/// The largest per-voice gain the mixer will apply (`v1.25.0`, T-FP-F).
+///
+/// A ceiling rather than an unbounded multiplier: the mix is `sclamp16`-saturating, so an enormous
+/// gain does not overflow — it just clips everything else out of the mix, which reads as "the
+/// emulator broke" rather than "that slider is too high". 4x is +12 dB, past any real balancing use.
+pub const MAX_VOICE_GAIN: f32 = 4.0;
+
 /// Number of bytes of audio RAM the DSP addresses.
 pub const ARAM_SIZE: usize = 0x1_0000;
 
@@ -238,6 +245,20 @@ pub struct Dsp {
     /// `save_state`/`load_state` — like cheats/watchpoints, this is host UI state, not emulated
     /// hardware state, so a save-state round-trip must not perturb or reset it.
     voice_mute: [bool; 8],
+    /// Per-voice output gain (`v1.25.0`, T-FP-F), `1.0` = unity.
+    ///
+    /// Same posture as [`Self::voice_mute`] above and for the same reasons: a frontend/debug
+    /// convenience with no hardware counterpart, re-synced unconditionally once per frame, and
+    /// deliberately **not** in a save state — host UI state must not survive a state round-trip as
+    /// if it were emulated hardware. A gain of exactly `1.0` is a bit-exact no-op (see
+    /// `voice_output`), which is what makes it safe to leave applied to every voice permanently.
+    voice_gain: [f32; 8],
+    /// Per-voice post-gain output taps for the mixer's VU meters (`v1.25.0`, T-FP-F).
+    ///
+    /// The amplitude each voice actually contributed on the most recent sample, per channel. A tap
+    /// rather than a running meter: smoothing belongs in the UI, which knows its own frame rate,
+    /// and a meter here would need a decay constant baked into the DSP.
+    voice_tap: [(i16, i16); 8],
 }
 
 impl core::fmt::Debug for Dsp {
@@ -535,6 +556,8 @@ impl Dsp {
             last_sample: (0, 0),
             out: Vec::new(),
             voice_mute: [false; 8],
+            voice_gain: [1.0; 8],
+            voice_tap: [(0, 0); 8],
         };
         for (n, v) in dsp.voice.iter_mut().enumerate() {
             v.index = (n as u8) << 4;
@@ -576,6 +599,27 @@ impl Dsp {
     /// toggle.
     pub const fn set_voice_mutes(&mut self, mutes: [bool; 8]) {
         self.voice_mute = mutes;
+    }
+
+    /// Set the 8 per-voice output gains (`v1.25.0`, T-FP-F). `1.0` is unity and bit-exact.
+    ///
+    /// Same contract as [`Self::set_voice_mutes`]: host UI state, never in a save state, and
+    /// upstream voice state (envelope, BRR decode, pitch, `OUTX`/`ENDX`/`ENVX` registers) is
+    /// untouched — so a ROM cannot observe a gain change, and changing one mid-note resumes
+    /// exactly where the voice already was.
+    ///
+    /// A non-finite or negative gain is clamped at the application site rather than rejected here,
+    /// so a slider that momentarily produces one cannot silence a voice permanently.
+    pub const fn set_voice_gains(&mut self, gains: [f32; 8]) {
+        self.voice_gain = gains;
+    }
+
+    /// The 8 per-voice output taps — what each voice contributed to the most recent sample.
+    ///
+    /// Zero for a muted voice, which is the truth: it contributed nothing.
+    #[must_use]
+    pub const fn voice_taps(&self) -> [(i16, i16); 8] {
+        self.voice_tap
     }
 
     /// Write a DSP register, decoding it into the live voice/echo/global state (ares `write`).
@@ -1077,9 +1121,46 @@ impl Dsp {
         // cosmetic — it changes what reaches the speaker, never anything a ROM can observe via
         // register reads, and un-muting mid-note resumes exactly where the voice already was.
         if self.voice_mute[vi] {
+            // A muted voice contributed nothing, and the tap says so rather than holding its last
+            // pre-mute value — a meter frozen at the old level is worse than one reading zero.
+            match channel {
+                0 => self.voice_tap[vi].0 = 0,
+                _ => self.voice_tap[vi].1 = 0,
+            }
             return;
         }
-        let amp = (i32::from(self.latch.output) * i32::from(self.voice[vi].volume[channel])) >> 7;
+        let mut amp =
+            (i32::from(self.latch.output) * i32::from(self.voice[vi].volume[channel])) >> 7;
+        // Per-voice gain (`v1.25.0`, T-FP-F). Exactly `1.0` short-circuits, so the default path is
+        // bit-identical to a build without this feature — the same exact-bypass contract
+        // `crate::eq` holds on the frontend side, and what makes the gain safe to leave applied.
+        let gain = self.voice_gain[vi];
+        // An EXACT comparison, deliberately: this is a bit-exact-bypass guard, not an approximate
+        // equality. Comparing within a margin — the lint's suggestion — would make gains near but
+        // not at unity silently skip the multiply, which is the opposite of the guarantee. Same
+        // reasoning as `rustysnes_frontend::eq`'s exact flat bypass.
+        #[allow(clippy::float_cmp)]
+        let bypass = gain == 1.0;
+        if !bypass {
+            // A non-finite or negative gain would silence or invert a voice permanently; clamped
+            // here rather than rejected at the setter so a slider mid-drag cannot do that.
+            let g = if gain.is_finite() {
+                gain.clamp(0.0, MAX_VOICE_GAIN)
+            } else {
+                1.0
+            };
+            #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+            {
+                amp = (amp as f32 * g) as i32;
+            }
+        }
+        let amp = amp.clamp(i32::from(i16::MIN), i32::from(i16::MAX));
+        #[allow(clippy::cast_possible_truncation)]
+        let tap = amp as i16;
+        match channel {
+            0 => self.voice_tap[vi].0 = tap,
+            _ => self.voice_tap[vi].1 = tap,
+        }
         self.mainvol.output[channel] = sclamp16(self.mainvol.output[channel] + amp);
         if self.voice[vi]._echo {
             self.echo.output[channel] = sclamp16(self.echo.output[channel] + amp);

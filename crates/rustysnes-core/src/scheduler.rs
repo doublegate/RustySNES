@@ -415,7 +415,18 @@ impl System {
     /// requires the caller to have already loaded the SAME ROM onto the target `System` first.
     #[must_use]
     pub fn save_state(&self) -> Vec<u8> {
-        let mut w = SaveWriter::new();
+        self.save_state_into(Vec::new())
+    }
+
+    /// [`Self::save_state`] into a caller-provided buffer, reusing its allocation (`v1.25.0`,
+    /// T-FP-F).
+    ///
+    /// Byte-for-byte identical output; the only difference is that the buffer's capacity survives.
+    /// Run-ahead snapshots every frame, so the per-frame allocation this avoids is the documented
+    /// blocker on making it default-on (`docs/frontend.md` §Run-ahead).
+    #[must_use]
+    pub fn save_state_into(&self, buf: Vec<u8>) -> Vec<u8> {
+        let mut w = SaveWriter::with_buffer(buf);
         w.write_bytes(MAGIC);
         w.write_u16(FORMAT_VERSION);
         self.cpu.save_state(&mut w);

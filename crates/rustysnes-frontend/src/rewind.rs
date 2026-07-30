@@ -26,10 +26,21 @@ pub struct RewindBuffer {
     interval_frames: u32,
     /// Frames elapsed since the last recorded snapshot.
     frames_since_snapshot: u32,
-    /// The ring buffer itself, oldest-first (`VecDeque::push_back` / `pop_front` on overflow,
-    /// `pop_back` to rewind).
-    states: std::collections::VecDeque<Vec<u8>>,
+    /// The compressed ring (`v1.25.0`, T-FP-F): XOR-delta + RLE with periodic keyframes.
+    ///
+    /// Successive save-states differ in a few hundred bytes out of hundreds of kilobytes, so
+    /// storing them whole spent almost all of a rewind buffer's memory on identical data. See
+    /// [`crate::delta`] — the round-trip is bit-identical, which is the only acceptable contract
+    /// for a rewind.
+    states: crate::delta::Chain,
 }
+
+/// Snapshots between whole (keyframe) stores in the rewind chain.
+///
+/// Bounds both the replay cost of reaching the oldest state and the chain's exposure to eviction
+/// removing the base a delta depends on. 16 keeps the worst-case replay at fifteen XOR passes over
+/// a few hundred kilobytes — microseconds — while still storing only ~6% of states whole.
+const REWIND_KEYFRAME_INTERVAL: usize = 16;
 
 impl RewindBuffer {
     /// Construct a rewind buffer holding at most `capacity` snapshots, recorded every
@@ -42,7 +53,7 @@ impl RewindBuffer {
             capacity,
             interval_frames: interval_frames.max(1),
             frames_since_snapshot: 0,
-            states: std::collections::VecDeque::new(),
+            states: crate::delta::Chain::new(capacity, REWIND_KEYFRAME_INTERVAL),
         }
     }
 
@@ -90,10 +101,9 @@ impl RewindBuffer {
             return;
         }
         self.frames_since_snapshot = 0;
-        if self.states.len() >= self.capacity {
-            self.states.pop_front();
-        }
-        self.states.push_back(core.save_state());
+        // The chain enforces capacity itself (it has to — evicting a keyframe changes what the
+        // remaining deltas can decode from), so there is no separate eviction step here.
+        self.states.push(&core.save_state());
     }
 
     /// Rewind by one recorded snapshot (i.e. `interval_frames` real frames), restoring `core` to
@@ -101,7 +111,7 @@ impl RewindBuffer {
     /// empty (nothing happens to `core` in that case). The restored snapshot is consumed (popped)
     /// — repeated calls step further back until the buffer is exhausted.
     pub fn step_back(&mut self, core: &mut EmuCore) -> bool {
-        let Some(bytes) = self.states.pop_back() else {
+        let Some(bytes) = self.states.pop() else {
             return false;
         };
         // A snapshot taken from `core` earlier in this same session always matches `core`'s
@@ -136,12 +146,32 @@ impl RewindBuffer {
 /// the deep-peeked state instead of advancing by exactly one frame.
 #[must_use]
 pub fn step_with_run_ahead(core: &mut EmuCore, frames: u32) -> (Vec<u8>, (u32, u32)) {
+    step_with_run_ahead_reusing(core, frames, &mut Vec::new())
+}
+
+/// [`step_with_run_ahead`] reusing `scratch`'s allocation for the snapshot (`v1.25.0`, T-FP-F).
+///
+/// Behaviourally identical. Run-ahead snapshots **every frame**, so the hundreds-of-kilobyte
+/// allocation this removes was the documented blocker on making run-ahead default-on
+/// (`docs/frontend.md` §Run-ahead). The caller owns the buffer so its capacity survives across
+/// frames — a local `Vec` here would allocate just the same.
+///
+/// # Panics
+/// Same as [`step_with_run_ahead`].
+#[must_use]
+pub fn step_with_run_ahead_reusing(
+    core: &mut EmuCore,
+    frames: u32,
+    scratch: &mut Vec<u8>,
+) -> (Vec<u8>, (u32, u32)) {
     if frames == 0 {
         core.run_frame();
         return (core.framebuffer().to_vec(), core.fb_dims());
     }
 
-    let snapshot = core.save_state();
+    // `take` + write back: `save_state_into` consumes the buffer and returns it, which is what
+    // lets the capacity survive without an unsafe in-place trick.
+    let snapshot = core.save_state_into(core::mem::take(scratch));
     for _ in 0..frames {
         core.run_frame();
     }
@@ -158,6 +188,8 @@ pub fn step_with_run_ahead(core: &mut EmuCore, frames: u32) -> (Vec<u8>, (u32, u
     core.load_state(&snapshot)
         .expect("run-ahead rollback: snapshot taken from this same core moments ago must restore");
     core.run_frame();
+    // Hand the allocation back for the next frame.
+    *scratch = snapshot;
 
     (peek_framebuffer, peek_dims)
 }

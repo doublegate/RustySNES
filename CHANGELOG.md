@@ -81,6 +81,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Settings gained Video (aspect, overscan grid), Audio (latency, kernel, health readout), and Input
     (autofire, gamepad list + deadzone) controls for all of the above.
 
+- **Frontend parity with RustyNES: audio mixer, rewind compression, run-ahead fast path (T-FP-F).**
+  - **Per-voice gain** (`Dsp::set_voice_gains`) plus per-voice output taps, applied at the existing
+    per-voice-mute site so nothing upstream (envelope, BRR decode, pitch, `OUTX`/`ENDX`/`ENVX`) is
+    perturbed — a ROM cannot observe a gain change. `1.0` is a **bit-exact bypass**, checked with an
+    exact comparison because a tolerance would make near-unity gains silently skip the multiply.
+    Host state, never in a save state; bounded at 4x, with non-finite and negative values falling
+    back to unity rather than silencing a voice permanently.
+  - **8-voice mixer panel** with gain, mute, solo, and VU meters. Solo wins over mute, computed in
+    one place so the two buttons cannot disagree. The meter's decay lives in the UI, not the DSP —
+    `voice_taps` reports the most recent sample and a decay constant in the emulation core would be
+    a UI concern in the wrong place.
+  - **Rewind compression** (`crate::delta`) — XOR-delta + RLE with a keyframe every 16 snapshots.
+    Successive states differ in a few hundred bytes out of hundreds of kilobytes, so storing them
+    whole spent almost all of the buffer on identical data; this needs **no new dependency**, since
+    the input is already ~99% zeros. Keyframes bound both the replay cost and the chain's exposure
+    to eviction removing the base a delta needs. The round-trip is **bit-identical** — anything less
+    resumes emulation from a machine that never existed. Corrupt input is refused, never partially
+    decoded.
+  - **`save_state_into`** (`SaveWriter::with_buffer` → `System` → `EmuCore`) reuses a caller-owned
+    buffer, removing run-ahead's per-frame allocation — the documented blocker on making run-ahead
+    default-on. The synchronous path and the `emu-thread` path each own their own buffer, because a
+    buffer on `Active` would be inert under `emu-thread`.
+
 - **Frontend parity with RustyNES: `.slangp` presets and the GLSL bridge (T-FP-E).**
   - **`crate::slang_preset`** — parses `.slangp`/`.cgp` into T-FP-D's per-pass description. Paths
     resolve against the *preset's* directory, per-axis keys refine the combined one (`RetroArch`'s

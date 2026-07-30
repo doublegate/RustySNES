@@ -306,6 +306,9 @@ fn run_loop(
 ) {
     elevate_thread_priority();
     let mut pacer = Pacer::new(1.0 / control.frame_duration().as_secs_f64());
+    // Owned by the loop, not by `drive_one`, so its capacity survives across frames — see
+    // `rewind::step_with_run_ahead_reusing`.
+    let mut run_ahead_scratch: Vec<u8> = Vec::new();
     loop {
         if control.stop.load(Ordering::Acquire) {
             return;
@@ -324,7 +327,14 @@ fn run_loop(
         let frames = pacer.tick();
         let mut produced_any = false;
         for _ in 0..frames {
-            if drive_one(core, input, audio.as_mut(), control, present) {
+            if drive_one(
+                core,
+                input,
+                audio.as_mut(),
+                control,
+                present,
+                &mut run_ahead_scratch,
+            ) {
                 produced_any = true;
             } else {
                 break; // paused/ROM-closed mid-burst (the TOCTOU close) — stop this burst.
@@ -347,6 +357,7 @@ fn drive_one(
     audio: Option<&mut AudioProducer>,
     control: &EmuControl,
     present: &PresentBuffer,
+    run_ahead_scratch: &mut Vec<u8>,
 ) -> bool {
     #[allow(clippy::cast_possible_truncation)]
     let p1 = input.p1.load(Ordering::Acquire) as u16;
@@ -376,7 +387,12 @@ fn drive_one(
     // the borrowed slice, exactly matching this function's pre-run-ahead behavior.
     let run_ahead = control.run_ahead();
     if run_ahead > 0 {
-        let (fb, dims) = crate::rewind::step_with_run_ahead(&mut emu, run_ahead);
+        // The scratch buffer (`v1.25.0`, T-FP-F) keeps the per-frame save-state allocation out
+        // of the run-ahead path on THIS thread too. The synchronous path in `app.rs` has its own;
+        // a value computed there would be invisible here, which is exactly how the `emu-thread`
+        // build has silently missed frontend work before.
+        let (fb, dims) =
+            crate::rewind::step_with_run_ahead_reusing(&mut emu, run_ahead, run_ahead_scratch);
         if let Some(a) = audio {
             a.push(emu.audio(), control.speed());
         }

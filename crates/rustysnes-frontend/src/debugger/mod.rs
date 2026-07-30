@@ -15,6 +15,7 @@
 //! snapshot), a larger cross-crate change than this rung's frontend-only scope.
 
 mod apu_panel;
+pub mod audio_mixer;
 mod cart_panel;
 mod cpu_panel;
 mod doc_panel;
@@ -27,6 +28,7 @@ mod rom_info_panel;
 mod trace_panel;
 mod watch_panel;
 
+pub use audio_mixer::MixerState;
 pub use memory_panel::{FreezeEntry, PokeRequest};
 pub use rom_info_panel::RomInfo;
 pub use trace_panel::{Frame, HotAddress, TraceView};
@@ -62,6 +64,8 @@ pub enum DebugPanel {
     Map,
     /// Instruction trace, call stack, events, and hot addresses (`v1.25.0`, T-FP-C2).
     Trace,
+    /// The 8-voice audio mixer: per-voice gain, mute, solo, and VU meters (`v1.25.0`, T-FP-F).
+    Mixer,
 }
 
 /// Format a row of 16-bit words as space-separated 4-hex-digit groups — shared by the PPU (VRAM/
@@ -124,6 +128,7 @@ impl ShellState {
                     ui.selectable_value(&mut self.panel, DebugPanel::Oam, "OAM");
                     ui.selectable_value(&mut self.panel, DebugPanel::Map, "Map");
                     ui.selectable_value(&mut self.panel, DebugPanel::Trace, "Trace");
+                    ui.selectable_value(&mut self.panel, DebugPanel::Mixer, "Mixer");
                     ui.selectable_value(&mut self.panel, DebugPanel::MemCompare, "Compare");
                     ui.selectable_value(&mut self.panel, DebugPanel::Doc, "Docs");
                     ui.selectable_value(&mut self.panel, DebugPanel::RomInfo, "ROM Info");
@@ -162,6 +167,12 @@ impl ShellState {
                         self.render_trace_panel(ui, debug, symbols, actions);
                         return;
                     }
+                    // The mixer reads no snapshot — its state is the shell's own and its meters
+                    // are fed by the app from the DSP taps.
+                    DebugPanel::Mixer => {
+                        self.render_audio_mixer(ui);
+                        return;
+                    }
                     DebugPanel::Cpu
                     | DebugPanel::Ppu
                     | DebugPanel::Apu
@@ -197,7 +208,8 @@ impl ShellState {
                     | DebugPanel::RomInfo
                     | DebugPanel::Memory
                     | DebugPanel::Map
-                    | DebugPanel::Trace => {
+                    | DebugPanel::Trace
+                    | DebugPanel::Mixer => {
                         unreachable!("handled above")
                     }
                 }

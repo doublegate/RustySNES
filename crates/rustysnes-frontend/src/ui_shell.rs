@@ -237,6 +237,9 @@ pub struct ShellState {
     pub asm_status: Option<String>,
     /// Which sub-view of the Trace panel is showing (`v1.25.0`, T-FP-C2).
     pub trace_view: crate::debugger::TraceView,
+    /// The audio mixer's per-voice gains, mutes, solos, and meters (`v1.25.0`, T-FP-F). Host state
+    /// — never in a save state, and neutral by default (a bit-exact bypass).
+    pub mixer: crate::debugger::MixerState,
     /// The Memory editor's "go to" address entry (`v1.25.0`, T-FP-C1).
     pub mem_goto_input: String,
     /// A requested new window start, consumed by `app.rs` (which owns `set_debug_memory_scroll`)
