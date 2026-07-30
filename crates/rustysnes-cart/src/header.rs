@@ -264,6 +264,16 @@ fn decode_title(title_bytes: &[u8]) -> String {
 /// database, title-match the two known CX4 games here, the same single-game-chip approach
 /// [`crate::coproc::necdsp_variant::Variant::detect`] uses for the DSP family's singles.
 fn coprocessor_from_chipset(chipset: u8, title_upper: &str) -> Coprocessor {
+    // S-RTC (Daikaijuu Monogatari II) declares a non-`$F` chipset nibble (`$5` on the real cart), so
+    // the nibble gate + `$F` arm below never see it — title-detect it up front. Its internal title is
+    // the no-space, `JYU`-romanized `DAIKAIJYUMONOGATARI2` (verified against a real dump); the spaced
+    // `DAIKAIJUU/DAIKAIJU MONOGATARI` variants were earlier best-effort guesses, kept as fallbacks.
+    if title_upper.contains("DAIKAIJYUMONOGATARI")
+        || title_upper.contains("DAIKAIJUU MONOGATARI")
+        || title_upper.contains("DAIKAIJU MONOGATARI")
+    {
+        return Coprocessor::Srtc;
+    }
     // No coprocessor unless the type nibble marks one present. The `$F` custom category doesn't
     // follow the same RAM/battery low-nibble convention as `$0-$4` (e.g. SPC7110+RTC is `$F9`,
     // outside `0x3..=0x6` — confirmed against a real Far East of Eden Zero dump's `$FFD6`), so it
@@ -291,10 +301,6 @@ fn coprocessor_from_chipset(chipset: u8, title_upper: &str) -> Coprocessor {
                 || title_upper.contains("FAR EAST OF EDEN")
             {
                 Coprocessor::Spc7110
-            } else if title_upper.contains("DAIKAIJUU MONOGATARI")
-                || title_upper.contains("DAIKAIJU MONOGATARI")
-            {
-                Coprocessor::Srtc
             } else if title_upper.contains("2DAN MORITA SHOUGI") {
                 // ST011 (Hayazashi 2-dan Morita Shougi) — a µPD96050 NEC DSP that declares the `$F`
                 // "custom" chipset nibble rather than the DSP family's usual `$0`, so it lands here
@@ -505,6 +511,22 @@ mod tests {
         let h = Header::detect(&rom).expect("exlorom header should detect");
         assert_eq!(h.map_mode, MapMode::ExLoRom);
         assert_eq!(h.offset, 0x40_7FC0);
+    }
+
+    #[test]
+    fn srtc_detected_by_title_regardless_of_chipset_nibble() {
+        // Daikaijuu Monogatari II declares chipset $55 (high nibble $5, not the $F custom family),
+        // so the nibble gate would drop it — it must be title-detected up front. Real cart title:
+        // DAIKAIJYUMONOGATARI2 (verified against a real dump).
+        assert_eq!(
+            coprocessor_from_chipset(0x55, "DAIKAIJYUMONOGATARI2 "),
+            Coprocessor::Srtc
+        );
+        // A $55 chipset with any other title is nothing (the nibble alone carries no coprocessor).
+        assert_eq!(
+            coprocessor_from_chipset(0x55, "SOME OTHER RPG       "),
+            Coprocessor::None
+        );
     }
 
     #[test]
