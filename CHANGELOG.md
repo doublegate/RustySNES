@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **S-RTC (Daikaijuu Monogatari II) detection was structurally broken; now fixed + validated.** The
+  real cart declares chipset `$55` (high nibble `$5`, not the `$F` "custom" family), so the S-RTC
+  title check — which lived in the `$F` match arm — was never reached; and the check used the guessed
+  romanization `DAIKAIJUU MONOGATARI`, whereas the real internal title is the no-space
+  `DAIKAIJYUMONOGATARI2`. S-RTC is now title-detected up front, nibble-agnostically, and validated
+  against a real dump (`ExHiROM+S-RTC`, boots deterministically).
+
+### Added
+
+- **ST018 (Nidan Morita Shogi 2) + S-RTC (Daikaijuu Monogatari II) validated against real carts.**
+  Both were previously implemented but unit-test-only (no dump in the corpus); with real dumps
+  supplied they now detect to the right board, boot, and are deterministic (new `srtc_st018_oncart`,
+  self-skipping without the gitignored dumps). Both stay `BestEffort`: their coprocessor's core
+  function is **usage-gated** (the ST018 shogi AI runs only on the computer's move; the S-RTC clock is
+  read at specific moments), so it is not exercised in a headless boot.
+
+### Notes
+
+- **SPC7110 (Tengai Makyou Zero) remains without a booting dump.** A second local dump (5 MiB, sha256
+  `8620203d…`) was tried and also fails to boot to content (freezes at a near-blank screen, zero
+  coprocessor activity); it does not match the documented-good original (`69d06a3f…`). The
+  correct original-cartridge dump is still the ROM-sourcing gap.
+
 ## [1.24.0] "Ensemble" - 2026-07-29
 
 The NEC DSP family is complete. **DSP-3 (SD Gundam GX) and ST011 (Hayazashi 2-dan Morita Shougi) are
