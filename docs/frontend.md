@@ -733,7 +733,18 @@ States are kept every 30 frames, not every frame: replaying up to 29 frames from
 microseconds, while storing every frame is the whole problem.
 
 A seek with no cached state at or before the target **says so** rather than appearing to work — the
-alternative is replaying from power-on, which looks like a hang.
+alternative is replaying from power-on, which looks like a hang. The **first** state is therefore
+seeded whatever frame it lands on (`offer_seed`), checkpoint or not: emulation starts at frame 0 and
+the first checkpoint is a whole interval later, so without it every seek below the interval had
+nothing at or before it and failed outright.
+
+A seek consumes every cached state **after** the one it returns, and keeps that one. The chain is
+only readable from its end, so reading the target means popping it — but it is re-stored
+immediately, because the caller has just restored *to* it and it is the state most likely to be
+wanted again (seek to 60, edit, run, seek to 60). The states beyond it are genuinely gone, which is
+correct: the reason to seek backwards in a TAS is to change something, so they are about to be
+recomputed. One consequence worth knowing: `seek` is not a destructive iterator, so draining the
+greenzone is `invalidate_from`'s job, not a seek loop's.
 
 ### A bug this found in the compression
 

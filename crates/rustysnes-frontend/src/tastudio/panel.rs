@@ -138,14 +138,20 @@ fn toolbar(ui: &mut egui::Ui, tas: &mut TasState, actions: &mut Vec<MenuAction>)
 
 /// The piano roll itself.
 fn grid(ui: &mut egui::Ui, tas: &mut TasState, actions: &mut Vec<MenuAction>) {
-    let first = tas.view_frame.saturating_sub(VISIBLE_ROWS / 4);
-    // Always render a full page even past the end of the timeline: a TAS is written by extending
-    // it, and rows that do not exist yet are exactly where the next input goes.
-    let last = first + VISIBLE_ROWS;
+    // The scrollable extent is the whole timeline plus a page of room past its end: a TAS is
+    // written by *extending* it, and rows that do not exist yet are exactly where the next input
+    // goes. `show_rows` then builds only the rows actually on screen, so the scrollbar and the
+    // wheel move through the timeline itself. Rendering a fixed window around `view_frame` inside
+    // a `ScrollArea` instead — which is what this did — gave the area only those rows to scroll
+    // within, so the wheel ran out after one page and the timeline could not be browsed at all.
+    let total_rows = tas.roll.len().saturating_add(VISIBLE_ROWS);
+    let row_height = ui.text_style_height(&egui::TextStyle::Monospace);
 
-    egui::ScrollArea::vertical()
-        .max_height(420.0)
-        .show(ui, |ui| {
+    egui::ScrollArea::vertical().max_height(420.0).show_rows(
+        ui,
+        row_height,
+        total_rows,
+        |ui, rows| {
             egui::Grid::new("tas_grid")
                 .num_columns(COLUMNS.len() + 1)
                 .striped(true)
@@ -156,7 +162,7 @@ fn grid(ui: &mut egui::Ui, tas: &mut TasState, actions: &mut Vec<MenuAction>) {
                     }
                     ui.end_row();
 
-                    for frame in first..last {
+                    for frame in rows {
                         // The playhead marker is what makes the grid legible while running; without
                         // it the rows are indistinguishable and the view is just a number soup.
                         let marker = if frame == tas.play_frame { ">" } else { " " };
@@ -191,7 +197,8 @@ fn grid(ui: &mut egui::Ui, tas: &mut TasState, actions: &mut Vec<MenuAction>) {
                         ui.end_row();
                     }
                 });
-        });
+        },
+    );
 }
 
 #[cfg(test)]

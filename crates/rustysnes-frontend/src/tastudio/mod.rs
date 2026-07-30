@@ -198,7 +198,10 @@ impl PianoRoll {
         if clip.is_empty() {
             return frame;
         }
-        self.ensure_len(frame + clip.len());
+        // Saturating: `frame` comes from the UI's cursor and `clip` from a previous copy, so
+        // neither is attacker-controlled — but a debug panic here would take down the emulator
+        // over an arithmetic edge in a text field, and `ensure_len` clamps to `MAX_FRAMES` anyway.
+        self.ensure_len(frame.saturating_add(clip.len()));
         for (i, (a, b)) in clip.iter().enumerate() {
             let Some(slot) = self.p1.get_mut(frame + i) else {
                 break;

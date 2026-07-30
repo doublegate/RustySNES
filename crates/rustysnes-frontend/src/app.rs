@@ -1640,6 +1640,16 @@ impl App {
                 // nobody is editing against is pure cost, and `offer` would otherwise take a
                 // save-state every 30 frames for the whole session.
                 if active.shell.tastudio_open && frames > 0 {
+                    // Seed the greenzone before advancing. `play_frame` is incremented per
+                    // emulated frame and the checkpoint test runs on the result, so frame 0's
+                    // state — the one every seek below the first interval needs — was never
+                    // offered: `is_checkpoint(1)` is false, and by frame 30 the state on offer is
+                    // frame 30's. A seek to any frame under the interval then found nothing at or
+                    // before it and failed outright.
+                    if active.greenzone.is_empty() {
+                        let at = active.shell.tas.play_frame;
+                        active.greenzone.offer_seed(at, &emu.save_state());
+                    }
                     for _ in 0..frames {
                         let played = active.shell.tas.play_frame;
                         let _ = active.shell.tas.roll.record(

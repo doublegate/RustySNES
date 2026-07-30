@@ -133,9 +133,30 @@ impl Greenzone {
         // The chain enforces its own capacity by evicting the front, so the frame list must drop
         // the same entries or the two would disagree about which state is which — the seek would
         // then restore the right bytes at the wrong frame.
+        // A `Vec` and a front removal, deliberately: this list holds at most `capacity` (80)
+        // entries and is trimmed at most once per `offer`, i.e. once per checkpoint interval —
+        // twice a second at 60 Hz, shifting under a kilobyte. A `VecDeque` would save that and
+        // cost `const fn` on `len`/`is_empty`, which are public and cheap to call in a UI loop.
         while self.frames.len() > self.chain.len() {
             let _ = self.frames.remove(0);
         }
+    }
+
+    /// Seed an empty greenzone with the state at `frame`, checkpoint or not.
+    ///
+    /// [`Self::offer`] deliberately ignores a non-checkpoint frame, which leaves a gap the caller
+    /// cannot close: emulation starts at frame 0, the first checkpoint is `interval` frames later,
+    /// and until then a seek to anything below it finds nothing at or before it and fails. The
+    /// first state is worth keeping whatever frame it lands on — it is the only one that can
+    /// anchor the interval before the first checkpoint.
+    ///
+    /// Refuses once anything is cached, so it cannot insert an out-of-order entry mid-chain.
+    pub fn offer_seed(&mut self, frame: usize, state: &[u8]) {
+        if !self.is_empty() {
+            return;
+        }
+        self.chain.push(state);
+        self.frames.push(frame);
     }
 
     /// The nearest cached frame at or before `frame`, if any.
@@ -168,6 +189,14 @@ impl Greenzone {
             };
             let _ = self.frames.pop();
             if newest == target {
+                // Reading the target requires popping it — the chain is only readable from its
+                // end — but the caller has just *restored* to it, so it is precisely the state
+                // most likely to be wanted again (seek to 60, edit, seek to 60). Put it back, so
+                // the method consumes every state AFTER the one returned and no more, which is
+                // what its own doc promises. Re-offering also re-keys it, since it is now the
+                // chain's newest entry and has nothing to delta against.
+                self.chain.push(&state);
+                self.frames.push(target);
                 return Some((target, state));
             }
         }
@@ -232,8 +261,11 @@ mod tests {
         let (frame, restored) = gz.seek(37).expect("seek");
         assert_eq!(frame, 30);
         assert_eq!(restored, state(30), "the state must be exact");
-        // Everything after the target is consumed — it is about to be recomputed anyway.
-        assert_eq!(gz.newest_frame(), Some(20));
+        // Everything AFTER the target is consumed — it is about to be recomputed anyway — and the
+        // target itself is kept, since the caller has just restored to it. This assertion used to
+        // read `Some(20)`, i.e. it pinned the target being consumed too, contradicting the comment
+        // directly above it and the method's own documented contract.
+        assert_eq!(gz.newest_frame(), Some(30));
     }
 
     /// Seeking before the first checkpoint has no answer, and must say so rather than returning
@@ -290,11 +322,16 @@ mod tests {
             gz.offer(frame, &state(frame));
         }
         assert_eq!(gz.len(), 4, "capacity is enforced");
-        // Whatever survived must restore exactly, at the frame it claims.
+        // Whatever survived must restore exactly, at the frame it claims. Drained with
+        // `invalidate_from` rather than by seeking repeatedly: `seek` keeps the state it returns
+        // (that is its contract — the caller has just restored to it), so a seek loop would never
+        // make progress. Using it as a destructive iterator was this test relying on the very bug
+        // the contract describes.
         while let Some(newest) = gz.newest_frame() {
             let (frame, restored) = gz.seek(newest).expect("seek to the newest");
             assert_eq!(frame, newest);
             assert_eq!(restored, state(frame), "frame {frame} restored wrongly");
+            gz.invalidate_from(newest);
         }
     }
 
@@ -351,5 +388,71 @@ mod tests {
             text.contains("interval") && text.contains("bytes"),
             "{text}"
         );
+    }
+
+    /// A seek must not consume the state it returns.
+    ///
+    /// The doc contract is "consumes every cached state AFTER the one returned" — and the target
+    /// is exactly the state most likely to be wanted again, since seeking back to a frame is what
+    /// you do before editing it and then re-running from it. Popping it left the second seek to the
+    /// same frame falling back to an older checkpoint, or failing outright.
+    #[test]
+    fn a_seek_keeps_the_state_it_restored() {
+        let mut gz = Greenzone::new(8, DEFAULT_INTERVAL);
+        for f in (0..=120).step_by(DEFAULT_INTERVAL) {
+            gz.offer(f, &state(f));
+        }
+        let before = gz.len();
+        let (at, first) = gz.seek(60).expect("60 is cached");
+        assert_eq!(at, 60);
+        assert_eq!(first, state(60));
+        // Everything after 60 is gone; 60 itself is not.
+        assert_eq!(gz.newest_frame(), Some(60));
+        assert!(gz.len() < before);
+
+        // The same seek again must produce the same state, not an older checkpoint.
+        let (again, second) = gz.seek(60).expect("60 must still be cached");
+        assert_eq!(again, 60);
+        assert_eq!(second, first, "the restored state must be bit-identical");
+
+        // And a seek past it still lands on 60, since that is the newest at-or-before.
+        let (near, _) = gz.seek(75).expect("60 is at or before 75");
+        assert_eq!(near, 60);
+    }
+
+    /// The frames before the first checkpoint must be seekable.
+    ///
+    /// Emulation starts at 0 and the first checkpoint is `interval` frames later, so without a
+    /// seed there is nothing at or before any frame under the interval and every such seek fails.
+    #[test]
+    fn the_first_state_is_seekable_before_the_first_checkpoint() {
+        let mut gz = Greenzone::new(8, DEFAULT_INTERVAL);
+        // Nothing cached: a seek anywhere fails, which is the state the seed exists to leave.
+        assert!(gz.seek(5).is_none());
+
+        gz.offer_seed(0, &state(0));
+        for f in (DEFAULT_INTERVAL..=90).step_by(DEFAULT_INTERVAL) {
+            gz.offer(f, &state(f));
+        }
+        for target in [0usize, 1, 5, 29] {
+            let (at, got) = gz.seek(target).unwrap_or_else(|| {
+                panic!("seek({target}) found nothing at or before it");
+            });
+            assert_eq!(at, 0, "seek({target}) should land on the seed");
+            assert_eq!(got, state(0));
+        }
+    }
+
+    /// The seed refuses to insert once anything is cached, since an out-of-order entry would
+    /// delta against the wrong base and reconstruct silently wrong.
+    #[test]
+    fn the_seed_only_applies_to_an_empty_greenzone() {
+        let mut gz = Greenzone::new(8, DEFAULT_INTERVAL);
+        gz.offer(0, &state(0));
+        gz.offer(DEFAULT_INTERVAL, &state(DEFAULT_INTERVAL));
+        let before = gz.len();
+        gz.offer_seed(7, &state(7));
+        assert_eq!(gz.len(), before, "seed must be ignored once non-empty");
+        assert_eq!(gz.newest_frame(), Some(DEFAULT_INTERVAL));
     }
 }

@@ -89,14 +89,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `crate::delta`'s compression unchanged — which is why T-FP-F was sequenced first — and caches
   every 30 frames rather than every frame. Recording and state capture happen only while the window
   is open.
-  - **Fixes a real defect in `crate::delta::Chain`** that building the greenzone exposed: the chain
-    evicts from the front, which is where a delta chain's keyframe base lives, so evicting a keyframe
-    left every following delta undecodable. The chain reported N entries and could restore only the
-    newest few — a capacity of 4 against a keyframe interval of 8 restored exactly **one** of its
-    four claimed states. `evict_front` now reconstructs the new front while its base still exists and
-    re-stores it whole, and a test asserts every claimed entry survives eviction across several
-    capacity/interval combinations. This affected the **rewind buffer** as well, since it is the same
-    chain.
+  - **Where the `delta::Chain` eviction defect came from.** Building the greenzone is what exposed
+    it — a capacity of 4 against a keyframe interval of 8 restored exactly **one** of its four
+    claimed states — but the fix belongs to the chain, so it landed with T-FP-F above, where the
+    chain does. Recorded here because the measurement that found it is a greenzone one.
+  - **A seek keeps the state it returns**, consuming only those after it. Reading the target means
+    popping it, since the chain is readable only from its end, but it is re-stored immediately: the
+    caller has just restored *to* that frame, and it is the state most likely to be wanted again
+    (seek to 60, edit, run, seek to 60). Two tests had encoded the opposite — one asserting a newest
+    frame that contradicted the comment directly above it, the other using `seek` as a destructive
+    iterator to drain the cache.
+  - **The first state is seeded whatever frame it lands on.** Emulation starts at frame 0 and the
+    first checkpoint is a whole interval later, so until then a seek had nothing at or before it and
+    failed outright — every frame under the interval was unreachable.
 
 - **Frontend parity with RustyNES: A/V capture, virtual pad, databases, macros (T-FP-G1).**
   - **A/V capture** (`crate::av_record`) to raw `.y4m` + `.wav`, printing the `ffmpeg` mux command on
