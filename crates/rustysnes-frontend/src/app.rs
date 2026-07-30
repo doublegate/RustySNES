@@ -1158,6 +1158,24 @@ impl App {
         // BEFORE the emu lock is taken: it needs `&mut Active` for the gamepad poll, and the lock
         // guard below borrows `active.core` for the rest of the block.
         let (eff_pad1, eff_pad2) = Self::effective_pads(active, config);
+        // `emu-thread` builds apply input on the emulation thread through `SharedInput`, not through
+        // the synchronous loop below (which is compiled out). Publishing the MERGED pads here is
+        // what makes gamepad input, autofire, and P2 work at all in that build — the key handler
+        // only ever publishes raw keyboard P1, so without this the whole wave-1 input work was
+        // silently inert under `--features emu-thread`. Found by CI's per-feature clippy job, which
+        // reported both merged pads as unused.
+        #[cfg(feature = "emu-thread")]
+        {
+            use std::sync::atomic::Ordering;
+            active
+                .input
+                .p1
+                .store(u32::from(eff_pad1.sanitize_dpad().0), Ordering::Release);
+            active
+                .input
+                .p2
+                .store(u32::from(eff_pad2.sanitize_dpad().0), Ordering::Release);
+        }
         // --- (1) Copy framebuffer + audio + read-only info under a BRIEF lock, then drop it. ---
         let (fb, fb_dims, info, audio_samples, debug, save_slots) = {
             // `mut` is needed on both paths: the synchronous build drives run_frame/set_pad
