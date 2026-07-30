@@ -11,19 +11,26 @@
 //! the 256-byte/32-line opcode cache, and the ROM/RAM buffer latency are hardware facts; the
 //! decode here mirrors the published Super FX instruction set, not ares' source layout.
 //!
-//! ## Host-synchronization model (no free-running scheduler tick)
+//! ## Host-synchronization model (master-clock-stepped)
 //!
 //! The GSU is started by the SNES CPU writing the high byte of R15 (the program counter) at
 //! `$301F`, which sets the **Go** flag and begins execution at `(PBR:R15)`. The chip then runs
 //! autonomously until it executes `STOP`, which clears Go and (optionally) raises the cart IRQ.
-//! Software polls the status flag register (SFR, `$3030/$3031`) for Go to clear. Because Go is
-//! the only observable coupling between the two clocks — exactly the RQM role the DSP-1 uses —
-//! the board runs the GSU **to completion the instant Go is set** ([`Gsu::run_until_stopped`]),
-//! capped against a runaway program. This keeps the bus boundary byte-exact and fully
-//! deterministic (`docs/adr/0004`) without a per-master-clock core hook, mirroring the DSP-1
-//! `run_until_rqm` pattern. While Go is set the GSU owns the shared ROM/RAM (the CPU sees the
-//! snooze vector / open bus — see [`crate::coproc::superfx`]); run-to-completion serialises that
-//! arbitration naturally.
+//! Software polls the status flag register (SFR, `$3030/$3031`) for Go to clear. Because Go is the
+//! only observable coupling between the two clocks, the GSU is a **free-running, master-clock-stepped**
+//! cothread (ares' `SuperFX::main`): the Bus advances it by exactly one master clock per
+//! [`Board::coprocessor_tick`](crate::board::Board::coprocessor_tick), the same place the PPU dot and
+//! the APU's SMP release happen, so the GSU genuinely interleaves with the CPU's instruction stream.
+//! [`Gsu::tick`] paces each GSU instruction's real clock cost out one master tick at a time (its
+//! `owed` counter over [`Gsu::step_one`]'s per-access checkpoints), so a `Go` burst does **not** drain
+//! to completion atomically inside the one bus write that armed it — the CPU keeps running in between,
+//! and a two-pass render split across multiple `Go` bursts within one displayed frame stays in step.
+//! Integer-only and fully deterministic (`docs/adr/0004`). While Go is set the GSU owns the shared
+//! ROM/RAM (the CPU sees the snooze vector / open bus — see [`crate::coproc::superfx`]).
+//!
+//! (This replaced an earlier *run-to-completion* model that drained the whole `Go` burst inside the
+//! arming bus write — the DSP-1 `run_until_rqm` analogue — which could desync a two-pass render's two
+//! halves. That model is gone; nothing calls it.)
 
 // The GSU aliases every register as signed and unsigned, the status register is a bitfield of
 // single-bit flags, and the plot/character addressing is dense with deliberate narrowing casts.
@@ -490,27 +497,6 @@ impl Gsu {
         if clocks > 0 {
             self.owed = clocks - 1;
         }
-    }
-
-    /// Run the GSU to completion: step instructions while Go is set, capped against a runaway
-    /// program. Called by the board the instant the CPU sets Go (the DSP-1 `run_until_rqm`
-    /// analogue). Returns when the program executes `STOP` (Go clears) or the cap trips.
-    ///
-    /// Prefer [`Gsu::step_one`] driven by the board's host loop when master-clock-accurate
-    /// interleaving matters (e.g. a screen render split across multiple `Go` bursts within one
-    /// displayed frame) — this method is for callers that only need the final result.
-    pub fn run_until_stopped(&mut self, mem: &mut GsuMem) {
-        /// Instruction cap: a generous bound (~30 frames of GSU work) so a wedged program can't
-        /// spin the host forever. A correct program reaches `STOP` long before this.
-        const MAX_INSTRUCTIONS: u64 = 8_000_000;
-        let start = self.instructions;
-        while self.go() && self.instructions - start < MAX_INSTRUCTIONS {
-            self.main_step(mem);
-        }
-        // Nobody drains the per-access checkpoints this run pushed (only `step_one`'s callers
-        // want them) — clear them so they don't accumulate across repeated calls.
-        self.pending_clocks.clear();
-        self.pending_idx = 0;
     }
 
     /// Execute one GSU instruction (ares `SuperFX::main`, the Go-set path).
@@ -1420,8 +1406,8 @@ impl Gsu {
     /// `"GSU0"` section. There is no firmware/ROM byte here to exclude: the GSU's program lives in
     /// the cart's own ROM, which `System::save_state` captures separately (`docs/adr/0003`). The
     /// checkpoint queue matters because [`Self::tick`]-driven (master-clock-interleaved) execution
-    /// can leave a `Go` burst genuinely mid-flight at any save point, unlike the run-to-completion
-    /// [`Self::run_until_stopped`] path, which always drains it back to empty first.
+    /// can leave a `Go` burst genuinely mid-flight at any save point — the phase must survive a
+    /// save/restore for the determinism contract to hold across it.
     pub fn save_state(&self, w: &mut SaveWriter) {
         w.section(*b"GSU0", |s| {
             for &reg in &self.r {
