@@ -20,8 +20,10 @@ use crate::cheats::CheatEntry;
 use crate::config::{Config, Region};
 use crate::debug_snapshot::{DebugSnapshot, MEMORY_WINDOW_LEN, WatchpointEntry, WatchpointKind};
 use crate::debugger::RomInfo;
+use crate::i18n::Msg;
 use crate::input::Button;
 use crate::save_states::SlotMeta;
+use crate::t;
 
 /// An action requested from the egui pass, dispatched by `App::dispatch_menu_action` AFTER the
 /// pass returns (so it never runs while the emu lock is held inside the egui closure).
@@ -149,6 +151,10 @@ pub struct ShellState {
     pub paused: bool,
     /// Which P2 button is awaiting a key press for rebinding (`v1.25.0`), if any.
     pub awaiting_bind_p2: Option<Button>,
+    /// Whether the Keyboard Shortcuts window is open (`v1.25.0`).
+    pub shortcuts_open: bool,
+    /// Whether the About window is open (`v1.25.0`).
+    pub about_open: bool,
     /// Actions raised OUTSIDE the egui pass (`v1.25.0`) — a dropped file, a global hotkey — drained
     /// into this present's action list.
     ///
@@ -245,6 +251,20 @@ pub struct CheevosStatus<'a> {
     /// The most recent login failure message, if any.
     pub error: Option<&'a str>,
 }
+
+/// The fixed global hotkeys, for the Help -> Keyboard Shortcuts sheet (`v1.25.0`).
+///
+/// These are the hardcoded ones (`app.rs`'s `hotkey_menu_action`); the player's own rebindable pad
+/// keys are read live from `Config` beside them, so the sheet cannot drift from reality.
+const HOTKEY_REFERENCE: &[(&str, &str)] = &[
+    ("F1", "Toggle the debugger overlay"),
+    ("F5", "Save state (quick slot)"),
+    ("F8", "Load state (quick slot)"),
+    ("F11", "Toggle fullscreen"),
+    ("F12", "Open ROM"),
+    ("Space", "Pause / resume"),
+    ("Esc", "Cancel a pending rebind"),
+];
 
 /// Live audio-buffer health (`v1.25.0`).
 ///
@@ -709,9 +729,30 @@ impl ShellState {
                     ui.label("(rebuild with --features debug-hooks)");
                 });
 
-                ui.menu_button("Help", |ui| {
-                    // TODO(impl-phase): in-app Documentation pane (the RustyNES Help → Docs).
+                ui.menu_button(t!(cfg.locale, Msg::MenuHelp), |ui| {
                     ui.label(concat!("RustySNES v", env!("CARGO_PKG_VERSION")));
+                    ui.separator();
+                    // `v1.25.0` (T-FP-A): the Help menu was a bare version label. These are
+                    // hyperlinks rather than an in-app browser pane: the docs live in the repo and
+                    // are updated with the code, so a bundled copy would go stale silently — the
+                    // one failure mode a help system must not have.
+                    ui.hyperlink_to(
+                        t!(cfg.locale, Msg::Documentation),
+                        "https://github.com/doublegate/RustySNES/tree/main/docs",
+                    );
+                    ui.hyperlink_to(
+                        t!(cfg.locale, Msg::ReportIssue),
+                        "https://github.com/doublegate/RustySNES/issues/new",
+                    );
+                    ui.separator();
+                    if ui.button(t!(cfg.locale, Msg::KeyboardShortcuts)).clicked() {
+                        self.shortcuts_open = true;
+                        ui.close();
+                    }
+                    if ui.button(t!(cfg.locale, Msg::About)).clicked() {
+                        self.about_open = true;
+                        ui.close();
+                    }
                 });
             });
         });
@@ -741,6 +782,14 @@ impl ShellState {
         // The Settings + debugger windows float above the panels (rendered on the same ctx).
         if self.settings_open {
             self.render_settings(&ctx, cfg, info, &mut actions);
+        }
+        // `v1.25.0` (T-FP-A): the two Help windows are outside the `settings_open` gate — they are
+        // opened from the Help menu, not from Settings.
+        if self.about_open {
+            self.render_about(&ctx, cfg);
+        }
+        if self.shortcuts_open {
+            self.render_shortcuts(&ctx, cfg);
         }
         if self.debugger_open {
             self.render_debugger(
@@ -781,6 +830,467 @@ impl ShellState {
     // unit than split across helpers, matching this file's existing precedent for similarly-large
     // straight-line UI functions.
     #[allow(clippy::too_many_lines)]
+    /// The Help -> About window (`v1.25.0`, T-FP-A).
+    fn render_about(&mut self, ctx: &egui::Context, cfg: &Config) {
+        let mut open = self.about_open;
+        egui::Window::new(t!(cfg.locale, Msg::About))
+            .open(&mut open)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.heading(concat!("RustySNES v", env!("CARGO_PKG_VERSION")));
+                ui.label("A cycle-accurate Super Nintendo / Super Famicom emulator in Rust.");
+                ui.separator();
+                ui.label(concat!(
+                    "Built for the ",
+                    env!("CARGO_PKG_NAME"),
+                    " workspace."
+                ));
+                ui.label("Licensed MIT OR Apache-2.0.");
+                ui.separator();
+                ui.hyperlink_to("Project home", "https://github.com/doublegate/RustySNES");
+            });
+        self.about_open = open;
+    }
+
+    /// The Help -> Keyboard Shortcuts window (`v1.25.0`, T-FP-A).
+    ///
+    /// Lists the FIXED global hotkeys plus the player's own configured binds, read live from
+    /// `cfg` — a hardcoded cheat sheet would silently lie the moment anyone rebound a key, which is
+    /// the one thing a shortcut reference must not do.
+    fn render_shortcuts(&mut self, ctx: &egui::Context, cfg: &Config) {
+        let mut open = self.shortcuts_open;
+        egui::Window::new(t!(cfg.locale, Msg::KeyboardShortcuts))
+            .open(&mut open)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.heading("Global hotkeys");
+                egui::Grid::new("hotkey_grid").striped(true).show(ui, |ui| {
+                    for (key, what) in HOTKEY_REFERENCE {
+                        ui.label(*key);
+                        ui.label(*what);
+                        ui.end_row();
+                    }
+                });
+                ui.separator();
+                ui.heading("Player 1");
+                Self::bind_grid(ui, "p1_help_grid", &cfg.p1, cfg.locale);
+                ui.separator();
+                ui.heading("Player 2");
+                Self::bind_grid(ui, "p2_help_grid", &cfg.p2, cfg.locale);
+            });
+        self.shortcuts_open = open;
+    }
+
+    /// Render one player's live bind table (shared by both halves of the shortcut sheet).
+    fn bind_grid(
+        ui: &mut egui::Ui,
+        id: &str,
+        binds: &crate::input::KeyBindings,
+        locale: crate::i18n::Locale,
+    ) {
+        egui::Grid::new(id).striped(true).show(ui, |ui| {
+            for button in Button::ALL {
+                ui.label(format!("{button:?}"));
+                ui.label(
+                    binds
+                        .binds
+                        .iter()
+                        .find(|(_, b)| *b == button)
+                        .map_or_else(|| t!(locale, Msg::Unbound).to_string(), |(k, _)| k.clone()),
+                );
+                ui.end_row();
+            }
+        });
+    }
+
+    /// The per-side overscan crop grid (`v1.25.0`, T-FP-A) — split out of `settings_video` to keep
+    /// each tab renderer under the line lint as the parity waves added sections.
+    fn settings_video_overscan(ui: &mut egui::Ui, cfg: &mut Config) {
+        ui.label("Overscan crop (SNES pixels, presentation only):");
+        egui::Grid::new("overscan_grid").show(ui, |ui| {
+            ui.label("Top");
+            ui.add(egui::DragValue::new(&mut cfg.video.overscan.top).range(0..=32));
+            ui.label("Bottom");
+            ui.add(egui::DragValue::new(&mut cfg.video.overscan.bottom).range(0..=32));
+            ui.end_row();
+            ui.label("Left");
+            ui.add(egui::DragValue::new(&mut cfg.video.overscan.left).range(0..=32));
+            ui.label("Right");
+            ui.add(egui::DragValue::new(&mut cfg.video.overscan.right).range(0..=32));
+            ui.end_row();
+        });
+    }
+
+    /// Settings -> Video (`v1.25.0`, T-FP-A: extracted from `render_settings`, which had grown past
+    /// the 100-line lint as each parity wave added a section).
+    fn settings_video(
+        ui: &mut egui::Ui,
+        cfg: &mut Config,
+        info: &ShellInfo,
+        actions: &mut Vec<MenuAction>,
+    ) {
+        // Only the `hd-pack` pack-selector block reads these.
+        #[cfg(not(feature = "hd-pack"))]
+        let _ = (info, actions);
+        ui.label("Present mode:");
+        for m in ["fifo", "mailbox", "immediate"] {
+            if ui.radio(cfg.video.present_mode == m, m).clicked() {
+                cfg.video.present_mode = m.to_string();
+            }
+        }
+        ui.checkbox(&mut cfg.video.integer_scale, "Integer scale")
+            .on_hover_text(
+                "Snap the image to a whole multiple of the framebuffer's scanline \
+                             count, so scanlines stay a uniform height",
+            );
+        ui.separator();
+        // Aspect ratio (`v1.25.0`).
+        ui.label("Aspect ratio:");
+        ui.horizontal(|ui| {
+            for mode in crate::config::AspectMode::all() {
+                ui.radio_value(&mut cfg.video.aspect, mode, mode.display_name());
+            }
+        });
+        ui.separator();
+        // Per-side overscan crop (`v1.25.0`).
+        Self::settings_video_overscan(ui, cfg);
+        ui.separator();
+        ui.label("Post-filter (`v1.2.0`):");
+        ui.horizontal(|ui| {
+            for filter in crate::config::PostFilter::all() {
+                ui.radio_value(&mut cfg.video.filter, filter, filter.display_name());
+            }
+        });
+        match cfg.video.filter {
+            crate::config::PostFilter::None => {}
+            crate::config::PostFilter::Crt => {
+                ui.add(egui::Slider::new(&mut cfg.video.crt_scanline, 0.0..=1.0).text("Scanlines"));
+                ui.add(egui::Slider::new(&mut cfg.video.crt_mask, 0.0..=1.0).text("Aperture mask"));
+            }
+            crate::config::PostFilter::Hqx => {
+                ui.add(
+                    egui::Slider::new(&mut cfg.video.hqx_strength, 0.0..=1.0)
+                        .text("Edge blend strength"),
+                );
+            }
+            crate::config::PostFilter::Xbrz => {
+                ui.add(
+                    egui::Slider::new(&mut cfg.video.xbrz_strength, 0.0..=1.0)
+                        .text("Corner blend strength"),
+                );
+            }
+        }
+        #[cfg(feature = "hd-pack")]
+        {
+            ui.separator();
+            ui.label("HD texture pack (`v1.3.0`):");
+            if info.available_hd_packs.is_empty() {
+                ui.label(if info.rom_loaded {
+                    "(none found for this ROM)"
+                } else {
+                    "(load a ROM first)"
+                });
+            } else {
+                // A clone, not `.as_deref()`, is required here: the closure below
+                // mutates `cfg.video.hd_pack_name` itself, and `current` (used
+                // both before and after that mutation within the same closure
+                // invocation) can't remain a live borrow of it across that write
+                // -- confirmed by trying the borrowed form, which fails to
+                // compile (E0502). The clone is one small `String` per
+                // Settings-window-open frame (already gated the same way
+                // `available_hd_packs`'s own I/O is), not a hot-path cost.
+                let current = cfg.video.hd_pack_name.clone();
+                egui::ComboBox::from_id_salt("hd_pack_selector")
+                    .selected_text(current.as_deref().unwrap_or("(none)"))
+                    .show_ui(ui, |ui| {
+                        if ui.selectable_label(current.is_none(), "(none)").clicked() {
+                            cfg.video.hd_pack_name = None;
+                            actions.push(MenuAction::SetHdPack(None));
+                        }
+                        for name in &info.available_hd_packs {
+                            if ui
+                                .selectable_label(current.as_deref() == Some(name.as_str()), name)
+                                .clicked()
+                            {
+                                cfg.video.hd_pack_name = Some(name.clone());
+                                actions.push(MenuAction::SetHdPack(Some(name.clone())));
+                            }
+                        }
+                    });
+            }
+            if let Some(active) = &info.active_hd_pack {
+                ui.label(format!("Active: {active}"));
+            } else if cfg.video.hd_pack_name.is_some() {
+                ui.label("Selected pack failed to load — see logs.");
+            }
+            ui.label(
+                "Compositing onto the live framebuffer is not yet wired in \
+                             (docs/frontend.md §HD texture packs) — selecting a pack here \
+                             enables PPU-side tagging only.",
+            );
+        }
+    }
+
+    /// Settings -> Audio (`v1.25.0`, T-FP-A).
+    fn settings_audio(ui: &mut egui::Ui, cfg: &mut Config, info: &ShellInfo) {
+        ui.checkbox(&mut cfg.audio.enabled, "Audio enabled");
+        ui.add(egui::Slider::new(&mut cfg.audio.volume, 0.0..=1.0).text("Volume"));
+        ui.separator();
+        ui.label("Per-voice mute (S-DSP channels 0-7):");
+        ui.horizontal(|ui| {
+            for (i, muted) in cfg.audio.voice_mutes.iter_mut().enumerate() {
+                ui.checkbox(muted, format!("V{i}"));
+            }
+        });
+        ui.separator();
+        // Output device picker (`v1.25.0`). `audio.device` round-tripped through
+        // `config.toml` before this but nothing read it.
+        ui.label("Output device:");
+        let current_dev = cfg.audio.device.clone();
+        egui::ComboBox::from_id_salt("audio_device_selector")
+            .selected_text(current_dev.as_deref().unwrap_or("(system default)"))
+            .show_ui(ui, |ui| {
+                if ui
+                    .selectable_label(current_dev.is_none(), "(system default)")
+                    .clicked()
+                {
+                    cfg.audio.device = None;
+                }
+                for name in &info.audio_devices {
+                    if ui
+                        .selectable_label(current_dev.as_deref() == Some(name.as_str()), name)
+                        .clicked()
+                    {
+                        cfg.audio.device = Some(name.clone());
+                    }
+                }
+            });
+        ui.label(egui::RichText::new("Device changes take effect on restart.").weak());
+        ui.separator();
+        // Latency + resampler (`v1.25.0`). Both take effect on the next launch for
+        // the ring size (it is allocated once at device open); the DRC setpoint and
+        // the kernel are re-read every frame, so those change immediately.
+        ui.add(egui::Slider::new(&mut cfg.audio.latency_ms, 10..=250).text("Target latency (ms)"))
+            .on_hover_text(
+                "The buffer level the rate-control servo holds. Lower is more \
+                         responsive; too low and the audio device starves. Buffer resizing \
+                         takes effect on restart.",
+            );
+        ui.label("Resampler kernel:");
+        ui.horizontal(|ui| {
+            for kernel in crate::audio_core::ResampleKernel::all() {
+                ui.radio_value(&mut cfg.audio.resampler, kernel, kernel.display_name());
+            }
+        });
+        ui.separator();
+        // Graphic EQ (`v1.25.0`). Flat + disabled is an exact bypass.
+        ui.checkbox(&mut cfg.audio.eq.enabled, "Graphic equaliser");
+        ui.add_enabled_ui(cfg.audio.eq.enabled, |ui| {
+            ui.horizontal(|ui| {
+                for (i, centre) in crate::eq::CENTRES_HZ.iter().enumerate() {
+                    let label = if *centre >= 1000.0 {
+                        format!("{:.0}k", centre / 1000.0)
+                    } else {
+                        format!("{centre:.0}")
+                    };
+                    ui.vertical(|ui| {
+                        ui.add(
+                            egui::Slider::new(
+                                &mut cfg.audio.eq.gains_db[i],
+                                -crate::eq::GAIN_LIMIT_DB..=crate::eq::GAIN_LIMIT_DB,
+                            )
+                            .vertical()
+                            .show_value(false),
+                        );
+                        ui.label(label);
+                    });
+                }
+            });
+            if ui.button("Flatten").clicked() {
+                cfg.audio.eq.gains_db = [0.0; crate::eq::BANDS];
+            }
+        });
+        // Live health readout (`v1.25.0`): occupancy alone cannot distinguish a
+        // brief dip from repeated starvation, so the counters are surfaced too.
+        if let Some(h) = info.audio_health {
+            ui.separator();
+            ui.label(format!(
+                "Buffer {:.0}% · underruns {} · dropped {}",
+                h.occupancy_pct, h.underruns, h.overruns
+            ));
+            if h.underruns > 0 {
+                ui.label(
+                    egui::RichText::new("Underruns present — raise the target latency.").weak(),
+                );
+            }
+        }
+    }
+
+    /// Autofire + physical-gamepad settings (`v1.25.0`, T-FP-A) — split out of `settings_input`
+    /// for the same line-lint reason as `settings_video_overscan`.
+    fn settings_input_devices(ui: &mut egui::Ui, cfg: &mut Config, info: &ShellInfo) {
+        ui.label("Autofire (turbo):");
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut cfg.turbo.a, "A");
+            ui.checkbox(&mut cfg.turbo.b, "B");
+            ui.checkbox(&mut cfg.turbo.x, "X");
+            ui.checkbox(&mut cfg.turbo.y, "Y");
+        });
+        ui.add_enabled(
+            cfg.turbo.any(),
+            egui::Slider::new(&mut cfg.turbo.period_frames, 2..=60).text("Cycle (frames)"),
+        )
+        .on_hover_text(
+            "Full press+release cycle length. 8 frames is about 8 presses/second \
+                         at 60 Hz.",
+        );
+        ui.separator();
+        // Physical gamepads (`v1.25.0`).
+        ui.label("Gamepads:");
+        ui.checkbox(&mut cfg.gamepad.enabled, "Enable gamepad input")
+            .on_hover_text("Takes effect on restart");
+        ui.add_enabled(
+            cfg.gamepad.enabled,
+            egui::Slider::new(&mut cfg.gamepad.deadzone, 0.0..=0.9).text("Stick deadzone"),
+        );
+        match &info.gamepads {
+            g if g.is_empty() => {
+                ui.label("(no gamepads detected)");
+            }
+            g => {
+                for (i, name) in g.iter().enumerate() {
+                    ui.label(format!("P{}: {name}", i + 1));
+                }
+            }
+        }
+    }
+
+    /// Settings -> Input (`v1.25.0`, T-FP-A). Takes `&mut self` for the rebind-capture slots.
+    fn settings_input(&mut self, ui: &mut egui::Ui, cfg: &mut Config, info: &ShellInfo) {
+        ui.label("P1 key bindings:");
+        egui::Grid::new("p1_rebind_grid")
+            .num_columns(3)
+            .striped(true)
+            .show(ui, |ui| {
+                for button in Button::ALL {
+                    ui.label(format!("{button:?}"));
+                    let bound = cfg
+                        .p1
+                        .binds
+                        .iter()
+                        .find(|(_, b)| *b == button)
+                        .map_or("(unbound)", |(name, _)| name.as_str());
+                    ui.label(bound);
+                    let listening = self.awaiting_bind == Some(button);
+                    let label = if listening {
+                        "Press a key…"
+                    } else {
+                        "Rebind"
+                    };
+                    if ui.button(label).clicked() && !listening {
+                        self.awaiting_bind = Some(button);
+                    }
+                    ui.end_row();
+                }
+            });
+        if self.awaiting_bind.is_some() {
+            ui.label("Waiting for a key press — Esc cancels.");
+        }
+        ui.separator();
+        // P2 key bindings (`v1.25.0`) — previously unreachable: `config.p2` existed
+        // and round-tripped, but no gameplay path consulted it.
+        ui.collapsing("P2 key bindings", |ui| {
+            let conflicts = cfg.p2.conflicts_with(&cfg.p1);
+            if !conflicts.is_empty() {
+                // Surfaced rather than silently resolved: the precedence rule makes
+                // P1 win, which would otherwise look like P2's bind is just broken.
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} key(s) also bound to P1 ({}) — P1 takes precedence.",
+                        conflicts.len(),
+                        conflicts.join(", ")
+                    ))
+                    .weak(),
+                );
+                if ui.button("Reset P2 to defaults").clicked() {
+                    cfg.p2 = crate::input::KeyBindings::default_p2();
+                }
+            }
+            egui::Grid::new("p2_rebind_grid")
+                .num_columns(3)
+                .striped(true)
+                .show(ui, |ui| {
+                    for button in Button::ALL {
+                        ui.label(format!("{button:?}"));
+                        let bound = cfg
+                            .p2
+                            .binds
+                            .iter()
+                            .find(|(_, b)| *b == button)
+                            .map_or("(unbound)", |(name, _)| name.as_str());
+                        ui.label(bound);
+                        let listening = self.awaiting_bind_p2 == Some(button);
+                        let label = if listening {
+                            "Press a key…"
+                        } else {
+                            "Rebind"
+                        };
+                        if ui.button(label).clicked() && !listening {
+                            self.awaiting_bind_p2 = Some(button);
+                            self.awaiting_bind = None;
+                        }
+                        ui.end_row();
+                    }
+                });
+        });
+        ui.separator();
+        // Autofire (`v1.25.0`).
+        Self::settings_input_devices(ui, cfg, info);
+        ui.separator();
+        ui.label("Controller port 2 peripheral:");
+        ui.horizontal(|ui| {
+            for (kind, name) in [
+                (crate::config::PeripheralKind::Gamepad, "Gamepad"),
+                (crate::config::PeripheralKind::Mouse, "Mouse"),
+                (crate::config::PeripheralKind::SuperScope, "Super Scope"),
+                (crate::config::PeripheralKind::Multitap, "Multitap"),
+            ] {
+                ui.radio_value(&mut cfg.port2_peripheral, kind, name);
+            }
+        });
+        if cfg.port2_peripheral != crate::config::PeripheralKind::Gamepad {
+            ui.label(
+                "Wires the emulated hardware correctly; live host-input capture \
+                             (mouse pointer, extra gamepads) is not yet built — see \
+                             docs/frontend.md §Peripherals.",
+            );
+        }
+    }
+
+    /// Settings -> System (`v1.25.0`, T-FP-A): region, theme, and the language picker.
+    fn settings_system(ui: &mut egui::Ui, cfg: &mut Config) {
+        ui.label("Region:");
+        ui.radio_value(&mut cfg.region, Region::Ntsc, "NTSC");
+        ui.radio_value(&mut cfg.region, Region::Pal, "PAL");
+        ui.separator();
+        ui.label("Theme:");
+        ui.horizontal(|ui| {
+            for theme in crate::config::AppTheme::all() {
+                ui.radio_value(&mut cfg.theme, theme, theme.display_name());
+            }
+        });
+        ui.separator();
+        // Language (`v1.25.0`, T-FP-A). Listed by ENDONYM, since the picker's whole
+        // job is to be readable by someone who does not yet have the UI in a
+        // language they read. Labelled multilingually for the same reason.
+        ui.label("Language / Idioma / Sprache / 言語:");
+        ui.horizontal(|ui| {
+            for locale in crate::i18n::Locale::all() {
+                ui.radio_value(&mut cfg.locale, locale, locale.display_name());
+            }
+        });
+    }
+
     fn render_settings(
         &mut self,
         ctx: &egui::Context,
@@ -788,9 +1298,8 @@ impl ShellState {
         info: &ShellInfo,
         actions: &mut Vec<MenuAction>,
     ) {
-        // Only the `hd-pack` pack-selector block below reads these.
-        #[cfg(not(feature = "hd-pack"))]
-        let _ = (info, actions);
+        // `info`/`actions` are now always forwarded to the tab renderers; the
+        // `hd-pack`-only unused-suppression moved into `settings_video`, which owns that block.
         let mut open = self.settings_open;
         egui::Window::new("Settings")
             .open(&mut open)
@@ -803,397 +1312,10 @@ impl ShellState {
                 });
                 ui.separator();
                 match self.settings_tab {
-                    0 => {
-                        ui.label("Present mode:");
-                        for m in ["fifo", "mailbox", "immediate"] {
-                            if ui.radio(cfg.video.present_mode == m, m).clicked() {
-                                cfg.video.present_mode = m.to_string();
-                            }
-                        }
-                        ui.checkbox(&mut cfg.video.integer_scale, "Integer scale")
-                            .on_hover_text(
-                                "Snap the image to a whole multiple of the framebuffer's scanline \
-                                 count, so scanlines stay a uniform height",
-                            );
-                        ui.separator();
-                        // Aspect ratio (`v1.25.0`).
-                        ui.label("Aspect ratio:");
-                        ui.horizontal(|ui| {
-                            for mode in crate::config::AspectMode::all() {
-                                ui.radio_value(&mut cfg.video.aspect, mode, mode.display_name());
-                            }
-                        });
-                        ui.separator();
-                        // Per-side overscan crop (`v1.25.0`).
-                        ui.label("Overscan crop (SNES pixels, presentation only):");
-                        egui::Grid::new("overscan_grid").show(ui, |ui| {
-                            ui.label("Top");
-                            ui.add(egui::DragValue::new(&mut cfg.video.overscan.top).range(0..=32));
-                            ui.label("Bottom");
-                            ui.add(
-                                egui::DragValue::new(&mut cfg.video.overscan.bottom).range(0..=32),
-                            );
-                            ui.end_row();
-                            ui.label("Left");
-                            ui.add(
-                                egui::DragValue::new(&mut cfg.video.overscan.left).range(0..=32),
-                            );
-                            ui.label("Right");
-                            ui.add(
-                                egui::DragValue::new(&mut cfg.video.overscan.right).range(0..=32),
-                            );
-                            ui.end_row();
-                        });
-                        ui.separator();
-                        ui.label("Post-filter (`v1.2.0`):");
-                        ui.horizontal(|ui| {
-                            for filter in crate::config::PostFilter::all() {
-                                ui.radio_value(
-                                    &mut cfg.video.filter,
-                                    filter,
-                                    filter.display_name(),
-                                );
-                            }
-                        });
-                        match cfg.video.filter {
-                            crate::config::PostFilter::None => {}
-                            crate::config::PostFilter::Crt => {
-                                ui.add(
-                                    egui::Slider::new(&mut cfg.video.crt_scanline, 0.0..=1.0)
-                                        .text("Scanlines"),
-                                );
-                                ui.add(
-                                    egui::Slider::new(&mut cfg.video.crt_mask, 0.0..=1.0)
-                                        .text("Aperture mask"),
-                                );
-                            }
-                            crate::config::PostFilter::Hqx => {
-                                ui.add(
-                                    egui::Slider::new(&mut cfg.video.hqx_strength, 0.0..=1.0)
-                                        .text("Edge blend strength"),
-                                );
-                            }
-                            crate::config::PostFilter::Xbrz => {
-                                ui.add(
-                                    egui::Slider::new(&mut cfg.video.xbrz_strength, 0.0..=1.0)
-                                        .text("Corner blend strength"),
-                                );
-                            }
-                        }
-                        #[cfg(feature = "hd-pack")]
-                        {
-                            ui.separator();
-                            ui.label("HD texture pack (`v1.3.0`):");
-                            if info.available_hd_packs.is_empty() {
-                                ui.label(if info.rom_loaded {
-                                    "(none found for this ROM)"
-                                } else {
-                                    "(load a ROM first)"
-                                });
-                            } else {
-                                // A clone, not `.as_deref()`, is required here: the closure below
-                                // mutates `cfg.video.hd_pack_name` itself, and `current` (used
-                                // both before and after that mutation within the same closure
-                                // invocation) can't remain a live borrow of it across that write
-                                // -- confirmed by trying the borrowed form, which fails to
-                                // compile (E0502). The clone is one small `String` per
-                                // Settings-window-open frame (already gated the same way
-                                // `available_hd_packs`'s own I/O is), not a hot-path cost.
-                                let current = cfg.video.hd_pack_name.clone();
-                                egui::ComboBox::from_id_salt("hd_pack_selector")
-                                    .selected_text(current.as_deref().unwrap_or("(none)"))
-                                    .show_ui(ui, |ui| {
-                                        if ui
-                                            .selectable_label(current.is_none(), "(none)")
-                                            .clicked()
-                                        {
-                                            cfg.video.hd_pack_name = None;
-                                            actions.push(MenuAction::SetHdPack(None));
-                                        }
-                                        for name in &info.available_hd_packs {
-                                            if ui
-                                                .selectable_label(
-                                                    current.as_deref() == Some(name.as_str()),
-                                                    name,
-                                                )
-                                                .clicked()
-                                            {
-                                                cfg.video.hd_pack_name = Some(name.clone());
-                                                actions.push(MenuAction::SetHdPack(Some(
-                                                    name.clone(),
-                                                )));
-                                            }
-                                        }
-                                    });
-                            }
-                            if let Some(active) = &info.active_hd_pack {
-                                ui.label(format!("Active: {active}"));
-                            } else if cfg.video.hd_pack_name.is_some() {
-                                ui.label("Selected pack failed to load — see logs.");
-                            }
-                            ui.label(
-                                "Compositing onto the live framebuffer is not yet wired in \
-                                 (docs/frontend.md §HD texture packs) — selecting a pack here \
-                                 enables PPU-side tagging only.",
-                            );
-                        }
-                    }
-                    1 => {
-                        ui.checkbox(&mut cfg.audio.enabled, "Audio enabled");
-                        ui.add(egui::Slider::new(&mut cfg.audio.volume, 0.0..=1.0).text("Volume"));
-                        ui.separator();
-                        ui.label("Per-voice mute (S-DSP channels 0-7):");
-                        ui.horizontal(|ui| {
-                            for (i, muted) in cfg.audio.voice_mutes.iter_mut().enumerate() {
-                                ui.checkbox(muted, format!("V{i}"));
-                            }
-                        });
-                        ui.separator();
-                        // Output device picker (`v1.25.0`). `audio.device` round-tripped through
-                        // `config.toml` before this but nothing read it.
-                        ui.label("Output device:");
-                        let current_dev = cfg.audio.device.clone();
-                        egui::ComboBox::from_id_salt("audio_device_selector")
-                            .selected_text(current_dev.as_deref().unwrap_or("(system default)"))
-                            .show_ui(ui, |ui| {
-                                if ui
-                                    .selectable_label(current_dev.is_none(), "(system default)")
-                                    .clicked()
-                                {
-                                    cfg.audio.device = None;
-                                }
-                                for name in &info.audio_devices {
-                                    if ui
-                                        .selectable_label(
-                                            current_dev.as_deref() == Some(name.as_str()),
-                                            name,
-                                        )
-                                        .clicked()
-                                    {
-                                        cfg.audio.device = Some(name.clone());
-                                    }
-                                }
-                            });
-                        ui.label(
-                            egui::RichText::new("Device changes take effect on restart.").weak(),
-                        );
-                        ui.separator();
-                        // Latency + resampler (`v1.25.0`). Both take effect on the next launch for
-                        // the ring size (it is allocated once at device open); the DRC setpoint and
-                        // the kernel are re-read every frame, so those change immediately.
-                        ui.add(
-                            egui::Slider::new(&mut cfg.audio.latency_ms, 10..=250)
-                                .text("Target latency (ms)"),
-                        )
-                        .on_hover_text(
-                            "The buffer level the rate-control servo holds. Lower is more \
-                             responsive; too low and the audio device starves. Buffer resizing \
-                             takes effect on restart.",
-                        );
-                        ui.label("Resampler kernel:");
-                        ui.horizontal(|ui| {
-                            for kernel in crate::audio_core::ResampleKernel::all() {
-                                ui.radio_value(
-                                    &mut cfg.audio.resampler,
-                                    kernel,
-                                    kernel.display_name(),
-                                );
-                            }
-                        });
-                        ui.separator();
-                        // Graphic EQ (`v1.25.0`). Flat + disabled is an exact bypass.
-                        ui.checkbox(&mut cfg.audio.eq.enabled, "Graphic equaliser");
-                        ui.add_enabled_ui(cfg.audio.eq.enabled, |ui| {
-                            ui.horizontal(|ui| {
-                                for (i, centre) in crate::eq::CENTRES_HZ.iter().enumerate() {
-                                    let label = if *centre >= 1000.0 {
-                                        format!("{:.0}k", centre / 1000.0)
-                                    } else {
-                                        format!("{centre:.0}")
-                                    };
-                                    ui.vertical(|ui| {
-                                        ui.add(
-                                            egui::Slider::new(
-                                                &mut cfg.audio.eq.gains_db[i],
-                                                -crate::eq::GAIN_LIMIT_DB
-                                                    ..=crate::eq::GAIN_LIMIT_DB,
-                                            )
-                                            .vertical()
-                                            .show_value(false),
-                                        );
-                                        ui.label(label);
-                                    });
-                                }
-                            });
-                            if ui.button("Flatten").clicked() {
-                                cfg.audio.eq.gains_db = [0.0; crate::eq::BANDS];
-                            }
-                        });
-                        // Live health readout (`v1.25.0`): occupancy alone cannot distinguish a
-                        // brief dip from repeated starvation, so the counters are surfaced too.
-                        if let Some(h) = info.audio_health {
-                            ui.separator();
-                            ui.label(format!(
-                                "Buffer {:.0}% · underruns {} · dropped {}",
-                                h.occupancy_pct, h.underruns, h.overruns
-                            ));
-                            if h.underruns > 0 {
-                                ui.label(
-                                    egui::RichText::new(
-                                        "Underruns present — raise the target latency.",
-                                    )
-                                    .weak(),
-                                );
-                            }
-                        }
-                    }
-                    2 => {
-                        ui.label("P1 key bindings:");
-                        egui::Grid::new("p1_rebind_grid")
-                            .num_columns(3)
-                            .striped(true)
-                            .show(ui, |ui| {
-                                for button in Button::ALL {
-                                    ui.label(format!("{button:?}"));
-                                    let bound = cfg
-                                        .p1
-                                        .binds
-                                        .iter()
-                                        .find(|(_, b)| *b == button)
-                                        .map_or("(unbound)", |(name, _)| name.as_str());
-                                    ui.label(bound);
-                                    let listening = self.awaiting_bind == Some(button);
-                                    let label = if listening {
-                                        "Press a key…"
-                                    } else {
-                                        "Rebind"
-                                    };
-                                    if ui.button(label).clicked() && !listening {
-                                        self.awaiting_bind = Some(button);
-                                    }
-                                    ui.end_row();
-                                }
-                            });
-                        if self.awaiting_bind.is_some() {
-                            ui.label("Waiting for a key press — Esc cancels.");
-                        }
-                        ui.separator();
-                        // P2 key bindings (`v1.25.0`) — previously unreachable: `config.p2` existed
-                        // and round-tripped, but no gameplay path consulted it.
-                        ui.collapsing("P2 key bindings", |ui| {
-                            let conflicts = cfg.p2.conflicts_with(&cfg.p1);
-                            if !conflicts.is_empty() {
-                                // Surfaced rather than silently resolved: the precedence rule makes
-                                // P1 win, which would otherwise look like P2's bind is just broken.
-                                ui.label(
-                                    egui::RichText::new(format!(
-                                        "{} key(s) also bound to P1 ({}) — P1 takes precedence.",
-                                        conflicts.len(),
-                                        conflicts.join(", ")
-                                    ))
-                                    .weak(),
-                                );
-                                if ui.button("Reset P2 to defaults").clicked() {
-                                    cfg.p2 = crate::input::KeyBindings::default_p2();
-                                }
-                            }
-                            egui::Grid::new("p2_rebind_grid")
-                                .num_columns(3)
-                                .striped(true)
-                                .show(ui, |ui| {
-                                    for button in Button::ALL {
-                                        ui.label(format!("{button:?}"));
-                                        let bound = cfg
-                                            .p2
-                                            .binds
-                                            .iter()
-                                            .find(|(_, b)| *b == button)
-                                            .map_or("(unbound)", |(name, _)| name.as_str());
-                                        ui.label(bound);
-                                        let listening = self.awaiting_bind_p2 == Some(button);
-                                        let label = if listening {
-                                            "Press a key…"
-                                        } else {
-                                            "Rebind"
-                                        };
-                                        if ui.button(label).clicked() && !listening {
-                                            self.awaiting_bind_p2 = Some(button);
-                                            self.awaiting_bind = None;
-                                        }
-                                        ui.end_row();
-                                    }
-                                });
-                        });
-                        ui.separator();
-                        // Autofire (`v1.25.0`).
-                        ui.label("Autofire (turbo):");
-                        ui.horizontal(|ui| {
-                            ui.checkbox(&mut cfg.turbo.a, "A");
-                            ui.checkbox(&mut cfg.turbo.b, "B");
-                            ui.checkbox(&mut cfg.turbo.x, "X");
-                            ui.checkbox(&mut cfg.turbo.y, "Y");
-                        });
-                        ui.add_enabled(
-                            cfg.turbo.any(),
-                            egui::Slider::new(&mut cfg.turbo.period_frames, 2..=60)
-                                .text("Cycle (frames)"),
-                        )
-                        .on_hover_text(
-                            "Full press+release cycle length. 8 frames is about 8 presses/second \
-                             at 60 Hz.",
-                        );
-                        ui.separator();
-                        // Physical gamepads (`v1.25.0`).
-                        ui.label("Gamepads:");
-                        ui.checkbox(&mut cfg.gamepad.enabled, "Enable gamepad input")
-                            .on_hover_text("Takes effect on restart");
-                        ui.add_enabled(
-                            cfg.gamepad.enabled,
-                            egui::Slider::new(&mut cfg.gamepad.deadzone, 0.0..=0.9)
-                                .text("Stick deadzone"),
-                        );
-                        match &info.gamepads {
-                            g if g.is_empty() => {
-                                ui.label("(no gamepads detected)");
-                            }
-                            g => {
-                                for (i, name) in g.iter().enumerate() {
-                                    ui.label(format!("P{}: {name}", i + 1));
-                                }
-                            }
-                        }
-                        ui.separator();
-                        ui.label("Controller port 2 peripheral:");
-                        ui.horizontal(|ui| {
-                            for (kind, name) in [
-                                (crate::config::PeripheralKind::Gamepad, "Gamepad"),
-                                (crate::config::PeripheralKind::Mouse, "Mouse"),
-                                (crate::config::PeripheralKind::SuperScope, "Super Scope"),
-                                (crate::config::PeripheralKind::Multitap, "Multitap"),
-                            ] {
-                                ui.radio_value(&mut cfg.port2_peripheral, kind, name);
-                            }
-                        });
-                        if cfg.port2_peripheral != crate::config::PeripheralKind::Gamepad {
-                            ui.label(
-                                "Wires the emulated hardware correctly; live host-input capture \
-                                 (mouse pointer, extra gamepads) is not yet built — see \
-                                 docs/frontend.md §Peripherals.",
-                            );
-                        }
-                    }
-                    _ => {
-                        ui.label("Region:");
-                        ui.radio_value(&mut cfg.region, Region::Ntsc, "NTSC");
-                        ui.radio_value(&mut cfg.region, Region::Pal, "PAL");
-                        ui.separator();
-                        ui.label("Theme:");
-                        ui.horizontal(|ui| {
-                            for theme in crate::config::AppTheme::all() {
-                                ui.radio_value(&mut cfg.theme, theme, theme.display_name());
-                            }
-                        });
-                    }
+                    0 => Self::settings_video(ui, cfg, info, actions),
+                    1 => Self::settings_audio(ui, cfg, info),
+                    2 => self.settings_input(ui, cfg, info),
+                    _ => Self::settings_system(ui, cfg),
                 }
             });
         self.settings_open = open;
