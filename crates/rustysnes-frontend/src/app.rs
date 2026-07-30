@@ -225,6 +225,17 @@ struct Active {
     perf: crate::perf::PerfStats,
     /// Emulated frames produced during the present currently being rendered (`v1.25.0`).
     frames_this_present: u32,
+    /// The produce-time telemetry sample for **this** present specifically, or `None` if this
+    /// present produced no emulated frame (paused, or zero frames earned this tick).
+    ///
+    /// Deliberately NOT the same field as `last_frame_time_ms`, which is *sticky* on purpose: the
+    /// status-bar readout wants the last real measurement rather than a flicker to nothing, and the
+    /// run-ahead budget throttle wants the last real frame's cost rather than "no data". Recording
+    /// that sticky value into `perf` would feed the same historical measurement into the percentile
+    /// pool once per idle present, which is exactly the tail-latency signal the panel exists to
+    /// show — so telemetry reads this per-present field and the two consumers above keep the
+    /// sticky one.
+    produce_sample_ms: Option<f32>,
     /// The present-mode string currently applied to the surface; compared against the live config
     /// each present so a Settings → Video toggle reconfigures the wgpu surface.
     applied_present_mode: String,
@@ -872,6 +883,7 @@ impl App {
             last_frame_time_ms: None,
             perf: crate::perf::PerfStats::new(),
             frames_this_present: 0,
+            produce_sample_ms: None,
             applied_present_mode: self.config.video.present_mode.clone(),
             applied_theme: self.config.theme,
             applied_fullscreen: false,
@@ -1224,6 +1236,7 @@ impl App {
             let audio_samples = if paused {
                 active.pacer.idle();
                 active.last_frame_time_ms = None;
+                active.produce_sample_ms = None;
                 Vec::new()
             } else {
                 let frames = active.pacer.tick();
@@ -1338,9 +1351,15 @@ impl App {
                     #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
                     active.cheevos.do_frame(emu.system_mut());
                 }
-                if frames > 0 {
-                    active.last_frame_time_ms = Some(produce_t0.elapsed().as_secs_f32() * 1000.0);
+                // Measured only when at least one frame actually ran: `produce_sample_ms` is this
+                // present's telemetry sample (absent on an idle tick), while `last_frame_time_ms`
+                // is the sticky last-real-measurement the status bar and the run-ahead throttle
+                // read — see their field docs for why those two want opposite things.
+                let produce_ms = (frames > 0).then(|| produce_t0.elapsed().as_secs_f32() * 1000.0);
+                if produce_ms.is_some() {
+                    active.last_frame_time_ms = produce_ms;
                 }
+                active.produce_sample_ms = produce_ms;
                 // `v1.25.0`: remember the count so `record_present` below can expose the
                 // produced-vs-presented divergence (a catch-up burst emulates several frames for
                 // one present, which a single combined metric hides).
@@ -1768,17 +1787,20 @@ impl App {
         // --- (5) Submit + present. ---
         active.gfx.queue.submit(Some(encoder.finish()));
         frame.present();
-        // One sample per present. `last_frame_time_ms` is None on an idle present (paused, or zero
-        // frames earned this tick) and is deliberately NOT recorded then — a 0.0 would drag every
-        // percentile toward zero and make an idle emulator look impossibly fast.
+        // One sample per present. `produce_sample_ms` is None on an idle present (paused, or zero
+        // frames earned this tick) and no produce sample is recorded then — a 0.0 would drag every
+        // percentile toward zero, and re-recording the *previous* present's measurement (which the
+        // sticky `last_frame_time_ms` would supply) would duplicate one frame's cost into the pool
+        // once per idle tick, biasing exactly the tail the panel exists to show.
         let present_ms = present_t0.elapsed().as_secs_f32() * 1000.0;
         active.perf.record_present(
-            active.last_frame_time_ms,
+            active.produce_sample_ms,
             present_ms,
             info.audio_health_pct,
             active.frames_this_present,
         );
         active.frames_this_present = 0;
+        active.produce_sample_ms = None;
         actions
     }
 

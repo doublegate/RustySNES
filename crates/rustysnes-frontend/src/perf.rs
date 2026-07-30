@@ -143,13 +143,17 @@ impl Metric {
         v
     }
 
-    /// The `q`-quantile (`0.0..=1.0`) by nearest-rank, or `None` when empty.
+    /// The `q`-quantile (`0.0..=1.0`) by nearest-rank, or `None` when empty or `q` is not finite.
     ///
     /// Nearest-rank (not interpolated) because these are latency samples: a reported p99 should be
     /// a value that genuinely occurred, not an average of two frames that never happened.
+    ///
+    /// A non-finite `q` is rejected rather than clamped: `f32::clamp` propagates `NaN`, and the
+    /// float-to-int cast below then saturates it to index 0, so the function would silently answer
+    /// "the minimum sample" to a question that had no meaning. `None` says so instead.
     #[must_use]
     pub fn quantile(&self, q: f32) -> Option<f32> {
-        if self.len == 0 {
+        if self.len == 0 || !q.is_finite() {
             return None;
         }
         let sorted = self.sorted();
@@ -401,6 +405,11 @@ mod tests {
         assert_eq!(m.len(), 3);
     }
 
+    /// NOTE: this asserts the *sink* honours a `None` produce sample. It passed while the caller
+    /// in `app.rs` was still handing it `Some(stale)` on a zero-frame present — the invariant has
+    /// two halves and only one of them is reachable from here. The caller-side half is documented
+    /// on `Active::produce_sample_ms`, which exists precisely so the sticky `last_frame_time_ms`
+    /// (wanted by the status bar and the run-ahead throttle) never reaches this function.
     #[test]
     fn idle_presents_do_not_pollute_the_produce_distribution() {
         let mut s = PerfStats::new();
@@ -437,6 +446,21 @@ mod tests {
         assert_eq!(s.frames_produced, 0);
         assert!(s.produce_ms.is_empty() && s.present_ms.is_empty());
         assert!(!s.is_catching_up());
+    }
+
+    /// A non-finite quantile is rejected rather than clamped: `f32::clamp` propagates `NaN` and the
+    /// float-to-int cast saturates it to 0, so the old code answered "the minimum sample" to a
+    /// meaningless question.
+    #[test]
+    fn a_non_finite_quantile_is_none_not_the_minimum_sample() {
+        let mut m = Metric::new();
+        for v in [9.0, 1.0, 5.0] {
+            m.push(v);
+        }
+        assert_eq!(m.quantile(0.0), Some(1.0));
+        assert_eq!(m.quantile(f32::NAN), None);
+        assert_eq!(m.quantile(f32::INFINITY), None);
+        assert_eq!(m.quantile(f32::NEG_INFINITY), None);
     }
 
     #[test]

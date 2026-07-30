@@ -90,7 +90,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     would notice. A locale may leave an entry empty ("not translated yet") and it falls back to
     English rather than rendering blank. Language picker in Settings -> System, listed by endonym.
     Scheduled *before* the later UI clusters on purpose — deferring it would mean retrofitting every
-    new panel's strings twice.
+    new panel's strings twice. **The whole menu bar (File, Emulation, View, Tools, Debug, Help) and
+    all four Settings tabs are wired through `t!`**, so picking a language actually changes the UI —
+    a catalogue with no consumers would have been the same dead-config defect this wave exists to
+    remove. Strings without a `Msg` variant yet (Save/Load State, the feature-absent hints) stay
+    English and are the known remainder.
   - **Performance telemetry primitives** (`crate::perf`) — fixed-capacity ring buffers with exact
     p50/p95/p99/max over produce-time, present-time, GPU-time, and audio occupancy, plus a
     produced-vs-presented split that makes a catch-up burst visible. The frontend previously exposed
@@ -98,11 +102,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     16.6 ms mean hides a 40 ms p99 completely. Allocation-free `push`, so it runs every present
     unconditionally; percentiles sort on demand only when a panel reads them. Idle presents record
     *no* produce sample, since a 0.0 there would drag every percentile toward zero and make a paused
-    emulator look impossibly fast.
+    emulator look impossibly fast — and, equally, no *stale* sample: the per-present measurement is
+    kept separate from the sticky last-frame reading the status bar and the run-ahead throttle want,
+    so an idle present cannot re-record the previous frame's cost once per tick. A non-finite
+    quantile argument returns `None` rather than being clamped (`NaN` survives `clamp` and then
+    saturates to index 0, which would answer "the minimum sample" to a meaningless question).
   - **A populated Help menu** — Documentation and Report-an-Issue links, plus **About** and
     **Keyboard Shortcuts** windows. It was previously a bare version label. The shortcut sheet reads
     the player's binds *live* from the config beside the fixed hotkeys, so it cannot lie after a
-    rebind.
+    rebind — and lists **every** key mapped to a button, not just the first: `rebind` keeps the
+    in-app path to one key per button, but a hand-edited `config.toml` can map two, and both work.
+  - **Rebind capture is now mutually exclusive across players.** Starting a P1 rebind clears any
+    pending P2 capture (P2 already cleared P1). `latch_key` checks P1 first, so a P2 capture left
+    armed would silently swallow the next keypress after the P1 bind completed.
   - **Settings split into per-tab renderers.** `render_settings` had grown to 391 lines as each
     parity wave added a section; it is now four tab renderers plus two helpers, which is what the
     later clusters will extend instead of re-plumbing one giant function.

@@ -452,15 +452,15 @@ impl ShellState {
 
         egui::Panel::top("menu_bar").show(root_ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("Open ROM…").clicked() {
+                ui.menu_button(t!(cfg.locale, Msg::MenuFile), |ui| {
+                    if ui.button(t!(cfg.locale, Msg::OpenRom)).clicked() {
                         actions.push(MenuAction::OpenRom);
                         ui.close();
                     }
                     // Recent ROMs (`v1.25.0`). Disabled rather than hidden when empty, so the entry
                     // point is discoverable before it has ever been used.
                     ui.add_enabled_ui(!cfg.recent.paths.is_empty(), |ui| {
-                        ui.menu_button("Open Recent", |ui| {
+                        ui.menu_button(t!(cfg.locale, Msg::OpenRecent), |ui| {
                             for p in cfg.recent.paths.clone() {
                                 let path = std::path::PathBuf::from(&p);
                                 // Show the file name; the full path is the hover text, since a
@@ -475,7 +475,7 @@ impl ShellState {
                                 }
                             }
                             ui.separator();
-                            if ui.button("Clear List").clicked() {
+                            if ui.button(t!(cfg.locale, Msg::ClearList)).clicked() {
                                 actions.push(MenuAction::ClearRecent);
                                 ui.close();
                             }
@@ -485,7 +485,7 @@ impl ShellState {
                     if ui
                         .add_enabled(
                             info.rom_loaded,
-                            egui::Button::new("Save Settings for This Game"),
+                            egui::Button::new(t!(cfg.locale, Msg::SavePerGame)),
                         )
                         .on_hover_text(
                             "Remember the current video/audio settings for this ROM only",
@@ -498,7 +498,7 @@ impl ShellState {
                     if ui
                         .add_enabled(
                             info.rom_loaded,
-                            egui::Button::new("Clear Settings for This Game"),
+                            egui::Button::new(t!(cfg.locale, Msg::ClearPerGame)),
                         )
                         .clicked()
                     {
@@ -507,7 +507,10 @@ impl ShellState {
                     }
                     ui.separator();
                     if ui
-                        .add_enabled(info.rom_loaded, egui::Button::new("Screenshot"))
+                        .add_enabled(
+                            info.rom_loaded,
+                            egui::Button::new(t!(cfg.locale, Msg::Screenshot)),
+                        )
                         .on_hover_text("Save a PNG of the emulator's output at native resolution")
                         .clicked()
                     {
@@ -517,7 +520,7 @@ impl ShellState {
                     if ui
                         .add_enabled(
                             info.rom_loaded,
-                            egui::Button::new("Screenshot to Clipboard"),
+                            egui::Button::new(t!(cfg.locale, Msg::ScreenshotClipboard)),
                         )
                         .clicked()
                     {
@@ -526,26 +529,36 @@ impl ShellState {
                     }
                     ui.separator();
                     if ui
-                        .add_enabled(info.rom_loaded, egui::Button::new("Close ROM"))
+                        .add_enabled(
+                            info.rom_loaded,
+                            egui::Button::new(t!(cfg.locale, Msg::CloseRom)),
+                        )
                         .clicked()
                     {
                         actions.push(MenuAction::CloseRom);
                         ui.close();
                     }
                     ui.separator();
-                    if ui.button("Settings…").clicked() {
+                    if ui
+                        .button(format!("{}…", t!(cfg.locale, Msg::Settings)))
+                        .clicked()
+                    {
                         self.settings_open = true;
                         ui.close();
                     }
                     ui.separator();
-                    if ui.button("Quit").clicked() {
+                    if ui.button(t!(cfg.locale, Msg::Quit)).clicked() {
                         actions.push(MenuAction::Quit);
                         ui.close();
                     }
                 });
 
-                ui.menu_button("Emulation", |ui| {
-                    let pause_label = if self.paused { "Resume" } else { "Pause" };
+                ui.menu_button(t!(cfg.locale, Msg::MenuEmulation), |ui| {
+                    let pause_label = if self.paused {
+                        t!(cfg.locale, Msg::Resume)
+                    } else {
+                        t!(cfg.locale, Msg::Pause)
+                    };
                     if ui
                         .add_enabled(info.rom_loaded, egui::Button::new(pause_label))
                         .clicked()
@@ -554,14 +567,20 @@ impl ShellState {
                         ui.close();
                     }
                     if ui
-                        .add_enabled(info.rom_loaded, egui::Button::new("Reset"))
+                        .add_enabled(
+                            info.rom_loaded,
+                            egui::Button::new(t!(cfg.locale, Msg::Reset)),
+                        )
                         .clicked()
                     {
                         actions.push(MenuAction::Reset);
                         ui.close();
                     }
                     if ui
-                        .add_enabled(info.rom_loaded, egui::Button::new("Power Cycle"))
+                        .add_enabled(
+                            info.rom_loaded,
+                            egui::Button::new(t!(cfg.locale, Msg::PowerCycle)),
+                        )
                         .clicked()
                     {
                         actions.push(MenuAction::PowerCycle);
@@ -597,7 +616,7 @@ impl ShellState {
                         ui.close();
                     }
                     ui.separator();
-                    ui.menu_button("Region", |ui| {
+                    ui.menu_button(t!(cfg.locale, Msg::Region), |ui| {
                         if ui.radio(info.region == Region::Ntsc, "NTSC").clicked() {
                             actions.push(MenuAction::SetRegion(Region::Ntsc));
                             ui.close();
@@ -609,26 +628,29 @@ impl ShellState {
                     });
                     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     let speed_pct = (info.speed * 100.0).round() as u32;
-                    ui.menu_button(format!("Speed: {speed_pct}%"), |ui| {
-                        for preset in SPEED_PRESETS {
-                            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                            let pct = (preset * 100.0).round() as u32;
-                            // Exact float equality is intentional: `info.speed` is only ever set
-                            // from a literal `SPEED_PRESETS` entry (`MenuAction::SetSpeed`'s only
-                            // caller passes one straight through, no arithmetic drift), so this
-                            // just asks "is this the currently-selected preset", not an
-                            // approximate/computed comparison.
-                            #[allow(clippy::float_cmp)]
-                            let selected = info.speed == preset;
-                            if ui.radio(selected, format!("{pct}%")).clicked() {
-                                actions.push(MenuAction::SetSpeed(preset));
-                                ui.close();
+                    ui.menu_button(
+                        format!("{}: {speed_pct}%", t!(cfg.locale, Msg::Speed)),
+                        |ui| {
+                            for preset in SPEED_PRESETS {
+                                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                                let pct = (preset * 100.0).round() as u32;
+                                // Exact float equality is intentional: `info.speed` is only ever set
+                                // from a literal `SPEED_PRESETS` entry (`MenuAction::SetSpeed`'s only
+                                // caller passes one straight through, no arithmetic drift), so this
+                                // just asks "is this the currently-selected preset", not an
+                                // approximate/computed comparison.
+                                #[allow(clippy::float_cmp)]
+                                let selected = info.speed == preset;
+                                if ui.radio(selected, format!("{pct}%")).clicked() {
+                                    actions.push(MenuAction::SetSpeed(preset));
+                                    ui.close();
+                                }
                             }
-                        }
-                    });
+                        },
+                    );
                 });
 
-                ui.menu_button("Tools", |ui| {
+                ui.menu_button(t!(cfg.locale, Msg::MenuTools), |ui| {
                     #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
                     {
                         if ui.button("Load Script…").clicked() {
@@ -688,11 +710,14 @@ impl ShellState {
                     // TODO(impl-phase): NSF/SPC player, ROM-DB editor, TAStudio.
                 });
 
-                ui.menu_button("View", |ui| {
-                    ui.checkbox(&mut cfg.video.integer_scale, "Integer scale");
+                ui.menu_button(t!(cfg.locale, Msg::MenuView), |ui| {
+                    ui.checkbox(
+                        &mut cfg.video.integer_scale,
+                        t!(cfg.locale, Msg::IntegerScale),
+                    );
                     ui.checkbox(&mut self.performance_open, "Performance panel");
-                    ui.checkbox(&mut self.fullscreen, "Fullscreen");
-                    ui.menu_button("Post-filter", |ui| {
+                    ui.checkbox(&mut self.fullscreen, t!(cfg.locale, Msg::Fullscreen));
+                    ui.menu_button(t!(cfg.locale, Msg::PostFilter), |ui| {
                         for filter in crate::config::PostFilter::all() {
                             ui.radio_value(&mut cfg.video.filter, filter, filter.display_name());
                         }
@@ -701,7 +726,7 @@ impl ShellState {
                     // resize; meaningless on `wasm32` (the canvas size is controlled by the page,
                     // not the app).
                     #[cfg(not(target_arch = "wasm32"))]
-                    ui.menu_button("Window Size", |ui| {
+                    ui.menu_button(t!(cfg.locale, Msg::WindowSize), |ui| {
                         for (label, scale) in [
                             ("1x (100%)", 1u32),
                             ("2x (200%)", 2),
@@ -714,10 +739,13 @@ impl ShellState {
                             }
                         }
                     });
-                    ui.checkbox(&mut cfg.video.hide_overscan, "Hide Overscan");
+                    ui.checkbox(
+                        &mut cfg.video.hide_overscan,
+                        t!(cfg.locale, Msg::HideOverscan),
+                    );
                 });
 
-                ui.menu_button("Debug", |ui| {
+                ui.menu_button(t!(cfg.locale, Msg::MenuDebug), |ui| {
                     #[cfg(feature = "debug-hooks")]
                     if ui
                         .checkbox(&mut self.debugger_open, "Debugger overlay")
@@ -891,13 +919,22 @@ impl ShellState {
         egui::Grid::new(id).striped(true).show(ui, |ui| {
             for button in Button::ALL {
                 ui.label(format!("{button:?}"));
-                ui.label(
-                    binds
-                        .binds
-                        .iter()
-                        .find(|(_, b)| *b == button)
-                        .map_or_else(|| t!(locale, Msg::Unbound).to_string(), |(k, _)| k.clone()),
-                );
+                // Every key mapped to this button, not just the first. `KeyBindings::rebind`
+                // keeps the in-app path to one key per button, but the bind list is a plain
+                // `Vec` deserialized from `config.toml` — a hand-edited config can map two keys
+                // to one button, and both genuinely work. Showing only the first would have this
+                // sheet report a working key as unbound, which is the one thing it must not do.
+                let keys: Vec<&str> = binds
+                    .binds
+                    .iter()
+                    .filter(|(_, b)| *b == button)
+                    .map(|(k, _)| k.as_str())
+                    .collect();
+                ui.label(if keys.is_empty() {
+                    t!(locale, Msg::Unbound).to_string()
+                } else {
+                    keys.join(", ")
+                });
                 ui.end_row();
             }
         });
@@ -906,7 +943,10 @@ impl ShellState {
     /// The per-side overscan crop grid (`v1.25.0`, T-FP-A) — split out of `settings_video` to keep
     /// each tab renderer under the line lint as the parity waves added sections.
     fn settings_video_overscan(ui: &mut egui::Ui, cfg: &mut Config) {
-        ui.label("Overscan crop (SNES pixels, presentation only):");
+        ui.label(format!(
+            "{} (SNES pixels, presentation only):",
+            t!(cfg.locale, Msg::OverscanCrop)
+        ));
         egui::Grid::new("overscan_grid").show(ui, |ui| {
             ui.label("Top");
             ui.add(egui::DragValue::new(&mut cfg.video.overscan.top).range(0..=32));
@@ -932,20 +972,23 @@ impl ShellState {
         // Only the `hd-pack` pack-selector block reads these.
         #[cfg(not(feature = "hd-pack"))]
         let _ = (info, actions);
-        ui.label("Present mode:");
+        ui.label(format!("{}:", t!(cfg.locale, Msg::PresentMode)));
         for m in ["fifo", "mailbox", "immediate"] {
             if ui.radio(cfg.video.present_mode == m, m).clicked() {
                 cfg.video.present_mode = m.to_string();
             }
         }
-        ui.checkbox(&mut cfg.video.integer_scale, "Integer scale")
-            .on_hover_text(
-                "Snap the image to a whole multiple of the framebuffer's scanline \
+        ui.checkbox(
+            &mut cfg.video.integer_scale,
+            t!(cfg.locale, Msg::IntegerScale),
+        )
+        .on_hover_text(
+            "Snap the image to a whole multiple of the framebuffer's scanline \
                              count, so scanlines stay a uniform height",
-            );
+        );
         ui.separator();
         // Aspect ratio (`v1.25.0`).
-        ui.label("Aspect ratio:");
+        ui.label(format!("{}:", t!(cfg.locale, Msg::AspectRatio)));
         ui.horizontal(|ui| {
             for mode in crate::config::AspectMode::all() {
                 ui.radio_value(&mut cfg.video.aspect, mode, mode.display_name());
@@ -955,7 +998,7 @@ impl ShellState {
         // Per-side overscan crop (`v1.25.0`).
         Self::settings_video_overscan(ui, cfg);
         ui.separator();
-        ui.label("Post-filter (`v1.2.0`):");
+        ui.label(format!("{}:", t!(cfg.locale, Msg::PostFilter)));
         ui.horizontal(|ui| {
             for filter in crate::config::PostFilter::all() {
                 ui.radio_value(&mut cfg.video.filter, filter, filter.display_name());
@@ -1033,8 +1076,10 @@ impl ShellState {
 
     /// Settings -> Audio (`v1.25.0`, T-FP-A).
     fn settings_audio(ui: &mut egui::Ui, cfg: &mut Config, info: &ShellInfo) {
-        ui.checkbox(&mut cfg.audio.enabled, "Audio enabled");
-        ui.add(egui::Slider::new(&mut cfg.audio.volume, 0.0..=1.0).text("Volume"));
+        ui.checkbox(&mut cfg.audio.enabled, t!(cfg.locale, Msg::AudioEnabled));
+        ui.add(
+            egui::Slider::new(&mut cfg.audio.volume, 0.0..=1.0).text(t!(cfg.locale, Msg::Volume)),
+        );
         ui.separator();
         ui.label("Per-voice mute (S-DSP channels 0-7):");
         ui.horizontal(|ui| {
@@ -1045,7 +1090,7 @@ impl ShellState {
         ui.separator();
         // Output device picker (`v1.25.0`). `audio.device` round-tripped through
         // `config.toml` before this but nothing read it.
-        ui.label("Output device:");
+        ui.label(format!("{}:", t!(cfg.locale, Msg::OutputDevice)));
         let current_dev = cfg.audio.device.clone();
         egui::ComboBox::from_id_salt("audio_device_selector")
             .selected_text(current_dev.as_deref().unwrap_or("(system default)"))
@@ -1070,13 +1115,16 @@ impl ShellState {
         // Latency + resampler (`v1.25.0`). Both take effect on the next launch for
         // the ring size (it is allocated once at device open); the DRC setpoint and
         // the kernel are re-read every frame, so those change immediately.
-        ui.add(egui::Slider::new(&mut cfg.audio.latency_ms, 10..=250).text("Target latency (ms)"))
-            .on_hover_text(
-                "The buffer level the rate-control servo holds. Lower is more \
+        ui.add(
+            egui::Slider::new(&mut cfg.audio.latency_ms, 10..=250)
+                .text(t!(cfg.locale, Msg::TargetLatency)),
+        )
+        .on_hover_text(
+            "The buffer level the rate-control servo holds. Lower is more \
                          responsive; too low and the audio device starves. Buffer resizing \
                          takes effect on restart.",
-            );
-        ui.label("Resampler kernel:");
+        );
+        ui.label(format!("{}:", t!(cfg.locale, Msg::ResamplerKernel)));
         ui.horizontal(|ui| {
             for kernel in crate::audio_core::ResampleKernel::all() {
                 ui.radio_value(&mut cfg.audio.resampler, kernel, kernel.display_name());
@@ -1084,7 +1132,7 @@ impl ShellState {
         });
         ui.separator();
         // Graphic EQ (`v1.25.0`). Flat + disabled is an exact bypass.
-        ui.checkbox(&mut cfg.audio.eq.enabled, "Graphic equaliser");
+        ui.checkbox(&mut cfg.audio.eq.enabled, t!(cfg.locale, Msg::GraphicEq));
         ui.add_enabled_ui(cfg.audio.eq.enabled, |ui| {
             ui.horizontal(|ui| {
                 for (i, centre) in crate::eq::CENTRES_HZ.iter().enumerate() {
@@ -1106,7 +1154,7 @@ impl ShellState {
                     });
                 }
             });
-            if ui.button("Flatten").clicked() {
+            if ui.button(t!(cfg.locale, Msg::Flatten)).clicked() {
                 cfg.audio.eq.gains_db = [0.0; crate::eq::BANDS];
             }
         });
@@ -1129,7 +1177,7 @@ impl ShellState {
     /// Autofire + physical-gamepad settings (`v1.25.0`, T-FP-A) — split out of `settings_input`
     /// for the same line-lint reason as `settings_video_overscan`.
     fn settings_input_devices(ui: &mut egui::Ui, cfg: &mut Config, info: &ShellInfo) {
-        ui.label("Autofire (turbo):");
+        ui.label(format!("{}:", t!(cfg.locale, Msg::Autofire)));
         ui.horizontal(|ui| {
             ui.checkbox(&mut cfg.turbo.a, "A");
             ui.checkbox(&mut cfg.turbo.b, "B");
@@ -1146,12 +1194,13 @@ impl ShellState {
         );
         ui.separator();
         // Physical gamepads (`v1.25.0`).
-        ui.label("Gamepads:");
+        ui.label(format!("{}:", t!(cfg.locale, Msg::Gamepads)));
         ui.checkbox(&mut cfg.gamepad.enabled, "Enable gamepad input")
             .on_hover_text("Takes effect on restart");
         ui.add_enabled(
             cfg.gamepad.enabled,
-            egui::Slider::new(&mut cfg.gamepad.deadzone, 0.0..=0.9).text("Stick deadzone"),
+            egui::Slider::new(&mut cfg.gamepad.deadzone, 0.0..=0.9)
+                .text(t!(cfg.locale, Msg::StickDeadzone)),
         );
         match &info.gamepads {
             g if g.is_empty() => {
@@ -1174,21 +1223,25 @@ impl ShellState {
             .show(ui, |ui| {
                 for button in Button::ALL {
                     ui.label(format!("{button:?}"));
-                    let bound = cfg
-                        .p1
-                        .binds
-                        .iter()
-                        .find(|(_, b)| *b == button)
-                        .map_or("(unbound)", |(name, _)| name.as_str());
+                    let bound =
+                        cfg.p1.binds.iter().find(|(_, b)| *b == button).map_or_else(
+                            || t!(cfg.locale, Msg::Unbound),
+                            |(name, _)| name.as_str(),
+                        );
                     ui.label(bound);
                     let listening = self.awaiting_bind == Some(button);
                     let label = if listening {
-                        "Press a key…"
+                        t!(cfg.locale, Msg::PressAKey)
                     } else {
-                        "Rebind"
+                        t!(cfg.locale, Msg::Rebind)
                     };
                     if ui.button(label).clicked() && !listening {
                         self.awaiting_bind = Some(button);
+                        // Symmetric with the P2 grid below, which already clears this one:
+                        // `latch_key` checks P1 first, so leaving a pending P2 capture armed
+                        // would make it swallow the next keypress after the P1 bind completes —
+                        // a rebind the user never asked for.
+                        self.awaiting_bind_p2 = None;
                     }
                     ui.end_row();
                 }
@@ -1222,18 +1275,16 @@ impl ShellState {
                 .show(ui, |ui| {
                     for button in Button::ALL {
                         ui.label(format!("{button:?}"));
-                        let bound = cfg
-                            .p2
-                            .binds
-                            .iter()
-                            .find(|(_, b)| *b == button)
-                            .map_or("(unbound)", |(name, _)| name.as_str());
+                        let bound = cfg.p2.binds.iter().find(|(_, b)| *b == button).map_or_else(
+                            || t!(cfg.locale, Msg::Unbound),
+                            |(name, _)| name.as_str(),
+                        );
                         ui.label(bound);
                         let listening = self.awaiting_bind_p2 == Some(button);
                         let label = if listening {
-                            "Press a key…"
+                            t!(cfg.locale, Msg::PressAKey)
                         } else {
-                            "Rebind"
+                            t!(cfg.locale, Msg::Rebind)
                         };
                         if ui.button(label).clicked() && !listening {
                             self.awaiting_bind_p2 = Some(button);
@@ -1269,11 +1320,11 @@ impl ShellState {
 
     /// Settings -> System (`v1.25.0`, T-FP-A): region, theme, and the language picker.
     fn settings_system(ui: &mut egui::Ui, cfg: &mut Config) {
-        ui.label("Region:");
+        ui.label(format!("{}:", t!(cfg.locale, Msg::Region)));
         ui.radio_value(&mut cfg.region, Region::Ntsc, "NTSC");
         ui.radio_value(&mut cfg.region, Region::Pal, "PAL");
         ui.separator();
-        ui.label("Theme:");
+        ui.label(format!("{}:", t!(cfg.locale, Msg::Theme)));
         ui.horizontal(|ui| {
             for theme in crate::config::AppTheme::all() {
                 ui.radio_value(&mut cfg.theme, theme, theme.display_name());
@@ -1306,8 +1357,16 @@ impl ShellState {
             .resizable(true)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    for (i, name) in ["Video", "Audio", "Input", "System"].iter().enumerate() {
-                        ui.selectable_value(&mut self.settings_tab, i, *name);
+                    for (i, name) in [
+                        t!(cfg.locale, Msg::TabVideo),
+                        t!(cfg.locale, Msg::TabAudio),
+                        t!(cfg.locale, Msg::TabInput),
+                        t!(cfg.locale, Msg::TabSystem),
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    {
+                        ui.selectable_value(&mut self.settings_tab, i, name);
                     }
                 });
                 ui.separator();
