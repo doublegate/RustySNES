@@ -81,6 +81,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Settings gained Video (aspect, overscan grid), Audio (latency, kernel, health readout), and Input
     (autofire, gamepad list + deadzone) controls for all of the above.
 
+- **Frontend parity with RustyNES: debugger instrumentation (T-FP-C1).**
+  - **`rustysnes_core::trace`** — an instruction trace, a control-flow event log, and a WRAM access
+    heat map, all under the existing `debug-hooks` gate and written to `watchpoint.rs`'s contract:
+    compiled out entirely when the feature is off, never in a save state, and costing one `bool` test
+    per hook when disarmed. Recording is armed **separately** from the feature, because a watchpoint
+    list is naturally empty until the user adds one while a trace records everything by nature; the
+    heat map's allocation happens on the first enable and never on a build that leaves it off.
+    Control-flow events are classified from the *actual* post-step `PBR:PC` rather than by decoding
+    the operand — a `JSR (a,X)` has no static destination, and the same read catches an interrupt
+    taken between instructions for free.
+  - **Memory editor panel** — go-to and paging, byte editing, freezes, and a heat column. Edits reach
+    WRAM only and non-WRAM rows are greyed with the refusal stated by name, because a debugger that
+    appeared to edit a ROM byte which then read back unchanged would look like an emulation bug. A
+    freeze is re-applied every present, not once: it exists to hold a value the *game* is rewriting.
+    The heat column is log-scaled against the map's peak, since access counts span orders of
+    magnitude and a linear scale renders every ordinary variable indistinguishable from untouched.
+  - **OAM panel** — the 544 OAM bytes had been in the snapshot since the overlay existed with nothing
+    reading them. Each sprite's X sign bit and size bit live in a separate high table at
+    `(index % 4) * 2`, so "why is this sprite off-screen" is answerable by the decode and not by the
+    hex. Off-screen rows are dimmed rather than hidden, and the test uses the maximum sprite extent so
+    it never hides a sprite that might be partly visible.
+  - **Map panel** — where ROM, SRAM, WRAM, and I/O land on the CPU bus, **derived from the detected
+    mapping** so a LoROM and a HiROM cart genuinely differ. An address no range covers reports as
+    uncovered rather than being forced into the nearest one.
+
 - **Frontend parity with RustyNES: observability and pacing (T-FP-B).**
   - **`PacingMode` is now a real setting.** It was declared in `config.toml`, serialized, and read by
     **nothing** — `Auto`/`Display`/`Vrr`/`Wallclock` all behaved identically. `crate::pacing::resolve`

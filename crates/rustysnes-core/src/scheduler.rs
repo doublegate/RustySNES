@@ -114,6 +114,14 @@ pub struct System {
     sa1_last_master: u64,
     /// Sub-cycle master-clock credit carried between SA-1 catch-up calls.
     sa1_credit: u64,
+    /// `PBR:PC` of the instruction `trace_step` recorded, carried to `trace_after_step` so the
+    /// control-flow classifier can name where the transfer came *from* (`v1.25.0`, T-FP-C1).
+    /// Debugger-only state; never in a save state.
+    #[cfg(feature = "debug-hooks")]
+    pending_trace_pc: u32,
+    /// That instruction's opcode, likewise carried across the step.
+    #[cfg(feature = "debug-hooks")]
+    pending_trace_opcode: u8,
 }
 
 impl System {
@@ -129,6 +137,10 @@ impl System {
             sa1_cpu: None,
             sa1_last_master: 0,
             sa1_credit: 0,
+            #[cfg(feature = "debug-hooks")]
+            pending_trace_pc: 0,
+            #[cfg(feature = "debug-hooks")]
+            pending_trace_opcode: 0,
         }
     }
 
@@ -229,7 +241,11 @@ impl System {
             #[cfg(feature = "debug-hooks")]
             self.bus
                 .set_debug_pc((u32::from(self.cpu.regs.pbr) << 16) | u32::from(self.cpu.regs.pc));
+            #[cfg(feature = "debug-hooks")]
+            self.trace_step();
             self.cpu.step(&mut self.bus);
+            #[cfg(feature = "debug-hooks")]
+            self.trace_after_step();
             steps += 1;
 
             // HDMA is now serviced clock-accurately inside `Bus::advance_master` (so it stays
@@ -275,10 +291,76 @@ impl System {
         #[cfg(feature = "debug-hooks")]
         self.bus
             .set_debug_pc((u32::from(self.cpu.regs.pbr) << 16) | u32::from(self.cpu.regs.pc));
+        #[cfg(feature = "debug-hooks")]
+        self.trace_step();
         self.cpu.step(&mut self.bus);
+        #[cfg(feature = "debug-hooks")]
+        self.trace_after_step();
         if self.sa1_cpu.is_some() {
             self.run_sa1();
         }
+    }
+
+    /// Record the instruction about to execute into the trace ring (`v1.25.0`, T-FP-C1).
+    ///
+    /// Pre-execution, because a trace is read to answer "what was the machine holding when it
+    /// decided to do that" — see [`crate::trace::TraceEntry`]. Costs one `bool` test when tracing
+    /// is disarmed, which is every build that has not explicitly turned it on.
+    #[cfg(feature = "debug-hooks")]
+    fn trace_step(&mut self) {
+        if !self.bus.trace().is_tracing() {
+            return;
+        }
+        let regs = self.cpu.regs;
+        let pbr_pc = (u32::from(regs.pbr) << 16) | u32::from(regs.pc);
+        // `Bus::peek` rather than a live read: a debugger fetch must not perturb the open-bus latch
+        // or trip a watchpoint, the same rule the disassembler already follows.
+        let opcode = self.bus.peek(pbr_pc);
+        self.bus.trace_mut().record_step(crate::trace::TraceEntry {
+            pbr_pc,
+            opcode,
+            a: regs.a,
+            x: regs.x,
+            y: regs.y,
+            sp: regs.s,
+            dp: regs.d,
+            p: regs.p.bits(),
+            db: regs.dbr,
+            emulation: regs.emulation,
+        });
+        self.pending_trace_pc = pbr_pc;
+        self.pending_trace_opcode = opcode;
+    }
+
+    /// Classify the instruction that just ran into a control-flow event (`v1.25.0`, T-FP-C1).
+    ///
+    /// Derived from the opcode plus the *actual* post-execution `PBR:PC` rather than from decoding
+    /// the operand: a `JSR` whose target is computed (`JSR (a,X)`) has no static destination, and a
+    /// conditional path would have to re-implement the CPU to know whether it was taken. Reading
+    /// where the CPU actually went cannot be wrong about either.
+    ///
+    /// An interrupt taken *between* instructions is caught the same way — the post-step `PBR:PC`
+    /// lands in a vector — which is why this is one classifier rather than separate call and
+    /// interrupt hooks.
+    #[cfg(feature = "debug-hooks")]
+    fn trace_after_step(&mut self) {
+        if !self.bus.trace().is_tracing() {
+            return;
+        }
+        let kind = match self.pending_trace_opcode {
+            // JSR a, JSL al, JSR (a,X)
+            0x20 | 0x22 | 0xFC => crate::trace::EventKind::Call,
+            // RTS, RTL
+            0x60 | 0x6B => crate::trace::EventKind::Return,
+            0x40 => crate::trace::EventKind::Rti,
+            0x00 => crate::trace::EventKind::Brk,
+            0x02 => crate::trace::EventKind::Cop,
+            _ => return,
+        };
+        let to = (u32::from(self.cpu.regs.pbr) << 16) | u32::from(self.cpu.regs.pc);
+        self.bus
+            .trace_mut()
+            .record_event(kind, self.pending_trace_pc, to);
     }
 
     /// Advance by one CPU instruction (kept for API compatibility with the old skeleton). The

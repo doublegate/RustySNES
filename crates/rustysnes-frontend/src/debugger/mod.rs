@@ -18,11 +18,15 @@ mod apu_panel;
 mod cart_panel;
 mod cpu_panel;
 mod doc_panel;
+mod map_panel;
 mod memory_compare_panel;
+pub mod memory_panel;
+mod oam_panel;
 mod ppu_panel;
 mod rom_info_panel;
 mod watch_panel;
 
+pub use memory_panel::{FreezeEntry, PokeRequest};
 pub use rom_info_panel::RomInfo;
 
 use crate::debug_snapshot::{DebugSnapshot, WatchpointEntry};
@@ -48,6 +52,12 @@ pub enum DebugPanel {
     Doc,
     /// CRC32/SHA-256/header decode of the loaded cart (`v1.20.0`).
     RomInfo,
+    /// Hex memory **editor** with goto/poke/freeze and an access heat column (`v1.25.0`, T-FP-C1).
+    Memory,
+    /// The decoded OAM sprite table (`v1.25.0`, T-FP-C1).
+    Oam,
+    /// The cart's CPU-bus memory map, derived from the detected mapping (`v1.25.0`, T-FP-C1).
+    Map,
 }
 
 /// Format a row of 16-bit words as space-separated 4-hex-digit groups — shared by the PPU (VRAM/
@@ -79,6 +89,10 @@ impl ShellState {
     /// is `None` only when the debugger opens before the app's next lock-scope has built a
     /// snapshot yet — every panel handles that by showing "no data yet" rather than assuming
     /// the app has already supplied one.
+    // Each parameter is an independent piece of shell state the panels mutate in place (the
+    // watchpoint/breakpoint/freeze/poke lists) or read (the snapshot, ROM info). Bundling them into
+    // a struct would only move the same fields behind one more name.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn render_debugger(
         &mut self,
         ctx: &egui::Context,
@@ -87,6 +101,8 @@ impl ShellState {
         breakpoints: &mut Vec<u32>,
         actions: &mut Vec<MenuAction>,
         rom_info: Option<&RomInfo>,
+        freezes: &mut Vec<FreezeEntry>,
+        pokes: &mut Vec<PokeRequest>,
     ) {
         let mut open = self.debugger_open;
         egui::Window::new("Debugger")
@@ -98,7 +114,10 @@ impl ShellState {
                     ui.selectable_value(&mut self.panel, DebugPanel::Ppu, "PPU1+2");
                     ui.selectable_value(&mut self.panel, DebugPanel::Apu, "SPC700+DSP");
                     ui.selectable_value(&mut self.panel, DebugPanel::Cart, "Cart");
-                    ui.selectable_value(&mut self.panel, DebugPanel::Watch, "Memory/Watch");
+                    ui.selectable_value(&mut self.panel, DebugPanel::Watch, "Watch");
+                    ui.selectable_value(&mut self.panel, DebugPanel::Memory, "Memory");
+                    ui.selectable_value(&mut self.panel, DebugPanel::Oam, "OAM");
+                    ui.selectable_value(&mut self.panel, DebugPanel::Map, "Map");
                     ui.selectable_value(&mut self.panel, DebugPanel::MemCompare, "Compare");
                     ui.selectable_value(&mut self.panel, DebugPanel::Doc, "Docs");
                     ui.selectable_value(&mut self.panel, DebugPanel::RomInfo, "ROM Info");
@@ -125,7 +144,19 @@ impl ShellState {
                         rom_info_panel::render(ui, rom_info);
                         return;
                     }
-                    DebugPanel::Cpu | DebugPanel::Ppu | DebugPanel::Apu | DebugPanel::Cart => {}
+                    DebugPanel::Memory => {
+                        self.render_memory_panel(ui, debug, freezes, pokes, actions);
+                        return;
+                    }
+                    DebugPanel::Map => {
+                        self.render_map_panel(ui, debug);
+                        return;
+                    }
+                    DebugPanel::Cpu
+                    | DebugPanel::Ppu
+                    | DebugPanel::Apu
+                    | DebugPanel::Cart
+                    | DebugPanel::Oam => {}
                 }
                 let Some(debug) = debug else {
                     // `debug` tracks `debugger_open`, not ROM state (a snapshot builds fine for a
@@ -145,10 +176,13 @@ impl ShellState {
                     DebugPanel::Ppu => ppu_panel::render(ui, debug),
                     DebugPanel::Apu => apu_panel::render(ui, debug),
                     DebugPanel::Cart => cart_panel::render(ui, debug),
+                    DebugPanel::Oam => oam_panel::render(ui, debug),
                     DebugPanel::Watch
                     | DebugPanel::MemCompare
                     | DebugPanel::Doc
-                    | DebugPanel::RomInfo => {
+                    | DebugPanel::RomInfo
+                    | DebugPanel::Memory
+                    | DebugPanel::Map => {
                         unreachable!("handled above")
                     }
                 }

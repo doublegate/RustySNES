@@ -42,6 +42,12 @@ pub enum MenuAction {
     ClearRecent,
     /// Clear every performance metric and counter (`v1.25.0`, T-FP-B).
     ResetPerfStats,
+    /// Arm or disarm the core's WRAM access counter (`v1.25.0`, T-FP-C1).
+    SetAccessCounting(bool),
+    /// Zero every recorded access count.
+    ClearAccessCounts,
+    /// Arm or disarm the core's instruction/event trace (`v1.25.0`, T-FP-C1).
+    SetTracing(bool),
     /// Start or stop the per-present CSV performance log (`v1.25.0`, T-FP-B).
     TogglePerfLog,
     /// Store the current settings as overrides for the loaded ROM (`v1.25.0`).
@@ -211,6 +217,20 @@ pub struct ShellState {
     /// The 65C816 panel's last breakpoint address-parse error, if the most recent "Add" attempt
     /// failed.
     pub bp_addr_error: Option<String>,
+    /// The Memory editor's "go to" address entry (`v1.25.0`, T-FP-C1).
+    pub mem_goto_input: String,
+    /// A requested new window start, consumed by `app.rs` (which owns `set_debug_memory_scroll`)
+    /// after the egui pass. `None` when the view should stay where it is — the panel never moves
+    /// the window itself, since that would mean reaching past the shell's no-emu-lock rule.
+    pub mem_goto_target: Option<u32>,
+    /// The Memory editor's poke/freeze address entry.
+    pub mem_poke_addr: String,
+    /// The Memory editor's poke/freeze value entry.
+    pub mem_poke_value: String,
+    /// The Memory editor's last parse/eligibility error.
+    pub mem_error: Option<String>,
+    /// The Map panel's "what is at this address" lookup entry (`v1.25.0`, T-FP-C1).
+    pub map_lookup_input: String,
     /// The Input tab's rebind-in-progress marker: the P1 button awaiting its next physical key,
     /// or `None` when idle. Set by the tab's own "Rebind" button; consumed by
     /// `App::window_event`'s key handler, which intercepts the very next key press instead of
@@ -447,6 +467,8 @@ impl ShellState {
         breakpoints: &mut Vec<u32>,
         save_slots: Option<&[SlotMeta]>,
         rom_info: Option<&RomInfo>,
+        freezes: &mut Vec<crate::debugger::FreezeEntry>,
+        pokes: &mut Vec<crate::debugger::PokeRequest>,
         #[cfg(feature = "cheats")] cheats: &mut Vec<CheatEntry>,
         #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))] netplay_connected: bool,
         #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
@@ -832,6 +854,8 @@ impl ShellState {
                 breakpoints,
                 &mut actions,
                 rom_info,
+                freezes,
+                pokes,
             );
         }
         if self.save_states_open {
