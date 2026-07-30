@@ -147,11 +147,14 @@ and the SCBR/SCMR screen-base + 2/4/8 bpp character-format addressing; and the S
 **Host-sync (the only cross-clock coupling).** The GSU is started by the CPU writing R15's high
 byte at `$301F`, which sets **Go** and begins execution at `(PBR:R15)`; the chip free-runs until
 `STOP` clears Go (and, unless CFGR masks it, raises the cart IRQ), and software polls SFR for Go.
-Because Go is the only observable coupling — exactly the RQM role the DSP-1 uses — the board runs
-the GSU to completion the instant Go is set (`Gsu::run_until_stopped`, capped against a runaway
-program). This is byte-exact and fully deterministic (`docs/adr/0004`) and needs no free-running
-core-scheduler tick of its own. (The NEC DSP, by contrast, is polled *mid-run* through RQM, so that
-engine is now master-clock-stepped — see "the shared NEC core" above.)
+Like the SPC700, ST018, and (since v1.23.0) the NEC DSP, the GSU is a **free-running,
+master-clock-stepped** cothread (ares' `SuperFX::main`): the Bus advances it one master clock per
+`Board::coprocessor_tick`, and `Gsu::tick` paces each instruction's real clock cost out one tick at a
+time (its `owed` counter over `Gsu::step_one`'s per-access checkpoints). So a `Go` burst does **not**
+drain to completion atomically inside the arming bus write — the CPU keeps running in between, and a
+two-pass render split across multiple `Go` bursts within a frame stays in step. Integer-only and
+fully deterministic (`docs/adr/0004`). (An earlier run-to-completion model — the DSP-1 `run_until_rqm`
+analogue — was retired; the mid-run interleave is what the two-pass-render case needs.)
 
 **The Super FX board (`coproc::superfx::SuperFxBoard`)** owns the ROM (shared, read-only) and the
 Game Pak RAM (the GSU plot bitmap, sized from the header clamped to a 64 KiB minimum, power-of-two
