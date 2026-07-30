@@ -1500,3 +1500,58 @@ board renders byte-identically; no save-state format change.
   `docs/cart.md`, `docs/STATUS.md`. `cargo test --workspace` green; fmt, clippy (default + per-feature),
   no_std, doc all green. This completes the NEC DSP family: DSP-1/2/3/4 + ST010/011, six chips, one
   engine.
+
+### `v1.25.0 "Workbench"` — the frontend catches up with the engine — **RELEASED 2026-07-30**
+
+Ten reviewed increments (`T-FP-A` … `T-FP-G2`, one PR each) taking the egui shell from "boots games"
+to a tool you can debug, profile, record, retime, and author a TAS with. **No emulation behaviour
+changes**: additive and default-off or default-inert throughout, an existing `config.toml` renders
+and sounds byte-identically, and save-state `FORMAT_VERSION` stays at 10.
+
+- **`T-FP-A` Infrastructure.** Compile-time-checked localisation (`crate::i18n`) in English, Spanish,
+  French, German, and Japanese — each locale is an array indexed by a `Msg` enum, so **adding a
+  string without translating it fails the build**, where a runtime map would surface a blank label
+  nobody notices. Wired through the entire menu bar and all four Settings tabs. Plus `crate::perf`'s
+  distribution primitives, a populated Help menu, and `render_settings` split into per-tab renderers.
+- **`T-FP-B` Observability + pacing.** p50/p95/p99/max over produce/present/GPU/audio-occupancy,
+  sparklines, an opt-in CSV session log, an optional `gpu-timing` feature over `wgpu` timestamp
+  queries (reporting *unavailable* rather than a fabricated number where the adapter lacks it), and
+  `PacingMode` made real — resolved against the monitor's reported refresh and the surface's actual
+  present-mode caps, with a request the hardware cannot honour **reported as declined**.
+- **`T-FP-C1`/`C2` The debugger.** Core `debug-hooks` instruction trace, control-flow event log, and
+  WRAM access heat map on `watchpoint.rs`'s zero-cost-when-off contract; then memory editor with
+  freezes, OAM viewer, cart map, an expression evaluator driving conditional breakpoints, symbol
+  maps, trace/callstack/event viewers, and an inline 65C816 assembler that **searches the real
+  disassembler** instead of carrying a second opcode table — correct by construction against the
+  decoder, and a new opcode becomes assemblable for free.
+- **`T-FP-D`/`E` The shader stack.** An ordered multi-pass chain with `RetroArch`-shaped per-pass
+  keys, generic `#pragma parameter` sliders generated *from the pass*, richer CRT and an RGB-domain
+  NTSC pass, then `.slangp`/`.cgp` parsing and a best-effort GLSL→WGSL bridge through naga where
+  every untranslatable pass is **named** rather than silently black. Verified by **offscreen wgpu
+  goldens** — new infrastructure, and the enabler: the prior shader tests only checked that WGSL
+  parsed, which a shader that compiles and renders the wrong thing passes.
+- **`T-FP-F` Audio + rewind.** Additive per-voice gains and output taps at the existing per-voice-mute
+  site (unity is a **bit-exact bypass**), an 8-voice mixer panel, XOR-delta + RLE rewind compression
+  with periodic keyframes and **no new dependency**, and `save_state_into` removing run-ahead's
+  per-frame allocation.
+- **`T-FP-G1`/`G2` Media + TAStudio.** Raw `.y4m` + `.wav` capture with an exact-rational frame rate
+  and drift **reported, not corrected**; a virtual pad sharing one geometry source with its renderer;
+  CRC32-keyed game and Game Genie databases; input macros; and TAStudio — piano roll, greenzone
+  reusing the rewind compression, invalidation as the default consequence of an edit.
+
+**The defect class this release was written to remove.** Five settings shipped earlier that
+round-tripped through `config.toml` while nothing read them (`gamepad`, `video.integer_scale`,
+`config.p2`, `audio.device`, `PacingMode`) are now live; two more of the same shape were caught
+during review of this release itself. The rule that came out of it: **grep a setting's readers, not
+its definition.**
+
+**Two engine-side fixes ride along**, both found by frontend work, both invisible to rendering:
+`Cpu::interrupts_taken` bookkeeping so a debugger can distinguish a vectored step from an executed
+one (without it, an NMI arriving after a `JSR` was logged as a second `Call`), and a `delta::Chain`
+eviction defect where a keyframe evicted from the front orphaned every delta that referenced it —
+which affected the **rewind buffer** as much as the new greenzone.
+
+**Verification.** `cargo test --workspace` 804 passing / 1 ignored; per-feature frontend clippy
+across all eight feature sets (the `--features full` set excludes `emu-thread`, so default+full is
+not enough); `rustysnes-apu`/`-core`/`-cpu` clippy; `no_std` core builds for `thumbv7em-none-eabihf`;
+fmt and `RUSTDOCFLAGS=-D warnings cargo doc` clean; the AccuracySNES battery unchanged.

@@ -237,3 +237,35 @@ WARP.md
 
 # Antigravity PR reviewer: large-diff on-disk handoff (transient, removed by the script).
 /.agy-review-work/
+
+# --- Frontend capture / telemetry output (`v1.25.0`, T-FP-B / T-FP-G1) ---
+# These land in the user's data directory by default, but the emulator can be pointed anywhere and
+# is routinely run straight out of a checkout — so a stray capture must not become a commit
+# candidate.
+#
+# Each pattern's breadth was checked against what is actually COMMITTED rather than assumed. The
+# extensions below have zero tracked files, so they are safe to match recursively:
+**/*.y4m
+**/*.wav
+**/rustysnes-perf-*.csv
+
+# Screenshots are the exception, and the reason the rest of this block is not simply `*.png`.
+# `screenshot::file_stem` writes `<sanitized-rom-title>-NNNN.png`, defaulting to `rustysnes-NNNN`
+# — but the repo tracks **712** PNGs, 30 of them named `rustysnes-*.png` (the branding banners),
+# and `assets/RustySNES_Icon_Pack/transparent/icon/rustysnes-icon-transparent-1024.png` even
+# matches a generic `*-NNNN.png`. So:
+#   - the default-title form is exact enough to match recursively (zero tracked collisions);
+#   - the ROM-titled form stays ROOT-ANCHORED, since a recursive version would ignore real assets.
+**/rustysnes-[0-9][0-9][0-9][0-9].png
+/*-[0-9][0-9][0-9][0-9].png
+
+# The recommended destination for captures — point the emulator here and nothing above has to be
+# relied on at all. `**/` already covers the repo root, so no separate `/captures/` is needed.
+**/captures/
+
+# Shader presets and symbol maps a user drops in to try (inputs, never project files). Zero
+# tracked files of any of these extensions, so recursive is safe.
+**/*.slangp
+**/*.cgp
+**/*.sym
+/presets/
