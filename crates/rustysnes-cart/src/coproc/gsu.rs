@@ -25,8 +25,10 @@
 //! `owed` counter over [`Gsu::step_one`]'s per-access checkpoints), so a `Go` burst does **not** drain
 //! to completion atomically inside the one bus write that armed it — the CPU keeps running in between,
 //! and a two-pass render split across multiple `Go` bursts within one displayed frame stays in step.
-//! Integer-only and fully deterministic (`docs/adr/0004`). While Go is set the GSU owns the shared
-//! ROM/RAM (the CPU sees the snooze vector / open bus — see [`crate::coproc::superfx`]).
+//! Integer-only and fully deterministic (`docs/adr/0004`). While Go is set the GSU owns whichever of
+//! the shared ROM / RAM buses its `SCMR` `RON` / `RAN` bits grant ([`Gsu::owns_rom`] = `Go & RON`,
+//! [`Gsu::owns_ram`] = `Go & RAN`) — the CPU sees the snooze vector / open bus for a bus the GSU owns,
+//! but a bus whose `RON`/`RAN` bit is clear stays CPU-visible (see [`crate::coproc::superfx`]).
 //!
 //! (This replaced an earlier *run-to-completion* model that drained the whole `Go` burst inside the
 //! arming bus write — the DSP-1 `run_until_rqm` analogue — which could desync a two-pass render's two
