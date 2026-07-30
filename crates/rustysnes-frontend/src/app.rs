@@ -167,6 +167,11 @@ struct Active {
     /// (e.g. an SNES hi-res mode switch), unlike `Vec::clone`'s always-fresh allocation.
     #[cfg(feature = "emu-thread")]
     fb_scratch: Vec<u8>,
+    /// The current frame's accumulated P2 keyboard button state (`v1.25.0`).
+    ///
+    /// `config.p2` had round-tripped through `config.toml` since the schema was written but nothing
+    /// ever read it, so local two-player keyboard play was impossible.
+    pad2: Buttons,
     /// The current frame's accumulated P1 button state (when not threaded, stepped inline).
     pad1: Buttons,
     /// The physical-gamepad runtime (`v1.25.0`), or `None` when the backend is unavailable or the
@@ -506,6 +511,18 @@ impl ApplicationHandler<AppEvent> for App {
                             }
                         }
                     }
+                } else if let Some(button) = active.shell.awaiting_bind_p2 {
+                    // The same capture path for P2 (`v1.25.0`), against `config.p2`.
+                    if key_event.state.is_pressed() {
+                        active.shell.awaiting_bind_p2 = None;
+                        if let winit::keyboard::PhysicalKey::Code(code) = key_event.physical_key
+                            && code != winit::keyboard::KeyCode::Escape
+                        {
+                            let name = format!("{code:?}");
+                            self.config.p2.rebind(name, button);
+                            let _ = self.config.save();
+                        }
+                    }
                 } else {
                     // `v1.0.1` global hotkeys — fixed, not rebindable, checked before gameplay
                     // latching. Only on the key-DOWN edge, and never on OS auto-repeat (holding a
@@ -709,7 +726,12 @@ impl App {
                 crate::audio_core::latency_samples(self.config.audio.sample_rate, latency_ms) * 4;
             let pow2 = want.max(1024).next_power_of_two().trailing_zeros();
             let ring = Arc::new(AudioRing::new(pow2));
-            let out = AudioOutput::new(Arc::clone(&ring)).ok();
+            // `v1.25.0`: honour the remembered device name (falling back to the host default if it
+            // has since disappeared) — `config.audio.device` round-tripped through `config.toml`
+            // before this but nothing ever read it.
+            let out =
+                AudioOutput::with_device(Arc::clone(&ring), self.config.audio.device.as_deref())
+                    .ok();
             // Arm the refill gate at half the latency target, using the rate the device actually
             // negotiated (which may differ from the configured one). Without this the consumer
             // starts draining an almost-empty ring and every dropout becomes continuous crackle.
@@ -787,6 +809,7 @@ impl App {
             #[cfg(feature = "emu-thread")]
             fb_scratch: Vec::new(),
             pad1: Buttons::default(),
+            pad2: Buttons::default(),
             #[cfg(not(target_arch = "wasm32"))]
             gamepad: self
                 .config
@@ -919,7 +942,7 @@ impl App {
     /// off phase and silently cancel the pulsing.
     #[cfg(not(target_arch = "wasm32"))]
     fn effective_pads(active: &mut Active, cfg: &crate::config::Config) -> (Buttons, Buttons) {
-        let (mut p1, mut p2) = (active.pad1, Buttons::default());
+        let (mut p1, mut p2) = (active.pad1, active.pad2);
         if let Some(gp) = active.gamepad.as_mut() {
             gp.set_deadzone(cfg.gamepad.deadzone_clamped());
             gp.poll();
@@ -943,6 +966,7 @@ impl App {
     #[cfg(target_arch = "wasm32")]
     fn effective_pads(active: &mut Active, cfg: &crate::config::Config) -> (Buttons, Buttons) {
         let mut p1 = active.pad1;
+        let mut p2 = active.pad2;
         if cfg.turbo.any() {
             p1 = crate::input::apply_turbo(
                 p1,
@@ -950,9 +974,15 @@ impl App {
                 cfg.turbo.period_clamped(),
                 active.turbo_frame,
             );
+            p2 = crate::input::apply_turbo(
+                p2,
+                cfg.turbo.mask(),
+                cfg.turbo.period_clamped(),
+                active.turbo_frame,
+            );
         }
         active.turbo_frame = active.turbo_frame.wrapping_add(1);
-        (p1, Buttons::default())
+        (p1, p2)
     }
 
     #[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]
@@ -1014,6 +1044,12 @@ impl App {
                     .input
                     .p1
                     .store(u32::from(active.pad1.sanitize_dpad().0), Ordering::Release);
+            } else if let Some(button) = config.p2.button_for(&name) {
+                // `v1.25.0`: P2 keyboard input. Resolved only when P1 did NOT claim the key, so a
+                // config that binds one key to both players (which every config predating the
+                // distinct `KeyBindings::default_p2` layout does, since `p2` used to default to the
+                // P1 table) drives P1 alone instead of moving both pads at once.
+                active.pad2.set(button, pressed);
             }
         }
     }
@@ -1418,6 +1454,16 @@ impl App {
                 frame_time_ms: active.last_frame_time_ms,
                 audio_health_pct,
                 audio_health,
+                // Enumerating devices touches the audio host, so only pay it while Settings is
+                // open — the same gating `available_hd_packs`'s directory walk already uses.
+                #[cfg(not(target_arch = "wasm32"))]
+                audio_devices: if active.shell.settings_open {
+                    crate::audio::output_device_names()
+                } else {
+                    Vec::new()
+                },
+                #[cfg(target_arch = "wasm32")]
+                audio_devices: Vec::new(),
                 #[cfg(not(target_arch = "wasm32"))]
                 gamepads: active
                     .gamepad
@@ -2302,10 +2348,39 @@ fn load_rom_file(emu: &mut EmuCore, path: &Path) -> String {
         Ok(b) => b,
         Err(e) => return format!("read failed: {e}"),
     };
+    // Soft-patching (`v1.25.0`): a same-stem `.ips`/`.bps`/`.ups` beside the ROM is applied IN
+    // MEMORY, leaving the dump on disk pristine. A patch that fails to apply is reported and the
+    // UNPATCHED ROM is loaded instead — booting the original is far better than refusing to boot,
+    // and silently ignoring the failure would leave the user wondering why the hack did nothing.
+    let mut patch_note = String::new();
+    let bytes = match crate::patch::find_beside(path) {
+        Some(patch_path) => match std::fs::read(&patch_path) {
+            Ok(patch_bytes) => match crate::patch::apply(&bytes, &patch_bytes) {
+                Ok(patched) => {
+                    patch_note = format!(
+                        " (soft-patched with {})",
+                        patch_path
+                            .file_name()
+                            .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+                    );
+                    patched
+                }
+                Err(e) => {
+                    patch_note = format!(" — patch ignored ({e})");
+                    bytes
+                }
+            },
+            Err(e) => {
+                patch_note = format!(" — patch unreadable ({e})");
+                bytes
+            }
+        },
+        None => bytes,
+    };
     if let Err(e) = emu.load_rom(&bytes) {
         return format!("load failed: {e}");
     }
-    let mut status = format!("Loaded {}", path.display());
+    let mut status = format!("Loaded {}{patch_note}", path.display());
 
     // Coprocessor firmware (DSP-1.. / CX4): try the known dumps next to the ROM + the dev dir.
     if emu.needs_firmware() && !try_install_firmware(emu, path) {

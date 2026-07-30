@@ -143,6 +143,8 @@ pub struct ShellState {
     pub status: String,
     /// Whether emulation is paused (mirrored from the app for the menu checkmark).
     pub paused: bool,
+    /// Which P2 button is awaiting a key press for rebinding (`v1.25.0`), if any.
+    pub awaiting_bind_p2: Option<Button>,
     /// Actions raised OUTSIDE the egui pass (`v1.25.0`) — a dropped file, a global hotkey — drained
     /// into this present's action list.
     ///
@@ -279,6 +281,9 @@ pub struct ShellInfo {
     /// Full audio-buffer health including the starvation counters (`v1.25.0`). `None` on `wasm32`
     /// or when no audio device opened.
     pub audio_health: Option<AudioHealth>,
+    /// Output device names for the Settings picker (`v1.25.0`). Populated only while the Settings
+    /// window is open, since enumeration touches the audio host.
+    pub audio_devices: Vec<String>,
     /// Names of the connected gamepads in player order (`v1.25.0`). Empty when none are detected
     /// (or on `wasm32`, which has no `gilrs` runtime).
     pub gamepads: Vec<String>,
@@ -916,6 +921,35 @@ impl ShellState {
                             }
                         });
                         ui.separator();
+                        // Output device picker (`v1.25.0`). `audio.device` round-tripped through
+                        // `config.toml` before this but nothing read it.
+                        ui.label("Output device:");
+                        let current_dev = cfg.audio.device.clone();
+                        egui::ComboBox::from_id_salt("audio_device_selector")
+                            .selected_text(current_dev.as_deref().unwrap_or("(system default)"))
+                            .show_ui(ui, |ui| {
+                                if ui
+                                    .selectable_label(current_dev.is_none(), "(system default)")
+                                    .clicked()
+                                {
+                                    cfg.audio.device = None;
+                                }
+                                for name in &info.audio_devices {
+                                    if ui
+                                        .selectable_label(
+                                            current_dev.as_deref() == Some(name.as_str()),
+                                            name,
+                                        )
+                                        .clicked()
+                                    {
+                                        cfg.audio.device = Some(name.clone());
+                                    }
+                                }
+                            });
+                        ui.label(
+                            egui::RichText::new("Device changes take effect on restart.").weak(),
+                        );
+                        ui.separator();
                         // Latency + resampler (`v1.25.0`). Both take effect on the next launch for
                         // the ring size (it is allocated once at device open); the DRC setpoint and
                         // the kernel are re-read every frame, so those change immediately.
@@ -986,6 +1020,53 @@ impl ShellState {
                         if self.awaiting_bind.is_some() {
                             ui.label("Waiting for a key press — Esc cancels.");
                         }
+                        ui.separator();
+                        // P2 key bindings (`v1.25.0`) — previously unreachable: `config.p2` existed
+                        // and round-tripped, but no gameplay path consulted it.
+                        ui.collapsing("P2 key bindings", |ui| {
+                            let conflicts = cfg.p2.conflicts_with(&cfg.p1);
+                            if !conflicts.is_empty() {
+                                // Surfaced rather than silently resolved: the precedence rule makes
+                                // P1 win, which would otherwise look like P2's bind is just broken.
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{} key(s) also bound to P1 ({}) — P1 takes precedence.",
+                                        conflicts.len(),
+                                        conflicts.join(", ")
+                                    ))
+                                    .weak(),
+                                );
+                                if ui.button("Reset P2 to defaults").clicked() {
+                                    cfg.p2 = crate::input::KeyBindings::default_p2();
+                                }
+                            }
+                            egui::Grid::new("p2_rebind_grid")
+                                .num_columns(3)
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    for button in Button::ALL {
+                                        ui.label(format!("{button:?}"));
+                                        let bound = cfg
+                                            .p2
+                                            .binds
+                                            .iter()
+                                            .find(|(_, b)| *b == button)
+                                            .map_or("(unbound)", |(name, _)| name.as_str());
+                                        ui.label(bound);
+                                        let listening = self.awaiting_bind_p2 == Some(button);
+                                        let label = if listening {
+                                            "Press a key…"
+                                        } else {
+                                            "Rebind"
+                                        };
+                                        if ui.button(label).clicked() && !listening {
+                                            self.awaiting_bind_p2 = Some(button);
+                                            self.awaiting_bind = None;
+                                        }
+                                        ui.end_row();
+                                    }
+                                });
+                        });
                         ui.separator();
                         // Autofire (`v1.25.0`).
                         ui.label("Autofire (turbo):");

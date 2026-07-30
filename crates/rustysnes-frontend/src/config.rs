@@ -635,7 +635,11 @@ impl RecentRoms {
 }
 
 /// The full frontend config (serialized to `config.toml`).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+///
+/// `Default` is implemented by hand rather than derived because `p2` must NOT be
+/// `KeyBindings::default()` — that is the P1 layout, and now that P2 keyboard input is live
+/// (`v1.25.0`) an identical table would make every P1 key drive both pads.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     /// The console region (timing + active scanlines).
@@ -671,6 +675,28 @@ pub struct Config {
     pub recent: RecentRoms,
     /// Directory screenshots are written to, or `None` for the platform picture dir (`v1.25.0`).
     pub screenshot_dir: Option<String>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            region: Region::default(),
+            video: VideoConfig::default(),
+            audio: AudioConfig::default(),
+            p1: KeyBindings::default(),
+            // The one field that is deliberately not `Default::default()` — see the struct doc.
+            p2: KeyBindings::default_p2(),
+            port2_peripheral: PeripheralKind::default(),
+            rewind: RewindConfig::default(),
+            run_ahead: RunAheadConfig::default(),
+            theme: AppTheme::default(),
+            first_run_seen: false,
+            turbo: TurboConfig::default(),
+            gamepad: GamepadConfig::default(),
+            recent: RecentRoms::default(),
+            screenshot_dir: None,
+        }
+    }
 }
 
 impl Config {
@@ -863,6 +889,20 @@ mod tests {
             ..GamepadConfig::default()
         };
         assert!((g.deadzone_clamped() - 0.9).abs() < 1e-6);
+    }
+
+    #[test]
+    fn default_p2_is_not_the_p1_table() {
+        // Regression guard on the hand-written `Default`: deriving it would silently give `p2` the
+        // P1 layout, and now that P2 keyboard input is live that makes one key drive both pads.
+        let cfg = Config::default();
+        assert!(
+            cfg.p2.conflicts_with(&cfg.p1).is_empty(),
+            "Config::default() must not bind the same key to both players"
+        );
+        // And a config file that omits `p2` entirely still gets the distinct layout.
+        let back: Config = toml::from_str("region = \"NTSC\"").expect("deserialize");
+        assert!(back.p2.conflicts_with(&back.p1).is_empty());
     }
 
     #[test]

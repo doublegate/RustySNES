@@ -595,6 +595,29 @@ input needs a genuinely new prerequisite (a live `Gilrs` instance + per-frame ev
 not a small addition on top of the Mouse/Super Scope wiring above — see
 `to-dos/ROADMAP.md`/the UI/UX-parity plan's Phase B/C backlog for where this is tracked.
 
+## ROM soft-patching (`v1.25.0`, `crate::patch`)
+
+A same-stem `.ips` / `.bps` / `.ups` sitting beside the ROM is applied **in memory** at load time, so
+the dump on disk stays pristine and any number of hacks can live next to one clean ROM. All three
+formats are implemented (IPS literal + RLE records, UPS XOR deltas, BPS's
+`SourceRead`/`TargetRead`/`SourceCopy`/`TargetCopy` action stream).
+
+- **Detected by magic, not by extension.** Extensions get renamed, and a mislabelled `.ips` that is
+  really a BPS would otherwise be parsed as garbage.
+- **A patch file is untrusted input** (module 60): every length, offset, and varint is bounds-checked
+  before use and every path returns `PatchError` rather than panicking. A truncated patch reports the
+  byte it died at; the test suite feeds *every prefix* of a valid patch and requires a clean error
+  from each. Output size is capped at 32 MiB, because a corrupt header can otherwise declare a
+  multi-gigabyte target and have the applier allocate it before any other check fails.
+- **`TargetCopy` must copy byte-by-byte**, observing its own output: the read range legitimately
+  overlaps the bytes being appended (that is how BPS encodes a run), so a slice copy would read stale
+  bytes and silently corrupt every run.
+- **A patch that fails to apply is reported and the UNPATCHED ROM is loaded.** Booting the original
+  beats refusing to boot, and silently swallowing the failure would leave the user wondering why the
+  hack did nothing — the status line names the reason either way.
+- BPS/UPS declare their source size; a mismatch against the supplied ROM is refused rather than
+  applied, since applying it produces a silently corrupt image.
+
 ## ROM loading, Recent ROMs, and screenshots (`v1.25.0`)
 
 Three entry points now open a ROM — the File → Open picker, **drag-and-drop**

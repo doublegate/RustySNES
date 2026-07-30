@@ -61,6 +61,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Settings gained Video (aspect, overscan grid), Audio (latency, kernel, health readout), and Input
     (autofire, gamepad list + deadzone) controls for all of the above.
 
+- **Frontend parity with RustyNES, wave 2.** Continues the above; again all-additive.
+  - **Local two-player keyboard input.** `config.p2` had round-tripped through `config.toml` since the
+    schema was written but **no gameplay path ever read it**, so P2 keyboard play was impossible.
+    P2 is now live, with its own default layout (numpad d-pad + right-hand letters) chosen to share no
+    physical key with P1, a Settings rebind grid of its own, and a conflict report. The key handler
+    resolves P1 **first** and only then P2, so a config predating the distinct P2 layout — which
+    carries p2 == p1 — drives P1 alone instead of moving both pads at once.
+  - **Audio output device picker.** `config.audio.device` also round-tripped without ever being read;
+    the device is now honoured, falling back to the host default when a remembered device has
+    disappeared. The stream additionally supports **I16 and U16** device formats, not just F32 —
+    requesting F32 unconditionally simply failed to open on integer-only devices, which presented as
+    "this machine has no audio".
+  - **ROM soft-patching (IPS / UPS / BPS)** — `crate::patch`. A same-stem patch beside the ROM is
+    applied in memory, leaving the dump untouched. Detected by magic rather than extension, parsed
+    defensively as untrusted input (every prefix of a valid patch is required to error cleanly, output
+    size capped at 32 MiB), and a patch that fails to apply is reported while the unpatched ROM still
+    boots.
+
 - **ST018 (Nidan Morita Shogi 2) + S-RTC (Daikaijuu Monogatari II) validated against real carts.**
   Both were previously implemented but unit-test-only (no dump in the corpus); with real dumps
   supplied they now detect to the right board, boot, and are deterministic (new `srtc_st018_oncart`,

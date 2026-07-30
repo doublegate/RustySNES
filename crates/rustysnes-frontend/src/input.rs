@@ -11,8 +11,11 @@
 //! lock-free `SharedInput`), different button set + bit order.
 //!
 //! Default keyboard binds (P1): D-pad = arrows; **A = X**, **B = Z**, **X = S**, **Y = A**,
-//! **L = Q**, **R = W**, Select = `RShift`, Start = Enter. (P2 defaults are a TODO; the config
-//! schema already carries a second binding table.)
+//! **L = Q**, **R = W**, Select = `RShift`, Start = Enter.
+//!
+//! Default keyboard binds (P2, `v1.25.0` — [`KeyBindings::default_p2`]): D-pad = numpad 8/2/4/6;
+//! **A = L**, **B = K**, **X = O**, **Y = I**, **L = U**, **R = P**, Select = `,`, Start = `.`.
+//! Chosen to share no physical key with P1, since both tables are now live simultaneously.
 
 #![allow(clippy::cast_possible_truncation)]
 
@@ -156,6 +159,49 @@ impl Default for KeyBindings {
 }
 
 impl KeyBindings {
+    /// The default **player 2** keyboard layout (`v1.25.0`).
+    ///
+    /// Deliberately disjoint from [`Self::default`] (the P1 layout): d-pad on the numpad, face
+    /// buttons on the right-hand letter cluster. Before this existed, `Config::p2` defaulted to the *same*
+    /// table as P1 — which was harmless only because nothing read `p2`. Now that P2 keyboard input
+    /// is live, an identical table would make every P1 key drive both pads at once.
+    ///
+    /// `crate::app`'s key handler additionally resolves P1 **first** and only consults P2 when P1
+    /// did not claim the key, so even a hand-edited config that binds one key to both players drives
+    /// P1 alone rather than both — a config file predating this change carries exactly that
+    /// collision, so the precedence rule is what keeps those setups working.
+    #[must_use]
+    pub fn default_p2() -> Self {
+        let binds = vec![
+            ("Numpad8".into(), Button::Up),
+            ("Numpad2".into(), Button::Down),
+            ("Numpad4".into(), Button::Left),
+            ("Numpad6".into(), Button::Right),
+            ("KeyL".into(), Button::A),
+            ("KeyK".into(), Button::B),
+            ("KeyO".into(), Button::X),
+            ("KeyI".into(), Button::Y),
+            ("KeyU".into(), Button::L),
+            ("KeyP".into(), Button::R),
+            ("Comma".into(), Button::Select),
+            ("Period".into(), Button::Start),
+        ];
+        Self { binds }
+    }
+
+    /// Whether any physical key in this table is also bound in `other` (`v1.25.0`).
+    ///
+    /// Surfaced in Settings so a player can see *why* one key is moving two pads, instead of the
+    /// precedence rule silently making P2's bind look broken.
+    #[must_use]
+    pub fn conflicts_with(&self, other: &Self) -> Vec<String> {
+        self.binds
+            .iter()
+            .filter(|(name, _)| other.binds.iter().any(|(o, _)| o == name))
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
     /// Resolve a winit `KeyCode` debug-name (e.g. `"ArrowUp"`, `"KeyZ"`) to the button it's
     /// bound to, if any. The frontend's window handler converts the live key event to its name
     /// via `format!("{key:?}")` and calls this.
@@ -273,6 +319,45 @@ mod tests {
             .map(|f| apply_turbo(held, mask, 0, f).is_pressed(Button::B))
             .collect();
         assert!(pulses.iter().any(|p| *p) && pulses.iter().any(|p| !*p));
+    }
+
+    #[test]
+    fn p2_defaults_are_disjoint_from_p1_and_complete() {
+        let p1 = KeyBindings::default();
+        let p2 = KeyBindings::default_p2();
+        // The whole point: no shared physical key, or one press would move both pads.
+        assert!(
+            p2.conflicts_with(&p1).is_empty(),
+            "P2 defaults collide with P1: {:?}",
+            p2.conflicts_with(&p1)
+        );
+        // And P2 must still be able to press every button.
+        for b in Button::ALL {
+            assert!(
+                p2.binds.iter().any(|(_, bound)| *bound == b),
+                "missing P2 default bind for {b:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn conflict_detection_finds_shared_keys_in_both_directions() {
+        let p1 = KeyBindings::default();
+        // A config predating the distinct P2 layout has p2 == p1; every key collides.
+        let same = KeyBindings::default();
+        let clashes = same.conflicts_with(&p1);
+        assert_eq!(
+            clashes.len(),
+            12,
+            "an identical table must report every key"
+        );
+        // Detection is symmetric.
+        assert_eq!(p1.conflicts_with(&same).len(), 12);
+        // One deliberate overlap is reported precisely, not wholesale.
+        let mut p2 = KeyBindings::default_p2();
+        p2.rebind("KeyZ".into(), Button::A); // KeyZ is P1's B
+        let one = p2.conflicts_with(&p1);
+        assert_eq!(one, vec!["KeyZ".to_string()]);
     }
 
     #[test]
