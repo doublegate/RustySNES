@@ -49,6 +49,13 @@ pub struct Recorder {
     dims: (u32, u32),
     /// The declared frame rate, for the ffmpeg hint.
     fps: f64,
+    /// Reusable Y/U/V plane buffers (`v1.25.0`, T-FP-G1 review).
+    ///
+    /// Allocating three plane-sized `Vec`s per frame put ~180 KiB of allocation on a 60 Hz path,
+    /// against the project's allocation-free-hot-path rule. Sized once at `start` from the stream's
+    /// declared dimensions — which cannot change, since `push` refuses a frame of any other size —
+    /// so the capacity is exactly right for every frame and never regrows.
+    planes: (Vec<u8>, Vec<u8>, Vec<u8>),
 }
 
 impl Recorder {
@@ -57,6 +64,18 @@ impl Recorder {
     /// # Errors
     /// If either file cannot be created or its header cannot be written.
     pub fn start(stem: &Path, dims: (u32, u32), fps: f64) -> std::io::Result<Self> {
+        // Validated here, at the boundary, rather than defended against at every use. A
+        // non-positive or non-finite rate makes the Y4M header meaningless AND makes
+        // `sync_drift_samples` divide by it, and a saturating float-to-int cast would turn that
+        // into a confident wrong number rather than an error — the one thing a drift readout must
+        // not do. Zero-sized dimensions are refused for the same reason: a stream that declares
+        // `W0 H0` is not a recording.
+        if !fps.is_finite() || fps <= 0.0 || dims.0 == 0 || dims.1 == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("cannot record at {fps} fps and {}x{}", dims.0, dims.1),
+            ));
+        }
         if let Some(dir) = stem.parent()
             && !dir.as_os_str().is_empty()
         {
@@ -91,6 +110,16 @@ impl Recorder {
             samples: 0,
             dims,
             fps,
+            // Sized once from the declared dimensions; `push` refuses any other size, so these
+            // never regrow and the 60 Hz path allocates nothing.
+            planes: {
+                let pixels = (dims.0 as usize).saturating_mul(dims.1 as usize);
+                (
+                    Vec::with_capacity(pixels),
+                    Vec::with_capacity(pixels),
+                    Vec::with_capacity(pixels),
+                )
+            },
         })
     }
 
@@ -149,7 +178,17 @@ impl Recorder {
                 ),
             ));
         }
-        let expected = (dims.0 as usize) * (dims.1 as usize) * 4;
+        // Checked, not asserted: on a 32-bit host a large declared size could wrap, and a wrapped
+        // `expected` would pass the length check below and then read past the frame.
+        let Some(expected) = (dims.0 as usize)
+            .checked_mul(dims.1 as usize)
+            .and_then(|p| p.checked_mul(4))
+        else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "frame dimensions overflow this platform's address size",
+            ));
+        };
         #[allow(clippy::items_after_statements)]
         if rgba.len() < expected {
             return Err(std::io::Error::new(
@@ -159,10 +198,10 @@ impl Recorder {
         }
 
         self.video.write_all(b"FRAME\n")?;
-        let (y, u, v) = rgb_to_yuv444(rgba, expected);
-        self.video.write_all(&y)?;
-        self.video.write_all(&u)?;
-        self.video.write_all(&v)?;
+        rgb_to_yuv444_into(rgba, expected, &mut self.planes);
+        self.video.write_all(&self.planes.0)?;
+        self.video.write_all(&self.planes.1)?;
+        self.video.write_all(&self.planes.2)?;
         self.frames += 1;
 
         for (l, r) in audio {
@@ -187,12 +226,25 @@ impl Recorder {
         let mut file = self.audio.into_inner().map_err(std::io::Error::other)?;
         patch_wav_sizes(&mut file, data_bytes)?;
         file.sync_all()?;
+        // Paths are SHELL-QUOTED. This string is meant to be pasted into a terminal, and an
+        // emulator's capture directory routinely contains spaces (and, on Linux, legally contains
+        // quotes and `$`). An unquoted path silently becomes two arguments, so the command fails
+        // in a way that looks like ffmpeg's fault.
         Ok(format!(
             "ffmpeg -i {} -i {} -c:v libx264 -crf 18 -c:a aac out.mp4",
-            self.video_path.display(),
-            self.audio_path.display()
+            shell_quote(&self.video_path.display().to_string()),
+            shell_quote(&self.audio_path.display().to_string())
         ))
     }
+}
+
+/// Single-quote a path for a POSIX shell.
+///
+/// Everything inside single quotes is literal except a single quote itself, which is escaped by
+/// closing, emitting an escaped quote, and reopening — the standard `'\''` idiom. That covers
+/// spaces, `$`, backticks, and every other metacharacter in one rule rather than a blocklist.
+fn shell_quote(path: &str) -> String {
+    format!("'{}'", path.replace('\'', r"'\''"))
 }
 
 /// Convert an RGBA8 frame to three full-resolution YUV planes (Y4M `C444`).
@@ -202,33 +254,55 @@ impl Recorder {
 /// re-encode is where size is meant to be traded for quality.
 ///
 /// BT.601 coefficients, matching what a consumer decoder assumes for standard-definition content.
-#[must_use]
-fn rgb_to_yuv444(rgba: &[u8], len: usize) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
-    let pixels = len / 4;
-    let mut luma = Vec::with_capacity(pixels);
-    let mut chroma_b = Vec::with_capacity(pixels);
-    let mut chroma_r = Vec::with_capacity(pixels);
-    for px in rgba.chunks_exact(4).take(pixels) {
-        let (red, green, blue) = (f32::from(px[0]), f32::from(px[1]), f32::from(px[2]));
-        let yy = 0.299f32.mul_add(red, 0.587f32.mul_add(green, 0.114 * blue));
-        let uu = 0.492f32.mul_add(blue - yy, 128.0);
-        let vv = 0.877f32.mul_add(red - yy, 128.0);
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        {
-            luma.push(yy.clamp(0.0, 255.0) as u8);
-            chroma_b.push(uu.clamp(0.0, 255.0) as u8);
-            chroma_r.push(vv.clamp(0.0, 255.0) as u8);
-        }
+fn rgb_to_yuv444_into(rgba: &[u8], len: usize, planes: &mut (Vec<u8>, Vec<u8>, Vec<u8>)) {
+    let (luma, chroma_b, chroma_r) = planes;
+    // Cleared, not reallocated: the capacity was sized at `start` from the stream's fixed
+    // dimensions, so this reuses the same three allocations for every frame of the recording.
+    luma.clear();
+    chroma_b.clear();
+    chroma_r.clear();
+    // `mul_add` is not used: it is a different computation (one rounding instead of two), and
+    // these are the published BT.601 coefficients whose results a decoder is expected to match.
+    // The lint's suggestion also reads worse than the formula it replaces.
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::suboptimal_flops
+    )]
+    for px in rgba[..len].chunks_exact(4) {
+        let (r, g, b) = (f32::from(px[0]), f32::from(px[1]), f32::from(px[2]));
+        let yy = 0.299 * r + 0.587 * g + 0.114 * b;
+        let uu = 128.0 - 0.168_736 * r - 0.331_264 * g + 0.5 * b;
+        let vv = 128.0 + 0.5 * r - 0.418_688 * g - 0.081_312 * b;
+        luma.push(yy.clamp(0.0, 255.0) as u8);
+        chroma_b.push(uu.clamp(0.0, 255.0) as u8);
+        chroma_r.push(vv.clamp(0.0, 255.0) as u8);
     }
-    (luma, chroma_b, chroma_r)
+}
+
+/// The `data` chunk size and the `RIFF` size for a payload of `data_bytes`.
+///
+/// WAV is a 32-bit format, so both saturate rather than wrap. `RIFF` is `36 + data`, and clamping
+/// `data` to `u32::MAX` first made that addition overflow — a panic in debug at the point a very
+/// long recording is being *finished*, i.e. after all the work. Both fields are computed from the
+/// same saturating arithmetic so they stay consistent with each other.
+fn wav_sizes(data_bytes: u64) -> (u32, u32) {
+    // 36 bytes of header follow the RIFF size field, so the largest representable payload is
+    // `u32::MAX - 36`. Beyond that the file is simply not describable as WAV; the audio is still
+    // written and playable, and the header says as much as it can.
+    let data = u32::try_from(data_bytes)
+        .unwrap_or(u32::MAX)
+        .min(u32::MAX - 36);
+    (data, data + 36)
 }
 
 /// Write a 44-byte canonical WAV header for 16-bit stereo at [`SAMPLE_RATE`].
 fn write_wav_header(out: &mut impl Write, data_bytes: u64) -> std::io::Result<()> {
-    let data = u32::try_from(data_bytes).unwrap_or(u32::MAX);
+    let (data, riff) = wav_sizes(data_bytes);
     let byte_rate = SAMPLE_RATE * 4;
     out.write_all(b"RIFF")?;
-    out.write_all(&(36 + data).to_le_bytes())?;
+    out.write_all(&riff.to_le_bytes())?;
     out.write_all(b"WAVEfmt ")?;
     out.write_all(&16u32.to_le_bytes())?; // PCM fmt chunk size
     out.write_all(&1u16.to_le_bytes())?; // PCM
@@ -245,9 +319,9 @@ fn write_wav_header(out: &mut impl Write, data_bytes: u64) -> std::io::Result<()
 /// Patch the two size fields a streamed WAV could not know up front.
 fn patch_wav_sizes(file: &mut File, data_bytes: u64) -> std::io::Result<()> {
     use std::io::{Seek, SeekFrom};
-    let data = u32::try_from(data_bytes).unwrap_or(u32::MAX);
+    let (data, riff) = wav_sizes(data_bytes);
     file.seek(SeekFrom::Start(4))?;
-    file.write_all(&(36 + data).to_le_bytes())?;
+    file.write_all(&riff.to_le_bytes())?;
     file.seek(SeekFrom::Start(40))?;
     file.write_all(&data.to_le_bytes())?;
     Ok(())
@@ -255,7 +329,7 @@ fn patch_wav_sizes(file: &mut File, data_bytes: u64) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Recorder, SAMPLE_RATE, rgb_to_yuv444};
+    use super::{Recorder, SAMPLE_RATE, rgb_to_yuv444_into, shell_quote, wav_sizes};
 
     fn tmp(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("rustysnes-av-test-{name}"))
@@ -377,8 +451,9 @@ mod tests {
     #[test]
     fn yuv_conversion_places_the_primaries_correctly() {
         let one = |c: [u8; 4]| {
-            let (y, u, v) = rgb_to_yuv444(&c, 4);
-            (y[0], u[0], v[0])
+            let mut planes = (Vec::new(), Vec::new(), Vec::new());
+            rgb_to_yuv444_into(&c, 4, &mut planes);
+            (planes.0[0], planes.1[0], planes.2[0])
         };
         // Black and white sit at the ends of the luma range with neutral chroma.
         let (y, u, v) = one([0, 0, 0, 255]);
@@ -395,5 +470,60 @@ mod tests {
         // And green sits low on both.
         let (_, u_g, v_g) = one([0, 255, 0, 255]);
         assert!(u_g < 128 && v_g < 128, "green: u={u_g} v={v_g}");
+    }
+
+    /// The WAV size fields saturate together. `RIFF` is `data + 36`, so clamping `data` to
+    /// `u32::MAX` first made that addition overflow — a debug panic while *finishing* a very long
+    /// recording, i.e. after all the work was already done.
+    #[test]
+    fn wav_sizes_saturate_without_overflowing() {
+        assert_eq!(wav_sizes(0), (0, 36));
+        assert_eq!(wav_sizes(1000), (1000, 1036));
+        // Exactly at, and far past, what the format can describe.
+        let max_payload = u32::MAX - 36;
+        assert_eq!(wav_sizes(u64::from(max_payload)), (max_payload, u32::MAX));
+        assert_eq!(wav_sizes(u64::MAX), (max_payload, u32::MAX));
+        // The invariant that matters to a player: the two fields differ by exactly the header size.
+        for bytes in [0, 44, 1 << 20, u64::from(u32::MAX), u64::MAX] {
+            let (data, riff) = wav_sizes(bytes);
+            assert_eq!(riff - data, 36, "{bytes}");
+        }
+    }
+
+    /// A rate or size that cannot describe a recording is refused at the boundary, rather than
+    /// producing a stream header that lies and a drift readout computed by dividing by it.
+    #[test]
+    fn an_impossible_rate_or_size_is_refused() {
+        let stem = tmp("bad-args");
+        for (dims, fps) in [
+            ((16u32, 8u32), 0.0f64),
+            ((16, 8), -60.0),
+            ((16, 8), f64::NAN),
+            ((16, 8), f64::INFINITY),
+            ((0, 8), 60.0),
+            ((16, 0), 60.0),
+        ] {
+            assert!(
+                Recorder::start(&stem, dims, fps).is_err(),
+                "{dims:?} at {fps} fps should be refused"
+            );
+        }
+        // And the good case still works, so the guard is not simply refusing everything.
+        assert!(Recorder::start(&stem, (16, 8), 60.0988).is_ok());
+        let _ = std::fs::remove_file(stem.with_extension("y4m"));
+        let _ = std::fs::remove_file(stem.with_extension("wav"));
+    }
+
+    /// The muxing hint is pasted into a shell, and capture directories routinely contain spaces.
+    #[test]
+    fn the_ffmpeg_hint_quotes_its_paths() {
+        assert_eq!(shell_quote("/tmp/plain.y4m"), "'/tmp/plain.y4m'");
+        assert_eq!(shell_quote("/tmp/my caps/a.y4m"), "'/tmp/my caps/a.y4m'");
+        // A single quote in the path closes, escapes, and reopens — the POSIX idiom.
+        assert_eq!(shell_quote("/tmp/it's.y4m"), r"'/tmp/it'\''s.y4m'");
+        // Metacharacters are literal inside single quotes, so nothing can expand.
+        let q = shell_quote("/tmp/$(rm -rf ~)/a.y4m");
+        assert!(q.starts_with('\'') && q.ends_with('\''), "{q}");
+        assert!(!q[1..q.len() - 1].contains('\''), "{q}");
     }
 }

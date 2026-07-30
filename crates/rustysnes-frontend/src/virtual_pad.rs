@@ -38,7 +38,25 @@ impl Rect {
     pub fn contains(&self, px: f32, py: f32) -> bool {
         px >= self.x && px < self.x + self.w && py >= self.y && py < self.y + self.h
     }
+
+    /// Distance from `(px, py)` to the nearest point of this rect; `0.0` when inside.
+    ///
+    /// To the RECT, not to its centre — a near miss should land on the button whose edge is
+    /// closest, and a centre-distance metric makes a large button lose to a small neighbour.
+    #[must_use]
+    pub fn distance_to(&self, px: f32, py: f32) -> f32 {
+        let dx = (self.x - px).max(px - (self.x + self.w)).max(0.0);
+        let dy = (self.y - py).max(py - (self.y + self.h)).max(0.0);
+        dx.hypot(dy)
+    }
 }
+
+/// How far outside a button a touch may land and still press it, in pad-box fractions.
+///
+/// Sized to the gaps the layout leaves between neighbouring buttons (0.02 at the widest), so a
+/// touch in a gap resolves to one of the buttons forming it while a touch in genuinely empty space
+/// — the middle of the D-pad, the area between the clusters — still presses nothing.
+pub const SNAP_RADIUS: f32 = 0.02;
 
 /// One on-screen button: its area and the pad input it sets.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -116,7 +134,24 @@ impl Layout {
     /// they render — which is the only behaviour that cannot surprise someone looking at the pad.
     #[must_use]
     pub fn hit(&self, px: f32, py: f32) -> Option<&PadButton> {
-        self.buttons.iter().find(|b| b.rect.contains(px, py))
+        if let Some(exact) = self.buttons.iter().find(|b| b.rect.contains(px, py)) {
+            return Some(exact);
+        }
+        // Nothing exactly under the finger. The buttons are deliberately separated by small gaps —
+        // abutting rectangles are ambiguous at their shared edge under float rounding — but a gap
+        // that swallows a touch is worse than the ambiguity it avoids, especially on the D-pad,
+        // where a thumb sliding from Up to Left crosses one and the input would simply drop.
+        //
+        // So a near miss snaps to the closest button, bounded by `SNAP_RADIUS` so a touch in the
+        // empty middle of the screen still presses nothing. Distance is to the rect, not to its
+        // centre: a wide button should not lose to a small one just because its midpoint is
+        // further away.
+        self.buttons
+            .iter()
+            .map(|b| (b.rect.distance_to(px, py), b))
+            .filter(|(d, _)| *d <= SNAP_RADIUS)
+            .min_by(|(a, _), (b, _)| a.total_cmp(b))
+            .map(|(_, b)| b)
     }
 
     /// The pad word for a set of simultaneously-touched points.
@@ -252,5 +287,62 @@ mod tests {
         assert!(layout.hit(0.16, 0.57).is_none(), "the d-pad's empty centre");
         assert_eq!(layout.buttons_for(&[(0.5, 0.02)]).0, 0);
         assert_eq!(layout.buttons_for(&[]).0, 0);
+    }
+
+    /// The gaps between neighbouring buttons must not swallow a touch.
+    ///
+    /// The layout separates buttons on purpose — abutting rectangles are ambiguous at the shared
+    /// edge under float rounding — but a gap that presses nothing is worse than the ambiguity it
+    /// avoids. On a D-pad especially: a thumb sliding from Up to Left crosses one, and the input
+    /// would drop for the frames it takes to get across.
+    #[test]
+    fn a_touch_in_a_gap_between_buttons_still_presses_one() {
+        let pad = Layout::default();
+        // Straight down the D-pad's vertical gap (Up's bottom edge to Left/Right's top edge), and
+        // across its horizontal one (Left's right edge to Up's left edge).
+        for (px, py) in [
+            (0.16f32, 0.43f32),
+            (0.095, 0.50),
+            (0.225, 0.50),
+            (0.16, 0.61),
+        ] {
+            let hit = pad.hit(px, py);
+            assert!(
+                hit.is_some(),
+                "({px}, {py}) sits in a gap and pressed nothing"
+            );
+            assert!(
+                matches!(
+                    hit.expect("checked").button,
+                    Button::Up | Button::Down | Button::Left | Button::Right
+                ),
+                "({px}, {py}) should snap to a direction, got {:?}",
+                hit.expect("checked").button
+            );
+        }
+    }
+
+    /// Snapping is bounded: genuinely empty screen still presses nothing, or a stray touch
+    /// anywhere would press whatever button happened to be nearest.
+    #[test]
+    fn a_touch_in_open_space_presses_nothing() {
+        let pad = Layout::default();
+        for (px, py) in [(0.50f32, 0.30f32), (0.50, 0.05), (0.16, 0.52), (0.5, 0.95)] {
+            assert!(
+                pad.hit(px, py).is_none(),
+                "({px}, {py}) is open space and should press nothing"
+            );
+        }
+    }
+
+    /// A near miss lands on the button whose EDGE is closest, not whose centre is — otherwise a
+    /// wide button loses to a small neighbour whose midpoint happens to be nearer.
+    #[test]
+    fn snapping_measures_distance_to_the_edge() {
+        let pad = Layout::default();
+        // Just below Up's bottom edge and horizontally inside it: Up is the nearest edge even
+        // though Left's and Right's centres are not much further from the point.
+        let hit = pad.hit(0.16, 0.425).expect("in the gap under Up");
+        assert_eq!(hit.button, Button::Up);
     }
 }

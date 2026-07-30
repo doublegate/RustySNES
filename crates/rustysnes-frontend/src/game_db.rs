@@ -202,9 +202,18 @@ fn split_fields(line: &str) -> impl Iterator<Item = &str> {
     line.split(['\t', '|'])
 }
 
-/// Drop a `#` comment.
+/// Drop a whole-line `#` comment.
+///
+/// **Only** a `#` that begins the line (after optional leading whitespace). A `#` anywhere else is
+/// data: these files are tab/pipe-separated, and both columns legitimately contain one — game
+/// titles (`Bases Loaded #2`) and cheat descriptions (`Player #1 infinite HP`). Splitting on the
+/// first `#` silently truncated those rows, which is worse than failing to parse them; trailing
+/// comments are simply not a feature of this format, which is the cheaper thing to give up.
 fn strip_comment(line: &str) -> &str {
-    line.split('#').next().unwrap_or("")
+    if line.trim_start().starts_with('#') {
+        return "";
+    }
+    line
 }
 
 /// Parse a CRC32 in hex, with or without a `0x`/`$` prefix.
@@ -321,5 +330,26 @@ mod tests {
         assert_eq!(rom_crc32(b"123456789"), 0xCBF4_3926);
         assert_eq!(rom_crc32(b""), 0);
         assert_ne!(rom_crc32(b"a"), rom_crc32(b"b"));
+    }
+
+    /// A `#` inside a field is data, not a comment. Titles and cheat descriptions contain them —
+    /// `Bases Loaded #2`, `Player #1 infinite HP` — and a bare split truncated the row silently,
+    /// which is worse than failing to parse it.
+    #[test]
+    fn a_hash_inside_a_field_is_not_a_comment() {
+        assert_eq!(
+            super::strip_comment("A\tBases Loaded #2"),
+            "A\tBases Loaded #2"
+        );
+        assert_eq!(
+            super::strip_comment("code|Player #1 HP"),
+            "code|Player #1 HP"
+        );
+        // Even directly after whitespace: a field can and does start with one.
+        assert_eq!(super::strip_comment("A\t#1 Ranked"), "A\t#1 Ranked");
+        // Only a line that OPENS with `#` is a comment; leading whitespace is allowed.
+        assert_eq!(super::strip_comment("# whole line"), "");
+        assert_eq!(super::strip_comment("   \t# indented"), "");
+        assert_eq!(super::strip_comment("no comment here"), "no comment here");
     }
 }

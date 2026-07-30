@@ -55,12 +55,22 @@ impl Macro {
     /// between pressing the hotkey and pressing the first button. Replaying those makes a macro
     /// feel laggy for a reason nobody would guess at.
     pub fn trim(&mut self) {
-        while self.frames.first() == Some(&0) {
-            let _ = self.frames.remove(0);
-        }
-        while self.frames.last() == Some(&0) {
-            let _ = self.frames.pop();
-        }
+        // Find the boundaries first, then drain once. `remove(0)` in a loop shifts the whole
+        // buffer on every iteration, and the leading dead span is exactly the case that is long —
+        // a few seconds of it is hundreds of frames, each shifting the rest.
+        let first = self.frames.iter().position(|f| *f != 0);
+        let Some(first) = first else {
+            // All silence: there is no macro here at all.
+            self.frames.clear();
+            return;
+        };
+        let last = self
+            .frames
+            .iter()
+            .rposition(|f| *f != 0)
+            .unwrap_or(self.frames.len() - 1);
+        self.frames.truncate(last + 1);
+        let _ = self.frames.drain(..first);
     }
 }
 
@@ -108,17 +118,28 @@ impl Macros {
         if slot >= SLOTS {
             return;
         }
+        // Finalise whatever was in progress first. Switching modes straight from `Recording` left
+        // the previous slot untrimmed, so it replayed with the dead frames at both ends that
+        // `stop` exists to remove — and the user, having never pressed stop, would have no reason
+        // to suspect the macro was left in a different state from every other one.
+        self.finalise_current();
         self.slots[slot].frames.clear();
         self.mode = Mode::Recording { slot };
     }
 
-    /// Stop recording (or playing) and trim the recorded slot.
-    pub fn stop(&mut self) {
+    /// Trim the slot being recorded, if any. Shared by `stop` and by both mode switches, so a
+    /// recording is finalised exactly once however it ends.
+    fn finalise_current(&mut self) {
         if let Mode::Recording { slot } = self.mode
             && slot < SLOTS
         {
             self.slots[slot].trim();
         }
+    }
+
+    /// Stop recording (or playing) and trim the recorded slot.
+    pub fn stop(&mut self) {
+        self.finalise_current();
         self.mode = Mode::Idle;
     }
 
@@ -126,8 +147,14 @@ impl Macros {
     ///
     /// An empty slot leaves the mode idle rather than entering a playback that emits nothing —
     /// otherwise "playing" would be indistinguishable from "playing silence".
-    pub const fn start_playing(&mut self, slot: usize) {
+    pub fn start_playing(&mut self, slot: usize) {
+        // Same reason as `start_recording`: an in-progress recording is finalised rather than
+        // abandoned. Checked BEFORE the emptiness test below, so starting playback of an empty
+        // slot still trims the recording it interrupted instead of silently dropping the trim
+        // along with the rejected playback.
+        self.finalise_current();
         if slot >= SLOTS || self.slots[slot].is_empty() {
+            self.mode = Mode::Idle;
             return;
         }
         self.mode = Mode::Playing { slot, position: 0 };
@@ -183,7 +210,7 @@ impl Macros {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_FRAMES, Macros, Mode, SLOTS};
+    use super::{MAX_FRAMES, Macro, Macros, Mode, SLOTS};
     use crate::input::{Button, Buttons};
 
     fn pad(buttons: &[Button]) -> Buttons {
@@ -320,5 +347,55 @@ mod tests {
         m.stop();
         assert_eq!(m.slots[2].len(), 1);
         assert_eq!(m.slots[2].frames[0], pad(&[Button::B]).0);
+    }
+
+    /// Switching modes finalises an in-progress recording rather than abandoning it untrimmed.
+    ///
+    /// A slot left untrimmed replays with the dead frames at both ends that `stop` exists to
+    /// remove — and the user, never having pressed stop, has no reason to suspect that one macro
+    /// is in a different state from every other.
+    #[test]
+    fn switching_modes_finalises_the_recording_in_progress() {
+        for switch_to_playback in [false, true] {
+            let mut m = Macros::new();
+            m.start_recording(0);
+            // Dead frames, real input, dead frames — exactly what a hand-driven recording looks
+            // like.
+            for word in [0, 0, 0x0080, 0x0080, 0, 0] {
+                let _ = m.step(Buttons(word));
+            }
+            if switch_to_playback {
+                // Slot 1 is empty, so this is also the "rejected playback" path — the trim must
+                // still happen rather than being dropped along with the rejected switch.
+                m.start_playing(1);
+            } else {
+                m.start_recording(1);
+            }
+            assert_eq!(
+                m.slots[0].frames,
+                vec![0x0080, 0x0080],
+                "switch_to_playback={switch_to_playback}: slot 0 should have been trimmed"
+            );
+        }
+    }
+
+    /// Trimming is linear and handles the all-silent case, which has no non-zero boundary to find.
+    #[test]
+    fn trim_handles_every_shape() {
+        let cases: [(&[u16], &[u16]); 5] = [
+            (&[0, 0, 1, 2, 0, 0], &[1, 2]),
+            (&[1, 2, 3], &[1, 2, 3]),
+            (&[0, 0, 0], &[]),
+            (&[], &[]),
+            (&[0, 1, 0], &[1]),
+        ];
+        for (input, want) in cases {
+            let mut rec = Macro {
+                frames: input.to_vec(),
+                name: String::new(),
+            };
+            rec.trim();
+            assert_eq!(rec.frames, want, "{input:?}");
+        }
     }
 }
