@@ -762,6 +762,35 @@ not authority, and snes9x is already known to be the outlier on the exact dot nu
 the earlier 20-dot "MVN divergence" was an artifact. Primary sources: fullsnes (H-V Counters;
 PPU H-Counter-Latch Quantities), anomie's SNES timing doc, the SNESdev and Super Famicom wikis.
 
+## Frontend-parity tickets (T-FP-*)
+
+RustySNES's egui frontend is behind its mature NES sibling `../RustyNES/` (~12.7k vs ~64k LOC). A
+file-cited gap survey found ~45 items; **17 landed** in `v1.25.0` waves 1-3 (gamepads, screenshots,
+aspect/integer-scaling, per-side overscan, Hermite resampling, audio latency setpoint + health gate,
+drag-drop, recent ROMs, autofire, P2 keyboard, audio device picker, ROM soft-patching, per-game
+overrides, graphic EQ). The remaining 28 are grouped below, one group per PR, in the order that
+minimises rework. Full rationale + per-PR verification: `docs/frontend.md` and the parity plan.
+
+**One defect class recurred four times and will recur again:** a config field that round-trips
+through `config.toml` while **nothing reads it** (`gilrs`, `video.integer_scale`, `config.p2`,
+`audio.device` were all like this — the knob looked functional and did nothing). When touching an
+existing setting, grep for its *readers*, not its definition.
+
+| Ticket | Scope | Size | Blocked on |
+|---|---|---:|---|
+| **T-FP-A** | **Infrastructure, first because everything plugs into it.** `debugger/settings_panel.rs` (the tabbed live-apply Settings home the later knobs need), `i18n.rs` + `t!` macro + language picker, `perf.rs` percentile primitives, fuller menu bar + a populated Help menu, global-hotkey rebinding | ~5 | nothing |
+| **T-FP-B** | Observability: `perf_panel.rs`, `perf_log.rs` (CSV), a `gpu-timing` feature (`TIMESTAMP_QUERY` + `TIMESTAMP_QUERY_INSIDE_ENCODERS`, `resolve_query_set`, `Queue::get_timestamp_period`), advanced pacing (the display-sync/VRR/wallclock matrix `PacingMode` already *declares* but does not implement), hybrid sleep-then-spin, occlusion watchdog | ~4 | T-FP-A's `perf.rs` |
+| **T-FP-C** | Debugger: opt-in per-instruction/access/event callbacks in `rustysnes-core` behind the existing `debug-hooks` feature, then hex memory editor (`Bus::poke_wram` already exists), OAM/sprite viewer (`Ppu::oam` already public), cheat panel UI, `expr.rs` + conditional breakpoints, access counter, symbol map, header editor, mapper/bank panel, trace/callstack/event viewers, inline 65C816 assembler | ~12 | T-FP-A (panel home) |
+| **T-FP-D** | Video, low-risk half: `shader_pass.rs` multi-pass ping-pong stack (per-pass `scale_type`/`filter_linear`/`wrap_mode`/`float_framebuffer`/`mipmap_input`/alias/`frame_count_mod`), generic `#pragma parameter` sliders replacing the hardcoded `f32` args threaded through `Gfx::present`, richer CRT (curvature/beam/glow/mask), **NTSC composite** | ~4 | nothing |
+| **T-FP-E** | Video, high-risk half: `slang_preset.rs` (`.slangp`/`.cgp` parse + LUT textures) and a **GLSL->WGSL bridge** via naga's `glsl-in`. Best-effort by construction — naga's GLSL frontend covers a subset of `#version 450`, so every failure must name an `Unsupported` reason and fall back to T-FP-D's built-in chain, never a silent black frame | ~2 | T-FP-D |
+| **T-FP-F** | Audio mixer + rewind/run-ahead: additive `Dsp::set_voice_gains` + per-voice output taps at the existing per-voice-mute site (`apu/src/dsp.rs:1074`), `audio_mixer.rs`/`audio_scope.rs` with VU meters, rewind XOR-delta+RLE compression with periodic keyframes, and a core `save_state_into(&mut Vec<u8>)` to kill run-ahead's per-frame allocation (the actual blocker on making run-ahead default-on) | ~4 | nothing |
+| **T-FP-G** | The largest, most self-contained items, last: `av_record.rs`, `tastudio/` + `tastudio_panel.rs` + `movie_ui.rs` + `input_macros.rs`, `virtual_pad.rs` + `wasm_touch.rs`, `game_db.rs` + `genie_db.rs` | ~6 | nothing |
+
+**Corrected scoping (both previously listed as core-blocked, both verified otherwise):** NTSC needs
+**no** core change — the index-framebuffer requirement is a *NES* technique (64-entry palette), while
+the SNES PPU emits 15-bit BGR555 direct colour (`facade.rs` `bgr555_to_rgba8`), so only an RGB filter
+applies. The audio mixer's "core API" is ~40 additive lines at a site that already exists.
+
 ## Cross-phase dependencies
 
 - Phase 2 (scheduler) depends on Phase 1 (the CPU drives the scheduler's access-speed query).
