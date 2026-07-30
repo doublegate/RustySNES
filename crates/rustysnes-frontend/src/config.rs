@@ -405,6 +405,12 @@ pub struct VideoConfig {
     /// separate because the stack replaces the *architecture*, not the existing filters, and an
     /// existing `config.toml` must keep rendering exactly as it did.
     pub stack: ShaderStack,
+    /// A loaded `.slangp`/`.cgp` preset path (`v1.25.0`, T-FP-E), or `None`.
+    ///
+    /// Takes precedence over [`Self::stack`] when set: a user who loaded a preset means the preset.
+    /// A preset that fails to load falls back to `stack`, with the reason shown in Settings.
+    #[serde(default)]
+    pub preset_path: Option<String>,
     /// Per-chain parameter overrides, keyed `"<chain>.<param>"` (`v1.25.0`, T-FP-D).
     ///
     /// A flat map rather than typed fields, for the same reason the parameters themselves are a
@@ -448,6 +454,7 @@ impl Default for VideoConfig {
             hqx_strength: 0.6,
             xbrz_strength: 0.6,
             stack: ShaderStack::default(),
+            preset_path: None,
             stack_params: std::collections::BTreeMap::new(),
             hd_pack_name: None,
             hide_overscan: false,

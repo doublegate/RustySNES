@@ -296,6 +296,12 @@ struct Active {
     /// The loaded symbol map (`v1.25.0`, T-FP-C2), or `None` until one is loaded. Names addresses
     /// in the disassembly, trace, and call-stack views.
     symbols: Option<crate::symbols::SymbolMap>,
+    /// A chain built from a loaded `.slangp` preset (`v1.25.0`, T-FP-E), or `None`.
+    ///
+    /// Held here rather than rebuilt per present because building it reads files off disk and runs
+    /// a shader compiler per pass — which is exactly the cost the stack's rebuild guard exists to
+    /// avoid paying every frame.
+    preset_chain: Option<crate::shader_pass::ShaderChain>,
     /// The debugger's armed read/write watchpoint list (`v0.8.0`, T-81-001b). Empty until the
     /// debugger overlay's Watch panel adds entries. Not feature-gated (unlike `cheats` above) —
     /// [`WatchpointEntry`] is one of `debug_snapshot.rs`'s always-compiled types (see that
@@ -1060,6 +1066,7 @@ impl App {
             freezes: Vec::new(),
             pokes: Vec::new(),
             symbols: None,
+            preset_chain: None,
             watchpoints: Vec::new(),
             breakpoints: Vec::new(),
             #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
@@ -1902,7 +1909,11 @@ impl App {
         // The multi-pass stack (`v1.25.0`, T-FP-D) takes precedence when a chain is selected;
         // `ShaderStack::Off` (the default) builds an empty chain, so the legacy `PostFilter` path
         // below is reached unchanged and an existing config renders byte-identically.
-        let chain = crate::shader_pass::build_chain(config.video.stack, &config.video.stack_params);
+        // A loaded preset wins over the built-in chains; `preset_chain` is `None` unless one
+        // loaded with at least one translatable pass.
+        let chain = active.preset_chain.clone().unwrap_or_else(|| {
+            crate::shader_pass::build_chain(config.video.stack, &config.video.stack_params)
+        });
         if chain.is_passthrough() {
             active.gfx.present(
                 &mut encoder,
@@ -2323,6 +2334,61 @@ impl App {
                         .unwrap_or_else(PoisonError::into_inner)
                         .clear_trace();
                     active.shell.status = "Trace cleared".into();
+                }
+                // Shader presets (`v1.25.0`, T-FP-E). Loading is best-effort by construction:
+                // a preset whose passes partly translate still runs, and the status line names how
+                // many were dropped rather than showing a silently-shorter chain.
+                #[cfg(not(target_arch = "wasm32"))]
+                MenuAction::LoadShaderPreset => {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("Shader preset", &["slangp", "cgp"])
+                        .pick_file()
+                    {
+                        match crate::slang_preset::load_chain(&path) {
+                            Ok(chain) => {
+                                active.shell.status = if chain.unsupported.is_empty() {
+                                    format!("Loaded {} pass preset", chain.passes.len())
+                                } else {
+                                    format!(
+                                        "Loaded {} of {} passes; {} unsupported ({})",
+                                        chain.passes.len(),
+                                        chain.passes.len() + chain.unsupported.len(),
+                                        chain.unsupported.len(),
+                                        chain.unsupported[0].reason
+                                    )
+                                };
+                                // Only adopt a preset that produced at least one usable pass;
+                                // adopting an all-unsupported one would replace a working picture
+                                // with a pass-through and look like the preset "did nothing".
+                                if chain.passes.is_empty() {
+                                    active.shell.status = format!(
+                                        "Preset had no translatable passes: {}",
+                                        chain.unsupported.first().map_or_else(
+                                            || "unknown".to_string(),
+                                            |u| u.reason.clone(),
+                                        )
+                                    );
+                                } else {
+                                    config.video.preset_path = Some(path.display().to_string());
+                                    active.preset_chain = Some(chain);
+                                    let _ = config.save();
+                                }
+                            }
+                            Err(e) => {
+                                active.shell.status = format!("Preset failed to load: {e}");
+                            }
+                        }
+                    }
+                }
+                #[cfg(target_arch = "wasm32")]
+                MenuAction::LoadShaderPreset => {
+                    active.shell.status = "Preset loading needs a native build".into();
+                }
+                MenuAction::UnloadShaderPreset => {
+                    active.preset_chain = None;
+                    config.video.preset_path = None;
+                    let _ = config.save();
+                    active.shell.status = "Shader preset unloaded".into();
                 }
                 MenuAction::ResetPerfStats => {
                     active.perf.reset();

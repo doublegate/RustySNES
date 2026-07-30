@@ -141,7 +141,7 @@ workspace = true
 # broken custom shader instead of showing a black frame, and that has to work in a release build.
 # Pinned to the same major wgpu 29 resolves, so `cargo tree -d` stays at one naga copy — two would
 # mean a shader validated by one compiler and executed by another.
-naga = { version = "29", features = ["wgsl-in"] }
+naga = { version = "29", features = ["wgsl-in", "wgsl-out", "glsl-in"] }
 rustysnes-core = { path = "../rustysnes-core", version = "1.4.0" }
 rustysnes-savestate = { path = "../rustysnes-savestate", version = "1.4.0" }
 # `v1.12.0 "Refraction"`: the presentation-shader WGSL sources, extracted out of this crate's own

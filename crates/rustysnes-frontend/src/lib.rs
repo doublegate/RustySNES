@@ -92,7 +92,12 @@ pub mod perf_panel;
 pub mod screenshot;
 // The multi-pass presentation shader stack (`v1.25.0`, T-FP-D) — the chain description plus the
 // runtime that executes it. See each module's doc.
+// `.slangp`/`.cgp` preset parsing + the GLSL->WGSL bridge (`v1.25.0`, T-FP-E). Best-effort by
+// construction: naga's GLSL frontend covers a subset of `#version 450`, so every failure names a
+// pass and a reason and the rest of the preset still runs.
+pub mod glsl_bridge;
 pub mod shader_pass;
+pub mod slang_preset;
 // Offscreen golden tests for the stack's shaders (`v1.25.0`, T-FP-D) — pixels, not just WGSL
 // validation. `#[cfg(test)]` inside the module; mirrored here so the gate is visible.
 #[cfg(test)]

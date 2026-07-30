@@ -376,6 +376,77 @@ no adapter exists, so CI self-skips visibly rather than quietly passing.
 That is a stronger statement than a committed hash, which only says "the same as last time" —
 including the last time it was wrong.
 
+## `.slangp` presets and the GLSL bridge (`v1.25.0`, T-FP-E)
+
+`crate::slang_preset` parses a `RetroArch` preset into the per-pass description T-FP-D's stack
+already uses — which is why that ticket named its fields after these keys. `crate::glsl_bridge`
+translates each referenced `.slang` shader into WGSL via naga's GLSL frontend.
+
+**Best-effort by construction.** naga's GLSL frontend covers a *subset* of `#version 450`, so a
+preset that only partly translates is the normal case, not an error case. Every failure becomes a
+named `ShaderChain::unsupported` entry carrying the compiler's own message; the remaining passes
+still run, and the status line says how many were dropped. A preset with **no** translatable pass is
+not adopted at all — replacing a working picture with a pass-through would look like the preset "did
+nothing".
+
+### What the GLSL frontend actually accepts — measured, not assumed
+
+Three rewrites exist because naga rejected the real thing during development. Each was found by
+running a shader through it, not by reading documentation:
+
+| naga rejects | rewrite | why it is sound here |
+|---|---|---|
+| `set = N` in a `layout(...)` list (`NotImplemented("variable qualifier")`) | dropped | the stack binds everything in group 0; there is no second descriptor set to distinguish |
+| `uniform sampler2D X` (same error) | split into `texture2D X_tex` + `sampler X_smp`, with each use rewritten to `sampler2D(X_tex, X_smp)` | Vulkan's separated form, which naga does accept — verified round-tripping to WGSL |
+| `#pragma parameter` (`PreprocessorError`) | stripped before parsing; the declarations are read separately | it is metadata, not code |
+
+The middle one is load-bearing: **every** `.slang` shader uses the combined form, because
+`RetroArch`'s spec mandates it. Without that rewrite the bridge translates exactly zero real
+shaders — which was its state before the rewrite existed.
+
+Push constants are also rewritten to a bound uniform block, because wgpu exposes push constants only
+on native and not at all on WebGL: a shader using them would work in the desktop build and fail in
+the browser one, which is worse than not supporting it.
+
+Whole-word substitution matters in the sampler rewrite: a substring replace turns `SourceSize` into
+`sampler2D(Source_tex, Source_smp)Size` for any shader declaring `sampler2D Source` — and `Source`
+and `SourceSize` always co-occur in a `.slang` shader.
+
+### Two lists, not one
+
+`Translated` reports `synthesised` (which `RetroArch` semantics the shader *asked for*) separately
+from `rewrites` (what was *changed underneath it*). They answer different questions, and a rendering
+difference is only attributable if both are visible. Conflating them was an actual mistake caught by
+a test during development.
+
+### Recognised-but-unhonoured keys are recorded
+
+`#reference` (preset inheritance) and `srgb_framebufferN` are parsed and then listed in
+`Preset::ignored` with a reason, rather than silently dropped — so a preset that renders differently
+from its author's intent can say which key was responsible. Likewise a `textures` entry with no path
+and a `parameters` entry with no value.
+
+Paths resolve against the **preset's own directory**, never the working directory: the latter is the
+classic way a preset loads for its author and for nobody else.
+
+### Parameters
+
+A pass's knobs come from the shader's own `#pragma parameter` declarations; the preset's
+`parameters` list then overrides them **by name**. A preset commonly sets only some of a shader's
+knobs, and a positional application would put a value on the wrong one.
+
+An omitted step becomes a hundredth of the declared range, because a zero step makes a slider
+unusable.
+
+### What is not done
+
+A translated module carries the **shader's own** binding layout, not the stack's fixed one — the
+sampler rewrite reports which names occupy which bindings (`Translated::samplers`) precisely so a
+caller can build a matching bind group. Reflecting that into the live `StackState` is the remaining
+step for running an arbitrary preset on the GPU; the parse, the translation, and the failure
+reporting are complete and tested. Preset **LUT textures** (`textures = …`) are parsed but not yet
+uploaded, for the same reason.
+
 ## HD texture packs (`v1.3.0`, `hd-pack` feature)
 
 **Status: fully implemented and wired into the live present path.** See `docs/ppu.md`'s own "HD
