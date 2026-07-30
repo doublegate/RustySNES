@@ -306,7 +306,17 @@ pub fn apply_bps(rom: &[u8], patch: &[u8]) -> Result<Vec<u8>, PatchError> {
         let data = read_varint(patch, &mut p)?;
         let action = data & 3;
         let length = usize::try_from((data >> 2) + 1).map_err(|_| PatchError::BadVarint(p))?;
-        if out.len() + length > target_size {
+        // Checked: `length` comes straight from an untrusted varint and can be near `usize::MAX`,
+        // so the guard's own addition would overflow before it could reject anything (a debug
+        // panic, a wrong answer in release). Module 60: never panic on untrusted input.
+        let projected = out
+            .len()
+            .checked_add(length)
+            .ok_or(PatchError::OutOfRange {
+                offset: out.len(),
+                limit: target_size,
+            })?;
+        if projected > target_size {
             return Err(PatchError::OutOfRange {
                 offset: out.len(),
                 limit: target_size,
@@ -316,7 +326,9 @@ pub fn apply_bps(rom: &[u8], patch: &[u8]) -> Result<Vec<u8>, PatchError> {
             // SourceRead: copy `length` bytes from the source at the CURRENT output position.
             0 => {
                 let start = out.len();
-                let end = start + length;
+                // `projected` above already proved this addition cannot overflow, but spelling it
+                // out keeps the invariant local rather than depending on a check 20 lines up.
+                let end = projected;
                 if end > rom.len() {
                     return Err(PatchError::OutOfRange {
                         offset: start,
@@ -340,14 +352,27 @@ pub fn apply_bps(rom: &[u8], patch: &[u8]) -> Result<Vec<u8>, PatchError> {
                 #[allow(clippy::cast_possible_wrap)]
                 let magnitude = (raw >> 1) as i64;
                 let delta = if raw & 1 == 0 { magnitude } else { -magnitude };
+                // Every accumulation is checked: `delta` is a signed value decoded from an
+                // untrusted varint and can be as large as `i64::MAX`, and these accumulate across
+                // the whole patch — an unchecked `+=` panics in debug and wraps in release, on a
+                // path whose entire input is a file someone else wrote.
+                let advance = i64::try_from(length).map_err(|_| PatchError::BadVarint(p))?;
                 if action == 2 {
-                    source_rel += delta;
+                    source_rel = source_rel
+                        .checked_add(delta)
+                        .ok_or(PatchError::BadVarint(p))?;
                     bps_source_copy(&mut out, rom, source_rel, length)?;
-                    source_rel += i64::try_from(length).unwrap_or(i64::MAX);
+                    source_rel = source_rel
+                        .checked_add(advance)
+                        .ok_or(PatchError::BadVarint(p))?;
                 } else {
-                    target_rel += delta;
+                    target_rel = target_rel
+                        .checked_add(delta)
+                        .ok_or(PatchError::BadVarint(p))?;
                     bps_target_copy(&mut out, target_rel, length)?;
-                    target_rel += i64::try_from(length).unwrap_or(i64::MAX);
+                    target_rel = target_rel
+                        .checked_add(advance)
+                        .ok_or(PatchError::BadVarint(p))?;
                 }
             }
         }
@@ -497,6 +522,61 @@ mod tests {
         // itself works by checking the size rather than expecting an error here.
         let out = apply(&[0; 4], &p).expect("within bounds");
         assert!(out.len() <= MAX_TARGET);
+    }
+
+    /// The BPS varint encoder, for building hostile fixtures.
+    fn bps_varint(mut value: u64) -> Vec<u8> {
+        let mut out = Vec::new();
+        loop {
+            #[allow(clippy::cast_possible_truncation)]
+            let x = (value & 0x7f) as u8;
+            value >>= 7;
+            if value == 0 {
+                out.push(0x80 | x);
+                return out;
+            }
+            out.push(x);
+            value -= 1;
+        }
+    }
+
+    /// A hostile BPS whose relative offsets accumulate past `i64` must error, not panic.
+    ///
+    /// `delta` is decoded from an untrusted varint and can reach `i64::MAX`, and it accumulates
+    /// across the whole patch — an unchecked `+=` panics in debug and wraps in release, on a path
+    /// whose entire input is a file someone else wrote (module 60). Raised in review on PR #260.
+    #[test]
+    fn hostile_bps_offsets_error_instead_of_panicking() {
+        let mut patch = b"BPS1".to_vec();
+        patch.extend_from_slice(&bps_varint(4)); // source size
+        patch.extend_from_slice(&bps_varint(4)); // target size
+        patch.extend_from_slice(&bps_varint(0)); // metadata size
+        for _ in 0..4 {
+            // action 2 (SourceCopy), length 1 -> (0 << 2) | 2
+            patch.extend_from_slice(&bps_varint(2));
+            // A maximal relative offset, repeatedly, so the accumulator would overflow.
+            patch.extend_from_slice(&bps_varint(u64::MAX - 1));
+        }
+        patch.extend_from_slice(&[0u8; 12]); // the three trailing CRCs
+        // Whatever it decides, it must DECIDE rather than unwind.
+        let _ = apply(&[0u8; 4], &patch);
+    }
+
+    /// A length near `usize::MAX` must not overflow the bounds check that exists to reject it —
+    /// the guard's own addition was the panic.
+    #[test]
+    fn a_hostile_length_does_not_overflow_its_own_guard() {
+        let mut patch = b"BPS1".to_vec();
+        patch.extend_from_slice(&bps_varint(4));
+        patch.extend_from_slice(&bps_varint(4));
+        patch.extend_from_slice(&bps_varint(0));
+        // action 0 (SourceRead, the low two bits) with a maximal length in the upper bits.
+        patch.extend_from_slice(&bps_varint(!3u64));
+        patch.extend_from_slice(&[0u8; 12]);
+        assert!(
+            apply(&[0u8; 4], &patch).is_err(),
+            "a length past the target size must be rejected, not panicked on"
+        );
     }
 
     #[test]

@@ -117,8 +117,11 @@ impl GamepadRuntime {
             gilrs::Button::DPadLeft,
             gilrs::Button::DPadRight,
         ] {
+            // A direct match, not `gamepad_button(&format!("{gb:?}"))`: that allocated a `String`
+            // per button per assigned player per frame (~1400 heap allocations a second) on the
+            // input path, against this project's own allocation-free-hot-path rule.
             if pad.is_pressed(gb)
-                && let Some(sb) = crate::input::gamepad_button(&format!("{gb:?}"))
+                && let Some(sb) = snes_button(gb)
             {
                 out.set(sb, true);
             }
@@ -157,6 +160,30 @@ pub fn axis_direction(value: f32, deadzone: f32) -> Option<bool> {
     } else {
         None
     }
+}
+
+/// Map a `gilrs` button to the SNES pad input it drives.
+///
+/// A direct match rather than a name lookup: the previous form built a `String` per button per
+/// player per frame on the input path. The mapping is the standard modern-controller layout —
+/// `South`/`East` are the bottom/right face buttons, which sit where a SNES pad's B/A do.
+const fn snes_button(gb: gilrs::Button) -> Option<crate::input::Button> {
+    use crate::input::Button;
+    Some(match gb {
+        gilrs::Button::South => Button::B,
+        gilrs::Button::East => Button::A,
+        gilrs::Button::West => Button::Y,
+        gilrs::Button::North => Button::X,
+        gilrs::Button::LeftTrigger => Button::L,
+        gilrs::Button::RightTrigger => Button::R,
+        gilrs::Button::Start => Button::Start,
+        gilrs::Button::Select => Button::Select,
+        gilrs::Button::DPadUp => Button::Up,
+        gilrs::Button::DPadDown => Button::Down,
+        gilrs::Button::DPadLeft => Button::Left,
+        gilrs::Button::DPadRight => Button::Right,
+        _ => return None,
+    })
 }
 
 #[cfg(test)]

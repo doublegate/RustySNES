@@ -99,9 +99,22 @@ pub fn save_png(
     // spinning forever.
     for index in 0..10_000 {
         let path = dir.join(format!("{}.png", file_stem(rom_title, index)));
-        if !path.exists() {
-            std::fs::write(&path, &bytes)?;
-            return Ok(path);
+        // `create_new` claims the name atomically. An `exists()` probe followed by a write is a
+        // TOCTOU race: two screenshots taken in the same instant (a held hotkey, a second
+        // instance) both see the name free and one silently overwrites the other.
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(mut file) => {
+                use std::io::Write as _;
+                file.write_all(&bytes)?;
+                return Ok(path);
+            }
+            // Taken between the probe and now — try the next index rather than failing.
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
         }
     }
     Err(std::io::Error::new(

@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Soft-patching: a hostile BPS patch could panic instead of erroring.** Two arithmetic paths took
+  untrusted values without checking: the source/target relative offsets accumulated a signed delta
+  and then the copy length with plain `+=` (a crafted varint pair overflows `i64`), and the
+  output-size guard computed `out.len() + length` — its *own* addition — before comparing against the
+  cap, so a length near `usize::MAX` wrapped and the guard passed the very write it exists to reject.
+  Both are now checked arithmetic that returns a typed `PatchError`. Two regression tests feed the
+  hostile encodings.
+- **Screenshot numbering had a TOCTOU race.** The next free filename was chosen with `Path::exists`
+  and then written with `fs::write`, so two captures in the same instant could pick the same name and
+  the second would silently overwrite the first. The write now uses `create_new(true)` and advances
+  to the next index on `AlreadyExists`, making the claim atomic.
+- **Region changes now take effect immediately.** `Settings -> Region` and a per-game region override
+  both wrote the config without touching the live pacer, so a PAL selection kept the host paced at the
+  NTSC rate — ~20% fast, with nothing on screen saying so. Both sites now push the new rate (and the
+  `emu-thread` frame duration). The status message names the half that actually changed: the
+  *emulated* region is auto-detected from the cart header at reset, so no restart was ever going to
+  change a loaded cart's timing.
+- **Gamepad polling no longer formats a string per button per frame.** The `gilrs`→SNES mapping went
+  through `format!("{button:?}")` and a string match; it is now a `const fn` match on the enum.
+
 - **S-RTC (Daikaijuu Monogatari II) detection was structurally broken; now fixed + validated.** The
   real cart declares chipset `$55` (high nibble `$5`, not the `$F` "custom" family), so the S-RTC
   title check — which lived in the `$F` match arm — was never reached; and the check used the guessed

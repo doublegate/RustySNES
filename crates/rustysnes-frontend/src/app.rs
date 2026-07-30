@@ -647,6 +647,27 @@ impl App {
         active.shell.status = format!("Window size: {scale}x ({}%)", scale * 100);
     }
 
+    /// Re-apply the region's frame rate to the pacer (`v1.25.0`).
+    ///
+    /// The pacer is built once at startup from `config.region`, so anything that changes the region
+    /// afterwards — the Settings picker, a per-game override — must push the new rate or the
+    /// emulator keeps running at the old one. A PAL game paced at the NTSC rate runs ~20% fast,
+    /// silently.
+    ///
+    /// Only the *host* side: the emulated region is auto-detected from the cart header at reset
+    /// (`System::reset` -> `Bus::sync_region_from_cart`), so a loaded cart's own timing is already
+    /// correct and is not this function's business.
+    fn apply_region_rate(active: &mut Active, config: &Config) {
+        active
+            .pacer
+            .set_rate(config.region.frame_rate() * f64::from(active.speed));
+        #[cfg(feature = "emu-thread")]
+        active
+            .emu_thread
+            .control()
+            .set_frame_duration(config.region.frame_rate());
+    }
+
     /// Shared post-`Gfx`-init setup, called by `resumed` on native and by
     /// `user_event(AppEvent::GfxReady)` on `wasm32`: builds the egui integration, powers on the
     /// emulator, opens native audio (a no-op on `wasm32`, which uses [`crate::wasm_audio`]
@@ -1824,6 +1845,13 @@ impl App {
                                     && let Some(ov) = crate::per_game::load(stem)
                                 {
                                     ov.apply(config);
+                                    // A per-game region override changes the pacer's target rate,
+                                    // and the pacer was built once at startup — without this a
+                                    // PAL override would leave the game paced at the NTSC rate,
+                                    // i.e. running ~20% fast, with nothing on screen saying so.
+                                    // (The *emulated* region is auto-detected from the cart header
+                                    // at reset, so only the host-side pacing needs re-applying.)
+                                    Self::apply_region_rate(active, config);
                                     active.shell.status.push_str(" + per-game settings");
                                 }
                                 let _ = config.save();
@@ -1939,7 +1967,14 @@ impl App {
                 MenuAction::SetRegion(region) => {
                     config.region = region;
                     let _ = config.save();
-                    active.shell.status = format!("Region: {region:?} (restart to apply)");
+                    // The pacing half takes effect immediately (`v1.25.0`); the emulated region
+                    // itself is auto-detected from the cart header at reset, so a loaded cart
+                    // keeps its own timing regardless — which is why the message names the half
+                    // that actually changed rather than claiming a restart fixes something.
+                    Self::apply_region_rate(active, config);
+                    active.shell.status = format!(
+                        "Region: {region:?} (host pacing; the cart header sets emulated timing)"
+                    );
                 }
                 MenuAction::SetSpeed(speed) => {
                     active.speed = speed;
