@@ -114,6 +114,23 @@ pub struct System {
     sa1_last_master: u64,
     /// Sub-cycle master-clock credit carried between SA-1 catch-up calls.
     sa1_credit: u64,
+    /// `PBR:PC` of the instruction `trace_step` recorded, carried to `trace_after_step` so the
+    /// control-flow classifier can name where the transfer came *from* (`v1.25.0`, T-FP-C1).
+    /// Debugger-only state; never in a save state.
+    #[cfg(feature = "debug-hooks")]
+    pending_trace_pc: u32,
+    /// That instruction's opcode, likewise carried across the step.
+    #[cfg(feature = "debug-hooks")]
+    pending_trace_opcode: u8,
+    /// `Cpu::interrupts_taken` as of `trace_step`. A step that vectored an NMI/IRQ never fetched an
+    /// opcode at all, so the classifier must read this rather than `pending_trace_opcode` — which
+    /// on such a step still holds the *previous* instruction's byte.
+    #[cfg(feature = "debug-hooks")]
+    pending_trace_interrupts: u64,
+    /// Whether `trace_step` actually armed the fields above this step. Without it, arming tracing
+    /// between the two hooks would classify against whatever the last traced step left behind.
+    #[cfg(feature = "debug-hooks")]
+    pending_trace_armed: bool,
 }
 
 impl System {
@@ -129,6 +146,14 @@ impl System {
             sa1_cpu: None,
             sa1_last_master: 0,
             sa1_credit: 0,
+            #[cfg(feature = "debug-hooks")]
+            pending_trace_pc: 0,
+            #[cfg(feature = "debug-hooks")]
+            pending_trace_opcode: 0,
+            #[cfg(feature = "debug-hooks")]
+            pending_trace_interrupts: 0,
+            #[cfg(feature = "debug-hooks")]
+            pending_trace_armed: false,
         }
     }
 
@@ -229,7 +254,11 @@ impl System {
             #[cfg(feature = "debug-hooks")]
             self.bus
                 .set_debug_pc((u32::from(self.cpu.regs.pbr) << 16) | u32::from(self.cpu.regs.pc));
+            #[cfg(feature = "debug-hooks")]
+            self.trace_step();
             self.cpu.step(&mut self.bus);
+            #[cfg(feature = "debug-hooks")]
+            self.trace_after_step();
             steps += 1;
 
             // HDMA is now serviced clock-accurately inside `Bus::advance_master` (so it stays
@@ -275,10 +304,97 @@ impl System {
         #[cfg(feature = "debug-hooks")]
         self.bus
             .set_debug_pc((u32::from(self.cpu.regs.pbr) << 16) | u32::from(self.cpu.regs.pc));
+        #[cfg(feature = "debug-hooks")]
+        self.trace_step();
         self.cpu.step(&mut self.bus);
+        #[cfg(feature = "debug-hooks")]
+        self.trace_after_step();
         if self.sa1_cpu.is_some() {
             self.run_sa1();
         }
+    }
+
+    /// Record the instruction about to execute into the trace ring (`v1.25.0`, T-FP-C1).
+    ///
+    /// Pre-execution, because a trace is read to answer "what was the machine holding when it
+    /// decided to do that" — see [`crate::trace::TraceEntry`]. Costs one `bool` test when tracing
+    /// is disarmed, which is every build that has not explicitly turned it on.
+    #[cfg(feature = "debug-hooks")]
+    fn trace_step(&mut self) {
+        if !self.bus.trace().is_tracing() {
+            self.pending_trace_armed = false;
+            return;
+        }
+        let regs = self.cpu.regs;
+        let pbr_pc = (u32::from(regs.pbr) << 16) | u32::from(regs.pc);
+        // `Bus::peek` rather than a live read: a debugger fetch must not perturb the open-bus latch
+        // or trip a watchpoint, the same rule the disassembler already follows.
+        let opcode = self.bus.peek(pbr_pc);
+        self.bus.trace_mut().record_step(crate::trace::TraceEntry {
+            pbr_pc,
+            opcode,
+            a: regs.a,
+            x: regs.x,
+            y: regs.y,
+            sp: regs.s,
+            dp: regs.d,
+            p: regs.p.bits(),
+            db: regs.dbr,
+            emulation: regs.emulation,
+        });
+        self.pending_trace_pc = pbr_pc;
+        self.pending_trace_opcode = opcode;
+        self.pending_trace_interrupts = self.cpu.interrupts_taken;
+        self.pending_trace_armed = true;
+    }
+
+    /// Classify the instruction that just ran into a control-flow event (`v1.25.0`, T-FP-C1).
+    ///
+    /// Derived from the opcode plus the *actual* post-execution `PBR:PC` rather than from decoding
+    /// the operand: a `JSR` whose target is computed (`JSR (a,X)`) has no static destination, and a
+    /// conditional path would have to re-implement the CPU to know whether it was taken. Reading
+    /// where the CPU actually went cannot be wrong about either.
+    ///
+    /// An interrupt taken *between* instructions is caught **before** the opcode is consulted, and
+    /// has to be: on a step that vectored, the CPU fetched no opcode at all, so
+    /// `pending_trace_opcode` still holds the *previous* instruction's byte. Classifying from it
+    /// would not merely miss the interrupt — an NMI arriving right after a `JSR` would be recorded
+    /// as a second `Call`, with `to` pointing at the NMI vector's target. `Cpu::interrupts_taken`
+    /// is the unambiguous signal, which is why this is one classifier rather than separate call and
+    /// interrupt hooks.
+    #[cfg(feature = "debug-hooks")]
+    fn trace_after_step(&mut self) {
+        // `pending_trace_armed` guards the case where tracing was turned on between the two hooks:
+        // the fields below would then describe some earlier step entirely.
+        if !self.bus.trace().is_tracing() || !self.pending_trace_armed {
+            return;
+        }
+        if self.cpu.interrupts_taken != self.pending_trace_interrupts {
+            let kind = if self.cpu.last_interrupt_was_nmi {
+                crate::trace::EventKind::Nmi
+            } else {
+                crate::trace::EventKind::Irq
+            };
+            let to = (u32::from(self.cpu.regs.pbr) << 16) | u32::from(self.cpu.regs.pc);
+            self.bus
+                .trace_mut()
+                .record_event(kind, self.pending_trace_pc, to);
+            return;
+        }
+        let kind = match self.pending_trace_opcode {
+            // JSR a, JSL al, JSR (a,X)
+            0x20 | 0x22 | 0xFC => crate::trace::EventKind::Call,
+            // RTS, RTL
+            0x60 | 0x6B => crate::trace::EventKind::Return,
+            0x40 => crate::trace::EventKind::Rti,
+            0x00 => crate::trace::EventKind::Brk,
+            0x02 => crate::trace::EventKind::Cop,
+            _ => return,
+        };
+        let to = (u32::from(self.cpu.regs.pbr) << 16) | u32::from(self.cpu.regs.pc);
+        self.bus
+            .trace_mut()
+            .record_event(kind, self.pending_trace_pc, to);
     }
 
     /// Advance by one CPU instruction (kept for API compatibility with the old skeleton). The
@@ -503,5 +619,60 @@ mod tests {
             fresh.load_state(&bytes),
             Err(SaveStateError::UnsupportedVersion { .. })
         ));
+    }
+
+    /// A hardware NMI must be recorded as an `Nmi` control-flow event.
+    ///
+    /// This is not a redundant assertion about an enum: the classifier originally read only
+    /// `pending_trace_opcode`, and on a step that vectors, the CPU fetches **no** opcode — the
+    /// field still holds the PREVIOUS instruction's byte. So an NMI arriving after a `JSR` was
+    /// recorded as a second `Call` whose `to` pointed at the NMI vector's target, and an NMI after
+    /// an ordinary instruction was dropped entirely. The `to` assertion below is what pins the
+    /// difference: it must be the handler, not wherever the last instruction went.
+    #[cfg(feature = "debug-hooks")]
+    #[test]
+    fn a_hardware_nmi_is_recorded_as_an_nmi_event() {
+        const HANDLER: u16 = 0x9000;
+        let mut rom = synth_rom(0x00);
+        // `NOP` everywhere the CPU can land, so nothing else generates a control-flow event
+        // (a zero byte would be `BRK`, which does).
+        rom[0..0x7FC0].fill(0xEA);
+        // The program enables the VBlank NMI itself, rather than the test reaching into the
+        // Bus: `LDA #$80` / `STA $4200` (NMITIMEN bit 7). Neither is a control-flow instruction,
+        // so neither can produce an event of its own.
+        rom[0x0000..0x0005].copy_from_slice(&[0xA9, 0x80, 0x8D, 0x00, 0x42]);
+        // Emulation-mode NMI vector ($00:FFFA -> rom[$7FFA] under LoROM).
+        rom[0x7FFA..0x7FFC].copy_from_slice(&HANDLER.to_le_bytes());
+        rom[0x7FFC..0x7FFE].copy_from_slice(&0x8000u16.to_le_bytes()); // reset vector
+
+        let mut sys = System::new(0);
+        sys.bus.cart = Some(Cart::from_rom(&rom).expect("synth rom"));
+        sys.reset();
+        sys.bus.trace_mut().set_tracing(true);
+
+        // Run at most two frames' worth of instructions; VBlank arrives well inside that.
+        for _ in 0..200_000 {
+            sys.step_instruction();
+            if !sys.bus.trace().events().is_empty() {
+                break;
+            }
+        }
+
+        let events = sys.bus.trace().events();
+        let nmi = events
+            .iter()
+            .find(|e| e.kind == crate::trace::EventKind::Nmi)
+            .expect("an enabled VBlank NMI must produce an Nmi event");
+        assert_eq!(
+            nmi.to,
+            u32::from(HANDLER),
+            "`to` must be the NMI handler, not where the previous instruction went"
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|e| e.kind == crate::trace::EventKind::Call),
+            "a NOP-only program plus one NMI must not record a Call"
+        );
     }
 }

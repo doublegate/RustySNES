@@ -1039,6 +1039,93 @@ rather than recomputing it. The header decode also picked up a genuinely new fie
 non-printable bytes replaced with spaces, trailing padding trimmed) — `Header::parse` already had
 the raw bytes in hand for its own coprocessor-disambiguation title match, this just surfaces them.
 
+### Trace, events, and the access heat map (`v1.25.0`, T-FP-C1)
+
+`rustysnes_core::trace` is the third rung of the same opt-in observability `watchpoint` established,
+under the same `debug-hooks` gate and the same never-in-a-save-state contract. A watchpoint answers
+"who touched *this* address?"; these answer the three questions it structurally cannot:
+
+| Facility | Answers | Hooked at |
+|---|---|---|
+| `record_step` | what ran, with the full register file **pre**-execution | `System::run_frame`/`step_instruction`, beside the existing `set_debug_pc` |
+| `record_event` | how control got here — call / return / interrupt, with a depth | after each step, classified from the opcode |
+| `note_access` | what is hot — per-address WRAM read/write counts | `Bus::note_bus_access`, the same hook watchpoints use |
+
+Two design points that are not obvious:
+
+- **Recording is separately armed, not implied by `debug-hooks`.** A watchpoint list is naturally
+  empty until the user arms one, so `is_empty()` gates it for free. A trace records *everything* by
+  nature and has no such empty state, so each facility carries an explicit flag starting `false`. The
+  heat map's 128 K-entry allocation is made on the first enable and never at all on a build that
+  leaves it off.
+- **Events are classified from the actual post-step `PBR:PC`, not from decoding the operand.** A
+  `JSR (a,X)` has no static destination and a conditional path would need the CPU re-implemented to
+  know whether it was taken; reading where the CPU actually went cannot be wrong about either.
+- **An interrupt is detected before the opcode is consulted, and has to be.** On a step that vectors
+  an NMI/IRQ the CPU fetches no opcode at all, so the carried `pending_trace_opcode` still holds the
+  *previous* instruction's byte. Classifying from it does not merely miss the interrupt: an NMI
+  arriving right after a `JSR` is recorded as a second `Call` whose `to` points at the NMI vector's
+  target. `Cpu::interrupts_taken` — a counter written only on the interrupt path, never per
+  instruction — is the unambiguous signal, snapshotted before the step and compared after. This is
+  still one classifier rather than separate call and interrupt hooks; it just asks the right
+  question first.
+
+The heat map covers WRAM only, and folds the `$0000-$1FFF` low-RAM mirror onto the same slots as the
+`$7E` linear window: they are the same bytes, and two counters would show one hot address as two
+cold ones. `heatmap_index` masks its argument to 24 bits, which is both the CPU bus's own wrap at
+`$FF:FFFF` and what stops a window walking off the top of memory from reporting low-RAM heat that
+belongs to a different address (`$FF:FFFF + 1` truncates to bank `$00`). The **freeze list** keys on
+the same canonical form for the same reason: `$00:0042` and `$7E:0042` are one byte, and two entries
+holding different values would fight every frame with the later one silently winning.
+
+### Memory editor panel (`v1.25.0`, T-FP-C1)
+
+The `v1.7.0` panel showed a fixed 512-byte read-only dump with no way to move it. The Memory panel
+adds go-to/paging, byte editing, freezes, and the heat column.
+
+**Edits reach WRAM only** (`Bus::poke_wram`). Non-WRAM rows are greyed and the poke button refuses
+them by name — a debugger that appeared to edit a ROM byte which then read back unchanged would look
+like an emulation bug, so "not writable" is stated rather than silently performed.
+
+**A freeze is re-applied every present, not once.** Its whole purpose is to hold a value the *game*
+is rewriting; a one-shot poke would be overwritten by the next frame and look like the freeze failed.
+Freezes are written after pokes, so a freeze always wins over a same-address poke rather than the
+result depending on click order.
+
+The heat column is normalised **logarithmically against the map's peak**: access counts span orders
+of magnitude between a once-per-frame variable and an inner-loop pointer, and a linear scale renders
+every ordinary address indistinguishable from untouched.
+
+The panel never moves the window itself — it *requests* a new start address, which `app.rs` applies
+outside the egui pass, because `set_debug_memory_scroll` is on `EmuCore` and the shell's
+non-negotiable rule is that egui never reaches the emu lock.
+
+### OAM panel (`v1.25.0`, T-FP-C1)
+
+`PpuSnapshot::oam` had carried all 544 bytes since the overlay existed and nothing read them. OAM is
+the one PPU structure whose raw bytes are genuinely unreadable by eye: each sprite's X sign bit and
+size bit live in a *separate* 32-byte high table, two bits per sprite at `(index % 4) * 2`. So "why
+is this sprite off-screen" is a question the hex cannot answer and the decode can — X is 9-bit
+**signed**, and a sprite at X = -32 is partly visible while one at X = 224 with bit 8 set is not.
+
+Off-screen rows are dimmed, never hidden ("sprite 47 exists but is parked at Y=240" is exactly what
+the panel is opened for), and the off-screen test uses the *maximum* 64 px sprite extent so it never
+claims a sprite is invisible when the configured size might still put part of it on screen.
+
+### Map panel (`v1.25.0`, T-FP-C1)
+
+Answers "what is at `$C0:8000`?". ROM Info decodes the header and the Cart panel names the board;
+neither says where ROM, SRAM, WRAM, and I/O land on the CPU bus — and that differs by mapping, which
+is why the table is **derived from the detected `MapMode`** rather than hardcoded. A LoROM and a
+HiROM cart genuinely show different maps; a static table would look authoritative and describe
+whichever cart the author happened to have open.
+
+Lookup returns the *first* matching range, so the map lists the specific regions (low-RAM mirror,
+I/O) before the broad ROM windows that would otherwise swallow them. An address no range covers
+reports as uncovered rather than being forced into the nearest one — "open bus" is a real answer, and
+a wrong guess sends someone hunting a bug that is not there. Coprocessor windows are board-specific
+and are explicitly out of scope here, with a note in the panel saying so.
+
 ## Scripting + TAS movies (`v0.8.0 "Instrumentation"`, T-81-002)
 
 A Tools menu (native only, `#[cfg(all(feature = "scripting", not(target_arch = "wasm32")))]`)

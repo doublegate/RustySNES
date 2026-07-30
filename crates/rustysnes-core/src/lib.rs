@@ -23,6 +23,11 @@ pub mod scheduler;
 // off, so a default build carries zero extra code — this module's own doc has the detail.
 #[cfg(feature = "debug-hooks")]
 pub mod watchpoint;
+// `v1.25.0`, T-FP-C1: instruction trace, control-flow events, and a WRAM access heat map — the
+// three things a point-in-time snapshot structurally cannot answer. Same gate, same contract as
+// `watchpoint` above; see the module doc.
+#[cfg(feature = "debug-hooks")]
+pub mod trace;
 
 // Re-export the chip crates (the public surface).
 pub use rustysnes_apu as apu;

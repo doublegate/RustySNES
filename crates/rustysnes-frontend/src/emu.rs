@@ -20,8 +20,8 @@ use rustysnes_core::scheduler::System;
 
 use crate::config::Region;
 use crate::debug_snapshot::{
-    ApuSnapshot, CartSnapshot, DebugSnapshot, GsuSnapshot, MEMORY_WINDOW_LEN, PpuSnapshot,
-    VRAM_WINDOW_LEN, VoiceSnapshot, WatchHit,
+    AccessHeat, ApuSnapshot, BankRange, CartSnapshot, DebugSnapshot, GsuSnapshot,
+    MEMORY_WINDOW_LEN, PpuSnapshot, VRAM_WINDOW_LEN, VoiceSnapshot, WatchHit,
 };
 use crate::input::Buttons;
 
@@ -624,6 +624,7 @@ impl EmuCore {
                 .map(|(r, sfr, pbr)| GsuSnapshot { r, sfr, pbr }),
         };
 
+        let map = cart_bank_map(system.bus.cart.as_ref().map(|c| c.header.map_mode));
         let cpu = system.cpu.regs;
         let ppu_snapshot = PpuSnapshot {
             bg_mode: ppu.bg_mode(),
@@ -643,6 +644,8 @@ impl EmuCore {
             smp_stopped: apu.smp_stopped(),
             voices,
         };
+        let (heat, heat_peak, trace_armed, trace_len, counting_armed) =
+            self.debug_trace_state(memory_window_start);
 
         DebugSnapshot {
             cpu,
@@ -654,7 +657,94 @@ impl EmuCore {
             watchpoint_hits: self.take_watchpoint_hits(),
             memory_window,
             memory_window_start,
+            heat,
+            heat_peak,
+            trace_armed,
+            trace_len,
+            counting_armed,
+            map,
         }
+    }
+
+    /// The Memory panel's heat column + the trace/counting armed flags (`v1.25.0`, T-FP-C1).
+    ///
+    /// `heat` is deliberately **empty** rather than zero-filled when counting is off: an all-zero
+    /// column is what "counted, never touched" looks like, and the panel must be able to tell those
+    /// apart or a disabled counter reads as a cold region.
+    #[cfg(feature = "debug-hooks")]
+    fn debug_trace_state(
+        &mut self,
+        window_start: u32,
+    ) -> (Vec<AccessHeat>, u32, bool, (usize, usize), bool) {
+        let trace = self.inner.system_mut().bus.trace();
+        let counting = trace.is_counting();
+        let tracing = trace.is_tracing();
+        let peak = trace.peak_count();
+        let lens = (trace.len(), trace.event_len());
+        let heat = if counting {
+            trace
+                .counts(window_start, MEMORY_WINDOW_LEN)
+                .into_iter()
+                .map(|c| AccessHeat {
+                    reads: c.reads,
+                    writes: c.writes,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        (heat, peak, tracing, lens, counting)
+    }
+
+    // Feature-off stub, same "always compiles, practically dead" posture as `take_watchpoint_hits`.
+    #[cfg(not(feature = "debug-hooks"))]
+    #[allow(clippy::unused_self)]
+    const fn debug_trace_state(
+        &self,
+        _window_start: u32,
+    ) -> (Vec<AccessHeat>, u32, bool, (usize, usize), bool) {
+        (Vec::new(), 0, false, (0, 0), false)
+    }
+
+    /// Arm or disarm the instruction/event trace (`v1.25.0`, T-FP-C1). A no-op without
+    /// `debug-hooks`, which is the build where the Debugger overlay is unreachable anyway.
+    // `const fn` only on the feature-off path (the body is empty there); a `cfg`-split signature
+    // would be two functions to keep in step for no caller-visible difference.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn set_trace_armed(&mut self, on: bool) {
+        #[cfg(feature = "debug-hooks")]
+        self.inner.system_mut().bus.trace_mut().set_tracing(on);
+        #[cfg(not(feature = "debug-hooks"))]
+        let _ = on;
+    }
+
+    /// Arm or disarm access counting (allocates the heat map on the first enable).
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn set_counting_armed(&mut self, on: bool) {
+        #[cfg(feature = "debug-hooks")]
+        self.inner.system_mut().bus.trace_mut().set_counting(on);
+        #[cfg(not(feature = "debug-hooks"))]
+        let _ = on;
+    }
+
+    /// Zero every access count, keeping the allocation.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn clear_access_counts(&mut self) {
+        #[cfg(feature = "debug-hooks")]
+        self.inner.system_mut().bus.trace_mut().clear_counts();
+    }
+
+    /// Write one byte through the debugger's memory editor (`v1.25.0`, T-FP-C1).
+    ///
+    /// Uses `Bus::poke_wram`, which reaches WRAM and its low mirror only — a debugger must not be
+    /// able to "edit" a ROM byte that will read back unchanged on the next fetch, or an edit that
+    /// silently did nothing would look like an emulation bug. The panel greys out non-WRAM rows
+    /// for the same reason.
+    pub fn poke(&mut self, addr24: u32, value: u8) {
+        self.inner
+            .system_mut()
+            .bus
+            .poke_wram(addr24 & 0x00FF_FFFF, value);
     }
 
     /// Drain the watchpoint hits recorded since the last call (`v0.8.0` T-81-001b), translated
@@ -710,6 +800,97 @@ impl EmuCore {
     pub fn load_state(&mut self, bytes: &[u8]) -> Result<(), rustysnes_savestate::SaveStateError> {
         self.inner.load_state(bytes)
     }
+}
+
+/// Decode the CPU-bus memory map for a detected mapping (`v1.25.0`, T-FP-C1).
+///
+/// Derived from the mapping the header actually reported, so a LoROM and a HiROM cart show
+/// genuinely different maps. A single hardcoded table would look authoritative and describe
+/// whichever cart the author happened to have open.
+///
+/// Ranges are the ones a debugger needs to reason about an address — where ROM, SRAM, WRAM, and
+/// I/O live — not an exhaustive transcription of every mirror the hardware honours.
+#[must_use]
+pub(crate) fn cart_bank_map(mapping: Option<rustysnes_core::cart::MapMode>) -> Vec<BankRange> {
+    use rustysnes_core::cart::MapMode;
+    let Some(mapping) = mapping else {
+        return Vec::new();
+    };
+    // Common to every mapping: the low-RAM mirror, I/O, and the linear WRAM window.
+    let mut ranges = vec![
+        BankRange {
+            bank_lo: 0x00,
+            bank_hi: 0x3F,
+            offset_lo: 0x0000,
+            offset_hi: 0x1FFF,
+            what: "WRAM (low mirror)",
+        },
+        BankRange {
+            bank_lo: 0x00,
+            bank_hi: 0x3F,
+            offset_lo: 0x2000,
+            offset_hi: 0x5FFF,
+            what: "I/O (PPU / APU / CPU / DMA)",
+        },
+    ];
+    match mapping {
+        MapMode::LoRom | MapMode::ExLoRom => {
+            ranges.push(BankRange {
+                bank_lo: 0x00,
+                bank_hi: 0x7D,
+                offset_lo: 0x8000,
+                offset_hi: 0xFFFF,
+                what: "ROM (32 KiB per bank)",
+            });
+            ranges.push(BankRange {
+                bank_lo: 0x70,
+                bank_hi: 0x7D,
+                offset_lo: 0x0000,
+                offset_hi: 0x7FFF,
+                what: "SRAM",
+            });
+        }
+        MapMode::HiRom | MapMode::ExHiRom => {
+            ranges.push(BankRange {
+                bank_lo: 0x40,
+                bank_hi: 0x7D,
+                offset_lo: 0x0000,
+                offset_hi: 0xFFFF,
+                what: "ROM (64 KiB per bank, linear)",
+            });
+            ranges.push(BankRange {
+                bank_lo: 0x00,
+                bank_hi: 0x3F,
+                offset_lo: 0x8000,
+                offset_hi: 0xFFFF,
+                what: "ROM (upper half mirror)",
+            });
+            ranges.push(BankRange {
+                bank_lo: 0x20,
+                bank_hi: 0x3F,
+                offset_lo: 0x6000,
+                offset_hi: 0x7FFF,
+                what: "SRAM",
+            });
+        }
+    }
+    ranges.push(BankRange {
+        bank_lo: 0x7E,
+        bank_hi: 0x7F,
+        offset_lo: 0x0000,
+        offset_hi: 0xFFFF,
+        what: "WRAM (128 KiB linear)",
+    });
+    if mapping == MapMode::ExHiRom || mapping == MapMode::ExLoRom {
+        ranges.push(BankRange {
+            bank_lo: 0xC0,
+            bank_hi: 0xFF,
+            offset_lo: 0x0000,
+            offset_hi: 0xFFFF,
+            what: "ROM (extended upper image)",
+        });
+    }
+    ranges
 }
 
 #[cfg(test)]

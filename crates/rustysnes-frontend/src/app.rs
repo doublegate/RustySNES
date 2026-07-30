@@ -285,6 +285,14 @@ struct Active {
     /// The in-session cheat-code list (`v0.8.0`, T-81-003). Empty until `Cheats…` adds entries.
     #[cfg(feature = "cheats")]
     cheats: Vec<CheatEntry>,
+    /// Addresses the Memory editor is holding at a fixed value (`v1.25.0`, T-FP-C1). Re-applied
+    /// once per present, not once when set — the point is to hold a value the *game* is writing,
+    /// which a one-shot poke would lose on the next frame. Not feature-gated, for the same reason
+    /// `watchpoints` below is not.
+    freezes: Vec<crate::debugger::FreezeEntry>,
+    /// One-shot byte writes the Memory editor requested during the last egui pass, drained and
+    /// applied under the same brief emu lock everything else uses.
+    pokes: Vec<crate::debugger::PokeRequest>,
     /// The debugger's armed read/write watchpoint list (`v0.8.0`, T-81-001b). Empty until the
     /// debugger overlay's Watch panel adds entries. Not feature-gated (unlike `cheats` above) —
     /// [`WatchpointEntry`] is one of `debug_snapshot.rs`'s always-compiled types (see that
@@ -739,6 +747,27 @@ impl App {
     // control/present/producer + the `Active` literal); the length is inherent to how much
     // state one session needs to stand up once, not a sign this needs splitting.
     #[allow(clippy::too_many_lines)]
+    /// Apply the Memory editor's pending one-shot pokes and its freeze list (`v1.25.0`, T-FP-C1).
+    ///
+    /// Pokes are **drained** (each write happens once); freezes are re-applied every present, which
+    /// is the whole difference between the two — a freeze exists to hold a value the game itself is
+    /// rewriting, so applying it once would look like it silently failed.
+    ///
+    /// Freezes are written *after* pokes so a freeze always wins over a same-address poke issued in
+    /// the same pass, rather than the order depending on which button was clicked first.
+    fn apply_debug_edits(
+        pokes: &mut Vec<crate::debugger::PokeRequest>,
+        freezes: &[crate::debugger::FreezeEntry],
+        emu: &mut EmuCore,
+    ) {
+        for poke in pokes.drain(..) {
+            emu.poke(poke.address, poke.value);
+        }
+        for freeze in freezes {
+            emu.poke(freeze.address, freeze.value);
+        }
+    }
+
     /// Wait out the remainder of the current frame period before asking for the next redraw, when
     /// the resolved plan is self-paced (`v1.25.0`, T-FP-B).
     ///
@@ -1025,6 +1054,8 @@ impl App {
             movie: MovieState::default(),
             #[cfg(feature = "cheats")]
             cheats: Vec::new(),
+            freezes: Vec::new(),
+            pokes: Vec::new(),
             watchpoints: Vec::new(),
             breakpoints: Vec::new(),
             #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
@@ -1426,6 +1457,10 @@ impl App {
                     // unconditionally, once per real frame" pattern as cheats above.
                     #[cfg(feature = "debug-hooks")]
                     crate::watchpoints::sync(&active.watchpoints, &mut emu.system_mut().bus);
+                    // Memory-editor pokes + freezes (`v1.25.0`, T-FP-C1) — same "re-sync
+                    // unconditionally once per real frame" pattern. A freeze MUST be re-applied
+                    // per frame, since it exists to hold a value the game itself is rewriting.
+                    Self::apply_debug_edits(&mut active.pokes, &active.freezes, &mut emu);
                     // Controller port 2 peripheral selection (`v0.9.0`, Phase 7 niche
                     // peripherals) — same "just re-sync unconditionally, once per real frame"
                     // pattern as cheats/watchpoints above; cheap (one enum-tag write) when
@@ -1530,6 +1565,7 @@ impl App {
                 crate::cheats::sync(&active.cheats, &mut emu.system_mut().bus);
                 #[cfg(feature = "debug-hooks")]
                 crate::watchpoints::sync(&active.watchpoints, &mut emu.system_mut().bus);
+                Self::apply_debug_edits(&mut active.pokes, &active.freezes, &mut emu);
                 emu.set_port_device(1, config.port2_peripheral.to_core());
                 // Host-input capture for Mouse/Super Scope (`v1.20.0`) — same "re-sync once per
                 // present" cadence the port-device selection above already uses in this threaded
@@ -1882,6 +1918,8 @@ impl App {
                 &mut active.breakpoints,
                 save_slots.as_deref(),
                 active.rom_info.as_ref(),
+                &mut active.freezes,
+                &mut active.pokes,
                 #[cfg(feature = "cheats")]
                 &mut active.cheats,
                 #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
@@ -1893,6 +1931,16 @@ impl App {
         active
             .egui_state
             .handle_platform_output(&active.window, full_output.platform_output);
+        // The Memory editor requests a window move rather than performing one (`v1.25.0`,
+        // T-FP-C1): `set_debug_memory_scroll` is on `EmuCore`, and the shell's non-negotiable rule
+        // is that egui never reaches the emu lock. Consumed here, outside the pass.
+        if let Some(target) = active.shell.mem_goto_target.take() {
+            active
+                .core
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .set_debug_memory_scroll(target);
+        }
         // Fold in anything raised outside the egui pass this present (`v1.25.0`: a dropped file, a
         // global hotkey) so it runs through the same dispatch as a menu click. Done after `render`
         // above, which ASSIGNS `actions` and would otherwise discard these.
@@ -2158,6 +2206,40 @@ impl App {
                     config.recent.clear();
                     let _ = config.save();
                     active.shell.status = "Recent ROMs cleared".into();
+                }
+                // Core instrumentation arming (`v1.25.0`, T-FP-C1). Each takes the emu lock
+                // briefly, outside the egui pass, like every other action here.
+                MenuAction::SetAccessCounting(on) => {
+                    active
+                        .core
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .set_counting_armed(on);
+                    active.shell.status = if on {
+                        "Access counting armed".into()
+                    } else {
+                        "Access counting off".into()
+                    };
+                }
+                MenuAction::ClearAccessCounts => {
+                    active
+                        .core
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .clear_access_counts();
+                    active.shell.status = "Access counts cleared".into();
+                }
+                MenuAction::SetTracing(on) => {
+                    active
+                        .core
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .set_trace_armed(on);
+                    active.shell.status = if on {
+                        "Instruction tracing armed".into()
+                    } else {
+                        "Instruction tracing off".into()
+                    };
                 }
                 MenuAction::ResetPerfStats => {
                     active.perf.reset();

@@ -388,6 +388,12 @@ pub struct Bus {
     /// [`crate::watchpoint::WatchpointHit::pbr_pc`]. `debug-hooks`-only, same as `watchpoints`.
     #[cfg(feature = "debug-hooks")]
     debug_pc: u32,
+    /// Instruction trace, control-flow events, and the WRAM access heat map (`v1.25.0`, T-FP-C1) —
+    /// same gate and same never-in-a-save-state contract as `watchpoints`. Separately armed, so a
+    /// `debug-hooks` build that never turns tracing on costs one `bool` test per hook and no
+    /// allocation at all. See [`crate::trace`]'s module doc.
+    #[cfg(feature = "debug-hooks")]
+    trace: crate::trace::TraceState,
 }
 
 impl Default for Bus {
@@ -439,6 +445,8 @@ impl Bus {
             watchpoints: crate::watchpoint::WatchpointState::default(),
             #[cfg(feature = "debug-hooks")]
             debug_pc: 0,
+            #[cfg(feature = "debug-hooks")]
+            trace: crate::trace::TraceState::default(),
         }
     }
 
@@ -735,6 +743,24 @@ impl Bus {
     fn note_bus_access(&mut self, addr24: u32, value: u8, is_write: bool) {
         let pc = self.debug_pc;
         self.watchpoints.check(addr24, value, is_write, pc);
+        // The access heat map (`v1.25.0`, T-FP-C1) shares this hook deliberately: it must see the
+        // exact same set of accesses watchpoints do, DMA/HDMA included, or a transfer-driven hot
+        // spot would read as cold.
+        self.trace.note_access(addr24, is_write);
+    }
+
+    /// The instruction trace / event log / access heat map (`v1.25.0`, T-FP-C1), for the debugger
+    /// to arm and read.
+    #[cfg(feature = "debug-hooks")]
+    #[must_use]
+    pub const fn trace(&self) -> &crate::trace::TraceState {
+        &self.trace
+    }
+
+    /// Mutable access to the same, for arming, clearing, and recording.
+    #[cfg(feature = "debug-hooks")]
+    pub const fn trace_mut(&mut self) -> &mut crate::trace::TraceState {
+        &mut self.trace
     }
 
     /// Whether the PPU has a finished frame ready to present.

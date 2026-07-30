@@ -45,6 +45,63 @@ pub struct DebugSnapshot {
     pub memory_window: [u8; MEMORY_WINDOW_LEN],
     /// The 24-bit address `memory_window` starts at.
     pub memory_window_start: u32,
+    /// Per-byte read/write counts for `memory_window` (`v1.25.0`, T-FP-C1) — the Memory panel's
+    /// heat column. **Empty** unless access counting is armed, which is what distinguishes "no
+    /// counting" from "counted and never touched"; a zero-filled vector would conflate the two.
+    pub heat: Vec<AccessHeat>,
+    /// The largest total count anywhere in the heat map, for scaling the column. `0` when nothing
+    /// has been counted.
+    pub heat_peak: u32,
+    /// Whether instruction tracing is currently armed (`v1.25.0`, T-FP-C1). Always `false` without
+    /// `debug-hooks`.
+    pub trace_armed: bool,
+    /// Instructions currently held in the trace ring, and control-flow events in the event log.
+    /// Counts only — the entries themselves are read by the trace viewer (T-FP-C2), and copying
+    /// thousands of rows every present for a panel that is usually closed would be real cost.
+    pub trace_len: (usize, usize),
+    /// Whether access counting is currently armed. Always `false` without `debug-hooks`.
+    pub counting_armed: bool,
+    /// The loaded cart's decoded bank map (`v1.25.0`, T-FP-C1). Empty with no cart loaded.
+    pub map: Vec<BankRange>,
+}
+
+/// Read/write counts for one address (`v1.25.0`, T-FP-C1).
+///
+/// Mirrors `rustysnes_core::trace::AccessCount` without depending on it — same reason [`WatchHit`]
+/// is decoupled: that type only exists under the core's own `debug-hooks` feature, while
+/// [`DebugSnapshot`] is unconditionally compiled.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AccessHeat {
+    /// Times the address was read.
+    pub reads: u32,
+    /// Times the address was written.
+    pub writes: u32,
+}
+
+impl AccessHeat {
+    /// Total accesses (saturating).
+    #[must_use]
+    pub const fn total(self) -> u32 {
+        self.reads.saturating_add(self.writes)
+    }
+}
+
+/// One decoded region of the cart's CPU-bus memory map (`v1.25.0`, T-FP-C1).
+///
+/// Derived from the detected mapping rather than hardcoded, so a LoROM and a HiROM cart genuinely
+/// show different maps — a static table would look right and say nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BankRange {
+    /// First bank in the range (inclusive).
+    pub bank_lo: u8,
+    /// Last bank in the range (inclusive).
+    pub bank_hi: u8,
+    /// First offset within each bank (inclusive).
+    pub offset_lo: u16,
+    /// Last offset within each bank (inclusive).
+    pub offset_hi: u16,
+    /// What this range maps to ("ROM", "SRAM", "WRAM (low mirror)", "I/O", …).
+    pub what: &'static str,
 }
 
 /// Bytes per memory-viewer window (`v1.7.0`).

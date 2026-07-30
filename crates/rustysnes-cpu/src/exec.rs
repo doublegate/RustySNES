@@ -679,9 +679,16 @@ impl Cpu {
 
         if nmi {
             self.wake_from_wai(bus);
+            // Bookkeeping for an observer that must tell a vectored step from an executed one; see
+            // `Cpu::interrupts_taken`. Written only here and in the IRQ arm, never on the ordinary
+            // instruction path.
+            self.interrupts_taken = self.interrupts_taken.wrapping_add(1);
+            self.last_interrupt_was_nmi = true;
             self.service_interrupt(bus, false, true);
         } else if irq && !self.regs.p.contains(Status::I) {
             self.wake_from_wai(bus);
+            self.interrupts_taken = self.interrupts_taken.wrapping_add(1);
+            self.last_interrupt_was_nmi = false;
             self.service_interrupt(bus, false, false);
         } else if self.waiting {
             // WAI exits on ANY asserted interrupt line (NMI/IRQ/ABORT/RESET) regardless of the
