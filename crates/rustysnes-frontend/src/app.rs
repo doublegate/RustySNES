@@ -302,6 +302,19 @@ struct Active {
     /// a shader compiler per pass — which is exactly the cost the stack's rebuild guard exists to
     /// avoid paying every frame.
     preset_chain: Option<crate::shader_pass::ShaderChain>,
+    /// The built-in chain for the current `video.stack` selection, cached (`v1.25.0`, T-FP-E).
+    ///
+    /// `build_chain` allocates a `ShaderChain` — every pass's WGSL as an owned `String` — so
+    /// calling it per present put a handful of kilobytes of allocation on the render hot path,
+    /// which the project's conventions rule out. Rebuilt only when the selection or a parameter
+    /// override actually changes; a slider move rewrites a uniform, exactly as `Gfx`'s own rebuild
+    /// discipline intends.
+    builtin_chain: crate::shader_pass::ShaderChain,
+    /// The `(selection, overrides)` the cached chain was built from.
+    builtin_chain_key: (
+        crate::config::ShaderStack,
+        std::collections::BTreeMap<String, f32>,
+    ),
     /// The debugger's armed read/write watchpoint list (`v0.8.0`, T-81-001b). Empty until the
     /// debugger overlay's Watch panel adds entries. Not feature-gated (unlike `cheats` above) —
     /// [`WatchpointEntry`] is one of `debug_snapshot.rs`'s always-compiled types (see that
@@ -748,6 +761,31 @@ impl App {
             .set_frame_duration(config.region.frame_rate());
     }
 
+    /// Reload the shader preset named by `video.preset_path`, if any (`v1.25.0`, T-FP-E).
+    ///
+    /// A preset survives a restart only if something reads the saved path back — otherwise the
+    /// path is a setting that persists and does nothing, which is precisely the defect class this
+    /// parity work exists to remove.
+    ///
+    /// Failures are **silent here and only here**: a preset file the user has since deleted or
+    /// moved must not block startup or steal the status line before the first frame, and the
+    /// Settings panel already shows whether a preset is active. Every *interactive* load reports
+    /// its outcome by name. Same "at least one usable pass" rule as the interactive path: adopting
+    /// an all-unsupported preset would replace a working picture with a pass-through.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn restore_preset(config: &Config) -> Option<crate::shader_pass::ShaderChain> {
+        let path = config.video.preset_path.as_deref()?;
+        let chain = crate::slang_preset::load_chain(std::path::Path::new(path)).ok()?;
+        (!chain.passes.is_empty()).then_some(chain)
+    }
+
+    /// `wasm32` has no filesystem to load a preset from; the saved path is inert rather than an
+    /// error, matching how the menu entry behaves there.
+    #[cfg(target_arch = "wasm32")]
+    const fn restore_preset(_config: &Config) -> Option<crate::shader_pass::ShaderChain> {
+        None
+    }
+
     /// Shared post-`Gfx`-init setup, called by `resumed` on native and by
     /// `user_event(AppEvent::GfxReady)` on `wasm32`: builds the egui integration, powers on the
     /// emulator, opens native audio (a no-op on `wasm32`, which uses [`crate::wasm_audio`]
@@ -1066,7 +1104,18 @@ impl App {
             freezes: Vec::new(),
             pokes: Vec::new(),
             symbols: None,
-            preset_chain: None,
+            // Restored from `video.preset_path` (`v1.25.0`, T-FP-E). Without this the path
+            // round-trips through `config.toml` and the Settings panel says "a preset is active"
+            // while nothing renders it — the setting would be decoration.
+            preset_chain: Self::restore_preset(&self.config),
+            builtin_chain: crate::shader_pass::build_chain(
+                self.config.video.stack,
+                &self.config.video.stack_params,
+            ),
+            builtin_chain_key: (
+                self.config.video.stack,
+                self.config.video.stack_params.clone(),
+            ),
             watchpoints: Vec::new(),
             breakpoints: Vec::new(),
             #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
@@ -1911,9 +1960,19 @@ impl App {
         // below is reached unchanged and an existing config renders byte-identically.
         // A loaded preset wins over the built-in chains; `preset_chain` is `None` unless one
         // loaded with at least one translatable pass.
-        let chain = active.preset_chain.clone().unwrap_or_else(|| {
-            crate::shader_pass::build_chain(config.video.stack, &config.video.stack_params)
-        });
+        // Rebuild the built-in chain only when its inputs changed; the common case is a hit and
+        // costs one tuple compare. Done before the borrow below so `chain` can be a reference.
+        if active.builtin_chain_key.0 != config.video.stack
+            || active.builtin_chain_key.1 != config.video.stack_params
+        {
+            active.builtin_chain =
+                crate::shader_pass::build_chain(config.video.stack, &config.video.stack_params);
+            active.builtin_chain_key = (config.video.stack, config.video.stack_params.clone());
+        }
+        let chain: &crate::shader_pass::ShaderChain = active
+            .preset_chain
+            .as_ref()
+            .unwrap_or(&active.builtin_chain);
         if chain.is_passthrough() {
             active.gfx.present(
                 &mut encoder,
@@ -1933,7 +1992,7 @@ impl App {
             // that reads as if it handles something it cannot.
             #[allow(clippy::cast_possible_truncation)]
             let frame = active.perf.frames_presented as u32;
-            active.gfx.present_chain(&mut encoder, &view, &chain, frame);
+            active.gfx.present_chain(&mut encoder, &view, chain, frame);
         }
 
         // --- (4) Run the always-on egui shell pass. The shell NEVER touches the emu lock. ---

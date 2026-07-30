@@ -96,11 +96,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     stripped before parsing (it fails the GLSL *preprocessor*), and — load-bearing — combined
     `sampler2D` split into Vulkan's separated `texture2D` + `sampler` pair with each use rewritten.
     Every `.slang` shader uses the combined form because `RetroArch`'s spec mandates it, so without
-    that rewrite the bridge translated exactly zero real shaders.
+    that rewrite the bridge translated exactly zero real shaders. The `set = N` removal handles the
+    qualifier appearing **last** in its list, where the separator to remove is the comma *before* it
+    — leaving that behind produced `layout(binding = 1, )`, which naga rejects, so a valid shader
+    failed to translate for a reason that had nothing to do with the shader. The sampler match also
+    tolerates a precision qualifier (`uniform lowp sampler2D`), which is valid GLSL and does occur.
   - Push constants are rewritten to a bound uniform block: wgpu exposes them only on native and not
     at all on WebGL, so a shader using them would work in one build and fail in the other.
   - `Translated` reports referenced **semantics** separately from applied **rewrites** — they answer
     different questions, and a rendering difference is attributable only if both are visible.
+  - **A loaded preset survives a restart.** `video.preset_path` is re-read at startup and the chain
+    recompiled; without that the path persisted while nothing rendered it, and the Settings panel
+    said "a preset is active" over a picture that was not using it. A preset file since deleted or
+    moved fails silently *here only* — it must not block startup or claim the status line before the
+    first frame — while every interactive load still reports its outcome by name.
+  - The built-in chain is **cached**, rebuilt only when `video.stack` or a parameter override
+    changes. `build_chain` allocates every pass's WGSL as an owned `String`, so building it (or
+    cloning a loaded preset) once per present put kilobytes of allocation on the render hot path.
 
 - **Frontend parity with RustyNES: the multi-pass shader stack (T-FP-D).**
   - **`crate::shader_pass` / `crate::shader_runtime` / `Gfx::present_chain`** — an ordered chain of

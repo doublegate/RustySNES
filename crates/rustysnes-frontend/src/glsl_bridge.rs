@@ -96,16 +96,16 @@ pub fn split_stages(source: &str) -> (String, String) {
         {
             continue;
         }
-        match current {
-            None => common.push_str(line),
-            Some(Stage::Vertex) => vertex.push_str(line),
-            Some(Stage::Fragment) => fragment.push_str(line),
-        }
-        match current {
-            None => common.push('\n'),
-            Some(Stage::Vertex) => vertex.push('\n'),
-            Some(Stage::Fragment) => fragment.push('\n'),
-        }
+        // One match, not two back-to-back: pick the buffer, then write the line and its newline
+        // into it. The line and its terminator always go to the same place, so selecting twice was
+        // both wasted work and a chance for the two to disagree.
+        let out = match current {
+            None => &mut common,
+            Some(Stage::Vertex) => &mut vertex,
+            Some(Stage::Fragment) => &mut fragment,
+        };
+        out.push_str(line);
+        out.push('\n');
     }
     (format!("{common}{vertex}"), format!("{common}{fragment}"))
 }
@@ -209,12 +209,26 @@ fn combined_sampler_name(line: &str) -> Option<String> {
         .filter(|_| t.starts_with("layout"))
         .map_or(t, |i| t[i + 1..].trim());
     let rest = after_layout.strip_prefix("uniform")?.trim();
+    // A precision qualifier may sit between `uniform` and the type — `uniform lowp sampler2D
+    // Source;` is valid GLSL and appears in real `.slang` shaders. Skipping it here rather than
+    // failing to match means those shaders get the sampler split instead of silently declining
+    // to translate.
+    let rest = ["lowp", "mediump", "highp"]
+        .iter()
+        .find_map(|q| rest.strip_prefix(q).filter(starts_with_separator))
+        .map_or(rest, str::trim_start);
     let rest = rest.strip_prefix("sampler2D")?.trim();
     let name: String = rest
         .chars()
         .take_while(|c| c.is_alphanumeric() || *c == '_')
         .collect();
     (!name.is_empty()).then_some(name)
+}
+
+/// Whether what follows a stripped keyword really is a separator, so `lowpsampler2D` (one
+/// identifier) is not mistaken for a qualifier followed by a type.
+fn starts_with_separator(rest: &&str) -> bool {
+    rest.starts_with(|c: char| c.is_whitespace())
 }
 
 /// Replace whole-word occurrences of `word` with `to`.
@@ -304,8 +318,20 @@ fn strip_set_qualifier(line: &str) -> String {
                 if j > digits_start {
                     // Also consume the separating comma and following space, so the remaining
                     // list is still well-formed rather than starting with a stray comma.
+                    let mut ate_comma = false;
                     while j < bytes.len() && (bytes[j] == ',' || bytes[j].is_whitespace()) {
+                        ate_comma |= bytes[j] == ',';
                         j += 1;
+                    }
+                    // `set = N` LAST in the list has no following comma to eat — the separator is
+                    // the one *before* it, already written out. Leaving it turns
+                    // `layout(binding = 1, set = 0)` into `layout(binding = 1, )`, which naga
+                    // rejects, so a perfectly valid `.slang` fails to translate.
+                    if !ate_comma {
+                        let keep = out.trim_end();
+                        if let Some(without) = keep.strip_suffix(',') {
+                            out.truncate(without.len());
+                        }
                     }
                     i = j;
                     continue;
@@ -465,9 +491,57 @@ fn parse_stage(
 #[cfg(test)]
 mod tests {
     use super::{
-        SEMANTICS, parameters_of, parse_pragma_parameter, rewrite_push_constants, split_stages,
-        translate,
+        SEMANTICS, combined_sampler_name, parameters_of, parse_pragma_parameter,
+        rewrite_push_constants, split_stages, strip_descriptor_sets, translate,
     };
+
+    /// `set = N` may be FIRST, in the middle, or LAST in a layout list, and the last case has no
+    /// following comma to consume — the separator is the one before it. Leaving that behind turns
+    /// `layout(binding = 1, set = 0)` into `layout(binding = 1, )`, which naga's parser rejects,
+    /// so a perfectly valid `.slang` fails to translate for a reason that has nothing to do with
+    /// the shader.
+    #[test]
+    fn a_trailing_set_qualifier_does_not_leave_a_dangling_comma() {
+        for (src, want) in [
+            // Last in the list — the case that was broken.
+            (
+                "layout(binding = 1, set = 0) uniform sampler2D Source;",
+                "layout(binding = 1) uniform sampler2D Source;",
+            ),
+            // First, and in the middle: these already worked and must keep working.
+            (
+                "layout(set = 0, binding = 1) uniform sampler2D Source;",
+                "layout(binding = 1) uniform sampler2D Source;",
+            ),
+            (
+                "layout(std140, set = 0, binding = 0) uniform UBO { vec4 S; };",
+                "layout(std140, binding = 0) uniform UBO { vec4 S; };",
+            ),
+            // The only qualifier at all.
+            ("layout(set = 2) uniform X;", "layout() uniform X;"),
+        ] {
+            let (got, stripped) = strip_descriptor_sets(src);
+            assert!(stripped, "{src}");
+            assert_eq!(got.trim_end(), want, "{src}");
+            assert!(!got.contains(", )"), "dangling comma in {got}");
+        }
+    }
+
+    /// A precision qualifier between `uniform` and the type is valid GLSL and appears in real
+    /// `.slang` shaders. Failing to match one means that shader silently declines to translate.
+    #[test]
+    fn a_precision_qualified_sampler_is_still_recognised() {
+        for q in ["", "lowp ", "mediump ", "highp "] {
+            let line = format!("layout(binding = 1) uniform {q}sampler2D Source;");
+            assert_eq!(
+                combined_sampler_name(&line).as_deref(),
+                Some("Source"),
+                "{line}"
+            );
+        }
+        // Not a qualifier — one identifier that merely starts with those letters.
+        assert_eq!(combined_sampler_name("uniform lowpsampler2D Source;"), None);
+    }
 
     /// Text before the first `#pragma stage` belongs to BOTH halves — that is where `#version`,
     /// the uniform block, and shared functions live, and dropping it is the most common way a
