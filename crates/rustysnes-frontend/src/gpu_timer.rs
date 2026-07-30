@@ -193,9 +193,16 @@ pub fn ticks_to_ms(start: u64, end: u64, period_ns: f32) -> f32 {
     let Some(delta) = end.checked_sub(start) else {
         return 0.0;
     };
+    // Widen to f64 BEFORE multiplying. An f32 has 24 bits of mantissa, so a delta past ~16.7M
+    // ticks — about 16.7 ms on a 1 ns/tick timer, i.e. exactly the frame times this metric exists
+    // to measure — starts quantising in the cast itself, before any arithmetic. f64 carries the
+    // whole u64 range that matters here; the narrowing back to f32 happens on a millisecond value
+    // of order 10, where f32 has precision to spare.
     #[allow(clippy::cast_precision_loss)]
-    let ns = delta as f32 * period_ns;
-    ns / 1.0e6
+    let ms = delta as f64 * f64::from(period_ns) / 1.0e6;
+    #[allow(clippy::cast_possible_truncation)]
+    let ms = ms as f32;
+    ms
 }
 
 #[cfg(test)]
@@ -209,6 +216,28 @@ mod tests {
         assert!((ticks_to_ms(500, 1_000_500, 1.0) - 1.0).abs() < 1e-4);
         // A period other than 1 ns/tick scales linearly (NVIDIA reports ~1.0, AMD ~2.5-40).
         assert!((ticks_to_ms(0, 400_000, 2.5) - 1.0).abs() < 1e-4);
+    }
+
+    /// The tick delta is widened before it is multiplied. An `f32` mantissa is 24 bits, so past
+    /// ~16.7M ticks — about 16.7 ms on a 1 ns/tick timer, i.e. squarely inside the range this
+    /// metric reports — a `delta as f32` quantises in the cast itself. Each of these deltas is one
+    /// tick above a power of two beyond 2^24; under the old cast the odd tick vanished and
+    /// consecutive readings collapsed onto the same value.
+    #[test]
+    fn large_deltas_do_not_quantise_in_the_cast() {
+        for exp in 25_u32..40 {
+            let base = 1_u64 << exp;
+            let a = ticks_to_ms(0, base, 1.0);
+            let b = ticks_to_ms(0, base + (base >> 10), 1.0);
+            assert!(
+                b > a,
+                "2^{exp} and 2^{exp}+2^{} must not read identically ({a} vs {b})",
+                exp - 10
+            );
+        }
+        // And the value itself stays right at a size where f32 alone would have drifted.
+        let ms = ticks_to_ms(0, 33_333_333, 1.0);
+        assert!((ms - 33.333_332).abs() < 0.001, "got {ms}");
     }
 
     /// A non-increasing pair reads as zero rather than as an enormous wrapped delta that would

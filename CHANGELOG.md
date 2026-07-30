@@ -97,7 +97,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     only accurate to the scheduler's granularity and sleeping the whole way overshoots and drops the
     frame. A window the compositor reports as occluded is treated as self-paced regardless of the
     plan — a hidden window may stop receiving vsync entirely, which under display-sync stalls the
-    loop and silently stops the emulator.
+    loop and silently stops the emulator. The deadline **charges the render time already spent**:
+    `Pacer::tick` last touched the accumulator at the start of the present, and the wait happens
+    after that present has produced frames, run egui, and submitted the swapchain image, so
+    answering "one period minus the accumulator" would sleep a full period *on top of* every frame's
+    own render cost — capping the self-paced rate at `1 / (period + render)`, about 38 fps for a
+    10 ms render rather than 60.
   - **Rebuilt Performance panel** (`crate::perf_panel`) — per-metric sparklines and p50/p95/p99/max
     over emulation time, present time, GPU time, and audio occupancy, plus the emulated-vs-presented
     counters that make a catch-up burst visible. Replaces the single-mean readout, which could not
@@ -106,12 +111,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     directory. The rolling window answers "how is it running now"; this answers "what happened during
     that 20-minute session". A missing measurement is an **empty field**, never `0` — a paused
     present did not take zero milliseconds to emulate. Off by default: a row per present is a syscall
-    per present, which would perturb what it measures.
+    per present, which would perturb what it measures. Flushed explicitly both when the log is turned
+    off and on application exit, with any failure reported — `Drop` also flushes, but has nowhere to
+    report a full disk to, so it would silently truncate the log's tail at the moment the user goes
+    to read it.
   - **New `gpu-timing` feature** — GPU pass duration via `wgpu` timestamp queries, bracketing the
     frame encoder and read back one frame later so the render thread never blocks on the GPU. The
     device request intersects with what the adapter reports rather than demanding the feature, so a
     `gpu-timing` build still launches on hardware without `TIMESTAMP_QUERY`; the panel names the
-    reason instead of showing a fabricated number.
+    reason instead of showing a fabricated number. The tick delta widens to `f64` before it is
+    scaled: an `f32` mantissa is 24 bits, so past ~16.7M ticks — about 16.7 ms on a 1 ns/tick timer,
+    squarely inside the range being reported — the quantisation happens in the cast itself, and
+    consecutive readings collapse onto the same value.
   - Removed `ShellState::frame_time_history`, which after this change was written every present and
     read by nothing.
 

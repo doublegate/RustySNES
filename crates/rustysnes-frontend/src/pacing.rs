@@ -272,13 +272,30 @@ impl Pacer {
         self.fps = 0.0;
     }
 
-    /// The deadline for the next emulated frame, as time remaining from now (`v1.25.0`, T-FP-B).
+    /// The deadline for the next emulated frame, as time remaining **from now** (`v1.25.0`,
+    /// T-FP-B).
     ///
     /// Only meaningful for a self-paced plan ([`PacingPlan::self_paced`]); under display-sync the
     /// swapchain blocks instead and this is unused. Returns `ZERO` when a frame is already due.
+    ///
+    /// The accumulator alone is **not** the answer. It was last updated by [`Self::tick`], at the
+    /// *start* of the present that has since produced frames, run egui, and submitted and presented
+    /// the swapchain image — all of which is real time already spent against the next deadline. The
+    /// caller (`app.rs`'s `pace_before_redraw`) runs after that work, so answering
+    /// `period - accumulator` would over-sleep by the whole render duration every frame, capping
+    /// the self-paced rate at `1 / (period + render_ms)` instead of the region rate.
     #[must_use]
     pub fn time_to_next_frame(&self) -> core::time::Duration {
-        let remaining = self.period - self.accumulator;
+        // Same clamp `tick` applies: a huge elapsed means "long overdue", never a negative wait.
+        self.time_to_next_frame_after(self.last.elapsed().as_secs_f64().min(0.25))
+    }
+
+    /// The time-source-free core of [`Self::time_to_next_frame`]: how long remains once `elapsed`
+    /// seconds of unaccumulated real time are charged against the period. Split out for the same
+    /// reason [`Self::advance`] is — so the pacing arithmetic is testable without sleeping.
+    #[must_use]
+    pub fn time_to_next_frame_after(&self, elapsed: f64) -> core::time::Duration {
+        let remaining = self.period - (self.accumulator + elapsed);
         if remaining <= 0.0 {
             core::time::Duration::ZERO
         } else {
@@ -520,22 +537,53 @@ mod tests {
     }
 
     /// `time_to_next_frame` shrinks as the accumulator fills and reads zero once a frame is owed —
-    /// the property the self-paced loop's deadline depends on.
+    /// the property the self-paced loop's deadline depends on. Uses the time-source-free core with
+    /// `elapsed = 0` so the assertions are about the accumulator alone.
     #[test]
     fn time_to_next_frame_tracks_the_accumulator() {
         let mut pacer = Pacer::new(FRAME_RATE_NTSC);
-        let full = pacer.time_to_next_frame();
+        let full = pacer.time_to_next_frame_after(0.0);
         assert!(full > Duration::from_millis(15) && full < Duration::from_millis(18));
 
         // Half a period in, roughly half a period is left.
         pacer.advance(0.5 / FRAME_RATE_NTSC);
-        let half = pacer.time_to_next_frame();
+        let half = pacer.time_to_next_frame_after(0.0);
         assert!(half < full && half > Duration::from_millis(7));
 
         // A whole period earns a frame and leaves ~nothing owed.
         let mut pacer = Pacer::new(FRAME_RATE_NTSC);
         assert_eq!(pacer.advance(1.0 / FRAME_RATE_NTSC), 1);
-        assert!(pacer.time_to_next_frame() > Duration::from_millis(15));
+        assert!(pacer.time_to_next_frame_after(0.0) > Duration::from_millis(15));
+    }
+
+    /// The deadline must charge the real time already spent rendering, not just the accumulator.
+    ///
+    /// `pace_before_redraw` runs AFTER a present has produced frames, run egui, and submitted the
+    /// swapchain image, while `tick` last touched the accumulator at that present's start. Ignoring
+    /// the interval between them makes every self-paced frame sleep a full period on top of its own
+    /// render time, capping the rate at `1 / (period + render)` — ~38 fps for a 10 ms render at
+    /// 60 Hz, not 60. This is what the deadline must not do.
+    #[test]
+    fn the_deadline_charges_time_already_spent_rendering() {
+        let pacer = Pacer::new(FRAME_RATE_NTSC);
+        let period = 1.0 / FRAME_RATE_NTSC;
+
+        // 10 ms of render work since `tick`: the remaining wait must shrink by ~10 ms, not stay
+        // at a full period.
+        let after_render = pacer.time_to_next_frame_after(0.010);
+        let expected = Duration::from_secs_f64(period - 0.010);
+        let diff = after_render.abs_diff(expected);
+        assert!(
+            diff < Duration::from_micros(100),
+            "expected ~{expected:?} remaining, got {after_render:?}"
+        );
+
+        // Rendering that overran the period leaves nothing to wait for — never a negative or
+        // wrapped duration.
+        assert_eq!(
+            pacer.time_to_next_frame_after(period + 0.005),
+            Duration::ZERO
+        );
     }
 
     /// Becoming visible again must not replay the hidden interval as a catch-up burst — the same

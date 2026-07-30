@@ -603,6 +603,24 @@ impl ApplicationHandler<AppEvent> for App {
             active.window.request_redraw();
         }
     }
+
+    /// Flush the perf log on the way out (`v1.25.0`, T-FP-B).
+    ///
+    /// `PerfLog`'s `Drop` also flushes, but a `Drop` has nowhere to report a failure to, so a full
+    /// disk or a revoked permission would silently truncate the log's last rows at exactly the
+    /// moment the user goes to read it. The turn-off path in `dispatch_actions` already flushes
+    /// explicitly and surfaces the error; this is the other exit, and it is the common one.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(log) = self.active.as_mut().and_then(|a| a.perf_log.as_mut())
+            && let Err(e) = log.flush()
+        {
+            eprintln!(
+                "rustysnes: perf log {} may be truncated: {e}",
+                log.path().display()
+            );
+        }
+    }
 }
 
 impl App {
