@@ -99,9 +99,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nothing, so a build that produces no libraries cannot pass it silently.
 
   Deliberately two actions only, both already pinned in this repo: the NDK comes from the runner
-  image's own `sdkmanager` and the JDK and Gradle are preinstalled, rather than adding three
-  third-party actions to the supply-chain surface the `v1.26.0` pass tightened. `assembleDebug`, not
-  release — signing material is maintainer-only and stays out of CI.
+  image's own `sdkmanager` and the JDK is preinstalled, rather than adding three third-party actions
+  to the supply-chain surface the `v1.26.0` pass tightened. `assembleDebug`, not release — signing
+  material is maintainer-only and stays out of CI.
+
+  The **Gradle wrapper is now committed** (`android/gradlew`, `gradlew.bat`, and
+  `gradle/wrapper/`, pinning Gradle 8.10). The project had none, so every build — CI or local —
+  used whatever Gradle happened to be installed, and this environment only ever had a cached
+  distribution. CI now runs `./gradlew`, so it and a developer's machine build with the same
+  Gradle.
 
 - **AccuracySNES: the Mesen2 oracle diagnosed, and a stale frame budget aligned.** Three `v1.28.0`
   items ended at "no oracle can arbitrate", so the headless runner was investigated rather than

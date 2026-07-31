@@ -123,19 +123,23 @@ jobs:
           fi
           exit "$fail"
 
-      # Both the JDK and Gradle are preinstalled on `ubuntu-latest`; using them keeps this
-      # workflow to two actions, both already pinned elsewhere in this repo.
-      - name: Show the Java and Gradle the runner provides
+      # The JDK is preinstalled on `ubuntu-latest`; Gradle comes from the committed wrapper rather
+      # than the runner's copy, so CI and a developer's machine build with the SAME Gradle. The
+      # runner image's preinstalled version moves under us, which is the drift a wrapper exists to
+      # remove — and until now this project had no wrapper at all, so every build depended on
+      # whatever Gradle happened to be installed.
+      - name: Show the Java, and the Gradle the wrapper pins
+        working-directory: android
         run: |
           java -version
-          gradle --version
+          ./gradlew --version
 
       # `assembleDebug`, not `assembleRelease`: a release build needs signing material this
       # workflow deliberately does not hold (see `docs/mobile-readiness.md`). What this proves is
       # that the Kotlin sources, the manifest, and the freshly built `.so`s package together.
       - name: Assemble the debug APK
         working-directory: android
-        run: gradle --no-daemon assembleDebug
+        run: ./gradlew --no-daemon assembleDebug
 
       - name: Confirm the APK carries every ABI
         run: |
