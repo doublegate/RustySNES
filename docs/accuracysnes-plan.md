@@ -605,6 +605,27 @@ before the H counter wraps and silently returns a plausible small number.
 | `B2.07` | gated on `B2.02` | `B2.04` covers the 262-line count, not the clock total, so the frequency is not implied by it. Getting to 60.0988 Hz needs clocks-per-frame, and the frame alternates 357,368/357,364 because of the short scanline — which *is* `B2.02`, a `T-06-A` dot-model residual scheduled for `v1.29.0`. |
 | `B2.09` | `v1.29.0` by its own dossier note | the picture window is "not CPU-observable directly; reachable through the framebuffer oracle once the dot-resolution compositor lands". |
 
+#### `B2.02`/`B2.03` — the prerequisite is cleared, the model change is not started
+
+The plan for `v1.29.0` recorded a doubt about whether the short-line gate was even reachable:
+`field` is one of its four inputs, and `Ppu::field`'s doc comment said it "toggles each frame when
+interlace is on", which would leave it constant in the progressive NTSC case `B2.02` needs.
+
+**Settled against the source: the doc was wrong, the code is right.** `end_of_scanline` toggles
+`field` unconditionally, which is what `$213F` bit 7 does on hardware; only the flag's *use* is
+interlace-conditional (`render.rs` picks the odd/even row with it). The comment and `docs/ppu.md`
+are corrected, and `the_field_flag_toggles_every_frame_even_in_progressive_mode` pins it —
+injecting the `if self.io.interlace` gate the old comment described makes that test fail with a
+constant `[0,0,0,0]`. So all four gate inputs (`io.interlace`, `field`, `v`, `region`) are live and
+the gate is reachable.
+
+What is **not** done is the model change itself. `dot_length` (`rustysnes-core::bus`) is a pure
+function of the dot, so it cannot express a per-line variation; the short line (1360 clocks, all 340
+dots at 4 — the long dots vanish) and the long line (1368, 341 dots) both need the line context
+threaded to it. Expect goldens to move, and note that a previous attempt at the neighbouring H-IRQ
+mapping change was reverted for exactly that reason — so the guard test named in the roadmap lands
+**first**, before `dot_length` is touched.
+
 #### `A5.18` — why it is parked despite working
 
 `BRK` cannot be measured without `RTI`: a `BRK` that never returns cannot be repeated, so any
