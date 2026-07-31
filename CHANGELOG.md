@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **PPU: the field flag's doc contradicted the code, and nothing pinned either.** `Ppu::field` is
+  `$213F` bit 7 and toggles at the end of **every** frame; its doc comment said "toggles each frame
+  when interlace is on", which describes neither the code nor the hardware. Only the flag's *use* is
+  interlace-conditional (picking the odd/even row). The stale reading matters beyond tidiness: it
+  makes the short/long-scanline gate that keys on the field look unreachable in progressive mode
+  when it is not, which is a `v1.29.0` prerequisite for `B2.02`/`B2.03`.
+
+  Corrected in the code, in `docs/ppu.md`, and pinned by a test that ticks four progressive frames
+  and requires bit 7 to alternate. Injecting the gate the old doc described (`if self.io.interlace`)
+  makes it fail with a constant `[0,0,0,0]`, so the test measures the behaviour rather than
+  restating it.
+
 - **App Store §4.7 self-audit done (`v1.30.0`).** Checked against the shipped tree rather than
   against intent. Two of the three risk classes are clean: there is **no ROM acquisition path**
   (`load_rom` takes bytes from the caller; no download, fetch or URL anywhere in the mobile crates),
