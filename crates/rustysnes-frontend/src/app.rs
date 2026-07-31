@@ -2113,7 +2113,7 @@ impl App {
                 #[cfg(feature = "cheats")]
                 &mut active.cheats,
                 #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
-                active.netplay.is_connected(),
+                active.netplay.status(),
                 #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
                 &cheevos_status,
             );

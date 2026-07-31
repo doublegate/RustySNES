@@ -16,9 +16,20 @@
 use std::net::SocketAddr;
 
 use rustysnes_netplay::udp::UdpTransport;
-use rustysnes_netplay::{AdvanceOutcome, NetplayError, RollbackSession, SessionConfig};
+use rustysnes_netplay::{
+    AdvanceOutcome, DesyncStatus, DisconnectReason, LivenessTransport, NetplayError, PeerLink,
+    RollbackSession, SessionConfig,
+};
 
 use crate::emu::EmuCore;
+
+/// The session's transport, wrapped so peer liveness and RTT are tracked (`v1.27.0`).
+///
+/// The decorator sits *outside* the session on purpose. `RollbackSession` must stay a pure
+/// function of its input stream for the determinism contract (`docs/adr/0004`), so it reads no
+/// clock; all the time-based behaviour lives here, in the layer the session only sees as a
+/// `Transport`. See `docs/netplay.md`.
+pub type SessionTransport = LivenessTransport<UdpTransport>;
 
 /// A native netplay session's connection state.
 ///
@@ -31,7 +42,30 @@ pub enum NetplayState {
     #[default]
     Idle,
     /// A session is connected and driving the `System` directly.
-    Connected(Box<RollbackSession<UdpTransport>>),
+    Connected(Box<RollbackSession<SessionTransport>>),
+}
+
+/// Everything the UI needs to describe a live session, sampled once per frame.
+///
+/// A plain snapshot rather than borrowed accessors, because the session is driven inside
+/// `Active::render`'s frame loop and read again in the egui pass — handing the UI a borrow of the
+/// session would make those two uses fight over `&mut App`.
+#[derive(Clone, Copy, Debug)]
+pub struct NetplayStatus {
+    /// How alive the peer looks.
+    pub link: PeerLink,
+    /// Why the connection ended, once it has.
+    pub disconnect: Option<DisconnectReason>,
+    /// Smoothed round-trip time, once a sample exists.
+    pub ping_ms: Option<u32>,
+    /// The peer's reported frame advantage: positive means it is running ahead of us.
+    pub remote_frame_advantage: i32,
+    /// The graded desync verdict.
+    pub desync: DesyncStatus,
+    /// Whether the peer's handshake has arrived and matched.
+    pub handshaken: bool,
+    /// The frame the session is about to run.
+    pub frame: u32,
 }
 
 /// Start a new netplay session: bind `local_addr`, connect to `peer_addr`, and send the
@@ -49,8 +83,8 @@ pub fn start(
     peer_addr: SocketAddr,
     local_player: u8,
     rom: &[u8],
-) -> std::io::Result<Box<RollbackSession<UdpTransport>>> {
-    let transport = UdpTransport::connect(local_addr, peer_addr)?;
+) -> std::io::Result<Box<RollbackSession<SessionTransport>>> {
+    let transport = LivenessTransport::new(UdpTransport::connect(local_addr, peer_addr)?);
     let rom_hash = rustysnes_core::movie::hash_rom(rom);
     let mut session = RollbackSession::new(
         SessionConfig {
@@ -79,6 +113,22 @@ impl NetplayState {
         let Self::Connected(session) = self else {
             return Ok(());
         };
+        // Tick liveness first, so the probe for this frame goes out alongside the session's own
+        // traffic rather than a frame behind it. The frame advantage reported to the peer is how
+        // far ahead of the confirmed horizon we are running — the same number the peer's readout
+        // shows, which is what makes the two ends agree about who is ahead.
+        let advantage = i64::from(session.current_frame())
+            - session.last_confirmed_frame().map_or(-1, i64::from);
+        let advantage = i32::try_from(advantage).unwrap_or(i32::MAX);
+        session.transport_mut().tick(advantage);
+
+        // A dead peer must end the session rather than stall it. The session has no clock and so
+        // cannot tell "waiting for input" from "waiting forever" — before the liveness decorator
+        // existed, a peer that never handshook left `advance` spinning with nothing to report.
+        if let Some(reason) = session.transport().disconnect_reason() {
+            return Err(NetplayError::Disconnected(reason));
+        }
+
         session.add_local_input(local_input);
         match session.advance(emu.system_mut())? {
             AdvanceOutcome::Advanced { .. } => emu.present_current_frame(),
@@ -91,5 +141,23 @@ impl NetplayState {
     #[must_use]
     pub const fn is_connected(&self) -> bool {
         matches!(self, Self::Connected(_))
+    }
+
+    /// Sample everything the UI shows about the session, or `None` when idle.
+    #[must_use]
+    pub fn status(&self) -> Option<NetplayStatus> {
+        let Self::Connected(session) = self else {
+            return None;
+        };
+        let link = session.transport();
+        Some(NetplayStatus {
+            link: link.peer_link(),
+            disconnect: link.disconnect_reason(),
+            ping_ms: link.ping_ms(),
+            remote_frame_advantage: link.remote_frame_advantage(),
+            desync: session.diagnostics().status(),
+            handshaken: session.is_handshaken(),
+            frame: session.current_frame(),
+        })
     }
 }

@@ -119,6 +119,14 @@ pub enum NetplayError {
     /// is always a blob this same session produced), surfaced rather than panicking regardless.
     #[error("save-state error during rollback: {0}")]
     SaveState(#[from] rustysnes_savestate::SaveStateError),
+    /// The peer went away, as graded by [`crate::liveness::LivenessTransport`] (`v1.27.0`).
+    ///
+    /// The session itself cannot detect this — it has no clock, deliberately (`docs/adr/0004`),
+    /// and simply stalls waiting for input that is never coming. A caller that wraps its transport
+    /// in the liveness decorator raises this so the stall becomes a reported disconnect instead of
+    /// a silent hang. That hang is what a missing handshake used to produce.
+    #[error("{0}")]
+    Disconnected(#[from] crate::liveness::DisconnectReason),
 }
 
 /// What one [`RollbackSession::advance`] call did.
@@ -228,6 +236,27 @@ impl<T: Transport> RollbackSession<T> {
     #[must_use]
     pub const fn diagnostics(&self) -> &DesyncDiagnostics {
         &self.diagnostics
+    }
+
+    /// The wrapped transport.
+    ///
+    /// The session owns its transport, so a decorated one — notably
+    /// [`crate::liveness::LivenessTransport`] — is otherwise unreachable once a session is
+    /// constructed. A frontend needs both this and [`Self::transport_mut`] to read the liveness
+    /// view and to drive its clock.
+    pub const fn transport(&self) -> &T {
+        &self.transport
+    }
+
+    /// The wrapped transport, mutably — for `LivenessTransport::tick`, which is the only liveness
+    /// method that acts on time.
+    ///
+    /// Deliberately **not** an invitation to send on the session's behalf: the rollback protocol
+    /// assumes it is the only thing writing `Input`, `InputAck`, and `Checksum` to this peer, and
+    /// injecting one of those here would corrupt the confirmation horizon. A decorator's own
+    /// out-of-band traffic (`Quality`) is fine, which is the case this exists for.
+    pub const fn transport_mut(&mut self) -> &mut T {
+        &mut self.transport
     }
 
     /// Send this peer's [`NetMessage::Sync`]. Call once before the first [`Self::advance`]; the

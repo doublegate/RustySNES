@@ -1699,6 +1699,27 @@ default build is unaffected. The crate's `WebRtcTransport` (wasm32) is itself co
 clippy-verified against the real `web_sys` API, but frontend SDP-negotiation UI to actually use
 it in-browser is a separate, not-yet-landed scope.
 
+### Connection quality and the desync banner (`v1.27.0`)
+
+The session's transport is wrapped in `rustysnes_netplay::LivenessTransport` (`netplay.rs`'s
+`SessionTransport` alias), ticked once per frame from `NetplayState::drive` with this peer's own
+frame advantage. `NetplayState::status()` samples the whole view into a plain `NetplayStatus`
+snapshot rather than handing the UI a borrow of the session — the session is driven inside
+`Active::render`'s frame loop and read again in the egui pass, and a borrow would make those two
+uses fight over `&mut App`.
+
+The Netplay window renders it: peer grade, ping, frame advantage, current frame, plus a handshake
+notice and the graded desync banner. Two deliberate choices in the colours. **`Interrupted` is amber,
+not red** — it is two full ping intervals of silence, which ordinary Wi-Fi produces, and painting it
+red would train the user to ignore the colour that matters. **Ping shows `—`, not `0 ms`, until a
+round trip completes**, because a zero reads as a perfect connection at exactly the moment nothing is
+known. The banner distinguishes `Suspect` from `Desynced` because that is the entire point of the
+graded verdict (`docs/netplay.md`): a transient must not look like a lost game, and a real divergence
+must not look survivable.
+
+A liveness verdict ends the session through `NetplayError::Disconnected`, which `Active::render`
+already treats like any other netplay error — disconnect and fall back to single-player.
+
 ## RetroAchievements (`v0.8.0 "Community"`, T-82-003)
 
 A Tools → RetroAchievements… window (native-only, `#[cfg(all(feature = "retroachievements",
