@@ -661,12 +661,51 @@ emulator, tracked in lockstep rather than a frozen snapshot
   native 3x default.
 - **`v1.8.0 "Tracepoint"`** — debugger depth II: a Memory Compare panel and an in-app Docs/glossary
   panel.
-- **`v1.9.0 "Marionette"` - `v1.20.0 "Aperture"`** — scripting reach, HD packs, RetroAchievements,
-  shaders and accessibility, the Android/iOS mobile ladder, a PGO/BOLT pipeline, and a UI/UX-parity
-  pass — all with the accuracy dashboard unchanged.
-- **`v1.21.0 "Touchstone"` - `v1.24.0 "Ensemble"`** — the accuracy rungs: the per-dot PPU compositor
-  becomes the sole renderer, the DSP-1 Mode-7 floor is fixed and then the NEC-DSP host interface
-  made pin-exact, and DSP-3 + ST011 complete the NEC coprocessor family.
+- **`v1.9.0 "Marionette"`** — `rustysnes-script`'s `emu.read` widened from WRAM to the full 24-bit
+  CPU bus, so a Lua script can inspect ROM, SRAM, and I/O rather than just work RAM.
+- **`v1.10.0 "Atelier"`** — HD texture packs wired into the `emu-thread` build, where the compositing
+  path had never been connected.
+- **`v1.11.0 "Podium"`** — fixed RetroAchievements never actually loading a game: the identify/load
+  call existed but no path invoked it.
+- **`v1.12.0 "Refraction"`** — `PostFilter::Xbrz` (a literal port of xBRZ's real multi-pass rule
+  tables, not an approximation), plus the shader sources extracted into `rustysnes-gfx-shaders`.
+- **`v1.13.0 "Vantage"`** — `HighContrast` and `Colorblind` accessibility themes, with an honest
+  re-scoping of the two other originally-planned items rather than a partial claim.
+
+Then the **mobile ladder** (Phases 1-5), a performance rung, and a UI/UX pass:
+
+- **`v1.14.0 "Foundry"`** — the `rustysnes-mobile` UniFFI bridge over `EmuCore`, reversing `v1.0.0`'s
+  "no mobile appetite" default.
+- **`v1.15.0 "Sideload"`** — a real Android alpha (`rustysnes-android`: wgpu-on-`Surface`, Kotlin
+  Compose shell), verified on a live AVD.
+- **`v1.16.0 "Beacon"`** — a real iOS alpha (`rustysnes-ios`), verified by a passing `xcodebuild` on
+  `macos-latest` CI, not just a cross-compile.
+- **`v1.17.0 "Parity"`** — save/load state on both mobile shells; found and fixed a real, already-
+  shipped Android `AudioTrack` native crash on the way.
+- **`v1.18.0 "Dormant"`** — `rustysnes-monetization`, a deliberately **inert** entitlement scaffold
+  that is never a dependency of the deterministic core.
+- **`v1.19.0 "Afterburner"`** — an optional PGO/BOLT pipeline, promotion gated on **both** a measured
+  >3% Criterion speedup **and** a byte-identical `--features test-roms` re-run — never on speed alone.
+- **`v1.20.0 "Aperture"`** — UI/UX parity: the wasm demo's menus and the desktop peripheral/overscan/
+  inspection controls moved from placeholder or dormant to functional.
+
+Everything above left the accuracy dashboard, per-suite pass counts, and coprocessor matrix
+**byte-identical**. The next four rungs are the ones that move them:
+
+- **`v1.21.0 "Touchstone"`** — the accuracy release: the **per-dot PPU compositor** (ADR 0014) becomes
+  the sole renderer, composing against live registers at dot resolution, and the AccuracySNES cart
+  matures into a usable instrument.
+- **`v1.22.0 "Horizon"`** — DSP-1 games finally draw a correct perspective Mode-7 floor (Pilotwings,
+  Super Mario Kart). One root cause: the shared NEC-DSP host sync parked at the *first* `RQM=set`,
+  one host-write too early, mis-framing the parameter block into a degenerate projection.
+- **`v1.23.0 "Cadence"`** — the NEC DSP stops being the last *synchronous* coprocessor: the shared
+  µPD77C25/µPD96050 engine now free-runs on the master-clock scheduler instead of resolving each
+  handshake in zero emulated time. Save-state `FORMAT_VERSION` 9 → 10.
+- **`v1.24.0 "Ensemble"`** — DSP-3 (SD Gundam GX) and ST011 (Hayazashi 2-dan Morita Shougi) wired and
+  validated, completing every NEC coprocessor the SNES shipped.
+
+And the current release turns back to the shell around that engine:
+
 - **`v1.25.0 "Workbench"`** — the frontend catches up with the engine, in ten reviewed increments
   (`T-FP-A`-`T-FP-G2`): debugger, shader stack + `.slangp`/GLSL bridge, observability + real pacing,
   audio mixer + compressed rewind, A/V capture + virtual pad + databases, and TAStudio. Five
