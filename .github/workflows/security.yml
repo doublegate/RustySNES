@@ -57,6 +57,15 @@ jobs:
         with:
           tool: cargo-audit
       - run: cargo audit
+      # `fuzz/` is its OWN workspace with its OWN lock (see `fuzz/README.md` for why), so the
+      # command above — which resolves the root workspace — never sees a single one of its 422
+      # dependencies. That gap is easy to miss precisely because the audit job goes green either
+      # way. `--file` scans the second lock explicitly.
+      #
+      # Worth auditing despite being dev-only tooling: a fuzz target links `libfuzzer-sys` and runs
+      # attacker-shaped input by design, and an advisory against something in that graph is exactly
+      # the kind of thing that would otherwise sit unnoticed until someone read the lock by hand.
+      - run: cargo audit --file fuzz/Cargo.lock
 
   deny:
     name: Cargo Deny Check
@@ -69,6 +78,19 @@ jobs:
         with:
           tool: cargo-deny
       - run: cargo deny check
+      # `fuzz/`'s separate workspace is deliberately NOT checked here, unlike the audit job above
+      # which does scan its lock. `libfuzzer-sys` is `(MIT OR Apache-2.0) AND NCSA` — the NCSA
+      # coming from the LLVM libFuzzer runtime it vendors — and NCSA is not on this project's
+      # allow-list. The two ways to make this pass are both worse than the omission:
+      #
+      #   * allowing NCSA in `deny.toml` loosens the policy for the SHIPPED artifact to accommodate
+      #     a dev-only tool that is never built into, linked against, or distributed with any
+      #     release binary;
+      #   * a second `fuzz/deny.toml` would gate bans/sources/licenses on tooling nobody ships,
+      #     while the one genuinely security-relevant half — advisories — is already covered by
+      #     `cargo audit --file fuzz/Cargo.lock`.
+      #
+      # Recorded rather than silently skipped so the gap is a decision, not an oversight.
 
   fuzz:
     name: Fuzz Campaign
