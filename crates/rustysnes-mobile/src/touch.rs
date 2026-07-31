@@ -249,6 +249,32 @@ mod tests {
     }
 
     #[test]
+    fn a_vertically_letterboxed_view_subtracts_its_own_origin() {
+        // Every other case here uses `view.y == 0`, which makes dropping the `- view.y` term
+        // invisible: injecting `rel_y = ty / view.height` passes all of them. A portrait phone
+        // holding a 4:3 picture is the common case and has bars on the TOP, not the sides, so this
+        // is the orientation most users would actually hit.
+        let v = Viewport {
+            x: 0.0,
+            y: 100.0,
+            width: 256.0,
+            height: 224.0,
+        };
+        let top = map_aim(v, (256, 224), 128.0, 100.0);
+        assert_eq!(
+            top.y, 0,
+            "the picture's top edge is SNES row 0, not row 100"
+        );
+        assert!(top.on_screen);
+
+        let above = map_aim(v, (256, 224), 128.0, 50.0);
+        assert!(!above.on_screen, "a touch in the top bar is not an aim");
+
+        let middle = map_aim(v, (256, 224), 128.0, 100.0 + 112.0);
+        assert_eq!(middle.y, 112);
+    }
+
+    #[test]
     fn hi_res_doubles_the_x_mapping() {
         // The active framebuffer is not constant: a mode switch to 512-wide must move aim with it,
         // which is why `frame` is a parameter rather than a 256x224 assumption.
