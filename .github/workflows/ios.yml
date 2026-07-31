@@ -96,6 +96,82 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO
 
+      # ---------------------------------------------------------------------------------------
+      # Actually RUN it (`v1.30.0`).
+      #
+      # Everything above proves the Swift/Rust bridge COMPILES AND LINKS. It has never proved the
+      # app starts: `docs/mobile-readiness.md` records that no iOS build has ever executed,
+      # because this environment has no macOS toolchain and this runner is the only place one
+      # exists. A binary that links and then traps on launch is indistinguishable from a working
+      # one in a build log.
+      #
+      # This does NOT boot a ROM. The app bundles no cartridge and adding one is a licensing
+      # question, not a CI one. What it proves is narrower, and worth stating exactly: the app
+      # installs, launches, and is still alive several seconds later.
+      # ---------------------------------------------------------------------------------------
+      - name: Pick an available iPhone simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available
+          udid=$(xcrun simctl list devices available \
+                 | grep -E '^[[:space:]]+iPhone' \
+                 | head -1 \
+                 | grep -oE '[0-9A-Fa-f]{8}-([0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}')
+          if [ -z "$udid" ]; then
+            echo "::error::no available iPhone simulator on this runner"
+            exit 1
+          fi
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          echo "using simulator $udid"
+
+      - name: Build for that simulator and install
+        working-directory: ios
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          set -euo pipefail
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcodebuild build \
+            -project RustySNES.xcodeproj \
+            -scheme RustySNES \
+            -destination "platform=iOS Simulator,id=$UDID" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO
+          app=$(find build/Build/Products -maxdepth 2 -name '*.app' | head -1)
+          if [ -z "$app" ]; then
+            echo "::error::no .app bundle was produced"
+            exit 1
+          fi
+          echo "APP=$PWD/$app" >> "$GITHUB_ENV"
+          xcrun simctl install "$UDID" "$app"
+
+      - name: Launch it, and require it to still be alive
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          set -euo pipefail
+          bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")
+          echo "bundle id: $bundle_id"
+          xcrun simctl launch "$UDID" "$bundle_id"
+          sleep 8
+          # Ask the SIMULATOR whether the process is still there. A crash on launch is exactly the
+          # case that links cleanly and then dies, and `simctl launch` has already returned 0 by
+          # then, so its exit code cannot catch it.
+          if xcrun simctl spawn "$UDID" launchctl list | grep -q "$bundle_id"; then
+            echo "ok: still running 8s after launch"
+          else
+            echo "::error::the app is not running 8s after launch -- it started and died"
+            exit 1
+          fi
+
+      - name: Shut the simulator down
+        if: always()
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: xcrun simctl shutdown "${UDID:-booted}" || true
+
       # TestFlight upload is gated on distribution-signing secrets being configured at all --
       # skipped (not failed) when they aren't, since this repo has never had them set up. Secret
       # names are placeholders for the project owner to actually provision (App Store Connect API

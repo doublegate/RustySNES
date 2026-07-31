@@ -265,9 +265,15 @@ here so a future go/no-go review has a concrete checklist, not a vague "more pol
     check, a signed release (not debug) build, a dormant-vs-live Play Billing decision for
     `rustysnes-monetization` if monetization is ever actually activated
 - **iOS:**
-  - A real on-device or simulator *run* — every verification so far is compile/link-only (this
-    development environment has no macOS/Xcode toolchain at all); `ios.yml`'s passing
-    `xcodebuild` build proves the code compiles, not that it behaves correctly at runtime
+  - A real on-device *run* with a ROM loaded. `v1.30.0` narrowed this: `ios.yml` now boots a
+    simulator, installs the app, launches it, and **requires it to still be running eight seconds
+    later** — a binary that links and then traps on launch is indistinguishable from a working one
+    in a build log, and that gap is now closed. What is still *not* proven is emulation: the app
+    bundles no cartridge (a licensing question, not a CI one), so nothing has run a ROM. State the
+    difference precisely rather than upgrading "it launches" to "it works".
+
+    This development environment still has no macOS/Xcode toolchain, so the runner remains the only
+    place any of it executes.
   - TestFlight distribution signing secrets provisioned (the `ios.yml` upload step is currently
     an explicit no-op pending these)
   - ~~The App Store §4.7 self-audit~~ — **done, `v1.30.0`; see §4.7 audit below.** Two of the three
