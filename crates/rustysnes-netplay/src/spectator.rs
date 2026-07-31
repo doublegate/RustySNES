@@ -483,6 +483,8 @@ mod tests {
             inbox.push(NetMessage::Quality {
                 ping_ms: 5,
                 frame_advantage: 1,
+                probe: frame + 1,
+                echo: 0,
             });
         }
         let transport = CountingTransport { sent: 0, inbox };

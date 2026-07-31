@@ -34,8 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Untrusted-input bounds: an out-of-range player index is dropped (`num_players` is fixed at
   construction, so it can never become valid); a frame past `MAX_SPECTATOR_FRAME_LOOKAHEAD` is
   dropped, without which one datagram carrying a frame near `u32::MAX` would resize the history
-  buffer unboundedly; `delay_frames`/`num_players` are clamped at construction; and a foreign ROM
-  hash never syncs.
+  buffer unboundedly; `delay_frames`/`num_players` are clamped at construction; and input is
+  dropped until the handshake is accepted, so a foreign ROM hash means nothing is watchable rather
+  than merely that a flag reads `false` — `synced` was set and consulted by nothing in the first
+  revision, which a test asserting only that flag would never have caught.
 
 - **Netplay: peer liveness, round-trip time, and connection timeouts.** The crate previously had
   **no liveness handling at all** — no clock anywhere in it, no handshake timeout (an absent `Sync`
