@@ -263,6 +263,13 @@ delayed variant asserts the frames it *did* show are byte-identical to the same 
 - `delay_frames` and `num_players` are **clamped at construction**, so an unbounded value out of a
   config file cannot become an allocation.
 
+`pending_frames()` — how far behind the live match a spectator is running — spells its caught-up
+case out rather than reaching for `saturating_sub(current) + 1`. That form has a floor of `1`,
+because the saturation floor is `0` and the `+ 1` lifts it back, so a "frames behind" readout could
+never report "caught up" — the one reading it exists to give. Pinned in both directions: the
+caught-up case reads `0`, and a spectator holding a reveal delay still counts its buffered frames,
+so the fix cannot be "always return 0".
+
 Because the handshake gate is outermost, the tests for the two bounds under it must hand-shake
 first — otherwise each would pass with its own bound removed, dropped by the gate instead. Both go
 through a `synced_spectator` helper and assert `is_synced()` alongside the bound they name.

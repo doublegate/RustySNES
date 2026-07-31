@@ -166,10 +166,20 @@ impl<T: Transport> SpectatorSession<T> {
 
     /// How many confirmed frames are buffered but not yet shown — i.e. how far behind the live
     /// match this spectator is running.
+    ///
+    /// The `current_frame > c` case is the one worth spelling out: it means every confirmed frame
+    /// has already been shown, and the answer is zero. Writing this as
+    /// `c.saturating_sub(current) + 1` gets it wrong, because the saturation floor is `0` and the
+    /// `+ 1` then lifts it back to `1` — a "frames behind" readout that can never say "caught up"
+    /// is exactly the reading a viewer would use it for.
     #[must_use]
     pub fn pending_frames(&self) -> u32 {
         self.last_confirmed_frame.map_or(0, |c| {
-            c.saturating_sub(self.current_frame).saturating_add(1)
+            if c < self.current_frame {
+                0
+            } else {
+                c - self.current_frame + 1
+            }
         })
     }
 
@@ -565,6 +575,36 @@ mod tests {
         );
         assert_eq!(spec.num_players(), MAX_PLAYERS_U8);
         assert_eq!(spec.delay_frames(), SpectatorConfig::MAX_DELAY_FRAMES);
+    }
+
+    #[test]
+    fn pending_frames_reaches_zero_once_everything_confirmed_has_been_shown() {
+        // Raised in review, and real: the obvious `saturating_sub(current) + 1` has a floor of 1,
+        // so a "frames behind" readout could never say "caught up" — which is the one reading it
+        // exists to give.
+        let (hashes, played) = run_spectator(0);
+        assert_eq!(hashes.len(), FRAMES as usize, "the run drained completely");
+        assert!(
+            played.current_frame() > played.last_confirmed_frame().expect("something confirmed"),
+            "the caught-up branch is genuinely the one under test, not an unreached one"
+        );
+        assert_eq!(
+            played.pending_frames(),
+            0,
+            "every confirmed frame has been shown"
+        );
+
+        // The negative control: a spectator still holding buffered frames must count them, so the
+        // fix cannot be "always return 0".
+        let (delayed_hashes, delayed) = run_spectator(8);
+        assert!(
+            delayed_hashes.len() < FRAMES as usize,
+            "the reveal delay genuinely held frames back"
+        );
+        assert!(
+            delayed.pending_frames() > 0,
+            "buffered-but-unshown frames must still count"
+        );
     }
 
     #[test]
