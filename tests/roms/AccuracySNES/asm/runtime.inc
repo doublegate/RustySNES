@@ -314,10 +314,26 @@ V_COP_VEC_E     = $0054
 ; so this is unreachable until a test opts in; it is initialised to `irq_stub` at reset so a test
 ; that enables NMI without installing a handler is harmless rather than jumping into RAM.
 ;
-; $0056 is the next free word: the low-RAM map is $0040 PAD_X/V_DISPATCH_TMP, $0042 V_BRK_VEC,
+; $005B is the next free byte: the low-RAM map is $0040 PAD_X/V_DISPATCH_TMP, $0042 V_BRK_VEC,
 ; $0044 V_COP_VEC, $0046 V_H0, $0048 V_H1, $004A V_IRQ_VEC, $004C V_DISPATCH, $0050-$0052
-; V_APU_PTR (24-bit, owns three bytes), $0054 V_COP_VEC_E, $0080 PAD_A.
+; V_APU_PTR (24-bit, owns three bytes), $0054 V_COP_VEC_E, $0056 V_NMI_VEC,
+; $0058-$005A V_IRQ_VEC_FAR (24-bit, owns three bytes), $0080 PAD_A.
 V_NMI_VEC       = $0056
+
+; A 24-bit IRQ handler pointer, for tests that do NOT live in bank $00.
+;
+; `irq_trampoline` is a bank-LOCAL `jmp (V_IRQ_VEC)`, so the pointer it follows can only name a
+; handler in bank $00 — which means Groups C-G, whose bodies are relocated out of bank $00, could
+; not install an IRQ handler at all. A test outside bank $00 therefore points `V_IRQ_VEC` at
+; `irq_far_shim` (which IS in bank $00, so the existing trampoline reaches it) and puts its own
+; 24-bit handler address here; the shim does `jml [V_IRQ_VEC_FAR]`.
+;
+; `jml` pushes nothing, so the interrupt's own return frame is untouched and the far handler still
+; ends with a plain `rti`. Owns three bytes, $0058-$005A; $005B is the next free byte. Initialised
+; at reset to `irq_stub` in bank $00, for the same reason every other vector here is: a test that
+; enables the shim without filling this in returns harmlessly instead of jumping into whatever RAM
+; happened to hold.
+V_IRQ_VEC_FAR   = $0058
 
 ; Bank-probe result and return vector, for the `(a,X)` indirect-jump rows (A4.04/A4.05).
 ;
@@ -432,6 +448,7 @@ PAD_X           = $0040
 .ifndef RUNTIME_IMPL
     .import test_restore
     .import irq_stub
+    .import irq_far_shim
     .import hv_begin
     .import hv_end
     .import hv_begin_wide

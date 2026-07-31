@@ -11,6 +11,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES: `C7.05` — Range Over trips at the 33rd in-range sprite's evaluation cycle,
+  `H = OAM.INDEX * 2`.** A fixed bracket would be vacuous: an H-IRQ is serviced ~22-27 dots after its
+  `HTIME`, so one tight enough to pin dot 65 is inside the latency's own uncertainty and one loose
+  enough to be safe passes for any set dot. Instead both phases sample the **same** dot and change
+  only which OAM entry is 33rd in range — index 32 (set dot 65, reads set) against index 72 (set dot
+  145, reads clear) — so the flag has to *move with the index*. Phase B also re-reads in the same
+  frame's vblank, since "clear" is otherwise what a core that never sets the flag reports.
+
+  Three injections, each failing its own code: a fixed set dot fails code 2, never setting fails
+  code 1, and setting correctly for a low index but never a high one fails code 3 — the guard phase A
+  cannot cover.
+
+  The sample dot is **measured, not inferred**: an H-IRQ handler runs ~93 dots after its `HTIME`, not
+  the ~22-27 a raw trigger latency suggests, because the interrupt is only taken at an instruction
+  boundary and the trampoline, shim and prologue all precede the read.
+
+  This needed **new runtime machinery**, which no `v1.28.0` row was supposed to. `irq_trampoline` is
+  a bank-local `jmp (V_IRQ_VEC)`, so only bank-`$00` groups could install an IRQ handler; Groups
+  C-G, relocated out of bank `$00`, could not, and none ever had. New `irq_far_shim` plus the 24-bit
+  `V_IRQ_VEC_FAR` at `$0058` fixes it for every relocated group — `jml` pushes nothing, so a far
+  handler still ends in a plain `rti`. Default behaviour is unchanged: the shim is opt-in and the far
+  vector defaults to `irq_stub`.
+
+  snes9x fails the row and is recorded as an expected divergence (`SNES9X_KNOWN_FAILURES` 12 → 13):
+  it reads set in both phases, so its Range Over is scanline-granular rather than per-sprite.
+
 - **AccuracySNES: recorded what each remaining `v1.28.0` row actually needs.** Several rows filed as
   "needs no new machinery" need rather more; `A5.18` is parked, `A6.15` needs its own design,
   `C7.05`/`C7.06` are reachable via an H-IRQ bracket, and `B2.07`/`B2.09` are `v1.29.0`. The

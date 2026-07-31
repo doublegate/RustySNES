@@ -106,6 +106,8 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
     rep #$20
     .a16
     lda #irq_stub
+    sta a:V_IRQ_VEC_FAR         ; the far vector's low word; its bank byte is set below, so a test
+                                ; that enables the shim without filling this in returns harmlessly
     sta a:V_IRQ_VEC             ; default: the IRQ trampoline behaves exactly like the old stub
     sta a:V_COP_VEC_E           ; and the emulation COP pointer, so a COP in a test that has
                                 ; installed no handler returns instead of jumping into RAM
@@ -114,6 +116,8 @@ RUNTIME_IMPL = 1                ; suppress runtime.inc's imports of what we defi
                                 ; enables NMI without installing a handler must not jump into RAM
     sep #$20
     .a8
+    lda #$00
+    sta a:V_IRQ_VEC_FAR + 2     ; bank $00, completing the far vector's default
 
     lda #$00                    ; clear the capture-complete marker BEFORE capturing (G1.05 asserts
     sta f:V_PO_READY            ; it) — STZ has no long-addressing form, so LDA/STA
@@ -3805,6 +3809,22 @@ test_restore := test_restore_impl
 .export irq_stub
 .proc irq_stub
     rti
+.endproc
+
+; The far-IRQ shim: how a test outside bank $00 installs an interrupt handler.
+;
+; `irq_trampoline` below is a bank-local `jmp (V_IRQ_VEC)`, so that pointer can only name a bank-$00
+; handler — which left Groups C-G, whose bodies are relocated out of bank $00, unable to install one
+; at all. Such a test points `V_IRQ_VEC` here (this proc IS in bank $00, so the trampoline reaches
+; it) and puts its own 24-bit handler address in `V_IRQ_VEC_FAR`.
+;
+; `jml` pushes nothing, so the interrupt's return frame is untouched and the far handler ends with a
+; plain `rti`, exactly as a bank-$00 handler does. Nothing is clobbered on the way through: no
+; register is touched and no flag is disturbed, so the handler sees the CPU state the interrupt
+; produced.
+.export irq_far_shim
+.proc irq_far_shim
+    jml [V_IRQ_VEC_FAR]
 .endproc
 
 ; The IRQ trampoline, for tests that need to observe dispatch rather than the comparator flag.

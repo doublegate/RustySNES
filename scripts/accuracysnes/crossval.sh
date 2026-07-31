@@ -147,7 +147,16 @@ ran=0
 #   as F1.10, on the same nocash-documented behaviour. (F1.09, the busy *duration* golden, still PASSES on
 #   snes9x: its latch both sets and clears within the window at a slightly shorter count — 30 vs 33 — a
 #   recorded golden difference, not a failing test.) Region-independent.
-SNES9X_KNOWN_FAILURES=12
+# snes9x, +1 test (C7.05 "RangeOver dot = idx*2", fails phase B with code 2): the row asserts that
+#   Range Over trips at the *evaluation cycle of the 33rd in-range sprite*, H = OAM.INDEX * 2, by
+#   sampling the same dot with the 33rd sprite first at index 32 (set dot 65, must read SET) and then
+#   at index 72 (set dot 145, must read CLEAR). snes9x reads SET in both, i.e. its Range Over does not
+#   move with the index — a scanline-granularity flag rather than a per-sprite one, which is the
+#   modelling difference the row exists to detect. Documented by nocash fullsnes and the SNESdev Wiki
+#   (range evaluation walks OAM two cycles per sprite). RustySNES's per-dot position is anchored to
+#   MesenCE on the *line* by scripts/probes/eval-line-213e; the *dot* itself is documentation-anchored
+#   only, because the Mesen2 headless runner times out in this environment. Region-independent.
+SNES9X_KNOWN_FAILURES=13
 
 # --- snes9x, via the libretro host --------------------------------------------------------------
 if [[ -f $SNES9X ]]; then
