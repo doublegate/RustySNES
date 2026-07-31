@@ -1264,6 +1264,16 @@ Provenance: **Documented** (fullsnes and the SNESdev Wiki: sprite range evaluati
 | 1 | `$02` | Range Over was already set with only 2 sprites on the scanline, so the flag is stuck and          phase 2 below would report it as a count |
 | 2 | `$04` | Range Over did not set with 40 sprites on one scanline at X = $100, so evaluation is          skipping sprites it judges off-screen — a driver parking unused sprites to the left would          see more of them survive than hardware allows |
 
+### C7.05 — RangeOver dot = idx*2
+
+Provenance: **Documented** (fullsnes and the SNESdev Wiki: range evaluation walks OAM two cycles per sprite, so the 33rd in-range sprite trips Range Over at H = OAM.INDEX * 2 on V = OBJ.YLOC). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | Range Over had not set by dot ~105 with the 33rd in-range sprite at OAM index 32 (dot 65) — the flag is later than OAM.INDEX * 2 |
+| 2 | `$04` | Range Over was already set at dot ~105 with the 33rd in-range sprite at OAM index 72 (dot 145) — the set dot does not track OAM.INDEX * 2 |
+| 3 | `$06` | Range Over never set at all in phase B, so its clear reading at dot ~105 proved nothing |
+
 ### C7.02 — Time Over is slivers
 
 Provenance: **Documented** (SNESdev Wiki, Sprites; fullsnes; anomie). Kind: scored.

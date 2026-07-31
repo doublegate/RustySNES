@@ -468,7 +468,8 @@ before the H counter wraps and silently returns a plausible small number.
 | `A5.19` | **landed** | see below |
 | `A5.18` | **parked** — needs a cheaper instrument | The design is sound and the numbers came out exactly as predicted, but a `BRK` round trip is 39 dots and only 3 fit inside the budget, leaving 6 dots of signal against `TOL` 2 in a difference-of-differences. See below. |
 | `A6.15` | needs its own design | "all 256 opcodes defined" is a *definedness* assertion, not a timing one, and `sweep.rs` deliberately covers only the unambiguous subset — its own module docs list why control flow, `BRK`/`COP`, `STP`, `WAI` and memory-addressing modes are excluded. Citing the sweep would be coverage by restatement. |
-| `C7.05`, `C7.06` | **reachable — sample with an H-IRQ bracket** | Not an accuracy gap: re-measured, `range_over` first reads set at scanline **100**, MesenCE's value. What remains is sampling *resolution*. See below. |
+| `C7.05` | **landed** | Not a fixed bracket — the set dot has to *move with the index*. See below. |
+| `C7.06` | reachable, same technique | `C7.05`'s far-IRQ shim and sprite setup are reusable; `time_over` needs >34 sprite-tiles, which 40 8x8 sprites do **not** produce (range evaluation caps at 32, so 32 tiles). Use larger sprites. |
 | `B2.07` | gated on `B2.02` | `B2.04` covers the 262-line count, not the clock total, so the frequency is not implied by it. Getting to 60.0988 Hz needs clocks-per-frame, and the frame alternates 357,368/357,364 because of the short scanline — which *is* `B2.02`, a `T-06-A` dot-model residual scheduled for `v1.29.0`. |
 | `B2.09` | `v1.29.0` by its own dossier note | the picture window is "not CPU-observable directly; reachable through the framebuffer oracle once the dot-resolution compositor lands". |
 
@@ -495,7 +496,41 @@ Injecting at `op_brk`'s PBR push moved **no** timing at all — it broke `A6.13`
 — so RustySNES's `BRK` cycle cost does not come from that bus access. Trace where it does come from
 before designing this row's injection test.
 
-#### `C7.05`/`C7.06` — why the bracket, and the two traps
+#### `C7.05` — a fixed bracket is vacuous; move the index instead
+
+An H-IRQ is serviced ~22-27 dots after its `HTIME`, so a bracket tight enough to pin dot 65 sits
+inside the latency's own uncertainty, while one loose enough to be safe passes for any set dot across
+most of the line. That is the `F1.09` shape.
+
+What pins `H = OAM.INDEX * 2` is that the set dot must **move with the index**. Both phases sample
+the *same* dot and change only which OAM entry is the 33rd in-range sprite:
+
+| phase | in-range sprites | 33rd is index | set dot `2i + 1` | read at ~dot 105 |
+|---|---|---:|---:|---|
+| A | `0..39` | 32 | 65 | **set** |
+| B | `40..79` | 72 | 145 | **clear** |
+
+Phase B additionally re-reads `$213E` in the vblank of the *same* frame and requires it set by then —
+without that, "clear at dot 105" is also what a core that never sets the flag would report. The flags
+clear at frame start, not on read (`Ppu::advance`), so the later read sees the same frame.
+
+Three injections, each failing its own code: a fixed set dot fails **code 2**, never setting the flag
+fails **code 1**, and setting correctly for a low index but never for a high one — which phase A
+cannot catch — fails **code 3**, the guard.
+
+**Installing an IRQ handler needed new runtime machinery.** `irq_trampoline` is a bank-local
+`jmp (V_IRQ_VEC)`, so that pointer can only name a bank-`$00` handler — Groups C-G, whose bodies are
+relocated out of bank `$00`, could not install one at all, and no test outside `cpu.rs`/`bus.rs` ever
+had. `irq_far_shim` (bank `$00`) plus the 24-bit `V_IRQ_VEC_FAR` at `$0058` fixes that for every
+relocated group: point `V_IRQ_VEC` at the shim, put a 24-bit handler address in the far vector, and
+the shim's `jml` reaches it while pushing nothing, so the handler still ends in a plain `rti`.
+
+**snes9x fails this row** and is recorded as an expected divergence: it reads SET in both phases, so
+its Range Over does not track the index — a scanline-granularity flag. RustySNES's position is
+anchored to MesenCE on the *line* by `scripts/probes/eval-line-213e`; the *dot* is
+documentation-anchored only, because the Mesen2 headless runner times out in this environment.
+
+#### `C7.05`/`C7.06` — the probe, and the two sampling traps
 
 An earlier revision of the table above said RustySNES sets `range_over` a line late against MesenCE.
 **It does not.** Re-measured on `main`, `range_over` first reads set at **scanline 100**, which is

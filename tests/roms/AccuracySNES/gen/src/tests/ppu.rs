@@ -70,6 +70,7 @@ pub fn all() -> Vec<Test> {
         // --- C7: sprite evaluation flags (the only Group C tests that render) ---
         c7_01(),
         c7_04(),
+        c7_05(),
         c7_02(),
         c7_08(),
         c7_10(),
@@ -2324,6 +2325,185 @@ fn setup_and_render(
     a.l("sta $2100         ; forced blank again, as the rest of the battery expects");
     a.l("stz $212C");
     a.l("pla");
+}
+
+/// Range Over is set at the evaluation cycle of the **33rd in-range sprite** — `H = OAM.INDEX * 2`
+/// on `V = OBJ.YLOC` (`C7.05`).
+///
+/// # A fixed bracket would be vacuous, so this moves the index instead
+///
+/// The obvious test — sample `$213E` early on the line expecting clear, late expecting set — proves
+/// almost nothing. An H-IRQ is serviced ~22-27 dots after its `HTIME` (`scripts/probes/`
+/// `eval-line-213e/README.md` records the same latency biting its V-counter latch), so a bracket
+/// tight enough to pin dot 65 is inside the latency's own uncertainty, and a bracket loose enough to
+/// be safe passes for *any* set dot across most of the line. That is the `F1.09` shape: a sampler
+/// too coarse for its subject agrees with whatever the subject does.
+///
+/// What actually pins `INDEX * 2` is that the set dot must **move with the index**. So both phases
+/// sample at the *same* dot and change only which OAM entry is the 33rd in-range sprite:
+///
+/// | phase | in-range sprites | 33rd is index | set dot `2i + 1` | read at ~dot 105 |
+/// |---|---|---:|---:|---|
+/// | A | `0..39` | 32 | 65 | **set** — the flag has already tripped |
+/// | B | `40..79` | 72 | 145 | **clear** — it has not tripped yet |
+///
+/// A core that sets Range Over at a fixed dot, or at line start, or on the count alone, gives the
+/// same answer in both phases and fails. The ~40 dots of margin on each side of the sample also
+/// absorbs the IRQ latency completely, so the test does not depend on knowing it.
+///
+/// # Phase B needs the "and it does set, later" guard
+///
+/// "Clear at dot 105" is also what a core that never sets the flag at all would report, which would
+/// make phase B pass for the wrong reason — and phase A cannot cover for it, since the two use
+/// different sprite layouts. So phase B additionally reads `$213E` in the vblank of the **same
+/// frame** and requires it set by then. The flags clear at the start of a frame, not on read
+/// (`Ppu::advance`), so that later read sees the same frame's result.
+fn c7_05() -> Test {
+    let mut a = Asm::new();
+    a.l("jmp @body");
+    a.label("handler");
+    a.l("sep #$20");
+    a.l(".a8");
+    a.l("lda $213E         ; sample STAT77 at the IRQ dot");
+    a.l("sta f:$7E0150");
+    a.l("lda $4211         ; acknowledge so the line drops");
+    a.l("rti");
+    a.label("body");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("Group C lives outside bank $00, and irq_trampoline is a bank-LOCAL jmp (V_IRQ_VEC) —");
+    a.c("so the pointer it follows cannot name this handler. Route through the bank-$00 shim.");
+    a.l("rep #$20");
+    a.l("lda #.loword(@handler)");
+    a.l("sta a:V_IRQ_VEC_FAR");
+    a.l("sep #$20");
+    a.l("lda #^@handler");
+    a.l("sta a:V_IRQ_VEC_FAR + 2");
+    a.l("rep #$20");
+    a.l("lda #irq_far_shim");
+    a.l("sta a:V_IRQ_VEC");
+
+    a.c("--- phase A: sprites 0..39 in range, so the 33rd is index 32 and the dot is ~65 ---");
+    setup_over_flag_sprites(&mut a, "a", 0);
+    arm_hv_irq_and_run(&mut a, "a");
+    a.l("lda f:$7E0150");
+    a.l("and #$40");
+    a.assert_a8(
+        0x40,
+        "Range Over had not set by dot ~105 with the 33rd in-range sprite at OAM index 32 (dot 65) \
+         — the flag is later than OAM.INDEX * 2",
+    );
+
+    a.c("--- phase B: sprites 40..79, so the 33rd is index 72 and the dot moves to ~145 ---");
+    setup_over_flag_sprites(&mut a, "b", 40);
+    arm_hv_irq_and_run(&mut a, "b");
+    a.l("sep #$20");
+    a.l("lda f:$7E0150");
+    a.l("and #$40");
+    a.assert_a8(
+        0x00,
+        "Range Over was already set at dot ~105 with the 33rd in-range sprite at OAM index 72 \
+         (dot 145) — the set dot does not track OAM.INDEX * 2",
+    );
+    a.c("...and it must still set later in the SAME frame, or 'clear' meant 'never sets'.");
+    a.l("rep #$30");
+    a.l("jsl wait_vblank_far");
+    a.l("sep #$20");
+    a.l("lda $213E");
+    a.l("and #$40");
+    a.assert_a8(
+        0x40,
+        "Range Over never set at all in phase B, so its clear reading at dot ~105 proved nothing",
+    );
+    a.l("lda #$8F");
+    a.l("sta $2100         ; forced blank again, as the rest of the battery expects");
+    a.l("stz $212C");
+    a.finish(
+        "C7.05",
+        'C',
+        "RangeOver dot = idx*2",
+        Provenance::Documented(
+            "fullsnes and the SNESdev Wiki: range evaluation walks OAM two cycles per sprite, so \
+             the 33rd in-range sprite trips Range Over at H = OAM.INDEX * 2 on V = OBJ.YLOC",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// 40 8x8 sprites in range on line 100 starting at OAM index `first`; everything else parked below
+/// the visible area. `first` is what moves the 33rd in-range sprite's index, and with it the dot at
+/// which Range Over trips.
+fn setup_over_flag_sprites(a: &mut Asm, tag: &str, first: u16) {
+    a.l("sep #$20");
+    a.l("stz $2101         ; OBJSEL: 8x8/16x16 pair, name base 0");
+    a.l("stz $2102");
+    a.l("stz $2103");
+    a.l("rep #$10");
+    a.l("ldx #$0000");
+    a.label(&format!("fill_{tag}"));
+    a.l("lda #$00");
+    a.l("sta $2104         ; X = 0");
+    a.l(&format!("cpx #${first:04X}"));
+    a.l(&format!("bcc @off_{tag}   ; below the window: park it"));
+    a.l(&format!("cpx #${:04X}", first + 40));
+    a.l(&format!(
+        "bcs @off_{tag}   ; at or above the window's end: park it"
+    ));
+    a.l("lda #100");
+    a.l(&format!("bra @sety_{tag}"));
+    a.label(&format!("off_{tag}"));
+    a.l("lda #$F0          ; below the visible area in 224-line mode");
+    a.label(&format!("sety_{tag}"));
+    a.l("sta $2104         ; Y");
+    a.l("stz $2104         ; tile");
+    a.l("stz $2104         ; attr");
+    a.l("inx");
+    a.l("cpx #$0080");
+    a.l(&format!("bne @fill_{tag}"));
+    a.c("High table all zero: every X bit 8 clear and the small size of the pair.");
+    a.l("stz $2102");
+    a.l("lda #$01");
+    a.l("sta $2103         ; OAMADDR = word $100");
+    a.l("ldx #$0000");
+    a.label(&format!("hi_{tag}"));
+    a.l("stz $2104");
+    a.l("inx");
+    a.l("cpx #$0020");
+    a.l(&format!("bne @hi_{tag}"));
+}
+
+/// Arm an HV-IRQ at `V = 100, H = 78` and run one frame with objects on the main screen.
+///
+/// `HTIME = 78` puts the handler's `$213E` read near dot 105 once the ~22-27 dot IRQ-service
+/// latency is added — ~40 dots clear of both candidate set dots (65 and 145), so the sample lands
+/// unambiguously between them without the test having to know the latency.
+fn arm_hv_irq_and_run(a: &mut Asm, tag: &str) {
+    a.l("sep #$20");
+    a.l("lda #$FF");
+    a.l("sta f:$7E0150     ; poison: a handler that never runs cannot look like either verdict");
+    a.l("lda #78");
+    a.l("sta $4207");
+    a.l("stz $4208         ; HTIME = 78");
+    a.l("lda #100");
+    a.l("sta $4209");
+    a.l("stz $420A         ; VTIME = 100 — the line the sprites are on");
+    a.l("lda $4211         ; clear any stale latch");
+    a.l("lda #$0F");
+    a.l("sta $2100         ; display on, full brightness");
+    a.l("lda #$10");
+    a.l("sta $212C         ; OBJ on the main screen");
+    a.l("cli");
+    a.l("lda #$30");
+    a.l("sta $4200         ; HV-IRQ: fire at H = 78 of V = 100");
+    a.l("rep #$30");
+    a.l("jsl wait_vblank_far   ; span one complete active period");
+    a.l("sep #$20");
+    a.l("sei");
+    a.l("stz $4200         ; disarm before reading anything back");
+    a.l("lda $4211");
+    let _ = tag;
 }
 
 /// A sprite at `X = $100` is entirely off-screen and still consumes its range slot.
