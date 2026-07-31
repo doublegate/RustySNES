@@ -29,8 +29,10 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3
         id: filter
         with:
           filters: |
@@ -88,7 +90,9 @@ jobs:
       CARGO_HTTP_MULTIPLEXING: "false"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       # fmt/clippy only ever check the HOST target here (no `--target` is ever passed to either
       # command in this job) — installing the wasm32/thumbv7em cross targets bought nothing but
       # setup time on every single PR push. Only `no_std` (which actually cross-compiles) needs
@@ -184,7 +188,9 @@ jobs:
       CARGO_HTTP_MULTIPLEXING: "false"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/rust-setup
         with:
           cache-key-suffix: test-light
@@ -206,7 +212,9 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       # Same rationale as `lint`: neither fmt nor clippy nor `cargo test` cross-compiles here, so
       # no extra targets are installed.
       - uses: ./.github/actions/rust-setup
@@ -265,7 +273,9 @@ jobs:
           - rustysnes-cart
           - rustysnes-core
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/rust-setup
         with:
           targets: thumbv7em-none-eabihf
@@ -285,7 +295,9 @@ jobs:
       CARGO_HTTP_MULTIPLEXING: "false"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       # The `rustysnes-core` `headless_frame` bench is chip-stack-only (no wgpu/winit/egui), so
       # no Linux frontend system deps are needed here (unlike `lint`/`full-test`).
       - uses: ./.github/actions/rust-setup
@@ -301,7 +313,9 @@ jobs:
     if: needs.setup.outputs.mode != 'skip'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/rust-setup
         with:
           cache-key-suffix: accuracysnes

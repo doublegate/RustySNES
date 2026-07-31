@@ -73,7 +73,9 @@ jobs:
       promotable: ${{ steps.gate.outputs.promotable }}
       speedup_pct: ${{ steps.gate.outputs.speedup_pct }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       # `components: llvm-tools-preview` is listed for documentation, but the EFFECTIVE source is
       # `rust-toolchain.toml` (which now includes it) -- `dtolnay/rust-toolchain` silently ignores
@@ -173,7 +175,7 @@ jobs:
 
       - name: Upload promoted PGO binary
         if: steps.gate.outputs.promotable == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: rustysnes-pgo-${{ steps.triple.outputs.triple }}
           path: target/${{ steps.triple.outputs.triple }}/release/rustysnes
@@ -194,7 +196,9 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/rust-setup
         with:
           components: llvm-tools-preview
@@ -282,7 +286,7 @@ jobs:
 
       - name: Upload BOLT binary
         if: steps.bolt_probe.outputs.have_bolt == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: rustysnes-bolt-${{ steps.triple.outputs.triple }}
           path: target/${{ steps.triple.outputs.triple }}/release/rustysnes

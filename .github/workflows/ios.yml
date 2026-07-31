@@ -40,7 +40,9 @@ jobs:
       CARGO_NET_RETRY: "10"
       CARGO_HTTP_MULTIPLEXING: "false"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/rust-setup
         with:
           # `dtolnay/rust-toolchain` ignores its OWN `toolchain:`/`components:`/`targets:` inputs

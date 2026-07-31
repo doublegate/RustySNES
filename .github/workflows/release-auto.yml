@@ -53,17 +53,34 @@ jobs:
       should_release: ${{ steps.decide.outputs.should_release }}
       tag: ${{ steps.decide.outputs.tag }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Build the release from the exact commit CI went green on. Full history so the
-          # annotated-tag creation and the `git ls-remote` existence check both have what they
-          # need (a shallow clone's tag/ref visibility isn't reliable here).
+          # annotated-tag creation and the tag-existence check both have what they need (a shallow
+          # clone's tag/ref visibility isn't reliable here).
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
+          # DELIBERATELY NOT `persist-credentials: false`, and the only checkout in the repository
+          # that keeps the token. Every other one was hardened in `v1.26.0` because checkout writes
+          # the workflow `GITHUB_TOKEN` into `.git/config`, where anything the job then executes
+          # from the tree can read it.
+          #
+          # This job is the exception because it genuinely needs it: it creates an annotated tag and
+          # `git push origin "$TAG"` (below), which authenticates through exactly that credential.
+          # The sibling project's audit concluded no job needed the token; that conclusion does NOT
+          # transfer here, which is why this was audited per-site rather than applied blanket.
+          #
+          # The exposure is bounded by the trigger: `workflow_run` on a completed CI run of `main`,
+          # never a pull request, so the tree this job executes is already-reviewed code.
 
       - name: Decide whether a closed-out version needs releasing
         id: decide
         shell: bash
+        env:
+          # Required by the `gh api` tag-existence check below. `gh` errors out without it rather
+          # than falling back to the ambient credential, and this step previously used only plain
+          # `git`, so it had no token of its own. Same form as the release steps further down.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # ANY non-blank content under [Unreleased] (not just a "- " bullet -- a stray heading
@@ -93,7 +110,26 @@ jobs:
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "header=${header}" >> "$GITHUB_OUTPUT"
-          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+          # FAIL CLOSED. This was `git ls-remote --exit-code --tags origin "refs/tags/${tag}"`,
+          # which collapses THREE outcomes into two: tag present (0), tag absent (2), and lookup
+          # failed (non-zero, various). Reading any non-zero as "absent" means a transient network
+          # blip, an auth hiccup, or a rate limit sends an ALREADY-RELEASED version down the
+          # `should_release=true` path — re-tagging a published release, which
+          # `to-dos/ROADMAP.md`'s release ceremony treats as immutable.
+          #
+          # `git/matching-refs` is chosen over `git/ref/tags/<tag>` deliberately: it answers
+          # "absent" with HTTP 200 and an empty array, so a genuine miss can never be confused with
+          # an error and no error-body parsing is needed. It matches by PREFIX, though, so the exact
+          # ref is compared in `jq` — that is not theoretical, `v1.2` prefix-matches several real
+          # tags while exact-matching none.
+          #
+          # Every failure path aborts the job (the script runs under `set -euo pipefail`) rather
+          # than resolving to a release decision.
+          if ! matching="$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${tag}")"; then
+            echo "::error::Tag lookup for ${tag} failed. Refusing to guess whether it exists."
+            exit 1
+          fi
+          if printf '%s' "$matching" | jq -e --arg ref "refs/tags/${tag}" 'any(.[]; .ref == $ref)' >/dev/null; then
             echo "Tag ${tag} already exists -- nothing to release."
             echo "should_release=false" >> "$GITHUB_OUTPUT"
           else

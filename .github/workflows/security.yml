@@ -51,12 +51,14 @@ jobs:
     name: Dependency Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       # Install the PREBUILT binary, never `cargo install` (build-from-source): the repo pins
       # rustc 1.96, but a from-source cargo-audit build can need a newer toolchain than that to
       # COMPILE. The prebuilt binary runs fine under any toolchain -- it only parses Cargo.lock,
       # it never compiles this project.
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@6a1bd70eaac3c8bdf093356838d7ee09fda951cf # v2
         with:
           tool: cargo-audit
       - run: cargo audit
@@ -74,10 +76,12 @@ jobs:
     name: Cargo Deny Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       # Same rationale as the audit job: the prebuilt binary avoids needing a newer toolchain
       # than the repo's pinned 1.96 just to build the checker itself. Policy lives in `deny.toml`.
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@6a1bd70eaac3c8bdf093356838d7ee09fda951cf # v2
         with:
           tool: cargo-deny
       - run: cargo deny check
@@ -112,12 +116,14 @@ jobs:
     # indistinguishably from a real finding.
     timeout-minutes: 180
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       # cargo-fuzz needs nightly (`-Z sanitizer=address`); the project pins 1.96 stable in
       # `rust-toolchain.toml`. Installing nightly alongside it, and invoking it explicitly as
       # `+nightly`, keeps the pin authoritative for every other job.
-      - uses: dtolnay/rust-toolchain@nightly
-      - uses: taiki-e/install-action@v2
+      - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
+      - uses: taiki-e/install-action@6a1bd70eaac3c8bdf093356838d7ee09fda951cf # v2
         with:
           tool: cargo-fuzz
       # `fuzz/` depends on `rustysnes-frontend` (the patch/preset/config/symbols boundaries live
@@ -162,7 +168,7 @@ jobs:
       #   cargo +nightly fuzz run <target> <artifact>
       - name: Upload crashing inputs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: fuzz-artifacts
           path: |
