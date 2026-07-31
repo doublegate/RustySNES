@@ -31,6 +31,23 @@ $70–$7D/$F0–$FF $0000–$7FFF; HiROM SRAM typically banks $20–$3F/$A0–$B
 is flagged in `$FFD6` low nibble ($2). Build per-board windows from the cartridge database +
 ares board definitions during Phase 4 (`ref-docs/research-report.md` "Open questions" #3).
 
+**SRAM size is bounded, and the bound is load-bearing (`v1.26.0`).** `$xFD8` declares `1 << N` KiB
+with `N` an arbitrary byte out of an untrusted image, and `header::MAX_SRAM_SIZE` caps the result at
+**512 KiB** — the smallest value that cannot refuse a real cartridge, since LoROM's window reaches
+448 KiB, HiROM's 256 KiB, and SA-1 BW-RAM tops out at 256 KiB. A header claiming more is describing
+memory the console has no way to address.
+
+Without the cap, `1024 << N` panicked in debug builds for `N >= 64` and in release **masked the
+shift**, handing `board::select` a `vec![0u8; header.sram_size]` of up to 4 GiB from any downloaded
+ROM (`wasm32` was worse: `usize` is 32 bits, so the panic began at `N >= 32`). Found by
+`fuzz/fuzz_targets/rom_header.rs`; see `fuzz/README.md`.
+
+It clamps rather than rejects on purpose. The field is an allocation hint, not a contract — every
+board already wraps its accesses to `sram_size` (`% sram_size` in the table below) — and real dumps
+do carry garbage here, so rejecting would refuse images that load correctly today. bsnes and ares
+avoid the question entirely by resolving size from a board database instead of the header; absent
+that database, a bound is the equivalent.
+
 ### Phase-2 base-board decode (implemented in `board.rs`)
 
 Base LoROM/HiROM/ExHiROM now decode against real `rom: Box<[u8]>` + zeroed `sram: Box<[u8]>`

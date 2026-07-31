@@ -9,6 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Fuzzing infrastructure (`fuzz/`) — fourteen `cargo-fuzz` targets, one per untrusted-input
+  boundary.** `docs/testing-strategy.md` has named Layer 1 fuzzability as an intended property
+  since it was written, and no `fuzz/` directory had ever existed; this builds it out as Layer 7.
+
+  Targets cover the ROM header and its zip container, save-states, TAS movies, netplay wire
+  messages, IPS/UPS/BPS patches, cheat codes, HD-pack manifests, shader presets and the GLSL→WGSL
+  bridge, config TOML, symbol maps, coprocessor firmware, and the CPU and APU themselves. Every one
+  of those entry points already returns a `Result`, so what is under test is panic-freedom,
+  unbounded allocation, and slice-index arithmetic — not missing error handling.
+
+  A **compile gate** runs on every PR (`ci.yml`'s `lint` job) so a target cannot silently rot out of
+  buildability as the API it calls moves; the **campaign** is weekly (`security.yml`, scheduled
+  only), because per-commit fuzzing re-treads a corpus it already has. `fuzz/` is a separate
+  workspace so cargo-fuzz's nightly requirement never leaks into an ordinary `cargo check`.
+
+- **A real defect, found immediately: the `$xFD8` RAM-size byte was shifted unbounded.**
+  `Header::detect` computed SRAM size as `1024 << N` with `N` an arbitrary byte out of an untrusted
+  image. Debug builds panicked outright (`attempt to shift left with overflow`) for `N >= 64`;
+  **release builds masked the shift instead**, so `N = 22` silently handed `board::select` a 4 GiB
+  zeroed allocation at `vec![0u8; header.sram_size]` — reachable from any downloaded ROM, any fan
+  hack, or any bad dump. `wasm32` was worse on both counts: `usize` is 32 bits there, so the panic
+  started at `N >= 32` and `N = 21` already exceeded `isize::MAX`.
+
+  Now clamped to `MAX_SRAM_SIZE` (512 KiB) with the shift amount capped first — both bounds are
+  needed, since a `min` on the result cannot run until the shift has already happened. 512 KiB is
+  the smallest value that cannot refuse a real cartridge: LoROM's SRAM window reaches 448 KiB,
+  HiROM's 256 KiB, and SA-1 BW-RAM tops out at 256 KiB, so a header claiming more is describing
+  memory the console cannot address. Clamping rather than rejecting is deliberate — the field is an
+  allocation hint, every board already wraps its accesses to `sram_size`, and real dumps do carry
+  garbage there.
+
+  Pinned by `a_forged_ram_size_byte_is_clamped_not_shifted_unbounded` (all 256 byte values) with
+  `the_sram_clamp_leaves_every_real_cartridge_size_untouched` as its negative control, and verified
+  by re-injecting the bug and confirming *those* tests fail and no others.
+
+  **Worth recording how it was reached:** the defect is invisible without a seeded corpus. Header
+  detection scores candidate offsets, so a random image essentially never scores above zero —
+  unseeded, `rom_header` plateaus around 29 edges and never reaches this code. Seeded from the
+  committed permissive ROM corpus it surfaced in under twenty seconds.
+
 ## [1.25.0] "Workbench" - 2026-07-30
 
 **The frontend catches up with the engine.** RustySNES's emulation core has been at the Mesen2/ares

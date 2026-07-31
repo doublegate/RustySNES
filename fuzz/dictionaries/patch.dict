@@ -1,0 +1,20 @@
+# Dictionary for `patch`.
+#
+# Three formats behind three magics. `detect` dispatches on the first four or five bytes, so
+# without these tokens two of the three decoders are unreachable.
+
+"PATCH"
+"EOF"
+"UPS1"
+"BPS1"
+
+# IPS RLE marker: a zero-length record means "run-length", and the length that follows is the one
+# that decides how much gets written.
+"\x00\x00"
+"\xff\xff\xff"
+
+# Varint continuation bytes. UPS and BPS both use a variable-length integer whose shift must be
+# checked *before* shifting — `1u64 << 70` is a debug panic and a release wrong-answer — so a long
+# run of continuation bytes is precisely the input that matters.
+"\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80"
+"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x7f"

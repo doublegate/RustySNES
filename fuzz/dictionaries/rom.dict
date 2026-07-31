@@ -1,0 +1,45 @@
+# Dictionary for `rom_header` and `rom_load`.
+#
+# Header detection scores candidate offsets, so a purely random image essentially never scores
+# above zero — an unseeded campaign spends its whole budget bouncing off `NoValidHeader` and never
+# reaches `board::select`, which is the part worth fuzzing. These tokens are the bytes that get a
+# mutated input past that gate.
+
+# --- Map modes (`$xxD5`). The value that decides LoROM vs HiROM vs the fast variants. ---
+"\x20"
+"\x21"
+"\x23"
+"\x25"
+"\x30"
+"\x31"
+"\x35"
+
+# --- Chipset bytes (`$xxD6`). This is what `board::select` dispatches on, so each value here is a
+# different board implementation with its own window arithmetic. ---
+"\x00"
+"\x02"
+"\x03"
+"\x13"
+"\x14"
+"\x15"
+"\x1a"
+"\x25"
+"\x32"
+"\x34"
+"\x35"
+"\x43"
+"\x45"
+"\xf3"
+"\xf5"
+"\xf6"
+"\xf9"
+
+# --- Zip container magics. `extract_rom_bytes` sniffs these before anything else runs; without
+# them the third-party archive path is unreachable. ---
+"PK\x03\x04"
+"PK\x05\x06"
+"PK\x01\x02"
+".sfc"
+".smc"
+".fig"
+".swc"

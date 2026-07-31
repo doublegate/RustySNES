@@ -395,15 +395,16 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   into an already-scoped rung — see `to-dos/LOCKSTEP-CHECKLIST.md`'s 2026-07-12 log row for the
   full disposition, including two other RustyNES additions (a SIMD blitter/wasm-size pass, a
   browser RA + Vs. DualSystem libretro pairing) judged small-catch-up or correctly out of scope.
-- **Flagged by the 2026-07-15 lockstep re-check — no rung assigned yet, maintainer go/no-go
-  needed.** RustyNES cut `v2.2.0 "Capstone"` since the last check (`v2.1.10`), shipping two items
-  RustySNES's own roadmap doesn't currently account for: (1) **no fuzzing infrastructure at all**
-  — RustySNES has no `fuzz/` directory, while RustyNES's now spans 8 cargo-fuzz targets covering
-  PPU/APU register I/O, netplay message parsing, save-state, and movie deserialization; this
-  project's own `docs/testing-strategy.md` already names Layer 1 unit testing as "each chip is
-  fuzzable in isolation" but that capability was never actually built out — no corpus, no CI
-  target, no committed `fuzz/` crate exists for `rustysnes-core`'s own untrusted-input boundaries
-  (ROM header parsing, save-state loading, movie deserialization, netplay wire messages); and
+- **Flagged by the 2026-07-15 lockstep re-check.** RustyNES cut `v2.2.0 "Capstone"` since the last
+  check (`v2.1.10`), shipping two items RustySNES's own roadmap didn't account for: (1) **no
+  fuzzing infrastructure at all** — **CLOSED in `v1.26.0`**: `fuzz/` now carries fourteen
+  cargo-fuzz targets (one per untrusted-input boundary, against RustyNES's eight), a per-PR compile
+  gate in `ci.yml`'s `lint` job, and a weekly campaign in `security.yml`. It found a real defect on
+  its first seeded run — an unbounded shift on the `$xFD8` RAM-size byte reaching
+  `vec![0u8; sram_size]`, a 4 GiB allocation from any downloaded ROM in release builds. Note the
+  sibling is *behind* on the CI half: its `fuzz/` is wired into no workflow at all, and its README
+  claims a compile gate that does not exist there. See `fuzz/README.md` and
+  `docs/testing-strategy.md` §Layer 7; and
   (2) **netplay lobby/matchmaking + spectator/desync/liveness depth** — RustyNES's
   `rustynes-netplay` signaling protocol grew a browse-and-join room directory, server-side
   quick-match, delayed-stream spectators, a graded hysteresis-backed desync verdict, and

@@ -12,6 +12,11 @@
 # This workspace ships a binary app — commit the lock (re-include it).
 Cargo.lock
 !/Cargo.lock
+# `fuzz/` is its OWN workspace (cargo-fuzz convention: an empty `[workspace]` table keeps its
+# nightly requirement out of every ordinary `cargo check`), so it has a second lock the broad rule
+# above would otherwise swallow. Commit it: a campaign that silently changes dependency versions
+# between runs cannot attribute a new crash to a code change.
+!/fuzz/Cargo.lock
 
 # --- Native build & FFI artifacts ---
 *.so

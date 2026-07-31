@@ -1,0 +1,44 @@
+# Dictionary for `save_state`.
+#
+# The envelope is a magic + version header followed by tagged, length-prefixed sections. A mutated
+# input that fails the 4-byte magic never reaches a single section reader, so without these tokens
+# the target fuzzes six bytes and stops.
+
+# Envelope magic and the current format version (u16 LE). Older versions are included on purpose:
+# `load_state` rejects `found > FORMAT_VERSION` but must handle every value at or below it, and a
+# version-gated section is exactly where a length check gets forgotten.
+"RSNS"
+"\x0a\x00"
+"\x09\x00"
+"\x08\x00"
+"\x07\x00"
+"\x01\x00"
+
+# Section tags. Each one is a different subsystem's reader with its own length arithmetic.
+"SYS0"
+"CPU0"
+"BUS0"
+"PPU0"
+"APU0"
+"SPC0"
+"SPCD"
+"SDSP"
+"DMA0"
+
+# Coprocessor sections — only present when the cart carries that chip, so they exercise the
+# "section present but cart says otherwise" mismatch path.
+"SA10"
+"GSU0"
+"NDSP"
+"SDD1"
+"SDB1"
+"OBC1"
+"SRTC"
+"RTC0"
+"ST18"
+"HG51"
+
+# Length prefixes that sit on an interesting boundary.
+"\x00\x00\x00\x00"
+"\xff\xff\xff\xff"
+"\x00\x00\x00\x80"
