@@ -24,6 +24,7 @@ use std::collections::VecDeque;
 
 use rustysnes_core::System;
 
+use crate::diagnostics::DesyncDiagnostics;
 use crate::message::{NetMessage, PROTOCOL_VERSION, SYNC_MAGIC};
 use crate::transport::Transport;
 
@@ -172,6 +173,13 @@ pub struct RollbackSession<T: Transport> {
     /// frame, gets resent each [`Self::advance`] call so a dropped `Input` packet is never
     /// permanently lost.
     remote_ack_frame: Option<u32>,
+    /// Rolling record of every confirmed-frame checksum comparison, and the graded desync verdict
+    /// derived from it (`v1.27.0`).
+    ///
+    /// Purely observational — see [`crate::diagnostics`]. It is written at the single compare site
+    /// and read by [`Self::diagnostics`]; nothing in the rollback path consults it except the
+    /// confirmed-desync gate, which replaced "fail on the first mismatch".
+    diagnostics: DesyncDiagnostics,
 }
 
 impl<T: Transport> RollbackSession<T> {
@@ -189,6 +197,13 @@ impl<T: Transport> RollbackSession<T> {
             (config.local_player as usize) < MAX_PLAYERS,
             "SessionConfig::local_player must be < MAX_PLAYERS"
         );
+        // The run-gap allowance is derived from this session's own checksum interval, so the
+        // hysteresis counts consecutive *frames* rather than merely consecutive *records* — see
+        // `DesyncDiagnostics::max_run_gap_frames`. Read before `config` is moved into `Self`.
+        let diagnostics = DesyncDiagnostics::with_threshold_and_gap(
+            DesyncDiagnostics::DEFAULT_DESYNC_THRESHOLD,
+            DesyncDiagnostics::gap_for_interval(config.checksum_interval),
+        );
         Self {
             config,
             transport,
@@ -201,7 +216,18 @@ impl<T: Transport> RollbackSession<T> {
             pending_local_checksums: VecDeque::new(),
             pending_remote_checksums: VecDeque::new(),
             remote_ack_frame: None,
+            diagnostics,
         }
+    }
+
+    /// The rolling desync record and its graded verdict (`v1.27.0`).
+    ///
+    /// Read-only, and purely observational — see [`crate::diagnostics`]. A frontend renders
+    /// [`DesyncDiagnostics::status`] to distinguish a transient from a genuine divergence instead
+    /// of treating any mismatch as fatal.
+    #[must_use]
+    pub const fn diagnostics(&self) -> &DesyncDiagnostics {
+        &self.diagnostics
     }
 
     /// Send this peer's [`NetMessage::Sync`]. Call once before the first [`Self::advance`]; the
@@ -474,12 +500,22 @@ impl<T: Transport> RollbackSession<T> {
         self.checkpoint = Some((frame + 1, blob));
     }
 
-    /// Compare every locally-computed checksum against a matching remote report (matched by
-    /// frame number) once both sides exist. Returns [`NetplayError::Desync`] on the first
-    /// mismatch found.
+    /// Compare every locally-computed checksum against a matching remote report (matched by frame
+    /// number) once both sides exist.
+    ///
+    /// Every comparison — **matching ones included** — is recorded in [`Self::diagnostics`], and
+    /// the fatal [`NetplayError::Desync`] is now raised only once that record's graded verdict
+    /// reaches [`DesyncStatus::Desynced`] rather than on the first mismatch seen.
+    ///
+    /// That change is the point of the module: a burst-reordered pair of `Checksum` messages can
+    /// momentarily disagree before this deferred pass reconciles them, and the old behaviour turned
+    /// that transient into a torn-down session. The hysteresis (3 consecutive by default) rejects
+    /// it while still failing promptly on a genuine divergence — which is unrecoverable for a
+    /// rollback session, so the error still ends the session when it does fire.
     fn compare_pending_checksums(&mut self) -> Result<(), NetplayError> {
         let mut still_pending = VecDeque::with_capacity(self.pending_local_checksums.len());
-        let mut desync = None;
+        // The frame that first mismatched in THIS pass, kept for the error payload. The verdict
+        // itself comes from the diagnostics, not from this local.
         for (frame, hash, fb_hash) in self.pending_local_checksums.drain(..) {
             let Some(pos) = self
                 .pending_remote_checksums
@@ -489,20 +525,41 @@ impl<T: Transport> RollbackSession<T> {
                 still_pending.push_back((frame, hash, fb_hash));
                 continue;
             };
-            let (_, remote_hash, _) = self.pending_remote_checksums.remove(pos).unwrap();
-            if desync.is_none() && remote_hash != hash {
-                desync = Some((frame, hash, remote_hash));
+            // `if let` rather than `.unwrap()`: `pos` came from `position()` so the remove cannot
+            // fail today, but this is the untrusted-network path and the project's rule is to not
+            // unwrap on a collection operation regardless of local reasoning.
+            //
+            // The remote framebuffer hash was previously discarded here. It is what lets a
+            // mismatch be classified — same picture means a timing divergence, different picture
+            // means a state one — so it now reaches the diagnostics instead of the floor.
+            if let Some((_, remote_hash, remote_fb)) = self.pending_remote_checksums.remove(pos) {
+                self.diagnostics
+                    .record(frame, hash, remote_hash, fb_hash, remote_fb);
             }
         }
         self.pending_local_checksums = still_pending;
-        match desync {
-            Some((frame, local_hash, remote_hash)) => Err(NetplayError::Desync {
-                frame,
-                local_hash,
-                remote_hash,
-            }),
-            None => Ok(()),
+
+        // Fail only on a CONFIRMED desync, and report the EARLIEST diverging comparison rather
+        // than whatever this pass happened to see.
+        //
+        // Both halves matter. The confirming pass may contain no mismatch of its own (the run can
+        // have been built across earlier passes), and the frame worth reporting is where the
+        // divergence began — that is where a bisect starts, not where the counter crossed a
+        // threshold. Taking the whole `CrcCompare` also keeps the payload self-consistent: an
+        // earlier revision paired `first_desync_frame` with the hashes of whatever was compared
+        // last, which could describe a completely different — even matching — frame.
+        if self.diagnostics.is_desynced() {
+            let first = self
+                .diagnostics
+                .first_desync()
+                .expect("is_desynced() implies a recorded first divergence");
+            return Err(NetplayError::Desync {
+                frame: first.frame,
+                local_hash: first.local,
+                remote_hash: first.remote,
+            });
         }
+        Ok(())
     }
 
     /// Ingest everything received, roll back and re-simulate if a misprediction was just
