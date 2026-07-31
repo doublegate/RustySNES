@@ -934,6 +934,9 @@ mod tests {
         // their config.
         let cfg = RunAheadConfig::default();
         assert_eq!(cfg.frames, 0, "run-ahead must stay additive-default-off");
+        // `assert!(x == y)` rather than `assert_eq!`: clippy's `float_cmp` exempts this form but
+        // fires on the `assert_eq!` spelling, so the more idiomatic-looking one fails the
+        // `-D warnings` gate. Same reason as the note in the test below.
         assert!(cfg.throttle_ms == DEFAULT_RUN_AHEAD_THROTTLE_MS);
         assert!(
             cfg.throttle_ms > 0.0,
