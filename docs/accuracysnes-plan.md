@@ -478,6 +478,37 @@ accumulating quantisation from four measurements, and still well short of `A5.19
 stays parked, on corrected arithmetic rather than a wrong figure; the honest verdict is *borderline*,
 not *impossible*.
 
+### The Mesen oracle — the battery hangs at `A3.03` (`v1.29.0`)
+
+**Root cause found.** Under MesenCE the battery completes **14 of 335** tests and stops; snes9x runs
+all 335. Index 14 is **`A3.03` "PLD escapes, PLY not"**.
+
+Two earlier conclusions were wrong and are corrected here:
+
+- Not a frame budget. 4000 frames fails exactly as 900 did.
+- Not the Lua-to-emulator memory bridge. The bridge works — that is *how* the 14 was counted, by
+  scanning the per-test status array at timeout and exiting with the total. The magic never reading
+  `ACSN` was a symptom of the battery never getting far enough to write it, not of a bad read.
+
+Two invocation facts, since the crossval script and the `eval-line-213e` probe disagree and only the
+probe's form is known-good: MesenCE is a **native binary** at
+`ref-proj/MesenCE/bin/linux-x64/Release/Mesen`, invoked `--testRunner <lua> <rom>` — **script first**
+— with `SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy`. `crossval.sh` drives `Mesen2` via
+`dotnet Mesen.dll --testrunner <rom> <lua>`, arguments reversed. Both reach the same hang, so the
+argument order was not the cause, but the working form is worth having written down.
+
+**Why one test can hang the whole battery.** `A3.03` sets `S = $01FF`, enters emulation, and executes
+`PLD` — asserting it *escapes* page 1, leaving `S = $0201`. The test's own control flow then rides on
+that stack. A core that confines the stack differently does not produce a wrong *verdict*; it
+produces a wrong *return address*, and the cart runs away instead of scoring. That is the same
+hazard the Group E notes record for unbounded APU handshakes — "an unbounded wait hangs the whole
+battery and reports nothing about any other test" — reached by a different route.
+
+**The fix direction** is to make `A3.03` (and any row that hand-loads `S`) restore a known-good stack
+pointer before executing anything that returns, so a divergence is scored rather than fatal. That is
+a cart change, not an emulator one, and it needs MesenCE's actual `PLD` behaviour measured first —
+which is now possible, because the runner works.
+
 ### The Mesen2 oracle — diagnosed, not yet fixed (`v1.29.0`)
 
 Three `v1.28.0` items ended at "no oracle can arbitrate": `C7.07`'s errata, the scene goldens, and
