@@ -9,6 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **CI supply-chain hardening — every workflow credential, action pin, and the release gate.**
+  Three items, the first two carried over from the sibling project's `v2.2.2` audit and the third
+  raised in review of the fuzzing PR.
+
+  **`persist-credentials: false` on 15 of 17 checkouts.** `actions/checkout` writes the workflow
+  `GITHUB_TOKEN` into `.git/config`, where anything the job then executes from the tree — build
+  scripts, proc macros, test binaries, `scripts/*.sh`, the MkDocs build — can read it. On a pull
+  request that tree is by definition unreviewed code, and nearly every job here compiles or runs
+  it. Highest exposure was `web.yml`'s `build`, which holds `pages: write` + `id-token: write`
+  while running `trunk`, `cargo doc`, `pip install`, and `mkdocs build`.
+
+  Audited per site rather than applied blanket, and that mattered: **`release-auto.yml`'s `prepare`
+  job genuinely needs the credential** — it creates an annotated tag and `git push origin "$TAG"`,
+  which authenticates through exactly that token. The sibling's audit concluded no job needed it;
+  that conclusion does not transfer, and a blanket sweep would have broken every future release.
+  It is now the only checkout in the repository that keeps the token, with the reason recorded
+  inline, and its exposure is bounded by its trigger (`workflow_run` on a completed CI run of
+  `main`, never a pull request).
+
+  **The release-tag existence check now fails closed.** It was
+  `git ls-remote --exit-code --tags origin "refs/tags/${tag}"`, which collapses three outcomes into
+  two — tag present, tag absent, and *lookup failed* — reading any non-zero exit as "absent". A
+  transient network blip, auth hiccup, or rate limit therefore sent an already-released version
+  down the `should_release=true` path, re-tagging a release the ceremony treats as immutable. Now a
+  `gh api git/matching-refs/tags/<tag>` call, chosen over `git/ref/tags/<tag>` because it answers
+  "absent" with HTTP 200 and an empty array, so a genuine miss can never be confused with an error.
+  That endpoint matches by **prefix**, so the exact ref is compared in `jq` — verified necessary,
+  not theoretical: `v1.2` prefix-matches **7** real tags while exact-matching none, and a naive
+  `length > 0` would have reported it as already released. Every failure path aborts the job.
+
+  **All 34 third-party action references pinned to immutable commit SHAs**, across all 8 workflows
+  plus the composite `rust-setup` action. An upstream tag move could previously change what CI
+  executes without any repository review. Each pin carries its original tag as a trailing comment
+  so the intent stays readable. Also aligned one `actions/upload-artifact@v4` (introduced with the
+  fuzz job) to the `@v7` the rest of the repo already used.
+
+  Verified: `actionlint` reports the same three findings before and after (a self-hosted runner
+  label and two pre-existing shellcheck notes) — no new lint surface; all nine files parse.
+
 ### Added
 
 - **Fuzzing infrastructure (`fuzz/`) — fourteen `cargo-fuzz` targets, one per untrusted-input

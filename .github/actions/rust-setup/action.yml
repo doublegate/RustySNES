@@ -34,12 +34,12 @@ runs:
     # `@master`, which floats the ACTION's own implementation and can change CI behavior out from
     # under the pinned Rust toolchain input below without warning — caught in PR review). The
     # `toolchain:` input still wins over whatever default this ref's snapshot implies.
-    - uses: dtolnay/rust-toolchain@1.96
+    - uses: dtolnay/rust-toolchain@2fe4ca74464c5902a4f6e302d0a619b4ea911ccc # 1.96
       with:
         toolchain: ${{ inputs.toolchain }}
         components: ${{ inputs.components }}
         targets: ${{ inputs.targets }}
-    - uses: Swatinem/rust-cache@v2
+    - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       with:
         key: ${{ inputs.cache-key-suffix }}
     - name: Install Linux frontend system deps
