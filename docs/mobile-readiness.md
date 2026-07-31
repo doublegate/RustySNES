@@ -214,10 +214,15 @@ Netplay is a large, net-new UI surface neither shell has any precedent for. See 
 
 ## Not yet verified / explicitly deferred
 
-- **No Mouse/Super Scope/Multitap touch UX yet** — net-new SNES-specific UI with no RustyNES
-  desktop precedent to port; deferred under the "minimal real MVP now" scope chosen for the
-  Android rung and reused as-is for iOS (P1 standard gamepad only, in-app ROM picker, blit-only
-  rendering, no settings screen).
+- **Mouse/Super Scope touch UX — the arithmetic is done, the on-screen controls are not.**
+  `rustysnes-mobile::touch` maps a touch through the letterboxed viewport into SNES screen space
+  (`map_touch_to_screen`) and turns a drag into Mouse counts with a carried residual (`TouchMouse`),
+  both exported over `UniFFI` and unit-tested. That is deliberately the half that can be *tested* —
+  neither shell has a test harness and this environment has no macOS toolchain, so keeping the
+  Kotlin/Swift layers to "forward the touch, forward the result" means a mapping bug is a
+  `cargo test` failure rather than a user aiming half a screen off. Still outstanding: the on-screen
+  affordances themselves (a Scope reticle, Mouse button targets, a peripheral picker) and Multitap,
+  whose port assignment is UI, not arithmetic. P1 standard gamepad remains the only wired input.
 - **No `android.yml` CI workflow yet** — NDK cross-build, UniFFI Kotlin smoke test, 16KB ELF
   page-alignment check, dormant Play-flavor Gradle split — `v1.15.1+`.
 - **No checked-in `./gradlew` wrapper yet** — this environment used its locally cached Gradle
@@ -256,7 +261,8 @@ into both shells as an inert, non-gating call.
 here so a future go/no-go review has a concrete checklist, not a vague "more polish"):
 
 - **Android:**
-  - Mouse/Super Scope/Multitap touch UX (currently P1 standard gamepad only)
+  - Mouse/Super Scope/Multitap touch UX — the coordinate mapping and Mouse residual now exist and
+    are tested in `rustysnes-mobile::touch`; the on-screen controls that drive them do not
   - `.github/workflows/android.yml` — NDK cross-build CI, UniFFI Kotlin smoke test, 16KB ELF
     page-alignment check (a real Play Store requirement on current API levels)
   - A committed `./gradlew` wrapper (this environment has only ever used a locally cached Gradle

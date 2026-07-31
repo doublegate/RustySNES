@@ -70,6 +70,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   alive one line above the error. The listing is now captured before it is searched, and a genuine
   failure prints it.
 
+- **Mobile: touch-to-peripheral coordinate mapping (`rustysnes-mobile::touch`).** The FFI already
+  exposed `set_superscope` and `set_mouse`, but both take units a touchscreen does not have — the
+  Scope wants SNES screen space, the Mouse wants a relative delta in counts. `map_touch_to_screen`
+  maps a touch through the letterboxed viewport, taking the **active** framebuffer size as a
+  parameter so aim stays correct when a game switches to a hi-res mode mid-scene, and reports a
+  touch in the letterbox bars as `on_screen: false` rather than snapping it to an edge (several
+  games read the Scope's off-screen state as "reload"). `TouchMouse` carries the sub-count residual
+  across FFI calls, without which a slow drag truncates to zero **every** frame and the pointer
+  never moves at all.
+
+  This is in Rust rather than in the shells for one reason: otherwise it is written twice, in Kotlin
+  and in Swift, and the two drift — and this crate is the only place it can be tested, since neither
+  shell has a test harness and this environment has no macOS toolchain. Kotlin bindings verified to
+  generate. The on-screen controls that would drive it are still outstanding;
+  `docs/mobile-readiness.md` now says which half is done.
+
 - **AccuracySNES: the Mesen2 oracle diagnosed, and a stale frame budget aligned.** Three `v1.28.0`
   items ended at "no oracle can arbitrate", so the headless runner was investigated rather than
   accepted as environmental. Established: the hang is genuinely pre-existing (the `v1.25.0`-era image

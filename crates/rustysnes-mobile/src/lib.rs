@@ -33,6 +33,8 @@
 
 uniffi::setup_scaffolding!();
 
+pub mod touch;
+
 use std::sync::{Arc, Mutex};
 
 use rustysnes_cart::Region as CartRegion;
