@@ -498,9 +498,12 @@ before designing this row's injection test.
 
 #### `C7.05` — a fixed bracket is vacuous; move the index instead
 
-An H-IRQ is serviced ~22-27 dots after its `HTIME`, so a bracket tight enough to pin dot 65 sits
-inside the latency's own uncertainty, while one loose enough to be safe passes for any set dot across
-most of the line. That is the `F1.09` shape.
+An H-IRQ handler does not run where its `HTIME` says. **Measured** — by temporarily latching
+`$213C` inside the handler — the read lands ~**93 dots** later: the interrupt is only taken at an
+instruction boundary in `wait_vblank_far`'s poll loop, and the trampoline, the far shim and the
+handler prologue all precede it. So a bracket tight enough to pin dot 65 is inside the latency's own
+uncertainty, and one loose enough to be safe passes for any set dot across most of the line — the
+`F1.09` shape.
 
 What pins `H = OAM.INDEX * 2` is that the set dot must **move with the index**. Both phases sample
 the *same* dot and change only which OAM entry is the 33rd in-range sprite:
@@ -513,6 +516,13 @@ the *same* dot and change only which OAM entry is the 33rd in-range sprite:
 Phase B additionally re-reads `$213E` in the vblank of the *same* frame and requires it set by then —
 without that, "clear at dot 105" is also what a core that never sets the flag would report. The flags
 clear at frame start, not on read (`Ppu::advance`), so the later read sees the same frame.
+
+**Measure the sample dot; do not infer it.** The first revision used `HTIME = 78` on a ~22-27 dot
+estimate borrowed from a different measurement. That sampled at ~170 — *past* phase B's set dot of
+145 — and still passed, because the handler was then three instructions shorter and landed just
+under it. Adding the `php`/`pha` that preserves the interrupted context pushed it over and the row
+failed. It had been passing by a hair, and only the failure exposed it. `HTIME = 12` now samples at
+95-99, ~30 dots clear on each side.
 
 Three injections, each failing its own code: a fixed set dot fails **code 2**, never setting the flag
 fails **code 1**, and setting correctly for a low index but never for a high one — which phase A

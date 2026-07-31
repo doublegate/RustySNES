@@ -2362,11 +2362,18 @@ fn c7_05() -> Test {
     let mut a = Asm::new();
     a.l("jmp @body");
     a.label("handler");
+    a.c("Save A and the width: this fires inside wait_vblank_far's $4212 poll, whose own A the");
+    a.c("handler would otherwise clobber. `rti` restores P, but only after `plp` has put back");
+    a.c("the width `pla` needs, so both are explicit.");
+    a.l("php");
     a.l("sep #$20");
     a.l(".a8");
+    a.l("pha");
     a.l("lda $213E         ; sample STAT77 at the IRQ dot");
     a.l("sta f:$7E0150");
     a.l("lda $4211         ; acknowledge so the line drops");
+    a.l("pla");
+    a.l("plp");
     a.l("rti");
     a.label("body");
     a.l("rep #$30");
@@ -2386,7 +2393,8 @@ fn c7_05() -> Test {
 
     a.c("--- phase A: sprites 0..39 in range, so the 33rd is index 32 and the dot is ~65 ---");
     setup_over_flag_sprites(&mut a, "a", 0);
-    arm_hv_irq_and_run(&mut a, "a");
+    arm_hv_irq_and_run(&mut a);
+    a.l("sep #$20");
     a.l("lda f:$7E0150");
     a.l("and #$40");
     a.assert_a8(
@@ -2397,7 +2405,7 @@ fn c7_05() -> Test {
 
     a.c("--- phase B: sprites 40..79, so the 33rd is index 72 and the dot moves to ~145 ---");
     setup_over_flag_sprites(&mut a, "b", 40);
-    arm_hv_irq_and_run(&mut a, "b");
+    arm_hv_irq_and_run(&mut a);
     a.l("sep #$20");
     a.l("lda f:$7E0150");
     a.l("and #$40");
@@ -2445,8 +2453,10 @@ fn setup_over_flag_sprites(a: &mut Asm, tag: &str, first: u16) {
     a.label(&format!("fill_{tag}"));
     a.l("lda #$00");
     a.l("sta $2104         ; X = 0");
-    a.l(&format!("cpx #${first:04X}"));
-    a.l(&format!("bcc @off_{tag}   ; below the window: park it"));
+    if first > 0 {
+        a.l(&format!("cpx #${first:04X}"));
+        a.l(&format!("bcc @off_{tag}   ; below the window: park it"));
+    }
     a.l(&format!("cpx #${:04X}", first + 40));
     a.l(&format!(
         "bcs @off_{tag}   ; at or above the window's end: park it"
@@ -2476,16 +2486,23 @@ fn setup_over_flag_sprites(a: &mut Asm, tag: &str, first: u16) {
 
 /// Arm an HV-IRQ at `V = 100, H = 78` and run one frame with objects on the main screen.
 ///
-/// `HTIME = 78` puts the handler's `$213E` read near dot 105 once the ~22-27 dot IRQ-service
-/// latency is added — ~40 dots clear of both candidate set dots (65 and 145), so the sample lands
-/// unambiguously between them without the test having to know the latency.
-fn arm_hv_irq_and_run(a: &mut Asm, tag: &str) {
+/// `HTIME = 12` puts the handler's `$213E` read at dot **95-99**, which was **measured, not
+/// assumed** — by temporarily latching `$213C` inside the handler and recording it. The
+/// IRQ-to-sample latency is ~**93 dots**, not the ~22-27 an H-IRQ's raw trigger latency suggests:
+/// the interrupt can only be taken at an instruction boundary in `wait_vblank_far`'s poll loop, and
+/// the trampoline, the far shim and the handler prologue all sit in front of the read.
+///
+/// Getting this wrong is not academic. An earlier revision used `HTIME = 78`, sampling at ~170 —
+/// *past* phase B's set dot of 145 — and it still passed, because at that point the handler was
+/// three instructions shorter and landed just under 145. Adding the `php`/`pha` that preserves the
+/// interrupted context pushed it over and the row failed. It had been passing by a hair.
+fn arm_hv_irq_and_run(a: &mut Asm) {
     a.l("sep #$20");
     a.l("lda #$FF");
     a.l("sta f:$7E0150     ; poison: a handler that never runs cannot look like either verdict");
-    a.l("lda #78");
+    a.l("lda #12");
     a.l("sta $4207");
-    a.l("stz $4208         ; HTIME = 78");
+    a.l("stz $4208         ; HTIME = 12");
     a.l("lda #100");
     a.l("sta $4209");
     a.l("stz $420A         ; VTIME = 100 — the line the sprites are on");
@@ -2503,7 +2520,6 @@ fn arm_hv_irq_and_run(a: &mut Asm, tag: &str) {
     a.l("sei");
     a.l("stz $4200         ; disarm before reading anything back");
     a.l("lda $4211");
-    let _ = tag;
 }
 
 /// A sprite at `X = $100` is entirely off-screen and still consumes its range slot.

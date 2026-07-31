@@ -25431,12 +25431,19 @@ CATALOG_IMPL = 1
     .i16
     jmp @body
 @handler:
+    ; Save A and the width: this fires inside wait_vblank_far's $4212 poll, whose own A the
+    ; handler would otherwise clobber. `rti` restores P, but only after `plp` has put back
+    ; the width `pla` needs, so both are explicit.
+    php
     sep #$20
     .a8
     .a8
+    pha
     lda $213E         ; sample STAT77 at the IRQ dot
     sta f:$7E0150
     lda $4211         ; acknowledge so the line drops
+    pla
+    plp
     rti
 @body:
     rep #$30
@@ -25470,8 +25477,6 @@ CATALOG_IMPL = 1
 @fill_a:
     lda #$00
     sta $2104         ; X = 0
-    cpx #$0000
-    bcc @off_a   ; below the window: park it
     cpx #$0028
     bcs @off_a   ; at or above the window's end: park it
     lda #100
@@ -25499,9 +25504,9 @@ CATALOG_IMPL = 1
     .a8
     lda #$FF
     sta f:$7E0150     ; poison: a handler that never runs cannot look like either verdict
-    lda #78
+    lda #12
     sta $4207
-    stz $4208         ; HTIME = 78
+    stz $4208         ; HTIME = 12
     lda #100
     sta $4209
     stz $420A         ; VTIME = 100 — the line the sprites are on
@@ -25522,6 +25527,8 @@ CATALOG_IMPL = 1
     sei
     stz $4200         ; disarm before reading anything back
     lda $4211
+    sep #$20
+    .a8
     lda f:$7E0150
     and #$40
     cmp #$40
@@ -25569,9 +25576,9 @@ CATALOG_IMPL = 1
     .a8
     lda #$FF
     sta f:$7E0150     ; poison: a handler that never runs cannot look like either verdict
-    lda #78
+    lda #12
     sta $4207
-    stz $4208         ; HTIME = 78
+    stz $4208         ; HTIME = 12
     lda #100
     sta $4209
     stz $420A         ; VTIME = 100 — the line the sprites are on

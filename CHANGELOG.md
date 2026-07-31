@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   code 1, and setting correctly for a low index but never a high one fails code 3 — the guard phase A
   cannot cover.
 
+  The sample dot is **measured, not inferred**: an H-IRQ handler runs ~93 dots after its `HTIME`, not
+  the ~22-27 a raw trigger latency suggests, because the interrupt is only taken at an instruction
+  boundary and the trampoline, shim and prologue all precede the read.
+
   This needed **new runtime machinery**, which no `v1.28.0` row was supposed to. `irq_trampoline` is
   a bank-local `jmp (V_IRQ_VEC)`, so only bank-`$00` groups could install an IRQ handler; Groups
   C-G, relocated out of bank `$00`, could not, and none ever had. New `irq_far_shim` plus the 24-bit
