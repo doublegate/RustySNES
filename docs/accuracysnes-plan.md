@@ -455,6 +455,27 @@ So nothing is asserted and nothing is recorded. What is known:
 The next attempt should start from a scratch build that dumps `$213F` before and after each step
 into slots verified unused, rather than from a folded variant that hides where the discrepancy is.
 
+### v1.28.0 — what each remaining row actually needs, measured rather than assumed
+
+`A5.19` landed (below). Working the rest turned up that several rows filed as "needs no new
+machinery" need rather more than that, so the assessments are recorded here rather than
+re-derived. **The binding constraint across all of Group A/B is the measurement budget**: the
+`hv_begin`/`hv_end` instrument costs ~189 dots against a 341-dot scanline, leaving ~152 usable
+before the H counter wraps and silently returns a plausible small number.
+
+| row | verdict | why |
+|---|---|---|
+| `A5.19` | **landed** | see below |
+| `A5.18` | **parked** — needs a cheaper instrument | `BRK` cannot be measured without `RTI` (a `BRK` that never returns cannot be repeated), so the span is a round trip and the differential is *two* extra stack accesses. Measuring both and subtracting works — 8 iterations gave round-trip delta 32, RTI-alone 16, `BRK`'s own 16, exactly as predicted — but a round trip is 39 dots, so 8 of them wrap. It passed only because both arms wrapped by the same 341; the tell is that the native round trip read **170**, *less* than the 293 of the strictly cheaper RTI-alone arm. The largest count that fits is 3, giving 6 dots of signal against `TOL` 2 in a difference-of-differences, where quantisation from four measurements accumulates. Not sound. |
+| `A6.15` | needs its own design | "all 256 opcodes defined" is a *definedness* assertion, not a timing one, and `sweep.rs` deliberately covers only the unambiguous subset — its own module docs list why control flow, `BRK`/`COP`, `STP`, `WAI` and memory-addressing modes are excluded. Citing the sweep would be coverage by restatement. |
+| `C7.05`, `C7.06` | entangled with an open gap | the over-flag dot cursor landed (`#231`), but RustySNES sets `range_over` one line late per-dot (two batched) against MesenCE — so an exact-position row fails for a reason that is not the row's subject. A polling loop is also several dots per iteration, which is the `F1.09` vacuity shape: coarse sampling passes whatever the true position is. Fix the eval-line offset first. |
+| `B2.07` | gated on `B2.02` | `B2.04` covers the 262-line count, not the clock total, so the frequency is not implied by it. Getting to 60.0988 Hz needs clocks-per-frame, and the frame alternates 357,368/357,364 because of the short scanline — which *is* `B2.02`, a `T-06-A` dot-model residual scheduled for `v1.29.0`. |
+| `B2.09` | `v1.29.0` by its own dossier note | the picture window is "not CPU-observable directly; reachable through the framebuffer oracle once the dot-resolution compositor lands". |
+
+The honest shape of the rung is therefore smaller than the row list suggested: the mechanically
+writable Group A/B rows are largely done, and most of what remains is either gated on the
+`v1.29.0` dot-model work or needs an instrument cheaper than the one that exists.
+
 ### `A5.19` — a cross-mode differential needs the instrument on the same side of the mode switch
 
 `RTI` costs 7 cycles native and 6 emulation; the extra one is the PBR pull, an 8-clock WRAM read,

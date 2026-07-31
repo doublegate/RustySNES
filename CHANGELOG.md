@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES: recorded what each remaining `v1.28.0` row actually needs.** Several rows filed as
+  "needs no new machinery" need rather more; `A5.18` is parked, `A6.15` needs its own design,
+  `C7.05`/`C7.06` are blocked on an open accuracy gap, and `B2.07`/`B2.09` are `v1.29.0`. The
+  measurements and the reasoning are in `docs/accuracysnes-plan.md` §`v1.28.0`. No generator or ROM
+  change.
+
 - **AccuracySNES: `A5.19` — `RTI` costs 7 cycles native and 6 emulation.** The extra native cycle is
   the PBR pull, an 8-clock WRAM read rather than a 6-clock internal cycle, so eight iterations differ
   by 16 dots. Group A on-cart coverage goes 12 → 13 of 15 in `A5`.
