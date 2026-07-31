@@ -54,6 +54,32 @@ which it must, because a rollback desync is unrecoverable without a full state r
 the verdict, because the underlying condition cannot actually heal. A surface that flapped between
 "desynced" and "fine" would train the user to ignore it.
 
+### The run counts consecutive *frames*, not consecutive *records*
+
+The threshold's rationale is stated in time ("~1.5 s at the default interval"), so the
+implementation has to agree with that. Counting consecutive *recorded comparisons* would not: on a
+lossy link the checksums in between may never arrive to be compared, so three isolated transients
+seconds apart would be recorded back-to-back and confirm a desync that never happened.
+
+A run therefore continues only if the mismatch is within `max_run_gap_frames` of the previous
+comparison, derived from the session's own `checksum_interval` via
+`DesyncDiagnostics::gap_for_interval` (two intervals). That tolerates a single lost checksum inside
+a genuine run — a real desync mismatches *every* checksum, so its members are one interval apart —
+while refusing to assemble a run out of widely separated transients. Both directions are pinned by
+tests, since a gap check that is too tight would let a real desync go unconfirmed on any lossy link.
+
+### The error payload describes one comparison
+
+`NetplayError::Desync` reports the **earliest** diverging comparison, whole. Two things force that.
+The confirming pass may contain no mismatch of its own (the run can be built across earlier passes),
+and the frame worth reporting is where the divergence *began* — that is where a bisect starts, not
+where a counter crossed a threshold.
+
+So `DesyncDiagnostics` retains the first diverging `CrcCompare` rather than just its frame number.
+An earlier revision filled the gap by pairing `first_desync_frame` with the hashes of whatever was
+compared last, which can be a different — even matching — frame: an error message that looks precise
+and is not.
+
 ### The framebuffer hash classifies the failure
 
 The remote framebuffer hash used to be discarded at the comparison site. It is now kept, and it is

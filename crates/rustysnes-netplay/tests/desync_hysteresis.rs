@@ -148,19 +148,40 @@ fn a_sustained_divergence_still_fails_the_session() {
         })
     });
 
+    let Err(NetplayError::Desync {
+        frame,
+        local_hash,
+        remote_hash,
+    }) = outcome
+    else {
+        panic!("a sustained divergence must still be fatal, got {outcome:?}");
+    };
+    let d = session.diagnostics();
+    assert!(d.is_desynced());
+    assert!(matches!(d.status(), DesyncStatus::Desynced { .. }));
     assert!(
-        matches!(outcome, Err(NetplayError::Desync { .. })),
-        "a sustained divergence must still be fatal, got {outcome:?}"
-    );
-    assert!(session.diagnostics().is_desynced());
-    assert!(matches!(
-        session.diagnostics().status(),
-        DesyncStatus::Desynced { .. }
-    ));
-    assert!(
-        session.diagnostics().peak_consecutive_mismatches()
-            >= DesyncDiagnostics::DEFAULT_DESYNC_THRESHOLD,
+        d.peak_consecutive_mismatches() >= DesyncDiagnostics::DEFAULT_DESYNC_THRESHOLD,
         "it must have crossed the confirm threshold, not fired early"
+    );
+
+    // THE ERROR PAYLOAD MUST BE SELF-CONSISTENT (raised in review). The confirming pass may hold
+    // no mismatch of its own — the run can be built across earlier passes — and an earlier
+    // revision filled the gap by pairing `first_desync_frame` with the hashes of whatever was
+    // compared LAST, which can be a different, even matching, frame. The reported frame and the
+    // reported hashes must come from one comparison.
+    let first = d.first_desync().expect("a divergence was recorded");
+    assert_eq!(frame, first.frame, "the frame must be the FIRST divergence");
+    assert_eq!(local_hash, first.local, "and its own local hash");
+    assert_eq!(remote_hash, first.remote, "and its own remote hash");
+    assert_ne!(
+        local_hash, remote_hash,
+        "a reported desync must describe a comparison that actually disagreed"
+    );
+    // The divergence began before the frame that crossed the threshold, so this is a real
+    // distinction and not a coincidence of a one-comparison run.
+    assert!(
+        d.last().expect("recorded").frame > first.frame,
+        "later comparisons exist, so reporting the first is a genuine choice"
     );
 }
 

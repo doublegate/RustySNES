@@ -197,6 +197,13 @@ impl<T: Transport> RollbackSession<T> {
             (config.local_player as usize) < MAX_PLAYERS,
             "SessionConfig::local_player must be < MAX_PLAYERS"
         );
+        // The run-gap allowance is derived from this session's own checksum interval, so the
+        // hysteresis counts consecutive *frames* rather than merely consecutive *records* — see
+        // `DesyncDiagnostics::max_run_gap_frames`. Read before `config` is moved into `Self`.
+        let diagnostics = DesyncDiagnostics::with_threshold_and_gap(
+            DesyncDiagnostics::DEFAULT_DESYNC_THRESHOLD,
+            DesyncDiagnostics::gap_for_interval(config.checksum_interval),
+        );
         Self {
             config,
             transport,
@@ -209,7 +216,7 @@ impl<T: Transport> RollbackSession<T> {
             pending_local_checksums: VecDeque::new(),
             pending_remote_checksums: VecDeque::new(),
             remote_ack_frame: None,
-            diagnostics: DesyncDiagnostics::new(),
+            diagnostics,
         }
     }
 
@@ -509,7 +516,6 @@ impl<T: Transport> RollbackSession<T> {
         let mut still_pending = VecDeque::with_capacity(self.pending_local_checksums.len());
         // The frame that first mismatched in THIS pass, kept for the error payload. The verdict
         // itself comes from the diagnostics, not from this local.
-        let mut first_mismatch = None;
         for (frame, hash, fb_hash) in self.pending_local_checksums.drain(..) {
             let Some(pos) = self
                 .pending_remote_checksums
@@ -519,35 +525,38 @@ impl<T: Transport> RollbackSession<T> {
                 still_pending.push_back((frame, hash, fb_hash));
                 continue;
             };
+            // `if let` rather than `.unwrap()`: `pos` came from `position()` so the remove cannot
+            // fail today, but this is the untrusted-network path and the project's rule is to not
+            // unwrap on a collection operation regardless of local reasoning.
+            //
             // The remote framebuffer hash was previously discarded here. It is what lets a
             // mismatch be classified — same picture means a timing divergence, different picture
             // means a state one — so it now reaches the diagnostics instead of the floor.
-            let (_, remote_hash, remote_fb) = self.pending_remote_checksums.remove(pos).unwrap();
-            self.diagnostics
-                .record(frame, hash, remote_hash, fb_hash, remote_fb);
-            if first_mismatch.is_none() && remote_hash != hash {
-                first_mismatch = Some((frame, hash, remote_hash));
+            if let Some((_, remote_hash, remote_fb)) = self.pending_remote_checksums.remove(pos) {
+                self.diagnostics
+                    .record(frame, hash, remote_hash, fb_hash, remote_fb);
             }
         }
         self.pending_local_checksums = still_pending;
 
-        // Fail only on a CONFIRMED desync. `first_mismatch` may be `None` on the pass that
-        // finally confirms (the run could have been built by earlier passes), so fall back to the
-        // earliest diverging frame the diagnostics remember.
+        // Fail only on a CONFIRMED desync, and report the EARLIEST diverging comparison rather
+        // than whatever this pass happened to see.
+        //
+        // Both halves matter. The confirming pass may contain no mismatch of its own (the run can
+        // have been built across earlier passes), and the frame worth reporting is where the
+        // divergence began — that is where a bisect starts, not where the counter crossed a
+        // threshold. Taking the whole `CrcCompare` also keeps the payload self-consistent: an
+        // earlier revision paired `first_desync_frame` with the hashes of whatever was compared
+        // last, which could describe a completely different — even matching — frame.
         if self.diagnostics.is_desynced() {
-            let (frame, local_hash, remote_hash) = first_mismatch.unwrap_or_else(|| {
-                let frame = self.diagnostics.first_desync_frame().unwrap_or_default();
-                let last = self.diagnostics.last();
-                (
-                    frame,
-                    last.map_or(0, |c| c.local),
-                    last.map_or(0, |c| c.remote),
-                )
-            });
+            let first = self
+                .diagnostics
+                .first_desync()
+                .expect("is_desynced() implies a recorded first divergence");
             return Err(NetplayError::Desync {
-                frame,
-                local_hash,
-                remote_hash,
+                frame: first.frame,
+                local_hash: first.local,
+                remote_hash: first.remote,
             });
         }
         Ok(())

@@ -92,10 +92,30 @@ pub struct DesyncDiagnostics {
     total: u64,
     /// Total mismatched comparisons recorded across all time.
     mismatches: u64,
-    /// The earliest frame whose checksums disagreed, if any has yet.
-    first_desync_frame: Option<u32>,
+    /// The earliest **comparison** that disagreed, retained whole rather than as a bare frame
+    /// number.
+    ///
+    /// Keeping the full [`CrcCompare`] is what lets the session build a self-consistent
+    /// `NetplayError::Desync`: the reported frame and the reported hashes come from *one*
+    /// comparison. An earlier revision paired `first_desync_frame` with the hashes of whatever
+    /// happened to be compared last, which could describe a frame that matched.
+    first_desync: Option<CrcCompare>,
     /// Consecutive mismatches ending at the most recent comparison (reset to `0` by any match).
     consecutive_mismatches: u32,
+    /// The frame of the previous recorded comparison, for the run-continuity check below.
+    prev_frame: Option<u32>,
+    /// How far apart two mismatching comparisons may be and still count as one run.
+    ///
+    /// Without this, `consecutive_mismatches` counts consecutive *records*, not consecutive
+    /// *frames* — so on a lossy link where several checksums never arrive to be compared, three
+    /// isolated transients seconds apart would be recorded back-to-back and confirm a desync that
+    /// never happened. That would also contradict the threshold's own stated rationale, which is
+    /// expressed in time ("~1.5 s at the default interval").
+    ///
+    /// A genuine desync mismatches *every* checksum, so its run members are exactly one interval
+    /// apart. Allowing a gap of two intervals tolerates a single lost checksum inside a real run
+    /// while breaking a run assembled from widely separated transients.
+    max_run_gap_frames: u32,
     /// Peak consecutive-mismatch run ever observed. Drives the sticky [`DesyncStatus::Desynced`]
     /// verdict: once the run has *ever* reached [`Self::desync_threshold`] the session is treated
     /// as confirmed-desynced even if a later stray match resets the live run.
@@ -137,19 +157,43 @@ impl DesyncDiagnostics {
         Self::with_threshold(Self::DEFAULT_DESYNC_THRESHOLD)
     }
 
-    /// A fresh, empty record with an explicit confirm threshold.
+    /// The run-gap allowance implied by a checksum interval: two intervals, so a single lost
+    /// checksum stays inside a run while widely separated transients do not join one.
+    ///
+    /// `0` (checksums disabled) yields `0`, which disables the gap check — with no checksums there
+    /// are no comparisons to group.
+    #[must_use]
+    pub const fn gap_for_interval(checksum_interval: u32) -> u32 {
+        checksum_interval.saturating_mul(2)
+    }
+
+    /// A fresh, empty record with an explicit confirm threshold and the default (disabled) run-gap
+    /// allowance.
     ///
     /// A threshold of `0` is treated as `1` (the very first mismatch confirms) rather than as
     /// "confirm immediately and always", which is what a literal `>= 0` comparison would mean —
     /// that would report [`DesyncStatus::Desynced`] on a session that has never mismatched.
     #[must_use]
     pub const fn with_threshold(desync_threshold: u32) -> Self {
+        Self::with_threshold_and_gap(desync_threshold, 0)
+    }
+
+    /// A fresh, empty record with an explicit confirm threshold **and** run-gap allowance.
+    ///
+    /// `max_run_gap_frames` of `0` disables the gap check entirely (every recorded mismatch
+    /// continues the run, whatever its frame). Callers that know their checksum interval should
+    /// pass [`Self::gap_for_interval`] — see the field's own doc for why counting consecutive
+    /// *records* rather than consecutive *frames* is not sufficient on a lossy link.
+    #[must_use]
+    pub const fn with_threshold_and_gap(desync_threshold: u32, max_run_gap_frames: u32) -> Self {
         Self {
             history: VecDeque::new(),
             total: 0,
             mismatches: 0,
-            first_desync_frame: None,
+            first_desync: None,
             consecutive_mismatches: 0,
+            prev_frame: None,
+            max_run_gap_frames,
             peak_consecutive: 0,
             // Spelled out rather than `.max(1)`: `Ord::max` is not `const`, and this constructor
             // must be so the session's own `const fn new` survives.
@@ -181,13 +225,35 @@ impl DesyncDiagnostics {
             self.consecutive_mismatches = 0;
         } else {
             self.mismatches = self.mismatches.saturating_add(1);
-            self.consecutive_mismatches = self.consecutive_mismatches.saturating_add(1);
+
+            // Continuity check. A run only continues if this mismatch is close enough in FRAME
+            // terms to the previous comparison; otherwise it starts a fresh run of 1. Without it,
+            // `consecutive_mismatches` counts consecutive records, so on a lossy link where the
+            // checksums in between never arrived to be compared, isolated transients seconds apart
+            // would stack into a false confirmation.
+            let continues = match (self.max_run_gap_frames, self.prev_frame) {
+                // Gap checking disabled, or nothing recorded yet: behave as a plain run.
+                (0, _) | (_, None) => true,
+                (gap, Some(prev)) => frame.abs_diff(prev) <= gap,
+            };
+            self.consecutive_mismatches = if continues {
+                self.consecutive_mismatches.saturating_add(1)
+            } else {
+                1
+            };
             self.peak_consecutive = self.peak_consecutive.max(self.consecutive_mismatches);
-            // `min`, not "first one seen": comparisons are matched by frame number out of a pair of
-            // pending queues, so they can be recorded out of order. The EARLIEST diverging frame is
-            // the one worth reporting — it is where a bisect would start.
-            self.first_desync_frame = Some(self.first_desync_frame.map_or(frame, |f| f.min(frame)));
+
+            // Keep the EARLIEST diverging comparison, whole. Comparisons are matched by frame
+            // number out of a pair of pending queues, so they can be recorded out of order — and
+            // the earliest diverging frame is where a bisect would start. Retaining the whole
+            // `CrcCompare` (not just its frame) is what lets the session report a frame and a pair
+            // of hashes that belong to the SAME comparison.
+            let earlier = self.first_desync.is_none_or(|f| frame < f.frame);
+            if earlier {
+                self.first_desync = Some(entry);
+            }
         }
+        self.prev_frame = Some(frame);
         if self.history.len() == Self::CAPACITY {
             self.history.pop_front();
         }
@@ -198,15 +264,16 @@ impl DesyncDiagnostics {
     /// `true` if no mismatch has ever been recorded.
     #[must_use]
     pub const fn in_sync(&self) -> bool {
-        self.first_desync_frame.is_none()
+        self.first_desync.is_none()
     }
 
     /// The graded [`DesyncStatus`] verdict — the frontend's single desync surface.
     #[must_use]
     pub const fn status(&self) -> DesyncStatus {
-        match self.first_desync_frame {
+        match self.first_desync {
             None => DesyncStatus::InSync,
             Some(first) => {
+                let first = first.frame;
                 // Keyed on the PEAK run, not the live one: once the run has ever reached the
                 // threshold the session is confirmed desynced, and a later stray match must not
                 // downgrade it (see `DesyncStatus::Desynced`).
@@ -246,7 +313,20 @@ impl DesyncDiagnostics {
     /// The earliest frame whose checksums disagreed, if any.
     #[must_use]
     pub const fn first_desync_frame(&self) -> Option<u32> {
-        self.first_desync_frame
+        match self.first_desync {
+            Some(c) => Some(c.frame),
+            None => None,
+        }
+    }
+
+    /// The earliest diverging comparison, whole.
+    ///
+    /// The session builds `NetplayError::Desync` from this so the reported frame and the reported
+    /// hashes always describe the SAME comparison. Pairing a frame from one record with hashes
+    /// from another produces an error message that looks precise and is not.
+    #[must_use]
+    pub const fn first_desync(&self) -> Option<CrcCompare> {
+        self.first_desync
     }
 
     /// Consecutive mismatches ending at the most recent comparison.
@@ -449,6 +529,73 @@ mod tests {
             d.is_desynced(),
             "with threshold 1 the first mismatch confirms"
         );
+    }
+
+    #[test]
+    fn widely_separated_transients_do_not_stack_into_a_false_desync() {
+        // Raised in review. `consecutive_mismatches` counts consecutive RECORDS; on a lossy link
+        // the checksums in between may never arrive to be compared, so three isolated transients
+        // seconds apart would be recorded back-to-back. Without a frame-continuity check that
+        // confirms a desync that never happened — and contradicts the threshold's own rationale,
+        // which is stated in time ("~1.5 s at the default interval").
+        let gap = DesyncDiagnostics::gap_for_interval(30); // 60 frames
+        let mut d = DesyncDiagnostics::with_threshold_and_gap(3, gap);
+
+        // Three mismatches, each ~5 seconds apart, with nothing compared in between.
+        mismatches_run(&mut d, 30, 1);
+        mismatches_run(&mut d, 330, 1);
+        mismatches_run(&mut d, 630, 1);
+
+        assert_eq!(
+            d.mismatches(),
+            3,
+            "all three were recorded — this is not a vacuous pass"
+        );
+        assert_eq!(
+            d.consecutive_mismatches(),
+            1,
+            "each starts a fresh run rather than continuing the last"
+        );
+        assert!(
+            !d.is_desynced(),
+            "three transients minutes apart are not a sustained divergence"
+        );
+    }
+
+    #[test]
+    fn a_real_run_survives_one_lost_checksum() {
+        // The negative control for the test above. A genuine desync mismatches EVERY checksum, so
+        // its run members are one interval apart — but a single lost checksum widens one gap to
+        // two intervals, and that must NOT break the run or a real desync would go unconfirmed on
+        // any lossy link.
+        let gap = DesyncDiagnostics::gap_for_interval(30); // tolerates a 60-frame gap
+        let mut d = DesyncDiagnostics::with_threshold_and_gap(3, gap);
+
+        mismatches_run(&mut d, 30, 1);
+        mismatches_run(&mut d, 90, 1); // frame 60's checksum was lost — a 60-frame gap
+        mismatches_run(&mut d, 120, 1);
+
+        assert_eq!(d.consecutive_mismatches(), 3, "the run held across the gap");
+        assert!(d.is_desynced(), "a real divergence must still confirm");
+    }
+
+    #[test]
+    fn the_first_diverging_comparison_is_retained_whole() {
+        // The session builds `NetplayError::Desync` from this, so the frame and the hashes must
+        // describe the SAME comparison. Pairing a frame from one record with hashes from another
+        // produces an error that looks precise and is not.
+        let mut d = DesyncDiagnostics::new();
+        d.record(50, 0x1111, 0x2222, 0xAAAA, 0xBBBB);
+        d.record(80, 0x3333, 0x4444, 0xCCCC, 0xDDDD);
+
+        let first = d.first_desync().expect("a divergence was recorded");
+        assert_eq!(first.frame, 50);
+        assert_eq!(first.local, 0x1111, "hashes must come from frame 50...");
+        assert_eq!(first.remote, 0x2222, "...not from the later record");
+        assert_eq!(d.first_desync_frame(), Some(50));
+
+        // And `last()` is genuinely a different comparison, so the two cannot be confused.
+        assert_eq!(d.last().expect("recorded").frame, 80);
     }
 
     #[test]
