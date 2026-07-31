@@ -1,0 +1,158 @@
+## A STANDALONE workspace, deliberately.
+##
+## The empty `[workspace]` table below is the cargo-fuzz convention: it makes this manifest its own
+## workspace root so `cargo build --workspace` / `cargo clippy --workspace` at the repo root do NOT
+## pick it up. That matters here for two reasons beyond tidiness:
+##
+##   1. cargo-fuzz requires a **nightly** toolchain (`-Z sanitizer=address`), while
+##      `rust-toolchain.toml` pins the project to 1.96 stable. Folding these crates into the main
+##      workspace would drag a nightly requirement into every ordinary `cargo check`.
+##   2. `[profile.release] debug = 1` below would otherwise fight the workspace profile.
+##
+## The root `Cargo.toml` therefore needs no `[workspace] exclude` entry, and must not grow one.
+[workspace]
+
+[package]
+name = "rustysnes-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+rust-version = "1.96"
+license = "MIT OR Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+rustysnes-cart = { path = "../crates/rustysnes-cart" }
+rustysnes-core = { path = "../crates/rustysnes-core" }
+rustysnes-cpu = { path = "../crates/rustysnes-cpu" }
+rustysnes-ppu = { path = "../crates/rustysnes-ppu" }
+rustysnes-apu = { path = "../crates/rustysnes-apu" }
+rustysnes-netplay = { path = "../crates/rustysnes-netplay" }
+
+# `default-features = false` keeps winit/wgpu/cpal/ratatui out of the fuzz build — none of the
+# parsing boundaries fuzzed here touch them, and a fuzz target that has to link a GPU stack takes
+# minutes to rebuild for no coverage. `hd-pack` is opted in because `hd_pack::` is behind it.
+rustysnes-frontend = { path = "../crates/rustysnes-frontend", default-features = false, features = [
+    "hd-pack",
+] }
+
+# Kept in lockstep with `rustysnes-frontend`'s own pin: the `config_toml` and `hd_pack_manifest`
+# targets deserialize into that crate's types, and two different `toml` majors in one graph would
+# make them fuzz a different parser than the one the emulator ships.
+toml = "1.1"
+
+[profile.release]
+# Keep frame pointers and line tables so a libFuzzer crash report names a function rather than an
+# address. Costs nothing that matters at fuzzing speeds.
+debug = 1
+
+# Each target is declared explicitly rather than auto-discovered, so `fuzz_targets/common/` is a
+# shared module and not mistaken for a fourteenth target.
+
+[[bin]]
+name = "rom_header"
+path = "fuzz_targets/rom_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rom_load"
+path = "fuzz_targets/rom_load.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "save_state"
+path = "fuzz_targets/save_state.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "movie"
+path = "fuzz_targets/movie.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "netplay_message"
+path = "fuzz_targets/netplay_message.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "patch"
+path = "fuzz_targets/patch.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cheat_code"
+path = "fuzz_targets/cheat_code.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "hd_pack_manifest"
+path = "fuzz_targets/hd_pack_manifest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "slang_preset"
+path = "fuzz_targets/slang_preset.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "config_toml"
+path = "fuzz_targets/config_toml.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "symbols"
+path = "fuzz_targets/symbols.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "coproc_firmware"
+path = "fuzz_targets/coproc_firmware.rs"
+test = false
+doc = false
+bench = false
+
+# There is deliberately no separate `ppu_reg_io` target. `Bus::read24`/`write24` and every `Ppu`
+# field are private, so a PPU-register target would exist only by widening the engine's public API
+# for the benefit of fuzzing — the same test-scaffolding-in-the-shipped-API trade `common/mod.rs`
+# declines. `cpu_step` reaches the PPU, DMA, and CPUIO register files through the real 65C816
+# decode path instead, which is both honest and closer to how a hostile ROM would get there.
+
+[[bin]]
+name = "cpu_step"
+path = "fuzz_targets/cpu_step.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "apu_port_io"
+path = "fuzz_targets/apu_port_io.rs"
+test = false
+doc = false
+bench = false

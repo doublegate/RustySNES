@@ -93,6 +93,19 @@ CI (`ref-docs/research-report.md` "Open questions" #1).
   `tests/roms/external/`.
 - **Layer 6 — determinism.** Save-state round-trip and seed+ROM+input replay must be
   bit-identical (framebuffer + audio) — `docs/adr/0004`.
+- **Layer 7 — fuzzing** (`v1.26.0`, `fuzz/`). Fourteen `cargo-fuzz` targets, one per boundary that
+  ingests untrusted input: ROM header and zip container, save-state, movie, netplay wire messages,
+  IPS/UPS/BPS patches, cheat codes, HD-pack manifests, shader presets and the GLSL bridge, config
+  TOML, symbol maps, coprocessor firmware, and the CPU/APU themselves. Every one of those entry
+  points already returns a `Result`, so what is under test is **panic-freedom, unbounded
+  allocation, and slice-index arithmetic** — not missing error handling. Layer 1's "each chip is
+  fuzzable in isolation" was an intended property for six releases before this layer made it real.
+
+  A compile gate runs per PR (`ci.yml`'s `lint` job); the campaign itself is weekly
+  (`security.yml`), because per-commit fuzzing re-treads a corpus it already has while long
+  campaigns are where findings come from. **A finding becomes a committed regression test beside
+  the code, never a corpus entry** — the corpus is gitignored and proves nothing to a reviewer.
+  See `fuzz/README.md`, including why seeding the corpus is not optional.
 
 ## The honesty gate (`docs/adr/0003`)
 

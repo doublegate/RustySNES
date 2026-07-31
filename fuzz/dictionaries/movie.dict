@@ -1,0 +1,21 @@
+# Dictionary for `movie`.
+#
+# The 8-byte magic gates everything, and the `u32` frame count immediately after the header is the
+# field an OOM attack targets — `deserialize_rejects_a_forged_huge_frame_count_without_oom` pins
+# that one value, and these tokens are what let the fuzzer find its neighbours.
+
+"RSNESMOV"
+
+# Frame counts on the boundaries: zero, one, and the three that would each ask for gigabytes if the
+# deserializer ever went back to `Vec::with_capacity(frame_count)`.
+"\x00\x00\x00\x00"
+"\x01\x00\x00\x00"
+"\xff\xff\xff\xff"
+"\x00\x00\x00\x40"
+"\xff\xff\xff\x7f"
+
+# A movie's start point can embed a whole save-state, which reaches the entire `SaveReader` surface
+# from inside a movie file. These are the tokens that get the fuzzer into that branch.
+"RSNS"
+"\x0a\x00"
+"SYS0"

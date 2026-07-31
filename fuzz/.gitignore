@@ -1,0 +1,8 @@
+# cargo-fuzz build output and campaign state.
+target/
+corpus/
+artifacts/
+coverage/
+
+# `fuzz/Cargo.lock` is deliberately NOT ignored — see the note in `README.md`. A fuzz campaign that
+# silently changes dependency versions between runs cannot attribute a new crash to a code change.

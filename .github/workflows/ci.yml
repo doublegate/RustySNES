@@ -151,6 +151,20 @@ jobs:
       # no tests of its own; its logic lives in and is tested by `rustysnes-core`) is cheap and
       # catches a broken libretro C-ABI export/link before it reaches a release artifact.
       - run: cargo build -p rustysnes-libretro
+      # `fuzz/` is a SEPARATE workspace (its manifest declares an empty `[workspace]`, the
+      # cargo-fuzz convention) so that cargo-fuzz's nightly requirement never leaks into an
+      # ordinary `cargo check`. The cost of that isolation is that every `--workspace` command
+      # above is blind to it, and a fuzz target calling an API that moved would rot silently until
+      # someone next ran a campaign — which is scheduled weekly, not per-PR.
+      #
+      # This is a plain `cargo build`, deliberately, NOT `cargo fuzz build`: it needs no nightly
+      # toolchain and no sanitizer, and it answers the only question a per-PR gate should ask —
+      # do the targets still compile against the code this PR changes? The actual fuzzing is
+      # `security.yml`'s weekly job, because per-commit fuzzing finds little; long campaigns do.
+      #
+      # Worth stating because the sibling RustyNES project's `fuzz/README.md` claims exactly this
+      # gate and it does not actually exist there: its `fuzz/` is referenced by no workflow at all.
+      - run: cargo build --manifest-path fuzz/Cargo.toml
       # Cheap locally (~4s) so it belongs on every PR, not just tag pushes -- catches broken
       # intra-doc links and rustdoc-specific warnings clippy's own lints don't cover.
       # `--exclude rustysnes-android`: see the clippy step above -- `cargo doc` still compiles the

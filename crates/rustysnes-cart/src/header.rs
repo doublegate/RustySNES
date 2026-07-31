@@ -107,6 +107,26 @@ pub struct Header {
     pub title: String,
 }
 
+/// The largest SRAM this bound will hand to a board: 512 KiB.
+///
+/// Chosen as the smallest value that cannot refuse a real cartridge. No SNES board can *address*
+/// more: LoROM's SRAM window (`$70-$7D:$0000-$7FFF`) reaches 448 KiB, HiROM's
+/// (`$20-$3F:$6000-$7FFF`) reaches 256 KiB, and SA-1 BW-RAM tops out at 256 KiB — so 512 KiB is
+/// already past every documented window, and a header claiming more is describing memory the
+/// console has no way to reach.
+///
+/// See the clamp site in [`Header::detect`] for why this is a clamp and not a rejection.
+pub const MAX_SRAM_SIZE: usize = 512 * 1024;
+
+/// The largest shift applied to the `$xFD8` RAM-size byte before [`MAX_SRAM_SIZE`] takes over.
+///
+/// Both bounds are needed, and neither is redundant: the `min` on the *result* is what enforces the
+/// policy, but it cannot run until the shift has already happened — and an unbounded shift is
+/// itself the panic (debug) or the wrong answer (release). So the shift amount is capped first, at
+/// a value comfortably inside `usize` on **32-bit targets too** (`wasm32`), and the result is
+/// clamped second.
+const MAX_SRAM_SIZE_SHIFT: u8 = 16;
+
 /// Header field offsets relative to the header base (`$xFC0`).
 mod field {
     /// 21-byte ASCII title at `$xFC0`.
@@ -199,9 +219,24 @@ impl Header {
         // `$xFD6` low nibble: 2 / 5 / 6 imply battery-backed RAM (RAM+battery, RAM+battery+RTC).
         let has_battery = matches!(chipset & 0x0F, 0x2 | 0x5 | 0x6);
 
+        // `$xFD8` is `1 << N` KiB, and `N` is an arbitrary byte out of an untrusted image — a bad
+        // dump, a fan hack, or a crafted file. Shifting by it unbounded is a real defect, found by
+        // `fuzz/fuzz_targets/rom_header.rs`:
+        //
+        //   * debug builds panic outright ("attempt to shift left with overflow") for `N >= 64`;
+        //   * release builds mask the shift instead, so `N = 22` silently asks
+        //     `board::select` for a **4 GiB** zeroed allocation at `vec![0u8; header.sram_size]`;
+        //   * `wasm32` is worse on both counts — `usize` is 32 bits there, so the panic starts at
+        //     `N >= 32` and `N = 21` already exceeds `isize::MAX`.
+        //
+        // Clamping rather than rejecting is deliberate. The field is only an allocation hint: every
+        // board wraps its accesses to `sram_size` anyway (see `Board`'s own contract), and real
+        // dumps do carry garbage here, so a hard rejection would refuse images that load correctly
+        // today. bsnes and ares sidestep the question entirely by resolving size from a board
+        // database rather than the header; absent that database, a bound is the equivalent.
         let mut sram_size = match raw_sram {
             0 => 0,
-            n => 1024 << n,
+            n => MAX_SRAM_SIZE.min(1024usize << n.min(MAX_SRAM_SIZE_SHIFT)),
         };
 
         // GSU games often declare 0 SRAM size but have 32 KiB or 64 KiB of on-cart RAM for the plot buffer.
@@ -537,5 +572,55 @@ mod tests {
         let rom = synth_image(0x7FC0, 0x0, 0x05, 0x01);
         let h = Header::detect(&rom).expect("detect");
         assert_eq!(h.sram_size, 0x8000);
+    }
+
+    #[test]
+    fn a_forged_ram_size_byte_is_clamped_not_shifted_unbounded() {
+        // Found by `fuzz/fuzz_targets/rom_header.rs`. `$xFD8` is `1 << N` KiB with `N` an arbitrary
+        // byte from an untrusted image, and `1024 << N` was applied straight to it: a debug panic
+        // for `N >= 64`, and in release a masked shift that hands `board::select` a multi-gigabyte
+        // `vec![0u8; header.sram_size]`. On `wasm32` (`usize` is 32 bits) both start far earlier.
+        //
+        // Every byte must produce a size no larger than the biggest window any SNES board can
+        // address, and must not panic on the way there.
+        for n in 0..=u8::MAX {
+            let rom = synth_image(0x7FC0, 0x0, n, 0x01);
+            let h = Header::detect(&rom).expect("detect must survive every RAM_SIZE byte");
+            assert!(
+                h.sram_size <= MAX_SRAM_SIZE,
+                "RAM_SIZE byte {n:#04x} produced {} bytes, past the {MAX_SRAM_SIZE}-byte bound",
+                h.sram_size
+            );
+        }
+
+        // The specific value the fuzzer landed on: without the shift cap this is a 4 GiB request.
+        let rom = synth_image(0x7FC0, 0x0, 22, 0x01);
+        assert_eq!(
+            Header::detect(&rom).expect("detect").sram_size,
+            MAX_SRAM_SIZE
+        );
+    }
+
+    #[test]
+    fn the_sram_clamp_leaves_every_real_cartridge_size_untouched() {
+        // The negative control for the test above. A clamp that also truncated legitimate carts
+        // would pass "nothing exceeds the bound" while quietly shrinking real saves — so pin the
+        // whole range of sizes actual hardware ships, from 2 KiB up to the 256 KiB of an SA-1
+        // BW-RAM cart. These must be the exact `1 << N` KiB formula, not the bound.
+        for (n, expected) in [
+            (1u8, 2 * 1024),
+            (2, 4 * 1024),
+            (3, 8 * 1024),   // the common battery-save size
+            (5, 32 * 1024),  // Super FX plot buffer
+            (6, 64 * 1024),  // large RPG saves
+            (8, 256 * 1024), // SA-1 BW-RAM, the largest real cart RAM
+        ] {
+            let rom = synth_image(0x7FC0, 0x0, n, 0x01);
+            let h = Header::detect(&rom).expect("detect");
+            assert_eq!(
+                h.sram_size, expected,
+                "RAM_SIZE byte {n} is a real cartridge size and must not be clamped"
+            );
+        }
     }
 }

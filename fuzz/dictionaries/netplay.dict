@@ -1,0 +1,23 @@
+# Dictionary for `netplay_message`.
+#
+# Tag-byte-discriminated framing: byte 0 selects the variant and everything after it is that
+# variant's body. Five tags out of 256 means a purely random first byte reaches a real decoder
+# about 2% of the time; these tokens fix that.
+
+# Tags: Sync, Input, InputAck, Checksum, Quality.
+"\x00"
+"\x01"
+"\x02"
+"\x03"
+"\x04"
+
+# `SYNC_MAGIC` (0x5253_4E50, "RSNP") little-endian, plus `PROTOCOL_VERSION` — the two fields a
+# handshake has to satisfy before a session will accept anything else.
+"PNSR"
+"\x01\x00"
+
+# Frame numbers on the wrap boundary. A rollback session indexes buffers by frame, so `u32::MAX`
+# arriving from a remote peer is the interesting case.
+"\xff\xff\xff\xff"
+"\x00\x00\x00\x00"
+"\xff\xff\xff\x7f"

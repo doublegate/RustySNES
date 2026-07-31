@@ -28,13 +28,21 @@ on:
   schedule:
     - cron: "0 0 * * 1"
   workflow_dispatch:
+    inputs:
+      fuzz_seconds:
+        description: "Seconds per fuzz target (the weekly schedule uses 300)"
+        required: false
+        default: "300"
 
 concurrency:
   group: security-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Least-privilege default: neither job below writes to the repo or uploads anything -- both only
-# read the checked-out tree and Cargo.lock.
+# Least-privilege default, inherited by EVERY job below (`audit`, `deny`, `fuzz`) — none of them
+# needs more, and none declares its own block, so this is the effective grant for all three.
+# `audit`/`deny` only read the checked-out tree and the lockfiles; `fuzz` additionally uploads a
+# crash artifact on failure, which `actions/upload-artifact` does through the Actions API rather
+# than the repo, so it needs no `contents: write` either.
 permissions:
   contents: read
 
@@ -52,6 +60,15 @@ jobs:
         with:
           tool: cargo-audit
       - run: cargo audit
+      # `fuzz/` is its OWN workspace with its OWN lock (see `fuzz/README.md` for why), so the
+      # command above — which resolves the root workspace — never sees a single one of its 422
+      # dependencies. That gap is easy to miss precisely because the audit job goes green either
+      # way. `--file` scans the second lock explicitly.
+      #
+      # Worth auditing despite being dev-only tooling: a fuzz target links `libfuzzer-sys` and runs
+      # attacker-shaped input by design, and an advisory against something in that graph is exactly
+      # the kind of thing that would otherwise sit unnoticed until someone read the lock by hand.
+      - run: cargo audit --file fuzz/Cargo.lock
 
   deny:
     name: Cargo Deny Check
@@ -64,3 +81,92 @@ jobs:
         with:
           tool: cargo-deny
       - run: cargo deny check
+      # `fuzz/`'s separate workspace is deliberately NOT checked here, unlike the audit job above
+      # which does scan its lock. `libfuzzer-sys` is `(MIT OR Apache-2.0) AND NCSA` — the NCSA
+      # coming from the LLVM libFuzzer runtime it vendors — and NCSA is not on this project's
+      # allow-list. The two ways to make this pass are both worse than the omission:
+      #
+      #   * allowing NCSA in `deny.toml` loosens the policy for the SHIPPED artifact to accommodate
+      #     a dev-only tool that is never built into, linked against, or distributed with any
+      #     release binary;
+      #   * a second `fuzz/deny.toml` would gate bans/sources/licenses on tooling nobody ships,
+      #     while the one genuinely security-relevant half — advisories — is already covered by
+      #     `cargo audit --file fuzz/Cargo.lock`.
+      #
+      # Recorded rather than silently skipped so the gap is a decision, not an oversight.
+
+  fuzz:
+    name: Fuzz Campaign
+    # SCHEDULED ONLY, never on push or pull_request. Per-commit fuzzing finds almost nothing — a
+    # 60-second campaign re-treads the corpus it already has — while adding ~15 minutes to every
+    # PR. The value is in long campaigns against an accumulating corpus, so this runs weekly on the
+    # cron above, or on demand.
+    #
+    # The per-PR guard that *does* belong on the critical path is the compile gate in `ci.yml`'s
+    # `lint` job: it catches a fuzz target rotting out of buildability, which is the failure mode
+    # that would otherwise make this job silently useless.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # Fourteen targets at five minutes each, plus a cold ~10-minute build of the frontend's wgpu
+    # stack. The ceiling is generous rather than tight: a job killed mid-campaign reports failure
+    # indistinguishably from a real finding.
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+      # cargo-fuzz needs nightly (`-Z sanitizer=address`); the project pins 1.96 stable in
+      # `rust-toolchain.toml`. Installing nightly alongside it, and invoking it explicitly as
+      # `+nightly`, keeps the pin authoritative for every other job.
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      # `fuzz/` depends on `rustysnes-frontend` (the patch/preset/config/symbols boundaries live
+      # there), which links the winit/wgpu/cpal stack — so this job needs the same system libraries
+      # `ci.yml`'s frontend jobs do.
+      - name: Install frontend system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libudev-dev libxkbcommon-dev pkg-config
+      # Validated before use rather than interpolated into the shell: `workflow_dispatch` inputs are
+      # attacker-controlled in the same sense any repository input is, and this one reaches a
+      # command line. A non-numeric value is rejected outright instead of being quoted and hoped
+      # over. The schedule path supplies no input at all, hence the default.
+      - name: Resolve campaign length
+        id: length
+        env:
+          REQUESTED: ${{ github.event.inputs.fuzz_seconds }}
+        run: |
+          seconds="${REQUESTED:-300}"
+          case "$seconds" in
+          '' | *[!0-9]*)
+            echo "::error::fuzz_seconds must be a positive integer, got '$seconds'"
+            exit 1
+            ;;
+          esac
+          if [ "$seconds" -lt 10 ] || [ "$seconds" -gt 3600 ]; then
+            echo "::error::fuzz_seconds must be between 10 and 3600, got '$seconds'"
+            exit 1
+          fi
+          echo "seconds=$seconds" >>"$GITHUB_OUTPUT"
+      # `run.sh` seeds each corpus from the committed permissive ROM corpus and applies the
+      # dictionaries. Both matter: unseeded, `rom_header` plateaus around 29 edges because header
+      # detection scores candidate offsets and a random image never scores above zero — the
+      # `$xFD8` unbounded-shift defect this infrastructure found was unreachable without seeding.
+      - name: Run campaign
+        env:
+          SECONDS_PER_TARGET: ${{ steps.length.outputs.seconds }}
+        run: bash fuzz/run.sh "$SECONDS_PER_TARGET"
+      # Only on failure, and this is the whole point of the job: a crashing input is worthless if it
+      # dies with the runner. Reproduce locally with
+      #   cargo +nightly fuzz run <target> <artifact>
+      - name: Upload crashing inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts
+          path: |
+            fuzz/artifacts/
+            fuzz/target/*.campaign.log
+          retention-days: 30
+          if-no-files-found: warn
