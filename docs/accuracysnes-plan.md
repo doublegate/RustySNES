@@ -466,11 +466,63 @@ before the H counter wraps and silently returns a plausible small number.
 | row | verdict | why |
 |---|---|---|
 | `A5.19` | **landed** | see below |
-| `A5.18` | **parked** — needs a cheaper instrument | `BRK` cannot be measured without `RTI` (a `BRK` that never returns cannot be repeated), so the span is a round trip and the differential is *two* extra stack accesses. Measuring both and subtracting works — 8 iterations gave round-trip delta 32, RTI-alone 16, `BRK`'s own 16, exactly as predicted — but a round trip is 39 dots, so 8 of them wrap. It passed only because both arms wrapped by the same 341; the tell is that the native round trip read **170**, *less* than the 293 of the strictly cheaper RTI-alone arm. The largest count that fits is 3, giving 6 dots of signal against `TOL` 2 in a difference-of-differences, where quantisation from four measurements accumulates. Not sound. |
+| `A5.18` | **parked** — needs a cheaper instrument | The design is sound and the numbers came out exactly as predicted, but a `BRK` round trip is 39 dots and only 3 fit inside the budget, leaving 6 dots of signal against `TOL` 2 in a difference-of-differences. See below. |
 | `A6.15` | needs its own design | "all 256 opcodes defined" is a *definedness* assertion, not a timing one, and `sweep.rs` deliberately covers only the unambiguous subset — its own module docs list why control flow, `BRK`/`COP`, `STP`, `WAI` and memory-addressing modes are excluded. Citing the sweep would be coverage by restatement. |
-| `C7.05`, `C7.06` | **reachable — sample with an H-IRQ bracket, not a polling loop** | *Corrected: an earlier revision of this table said RustySNES sets `range_over` a line late. It does not.* Re-measured with `scripts/probes/eval-line-213e`: `range_over` first reads set at **scanline 100**, which is MesenCE's value. The one-line lag was the **batch** compositor, and per-dot is now the only one — the probe's own README already recorded both figures. What remains is sampling *resolution*, not correctness: a polling loop is several dots per iteration and would pass whatever the true position is (the `F1.09` vacuity shape). The probe demonstrates the technique that does work — an H-IRQ at a chosen `HTIME`, latching `$2137`/`$213F` and reading `$213E` — so the row should be written as a **bracket**: one sample just below the expected `H = OAM.INDEX*2` expecting clear, one just above expecting set. That is the same shape `D2.01` uses, and it is a two-point assertion rather than a dot-exact one. Mind the probe's two recorded traps: `HTIME=300` pushes the IRQ latency into the V-counter increment and skews every reading by a line, and the `$213F` read is required to reset the OPHCT/OPVCT second-read flip-flop. |
+| `C7.05`, `C7.06` | **reachable — sample with an H-IRQ bracket** | Not an accuracy gap: re-measured, `range_over` first reads set at scanline **100**, MesenCE's value. What remains is sampling *resolution*. See below. |
 | `B2.07` | gated on `B2.02` | `B2.04` covers the 262-line count, not the clock total, so the frequency is not implied by it. Getting to 60.0988 Hz needs clocks-per-frame, and the frame alternates 357,368/357,364 because of the short scanline — which *is* `B2.02`, a `T-06-A` dot-model residual scheduled for `v1.29.0`. |
 | `B2.09` | `v1.29.0` by its own dossier note | the picture window is "not CPU-observable directly; reachable through the framebuffer oracle once the dot-resolution compositor lands". |
+
+#### `A5.18` — why it is parked despite working
+
+`BRK` cannot be measured without `RTI`: a `BRK` that never returns cannot be repeated, so any
+measurable span is a round trip and its differential is **two** extra stack accesses, not one.
+Asserting the round trip alone would be a test of `BRK + RTI` wearing `BRK`'s name.
+
+The fix is to measure both and subtract, and it works — at 8 iterations it produced round-trip delta
+**32**, RTI-alone **16**, `BRK`'s own **16**, exactly the prediction.
+
+But at 8 iterations the round trip **wrapped**, and it passed only because both arms wrapped by the
+same 341. The tell is worth remembering: the native round trip read **170**, *less* than the **293**
+of the strictly cheaper RTI-alone arm. A span that reads shorter than one doing less work has
+wrapped.
+
+At the largest count that fits (3) the signal is 6 dots against `TOL` 2, and because it is a
+difference of two differentials, quantisation from four measurements accumulates against those 6
+dots. Not sound. It needs an instrument cheaper than the ~189-dot `hv_begin`/`hv_end` pair, or a
+decomposition that does not go through a round trip.
+
+Injecting at `op_brk`'s PBR push moved **no** timing at all — it broke `A6.13`'s PBR *value* instead
+— so RustySNES's `BRK` cycle cost does not come from that bus access. Trace where it does come from
+before designing this row's injection test.
+
+#### `C7.05`/`C7.06` — why the bracket, and the two traps
+
+An earlier revision of the table above said RustySNES sets `range_over` a line late against MesenCE.
+**It does not.** Re-measured on `main`, `range_over` first reads set at **scanline 100**, which is
+MesenCE's value; the one-line lag belonged to the retired **batch** compositor, and
+`scripts/probes/eval-line-213e/README.md` recorded both figures all along.
+
+```sh
+bash scripts/probes/eval-line-213e/run.sh        # builds probe.sfc (needs cc65) — the ROM is gitignored
+cargo run -p rustysnes-test-harness --bin probe_213e -- scripts/probes/eval-line-213e/probe.sfc
+```
+
+What blocks the rows is sampling **resolution**. A polling loop is several dots per iteration and
+would pass whatever the true position is — the `F1.09` vacuity shape. The probe demonstrates what
+works: an H-IRQ at a chosen `HTIME`, latching `$2137`/`$213F` and reading `$213E`. Write the rows as
+a **bracket** — one sample just below the expected `H = OAM.INDEX*2` expecting clear, one just above
+expecting set. Same shape as `D2.01`, and a two-point assertion rather than a dot-exact one.
+
+Two traps, both of which already cost the probe a debugging pass:
+
+- **`HTIME=300` skews every reading by a line.** The IRQ-service latency pushes the OPVCT latch past
+  the V-counter increment, so it latches `V + 1`. The probe uses `HTIME=256` — after evaluation, with
+  margin before the line ends near 340.
+- **`$213F` must be read to reset the OPHCT/OPVCT second-read flip-flop.** Without it the toggle
+  alternates and corrupts every odd scanline's sample.
+
+`time_over` reads clear in that probe, and correctly so: range evaluation caps at 32 sprites, so its
+40 8x8 sprites yield 32 tiles — under the 34-tile limit. The probe does not exercise `time_over`.
 
 The honest shape of the rung is therefore smaller than the row list suggested: the mechanically
 writable Group A/B rows are largely done, and most of what remains is either gated on the
