@@ -246,6 +246,13 @@ delayed variant asserts the frames it *did* show are byte-identical to the same 
 
 ### Untrusted-input bounds
 
+- **Input is dropped until the handshake is accepted** — the outermost gate, and the one the rest
+  sit behind. A foreign ROM hash, or no `Sync` at all, therefore means nothing is watchable, rather
+  than merely that a flag reads `false`. This was missing in the first revision: `synced` was set
+  and then consulted by nothing, so a peer that never handshook could still drive frames into the
+  `System` while `is_synced()` honestly reported `false`. A test asserting only that flag would have
+  passed throughout, which is why `a_foreign_rom_hash_is_not_watchable_at_all` asserts **no frame is
+  produced**, and was verified by removing the guard and watching it fail.
 - An **out-of-range player index** is dropped. `num_players` is fixed at construction, so such an
   index can never become valid — dropping it is correct rather than best-effort, and it keeps a
   malformed or foreign packet from indexing out of bounds.
@@ -255,4 +262,7 @@ delayed variant asserts the frames it *did* show are byte-identical to the same 
   unacknowledged.
 - `delay_frames` and `num_players` are **clamped at construction**, so an unbounded value out of a
   config file cannot become an allocation.
-- A **foreign ROM hash never syncs**, so a spectator cannot half-watch a different game.
+
+Because the handshake gate is outermost, the tests for the two bounds under it must hand-shake
+first — otherwise each would pass with its own bound removed, dropped by the gate instead. Both go
+through a `synced_spectator` helper and assert `is_synced()` alongside the bound they name.

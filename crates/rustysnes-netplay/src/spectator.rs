@@ -221,6 +221,15 @@ impl<T: Transport> SpectatorSession<T> {
                     frame,
                     input,
                 } => {
+                    // Input before a accepted handshake is not watchable input. Without this the
+                    // `synced` flag gated nothing: a peer that never sent `Sync`, or whose `Sync`
+                    // named a different ROM, could still drive frames into the `System` — which is
+                    // precisely the "half-watch a different game" case the handshake exists to
+                    // refuse. `is_synced()` reporting `false` while the session ran anyway made the
+                    // flag a readout rather than a boundary.
+                    if !self.synced {
+                        continue;
+                    }
                     // An out-of-range player index can never become valid — `num_players` is fixed
                     // at construction — so dropping it is correct rather than best-effort, and it
                     // keeps a malformed or foreign packet from indexing out of bounds.
@@ -263,14 +272,26 @@ impl<T: Transport> SpectatorSession<T> {
     }
 
     fn ensure_frame(&mut self, frame: u32) {
-        let needed = frame as usize + 1;
+        // `saturating_add` rather than `+ 1`: unreachable behind the lookahead bound above, but a
+        // 32-bit `usize` would wrap this to zero and silently truncate the history instead.
+        let needed = (frame as usize).saturating_add(1);
         if self.history.len() < needed {
             self.history.resize(needed, FrameInputs::default());
         }
     }
 
-    fn apply_and_run(&mut self, sys: &mut System, frame: u32) {
-        self.ensure_frame(frame);
+    /// Takes `&self`, not `&mut self` — dropping the `ensure_frame` call left nothing here that
+    /// mutates the session, and the signature now says so.
+    fn apply_and_run(&self, sys: &mut System, frame: u32) {
+        // No `ensure_frame` here. `advance` only reaches this with `frame <= reveal_horizon <=
+        // last_confirmed_frame`, and `recompute_confirmed` only confirms frames already inside
+        // `history` — so growing the buffer here could only ever paper over a broken invariant by
+        // running an all-zero input frame, which is a desync-shaped bug that is far harder to find
+        // than the index panic it would replace.
+        debug_assert!(
+            (frame as usize) < self.history.len(),
+            "advance must only run confirmed frames"
+        );
         let slot = self.history[frame as usize];
         for (player, input) in slot.inputs.iter().enumerate() {
             sys.bus.set_joypad(player, *input);
@@ -481,13 +502,26 @@ mod tests {
         );
     }
 
+    /// Both boundary tests below must hand-shake first. Without the `Sync` their input would be
+    /// dropped by the *handshake* gate, and each would then pass no matter what the bound it names
+    /// actually did.
+    fn synced_spectator(hash: [u8; 32]) -> (SpectatorSession<MemoryTransport>, MemoryTransport) {
+        let (ta, mut tb) = MemoryTransport::ideal_pair();
+        let spec = SpectatorSession::new(SpectatorConfig::default(), ta, hash);
+        tb.send(&NetMessage::Sync {
+            magic: SYNC_MAGIC,
+            version: PROTOCOL_VERSION,
+            rom_hash: hash,
+        });
+        (spec, tb)
+    }
+
     #[test]
     fn an_out_of_window_frame_is_dropped_rather_than_allocated() {
         // One datagram carrying a frame near `u32::MAX` would otherwise resize the history buffer
         // unboundedly — an OOM from a single packet.
         let hash = [0x7Au8; 32];
-        let (ta, mut tb) = MemoryTransport::ideal_pair();
-        let mut spec = SpectatorSession::new(SpectatorConfig::default(), ta, hash);
+        let (mut spec, mut tb) = synced_spectator(hash);
         tb.send(&NetMessage::Input {
             player: 0,
             frame: u32::MAX,
@@ -495,6 +529,7 @@ mod tests {
         });
         let mut sys = fresh_system(&minimal_rom());
         let out = spec.advance(&mut sys);
+        assert!(spec.is_synced(), "the bound under test, not the handshake");
         assert!(!out.produced_frame);
         assert_eq!(spec.last_confirmed_frame(), None);
     }
@@ -503,8 +538,7 @@ mod tests {
     fn an_out_of_range_player_index_is_dropped() {
         // `num_players` is fixed at construction, so such an index can never become valid.
         let hash = [0x7Au8; 32];
-        let (ta, mut tb) = MemoryTransport::ideal_pair();
-        let mut spec = SpectatorSession::new(SpectatorConfig::default(), ta, hash);
+        let (mut spec, mut tb) = synced_spectator(hash);
         tb.send(&NetMessage::Input {
             player: 9,
             frame: 0,
@@ -512,6 +546,7 @@ mod tests {
         });
         let mut sys = fresh_system(&minimal_rom());
         assert!(!spec.advance(&mut sys).produced_frame);
+        assert!(spec.is_synced(), "the bound under test, not the handshake");
         assert_eq!(spec.last_confirmed_frame(), None);
     }
 
@@ -531,7 +566,11 @@ mod tests {
     }
 
     #[test]
-    fn a_foreign_rom_hash_never_syncs() {
+    fn a_foreign_rom_hash_is_not_watchable_at_all() {
+        // Asserting only `!is_synced()` would be the vacuous version of this test: the flag was
+        // once purely a readout, so a rejected handshake still let the following inputs drive the
+        // `System`. What the claim actually needs is that *no frame is produced* — verified by
+        // injection, by removing the `!self.synced` guard in `ingest` and confirming this fails.
         let (ta, mut tb) = MemoryTransport::ideal_pair();
         let mut spec = SpectatorSession::new(SpectatorConfig::default(), ta, [0x11u8; 32]);
         tb.send(&NetMessage::Sync {
@@ -539,8 +578,27 @@ mod tests {
             version: PROTOCOL_VERSION,
             rom_hash: [0x22u8; 32],
         });
+        for frame in 0..8u32 {
+            let (p1, p2) = input_for(frame);
+            tb.send(&NetMessage::Input {
+                player: 0,
+                frame,
+                input: p1,
+            });
+            tb.send(&NetMessage::Input {
+                player: 1,
+                frame,
+                input: p2,
+            });
+        }
         let mut sys = fresh_system(&minimal_rom());
-        let _ = spec.advance(&mut sys);
-        assert!(!spec.is_synced(), "a different game must not be watchable");
+        for _ in 0..16 {
+            assert!(
+                !spec.advance(&mut sys).produced_frame,
+                "a different game must not be watchable"
+            );
+        }
+        assert!(!spec.is_synced());
+        assert_eq!(spec.last_confirmed_frame(), None);
     }
 }
