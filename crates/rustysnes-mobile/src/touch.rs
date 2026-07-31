@@ -176,6 +176,21 @@ impl MouseAccumulator {
 #[derive(uniffi::Object, Default)]
 pub struct TouchMouse(std::sync::Mutex<MouseAccumulator>);
 
+// Not inside the `#[uniffi::export]` block below: that macro exports every method it contains, and
+// a `MutexGuard` has no FFI representation.
+impl TouchMouse {
+    /// The accumulator, recovering from a poisoned lock rather than propagating it.
+    ///
+    /// Poisoning means some other thread panicked mid-drag. The worst that state can be is a stale
+    /// residual worth under one mouse count, so refusing to serve further touches would be a
+    /// strictly worse outcome than continuing.
+    fn get(&self) -> std::sync::MutexGuard<'_, MouseAccumulator> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
 #[uniffi::export]
 impl TouchMouse {
     /// A fresh handle with no drag in progress.
@@ -187,29 +202,19 @@ impl TouchMouse {
 
     /// Touch down: start a drag at `(tx, ty)` view pixels.
     pub fn begin(&self, tx: f32, ty: f32) {
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .begin(tx, ty);
+        self.get().begin(tx, ty);
     }
 
     /// Touch move: whole mouse counts to hand to
     /// [`set_mouse`](crate::MobileCore::set_mouse).
     pub fn drag(&self, tx: f32, ty: f32, sensitivity: f32) -> MouseDelta {
-        let (dx, dy) = self
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .drag(tx, ty, sensitivity);
+        let (dx, dy) = self.get().drag(tx, ty, sensitivity);
         MouseDelta { dx, dy }
     }
 
     /// Touch up.
     pub fn end(&self) {
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .end();
+        self.get().end();
     }
 }
 
