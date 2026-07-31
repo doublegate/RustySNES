@@ -505,7 +505,9 @@ impl ShellState {
         pokes: &mut Vec<crate::debugger::PokeRequest>,
         symbols: Option<&crate::symbols::SymbolMap>,
         #[cfg(feature = "cheats")] cheats: &mut Vec<CheatEntry>,
-        #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))] netplay_connected: bool,
+        #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))] netplay: Option<
+            crate::netplay::NetplayStatus,
+        >,
         #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
         cheevos: &CheevosStatus<'_>,
     ) -> Vec<MenuAction> {
@@ -912,7 +914,7 @@ impl ShellState {
         }
         #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
         if self.netplay_open {
-            self.render_netplay(&ctx, netplay_connected, &mut actions);
+            self.render_netplay(&ctx, netplay, &mut actions);
         }
         #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
         if self.cheevos_open {
@@ -1798,9 +1800,10 @@ impl ShellState {
     fn render_netplay(
         &mut self,
         ctx: &egui::Context,
-        connected: bool,
+        status: Option<crate::netplay::NetplayStatus>,
         actions: &mut Vec<MenuAction>,
     ) {
+        let connected = status.is_some();
         let mut open = self.netplay_open;
         egui::Window::new("Netplay")
             .open(&mut open)
@@ -1825,8 +1828,8 @@ impl ShellState {
                         });
                 });
                 ui.separator();
-                if connected {
-                    ui.label("Connected.");
+                if let Some(s) = status {
+                    Self::netplay_quality(ui, s);
                     if ui.button("Disconnect").clicked() {
                         actions.push(MenuAction::DisconnectNetplay);
                     }
@@ -1840,6 +1843,86 @@ impl ShellState {
                 }
             });
         self.netplay_open = open;
+    }
+
+    /// The connection-quality readout and the desync banner (`v1.27.0`).
+    ///
+    /// Split out of [`Self::render_netplay`] because it is the part with judgement in it: which
+    /// grades get a colour, and which desync states are worth alarming the user about.
+    #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
+    fn netplay_quality(ui: &mut egui::Ui, s: crate::netplay::NetplayStatus) {
+        use rustysnes_netplay::{DesyncStatus, PeerLink};
+
+        // Only the terminal grade is red. `Interrupted` is deliberately amber and deliberately
+        // frequent — it is two full ping intervals of silence, which ordinary Wi-Fi produces —
+        // and painting it red would train the user to ignore the colour that matters.
+        let (link_text, link_colour) = match s.link {
+            PeerLink::Live => ("Live", egui::Color32::from_rgb(0x4C, 0xAF, 0x50)),
+            PeerLink::Interrupted => ("Interrupted", egui::Color32::from_rgb(0xE6, 0xA0, 0x23)),
+            PeerLink::TimedOut => ("Timed out", egui::Color32::RED),
+        };
+        egui::Grid::new("netplay_quality")
+            .num_columns(2)
+            .show(ui, |ui| {
+                ui.label("Peer");
+                ui.colored_label(link_colour, link_text);
+                ui.end_row();
+
+                ui.label("Ping");
+                // "—" rather than "0 ms" until a round trip has actually completed: a zero would
+                // read as a perfect connection at exactly the moment nothing is known yet.
+                match s.ping_ms {
+                    Some(ms) => ui.label(format!("{ms} ms")),
+                    None => ui.label("—"),
+                };
+                ui.end_row();
+
+                ui.label("Frame advantage");
+                // Signed and labelled from the peer's side, because the sign is the whole
+                // content: positive means the peer is running ahead and this end will be the one
+                // that stalls.
+                ui.label(match s.remote_frame_advantage {
+                    0 => "even".to_string(),
+                    n if n > 0 => format!("peer +{n}"),
+                    n => format!("peer {n}"),
+                });
+                ui.end_row();
+
+                ui.label("Frame");
+                ui.label(s.frame.to_string());
+                ui.end_row();
+            });
+
+        if !s.handshaken {
+            ui.colored_label(
+                egui::Color32::from_rgb(0xE6, 0xA0, 0x23),
+                "Waiting for the peer's handshake…",
+            );
+        }
+        // The desync banner distinguishes Suspect from Desynced, which is the entire point of the
+        // graded verdict: a transient must not look like a lost game, and a real divergence must
+        // not look survivable.
+        match s.desync {
+            DesyncStatus::InSync => {}
+            DesyncStatus::Suspect {
+                consecutive,
+                first_desync_frame,
+            } => {
+                ui.colored_label(
+                    egui::Color32::from_rgb(0xE6, 0xA0, 0x23),
+                    format!(
+                        "Checksum mismatch ({consecutive} in a row since frame \
+                         {first_desync_frame}) — watching, not disconnecting"
+                    ),
+                );
+            }
+            DesyncStatus::Desynced { first_desync_frame } => {
+                ui.colored_label(
+                    egui::Color32::RED,
+                    format!("Desynced — diverged at frame {first_desync_frame}"),
+                );
+            }
+        }
     }
 
     /// The `RetroAchievements` window (`v0.8.0` T-82-003): username/password entry + a Log

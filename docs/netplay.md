@@ -213,6 +213,22 @@ exercise the decorator on the threaded path the frontend actually uses it on.
 `ManualClock` is `pub`, not `#[cfg(test)]`, so a frontend integration test outside the crate can use
 it too.
 
+### The frontend seam (`v1.27.0`)
+
+`RollbackSession` owns its transport, so a decorated one is unreachable once a session is built.
+`transport()`/`transport_mut()` expose it — the mutable one exists for `tick`, which is the only
+liveness method that acts on time. It is deliberately *not* an invitation to send on the session's
+behalf: the rollback protocol assumes it is the only thing writing `Input`, `InputAck`, and
+`Checksum`, and injecting one of those would corrupt the confirmation horizon. A decorator's own
+out-of-band `Quality` traffic is the case this exists for.
+
+**A dead peer must end the session, not stall it.** `NetplayError::Disconnected` carries the
+liveness verdict, and the frontend's `NetplayState::drive` raises it before advancing. Without that
+the whole feature is inert: the session has no clock, so it cannot tell "waiting for the peer's next
+input" from "waiting forever", and a peer that never handshakes leaves `advance` spinning with
+nothing to report — the exact hang this work set out to remove. `tests/liveness_session.rs` drives a
+real session through the decorator and pins both reasons plus the transparent case, and injecting
+the raise out fails two of the three.
 
 ## Spectating (`v1.27.0`)
 

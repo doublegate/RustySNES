@@ -11,6 +11,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Netplay: a connection-quality readout, a graded desync banner, and a disconnect that actually
+  fires.** The two preceding entries built the machinery; nothing in the frontend read it. The
+  session's transport is now wrapped in `LivenessTransport` and ticked once per frame from
+  `NetplayState::drive` with this peer's own frame advantage, and the Netplay window shows the peer
+  grade, ping, frame advantage, current frame, a handshake notice, and the graded desync verdict.
+
+  Two deliberate presentation choices. `Interrupted` is **amber, not red** — it is two full ping
+  intervals of silence, which ordinary Wi-Fi produces, and painting it red would train the user to
+  ignore the colour that matters. Ping shows **`—`, not `0 ms`**, until a round trip completes,
+  because a zero reads as a perfect connection at exactly the moment nothing is known yet.
+
+  The load-bearing half is not the readout: `NetplayError::Disconnected` carries the liveness
+  verdict and `drive` raises it before advancing. Without that the liveness work would have been
+  inert — the session has no clock by design, cannot tell "waiting for the peer's next input" from
+  "waiting forever", and a peer that never handshakes leaves `advance` spinning with nothing to
+  report. That hang is what this set out to remove. `RollbackSession` gained
+  `transport()`/`transport_mut()` for it, since the session owns its transport and a decorated one
+  is otherwise unreachable once a session is built. New `tests/liveness_session.rs` drives a real
+  session through the decorator and pins both disconnect reasons plus the transparent case;
+  injecting the raise back out fails two of its three tests.
+
+  The terminal reason is reported through the Netplay window's `netplay_error`, not through the
+  per-frame snapshot: `drive` raises the verdict the same frame it appears, so the session is `Idle`
+  before the next egui pass and a banner inside the quality readout would have been unreachable code
+  that looked like a feature.
+
 - **Netplay: read-only spectating.** A spectator receives the players' confirmed input stream and
   replays it into its own `System`.
 

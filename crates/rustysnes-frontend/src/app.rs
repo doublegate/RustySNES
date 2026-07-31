@@ -1524,6 +1524,10 @@ impl App {
                             eprintln!("rustysnes: netplay error, disconnecting: {e}");
                             active.netplay = NetplayState::Idle;
                             active.shell.status = format!("Netplay error: {e}");
+                            // Also into the Netplay window, which is where a user looks after a
+                            // session vanishes. The status bar is transient; this persists until
+                            // the next connection attempt.
+                            active.shell.netplay_error = Some(e.to_string());
                         }
                         samples.extend_from_slice(emu.audio());
                         continue;
@@ -1742,6 +1746,7 @@ impl App {
                             active.netplay = NetplayState::Idle;
                             control.set_netplay_paused(false);
                             active.shell.status = format!("Netplay error: {e}");
+                            active.shell.netplay_error = Some(e.to_string());
                         }
                         emu.audio().to_vec()
                     } else {
@@ -2113,7 +2118,7 @@ impl App {
                 #[cfg(feature = "cheats")]
                 &mut active.cheats,
                 #[cfg(all(feature = "netplay", not(target_arch = "wasm32")))]
-                active.netplay.is_connected(),
+                active.netplay.status(),
                 #[cfg(all(feature = "retroachievements", not(target_arch = "wasm32")))]
                 &cheevos_status,
             );
