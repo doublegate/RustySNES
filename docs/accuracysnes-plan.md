@@ -455,6 +455,29 @@ So nothing is asserted and nothing is recorded. What is known:
 The next attempt should start from a scratch build that dumps `$213F` before and after each step
 into slots verified unused, rather than from a folded variant that hides where the discrepancy is.
 
+### The "~189-dot instrument overhead" is an unverified attribution (`v1.29.0`)
+
+**Flagged rather than left standing.** The measurement is real: `A5.19`'s native arm reads 241 dots
+at 4 RTIs and 293 at 8, so the marginal cost is 13 dots/RTI and the **intercept is 189**. What is
+*not* established is that those 189 dots are the instrument.
+
+Reading `hv_begin`/`hv_end` says they should not be. `hv_begin` does synchronise to line start — it
+polls `hv_read_raw` until `H < 16` — but it stores **that poll's own reading** as the start marker,
+so the sync sits *before* the latch, not inside the delta. What is genuinely inside is `hv_begin`'s
+tail after the latch (`sta`/`pla`/`plp`/`rts`) plus `hv_end`'s head before its latch
+(`php`/`rep`/`cld`/`pha` and `hv_read_raw`'s ten instructions) — on the order of **30 dots**, not 190.
+
+So ~160 dots are unaccounted for, and the honest position is that nobody has measured the empty
+span. **The next step is one test**: `measure_begin` immediately followed by `measure_end`, recorded
+to a slot. That number is the instrument's real cost, and it is a five-line test.
+
+**What this does and does not put in doubt.** Every shipped result is a *differential* — `A5.19`'s
+16-dot delta, `A5.08`'s penalties, the sweep — and the intercept cancels in all of them, whatever it
+is. Those stand. What rests on the 189 figure is the **`A5.18` parking decision**: "341 minus 189
+leaves ~152 usable, a `BRK` round trip is 39 dots, so only 3 fit". If the true overhead is nearer 30,
+the budget is ~310 dots and **8 round trips fit** — which would make `A5.18` viable exactly as first
+designed, and its parking wrong. Measure the empty span before revisiting it.
+
 ### The Mesen2 oracle — diagnosed, not yet fixed (`v1.29.0`)
 
 Three `v1.28.0` items ended at "no oracle can arbitrate": `C7.07`'s errata, the scene goldens, and

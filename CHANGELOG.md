@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Not fixed. `docs/accuracysnes-plan.md` records the next step and says plainly not to spend further
   effort on rows needing an arbiter until it resolves.
 
+  Also flagged there: the **"~189-dot instrument overhead"** asserted in the `v1.28.0` assessment is
+  an *unverified attribution*. The intercept is real (241 dots at 4 RTIs, 293 at 8), but reading
+  `hv_begin`/`hv_end` says only ~30 dots of it should be inside the delta — the line-start sync
+  stores its own poll reading as the start marker, so it sits *before* the latch. Every shipped
+  result is a differential where the intercept cancels, so none is in doubt; what rests on the figure
+  is the `A5.18` parking decision, which would be **wrong** if the true overhead is nearer 30. One
+  five-line test — `measure_begin` immediately followed by `measure_end` — settles it.
+
   Separately real: `mesen_crossval.lua`'s `MAX_FRAMES` was **900** against the harness's 1500,
   `mesen_scenes.lua`'s 4000 and `libretro_crossval.c`'s 2000. The harness comment naming the budgets
   that must move together omitted this file, which is how it was missed. Aligned to 4000 and the
