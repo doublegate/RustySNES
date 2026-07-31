@@ -540,6 +540,29 @@ its Range Over does not track the index — a scanline-granularity flag. RustySN
 anchored to MesenCE on the *line* by `scripts/probes/eval-line-213e`; the *dot* is
 documentation-anchored only, because the Mesen2 headless runner times out in this environment.
 
+#### The two `C7` rows still uncovered, and why the new machinery does not reach them
+
+`C7.05`/`C7.06` landed on the far-IRQ shim, so it is worth saying what that shim does **not**
+unblock.
+
+- **`C7.12`** (16x32 under OBJ interlace renders as 16x16) is a **scene**, and needs the cart to
+  publish a scene only on a *known field* — it was written once and produced three different hashes
+  on three emulators because it asked a question whose answer alternates every frame. That is
+  `v1.29.0` machinery (`run_scenes`, not a scene), shared with `C9.03`/`C9.06`.
+
+- **`C7.07`** (Time Over false positive: first sprite 16x16+ at `X = 0-255` with others at negative
+  X) is reachable *as a test* with `C7.06`'s setup, but it would fail — because RustySNES does not
+  model the errata. `compute_over_flag_dots` skips a fully-offscreen sprite outright
+  (`obj.x > 256 && obj.x + w - 1 < 512`), before either counter, so no false Time Over can arise.
+  The row therefore needs a **PPU behaviour change first**, not a cart test.
+
+  That change should not be made on this evidence. It rests on a single errata line, and the only
+  available cross-check is snes9x — which is already known to be scanline-granular here and fails
+  both `C7.05` and `C7.06` for that reason, making it a poor arbiter for a third sprite-flag quirk.
+  Mesen2 cannot arbitrate while its headless runner times out in this environment. Encoding an
+  unvalidated behaviour attribution is what the `$F8`/`$F9` retraction in the CHANGELOG exists to
+  warn against. Get a working Mesen2 (or another oracle) first.
+
 #### `C7.06` — 8x8 sprites cannot reach Time Over at all
 
 The tile budget is 34 per line, but range evaluation **stops** at the 33rd in-range sprite, so 8x8
