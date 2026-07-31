@@ -71,6 +71,7 @@ pub fn all() -> Vec<Test> {
         c7_01(),
         c7_04(),
         c7_05(),
+        c7_06(),
         c7_02(),
         c7_08(),
         c7_10(),
@@ -2438,6 +2439,218 @@ fn c7_05() -> Test {
         Kind::Scored,
         None,
     )
+}
+
+/// The sampled byte must not still be the poison value.
+///
+/// Without this an IRQ that never fires leaves `$FF` in the slot, and `$FF` satisfies or violates
+/// the flag tests *by accident*: phase A reads bit 7 set and blames "Time Over already set", phase B
+/// passes bit 7 and then blames "Range Over set alongside Time Over". Both name a cause that did not
+/// happen. `ERROR_CODES.md` is meant to be the complete account of failure bytes, so a distinct code
+/// for "the handler never ran" is the difference between a diagnosis and a red herring.
+fn assert_handler_ran(a: &mut Asm) {
+    a.l("sep #$20");
+    a.l("lda f:$7E0156");
+    a.l("cmp #$FF");
+    a.fail_if_eq("the H/V IRQ never fired, so STAT77 was never sampled at all");
+}
+
+/// Time Over is observable by the start of the line the sprites paint on — `V = OBJ.YLOC + 1,
+/// H = 0` (`C7.06`).
+///
+/// # 8x8 sprites cannot reach Time Over at all
+///
+/// The tile budget is 34 per line, but range evaluation *stops* at the 33rd in-range sprite. So the
+/// most tiles 8x8 sprites can ever contribute is 32 — under the limit, permanently. `C7.05`'s forty
+/// 8x8 sprites set Range Over and leave Time Over clear, and the `eval-line-213e` probe reports the
+/// same thing for the same reason.
+///
+/// This uses **20 sprites of 16x16**: two tiles each, so 40 tiles trips the budget, while 20 sprites
+/// stays well under the 32-sprite range limit. That separation is deliberate and is itself an
+/// assertion — Time Over must set while Range Over stays **clear**, so a core that raises the two
+/// together, or raises whichever it computes first, fails.
+///
+/// # The bracket is across the line boundary, not within a line
+///
+/// Unlike `C7.05` there is no index to sweep: the asserted position is fixed. So this brackets it —
+/// clear while the sprites' own line is still being evaluated, set once the line they paint on has
+/// begun:
+///
+/// | phase | sampled on | Time Over | Range Over |
+/// |---|---|---|---|
+/// | A | `V = 100` (the eval line) | **clear** | clear |
+/// | B | `V = 101` (`YLOC + 1`) | **set** | clear |
+///
+/// Phase B samples at `V = 101` rather than late on line 100 on purpose. RustySNES raises the flag
+/// at `HBLANK_START_DOT` of the eval line, which is *earlier* than the dossier requires; asserting
+/// that exact dot would fail a core that raises it at `(101, 0)` exactly, which the assertion
+/// permits. Sampling on line 101 accepts both and still rejects anything later.
+///
+/// # The low-tile control
+///
+/// Phase A alone cannot tell "not yet" from "never", and phase B alone cannot tell "correct" from
+/// "always set". So a third run keeps the same 20 sprites at 8x8 — 20 tiles, under the budget — and
+/// requires Time Over **clear** at phase B's sampling point. Without it a core that reports Time
+/// Over whenever any sprite is on the line passes both A and B.
+fn c7_06() -> Test {
+    let mut a = Asm::new();
+    a.l("jmp @body");
+    a.label("handler");
+    a.l("php");
+    a.l("sep #$20");
+    a.l(".a8");
+    a.l("pha");
+    a.l("lda $213E         ; sample STAT77 at the IRQ dot");
+    a.l("sta f:$7E0156");
+    a.l("lda $4211         ; acknowledge so the line drops");
+    a.l("pla");
+    a.l("plp");
+    a.l("rti");
+    a.label("body");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("Group C is outside bank $00, so route through the bank-$00 far-IRQ shim.");
+    a.l("rep #$20");
+    a.l("lda #.loword(@handler)");
+    a.l("sta a:V_IRQ_VEC_FAR");
+    a.l("sep #$20");
+    a.l("lda #^@handler");
+    a.l("sta a:V_IRQ_VEC_FAR + 2");
+    a.l("rep #$20");
+    a.l("lda #irq_far_shim");
+    a.l("sta a:V_IRQ_VEC");
+
+    a.c("--- phase A: 20 16x16 sprites (40 tiles), sampled on the eval line V = 100 ---");
+    setup_tile_budget_sprites(&mut a, "a", true);
+    arm_over_irq_on_line(&mut a, 100);
+    assert_handler_ran(&mut a);
+    a.l("lda f:$7E0156");
+    a.l("and #$80");
+    a.assert_a8(
+        0x00,
+        "Time Over was already set on the sprites' own line (V = 100), earlier than V = YLOC + 1",
+    );
+
+    a.c("--- phase B: same sprites, sampled on the line they paint on, V = 101 ---");
+    setup_tile_budget_sprites(&mut a, "b", true);
+    arm_over_irq_on_line(&mut a, 101);
+    assert_handler_ran(&mut a);
+    assert_handler_ran(&mut a);
+    a.l("lda f:$7E0156");
+    a.l("and #$80");
+    a.assert_a8(
+        0x80,
+        "Time Over had not set by V = YLOC + 1 with 40 sprite-tiles due on the line",
+    );
+    a.c("...and Range Over must still be clear: 20 sprites is well under the 32-sprite limit.");
+    a.l("lda f:$7E0156");
+    a.l("and #$40");
+    a.assert_a8(
+        0x00,
+        "Range Over set alongside Time Over with only 20 sprites on the line — the two flags are \
+         being raised together instead of on their own conditions",
+    );
+
+    a.c("--- control: the same 20 sprites at 8x8 is 20 tiles, under the 34 budget ---");
+    setup_tile_budget_sprites(&mut a, "c", false);
+    arm_over_irq_on_line(&mut a, 101);
+    a.l("lda f:$7E0156");
+    a.l("and #$80");
+    a.assert_a8(
+        0x00,
+        "Time Over set with only 20 sprite-tiles due, so phase B's reading meant 'sprites are \
+         present', not 'the tile budget was exceeded'",
+    );
+    a.l("lda #$8F");
+    a.l("sta $2100         ; forced blank again, as the rest of the battery expects");
+    a.l("stz $212C");
+    a.finish(
+        "C7.06",
+        'C',
+        "TimeOver by YLOC+1",
+        Provenance::Documented(
+            "fullsnes and the SNESdev Wiki: the sprite tile budget is 34 per line and Time Over is \
+             raised by the fetch phase, so it reads set by the start of the line the sprites paint on",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// 20 sprites at Y = 100, `large` selecting 16x16 (2 tiles each, 40 total — over the 34-tile
+/// budget) or 8x8 (20 tiles — under it). Everything else is parked below the visible area.
+///
+/// Twenty is chosen to sit **under** the 32-sprite range limit, so Range Over cannot trip and the
+/// two flags stay independently observable.
+fn setup_tile_budget_sprites(a: &mut Asm, tag: &str, large: bool) {
+    a.l("sep #$20");
+    a.l("stz $2101         ; OBJSEL pair 0: 8x8 small, 16x16 large, name base 0");
+    a.l("stz $2102");
+    a.l("stz $2103");
+    a.l("rep #$10");
+    a.l("ldx #$0000");
+    a.label(&format!("fill_{tag}"));
+    a.c("X = index * 8, so the sprites tile across the line rather than stacking at one column.");
+    a.l("txa");
+    a.l("asl");
+    a.l("asl");
+    a.l("asl");
+    a.l("sta $2104         ; X");
+    a.l("cpx #$0014        ; 20 in range");
+    a.l(&format!("bcs @off_{tag}"));
+    a.l("lda #100");
+    a.l(&format!("bra @sety_{tag}"));
+    a.label(&format!("off_{tag}"));
+    a.l("lda #$F0          ; below the visible area in 224-line mode");
+    a.label(&format!("sety_{tag}"));
+    a.l("sta $2104         ; Y");
+    a.l("stz $2104         ; tile");
+    a.l("stz $2104         ; attr");
+    a.l("inx");
+    a.l("cpx #$0080");
+    a.l(&format!("bne @fill_{tag}"));
+    a.c("High table: bit 1 of each 2-bit field is the size select for that sprite.");
+    a.l("stz $2102");
+    a.l("lda #$01");
+    a.l("sta $2103         ; OAMADDR = word $100");
+    a.l("ldx #$0000");
+    a.label(&format!("hi_{tag}"));
+    a.l(&format!("lda #${:02X}", if large { 0xAA } else { 0x00 }));
+    a.l("sta $2104");
+    a.l("inx");
+    a.l("cpx #$0020");
+    a.l(&format!("bne @hi_{tag}"));
+}
+
+/// Arm an HV-IRQ at `H = 0` of scanline `line` and run one frame with objects on the main screen.
+///
+/// `HTIME = 0` with the measured ~93-dot IRQ-to-sample latency puts the read near dot 93 of that
+/// line — past `H = 0` (so a core raising Time Over exactly there is accepted) and well before the
+/// line ends.
+fn arm_over_irq_on_line(a: &mut Asm, line: u16) {
+    a.l("sep #$20");
+    a.l("lda #$FF");
+    a.l("sta f:$7E0156     ; poison: a handler that never runs cannot look like either verdict");
+    a.l("stz $4207");
+    a.l("stz $4208         ; HTIME = 0");
+    a.l(&format!("lda #{line}"));
+    a.l("sta $4209");
+    a.l("stz $420A         ; VTIME");
+    a.l("lda $4211         ; clear any stale latch");
+    a.l("lda #$0F");
+    a.l("sta $2100         ; display on, full brightness");
+    a.l("lda #$10");
+    a.l("sta $212C         ; OBJ on the main screen");
+    a.l("cli");
+    a.l("lda #$30");
+    a.l("sta $4200         ; HV-IRQ");
+    a.l("rep #$30");
+    a.l("jsl wait_vblank_far   ; span one complete active period");
+    a.l("sep #$20");
+    a.l("sei");
+    a.l("stz $4200         ; disarm before reading anything back");
+    a.l("lda $4211");
 }
 
 /// 40 8x8 sprites in range on line 100 starting at OAM index `first`; everything else parked below

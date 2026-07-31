@@ -469,7 +469,7 @@ before the H counter wraps and silently returns a plausible small number.
 | `A5.18` | **parked** — needs a cheaper instrument | The design is sound and the numbers came out exactly as predicted, but a `BRK` round trip is 39 dots and only 3 fit inside the budget, leaving 6 dots of signal against `TOL` 2 in a difference-of-differences. See below. |
 | `A6.15` | needs its own design | "all 256 opcodes defined" is a *definedness* assertion, not a timing one, and `sweep.rs` deliberately covers only the unambiguous subset — its own module docs list why control flow, `BRK`/`COP`, `STP`, `WAI` and memory-addressing modes are excluded. Citing the sweep would be coverage by restatement. |
 | `C7.05` | **landed** | Not a fixed bracket — the set dot has to *move with the index*. See below. |
-| `C7.06` | reachable, same technique | `C7.05`'s far-IRQ shim and sprite setup are reusable; `time_over` needs >34 sprite-tiles, which 40 8x8 sprites do **not** produce (range evaluation caps at 32, so 32 tiles). Use larger sprites. |
+| `C7.06` | **landed** | 8x8 sprites can *never* reach Time Over — evaluation stops at 32 sprites, so 32 tiles is the ceiling against a 34 budget. Twenty 16x16 sprites give 40 tiles while staying under the range limit, which also keeps the two flags independently observable. |
 | `B2.07` | gated on `B2.02` | `B2.04` covers the 262-line count, not the clock total, so the frequency is not implied by it. Getting to 60.0988 Hz needs clocks-per-frame, and the frame alternates 357,368/357,364 because of the short scanline — which *is* `B2.02`, a `T-06-A` dot-model residual scheduled for `v1.29.0`. |
 | `B2.09` | `v1.29.0` by its own dossier note | the picture window is "not CPU-observable directly; reachable through the framebuffer oracle once the dot-resolution compositor lands". |
 
@@ -539,6 +539,59 @@ the shim's `jml` reaches it while pushing nothing, so the handler still ends in 
 its Range Over does not track the index — a scanline-granularity flag. RustySNES's position is
 anchored to MesenCE on the *line* by `scripts/probes/eval-line-213e`; the *dot* is
 documentation-anchored only, because the Mesen2 headless runner times out in this environment.
+
+#### The two `C7` rows still uncovered, and why the new machinery does not reach them
+
+`C7.05`/`C7.06` landed on the far-IRQ shim, so it is worth saying what that shim does **not**
+unblock.
+
+- **`C7.12`** (16x32 under OBJ interlace renders as 16x16) is a **scene**, and needs the cart to
+  publish a scene only on a *known field* — it was written once and produced three different hashes
+  on three emulators because it asked a question whose answer alternates every frame. That is
+  `v1.29.0` machinery (`run_scenes`, not a scene), shared with `C9.03`/`C9.06`.
+
+- **`C7.07`** (Time Over false positive: first sprite 16x16+ at `X = 0-255` with others at negative
+  X) is reachable *as a test* with `C7.06`'s setup, but it would fail — because RustySNES does not
+  model the errata. `compute_over_flag_dots` skips a fully-offscreen sprite outright
+  (`obj.x > 256 && obj.x + w - 1 < 512`), before either counter, so no false Time Over can arise.
+  The row therefore needs a **PPU behaviour change first**, not a cart test.
+
+  That change should not be made on this evidence. It rests on a single errata line, and the only
+  available cross-check is snes9x — which is already known to be scanline-granular here and fails
+  both `C7.05` and `C7.06` for that reason, making it a poor arbiter for a third sprite-flag quirk.
+  Mesen2 cannot arbitrate while its headless runner times out in this environment. Encoding an
+  unvalidated behaviour attribution is what the `$F8`/`$F9` retraction in the CHANGELOG exists to
+  warn against. Get a working Mesen2 (or another oracle) first.
+
+#### `C7.06` — 8x8 sprites cannot reach Time Over at all
+
+The tile budget is 34 per line, but range evaluation **stops** at the 33rd in-range sprite, so 8x8
+sprites cap out at 32 tiles — under the limit, permanently. `C7.05`'s forty 8x8 sprites set Range
+Over and leave Time Over clear, and the `eval-line-213e` probe reports the same for the same reason.
+Twenty 16x16 sprites give 40 tiles while staying under the 32-sprite range limit, so Time Over trips
+and Range Over must **not** — which the row asserts, since a core raising the two together fails it.
+
+The bracket is across the line boundary rather than within a line, because the asserted position is
+fixed and there is no index to sweep: clear on the eval line `V = 100`, set on `V = 101 = YLOC + 1`.
+Phase B deliberately samples on line 101 rather than late on line 100 — RustySNES raises the flag at
+`HBLANK_START_DOT` of the eval line, *earlier* than the assertion requires, and pinning that exact
+dot would fail a core that raises it at `(101, 0)` exactly, which the assertion permits.
+
+A low-tile control completes it: the same 20 sprites at 8x8 (20 tiles) must read Time Over **clear**
+at phase B's sampling point. Without it, a core reporting Time Over whenever any sprite is on the
+line passes both A and B. Four injections, each failing its own code — flag on any sprite fails **code 7** (the control),
+never setting fails **code 5**, and setting at dot 0 fails **code 2**. Codes 1, 3 and 4 are the
+per-phase sentinels below.
+
+Each phase also carries a **sentinel** on the sampled byte (codes 1, 3, 4). Without it a never-fired
+IRQ leaves the poison `$FF` in the slot, and `$FF` satisfies or violates the flag tests by accident —
+phase A would blame "Time Over already set", phase B would pass bit 7 and then blame "Range Over set
+alongside". Both name a cause that did not happen, and `ERROR_CODES.md` is supposed to be the
+complete account of failure bytes.
+
+snes9x fails this row too, and is recorded as an expected divergence: it already reads Time Over set
+on `V = 100`, flagging the overflow a line early because it evaluates and paints in one pass. The
+control passes there, so it is the position that is wrong, not the budget.
 
 #### `C7.05`/`C7.06` — the probe, and the two sampling traps
 

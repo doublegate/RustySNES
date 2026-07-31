@@ -25651,6 +25651,346 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; C7.06 — TimeOver by YLOC+1
+; provenance: Documented (fullsnes and the SNESdev Wiki: the sprite tile budget is 34 per line and Time Over is raised by the fetch phase, so it reads set by the start of the line the sprites paint on)
+.proc test_c7_06
+    .a16
+    .i16
+    jmp @body
+@handler:
+    php
+    sep #$20
+    .a8
+    .a8
+    pha
+    lda $213E         ; sample STAT77 at the IRQ dot
+    sta f:$7E0156
+    lda $4211         ; acknowledge so the line drops
+    pla
+    plp
+    rti
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Group C is outside bank $00, so route through the bank-$00 far-IRQ shim.
+    rep #$20
+    .a16
+    lda #.loword(@handler)
+    sta a:V_IRQ_VEC_FAR
+    sep #$20
+    .a8
+    lda #^@handler
+    sta a:V_IRQ_VEC_FAR + 2
+    rep #$20
+    .a16
+    lda #irq_far_shim
+    sta a:V_IRQ_VEC
+    ; --- phase A: 20 16x16 sprites (40 tiles), sampled on the eval line V = 100 ---
+    sep #$20
+    .a8
+    stz $2101         ; OBJSEL pair 0: 8x8 small, 16x16 large, name base 0
+    stz $2102
+    stz $2103
+    rep #$10
+    .i16
+    ldx #$0000
+@fill_a:
+    ; X = index * 8, so the sprites tile across the line rather than stacking at one column.
+    txa
+    asl
+    asl
+    asl
+    sta $2104         ; X
+    cpx #$0014        ; 20 in range
+    bcs @off_a
+    lda #100
+    bra @sety_a
+@off_a:
+    lda #$F0          ; below the visible area in 224-line mode
+@sety_a:
+    sta $2104         ; Y
+    stz $2104         ; tile
+    stz $2104         ; attr
+    inx
+    cpx #$0080
+    bne @fill_a
+    ; High table: bit 1 of each 2-bit field is the size select for that sprite.
+    stz $2102
+    lda #$01
+    sta $2103         ; OAMADDR = word $100
+    ldx #$0000
+@hi_a:
+    lda #$AA
+    sta $2104
+    inx
+    cpx #$0020
+    bne @hi_a
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:$7E0156     ; poison: a handler that never runs cannot look like either verdict
+    stz $4207
+    stz $4208         ; HTIME = 0
+    lda #100
+    sta $4209
+    stz $420A         ; VTIME
+    lda $4211         ; clear any stale latch
+    lda #$0F
+    sta $2100         ; display on, full brightness
+    lda #$10
+    sta $212C         ; OBJ on the main screen
+    cli
+    lda #$30
+    sta $4200         ; HV-IRQ
+    rep #$30
+    .a16
+    .i16
+    jsl wait_vblank_far   ; span one complete active period
+    sep #$20
+    .a8
+    sei
+    stz $4200         ; disarm before reading anything back
+    lda $4211
+    sep #$20
+    .a8
+    lda f:$7E0156
+    cmp #$FF
+    bne :+
+    jmp @fail1
+  :
+    lda f:$7E0156
+    and #$80
+    cmp #$00
+    beq :+
+    jmp @fail2
+  :
+    ; --- phase B: same sprites, sampled on the line they paint on, V = 101 ---
+    sep #$20
+    .a8
+    stz $2101         ; OBJSEL pair 0: 8x8 small, 16x16 large, name base 0
+    stz $2102
+    stz $2103
+    rep #$10
+    .i16
+    ldx #$0000
+@fill_b:
+    ; X = index * 8, so the sprites tile across the line rather than stacking at one column.
+    txa
+    asl
+    asl
+    asl
+    sta $2104         ; X
+    cpx #$0014        ; 20 in range
+    bcs @off_b
+    lda #100
+    bra @sety_b
+@off_b:
+    lda #$F0          ; below the visible area in 224-line mode
+@sety_b:
+    sta $2104         ; Y
+    stz $2104         ; tile
+    stz $2104         ; attr
+    inx
+    cpx #$0080
+    bne @fill_b
+    ; High table: bit 1 of each 2-bit field is the size select for that sprite.
+    stz $2102
+    lda #$01
+    sta $2103         ; OAMADDR = word $100
+    ldx #$0000
+@hi_b:
+    lda #$AA
+    sta $2104
+    inx
+    cpx #$0020
+    bne @hi_b
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:$7E0156     ; poison: a handler that never runs cannot look like either verdict
+    stz $4207
+    stz $4208         ; HTIME = 0
+    lda #101
+    sta $4209
+    stz $420A         ; VTIME
+    lda $4211         ; clear any stale latch
+    lda #$0F
+    sta $2100         ; display on, full brightness
+    lda #$10
+    sta $212C         ; OBJ on the main screen
+    cli
+    lda #$30
+    sta $4200         ; HV-IRQ
+    rep #$30
+    .a16
+    .i16
+    jsl wait_vblank_far   ; span one complete active period
+    sep #$20
+    .a8
+    sei
+    stz $4200         ; disarm before reading anything back
+    lda $4211
+    sep #$20
+    .a8
+    lda f:$7E0156
+    cmp #$FF
+    bne :+
+    jmp @fail3
+  :
+    sep #$20
+    .a8
+    lda f:$7E0156
+    cmp #$FF
+    bne :+
+    jmp @fail4
+  :
+    lda f:$7E0156
+    and #$80
+    cmp #$80
+    beq :+
+    jmp @fail5
+  :
+    ; ...and Range Over must still be clear: 20 sprites is well under the 32-sprite limit.
+    lda f:$7E0156
+    and #$40
+    cmp #$00
+    beq :+
+    jmp @fail6
+  :
+    ; --- control: the same 20 sprites at 8x8 is 20 tiles, under the 34 budget ---
+    sep #$20
+    .a8
+    stz $2101         ; OBJSEL pair 0: 8x8 small, 16x16 large, name base 0
+    stz $2102
+    stz $2103
+    rep #$10
+    .i16
+    ldx #$0000
+@fill_c:
+    ; X = index * 8, so the sprites tile across the line rather than stacking at one column.
+    txa
+    asl
+    asl
+    asl
+    sta $2104         ; X
+    cpx #$0014        ; 20 in range
+    bcs @off_c
+    lda #100
+    bra @sety_c
+@off_c:
+    lda #$F0          ; below the visible area in 224-line mode
+@sety_c:
+    sta $2104         ; Y
+    stz $2104         ; tile
+    stz $2104         ; attr
+    inx
+    cpx #$0080
+    bne @fill_c
+    ; High table: bit 1 of each 2-bit field is the size select for that sprite.
+    stz $2102
+    lda #$01
+    sta $2103         ; OAMADDR = word $100
+    ldx #$0000
+@hi_c:
+    lda #$00
+    sta $2104
+    inx
+    cpx #$0020
+    bne @hi_c
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:$7E0156     ; poison: a handler that never runs cannot look like either verdict
+    stz $4207
+    stz $4208         ; HTIME = 0
+    lda #101
+    sta $4209
+    stz $420A         ; VTIME
+    lda $4211         ; clear any stale latch
+    lda #$0F
+    sta $2100         ; display on, full brightness
+    lda #$10
+    sta $212C         ; OBJ on the main screen
+    cli
+    lda #$30
+    sta $4200         ; HV-IRQ
+    rep #$30
+    .a16
+    .i16
+    jsl wait_vblank_far   ; span one complete active period
+    sep #$20
+    .a8
+    sei
+    stz $4200         ; disarm before reading anything back
+    lda $4211
+    lda f:$7E0156
+    and #$80
+    cmp #$00
+    beq :+
+    jmp @fail7
+  :
+    lda #$8F
+    sta $2100         ; forced blank again, as the rest of the battery expects
+    stz $212C
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the H/V IRQ never fired, so STAT77 was never sampled at all
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; Time Over was already set on the sprites' own line (V = 100), earlier than V = YLOC + 1
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+@fail3:
+    ; the H/V IRQ never fired, so STAT77 was never sampled at all
+    sep #$20
+    .a8
+    lda #$06
+    sta f:$7EE010
+    jml test_restore
+@fail4:
+    ; the H/V IRQ never fired, so STAT77 was never sampled at all
+    sep #$20
+    .a8
+    lda #$08
+    sta f:$7EE010
+    jml test_restore
+@fail5:
+    ; Time Over had not set by V = YLOC + 1 with 40 sprite-tiles due on the line
+    sep #$20
+    .a8
+    lda #$0A
+    sta f:$7EE010
+    jml test_restore
+@fail6:
+    ; Range Over set alongside Time Over with only 20 sprites on the line — the two flags are being raised together instead of on their own conditions
+    sep #$20
+    .a8
+    lda #$0C
+    sta f:$7EE010
+    jml test_restore
+@fail7:
+    ; Time Over set with only 20 sprite-tiles due, so phase B's reading meant 'sprites are present', not 'the tile budget was exceeded'
+    sep #$20
+    .a8
+    lda #$0E
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; C7.02 — Time Over is slivers
 ; provenance: Documented (SNESdev Wiki, Sprites; fullsnes; anomie)
 .proc test_c7_02
@@ -33237,7 +33577,7 @@ apu_prog_112:
 .export _test_flags
 
 _test_count:
-    .word 334
+    .word 335
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -33358,6 +33698,7 @@ _test_entries:
     .faraddr test_c7_01
     .faraddr test_c7_04
     .faraddr test_c7_05
+    .faraddr test_c7_06
     .faraddr test_c7_02
     .faraddr test_c7_08
     .faraddr test_c7_10
@@ -33695,6 +34036,7 @@ _test_flags:
     .byte $01   ; C7.01
     .byte $01   ; C7.04
     .byte $01   ; C7.05
+    .byte $01   ; C7.06
     .byte $01   ; C7.02
     .byte $01   ; C7.08
     .byte $01   ; C7.10
@@ -34032,6 +34374,7 @@ _test_names:
     .addr @n_c7_01
     .addr @n_c7_04
     .addr @n_c7_05
+    .addr @n_c7_06
     .addr @n_c7_02
     .addr @n_c7_08
     .addr @n_c7_10
@@ -34600,6 +34943,9 @@ _test_names:
 @n_c7_05:
     .byte 21
     .byte "RangeOver dot = idx*2"
+@n_c7_06:
+    .byte 18
+    .byte "TimeOver by YLOC+1"
 @n_c7_02:
     .byte 20
     .byte "Time Over is slivers"
@@ -35484,7 +35830,7 @@ _page_len:
     .byte 7
     .byte 4
     .byte 9
-    .byte 7
+    .byte 8
     .byte 10
     .byte 10
     .byte 1
@@ -35538,41 +35884,41 @@ _page_off:
     .word 111
     .word 115
     .word 124
-    .word 131
-    .word 141
-    .word 151
+    .word 132
+    .word 142
     .word 152
-    .word 155
-    .word 158
-    .word 162
-    .word 164
-    .word 168
-    .word 173
-    .word 183
-    .word 186
-    .word 191
+    .word 153
+    .word 156
+    .word 159
+    .word 163
+    .word 165
+    .word 169
+    .word 174
+    .word 184
+    .word 187
     .word 192
-    .word 202
-    .word 207
-    .word 213
-    .word 220
-    .word 230
-    .word 234
-    .word 244
-    .word 246
-    .word 255
-    .word 261
-    .word 263
-    .word 273
-    .word 275
-    .word 285
-    .word 287
-    .word 297
-    .word 304
-    .word 310
-    .word 320
-    .word 323
-    .word 333
+    .word 193
+    .word 203
+    .word 208
+    .word 214
+    .word 221
+    .word 231
+    .word 235
+    .word 245
+    .word 247
+    .word 256
+    .word 262
+    .word 264
+    .word 274
+    .word 276
+    .word 286
+    .word 288
+    .word 298
+    .word 305
+    .word 311
+    .word 321
+    .word 324
+    .word 334
 
 _page_tests:
     .word 0
@@ -35625,7 +35971,6 @@ _page_tests:
     .word 69
     .word 70
     .word 71
-    .word 299
     .word 300
     .word 301
     .word 302
@@ -35660,6 +36005,7 @@ _page_tests:
     .word 331
     .word 332
     .word 333
+    .word 334
     .word 30
     .word 31
     .word 32
@@ -35697,8 +36043,8 @@ _page_tests:
     .word 84
     .word 85
     .word 86
-    .word 121
-    .word 123
+    .word 122
+    .word 124
     .word 87
     .word 114
     .word 115
@@ -35706,6 +36052,7 @@ _page_tests:
     .word 117
     .word 118
     .word 119
+    .word 120
     .word 88
     .word 89
     .word 90
@@ -35713,9 +36060,9 @@ _page_tests:
     .word 92
     .word 93
     .word 94
-    .word 120
-    .word 122
-    .word 126
+    .word 121
+    .word 123
+    .word 127
     .word 95
     .word 96
     .word 97
@@ -35725,8 +36072,8 @@ _page_tests:
     .word 101
     .word 102
     .word 103
-    .word 127
     .word 128
+    .word 129
     .word 104
     .word 105
     .word 106
@@ -35737,37 +36084,36 @@ _page_tests:
     .word 111
     .word 112
     .word 113
-    .word 124
     .word 125
-    .word 129
+    .word 126
     .word 130
-    .word 146
-    .word 147
     .word 131
-    .word 133
+    .word 147
     .word 148
-    .word 149
-    .word 151
     .word 132
     .word 134
+    .word 149
+    .word 150
+    .word 152
+    .word 133
     .word 135
     .word 136
     .word 137
     .word 138
     .word 139
     .word 140
-    .word 150
-    .word 152
-    .word 153
-    .word 155
-    .word 156
     .word 141
+    .word 151
+    .word 153
+    .word 154
+    .word 156
+    .word 157
     .word 142
     .word 143
     .word 144
     .word 145
-    .word 154
-    .word 157
+    .word 146
+    .word 155
     .word 158
     .word 159
     .word 160
@@ -35776,26 +36122,26 @@ _page_tests:
     .word 163
     .word 164
     .word 165
-    .word 170
+    .word 166
     .word 171
     .word 172
     .word 173
     .word 174
     .word 175
-    .word 166
+    .word 176
     .word 167
     .word 168
     .word 169
-    .word 176
+    .word 170
     .word 177
     .word 178
-    .word 226
+    .word 179
     .word 227
     .word 228
     .word 229
     .word 230
     .word 231
-    .word 179
+    .word 232
     .word 180
     .word 181
     .word 182
@@ -35803,45 +36149,45 @@ _page_tests:
     .word 184
     .word 185
     .word 186
-    .word 197
-    .word 211
+    .word 187
+    .word 198
     .word 212
-    .word 219
+    .word 213
     .word 220
     .word 221
-    .word 187
+    .word 222
     .word 188
     .word 189
     .word 190
-    .word 199
+    .word 191
     .word 200
-    .word 215
+    .word 201
     .word 216
     .word 217
     .word 218
-    .word 273
+    .word 219
     .word 274
-    .word 191
+    .word 275
     .word 192
-    .word 198
-    .word 213
+    .word 193
+    .word 199
     .word 214
-    .word 222
+    .word 215
     .word 223
     .word 224
     .word 225
-    .word 193
+    .word 226
     .word 194
-    .word 269
+    .word 195
     .word 270
     .word 271
     .word 272
-    .word 195
+    .word 273
     .word 196
-    .word 201
+    .word 197
     .word 202
     .word 203
-    .word 237
+    .word 204
     .word 238
     .word 239
     .word 240
@@ -35850,21 +36196,21 @@ _page_tests:
     .word 243
     .word 244
     .word 245
-    .word 204
+    .word 246
     .word 205
     .word 206
     .word 207
     .word 208
     .word 209
-    .word 232
+    .word 210
     .word 233
-    .word 246
+    .word 234
     .word 247
     .word 248
     .word 249
-    .word 210
-    .word 234
     .word 250
+    .word 211
+    .word 235
     .word 251
     .word 252
     .word 253
@@ -35876,16 +36222,16 @@ _page_tests:
     .word 259
     .word 260
     .word 261
-    .word 266
+    .word 262
     .word 267
     .word 268
-    .word 235
+    .word 269
     .word 236
-    .word 262
+    .word 237
     .word 263
     .word 264
     .word 265
-    .word 275
+    .word 266
     .word 276
     .word 277
     .word 278
@@ -35909,3 +36255,4 @@ _page_tests:
     .word 296
     .word 297
     .word 298
+    .word 299

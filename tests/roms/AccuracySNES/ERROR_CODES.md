@@ -1274,6 +1274,20 @@ Provenance: **Documented** (fullsnes and the SNESdev Wiki: range evaluation walk
 | 2 | `$04` | Range Over was already set at dot ~105 with the 33rd in-range sprite at OAM index 72 (dot 145) — the set dot does not track OAM.INDEX * 2 |
 | 3 | `$06` | Range Over never set at all in phase B, so its clear reading at dot ~105 proved nothing |
 
+### C7.06 — TimeOver by YLOC+1
+
+Provenance: **Documented** (fullsnes and the SNESdev Wiki: the sprite tile budget is 34 per line and Time Over is raised by the fetch phase, so it reads set by the start of the line the sprites paint on). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the H/V IRQ never fired, so STAT77 was never sampled at all |
+| 2 | `$04` | Time Over was already set on the sprites' own line (V = 100), earlier than V = YLOC + 1 |
+| 3 | `$06` | the H/V IRQ never fired, so STAT77 was never sampled at all |
+| 4 | `$08` | the H/V IRQ never fired, so STAT77 was never sampled at all |
+| 5 | `$0A` | Time Over had not set by V = YLOC + 1 with 40 sprite-tiles due on the line |
+| 6 | `$0C` | Range Over set alongside Time Over with only 20 sprites on the line — the two flags are being raised together instead of on their own conditions |
+| 7 | `$0E` | Time Over set with only 20 sprite-tiles due, so phase B's reading meant 'sprites are present', not 'the tile budget was exceeded' |
+
 ### C7.02 — Time Over is slivers
 
 Provenance: **Documented** (SNESdev Wiki, Sprites; fullsnes; anomie). Kind: scored.
