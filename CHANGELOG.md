@@ -38,12 +38,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   duplicated datagram produces no second sample and a reply that arrives a generation late produces
   none at all, rather than a fabricated near-zero RTT at the moment the connection is worst. Samples
   feed an EWMA because the number is shown to a human and an unsmoothed readout flickers with every
-  packet.
+  packet. Only a probe carries a `frame_advantage` — an answer is emitted from `poll`, which has no
+  access to the caller's current advantage, so taking its `0` would zero the readout on every round
+  trip. `peer_link()` evaluates the handshake deadline off the clock like the silence deadline, and
+  a torn-down session answers nothing and measures nothing.
 
   **The clock is injected** (`Clock`, `SystemClock`, `ManualClock`). Testing timeouts against the
   wall clock means `thread::sleep` in tests — slow, and flaky under CI load precisely because the
   thresholds under test are short. With a manual clock the state machine is driven instantly: a
-  5-second peer timeout is exercised in microseconds. Eighteen tests, no sleeps, including one that
+  5-second peer timeout is exercised in microseconds. Twenty-one tests, no sleeps, including one that
   wires two real decorators together so the echo has to be one the implementation itself produces.
   See `docs/netplay.md`.
 

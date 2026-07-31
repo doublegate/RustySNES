@@ -138,6 +138,10 @@ session at all.
 | `Interrupted` | silence past `interrupt_after` (default **2 s**) |
 | `TimedOut` | silence past `disconnect_after` (default **5 s**) |
 
+`peer_link()` evaluates **both** deadlines off the clock, the handshake one included. It grades the
+silence path live, so leaving the handshake path to `tick` alone made the two disagree for up to a
+frame — a connection whose handshake window had closed still reading `Live`.
+
 Graded rather than boolean, and the thresholds are deliberately forgiving. Mesen's netplay uses a
 roughly 150 ms trigger, which flags ordinary Wi-Fi and LTE jitter as a disconnect; a connection that
 reports "lost" every time a packet is late trains the user to ignore it. `interrupt_after` is two
@@ -180,6 +184,15 @@ Because a stale reply is now harmless, probing can stay on a fixed cadence rathe
 whenever a reply goes missing. Samples feed an EWMA at weight 0.2, because the number is shown to a
 human: unsmoothed, the readout flickers with every packet.
 
+**Only a probe carries a `frame_advantage`.** An answer is emitted from `poll`, which has no access
+to the caller's current advantage, so it sends 0 — and reading that 0 as the peer's own value would
+zero the readout on every single round trip. A number that is correct only in the gaps between
+echoes is worse than no number.
+
+**A torn-down session answers nothing and measures nothing.** Once the disconnect verdict is set it
+is sticky and the caller has been told the peer is gone; replying would put traffic on a dead
+connection, and a sample taken afterwards describes a link nobody is using.
+
 `ping_smoothing` is read from config, so it is treated as untrusted: NaN falls back to the default
 weight and anything else is clamped to `0.0..=1.0`. `f64::clamp` returns NaN for NaN rather than
 clamping it, and a single NaN sample would poison the EWMA permanently — every later reading would
@@ -191,7 +204,7 @@ be NaN, with no way back.
 means `thread::sleep` in tests — slow, and flaky under CI load precisely because the thresholds
 being tested are short. (The sibling project's equivalent test does exactly that.) With
 `ManualClock` the whole state machine is driven instantly: a 5-second peer timeout is exercised in
-microseconds and cannot fail because a runner was busy. Eighteen tests, no sleeps.
+microseconds and cannot fail because a runner was busy. Twenty-one tests, no sleeps.
 
 `ManualClock` holds its offset in an `AtomicU64` rather than a `Cell`, which makes it `Sync`. A
 non-`Sync` clock would make `LivenessTransport<T, ManualClock>` non-`Sync` too, so a test could not

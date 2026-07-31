@@ -298,9 +298,18 @@ impl<T: Transport, C: Clock> LivenessTransport<T, C> {
             return PeerLink::TimedOut;
         }
         let Some(last) = self.last_recv else {
-            // Nothing has arrived yet. That is the handshake's problem, not the liveness grade's —
-            // reporting `TimedOut` here would make a connection look dead during normal startup.
-            return PeerLink::Live;
+            // Nothing has arrived yet. During the handshake window that is normal startup, and
+            // reporting `TimedOut` would make it look dead — but once the window has closed it IS
+            // dead, and this must say so without waiting for the next `tick`. Grading the silence
+            // path live off the clock while leaving this one to `tick` made the two disagree for
+            // up to a frame, which is exactly the sort of readout a user learns to distrust.
+            return if self.clock.now().saturating_duration_since(self.started)
+                >= self.config.handshake_timeout
+            {
+                PeerLink::TimedOut
+            } else {
+                PeerLink::Live
+            };
         };
         let silent = self.clock.now().saturating_duration_since(last);
         if silent >= self.config.disconnect_after {
@@ -390,6 +399,13 @@ impl<T: Transport, C: Clock> Transport for LivenessTransport<T, C> {
         // perfectly grade as Interrupted simply because its pings were the packets that dropped.
         self.last_recv = Some(now);
 
+        // A session that has already reached its sticky disconnect verdict answers nothing and
+        // measures nothing: replying would put traffic on a connection the caller has been told is
+        // gone, and a sample taken after teardown describes a link nobody is using.
+        if self.disconnected.is_some() {
+            return msgs;
+        }
+
         for m in &msgs {
             if let NetMessage::Quality {
                 frame_advantage,
@@ -398,7 +414,6 @@ impl<T: Transport, C: Clock> Transport for LivenessTransport<T, C> {
                 ..
             } = m
             {
-                self.remote_frame_advantage = *frame_advantage;
                 // Answer a probe immediately, here in `poll`, rather than folding the echo into
                 // the next scheduled `tick`. Deferring it would add this peer's own ping-interval
                 // phase to every measurement the *other* peer takes — which is precisely the bug
@@ -407,6 +422,11 @@ impl<T: Transport, C: Clock> Transport for LivenessTransport<T, C> {
                 // The answer carries `probe: 0`, so it is not itself a probe and provokes nothing
                 // further. Two peers cannot ping-pong.
                 if *probe != 0 {
+                    // Only a probe carries a meaningful `frame_advantage`. An answer is emitted
+                    // from `poll`, which has no access to the caller's current advantage, so it
+                    // sends 0 — and taking that 0 as the peer's reading would zero the readout on
+                    // every round trip.
+                    self.remote_frame_advantage = *frame_advantage;
                     self.inner.send(&NetMessage::Quality {
                         ping_ms: self.ping_ms().unwrap_or(0),
                         frame_advantage: 0,
@@ -417,15 +437,11 @@ impl<T: Transport, C: Clock> Transport for LivenessTransport<T, C> {
                 // Measure only an echo of the probe still outstanding, and consume it. A duplicated
                 // datagram therefore cannot produce a second sample from the same send time, and a
                 // reply that arrives after a newer probe replaced this one simply does not match.
-                if *echo != 0
-                    && self
-                        .outstanding_probe
-                        .is_some_and(|(token, _)| token == *echo)
+                if let Some((_, sent)) = self
+                    .outstanding_probe
+                    .take_if(|(token, _)| *echo != 0 && *token == *echo)
                 {
-                    // `take` cannot be `None` here — `is_some_and` above just proved otherwise.
-                    if let Some((_, sent)) = self.outstanding_probe.take() {
-                        self.record_rtt(now.saturating_duration_since(sent));
-                    }
+                    self.record_rtt(now.saturating_duration_since(sent));
                 }
             }
         }
@@ -667,17 +683,10 @@ mod tests {
         assert_ne!(token, 0, "a probe token is never 0 — 0 means 'not a probe'");
 
         t.clock.advance_ms(40);
-        deliver(
-            &mut t,
-            NetMessage::Quality {
-                ping_ms: 0,
-                frame_advantage: 3,
-                probe: 0,
-                echo: token,
-            },
-        );
+        deliver(&mut t, answer(token));
         assert_eq!(t.ping_ms(), Some(40), "first sample is taken unsmoothed");
-        assert_eq!(t.remote_frame_advantage(), 3);
+        // `remote_frame_advantage` is read from a *probe*, not from an answer — see
+        // `an_echo_does_not_zero_the_peers_frame_advantage`.
     }
 
     #[test]
@@ -832,6 +841,80 @@ mod tests {
             (40..=80).contains(&ms),
             "a NaN weight must fall back to the default, not poison the estimate; got {ms}"
         );
+    }
+
+    #[test]
+    fn an_echo_does_not_zero_the_peers_frame_advantage() {
+        // Raised in review, and real. An answer is emitted from `poll`, which has no access to the
+        // caller's current advantage, so it carries 0. Reading that 0 as the peer's own value would
+        // wipe the readout on every single round trip — a number that is correct only in the gaps
+        // between echoes is worse than no number.
+        let (mut t, ()) = harness();
+        t.tick(0);
+        let token = last_probe(&t);
+        // The peer reports a real advantage on its probe...
+        deliver(
+            &mut t,
+            NetMessage::Quality {
+                ping_ms: 0,
+                frame_advantage: 4,
+                probe: 555,
+                echo: 0,
+            },
+        );
+        assert_eq!(t.remote_frame_advantage(), 4);
+        // ...and its answer to ours must not overwrite it.
+        deliver(&mut t, answer(token));
+        assert_eq!(
+            t.remote_frame_advantage(),
+            4,
+            "an echo carries no advantage of its own and must leave the reading alone"
+        );
+        assert!(t.ping_ms().is_some(), "the echo was still measured");
+    }
+
+    #[test]
+    fn an_expired_handshake_grades_timed_out_without_waiting_for_a_tick() {
+        // `peer_link` grades the silence path straight off the clock, so leaving the handshake path
+        // to `tick` made the two disagree for up to a frame.
+        let (t, ()) = harness();
+        assert_eq!(t.peer_link(), PeerLink::Live, "inside the window");
+        t.clock.advance(t.config.handshake_timeout);
+        assert_eq!(
+            t.peer_link(),
+            PeerLink::TimedOut,
+            "past the window, with no tick in between"
+        );
+    }
+
+    #[test]
+    fn a_disconnected_session_answers_nothing_and_measures_nothing() {
+        // The verdict is sticky, so the caller has already been told the peer is gone. Replying
+        // would put traffic on a dead connection and a sample would describe a link nobody uses.
+        let (mut t, ()) = harness();
+        t.tick(0);
+        let token = last_probe(&t);
+        deliver(&mut t, input(0));
+        t.clock.advance(t.config.disconnect_after);
+        let _ = t.tick(0);
+        assert_eq!(t.disconnect_reason(), Some(DisconnectReason::PeerTimeout));
+
+        let sent_before = t.inner.sent.len();
+        deliver(
+            &mut t,
+            NetMessage::Quality {
+                ping_ms: 0,
+                frame_advantage: 9,
+                probe: 777,
+                echo: token,
+            },
+        );
+        assert_eq!(
+            t.inner.sent.len(),
+            sent_before,
+            "a torn-down session must not answer a probe"
+        );
+        assert_eq!(t.ping_ms(), None, "nor take a sample after teardown");
     }
 
     #[test]
