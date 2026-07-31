@@ -356,9 +356,17 @@ jobs:
       # coprocessor suites need gitignored commercial dumps and firmware, so they self-skip here
       # for free; they are listed anyway so the intent is explicit rather than inferred from an
       # omission, and so they start gating the moment a runner ever has that corpus.
+      #
+      # `--no-fail-fast` is load-bearing, not decoration. Cargo's default stops after the FIRST
+      # failing test binary, and it stops across binaries, not just within one — verified by
+      # injecting a failure into `save_state_backward_compat` and watching
+      # `save_state_determinism` never run at all. With ten suites here that would mean one broken
+      # golden hides the status of the other nine, so an author fixes one, pushes, and only then
+      # discovers the next: a serialized debug loop over a ~6-minute job. With the flag, every
+      # suite reports and the step still fails.
       - name: Run the golden vectors
         run: |
-          cargo test -p rustysnes-test-harness --features test-roms \
+          cargo test -p rustysnes-test-harness --features test-roms --no-fail-fast \
             --test accuracysnes_scenes \
             --test undisbeliever_golden \
             --test rainwarrior_golden \

@@ -614,6 +614,13 @@ pub struct RunAheadConfig {
     pub throttle_ms: f32,
 }
 
+/// The run-ahead budget throttle's default, in milliseconds.
+///
+/// Sits below the 16.64 ms NTSC deadline with headroom for present, UI, and audio, and is
+/// conservative against PAL's 20 ms too. Named rather than inlined so the value, the doc comment
+/// that justifies it, and the test that bounds it cannot drift apart.
+pub const DEFAULT_RUN_AHEAD_THROTTLE_MS: f32 = 14.0;
+
 impl Default for RunAheadConfig {
     /// Run-ahead off, **but the throttle armed** for whenever it is turned on.
     ///
@@ -624,13 +631,12 @@ impl Default for RunAheadConfig {
     /// `config.toml` — the one person who most needs it. Enabling a feature should not require
     /// separately discovering the knob that keeps it from stuttering.
     ///
-    /// 14 ms sits below the 16.64 ms NTSC deadline with headroom for present/UI/audio, and is
-    /// conservative against PAL's 20 ms too. An existing `config.toml` that already spells out
-    /// `throttle_ms` keeps whatever it says; only an absent field picks this up.
+    /// An existing `config.toml` that already spells out `throttle_ms` keeps whatever it says;
+    /// only an absent field picks [`DEFAULT_RUN_AHEAD_THROTTLE_MS`] up.
     fn default() -> Self {
         Self {
             frames: 0,
-            throttle_ms: 14.0,
+            throttle_ms: DEFAULT_RUN_AHEAD_THROTTLE_MS,
         }
     }
 }
@@ -928,6 +934,7 @@ mod tests {
         // their config.
         let cfg = RunAheadConfig::default();
         assert_eq!(cfg.frames, 0, "run-ahead must stay additive-default-off");
+        assert!(cfg.throttle_ms == DEFAULT_RUN_AHEAD_THROTTLE_MS);
         assert!(
             cfg.throttle_ms > 0.0,
             "the throttle must be armed by default, or enabling run-ahead silently ships \
