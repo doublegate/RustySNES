@@ -14,6 +14,7 @@
 //! bit-identically. `tests/determinism.rs` proves this over synthetic latency/jitter/packet-loss
 //! network conditions via [`transport::MemoryTransport`].
 
+pub mod diagnostics;
 pub mod message;
 pub mod rng;
 pub mod session;
@@ -24,6 +25,7 @@ pub mod udp;
 #[cfg(target_arch = "wasm32")]
 pub mod webrtc;
 
+pub use diagnostics::{CrcCompare, DesyncDiagnostics, DesyncStatus};
 pub use message::NetMessage;
 pub use session::{AdvanceOutcome, MAX_PLAYERS, NetplayError, RollbackSession, SessionConfig};
 pub use transport::Transport;

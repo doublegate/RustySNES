@@ -11,6 +11,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Netplay: one transient checksum mismatch no longer ends the session.** Until now the **first**
+  mismatch was a fatal `NetplayError::Desync`, and `app.rs` disconnected on it. That is too eager: a
+  burst-reordered pair of `Checksum` messages can momentarily disagree before the deferred
+  `compare_pending_checksums` pass reconciles them, so a transient network event ended a healthy
+  game.
+
+  New `rustysnes-netplay::diagnostics` records **every** comparison — matching ones included — and
+  folds them into one graded `DesyncStatus`: `InSync`, `Suspect { consecutive, first_desync_frame }`,
+  or `Desynced { first_desync_frame }` once three consecutive mismatches (~1.5 s at the default
+  30-frame interval) confirm it. The fatal error now fires only on `Desynced`, so a transient is
+  survived while a genuine divergence still ends the session — which it must, since a rollback
+  desync cannot recover without a full state resync. `Desynced` is **sticky**: a later stray match
+  resets the live run but never downgrades the verdict, because the condition cannot actually heal.
+
+  The remote **framebuffer hash was previously discarded** at the comparison site and is now kept,
+  which is what makes a mismatch diagnosable rather than merely alarming — same picture with a
+  different combined digest means a *timing* divergence; a different picture means a *state* one.
+
+  Purely observational: it only reads values the session already computed, holds no wall-clock, and
+  never feeds back into rollback, so determinism (`docs/adr/0004`) is untouched — `tests/determinism.rs`
+  still passes unchanged. The history ring is bounded at 64 entries but the first-diverging frame
+  and the counters are sticky scalars that survive eviction, so an hour-long session still reports
+  where it first broke.
+
+  New `tests/desync_hysteresis.rs` drives a real session against forged peer checksums. The
+  transient case asserts the forged value actually reached the comparator (`total == 1`,
+  `mismatches == 1`) so it cannot pass vacuously, and both it and the sustained-divergence control
+  were verified by re-injecting the old fail-on-first behaviour and confirming they fail. See the
+  new `docs/netplay.md`.
+
 - **The golden vectors ran in no pull-request job.** Only `lint`, `test-light`, and `accuracysnes`
   run on a PR; `test-light` never passes `--features test-roms`, and the `accuracysnes` job scoped
   itself to `--test accuracysnes`. So the **53 rendered-scene goldens and every framebuffer golden**
