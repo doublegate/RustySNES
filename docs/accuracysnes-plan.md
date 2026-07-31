@@ -480,8 +480,21 @@ not *impossible*.
 
 ### The Mesen oracle — the battery hangs at `A3.03` (`v1.29.0`)
 
-**Root cause found.** Under MesenCE the battery completes **14 of 335** tests and stops; snes9x runs
-all 335. Index 14 is **`A3.03` "PLD escapes, PLY not"**.
+**Stopping point found; root cause NOT yet.** Under MesenCE the battery writes **14 of 335** status
+bytes and stops; snes9x runs all 335. By catalogue order index 14 is `A3.03` "PLD escapes, PLY not",
+which made its stack handling the obvious suspect.
+
+**That hypothesis was tested and is wrong.** `A3.03` hand-loads `S` and then runs assertions that
+need the stack, so a core confining the stack differently would corrupt the return path rather than
+the verdict. It has been hardened accordingly — the caller's `S` is stashed and restored through long
+addressing before any assertion branches — and MesenCE still stops at **14**. The hardening is kept
+on its own merits (a row that hand-loads `S` and then asserts is fragile whatever the host does), but
+it is **not** the fix and must not be recorded as one.
+
+What remains unknown is what actually stalls at or after index 14. Two things to check next, in
+order: whether the status array is written in catalogue order at all — the whole index-to-test
+mapping rests on that and it has not been verified — and, if it is, what `A3.03` does that MesenCE
+does not return from, since the stack is no longer a candidate.
 
 Two earlier conclusions were wrong and are corrected here:
 

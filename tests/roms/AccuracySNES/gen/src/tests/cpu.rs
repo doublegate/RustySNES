@@ -749,7 +749,18 @@ fn a3_03() -> Test {
     let mut a = Asm::new();
     a.c("E=1, S=$01FF. PLD (new) pulls from $0200/$0201; PLY (old) pulls from $0100.");
     a.c("This pair is the cleanest test of the emulation-mode stack-confinement rule.");
+    a.c("");
+    a.c(
+        "BOTH halves hand-load S and then run an assertion, and an assertion needs the stack. On a",
+    );
+    a.c("core that confines the stack differently the divergence lands in the RETURN ADDRESS, not");
+    a.c("in the verdict, so the cart runs away instead of scoring -- and every later test is lost");
+    a.c("with it. That is exactly what MesenCE did: the battery stopped here, 14 of 335 in, and the");
+    a.c("host saw only an unattributed timeout. So the caller's S is stashed first and restored");
+    a.c("through long addressing (no stack) the instant the measured value is safely in WRAM.");
     a.l("rep #$30");
+    a.l("tsc");
+    a.l("sta f:$7E00C0     ; the caller's stack pointer, to be restored before any jsr/rts");
     a.l("sep #$20");
     a.l("lda #$AB");
     a.l("sta f:$7E0200");
@@ -766,11 +777,16 @@ fn a3_03() -> Test {
     a.enter_native();
     a.l("rep #$30");
     a.l("tdc");
+    a.l("sta f:$7E00C2     ; park the reading BEFORE touching the stack");
+    a.l("lda f:$7E00C0");
+    a.l("tcs               ; stack restored: the assertion below can safely branch");
+    a.l("lda f:$7E00C2");
     a.assert_a16(
         0xCDAB,
         "PLD did not pull from $0200/$0201 (it must escape page 1)",
     );
     a.c("--- PLY: must NOT escape ---");
+    a.l("rep #$30");
     a.l("lda #$0000");
     a.l("tcd");
     a.l("lda #$01FF");
@@ -779,6 +795,13 @@ fn a3_03() -> Test {
     a.l("ply               ; 8-bit index in emulation");
     a.enter_native();
     a.l("rep #$30");
+    a.c("STY/LDY have no long-addressing form, so the parking goes through A.");
+    a.l("tya");
+    a.l("sta f:$7E00C4     ; park Y before the stack is touched");
+    a.l("lda f:$7E00C0");
+    a.l("tcs               ; and restore the caller's stack");
+    a.l("lda f:$7E00C4");
+    a.l("tay");
     a.assert_y16(
         0x005E,
         "PLY escaped page 1 (old instructions must wrap to $0100)",

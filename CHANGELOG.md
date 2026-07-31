@@ -25,20 +25,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   two iOS-visible surfaces before submission, left for the maintainer to accept or reject rather
   than applied unilaterally.
 
-- **AccuracySNES: the Mesen oracle's root cause — the battery hangs at `A3.03`.** Under MesenCE it
-  completes **14 of 335** tests and stops; snes9x runs all 335. Index 14 is `A3.03` "PLD escapes,
-  PLY not".
+- **AccuracySNES: the Mesen oracle's stopping point, and a hardened `A3.03`.** Under MesenCE the
+  battery writes **14 of 335** status bytes and stops; snes9x runs all 335. By catalogue order index
+  14 is `A3.03` "PLD escapes, PLY not" — but hardening its stack handling did **not** move the
+  number, so that hypothesis is wrong and the root cause is still open.
 
   This corrects two earlier conclusions. It is **not** the frame budget (4000 fails as 900 did), and
   it is **not** the Lua-to-emulator memory bridge — the bridge works, and is how the 14 was counted,
   by scanning the per-test status array at timeout. The magic never reading `ACSN` was a symptom of
   the battery never getting far enough to write it.
 
-  `A3.03` sets `S = $01FF`, enters emulation and executes `PLD`, asserting it escapes page 1. The
-  test's own control flow then rides on that stack, so a core confining the stack differently
-  produces a wrong *return address* rather than a wrong verdict, and the cart runs away instead of
-  scoring. Fix direction recorded in `docs/accuracysnes-plan.md`: rows that hand-load `S` must
-  restore a known-good stack before anything that returns.
+  `A3.03` is hardened regardless, on its own merits: it hand-loads `S` and then runs assertions that
+  need the stack, so on a core confining the stack differently the divergence would land in the
+  return address rather than the verdict. The caller's `S` is now stashed and restored through long
+  addressing before any assertion branches. Generalised in the plan — rows that hand-load `S` must
+  restore a known-good stack before anything that returns — but it is not the oracle's fix.
 
 - **AccuracySNES: the Mesen2 oracle diagnosed, and a stale frame budget aligned.** Three `v1.28.0`
   items ended at "no oracle can arbitrate", so the headless runner was investigated rather than
