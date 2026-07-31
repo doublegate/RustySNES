@@ -60,8 +60,9 @@ jobs:
       # `ubuntu-latest` ships `$ANDROID_HOME` with `sdkmanager`, so this adds no new supply-chain
       # surface — the v1.26.0 hardening pass is the reason that matters here.
       #
-      # r27 is the floor: 16 KB page alignment became the NDK default there, and the gate below
-      # asserts it rather than assuming it.
+      # r27 is the floor. Note that pinning the NDK is NOT by itself what produces 16 KB-aligned
+      # libraries — see the build step below, which passes the alignment explicitly because the
+      # first CI run proved the NDK version does not decide it.
       - name: Install the NDK from the runner's Android SDK
         run: |
           set -euo pipefail
@@ -82,10 +83,30 @@ jobs:
 
       # `--build-std` is deliberately NOT used: the shipped build must be reproducible from a
       # stable toolchain, and `rust-toolchain.toml` pins 1.96 stable.
-      - name: Build the JNI libraries
+      #
+      # `max-page-size=16384` is passed EXPLICITLY rather than relied upon as an NDK default. This
+      # workflow's first CI run failed the gate below with 4 KB-aligned LOAD segments, and the
+      # cause was measured, not guessed: with the same NDK r27c, `cargo-ndk` 3.5.4 emits 0x1000 and
+      # 4.1.2 emits 0x4000 — the linker invocation decides it, not the NDK. Passing the flag makes
+      # the result independent of which `cargo-ndk` resolves, which a version range cannot promise.
+      # Applied to the 64-bit ABIs only, matching what the gate checks and what Play requires; the
+      # 32-bit libraries stay 4 KB by design.
+      - name: Build the JNI libraries (64-bit ABIs, 16 KB-aligned)
+        env:
+          RUSTFLAGS: "-C link-arg=-Wl,-z,max-page-size=16384"
         run: |
           cargo ndk \
-            -t arm64-v8a -t armeabi-v7a -t x86_64 -t x86 \
+            -t arm64-v8a -t x86_64 \
+            -o android/app/src/main/jniLibs \
+            build --release -p rustysnes-android
+
+      # Only the two 32-bit ABIs here. Re-listing the 64-bit ones would relink them without the
+      # flag above and overwrite the aligned output with 4 KB libraries — the gate would catch it,
+      # but silently undoing the previous step is worth not writing in the first place.
+      - name: Build the JNI libraries (32-bit ABIs)
+        run: |
+          cargo ndk \
+            -t armeabi-v7a -t x86 \
             -o android/app/src/main/jniLibs \
             build --release -p rustysnes-android
 
@@ -96,10 +117,12 @@ jobs:
       # The 16 KB page-alignment gate.
       #
       # Play requires every shipped `.so` to have 16 KB-aligned LOAD segments for devices with a
-      # 16 KB page size; a 4 KB-aligned library simply fails to load there. The NDK has defaulted
-      # to 16 KB since r27, so this is a REGRESSION gate rather than a porting task — it catches an
-      # NDK downgrade or a stray linker flag, which is exactly the sort of thing that would
-      # otherwise be found by a store rejection.
+      # 16 KB page size; a 4 KB-aligned library simply fails to load there.
+      #
+      # This gate earned its place on its first run: it failed, and the 4 KB libraries were real.
+      # It was written expecting to be a formality that confirmed an NDK default — the build step
+      # above records what the measurement actually showed. Treat a failure here as a genuine
+      # finding, not as a broken check.
       #
       # Checked on the 64-bit ABIs only: the requirement is a property of 64-bit page sizes, and
       # the 32-bit libraries are 4 KB-aligned by design.

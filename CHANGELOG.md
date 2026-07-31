@@ -93,10 +93,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   checks the APK actually carries each ABI.
 
   The alignment check is the store-facing one: Play requires 16 KB-aligned segments for 16 KB-page
-  devices and a 4 KB-aligned library simply fails to load there. The NDK has defaulted to 16 KB
-  since r27, so this is a **regression gate** — it catches an NDK downgrade or a stray linker flag,
-  which would otherwise surface as a store rejection. It fails closed if the `.so` glob matches
-  nothing, so a build that produces no libraries cannot pass it silently.
+  devices and a 4 KB-aligned library simply fails to load there. It fails closed if the `.so` glob
+  matches nothing, so a build that produces no libraries cannot pass it silently.
+
+  **It was written as a formality and immediately found a real defect.** The first CI run produced
+  4 KB-aligned `arm64-v8a` and `x86_64` libraries — exactly what Play rejects. The gate's own
+  comment had asserted that 16 KB was the NDK default from r27 onward, so the obvious reading was
+  that the check was broken. It was not. Reproduced locally and bisected: with the **same** NDK
+  r27c, `cargo-ndk` 3.5.4 emits `0x1000` and 4.1.2 emits `0x4000`. The alignment is decided by the
+  linker invocation, not by the NDK version — and the workflow pinned `cargo-ndk` to `^3`, which
+  resolved to 3.5.4. Fixed by passing `-C link-arg=-Wl,-z,max-page-size=16384` explicitly for the
+  64-bit ABIs (verified to produce `0x4000` under the failing 3.5.4), so the result no longer
+  depends on a tool default that a version range cannot promise. The 32-bit ABIs build in a
+  separate step and stay 4 KB by design.
 
   Deliberately two actions only, both already pinned in this repo: the NDK comes from the runner
   image's own `sdkmanager` and the JDK is preinstalled, rather than adding three third-party actions
