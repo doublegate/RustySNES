@@ -21,7 +21,12 @@ local COUNT  = BASE + 0x06
 local DONE   = BASE + 0x08
 local STATUS = BASE + 0x20
 
-local MAX_FRAMES = 900
+-- Bounds the same run as the in-repo harness's MAX_FRAMES (1500), mesen_scenes.lua's (4000) and
+-- libretro_crossval.c's max_frames (2000). This one was left at 900 when the others grew -- the
+-- harness comment naming the budgets that must move together does not list this file, which is how
+-- it was missed. It is NOT why this runner times out (4000 fails identically); see
+-- docs/accuracysnes-plan.md on the Mesen2 oracle.
+local MAX_FRAMES = 4000
 local frames = 0
 
 local function rd(a)

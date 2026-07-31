@@ -455,6 +455,34 @@ So nothing is asserted and nothing is recorded. What is known:
 The next attempt should start from a scratch build that dumps `$213F` before and after each step
 into slots verified unused, rather than from a folded variant that hides where the discrepancy is.
 
+### The Mesen2 oracle — diagnosed, not yet fixed (`v1.29.0`)
+
+Three `v1.28.0` items ended at "no oracle can arbitrate": `C7.07`'s errata, the scene goldens, and
+the *dot* half of `C7.05`. So the Mesen2 headless runner was investigated rather than accepted as
+"environmental". What is now established:
+
+- **The hang is genuinely pre-existing.** The `v1.25.0`-era cartridge image, restored from git and
+  run unmodified, times out identically. Nothing in the `v1.28.0` rows caused it.
+- **It is not the frame budget.** The battery needs ~431 frames on RustySNES (`MAX_FRAMES` 1500) and
+  snes9x is given 2000. Mesen2 still times out at **4000**.
+- **`mesen_crossval.lua`'s `MAX_FRAMES = 900` is nonetheless stale** — the harness comment naming the
+  three budgets that must move together lists `mesen_scenes.lua` (4000) and `libretro_crossval.c`,
+  but not `mesen_crossval.lua`, which is why it was missed. Worth fixing regardless; it is not the
+  cause.
+- **The Lua never observes `DONE = 0xA5`, and the results magic never reads as `ACSN`** — under
+  either `emu.memType.snesWorkRam` with a `$F000` offset (reads `$A1`) or `emu.memType.snesMemory`
+  with the full `$7EF000` address (reads `$52`). Neither is the expected `$41`. So the failure is in
+  the **Lua-to-emulator memory bridge, or the battery not executing**, and *not* a timeout — the
+  exit code 254 has been misreporting the cause all along.
+- **`emu.log` does not surface in `--testrunner` mode.** Diagnosis has to be smuggled out through the
+  process exit code (`emu.stop(value)`), which is how the two byte readings above were obtained.
+
+**Next step:** determine which of the two remaining explanations holds, by exiting with a byte the
+runtime writes *early* and whose value is known, then walking the address until it reads back. If the
+bridge is the problem the fix is a one-line `memType`/offset change; if the battery genuinely does
+not execute, that is a Mesen2 configuration question and a much larger one. Do not spend further
+effort on rows that need an arbiter until this resolves.
+
 ### v1.28.0 — what each remaining row actually needs, measured rather than assumed
 
 `A5.19` landed (below). Working the rest turned up that several rows filed as "needs no new

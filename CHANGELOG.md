@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES: the Mesen2 oracle diagnosed, and a stale frame budget aligned.** Three `v1.28.0`
+  items ended at "no oracle can arbitrate", so the headless runner was investigated rather than
+  accepted as environmental. Established: the hang is genuinely pre-existing (the `v1.25.0`-era image
+  times out identically); it is **not** the frame budget (the battery needs ~431 frames and 4000
+  still times out); the Lua never sees `DONE = 0xA5` and the results magic never reads as `ACSN`
+  under either `snesWorkRam`+offset (`$A1`) or `snesMemory`+full address (`$52`), so the failure is
+  in the **Lua-to-emulator memory bridge or the battery not executing**, not a timeout — exit code
+  254 has been misreporting the cause. `emu.log` does not surface in `--testrunner` mode, so
+  diagnosis has to go out through `emu.stop(value)`.
+
+  Not fixed. `docs/accuracysnes-plan.md` records the next step and says plainly not to spend further
+  effort on rows needing an arbiter until it resolves.
+
+  Separately real: `mesen_crossval.lua`'s `MAX_FRAMES` was **900** against the harness's 1500,
+  `mesen_scenes.lua`'s 4000 and `libretro_crossval.c`'s 2000. The harness comment naming the budgets
+  that must move together omitted this file, which is how it was missed. Aligned to 4000 and the
+  comment corrected — a latent inconsistency, not the cause of the hang.
+
 - **AccuracySNES: `C7.06` — Time Over reads set by `V = OBJ.YLOC + 1, H = 0`.** `C7` on-cart
   coverage 7 → 8 of 16.
 
