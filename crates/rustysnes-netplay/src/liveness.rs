@@ -42,6 +42,15 @@ pub trait Clock {
     fn now(&self) -> Instant;
 }
 
+/// A shared clock is a clock. Two [`LivenessTransport`]s wired to each other must read the *same*
+/// time — a per-peer copy would let each advance independently and make a round-trip measurement
+/// between them meaningless.
+impl<C: Clock + ?Sized> Clock for std::sync::Arc<C> {
+    fn now(&self) -> Instant {
+        (**self).now()
+    }
+}
+
 /// The real clock — [`Instant::now`].
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SystemClock;
@@ -185,20 +194,16 @@ pub struct LivenessTransport<T: Transport, C: Clock = SystemClock> {
     started: Instant,
     /// When anything last arrived from the peer.
     last_recv: Option<Instant>,
-    /// When the outstanding ping was emitted, and hence what an echo is measured against.
-    /// `None` means no ping is in flight — an arriving echo is then ignored rather than measured.
-    ping_sent_at: Option<Instant>,
-    /// When a ping was last *issued*, answered or not — paces the cadence independently of whether
-    /// one is still outstanding, so an abandoned ping does not trigger an immediate resend.
-    last_ping_issued: Option<Instant>,
-    /// How many abandoned pings may still have a reply in flight.
+    /// The outstanding probe's token and the instant it went out — what an echo carrying that
+    /// exact token is measured against. `None` means no probe is in flight.
     ///
-    /// `Quality` carries no sequence number, so an echo cannot be matched to a specific ping — only
-    /// to "the outstanding one". Once a ping is abandoned its reply may still arrive and would
-    /// otherwise be credited to whatever ping is outstanding *then*, reading as a near-zero round
-    /// trip. Each abandoned ping is counted here and swallows exactly one incoming echo before
-    /// measurement resumes.
-    orphaned_echoes: u32,
+    /// Matching by token is what makes a sample mean anything: a duplicate datagram, or a reply
+    /// that arrives after a newer probe has replaced this one, simply fails to match instead of
+    /// being credited to the wrong send time.
+    outstanding_probe: Option<(u32, Instant)>,
+    /// The token the next probe will carry. Never `0` on the wire — `0` is reserved for "not a
+    /// probe", which is what a reply sets so that a reply provokes no reply.
+    next_probe: u32,
     /// Smoothed round-trip estimate.
     smoothed_ping_ms: Option<f64>,
     /// The peer's most recently reported frame advantage.
@@ -227,9 +232,8 @@ impl<T: Transport, C: Clock> LivenessTransport<T, C> {
             config,
             started,
             last_recv: None,
-            ping_sent_at: None,
-            last_ping_issued: None,
-            orphaned_echoes: 0,
+            outstanding_probe: None,
+            next_probe: 1,
             smoothed_ping_ms: None,
             remote_frame_advantage: 0,
             disconnected: None,
@@ -257,42 +261,26 @@ impl<T: Transport, C: Clock> LivenessTransport<T, C> {
             self.disconnected = Some(DisconnectReason::HandshakeTimeout);
         }
 
-        // Only ONE ping may be outstanding at a time.
-        //
-        // `Quality` carries no sequence number, so an echo can only be matched to a ping by "the
-        // one that is outstanding". Sending a second while the first is unanswered breaks that: the
-        // late reply to the FIRST ping gets measured against the SECOND ping's send time and
-        // records a near-zero RTT that never happened. Raised in review, and real — it is exactly
-        // the case where the readout matters most, a slow link.
-        //
-        // So a ping is issued only when none is in flight. If one has been outstanding longer than
-        // `interrupt_after` it is abandoned rather than replaced: the marker is cleared, so a reply
-        // arriving later finds nothing to measure against and is ignored instead of producing a
-        // fabricated sample. Ping cadence therefore drops on a lossy link, which costs nothing —
-        // liveness is refreshed by ANY traffic, not by pings.
+        // Probe on a fixed cadence, replacing any unanswered predecessor rather than waiting it
+        // out. A probe carries a token; only an echo of *that* token is measured, so a stale reply
+        // to a replaced probe is unmatched rather than credited to the current one. That is the
+        // whole reason the token exists, and it is why the cadence can stay regular on a bad link
+        // instead of collapsing whenever a reply goes missing.
         if self.disconnected.is_none() {
-            let outstanding_for = self
-                .ping_sent_at
-                .map(|sent| now.saturating_duration_since(sent));
-            if outstanding_for.is_some_and(|d| d >= self.config.interrupt_after) {
-                self.ping_sent_at = None;
-                // Its reply may still be in flight; count it so it is swallowed rather than
-                // credited to the next ping.
-                self.orphaned_echoes = self.orphaned_echoes.saturating_add(1);
-            }
-            let due = self.ping_sent_at.is_none()
-                && self.last_ping_issued.is_none_or(|at| {
-                    now.saturating_duration_since(at) >= self.config.ping_interval
-                });
+            let due = self.outstanding_probe.is_none_or(|(_, at)| {
+                now.saturating_duration_since(at) >= self.config.ping_interval
+            });
             if due {
-                // The ping doubles as the echo request: the peer's own `Quality` reply is what
-                // closes the round trip. Nothing extra goes on the wire for RTT.
+                let probe = self.next_probe;
+                // Skip 0 on wraparound: 0 is the "not a probe" marker.
+                self.next_probe = self.next_probe.wrapping_add(1).max(1);
                 self.inner.send(&NetMessage::Quality {
                     ping_ms: self.ping_ms().unwrap_or(0),
                     frame_advantage: local_frame_advantage,
+                    probe,
+                    echo: 0,
                 });
-                self.ping_sent_at = Some(now);
-                self.last_ping_issued = Some(now);
+                self.outstanding_probe = Some((probe, now));
             }
         }
 
@@ -404,23 +392,40 @@ impl<T: Transport, C: Clock> Transport for LivenessTransport<T, C> {
 
         for m in &msgs {
             if let NetMessage::Quality {
-                frame_advantage, ..
+                frame_advantage,
+                probe,
+                echo,
+                ..
             } = m
             {
                 self.remote_frame_advantage = *frame_advantage;
-                // Swallow one echo per abandoned ping before measuring anything: that reply
-                // belongs to a ping we gave up on, and crediting it to the current one would read
-                // as a near-zero round trip.
-                if self.orphaned_echoes > 0 {
-                    self.orphaned_echoes -= 1;
-                    continue;
+                // Answer a probe immediately, here in `poll`, rather than folding the echo into
+                // the next scheduled `tick`. Deferring it would add this peer's own ping-interval
+                // phase to every measurement the *other* peer takes — which is precisely the bug
+                // this token pair replaced, just moved one hop away.
+                //
+                // The answer carries `probe: 0`, so it is not itself a probe and provokes nothing
+                // further. Two peers cannot ping-pong.
+                if *probe != 0 {
+                    self.inner.send(&NetMessage::Quality {
+                        ping_ms: self.ping_ms().unwrap_or(0),
+                        frame_advantage: 0,
+                        probe: 0,
+                        echo: *probe,
+                    });
                 }
-                // The peer's `Quality` closes the round trip our own ping opened. Take the sample
-                // once and clear the marker: a second echo for the same ping (a duplicated
-                // datagram) would otherwise measure from a stale send time and inflate the
-                // estimate.
-                if let Some(sent) = self.ping_sent_at.take() {
-                    self.record_rtt(now.saturating_duration_since(sent));
+                // Measure only an echo of the probe still outstanding, and consume it. A duplicated
+                // datagram therefore cannot produce a second sample from the same send time, and a
+                // reply that arrives after a newer probe replaced this one simply does not match.
+                if *echo != 0
+                    && self
+                        .outstanding_probe
+                        .is_some_and(|(token, _)| token == *echo)
+                {
+                    // `take` cannot be `None` here — `is_some_and` above just proved otherwise.
+                    if let Some((_, sent)) = self.outstanding_probe.take() {
+                        self.record_rtt(now.saturating_duration_since(sent));
+                    }
                 }
             }
         }
@@ -567,13 +572,99 @@ mod tests {
         assert_eq!(t.disconnect_reason(), Some(DisconnectReason::PeerTimeout));
     }
 
+    /// The token of the probe the decorator most recently emitted.
+    fn last_probe(t: &LivenessTransport<FakeTransport, ManualClock>) -> u32 {
+        t.inner
+            .sent
+            .iter()
+            .rev()
+            .find_map(|m| match m {
+                NetMessage::Quality { probe, .. } if *probe != 0 => Some(*probe),
+                _ => None,
+            })
+            .expect("a probe was emitted")
+    }
+
+    /// A well-formed answer to probe `token` — what a peer's `poll` sends back.
+    fn answer(token: u32) -> NetMessage {
+        NetMessage::Quality {
+            ping_ms: 0,
+            frame_advantage: 0,
+            probe: 0,
+            echo: token,
+        }
+    }
+
     #[test]
-    fn rtt_is_measured_from_our_ping_to_the_peers_echo() {
+    fn two_peers_actually_close_the_round_trip() {
+        // The load-bearing test, and the one whose absence hid the original defect: the first
+        // revision measured RTT against "the next Quality that happens to arrive", and *nothing
+        // ever replied to a Quality*. Each peer merely emitted its own probe on its own interval,
+        // so the number reported was the phase offset between two timers. Every test covering it
+        // injected a scripted reply by hand and so agreed with the bug.
+        //
+        // This one wires two real decorators together, so the answer has to be one the
+        // implementation itself produces.
+        let (ia, ib) = MemoryTransport::ideal_pair();
+        let clock = std::sync::Arc::new(ManualClock::new());
+        let mut a =
+            LivenessTransport::with_clock_and_config(ia, std::sync::Arc::clone(&clock), tight());
+        let mut b =
+            LivenessTransport::with_clock_and_config(ib, std::sync::Arc::clone(&clock), tight());
+
+        a.tick(0); // A probes.
+        clock.advance_ms(20); // one-way flight
+        let _ = b.poll(); // B receives the probe and answers it, unprompted.
+        clock.advance_ms(20); // the answer flies back
+        let _ = a.poll(); // A matches the echo.
+
+        assert_eq!(
+            a.ping_ms(),
+            Some(40),
+            "the round trip must be measured end to end, not against a scheduled probe"
+        );
+        assert_eq!(
+            b.ping_ms(),
+            None,
+            "answering a probe is not itself a measurement"
+        );
+    }
+
+    #[test]
+    fn an_answer_provokes_no_answer() {
+        // The termination argument for replying inside `poll`: an answer carries `probe: 0`, so it
+        // is not a probe. Without that the two peers would trade Quality messages forever, at
+        // whatever rate the frame loop polls.
+        let (ia, ib) = MemoryTransport::ideal_pair();
+        let clock = std::sync::Arc::new(ManualClock::new());
+        let mut a =
+            LivenessTransport::with_clock_and_config(ia, std::sync::Arc::clone(&clock), tight());
+        let mut b =
+            LivenessTransport::with_clock_and_config(ib, std::sync::Arc::clone(&clock), tight());
+
+        a.tick(0);
+        for _ in 0..8 {
+            clock.advance_ms(1);
+            let _ = b.poll();
+            let _ = a.poll();
+        }
+        // A sent one probe; B sent exactly one answer to it and nothing further.
+        assert_eq!(a.ping_ms(), Some(1), "the round trip still completed");
+        assert_eq!(
+            b.ping_ms(),
+            None,
+            "B never probed, so B has nothing to measure — and never entered a ping-pong"
+        );
+    }
+
+    #[test]
+    fn rtt_is_measured_from_our_probe_to_its_matching_echo() {
         let (mut t, ()) = harness();
-        // `tick` emits the ping (none sent yet, so one is due immediately).
+        // `tick` emits the probe (none sent yet, so one is due immediately).
         t.tick(0);
         assert_eq!(t.inner.sent.len(), 1);
-        assert!(matches!(t.inner.sent[0], NetMessage::Quality { .. }));
+        let token = last_probe(&t);
+        assert_ne!(token, 0, "a probe token is never 0 — 0 means 'not a probe'");
 
         t.clock.advance_ms(40);
         deliver(
@@ -581,6 +672,8 @@ mod tests {
             NetMessage::Quality {
                 ping_ms: 0,
                 frame_advantage: 3,
+                probe: 0,
+                echo: token,
             },
         );
         assert_eq!(t.ping_ms(), Some(40), "first sample is taken unsmoothed");
@@ -588,7 +681,29 @@ mod tests {
     }
 
     #[test]
-    fn rtt_is_smoothed_so_the_readout_does_not_flicker() {
+    fn an_echo_of_a_different_token_is_not_measured() {
+        // The whole point of the token. Without this check any arriving Quality is a "reply",
+        // which is how the original revision measured a number that meant nothing.
+        let (mut t, ()) = harness();
+        t.tick(0);
+        let token = last_probe(&t);
+        t.clock.advance_ms(40);
+        deliver(&mut t, answer(token.wrapping_add(77)));
+        assert_eq!(
+            t.ping_ms(),
+            None,
+            "a foreign echo must produce no sample at all"
+        );
+        // ...and the real one still matches afterwards, so the guard is not simply refusing
+        // everything.
+        deliver(&mut t, answer(token));
+        assert_eq!(t.ping_ms(), Some(40));
+    }
+
+    #[test]
+    fn a_peers_own_probe_is_not_mistaken_for_an_answer() {
+        // Both peers probe on their own interval, so an incoming *probe* is the common case. It
+        // must refresh liveness and be answered, but never be measured as a round trip.
         let (mut t, ()) = harness();
         t.tick(0);
         t.clock.advance_ms(40);
@@ -597,21 +712,43 @@ mod tests {
             NetMessage::Quality {
                 ping_ms: 0,
                 frame_advantage: 0,
+                probe: 9999,
+                echo: 0,
             },
         );
+        assert_eq!(
+            t.ping_ms(),
+            None,
+            "the peer's own probe closes no round trip of ours"
+        );
+        assert!(
+            t.inner.sent.iter().any(|m| matches!(
+                m,
+                NetMessage::Quality {
+                    probe: 0,
+                    echo: 9999,
+                    ..
+                }
+            )),
+            "but it must be answered, or the peer can never measure anything"
+        );
+    }
+
+    #[test]
+    fn rtt_is_smoothed_so_the_readout_does_not_flicker() {
+        let (mut t, ()) = harness();
+        t.tick(0);
+        t.clock.advance_ms(40);
+        let token = last_probe(&t);
+        deliver(&mut t, answer(token));
         assert_eq!(t.ping_ms(), Some(40));
 
         // A single 240ms spike must move the estimate a little, not to 240.
         t.clock.advance(t.config.ping_interval);
         t.tick(0);
         t.clock.advance_ms(240);
-        deliver(
-            &mut t,
-            NetMessage::Quality {
-                ping_ms: 0,
-                frame_advantage: 0,
-            },
-        );
+        let token = last_probe(&t);
+        deliver(&mut t, answer(token));
         let smoothed = t.ping_ms().expect("a sample exists");
         assert!(
             (60..=100).contains(&smoothed),
@@ -625,92 +762,48 @@ mod tests {
         // an RTT that never happened.
         let (mut t, ()) = harness();
         t.tick(0);
+        let token = last_probe(&t);
         t.clock.advance_ms(40);
-        deliver(
-            &mut t,
-            NetMessage::Quality {
-                ping_ms: 0,
-                frame_advantage: 0,
-            },
-        );
+        deliver(&mut t, answer(token));
         let first = t.ping_ms().expect("a sample");
 
         t.clock.advance_ms(400);
-        deliver(
-            &mut t,
-            NetMessage::Quality {
-                ping_ms: 0,
-                frame_advantage: 0,
-            },
-        );
+        deliver(&mut t, answer(token));
         assert_eq!(
             t.ping_ms(),
             Some(first),
-            "the second echo for the same ping must be ignored"
+            "the second copy of the same echo must be ignored"
         );
     }
 
     #[test]
     fn a_late_echo_cannot_record_a_fabricated_near_zero_rtt() {
-        // Raised in review, and real. `Quality` carries no sequence number, so an echo is matched
-        // to "the outstanding ping". Sending a second ping while the first is unanswered would
-        // measure the FIRST ping's late reply against the SECOND ping's send time — a near-zero
-        // RTT that never happened, on exactly the slow link where the readout matters most.
+        // Raised in review, and real. An echo matched positionally to "whatever probe is
+        // outstanding" credits a slow link's late reply to the newest probe's send time — a
+        // near-zero RTT that never happened, at exactly the moment the readout matters most.
+        // The token makes it simply not match.
         let (mut t, ()) = harness();
         t.tick(0);
-        assert_eq!(t.inner.sent.len(), 1, "one ping issued");
+        let stale = last_probe(&t);
 
-        // A full ping interval passes with no echo. A second ping must NOT go out while the first
-        // is still outstanding and still inside the abandon window.
+        // A full interval passes with no answer; the next probe replaces the outstanding one.
         t.clock.advance(t.config.ping_interval);
         t.tick(0);
-        assert_eq!(
-            t.inner.sent.len(),
-            1,
-            "no second ping may be in flight alongside the first"
-        );
+        let fresh = last_probe(&t);
+        assert_ne!(stale, fresh, "each probe carries its own token");
 
-        // The first ping's reply finally lands, 150ms after it was sent.
-        t.clock.advance_ms(50);
-        deliver(
-            &mut t,
-            NetMessage::Quality {
-                ping_ms: 0,
-                frame_advantage: 0,
-            },
-        );
+        // The FIRST probe's reply finally lands, right after the second went out.
+        deliver(&mut t, answer(stale));
         assert_eq!(
             t.ping_ms(),
-            Some(150),
-            "the sample must be measured against the ping it actually answers"
+            None,
+            "a reply to a replaced probe must produce no sample rather than a fabricated ~0ms"
         );
-    }
 
-    #[test]
-    fn an_abandoned_ping_is_not_measured_when_its_reply_finally_arrives() {
-        // The other half: once a ping has been outstanding past `interrupt_after` it is abandoned
-        // rather than replaced, so a much-later reply finds no marker and produces no sample at
-        // all — better than a fabricated one.
-        let (mut t, ()) = harness();
-        t.tick(0);
-        t.clock
-            .advance(t.config.interrupt_after + Duration::from_millis(10));
-        t.tick(0); // abandons the stale ping and issues a fresh one
-
-        // The ORIGINAL ping's reply arrives immediately after the fresh ping went out. It must not
-        // be credited to the fresh ping as a ~0ms round trip.
-        deliver(
-            &mut t,
-            NetMessage::Quality {
-                ping_ms: 0,
-                frame_advantage: 0,
-            },
-        );
-        let measured = t.ping_ms();
-        assert!(
-            measured.is_none_or(|ms| ms > 0),
-            "a reply credited to the wrong ping would read as ~0ms; got {measured:?}"
-        );
+        // The fresh probe's own reply is measured normally.
+        t.clock.advance_ms(30);
+        deliver(&mut t, answer(fresh));
+        assert_eq!(t.ping_ms(), Some(30));
     }
 
     #[test]
@@ -726,23 +819,13 @@ mod tests {
         );
         t.tick(0);
         t.clock.advance_ms(40);
-        deliver(
-            &mut t,
-            NetMessage::Quality {
-                ping_ms: 0,
-                frame_advantage: 0,
-            },
-        );
+        let token = last_probe(&t);
+        deliver(&mut t, answer(token));
         t.clock.advance(t.config.ping_interval);
         t.tick(0);
         t.clock.advance_ms(80);
-        deliver(
-            &mut t,
-            NetMessage::Quality {
-                ping_ms: 0,
-                frame_advantage: 0,
-            },
-        );
+        let token = last_probe(&t);
+        deliver(&mut t, answer(token));
 
         let ms = t.ping_ms().expect("a sample exists");
         assert!(

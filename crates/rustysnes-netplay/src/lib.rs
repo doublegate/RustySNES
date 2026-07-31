@@ -28,7 +28,8 @@ pub mod webrtc;
 
 pub use diagnostics::{CrcCompare, DesyncDiagnostics, DesyncStatus};
 pub use liveness::{
-    Clock, DisconnectReason, LivenessConfig, LivenessTransport, ManualClock, PeerLink, SystemClock,
+    Clock, DEFAULT_PING_SMOOTHING, DisconnectReason, LivenessConfig, LivenessTransport,
+    ManualClock, PeerLink, SystemClock,
 };
 pub use message::NetMessage;
 pub use session::{AdvanceOutcome, MAX_PLAYERS, NetplayError, RollbackSession, SessionConfig};

@@ -154,19 +154,31 @@ dropped.
 
 ### RTT
 
-The `Quality` ping doubles as the echo request — the peer's own reply closes the round trip, so
-nothing extra goes on the wire. Samples feed an EWMA at weight 0.2, because the number is shown to a
-human: unsmoothed, the readout flickers with every packet. A duplicated datagram cannot inflate the
-estimate, because the send marker is consumed by the first echo.
+`Quality` carries a **probe/echo token pair**, and `PROTOCOL_VERSION` was bumped to 2 for it. A
+probe sets `probe` to a nonzero token and `echo` to 0; the receiver answers *immediately, inside
+`poll`* with the mirror image — `probe: 0`, `echo: <that token>`. An answer is therefore not itself
+a probe, which is the termination argument: two peers cannot ping-pong.
 
-**At most one ping is outstanding at a time, and a ping is abandoned once the link grades
-`Interrupted`.** Without that, a reply arriving after a long stall is matched against whichever send
-marker is current rather than against its own, and the readout reports a *fabricated near-zero RTT
-at the exact moment the connection is worst* — the one moment the number has to be trusted.
-Abandoning alone is not enough either: abandon a ping and immediately issue the next one, and the
-stale reply matches the new marker. An `orphaned_echoes` counter therefore swallows exactly one echo
-per abandoned ping. Both halves are pinned by tests, the second of which caught the first fix being
-incomplete.
+**The first revision had no token and measured nothing.** It matched a reply to a ping positionally
+— "whichever probe is outstanding" — and *nothing in the crate ever replied to a `Quality`*:
+`RollbackSession` explicitly ignored it, and each peer's own `LivenessTransport` emitted probes on
+its own independent 1 s timer. So the packet a peer counted as its echo was simply the other side's
+next scheduled probe, and the reported "RTT" was the phase offset between two timers plus one-way
+latency. Every test covering it injected a hand-written reply and so agreed with the bug; the
+present `two_peers_actually_close_the_round_trip` wires two real decorators together precisely so
+the answer has to be one the implementation itself produces.
+
+The token also subsumes two hazards the earlier revision handled with extra state:
+
+- a **duplicated datagram** cannot produce a second sample, because the outstanding probe is
+  consumed by the first matching echo;
+- a **reply that arrives a generation late** does not match the newer probe's token, so it produces
+  no sample rather than a fabricated near-zero RTT at the exact moment the connection is worst —
+  the one moment the number has to be trusted.
+
+Because a stale reply is now harmless, probing can stay on a fixed cadence rather than stalling
+whenever a reply goes missing. Samples feed an EWMA at weight 0.2, because the number is shown to a
+human: unsmoothed, the readout flickers with every packet.
 
 `ping_smoothing` is read from config, so it is treated as untrusted: NaN falls back to the default
 weight and anything else is clamped to `0.0..=1.0`. `f64::clamp` returns NaN for NaN rather than
@@ -179,7 +191,7 @@ be NaN, with no way back.
 means `thread::sleep` in tests — slow, and flaky under CI load precisely because the thresholds
 being tested are short. (The sibling project's equivalent test does exactly that.) With
 `ManualClock` the whole state machine is driven instantly: a 5-second peer timeout is exercised in
-microseconds and cannot fail because a runner was busy. Fifteen tests, no sleeps.
+microseconds and cannot fail because a runner was busy. Eighteen tests, no sleeps.
 
 `ManualClock` holds its offset in an `AtomicU64` rather than a `Cell`, which makes it `Sync`. A
 non-`Sync` clock would make `LivenessTransport<T, ManualClock>` non-`Sync` too, so a test could not

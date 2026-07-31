@@ -32,14 +32,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   would let a peer streaming input perfectly grade as `Interrupted` because its pings happened to be
   the packets that dropped.
 
-  RTT reuses the `Quality` ping as its own echo request, so nothing extra goes on the wire, and
-  feeds an EWMA because the number is shown to a human and an unsmoothed readout flickers with every
-  packet. A duplicated datagram cannot inflate it.
+  RTT is measured over a **probe/echo token pair** carried by `Quality` (`PROTOCOL_VERSION` → 2). A
+  probe sets a nonzero `probe`; the receiver answers immediately with `probe: 0, echo: <token>`, so
+  an answer is not itself a probe and two peers cannot ping-pong. Matching on the token means a
+  duplicated datagram produces no second sample and a reply that arrives a generation late produces
+  none at all, rather than a fabricated near-zero RTT at the moment the connection is worst. Samples
+  feed an EWMA because the number is shown to a human and an unsmoothed readout flickers with every
+  packet.
 
   **The clock is injected** (`Clock`, `SystemClock`, `ManualClock`). Testing timeouts against the
   wall clock means `thread::sleep` in tests — slow, and flaky under CI load precisely because the
   thresholds under test are short. With a manual clock the state machine is driven instantly: a
-  5-second peer timeout is exercised in microseconds. Eleven tests, no sleeps. See `docs/netplay.md`.
+  5-second peer timeout is exercised in microseconds. Eighteen tests, no sleeps, including one that
+  wires two real decorators together so the echo has to be one the implementation itself produces.
+  See `docs/netplay.md`.
 
 ### Fixed
 
