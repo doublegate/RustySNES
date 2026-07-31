@@ -478,7 +478,7 @@ accumulating quantisation from four measurements, and still well short of `A5.19
 stays parked, on corrected arithmetic rather than a wrong figure; the honest verdict is *borderline*,
 not *impossible*.
 
-### The Mesen2 oracle — diagnosed, not yet fixed (`v1.29.0`)### The Mesen2 oracle — diagnosed, not yet fixed (`v1.29.0`)
+### The Mesen2 oracle — diagnosed, not yet fixed (`v1.29.0`)
 
 Three `v1.28.0` items ended at "no oracle can arbitrate": `C7.07`'s errata, the scene goldens, and
 the *dot* half of `C7.05`. So the Mesen2 headless runner was investigated rather than accepted as
