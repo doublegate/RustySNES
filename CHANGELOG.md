@@ -24,13 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Not fixed. `docs/accuracysnes-plan.md` records the next step and says plainly not to spend further
   effort on rows needing an arbiter until it resolves.
 
-  Also flagged there: the **"~189-dot instrument overhead"** asserted in the `v1.28.0` assessment is
-  an *unverified attribution*. The intercept is real (241 dots at 4 RTIs, 293 at 8), but reading
-  `hv_begin`/`hv_end` says only ~30 dots of it should be inside the delta — the line-start sync
-  stores its own poll reading as the start marker, so it sits *before* the latch. Every shipped
-  result is a differential where the intercept cancels, so none is in doubt; what rests on the figure
-  is the `A5.18` parking decision, which would be **wrong** if the true overhead is nearer 30. One
-  five-line test — `measure_begin` immediately followed by `measure_end` — settles it.
+  Also settled there: the instrument's fixed cost, **measured at 175 dots** (`measure_begin`
+  immediately followed by `measure_end`), with 8 `NOP`s costing exactly 28 dots marginal — so its
+  marginal accuracy is exact and only the intercept is large. `A5.19`'s 189-dot intercept *is* the
+  instrument, and the `v1.28.0` assessment was right. The corrected span budget is `341 - 175 = 166`
+  dots, which moves a `BRK` round trip from 3 iterations to 4; `A5.18` stays parked on that
+  arithmetic rather than on a disputed figure.
 
   Separately real: `mesen_crossval.lua`'s `MAX_FRAMES` was **900** against the harness's 1500,
   `mesen_scenes.lua`'s 4000 and `libretro_crossval.c`'s 2000. The harness comment naming the budgets

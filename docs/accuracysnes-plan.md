@@ -455,30 +455,30 @@ So nothing is asserted and nothing is recorded. What is known:
 The next attempt should start from a scratch build that dumps `$213F` before and after each step
 into slots verified unused, rather than from a folded variant that hides where the discrepancy is.
 
-### The "~189-dot instrument overhead" is an unverified attribution (`v1.29.0`)
+### The instrument's fixed cost is ~175 dots — measured (`v1.29.0`)
 
-**Flagged rather than left standing.** The measurement is real: `A5.19`'s native arm reads 241 dots
-at 4 RTIs and 293 at 8, so the marginal cost is 13 dots/RTI and the **intercept is 189**. What is
-*not* established is that those 189 dots are the instrument.
+**Measured, after an earlier revision of this section wrongly called the figure into doubt.** The
+empty span — `measure_begin` immediately followed by `measure_end`, nothing between — is **175
+dots**. A control in the same probe put 8 `NOP`s at exactly **28 dots** marginal (8 x 14 clocks / 4),
+so the instrument's *marginal* accuracy is exact; only its fixed cost is large.
 
-Reading `hv_begin`/`hv_end` says they should not be. `hv_begin` does synchronise to line start — it
-polls `hv_read_raw` until `H < 16` — but it stores **that poll's own reading** as the start marker,
-so the sync sits *before* the latch, not inside the delta. What is genuinely inside is `hv_begin`'s
-tail after the latch (`sta`/`pla`/`plp`/`rts`) plus `hv_end`'s head before its latch
-(`php`/`rep`/`cld`/`pha` and `hv_read_raw`'s ten instructions) — on the order of **30 dots**, not 190.
+That settles it: `A5.19`'s 189-dot intercept **is** the instrument (175, plus ~14 for the two no-op
+`clc`/`xce` pairs inside its span). The `v1.28.0` assessment was right the first time.
 
-So ~160 dots are unaccounted for, and the honest position is that nobody has measured the empty
-span. **The next step is one test**: `measure_begin` immediately followed by `measure_end`, recorded
-to a slot. That number is the instrument's real cost, and it is a five-line test.
+The doubt came from reading `hv_begin`/`hv_end` and estimating "only ~30 dots should be inside the
+delta". That estimate was simply bad arithmetic: the pair runs ~70-90 CPU *cycles* between the two
+latches (`sta f:`, `php`/`plp`, `pha`/`pla`, two `jsr`/`rts` pairs, and `hv_read_raw`'s eleven
+instructions), and a cycle is 6-8 master clocks — **1.5-2 dots each**, not the ~0.4 the estimate
+implied. Counting instructions instead of cycles is what produced the discrepancy.
 
-**What this does and does not put in doubt.** Every shipped result is a *differential* — `A5.19`'s
-16-dot delta, `A5.08`'s penalties, the sweep — and the intercept cancels in all of them, whatever it
-is. Those stand. What rests on the 189 figure is the **`A5.18` parking decision**: "341 minus 189
-leaves ~152 usable, a `BRK` round trip is 39 dots, so only 3 fit". If the true overhead is nearer 30,
-the budget is ~310 dots and **8 round trips fit** — which would make `A5.18` viable exactly as first
-designed, and its parking wrong. Measure the empty span before revisiting it.
+**The corrected span budget is `341 - 175 = 166` dots**, slightly more generous than the 152 the
+`A5.18` note assumed. That moves a `BRK` round trip (39 dots) from 3 iterations to **4**, giving 8
+dots of signal against `TOL` 2 — better than the 6 that parked it, still a difference-of-differences
+accumulating quantisation from four measurements, and still well short of `A5.19`'s 16. `A5.18`
+stays parked, on corrected arithmetic rather than a wrong figure; the honest verdict is *borderline*,
+not *impossible*.
 
-### The Mesen2 oracle — diagnosed, not yet fixed (`v1.29.0`)
+### The Mesen2 oracle — diagnosed, not yet fixed (`v1.29.0`)### The Mesen2 oracle — diagnosed, not yet fixed (`v1.29.0`)
 
 Three `v1.28.0` items ended at "no oracle can arbitrate": `C7.07`'s errata, the scene goldens, and
 the *dot* half of `C7.05`. So the Mesen2 headless runner was investigated rather than accepted as
