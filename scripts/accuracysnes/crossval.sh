@@ -156,7 +156,14 @@ ran=0
 #   (range evaluation walks OAM two cycles per sprite). RustySNES's per-dot position is anchored to
 #   MesenCE on the *line* by scripts/probes/eval-line-213e; the *dot* itself is documentation-anchored
 #   only, because the Mesen2 headless runner times out in this environment. Region-independent.
-SNES9X_KNOWN_FAILURES=13
+# snes9x, +1 test (C7.06 "TimeOver by YLOC+1", fails phase A with code 1): the same scanline-granular
+#   sprite model as C7.05, seen from the other side. The row requires Time Over to be clear while the
+#   sprites' OWN line is being evaluated (V = 100) and set once the line they paint on has begun
+#   (V = 101 = YLOC + 1); snes9x already reads it set on V = 100, i.e. it flags the tile-budget
+#   overflow a line early because it evaluates and paints in the same pass. The 20-sprite/8x8 control
+#   passes there, so this is the position being wrong, not the budget. Documented by nocash fullsnes
+#   and the SNESdev Wiki (34-tile budget, raised by the fetch phase). Region-independent.
+SNES9X_KNOWN_FAILURES=14
 
 # --- snes9x, via the libretro host --------------------------------------------------------------
 if [[ -f $SNES9X ]]; then

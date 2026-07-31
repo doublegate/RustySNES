@@ -11,6 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES: `C7.06` — Time Over reads set by `V = OBJ.YLOC + 1, H = 0`.** `C7` on-cart
+  coverage 7 → 8 of 16.
+
+  **8x8 sprites can never reach Time Over.** The budget is 34 tiles per line but range evaluation
+  stops at the 33rd in-range sprite, so 8x8 caps at 32 — under the limit, permanently. Twenty 16x16
+  sprites give 40 tiles while staying under the 32-sprite range limit, which also keeps the two flags
+  independently observable: the row asserts Time Over sets while Range Over stays **clear**, so a
+  core raising them together fails.
+
+  The bracket runs across the line boundary rather than within a line, since the asserted position is
+  fixed and there is no index to sweep — clear on the eval line `V = 100`, set on `V = 101`. Phase B
+  samples on line 101 deliberately: RustySNES raises the flag at `HBLANK_START_DOT` of the eval line,
+  *earlier* than the assertion requires, and pinning that dot would fail a core raising it at
+  `(101, 0)` exactly, which the assertion permits.
+
+  A low-tile control (the same 20 sprites at 8x8, 20 tiles) must read clear at phase B's sampling
+  point, or "set" would only have meant "sprites are present". Four injections, each failing its own
+  code: flagging on any sprite fails code 4 (the control), never setting fails code 2, and setting at
+  dot 0 fails code 1.
+
+  snes9x fails it and is recorded as an expected divergence (`SNES9X_KNOWN_FAILURES` 13 → 14): it
+  already reads Time Over set on `V = 100`, flagging the overflow a line early because it evaluates
+  and paints in one pass. The control passes there, so the position is wrong, not the budget.
+
 - **AccuracySNES: `C7.05` — Range Over trips at the 33rd in-range sprite's evaluation cycle,
   `H = OAM.INDEX * 2`.** A fixed bracket would be vacuous: an H-IRQ is serviced ~22-27 dots after its
   `HTIME`, so one tight enough to pin dot 65 is inside the latency's own uncertainty and one loose
