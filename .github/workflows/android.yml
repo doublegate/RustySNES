@@ -6,15 +6,19 @@ on:
     paths:
       - "crates/rustysnes-android/**"
       - "crates/rustysnes-mobile/**"
+      - "crates/rustysnes-monetization/**"
       - "crates/rustysnes-gfx-shaders/**"
       - "android/**"
+      - "Cargo.lock"
       - ".github/workflows/android.yml"
   pull_request:
     paths:
       - "crates/rustysnes-android/**"
       - "crates/rustysnes-mobile/**"
+      - "crates/rustysnes-monetization/**"
       - "crates/rustysnes-gfx-shaders/**"
       - "android/**"
+      - "Cargo.lock"
       - ".github/workflows/android.yml"
   schedule:
     # A ~60-day refresh, matching `ios.yml`'s cadence and for the same reason: the NDK and the
@@ -98,7 +102,7 @@ jobs:
           cargo ndk \
             -t arm64-v8a -t x86_64 \
             -o android/app/src/main/jniLibs \
-            build --release -p rustysnes-android
+            build --release -p rustysnes-android -p rustysnes-mobile -p rustysnes-monetization
 
       # Only the two 32-bit ABIs here. Re-listing the 64-bit ones would relink them without the
       # flag above and overwrite the aligned output with 4 KB libraries — the gate would catch it,
@@ -108,7 +112,7 @@ jobs:
           cargo ndk \
             -t armeabi-v7a -t x86 \
             -o android/app/src/main/jniLibs \
-            build --release -p rustysnes-android
+            build --release -p rustysnes-android -p rustysnes-mobile -p rustysnes-monetization
 
       - name: Show what was produced
         run: find android/app/src/main/jniLibs -name '*.so' -printf '%p  %s bytes\n' | sort
@@ -169,8 +173,15 @@ jobs:
       # `assembleDebug`, not `assembleRelease`: a release build needs signing material this
       # workflow deliberately does not hold (see `docs/mobile-readiness.md`). What this proves is
       # that the Kotlin sources, the manifest, and the freshly built `.so`s package together.
+      # `RUSTFLAGS` again, because Gradle's own `cargoNdkBuild` task re-runs `cargo ndk` for all
+      # three crates and does NOT inherit the flag from the steps above -- it inherits this process
+      # environment instead. Without it the APK ships 4 KB-aligned libraries even though the
+      # standalone build above produced 16 KB ones, which is exactly the false pass the APK-level
+      # gate below now catches.
       - name: Assemble the debug APK
         working-directory: android
+        env:
+          RUSTFLAGS: "-C link-arg=-Wl,-z,max-page-size=16384"
         run: ./gradlew --no-daemon assembleDebug
 
       - name: Confirm the APK carries every ABI
@@ -187,6 +198,44 @@ jobs:
               exit 1
             fi
           done
+
+      # The authoritative alignment gate: the APK is what ships, and it carries THREE libraries per
+      # ABI (`librustysnes_android.so`, `librustysnes_mobile.so`, `librustysnes_monetization.so`),
+      # built by Gradle's own `cargoNdkBuild`. The earlier jniLibs gate checks a pre-Gradle build and
+      # would pass while the packaged libraries were misaligned -- a false pass CodeRabbit caught on
+      # this PR. Both are kept: the early one fails fast, this one is the truth.
+      - name: Assert 16 KB page alignment inside the APK
+        run: |
+          set -euo pipefail
+          apk=$(find android -name '*-debug.apk' | head -1)
+          [ -n "$apk" ] || { echo "::error::no debug APK was produced"; exit 1; }
+          work=$(mktemp -d)
+          unzip -q "$apk" 'lib/*' -d "$work"
+          fail=0
+          checked=0
+          for abi in arm64-v8a x86_64; do
+            for so in "$work/lib/$abi"/*.so; do
+              [ -e "$so" ] || { echo "::error::the APK has no .so for $abi"; exit 1; }
+              checked=$((checked + 1))
+              bad=$(readelf -lW "$so" \
+                    | awk '$1 == "LOAD" { print $NF }' \
+                    | grep -vc '0x4000$' || true)
+              if [ "$bad" -ne 0 ]; then
+                echo "::error::$(basename "$so") ($abi) has $bad LOAD segment(s) not 16 KB aligned"
+                readelf -lW "$so" | awk '$1 == "LOAD"'
+                fail=1
+              else
+                echo "ok: $abi/$(basename "$so")"
+              fi
+            done
+          done
+          # Three libraries times two 64-bit ABIs. Pinned rather than left as "more than zero", so
+          # a packaging change that silently drops one is a failure and not a quieter pass.
+          if [ "$checked" -ne 6 ]; then
+            echo "::error::expected 6 64-bit libraries in the APK, checked $checked"
+            exit 1
+          fi
+          exit "$fail"
 
       - name: Upload the APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

@@ -114,6 +114,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   user-level `~/.gradle/gradle.properties`. Now committed, with `enableJetifier` explicitly off
   (there are no legacy support-library artifacts to rewrite) and a raised Kotlin daemon heap.
 
+  **The alignment gate was itself checking the wrong artifacts, and CodeRabbit caught it.** The APK
+  carries **three** libraries per ABI (`librustysnes_android.so`, `librustysnes_mobile.so`,
+  `librustysnes_monetization.so`), all built by Gradle's own `cargoNdkBuild` — while the workflow's
+  standalone pre-build produced only `rustysnes-android`, and Gradle's task did not inherit the
+  alignment flag. So the gate could pass on libraries that never ship while the ones that do ship
+  were 4 KB aligned. Fixed on both sides: the pre-build now covers all three crates, the Gradle step
+  carries `RUSTFLAGS`, and a second gate runs over the **assembled APK's** `lib/` — pinned at exactly
+  six 64-bit libraries so a packaging change that drops one fails rather than passing more quietly.
+  `Cargo.lock` and `crates/rustysnes-monetization/**` are now in the path filters too.
+
   Deliberately two actions only, both already pinned in this repo: the NDK comes from the runner
   image's own `sdkmanager` and the JDK is preinstalled, rather than adding three third-party actions
   to the supply-chain surface the `v1.26.0` pass tightened. `assembleDebug`, not release — signing
