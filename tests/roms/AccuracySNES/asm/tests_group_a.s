@@ -4166,6 +4166,216 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A5.19 — RTI 7 native, 6 emul
+; provenance: Documented (WDC datasheet instruction-operation table; docs/accuracysnes-timing-oracle.md)
+.proc test_a5_19
+    .a16
+    .i16
+    ; Chain eight RTIs through one instruction. Both spans run the instrument natively and
+    ; contain identical non-RTI code; only the mode the RTIs execute in differs.
+    ; --- native: 4-byte frames ---
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    sep #$30
+    .a8
+    .i8
+    ; The exit frame goes on FIRST, so it is pulled LAST.
+    lda #$00
+    pha               ; PBR
+    lda #>.loword(@done)
+    pha               ; PCH
+    lda #<.loword(@done)
+    pha               ; PCL
+    lda #$34
+    pha               ; P: m=1, x=1, I=1
+    lda #$00
+    pha
+    lda #>.loword(@spin)
+    pha
+    lda #<.loword(@spin)
+    pha
+    lda #$34
+    pha
+    lda #$00
+    pha
+    lda #>.loword(@spin)
+    pha
+    lda #<.loword(@spin)
+    pha
+    lda #$34
+    pha
+    lda #$00
+    pha
+    lda #>.loword(@spin)
+    pha
+    lda #<.loword(@spin)
+    pha
+    lda #$34
+    pha
+    lda #$00
+    pha
+    lda #>.loword(@spin)
+    pha
+    lda #<.loword(@spin)
+    pha
+    lda #$34
+    pha
+    lda #$00
+    pha
+    lda #>.loword(@spin)
+    pha
+    lda #<.loword(@spin)
+    pha
+    lda #$34
+    pha
+    lda #$00
+    pha
+    lda #>.loword(@spin)
+    pha
+    lda #<.loword(@spin)
+    pha
+    lda #$34
+    pha
+    lda #$00
+    pha
+    lda #>.loword(@spin)
+    pha
+    lda #<.loword(@spin)
+    pha
+    lda #$34
+    pha
+    jsr hv_begin
+    ; A no-op clc/xce, present only so this span matches the emulation one instruction for
+    ; instruction. Removing it here would put the mode switch's own cost into the result.
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+@spin:
+    rti
+@done:
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E0098     ; native baseline
+    ; record slot 253: 8x RTI, native (7 cycles each)
+    sta f:$7EE3FA
+    ; --- emulation: 3-byte frames, same chain ---
+    ; Enter emulation once out here purely to force S into page 1, so the frames are pushed
+    ; where the in-span re-entry will still find them; SH stays $01 on the way back out.
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    lda #>.loword(@edone)
+    pha               ; PCH
+    lda #<.loword(@edone)
+    pha               ; PCL
+    lda #$34
+    pha               ; P
+    lda #>.loword(@espin)
+    pha
+    lda #<.loword(@espin)
+    pha
+    lda #$34
+    pha
+    lda #>.loword(@espin)
+    pha
+    lda #<.loword(@espin)
+    pha
+    lda #$34
+    pha
+    lda #>.loword(@espin)
+    pha
+    lda #<.loword(@espin)
+    pha
+    lda #$34
+    pha
+    lda #>.loword(@espin)
+    pha
+    lda #<.loword(@espin)
+    pha
+    lda #$34
+    pha
+    lda #>.loword(@espin)
+    pha
+    lda #<.loword(@espin)
+    pha
+    lda #$34
+    pha
+    lda #>.loword(@espin)
+    pha
+    lda #<.loword(@espin)
+    pha
+    lda #$34
+    pha
+    lda #>.loword(@espin)
+    pha
+    lda #<.loword(@espin)
+    pha
+    lda #$34
+    pha
+    jsr hv_begin
+    sec
+    xce               ; -> emulation
+    .a8
+    .i8
+@espin:
+    rti
+@edone:
+    clc
+    xce               ; -> native (m/x stay 1: still 8-bit)
+    .a8
+    .i8
+    jsr hv_end
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E009A
+    ; record slot 254: 8x RTI, emulation (6 cycles each)
+    sta f:$7EE3FC
+    rep #$20
+    .a16
+    lda f:$7E0098
+    sec
+    sbc f:$7E009A
+    ; record slot 255: 8x (native - emulation), expect 16
+    sta f:$7EE3FE
+    cmp #$000E
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0013
+    bcc :+
+    jmp @fail1
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; RTI did not cost one extra stack pull in native mode (7 vs 6)
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; A6.11 — WAI wakes, no vector
 ; provenance: Documented (WDC datasheet: WAI wakes on the interrupt line; I gates the vector)
 .proc test_a6_11
@@ -32800,7 +33010,7 @@ apu_prog_112:
 .export _test_flags
 
 _test_count:
-    .word 332
+    .word 333
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -32875,6 +33085,7 @@ _test_entries:
     .faraddr test_a3_06
     .faraddr test_a5_09
     .faraddr test_a5_10
+    .faraddr test_a5_19
     .faraddr test_a6_11
     .faraddr test_a8_07
     .faraddr test_a6_12
@@ -33210,6 +33421,7 @@ _test_flags:
     .byte $01   ; A3.06
     .byte $01   ; A5.09
     .byte $01   ; A5.10
+    .byte $01   ; A5.19
     .byte $01   ; A6.11
     .byte $01   ; A8.07
     .byte $02   ; A6.12
@@ -33545,6 +33757,7 @@ _test_names:
     .addr @n_a3_06
     .addr @n_a5_09
     .addr @n_a5_10
+    .addr @n_a5_19
     .addr @n_a6_11
     .addr @n_a8_07
     .addr @n_a6_12
@@ -34019,6 +34232,9 @@ _test_names:
 @n_a5_10:
     .byte 18
     .byte "+1 x width penalty"
+@n_a5_19:
+    .byte 20
+    .byte "RTI 7 native, 6 emul"
 @n_a6_11:
     .byte 20
     .byte "WAI wakes, no vector"
@@ -35028,7 +35244,7 @@ _page_len:
     .byte 10
     .byte 10
     .byte 10
-    .byte 5
+    .byte 6
     .byte 10
     .byte 4
     .byte 5
@@ -35082,48 +35298,48 @@ _page_off:
     .word 59
     .word 69
     .word 79
-    .word 84
-    .word 94
-    .word 98
-    .word 103
-    .word 110
-    .word 114
-    .word 123
-    .word 129
-    .word 139
-    .word 149
+    .word 85
+    .word 95
+    .word 99
+    .word 104
+    .word 111
+    .word 115
+    .word 124
+    .word 130
+    .word 140
     .word 150
-    .word 153
-    .word 156
-    .word 160
-    .word 162
-    .word 166
-    .word 171
-    .word 181
-    .word 184
-    .word 189
+    .word 151
+    .word 154
+    .word 157
+    .word 161
+    .word 163
+    .word 167
+    .word 172
+    .word 182
+    .word 185
     .word 190
-    .word 200
-    .word 205
-    .word 211
-    .word 218
-    .word 228
-    .word 232
-    .word 242
-    .word 244
-    .word 253
-    .word 259
-    .word 261
-    .word 271
-    .word 273
-    .word 283
-    .word 285
-    .word 295
-    .word 302
-    .word 308
-    .word 318
-    .word 321
-    .word 331
+    .word 191
+    .word 201
+    .word 206
+    .word 212
+    .word 219
+    .word 229
+    .word 233
+    .word 243
+    .word 245
+    .word 254
+    .word 260
+    .word 262
+    .word 272
+    .word 274
+    .word 284
+    .word 286
+    .word 296
+    .word 303
+    .word 309
+    .word 319
+    .word 322
+    .word 332
 
 _page_tests:
     .word 0
@@ -35145,7 +35361,7 @@ _page_tests:
     .word 11
     .word 54
     .word 63
-    .word 78
+    .word 79
     .word 12
     .word 13
     .word 14
@@ -35163,8 +35379,8 @@ _page_tests:
     .word 62
     .word 64
     .word 65
-    .word 74
     .word 75
+    .word 76
     .word 24
     .word 25
     .word 26
@@ -35175,7 +35391,7 @@ _page_tests:
     .word 50
     .word 69
     .word 70
-    .word 297
+    .word 71
     .word 298
     .word 299
     .word 300
@@ -35210,6 +35426,7 @@ _page_tests:
     .word 329
     .word 330
     .word 331
+    .word 332
     .word 30
     .word 31
     .word 32
@@ -35220,10 +35437,10 @@ _page_tests:
     .word 37
     .word 49
     .word 56
-    .word 71
-    .word 73
-    .word 76
+    .word 72
+    .word 74
     .word 77
+    .word 78
     .word 38
     .word 39
     .word 40
@@ -35235,37 +35452,36 @@ _page_tests:
     .word 57
     .word 60
     .word 66
-    .word 72
+    .word 73
     .word 45
     .word 46
     .word 51
     .word 53
-    .word 79
     .word 80
     .word 81
     .word 82
     .word 83
     .word 84
     .word 85
-    .word 119
-    .word 121
     .word 86
-    .word 113
+    .word 120
+    .word 122
+    .word 87
     .word 114
     .word 115
     .word 116
     .word 117
-    .word 87
+    .word 118
     .word 88
     .word 89
     .word 90
     .word 91
     .word 92
     .word 93
-    .word 118
-    .word 120
-    .word 124
     .word 94
+    .word 119
+    .word 121
+    .word 125
     .word 95
     .word 96
     .word 97
@@ -35274,9 +35490,9 @@ _page_tests:
     .word 100
     .word 101
     .word 102
-    .word 125
-    .word 126
     .word 103
+    .word 126
+    .word 127
     .word 104
     .word 105
     .word 106
@@ -35286,37 +35502,37 @@ _page_tests:
     .word 110
     .word 111
     .word 112
-    .word 122
+    .word 113
     .word 123
-    .word 127
+    .word 124
     .word 128
-    .word 144
-    .word 145
     .word 129
-    .word 131
+    .word 145
     .word 146
-    .word 147
-    .word 149
     .word 130
     .word 132
+    .word 147
+    .word 148
+    .word 150
+    .word 131
     .word 133
     .word 134
     .word 135
     .word 136
     .word 137
     .word 138
-    .word 148
-    .word 150
-    .word 151
-    .word 153
-    .word 154
     .word 139
+    .word 149
+    .word 151
+    .word 152
+    .word 154
+    .word 155
     .word 140
     .word 141
     .word 142
     .word 143
-    .word 152
-    .word 155
+    .word 144
+    .word 153
     .word 156
     .word 157
     .word 158
@@ -35325,26 +35541,26 @@ _page_tests:
     .word 161
     .word 162
     .word 163
-    .word 168
+    .word 164
     .word 169
     .word 170
     .word 171
     .word 172
     .word 173
-    .word 164
+    .word 174
     .word 165
     .word 166
     .word 167
-    .word 174
+    .word 168
     .word 175
     .word 176
-    .word 224
+    .word 177
     .word 225
     .word 226
     .word 227
     .word 228
     .word 229
-    .word 177
+    .word 230
     .word 178
     .word 179
     .word 180
@@ -35352,45 +35568,45 @@ _page_tests:
     .word 182
     .word 183
     .word 184
-    .word 195
-    .word 209
+    .word 185
+    .word 196
     .word 210
-    .word 217
+    .word 211
     .word 218
     .word 219
-    .word 185
+    .word 220
     .word 186
     .word 187
     .word 188
-    .word 197
+    .word 189
     .word 198
-    .word 213
+    .word 199
     .word 214
     .word 215
     .word 216
-    .word 271
+    .word 217
     .word 272
-    .word 189
+    .word 273
     .word 190
-    .word 196
-    .word 211
+    .word 191
+    .word 197
     .word 212
-    .word 220
+    .word 213
     .word 221
     .word 222
     .word 223
-    .word 191
+    .word 224
     .word 192
-    .word 267
+    .word 193
     .word 268
     .word 269
     .word 270
-    .word 193
+    .word 271
     .word 194
-    .word 199
+    .word 195
     .word 200
     .word 201
-    .word 235
+    .word 202
     .word 236
     .word 237
     .word 238
@@ -35399,21 +35615,21 @@ _page_tests:
     .word 241
     .word 242
     .word 243
-    .word 202
+    .word 244
     .word 203
     .word 204
     .word 205
     .word 206
     .word 207
-    .word 230
+    .word 208
     .word 231
-    .word 244
+    .word 232
     .word 245
     .word 246
     .word 247
-    .word 208
-    .word 232
     .word 248
+    .word 209
+    .word 233
     .word 249
     .word 250
     .word 251
@@ -35425,16 +35641,16 @@ _page_tests:
     .word 257
     .word 258
     .word 259
-    .word 264
+    .word 260
     .word 265
     .word 266
-    .word 233
+    .word 267
     .word 234
-    .word 260
+    .word 235
     .word 261
     .word 262
     .word 263
-    .word 273
+    .word 264
     .word 274
     .word 275
     .word 276
@@ -35458,3 +35674,4 @@ _page_tests:
     .word 294
     .word 295
     .word 296
+    .word 297

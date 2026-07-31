@@ -11,6 +11,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES: `A5.19` — `RTI` costs 7 cycles native and 6 emulation.** The extra native cycle is
+  the PBR pull, an 8-clock WRAM read rather than a 6-clock internal cycle, so eight iterations differ
+  by 16 dots. Group A on-cart coverage goes 12 → 13 of 15 in `A5`.
+
+  The RTIs are chained through **one** `rti` instruction: every return frame is built before
+  `measure_begin`, all returning to the `@spin` label that is the `rti` itself, except the
+  first-pushed one — pulled last — which returns to `@done`. The measured span therefore holds
+  nothing but the RTIs, with no loop counter or branch inside it.
+
+  Three traps on the way, all recorded in `docs/accuracysnes-plan.md` §`A5.19`. The 341-dot line
+  wrap returned native **42** against emulation **76** — the native reading smaller, the arithmetic
+  opposite of the assertion — diagnosed by measuring at two repeat counts and reading the slope.
+  `rep` cannot clear `m` while `E = 1`, so `measure_result`'s 16-bit arithmetic silently ran 8-bit
+  and pinned the reading at a constant regardless of repeat count. And the one that forced the
+  design: `hv_begin`/`hv_end` run at the caller's register width, so the instrument's own overhead
+  **does not cancel across a mode boundary** — every other `A5` differential compares two spans in
+  the same mode. The `xce` pairs now sit inside the span, so both arms run the instrument natively
+  and differ only in the mode the RTIs execute in.
+
+  Verified by injection at the site the row names: making native `RTI` advance `S` without paying
+  the bus cycle collapses the difference to exactly 0 and fails the row. snes9x's divergence count
+  is unchanged, so it passes the row as well.
+
 - **Netplay: a connection-quality readout, a graded desync banner, and a disconnect that actually
   fires.** The two preceding entries built the machinery; nothing in the frontend read it. The
   session's transport is now wrapped in `LivenessTransport` and ticked once per frame from

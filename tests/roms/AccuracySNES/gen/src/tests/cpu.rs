@@ -95,6 +95,7 @@ pub fn all() -> Vec<Test> {
         a3_06(),
         a5_09(),
         a5_10(),
+        a5_19(),
         a6_11(),
         a8_07(),
         a6_12(),
@@ -2585,7 +2586,8 @@ fn a9_02() -> Test {
 // sequence is repeated 16 times: 16 cycles = 96 clocks = 24 dots, well clear of the counter's
 // +/-1 dot resolution.
 //
-// `DOTS_PER_16_CYCLES` is the expected delta for a one-cycle-per-iteration difference.
+// The expected delta for a one-cycle-per-iteration difference depends on what that cycle IS:
+// `DOTS_PER_8_INTERNAL` for an internal cycle, `DOTS_PER_8_STACK_ACCESSES` for a stack access.
 // ---------------------------------------------------------------------------------------------
 
 /// Dots elapsed per 8 extra *internal* CPU cycles: 8 x 6 master clocks / 4 clocks-per-dot.
@@ -2593,12 +2595,155 @@ fn a9_02() -> Test {
 /// below expects a different figure.
 const DOTS_PER_8_INTERNAL: u16 = 12;
 
+/// Dots elapsed per 8 extra **stack accesses**: 8 x 8 master clocks / 4 clocks-per-dot.
+///
+/// The stack lives in WRAM, so a push or pull is an 8-clock access rather than a 6-clock internal
+/// cycle. `A5.19`'s extra native cycle is exactly one such pull, so the delta it expects is this
+/// and not `DOTS_PER_8_INTERNAL`.
+const DOTS_PER_8_STACK_ACCESSES: u16 = 16;
+
 /// Tolerance on every timing comparison, in dots.
 ///
 /// Measured, not guessed: eight runs of an identical sequence span exactly one dot, which is the
 /// irreducible quantisation of a 6/8-master-clock CPU cycle against a 4-clock dot. Two dots is
 /// therefore generous; anything wider would start to blur "the penalty applied" into "it did not".
 const TOL: u16 = 2;
+
+/// `RTI` costs 7 cycles in native mode and 6 in emulation (`A5.19`).
+///
+/// The extra native cycle is the **PBR pull**: a native return frame is four bytes (P, PCL, PCH,
+/// PBR) and an emulation frame is three. So the difference is one stack access — an 8-clock WRAM
+/// read, not a 6-clock internal cycle, which is why this expects
+/// [`DOTS_PER_8_STACK_ACCESSES`] rather than [`DOTS_PER_8_INTERNAL`].
+///
+/// # Why the frames are chained rather than looped
+///
+/// A single `RTI` differs by 2 dots between the two modes, which is exactly [`TOL`] — not a signal
+/// at all. It has to be repeated, and `RTI` jumps, so the obvious repetition is a loop whose
+/// branch and counter land *inside* the measured span. Those cost the same in both modes and would
+/// cancel, but they also dominate it: the property under test would be a few percent of what is
+/// being measured.
+///
+/// Instead the frames are all built **before** `measure_begin`, every one of them returning to the
+/// same `@spin` label, which is the `rti` itself. The span then contains nothing but eight
+/// `RTI` executions. The last frame — pushed **first**, so it is pulled **last** — returns to
+/// `@done` instead, which is how the chain terminates.
+///
+/// # The mode switch has to come before the pushes
+///
+/// Entering emulation forces `SH = $01`. Pushing frames while native at some `S` outside page 1
+/// and *then* switching would truncate the stack pointer out from under them, and the first `RTI`
+/// would pull whatever happened to be at `$01xx`. Switch first, push second.
+///
+/// # Eight, not sixteen
+///
+/// `hv_begin`/`hv_end` difference the H counter, which wraps at `DOTS_PER_LINE` (341), so a span
+/// that outlives its scanline silently returns a small number instead of failing — the same trap
+/// `A5.08` records. The first draft used sixteen RTIs, a ~200-dot span, and came back with native
+/// **42** dots against emulation **76**: both wrapped, and the native reading was *smaller* than
+/// the emulation one, which is the arithmetic opposite of the assertion. Eight RTIs is a ~104-dot
+/// native span against ~88 emulation, with 16 dots of signal against a tolerance of 2.
+///
+/// The pushed `P` keeps `m = x = 1` so the assembler's `.a8`/`.i8` state still describes the CPU
+/// after the chain unwinds; `RTI` restores P from the frame, so a frame with the width bits clear
+/// would desync the two silently.
+fn a5_19() -> Test {
+    let mut a = Asm::new();
+    a.c("Chain eight RTIs through one instruction. Both spans run the instrument natively and");
+    a.c("contain identical non-RTI code; only the mode the RTIs execute in differs.");
+
+    a.c("--- native: 4-byte frames ---");
+    a.enter_native();
+    a.l("sep #$30");
+    a.c("The exit frame goes on FIRST, so it is pulled LAST.");
+    a.l("lda #$00");
+    a.l("pha               ; PBR");
+    a.l("lda #>.loword(@done)");
+    a.l("pha               ; PCH");
+    a.l("lda #<.loword(@done)");
+    a.l("pha               ; PCL");
+    a.l("lda #$34");
+    a.l("pha               ; P: m=1, x=1, I=1");
+    a.repeat(
+        7,
+        &[
+            "lda #$00",
+            "pha",
+            "lda #>.loword(@spin)",
+            "pha",
+            "lda #<.loword(@spin)",
+            "pha",
+            "lda #$34",
+            "pha",
+        ],
+    );
+    a.measure_begin();
+    a.c("A no-op clc/xce, present only so this span matches the emulation one instruction for");
+    a.c("instruction. Removing it here would put the mode switch's own cost into the result.");
+    a.enter_native();
+    a.label("spin");
+    a.l("rti");
+    a.label("done");
+    a.enter_native();
+    a.measure_end();
+    a.measure_result();
+    a.l("sta f:$7E0098     ; native baseline");
+    a.record(253, "8x RTI, native (7 cycles each)");
+
+    a.c("--- emulation: 3-byte frames, same chain ---");
+    a.c("Enter emulation once out here purely to force S into page 1, so the frames are pushed");
+    a.c("where the in-span re-entry will still find them; SH stays $01 on the way back out.");
+    a.enter_emulation();
+    a.enter_native();
+    a.l("lda #>.loword(@edone)");
+    a.l("pha               ; PCH");
+    a.l("lda #<.loword(@edone)");
+    a.l("pha               ; PCL");
+    a.l("lda #$34");
+    a.l("pha               ; P");
+    a.repeat(
+        7,
+        &[
+            "lda #>.loword(@espin)",
+            "pha",
+            "lda #<.loword(@espin)",
+            "pha",
+            "lda #$34",
+            "pha",
+        ],
+    );
+    a.measure_begin();
+    a.enter_emulation();
+    a.label("espin");
+    a.l("rti");
+    a.label("edone");
+    a.enter_native();
+    a.measure_end();
+    a.measure_result();
+    a.l("sta f:$7E009A");
+    a.record(254, "8x RTI, emulation (6 cycles each)");
+
+    a.l("rep #$20");
+    a.l("lda f:$7E0098");
+    a.l("sec");
+    a.l("sbc f:$7E009A");
+    a.record(255, "8x (native - emulation), expect 16");
+    a.assert_a16_range(
+        DOTS_PER_8_STACK_ACCESSES - TOL,
+        DOTS_PER_8_STACK_ACCESSES + TOL,
+        "RTI did not cost one extra stack pull in native mode (7 vs 6)",
+    );
+    a.finish(
+        "A5.19",
+        'A',
+        "RTI 7 native, 6 emul",
+        Provenance::Documented(
+            "WDC datasheet instruction-operation table; docs/accuracysnes-timing-oracle.md",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
 
 /// The `+1 w` penalty: direct-page addressing costs an extra cycle when `DL != 0`.
 ///
