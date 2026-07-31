@@ -478,6 +478,32 @@ accumulating quantisation from four measurements, and still well short of `A5.19
 stays parked, on corrected arithmetic rather than a wrong figure; the honest verdict is *borderline*,
 not *impossible*.
 
+### Group E — surveyed, and no quick row remains (`v1.29.0`)
+
+Checked before starting, so the next attempt does not repeat the survey. **None of the 34 remaining
+rows is reachable with the emitter set `gen/src/spc.rs` currently has.** They split two ways, and
+both need building first:
+
+- **Rows needing new SPC700 opcodes.** `spc.rs` carries only opcodes a committed test already
+  exercises — timer, GAIN/envelope and echo/FIR coefficient ops are all absent. Every new encoding
+  must be checked against `crates/rustysnes-apu/src/spc700_exec.rs`'s dispatch table, because an
+  unverified byte surfaces as an *emulator disagreement* rather than an assembler error, which is
+  the most expensive way to be wrong here.
+- **Rows needing a DSP observable that does not exist.** `E4.05` (BRR kick index sequence), `E5.06`
+  (15-bit accumulator wrap), `E7.02` (counter offset table — needs two voices at different rates to
+  reveal the implied phase) and `E8.01` (KON/KOFF polled every second sample) are all *internal* to
+  the DSP. The cart reaches the APU through four bytes at `$2140`-`$2143`, and none of these is
+  visible through that channel without first building a way to see it.
+
+`E1.11` deserves a specific warning because it looks like the easy one and is not. "`TSET1`/`TCLR1`
+read the target twice" against a read-sensitive `$FD`-`$FF` timer counter: both a single-read and a
+double-read implementation leave the counter at zero, and the write-back targets a **read-only**
+register — so the ordinary observables are identical. That is the unobservable shape this document
+warns about elsewhere.
+
+**Order: build the emitters or the observable first, then author rows.** Picking a row and
+discovering mid-way that it needs machinery is how the `D2.08` and `A5.20` attempts were lost.
+
 ### The Mesen oracle — the battery hangs at `A3.03` (`v1.29.0`)
 
 **Stopping point found; root cause NOT yet.** Under MesenCE the battery writes **14 of 335** status
