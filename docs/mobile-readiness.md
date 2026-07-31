@@ -270,8 +270,8 @@ here so a future go/no-go review has a concrete checklist, not a vague "more pol
     `xcodebuild` build proves the code compiles, not that it behaves correctly at runtime
   - TestFlight distribution signing secrets provisioned (the `ios.yml` upload step is currently
     an explicit no-op pending these)
-  - The App Store §4.7 self-audit (user-sourced ROM import only, no Nintendo trademark exposure
-    in Super Scope/peripheral naming or art) — flagged as still-fresh in `v1.16.0`'s scope, not
+  - ~~The App Store §4.7 self-audit~~ — **done, `v1.30.0`; see §4.7 audit below.** Two of the three
+    risk classes are clean; the third has findings the maintainer must decide on. Originally
     yet formally re-confirmed against the shipped UI
 - **Both platforms:** the store-submission readiness assessment itself — an explicit, written
   maintainer review against this checklist, not an implicit "it built, so it's ready" inference.
@@ -292,3 +292,64 @@ same NAMED risk (`docs/adr/0002`, the fractional-timebase refactor) — already 
 since (`FORMAT_VERSION` last bumped `v0.9.0`, five stable minors plus the entire
 `v1.5.0`-`v1.13.0` ladder shipped since). The mobile track does not need to wait on this; it's a
 fact informing risk, not an open decision.
+
+---
+
+## App Store §4.7 self-audit (`v1.30.0`)
+
+§4.7 governs apps that execute code the user supplies. The three things a reviewer looks for, each
+checked against the shipped tree rather than against intent.
+
+### 1. ROM acquisition — clean
+
+`RustySnesCore::load_rom(rom: Vec<u8>)` takes bytes **from the caller**. There is no download, no
+fetch, no bundled cartridge, and no URL of any kind in `rustysnes-mobile` or `rustysnes-android`:
+
+```
+$ grep -rinE 'download|http://|https://.*\.(sfc|smc|zip)|fetch.*rom' \
+    crates/rustysnes-mobile/src crates/rustysnes-android/src
+(no matches)
+```
+
+The app cannot obtain content on the user's behalf, which is the substance of the requirement.
+
+### 2. Bundled copyrighted content — clean
+
+The game database ships **empty**. It is loaded from a user-supplied file at runtime; there is no
+`include_str!` of a title list. The three "Super Mario World" strings in `game_db.rs` are a doc
+comment (line 6) and two test fixtures inside `mod tests` (lines 241, 249) — none reaches a binary.
+
+`tests/roms/` commits only the permissive homebrew corpus; the commercial dumps are gitignored, as
+`CLAUDE.md` requires.
+
+### 3. Trademark exposure — **findings, maintainer decision needed**
+
+This is the part that is *not* clean, and it should be decided rather than assumed.
+
+| where | string |
+|---|---|
+| `cli.rs:60` | "a cycle-accurate SNES / Super Famicom emulator" |
+| `cli.rs:61`, `cli.rs:351` | "Super Nintendo Entertainment System" |
+| `ui_shell.rs:942`, `ui_shell.rs:1723` | "A cycle-accurate Super Nintendo / Super Famicom emulator" |
+| `ui_shell.rs:1534` | peripheral picker label "Super Scope" |
+
+"Super Nintendo Entertainment System", "Super Famicom" and "Super Scope" are Nintendo trademarks.
+Naming the hardware you emulate is ordinary nominative use and is how essentially every emulator
+describes itself — but App Store review is conservative here, and §4.7 rejections have historically
+cited exactly this.
+
+**What is already right:** the app's own identity carries no Nintendo mark. `android:label` and
+`PRODUCT_NAME` are both `RustySNES`; the bundle IDs are `com.doublegate.rustysnes` and
+`com.doublegate.*`. Nothing is passing itself off as a Nintendo product.
+
+**Recommendation, for the maintainer to accept or reject:** keep the marks in the *desktop* CLI and
+About text, where no store reviews them, and soften the two **iOS-visible** surfaces before
+submission — the About dialog string and the "Super Scope" label. "SNES / Super Famicom" and
+"light gun" carry the same meaning to a user while removing the full marks from the reviewed
+surface. This is a judgement call about review risk, not a legal conclusion, and it is deliberately
+left as a recommendation rather than applied.
+
+### Not covered by this audit
+
+Anything requiring a running app on a device — the touch UX for Mouse/Super Scope/Multitap does not
+exist yet, so its naming and art could not be audited. Re-run item 3 once it does.

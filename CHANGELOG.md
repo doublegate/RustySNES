@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **App Store §4.7 self-audit done (`v1.30.0`).** Checked against the shipped tree rather than
+  against intent. Two of the three risk classes are clean: there is **no ROM acquisition path**
+  (`load_rom` takes bytes from the caller; no download, fetch or URL anywhere in the mobile crates),
+  and **no bundled copyrighted content** (the game DB ships empty and is user-loaded; the three
+  "Super Mario World" strings are a doc comment and two test fixtures, none reaching a binary).
+
+  The third has **findings**: "Super Nintendo Entertainment System", "Super Famicom" and "Super
+  Scope" appear in user-facing strings. The app's own identity is clean — `android:label` and
+  `PRODUCT_NAME` are `RustySNES`, bundle IDs are `com.doublegate.*` — so nothing passes itself off
+  as a Nintendo product, and naming the emulated hardware is ordinary nominative use. But App Store
+  review is conservative here. `docs/mobile-readiness.md` records a **recommendation** to soften the
+  two iOS-visible surfaces before submission, left for the maintainer to accept or reject rather
+  than applied unilaterally.
+
 - **AccuracySNES: the Mesen2 oracle diagnosed, and a stale frame budget aligned.** Three `v1.28.0`
   items ended at "no oracle can arbitrate", so the headless runner was investigated rather than
   accepted as environmental. Established: the hang is genuinely pre-existing (the `v1.25.0`-era image
