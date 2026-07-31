@@ -9,6 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Netplay: peer liveness, round-trip time, and connection timeouts.** The crate previously had
+  **no liveness handling at all** — no clock anywhere in it, no handshake timeout (an absent `Sync`
+  stalled `advance()` forever), and `NetMessage::Quality`, which carries the peer's ping and frame
+  advantage, was received and explicitly discarded. A peer that unplugged its cable simply stopped
+  producing frames, with nothing to say why.
+
+  `LivenessTransport` is a **`Transport` decorator**, not a session field. Determinism
+  (`docs/adr/0004`) forbids a clock inside `RollbackSession`, so the clock lives outside it: the
+  session sees a plain `Transport`, needed **no change at all** — the existing trait was already the
+  right seam — and `tests/determinism.rs` keeps proving what it proved before.
+
+  The peer grades `Live` → `Interrupted` (2 s silence) → `TimedOut` (5 s), with
+  `HandshakeTimeout` and `PeerTimeout` as distinct reasons so a user can tell "wrong address" from
+  "your friend's connection died". The thresholds are deliberately forgiving: Mesen's netplay uses a
+  roughly 150 ms trigger, which flags ordinary Wi-Fi and LTE jitter as a disconnect, and a
+  connection that reports "lost" whenever a packet is late trains the user to ignore it.
+  `interrupt_after` is two full ping intervals plus slack specifically so **a single lost ping can
+  never move the grade**. Any traffic refreshes liveness, not just pings — gating on `Quality` alone
+  would let a peer streaming input perfectly grade as `Interrupted` because its pings happened to be
+  the packets that dropped.
+
+  RTT is measured over a **probe/echo token pair** carried by `Quality` (`PROTOCOL_VERSION` → 2). A
+  probe sets a nonzero `probe`; the receiver answers immediately with `probe: 0, echo: <token>`, so
+  an answer is not itself a probe and two peers cannot ping-pong. Matching on the token means a
+  duplicated datagram produces no second sample and a reply that arrives a generation late produces
+  none at all, rather than a fabricated near-zero RTT at the moment the connection is worst. Samples
+  feed an EWMA because the number is shown to a human and an unsmoothed readout flickers with every
+  packet. Only a probe carries a `frame_advantage` — an answer is emitted from `poll`, which has no
+  access to the caller's current advantage, so taking its `0` would zero the readout on every round
+  trip. `peer_link()` evaluates the handshake deadline off the clock like the silence deadline, and
+  a torn-down session answers nothing and measures nothing.
+
+  **The clock is injected** (`Clock`, `SystemClock`, `ManualClock`). Testing timeouts against the
+  wall clock means `thread::sleep` in tests — slow, and flaky under CI load precisely because the
+  thresholds under test are short. With a manual clock the state machine is driven instantly: a
+  5-second peer timeout is exercised in microseconds. Twenty-one tests, no sleeps, including one that
+  wires two real decorators together so the echo has to be one the implementation itself produces.
+  See `docs/netplay.md`.
+
 ### Fixed
 
 - **Netplay: one transient checksum mismatch no longer ends the session.** Until now the **first**

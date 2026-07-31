@@ -112,3 +112,104 @@ actually changed, by driving a real session against forged peer checksums:
 - a clean session stays `InSync`.
 
 Both were verified by re-injecting the old fail-on-first behaviour and confirming they fail.
+
+## Peer liveness, RTT, and timeouts (`v1.27.0`)
+
+Before this the crate had **no liveness handling at all**: no clock anywhere in it, no handshake
+timeout (an absent `Sync` stalled `advance()` forever), and `NetMessage::Quality` — which carries
+the peer's ping and frame advantage — was received and explicitly discarded. A peer that unplugged
+its cable simply stopped producing frames, with nothing to say why.
+
+### It is a `Transport` decorator, not a session field
+
+Determinism forbids a clock inside `RollbackSession`. So the clock lives outside it:
+`LivenessTransport` wraps any `Transport` and timestamps what passes through. The session sees a
+plain `Transport`, stays a pure function of its input stream, and `tests/determinism.rs` keeps
+proving exactly what it proved before.
+
+That the existing `Transport` trait was already the right seam is why this needed no change to the
+session at all.
+
+### The grades
+
+| grade | after |
+|---|---|
+| `Live` | traffic arriving normally |
+| `Interrupted` | silence past `interrupt_after` (default **2 s**) |
+| `TimedOut` | silence past `disconnect_after` (default **5 s**) |
+
+`peer_link()` evaluates **both** deadlines off the clock, the handshake one included. It grades the
+silence path live, so leaving the handshake path to `tick` alone made the two disagree for up to a
+frame — a connection whose handshake window had closed still reading `Live`.
+
+Graded rather than boolean, and the thresholds are deliberately forgiving. Mesen's netplay uses a
+roughly 150 ms trigger, which flags ordinary Wi-Fi and LTE jitter as a disconnect; a connection that
+reports "lost" every time a packet is late trains the user to ignore it. `interrupt_after` is two
+full ping intervals plus slack precisely so **a single lost ping can never move the grade**, and
+`disconnect_after` sits in the multi-second range GGPO and Parsec use — long enough to survive a
+Wi-Fi roam, short enough not to wait on a dead peer.
+
+`HandshakeTimeout` and `PeerTimeout` are distinct reasons on purpose: a user needs to tell "wrong
+address" from "your friend's connection died".
+
+**Any traffic refreshes liveness**, not just pings. Gating on `Quality` alone would let a peer
+streaming input perfectly grade as `Interrupted` simply because its pings were the packets that
+dropped.
+
+### RTT
+
+`Quality` carries a **probe/echo token pair**, and `PROTOCOL_VERSION` was bumped to 2 for it. A
+probe sets `probe` to a nonzero token and `echo` to 0; the receiver answers *immediately, inside
+`poll`* with the mirror image — `probe: 0`, `echo: <that token>`. An answer is therefore not itself
+a probe, which is the termination argument: two peers cannot ping-pong.
+
+**The first revision had no token and measured nothing.** It matched a reply to a ping positionally
+— "whichever probe is outstanding" — and *nothing in the crate ever replied to a `Quality`*:
+`RollbackSession` explicitly ignored it, and each peer's own `LivenessTransport` emitted probes on
+its own independent 1 s timer. So the packet a peer counted as its echo was simply the other side's
+next scheduled probe, and the reported "RTT" was the phase offset between two timers plus one-way
+latency. Every test covering it injected a hand-written reply and so agreed with the bug; the
+present `two_peers_actually_close_the_round_trip` wires two real decorators together precisely so
+the answer has to be one the implementation itself produces.
+
+The token also subsumes two hazards the earlier revision handled with extra state:
+
+- a **duplicated datagram** cannot produce a second sample, because the outstanding probe is
+  consumed by the first matching echo;
+- a **reply that arrives a generation late** does not match the newer probe's token, so it produces
+  no sample rather than a fabricated near-zero RTT at the exact moment the connection is worst —
+  the one moment the number has to be trusted.
+
+Because a stale reply is now harmless, probing can stay on a fixed cadence rather than stalling
+whenever a reply goes missing. Samples feed an EWMA at weight 0.2, because the number is shown to a
+human: unsmoothed, the readout flickers with every packet.
+
+**Only a probe carries a `frame_advantage`.** An answer is emitted from `poll`, which has no access
+to the caller's current advantage, so it sends 0 — and reading that 0 as the peer's own value would
+zero the readout on every single round trip. A number that is correct only in the gaps between
+echoes is worse than no number.
+
+**A torn-down session answers nothing and measures nothing.** Once the disconnect verdict is set it
+is sticky and the caller has been told the peer is gone; replying would put traffic on a dead
+connection, and a sample taken afterwards describes a link nobody is using.
+
+`ping_smoothing` is read from config, so it is treated as untrusted: NaN falls back to the default
+weight and anything else is clamped to `0.0..=1.0`. `f64::clamp` returns NaN for NaN rather than
+clamping it, and a single NaN sample would poison the EWMA permanently — every later reading would
+be NaN, with no way back.
+
+### The clock is injected
+
+`Clock` is a trait, not a call to `Instant::now()`. Testing timeout behaviour against the wall clock
+means `thread::sleep` in tests — slow, and flaky under CI load precisely because the thresholds
+being tested are short. (The sibling project's equivalent test does exactly that.) With
+`ManualClock` the whole state machine is driven instantly: a 5-second peer timeout is exercised in
+microseconds and cannot fail because a runner was busy. Twenty-one tests, no sleeps.
+
+`ManualClock` holds its offset in an `AtomicU64` rather than a `Cell`, which makes it `Sync`. A
+non-`Sync` clock would make `LivenessTransport<T, ManualClock>` non-`Sync` too, so a test could not
+exercise the decorator on the threaded path the frontend actually uses it on.
+
+`ManualClock` is `pub`, not `#[cfg(test)]`, so a frontend integration test outside the crate can use
+it too.
+

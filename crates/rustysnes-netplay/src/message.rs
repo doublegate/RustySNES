@@ -8,7 +8,7 @@
 /// The protocol version this build speaks — bumped whenever the wire format changes so two
 /// mismatched builds fail the [`NetMessage::Sync`] handshake cleanly instead of misinterpreting
 /// bytes.
-pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION: u16 = 2;
 
 /// [`NetMessage::Sync`]'s magic value — identifies a peer as speaking this protocol at all,
 /// before the ROM-hash/version fields are even trusted. `RSNP` (RustySNES Netplay) in ASCII.
@@ -57,12 +57,30 @@ pub enum NetMessage {
         fb_hash: u64,
     },
     /// A lightweight, non-critical connection-quality signal (never gates correctness).
+    ///
+    /// Carries an explicit probe/echo token pair so a round trip can actually be *measured*. An
+    /// earlier revision had neither and matched a reply to a ping positionally — "the outstanding
+    /// one" — which silently measured nothing at all, because nothing ever replied: each peer
+    /// emitted `Quality` on its own independent interval, so what arrived was the peer's next
+    /// scheduled probe rather than an answer, and the "RTT" was the phase offset between two
+    /// timers.
     Quality {
         /// Measured round-trip time, milliseconds.
         ping_ms: u32,
         /// This peer's frame count minus the last frame it has confirmed from the other peer —
         /// how far ahead (positive) or behind (negative) this peer is running.
         frame_advantage: i32,
+        /// Nonzero on a probe, and the receiver must answer it promptly with a message whose
+        /// [`Self::Quality::echo`] carries this value back. `0` means "not a probe" — which is what
+        /// an answer itself sets, so an answer provokes no answer and the exchange terminates.
+        probe: u32,
+        /// The [`Self::Quality::probe`] token being answered, or `0` for none.
+        ///
+        /// Matching on the token rather than on "whichever ping is outstanding" is what makes a
+        /// sample trustworthy: a duplicated datagram and a reply that arrives a generation late are
+        /// both simply unmatched, rather than being credited to the wrong send time and reading as
+        /// a near-zero round trip at exactly the moment the link is worst.
+        echo: u32,
     },
 }
 
@@ -126,10 +144,14 @@ impl NetMessage {
             Self::Quality {
                 ping_ms,
                 frame_advantage,
+                probe,
+                echo,
             } => {
                 buf.push(TAG_QUALITY);
                 buf.extend_from_slice(&ping_ms.to_le_bytes());
                 buf.extend_from_slice(&frame_advantage.to_le_bytes());
+                buf.extend_from_slice(&probe.to_le_bytes());
+                buf.extend_from_slice(&echo.to_le_bytes());
             }
         }
         buf
@@ -164,6 +186,8 @@ impl NetMessage {
             TAG_QUALITY => Ok(Self::Quality {
                 ping_ms: r.u32()?,
                 frame_advantage: r.i32()?,
+                probe: r.u32()?,
+                echo: r.u32()?,
             }),
             other => Err(DecodeError::UnknownTag(other)),
         }
@@ -240,9 +264,18 @@ mod tests {
             hash: 0xDEAD_BEEF_CAFE_F00D,
             fb_hash: 0x1234_5678_9ABC_DEF0,
         });
+        // Both shapes: a probe (nonzero `probe`, no `echo`) and its answer (the reverse).
         round_trip(&NetMessage::Quality {
             ping_ms: 30,
             frame_advantage: -3,
+            probe: 0x9ABC_DEF0,
+            echo: 0,
+        });
+        round_trip(&NetMessage::Quality {
+            ping_ms: 0,
+            frame_advantage: 0,
+            probe: 0,
+            echo: 0x9ABC_DEF0,
         });
     }
 

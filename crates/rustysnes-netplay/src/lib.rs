@@ -15,6 +15,7 @@
 //! network conditions via [`transport::MemoryTransport`].
 
 pub mod diagnostics;
+pub mod liveness;
 pub mod message;
 pub mod rng;
 pub mod session;
@@ -26,6 +27,10 @@ pub mod udp;
 pub mod webrtc;
 
 pub use diagnostics::{CrcCompare, DesyncDiagnostics, DesyncStatus};
+pub use liveness::{
+    Clock, DEFAULT_PING_SMOOTHING, DisconnectReason, LivenessConfig, LivenessTransport,
+    ManualClock, PeerLink, SystemClock,
+};
 pub use message::NetMessage;
 pub use session::{AdvanceOutcome, MAX_PLAYERS, NetplayError, RollbackSession, SessionConfig};
 pub use transport::Transport;
