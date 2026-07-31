@@ -86,6 +86,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generate. The on-screen controls that would drive it are still outstanding;
   `docs/mobile-readiness.md` now says which half is done.
 
+- **Android CI, with the 16 KB page-alignment gate (`v1.30.0`).** `android/` had Gradle sources and
+  a `cargo ndk` layout but **no workflow at all** — nothing built it, so nothing could regress
+  visibly. `.github/workflows/android.yml` cross-builds `rustysnes-android` for all four ABIs,
+  asserts every 64-bit `.so`'s `PT_LOAD` segments are 16 KB aligned, assembles a debug APK, and
+  checks the APK actually carries each ABI.
+
+  The alignment check is the store-facing one: Play requires 16 KB-aligned segments for 16 KB-page
+  devices and a 4 KB-aligned library simply fails to load there. The NDK has defaulted to 16 KB
+  since r27, so this is a **regression gate** — it catches an NDK downgrade or a stray linker flag,
+  which would otherwise surface as a store rejection. It fails closed if the `.so` glob matches
+  nothing, so a build that produces no libraries cannot pass it silently.
+
+  Deliberately two actions only, both already pinned in this repo: the NDK comes from the runner
+  image's own `sdkmanager` and the JDK and Gradle are preinstalled, rather than adding three
+  third-party actions to the supply-chain surface the `v1.26.0` pass tightened. `assembleDebug`, not
+  release — signing material is maintainer-only and stays out of CI.
+
 - **AccuracySNES: the Mesen2 oracle diagnosed, and a stale frame budget aligned.** Three `v1.28.0`
   items ended at "no oracle can arbitrate", so the headless runner was investigated rather than
   accepted as environmental. Established: the hang is genuinely pre-existing (the `v1.25.0`-era image
