@@ -1720,6 +1720,14 @@ must not look survivable.
 A liveness verdict ends the session through `NetplayError::Disconnected`, which `Active::render`
 already treats like any other netplay error — disconnect and fall back to single-player.
 
+**The terminal reason is reported through `netplay_error`, not through the snapshot.** `drive`
+raises the verdict the same frame it appears, so the session is `Idle` before the next egui pass and
+`status()` returns `None` — a disconnect banner inside the quality readout would have been
+unreachable code that looked like a feature. Both teardown sites now set `shell.netplay_error`,
+which the Netplay window's disconnected branch already renders, alongside the transient status-bar
+line. For the same reason `NetplayStatus::link` is documented as never `TimedOut` in practice:
+`Live` and `Interrupted` are the two a live session can actually show.
+
 ## RetroAchievements (`v0.8.0 "Community"`, T-82-003)
 
 A Tools → RetroAchievements… window (native-only, `#[cfg(all(feature = "retroachievements",

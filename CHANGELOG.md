@@ -32,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   session through the decorator and pins both disconnect reasons plus the transparent case;
   injecting the raise back out fails two of its three tests.
 
+  The terminal reason is reported through the Netplay window's `netplay_error`, not through the
+  per-frame snapshot: `drive` raises the verdict the same frame it appears, so the session is `Idle`
+  before the next egui pass and a banner inside the quality readout would have been unreachable code
+  that looked like a feature.
+
 - **Netplay: read-only spectating.** A spectator receives the players' confirmed input stream and
   replays it into its own `System`.
 

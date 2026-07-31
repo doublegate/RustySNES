@@ -1899,10 +1899,6 @@ impl ShellState {
                 "Waiting for the peer's handshake…",
             );
         }
-        if let Some(reason) = s.disconnect {
-            ui.colored_label(egui::Color32::RED, reason.to_string());
-        }
-
         // The desync banner distinguishes Suspect from Desynced, which is the entire point of the
         // graded verdict: a transient must not look like a lost game, and a real divergence must
         // not look survivable.

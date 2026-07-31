@@ -17,8 +17,8 @@ use std::net::SocketAddr;
 
 use rustysnes_netplay::udp::UdpTransport;
 use rustysnes_netplay::{
-    AdvanceOutcome, DesyncStatus, DisconnectReason, LivenessTransport, NetplayError, PeerLink,
-    RollbackSession, SessionConfig,
+    AdvanceOutcome, DesyncStatus, LivenessTransport, NetplayError, PeerLink, RollbackSession,
+    SessionConfig,
 };
 
 use crate::emu::EmuCore;
@@ -53,9 +53,12 @@ pub enum NetplayState {
 #[derive(Clone, Copy, Debug)]
 pub struct NetplayStatus {
     /// How alive the peer looks.
+    ///
+    /// Never `TimedOut` in practice: [`NetplayState::drive`] raises the verdict as an error the
+    /// same frame it appears, and the caller tears the session down — so the terminal state is
+    /// reported through `netplay_error` on the shell rather than here. `Live` and `Interrupted`
+    /// are the two a live session actually shows.
     pub link: PeerLink,
-    /// Why the connection ended, once it has.
-    pub disconnect: Option<DisconnectReason>,
     /// Smoothed round-trip time, once a sample exists.
     pub ping_ms: Option<u32>,
     /// The peer's reported frame advantage: positive means it is running ahead of us.
@@ -119,8 +122,12 @@ impl NetplayState {
         // shows, which is what makes the two ends agree about who is ahead.
         let advantage = i64::from(session.current_frame())
             - session.last_confirmed_frame().map_or(-1, i64::from);
-        let advantage = i32::try_from(advantage).unwrap_or(i32::MAX);
-        session.transport_mut().tick(advantage);
+        // Clamp rather than `unwrap_or(i32::MAX)`: the difference of two `u32` frame counters can
+        // exceed `i32` in *either* direction, and a single fallback constant would turn a large
+        // negative advantage into "maximally ahead" — the opposite reading.
+        let advantage = advantage.clamp(i64::from(i32::MIN), i64::from(i32::MAX));
+        #[allow(clippy::cast_possible_truncation)] // clamped to i32's range on the line above
+        session.transport_mut().tick(advantage as i32);
 
         // A dead peer must end the session rather than stall it. The session has no clock and so
         // cannot tell "waiting for input" from "waiting forever" — before the liveness decorator
@@ -152,7 +159,6 @@ impl NetplayState {
         let link = session.transport();
         Some(NetplayStatus {
             link: link.peer_link(),
-            disconnect: link.disconnect_reason(),
             ping_ms: link.ping_ms(),
             remote_frame_advantage: link.remote_frame_advantage(),
             desync: session.diagnostics().status(),
