@@ -107,6 +107,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   depends on a tool default that a version range cannot promise. The 32-bit ABIs build in a
   separate step and stay 4 KB by design.
 
+  **The workflow also found that the Android app could not be built from a clean checkout at all.**
+  `android/gradle.properties` had never been committed, so `:app:checkDebugAarMetadata` fails with
+  "contains AndroidX dependencies, but the `android.useAndroidX` property is not enabled" — every
+  Android build this project has ever done ran on a machine that already had those settings in a
+  user-level `~/.gradle/gradle.properties`. Now committed, with `enableJetifier` explicitly off
+  (there are no legacy support-library artifacts to rewrite) and a raised Kotlin daemon heap.
+
   Deliberately two actions only, both already pinned in this repo: the NDK comes from the runner
   image's own `sdkmanager` and the JDK is preinstalled, rather than adding three third-party actions
   to the supply-chain surface the `v1.26.0` pass tightened. `assembleDebug`, not release — signing
