@@ -933,10 +933,13 @@ mod tests {
             "the throttle must be armed by default, or enabling run-ahead silently ships \
              without its safety net"
         );
-        // Below the NTSC deadline (16.64 ms) with headroom for present/UI/audio. A throttle at or
-        // above the deadline can never fire before the frame is already late.
+        // Below the NTSC deadline with headroom for present/UI/audio. A throttle at or above the
+        // deadline can never fire before the frame is already late. Derived from
+        // `Region::frame_rate()` rather than a literal 60.0988 so the two cannot drift apart;
+        // compared in `f64` because that is what `frame_rate()` returns, which also avoids a
+        // lossy `as f32` the pedantic cast lints would (rightly) object to.
         assert!(
-            cfg.throttle_ms < 1000.0 / 60.0988,
+            f64::from(cfg.throttle_ms) < 1000.0 / Region::Ntsc.frame_rate(),
             "a throttle at or above the frame budget fires too late to prevent anything"
         );
     }
@@ -950,7 +953,11 @@ mod tests {
         let cfg: Config =
             toml::from_str("[run_ahead]\nframes = 1\nthrottle_ms = 0.0\n").expect("deserialize");
         assert_eq!(cfg.run_ahead.frames, 1);
-        assert!((cfg.run_ahead.throttle_ms - 0.0).abs() < f32::EPSILON);
+        // `assert!(x == 0.0)` rather than an epsilon dance: this is an exact literal round-tripped
+        // through TOML, not a computed value. Note the form matters — clippy's `float_cmp` exempts
+        // this constant comparison but DOES fire on the `assert_eq!(x, 0.0)` spelling, so the
+        // apparently more idiomatic version fails the `-D warnings` gate.
+        assert!(cfg.run_ahead.throttle_ms == 0.0);
 
         // ...while an absent field does pick the armed default up.
         let cfg: Config = toml::from_str("[run_ahead]\nframes = 1\n").expect("deserialize");
