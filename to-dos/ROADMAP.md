@@ -384,17 +384,17 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   `v1.20.0 "Aperture"` entry. Phases B (in-app Help docs, deeper debugger panels) and C (wasm Lua
   scripting, browser netplay lobby, browser RetroAchievements, i18n) remain scoped but not
   started.
-- **Flagged by the 2026-07-12 lockstep re-check — no rung assigned yet, maintainer go/no-go
-  needed.** RustyNES shipped two items since the roadmap's `v2.1.5` baseline that RustySNES's own
-  ladder doesn't currently account for: (1) a **GIF/WAV screen+audio capture subsystem**
-  (RustyNES `v2.1.9`) — a genuinely new feature category, not incremental growth of anything
-  already planned; and (2) **CRT shader-preset depth** — RustyNES ported 3 marquee libretro-slang
-  presets (CRT-Royale, guest-advanced, Sony Megatron) against RustySNES's own single
-  scanline+aperture-mask `Crt` filter (plus the new `Xbrz` filter, `v1.12.0`). Neither is urgent
-  (RustySNES's existing presentation pipeline is fully functional), so neither is silently folded
-  into an already-scoped rung — see `to-dos/LOCKSTEP-CHECKLIST.md`'s 2026-07-12 log row for the
-  full disposition, including two other RustyNES additions (a SIMD blitter/wasm-size pass, a
-  browser RA + Vs. DualSystem libretro pairing) judged small-catch-up or correctly out of scope.
+- **Flagged by the 2026-07-12 lockstep re-check — both items now CLOSED by `v1.25.0`.** RustyNES
+  shipped two items since the roadmap's `v2.1.5` baseline that RustySNES's ladder didn't account
+  for: (1) a **GIF/WAV screen+audio capture subsystem** (RustyNES `v2.1.9`) — **closed**, `v1.25.0`
+  shipped `av_record.rs` (video + synced audio) under T-FP-G1; and (2) **CRT shader-preset depth**
+  — **closed**, `v1.25.0` shipped the multi-pass shader stack, richer CRT (curvature/beam/glow/
+  mask), an NTSC composite pass, and `.slangp`/`.cgp` import with a naga GLSL→WGSL bridge
+  (T-FP-D/E), which is the general mechanism rather than three ported presets. Both entries sat
+  here asking for a maintainer go/no-go for two weeks after the work had already landed; corrected
+  in `v1.26.0`. The other two additions in that row (a SIMD blitter/wasm-size pass, a browser RA +
+  Vs. DualSystem libretro pairing) were judged small-catch-up or correctly out of scope and remain
+  so — see `to-dos/LOCKSTEP-CHECKLIST.md`'s 2026-07-12 log row.
 - **Flagged by the 2026-07-15 lockstep re-check.** RustyNES cut `v2.2.0 "Capstone"` since the last
   check (`v2.1.10`), shipping two items RustySNES's own roadmap didn't account for: (1) **no
   fuzzing infrastructure at all** — **CLOSED in `v1.26.0`**: `fuzz/` now carries fourteen

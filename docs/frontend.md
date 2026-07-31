@@ -584,13 +584,44 @@ no new dependency** — a rewind buffer pulling in a compression crate to store 
 
 ### Run-ahead's per-frame allocation (`save_state_into`)
 
-Run-ahead snapshots the machine **every frame**. `EmuCore::save_state` allocates a fresh
-hundreds-of-kilobyte `Vec` each time, which `docs/frontend.md` has recorded as the blocker on making
+Run-ahead snapshots the machine **every frame**. `EmuCore::save_state` allocated a fresh
+hundreds-of-kilobyte `Vec` each time, which this document long recorded as *the* blocker on making
 run-ahead default-on.
 
 `System::save_state_into` (and its `SaveWriter::with_buffer`) reuse a caller-owned buffer, clearing
 it but **keeping its capacity**. Output is byte-for-byte identical; the only difference is that the
 allocation happens once instead of sixty times a second.
+
+#### …was not actually the blocker (`v1.26.0`, measured)
+
+With the allocation gone, the default-on question was **re-measured rather than assumed resolved**:
+
+| | cost |
+|---|---:|
+| `save_state` (`save_state_cost` bench) | ~119 µs |
+| `load_state` | ~285 µs |
+| **save/load round trip** | **~0.40 ms** |
+| one emulated frame (`headless_frame_steady_state`) | **6.39 ms** |
+| NTSC frame budget | 16.64 ms |
+
+The round trip is **2.4% of the frame budget**. It was never the dominant cost, and removing the
+allocation — while a real improvement — did not move the decision.
+
+What run-ahead actually costs is the **extra frame of emulation**, which is inherent to the
+technique and cannot be optimised away. `frames = 1` needs 13.18 ms of a 16.64 ms budget (**79%**),
+leaving ~3.5 ms for present, UI, and audio on a fast development machine; `frames = 2` needs
+19.57 ms (**118%**) and cannot hold 60 fps at all.
+
+**So run-ahead stays opt-in.** Defaulting it on would spend most of every frame's budget — and miss
+deadlines outright on ordinary hardware — to buy latency the user never asked for. The
+`run_ahead.throttle_ms` budget throttle exists to make the feature safe *when a user opts in*, not
+to make it safe as a default.
+
+One thing did change as a result: `RunAheadConfig`'s `Default` is now hand-written so
+`throttle_ms` defaults to **14 ms (armed)** rather than the derived `0.0` (**disabled**). The
+derived default left the safety net off for precisely the user who had just enabled run-ahead and
+had no `throttle_ms` line in their `config.toml`. An existing config that spells the field out
+keeps whatever it says.
 
 The buffer is owned by the caller for a reason: a local `Vec` inside the run-ahead function would
 allocate just the same. The synchronous path keeps one on `Active`; the `emu-thread` build keeps its

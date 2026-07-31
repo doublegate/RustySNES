@@ -338,6 +338,37 @@ jobs:
         run: |
           cargo test -p rustysnes-test-harness --features test-roms \
             --test accuracysnes -- --nocapture
+      # `v1.26.0`: the golden vectors were executed by NO pull-request job.
+      #
+      # Only `lint`, `test-light`, and this job run on a PR. `test-light` does not pass
+      # `--features test-roms`, and the step above scopes itself to `--test accuracysnes` — so the
+      # 53 rendered-scene goldens and every framebuffer golden were reached only by `full-test`,
+      # which is `mode == 'full'` (main, tags, the weekly cron). A PR could shift PPU behaviour,
+      # move a golden, and hear nothing about it until merge-to-main.
+      #
+      # That is the same structure that produced the coprocessor-golden staleness this project
+      # already hit once (goldens left stale by post-bless PPU accuracy fixes): a golden vector
+      # nothing executes only accumulates drift. Here it was not that nothing executed them ever,
+      # but that nothing executed them when it could still be cheap to fix.
+      #
+      # Cost is bounded and known: the three suites with a committed corpus (~5 min total in a
+      # debug build — scenes ~84s, undisbeliever ~158s, rainwarrior ~54s). The `*_oncart`
+      # coprocessor suites need gitignored commercial dumps and firmware, so they self-skip here
+      # for free; they are listed anyway so the intent is explicit rather than inferred from an
+      # omission, and so they start gating the moment a runner ever has that corpus.
+      - name: Run the golden vectors
+        run: |
+          cargo test -p rustysnes-test-harness --features test-roms \
+            --test accuracysnes_scenes \
+            --test undisbeliever_golden \
+            --test rainwarrior_golden \
+            --test dsp1_oncart \
+            --test sa1_oncart \
+            --test superfx_oncart \
+            --test dsp3_st011_oncart \
+            --test srtc_st018_oncart \
+            --test save_state_determinism \
+            --test save_state_backward_compat
 
   # v1.5.0 "Bedrock": the one stable required-check name branch protection points at
   # (`docs/adr/0011`). Individual jobs above are conditionally skipped depending on `setup`'s mode,

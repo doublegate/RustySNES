@@ -9,6 +9,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The golden vectors ran in no pull-request job.** Only `lint`, `test-light`, and `accuracysnes`
+  run on a PR; `test-light` never passes `--features test-roms`, and the `accuracysnes` job scoped
+  itself to `--test accuracysnes`. So the **53 rendered-scene goldens and every framebuffer golden**
+  were reached only by `full-test`, which runs on `main`, tags, and the weekly cron. A PR could
+  shift PPU behaviour, move a golden, and hear nothing about it until merge-to-main.
+
+  That is the same structure behind this project's own coprocessor-golden staleness (goldens left
+  stale by post-bless PPU accuracy fixes): a golden vector nothing executes only accumulates drift.
+  Here it was not that nothing ran them ever, but that nothing ran them while it was still cheap to
+  fix. The `accuracysnes` job now also runs the scene, undisbeliever, rainwarrior, coprocessor, and
+  save-state suites — ~5 minutes for the three with a committed corpus; the `*_oncart` suites need
+  gitignored dumps and self-skip for free, listed anyway so the intent is explicit.
+
+  Found while looking for RustySNES's analogue of the sibling's `expansion_level_tripwire`. That
+  mechanism does **not** port: the only `commercial-roms`-gated suite here
+  (`commercial_screenshots`) is a screenshot generator that asserts nothing, so it holds no golden
+  that can go stale, and PPU accuracy is not parameterised by a small constant set the way
+  expansion-audio levels are. Looking for it surfaced a real and larger gap instead.
+
+### Changed
+
+- **Run-ahead stays opt-in, and the reason is now measured rather than assumed.**
+  `docs/frontend.md` recorded the per-frame save-state allocation as *the* blocker on making
+  run-ahead default-on. `v1.25.0` removed that allocation, so the question was re-measured:
+
+  | | cost |
+  |---|---:|
+  | `save_state` | ~119 µs |
+  | `load_state` | ~285 µs |
+  | **save/load round trip** | **~0.40 ms** |
+  | one emulated frame (`headless_frame_steady_state`) | **6.39 ms** |
+  | NTSC frame budget | 16.64 ms |
+
+  The round trip is **2.4%** of the budget — it was never the dominant cost, and removing the
+  allocation did not move the decision. What run-ahead costs is the extra frame of emulation, which
+  is inherent: `frames = 1` needs **79%** of the NTSC budget on a fast development machine, leaving
+  ~3.5 ms for present, UI, and audio; `frames = 2` needs **118%** and cannot hold 60 fps at all.
+  Defaulting that on would miss deadlines on ordinary hardware to buy latency nobody asked for.
+
+- **`RunAheadConfig`'s `Default` is hand-written so the throttle is armed.** A derived `Default`
+  gave `throttle_ms: 0.0`, which *disables* the throttle — leaving the safety net off for exactly
+  the user who had just enabled run-ahead from Settings and had no `throttle_ms` line in their
+  `config.toml`. It now defaults to 14 ms (below the 16.64 ms NTSC deadline with headroom, and
+  conservative against PAL's 20 ms). An existing config that spells the field out keeps its value;
+  `#[serde(default)]` fills only absent fields, pinned by a negative-control test.
+
 ### Security
 
 - **CI supply-chain hardening — every workflow credential, action pin, and the release gate.**
