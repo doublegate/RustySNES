@@ -65,7 +65,16 @@ jobs:
       - name: Install the NDK from the runner's Android SDK
         run: |
           set -euo pipefail
-          sdkmanager --install "ndk;27.2.12479018"
+          # `sdkmanager` is NOT on PATH on `ubuntu-latest` even though `$ANDROID_HOME` is set —
+          # it lives under the SDK's own cmdline-tools. Found by this workflow's first CI run.
+          : "${ANDROID_HOME:?the runner image is expected to provide an Android SDK}"
+          sdk="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$sdk" ]; then
+            echo "::error::no sdkmanager at $sdk"
+            ls -la "$ANDROID_HOME/cmdline-tools" || true
+            exit 1
+          fi
+          "$sdk" --install "ndk;27.2.12479018"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
 
       - name: Install cargo-ndk
