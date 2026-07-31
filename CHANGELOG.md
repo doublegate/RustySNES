@@ -28,8 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   A low-tile control (the same 20 sprites at 8x8, 20 tiles) must read clear at phase B's sampling
   point, or "set" would only have meant "sprites are present". Four injections, each failing its own
-  code: flagging on any sprite fails code 4 (the control), never setting fails code 2, and setting at
-  dot 0 fails code 1.
+  code: flagging on any sprite fails code 7 (the control), never setting fails code 5, and setting at
+  dot 0 fails code 2.
 
   snes9x fails it and is recorded as an expected divergence (`SNES9X_KNOWN_FAILURES` 13 → 14): it
   already reads Time Over set on `V = 100`, flagging the overflow a line early because it evaluates

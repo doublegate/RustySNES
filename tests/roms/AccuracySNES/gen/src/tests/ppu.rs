@@ -2441,6 +2441,20 @@ fn c7_05() -> Test {
     )
 }
 
+/// The sampled byte must not still be the poison value.
+///
+/// Without this an IRQ that never fires leaves `$FF` in the slot, and `$FF` satisfies or violates
+/// the flag tests *by accident*: phase A reads bit 7 set and blames "Time Over already set", phase B
+/// passes bit 7 and then blames "Range Over set alongside Time Over". Both name a cause that did not
+/// happen. `ERROR_CODES.md` is meant to be the complete account of failure bytes, so a distinct code
+/// for "the handler never ran" is the difference between a diagnosis and a red herring.
+fn assert_handler_ran(a: &mut Asm) {
+    a.l("sep #$20");
+    a.l("lda f:$7E0156");
+    a.l("cmp #$FF");
+    a.fail_if_eq("the H/V IRQ never fired, so STAT77 was never sampled at all");
+}
+
 /// Time Over is observable by the start of the line the sprites paint on — `V = OBJ.YLOC + 1,
 /// H = 0` (`C7.06`).
 ///
@@ -2510,6 +2524,7 @@ fn c7_06() -> Test {
     a.c("--- phase A: 20 16x16 sprites (40 tiles), sampled on the eval line V = 100 ---");
     setup_tile_budget_sprites(&mut a, "a", true);
     arm_over_irq_on_line(&mut a, 100);
+    assert_handler_ran(&mut a);
     a.l("lda f:$7E0156");
     a.l("and #$80");
     a.assert_a8(
@@ -2520,6 +2535,8 @@ fn c7_06() -> Test {
     a.c("--- phase B: same sprites, sampled on the line they paint on, V = 101 ---");
     setup_tile_budget_sprites(&mut a, "b", true);
     arm_over_irq_on_line(&mut a, 101);
+    assert_handler_ran(&mut a);
+    assert_handler_ran(&mut a);
     a.l("lda f:$7E0156");
     a.l("and #$80");
     a.assert_a8(

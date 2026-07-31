@@ -25754,11 +25754,18 @@ CATALOG_IMPL = 1
     sei
     stz $4200         ; disarm before reading anything back
     lda $4211
+    sep #$20
+    .a8
+    lda f:$7E0156
+    cmp #$FF
+    bne :+
+    jmp @fail1
+  :
     lda f:$7E0156
     and #$80
     cmp #$00
     beq :+
-    jmp @fail1
+    jmp @fail2
   :
     ; --- phase B: same sprites, sampled on the line they paint on, V = 101 ---
     sep #$20
@@ -25826,18 +25833,32 @@ CATALOG_IMPL = 1
     sei
     stz $4200         ; disarm before reading anything back
     lda $4211
+    sep #$20
+    .a8
+    lda f:$7E0156
+    cmp #$FF
+    bne :+
+    jmp @fail3
+  :
+    sep #$20
+    .a8
+    lda f:$7E0156
+    cmp #$FF
+    bne :+
+    jmp @fail4
+  :
     lda f:$7E0156
     and #$80
     cmp #$80
     beq :+
-    jmp @fail2
+    jmp @fail5
   :
     ; ...and Range Over must still be clear: 20 sprites is well under the 32-sprite limit.
     lda f:$7E0156
     and #$40
     cmp #$00
     beq :+
-    jmp @fail3
+    jmp @fail6
   :
     ; --- control: the same 20 sprites at 8x8 is 20 tiles, under the 34 budget ---
     sep #$20
@@ -25909,7 +25930,7 @@ CATALOG_IMPL = 1
     and #$80
     cmp #$00
     beq :+
-    jmp @fail4
+    jmp @fail7
   :
     lda #$8F
     sta $2100         ; forced blank again, as the rest of the battery expects
@@ -25920,31 +25941,52 @@ CATALOG_IMPL = 1
     sta f:$7EE010
     jml test_restore
 @fail1:
-    ; Time Over was already set on the sprites' own line (V = 100), earlier than V = YLOC + 1
+    ; the H/V IRQ never fired, so STAT77 was never sampled at all
     sep #$20
     .a8
     lda #$02
     sta f:$7EE010
     jml test_restore
 @fail2:
-    ; Time Over had not set by V = YLOC + 1 with 40 sprite-tiles due on the line
+    ; Time Over was already set on the sprites' own line (V = 100), earlier than V = YLOC + 1
     sep #$20
     .a8
     lda #$04
     sta f:$7EE010
     jml test_restore
 @fail3:
-    ; Range Over set alongside Time Over with only 20 sprites on the line — the two flags are being raised together instead of on their own conditions
+    ; the H/V IRQ never fired, so STAT77 was never sampled at all
     sep #$20
     .a8
     lda #$06
     sta f:$7EE010
     jml test_restore
 @fail4:
-    ; Time Over set with only 20 sprite-tiles due, so phase B's reading meant 'sprites are present', not 'the tile budget was exceeded'
+    ; the H/V IRQ never fired, so STAT77 was never sampled at all
     sep #$20
     .a8
     lda #$08
+    sta f:$7EE010
+    jml test_restore
+@fail5:
+    ; Time Over had not set by V = YLOC + 1 with 40 sprite-tiles due on the line
+    sep #$20
+    .a8
+    lda #$0A
+    sta f:$7EE010
+    jml test_restore
+@fail6:
+    ; Range Over set alongside Time Over with only 20 sprites on the line — the two flags are being raised together instead of on their own conditions
+    sep #$20
+    .a8
+    lda #$0C
+    sta f:$7EE010
+    jml test_restore
+@fail7:
+    ; Time Over set with only 20 sprite-tiles due, so phase B's reading meant 'sprites are present', not 'the tile budget was exceeded'
+    sep #$20
+    .a8
+    lda #$0E
     sta f:$7EE010
     jml test_restore
 .endproc

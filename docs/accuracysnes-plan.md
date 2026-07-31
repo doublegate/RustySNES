@@ -579,8 +579,15 @@ dot would fail a core that raises it at `(101, 0)` exactly, which the assertion 
 
 A low-tile control completes it: the same 20 sprites at 8x8 (20 tiles) must read Time Over **clear**
 at phase B's sampling point. Without it, a core reporting Time Over whenever any sprite is on the
-line passes both A and B. Four injections, each failing its own code — flag on any sprite fails
-**code 4** (the control), never setting fails **code 2**, and setting at dot 0 fails **code 1**.
+line passes both A and B. Four injections, each failing its own code — flag on any sprite fails **code 7** (the control),
+never setting fails **code 5**, and setting at dot 0 fails **code 2**. Codes 1, 3 and 4 are the
+per-phase sentinels below.
+
+Each phase also carries a **sentinel** on the sampled byte (codes 1, 3, 4). Without it a never-fired
+IRQ leaves the poison `$FF` in the slot, and `$FF` satisfies or violates the flag tests by accident —
+phase A would blame "Time Over already set", phase B would pass bit 7 and then blame "Range Over set
+alongside". Both name a cause that did not happen, and `ERROR_CODES.md` is supposed to be the
+complete account of failure bytes.
 
 snes9x fails this row too, and is recorded as an expected divergence: it already reads Time Over set
 on `V = 100`, flagging the overflow a line early because it evaluates and paints in one pass. The
