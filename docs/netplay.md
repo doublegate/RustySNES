@@ -112,3 +112,61 @@ actually changed, by driving a real session against forged peer checksums:
 - a clean session stays `InSync`.
 
 Both were verified by re-injecting the old fail-on-first behaviour and confirming they fail.
+
+## Peer liveness, RTT, and timeouts (`v1.27.0`)
+
+Before this the crate had **no liveness handling at all**: no clock anywhere in it, no handshake
+timeout (an absent `Sync` stalled `advance()` forever), and `NetMessage::Quality` — which carries
+the peer's ping and frame advantage — was received and explicitly discarded. A peer that unplugged
+its cable simply stopped producing frames, with nothing to say why.
+
+### It is a `Transport` decorator, not a session field
+
+Determinism forbids a clock inside `RollbackSession`. So the clock lives outside it:
+`LivenessTransport` wraps any `Transport` and timestamps what passes through. The session sees a
+plain `Transport`, stays a pure function of its input stream, and `tests/determinism.rs` keeps
+proving exactly what it proved before.
+
+That the existing `Transport` trait was already the right seam is why this needed no change to the
+session at all.
+
+### The grades
+
+| grade | after |
+|---|---|
+| `Live` | traffic arriving normally |
+| `Interrupted` | silence past `interrupt_after` (default **2 s**) |
+| `TimedOut` | silence past `disconnect_after` (default **5 s**) |
+
+Graded rather than boolean, and the thresholds are deliberately forgiving. Mesen's netplay uses a
+roughly 150 ms trigger, which flags ordinary Wi-Fi and LTE jitter as a disconnect; a connection that
+reports "lost" every time a packet is late trains the user to ignore it. `interrupt_after` is two
+full ping intervals plus slack precisely so **a single lost ping can never move the grade**, and
+`disconnect_after` sits in the multi-second range GGPO and Parsec use — long enough to survive a
+Wi-Fi roam, short enough not to wait on a dead peer.
+
+`HandshakeTimeout` and `PeerTimeout` are distinct reasons on purpose: a user needs to tell "wrong
+address" from "your friend's connection died".
+
+**Any traffic refreshes liveness**, not just pings. Gating on `Quality` alone would let a peer
+streaming input perfectly grade as `Interrupted` simply because its pings were the packets that
+dropped.
+
+### RTT
+
+The `Quality` ping doubles as the echo request — the peer's own reply closes the round trip, so
+nothing extra goes on the wire. Samples feed an EWMA at weight 0.2, because the number is shown to a
+human: unsmoothed, the readout flickers with every packet. A duplicated datagram cannot inflate the
+estimate, because the send marker is consumed by the first echo.
+
+### The clock is injected
+
+`Clock` is a trait, not a call to `Instant::now()`. Testing timeout behaviour against the wall clock
+means `thread::sleep` in tests — slow, and flaky under CI load precisely because the thresholds
+being tested are short. (The sibling project's equivalent test does exactly that.) With
+`ManualClock` the whole state machine is driven instantly: a 5-second peer timeout is exercised in
+microseconds and cannot fail because a runner was busy. Eleven tests, no sleeps.
+
+`ManualClock` is `pub`, not `#[cfg(test)]`, so a frontend integration test outside the crate can use
+it too.
+
