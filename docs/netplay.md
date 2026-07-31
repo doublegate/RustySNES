@@ -213,3 +213,46 @@ exercise the decorator on the threaded path the frontend actually uses it on.
 `ManualClock` is `pub`, not `#[cfg(test)]`, so a frontend integration test outside the crate can use
 it too.
 
+
+## Spectating (`v1.27.0`)
+
+A spectator receives the players' confirmed input stream and replays it into its own `System`.
+
+### It never predicts and never rolls back
+
+That is the whole difference from `RollbackSession`. A player must predict to hide latency, and must
+therefore be able to roll back when a prediction was wrong. A spectator has no input of its own to
+hide latency for, so it simply waits until a frame's inputs are all known and then runs it.
+
+No prediction means no misprediction, which means no rollback machinery, which means **a spectator
+cannot desync**: it either has a frame's inputs or it does not.
+
+### Receive-only
+
+It never sends an ack, a checksum, or a quality reply — so however many spectators attach, the match
+they are watching sees no extra traffic at all. A test feeds one a stream deliberately containing
+`InputAck`, `Checksum`, and `Quality` and asserts the send count is still zero, because the tempting
+bug is to answer them.
+
+### `delay_frames` moves *when*, never *what*
+
+The delayed-stream buffer holds a confirmed frame back until `frame + delay_frames` is also
+confirmed — a tournament broadcast / anti-spoiler delay, and jitter smoothing. It changes only the
+reveal timing; the emulation is byte-identical either way.
+
+Both halves are pinned: `spectator_output_matches_a_reference_run` asserts a spectator's
+framebuffer sequence equals a direct run of the same inputs with no netplay in the way, and the
+delayed variant asserts the frames it *did* show are byte-identical to the same prefix.
+
+### Untrusted-input bounds
+
+- An **out-of-range player index** is dropped. `num_players` is fixed at construction, so such an
+  index can never become valid — dropping it is correct rather than best-effort, and it keeps a
+  malformed or foreign packet from indexing out of bounds.
+- A **frame far past the confirmation horizon** is dropped (`MAX_SPECTATOR_FRAME_LOOKAHEAD`, 1024).
+  Without it one datagram carrying a frame near `u32::MAX` resizes the history buffer unboundedly —
+  an OOM from a single packet. Dropping it is safe because the players' session retransmits anything
+  unacknowledged.
+- `delay_frames` and `num_players` are **clamped at construction**, so an unbounded value out of a
+  config file cannot become an allocation.
+- A **foreign ROM hash never syncs**, so a spectator cannot half-watch a different game.
