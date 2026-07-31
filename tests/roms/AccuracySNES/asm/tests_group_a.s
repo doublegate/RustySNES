@@ -754,7 +754,7 @@ CATALOG_IMPL = 1
     .a16
     .i16
     tdc
-    sta f:$7E00C2     ; park the reading BEFORE touching the stack
+    sta f:$7E00C2     ; park the reading BEFORE restoring anything
     lda f:$7E00C0
     tcs               ; stack restored: the assertion below can safely branch
     lda f:$7E00C2

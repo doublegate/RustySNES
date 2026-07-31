@@ -777,7 +777,7 @@ fn a3_03() -> Test {
     a.enter_native();
     a.l("rep #$30");
     a.l("tdc");
-    a.l("sta f:$7E00C2     ; park the reading BEFORE touching the stack");
+    a.l("sta f:$7E00C2     ; park the reading BEFORE restoring anything");
     a.l("lda f:$7E00C0");
     a.l("tcs               ; stack restored: the assertion below can safely branch");
     a.l("lda f:$7E00C2");

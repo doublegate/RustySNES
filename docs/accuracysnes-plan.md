@@ -491,10 +491,21 @@ addressing before any assertion branches — and MesenCE still stops at **14**. 
 on its own merits (a row that hand-loads `S` and then asserts is fragile whatever the host does), but
 it is **not** the fix and must not be recorded as one.
 
-What remains unknown is what actually stalls at or after index 14. Two things to check next, in
-order: whether the status array is written in catalogue order at all — the whole index-to-test
-mapping rests on that and it has not been verified — and, if it is, what `A3.03` does that MesenCE
-does not return from, since the stack is no longer a candidate.
+**The index-to-test mapping is verified.** `SOURCE_CATALOG.tsv` gives `result_addr = $7EF020 +
+index` for every row, strictly in catalogue order, so "14 status bytes" really does mean the battery
+stops at index 14 = `A3.03`. That premise, at least, holds.
+
+**A second hypothesis was also tested and also failed.** `PLD` leaves `D = $CDAB`, and the assertion
+that follows runs with that direct page still set — so a direct-page write would land in ROM shadow.
+Restoring `D` alongside `S` made MesenCE **worse**: 14 status bytes became **0**. The change is
+reverted; only the `S` hardening is kept. Whatever the mechanism is, it is not the one that
+restoring `D` addresses, and the regression is itself a clue for whoever picks this up.
+
+Two failed hypotheses is where this investigation should stop guessing. What is *known* is now worth
+more than another attempt: the stopping index is 14, the mapping to `A3.03` is verified, the memory
+bridge works, the frame budget is irrelevant, and restoring `S` or `D` does not fix it. The next move
+should be an actual trace — MesenCE's own debugger/log facilities on the `A3.03` window — rather than
+a third guess from the cart side.
 
 Two earlier conclusions were wrong and are corrected here:
 
