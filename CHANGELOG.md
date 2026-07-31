@@ -51,6 +51,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   emulation: the app bundles no cartridge, so no ROM has run. `docs/mobile-readiness.md` now states
   that distinction instead of listing the whole runtime question as open.
 
+  The liveness check needed a fix of its own before it was trustworthy. Piping `launchctl list`
+  straight into `grep -q` made it report "it started and died" for an app that was running: `grep -q`
+  exits at its first match and closes the pipe, `launchctl` takes `SIGPIPE`, and `set -o pipefail`
+  turns that into the pipeline's status. The first run failed that way with the process visibly
+  alive one line above the error. The listing is now captured before it is searched, and a genuine
+  failure prints it.
+
 - **AccuracySNES: the Mesen2 oracle diagnosed, and a stale frame budget aligned.** Three `v1.28.0`
   items ended at "no oracle can arbitrate", so the headless runner was investigated rather than
   accepted as environmental. Established: the hang is genuinely pre-existing (the `v1.25.0`-era image

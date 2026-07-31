@@ -159,10 +159,21 @@ jobs:
           # Ask the SIMULATOR whether the process is still there. A crash on launch is exactly the
           # case that links cleanly and then dies, and `simctl launch` has already returned 0 by
           # then, so its exit code cannot catch it.
-          if xcrun simctl spawn "$UDID" launchctl list | grep -q "$bundle_id"; then
+          #
+          # The listing is captured to a variable FIRST rather than piped straight into `grep -q`.
+          # `grep -q` exits at its first match and closes the pipe, `launchctl` then takes SIGPIPE,
+          # and under `set -o pipefail` that becomes the pipeline's status -- so the check reported
+          # "it started and died" for an app that was running fine. It did exactly that on its
+          # first run, with the process visibly alive in the log above the failure.
+          listing=$(xcrun simctl spawn "$UDID" launchctl list) || {
+            echo "::error::could not read the simulator's process list"
+            exit 1
+          }
+          if printf '%s\n' "$listing" | grep -q "$bundle_id"; then
             echo "ok: still running 8s after launch"
           else
             echo "::error::the app is not running 8s after launch -- it started and died"
+            printf '%s\n' "$listing" | head -40
             exit 1
           fi
 
