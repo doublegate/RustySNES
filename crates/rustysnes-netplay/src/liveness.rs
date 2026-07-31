@@ -27,7 +27,7 @@
 //!
 //! [`RollbackSession`]: crate::session::RollbackSession
 
-use std::cell::Cell;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::message::NetMessage;
@@ -57,10 +57,14 @@ impl Clock for SystemClock {
 /// This is what lets the liveness state machine be tested exhaustively and instantly instead of
 /// with `thread::sleep` against tight thresholds. It is `pub` rather than `#[cfg(test)]` on
 /// purpose: a frontend integration test outside this crate needs it too.
+///
+/// The offset is an [`AtomicU64`] of nanoseconds rather than a `Cell`, which keeps `ManualClock`
+/// `Sync` — a `Cell` would make `Arc<ManualClock>` fail to compile, and a frontend test driving a
+/// session from another thread is exactly the case this type exists for.
 #[derive(Debug)]
 pub struct ManualClock {
     base: Instant,
-    offset: Cell<Duration>,
+    offset_nanos: AtomicU64,
 }
 
 impl Default for ManualClock {
@@ -75,13 +79,14 @@ impl ManualClock {
     pub fn new() -> Self {
         Self {
             base: Instant::now(),
-            offset: Cell::new(Duration::ZERO),
+            offset_nanos: AtomicU64::new(0),
         }
     }
 
     /// Move time forward by `d`.
     pub fn advance(&self, d: Duration) {
-        self.offset.set(self.offset.get().saturating_add(d));
+        let add = u64::try_from(d.as_nanos()).unwrap_or(u64::MAX);
+        self.offset_nanos.fetch_add(add, Ordering::Relaxed);
     }
 
     /// Move time forward by `ms` milliseconds.
@@ -92,7 +97,7 @@ impl ManualClock {
 
 impl Clock for ManualClock {
     fn now(&self) -> Instant {
-        self.base + self.offset.get()
+        self.base + Duration::from_nanos(self.offset_nanos.load(Ordering::Relaxed))
     }
 }
 
@@ -123,6 +128,11 @@ pub enum DisconnectReason {
     #[error("peer timed out — no traffic received")]
     PeerTimeout,
 }
+
+/// Default weight of a new RTT sample in the smoothing average.
+///
+/// Also the fallback when a supplied weight is NaN, which `f64::clamp` would otherwise propagate.
+pub const DEFAULT_PING_SMOOTHING: f64 = 0.2;
 
 /// Timing policy for [`LivenessTransport`].
 #[derive(Debug, Clone, Copy)]
@@ -157,7 +167,7 @@ impl Default for LivenessConfig {
             interrupt_after: Duration::from_secs(2),
             disconnect_after: Duration::from_secs(5),
             handshake_timeout: Duration::from_secs(10),
-            ping_smoothing: 0.2,
+            ping_smoothing: DEFAULT_PING_SMOOTHING,
         }
     }
 }
@@ -175,8 +185,20 @@ pub struct LivenessTransport<T: Transport, C: Clock = SystemClock> {
     started: Instant,
     /// When anything last arrived from the peer.
     last_recv: Option<Instant>,
-    /// When the last ping was emitted, and hence what an echo is measured against.
+    /// When the outstanding ping was emitted, and hence what an echo is measured against.
+    /// `None` means no ping is in flight — an arriving echo is then ignored rather than measured.
     ping_sent_at: Option<Instant>,
+    /// When a ping was last *issued*, answered or not — paces the cadence independently of whether
+    /// one is still outstanding, so an abandoned ping does not trigger an immediate resend.
+    last_ping_issued: Option<Instant>,
+    /// How many abandoned pings may still have a reply in flight.
+    ///
+    /// `Quality` carries no sequence number, so an echo cannot be matched to a specific ping — only
+    /// to "the outstanding one". Once a ping is abandoned its reply may still arrive and would
+    /// otherwise be credited to whatever ping is outstanding *then*, reading as a near-zero round
+    /// trip. Each abandoned ping is counted here and swallows exactly one incoming echo before
+    /// measurement resumes.
+    orphaned_echoes: u32,
     /// Smoothed round-trip estimate.
     smoothed_ping_ms: Option<f64>,
     /// The peer's most recently reported frame advantage.
@@ -206,6 +228,8 @@ impl<T: Transport, C: Clock> LivenessTransport<T, C> {
             started,
             last_recv: None,
             ping_sent_at: None,
+            last_ping_issued: None,
+            orphaned_echoes: 0,
             smoothed_ping_ms: None,
             remote_frame_advantage: 0,
             disconnected: None,
@@ -228,22 +252,48 @@ impl<T: Transport, C: Clock> LivenessTransport<T, C> {
         // Handshake deadline: nothing has EVER arrived and the window has closed.
         if self.last_recv.is_none()
             && self.disconnected.is_none()
-            && now.duration_since(self.started) >= self.config.handshake_timeout
+            && now.saturating_duration_since(self.started) >= self.config.handshake_timeout
         {
             self.disconnected = Some(DisconnectReason::HandshakeTimeout);
         }
 
-        let due = self
-            .ping_sent_at
-            .is_none_or(|sent| now.duration_since(sent) >= self.config.ping_interval);
-        if due && self.disconnected.is_none() {
-            // The ping doubles as the echo request: the peer's own `Quality` reply is what closes
-            // the round trip. Nothing extra goes on the wire for RTT.
-            self.inner.send(&NetMessage::Quality {
-                ping_ms: self.ping_ms().unwrap_or(0),
-                frame_advantage: local_frame_advantage,
-            });
-            self.ping_sent_at = Some(now);
+        // Only ONE ping may be outstanding at a time.
+        //
+        // `Quality` carries no sequence number, so an echo can only be matched to a ping by "the
+        // one that is outstanding". Sending a second while the first is unanswered breaks that: the
+        // late reply to the FIRST ping gets measured against the SECOND ping's send time and
+        // records a near-zero RTT that never happened. Raised in review, and real — it is exactly
+        // the case where the readout matters most, a slow link.
+        //
+        // So a ping is issued only when none is in flight. If one has been outstanding longer than
+        // `interrupt_after` it is abandoned rather than replaced: the marker is cleared, so a reply
+        // arriving later finds nothing to measure against and is ignored instead of producing a
+        // fabricated sample. Ping cadence therefore drops on a lossy link, which costs nothing —
+        // liveness is refreshed by ANY traffic, not by pings.
+        if self.disconnected.is_none() {
+            let outstanding_for = self
+                .ping_sent_at
+                .map(|sent| now.saturating_duration_since(sent));
+            if outstanding_for.is_some_and(|d| d >= self.config.interrupt_after) {
+                self.ping_sent_at = None;
+                // Its reply may still be in flight; count it so it is swallowed rather than
+                // credited to the next ping.
+                self.orphaned_echoes = self.orphaned_echoes.saturating_add(1);
+            }
+            let due = self.ping_sent_at.is_none()
+                && self.last_ping_issued.is_none_or(|at| {
+                    now.saturating_duration_since(at) >= self.config.ping_interval
+                });
+            if due {
+                // The ping doubles as the echo request: the peer's own `Quality` reply is what
+                // closes the round trip. Nothing extra goes on the wire for RTT.
+                self.inner.send(&NetMessage::Quality {
+                    ping_ms: self.ping_ms().unwrap_or(0),
+                    frame_advantage: local_frame_advantage,
+                });
+                self.ping_sent_at = Some(now);
+                self.last_ping_issued = Some(now);
+            }
         }
 
         let link = self.peer_link();
@@ -264,7 +314,7 @@ impl<T: Transport, C: Clock> LivenessTransport<T, C> {
             // reporting `TimedOut` here would make a connection look dead during normal startup.
             return PeerLink::Live;
         };
-        let silent = self.clock.now().duration_since(last);
+        let silent = self.clock.now().saturating_duration_since(last);
         if silent >= self.config.disconnect_after {
             PeerLink::TimedOut
         } else if silent >= self.config.interrupt_after {
@@ -321,7 +371,14 @@ impl<T: Transport, C: Clock> LivenessTransport<T, C> {
     /// Fold a fresh round-trip sample into the smoothed estimate.
     fn record_rtt(&mut self, rtt: Duration) {
         let sample = rtt.as_secs_f64() * 1000.0;
-        let w = self.config.ping_smoothing.clamp(0.0, 1.0);
+        // `f64::clamp` returns NaN for a NaN input rather than clamping it, so a `ping_smoothing`
+        // of NaN would poison every future sample. Raised in review. Fall back to the default
+        // weight rather than silently disabling smoothing.
+        let w = if self.config.ping_smoothing.is_nan() {
+            DEFAULT_PING_SMOOTHING
+        } else {
+            self.config.ping_smoothing.clamp(0.0, 1.0)
+        };
         self.smoothed_ping_ms = Some(
             self.smoothed_ping_ms
                 .map_or(sample, |prev| prev.mul_add(1.0 - w, sample * w)),
@@ -351,12 +408,19 @@ impl<T: Transport, C: Clock> Transport for LivenessTransport<T, C> {
             } = m
             {
                 self.remote_frame_advantage = *frame_advantage;
+                // Swallow one echo per abandoned ping before measuring anything: that reply
+                // belongs to a ping we gave up on, and crediting it to the current one would read
+                // as a near-zero round trip.
+                if self.orphaned_echoes > 0 {
+                    self.orphaned_echoes -= 1;
+                    continue;
+                }
                 // The peer's `Quality` closes the round trip our own ping opened. Take the sample
                 // once and clear the marker: a second echo for the same ping (a duplicated
                 // datagram) would otherwise measure from a stale send time and inflate the
                 // estimate.
                 if let Some(sent) = self.ping_sent_at.take() {
-                    self.record_rtt(now.duration_since(sent));
+                    self.record_rtt(now.saturating_duration_since(sent));
                 }
             }
         }
@@ -584,6 +648,123 @@ mod tests {
             Some(first),
             "the second echo for the same ping must be ignored"
         );
+    }
+
+    #[test]
+    fn a_late_echo_cannot_record_a_fabricated_near_zero_rtt() {
+        // Raised in review, and real. `Quality` carries no sequence number, so an echo is matched
+        // to "the outstanding ping". Sending a second ping while the first is unanswered would
+        // measure the FIRST ping's late reply against the SECOND ping's send time — a near-zero
+        // RTT that never happened, on exactly the slow link where the readout matters most.
+        let (mut t, ()) = harness();
+        t.tick(0);
+        assert_eq!(t.inner.sent.len(), 1, "one ping issued");
+
+        // A full ping interval passes with no echo. A second ping must NOT go out while the first
+        // is still outstanding and still inside the abandon window.
+        t.clock.advance(t.config.ping_interval);
+        t.tick(0);
+        assert_eq!(
+            t.inner.sent.len(),
+            1,
+            "no second ping may be in flight alongside the first"
+        );
+
+        // The first ping's reply finally lands, 150ms after it was sent.
+        t.clock.advance_ms(50);
+        deliver(
+            &mut t,
+            NetMessage::Quality {
+                ping_ms: 0,
+                frame_advantage: 0,
+            },
+        );
+        assert_eq!(
+            t.ping_ms(),
+            Some(150),
+            "the sample must be measured against the ping it actually answers"
+        );
+    }
+
+    #[test]
+    fn an_abandoned_ping_is_not_measured_when_its_reply_finally_arrives() {
+        // The other half: once a ping has been outstanding past `interrupt_after` it is abandoned
+        // rather than replaced, so a much-later reply finds no marker and produces no sample at
+        // all — better than a fabricated one.
+        let (mut t, ()) = harness();
+        t.tick(0);
+        t.clock
+            .advance(t.config.interrupt_after + Duration::from_millis(10));
+        t.tick(0); // abandons the stale ping and issues a fresh one
+
+        // The ORIGINAL ping's reply arrives immediately after the fresh ping went out. It must not
+        // be credited to the fresh ping as a ~0ms round trip.
+        deliver(
+            &mut t,
+            NetMessage::Quality {
+                ping_ms: 0,
+                frame_advantage: 0,
+            },
+        );
+        let measured = t.ping_ms();
+        assert!(
+            measured.is_none_or(|ms| ms > 0),
+            "a reply credited to the wrong ping would read as ~0ms; got {measured:?}"
+        );
+    }
+
+    #[test]
+    fn a_nan_smoothing_weight_does_not_poison_the_estimate() {
+        // `f64::clamp` returns NaN for a NaN input rather than clamping it, so a NaN weight would
+        // propagate into every future sample and the readout would never recover.
+        let mut cfg = tight();
+        cfg.ping_smoothing = f64::NAN;
+        let mut t = LivenessTransport::with_clock_and_config(
+            FakeTransport::default(),
+            ManualClock::new(),
+            cfg,
+        );
+        t.tick(0);
+        t.clock.advance_ms(40);
+        deliver(
+            &mut t,
+            NetMessage::Quality {
+                ping_ms: 0,
+                frame_advantage: 0,
+            },
+        );
+        t.clock.advance(t.config.ping_interval);
+        t.tick(0);
+        t.clock.advance_ms(80);
+        deliver(
+            &mut t,
+            NetMessage::Quality {
+                ping_ms: 0,
+                frame_advantage: 0,
+            },
+        );
+
+        let ms = t.ping_ms().expect("a sample exists");
+        assert!(
+            (40..=80).contains(&ms),
+            "a NaN weight must fall back to the default, not poison the estimate; got {ms}"
+        );
+    }
+
+    #[test]
+    fn the_manual_clock_is_sync_so_it_can_be_shared_across_threads() {
+        // Raised in review: a `Cell` offset would make `Arc<ManualClock>` fail to compile, and a
+        // frontend test driving a session from another thread is exactly what this type is for.
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<ManualClock>();
+
+        let clock = std::sync::Arc::new(ManualClock::new());
+        let c2 = std::sync::Arc::clone(&clock);
+        let before = clock.now();
+        std::thread::spawn(move || c2.advance_ms(500))
+            .join()
+            .expect("thread");
+        assert!(clock.now().saturating_duration_since(before) >= Duration::from_millis(500));
     }
 
     #[test]

@@ -159,13 +159,31 @@ nothing extra goes on the wire. Samples feed an EWMA at weight 0.2, because the 
 human: unsmoothed, the readout flickers with every packet. A duplicated datagram cannot inflate the
 estimate, because the send marker is consumed by the first echo.
 
+**At most one ping is outstanding at a time, and a ping is abandoned once the link grades
+`Interrupted`.** Without that, a reply arriving after a long stall is matched against whichever send
+marker is current rather than against its own, and the readout reports a *fabricated near-zero RTT
+at the exact moment the connection is worst* — the one moment the number has to be trusted.
+Abandoning alone is not enough either: abandon a ping and immediately issue the next one, and the
+stale reply matches the new marker. An `orphaned_echoes` counter therefore swallows exactly one echo
+per abandoned ping. Both halves are pinned by tests, the second of which caught the first fix being
+incomplete.
+
+`ping_smoothing` is read from config, so it is treated as untrusted: NaN falls back to the default
+weight and anything else is clamped to `0.0..=1.0`. `f64::clamp` returns NaN for NaN rather than
+clamping it, and a single NaN sample would poison the EWMA permanently — every later reading would
+be NaN, with no way back.
+
 ### The clock is injected
 
 `Clock` is a trait, not a call to `Instant::now()`. Testing timeout behaviour against the wall clock
 means `thread::sleep` in tests — slow, and flaky under CI load precisely because the thresholds
 being tested are short. (The sibling project's equivalent test does exactly that.) With
 `ManualClock` the whole state machine is driven instantly: a 5-second peer timeout is exercised in
-microseconds and cannot fail because a runner was busy. Eleven tests, no sleeps.
+microseconds and cannot fail because a runner was busy. Fifteen tests, no sleeps.
+
+`ManualClock` holds its offset in an `AtomicU64` rather than a `Cell`, which makes it `Sync`. A
+non-`Sync` clock would make `LivenessTransport<T, ManualClock>` non-`Sync` too, so a test could not
+exercise the decorator on the threaded path the frontend actually uses it on.
 
 `ManualClock` is `pub`, not `#[cfg(test)]`, so a frontend integration test outside the crate can use
 it too.
