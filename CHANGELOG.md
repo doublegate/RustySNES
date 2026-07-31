@@ -34,7 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Run-ahead stays opt-in, and the reason is now measured rather than assumed.**
   `docs/frontend.md` recorded the per-frame save-state allocation as *the* blocker on making
-  run-ahead default-on. `v1.25.0` removed that allocation, so the question was re-measured:
+  run-ahead default-on. `v1.25.0` removed that allocation, so the question was re-measured.
+
+  Absolute timings below are from one development machine and will differ on other hardware — they
+  are recorded because the **ratios** are what decide this, and a reader can only check a ratio by
+  re-running the same two benches (`save_state_cost`, `headless_frame`) and comparing. The
+  percentages are the portable part; the microseconds are the working:
 
   | | cost |
   |---|---:|

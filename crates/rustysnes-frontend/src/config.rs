@@ -945,6 +945,14 @@ mod tests {
         // `Region::frame_rate()` rather than a literal 60.0988 so the two cannot drift apart;
         // compared in `f64` because that is what `frame_rate()` returns, which also avoids a
         // lossy `as f32` the pedantic cast lints would (rightly) object to.
+        //
+        // ONLY NTSC is asserted, deliberately. Review suggested adding a matching `Region::Pal`
+        // check, since the constant's doc justifies itself against both. Arithmetic says that
+        // assertion could never fail: NTSC's budget is 16.64 ms and PAL's is 20.00 ms, so PAL is
+        // the LOOSER bound by 3.36 ms and `throttle_ms < NTSC` strictly implies
+        // `throttle_ms < PAL`. Adding it would be a vacuous assertion sitting next to a real one
+        // and reading like extra coverage — the exact shape `CLAUDE.md` warns about under "a guard
+        // must not subsume the assertion it protects".
         assert!(
             f64::from(cfg.throttle_ms) < 1000.0 / Region::Ntsc.frame_rate(),
             "a throttle at or above the frame budget fires too late to prevent anything"
