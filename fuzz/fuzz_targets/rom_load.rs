@@ -24,12 +24,37 @@ use libfuzzer_sys::fuzz_target;
 use rustysnes_cart::Region;
 use rustysnes_core::facade::EmuCore;
 
+/// Instructions to execute after a successful load.
+///
+/// A ROM that loads is a machine that runs, and an image whose header parsed but whose size fields
+/// are nonsense faults on the first fetch through them rather than at load — so *some* execution is
+/// worth doing. This was `run_frame()` (~357,366 master clocks), and the budget replaced it on a
+/// controlled measurement: 300 runs over one fixed seed, everything else identical.
+///
+/// | after load | exec/s | wall | edges |
+/// |---|---:|---:|---:|
+/// | `run_frame()` | 37 | 8 s | 1883 |
+/// | 2048 instructions | 100 | 3 s | 1760 |
+///
+/// So **2.7x throughput for ~120 edges**, not the three-orders-of-magnitude difference a naive
+/// comparison against `rom_header` suggests — that reading is confounded by corpus size, since
+/// libFuzzer's cumulative exec/s is dominated by replaying a few hundred multi-megabyte seeds.
+///
+/// The trade is taken because the edges given up are the vblank/NMI/HDMA frame paths, which
+/// `cpu_step` and `apu_port_io` reach directly and far more cheaply, whereas this target's own
+/// subject — the zip container, header detection, and the board's window arithmetic — is fully
+/// covered inside the budget.
+///
+/// (`EmuCore` exposes no cycle-budget entry point, so this counts instructions via
+/// `System::step_instruction`, not cycles.)
+const STEP_BUDGET: usize = 2048;
+
 fuzz_target!(|data: &[u8]| {
     let mut core = EmuCore::new(0, Region::Ntsc);
     if core.load_rom(data).is_ok() {
-        // A ROM that loads is a machine that runs. One frame reaches reset-vector fetch, the
-        // scheduler, and every chip — an image whose header parsed but whose size fields are
-        // nonsense fails here rather than at load.
-        core.run_frame();
+        let sys = core.system_mut();
+        for _ in 0..STEP_BUDGET {
+            sys.step_instruction();
+        }
     }
 });

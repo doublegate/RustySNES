@@ -39,7 +39,10 @@ fuzz_target!(|data: &[u8]| {
     let _ = glsl_bridge::split_combined_samplers(&shader_text);
     let _ = glsl_bridge::strip_descriptor_sets(&shader_text);
     let _ = glsl_bridge::parameters_of(&shader_text);
-    for line in shader_text.lines() {
+    // Capped: a per-line call over an input that is nothing but newlines spends the whole per-input
+    // budget without adding coverage, since every iteration takes the same early-return path. The
+    // ceiling is far above any real shader (RetroArch's largest presets are a few thousand lines).
+    for line in shader_text.lines().take(4096) {
         let _ = glsl_bridge::parse_pragma_parameter(line);
     }
     let _ = glsl_bridge::translate(&shader_text, 0, "fuzz");

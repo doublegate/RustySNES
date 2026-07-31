@@ -43,6 +43,21 @@ if [ -z "${TARGETS[0]:-}" ]; then
   TARGETS=("${ALL_TARGETS[@]}")
 fi
 
+# Fail fast with a diagnostic rather than at the first `cargo +nightly fuzz` invocation, which
+# reports it as an unrecognized cargo subcommand — accurate, but it does not tell you what to
+# install, and by then the seeding below has already run.
+if ! cargo fuzz --version >/dev/null 2>&1; then
+  echo "error: cargo-fuzz is not installed." >&2
+  echo "  rustup toolchain install nightly   # cargo-fuzz needs -Z sanitizer=address" >&2
+  echo "  cargo install cargo-fuzz" >&2
+  exit 1
+fi
+if ! rustup toolchain list 2>/dev/null | grep -q '^nightly'; then
+  echo "error: no nightly toolchain. cargo-fuzz needs one (this project pins 1.96 stable)." >&2
+  echo "  rustup toolchain install nightly" >&2
+  exit 1
+fi
+
 # See note 1 above. Exported, not passed per-command, because cargo-fuzz re-execs the target.
 export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0}"
 

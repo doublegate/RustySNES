@@ -64,7 +64,8 @@ The ExHiROM/ExLoROM `high` bit is A23-inverted: banks $80–$FF (A23=1) select t
 banks $00–$7D (A23=0) select the extra 4 MiB. ROM offsets are folded to `rom_size` by the
 `mirror` helper (clean-room port of ares `Bus::mirror`): power-of-two sizes mask, non-power-of-
 two sizes split the largest power-of-two block linear + mirror the remainder. SRAM size is
-`if $FFD8 == 0 { 0 } else { 0x400 << $FFD8 }`; ROM and open-bus regions are read-only.
+`if $FFD8 == 0 { 0 } else { min(MAX_SRAM_SIZE, 0x400 << min($FFD8, 16)) }` — see the bound above,
+which is load-bearing and not a formatting detail; ROM and open-bus regions are read-only.
 
 **ExLoROM provenance.** Unlike LoROM/HiROM/ExHiROM, ExLoROM has no dedicated `$FFD5` mode
 value — ares/bsnes both document it as unofficial (`ref-proj/ares/mia/medium/super-famicom.cpp`:
