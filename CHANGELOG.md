@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **AccuracySNES: recorded what each remaining `v1.28.0` row actually needs.** Several rows filed as
   "needs no new machinery" need rather more; `A5.18` is parked, `A6.15` needs its own design,
-  `C7.05`/`C7.06` are blocked on an open accuracy gap, and `B2.07`/`B2.09` are `v1.29.0`. The
+  `C7.05`/`C7.06` are reachable via an H-IRQ bracket, and `B2.07`/`B2.09` are `v1.29.0`. The
   measurements and the reasoning are in `docs/accuracysnes-plan.md` §`v1.28.0`. No generator or ROM
   change.
 
