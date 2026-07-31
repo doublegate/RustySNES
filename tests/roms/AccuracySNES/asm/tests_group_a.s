@@ -715,9 +715,18 @@ CATALOG_IMPL = 1
     .i16
     ; E=1, S=$01FF. PLD (new) pulls from $0200/$0201; PLY (old) pulls from $0100.
     ; This pair is the cleanest test of the emulation-mode stack-confinement rule.
+    ; 
+    ; BOTH halves hand-load S and then run an assertion, and an assertion needs the stack. On a
+    ; core that confines the stack differently the divergence lands in the RETURN ADDRESS, not
+    ; in the verdict, so the cart runs away instead of scoring -- and every later test is lost
+    ; with it. That is exactly what MesenCE did: the battery stopped here, 14 of 335 in, and the
+    ; host saw only an unattributed timeout. So the caller's S is stashed first and restored
+    ; through long addressing (no stack) the instant the measured value is safely in WRAM.
     rep #$30
     .a16
     .i16
+    tsc
+    sta f:$7E00C0     ; the caller's stack pointer, to be restored before any jsr/rts
     sep #$20
     .a8
     lda #$AB
@@ -745,11 +754,18 @@ CATALOG_IMPL = 1
     .a16
     .i16
     tdc
+    sta f:$7E00C2     ; park the reading BEFORE restoring anything
+    lda f:$7E00C0
+    tcs               ; stack restored: the assertion below can safely branch
+    lda f:$7E00C2
     cmp #$CDAB
     beq :+
     jmp @fail1
   :
     ; --- PLY: must NOT escape ---
+    rep #$30
+    .a16
+    .i16
     lda #$0000
     tcd
     lda #$01FF
@@ -766,6 +782,13 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
+    ; STY/LDY have no long-addressing form, so the parking goes through A.
+    tya
+    sta f:$7E00C4     ; park Y before the stack is touched
+    lda f:$7E00C0
+    tcs               ; and restore the caller's stack
+    lda f:$7E00C4
+    tay
     cpy #$005E
     beq :+
     jmp @fail2

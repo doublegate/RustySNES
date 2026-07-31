@@ -478,6 +478,87 @@ accumulating quantisation from four measurements, and still well short of `A5.19
 stays parked, on corrected arithmetic rather than a wrong figure; the honest verdict is *borderline*,
 not *impossible*.
 
+### Group E — surveyed, and no quick row remains (`v1.29.0`)
+
+Checked before starting, so the next attempt does not repeat the survey. **None of the 34 remaining
+rows is reachable with the emitter set `gen/src/spc.rs` currently has.** They split two ways, and
+both need building first:
+
+- **Rows needing new SPC700 opcodes.** `spc.rs` carries only opcodes a committed test already
+  exercises — timer, GAIN/envelope and echo/FIR coefficient ops are all absent. Every new encoding
+  must be checked against `crates/rustysnes-apu/src/spc700_exec.rs`'s dispatch table, because an
+  unverified byte surfaces as an *emulator disagreement* rather than an assembler error, which is
+  the most expensive way to be wrong here.
+- **Rows needing a DSP observable that does not exist.** `E4.05` (BRR kick index sequence), `E5.06`
+  (15-bit accumulator wrap), `E7.02` (counter offset table — needs two voices at different rates to
+  reveal the implied phase) and `E8.01` (KON/KOFF polled every second sample) are all *internal* to
+  the DSP. The cart reaches the APU through four bytes at `$2140`-`$2143`, and none of these is
+  visible through that channel without first building a way to see it.
+
+`E1.11` deserves a specific warning because it looks like the easy one and is not. "`TSET1`/`TCLR1`
+read the target twice" against a read-sensitive `$FD`-`$FF` timer counter: both a single-read and a
+double-read implementation leave the counter at zero, and the write-back targets a **read-only**
+register — so the ordinary observables are identical. That is the unobservable shape this document
+warns about elsewhere.
+
+**Order: build the emitters or the observable first, then author rows.** Picking a row and
+discovering mid-way that it needs machinery is how the `D2.08` and `A5.20` attempts were lost.
+
+### The Mesen oracle — the battery hangs at `A3.03` (`v1.29.0`)
+
+**Stopping point found; root cause NOT yet.** Under MesenCE the battery writes **14 of 335** status
+bytes and stops; snes9x runs all 335. By catalogue order index 14 is `A3.03` "PLD escapes, PLY not",
+which made its stack handling the obvious suspect.
+
+**That hypothesis was tested and is wrong.** `A3.03` hand-loads `S` and then runs assertions that
+need the stack, so a core confining the stack differently would corrupt the return path rather than
+the verdict. It has been hardened accordingly — the caller's `S` is stashed and restored through long
+addressing before any assertion branches — and MesenCE still stops at **14**. The hardening is kept
+on its own merits (a row that hand-loads `S` and then asserts is fragile whatever the host does), but
+it is **not** the fix and must not be recorded as one.
+
+**The index-to-test mapping is verified.** `SOURCE_CATALOG.tsv` gives `result_addr = $7EF020 +
+index` for every row, strictly in catalogue order, so "14 status bytes" really does mean the battery
+stops at index 14 = `A3.03`. That premise, at least, holds.
+
+**A second hypothesis was also tested and also failed.** `PLD` leaves `D = $CDAB`, and the assertion
+that follows runs with that direct page still set — so a direct-page write would land in ROM shadow.
+Restoring `D` alongside `S` made MesenCE **worse**: 14 status bytes became **0**. The change is
+reverted; only the `S` hardening is kept. Whatever the mechanism is, it is not the one that
+restoring `D` addresses, and the regression is itself a clue for whoever picks this up.
+
+Two failed hypotheses is where this investigation should stop guessing. What is *known* is now worth
+more than another attempt: the stopping index is 14, the mapping to `A3.03` is verified, the memory
+bridge works, the frame budget is irrelevant, and restoring `S` or `D` does not fix it. The next move
+should be an actual trace — MesenCE's own debugger/log facilities on the `A3.03` window — rather than
+a third guess from the cart side.
+
+Two earlier conclusions were wrong and are corrected here:
+
+- Not a frame budget. 4000 frames fails exactly as 900 did.
+- Not the Lua-to-emulator memory bridge. The bridge works — that is *how* the 14 was counted, by
+  scanning the per-test status array at timeout and exiting with the total. The magic never reading
+  `ACSN` was a symptom of the battery never getting far enough to write it, not of a bad read.
+
+Two invocation facts, since the crossval script and the `eval-line-213e` probe disagree and only the
+probe's form is known-good: MesenCE is a **native binary** at
+`ref-proj/MesenCE/bin/linux-x64/Release/Mesen`, invoked `--testRunner <lua> <rom>` — **script first**
+— with `SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy`. `crossval.sh` drives `Mesen2` via
+`dotnet Mesen.dll --testrunner <rom> <lua>`, arguments reversed. Both reach the same hang, so the
+argument order was not the cause, but the working form is worth having written down.
+
+**Why one test can hang the whole battery.** `A3.03` sets `S = $01FF`, enters emulation, and executes
+`PLD` — asserting it *escapes* page 1, leaving `S = $0201`. The test's own control flow then rides on
+that stack. A core that confines the stack differently does not produce a wrong *verdict*; it
+produces a wrong *return address*, and the cart runs away instead of scoring. That is the same
+hazard the Group E notes record for unbounded APU handshakes — "an unbounded wait hangs the whole
+battery and reports nothing about any other test" — reached by a different route.
+
+**The fix direction** is to make `A3.03` (and any row that hand-loads `S`) restore a known-good stack
+pointer before executing anything that returns, so a divergence is scored rather than fatal. That is
+a cart change, not an emulator one, and it needs MesenCE's actual `PLD` behaviour measured first —
+which is now possible, because the runner works.
+
 ### The Mesen2 oracle — diagnosed, not yet fixed (`v1.29.0`)
 
 Three `v1.28.0` items ended at "no oracle can arbitrate": `C7.07`'s errata, the scene goldens, and
