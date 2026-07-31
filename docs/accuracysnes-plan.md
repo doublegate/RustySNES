@@ -455,6 +455,45 @@ So nothing is asserted and nothing is recorded. What is known:
 The next attempt should start from a scratch build that dumps `$213F` before and after each step
 into slots verified unused, rather than from a folded variant that hides where the discrepancy is.
 
+### `A5.19` — a cross-mode differential needs the instrument on the same side of the mode switch
+
+`RTI` costs 7 cycles native and 6 emulation; the extra one is the PBR pull, an 8-clock WRAM read,
+so eight iterations differ by 16 dots. Landed, and it took three revisions, each a trap worth
+naming.
+
+**The shape that works.** Chain the RTIs through *one* `rti` instruction: build every return frame
+before `measure_begin`, all of them returning to the `@spin` label that is the `rti` itself, except
+the first-pushed one — pulled last — which returns to `@done`. The span then holds nothing but the
+RTIs, with no loop counter or branch inside it to dilute the signal.
+
+**Trap 1: the 341-dot line wrap**, the same one `A5.08` records. Sixteen RTIs is a ~200-dot span;
+it wrapped and reported native **42** against emulation **76** — the native reading *smaller*, the
+arithmetic opposite of the assertion. Diagnose it by measuring at two repeat counts and reading the
+**slope**: 4 → 8 RTIs moved native by exactly 52 dots = 4 x 13, the predicted per-RTI cost, which
+proved the per-iteration model right and only the offset junk. Eight RTIs is a ~104-dot span.
+
+**Trap 2: `rep` cannot clear `m` while `E = 1`.** `measure_result` emits 16-bit arithmetic; run it
+in emulation and it silently executes 8-bit, `sta` writes one byte, and the reading sticks at a
+constant **regardless of repeat count**. A number that does not move when the work moves is the
+signature. `measure_end` is width-neutral (`php`/`plp`), so latch first and widen after.
+
+**Trap 3, the one that blocked the design: the instrument's own overhead does not cancel across a
+mode boundary.** `hv_begin`/`hv_end` are subroutines that run at whatever width the caller is in, so
+the native and emulation spans carried *different* fixed overheads — measured native 279 against
+emulation 332, emulation larger when the assertion says it must be smaller. Every other `A5`
+differential compares two spans in the same mode, which is why this had never surfaced.
+
+The fix is to put the `xce` pairs **inside** the span, so both arms run the instrument natively and
+contain identical non-RTI instructions, differing only in the mode the RTIs execute in. The native
+arm therefore carries a deliberately no-op `clc`/`xce` at each end. With that, both spans carry the
+same 189-dot overhead: native 293, emulation 277, difference **16**, and 4 RTIs gives **8** — linear
+in the repeat count, which is what distinguishes a per-iteration cost from a fixed artifact.
+
+Verified by injection at the site the row names: making native `RTI` advance `S` without paying the
+bus cycle collapses the difference to exactly **0** and fails the row. snes9x's divergence count is
+unchanged, so it passes the row too; Mesen2 could not be consulted (the headless runner times out in
+this environment, which predates this work).
+
 ### `A5.20` — MVN's per-byte cost does not measure, and the number is interesting
 
 > **Read the conclusion first.** The `A5.20` **cart test** is withdrawn; no test ships. The

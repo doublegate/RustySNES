@@ -596,6 +596,14 @@ Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables; docs/accu
 |---|---|---|
 | 1 | `$02` | LDX abs did not cost one extra 8-clock access with x=0 |
 
+### A5.19 — RTI 7 native, 6 emul
+
+Provenance: **Documented** (WDC datasheet instruction-operation table; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | RTI did not cost one extra stack pull in native mode (7 vs 6) |
+
 ### A6.11 — WAI wakes, no vector
 
 Provenance: **Documented** (WDC datasheet: WAI wakes on the interrupt line; I gates the vector). Kind: scored.
