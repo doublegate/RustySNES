@@ -580,7 +580,26 @@ impl Default for RewindConfig {
 }
 
 /// Run-ahead settings (`crate::rewind::step_with_run_ahead`).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+///
+/// **Run-ahead stays opt-in, and `v1.26.0` measured why.** `docs/frontend.md` recorded the
+/// per-frame save-state allocation as "the blocker on making run-ahead default-on"; `v1.25.0`
+/// removed that allocation, so the question was re-measured rather than assumed resolved:
+///
+/// | | cost |
+/// |---|---:|
+/// | `save_state` | ~119 µs |
+/// | `load_state` | ~285 µs |
+/// | save/load round trip | **~0.40 ms** |
+/// | one emulated frame (`headless_frame_steady_state`) | **6.39 ms** |
+/// | NTSC frame budget | 16.64 ms |
+///
+/// The round trip is **2.4%** of the budget — it was never the dominant cost. What run-ahead
+/// actually costs is the extra frame of emulation, which is inherent to the technique and cannot
+/// be optimised away: `frames = 1` consumes **79%** of the NTSC budget on a fast development
+/// machine, leaving ~3.5 ms for present, UI, and audio; `frames = 2` needs **118%** and cannot
+/// hold 60 fps at all. Defaulting that on would make the emulator miss frames on ordinary
+/// hardware to buy latency the user never asked for.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RunAheadConfig {
     /// Frames to peek ahead each displayed frame. `0` disables run-ahead entirely
@@ -591,9 +610,35 @@ pub struct RunAheadConfig {
     ///
     /// Run-ahead multiplies emulation cost by `frames + 1`, so on a machine that is already
     /// missing its frame deadline it converts a latency improvement into visible stutter. RustyNES
-    /// throttles on a frame budget for exactly this reason; without it the feature cannot safely
-    /// be on by default.
+    /// throttles on a frame budget for exactly this reason.
     pub throttle_ms: f32,
+}
+
+/// The run-ahead budget throttle's default, in milliseconds.
+///
+/// Sits below the 16.64 ms NTSC deadline with headroom for present, UI, and audio, and is
+/// conservative against PAL's 20 ms too. Named rather than inlined so the value, the doc comment
+/// that justifies it, and the test that bounds it cannot drift apart.
+pub const DEFAULT_RUN_AHEAD_THROTTLE_MS: f32 = 14.0;
+
+impl Default for RunAheadConfig {
+    /// Run-ahead off, **but the throttle armed** for whenever it is turned on.
+    ///
+    /// This is hand-written rather than derived for one reason: a derived `Default` gives
+    /// `throttle_ms: 0.0`, which *disables* the throttle. The safety net that
+    /// [`RunAheadConfig::throttle_ms`] exists to provide would then be off for exactly the user
+    /// who just enabled run-ahead from the Settings panel and has no `throttle_ms` line in their
+    /// `config.toml` — the one person who most needs it. Enabling a feature should not require
+    /// separately discovering the knob that keeps it from stuttering.
+    ///
+    /// An existing `config.toml` that already spells out `throttle_ms` keeps whatever it says;
+    /// only an absent field picks [`DEFAULT_RUN_AHEAD_THROTTLE_MS`] up.
+    fn default() -> Self {
+        Self {
+            frames: 0,
+            throttle_ms: DEFAULT_RUN_AHEAD_THROTTLE_MS,
+        }
+    }
 }
 
 /// Autofire ("turbo") settings — hold a face button and the frontend pulses it (`v1.25.0`).
@@ -878,6 +923,64 @@ mod tests {
         assert_eq!(back.region, cfg.region);
         assert_eq!(back.audio.sample_rate, cfg.audio.sample_rate);
         assert_eq!(back.p1.binds.len(), 12);
+    }
+
+    #[test]
+    fn run_ahead_is_off_by_default_but_its_throttle_is_armed() {
+        // The trap this pins: a DERIVED `Default` gives `throttle_ms: 0.0`, which *disables* the
+        // throttle. Run-ahead's own doc calls that throttle the thing that keeps the feature from
+        // turning a latency win into visible stutter — so the derived default left the safety net
+        // off for exactly the user who just enabled run-ahead and has no `throttle_ms` line in
+        // their config.
+        let cfg = RunAheadConfig::default();
+        assert_eq!(cfg.frames, 0, "run-ahead must stay additive-default-off");
+        // `assert!(x == y)` rather than `assert_eq!`: clippy's `float_cmp` exempts this form but
+        // fires on the `assert_eq!` spelling, so the more idiomatic-looking one fails the
+        // `-D warnings` gate. Same reason as the note in the test below.
+        assert!(cfg.throttle_ms == DEFAULT_RUN_AHEAD_THROTTLE_MS);
+        assert!(
+            cfg.throttle_ms > 0.0,
+            "the throttle must be armed by default, or enabling run-ahead silently ships \
+             without its safety net"
+        );
+        // Below the NTSC deadline with headroom for present/UI/audio. A throttle at or above the
+        // deadline can never fire before the frame is already late. Derived from
+        // `Region::frame_rate()` rather than a literal 60.0988 so the two cannot drift apart;
+        // compared in `f64` because that is what `frame_rate()` returns, which also avoids a
+        // lossy `as f32` the pedantic cast lints would (rightly) object to.
+        //
+        // ONLY NTSC is asserted, deliberately. Review suggested adding a matching `Region::Pal`
+        // check, since the constant's doc justifies itself against both. Arithmetic says that
+        // assertion could never fail: NTSC's budget is 16.64 ms and PAL's is 20.00 ms, so PAL is
+        // the LOOSER bound by 3.36 ms and `throttle_ms < NTSC` strictly implies
+        // `throttle_ms < PAL`. Adding it would be a vacuous assertion sitting next to a real one
+        // and reading like extra coverage — the exact shape `CLAUDE.md` warns about under "a guard
+        // must not subsume the assertion it protects".
+        assert!(
+            f64::from(cfg.throttle_ms) < 1000.0 / Region::Ntsc.frame_rate(),
+            "a throttle at or above the frame budget fires too late to prevent anything"
+        );
+    }
+
+    #[test]
+    fn an_explicit_throttle_of_zero_survives_the_new_default() {
+        // Negative control for the test above. The new hand-written `Default` must not override a
+        // config that deliberately spells out `throttle_ms = 0.0` to disable the throttle —
+        // `#[serde(default)]` fills only ABSENT fields, and conflating the two would silently
+        // change behaviour for a user who opted out on purpose.
+        let cfg: Config =
+            toml::from_str("[run_ahead]\nframes = 1\nthrottle_ms = 0.0\n").expect("deserialize");
+        assert_eq!(cfg.run_ahead.frames, 1);
+        // `assert!(x == 0.0)` rather than an epsilon dance: this is an exact literal round-tripped
+        // through TOML, not a computed value. Note the form matters — clippy's `float_cmp` exempts
+        // this constant comparison but DOES fire on the `assert_eq!(x, 0.0)` spelling, so the
+        // apparently more idiomatic version fails the `-D warnings` gate.
+        assert!(cfg.run_ahead.throttle_ms == 0.0);
+
+        // ...while an absent field does pick the armed default up.
+        let cfg: Config = toml::from_str("[run_ahead]\nframes = 1\n").expect("deserialize");
+        assert_eq!(cfg.run_ahead.frames, 1);
+        assert!(cfg.run_ahead.throttle_ms > 0.0);
     }
 
     #[test]

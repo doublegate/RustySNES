@@ -123,6 +123,19 @@ jobs:
           # ref is compared in `jq` — that is not theoretical, `v1.2` prefix-matches several real
           # tags while exact-matching none.
           #
+          # VERIFIED against the live API, because review challenged exactly this and asserted the
+          # opposite (that `matching-refs` 404s on an absent tag, which would fail every release
+          # closed):
+          #
+          #   matching-refs/tags/v99.99.99          -> HTTP 200, body `[]`, gh exit 0
+          #   matching-refs/tags/zzz-not-a-tag      -> HTTP 200, body `[]`, gh exit 0
+          #   git/ref/tags/v99.99.99                -> 404, gh exit 1   <- the rejected endpoint
+          #
+          # So a non-zero exit here means a REAL failure (network, auth, rate limit) and nothing
+          # else, which is what makes aborting on it correct rather than over-strict. Do not "fix"
+          # this by treating 404 as absent: that would reintroduce the exact three-way collapse
+          # this replaced, letting an auth failure read as "no tag, go ahead and release".
+          #
           # Every failure path aborts the job (the script runs under `set -euo pipefail`) rather
           # than resolving to a release decision.
           if ! matching="$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${tag}")"; then
