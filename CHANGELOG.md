@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES: a measured assessment of what each remaining `v1.28.0` row needs.** Working the
+  rows filed as "needs no new machinery" showed several need rather more, so
+  `docs/accuracysnes-plan.md` now records the verdict and the evidence per row instead of leaving it
+  to be re-derived.
+
+  The binding constraint across Group A/B is the **measurement budget**: `hv_begin`/`hv_end` cost
+  ~189 dots against a 341-dot scanline, leaving ~152 usable before the H counter wraps and silently
+  returns a plausible small number. That is what parks `A5.18` (a `BRK` round trip is 39 dots, so
+  only 3 fit, giving 6 dots of signal against a tolerance of 2 in a difference-of-differences).
+  `A6.15` needs its own design because `sweep.rs` deliberately covers only the unambiguous opcode
+  subset. `C7.05`/`C7.06` are entangled with RustySNES setting `range_over` a line late. `B2.07` is
+  gated on `B2.02`, and `B2.09` is framebuffer-oracle work by its own dossier note — both `v1.29.0`.
+
 - **AccuracySNES: `A5.19` — `RTI` costs 7 cycles native and 6 emulation.** The extra native cycle is
   the PBR pull, an 8-clock WRAM read rather than a 6-clock internal cycle, so eight iterations differ
   by 16 dots. Group A on-cart coverage goes 12 → 13 of 15 in `A5`.
