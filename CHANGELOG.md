@@ -11,6 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Netplay: read-only spectating.** A spectator receives the players' confirmed input stream and
+  replays it into its own `System`.
+
+  **It never predicts and never rolls back** — that is the whole difference from `RollbackSession`.
+  A player must predict to hide latency and must therefore be able to roll back when a prediction
+  was wrong; a spectator has no input of its own to hide latency for, so it waits until a frame's
+  inputs are all known and then runs it. No prediction means no misprediction, which means **a
+  spectator cannot desync**: it either has a frame's inputs or it does not.
+
+  **Receive-only** — it never sends an ack, a checksum, or a quality reply, so however many attach,
+  the match sees no extra traffic. A test feeds one a stream deliberately containing `InputAck`,
+  `Checksum`, and `Quality` and asserts the send count is still zero, because the tempting bug is to
+  answer them.
+
+  `delay_frames` (the tournament broadcast / anti-spoiler delay, clamped to 512) moves **when** a
+  frame is revealed, never **what** it contains. Both halves are pinned:
+  `spectator_output_matches_a_reference_run` asserts a spectator's framebuffer sequence is
+  byte-identical to a direct run of the same inputs with no netplay in the way, and the delayed
+  variant asserts the frames it *did* show match the same prefix.
+
+  Untrusted-input bounds: an out-of-range player index is dropped (`num_players` is fixed at
+  construction, so it can never become valid); a frame past `MAX_SPECTATOR_FRAME_LOOKAHEAD` is
+  dropped, without which one datagram carrying a frame near `u32::MAX` would resize the history
+  buffer unboundedly; `delay_frames`/`num_players` are clamped at construction; and input is
+  dropped until the handshake is accepted, so a foreign ROM hash means nothing is watchable rather
+  than merely that a flag reads `false` — `synced` was set and consulted by nothing in the first
+  revision, which a test asserting only that flag would never have caught.
+
 - **Netplay: peer liveness, round-trip time, and connection timeouts.** The crate previously had
   **no liveness handling at all** — no clock anywhere in it, no handshake timeout (an absent `Sync`
   stalled `advance()` forever), and `NetMessage::Quality`, which carries the peer's ping and frame

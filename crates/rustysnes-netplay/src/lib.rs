@@ -19,6 +19,7 @@ pub mod liveness;
 pub mod message;
 pub mod rng;
 pub mod session;
+pub mod spectator;
 pub mod transport;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -33,4 +34,5 @@ pub use liveness::{
 };
 pub use message::NetMessage;
 pub use session::{AdvanceOutcome, MAX_PLAYERS, NetplayError, RollbackSession, SessionConfig};
+pub use spectator::{SpectatorConfig, SpectatorOutcome, SpectatorSession};
 pub use transport::Transport;

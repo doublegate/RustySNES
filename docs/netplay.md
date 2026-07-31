@@ -213,3 +213,63 @@ exercise the decorator on the threaded path the frontend actually uses it on.
 `ManualClock` is `pub`, not `#[cfg(test)]`, so a frontend integration test outside the crate can use
 it too.
 
+
+## Spectating (`v1.27.0`)
+
+A spectator receives the players' confirmed input stream and replays it into its own `System`.
+
+### It never predicts and never rolls back
+
+That is the whole difference from `RollbackSession`. A player must predict to hide latency, and must
+therefore be able to roll back when a prediction was wrong. A spectator has no input of its own to
+hide latency for, so it simply waits until a frame's inputs are all known and then runs it.
+
+No prediction means no misprediction, which means no rollback machinery, which means **a spectator
+cannot desync**: it either has a frame's inputs or it does not.
+
+### Receive-only
+
+It never sends an ack, a checksum, or a quality reply — so however many spectators attach, the match
+they are watching sees no extra traffic at all. A test feeds one a stream deliberately containing
+`InputAck`, `Checksum`, and `Quality` and asserts the send count is still zero, because the tempting
+bug is to answer them.
+
+### `delay_frames` moves *when*, never *what*
+
+The delayed-stream buffer holds a confirmed frame back until `frame + delay_frames` is also
+confirmed — a tournament broadcast / anti-spoiler delay, and jitter smoothing. It changes only the
+reveal timing; the emulation is byte-identical either way.
+
+Both halves are pinned: `spectator_output_matches_a_reference_run` asserts a spectator's
+framebuffer sequence equals a direct run of the same inputs with no netplay in the way, and the
+delayed variant asserts the frames it *did* show are byte-identical to the same prefix.
+
+### Untrusted-input bounds
+
+- **Input is dropped until the handshake is accepted** — the outermost gate, and the one the rest
+  sit behind. A foreign ROM hash, or no `Sync` at all, therefore means nothing is watchable, rather
+  than merely that a flag reads `false`. This was missing in the first revision: `synced` was set
+  and then consulted by nothing, so a peer that never handshook could still drive frames into the
+  `System` while `is_synced()` honestly reported `false`. A test asserting only that flag would have
+  passed throughout, which is why `a_foreign_rom_hash_is_not_watchable_at_all` asserts **no frame is
+  produced**, and was verified by removing the guard and watching it fail.
+- An **out-of-range player index** is dropped. `num_players` is fixed at construction, so such an
+  index can never become valid — dropping it is correct rather than best-effort, and it keeps a
+  malformed or foreign packet from indexing out of bounds.
+- A **frame far past the confirmation horizon** is dropped (`MAX_SPECTATOR_FRAME_LOOKAHEAD`, 1024).
+  Without it one datagram carrying a frame near `u32::MAX` resizes the history buffer unboundedly —
+  an OOM from a single packet. Dropping it is safe because the players' session retransmits anything
+  unacknowledged.
+- `delay_frames` and `num_players` are **clamped at construction**, so an unbounded value out of a
+  config file cannot become an allocation.
+
+`pending_frames()` — how far behind the live match a spectator is running — spells its caught-up
+case out rather than reaching for `saturating_sub(current) + 1`. That form has a floor of `1`,
+because the saturation floor is `0` and the `+ 1` lifts it back, so a "frames behind" readout could
+never report "caught up" — the one reading it exists to give. Pinned in both directions: the
+caught-up case reads `0`, and a spectator holding a reveal delay still counts its buffered frames,
+so the fix cannot be "always return 0".
+
+Because the handshake gate is outermost, the tests for the two bounds under it must hand-shake
+first — otherwise each would pass with its own bound removed, dropped by the gate instead. Both go
+through a `synced_spectator` helper and assert `is_synced()` alongside the bound they name.
