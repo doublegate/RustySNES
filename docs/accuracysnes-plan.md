@@ -605,26 +605,35 @@ before the H counter wraps and silently returns a plausible small number.
 | `B2.07` | gated on `B2.02` | `B2.04` covers the 262-line count, not the clock total, so the frequency is not implied by it. Getting to 60.0988 Hz needs clocks-per-frame, and the frame alternates 357,368/357,364 because of the short scanline — which *is* `B2.02`, a `T-06-A` dot-model residual scheduled for `v1.29.0`. |
 | `B2.09` | `v1.29.0` by its own dossier note | the picture window is "not CPU-observable directly; reachable through the framebuffer oracle once the dot-resolution compositor lands". |
 
-#### `B2.02`/`B2.03` — the prerequisite is cleared, the model change is not started
+#### `B2.02`/`B2.03` — both landed in the emulator; the cart rows are the remaining half
 
-The plan for `v1.29.0` recorded a doubt about whether the short-line gate was even reachable:
-`field` is one of its four inputs, and `Ppu::field`'s doc comment said it "toggles each frame when
-interlace is on", which would leave it constant in the progressive NTSC case `B2.02` needs.
+The doubt this section recorded — whether the short-line gate was reachable at all, given `field`'s
+doc claimed it only toggles under interlace — was settled against the source: the comment was stale,
+the code toggles unconditionally, and that is now pinned by a test.
 
-**Settled against the source: the doc was wrong, the code is right.** `end_of_scanline` toggles
-`field` unconditionally, which is what `$213F` bit 7 does on hardware; only the flag's *use* is
-interlace-conditional (`render.rs` picks the odd/even row with it). The comment and `docs/ppu.md`
-are corrected, and `the_field_flag_toggles_every_frame_even_in_progressive_mode` pins it —
-injecting the `if self.io.interlace` gate the old comment described makes that test fail with a
-constant `[0,0,0,0]`. So all four gate inputs (`io.interlace`, `field`, `v`, `region`) are live and
-the gate is reachable.
+Both scanlines are now modelled, as two separate changes because their **shapes are opposite**:
 
-What is **not** done is the model change itself. `dot_length` (`rustysnes-core::bus`) is a pure
-function of the dot, so it cannot express a per-line variation; the short line (1360 clocks, all 340
-dots at 4 — the long dots vanish) and the long line (1368, 341 dots) both need the line context
-threaded to it. Expect goldens to move, and note that a previous attempt at the neighbouring H-IRQ
-mapping change was reverted for exactly that reason — so the guard test named in the roadmap lands
-**first**, before `dot_length` is touched.
+| | `B2.02` short | `B2.03` long |
+|---|---|---|
+| when | NTSC, progressive, field, `V=240` | PAL, interlace, field, `V=311` |
+| clocks / dots | 1360 / 340 | 1368 / **341** |
+| mechanism | the two 6-clock dots are **not long** | an extra 4-clock dot is **appended** |
+| touches | the Bus's clock table | the PPU's **H wrap** |
+
+Observable: NTSC frames alternate 357,368 / 357,364; PAL interlaced frames 425,568 / 425,572. No
+golden moved — both lines are in vblank. A related latent bug fell out of `B2.03`: `check_hv_irq`
+bounded the H match with the 340 constant, so an `HTIME` landing on the long line's dot 340 could
+never match anywhere; it now uses the per-line count.
+
+**What is still open is the cart side.** `B2.07` (NTSC 60.0988 Hz) is the row this was supposed to
+unblock, and it is not a quick follow-on: the frame-length difference is **4 master clocks = one
+dot**, and the `hv_begin`/`hv_end` instrument costs a measured 175 dots. Measuring a one-dot
+difference in a quantity that large needs either a differential across many frames or a different
+instrument — the same problem `A5.18` is parked on. Do not assume `B2.07` follows from the model
+change; it needs its own design.
+
+Also still unmodelled and deliberately separate: the interlaced frame's extra **scanline** (263/313
+rather than 262/312). `B2.03` does not need it, since `V = 311` is the last PAL line either way.
 
 #### Group E — the batch to author next, picked against what the oracle can adjudicate
 
@@ -642,9 +651,36 @@ Chosen 2026-08-01, now that both halves of the Mesen2 oracle arbitrate. Two corr
 
 | row | assertion | why first |
 |---|---|---|
-| `E8.01` | KON/KOFF polled every **second** sample (16 kHz) `[ERRATA]` | pure DSP-register observable; the errata flag means the reference is explicit, and a 1-sample granularity is measurable through ENDX/ENVX without new opcodes |
-| `E9.02` | noise output is **highpass-filtered** `[ERRATA]` | DSP-observable via OUTX on a NON voice; errata-flagged, so the expected behaviour is stated rather than inferred |
-| `E5.06` | BRR 15-bit wrap: clamp to 16 bits, then `+4000h..+7FFFh → -4000h..-1` | already has decoder scaffolding from the landed `E5` rows |
+| `E8.01` | KON/KOFF polled every **second** sample (16 kHz) `[ERRATA]` | pure DSP-register observable; errata-flagged so the reference is explicit |
+| `E9.02` | noise output is **highpass-filtered** `[ERRATA]` | DSP-observable via OUTX on a NON voice; errata-flagged |
+| `E5.06` | BRR 15-bit wrap: clamp to 16 bits, then `+4000h..+7FFFh → -4000h..-1` | reuses the landed `E5` decoder scaffolding |
+
+**`E8.01` design, worked out so the next session does not restart from the assertion text.** Follow
+`e8_02`'s shape (`apu.rs:5298`), which already solves the hard parts — `e8_02_sounding_voice` builds
+the voice, `e8_02_time_to_envx` counts timer-2 ticks to a non-zero `ENVX`, and `T2DIV = 2` gives
+**exactly one tick per output sample**.
+
+The assertion is a **differential**, not an absolute: write `KON` twice, the second offset by **one
+sample (32 SPC cycles)** from the first, and compare the two measured delays.
+
+- polled every **second** sample ⇒ the two delays differ by **1** (one write waits for the next
+  even poll, the other does not);
+- polled every sample ⇒ they are **equal**.
+
+So the row asserts *"the two differ"*, which `assert_a16_range` expresses fine — and note this is one
+of the cases the `never hand-write a verdict byte` rule exists for.
+
+Two traps carried over from `e8_02`, both already paid for once:
+- the voice must be **fully silent** before the second key-on. A full-scale envelope is `$7F0` and
+  release steps down 8/sample, so ~254 samples; `e8_02`'s first version polled while `ENVX` was still
+  `~$40` and measured a delay of one tick. Reuse its arming guard (`dsp_read_to(0x08, …)` must read
+  zero) rather than re-deriving it.
+- `T2DIV = 1` is finer but puts the reading at 15 of `TnOUT`'s 16 values, close enough to the wrap
+  that the NTSC/PAL drift gate caught it on the PAL image alone. Keep `T2DIV = 2`.
+
+**Verify by injection at the named site**: force the KON poll to every sample in
+`rustysnes-apu`'s DSP and confirm *this* row's code fires — per [[accuracysnes-attribution-trap]], a
+row that passes without moving under its own named injection is measuring something else.
 
 **Explicitly NOT first: `E1.11`** ("TSET1/TCLR1 read the target twice"). Inspected and set aside as a
 likely **vacuous** row: the second read is a dummy, and on a `$FD`-`$FF` timer-output target the

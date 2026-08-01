@@ -106,10 +106,18 @@ pins it. "Every other frame" is keyed on the field flag, following anomie's *"th
 (`docs/ppu.md` §Field flag). No visible pixel moves: the short line is inside vblank, and the whole
 858-test workspace suite, every blessed scene, and both `hdmaen_latch_test` goldens were unchanged.
 
-**Still unmodelled:** the long line (PAL interlace, field 1, V=311 — 1368 clocks, **341** dots, one
-more than a normal line). That extra dot is a structural change to the H wrap rather than a clock
-substitution, which is why it is separated from the short line rather than landed alongside it.
-`B2.03` remains uncovered.
+**The long line is modelled too** (`B2.03`): PAL, interlace on, field set, `V = 311` — 1368 clocks
+and **341** dots. Its shape is the opposite of the short line's and that is why the two landed
+separately: the short line substitutes dot *lengths*, while this one **appends a whole extra 4-clock
+dot** and leaves the two 6-clock dots alone (`339 x 4 + 2 x 6 = 1368`). So it moves the H wrap
+(`Ppu::dots_this_line`) rather than the Bus's clock table, and the H counter reaches 340 on that line
+and on no other. The H-IRQ comparator's upper bound follows the same per-line count, so an `HTIME`
+landing on dot 340 is a real match there and suppressed everywhere else. PAL interlaced frames
+alternate 425,568 / 425,572.
+
+**Still unmodelled, and separate:** the interlaced frame's extra *scanline* (263 / 313 rather than
+262 / 312). `Region::lines_per_frame` is documented as the non-interlaced count and nothing varies
+it, so `B2.03` above is reachable without it — `V = 311` is the last PAL line either way.
 
 ## DMA / HDMA bus-steal
 
