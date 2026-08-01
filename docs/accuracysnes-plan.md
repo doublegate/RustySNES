@@ -843,7 +843,7 @@ before writing the row.
 disagreement in the battery, and a row batch authored while one row is unexplained risks attributing
 a new failure to the wrong cause.
 
-#### First arbitrated finding: `A2.10` — Mesen2 is the outlier, 2-vs-1
+#### First arbitrated finding: `A2.10` — Mesen2 is the outlier, and ares makes it 3-vs-1
 
 The moment the oracle started working it produced a result the project has never been able to see.
 `crossval.sh` reports `Mesen2: 1 failing test(s)`, catalogue index **11 = cart `A2.10`, "PEI does not
@@ -855,16 +855,22 @@ divergences. So this is **2-vs-1 with Mesen2 as the outlier**, which inverts the
 standing heuristic warns that *RustySNES failing alone* means a real bug, and that is not what this
 is.
 
-**Do not yet record it as a known-good Mesen2 divergence.** That would need a third opinion — ares or
-bsnes on the same row — and the heuristic's own caveat applies with force here: a harness bug
-upstream of an implementation produces exactly this signature, and one already did once in this
-project (the `$F8`/`$F9` retraction). The cheap next step is to run the row against ares or bsnes. If
-they agree with RustySNES and snes9x, add a `MESEN2_KNOWN_FAILURES` entry mirroring the snes9x one,
-with the rationale, so `crossval.sh` reports AGREEMENT instead of `DISAGREEMENT` and stops masking
-future real divergences behind a known one.
+**SETTLED 2026-08-01 — ares passes it, so this is 3-vs-1.** The third opinion the paragraph below
+asked for now exists: `scripts/accuracysnes/ares_host/` runs the battery under ares
+(`magic ACSN`, `done a5`, 338 tests, reproducible across runs) and reports catalogue index 11 as
+status `$01` — **pass**. With RustySNES and snes9x that is three implementations against Mesen2, and
+the caveat that held this open — a harness bug upstream of an implementation produces the same
+signature, as the `$F8`/`$F9` retraction proved — is answered: the fourth host is independent of all
+three and agrees.
 
-Until then `crossval.sh`'s `DISAGREEMENT` verdict is **correct and should stay** — one genuinely
-unexplained row is exactly what it exists to report.
+`A2.10` can therefore become a `MESEN2_KNOWN_FAILURES` entry whenever the count is next revised. It
+is not being added in the same change that established it, because `MESEN2_KNOWN_FAILURES` currently
+reads 2 and matches; changing the constant and the reasoning at once would leave nothing to check
+the change against.
+
+*The original reasoning, kept because it is why the row waited:* recording it as a known-good Mesen2
+divergence without a third opinion would have been exactly the mistake the `$F8`/`$F9` retraction
+already cost this project once.
 
 #### The Mesen oracle — the "14 of 335" reading does not reproduce
 
