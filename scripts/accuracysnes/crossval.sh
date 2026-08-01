@@ -165,6 +165,44 @@ ran=0
 #   and the SNESdev Wiki (34-tile budget, raised by the fetch phase). Region-independent.
 SNES9X_KNOWN_FAILURES=14
 
+# --- Mesen2's own known divergences -------------------------------------------------------------
+#
+# Same mechanism as SNES9X_KNOWN_FAILURES, and set only after the failing SET (not the count) was
+# read at `R_DONE == $A5` and reproduced exactly across runs, both completing at frame 479. A count
+# alone would have hidden the composition, which is the whole point of enumerating them:
+#
+#   idx279  F1.03  code 2  | Group F input rows. mesen_crossval.lua makes exactly ONE emu.setInput
+#   idx286  F1.10  code 2  | call because in this build the port argument does not select a
+#                          | controller -- 0/1/2 all land on controller 1 -- so a second call for
+#                          | port 2 overwrites port 1 with a mask containing no Start and the cart
+#                          | never leaves its menu. The cost is that PAD2_CONTRACT-dependent rows
+#                          | cannot pass here. Covered by the in-repo harness and snes9x, which do
+#                          | drive both ports. See that script's comment for the full account.
+#
+#   idx263  E8.01  code 4  | The half-sample KON phase shift moves the measured key-on delay on
+#                          | RustySNES, snes9x and MesenCE (8 vs 7) and does not move it on Mesen2.
+#                          | snes9x is independent of the Mesen lineage, so the majority is not
+#                          | self-referential -- but MesenCE is a maintained FORK of Mesen, so this
+#                          | is not four independent opinions either. Recorded as a divergence
+#                          | rather than declared settled: the discriminator is ares (bsnes's
+#                          | libretro core exposes no SYSTEM_RAM, so it cannot score the battery).
+#                          | If ares sides with the majority this stays; if it sides with Mesen2,
+#                          | E8.01's premise is wrong and the row comes out.
+#                          |
+#                          | UNEXPLAINED, and it is why E8.01 is not merged: on the PAL image the
+#                          | SAME Mesen2 build PASSES it (only F1.03 fails there, at frame 422).
+#                          | The DSP's 32 kHz sample rate is region-independent, so a true
+#                          | KON-poll-rate assertion should not care which image it runs on. A row
+#                          | that flips with the region is encoding a timing PHASE, not the poll
+#                          | rate -- the trap docs/accuracysnes-plan.md records. Resolve that before
+#                          | trusting either verdict.
+MESEN2_KNOWN_FAILURES=3
+
+# The PAL image's own count. Only idx279 F1.03 fails there -- the port-2 limitation again. Set
+# separately rather than reusing the NTSC constant precisely because the two differ, and that
+# difference is the E8.01 region asymmetry noted above.
+MESEN2_PAL_KNOWN_FAILURES=1
+
 # --- snes9x, via the libretro host --------------------------------------------------------------
 if [[ -f $SNES9X ]]; then
     cc -O2 -o "$HOST" scripts/accuracysnes/libretro_crossval.c -ldl || exit 1
@@ -199,7 +237,9 @@ if [[ -f $MESEN ]] && command -v dotnet >/dev/null; then
         0)   echo "Mesen2: OK (0 failing tests)" ;;
         253) echo "Mesen2: results block never appeared (bad magic)" >&2; rc=1 ;;
         254) echo "Mesen2: timed out before the battery finished" >&2; rc=1 ;;
-        *)   echo "Mesen2: $code failing test(s)" >&2; rc=1 ;;
+        "$MESEN2_KNOWN_FAILURES")
+             echo "Mesen2: OK ($code known divergence(s) — see MESEN2_KNOWN_FAILURES above)" ;;
+        *)   echo "Mesen2: $code failing test(s), expected $MESEN2_KNOWN_FAILURES" >&2; rc=1 ;;
     esac
     ran=$((ran + 1))
 else
@@ -234,6 +274,8 @@ if [[ -f $PAL_ROM ]]; then
             0)   echo "Mesen2 PAL: OK (0 failing tests)" ;;
             253) echo "Mesen2 PAL: results block never appeared (bad magic)" >&2; rc=1 ;;
             254) echo "Mesen2 PAL: timed out before the battery finished" >&2; rc=1 ;;
+            "$MESEN2_PAL_KNOWN_FAILURES")
+                 echo "Mesen2 PAL: OK ($code known divergence(s))" ;;
             *)   echo "Mesen2 PAL: $code failing test(s)" >&2; rc=1 ;;
         esac
     fi

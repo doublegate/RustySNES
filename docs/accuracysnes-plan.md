@@ -734,6 +734,21 @@ Mesen2 failure**, and it is code 4 — the difference assertion.
 **Any future probe of this cart must read at `DONE`, not at a frame budget.** A fixed-frame read is
 sampling the results menu, and this cost a full round plus a wrong conclusion about the runner.
 
+**`E8.01` FAILS NTSC AND PASSES PAL ON THE SAME MESEN2 BUILD — the row is phase-fragile.** NTSC
+fails code 4 at frame 479; the PAL image passes it, with only `F1.03` failing there at frame 422.
+
+The S-DSP's 32 kHz sample rate is **region-independent**, so a genuine "is `KON` polled at 16 kHz"
+assertion cannot care which image it runs on. A verdict that flips with the region is encoding a
+timing **phase**, which is the trap this document already records twice. So the honest reading of
+`E8.01` today is not "three implementations agree and Mesen2 is the outlier" — it is **the row is not
+robust**, and its agreement elsewhere may be luck of alignment rather than the mechanism.
+
+**That, not the missing fourth opinion, is why `E8.01` is not merged.** Fixing it means making the
+measurement insensitive to where the cart's own phase starts — e.g. sweeping several sub-sample
+offsets and asserting that *at least one* moves the delay, rather than asserting a single chosen
+offset does. The `A5.19` mode-differential work solved a structurally similar problem by putting both
+arms inside the measured span; the same instinct applies.
+
 **The fourth opinion was attempted and is blocked by a specific, checkable obstacle.**
 `ref-proj/bsnes/bsnes/out/bsnes_libretro.so` is built, and `libretro_crossval.c` takes any core as
 `argv[1]` — but the host exits 255 with *"core exposes no usable SYSTEM_RAM (0 bytes, need 131072)"*.
