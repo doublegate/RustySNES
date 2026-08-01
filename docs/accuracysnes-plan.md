@@ -687,17 +687,31 @@ byte `$04` = FAIL code 2). That is the **port-2 limitation** the oracle fix docu
 `mesen_crossval.lua` now sends one `setInput` call, so `PAD2_CONTRACT`-dependent rows cannot pass
 under MesenCE. Nothing to do with the DSP poll phase, and nothing to do with this row.
 
-**UNRECONCILED, and it blocks landing this row:** a direct WRAM probe counts **1** even-byte
-failure (`F1.03`, the port-2 row) stably at 1400/1600/2000 frames, while `crossval.sh` reports
-**`Mesen2: 3 failing test(s)`** on the same build. `E8.01` itself reads `$01` — PASS — in all three
-probe runs, so it is not one of the three, but the count itself does not match and I have not
-explained why. Candidates, none checked: the runner's own `MAX_FRAMES` (4000) puts the cart in a
-different phase than the probe's budget; the runner also scores the **PAL image**, whose failures may
-be folded into the same line; or the runner iterates `n = rd16(COUNT)` over a range the probe's
-`0..335` loop does not match.
+**RECONCILED — they are two different emulators.** `crossval.sh` runs
+`ref-proj/Mesen2/.../Mesen.dll` under `dotnet`; every probe written during this investigation used
+`ref-proj/MesenCE/.../Mesen`, a separate native build. Both directories exist and the label "Mesen2"
+in the crossval output refers to the **`.dll`**. So "1 failure" and "3 failures" were never in
+conflict — they were measurements of different implementations. **Any probe intended to predict the
+crossval gate must use the `dotnet` binary with the runner's own argument order.**
 
-Resolve this before opening a PR. A row that passes while the tally it lives in is unexplained is
-exactly the situation where a later real regression gets absorbed into "the usual 3".
+With that settled, `E8.01`'s status is known on all four:
+
+| implementation | `E8.01` |
+|---|---|
+| RustySNES (in-repo) | **pass** |
+| snes9x (libretro) | **pass** — back to its baseline 14 known divergences |
+| MesenCE (native) | **pass** — `$01`, stable at 1400/1600/2000/2500/4000 frames |
+| **Mesen2 (`.dll`, the gate)** | **FAIL code 4** — byte `$08` |
+
+Code 4 is the **difference** assertion: the half-sample offset moves the measured delay on three
+implementations and does not move it on Mesen2. That is Mesen2 alone differing, the same shape as
+`A2.10` — and note both of this cart's Mesen2-only disagreements are now in this one runner.
+
+**Do not treat that as proof the row is right.** Three-agree-one-differs is the *favourable* shape,
+but the standing caution applies: a harness bug upstream of an implementation produces it too, and
+did once here. The cheap discriminator is ares or bsnes as a fourth opinion. If they move with the
+majority, `E8.01` is correct and Mesen2 wants a `MESEN2_KNOWN_FAILURES` entry alongside `A2.10`; if
+they side with Mesen2, the offset is not doing what the row claims.
 
 **Read the status encoding before counting failures.** `mesen_crossval.lua` treats **odd** bytes as
 PASS (odd ≠ `$01` being *"PASS variant n"*, `n = b/2`), **even** as *"FAIL code b/2"*, `$00` as
