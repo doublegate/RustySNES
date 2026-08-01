@@ -681,12 +681,17 @@ Bands are now set from measured values (phases `5..11` around 8 and 7; guard `0.
 release blocks leave a residual of 2 out of `$7F`, and demanding exact zero would pin the block count
 rather than that the release finished).
 
-**Still open, and why this is not a PR yet:** Mesen2 went 1 → 3 failing. One of those is the
-pre-existing `A2.10`. The others are unidentified, and the likely shape is the documented trap that
-*a verdict encoding a timing phase changes for reasons unrelated to its subject* — adding a test here
-has shifted the DSP poll phase for something downstream before. Identify **which** Mesen2 rows fail
-before landing; if a neighbour moved, this row needs to stop perturbing the phase rather than the
-neighbour needing a wider band.
+**Identified, and `E8.01` is not the cause.** `E8.01` is catalogue index **263**, and it reads `$01`
+— plain PASS — under Mesen2. The rows that fail are **Group F input rows** (`idx279` = `F1.03`,
+byte `$04` = FAIL code 2). That is the **port-2 limitation** the oracle fix documented, materialising:
+`mesen_crossval.lua` now sends one `setInput` call, so `PAD2_CONTRACT`-dependent rows cannot pass
+under MesenCE. Nothing to do with the DSP poll phase, and nothing to do with this row.
+
+**Read the status encoding before counting failures.** `mesen_crossval.lua` treats **odd** bytes as
+PASS (odd ≠ `$01` being *"PASS variant n"*, `n = b/2`), **even** as *"FAIL code b/2"*, `$00` as
+NOTRUN and `$FF` as SKIP. A raw dump of "non-`$01` bytes" therefore looks alarming and is mostly
+passes — 28 of the 29 non-`$01` entries in one such dump were PASS variants or a SKIP. Counting
+even bytes only is what makes a dump comparable to the runner's own tally.
 
 **`E8.01` design, worked out so the next session does not restart from the assertion text.** Follow
 `e8_02`'s shape (`apu.rs:5298`), which already solves the hard parts — `e8_02_sounding_voice` builds
