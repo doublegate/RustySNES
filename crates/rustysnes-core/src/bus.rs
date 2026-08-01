@@ -84,8 +84,15 @@ const HVBJOY_OPEN_BUS_MASK: u8 = 0x3E;
 const LONG_DOTS: [u16; 2] = [323, 327];
 
 /// Master clocks the dot currently being completed lasts for.
-const fn dot_length(dot: u16) -> u32 {
-    if dot == LONG_DOTS[0] || dot == LONG_DOTS[1] {
+///
+/// `short_line` is the dossier's `B2.02` scanline — NTSC, progressive, field set, `V = 240` — where
+/// the line is 1360 clocks rather than 1364. Under this model that is exactly "the two long dots
+/// are not long here": `340 x 4 = 1360`, which is the decomposition the references give for the
+/// short line ("340 dots of 4-clocks"). The PPU decides whether the line is short
+/// ([`rustysnes_ppu::Ppu::is_short_scanline`]) because every input is its own; this function only
+/// turns that into clocks.
+const fn dot_length(dot: u16, short_line: bool) -> u32 {
+    if !short_line && (dot == LONG_DOTS[0] || dot == LONG_DOTS[1]) {
         MASTER_PER_DOT + 2
     } else {
         MASTER_PER_DOT
@@ -808,7 +815,7 @@ impl Bus {
             let pre_tick_dot = self.ppu.dot();
             // The threshold is the length of the dot being *completed*, which is why it is taken
             // from `pre_tick_dot` rather than read back after the tick.
-            let this_dot = dot_length(pre_tick_dot);
+            let this_dot = dot_length(pre_tick_dot, self.ppu.is_short_scanline());
             let dot_ticked = if self.clock.dot_accum >= this_dot {
                 self.clock.dot_accum -= this_dot;
                 self.tick_ppu_dot();
@@ -1593,6 +1600,54 @@ impl core::fmt::Debug for Bus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Dossier `B2.02`: the NTSC progressive frame alternates 357,368 / 357,364 master clocks,
+    /// because scanline 240 of every other frame is 1360 clocks rather than 1364.
+    ///
+    /// Asserted on the frame TOTAL rather than by reaching into `dot_length`, so it measures the
+    /// behaviour a cart can observe (`B2.07`'s 60.0988 Hz is this number) instead of restating the
+    /// implementation. Note the total must be read from `clock.master`, not from the amount passed
+    /// to `advance_master` -- the DRAM-refresh reallocation advances the clock by 40 per line
+    /// beyond what the caller supplies, and counting the caller's side reports 346,888.
+    #[test]
+    fn the_ntsc_frame_alternates_between_the_normal_and_short_scanline() {
+        let mut bus = Bus::new(Region::Ntsc);
+        let mut frame = bus.ppu.frame_count();
+        let mut last = bus.clock.master;
+        let mut lens = std::vec::Vec::new();
+        while lens.len() < 4 {
+            bus.advance_master(MASTER_PER_DOT);
+            if bus.ppu.frame_count() != frame {
+                frame = bus.ppu.frame_count();
+                lens.push(bus.clock.master - last);
+                last = bus.clock.master;
+            }
+        }
+        assert_eq!(
+            lens,
+            std::vec![357_368, 357_364, 357_368, 357_364],
+            "NTSC frames must alternate by the 4 clocks the short scanline removes"
+        );
+    }
+
+    /// The short line is NTSC-only: PAL has its own long-scanline case (`B2.03`, not yet modelled)
+    /// and must not pick up the NTSC one. Without the region term in `is_short_scanline` this fails.
+    #[test]
+    fn the_pal_frame_is_not_shortened() {
+        let mut bus = Bus::new(Region::Pal);
+        let mut frame = bus.ppu.frame_count();
+        let mut last = bus.clock.master;
+        let mut lens = std::vec::Vec::new();
+        while lens.len() < 3 {
+            bus.advance_master(MASTER_PER_DOT);
+            if bus.ppu.frame_count() != frame {
+                frame = bus.ppu.frame_count();
+                lens.push(bus.clock.master - last);
+                last = bus.clock.master;
+            }
+        }
+        assert_eq!(lens, std::vec![425_568, 425_568, 425_568]);
+    }
 
     /// `HDMA_RUN_DOT` is now literally `= rustysnes_ppu::RENDER_DOT`, so this can never actually
     /// fail post-refactor -- kept as a named regression lock so a future edit that reintroduces a

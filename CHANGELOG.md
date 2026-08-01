@@ -11,6 +11,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dot model: the short scanline is now modelled (`B2.02`).** NTSC, progressive, field set,
+  `V = 240` is 1360 master clocks rather than 1364 — under this project's measured convention that
+  means the two 6-clock dots (323, 327) are **not** long on that line, leaving 340 dots of 4, which
+  is exactly the decomposition the references give for the short line.
+
+  The observable consequence is the one `B2.07` needs: the NTSC frame now **alternates 357,368 /
+  357,364** master clocks instead of being constant, which is where 60.0988 Hz comes from. Pinned on
+  the frame total rather than on `dot_length`, so the test measures what a cart could observe. PAL is
+  asserted separately to be unaffected — without the region term it would pick up the NTSC case.
+
+  `Ppu::is_short_scanline` owns the predicate because all four inputs (region, interlace, field, V)
+  are the PPU's own; the Bus only turns it into clocks. "Every other frame" is keyed on the field
+  flag, following anomie's *"scanline `$f0` of every other frame (those with `$213f.7=1`)"* — which
+  is reachable in progressive mode only because that flag toggles unconditionally, the correction
+  that landed just before this.
+
+  **Nothing regressed:** the short line is inside vblank, and the full 858-test workspace suite,
+  every blessed scene and both `hdmaen_latch_test` goldens are unchanged. The long line (`B2.03`)
+  is deliberately **not** included — it has 341 dots, one more than a normal line, so it changes the
+  H wrap rather than substituting a dot length, and is a separate change with a different risk
+  profile. `docs/scheduler.md` and `docs/ppu.md` say so.
+
+  One measurement note worth keeping: a frame-length probe must read `clock.master`, not sum what it
+  passes to `advance_master`. The DRAM-refresh reallocation advances the clock 40 per line beyond the
+  caller's amount, and counting the caller's side reports 346,888 for a 357,368-clock frame.
+
 - **PPU: the field flag's doc contradicted the code, and nothing pinned either.** `Ppu::field` is
   `$213F` bit 7 and toggles at the end of **every** frame; its doc comment said "toggles each frame
   when interlace is on", which describes neither the code nor the hardware. Only the flag's *use* is

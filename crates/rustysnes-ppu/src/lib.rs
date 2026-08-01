@@ -1074,6 +1074,27 @@ impl Ppu {
         self.v
     }
 
+    /// The scanline being generated right now is the **short** one — 1360 master clocks instead of
+    /// 1364, dossier `B2.02`.
+    ///
+    /// NTSC, interlace off, field set, `V = 240` (`$F0`). All four inputs are the PPU's own, which
+    /// is why the predicate lives here and the clock arithmetic that consumes it lives in the Bus:
+    /// this is a video-timing fact, the same ownership reasoning as [`RENDER_DOT`].
+    ///
+    /// "Every other frame" is expressed through [`Ppu::field`] rather than a frame parity counter,
+    /// because that is how the sources state it — anomie: *"scanline `$f0` of every other frame
+    /// (those with `$213f.7=1`) is only 1360 cycles"*, and `$213F` bit 7 **is** this flag. It
+    /// toggles unconditionally at frame end even in progressive mode, which is what makes this
+    /// reachable at all with interlace off (see the field's own doc).
+    ///
+    /// The short line is entirely inside vblank, so no visible pixel moves; what moves is the
+    /// frame's master-clock total, which alternates 357,368 / 357,364 and is what `B2.07`'s
+    /// 60.0988 Hz needs.
+    #[must_use]
+    pub const fn is_short_scanline(&self) -> bool {
+        matches!(self.region, Region::Ntsc) && !self.io.interlace && self.field && self.v == 240
+    }
+
     /// Latch the current H/V dot counters into `OPHCT`/`OPVCT` ($213C/$213D) right now — the same
     /// effect a CPU read of `SLHV` ($2137) has (`regs.rs`'s `0x2137` arm calls this too, so there
     /// is one implementation of the latch itself). Real hardware also drives this from the WRIO
