@@ -94,6 +94,11 @@ the rest four**; see `docs/scheduler.md` "Convention (binding)"):
   overscan). **HBlank** H=274→H=1.
 - **H/V latch:** read **SLHV $2137** latches H/V; **OPHCT $213C / OPVCT $213D** read twice for
   the 9-bit values; **STAT78 $213F** read clears the latch + resets the toggle.
+- **Field flag ($213F bit 7):** toggles at the end of **every** frame, interlaced or not. Only its
+  *use* is conditional — interlace consumes it to select the odd/even row. A model that gated the
+  toggle itself on interlace would leave bit 7 constant in progressive mode, and would make any
+  short/long-scanline behaviour keyed on the field unreachable there. Pinned by
+  `the_field_flag_toggles_every_frame_even_in_progressive_mode`.
 
 ## CGRAM, VRAM, color math, windows
 

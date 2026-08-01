@@ -648,7 +648,14 @@ pub struct Ppu {
     h: u16,
     /// Vertical scanline counter, 0..=(lines_per_frame-1).
     v: u16,
-    /// Interlace field (toggles each frame when interlace is on).
+    /// The PPU2 field flag — `$213F` bit 7.
+    ///
+    /// It toggles at the end of **every** frame, interlaced or not ([`Ppu::end_of_scanline`]);
+    /// only its *use* is conditional. Interlace consumes it to pick the odd/even row
+    /// (`render.rs`), and it is readable through `$213F` regardless. The doc here previously said
+    /// "toggles each frame when interlace is on", which describes neither the code nor the
+    /// hardware, and would make the short/long-scanline gate that keys on it look unreachable in
+    /// progressive mode when it is not.
     field: bool,
     /// Currently inside vertical blank.
     vblank: bool,
@@ -1325,6 +1332,33 @@ mod tests {
         let p = Ppu::new();
         assert_eq!(p.framebuffer().len(), FRAMEBUFFER_LEN);
         assert_eq!(p.region, Region::Ntsc);
+    }
+
+    #[test]
+    fn the_field_flag_toggles_every_frame_even_in_progressive_mode() {
+        // Pins the `field` doc: the flag is `$213F` bit 7 and toggles unconditionally. Only its
+        // *use* is interlace-conditional. A model that gated the toggle on `io.interlace` would
+        // leave bit 7 constant here, and would also make the short/long-scanline gate that keys
+        // on `field` unreachable in progressive mode -- which is why this is pinned rather than
+        // left as a comment.
+        let mut p = Ppu::new();
+        assert!(!p.io.interlace, "this test is about the progressive case");
+
+        let mut bus = NullVideoBus;
+        let mut seen = [0u8; 4];
+        for slot in &mut seen {
+            let before = p.frame_count;
+            while p.frame_count == before {
+                p.tick_dot(&mut bus);
+            }
+            *slot = p.read_reg(0x213F) & 0x80;
+        }
+
+        assert_eq!(
+            seen,
+            [0x80, 0x00, 0x80, 0x00],
+            "bit 7 must alternate on every frame boundary, not stay put"
+        );
     }
 
     #[test]
