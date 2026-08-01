@@ -122,10 +122,26 @@ const DRAM_REFRESH_DOT: u16 = 134;
 /// The async resync (`docs/scheduler.md` §async-resync, ADR 0004) is an **integer** accumulator —
 /// no floats, so the SPC domain is bit-deterministic. The exact rational is
 /// `2_050_560 / 21_477_270` (SMP base rate over the NTSC master rate); gcd = 30, giving the reduced
-/// `68_352 / 715_909` kept here to bound accumulator growth (`spc_accum` stays below `SPC_DEN`).
+/// `68_352 / 715_909` kept here to bound accumulator growth (`spc_accum` stays below the
+/// denominator). The DENOMINATOR is region-dependent; see `SPC_DEN_PAL` for why.
 const SPC_NUM: u64 = 68_352;
-/// SPC700 fractional-clock denominator: the NTSC master clock Hz, reduced by gcd = 30.
-const SPC_DEN: u64 = 715_909;
+/// SPC700 fractional-clock denominator on **NTSC**: the NTSC master clock Hz, reduced by gcd = 30.
+const SPC_DEN_NTSC: u64 = 715_909;
+/// SPC700 fractional-clock denominator on **PAL**: `21_281_370 / 30`.
+///
+/// **The APU's oscillator is region-independent and the master clock's is not**, so this ratio is
+/// the one place in the core where which console a real machine is matters. The APU runs from its
+/// own 24.576 MHz crystal at a fixed `2_050_560` Hz base rate in both regions; the master clock is
+/// 21.477270 MHz on NTSC and 21.281370 MHz on PAL. Holding *the ratio* fixed — which this used to
+/// do — therefore makes the APU scale with the video clock and run **0.92% slow** on PAL.
+///
+/// Both references agree, from opposite directions. ares
+/// (`sfc/system/system.cpp`) sets `cpuFrequency` per region and leaves
+/// `apuFrequency = 32040.0 * 768.0` never region-set at all. snes9x (`apu/apu.cpp`) carries two
+/// explicit ratios — `15664/328125` and `34176/709379` — which both work out to an APU rate of
+/// exactly **1,025,280 Hz**, differing only in the master-clock denominator. `709_379 * 30` is
+/// `21_281_370`, which is where this number comes from.
+const SPC_DEN_PAL: u64 = 709_379;
 
 /// The master-clock phase + the CPU-side timing registers the Bus advances in lockstep.
 #[derive(Debug, Clone)]
@@ -446,11 +462,15 @@ impl Bus {
 
     /// Reconfigure the PPU's region (line count / 50-vs-60 Hz status bit) from the installed
     /// cart's header, auto-detecting NTSC vs PAL rather than requiring the frontend to guess or
-    /// hardcode it. A no-op when no cart is installed. Region only ever affects the PPU's
-    /// line-count/status-bit timeline here — the differing NTSC/PAL master-clock *rate* (Hz) is a
-    /// real-world audio/video pacing concern the frontend owns (`docs/adr/0004`); the core's
-    /// master-clock counter is a pure tick count, not wall-clock time, so nothing else in the
-    /// core depends on which oscillator frequency a real console would use.
+    /// hardcode it. A no-op when no cart is installed.
+    ///
+    /// Region affects the PPU's line-count/status-bit timeline **and one thing more**: the SPC700
+    /// fractional divisor. The core's master-clock counter is a pure tick count rather than
+    /// wall-clock time, so the differing NTSC/PAL master-clock *rate* (Hz) is otherwise the
+    /// frontend's pacing concern (`docs/adr/0004`) — but the APU runs from its **own** crystal at
+    /// a fixed rate in both regions, so master-ticks-to-SMP-clocks is exactly the conversion where
+    /// which oscillator a real console uses does matter. This doc said the opposite until the
+    /// divisor was made region-dependent; see `SPC_DEN_PAL` and `docs/scheduler.md` §async-resync.
     // Deliberately NOT `const fn`: `Bus` holds heap-allocated/complex nested state (`Box`-owned
     // WRAM, the PPU/APU), and this method reads a `Cart` (a `Box<dyn Board>` behind it) — pinning
     // this to a `const` API guarantee for no actual const-context caller buys nothing and would
@@ -865,9 +885,19 @@ impl Bus {
             if dot_ticked {
                 self.check_superscope_beam();
             }
+            // The denominator is the REGION's master clock, not a constant: the APU's crystal is
+            // region-independent and the master clock's is not, so holding the ratio fixed would
+            // scale the APU with the video clock. See `SPC_DEN_PAL`. Read from the PPU rather than
+            // cached in `Clock` so it cannot go stale across a region change or a state restore —
+            // the accumulator is already serialized and a second field agreeing with it is one
+            // more thing that can disagree.
+            let spc_den = match self.ppu.region() {
+                PpuRegion::Ntsc => SPC_DEN_NTSC,
+                PpuRegion::Pal => SPC_DEN_PAL,
+            };
             self.clock.spc_accum += SPC_NUM;
-            while self.clock.spc_accum >= SPC_DEN {
-                self.clock.spc_accum -= SPC_DEN;
+            while self.clock.spc_accum >= spc_den {
+                self.clock.spc_accum -= spc_den;
                 // Release one SPC700 master cycle in lockstep with the master clock. The four
                 // CPU↔APU port latches live INSIDE the `Apu` (`cpu_read_port`/`cpu_write_port`),
                 // so advancing here at master-clock granularity means a CPU read of $2140-$2143
@@ -1686,6 +1716,53 @@ mod tests {
             }
         }
         assert_eq!(lens, std::vec![425_568, 425_568, 425_568]);
+    }
+
+    /// The APU runs at the **same wall-clock rate in both regions**, because its crystal is not
+    /// the master clock's.
+    ///
+    /// This is the one conversion in the core where which console a real machine is matters, and
+    /// it was wrong: the divisor was pinned to the NTSC master clock, so the APU scaled with the
+    /// video clock and ran 0.92% slow on PAL. Both references disagree with that from opposite
+    /// directions — ares never region-sets `apuFrequency` at all, and snes9x carries two explicit
+    /// ratios (`15664/328125`, `34176/709379`) that work out to the identical 1,025,280 Hz.
+    ///
+    /// Asserted as SMP clocks released per *master tick*, which must differ between the regions by
+    /// exactly the ratio of the two master clocks — that is what leaves the wall-clock APU rate
+    /// identical.
+    #[test]
+    fn the_apu_rate_is_region_independent() {
+        /// S-DSP samples emitted over `master_ticks`, which is directly proportional to the SMP
+        /// clocks released — one sample per 64 base clocks — and needs no new counter to observe.
+        fn smp_samples(region: Region, master_ticks: u64) -> usize {
+            let mut bus = Bus::new(region);
+            let mut sink = std::vec::Vec::new();
+            let mut n = 0;
+            while n < master_ticks {
+                bus.advance_master(MASTER_PER_DOT);
+                n += u64::from(MASTER_PER_DOT);
+                bus.apu.drain_audio(&mut sink);
+            }
+            sink.len()
+        }
+
+        // Many frames, so the ~0.92% difference is far larger than the one-sample quantisation.
+        let ntsc = smp_samples(Region::Ntsc, 425_568 * 40);
+        let pal = smp_samples(Region::Pal, 425_568 * 40);
+        assert!(
+            pal > ntsc,
+            "PAL must produce MORE audio per master tick than NTSC — its master clock is slower \
+             (21.281370 vs 21.477270 MHz) while the APU crystal is the same, so one master tick is \
+             worth more APU. Got NTSC {ntsc} samples, PAL {pal}"
+        );
+        #[allow(clippy::cast_precision_loss)]
+        let ratio = (pal as f64) / (ntsc as f64);
+        // 21_477_270 / 21_281_370 = 1.0092053...; the tolerance is one accumulator tick either way.
+        assert!(
+            (ratio - 1.009_205).abs() < 0.000_05,
+            "the two divisors must differ by exactly the ratio of the two master clocks; got \
+             {ratio} from NTSC {ntsc} samples, PAL {pal}"
+        );
     }
 
     /// `HDMA_RUN_DOT` is now literally `= rustysnes_ppu::RENDER_DOT`, so this can never actually

@@ -270,9 +270,10 @@ determinism checks; the assembled `Apu` is covered by `tests/dsp_unit.rs`.
   upload stream).
 - **The async resync accumulator (T-31-003, done):** the SPC700/S-DSP advance in **integer**
   lockstep with the master clock from `Bus::advance_master` — `spc_accum += SPC_NUM` per master
-  tick, releasing one SMP **base** clock (`Apu::advance_smp_cycle`) per `SPC_DEN`. The exact
-  reduced ratio is `68_352 / 715_909` = `(apuFrequency/12) / 21_477_270` (no floating point —
-  ADR 0004). Because the SMP advances at master-clock granularity, a CPU port access already
+  tick, releasing one SMP **base** clock (`Apu::advance_smp_cycle`) per denominator. The numerator
+  is `68_352` = `apuFrequency/12` reduced; the **denominator is the region's master clock**,
+  `715_909` on NTSC and `709_379` on PAL, because the APU's crystal is region-independent and the
+  master clock's is not (`docs/scheduler.md` §async-resync). No floating point — ADR 0004. Because the SMP advances at master-clock granularity, a CPU port access already
   observes every SMP write up to that instant, so the once-per-scanline forced sync is subsumed
   by the continuous lockstep. **Verified bit-deterministic**: a booted frame's framebuffer + ARAM
   - ports hash identically across runs (`tests/blargg_spc.rs`).
