@@ -926,7 +926,7 @@ impl Ppu {
         self.pd_eval_over_flags();
 
         self.h += 1;
-        if self.h >= DOTS_PER_LINE {
+        if self.h >= self.dots_this_line() {
             // End of a scanline: advance V and fire frame/VBlank events. Rendering already
             // happened above at RENDER_DOT, not here.
             self.h = 0;
@@ -989,7 +989,10 @@ impl Ppu {
         // the next line, which would be a spurious match hardware/ares never produce.
         let h_target = self.irq_h + HIRQ_TRIGGER_DELAY;
         let h_match = if self.irq_enable_h {
-            h_target < DOTS_PER_LINE && self.h == h_target
+            // Bounded by THIS line's dot count, not the constant: the long line has a dot 340 that
+            // a normal line does not, so an `HTIME` landing there is a real match on that line and
+            // a suppressed one everywhere else.
+            h_target < self.dots_this_line() && self.h == h_target
         } else {
             // V-only IRQ: the comparator is sampled once near the start of the line, not held
             // across it. Modelling `h_match` as unconditionally true here made `V == VTIME` a
@@ -1093,6 +1096,35 @@ impl Ppu {
     #[must_use]
     pub const fn is_short_scanline(&self) -> bool {
         matches!(self.region, Region::Ntsc) && !self.io.interlace && self.field && self.v == 240
+    }
+
+    /// The scanline being generated right now is the **long** one — 1368 master clocks and
+    /// **341** dots instead of 340, dossier `B2.03`.
+    ///
+    /// PAL, interlace on, field set, `V = 311`. The shape differs from the short line and that is
+    /// the whole point: the short line substitutes dot *lengths* (its two 6-clock dots are not long
+    /// there), whereas this one appends an extra 4-clock dot and leaves the two long dots alone —
+    /// `339 x 4 + 2 x 6 = 1368`. So it moves the H wrap ([`Ppu::dots_this_line`]) rather than the
+    /// Bus's clock table, which is why it is a separate change from `B2.02`.
+    ///
+    /// Like the short line it sits in vblank, so no visible pixel moves.
+    #[must_use]
+    pub const fn is_long_scanline(&self) -> bool {
+        matches!(self.region, Region::Pal) && self.io.interlace && self.field && self.v == 311
+    }
+
+    /// Dots in the scanline being generated right now — [`DOTS_PER_LINE`], or one more on the long
+    /// line.
+    ///
+    /// The H counter runs `0..dots_this_line()`, so on the long line it reaches 340, a value it
+    /// takes on no other line.
+    #[must_use]
+    pub const fn dots_this_line(&self) -> u16 {
+        if self.is_long_scanline() {
+            DOTS_PER_LINE + 1
+        } else {
+            DOTS_PER_LINE
+        }
     }
 
     /// Latch the current H/V dot counters into `OPHCT`/`OPVCT` ($213C/$213D) right now — the same

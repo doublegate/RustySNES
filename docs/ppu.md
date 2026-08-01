@@ -90,9 +90,11 @@ the rest four**; see `docs/scheduler.md` "Convention (binding)"):
 
 - Normal line = 1364 clocks = 340 dots (`338 × 4 + 2 × 6`); short = 1360 (NTSC non-interlace, V=240 alt frames);
   long = 1368 (PAL interlace field=1 V=311). 262/312 lines (NTSC/PAL), +1 interlaced.
-  The **short** line is modelled (`Ppu::is_short_scanline`): all 340 dots at 4, so the two 6-clock
-  dots are not long there, and the NTSC frame alternates 357,368 / 357,364 clocks. The **long** line
-  is not — it has 341 dots, one more than normal, which changes the H wrap rather than a dot length.
+  Both are modelled. The **short** line (`Ppu::is_short_scanline`) puts all 340 dots at 4, so its
+  two 6-clock dots are not long, and the NTSC frame alternates 357,368 / 357,364. The **long** line
+  (`Ppu::is_long_scanline`) instead appends an extra 4-clock dot, keeping the two long ones, so it
+  has 341 dots and moves the H wrap (`Ppu::dots_this_line`); PAL interlaced frames alternate
+  425,568 / 425,572. The interlaced frame's extra *scanline* is a separate, still-unmodelled thing.
 - Active output dots 22–277 on lines 1–224 (or 1–239 overscan). **VBlank** at V=225 (or V=240
   overscan). **HBlank** H=274→H=1.
 - **H/V latch:** read **SLHV $2137** latches H/V; **OPHCT $213C / OPVCT $213D** read twice for
