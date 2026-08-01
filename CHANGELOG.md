@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES oracle: the recorded diagnosis does not reproduce, and the blocker is a different
+  one.** Re-measured with a new, deliberately minimal second instrument
+  (`scripts/accuracysnes/mesen_wram_probe.lua`) — every prior conclusion rested on
+  `mesen_crossval.lua`'s own read, with nothing independent checking that read.
+
+  Three findings, two of which overturn what was written down:
+
+  - **MesenCE headless is not broken.** It renders the entire undisbeliever corpus with **0 skipped
+    captures** and runs the AccuracySNES cart to exit 0. Treating "the Mesen oracle" as a single
+    broken thing was wrong — rendering works; only the battery read does not. The scene work is
+    therefore **not** blocked by whatever blocks the battery.
+  - **The render channel cannot observe the battery.** MesenCE and RustySNES produce byte-identical
+    colour histograms for the cart at 60/300/500/800/900 frames, with and without the input contract
+    held, and the picture is static throughout in both. A hang and a clean run look the same, so any
+    diagnosis has to go through WRAM.
+  - **The battery writes no verdict at all — not 14 of 335.** At `RESULTS = $7E:F000` the magic reads
+    as bytes that *differ between runs* (uninitialised WRAM, never written) and `R_STATUS[0..39]` are
+    all zero at both 600 and 1500 frames. The "completes 14 then stops at `A3.03`" figure does not
+    reproduce — which explains why two cart-side `A3.03` fixes moved nothing: they were chasing a
+    number that was not there.
+
+  The open question is now **"why does the battery never start"**, not "why does it stop". Prime
+  suspect, recorded in `docs/accuracysnes-plan.md` and not yet confirmed: the input contract holds
+  B + Start + X + R from power-on, so a menu that starts on a *press edge* never sees one.
+
 - **PPU: the field flag's doc contradicted the code, and nothing pinned either.** `Ppu::field` is
   `$213F` bit 7 and toggles at the end of **every** frame; its doc comment said "toggles each frame
   when interlace is on", which describes neither the code nor the hardware. Only the flag's *use* is

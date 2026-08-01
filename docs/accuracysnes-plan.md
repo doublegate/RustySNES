@@ -626,6 +626,39 @@ threaded to it. Expect goldens to move, and note that a previous attempt at the 
 mapping change was reverted for exactly that reason — so the guard test named in the roadmap lands
 **first**, before `dot_length` is touched.
 
+#### The Mesen oracle — the "14 of 335" reading does not reproduce
+
+Re-measured 2026-08-01 with a second, independent instrument
+(`scripts/accuracysnes/mesen_wram_probe.lua`), because every prior conclusion rested on
+`mesen_crossval.lua`'s own read with nothing checking that read.
+
+Established, and some of it overturns what was recorded here:
+
+- **MesenCE headless is not broken.** It renders the whole undisbeliever corpus
+  (`scripts/perdot_crossval.sh`, **0 skipped captures**) and runs the AccuracySNES cart to exit 0.
+  Notes treating "the Mesen oracle" as one broken thing were wrong: rendering works, and only the
+  battery read does not. Two problems, not one — which also means the scene work is **not** blocked
+  by whatever blocks the battery.
+- **MesenCE and RustySNES render the cart byte-identically** (same colour histogram) at 60, 300, 500,
+  800 and 900 frames, with and without the input contract held, and the picture is static throughout
+  in both. So **the render channel cannot observe the battery at all** — a hang and a clean run look
+  identical. Any diagnosis must go through WRAM.
+- **The battery writes no verdict at all — not 14.** At `RESULTS = $7E:F000` (snesWorkRam offset
+  `$F000`, the address `runtime.inc` defines and `mesen_crossval.lua` already uses), the magic reads
+  as bytes that **differ between runs** — uninitialised WRAM, never written — and `R_STATUS[0..39]`
+  are **all zero** at both 600 and 1500 frames. "Completes 14 of 335 and stops at `A3.03`" does not
+  reproduce, and the two `A3.03` hypotheses chased earlier were chasing a number that is not there.
+
+The question is therefore no longer "why does it stop at `A3.03`" but **"why does the battery never
+start under MesenCE"** — a different search, and one that explains why two cart-side fixes moved
+nothing.
+
+**Prime suspect, not yet confirmed:** the input contract holds B + Start + X + R from power-on, and a
+menu that starts the battery on a *press edge* would never see one. That is consistent with the
+picture never changing. The next step is small — release the contract buttons for a few frames, then
+re-press, and re-probe. If the battery then runs, the contract needs an edge at the start rather than
+a constant hold, and `crossval.sh`'s runners all need the same treatment.
+
 #### `A5.18` — why it is parked despite working
 
 `BRK` cannot be measured without `RTI`: a `BRK` that never returns cannot be repeated, so any
