@@ -766,6 +766,61 @@ wrapped part is page zero and precisely page zero. Nothing else is in reach howe
 which is what lets the program wait a whole buffer cycle instead of timing anything — and the echo
 offset free-runs regardless of `FLG` bit 5, so there is no starting phase to know.
 
+### Survey of what is left in Group E, and why none of it is a quick row
+
+Six rows landed in this batch (`E8.01`, `E9.02`, `E5.06`, `E9.09`, `E3.09`, `E3.13`) at roughly one
+per sitting. The next person will want to know which of the remaining 26 is cheapest, and the
+answer is **none of them** — this is the survey that establishes that, so it is not re-derived.
+Recorded per row, because "it is hard" is not usable and "here is the specific obstacle" is.
+
+**Blocked on an observable the SPC700 cannot reach in time.** The instruction set's floor for three
+consecutive DSP register reads is 21 cycles of a 32-cycle sample (`E8.06`, withdrawn). Everything
+that needs to catch two registers in different phases of one sample is behind that same wall:
+`E10.02` (the T0-T31 access schedule), `E10.03` (`ENDX`/`OUTX`/`ENVX` on three separate cycles).
+
+**Blocked on nothing being observable at all.** `E9.16` (the output is XORed with `$FFFF` by the
+post-amp) is downstream of every register the cart can read — it changes what reaches the DAC and
+nothing else. `E10.04` (SPC and DSP share `/RESET` and the clock) is structural.
+
+**Reachable only through another row's mechanism, which makes the attribution weak.** `E1.11`
+(`TSET1`/`TCLR1` read the target twice) can only be distinguished by the value written *back*, and
+the only read-sensitive targets — `$FD`-`$FF` — are read-only, so that value lands in the RAM
+shadow and needs `E3.13`'s DSP-as-second-reader trick to see. A row whose verdict depends on
+another row's mechanism reports that mechanism's failures as its own.
+
+**Needs a rate or ramp measurement, which is where the sawtooth trap lives.** `E6.01` (counter bits
+15-12 select the sample), `E6.06` (the counter clamps at `$7FFF`, reachable only through `PMON`),
+`E6.10` (gaussian bypassed for noise), `E9.07` (`EDL` latency), `E9.08` (`ESA` delayed 1-2 samples),
+`E7.02` (the counter offset table). Each of these is a "how fast" or "how long until", and the
+phase that decides it is the one the cart does not control. `E8.01` cost two drafts learning that;
+any of these needs a *counting* observable found first, not an instrument built first.
+
+**Genuinely racy.** `E3.12` (the CPUIO bus conflict reads the OR of old and new) and `E4.10`
+(simultaneous CPU/SPC access) are contention rows; `E4.09`'s "*can* corrupt `$2143`" is probabilistic
+by its own wording.
+
+**Large but mechanical, and the one worth planning for.** `E2.10` is the full 256-opcode SPC700
+cycle sweep. It needs every opcode encodable in `gen/src/spc.rs`, which deliberately carries only
+opcodes a committed test exercises — an unverified encoding surfaces as an emulator disagreement
+rather than as an assembler bug. That is the single biggest coverage item left in the group and the
+only one whose difficulty is volume rather than design.
+
+**Thin on oracle.** `E8.11` (DSP `KOF` init) and `E9.20` (the Nintendo FIR preset is bugged) are
+named as game-compatibility cases rather than as values, and `E9.20`'s margin is ~3% and entangled
+with `E9.11`'s wrapping taps.
+
+**Two method notes that did pay off, and should be tried first on any new row:**
+
+- **Check the emulator side for dead config before designing anything.** `E3.09`'s feature was fully
+  parsed into `Io::external_wait`/`Io::internal_wait`, serialized, restored — and never read. A
+  sweep for fields written but not read found it, and a second sweep found `Voice.keyon` in the same
+  state. Grep a setting's *readers*, not its definition.
+- **Prefer an equality against a control to a threshold against nothing.** `E3.13` compares a voice
+  reading the RAM shadow against a voice reading an identical copy in ordinary RAM; `E9.09` compares
+  a wrapped echo entry against an unwrapped one. Both would have been "is it non-zero" rows
+  otherwise, and both would have passed on a broken setup — `E3.13`'s did, twice, and the control
+  voice is what said so.
+
 ### `E8.01` — two rejected drafts, and what they were really measuring
 
 The row asks how often the DSP looks at `KON`. Both first attempts measured a **delay**: write
