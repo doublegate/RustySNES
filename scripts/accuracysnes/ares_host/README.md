@@ -31,23 +31,34 @@ the outlier**, and the row comes off the "unexplained, needs a fourth opinion" l
 
 ## The five rows ares disagrees with the cart about
 
-New information, and **not yet adjudicated** — the cart, snes9x and Mesen2 all pass these:
+**Three of the five are rows snes9x already fails**, with rationales in `crossval.sh`. That was not
+obvious from the tally and it changes what each row means:
 
-| idx | row | code |
-|---:|---|---:|
-| 116 | `C7.05` | 1 |
-| 120 | `C7.10` | 1 |
-| 265 | `E8.02` | 3 |
-| 276 | `E3.06` | 2 |
-| 288 | `F1.10` | 2 |
+| row | ares code | who else fails it | so the split is |
+|---|---:|---|---|
+| `C7.05` | 1 | snes9x (code **2** — a different failure) | 2-vs-2, and the two dissenters disagree with each other |
+| `C7.10` | 1 | snes9x | **2-vs-2** — RustySNES + Mesen2 against snes9x + ares |
+| `F1.10` | 2 | snes9x | **2-vs-2** (but see the caveat below) |
+| `E8.02` | 3 | nobody | ares alone |
+| `E3.06` | 2 | nobody | ares alone |
 
-**Treat `F1.10` as suspect-of-this-host first.** It is a `PAD2_CONTRACT` row, and this host's port
-detection (`port->name().find("2")` on the button's grandparent) is *assumed* to work, not verified.
-Check that before concluding anything about ares.
+So ares is *corroborating snes9x* on three rows rather than standing alone, and only `E8.02` and
+`E3.06` are genuinely ares-only. **Nothing here is adjudicated** — this is the shape of the
+disagreement, not a verdict on it.
 
-The standing heuristic — three implementations agreeing usually means a broken test, one disagreeing
-usually means a real bug — cuts an unfamiliar way here: it is **ares** alone, on rows the other three
-pass.
+**A correction to this file's first version:** it said `F1.10` was a `PAD2_CONTRACT` row and to
+suspect this host's port detection first. That is wrong. `f1_require_contract` reads `$4016` only —
+port 1 — and `F1.10` code 2 means "`$4212` read busy at the very start of the vblank line", which
+does not involve controller state at all. The claim came from the Mesen2 known-failure grouping in
+`crossval.sh`, which attributes *its* `F1.10` failure to the port-2 limitation and is itself now
+flagged as doubtful there.
+
+**`F1.10` is the interesting one.** fullsnes says the automatic read begins ~dot 32.5–95.5 of the
+first vblank line rather than at the vblank edge. snes9x fails it (documented instant-latch), ares
+fails it, and if the Mesen2 attribution is right then Mesen2 fails it too — which would leave
+**RustySNES passing alone**, on a row it only passes because of a deliberate fix. This project's
+heuristic says RustySNES failing alone means a real bug; it should say the same about RustySNES
+*passing* alone. Worth a hard look before treating it as settled either way.
 
 ## Three setup steps that are not optional, each of which cost a debugging round
 
