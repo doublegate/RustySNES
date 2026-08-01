@@ -687,6 +687,18 @@ byte `$04` = FAIL code 2). That is the **port-2 limitation** the oracle fix docu
 `mesen_crossval.lua` now sends one `setInput` call, so `PAD2_CONTRACT`-dependent rows cannot pass
 under MesenCE. Nothing to do with the DSP poll phase, and nothing to do with this row.
 
+**UNRECONCILED, and it blocks landing this row:** a direct WRAM probe counts **1** even-byte
+failure (`F1.03`, the port-2 row) stably at 1400/1600/2000 frames, while `crossval.sh` reports
+**`Mesen2: 3 failing test(s)`** on the same build. `E8.01` itself reads `$01` — PASS — in all three
+probe runs, so it is not one of the three, but the count itself does not match and I have not
+explained why. Candidates, none checked: the runner's own `MAX_FRAMES` (4000) puts the cart in a
+different phase than the probe's budget; the runner also scores the **PAL image**, whose failures may
+be folded into the same line; or the runner iterates `n = rd16(COUNT)` over a range the probe's
+`0..335` loop does not match.
+
+Resolve this before opening a PR. A row that passes while the tally it lives in is unexplained is
+exactly the situation where a later real regression gets absorbed into "the usual 3".
+
 **Read the status encoding before counting failures.** `mesen_crossval.lua` treats **odd** bytes as
 PASS (odd ≠ `$01` being *"PASS variant n"*, `n = b/2`), **even** as *"FAIL code b/2"*, `$00` as
 NOTRUN and `$FF` as SKIP. A raw dump of "non-`$01` bytes" therefore looks alarming and is mostly
