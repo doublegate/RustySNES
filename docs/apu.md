@@ -339,9 +339,32 @@ flat bus with no timers); the change is confined to the integrated recording bus
   `cycleWaitStates[0]`), the three timers tick on the same base, and the S-DSP emits one 32 kHz
   sample every **64** base clocks. (Earlier the model charged 1 unit/access with a 768-unit DSP
   divisor, which ran the timers + DSP at the wrong relative rate; the SingleStepTests/spc700
-  oracle is unaffected — it measures access *count* against its own flat bus, still 0-diff.) The
-  per-region external/internal wait-state divider (`$F0`'s `{2,4,10,20}` glitch table) stays
-  collapsed to the reset default; no committed program reprograms it.
+  oracle is unaffected — it measures access *count* against its own flat bus, still 0-diff.)
+
+### `$F0`'s wait selectors, and why there are two tables
+
+`$F0` bits 4-5 (**external**) and 6-7 (**internal**) select a clock divider for the SMP. Nominally
+that divider is `{2, 4, 8, 16}`, but 8 and 16 are glitchy on real silicon: **the CPU ends up
+consuming 10 and 20 clocks per opcode cycle while the timers still advance by 8 and 16.** ares and
+bsnes carry the same comment (`sfc/smp/timing.cpp`) — *"sometimes the SMP will run far slower than
+expected, other times … the SMP will deadlock until the system is reset. The timers are not affected
+by this and advance by their expected values."*
+
+So `SMP_CYCLE_WAIT = [2, 4, 10, 20]` governs `SmpBus::cycles`, the recorded micro-op plan and the
+S-DSP catch-up (those are real base clocks), while `SMP_TIMER_WAIT = [2, 4, 8, 16]` governs the
+three timers alone.
+
+Which selector an access takes follows ares' `SMP::wait` classification: **idle cycles, the
+`$00F0-$00FF` register block, and the IPL ROM while `$F1` bit 7 keeps it mapped are *internal*;
+everything else is external.** The `$F4-$F7` port reads split their wait into two halved steps
+around the fetch, so they take `SMP_CYCLE_WAIT[internal] >> 1`.
+
+At the reset selector both tables read `SMP_WAIT`, so this is byte-identical to the previous
+single-number model for every program that leaves `$F0` alone — which is every commercial driver.
+The observable consequence is measurable from a cart and `AccuracySNES` `E3.09` measures it: over a
+fixed loop, timer 0 ticks **four times** as often at selector 2 as at selector 0. A core that leaves
+the selectors unimplemented reads 1x; one that charges the CPU's glitchy 10 to the timers as well
+reads 5x.
 
 ### DSP GAIN mode-7 threshold (the `spc_dsp6` fix)
 

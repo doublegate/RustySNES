@@ -11,6 +11,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`E3.13` — a write to `$00F0-$00FF` lands in the RAM shadow as well as in the register.** The
+  register block wins every SPC read of those addresses, so the assertion cannot be checked by
+  writing and reading back; it needs a second reader of APU RAM that skips the register decode, and
+  the S-DSP is one. A nine-byte BRR block written **through** the register block at `$00F7` ends
+  exactly at `$00FF`, never reaching the directory at `$0100`, and clears `$F0` (TEST) and `$F1`
+  (CONTROL) — the two writes that would change the wait states or strand `release_to_ipl`. Three of
+  its nine bytes land on `$FD`-`$FF`, which are **read-only**, so for those the shadow is the only
+  thing a write could have affected.
+
+  The row asserts **equality against a control voice** playing a byte-identical copy in ordinary
+  RAM, not "the shadow read back non-zero": what sits under the register block at power-on is
+  undefined and one reference randomises APU RAM, so a non-zero reading could be luck. Nine bytes
+  decoding to the control's exact `OUTX` cannot be. Injecting `address & 0xFFF0 != 0x00F0` into both
+  bus write paths fires code 2 with the guard still passing.
+
+  Two setup faults the guard caught rather than letting the row pass on two zeroes: `KOF` is a level
+  register that a previous program can leave set, and `KON` must be **held** — it is examined once
+  every two output samples (`E8.01`), so a write immediately followed by a clear is cancelled before
+  the DSP ever looks. Coverage `353 → 354 of 443`.
+
+- **`E3.09`, and the SMP wait states it found unimplemented.** `$F0` bits 4-5 and 6-7 select a clock
+  divider for the SMP, nominally `{2, 4, 8, 16}` — but 8 and 16 are glitchy on real silicon and
+  **the CPU consumes 10 and 20 clocks per opcode cycle while the timers still advance by 8 and 16.**
+  ares and bsnes carry the same comment (`sfc/smp/timing.cpp`): *"the timers are not affected by
+  this and advance by their expected values."* Two tables, and the gap between them is the row.
+
+  RustySNES parsed both selectors into `Io::external_wait` / `Io::internal_wait`, saved them,
+  restored them — and **nothing downstream ever read either one**. The eighth instance of the
+  dead-config defect class, and the first found by the cart rather than by grep.
+
+  `rustysnes-apu` now carries `SMP_CYCLE_WAIT = [2,4,10,20]` for the CPU (and hence for the recorded
+  micro-op plan and the S-DSP catch-up, which are real base clocks) against
+  `SMP_TIMER_WAIT = [2,4,8,16]` for the timers alone, with ares' `SMP::wait` address classification:
+  idle cycles, `$00F0-$00FF` and a mapped IPL ROM take the *internal* selector, everything else the
+  external one. **At the reset selector both tables read `SMP_WAIT`, so every program that leaves
+  `$F0` alone — which is every commercial driver — is byte-identical to before.**
+
+  The row reads the gap as a ratio the program can see: a wait selector changes clocks-per-cycle,
+  not an instruction's cycle count, so the same loop is the same number of opcode cycles either way
+  and only the timer-per-cycle rate moves. Over a fixed 48-pass poll loop, timer 0 ticks **4x** as
+  often at selector 2 as at selector 0. Both wrong models were injected and both fail on code 2:
+  no wait states at all reads **1x**, and charging the CPU's glitchy 10 to the timers as well reads
+  **5x**. So the row separates the two ways of having the feature, not merely its absence.
+
+  Coverage `352 → 353 of 443` at the time it landed; battery 100% on-cart. `docs/apu.md` gains
+  the selector model.
+
 - **`E9.09` — the echo write pointer wraps at the 16-bit boundary, over page zero `[ERRATA]`.**
   `ESA` names a page, `EDL` a length, and the address is computed in sixteen bits with nothing
   clamping it at `$FFFF`. A driver that sets `ESA` too high does not get a short buffer or a dropped

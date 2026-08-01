@@ -23319,6 +23319,275 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; E3.09 — Waits: CPU 10, timer 8
+; provenance: Documented (ares and bsnes sfc/smp/timing.cpp, identically: cycleWaitStates {2,4,10,20} against timerWaitStates {2,4,8,16}, with the comment that the timers are not affected by the 8/16 divider glitch)
+.proc test_e3_09
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image, which lives in another bank.
+    lda #.loword(apu_prog_116)
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    lda #^apu_prog_116
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #100
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsl apu_upload_far
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    jmp @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0101
+    and #$00FF
+    ; record slot 268: E3.09 timer 0 ticks at wait selector 0
+    sta f:$7EE418
+    lda f:$7E0102
+    and #$00FF
+    ; record slot 269: E3.09 the same loop at selector 2 (expect 4x, not 1x or 5x)
+    sta f:$7EE41A
+    ; The guard fixes the baseline. A zero or tiny phase A makes every band below overlap, and
+    ; that failure mode looks exactly like a ratio finding.
+    lda f:$7E0101
+    and #$00FF
+    cmp #$0008
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$0019
+    bcc :+
+    jmp @fail1
+  :
+    ; The row: phase B minus four times phase A. 1x means the selectors are parsed and never
+    ; used; 5x means one table is doing both jobs; 0 means the two documented tables.
+    lda f:$7E0102
+    and #$00FF
+    sta $00
+    lda f:$7E0101
+    and #$00FF
+    asl a
+    asl a
+    sec
+    sbc $00
+    cmp #$8000
+    bcc :+
+    eor #$FFFF
+    inc a             ; negate: take the magnitude
+  :
+    cmp #$0007
+    bcc :+
+    jmp @fail2
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jml test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; timer 0 did not tick a sane number of times over the loop at the reset wait selector, so the baseline the ratio below is measured against does not exist -- E3.06 owns the timer's rate itself
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the loop did not run four times as much timer at wait selector 2 as at selector 0. Equal counts mean the selector is stored and never consulted; five times means the CPU's glitchy 10-clock cost is being charged to the timers as well, where hardware advances them by the un-glitched 8
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; E3.13 — Regs shadow into RAM
+; provenance: Documented (fullsnes and the SNESdev Wiki: writes to $00F0-$00FF reach the underlying APU RAM as well as the register, which the S-DSP can then read as sample data)
+.proc test_e3_13
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image, which lives in another bank.
+    lda #.loword(apu_prog_117)
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    lda #^apu_prog_117
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #339
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsl apu_upload_far
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    jmp @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0100
+    and #$00FF
+    ; record slot 270: E3.13 control OUTX, a copy of the block in ordinary RAM
+    sta f:$7EE41C
+    lda f:$7E0101
+    and #$00FF
+    ; record slot 271: E3.13 OUTX of the same block decoded from under $00F0-$00FF
+    sta f:$7EE41E
+    ; The control is the guard. A silent or clipped control leaves the shadow reading below
+    ; with nothing to be equal to, and 'both were zero' would pass an equality test.
+    lda f:$7E0100
+    and #$00FF
+    cmp #$0040
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$007F
+    bcc :+
+    jmp @fail1
+  :
+    ; The row. Nine bytes decoding to the control's exact output cannot be a coincidence, and
+    ; what sits under the register block at power-on is undefined -- one reference randomises it.
+    lda f:$7E0101
+    and #$00FF
+    sec
+    sbc f:$7E0100
+    and #$00FF
+    cmp #$0000
+    beq :+
+    jmp @fail2
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jml test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the control voice did not read back as a large positive value, so the copy in ordinary RAM is not decoding either -- this is a broken setup, not a statement about the shadow
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; a sample placed at $00F7 through the register block did not decode to what the identical copy in ordinary RAM decodes to, so those writes reached the registers only and the RAM underneath them never saw them
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; E9.02 — Noise output is bipolar
 ; provenance: Documented (fullsnes and anomie's DSP doc [ERRATA]: the noise output is highpass-filtered as a consequence of the 15-bit shift register being interpreted as the top bits of a signed 16-bit sample)
 .proc test_e9_02
@@ -23347,11 +23616,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_116)
+    lda #.loword(apu_prog_118)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_116
+    lda #^apu_prog_118
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -34343,6 +34612,46 @@ apu_prog_115:
     .byte $E4, $FD, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5
     .byte $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
 apu_prog_116:
+    .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $81, $F1, $8F, $0A, $F0
+    .byte $8F, $00, $10, $8F, $00, $11, $E4, $FD, $E4, $FD, $C4, $12
+    .byte $E4, $10, $60, $84, $12, $C4, $10, $AB, $11, $E4, $11, $68
+    .byte $30, $D0, $ED, $E4, $10, $C4, $F6, $8F, $AA, $F0, $8F, $00
+    .byte $10, $8F, $00, $11, $E4, $FD, $E4, $FD, $C4, $12, $E4, $10
+    .byte $60, $84, $12, $C4, $10, $AB, $11, $E4, $11, $68, $30, $D0
+    .byte $ED, $E4, $10, $C4, $F7, $8F, $0A, $F0, $8F, $80, $F1, $E8
+    .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
+    .byte $F1, $5F, $C0, $FF
+apu_prog_117:
+    .byte $5F, $0C, $02, $C3, $77, $77, $77, $77, $77, $77, $77, $77
+    .byte $CD, $EF, $BD, $E8, $F7, $C5, $00, $01, $E8, $00, $C5, $01
+    .byte $01, $E8, $F7, $C5, $02, $01, $E8, $00, $C5, $03, $01, $E8
+    .byte $03, $C5, $04, $01, $E8, $02, $C5, $05, $01, $E8, $03, $C5
+    .byte $06, $01, $E8, $02, $C5, $07, $01, $8F, $C3, $F7, $8F, $77
+    .byte $F8, $8F, $77, $F9, $8F, $77, $FA, $8F, $77, $FB, $8F, $77
+    .byte $FC, $8F, $77, $FD, $8F, $77, $FE, $8F, $77, $FF, $E8, $6C
+    .byte $C4, $F2, $E8, $20, $C4, $F3, $E8, $5C, $C4, $F2, $E8, $00
+    .byte $C4, $F3, $E8, $7C, $C4, $F2, $E8, $00, $C4, $F3, $E8, $5D
+    .byte $C4, $F2, $E8, $01, $C4, $F3, $E8, $0C, $C4, $F2, $E8, $7F
+    .byte $C4, $F3, $E8, $1C, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $3D
+    .byte $C4, $F2, $E8, $00, $C4, $F3, $E8, $2D, $C4, $F2, $E8, $00
+    .byte $C4, $F3, $E8, $4D, $C4, $F2, $E8, $00, $C4, $F3, $E8, $00
+    .byte $C4, $F2, $E8, $7F, $C4, $F3, $E8, $01, $C4, $F2, $E8, $7F
+    .byte $C4, $F3, $E8, $02, $C4, $F2, $E8, $00, $C4, $F3, $E8, $03
+    .byte $C4, $F2, $E8, $10, $C4, $F3, $E8, $04, $C4, $F2, $E8, $00
+    .byte $C4, $F3, $E8, $06, $C4, $F2, $E8, $00, $C4, $F3, $E8, $07
+    .byte $C4, $F2, $E8, $7F, $C4, $F3, $E8, $05, $C4, $F2, $E8, $00
+    .byte $C4, $F3, $E8, $10, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $11
+    .byte $C4, $F2, $E8, $7F, $C4, $F3, $E8, $12, $C4, $F2, $E8, $00
+    .byte $C4, $F3, $E8, $13, $C4, $F2, $E8, $10, $C4, $F3, $E8, $14
+    .byte $C4, $F2, $E8, $01, $C4, $F3, $E8, $16, $C4, $F2, $E8, $00
+    .byte $C4, $F3, $E8, $17, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $15
+    .byte $C4, $F2, $E8, $00, $C4, $F3, $E8, $4C, $C4, $F2, $E8, $03
+    .byte $C4, $F3, $8D, $00, $FE, $FE, $E8, $4C, $C4, $F2, $E8, $00
+    .byte $C4, $F3, $8D, $00, $FE, $FE, $E8, $19, $C4, $F2, $E4, $F3
+    .byte $C4, $F5, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $5A
+    .byte $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1
+    .byte $5F, $C0, $FF
+apu_prog_118:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -34376,7 +34685,7 @@ apu_prog_116:
 .export _test_flags
 
 _test_count:
-    .word 339
+    .word 341
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -34659,6 +34968,8 @@ _test_entries:
     .faraddr test_e6_02d
     .faraddr test_e3_06
     .faraddr test_e3_08
+    .faraddr test_e3_09
+    .faraddr test_e3_13
     .faraddr test_e9_02
     .faraddr test_f1_01
     .faraddr test_f1_02
@@ -35001,6 +35312,8 @@ _test_flags:
     .byte $01   ; E6.02d
     .byte $01   ; E3.06
     .byte $01   ; E3.08
+    .byte $01   ; E3.09
+    .byte $01   ; E3.13
     .byte $01   ; E9.02
     .byte $01   ; F1.01
     .byte $01   ; F1.02
@@ -35343,6 +35656,8 @@ _test_names:
     .addr @n_e6_02d
     .addr @n_e3_06
     .addr @n_e3_08
+    .addr @n_e3_09
+    .addr @n_e3_13
     .addr @n_e9_02
     .addr @n_f1_01
     .addr @n_f1_02
@@ -36240,6 +36555,12 @@ _test_names:
 @n_e3_08:
     .byte 23
     .byte "TEST bit 0 halts timers"
+@n_e3_09:
+    .byte 22
+    .byte "Waits: CPU 10, timer 8"
+@n_e3_13:
+    .byte 20
+    .byte "Regs shadow into RAM"
 @n_e9_02:
     .byte 23
     .byte "Noise output is bipolar"
@@ -36674,7 +36995,7 @@ _page_len:
     .byte 10
     .byte 4
     .byte 10
-    .byte 2
+    .byte 4
     .byte 9
     .byte 6
     .byte 2
@@ -36728,20 +37049,20 @@ _page_off:
     .word 231
     .word 235
     .word 245
-    .word 247
-    .word 256
-    .word 262
+    .word 249
+    .word 258
     .word 264
-    .word 274
-    .word 278
-    .word 288
-    .word 291
-    .word 301
-    .word 308
-    .word 315
-    .word 325
-    .word 328
-    .word 338
+    .word 266
+    .word 276
+    .word 280
+    .word 290
+    .word 293
+    .word 303
+    .word 310
+    .word 317
+    .word 327
+    .word 330
+    .word 340
 
 _page_tests:
     .word 0
@@ -36794,8 +37115,6 @@ _page_tests:
     .word 69
     .word 70
     .word 71
-    .word 304
-    .word 305
     .word 306
     .word 307
     .word 308
@@ -36829,6 +37148,8 @@ _page_tests:
     .word 336
     .word 337
     .word 338
+    .word 339
+    .word 340
     .word 30
     .word 31
     .word 32
@@ -36991,6 +37312,8 @@ _page_tests:
     .word 219
     .word 277
     .word 278
+    .word 279
+    .word 280
     .word 192
     .word 193
     .word 199
@@ -37021,7 +37344,7 @@ _page_tests:
     .word 245
     .word 246
     .word 247
-    .word 279
+    .word 281
     .word 205
     .word 206
     .word 207
@@ -37059,8 +37382,6 @@ _page_tests:
     .word 267
     .word 268
     .word 269
-    .word 280
-    .word 281
     .word 282
     .word 283
     .word 284
@@ -37083,3 +37404,5 @@ _page_tests:
     .word 301
     .word 302
     .word 303
+    .word 304
+    .word 305
