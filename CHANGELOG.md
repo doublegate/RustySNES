@@ -41,6 +41,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   addressing before any assertion branches. Generalised in the plan — rows that hand-load `S` must
   restore a known-good stack before anything that returns — but it is not the oracle's fix.
 
+- **iOS CI now launches the app, not just links it (`v1.30.0`).** `ios.yml` boots a simulator,
+  installs the built `.app`, launches it, and requires the process to **still be alive eight seconds
+  later** — asked of the simulator via `launchctl list`, because `simctl launch` has already
+  returned 0 by the time a launch-crash happens, so its exit code cannot catch one.
+
+  Every iOS verification before this was compile/link-only, and a binary that links and then traps
+  on launch is indistinguishable from a working one in a build log. What this does **not** prove is
+  emulation: the app bundles no cartridge, so no ROM has run. `docs/mobile-readiness.md` now states
+  that distinction instead of listing the whole runtime question as open.
+
+  The liveness check needed a fix of its own before it was trustworthy. Piping `launchctl list`
+  straight into `grep -q` made it report "it started and died" for an app that was running: `grep -q`
+  exits at its first match and closes the pipe, `launchctl` takes `SIGPIPE`, and `set -o pipefail`
+  turns that into the pipeline's status. The first run failed that way with the process visibly
+  alive one line above the error. The listing is now captured before it is searched, and a genuine
+  failure prints it.
+
 - **AccuracySNES: the Mesen2 oracle diagnosed, and a stale frame budget aligned.** Three `v1.28.0`
   items ended at "no oracle can arbitrate", so the headless runner was investigated rather than
   accepted as environmental. Established: the hang is genuinely pre-existing (the `v1.25.0`-era image
