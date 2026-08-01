@@ -124,8 +124,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which shifts the CPU's phase against the PPU for the rest of that frame, and `hdmaen_latch_test`
   is exactly a mid-line HDMAEN-vs-latch timing test. But an inverted field parity would move the
   render too, and look the same. Per `docs/adr/0013` a golden is re-blessed **only** from a render
-  the references agree on, so it stays unblessed and this change is not mergeable until MesenCE can
-  arbitrate — the same oracle that is currently unresolved.
+  the references agree on, so it stays unblessed.
+
+  **The blocker is now characterised precisely, and it is not the AccuracySNES oracle.** MesenCE
+  headless renders fine — `scripts/perdot_crossval.sh` completes the whole undisbeliever corpus with
+  **0 skipped captures** — so the battery hang is specific to that cart, not to MesenCE. What the
+  cross-check cannot do is *arbitrate this particular change*, for two measured reasons:
+
+  - its comparison is a **distinct-colour set**, which is invariant to where pixels sit;
+    `hdmaen_latch_test` reports `MATCH` both before and after, because the change moves banding
+    rather than introducing a colour;
+  - the finer per-colour **counts** do separate them, but are dominated by a pre-existing gap:
+    against MesenCE's 45 rows of `7c00`, `main` renders 68 and this branch 69. The 1-row delta is the
+    right magnitude for a 4-clock-per-two-frames effect, but it cannot be judged against a baseline
+    already 23 rows out, and the script's own README defers count comparison pending `FIRST_ROW`
+    calibration.
+
+  For completeness the inverted parity was measured too: `!field` reproduces `main` exactly (17408),
+  i.e. it leaves the captured frame untouched. The implementation keeps `field`, because that is what
+  the source states — anomie's *"those with `$213f.7=1`"* — and the render comparison is not sensitive
+  enough to overrule a source. **That 23-row `hdmaen_latch_test` count discrepancy against MesenCE is
+  itself a new finding**, invisible to the colour-set gate that has been the only check on it.
 
   What *is* pinned meanwhile is the parity itself: the short line is exactly the frames a cart reads
   as `$213F.7 = 1`, asserted against the register rather than against the private flag, which is the
