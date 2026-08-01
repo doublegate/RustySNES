@@ -148,6 +148,7 @@ pub fn all() -> Vec<Test> {
         e3_06(),
         e3_08(),
         e3_09(),
+        e3_13(),
         // LAST, and it has to be. Every other program leaves FLG's noise rate at zero, so the
         // noise LFSR never advances and `E9.01` reads the power-on seed. `E9.02` steps it and
         // nothing can put it back. Anything appended below this line runs after that has happened.
@@ -8574,6 +8575,174 @@ fn e3_09() -> Test {
         Kind::Scored,
         None,
     )
+}
+
+/// `E3.13` — a write to `$00F0-$00FF` lands in the **RAM shadow** as well as in the register.
+///
+/// # Why this needs the DSP to read it back
+///
+/// `$00F0-$00FF` is the SPC700's register block, and the block wins every SPC read of those
+/// addresses: there is no way for the program to see the RAM underneath. So the assertion cannot be
+/// checked by writing and reading back — it needs a *second* reader of APU RAM that does not go
+/// through the register decode, and the S-DSP is one. It fetches BRR sample data straight out of
+/// ARAM, so a sample placed **under the register block** is decoded from the shadow or from
+/// whatever was there before.
+///
+/// # A nine-byte block at `$00F7`, and why that address
+///
+/// A BRR block is nine bytes. Starting at `$00F7` puts the last one at `$00FF`, using the top of
+/// the page exactly and never reaching `$0100` — where the sample directory lives. It also keeps
+/// the write sequence clear of the two addresses that would break the run:
+///
+/// | address | register | writing it here |
+/// |---|---|---|
+/// | `$F0` | TEST | **would** change the wait states and the RAM-write enable — not touched |
+/// | `$F1` | CONTROL | **would** unmap the IPL ROM and strand `release_to_ipl` — not touched |
+/// | `$F7` | port 3 | harmless; the cart simply does not read a result from port 3 |
+/// | `$F8`/`$F9` | AUX | plain RAM by definition (`E3.14`) |
+/// | `$FA`-`$FC` | timer targets | harmless — this row never enables a timer |
+/// | `$FD`-`$FF` | timer outputs | **read-only**, so a write here has no register effect at all |
+///
+/// That last row is the interesting one. Three of the nine bytes land on registers that discard
+/// writes entirely, so for those bytes the shadow is the *only* thing a write could have affected.
+///
+/// # The assertion is an equality against a control voice
+///
+/// Voice 0 plays the block at `$00F7`; voice 1 plays a byte-identical copy in ordinary RAM through
+/// its own directory entry. Both are read through `VxOUTX`, which is pre-volume (`E7.16`), so the
+/// two readings are the same decode of the same bytes and must agree exactly.
+///
+/// Asserting *equality* rather than "the shadow read back non-zero" matters, because what sits in
+/// ARAM under the register block at power-on is not defined — one reference randomises APU RAM. A
+/// non-zero reading could be luck; nine bytes decoding to the control voice's exact output cannot
+/// be. The control is also the guard: if it is silent or clipped, the shadow reading has nothing to
+/// be equal *to*.
+fn e3_13() -> Test {
+    /// The nine bytes of the shadow block, ending exactly at `$00FF`.
+    const SHADOW_ADDR: u16 = 0x00F7;
+    /// The sample directory, on the stack page well below the stack itself.
+    const DIR_ADDR: u16 = (DIR_PAGE as u16) << 8;
+
+    let block = brr_block(0xC, 0, 0b11, 0x7, 0x7);
+    let mut prog = Spc::new();
+    // The control copy, in ordinary RAM, placed by the loader like every other sample here.
+    let control = prog.data_first(IMAGE_BASE, &block);
+    prog.mov_x_imm(0xEF).mov_sp_x();
+
+    // Entry 0 -> the shadow, entry 1 -> the control. Both entries carry start and loop.
+    let [slo, shi] = SHADOW_ADDR.to_le_bytes();
+    let [clo, chi] = control.to_le_bytes();
+    for (i, byte) in [slo, shi, slo, shi, clo, chi, clo, chi]
+        .into_iter()
+        .enumerate()
+    {
+        prog.mov_a_imm(byte)
+            .mov_abs_a(DIR_ADDR + u16::try_from(i).expect("eight directory bytes fit a u16"));
+    }
+
+    // The block itself, written THROUGH the register block. Nothing here touches $F0 or $F1.
+    for (i, byte) in block.iter().copied().enumerate() {
+        let addr = SHADOW_ADDR + u16::try_from(i).expect("nine block bytes fit a u16");
+        prog.mov_dp_imm(
+            u8::try_from(addr & 0xFF).expect("the block stays inside page zero"),
+            byte,
+        );
+    }
+
+    e3_13_configure(&mut prog);
+    // KON must be HELD, not pulsed. It is examined once every two output samples (`E8.01`), so a
+    // write immediately followed by a clear is cancelled before the DSP ever looks -- which is the
+    // mechanism `E8.01` is built on, and it silenced both voices here on the first run.
+    dsp_write(&mut prog, 0x4C, 0x03); // KON both voices together
+    prog.delay(0x00);
+    dsp_write(&mut prog, 0x4C, 0x00); // and cleared, so neither voice is re-keyed forever
+    prog.delay(0x00); // let both envelopes reach full scale before either is read
+
+    dsp_read_to(&mut prog, 0x19, PORT1); // voice 1 OUTX — the control, and the guard
+    dsp_read_to(&mut prog, 0x09, PORT2); // voice 0 OUTX — decoded from under the registers
+    prog.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(
+        270,
+        "E3.13 control OUTX, a copy of the block in ordinary RAM",
+    );
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(
+        271,
+        "E3.13 OUTX of the same block decoded from under $00F0-$00FF",
+    );
+
+    a.c("The control is the guard. A silent or clipped control leaves the shadow reading below");
+    a.c("with nothing to be equal to, and 'both were zero' would pass an equality test.");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x40,
+        0x7E,
+        "the control voice did not read back as a large positive value, so the copy in ordinary \
+         RAM is not decoding either -- this is a broken setup, not a statement about the shadow",
+    );
+    a.c("The row. Nine bytes decoding to the control's exact output cannot be a coincidence, and");
+    a.c("what sits under the register block at power-on is undefined -- one reference randomises it.");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.l("sec");
+    a.l("sbc f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16(
+        0x0000,
+        "a sample placed at $00F7 through the register block did not decode to what the identical \
+         copy in ordinary RAM decodes to, so those writes reached the registers only and the RAM \
+         underneath them never saw them",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E3.13",
+        'E',
+        "Regs shadow into RAM",
+        Provenance::Documented(
+            "fullsnes and the SNESdev Wiki: writes to $00F0-$00FF reach the underlying APU RAM as \
+             well as the register, which the S-DSP can then read as sample data",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Emit [`e3_13`]'s DSP configuration: two voices at full direct gain, one sample each, no echo.
+///
+/// Both voices are set identically apart from their `SRCN`, so any difference between their `OUTX`
+/// readings is the difference between the two sample addresses and can be nothing else.
+fn e3_13_configure(prog: &mut Spc) {
+    dsp_write(prog, 0x6C, 0x20); // FLG: running, unmuted, echo writes off
+    // KOF is a LEVEL register that exerts influence continuously (`E8.04`), and the DSP is shared
+    // between programs -- a previous test leaving it set holds every voice in release, and the
+    // `KON` below then does nothing. Both voices read $00 before this line was here, and the
+    // control-voice guard is what said so rather than the row quietly passing on two zeroes.
+    dsp_write(prog, 0x5C, 0x00); // KOF
+    dsp_write(prog, 0x7C, 0x00); // ENDX: any write clears it, so start from a known state
+    dsp_write(prog, 0x5D, DIR_PAGE); // DIR
+    dsp_write(prog, 0x0C, 0x7F); // MVOLL
+    dsp_write(prog, 0x1C, 0x7F); // MVOLR
+    dsp_write(prog, 0x3D, 0x00); // NON
+    dsp_write(prog, 0x2D, 0x00); // PMON
+    dsp_write(prog, 0x4D, 0x00); // EON: neither voice feeds the echo
+    for (v, srcn) in [(0x00u8, 0x00u8), (0x10, 0x01)] {
+        dsp_write(prog, v, 0x7F); // VOL L
+        dsp_write(prog, v | 0x01, 0x7F); // VOL R
+        dsp_write(prog, v | 0x02, 0x00); // PITCH low
+        dsp_write(prog, v | 0x03, 0x10); // PITCH high: one sample per output sample
+        dsp_write(prog, v | 0x04, srcn); // SRCN: 0 = the shadow, 1 = the control
+        dsp_write(prog, v | 0x06, 0x00); // ADSR2
+        dsp_write(prog, v | 0x07, 0x7F); // GAIN: direct, full scale
+        dsp_write(prog, v | 0x05, 0x00); // ADSR1: GAIN is in charge
+    }
 }
 
 /// Emit: set `$F0` to `test`, then accumulate timer-0 ticks over `polls` passes into `port`.

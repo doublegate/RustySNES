@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`E3.13` — a write to `$00F0-$00FF` lands in the RAM shadow as well as in the register.** The
+  register block wins every SPC read of those addresses, so the assertion cannot be checked by
+  writing and reading back; it needs a second reader of APU RAM that skips the register decode, and
+  the S-DSP is one. A nine-byte BRR block written **through** the register block at `$00F7` ends
+  exactly at `$00FF`, never reaching the directory at `$0100`, and clears `$F0` (TEST) and `$F1`
+  (CONTROL) — the two writes that would change the wait states or strand `release_to_ipl`. Three of
+  its nine bytes land on `$FD`-`$FF`, which are **read-only**, so for those the shadow is the only
+  thing a write could have affected.
+
+  The row asserts **equality against a control voice** playing a byte-identical copy in ordinary
+  RAM, not "the shadow read back non-zero": what sits under the register block at power-on is
+  undefined and one reference randomises APU RAM, so a non-zero reading could be luck. Nine bytes
+  decoding to the control's exact `OUTX` cannot be. Injecting `address & 0xFFF0 != 0x00F0` into both
+  bus write paths fires code 2 with the guard still passing.
+
+  Two setup faults the guard caught rather than letting the row pass on two zeroes: `KOF` is a level
+  register that a previous program can leave set, and `KON` must be **held** — it is examined once
+  every two output samples (`E8.01`), so a write immediately followed by a clear is cancelled before
+  the DSP ever looks. Coverage `353 → 354 of 443`.
+
 - **`E3.09`, and the SMP wait states it found unimplemented.** `$F0` bits 4-5 and 6-7 select a clock
   divider for the SMP, nominally `{2, 4, 8, 16}` — but 8 and 16 are glitchy on real silicon and
   **the CPU consumes 10 and 20 clocks per opcode cycle while the timers still advance by 8 and 16.**
@@ -35,8 +55,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no wait states at all reads **1x**, and charging the CPU's glitchy 10 to the timers as well reads
   **5x**. So the row separates the two ways of having the feature, not merely its absence.
 
-  Coverage `352 → 353 of 443` (299 on-cart + 54 scenes); battery 340 tests, 100% on-cart.
-  `docs/apu.md` gains the selector model.
+  Coverage `352 → 353 of 443` at the time it landed; battery 100% on-cart. `docs/apu.md` gains
+  the selector model.
 
 - **`E9.09` — the echo write pointer wraps at the 16-bit boundary, over page zero `[ERRATA]`.**
   `ESA` names a page, `EDL` a length, and the address is computed in sixteen bits with nothing
