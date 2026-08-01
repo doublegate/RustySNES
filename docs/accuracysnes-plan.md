@@ -711,31 +711,28 @@ implementations and does not move it on Mesen2. That is Mesen2 alone differing, 
 but the standing caution applies: a harness bug upstream of an implementation produces it too, and
 did once here.
 
-**The Mesen2 failing SET is not stable, which blocks a known-failures entry.** The obvious
-resolution — mirror `SNES9X_KNOWN_FAILURES=14` with a Mesen2 constant — was rejected after listing
-the set rather than the count:
+**RETRACTED: the Mesen2 set is stable; my probe was not.** I reported the failing set as moving
+(`A2.10` failing then passing) and concluded the runner was unreliable. Wrong, and the cause was the
+instrument: my probes read `R_STATUS` **at a fixed frame count** (1600, 4000), long after the battery
+finished at frame ~479 — by which point the cart has been sitting in its **results menu with Start
+held**, where menu actions can move the very bytes being read. `mesen_crossval.lua` reads **at
+`DONE == $A5`**, which is why it was consistent all along.
 
-| run | Mesen2 failures |
-|---|---|
-| before `E8.01` | 1 — reported as `A2.10` (idx 11) |
-| after `E8.01` | 3 — `idx263` `E8.01` code 4, `idx279` `F1.03` code 2, `idx286` code 2 |
+Reading at `DONE`, Mesen2 is **exactly reproducible** — two runs, identical set, both completing at
+frame 479:
 
-**`A2.10` is absent from the second list.** It failed, then passed, with no change touching it. So the
-set moves between runs, and a `MESEN2_KNOWN_FAILURES = 3` constant would encode noise — the exact
-failure mode `SNES9X_KNOWN_FAILURES` avoids by being stable. It would also mask a future real
-regression inside "the usual 3".
+| idx | row | code |
+|---|---|---|
+| 263 | `E8.01` | 4 |
+| 279 | `F1.03` | 2 |
+| 286 | `F1.10` | 2 |
 
-That instability is this cart's documented trap — *a verdict that encodes a timing phase changes for
-reasons unrelated to its subject* — now visible in the **Mesen2 runner** rather than in a single row.
-It matters beyond `E8.01`: **Mesen2 cannot be a reliable gate until its verdicts are reproducible
-run-to-run.** Establish that first (fixed frame budget, and check whether the runner's own
-`MAX_FRAMES` interacts with the post-battery menu), then revisit both the known-failures entry and
-`E8.01`'s tiebreak.
+**Two of the three are explained**: `F1.03` and `F1.10` are Group F input rows, i.e. the documented
+`PAD2_CONTRACT` port-2 limitation of the single-`setInput` fix. **`E8.01` is the only unexplained
+Mesen2 failure**, and it is code 4 — the difference assertion.
 
-Note also that MesenCE is *Mesen Community Edition*, the maintained **fork** of this same emulator,
-and it **passes** `E8.01` — so the disagreement is between two builds of one lineage, not between two
-independent implementations. That weakens the "three independent implementations agree" reading and
-is another reason not to bless the row on the current evidence.
+**Any future probe of this cart must read at `DONE`, not at a frame budget.** A fixed-frame read is
+sampling the results menu, and this cost a full round plus a wrong conclusion about the runner.
 
 **The fourth opinion was attempted and is blocked by a specific, checkable obstacle.**
 `ref-proj/bsnes/bsnes/out/bsnes_libretro.so` is built, and `libretro_crossval.c` takes any core as
