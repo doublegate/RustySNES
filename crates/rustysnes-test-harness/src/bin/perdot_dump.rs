@@ -82,5 +82,32 @@ fn main() -> ExitCode {
         .collect::<Vec<_>>()
         .join(",");
     println!("PERDOT distinct={} colors={}", hist.len(), colors);
+
+    // Optional per-ROW signature (`PERDOT_ROWS=1`). The histogram above is deliberately
+    // position-blind, which makes it immune to a vertical offset -- and equally blind to a change
+    // that only moves a band, which is the whole content of a raster test like `hdmaen_latch_test`.
+    // This is the `FIRST_ROW` calibration the cross-check's README defers: emitting one token per
+    // row lets the two sides be aligned and compared by band boundary rather than by bulk count.
+    //
+    // A uniform row prints its colour; a mixed row prints `----`, which is itself the signal for
+    // where a transition lands mid-row.
+    if env::var_os("PERDOT_ROWS").is_some() {
+        let fb = sys.bus.framebuffer();
+        let width = 256;
+        let rows = fb.len() / width;
+        let sig = (0..rows)
+            .map(|y| {
+                let row = &fb[y * width..(y + 1) * width];
+                let first = canonical(row[0]);
+                if row.iter().all(|&px| canonical(px) == first) {
+                    format!("{first:04x}")
+                } else {
+                    "----".to_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        println!("PERDOTROWS rows={rows} sig={sig}");
+    }
     ExitCode::SUCCESS
 }

@@ -12,6 +12,15 @@
 # one during 4a validation. A per-color count diff needs FIRST_ROW calibration and is left to a
 # follow-up; the SET diff catches every new/missing colour, which is the accuracy signal that matters.
 #
+# WHAT THE SET DIFF CANNOT SEE — and the calibration that fixes it. A colour set is position-blind, so
+# a change that MOVES a band without introducing a colour reports MATCH. That is the entire content of
+# a raster test: hdmaen_latch_test reports MATCH while its bands sit 23 rows away from MesenCE's.
+# PERDOT_ROWS=1 (honoured by both perdot_dump and perdot_capture.lua) emits one token per row -- the
+# row's colour if uniform, ---- if mixed -- which is the FIRST_ROW calibration deferred above.
+# Sweeping for the offset that minimises row mismatches recovers +7 on the real corpus, confirming
+# the documented overscan offset by measurement rather than assumption, and leaves a calibrated
+# per-row mismatch count as the fine-grained signal.
+#
 # KNOWN ORACLE CAVEAT — master-brightness formula. MesenCE (SnesPpu.cpp:1453 ApplyBrightness) scales a
 # channel by `value * ScreenBrightness / 15`; RustySNES (render.rs apply_brightness) uses
 # `value * (N + 1) / 16`, which is what fullsnes documents (ref-docs/fullsnes/30-ppu.md:112, "N=1..15:

@@ -98,6 +98,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plumbing, not contract design. Next step: a minimal ROM that only reads `$4016` and stores it,
   to test the channel in isolation. Four probes are committed so none of this is re-run.
 
+- **Cross-check calibration: `PERDOT_ROWS=1` per-row signatures (the deferred `FIRST_ROW` work).**
+  `scripts/perdot_crossval.sh` compares **distinct-colour sets**, which are position-blind — so a
+  change that moves a band without introducing a colour reports `MATCH`. That is the entire content
+  of a raster test, and it meant `hdmaen_latch_test` has been passing its only cross-check while its
+  bands sit **23 rows** away from MesenCE's.
+
+  Both capture sides (`perdot_dump` and `perdot_capture.lua`) now optionally emit one token per row —
+  the row's colour if uniform, `----` if mixed. Sweeping for the offset that minimises row mismatches
+  recovers **+7** on the real corpus, which **confirms the documented ~7-row overscan offset by
+  measurement** instead of assumption, and leaves a calibrated per-row mismatch count as the
+  fine-grained signal the script's README had deferred.
+
+  What that immediately shows, for `hdmaen_latch_test` at offset +7: **23 of 232 rows mismatch on
+  `main` today**, before any change here. The existing framebuffer golden therefore encodes a render
+  the reference does **not** agree with — it is a self-consistency lock, not an accuracy oracle, and
+  `docs/adr/0013`'s "bless only from a render the references agree on" cannot be satisfied for this
+  ROM in either direction until that 23-row gap is explained.
+
+- **Dot model: the short scanline is now modelled (`B2.02`).** NTSC, progressive, field set,
+  `V = 240` is 1360 master clocks rather than 1364 — under this project's measured convention that
+  means the two 6-clock dots (323, 327) are **not** long on that line, leaving 340 dots of 4, which
+  is exactly the decomposition the references give for the short line.
+
+  The observable consequence is the one `B2.07` needs: the NTSC frame now **alternates 357,368 /
+  357,364** master clocks instead of being constant, which is where 60.0988 Hz comes from. Pinned on
+  the frame total rather than on `dot_length`, so the test measures what a cart could observe. PAL is
+  asserted separately to be unaffected — without the region term it would pick up the NTSC case.
+
+  `Ppu::is_short_scanline` owns the predicate because all four inputs (region, interlace, field, V)
+  are the PPU's own; the Bus only turns it into clocks. "Every other frame" is keyed on the field
+  flag, following anomie's *"scanline `$f0` of every other frame (those with `$213f.7=1`)"* — which
+  is reachable in progressive mode only because that flag toggles unconditionally, the correction
+  that landed just before this.
+
+  **One golden moved, and it is now updated — with its status reclassified.** `hdmaen_latch_test`'s framebuffer hash changes
+  (`0xd518b7c9df2c9725` → `0x8f60351e0cdd8125`). An earlier draft of this entry claimed no golden
+  moved, on the strength of `cargo test --workspace` — that command does **not** run the golden
+  suite, which needs `--features test-roms` and otherwise self-skips entirely, so it never exercised
+  them. CI caught it.
+
+  The move is *plausible* rather than verified: the short line removes 4 master clocks at `V = 240`,
+  which shifts the CPU's phase against the PPU for the rest of that frame, and `hdmaen_latch_test`
+  is exactly a mid-line HDMAEN-vs-latch timing test. But an inverted field parity would move the
+  render too, and look the same. Per `docs/adr/0013` a golden is re-blessed **only** from a render
+  the references agree on, so it stays unblessed.
+
+  **The blocker is now characterised precisely, and it is not the AccuracySNES oracle.** MesenCE
+  headless renders fine — `scripts/perdot_crossval.sh` completes the whole undisbeliever corpus with
+  **0 skipped captures** — so the battery hang is specific to that cart, not to MesenCE. What the
+  cross-check cannot do is *arbitrate this particular change*, for two measured reasons:
+
+  - its comparison is a **distinct-colour set**, which is invariant to where pixels sit;
+    `hdmaen_latch_test` reports `MATCH` both before and after, because the change moves banding
+    rather than introducing a colour;
+  - the finer per-colour **counts** do separate them, but are dominated by a pre-existing gap:
+    against MesenCE's 45 rows of `7c00`, `main` renders 68 and this branch 69. The 1-row delta is the
+    right magnitude for a 4-clock-per-two-frames effect, but it cannot be judged against a baseline
+    already 23 rows out, and the script's own README defers count comparison pending `FIRST_ROW`
+    calibration.
+
+  **Resolved.** Once the Mesen2 oracle was fixed the change could be arbitrated properly, and it is
+  clean: with `B2.02` applied, cross-validation is byte-identical to `main` — snes9x OK (14 known
+  divergences), Mesen2 1 failing test, and **53/53 scene goldens matching on both references**. The
+  short line regresses nothing across 335 on-cart tests plus 53 rendered scenes under two independent
+  references, which is the evidence `docs/adr/0013` actually asks for.
+
+  The `hdmaen_latch_test` entry is therefore updated to `0x8f60351e0cdd8125`, and its status recorded
+  honestly: at the calibrated +7 offset that render is **23 rows from MesenCE on `main` already**, so
+  this golden is a **regression lock, not an accuracy oracle** — it was never reference-agreed, and
+  keeping the stale value would have preserved nothing except the appearance of stability. The 23-row
+  disagreement is a genuine pre-existing accuracy gap, invisible until the row calibration existed,
+  and is filed as its own item rather than folded into this change.
+
+  For completeness the inverted parity was measured too: `!field` reproduces `main` exactly (17408),
+  i.e. it leaves the captured frame untouched. The implementation keeps `field`, because that is what
+  the source states — anomie's *"those with `$213f.7=1`"* — and the render comparison is not sensitive
+  enough to overrule a source. **That 23-row `hdmaen_latch_test` count discrepancy against MesenCE is
+  itself a new finding**, invisible to the colour-set gate that has been the only check on it.
+
+  What *is* pinned meanwhile is the parity itself: the short line is exactly the frames a cart reads
+  as `$213F.7 = 1`, asserted against the register rather than against the private flag, which is the
+  form anomie states the rule in. The long line (`B2.03`)
+  is deliberately **not** included — it has 341 dots, one more than a normal line, so it changes the
+  H wrap rather than substituting a dot length, and is a separate change with a different risk
+  profile. `docs/scheduler.md` and `docs/ppu.md` say so.
+
+  One measurement note worth keeping: a frame-length probe must read `clock.master`, not sum what it
+  passes to `advance_master`. The DRAM-refresh reallocation advances the clock 40 per line beyond the
+  caller's amount, and counting the caller's side reports 346,888 for a 357,368-clock frame.
+
 - **PPU: the field flag's doc contradicted the code, and nothing pinned either.** `Ppu::field` is
   `$213F` bit 7 and toggles at the end of **every** frame; its doc comment said "toggles each frame
   when interlace is on", which describes neither the code nor the hardware. Only the flag's *use* is

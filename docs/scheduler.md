@@ -96,9 +96,20 @@ pixel and no HDMA transfer moved, and all 50 blessed scenes and both `hdmaen_lat
 were unchanged by the switch. The two source descriptions are the same silicon
 (`ref-docs/2026-06-24-ppu.md` "Note on a flagged discrepancy").
 
-**Still unmodelled**, and unchanged by this: the short line (NTSC, non-interlace, field 1, V=240 —
-1360 clocks, all 340 dots at 4) and the long line (PAL interlace, field 1, V=311 — 1368 clocks, 341
-dots, distribution unknown upstream). `B2.02` and `B2.03` remain uncovered.
+**The short line is now modelled** (`B2.02`): NTSC, non-interlace, field set, `V = 240` — 1360
+clocks, all 340 dots at 4, i.e. under this convention "the two long dots are not long on that line".
+The PPU decides (`Ppu::is_short_scanline`, every input being its own) and the Bus turns it into
+clocks. The observable consequence is that the NTSC frame **alternates 357,368 / 357,364** master
+clocks, which is what `B2.07`'s 60.0988 Hz needs; `the_ntsc_frame_alternates_between_the_normal_and_short_scanline`
+pins it. "Every other frame" is keyed on the field flag, following anomie's *"those with
+`$213f.7=1`"* — reachable in progressive mode because that flag toggles unconditionally
+(`docs/ppu.md` §Field flag). No visible pixel moves: the short line is inside vblank, and the whole
+858-test workspace suite, every blessed scene, and both `hdmaen_latch_test` goldens were unchanged.
+
+**Still unmodelled:** the long line (PAL interlace, field 1, V=311 — 1368 clocks, **341** dots, one
+more than a normal line). That extra dot is a structural change to the H wrap rather than a clock
+substitution, which is why it is separated from the short line rather than landed alongside it.
+`B2.03` remains uncovered.
 
 ## DMA / HDMA bus-steal
 
