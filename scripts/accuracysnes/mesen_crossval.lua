@@ -89,15 +89,31 @@ end
 -- nothing held, so every runner holds the same mask and the cart asserts against it. Mesen2's docs
 -- are explicit that setInput belongs in an inputPolled callback, since otherwise the state may not
 -- be applied before the ROM reads it.
+--
+-- ONE setInput call, deliberately. This is what made the battery never run under MesenCE for
+-- several sessions, and it is worth stating exactly, because the failure was silent and total:
+--
+--   In this MesenCE build's --testRunner, the port argument does NOT select a controller. Sending
+--   PAD_CONTRACT to index 0 and again to index 1 both land on CONTROLLER 1 (verified: the cart's own
+--   V_PAD_HELD reads $9050 either way; sending to index 2 does the same). So the second call here --
+--   intended for port 2 -- OVERWROTE port 1, and the cart saw PAD2_CONTRACT ($60A0) on controller 1.
+--
+--   $60A0 contains no Start. The pre-battery menu waits for Start. So the cart booted, ran its init,
+--   cleared R_STATUS, reached the menu and sat there forever -- with nothing on screen to show it,
+--   since the menu is a static picture. Every symptom followed from that: no ACSN magic, R_DONE
+--   never $A5, and an all-zero status array that earlier notes misread as "completes 14 of 335".
+--
+-- With the single call the battery runs to completion: magic ACSN, R_DONE $A5, 335/335 status bytes
+-- written. Do not "restore" the port-2 call without first proving the port argument works.
+--
+-- CONSEQUENCE, stated rather than hidden: port 2 cannot be driven from Lua in this build, so rows
+-- that depend on PAD2_CONTRACT ($60A0: Y + Select + A + L) are not cross-validated by this runner.
+-- The in-repo harness and the snes9x libretro driver do drive both ports, so those rows are still
+-- covered -- just not by MesenCE.
 local function onInput()
     emu.setInput({ b = true, start = true, x = true, r = true,
                    y = false, select = false, a = false, l = false,
                    up = false, down = false, left = false, right = false }, 0)
-    -- Port 2 (PAD2_CONTRACT = $60A0: Y + Select + A + L). Needs a device in port 2, which the
-    -- testrunner invocation supplies via --snes.port2.type=SnesController (see crossval.sh).
-    emu.setInput({ y = true, select = true, a = true, l = true,
-                   b = false, start = false, x = false, r = false,
-                   up = false, down = false, left = false, right = false }, 1)
 end
 
 emu.addEventCallback(onInput, emu.eventType.inputPolled)

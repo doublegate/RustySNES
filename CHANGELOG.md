@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES: the Mesen2 oracle is FIXED — one `emu.setInput` call too many.** The battery has
+  never run under MesenCE; it now completes: `magic='ACSN'`, `R_DONE=$A5`, **335/335** status bytes
+  written, and `crossval.sh` reports `Mesen2: 1 failing test(s)` where it previously timed out.
+
+  **Root cause.** In this MesenCE build's `--testRunner`, `emu.setInput`'s port argument does **not**
+  select a controller — indices 0, 1 and 2 all land on **controller 1** (verified through the cart's
+  own `V_PAD_HELD`). `mesen_crossval.lua` called it twice, so the second call, intended for port 2,
+  **overwrote port 1**: the cart saw `PAD2_CONTRACT` (`$60A0`) on controller 1. `$60A0` contains no
+  Start, and the pre-battery menu waits for Start — so the cart booted, ran init, cleared `R_STATUS`,
+  reached the menu and sat there forever, behind a static picture that showed nothing.
+
+  Every recorded symptom follows from that one line, and several earlier conclusions were wrong
+  because of it: the "completes 14 of 335 and stops at `A3.03`" figure was an all-zero status array
+  misread, and two cart-side `A3.03` fixes were aimed at a layer that was never at fault.
+
+  **Stated, not hidden:** port 2 cannot be driven from Lua in this build, so rows depending on
+  `PAD2_CONTRACT` are not cross-validated by this runner. The in-repo harness and the snes9x libretro
+  driver drive both ports, so those rows remain covered elsewhere.
+
+  Still open: Mesen2 reports no rendered scenes — the run does not reach the scene loop. That is now
+  a *next* problem rather than the same one, and the battery half of the oracle is usable today.
+
 - **AccuracySNES oracle: the recorded diagnosis does not reproduce, and the blocker is a different
   one.** Re-measured with a new, deliberately minimal second instrument
   (`scripts/accuracysnes/mesen_wram_probe.lua`) — every prior conclusion rested on
