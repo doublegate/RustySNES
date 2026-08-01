@@ -4,7 +4,7 @@ hdma-2100-glitch	0x81c1f7fc438c6770
 hdma-21ff-2100-0f-glitch	0x81c1f7fc438c6770
 hdma-21ff-2100-glitch	0xb1a07221d18f6d62
 hdma-21ff-glitch	0x81c1f7fc438c6770
-hdmaen_latch_test	0xd518b7c9df2c9725
+hdmaen_latch_test	0x8f60351e0cdd8125
 hdmaen_latch_test_2	0x4d774b0308aebb25
 inidisp_brightness_delay	0x5bfda8f292df5ec7
 inidisp_d7_glitch_test	0x81c1f7fc438c6770

@@ -132,7 +132,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is reachable in progressive mode only because that flag toggles unconditionally, the correction
   that landed just before this.
 
-  **One golden moved, and it is not yet blessed.** `hdmaen_latch_test`'s framebuffer hash changes
+  **One golden moved, and it is now updated — with its status reclassified.** `hdmaen_latch_test`'s framebuffer hash changes
   (`0xd518b7c9df2c9725` → `0x8f60351e0cdd8125`). An earlier draft of this entry claimed no golden
   moved, on the strength of `cargo test --workspace` — that command does **not** run the golden
   suite, which needs `--features test-roms` and otherwise self-skips entirely, so it never exercised
@@ -157,6 +157,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     right magnitude for a 4-clock-per-two-frames effect, but it cannot be judged against a baseline
     already 23 rows out, and the script's own README defers count comparison pending `FIRST_ROW`
     calibration.
+
+  **Resolved.** Once the Mesen2 oracle was fixed the change could be arbitrated properly, and it is
+  clean: with `B2.02` applied, cross-validation is byte-identical to `main` — snes9x OK (14 known
+  divergences), Mesen2 1 failing test, and **53/53 scene goldens matching on both references**. The
+  short line regresses nothing across 335 on-cart tests plus 53 rendered scenes under two independent
+  references, which is the evidence `docs/adr/0013` actually asks for.
+
+  The `hdmaen_latch_test` entry is therefore updated to `0x8f60351e0cdd8125`, and its status recorded
+  honestly: at the calibrated +7 offset that render is **23 rows from MesenCE on `main` already**, so
+  this golden is a **regression lock, not an accuracy oracle** — it was never reference-agreed, and
+  keeping the stale value would have preserved nothing except the appearance of stability. The 23-row
+  disagreement is a genuine pre-existing accuracy gap, invisible until the row calibration existed,
+  and is filed as its own item rather than folded into this change.
 
   For completeness the inverted parity was measured too: `!field` reproduces `main` exactly (17408),
   i.e. it leaves the captured frame untouched. The implementation keeps `field`, because that is what
