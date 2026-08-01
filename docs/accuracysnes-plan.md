@@ -653,11 +653,17 @@ The question is therefore no longer "why does it stop at `A3.03`" but **"why doe
 start under MesenCE"** — a different search, and one that explains why two cart-side fixes moved
 nothing.
 
-**Prime suspect, not yet confirmed:** the input contract holds B + Start + X + R from power-on, and a
-menu that starts the battery on a *press edge* would never see one. That is consistent with the
-picture never changing. The next step is small — release the contract buttons for a few frames, then
-re-press, and re-probe. If the battery then runs, the contract needs an edge at the start rather than
-a constant hold, and `crossval.sh`'s runners all need the same treatment.
+**The press-edge suspect is REFUTED.** `scripts/accuracysnes/mesen_edge_probe.lua` applies the
+contract from frame 0, 30 or 120 — the latter two manufacturing a rising edge — and all three give
+the same result at 1200 frames: the magic never reads `ACSN`, `R_DONE` never reads `$A5`, and
+`R_STATUS` holds exactly **24** non-zero bytes. The battery is not waiting for an edge. The probe is
+committed so the next attempt does not re-run a settled negative.
+
+**The live lead is that 24, not the zeros.** It is *constant across runs* while the magic bytes
+*vary*, so it is not uninitialised WRAM — that would vary too — and indices 0-39 read zero, so those
+bytes sit at index **>= 40**. Twenty-four deterministic bytes in an array that should be untouched is
+the next thing to explain: find *which* catalogue indices they are, and whether they correspond to
+real tests, before theorising further.
 
 #### `A5.18` — why it is parked despite working
 
