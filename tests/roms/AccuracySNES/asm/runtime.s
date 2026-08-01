@@ -2086,18 +2086,54 @@ test_restore := test_restore_impl
     jsr hold_frames
     plx
 
-    sep #$20
-    .a8
-    txa
-    inc a
-    sta f:R_SCENE               ; scene IDs are 1-based; 0 means "none yet"
-
+    ; --- The published window is FIELD-GATED -------------------------------------------------
+    ;
+    ; The ID appears only on frames whose PPU2 field flag ($213F bit 7) is SET, so every sighting
+    ; the host counts is the same field. Without that, an interlace scene asks a question whose
+    ; answer alternates every frame: `C7.12` (a 16x32 sprite under OBJ interlace renders as 16x16)
+    ; was written as a scene and produced THREE different hashes on three emulators, the only
+    ; three-way split any scene has produced. It was not three cores disagreeing about interlace —
+    ; each host simply landed on whichever field its own frame counter happened to be on.
+    ;
+    ; Costs one bit of nothing for the 53 non-interlaced scenes: a still picture hashes the same on
+    ; either field, so gating only moves WHICH wall-clock frame the host's fourth sighting is. That
+    ; is why SCENE_FRAMES had to grow — at half the publication rate, the old 8 gave exactly four
+    ; sightings and the fourth landed on the window's last frame, the one end the host protocol
+    ; deliberately avoids.
+    ;
+    ; What this does NOT fix, and cannot: if two hosts sample WRAM at different points relative to
+    ; the field toggle, they gate on opposite fields and an interlace scene still disagrees. That is
+    ; a measurable question, not an assumption — cross-validate any interlace scene before blessing
+    ; a golden for it (ADR 0013 rule 4).
     rep #$30
     .a16
     .i16
+    txa
+    inc a
+    and #$00FF
+    sta f:V_SCENE_ID            ; scene IDs are 1-based; 0 means "none yet"
     phx
     ldx #SCENE_FRAMES
-    jsr hold_frames
+@hold_field:
+    phx
+    jsr wait_vblank
+    plx
+    sep #$20
+    .a8
+    lda $213F                   ; PPU2 status; bit 7 is the field flag
+    and #$80
+    beq @not_our_field
+    lda f:V_SCENE_ID
+    bra @publish
+@not_our_field:
+    lda #$00
+@publish:
+    sta f:R_SCENE
+    rep #$30
+    .a16
+    .i16
+    dex
+    bne @hold_field
     plx
 
     sep #$20

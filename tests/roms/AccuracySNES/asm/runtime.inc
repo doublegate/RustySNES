@@ -139,6 +139,7 @@ V_HW_H          = VAR_BASE + $4A      ; H from the most recent wide latch (u16)
 V_HW_V          = VAR_BASE + $4C      ; V from that same latch (u16)
 V_HW_V0         = VAR_BASE + $4E      ; V at hv_begin_wide (u16)
 V_HW_DV         = VAR_BASE + $50      ; scratch: lines crossed, counted down (u16)
+V_SCENE_ID      = VAR_BASE + $52      ; the scene ID `run_scenes` publishes on its field (u16)
 ; The longest span hv_end_wide will report. Beyond this the varying line length has accumulated past
 ; usefulness, and far beyond it V wraps the field and the delta goes negative — so both are refused
 ; with $FFFF rather than returned as a plausible number. 64 lines is ~21,800 dots, two orders of
@@ -222,7 +223,12 @@ MEAS_SLOTS      = 512
 ; occasionally landed on a transition and the gate went red on a different scene each run. An
 ; intermittently-red gate is worse than a slow one, because it gets ignored.
 SCENE_SETTLE    = 6
-SCENE_FRAMES    = 8
+; 12, not 8, because the published window is FIELD-GATED (see `run_scenes`): the ID appears on
+; alternate frames only, so 8 wall-clock frames give exactly four sightings and the host's fourth —
+; the one it hashes — lands on the window's last frame. That is one of the two ends the host
+; protocol exists to avoid; snes9x caught a scene mid-transition there once already. 12 frames give
+; six sightings, so the fourth is comfortably interior.
+SCENE_FRAMES    = 12
 
 ; --- results block ---------------------------------------------------------------------------
 RESULTS         = $7EF000

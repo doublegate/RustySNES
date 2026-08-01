@@ -389,6 +389,40 @@ Any `C9`/`C7.12` interlace assertion needs the cart to publish a scene only on a
 a change to `run_scenes`, not to a scene. Worth doing: it unblocks the interlace half of `C9`
 (`C9.03`, `C9.06`) as well as `C7.12`.
 
+**BUILT 2026-08-01, and it did what it was supposed to — but the scene is still unblessable.**
+`run_scenes` now publishes the scene ID only on frames whose `$213F` bit 7 is set, so every sighting
+the host counts is the same field (`SCENE_FRAMES` grew 8 → 12, because at half the publication rate
+the old value put the host's fourth sighting on the window's last frame — one of the two ends the
+protocol exists to avoid). The 53 blessed scenes are untouched by it on all three hosts: a still
+picture hashes the same on either field.
+
+On the interlace scene it worked exactly as intended. The **three**-way split became a **two**-way
+one, and snes9x and Mesen2 now produce the *identical* hash:
+
+| | `c7-obj-interlace-halves-height` |
+|---|---|
+| snes9x | `0x266241e43ab85064` |
+| Mesen2 | `0x266241e43ab85064` |
+| RustySNES | `0x16f7ab8c7f97b7f8` |
+
+**And the residual is fully characterised**, which is the part worth keeping. Dumping the pixels
+shows both renders agree on everything the row is *about* — the 16x32 sprite occupies 16 display
+rows, its 32x64 neighbour 32 — and differ only in **which field's source rows** are drawn:
+snes9x/Mesen2 draw the even ones, RustySNES the odd ones. One source row, nothing else.
+
+**Not blessed, and not called a RustySNES bug either.** "RustySNES alone" is this project's
+signature for a real defect, but RustySNES is not alone here: its `row + field` and its
+`ppu2.mdr.bit(7) = field()` are both ares' (`sfc/ppu/object.cpp:122`, `sfc/ppu/io.cpp:178`), and both
+cores toggle the field at the same V wrap. So this is the bsnes/ares lineage against snes9x and
+Mesen2 — **2 vs 1** by this project's own provenance rule, not 2 vs 2, and no primary source says
+which field maps to which rows. Recorded as a variant set per the same rule the Mode-5 hi-res
+cluster is under: *do not pick a winner*. The tiebreaker is ares actually running the cart, which is
+the same blocked item `A2.10` is waiting on.
+
+`C9.03`/`C9.06` are deliberately NOT written on top of this. Screen interlace has the identical
+parity dependency, so they would land unblessed for the identical reason — two more unblessable
+scenes is not progress. Write them when the tiebreaker exists.
+
 ### `E8.03` — "clears `ENDX` even when suppressed" does not mean suppressed by `KOFF`
 
 The dossier row reads: *"KON restarts even if playing, zeroing the envelope, and clears ENDX even
@@ -929,10 +963,12 @@ documentation-anchored only, because the Mesen2 headless runner times out in thi
 `C7.05`/`C7.06` landed on the far-IRQ shim, so it is worth saying what that shim does **not**
 unblock.
 
-- **`C7.12`** (16x32 under OBJ interlace renders as 16x16) is a **scene**, and needs the cart to
-  publish a scene only on a *known field* — it was written once and produced three different hashes
-  on three emulators because it asked a question whose answer alternates every frame. That is
-  `v1.29.0` machinery (`run_scenes`, not a scene), shared with `C9.03`/`C9.06`.
+- **`C7.12`** (16x32 under OBJ interlace renders as 16x16) is a **scene**. The `v1.29.0` machinery
+  it needed — `run_scenes` publishing only on a known field — **is built** (2026-08-01), and it
+  turned the three-way split into a two-way one: snes9x and Mesen2 now agree exactly, and RustySNES
+  differs by one field of OBJ-interlace source rows and nothing else. Still unblessed, because that
+  residual is the ares lineage against the other two and no source settles it. Full account in
+  §"Interlace scenes need frame-parity control".
 
 - **`C7.07`** (Time Over false positive: first sprite 16x16+ at `X = 0-255` with others at negative
   X) is reachable *as a test* with `C7.06`'s setup, but it would fail — because RustySNES does not
