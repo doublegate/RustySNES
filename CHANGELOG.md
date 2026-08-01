@@ -9,7 +9,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`E9.09` — the echo write pointer wraps at the 16-bit boundary, over page zero `[ERRATA]`.**
+  `ESA` names a page, `EDL` a length, and the address is computed in sixteen bits with nothing
+  clamping it at `$FFFF`. A driver that sets `ESA` too high does not get a short buffer or a dropped
+  write; it gets the DSP writing four bytes per sample over the bottom of its own RAM. It is an
+  errata because the failure is remote from its cause — the sound driver corrupts variables it never
+  addressed.
+
+  **The arrangement is what makes it safe to run.** `ESA = $FF` with a 2 KiB buffer wraps after 256
+  bytes and then writes 1,792 bytes of low RAM — the sample directory, the stack, and the running
+  program — so the test would destroy itself, and how much it destroyed would depend on a timing
+  window. `ESA = $F9` with the same length ends the buffer *exactly* at `$FFFF`, so the wrapped part
+  is page zero and precisely page zero. Nothing else is in reach however long it runs, which is what
+  lets the program wait a whole buffer cycle instead of timing anything. The program repaints page
+  zero with zeroes before releasing the APU.
+
+  The echo offset free-runs whether or not `FLG` bit 5 has writes enabled, so the starting phase is
+  unknowable; the row waits 768 samples against a 512-sample buffer so every entry is written for
+  **every** phase. With `EFB = 0` and a constant sample, every entry holds the identical four bytes
+  — so the assertion is that the wrapped entry **equals** the unwrapped one, not merely that
+  something changed. Injecting `(page << 8) | (offset & $FF)` at `dsp.rs`'s `echo22` fires code 2,
+  the code that names a pointer masked inside the ESA page.
+
+  Coverage `351 → 352 of 443` (298 on-cart + 54 scenes); battery 339 tests, 100% on-cart; all three
+  references agree.
+
 ### Fixed
+
+- **`F1.10`'s ares verdict is not reproducible, and is now excluded from that gate by name.**
+  Adding `E9.09` — an APU row with nothing to do with controller ports — made ares' verdict on
+  `F1.10` flip run to run: `04` on eight runs of eight before, then `01` on two of five and `04` on
+  the other three, same binary and same image. The row samples `$4212` at the vblank edge, so the
+  cart's execution phase decides it and anything added ahead of Group F moves that phase.
+
+  This is the **fourth** instance of the same trap this cycle and the second on this exact row —
+  Mesen2's `F1.10` verdict flipped the other way when `E3.06` was rewritten. Two of three references
+  now demonstrate the row's cross-host verdict carries no information.
+
+  A count that includes it is a gate that flakes on unrelated work, so `ARES_KNOWN_FAILURES` drops
+  4 → 3 and `crossval.sh` resolves the excluded row through `SOURCE_CATALOG.tsv` **by ID at run
+  time**: the catalogue index moves whenever a test is added ahead of it, which is exactly what
+  exposed the problem. The count is reproducible across runs again (five for five). RustySNES passes
+  the row because of a deliberate fix and that stands; pinning its sampling point is the only thing
+  that would make a reference's verdict on it mean anything.
 
 - **CORRECTION: the battery covers 351 of 443 assertions, not 350.** The `E5.06` entry below says
   coverage was "350 either way"; the regenerated `docs/accuracysnes-coverage.md` reads **297 on-cart

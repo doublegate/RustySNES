@@ -2358,6 +2358,16 @@ Provenance: **Documented** (fullsnes and anomie's DSP doc: the echo buffer holds
 | 2 | `$04` | echo buffer byte 2 is not the right channel's low byte: a core writing two bytes per entry leaves the $FF marker here, and one writing right-then-left leaves the signal |
 | 3 | `$06` | echo buffer byte 3 is not the right channel's high byte, so the entry is not four bytes of left-then-right |
 
+### E9.09 — Echo wraps into page 0
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc [ERRATA]: the echo buffer address is 16-bit and wraps, so a buffer that runs past $FFFF continues at $0000 over page zero and the IPL shadow). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the echo buffer's own second byte is not the large positive value the constant sample puts there, so echo writes never happened and the page zero reading below is about nothing |
+| 2 | `$04` | page zero still held the paint after a full buffer cycle, so the echo write pointer never left the ESA page — it is being masked or clamped at the 16-bit boundary instead of wrapping through it |
+| 3 | `$06` | page zero changed but does not hold the same echo entry the buffer does, so whatever reached it is not this buffer wrapping through the 16-bit boundary |
+
 ### E9.13 — L/R FIR independent
 
 Provenance: **Documented** (fullsnes and anomie's DSP doc: the echo FIR keeps a separate eight-sample history and accumulator per channel; only the coefficients are shared). Kind: scored.

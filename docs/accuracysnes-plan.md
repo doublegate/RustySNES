@@ -13,11 +13,11 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **338** (scoring + golden vectors + region SKIP per image) — *tests, not assertions; see the note below the table* |
-| Assertion coverage | **351 of 443** dossier assertions — **297 on-cart** + **54 rendered scenes**, kept as separate columns (`docs/accuracysnes-coverage.md`) |
+| Tests | **339** (scoring + golden vectors + region SKIP per image) — *tests, not assertions; see the note below the table* |
+| Assertion coverage | **352 of 443** dossier assertions — **298 on-cart** + **54 rendered scenes**, kept as separate columns (`docs/accuracysnes-coverage.md`) |
 | Rendered scenes | **54** declared, all blessed and matching on both scene hosts (`docs/adr/0013`); **54** dossier rows have a scene as their only cover |
 | Pass rate | **100.00%** on-cart, floor enforced at 1.00 by `tests/accuracysnes.rs` |
-| Cross-validated | **Three references** as of `v1.29.0`. Mesen2 agrees on every test but `F1.03`, which clocks both ports out of one latch and so needs the port-2 input its Lua runner cannot drive; snes9x has 14 recorded divergences and **ares** 4, each with a citation in `scripts/accuracysnes/crossval.sh`. A headless **MesenCE** is separately the per-dot compositor's blueprint + exact-frame oracle. All images. |
+| Cross-validated | **Three references** as of `v1.29.0`. Mesen2 agrees on every test but `F1.03`, which clocks both ports out of one latch and so needs the port-2 input its Lua runner cannot drive; snes9x has 14 recorded divergences and **ares** 3, each with a citation in `scripts/accuracysnes/crossval.sh`. A headless **MesenCE** is separately the per-dot compositor's blueprint + exact-frame oracle. All images. |
 | Groups shipped | **A** (65C816) · **B** (5A22) · **C** (PPU, on-cart and rendered) · **D** (DMA/HDMA) · **E** (SPC700 + S-DSP) · **F** (controller ports) · **G** (cartridge/memory map) — all seven, all partial |
 | On-cart UI | AccuracyCoin-style paged menu + automatic skyline results + per-test B-skip + a Select WRAM debug viewer (`v1.21.0`) |
 | Defects found in this emulator | **12+** — see §5 |
@@ -742,13 +742,29 @@ Chosen 2026-08-01, now that both halves of the Mesen2 oracle arbitrate. Two corr
 | `E8.01` | KON/KOFF polled every **second** sample (16 kHz) `[ERRATA]` | pure DSP-register observable; errata-flagged so the reference is explicit |
 | `E9.02` | noise output is **highpass-filtered** `[ERRATA]` | DSP-observable via OUTX on a NON voice; errata-flagged |
 | `E5.06` | BRR 15-bit wrap: clamp to 16 bits, then `+4000h..+7FFFh → -4000h..-1` | reuses the landed `E5` decoder scaffolding |
+| `E9.09` | echo buffer wraps at the 16-bit boundary, over page zero `[ERRATA]` | ARAM-observable end to end: the cart paints the page, the DSP writes it, the cart reads it back |
 
-**All three landed 2026-08-01.** Battery 338 tests, 100% on-cart, and the references agree:
-`snes9x: OK (14 known)`, `Mesen2: OK (1 known)`, `ares: OK (4 known)`, 54/54 scenes on each scene
+**All four landed 2026-08-01.** Battery 339 tests, 100% on-cart, and the references agree:
+`snes9x: OK (14 known)`, `Mesen2: OK (1 known)`, `ares: OK (3 known)`, 54/54 scenes on each scene
 host. `MESEN2_KNOWN_FAILURES` came **down** from 3, first to 2 because the redesign below removed the
 one Mesen2 divergence that was ours rather than the harness's, and then to 1 when `F1.10`'s Mesen2
 verdict proved phase-fragile (it flipped to passing when an unrelated `E3.06` rewrite moved the
 cart's execution phase) and was retracted rather than re-recorded.
+
+`ARES_KNOWN_FAILURES` came down 4 → 3 the same way and on the **same row**: adding `E9.09` made
+ares' `F1.10` verdict flip run to run on one image (eight of eight failing before, then two of five
+passing). It is now excluded from that count by name rather than carried in it — see
+`scripts/accuracysnes/ares_host/README.md`. Both remaining references have now shown the row's
+verdict is decided by the cart's execution phase, so no reference's verdict on it means anything
+until the row's sampling point is pinned.
+
+**`E9.09` is the one that needed an arrangement rather than an instrument.** The obvious setup —
+`ESA = $FF` — wraps after 256 bytes and then writes 1,792 bytes of low RAM, over the sample
+directory, the stack, and the running program: the test destroys itself, and how much it destroys is
+a timing window. `ESA = $F9` with the same 2 KiB length ends the buffer *exactly* at `$FFFF`, so the
+wrapped part is page zero and precisely page zero. Nothing else is in reach however long it runs,
+which is what lets the program wait a whole buffer cycle instead of timing anything — and the echo
+offset free-runs regardless of `FLG` bit 5, so there is no starting phase to know.
 
 ### `E8.01` — two rejected drafts, and what they were really measuring
 
