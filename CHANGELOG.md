@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ares is wired into `crossval.sh` as a third reference.** `cross-validation: 3 reference(s) agree
+  with the cart`, with `ARES_KNOWN_FAILURES=5` carrying the same per-row rationale the other two
+  constants do: `C7.05`/`C7.10`/`F1.10` are rows snes9x already fails (ares corroborating it, not
+  standing alone), and `E3.06`/`E8.02` cite the ares `$F1` timer-2 reset bug.
+
+  The block is **opt-in and skips cleanly**: the host is a C++ link against ares' static libraries
+  and takes minutes, so `crossval.sh` looks for a pre-built binary at `$ARES_HOST` and prints
+  `skip ares: build it with 'bash scripts/accuracysnes/ares_host/build.sh'` when it is absent —
+  the same shape as the snes9x and Mesen2 blocks, and verified in both states.
+
+  One bug caught on the way, worth recording because of how it presented: counting the failing rows
+  with `("0x" $3) % 2 == 0` reported **337 failures**. POSIX awk does not parse `"0x01"`, so the
+  expression is `0 % 2` for every byte and every non-skipped row counted as a failure. A gate
+  reporting catastrophe out of a parsing bug is a specific kind of dangerous, so the fix matches on
+  the last hex digit and says why in a comment.
+
 - **AccuracySNES found a bug in ares — the first time it has found one in a reference emulator.**
   `E3.06` and `E8.02` were the two divergences the third opinion could not attribute to a known
   snes9x failure, and both read **0** from every timer-2 slot they record. One mechanism explains
@@ -63,9 +79,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   magic ACSN / done a5 / count 338 / passed 299 / failed 5 / skipped 1 / golden 33
   ```
 
-  Reproducible across runs. **ares passes `A2.10`** ("PEI does not page-wrap", catalogue index 11,
-  status `$01`), so with RustySNES and snes9x it is **3 against 1 with Mesen2 the outlier**, and the
-  row comes off the "unexplained, needs a fourth opinion" list it has been on since the oracle fix.
+  Reproducible across runs. ares passes `A2.10` (catalogue index 11, status `$01`).
+
+  **RETRACTION.** This entry first said that made it "3 against 1 with Mesen2 the outlier". It does
+  not, because **Mesen2 passes `A2.10` too** — measured with `mesen_failing_set_probe.lua`, its
+  failing set is `F1.03` and `F1.10` and nothing else, identical on six runs. The host that fails
+  `A2.10` is **snes9x**, where it is documented as the *first* entry in `SNES9X_KNOWN_FAILURES`. So
+  there was never a disagreement on this row: the original reading took an index off one host's
+  output and attributed it to another. The ares host was built to settle a row that did not need
+  settling — and still earned itself, by finding a real ares bug that needed a third opinion to see.
 
   **Five rows where ares disagrees with the cart** — and **three of them are rows snes9x already
   fails**, which the tally alone does not show. `C7.10` and `F1.10` become **2-vs-2** (RustySNES +

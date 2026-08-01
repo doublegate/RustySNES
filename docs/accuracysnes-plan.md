@@ -839,38 +839,40 @@ cannot increment between two reads six cycles apart. Unless a distinguishing obs
 first, this is the shape [[accuracysnes-vacuous-test-trap]] exists to prevent — design the observable
 before writing the row.
 
-**Before authoring any of them,** settle `A2.10` above. It is the only unexplained reference
-disagreement in the battery, and a row batch authored while one row is unexplained risks attributing
-a new failure to the wrong cause.
+**~~Before authoring any of them, settle `A2.10` above.~~** Retracted with the section below: there
+was never an `A2.10` disagreement to settle. The battery has **no** unexplained reference
+disagreement — every failing row on every host is now measured and attributed.
 
-#### First arbitrated finding: `A2.10` — Mesen2 is the outlier, and ares makes it 3-vs-1
+#### RETRACTED: the `A2.10` "arbitrated finding" was a host mix-up
 
-The moment the oracle started working it produced a result the project has never been able to see.
-`crossval.sh` reports `Mesen2: 1 failing test(s)`, catalogue index **11 = cart `A2.10`, "PEI does not
-page-wrap"** (scored; source: WDC datasheet + superfamicom.org addressing notes; verdict slot
-`$7EF02B`).
+This section used to read *"`A2.10` — Mesen2 is the outlier, 2-vs-1"*, and called it the only
+unexplained reference disagreement in the battery. **It was wrong in both directions**, and measuring
+it took a probe that did not exist until 2026-08-01.
 
-RustySNES **passes** it and snes9x passes it too — `A2.10` is not among snes9x's 14 known
-divergences. So this is **2-vs-1 with Mesen2 as the outlier**, which inverts the usual shape: the
-standing heuristic warns that *RustySNES failing alone* means a real bug, and that is not what this
-is.
+| | `A2.10` (catalogue index 11) |
+|---|---|
+| RustySNES | pass |
+| Mesen2 | **pass** — its failing set is `F1.03` and `F1.10`, nothing else |
+| ares | **pass** (status `$01`) |
+| snes9x | **FAIL code 1** — and it is documented, the *first* entry in `SNES9X_KNOWN_FAILURES` |
 
-**SETTLED 2026-08-01 — ares passes it, so this is 3-vs-1.** The third opinion the paragraph below
-asked for now exists: `scripts/accuracysnes/ares_host/` runs the battery under ares
-(`magic ACSN`, `done a5`, 338 tests, reproducible across runs) and reports catalogue index 11 as
-status `$01` — **pass**. With RustySNES and snes9x that is three implementations against Mesen2, and
-the caveat that held this open — a harness bug upstream of an implementation produces the same
-signature, as the `$F8`/`$F9` retraction proved — is answered: the fourth host is independent of all
-three and agrees.
+So the outlier is **snes9x**, not Mesen2; the failure is expected and already explained; and there is
+no unexplained disagreement on this row at all. The old text additionally asserted "`A2.10` is not
+among snes9x's 14 known divergences" — it is, at `crossval.sh:80`.
 
-`A2.10` can therefore become a `MESEN2_KNOWN_FAILURES` entry whenever the count is next revised. It
-is not being added in the same change that established it, because `MESEN2_KNOWN_FAILURES` currently
-reads 2 and matches; changing the constant and the reasoning at once would leave nothing to check
-the change against.
+**How it went wrong.** `crossval.sh` reported `Mesen2: 1 failing test(s)`, and index 11 was read off
+a *different host's* output and attributed to Mesen2. Neither number was checked against a per-row
+measurement, because none existed: `mesen_crossval.lua` reports only an exit code and `emu.log` does
+not reach any findable file here. `scripts/accuracysnes/mesen_failing_set_probe.lua` now does the
+measurement, and gives the identical set on six consecutive runs.
 
-*The original reasoning, kept because it is why the row waited:* recording it as a known-good Mesen2
-divergence without a third opinion would have been exactly the mistake the `$F8`/`$F9` retraction
-already cost this project once.
+**This is the second published claim in one day undone by keying on catalogue indices instead of row
+names**, the other being `MESEN2_KNOWN_FAILURES`'s own comment. An index is only meaningful next to
+the host that produced it and the catalogue that was current — and neither travels with the number.
+
+**What survives.** The ares host was built to settle this row, and its stated motivation was
+therefore partly wrong. It still earned itself several times over: it found a real bug in ares'
+SMP (`$F1`'s timer-2 counter reset is negated), which needed a third opinion to see at all.
 
 #### The Mesen oracle — the "14 of 335" reading does not reproduce
 

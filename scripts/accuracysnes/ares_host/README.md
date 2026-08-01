@@ -25,9 +25,13 @@ Several findings sat at **2 versus 1** with no way to break the tie, because thi
 provenance rule counts ares and bsnes as **one** reference — so "RustySNES and snes9x against
 Mesen2" is only 2-vs-1 if ares is not already on RustySNES's side, and nobody could check.
 
-**The first thing it settled: `A2.10` ("PEI does not page-wrap").** ares **passes** it (catalogue
-index 11, status `$01`). With RustySNES and snes9x also passing, that is **3 against 1 with Mesen2
-the outlier**, and the row comes off the "unexplained, needs a fourth opinion" list.
+**The row it was built to settle did not need settling.** `A2.10` was recorded as "Mesen2 fails it,
+RustySNES and snes9x pass". Measured: ares passes it, **Mesen2 passes it**, RustySNES passes it, and
+**snes9x fails it** — where it is documented as the first entry in `SNES9X_KNOWN_FAILURES`. The
+original reading took a catalogue index off one host's output and attributed it to another. Recorded
+here because it is this host's stated motivation, and the motivation was wrong.
+
+**What it did earn:** the first bug AccuracySNES has found in a *reference* emulator — see below.
 
 ## The five rows ares disagrees with the cart about
 
