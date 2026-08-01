@@ -2340,8 +2340,8 @@ exists.
   stay in their own tier. `crossval.sh` gates on them, and per rule 4 a golden is committed only
   once the references agree.
 
-  **Status: 53 scenes blessed** (the regenerated `docs/accuracysnes-coverage.md` is authoritative — this
-  hand-maintained figure had drifted from an earlier "41"), covering the scene tier across `C4`-`C8`,
+  **Status: 54 scenes blessed** (the regenerated `docs/accuracysnes-coverage.md` is authoritative — this
+  hand-maintained figure had drifted from an earlier "41", and again from "53"), covering the scene tier across `C4`-`C8`,
   `C10`, `C11` and `C12`. The
   first three disagreed with the references on first run, and in all three cases RustySNES was
   wrong: the BG vertical fetch was a line late, and mosaic quantised the BG row instead of the
