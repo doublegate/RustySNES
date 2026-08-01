@@ -28,14 +28,14 @@ ninja -C "$BUILD" \
 # `NALL_MAIN_IMPL` is undefined, and nall's own `main.cpp.o` defines that. Without the include the
 # link fails with a bare `undefined reference to 'main'` from crt1.o, which reads like a missing
 # object rather than a missing shim.
-g++ -std=c++2b -O2 -c "$HERE/ares_host.cpp" -o "$BUILD/ares_host.o" \
+g++ -std=c++2b -O2 -g -rdynamic -c "$HERE/ares_host.cpp" -o "$BUILD/ares_host.o" \
   -I"$ARES" -I"$ARES/ares" -I"$ARES/nall" -I"$ARES/libco" -I"$ARES/thirdparty" \
   -I"$BUILD" -I"$BUILD/ares" \
   $(pkg-config --cflags gtk+-3.0) -DHIRO_GTK=3
 
 # The library set and order are cribbed from desktop-ui's own link line in `build.ninja`; ares is
 # listed twice there and needs to be here too.
-g++ -O2 -o "$OUT" "$BUILD/ares_host.o" \
+g++ -O2 -g -rdynamic -o "$OUT" "$BUILD/ares_host.o" \
   "$BUILD/nall/nall/CMakeFiles/nall.dir/main.cpp.o" \
   "$BUILD/nall/nall/CMakeFiles/nall.dir/nall.cpp.o" \
   "$BUILD/nall/nall/CMakeFiles/nall.dir/sljitAllocator.cpp.o" \

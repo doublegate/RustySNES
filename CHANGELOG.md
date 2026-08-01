@@ -11,25 +11,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **A headless ares host: builds and links, does not yet run — and that changes the status of the
-  project's most-cited blocker.** Several findings are stuck at 2-versus-1 with no tiebreaker,
-  because this project's provenance rule counts ares and bsnes as *one* reference: `A2.10`, and the
-  OBJ-interlace field parity where RustySNES's `row + field` and `$213F` bit 7 are both ares'. Both
-  name the same missing thing — ares actually running the cart — and the recorded reason it had not
-  happened was that ares would have to be built and had no headless mode.
+- **A headless ares host — and `A2.10` is settled.** Several findings sat at 2-versus-1 with no
+  tiebreaker, because this project's provenance rule counts ares and bsnes as *one* reference, so
+  "RustySNES and snes9x against Mesen2" is only 2-vs-1 if ares is not already on RustySNES's side —
+  and nobody could check. `scripts/accuracysnes/ares_host/` now can:
 
-  The first half of that is now known to be cheap. `-DARES_CORES=sfc` configures and builds the SFC
-  core standalone in a couple of minutes; `ares::Platform` is a small interface whose methods all
-  have no-op defaults, so a headless host is ~120 lines; it links; and the cart's results block is
-  reachable by construction at `ares::SuperFamicom::cpu.wram[0xF000 + n]`. What remains is a crash
-  during setup — a bounded debugging job, not a feasibility question.
+  ```
+  magic ACSN / done a5 / count 338 / passed 299 / failed 5 / skipped 1 / golden 33
+  ```
 
-  Committed under `scripts/accuracysnes/ares_host/` **labelled as incomplete**, with the build
-  recipe and the two traps that each cost a round: `hiro` is not optional for a headless host
-  (`mia/mia.hpp` includes it and its generated resource header does not exist until hiro is built
-  once), and `nall/main.hpp` must be included by the host translation unit or the link fails with a
-  bare `undefined reference to 'main'` out of `crt1.o`. The README names the three likely causes of
-  the crash in the order worth trying.
+  Reproducible across runs. **ares passes `A2.10`** ("PEI does not page-wrap", catalogue index 11,
+  status `$01`), so with RustySNES and snes9x it is **3 against 1 with Mesen2 the outlier**, and the
+  row comes off the "unexplained, needs a fourth opinion" list it has been on since the oracle fix.
+
+  **Five rows where ares disagrees with the cart** — `C7.05`, `C7.10`, `E8.02`, `E3.06`, `F1.10` —
+  are recorded and **not** adjudicated. `F1.10` is suspect-of-the-host first: it is a
+  `PAD2_CONTRACT` row and this host's port detection is assumed rather than verified. Not wired into
+  `crossval.sh` for that reason — an `ARES_KNOWN_FAILURES` constant encoding unexamined
+  disagreements would be worse than no third reference.
+
+  Three setup steps turned out to be mandatory and each cost a round, because all three fail as the
+  *same* segfault inside `System::load` with a backtrace pointing at memory setup rather than at
+  what is missing: `ares::Memory::FixedAllocator::get()` before anything touches a core (`Bus::reset`
+  allocates from it); `ares::SuperFamicom::option("Pixel Accuracy", "true")` before `load`
+  (`PPUBase::implementation` is null until `setAccurate` picks a PPU, and `Bus::reset` calls
+  `ppu.map()`); and `nall/main.hpp` included by the host translation unit, without which the *link*
+  fails with a bare `undefined reference to 'main'` from `crt1.o`.
 
 - **The H-IRQ comparator moves into the clock domain (`T-06-A`), and nothing below the long dots
   moves with it.** `HIRQ_TRIGGER_DELAY = 4` was a *dot-domain rounding* of ares'

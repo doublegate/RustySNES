@@ -1,66 +1,84 @@
-# A headless ares host for AccuracySNES — builds and links, does **not** yet run
+# A headless ares host for AccuracySNES — the third opinion
 
-**Status: incomplete infrastructure, committed deliberately.** `build.sh` produces a linked binary;
-running it against the cart dumps core during setup. What is finished is the part that was recorded
-as the blocker, and what remains is a bounded debugging job rather than a feasibility question.
+**Working.** It runs the battery and reports the results block:
 
-## Why this exists
-
-Several findings are stuck at **2 versus 1** with no way to break the tie, because this project's
-own provenance rule counts ares and bsnes as **one** reference:
-
-- **`A2.10`** ("PEI does not page-wrap") — Mesen2 fails it, RustySNES and snes9x pass. Recorded as
-  *not* settled precisely because a harness bug upstream of every implementation produces the same
-  signature, and one did once (the `$F8`/`$F9` retraction).
-- **OBJ/screen interlace field parity** — RustySNES draws one field's source rows, snes9x and
-  Mesen2 the other. RustySNES's `row + field` and its `$213F` bit 7 are both *ares'*, so this is the
-  bsnes/ares lineage against the other two rather than RustySNES alone.
-
-Both name the same missing thing: **ares actually running the cart.** The recorded reason it had not
-happened was that ares would have to be built and had no headless mode. The first half of that is
-now known to be cheap; only the second half is real.
-
-## What is established
-
-| | |
-|---|---|
-| ares' SFC core builds standalone | **yes** — `-DARES_CORES=sfc`, ~76 targets, a couple of minutes |
-| a headless host compiles against it | **yes** — `ares::Platform` is a small interface whose methods all have no-op defaults |
-| it links | **yes** — see `build.sh` for the library set and the two non-obvious traps |
-| the results block is reachable | **yes, by construction** — `ares::SuperFamicom::cpu.wram[0xF000 + n]` is the cart's `$7E:F000` |
-| it runs the cart | **no** — dumps core during setup |
-
-Two traps `build.sh` records because each cost a round:
-
-- **`hiro` is not optional for a headless host.** `mia/mia.hpp` includes it, and its generated
-  `resource/resource.hpp` does not exist until hiro has been built once.
-- **`nall/main.hpp` must be included by the host translation unit.** It emits `::main` only when
-  `NALL_MAIN_IMPL` is undefined, and nall's own `main.cpp.o` defines that. Omit the include and the
-  link fails with a bare `undefined reference to 'main'` out of `crt1.o`, which reads like a missing
-  object file rather than a missing shim.
-
-## What is left
-
-The crash is in setup, before any frame runs. The likely candidates, in order:
-
-1. `mia::System::create("Super Famicom")->load()` needs a system pak that `mia` looks for under the
-   home location — `setHomeLocation` here points at `~/.local/share/ares/`, which may not exist.
-   desktop-ui populates it on first run.
-2. The `Cartridge Slot` port is allocated with no argument; desktop-ui passes the medium and checks
-   the returned node.
-3. Controller ports are allocated by name `"Gamepad"`; the actual node name should be confirmed
-   against `ares/sfc/controller/controller.cpp` rather than assumed.
-
-Run it under a debugger and start at (1) — a null pak is the failure that would reach furthest
-before dying.
-
-## Usage, once it works
-
-```bash
-REF_PROJ=$PWD/ref-proj bash scripts/accuracysnes/ares_host/build.sh
-/tmp/ares_host tests/roms/AccuracySNES/build/accuracysnes.sfc 900
+```
+$ REF_PROJ=$PWD/ref-proj bash scripts/accuracysnes/ares_host/build.sh
+$ /tmp/ares_host tests/roms/AccuracySNES/build/accuracysnes.sfc 900
+ACCURACYSNES-BEGIN
+magic ACSN
+done a5
+count 338
+passed 299
+failed 5
+skipped 1
+golden 33
+status 0 01
+...
 ```
 
-Output is the same `magic` / `done` / `count` / `status N XX` shape the snes9x libretro host emits,
-so `crossval.sh` can consume it as a third reference with a `ARES_KNOWN_FAILURES` constant beside
-the existing two.
+Reproducible: two runs give the identical tally.
+
+## Why it exists
+
+Several findings sat at **2 versus 1** with no way to break the tie, because this project's
+provenance rule counts ares and bsnes as **one** reference — so "RustySNES and snes9x against
+Mesen2" is only 2-vs-1 if ares is not already on RustySNES's side, and nobody could check.
+
+**The first thing it settled: `A2.10` ("PEI does not page-wrap").** ares **passes** it (catalogue
+index 11, status `$01`). With RustySNES and snes9x also passing, that is **3 against 1 with Mesen2
+the outlier**, and the row comes off the "unexplained, needs a fourth opinion" list.
+
+## The five rows ares disagrees with the cart about
+
+New information, and **not yet adjudicated** — the cart, snes9x and Mesen2 all pass these:
+
+| idx | row | code |
+|---:|---|---:|
+| 116 | `C7.05` | 1 |
+| 120 | `C7.10` | 1 |
+| 265 | `E8.02` | 3 |
+| 276 | `E3.06` | 2 |
+| 288 | `F1.10` | 2 |
+
+**Treat `F1.10` as suspect-of-this-host first.** It is a `PAD2_CONTRACT` row, and this host's port
+detection (`port->name().find("2")` on the button's grandparent) is *assumed* to work, not verified.
+Check that before concluding anything about ares.
+
+The standing heuristic — three implementations agreeing usually means a broken test, one disagreeing
+usually means a real bug — cuts an unfamiliar way here: it is **ares** alone, on rows the other three
+pass.
+
+## Three setup steps that are not optional, each of which cost a debugging round
+
+All three fail as a **segfault inside `System::load`**, with a backtrace pointing at memory setup
+rather than at what is actually missing.
+
+1. **`ares::Memory::FixedAllocator::get()` before anything touches a core.** `Bus::reset()`
+   allocates its page tables from that bump allocator. desktop-ui does this on its first line.
+2. **`ares::SuperFamicom::option("Pixel Accuracy", "true")` before `load`.** `PPUBase::implementation`
+   is null until `setAccurate` picks one of the two PPUs, and `Bus::reset()` calls `ppu.map()` →
+   `implementation->map()`. `"true"` selects the **accurate** PPU, the only one worth
+   cross-validating against.
+3. **`nall/main.hpp` included by this translation unit.** It emits `::main` only when
+   `NALL_MAIN_IMPL` is undefined, and nall's own `main.cpp.o` defines that. Omit it and the *link*
+   fails with a bare `undefined reference to 'main'` from `crt1.o`, which reads like a missing object
+   file rather than a missing shim.
+
+Plus one build fact: **`hiro` is not optional even headless** — `mia/mia.hpp` includes it, and its
+generated `resource/resource.hpp` does not exist until `ninja hiro` has run once.
+
+`ptrace` is denied in this sandbox, so gdb cannot attach. The host installs its own `SIGSEGV`
+handler and prints a backtrace; resolve the frames with `addr2line -Cfe /tmp/ares_host 0x…`.
+
+## Results-block offsets
+
+From `asm/runtime.inc`, and easy to get wrong by one field: `R_COUNT` is `+$06`, `R_PASSED` is
+`+$0A`. Reading the latter as the former reported "count 299" for a 338-test battery, which looks
+like a truncated run rather than a misread field.
+
+## Not yet wired into `crossval.sh`
+
+Deliberately. Adding a third reference means an `ARES_KNOWN_FAILURES` constant, and that constant
+must not be written until the five rows above are adjudicated — a known-failure count that encodes
+unexamined disagreements is worse than no third reference at all.
