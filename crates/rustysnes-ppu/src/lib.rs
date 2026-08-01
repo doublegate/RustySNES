@@ -1081,7 +1081,7 @@ impl Ppu {
     /// is why the predicate lives here and the clock arithmetic that consumes it lives in the Bus:
     /// this is a video-timing fact, the same ownership reasoning as [`RENDER_DOT`].
     ///
-    /// "Every other frame" is expressed through [`Ppu::field`] rather than a frame parity counter,
+    /// "Every other frame" is expressed through the `field` flag rather than a frame parity counter,
     /// because that is how the sources state it — anomie: *"scanline `$f0` of every other frame
     /// (those with `$213f.7=1`) is only 1360 cycles"*, and `$213F` bit 7 **is** this flag. It
     /// toggles unconditionally at frame end even in progressive mode, which is what makes this
