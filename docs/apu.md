@@ -230,6 +230,21 @@ ares 32-clock voice/echo/misc micro-sequence is reproduced per output sample. Va
 decode, Gaussian interpolation, envelope attack/release, KON setup, echo silence, mute) plus
 determinism checks; the assembled `Apu` is covered by `tests/dsp_unit.rs`.
 
+**Two properties AccuracySNES now pins on-cart, both easy to get wrong:**
+
+- **`KON` is *examined* every second output sample (16 kHz), not every sample** — `clock.sample`
+  toggles once per 32-tick sample and only the true half latches `keylatch` into `_keyon`. Because a
+  `$4C` write replaces all eight bits, a second write inside that 64-cycle window **cancels** the
+  first and that voice is never keyed at all. `E8.01` scores it by counting how many of eight
+  closely-spaced writes survive; a per-sample examination lets six or seven through where hardware
+  lets three or four. Note that the *delay* from a `KON` write to the voice starting cannot measure
+  this — it is a sawtooth in an uncontrolled phase. See `docs/accuracysnes-plan.md`.
+- **`FLG` bit 7 does not re-seed the noise LFSR.** It is the DSP's *soft* reset: every voice is
+  forced into release with a zero envelope, and the shift register is untouched. ares agrees —
+  `noise = {}` happens in `DSP::power`, a console reset, while its `$6C` write sets only
+  `mainvol.reset`. The consequence is cart-visible: `E9.01`/`E9.02` read the **power-on** seed
+  `$4000`, `E9.02` steps it, and neither can be re-run without a real power-on.
+
 **`Apu` API (for the core to wire the bus ports + async resync):**
 
 - `Apu::new() -> Apu` — power-on; SMP boots from the IPL reset vector (`$FFC0`).
