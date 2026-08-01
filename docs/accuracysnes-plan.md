@@ -711,6 +711,32 @@ implementations and does not move it on Mesen2. That is Mesen2 alone differing, 
 but the standing caution applies: a harness bug upstream of an implementation produces it too, and
 did once here.
 
+**The Mesen2 failing SET is not stable, which blocks a known-failures entry.** The obvious
+resolution — mirror `SNES9X_KNOWN_FAILURES=14` with a Mesen2 constant — was rejected after listing
+the set rather than the count:
+
+| run | Mesen2 failures |
+|---|---|
+| before `E8.01` | 1 — reported as `A2.10` (idx 11) |
+| after `E8.01` | 3 — `idx263` `E8.01` code 4, `idx279` `F1.03` code 2, `idx286` code 2 |
+
+**`A2.10` is absent from the second list.** It failed, then passed, with no change touching it. So the
+set moves between runs, and a `MESEN2_KNOWN_FAILURES = 3` constant would encode noise — the exact
+failure mode `SNES9X_KNOWN_FAILURES` avoids by being stable. It would also mask a future real
+regression inside "the usual 3".
+
+That instability is this cart's documented trap — *a verdict that encodes a timing phase changes for
+reasons unrelated to its subject* — now visible in the **Mesen2 runner** rather than in a single row.
+It matters beyond `E8.01`: **Mesen2 cannot be a reliable gate until its verdicts are reproducible
+run-to-run.** Establish that first (fixed frame budget, and check whether the runner's own
+`MAX_FRAMES` interacts with the post-battery menu), then revisit both the known-failures entry and
+`E8.01`'s tiebreak.
+
+Note also that MesenCE is *Mesen Community Edition*, the maintained **fork** of this same emulator,
+and it **passes** `E8.01` — so the disagreement is between two builds of one lineage, not between two
+independent implementations. That weakens the "three independent implementations agree" reading and
+is another reason not to bless the row on the current evidence.
+
 **The fourth opinion was attempted and is blocked by a specific, checkable obstacle.**
 `ref-proj/bsnes/bsnes/out/bsnes_libretro.so` is built, and `libretro_crossval.c` takes any core as
 `argv[1]` — but the host exits 255 with *"core exposes no usable SYSTEM_RAM (0 bytes, need 131072)"*.
