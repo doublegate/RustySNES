@@ -626,6 +626,29 @@ threaded to it. Expect goldens to move, and note that a previous attempt at the 
 mapping change was reverted for exactly that reason — so the guard test named in the roadmap lands
 **first**, before `dot_length` is touched.
 
+#### First arbitrated finding: `A2.10` — Mesen2 is the outlier, 2-vs-1
+
+The moment the oracle started working it produced a result the project has never been able to see.
+`crossval.sh` reports `Mesen2: 1 failing test(s)`, catalogue index **11 = cart `A2.10`, "PEI does not
+page-wrap"** (scored; source: WDC datasheet + superfamicom.org addressing notes; verdict slot
+`$7EF02B`).
+
+RustySNES **passes** it and snes9x passes it too — `A2.10` is not among snes9x's 14 known
+divergences. So this is **2-vs-1 with Mesen2 as the outlier**, which inverts the usual shape: the
+standing heuristic warns that *RustySNES failing alone* means a real bug, and that is not what this
+is.
+
+**Do not yet record it as a known-good Mesen2 divergence.** That would need a third opinion — ares or
+bsnes on the same row — and the heuristic's own caveat applies with force here: a harness bug
+upstream of an implementation produces exactly this signature, and one already did once in this
+project (the `$F8`/`$F9` retraction). The cheap next step is to run the row against ares or bsnes. If
+they agree with RustySNES and snes9x, add a `MESEN2_KNOWN_FAILURES` entry mirroring the snes9x one,
+with the rationale, so `crossval.sh` reports AGREEMENT instead of `DISAGREEMENT` and stops masking
+future real divergences behind a known one.
+
+Until then `crossval.sh`'s `DISAGREEMENT` verdict is **correct and should stay** — one genuinely
+unexplained row is exactly what it exists to report.
+
 #### The Mesen oracle — the "14 of 335" reading does not reproduce
 
 Re-measured 2026-08-01 with a second, independent instrument
