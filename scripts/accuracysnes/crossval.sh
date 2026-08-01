@@ -165,6 +165,36 @@ ran=0
 #   and the SNESdev Wiki (34-tile budget, raised by the fetch phase). Region-independent.
 SNES9X_KNOWN_FAILURES=14
 
+# --- Mesen2's own known divergences -------------------------------------------------------------
+#
+# Same mechanism as SNES9X_KNOWN_FAILURES, and set only after the failing SET (not the count) was
+# read at `R_DONE == $A5` and reproduced exactly across runs, both completing at frame 479. A count
+# alone would have hidden the composition, which is the whole point of enumerating them:
+#
+#   idx279  F1.03  code 2  | Group F input rows. mesen_crossval.lua makes exactly ONE emu.setInput
+#   idx286  F1.10  code 2  | call because in this build the port argument does not select a
+#                          | controller -- 0/1/2 all land on controller 1 -- so a second call for
+#                          | port 2 overwrites port 1 with a mask containing no Start and the cart
+#                          | never leaves its menu. The cost is that PAD2_CONTRACT-dependent rows
+#                          | cannot pass here. Covered by the in-repo harness and snes9x, which do
+#                          | drive both ports. See that script's comment for the full account.
+#
+#   E8.01 used to be a third entry here, and is not any more. Its two rejected drafts asserted
+#   something a phase the cart cannot control got to decide -- the delay from a KON write to the
+#   voice starting is a sawtooth in that phase -- so the row passed on the PAL image and failed on
+#   the NTSC one of the SAME build, which is the signature of a test measuring its own timing rather
+#   than the hardware's. The write-cancellation sweep that replaced it has an answer no phase can
+#   move, and Mesen2 now agrees with it. Kept as a note rather than deleted: "a reference disagrees"
+#   was the wrong conclusion, and the record of that is worth more than the line it saves.
+MESEN2_KNOWN_FAILURES=2
+
+# The PAL image's own count: only F1.03 fails there, so F1.10 passes on PAL and fails on NTSC under
+# the same port-2 limitation. That asymmetry has NOT been explained and is recorded as an open
+# question rather than dressed up -- it is the same shape as the region flip that turned out to be
+# E8.01's whole problem, and it deserves the same suspicion. Set separately rather than reusing the
+# NTSC constant because the two genuinely differ, and a shared constant would hide it.
+MESEN2_PAL_KNOWN_FAILURES=1
+
 # --- snes9x, via the libretro host --------------------------------------------------------------
 if [[ -f $SNES9X ]]; then
     cc -O2 -o "$HOST" scripts/accuracysnes/libretro_crossval.c -ldl || exit 1
@@ -199,7 +229,9 @@ if [[ -f $MESEN ]] && command -v dotnet >/dev/null; then
         0)   echo "Mesen2: OK (0 failing tests)" ;;
         253) echo "Mesen2: results block never appeared (bad magic)" >&2; rc=1 ;;
         254) echo "Mesen2: timed out before the battery finished" >&2; rc=1 ;;
-        *)   echo "Mesen2: $code failing test(s)" >&2; rc=1 ;;
+        "$MESEN2_KNOWN_FAILURES")
+             echo "Mesen2: OK ($code known divergence(s) — see MESEN2_KNOWN_FAILURES above)" ;;
+        *)   echo "Mesen2: $code failing test(s), expected $MESEN2_KNOWN_FAILURES" >&2; rc=1 ;;
     esac
     ran=$((ran + 1))
 else
@@ -234,6 +266,8 @@ if [[ -f $PAL_ROM ]]; then
             0)   echo "Mesen2 PAL: OK (0 failing tests)" ;;
             253) echo "Mesen2 PAL: results block never appeared (bad magic)" >&2; rc=1 ;;
             254) echo "Mesen2 PAL: timed out before the battery finished" >&2; rc=1 ;;
+            "$MESEN2_PAL_KNOWN_FAILURES")
+                 echo "Mesen2 PAL: OK ($code known divergence(s))" ;;
             *)   echo "Mesen2 PAL: $code failing test(s)" >&2; rc=1 ;;
         esac
     fi

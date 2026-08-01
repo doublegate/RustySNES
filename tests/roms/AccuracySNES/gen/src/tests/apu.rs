@@ -37,6 +37,10 @@ fn next_prog_id() -> usize {
 }
 
 /// Every Group E test, in menu order.
+// One line per registered test, and the ORDER is load-bearing in three places (see the comments
+// inside): splitting it to satisfy the length lint would put those constraints on two sides of a
+// function boundary, which is exactly where an ordering rule stops being visible.
+#[allow(clippy::too_many_lines)]
 #[must_use]
 pub fn all() -> Vec<Test> {
     vec![
@@ -114,6 +118,7 @@ pub fn all() -> Vec<Test> {
         e5_03(),
         e5_04(),
         e5_05(),
+        e5_06(),
         e5_13(),
         e7_01(),
         e7_13(),
@@ -127,6 +132,7 @@ pub fn all() -> Vec<Test> {
         e7_03(),
         e7_12(),
         e7_08(),
+        e8_01(),
         e8_02(),
         e8_03(),
         e8_07(),
@@ -140,6 +146,10 @@ pub fn all() -> Vec<Test> {
         e6_02d(),
         e3_06(),
         e3_08(),
+        // LAST, and it has to be. Every other program leaves FLG's noise rate at zero, so the
+        // noise LFSR never advances and `E9.01` reads the power-on seed. `E9.02` steps it and
+        // nothing can put it back. Anything appended below this line runs after that has happened.
+        e9_02(),
     ]
 }
 
@@ -316,6 +326,26 @@ fn upload_2block_and_run(a: &mut Asm, data: &[u8], dest_a: u16, prog: &Spc, dest
     a.l("sta f:$7E0102");
     a.l(&format!("lda #${RELEASE:02X}"));
     a.l("sta APUIO0");
+}
+
+/// Emit: stand down as SKIP unless this is a cold boot.
+///
+/// The noise LFSR is seeded once at power-on and there is no way to put it back — `FLG` bit 7 is
+/// the DSP's soft reset and it does **not** touch the shift register (checked against ares'
+/// `DSP::power`, which re-seeds only on a console reset). Until `E9.02` existed no program in the
+/// battery advanced it, so the seed was readable at any point; `E9.02` advances it by design, and
+/// a menu restart re-runs the battery without a power-on. So the two rows that need the seed stand
+/// down on a restart rather than reporting a failure that only means "this was not a cold boot" —
+/// the same mechanism, and the same reasoning, as `F1.07`'s power-on `$4218`.
+///
+/// **Leaves `A`/`X`/`Y` 16-bit**, matching what `upload_and_run` expects on entry.
+fn apu_require_power_on(a: &mut Asm, why: &str) {
+    a.l("sep #$20");
+    a.l("lda f:V_RESTARTED");
+    a.l("beq :+");
+    a.skip(why);
+    a.l(":");
+    a.l("rep #$30");
 }
 
 /// Emit the shared tail: jump past the timeout arm, then land where `finish`'s pass stub follows.
@@ -1498,12 +1528,15 @@ fn e5_01() -> Test {
 /// bits clear the register is seeded and then never advances, and the voice's output is a direct
 /// function of the seed for as long as anyone cares to look.
 ///
-/// Every program in this group leaves `FLG` at `$20`, so the noise rate is zero throughout the
-/// battery and the LFSR never advances *anywhere*. What this test reads is therefore the
-/// **power-on** seed. The `flg_reset` in its configuration is harmless and correct in intent, but
-/// it does no work here: RustySNES's `$6C` write sets the mute and reset flags without touching the
-/// shift register, so whether a soft reset re-seeds it is a separate question this test does not
-/// answer.
+/// Every program in this group leaves `FLG` at `$20` except one, so the noise rate is zero almost
+/// everywhere and the LFSR does not advance. What this test reads is therefore the **power-on**
+/// seed. The `flg_reset` in its configuration is harmless but does no work: the `$6C` write sets
+/// the mute and reset flags without touching the shift register — checked against ares, which
+/// re-seeds only in `DSP::power`.
+///
+/// The one exception is `E9.02`, which steps the register on purpose and is registered last for
+/// that reason. Nothing can put it back, so on a menu restart this row stands down as SKIP; see
+/// [`apu_require_power_on`].
 ///
 /// The arithmetic checks out exactly: `$4000` shifted left one is `$8000`, scaled by the direct
 /// gain's `$7F0` envelope gives `$8100`, and `VxOUTX` is that value's top byte — `$81`, which is
@@ -1531,6 +1564,10 @@ fn e9_01() -> Test {
     );
 
     let mut a = Asm::new();
+    apu_require_power_on(
+        &mut a,
+        "the seed this reads is the power-on one, and E9.02 steps the register away from it",
+    );
     upload_and_run(&mut a, &prog);
     a.l("rep #$30");
     a.l("lda f:$7E0102");
@@ -1563,6 +1600,145 @@ fn e9_01() -> Test {
         Provenance::Documented(
             "fullsnes and anomie's DSP doc: the noise shift register resets to $4000, with taps \
              bit0 XOR bit1 feeding bit 14",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `E9.02` — the noise output is the 15-bit LFSR placed in the **top** 15 bits of a signed word,
+/// which is what makes it highpass rather than a DC-heavy hiss `[ERRATA]`.
+///
+/// # The claim, and the wrong implementation it excludes
+///
+/// The shift register is 15 bits, so its value is always in `$0000`-`$7FFF` — a *unipolar* number.
+/// The DSP does not use it that way: the output is `LFSR << 1` reinterpreted as signed 16-bit, so
+/// **LFSR bit 14 becomes the sign bit**. That single shift is the whole of the errata's "highpass"
+/// remark: a core that emitted the register's value directly would produce noise with an enormous
+/// positive DC offset, audible as a click on every key-on and a bias on every mix.
+///
+/// # A step, not a state
+///
+/// `E9.01` already reads the frozen seed and pins it at `$4000`. Repeating that here would score
+/// the same observation twice, so this row scores the **transition**: one step of the register must
+/// turn a full-scale *negative* reading into a *positive* one at about half the magnitude.
+///
+/// | LFSR | as `LFSR << 1` | `VxOUTX` |
+/// |---|---|---:|
+/// | `$4000` (the seed) | `$8000`, full-scale negative | `$81` |
+/// | `$2000` (one step) | `$4000`, half-scale positive | `$3F` |
+/// | `$1000` (two steps) | `$2000` | `$1F` |
+///
+/// A unipolar core reads `$3F` then `$1F` — positive throughout, no sign change. A core that
+/// centred the register by subtracting `$4000` reads ~`$00` then *negative*. Only the shift gives
+/// negative-then-positive.
+///
+/// # Stepping the register exactly, without knowing the phase
+///
+/// The rate comes from `FLG` bits 0-4 through the envelope counter table, and rate 0 never fires
+/// (`E7.01`) — which is why the seed is observable at all. Rate 19 fires every **32 output
+/// samples**, and the register is enabled for one `delay` block: 1536 SPC cycles, **48 samples**.
+/// A half-open window of 48 samples contains one or two multiples of 32 whatever the phase, so the
+/// step count is 1 or 2 and never 0. **Both outcomes are in the asserted band** (`$3F` and `$1F`),
+/// which is the point: this row must not repeat the mistake the two rejected `E8.01` drafts made of
+/// asserting something a phase the cart cannot control gets to decide.
+///
+/// # It must run last, and this is the only row in the battery with that property
+///
+/// Every other program leaves `FLG` at `$20`, so the LFSR never advances anywhere and `E9.01` reads
+/// the **power-on** seed. This row advances it, and nothing can put it back — RustySNES's `$6C`
+/// write sets the reset and mute flags without touching the shift register. The soft reset at the
+/// end is a courtesy to cores that *do* re-seed on it, not something this row relies on. It is
+/// registered last for that reason; see the note at the registration site.
+fn e9_02() -> Test {
+    let mut p = voice_setup(
+        &looping_sample(),
+        Voice {
+            non: 0x01,       // noise mode: the voice's output is the LFSR, not the sample
+            flg_reset: true, // seed it; FLG's noise rate is still 0, so it does not advance
+            settle: 6,
+            ..Voice::direct_gain()
+        },
+    );
+
+    dsp_read_to(&mut p, 0x09, PORT1); // OUTX with the register still at its seed
+
+    // One step, or two. Rate 19 (`$13`) fires every 32 output samples; one delay block is 48 of
+    // them, and a half-open 48-sample window holds one or two multiples of 32 whatever the phase.
+    dsp_write(&mut p, 0x6C, 0x20 | 0x13);
+    p.delay(0x00);
+    dsp_write(&mut p, 0x6C, 0x20); // frozen again, so the read below is of a settled value
+    dsp_read_to(&mut p, 0x09, PORT2);
+
+    // Courtesy only -- see the doc comment. A core that re-seeds on FLG.7 gets its LFSR back.
+    dsp_write(&mut p, 0x6C, 0xE0);
+    dsp_write(&mut p, 0x6C, 0x20);
+    p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    apu_require_power_on(
+        &mut a,
+        "the sign flip is only predictable from the $4000 seed, which this row itself consumed",
+    );
+    upload_and_run(&mut a, &p);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(258, "E9.02 noise OUTX with the LFSR frozen at its seed");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(259, "E9.02 noise OUTX one LFSR step later");
+
+    a.c("Two guards before the row's own assertions. The first fixes the starting point: this is");
+    a.c("E9.01's reading, and without it there is no known state to have stepped away from.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0100");
+    a.l("and #$80");
+    a.assert_a8(
+        0x80,
+        "the frozen noise reading is not negative, so the LFSR was not at the $4000 seed and the \
+         step below has no known starting point -- E9.01 covers that reading itself",
+    );
+    a.c("The second: the register has to have actually moved. A 48-sample window cannot contain");
+    a.c("zero multiples of 32, so this failing means the rate table or the counter is wrong, not");
+    a.c("that the noise output is shaped wrongly.");
+    a.l("lda f:$7E0100");
+    a.l("cmp f:$7E0101");
+    a.fail_if_eq(
+        "enabling the noise clock for 48 output samples did not change the output at all, so the \
+         LFSR never stepped and the sign test below would be comparing the seed with itself",
+    );
+
+    a.c("The row. One step right must move bit 14 out of the sign position, so a full-scale");
+    a.c("negative reading becomes positive.");
+    a.l("lda f:$7E0101");
+    a.l("and #$80");
+    a.assert_a8(
+        0x00,
+        "one step of the noise register did not flip the output's sign, so the register's top bit \
+         is not the output's sign bit: the core is emitting the 15-bit value directly, which is \
+         the DC-heavy noise the errata's highpass remark exists to exclude",
+    );
+    a.c("And at about half scale, or a quarter if the window caught two steps -- both are what a");
+    a.c("right shift produces, and neither is what a core that merely re-centred the value gives.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x10,
+        0x40,
+        "the noise output turned positive after one step but is not the seed shifted right once or \
+         twice, so the output is some other function of the register than its top fifteen bits",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E9.02",
+        'E',
+        "Noise output is bipolar",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc [ERRATA]: the noise output is highpass-filtered as a \
+             consequence of the 15-bit shift register being interpreted as the top bits of a \
+             signed 16-bit sample",
         ),
         Kind::Scored,
         None,
@@ -3439,6 +3615,26 @@ impl Voice {
 }
 
 fn voice_program(sample: &[u8], v: Voice) -> Spc {
+    let mut p = voice_setup(sample, v);
+    dsp_read_to(&mut p, 0x7C, PORT1); // ENDX
+    dsp_read_to(&mut p, 0x08, PORT2); // voice 0 ENVX
+    dsp_read_to(&mut p, 0x09, PORT3); // voice 0 OUTX
+    p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+    p
+}
+
+/// [`voice_program`] without the reporting tail, for a test that measures something else.
+///
+/// The three fixed reads above are the right shape for a row whose answer is one register at one
+/// moment, which is most of them. `E5.06` and `E9.02` are not: one needs `VxOUTX` sampled *many*
+/// times because the value it is about does not hold still, and the other needs two readings with a
+/// register write between them. Both want everything up to the key-on and nothing after it, so the
+/// split is here rather than duplicated — a second copy of this setup is a second place for the
+/// FLG/NON/ADSR-ordering decisions above to drift.
+///
+/// The caller owns what follows: it must write its own results to the ports and end with
+/// [`Spc::release_to_ipl`], or the next test's upload has no IPL to handshake with.
+fn voice_setup(sample: &[u8], v: Voice) -> Spc {
     let mut p = Spc::new();
     let addr = p.data_first(IMAGE_BASE, sample);
     p.mov_x_imm(0xEF).mov_sp_x();
@@ -3467,8 +3663,13 @@ fn voice_program(sample: &[u8], v: Voice) -> Spc {
     // power-on value has set. Noise, echo and pitch modulation are cleared explicitly rather than
     // assumed, since a previous test's program shares the same DSP.
     if v.flg_reset {
-        // Bit 7 is the DSP's soft reset, and it re-seeds the noise LFSR to $4000. Written with
-        // mute and echo-write-disable so nothing is audible while the reset is asserted.
+        // Bit 7 is the DSP's soft reset: every voice is forced into release with a zero envelope.
+        // Written with mute and echo-write-disable so nothing is audible while it is asserted.
+        //
+        // It does NOT re-seed the noise LFSR, which an earlier version of this comment claimed.
+        // Checked against ares, where the shift register is re-seeded in `DSP::power` — a console
+        // reset — and the `$6C` write only sets `mainvol.reset`. `E9.01`/`E9.02` are built on the
+        // register being seeded once at power-on and never restored; see `apu_require_power_on`.
         dsp_write(&mut p, 0x6C, 0xE0); // FLG: reset
     }
     dsp_write(&mut p, 0x6C, 0x20); // FLG
@@ -3517,10 +3718,6 @@ fn voice_program(sample: &[u8], v: Voice) -> Spc {
         dsp_write(&mut p, reg, val);
     }
 
-    dsp_read_to(&mut p, 0x7C, PORT1); // ENDX
-    dsp_read_to(&mut p, 0x08, PORT2); // voice 0 ENVX
-    dsp_read_to(&mut p, 0x09, PORT3); // voice 0 OUTX
-    p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
     p
 }
 
@@ -5254,6 +5451,341 @@ fn e5_10() -> Test {
         Kind::Scored,
         None,
     )
+}
+
+/// `E5.06` — a decoded BRR sample is clamped to 16 bits and then **wraps** at 15, losing its sign.
+///
+/// `+4000h`-`+7FFFh` becomes `-4000h`-`-1`, and `-8000h`-`-4001h` becomes `0`-`3FFFh`. In code the
+/// whole of it is `let stored = (sclamp16(s) << 1) as i16` — the clamp is at sixteen bits, the
+/// store is at fifteen, and the bit that falls off is the one carrying the sign.
+///
+/// # The first attempt failed, and the reason is the design of this one
+///
+/// The obvious test reads `VxOUTX` once after driving a filter past the boundary. It does not work,
+/// and the recorded finding is worth more than the attempt: the constant-input trick every other
+/// BRR row relies on works because a non-overflowing filter converges on a **fixed point**, so the
+/// reading does not depend on which sample the cart caught. Wrapping destroys exactly that. The
+/// output becomes a sawtooth over the whole range, and two reference emulators returned `$E1` and
+/// `$D0` from the same image — agreeing only that it was negative, which was luck rather than
+/// behaviour. **An `OUTX` assertion is only valid where the output is provably stationary.**
+///
+/// # So the non-stationarity is the observable
+///
+/// The drive here is *purely positive*: filter 1, scale 12, every nibble `+7`. Filter 1 is
+/// `s + p₁·15/16`, so a constant input `s` converges on `16s` — at scale 12 that is `14336 · 16`,
+/// far above the boundary. Under **either** hypothesis the input never once goes negative:
+///
+/// | if the store | the sample sequence | `VxOUTX` over 64 readings |
+/// |---|---|---|
+/// | clamps instead | pins at the ceiling and stays there | **one sign**, whatever that sign is |
+/// | wraps at 15 bits (hardware) | sawtooths through the whole range | **both signs** |
+///
+/// So the assertion is that **both signs occur**, and the count of negative readings is recorded
+/// rather than pinned.
+///
+/// # The obvious assertion was vacuous, and the injection is what showed it
+///
+/// The first version asserted only "at least one reading is negative". Injecting the named bug —
+/// clamping the store to `-4000h..+3FFFh` instead of letting it wrap — made the row **pass harder**:
+/// 64 negative readings out of 64, against the correct decoder's 32. The reason is worth writing
+/// down, because it invalidates the intuition that a positive-only drive cannot read back negative:
+/// a clamping decoder pins the buffer at `+7FFEh`, and the gaussian interpolator's *three-term
+/// partial sum* — the same truncation `E5.13` is about — overflows a signed 16-bit intermediate
+/// from that constant, so every reading comes back negative. The interpolator, not the decoder,
+/// was supplying the sign.
+///
+/// What survives that is the bipolarity. A clamping decoder produces a constant buffer, so whatever
+/// the interpolator does with it, it does every sample and the reading has a single sign; only a
+/// value that genuinely wraps swings both ways. Measured: **32 of 64** negative on the correct
+/// decoder, **64 of 64** with the clamp injected.
+///
+/// # Why the loop is 45 cycles and not tighter
+///
+/// One pass is a little over an output sample (45 SPC cycles against 32), and deliberately not a
+/// whole number of them: a loop that took exactly one sample would step in lockstep with the
+/// sawtooth and could sample the same point of it 64 times. The ratio here is 1.41, so 64 readings
+/// spread across about 90 output samples at a phase that keeps moving.
+fn e5_06() -> Test {
+    let mut p = voice_setup(
+        &filtered_sample(12, 1, 7),
+        Voice {
+            settle: 6,
+            ..Voice::direct_gain()
+        },
+    );
+
+    // $12 counts negative readings, $13 non-zero ones, $14 is the pass counter, $15 stashes the
+    // reading so the second comparison sees it again. The address latch is loaded once outside the
+    // loop, so each pass is one `MOV A,dp` against $F3.
+    p.mov_dp_imm(0x12, 0x00);
+    p.mov_dp_imm(0x13, 0x00);
+    p.mov_dp_imm(0x14, 0x00);
+    p.mov_a_imm(0x09).mov_dp_a(0xF2); // voice 0 OUTX
+    let pass = p.here();
+    p.mov_a_dp(0xF3);
+    p.mov_dp_a(0x15);
+    p.cmp_a_imm(0x80); // carry set for a reading with its top bit set
+    p.mov_a_dp(0x12);
+    p.adc_a_imm(0x00);
+    p.mov_dp_a(0x12);
+    p.mov_a_dp(0x15);
+    p.cmp_a_imm(0x01); // carry set for any non-zero reading
+    p.mov_a_dp(0x13);
+    p.adc_a_imm(0x00);
+    p.mov_dp_a(0x13);
+    p.inc_dp(0x14);
+    p.mov_a_dp(0x14);
+    p.cmp_a_imm(0x40);
+    p.bne_back(pass);
+    p.mov_a_dp(0x12).mov_dp_a(PORT1);
+    p.mov_a_dp(0x13).mov_dp_a(PORT2);
+    p.mov_a_dp(0x15).mov_dp_a(PORT3); // the last reading, for a failure to be readable
+    p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &p);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(
+        260,
+        "E5.06 negative readings out of 64, driving filter 1 with +7 nibbles",
+    );
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(
+        261,
+        "E5.06 non-zero readings out of 64 (the sounding guard)",
+    );
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.record(262, "E5.06 the last of the 64 readings");
+
+    a.c("The guard: sixty-four silences would report zero negatives and look like a clean clamp.");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        1,
+        0x40,
+        "not one of the sixty-four OUTX readings was non-zero, so the voice never sounded and the \
+         sign test below is about silence rather than about the decoder",
+    );
+    a.c("The row. A decoder that saturates leaves the buffer constant, so its readings all carry");
+    a.c("the same sign -- either all 64 negative or all 64 positive, depending on what the");
+    a.c("interpolator makes of a pinned buffer. Only a value that wraps swings both ways.");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        1,
+        0x3F,
+        "sixty-four OUTX readings from a filter driven only by positive nibbles all carried the \
+         same sign, so the decoded sample settled instead of wrapping: the store is saturating \
+         where hardware drops the sign bit at fifteen bits",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E5.06",
+        'E',
+        "BRR wraps at 15 bits",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc: the decoded sample is clamped to 16 bits and then \
+             stored as 15, so +4000h..+7FFFh becomes -4000h..-1 and the sign is lost",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// `E8.01` — `KON` is examined once every **second** output sample, i.e. at 16 kHz.
+///
+/// # Two designs were wrong before this one, and for the same reason
+///
+/// The obvious instrument is a delay: write `KON`, count how long until `ENVX` leaves zero. It does
+/// not work, and no amount of resolution rescues it. The delay from a write to the voice starting
+/// is `(P - φ) mod P`, where `P` is the poll period and `φ` is the write's phase against the DSP's
+/// examination grid — a **sawtooth**. Two readings of a sawtooth cannot recover its period: shift
+/// the second write by `Δ` and the difference takes one of two values depending on `φ`, and `φ` is
+/// set by where the IPL handshake left the SPC700 against the DSP's sample clock, which is paced by
+/// the S-CPU and therefore **different on the NTSC and PAL images of this very cartridge**.
+///
+/// That is exactly what the two rejected drafts measured. A timer-2 differential reported a
+/// difference of zero (at `T2DIV = 2` the tick, the sample and a one-sample offset are all 32 SPC
+/// cycles and move together); a finer poll-counting differential reported **2 on the NTSC image and
+/// 0 on the PAL image of the same build**, which is the sawtooth answering the question it was
+/// actually asked. Neither draft was scored. Both are recorded in `docs/accuracysnes-plan.md`.
+///
+/// # What this measures instead: writes the DSP never sees
+///
+/// `KON` is a register, not a queue. A write **replaces** all eight bits, so a second write before
+/// the DSP next looks at the register **cancels** the first one — that voice is never keyed at all.
+/// So the number of key-ons the DSP acts on over a burst of writes counts the examinations that
+/// fell between them, and *that* count is what the poll period decides.
+///
+/// The sweep writes `$01, $02, $04 … $80` — one voice per write, no bit ever repeated — **24 SPC
+/// cycles apart**, so 168 cycles separate the first write from the last. Over a half-open interval
+/// of length `L`, a grid of period `P` contributes either `⌊L/P⌋` or `⌊L/P⌋ + 1` points, **for every
+/// phase**. Add one for the final `$80`, which is still pending when the burst ends and is keyed at
+/// the next examination whatever the phase:
+///
+/// | `KON` examined | period | examinations in 168 cycles | voices started |
+/// |---|---|---:|---:|
+/// | every second sample (hardware) | 64 cycles | 2 or 3 | **3 or 4** |
+/// | every sample | 32 cycles | 5 or 6 | **6 or 7** |
+///
+/// The two ranges cannot meet, and neither depends on `φ`. Consecutive examinations are further
+/// apart than consecutive writes under either period (64 and 32 both exceed 24), so each one keys a
+/// *different* voice and the count is a count of distinct voices. The assertion allows `2..=5`: one
+/// unit of slack on each side of the derived range for the exact-coincidence edges, and still a
+/// clear unit below the six a per-sample poll cannot go under.
+///
+/// # Why the blocks are padded to a round 24 cycles
+///
+/// `MOV A,#imm` is 2 cycles and `MOV dp,A` is 4, so a bare write pair is 6; nine `NOP`s bring each
+/// block to 24. The DSP address latch is loaded **once**, before the burst, so every block is the
+/// same two instructions and the spacing is a property of the emitted code rather than of which
+/// register is being written. The spacing does not have to be exactly 24 for the row to hold — at
+/// ±2 cycles the two ranges are still `3..=4` and `5..=7` — but it does have to be *known*, which
+/// is why it is padded rather than left as whatever the encoding happened to cost.
+///
+/// # The eight voices are the instrument, so all eight are set up
+///
+/// Every voice gets the same looping sample and the same direct-gain envelope, and every voice is
+/// keyed **off** and left to run down to silence first: a voice already sounding would be counted
+/// whether or not the sweep started it. `ENVX` is read for each afterwards and reduced on-cart to a
+/// bitmask, so the failure report names *which* voices ran rather than only how many.
+fn e8_01() -> Test {
+    let mut p = e8_01_eight_silent_voices();
+    e8_01_sweep(&mut p);
+
+    // Let the last write's key-on land, then clear KON. A core that re-keys a voice for as long as
+    // the bit stays set would hold voice 7's envelope at zero and undercount by one -- the same
+    // trap the module comment above records for `E5.07`.
+    p.delay(0x00);
+    dsp_write(&mut p, 0x4C, 0x00);
+    p.delay(0x20);
+
+    // Reduce the eight envelopes to one byte, most significant bit = voice 0. `CMP A,#$01` sets
+    // carry for any non-zero reading, and `ADC A,dp` against the accumulator itself is `mask * 2 +
+    // carry` -- a shift-in without an `ROL` the emitter does not have.
+    p.mov_dp_imm(0x13, 0x00);
+    for v in 0..8u8 {
+        p.mov_a_imm((v << 4) | 0x08).mov_dp_a(0xF2); // VxENVX
+        p.mov_a_dp(0xF3);
+        p.cmp_a_imm(0x01);
+        p.mov_a_dp(0x13);
+        p.adc_a_dp(0x13);
+        p.mov_dp_a(0x13);
+    }
+    p.mov_a_dp(0x13).mov_dp_a(PORT1);
+    p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &p);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(
+        256,
+        "E8.01 which voices the KON sweep started (bit 7 = voice 0)",
+    );
+
+    a.c("Count the set bits: how many of the eight writes the DSP acted on. The mask itself is in");
+    a.c("the measurement channel above, so a failure here can be read back to the exact pattern.");
+    a.l("ldx #$0000");
+    a.l("ldy #$0008");
+    a.label("e801bit");
+    a.l("lsr a");
+    a.l("bcc @e801next");
+    a.l("inx");
+    a.label("e801next");
+    a.l("dey");
+    a.l("bne @e801bit");
+    a.l("txa");
+    a.record(257, "E8.01 how many of the eight voices the sweep started");
+    a.assert_a16_range(
+        2,
+        5,
+        "eight KON writes 24 SPC cycles apart started more than five voices, so more than four \
+         examinations fell inside the burst -- KON is being read every output sample rather than \
+         every second one. A count of zero or one instead means the sweep never ran",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E8.01",
+        'E',
+        "KON examined at 16 kHz",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc [ERRATA]: the key-on/key-off registers are examined \
+             once every two output samples, giving a 16 kHz effective poll rate",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Emit: eight identically-configured voices, all released and silent.
+///
+/// Only the registers that decide whether `ENVX` can leave zero are written per voice — `GAIN`
+/// direct at full scale with `ADSR1` bit 7 clear, and `SRCN`/`PITCH` pointing at the shared looping
+/// sample. Leaving any of them to their power-on value would make the row depend on what the
+/// previous test left in voice 0's registers, which is the one thing a program sharing a DSP with
+/// forty others must not do.
+fn e8_01_eight_silent_voices() -> Spc {
+    let mut p = Spc::new();
+    let addr = p.data_first(IMAGE_BASE, &looping_sample());
+    p.mov_x_imm(0xEF).mov_sp_x();
+
+    // One directory entry, shared: SRCN 0 for every voice. Start and loop address are the same
+    // block, so the code-3 header repeats it forever and no voice ever runs out.
+    let dir = u16::from(DIR_PAGE) << 8;
+    let [lo, hi] = addr.to_le_bytes();
+    p.mov_a_imm(lo).mov_abs_a(dir);
+    p.mov_a_imm(hi).mov_abs_a(dir + 1);
+    p.mov_a_imm(lo).mov_abs_a(dir + 2);
+    p.mov_a_imm(hi).mov_abs_a(dir + 3);
+
+    dsp_write(&mut p, 0x6C, 0x20); // FLG: running, unmuted, echo writes off
+    dsp_write(&mut p, 0x3D, 0x00); // NON
+    dsp_write(&mut p, 0x4D, 0x00); // EON
+    dsp_write(&mut p, 0x2D, 0x00); // PMON
+    dsp_write(&mut p, 0x5D, DIR_PAGE); // DIR
+    dsp_write(&mut p, 0x0C, 0x7F); // MVOLL
+    dsp_write(&mut p, 0x1C, 0x7F); // MVOLR
+    for v in 0..8u8 {
+        let b = v << 4;
+        dsp_write(&mut p, b | 0x02, 0x00); // PITCH low
+        dsp_write(&mut p, b | 0x03, 0x10); // PITCH high: one sample per output sample
+        dsp_write(&mut p, b | 0x04, 0x00); // SRCN
+        dsp_write(&mut p, b | 0x06, 0x00); // ADSR2
+        dsp_write(&mut p, b | 0x07, 0x7F); // GAIN: direct, full scale
+        dsp_write(&mut p, b | 0x05, 0x00); // ADSR1 bit 7 clear, so GAIN governs
+    }
+
+    // Silence first, and prove it by construction rather than by assumption: release steps the
+    // envelope down 8 a sample from at most $7F0, so ~254 samples, and one delay block is ~48.
+    dsp_write(&mut p, 0x4C, 0x00); // KON: nothing pending
+    dsp_write(&mut p, 0x5C, 0xFF); // KOF: all eight
+    for _ in 0..6 {
+        p.delay(0x00);
+    }
+    dsp_write(&mut p, 0x5C, 0x00); // and released, so the sweep's key-ons are not undone
+    p
+}
+
+/// Emit: eight `KON` writes, one bit each, exactly 24 SPC cycles apart.
+///
+/// The address latch is loaded once outside the burst so each block is `MOV A,#imm` (2 cycles) +
+/// `MOV dp,A` (4) + nine `NOP`s (18). The write itself lands on the store's final cycle, so the
+/// interval between consecutive writes is the block length and nothing else.
+fn e8_01_sweep(p: &mut Spc) {
+    p.mov_a_imm(0x4C).mov_dp_a(0xF2);
+    for v in 0..8u8 {
+        p.mov_a_imm(1 << v);
+        p.mov_dp_a(0xF3);
+        for _ in 0..9 {
+            p.nop();
+        }
+    }
 }
 
 /// Key-on takes five output samples to reach the envelope generator.

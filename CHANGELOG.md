@@ -11,6 +11,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES: three Group E rows land — `E8.01`, `E9.02`, `E5.06`.** Coverage **347 → 350 of
+  443** (297 on-cart + 53 scenes), battery **338 tests at 100%**, and both references agree:
+  `snes9x: OK (14 known divergence(s))`, `Mesen2: OK (2 known divergence(s))`, 53/53 scenes on each.
+  `MESEN2_KNOWN_FAILURES` came **down** from 3 to 2 — the one Mesen2 divergence that was ours is
+  gone.
+
+  **`E8.01` (`KON` examined at 16 kHz) — the two earlier drafts were measuring their own timing.**
+  Both timed a *delay*: write `KON`, count until `ENVX` leaves zero. That delay is `(P − φ) mod P` —
+  a sawtooth in the write's phase against the DSP's examination grid — and two readings of a
+  sawtooth cannot recover its period. Worse, `φ` is set by where the IPL handshake left the SPC700,
+  which is paced by the S-CPU and therefore **differs between the NTSC and PAL images of the same
+  build**. The poll-count draft duly reported a difference of 2 on NTSC and 0 on PAL. Neither draft
+  was ever scored.
+
+  What replaced it measures **writes the DSP never sees**: `KON` is a register, not a queue, so a
+  second write before the DSP next looks *cancels* the first and that voice is never keyed. Eight
+  writes 24 SPC cycles apart span 168 cycles, and a half-open interval of that length contains
+  `⌊168/P⌋` or `⌊168/P⌋ + 1` grid points **for every phase** — 3 or 4 voices started at 16 kHz,
+  6 or 7 at 32 kHz, two ranges that cannot meet. RustySNES measures 3; Mesen2, which failed the
+  phase-fragile draft, passes this one.
+
+  **`E9.02` (noise output is bipolar).** `E9.01` already pins the frozen LFSR seed; this row scores
+  the *transition*, because one step must turn a full-scale negative reading (`$81`) into a positive
+  one at about half scale (`$3F`, or `$1F` if the window caught two steps). A core emitting the
+  register's 15-bit value directly reads positive throughout — the DC-heavy noise the errata's
+  "highpass" remark exists to exclude.
+
+  **`E5.06` (BRR wraps at 15 bits) — the first assertion was vacuous, and the injection proved it.**
+  "At least one of 64 `OUTX` readings is negative" looked airtight for a purely positive drive.
+  Injecting the named bug — clamping the store instead of letting it wrap — made the row **pass
+  harder**: 64 negatives out of 64, against the correct decoder's 32. A clamping decoder pins the
+  buffer at `+7FFEh`, and the gaussian interpolator's three-term partial sum (the truncation
+  `E5.13` is about) overflows a signed 16-bit intermediate from that constant, so every reading comes
+  back negative. *The interpolator, not the decoder, was supplying the sign.* The row now asserts
+  **bipolarity** — a saturating decoder settles, and a settled decoder's readings carry one sign —
+  and both saturating variants fail it.
+
 - **AccuracySNES: the Mesen2 oracle is FIXED — one `emu.setInput` call too many.** The battery has
   never run under MesenCE; it now completes: `magic='ACSN'`, `R_DONE=$A5`, **335/335** status bytes
   written, and `crossval.sh` reports `Mesen2: 1 failing test(s)` where it previously timed out.
@@ -609,6 +646,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   expansion-audio levels are. Looking for it surfaced a real and larger gap instead.
 
 ### Changed
+
+- **AccuracySNES: `E9.01` and `E9.02` stand down as SKIP on a menu restart.** `E9.02` steps the noise
+  LFSR by design and nothing can put it back: `FLG` bit 7 is the DSP's *soft* reset and does not
+  re-seed the shift register (checked against ares, which re-seeds only in `DSP::power`). A comment
+  in `voice_program` claimed the opposite and has been corrected. `E9.02` is registered last, both
+  rows use the same power-on gate `F1.07` uses for its unwritten `$4218`, and the harness's
+  restart-idempotence check moved from `first_run_passed - 1` to `- 3`.
 
 - **Run-ahead stays opt-in, and the reason is now measured rather than assumed.**
   `docs/frontend.md` recorded the per-frame save-state allocation as *the* blocker on making

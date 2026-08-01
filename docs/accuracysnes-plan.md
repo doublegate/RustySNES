@@ -13,11 +13,11 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 
 | | |
 |---|---|
-| Tests | **332** (scoring + golden vectors + region SKIP per image) — *tests, not assertions; see the note below the table* |
-| Assertion coverage | **344 of 443** dossier assertions — **291 on-cart** + **53 rendered scenes**, kept as separate columns (`docs/accuracysnes-coverage.md`) |
+| Tests | **338** (scoring + golden vectors + region SKIP per image) — *tests, not assertions; see the note below the table* |
+| Assertion coverage | **350 of 443** dossier assertions — **297 on-cart** + **53 rendered scenes**, kept as separate columns (`docs/accuracysnes-coverage.md`) |
 | Rendered scenes | **53**, all cross-validated (`docs/adr/0013`) |
 | Pass rate | **100.00%** on-cart, floor enforced at 1.00 by `tests/accuracysnes.rs` |
-| Cross-validated | RustySNES and Mesen2 agree on every test; snes9x agrees on every test but a handful of recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`; a headless **MesenCE** (this cycle) is the per-dot compositor's blueprint + exact-frame oracle. All images. |
+| Cross-validated | RustySNES and Mesen2 agree on every test but two `PAD2_CONTRACT` rows the Lua runner cannot drive; snes9x agrees on every test but a handful of recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`; a headless **MesenCE** (this cycle) is the per-dot compositor's blueprint + exact-frame oracle. All images. |
 | Groups shipped | **A** (65C816) · **B** (5A22) · **C** (PPU, on-cart and rendered) · **D** (DMA/HDMA) · **E** (SPC700 + S-DSP) · **F** (controller ports) · **G** (cartridge/memory map) — all seven, all partial |
 | On-cart UI | AccuracyCoin-style paged menu + automatic skyline results + per-test B-skip + a Select WRAM debug viewer (`v1.21.0`) |
 | Defects found in this emulator | **12+** — see §5 |
@@ -269,11 +269,14 @@ cannot yet. Writing `assert ENVX == $40` with a citation that says `$3F` would b
 of test that records our own output and calls it a spec. Parked, not abandoned: the number above is
 the finding to start from.
 
-### `E5.06` — attempted, and the attempt is the finding
+### `E5.06` — the attempt was the finding, and the finding became the row
 
-The fifteen-bit wrap (`+4000h..+7FFFh` becomes `-4000h..-1`, sign lost) looked reachable through
-`VxOUTX`: drive filter 1 past the boundary with a constant input and read the sign. It is not, and
-the reason generalises to every `OUTX` test.
+**Now covered (2026-08-01)** — see the `v1.29.0` batch below. This section is the diagnosis that
+made it reachable, and the rule it leaves behind still governs every `OUTX` test.
+
+The fifteen-bit wrap (`+4000h..+7FFFh` becomes `-4000h..-1`, sign lost) looked reachable through a
+single `VxOUTX` read: drive filter 1 past the boundary with a constant input and read the sign. It
+is not, and the reason generalises.
 
 The constant-input trick the other BRR tests rely on works because a non-overflowing filter
 converges on a *fixed point* — the output stops changing, so it does not matter which sample the
@@ -282,9 +285,13 @@ through the whole range, and `VxOUTX` reports wherever it happens to be. The two
 emulators returned `$E1` and `$D0` from the same image; they agree only that it is negative, and
 that agreement is luck, not behaviour.
 
-Reaching it needs a read phase-locked to the sample clock, which the cart cannot do through four
-mailbox bytes. **The rule this leaves behind: an `OUTX` assertion is only valid where the output is
-provably stationary.** Every committed one says so in its own comment.
+**The rule this leaves behind: an `OUTX` assertion is only valid where the output is provably
+stationary.** Every committed one says so in its own comment.
+
+What unblocked the row was turning that around: **the non-stationarity is the observable**. A
+decoder that saturates instead of wrapping settles, and a settled decoder's readings all carry one
+sign; only a value that wraps swings both ways. So the row samples `OUTX` 64 times and asserts that
+both signs appear, which needs no phase-locking at all.
 
 ### An open question `B4.12` used to answer by accident
 
@@ -655,32 +662,95 @@ Chosen 2026-08-01, now that both halves of the Mesen2 oracle arbitrate. Two corr
 | `E9.02` | noise output is **highpass-filtered** `[ERRATA]` | DSP-observable via OUTX on a NON voice; errata-flagged |
 | `E5.06` | BRR 15-bit wrap: clamp to 16 bits, then `+4000h..+7FFFh → -4000h..-1` | reuses the landed `E5` decoder scaffolding |
 
-**`E8.01` design, worked out so the next session does not restart from the assertion text.** Follow
-`e8_02`'s shape (`apu.rs:5298`), which already solves the hard parts — `e8_02_sounding_voice` builds
-the voice, `e8_02_time_to_envx` counts timer-2 ticks to a non-zero `ENVX`, and `T2DIV = 2` gives
-**exactly one tick per output sample**.
+**All three landed 2026-08-01.** Battery 338 tests, 100% on-cart, and both references agree:
+`snes9x: OK (14 known divergence(s))`, `Mesen2: OK (2 known divergence(s))`, 53/53 scenes on each.
+`MESEN2_KNOWN_FAILURES` came **down** from 3 to 2 in the process, because the redesign below removed
+the one Mesen2 divergence that was ours rather than the harness's.
 
-The assertion is a **differential**, not an absolute: write `KON` twice, the second offset by **one
-sample (32 SPC cycles)** from the first, and compare the two measured delays.
+### `E8.01` — two rejected drafts, and what they were really measuring
 
-- polled every **second** sample ⇒ the two delays differ by **1** (one write waits for the next
-  even poll, the other does not);
-- polled every sample ⇒ they are **equal**.
+The row asks how often the DSP looks at `KON`. Both first attempts measured a **delay**: write
+`KON`, time how long until `ENVX` leaves zero. That cannot work, and no amount of resolution rescues
+it. The delay is `(P − φ) mod P` — a sawtooth in `φ`, the write's phase against the DSP's
+examination grid — and **two readings of a sawtooth cannot recover its period**. Shift the second
+write by `Δ` and the difference takes one of two values depending on `φ`.
 
-So the row asserts *"the two differ"*, which `assert_a16_range` expresses fine — and note this is one
-of the cases the `never hand-write a verdict byte` rule exists for.
+And `φ` is not ours to set. It is fixed by where the IPL handshake left the SPC700 against the DSP's
+sample clock, which is paced by the S-CPU — so it **differs between the NTSC and PAL images of the
+same build**. That is exactly what the drafts reported:
 
-Two traps carried over from `e8_02`, both already paid for once:
-- the voice must be **fully silent** before the second key-on. A full-scale envelope is `$7F0` and
-  release steps down 8/sample, so ~254 samples; `e8_02`'s first version polled while `ENVX` was still
-  `~$40` and measured a delay of one tick. Reuse its arming guard (`dsp_read_to(0x08, …)` must read
-  zero) rather than re-deriving it.
-- `T2DIV = 1` is finer but puts the reading at 15 of `TnOUT`'s 16 values, close enough to the wrap
-  that the NTSC/PAL drift gate caught it on the PAL image alone. Keep `T2DIV = 2`.
+| draft | instrument | result |
+|---|---|---|
+| 1 | timer 2 at `T2DIV = 2`, one-sample offset | difference **0** — tick, sample and offset are all 32 SPC cycles and move together |
+| 2 | poll-loop iteration count, half-sample offset | NTSC **2**, PAL **0**, same build |
 
-**Verify by injection at the named site**: force the KON poll to every sample in
-`rustysnes-apu`'s DSP and confirm *this* row's code fires — per [[accuracysnes-attribution-trap]], a
-row that passes without moving under its own named injection is measuring something else.
+The second was published here as "better, not yet correct" with the bands left stale on purpose, so
+both images failed loudly rather than being re-banded into agreement. Neither draft was ever scored.
+
+**What replaced them: writes the DSP never sees.** `KON` is a register, not a queue — a write
+replaces all eight bits, so a second write before the DSP next looks **cancels** the first, and that
+voice is never keyed at all. The number of key-ons the DSP acts on over a burst therefore *counts
+the examinations that fell between the writes*.
+
+The sweep writes `$01, $02, $04 … $80` — one voice each, no bit repeated — **24 SPC cycles apart**,
+so 168 cycles separate the first write from the last. Over a half-open interval of length `L`, a
+grid of period `P` contributes `⌊L/P⌋` or `⌊L/P⌋ + 1` points **for every phase**; add one for the
+final `$80`, still pending when the burst ends:
+
+| `KON` examined | period | examinations in 168 cycles | voices started |
+|---|---|---:|---:|
+| every second sample (hardware) | 64 cycles | 2 or 3 | **3 or 4** |
+| every sample | 32 cycles | 5 or 6 | **6 or 7** |
+
+The ranges cannot meet and neither depends on `φ`. RustySNES measures **3** (mask `$25` — voices 2,
+5 and 7), and the injection that forces a per-sample examination moves it out of the band and fails
+the row's only code. Mesen2, which failed the phase-fragile draft, **passes this**.
+
+### `E9.02` — the step, not the state
+
+`E9.01` already pins the frozen seed at `$4000` and reads `$81` from it. Scoring that again would be
+scoring one observation twice, so `E9.02` scores the **transition**: one step of the register turns a
+full-scale negative reading into a positive one at about half the magnitude.
+
+| LFSR | `LFSR << 1` | `VxOUTX` |
+|---|---|---:|
+| `$4000` seed | `$8000` | `$81` |
+| `$2000` | `$4000` | `$3F` |
+| `$1000` | `$2000` | `$1F` |
+
+A core emitting the register's 15-bit value directly reads `$3F` then `$1F` — positive throughout,
+which is the DC-heavy noise the errata's "highpass" remark exists to exclude. Measured: `$81` then
+`$1F`, i.e. the 48-sample window caught two steps, and the band holds both outcomes on purpose.
+
+**The cost, stated rather than buried:** this is the only row in the battery that moves the noise
+LFSR, and nothing can put it back — `FLG` bit 7 is the DSP's soft reset and does **not** re-seed the
+shift register (checked against ares, which re-seeds only in `DSP::power`). A stale comment in
+`voice_program` claimed otherwise and has been corrected. So `E9.02` is registered **last**, and both
+it and `E9.01` stand down as SKIP on a menu restart, the same mechanism `F1.07` uses for its
+power-on `$4218`. The harness's restart-idempotence check went from `first_run_passed - 1` to `- 3`.
+
+### `E5.06` — the first assertion was vacuous, and the injection is what proved it
+
+The recorded finding from the earlier attempt still stands: a wrapping filter's `OUTX` is a sawtooth,
+so no single reading is valid, and **an `OUTX` assertion is only valid where the output is provably
+stationary**. The new row samples `OUTX` 64 times instead.
+
+The first version of that assertion was "at least one reading is negative" — a purely positive drive
+cannot produce one, so a negative reading proves the sign was dropped. **Injecting the named bug made
+the row pass harder:** clamping the store to `-4000h..+3FFFh` gave **64** negative readings out of 64,
+against the correct decoder's **32**. A clamping decoder pins the buffer at `+7FFEh`, and the gaussian
+interpolator's three-term partial sum — the same truncation `E5.13` is about — overflows a signed
+16-bit intermediate from that constant, so *every* reading comes back negative. The interpolator, not
+the decoder, was supplying the sign.
+
+What survives is the **bipolarity**. A saturating decoder leaves the buffer constant, so whatever the
+interpolator makes of it, it makes every sample and the readings carry a single sign; only a value
+that genuinely wraps swings both ways. The row now asserts `1..=63` negatives out of 64, and **both**
+saturating variants — clamp at 15 bits, and saturate at 16 after the shift — fail it.
+
+**The lesson, which is the reusable part:** "this drive cannot produce a negative sample" was an
+argument about the *decoder*, and the observable was three stages downstream of it. An injection at
+the named site is not optional even when the reasoning looks airtight — especially then.
 
 **Explicitly NOT first: `E1.11`** ("TSET1/TCLR1 read the target twice"). Inspected and set aside as a
 likely **vacuous** row: the second read is a dummy, and on a `$FD`-`$FF` timer-output target the

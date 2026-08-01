@@ -595,6 +595,51 @@ const A5_08_SLOTS: [(u8, &str); 7] = [
     (6, "8x (PHD+PLD) - 16 NOP  (expect 76)"),
 ];
 
+/// The measurement slots the `v1.29.0` Group E batch records.
+const GROUP_E_BATCH_SLOTS: [(u16, &str); 7] = [
+    (256, "E8.01 KON sweep key-on mask   (bit 7 = voice 0)"),
+    (
+        257,
+        "E8.01 voices the sweep started (expect 3-4; 6-7 means a 32 kHz poll)",
+    ),
+    (258, "E9.02 noise OUTX at the seed   (expect $81)"),
+    (259, "E9.02 noise OUTX one step on   (expect $3F or $1F)"),
+    (
+        260,
+        "E5.06 negative OUTX readings   (of 64; 0 means the decoder clamps)",
+    ),
+    (261, "E5.06 non-zero OUTX readings   (of 64)"),
+    (262, "E5.06 the last of the 64 readings"),
+];
+
+/// Report what the Group E batch measured, for cross-emulator comparison.
+///
+/// These three rows all score a *shape* — how many voices a burst of `KON` writes started, which
+/// way a noise reading's sign went, how often a purely positive drive read back negative — and the
+/// verdict byte carries none of the underlying numbers. A disagreement between references is far
+/// easier to read here than through a failure code.
+#[test]
+fn group_e_batch_measurements_are_reported() {
+    let report = run().expect("battery must run");
+    assert!(report.done, "battery did not finish");
+
+    let mut out = String::from("\n  v1.29.0 Group E batch measurements:\n");
+    for (slot, what) in GROUP_E_BATCH_SLOTS {
+        let v = report.meas[slot as usize];
+        let _ = writeln!(out, "    slot {slot}  {v:5}  (${v:04X})  {what}");
+    }
+    println!("{out}");
+
+    // One crude check, in the same spirit as the timing channel's: an unwritten slot reads zero,
+    // and every one of these has a value the cart always writes.
+    let voices = report.meas[257];
+    assert!(
+        (1..=8).contains(&voices),
+        "E8.01 recorded {voices} started voices, which is not a count of eight voices — the slot \
+         was never written, or the mask reduction overflowed"
+    );
+}
+
 /// Report the raw timing measurements, and sanity-check them against physics.
 ///
 /// This exists because a one-byte verdict cannot carry a dot count. Reporting a 32-`NOP` baseline
@@ -1889,14 +1934,19 @@ fn the_dpad_navigates_the_pages() {
         DONE_MARK,
         "the restarted battery never finished"
     );
-    // One fewer than a cold boot: F1.07 stands down as SKIP on a re-run because its phase A needs
-    // the power-on value of $4218, which a soft restart cannot reproduce (the previous run armed
-    // auto-read). Its verdict is $FF (skip), not a fail code. Relative to the first run's pass count
-    // rather than a literal, so adding tests does not break this.
+    // Three fewer than a cold boot, and every one of them a genuine power-on dependency that
+    // stands down as SKIP ($FF) rather than reporting a fail code:
+    //
+    // * F1.07 -- phase A needs the power-on value of $4218, and the previous run armed auto-read;
+    // * E9.01 and E9.02 -- both read the noise LFSR's power-on seed, and E9.02 steps the register
+    //   away from it by design. FLG bit 7 does not re-seed it, so nothing can put it back.
+    //
+    // Relative to the first run's pass count rather than a literal, so adding tests does not break
+    // this. A change here means a NEW power-on dependency appeared, which is worth knowing about.
     assert_eq!(
         rd16(&sys, R_PASSED),
-        first_run_passed - 1,
-        "the restarted battery did not reproduce its result (minus the power-on-only F1.07)"
+        first_run_passed - 3,
+        "the restarted battery did not reproduce its result (minus the three power-on-only rows)"
     );
     let f107_idx = catalog()
         .iter()
