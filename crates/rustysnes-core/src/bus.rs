@@ -125,7 +125,7 @@ const DRAM_REFRESH_DOT: u16 = 134;
 /// `68_352 / 715_909` kept here to bound accumulator growth (`spc_accum` stays below the
 /// denominator). The DENOMINATOR is region-dependent; see `SPC_DEN_PAL` for why.
 const SPC_NUM: u64 = 68_352;
-/// SPC700 fractional-clock denominator on **NTSC**: the NTSC master clock Hz, reduced by gcd = 30.
+/// SPC700 fractional-clock denominator on **NTSC**: `21_477_270 / 30`.
 const SPC_DEN_NTSC: u64 = 715_909;
 /// SPC700 fractional-clock denominator on **PAL**: `21_281_370 / 30`.
 ///
@@ -807,6 +807,19 @@ impl Bus {
     /// Advance the master clock by `n` ticks, stepping the PPU dot clock + SPC accumulator in
     /// lockstep and re-deriving the NMI/HV-IRQ phases.
     fn advance_master(&mut self, n: u32) {
+        // The SPC denominator is the REGION's master clock, not a constant: the APU's crystal is
+        // region-independent and the master clock's is not, so holding the ratio fixed would scale
+        // the APU with the video clock. See `SPC_DEN_PAL`.
+        //
+        // Read from the PPU rather than cached in `Clock` so it cannot go stale across a region
+        // change or a state restore — the accumulator is already serialized, and a second field
+        // agreeing with it is one more thing that can disagree. Resolved ONCE per call rather than
+        // per sub-tick: nothing inside the loop can change the region, and this is the emulator's
+        // hottest path.
+        let spc_den = match self.ppu.region() {
+            PpuRegion::Ntsc => SPC_DEN_NTSC,
+            PpuRegion::Pal => SPC_DEN_PAL,
+        };
         for _ in 0..n {
             self.clock.master = self.clock.master.wrapping_add(1);
             self.clock.dot_accum += 1;
@@ -885,16 +898,6 @@ impl Bus {
             if dot_ticked {
                 self.check_superscope_beam();
             }
-            // The denominator is the REGION's master clock, not a constant: the APU's crystal is
-            // region-independent and the master clock's is not, so holding the ratio fixed would
-            // scale the APU with the video clock. See `SPC_DEN_PAL`. Read from the PPU rather than
-            // cached in `Clock` so it cannot go stale across a region change or a state restore —
-            // the accumulator is already serialized and a second field agreeing with it is one
-            // more thing that can disagree.
-            let spc_den = match self.ppu.region() {
-                PpuRegion::Ntsc => SPC_DEN_NTSC,
-                PpuRegion::Pal => SPC_DEN_PAL,
-            };
             self.clock.spc_accum += SPC_NUM;
             while self.clock.spc_accum >= spc_den {
                 self.clock.spc_accum -= spc_den;
@@ -1734,21 +1737,30 @@ mod tests {
     fn the_apu_rate_is_region_independent() {
         /// S-DSP samples emitted over `master_ticks`, which is directly proportional to the SMP
         /// clocks released — one sample per 64 base clocks — and needs no new counter to observe.
-        fn smp_samples(region: Region, master_ticks: u64) -> usize {
+        fn smp_samples(region: Region, frames: u64, ticks_per_frame: u64) -> usize {
             let mut bus = Bus::new(region);
             let mut sink = std::vec::Vec::new();
-            let mut n = 0;
-            while n < master_ticks {
-                bus.advance_master(MASTER_PER_DOT);
-                n += u64::from(MASTER_PER_DOT);
+            let mut total = 0;
+            for _ in 0..frames {
+                let mut n = 0;
+                while n < ticks_per_frame {
+                    bus.advance_master(MASTER_PER_DOT);
+                    n += u64::from(MASTER_PER_DOT);
+                }
+                // Drained once per frame, not once per dot: ~640 samples a frame is far inside the
+                // 16,384-entry FIFO, and draining per dot is four million pointless calls.
                 bus.apu.drain_audio(&mut sink);
+                total += sink.len();
+                sink.clear();
             }
-            sink.len()
+            total
         }
 
         // Many frames, so the ~0.92% difference is far larger than the one-sample quantisation.
-        let ntsc = smp_samples(Region::Ntsc, 425_568 * 40);
-        let pal = smp_samples(Region::Pal, 425_568 * 40);
+        // Both regions are run over the SAME number of master ticks, so what is compared is
+        // APU-per-master-tick and not anything about frame length.
+        let ntsc = smp_samples(Region::Ntsc, 40, 425_568);
+        let pal = smp_samples(Region::Pal, 40, 425_568);
         assert!(
             pal > ntsc,
             "PAL must produce MORE audio per master tick than NTSC — its master clock is slower \
