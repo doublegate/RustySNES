@@ -219,6 +219,45 @@ MESEN2_KNOWN_FAILURES=2
 # NTSC constant because the two genuinely differ, and a shared constant would hide it.
 MESEN2_PAL_KNOWN_FAILURES=1
 
+# --- ares' own known divergences -----------------------------------------------------------------
+#
+# ares is the THIRD reference, added 2026-08-01 (`scripts/accuracysnes/ares_host/`). It matters
+# because this project's provenance rule counts ares and bsnes as ONE reference — so any row where
+# RustySNES and snes9x face Mesen2 is only 2-vs-1 if ares is not already on RustySNES's side, and
+# before this there was no way to check.
+#
+# Five rows, and THREE of them are rows snes9x already fails for reasons documented above — ares is
+# corroborating snes9x there, not standing alone:
+#
+#   C7.05  code 1  | Range Over's set dot. snes9x fails it too, on a DIFFERENT code (2), so the two
+#                  | dissenters do not even agree with each other about how it is wrong.
+#   C7.10  code 1  | The Uniracers OAM-address takeover. snes9x fails it identically; Mesen2 models
+#                  | it and RustySNES does too. 2-vs-2.
+#   F1.10  code 2  | The auto-read start race. snes9x, Mesen2 AND ares all fail it — see the F1.10
+#                  | entry under MESEN2_KNOWN_FAILURES for why that leaves RustySNES passing alone.
+#
+# The other two share ONE cause, and it is a bug in ares rather than a disagreement:
+#
+#   E3.06  code 2  | ares' `$F1` (CONTROL) handler NEGATES the timer-2 counter reset:
+#   E8.02  code 3  |     if(timer0.enable.raise(data.bit(0)))  { timer0.stage2 = 0; ... }
+#                  |     if(timer1.enable.raise(data.bit(1)))  { timer1.stage2 = 0; ... }
+#                  |     if(!timer2.enable.raise(data.bit(2))) { timer2.stage2 = 0; ... }
+#                  |         ^ negated, and only here  (ares/sfc/smp/io.cpp)
+#                  | `raise()` is true on a 0->1 transition, so timers 0 and 1 reset ON a raise --
+#                  | the documented behaviour -- while timer 2 resets on anything EXCEPT one. Both
+#                  | rows enable timer 2 via `$F1`, run an interval, then write `$F1` again to STOP
+#                  | it, and that stopping write has already zeroed T2OUT. Both read 0 where
+#                  | RustySNES reads 10 and ~7. ares is internally inconsistent here, which is the
+#                  | strongest evidence available that it is a stray `!`: its own timers 0 and 1 do
+#                  | the un-negated version, and RustySNES, snes9x and Mesen2 all treat the three
+#                  | identically. The first bug this cart has found in a REFERENCE emulator.
+ARES_KNOWN_FAILURES=5
+
+# Where the built host lives. Not built by this script: it is a C++ link against ares' static libs
+# and takes minutes, so it is opt-in via `scripts/accuracysnes/ares_host/build.sh` and this block
+# skips cleanly when the binary is absent — the same shape as the snes9x and Mesen2 blocks.
+ARES_HOST=${ARES_HOST:-${TMPDIR:-/tmp}/ares_host}
+
 # --- snes9x, via the libretro host --------------------------------------------------------------
 if [[ -f $SNES9X ]]; then
     cc -O2 -o "$HOST" scripts/accuracysnes/libretro_crossval.c -ldl || exit 1
@@ -260,6 +299,30 @@ if [[ -f $MESEN ]] && command -v dotnet >/dev/null; then
     ran=$((ran + 1))
 else
     echo "skip Mesen2: build it with 'make -C ref-proj/Mesen2'" >&2
+fi
+
+# --- ares, via the headless host ------------------------------------------------------------------
+if [[ -x $ARES_HOST ]]; then
+    echo "=== ares (headless host) ==="
+    # The host prints the results block on stdout; its failing count is derived here rather than
+    # returned as an exit code, because a status byte is `even = FAIL` and that is worth reading in
+    # one place rather than encoding twice.
+    # Parity off the LAST HEX DIGIT, not arithmetic on the string: POSIX awk does not parse "0x01",
+    # so `("0x" $3) % 2` is 0 for every byte and counts all 337 non-skipped rows as failures. That is
+    # a gate reporting catastrophe out of a parsing bug, which is worth the comment.
+    # $FF is SKIP and $00 is NOT-RUN; both are excluded, matching how the other hosts count.
+    n=$("$ARES_HOST" "$ROM" 900 2>/dev/null |
+        awk '$1 == "status" && $3 != "ff" && $3 != "00" && $3 ~ /[02468aceACE]$/ { c++ }
+             END { print c + 0 }')
+    if [[ $n -eq $ARES_KNOWN_FAILURES ]]; then
+        echo "ares: OK ($n known divergence(s) — see ARES_KNOWN_FAILURES above)"
+    else
+        echo "ares: $n failing test(s), expected $ARES_KNOWN_FAILURES" >&2
+        rc=1
+    fi
+    ran=$((ran + 1))
+else
+    echo "skip ares: build it with 'bash scripts/accuracysnes/ares_host/build.sh'" >&2
 fi
 
 # --- the PAL image ------------------------------------------------------------------------------
