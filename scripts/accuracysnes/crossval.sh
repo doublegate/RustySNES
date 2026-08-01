@@ -191,26 +191,31 @@ SNES9X_KNOWN_FAILURES=14
 #                  | containing no Start and the cart would never leave its menu. Covered by the
 #                  | in-repo harness and snes9x, which do drive both ports.
 #
-#   F1.10  code 2  | NOT the port-2 limitation, though this comment said so until it was measured.
-#                  | `f1_require_contract` reads $4016 only, and code 2 means "$4212 read busy at
-#                  | the very start of the vblank line". Mesen2 fails it for the same reason snes9x
-#                  | and ares do -- the automatic read modelled as starting at the vblank edge
-#                  | rather than a few dozen cycles into the line.
+# `F1.10` USED to be a second entry here. It is not any more, and the reason is worth more than the
+# entry was.
 #
-# **So `F1.10` is 1-vs-3, with RustySNES passing ALONE.** snes9x, Mesen2 and ares all fail it. The
-# row is Documented -- nocash fullsnes puts the read's start at ~dot 32.5-95.5 of the first vblank
-# line -- and RustySNES passes only because of a deliberate auto-read-start-timing fix. A first-party
-# accuracy cart being right where three references are wrong is the point of having one, but 1-vs-3
-# on a scored row is stated here rather than left to be mistaken for consensus. If that citation
-# ever turns out to be misread, this row is where it will show.
-# **The Mesen2 runner can under-report under load.** One run during this investigation returned 1
-# where every other returned 2, while four other `dotnet` processes were live. `--timeout=60` is a
-# wall-clock bound, so a loaded machine can cut the battery short and report a SMALLER failing count
-# — which reads as "things improved", the most dangerous direction for a gate to be wrong in. Five
-# consecutive runs on an idle machine gave 2 every time, and `mesen_failing_set_probe.lua` gave the
-# identical SET four times. If this gate ever reports fewer failures than expected, re-run it idle
-# before believing it.
-MESEN2_KNOWN_FAILURES=2
+# It was first attributed to the port-2 limitation, which is wrong: `f1_require_contract` reads
+# $4016 only, and code 2 means "$4212 read busy at the very start of the vblank line". Measured
+# 2026-08-01, Mesen2 DID fail it, alongside snes9x and ares -- which read as "RustySNES passes
+# alone", and was published that way.
+#
+# **Then rewriting `E3.06` -- an unrelated APU row -- made Mesen2 PASS `F1.10`.** Three identical
+# runs before, three identical runs after. The rewrite changed one uploaded program's length, which
+# moved the cart's execution phase, which moved when `F1.10` samples `$4212` relative to the vblank
+# edge.
+#
+# So `F1.10`'s Mesen2 verdict is **phase-fragile**: it encodes where the cart happens to be, not only
+# what Mesen2 models. That is the same trap already recorded for `E8.01` and for the scene field
+# gate, in a third place. snes9x and ares fail it stably; Mesen2 flips. **Do not restore a
+# known-failure entry for it** -- either pin the row's sampling point, or accept that Mesen2's
+# verdict on it carries no information.
+#
+# **The Mesen2 runner can also under-report under load.** One run returned a smaller count than every
+# other while four other `dotnet` processes were live. `--timeout=60` is a wall-clock bound, so a
+# loaded machine cuts the battery short and reports FEWER failures -- which reads as "things
+# improved", the most dangerous direction for a gate to be wrong in. Re-run idle before believing a
+# drop, and use `mesen_failing_set_probe.lua` to read the SET rather than trusting the count.
+MESEN2_KNOWN_FAILURES=1
 
 # The PAL image's own count: only F1.03 fails there, so F1.10 passes on PAL and fails on NTSC under
 # the same port-2 limitation. That asymmetry has NOT been explained and is recorded as an open
@@ -236,22 +241,30 @@ MESEN2_PAL_KNOWN_FAILURES=1
 #   F1.10  code 2  | The auto-read start race. snes9x, Mesen2 AND ares all fail it — see the F1.10
 #                  | entry under MESEN2_KNOWN_FAILURES for why that leaves RustySNES passing alone.
 #
-# The other two share ONE cause, and it is a bug in ares rather than a disagreement:
+# The fifth is a bug in ares rather than a disagreement:
 #
-#   E3.06  code 2  | ares' `$F1` (CONTROL) handler NEGATES the timer-2 counter reset:
-#   E8.02  code 3  |     if(timer0.enable.raise(data.bit(0)))  { timer0.stage2 = 0; ... }
+#   E8.02  code 3  | ares' `$F1` (CONTROL) handler NEGATES the timer-2 counter reset:
+#                  |     if(timer0.enable.raise(data.bit(0)))  { timer0.stage2 = 0; ... }
 #                  |     if(timer1.enable.raise(data.bit(1)))  { timer1.stage2 = 0; ... }
 #                  |     if(!timer2.enable.raise(data.bit(2))) { timer2.stage2 = 0; ... }
 #                  |         ^ negated, and only here  (ares/sfc/smp/io.cpp)
 #                  | `raise()` is true on a 0->1 transition, so timers 0 and 1 reset ON a raise --
 #                  | the documented behaviour -- while timer 2 resets on anything EXCEPT one. Both
-#                  | rows enable timer 2 via `$F1`, run an interval, then write `$F1` again to STOP
-#                  | it, and that stopping write has already zeroed T2OUT. Both read 0 where
-#                  | RustySNES reads 10 and ~7. ares is internally inconsistent here, which is the
-#                  | strongest evidence available that it is a stray `!`: its own timers 0 and 1 do
-#                  | the un-negated version, and RustySNES, snes9x and Mesen2 all treat the three
-#                  | identically. The first bug this cart has found in a REFERENCE emulator.
-ARES_KNOWN_FAILURES=5
+#                  | The row enables timer 2 via `$F1`, runs an interval, then writes `$F1` again to
+#                  | STOP it, and that stopping write has already zeroed T2OUT -- so it reads 0.
+#                  | ares is internally inconsistent here, which is the strongest evidence available
+#                  | that it is a stray `!`: its own timers 0 and 1 do the un-negated version, and
+#                  | RustySNES, snes9x and Mesen2 all treat the three identically. The first bug this
+#                  | cart has found in a REFERENCE emulator.
+#
+# **`E3.06` used to be a sixth entry and is not any more, and it is worth saying why.** It failed on
+# ares for a reason that turned out to be the CART's: it read `TnOUT` once at the end of the
+# interval, and `TnOUT` is a four-bit read-and-clear counter, so the useful range was 8..15 with the
+# wrap one tick above. Rewritten to POLL and accumulate -- and to assert the ratio rather than two
+# absolute counts -- RustySNES and ares now report the identical 6 and 46. The row proves ares'
+# timer 2 does run at 64 kHz; the old instrument could not see it. A ceiling in the instrument reads
+# exactly like a defect in the thing measured.
+ARES_KNOWN_FAILURES=4
 
 # Where the built host lives. Not built by this script: it is a C++ link against ares' static libs
 # and takes minutes, so it is opt-in via `scripts/accuracysnes/ares_host/build.sh` and this block

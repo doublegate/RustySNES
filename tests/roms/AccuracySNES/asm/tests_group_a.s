@@ -22926,7 +22926,7 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
-    lda #48
+    lda #69
     sta f:V_APU_LEN
     lda #$0200
     sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
@@ -22973,11 +22973,6 @@ CATALOG_IMPL = 1
     ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
     lda #$A5
     sta APUIO0
-    ; Record both counts before asserting on either. `TnOUT` is FOUR BITS, so timer 2's band
-    ; below ends one tick short of its wrap -- and a core whose SMP runs slightly fast crosses
-    ; it and reads a small number, which is indistinguishable from 'timer 2 is not running at
-    ; 64 kHz' unless the raw counts are kept. ares fails this row, and without these the failure
-    ; cannot be told from a real divergence.
     rep #$30
     .a16
     .i16
@@ -22987,31 +22982,41 @@ CATALOG_IMPL = 1
     sta f:$7EE414
     lda f:$7E0102
     and #$00FF
-    ; record slot 267: E3.06 timer 2 ticks over the SAME interval (TnOUT wraps at 16)
+    ; record slot 267: E3.06 timer 2 ticks, ACCUMULATED across polls (no 4-bit ceiling)
     sta f:$7EE416
-    ; Timer 0 first: one tick, maybe two. Zero would make the ratio below unmeasurable.
+    ; Timer 0 first: the interval has to contain a couple of its ticks for a ratio to exist.
     lda f:$7E0101
     and #$00FF
     cmp #$0001
     bcs :+
     jmp @fail1
   :
-    cmp #$0004
+    cmp #$0007
     bcc :+
     jmp @fail1
   :
-    ; Timer 2 over the SAME interval: eight times the rate, so eight or more ticks. The band is
-    ; 8..15 and `TnOUT` wraps at 16, which leaves NO headroom above -- and that is structural,
-    ; not a choice: timer 0 must tick at least once for the ratio to mean anything, and one
-    ; timer-0 period IS eight timer-2 periods, so timer 2 can never be below 8 and the wrap is
-    ; only a factor of two away. Measured: RustySNES 10, ares 0 -- and 0 is what 16 reads as.
+    ; The row, as a RATIO rather than two absolute counts. Asserting absolute numbers pins the
+    ; poll loop's own cycle cost, which differs between cores for reasons that have nothing to
+    ; do with the 64 kHz stage -- that is what made the previous version fail on ares while its
+    ; `Timer<128>/Timer<128>/Timer<16>` declarations were an exactly correct 8:1.
+    lda f:$7E0101
+    and #$00FF
+    asl a
+    asl a
+    asl a             ; timer 0 ticks x 8 = what timer 2 should have counted
+    sta f:$7E01F0
     lda f:$7E0102
     and #$00FF
-    cmp #$0008
+    sec
+    sbc f:$7E01F0     ; the signed error against the ideal ratio
+    clc
+    adc #$0006        ; biased by 6 so the allowed band is 0..12 rather than -6..+6
+    and #$00FF
+    cmp #$0000
     bcs :+
     jmp @fail2
   :
-    cmp #$0010
+    cmp #$000D
     bcc :+
     jmp @fail2
   :
@@ -23029,14 +23034,14 @@ CATALOG_IMPL = 1
     sta f:$7EE010
     jml test_restore
 @fail1:
-    ; timer 0 did not tick once over this interval, or ticked more than three times — either way the interval is not the one this test needs and the ratio below means nothing
+    ; timer 0 did not tick over this interval, or ticked far more than the poll loop allows for — either way the interval is not the one this test needs and the ratio below means nothing
     sep #$20
     .a8
     lda #$02
     sta f:$7EE010
     jml test_restore
 @fail2:
-    ; timer 2 did not count roughly eight times what timer 0 did over the same interval, so it is not running from the 64 kHz stage — a core reading $01 here runs every timer at 8 kHz. NOTE: this row cannot distinguish that from timer 2 having WRAPPED past 16, so read slot 267 before concluding anything; ares fails here with a recorded 0
+    ; timer 2 did not count within six ticks of eight times timer 0 over the same interval, so it is not running from the 64 kHz stage — a core running every timer at 8 kHz lands near a seventh of the expected count. The two raw counts are in slots 266 and 267
     sep #$20
     .a8
     lda #$04
@@ -34143,10 +34148,12 @@ apu_prog_112:
     .byte $C4, $F2, $E4, $F3, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
     .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
 apu_prog_113:
-    .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $01, $FC, $E4, $FD, $E4
-    .byte $FF, $8F, $85, $F1, $8D, $18, $FE, $FE, $8F, $80, $F1, $E4
-    .byte $FD, $C4, $F6, $E4, $FF, $C4, $F7, $E8, $5A, $C4, $F4, $E4
-    .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+    .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $01, $FC, $8F, $00, $10
+    .byte $8F, $00, $11, $E4, $FD, $E4, $FF, $8F, $85, $F1, $E4, $FF
+    .byte $C4, $12, $E4, $10, $60, $84, $12, $C4, $10, $AB, $11, $E4
+    .byte $11, $68, $18, $D0, $ED, $8F, $80, $F1, $E4, $FD, $C4, $F6
+    .byte $E4, $10, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5
+    .byte $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
 apu_prog_114:
     .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $0B, $F0, $8F, $81, $F1
     .byte $8D, $00, $FE, $FE, $8F, $80, $F1, $E4, $FD, $C4, $F6, $8F

@@ -11,6 +11,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`E3.06` rewritten to poll and accumulate — and ares agrees with it exactly.** The row read
+  `TnOUT` once at the end of the interval, and `TnOUT` is a four-bit read-and-clear counter, so the
+  useful range was `8..15` with the wrap one tick above. That is not a band that can be widened; it
+  is the instrument's ceiling. It now polls timer 2 every ~32 SPC cycles — one timer-2 period — so
+  every read returns 0, 1 or 2 and the running sum cannot lose a tick however long the interval gets.
+
+  It also asserts the **ratio** rather than two absolute counts: `|T2 − 8·T0| ≤ 6`, computed on the
+  65816. Absolute counts pin the poll loop's own cycle cost, which differs between cores for reasons
+  that have nothing to do with the 64 kHz stage — and that is precisely what made the old row fail on
+  ares while ares' own `Timer<128>`/`Timer<128>`/`Timer<16>` declarations were an exactly correct
+  8:1.
+
+  RustySNES and ares now report the **identical** 6 and 46. `ARES_KNOWN_FAILURES` drops 5 → 4. **A
+  ceiling in the instrument reads exactly like a defect in the thing measured**, which is the
+  reusable half.
+
+- **RETRACTION: `F1.10` is not "1-vs-3 with RustySNES alone", and its Mesen2 verdict is
+  phase-fragile.** #306 published that reading from a measurement taken at the time. Then rewriting
+  `E3.06` — an **unrelated APU row** — made Mesen2 **pass** `F1.10`. Three identical runs before,
+  three identical runs after. The rewrite changed one uploaded program's length, which moved the
+  cart's execution phase, which moved when `F1.10` samples `$4212` relative to the vblank edge.
+
+  So Mesen2's verdict on that row encodes where the cart happens to be, not only what Mesen2 models.
+  snes9x and ares fail it stably; Mesen2 flips. `MESEN2_KNOWN_FAILURES` drops 2 → 1 (`F1.03` only),
+  and the comment says not to restore an `F1.10` entry — either pin the row's sampling point, or
+  accept that Mesen2's verdict on it carries no information.
+
+  **This is the same trap for the third time in one session**, after `E8.01`'s two rejected drafts
+  and the scene field gate: a verdict that encodes an uncontrolled phase looks stable until something
+  unrelated moves.
+
 - **ares is wired into `crossval.sh` as a third reference.** `cross-validation: 3 reference(s) agree
   with the cart`, with `ARES_KNOWN_FAILURES=5` carrying the same per-row rationale the other two
   constants do: `C7.05`/`C7.10`/`F1.10` are rows snes9x already fails (ares corroborating it, not

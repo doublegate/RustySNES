@@ -2640,8 +2640,8 @@ Provenance: **Documented** (SNESdev Wiki, SPC700 timers; fullsnes). Kind: scored
 
 | Code | Byte | Meaning |
 |---|---|---|
-| 1 | `$02` | timer 0 did not tick once over this interval, or ticked more than three times — either way the interval is not the one this test needs and the ratio below means nothing |
-| 2 | `$04` | timer 2 did not count roughly eight times what timer 0 did over the same interval, so it is not running from the 64 kHz stage — a core reading $01 here runs every timer at 8 kHz. NOTE: this row cannot distinguish that from timer 2 having WRAPPED past 16, so read slot 267 before concluding anything; ares fails here with a recorded 0 |
+| 1 | `$02` | timer 0 did not tick over this interval, or ticked far more than the poll loop allows for — either way the interval is not the one this test needs and the ratio below means nothing |
+| 2 | `$04` | timer 2 did not count within six ticks of eight times timer 0 over the same interval, so it is not running from the 64 kHz stage — a core running every timer at 8 kHz lands near a seventh of the expected count. The two raw counts are in slots 266 and 267 |
 
 ### E3.08 — TEST bit 0 halts timers
 
