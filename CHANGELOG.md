@@ -11,6 +11,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES: the scene protocol publishes on a known field, and the interlace three-way split
+  is down to a two-way one.** `run_scenes` now sets the scene ID only on frames whose `$213F` bit 7
+  is set, so every sighting the host counts is the same field. `SCENE_FRAMES` grew 8 → 12: at half
+  the publication rate the old value put the host's fourth sighting on the window's *last* frame,
+  which is one of the two ends the capture protocol exists to avoid.
+
+  The 53 blessed scenes are unaffected on all three hosts — a still picture hashes the same on either
+  field, so gating only moves which wall-clock frame the fourth sighting is.
+
+  **On the interlace scene it did exactly what it was built to do.** `c7-obj-interlace-halves-height`
+  (`C7.12`, a 16x32 sprite under OBJ interlace, identical to `c7-objsel-size-6` but for one `SETINI`
+  bit) previously produced **three** different hashes on three emulators — the only three-way split
+  any scene has produced, and not a disagreement about interlace at all: each host landed on
+  whichever field its own frame counter happened to be on. With the gate, snes9x and Mesen2 produce
+  the **identical** hash `0x266241e43ab85064`.
+
+  **The residual is one source row, and it is not blessed.** Pixel dumps show both renders agree on
+  everything the row asserts — the 16x32 sprite occupies 16 display rows — and differ only in which
+  field's source rows are drawn: the references take the even ones, RustySNES the odd. That is not
+  "RustySNES alone", this project's signature for a real defect: RustySNES's `row + field` and its
+  `$213F` bit 7 are both ares' (`sfc/ppu/object.cpp:122`, `sfc/ppu/io.cpp:178`), and both toggle the
+  field at the same V wrap. So it is the bsnes/ares lineage against the other two — **2 vs 1** under
+  this project's own provenance rule — and no primary source says which field maps to which rows.
+  Recorded as a variant set; the tiebreaker is ares running the cart, the same blocked item `A2.10`
+  waits on. `C9.03`/`C9.06` are deliberately not written on top of it: screen interlace carries the
+  identical parity dependency, so they would land unblessed for the identical reason.
+
 - **AccuracySNES: three Group E rows land — `E8.01`, `E9.02`, `E5.06`.** Coverage **347 → 350 of
   443** (297 on-cart + 53 scenes), battery **338 tests at 100%**, and both references agree:
   `snes9x: OK (14 known divergence(s))`, `Mesen2: OK (2 known divergence(s))`, 53/53 scenes on each.

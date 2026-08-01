@@ -130,6 +130,7 @@ Declared in `gen/src/scenes.rs`. Each is reported by the host framebuffer oracle
 - **`C7.03`** — c7-hflip-sliver-order
 - **`C8.12`** — c8-force-black-outside-window
 - **`C5.14`** — c5-4bpp-bitplane-order
+- **`C7.12`** — c7-obj-interlace-halves-height
 
 ## Tests with no enumerated assertion
 

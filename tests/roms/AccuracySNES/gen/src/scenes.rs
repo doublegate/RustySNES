@@ -1892,6 +1892,59 @@ pub const SCENES: &[Scene] = &[
             "sta $2100         ; brightness 15, forced blank off",
         ],
     },
+    Scene {
+        id: "c7-obj-interlace-halves-height",
+        dossier: "C7.12",
+        what: "`c7-objsel-size-6` with OBJ interlace on (SETINI bit 1) and NOTHING else changed. \
+               Under interlace a sprite's displayed line maps to twice its internal row, so the \
+               16x32 small member and the 32x64 large one each occupy half the vertical space \
+               they otherwise would — a core that ignores SETINI bit 1 renders this scene \
+               identically to its twin, which is exactly the comparison the pair exists to make. \
+               THIS SCENE IS FIELD-DEPENDENT: interlace selects even or odd sprite rows by field \
+               parity, which is why `run_scenes` gates the published window on the field flag. It \
+               was written once WITHOUT that gate and produced three different hashes on three \
+               emulators, the only three-way split any scene has produced.",
+        setup: &[
+            "sep #$20",
+            "stz $2105         ; BGMODE 0",
+            "jsr scene_oam_reset",
+            "sep #$20",
+            "lda #$C0",
+            "sta $2101         ; OBJSEL pair 6, name base word $0000 — same as the twin",
+            "rep #$30",
+            "ldx #$0000",
+            "stx $2102",
+            "sep #$20",
+            "lda #40",
+            "sta $2104         ; sprite 0 X",
+            "lda #60",
+            "sta $2104         ; sprite 0 Y",
+            "lda #$10",
+            "sta $2104         ; tile $10 — printable at 4bpp",
+            "lda #$30",
+            "sta $2104         ; attr: palette 0, priority 3",
+            "lda #120",
+            "sta $2104         ; sprite 1 X",
+            "lda #60",
+            "sta $2104         ; sprite 1 Y",
+            "lda #$10",
+            "sta $2104",
+            "lda #$30",
+            "sta $2104",
+            "rep #$30",
+            "ldx #$0100",
+            "stx $2102         ; the high table",
+            "sep #$20",
+            "lda #$08",
+            "sta $2104         ; sprite 0 small (16x32), sprite 1 large (32x64)",
+            "lda #$02",
+            "sta $2133         ; SETINI bit 1: OBJ interlace — the ONE difference from the twin",
+            "lda #$10",
+            "sta $212C",
+            "lda #$0F",
+            "sta $2100",
+        ],
+    },
 ];
 
 /// The comment block `scene_low_tiles` carries, split out only to keep `low_tiles_helper` inside
