@@ -11,6 +11,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES found a bug in ares — the first time it has found one in a reference emulator.**
+  `E3.06` and `E8.02` were the two divergences the third opinion could not attribute to a known
+  snes9x failure, and both read **0** from every timer-2 slot they record. One mechanism explains
+  both, and it is visible in `ares/sfc/smp/io.cpp`'s `$F1` (CONTROL) handler:
+
+  ```cpp
+  if(timer0.enable.raise(data.bit(0)))  { timer0.stage2 = 0; timer0.stage3 = 0; }
+  if(timer1.enable.raise(data.bit(1)))  { timer1.stage2 = 0; timer1.stage3 = 0; }
+  if(!timer2.enable.raise(data.bit(2))) { timer2.stage2 = 0; timer2.stage3 = 0; }
+  //  ^ negated, and only here
+  ```
+
+  `raise()` is true on a 0→1 transition, so timers 0 and 1 reset their counters **on** a raise — the
+  documented behaviour. Timer 2 resets on **anything except** a raise, so every later `$F1` write
+  clears it, *including the write that stops the timer*. Both rows enable timer 2, run an interval,
+  write `$F1` again to stop it, then read `$FF` — and in ares that stopping write has already zeroed
+  `T2OUT`.
+
+  **ares is internally inconsistent**, which is the strongest evidence available that this is a stray
+  `!` rather than intent: its own timers 0 and 1 do the un-negated version, and RustySNES, snes9x and
+  Mesen2 all treat the three identically (`rustysnes-apu/src/lib.rs`'s `0x01` arm resets
+  `stage2`/`stage3` only when `raised`).
+
+  It took the third opinion to see. With only snes9x and Mesen2 both rows passed everywhere and there
+  was nothing to investigate — which is the case for having built the ares host, made concrete.
+
 - **`E3.06` now records the counts it compares, and that turned an ares disagreement into a
   measurement.** The row asserts timer 2 ticks ~8x timer 0 over one interval, with a band of `8..15`
   — and `TnOUT` is **four bits**, so the band ends one tick short of its own wrap. That tightness is

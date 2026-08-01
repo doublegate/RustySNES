@@ -39,8 +39,8 @@ obvious from the tally and it changes what each row means:
 | `C7.05` | 1 | snes9x (code **2** — a different failure) | 2-vs-2, and the two dissenters disagree with each other |
 | `C7.10` | 1 | snes9x | **2-vs-2** — RustySNES + Mesen2 against snes9x + ares |
 | `F1.10` | 2 | snes9x | **2-vs-2** (but see the caveat below) |
-| `E8.02` | 3 | nobody | ares alone |
-| `E3.06` | 2 | nobody | ares alone — **but see below: probably a wrap, not a rate** |
+| `E8.02` | 3 | nobody | ares alone — **same cause as `E3.06`, see below** |
+| `E3.06` | 2 | nobody | ares alone — **an ares bug, found by this cart** |
 
 So ares is *corroborating snes9x* on three rows rather than standing alone, and only `E8.02` and
 `E3.06` are genuinely ares-only. **Nothing here is adjudicated** — this is the shape of the
@@ -53,7 +53,37 @@ does not involve controller state at all. The claim came from the Mesen2 known-f
 `crossval.sh`, which attributes *its* `F1.10` failure to the port-2 limitation and is itself now
 flagged as doubtful there.
 
-**`E3.06` is probably the row's fault, not ares'.** It compares timer 2's tick count against timer
+## The two ares-only rows share one cause, and it is an ares bug
+
+`E3.06` and `E8.02` both read **0** from every timer-2 slot they record. One mechanism explains
+both, and it is visible in ares' source. `ares/sfc/smp/io.cpp`, the `$F1` (CONTROL) handler:
+
+```cpp
+if(timer0.enable.raise(data.bit(0)))  { timer0.stage2 = 0; timer0.stage3 = 0; }
+if(timer1.enable.raise(data.bit(1)))  { timer1.stage2 = 0; timer1.stage3 = 0; }
+if(!timer2.enable.raise(data.bit(2))) { timer2.stage2 = 0; timer2.stage3 = 0; }
+//  ^ negated, and only here
+```
+
+`enable.raise(x)` is true on a 0→1 transition. Timers 0 and 1 reset their counters **on** a raise,
+which is the documented behaviour. Timer 2 resets on **anything except** a raise — so every later
+`$F1` write clears it, including the write that *stops* the timer.
+
+Both rows do exactly that: enable timer 2 via `$F1`, run an interval, write `$F1` again to stop it,
+then read `$FF`. In ares the stopping write has already zeroed `T2OUT`.
+
+**ares is internally inconsistent here**, which is the strongest evidence available that this is a
+stray `!` rather than intent: its own timers 0 and 1 do the un-negated version, and RustySNES,
+snes9x and Mesen2 all treat the three identically (`rustysnes-apu/src/lib.rs`, the `0x01` arm,
+resets `stage2`/`stage3` only when `raised`).
+
+**This is the first bug in a reference emulator that AccuracySNES has found**, and it took the third
+opinion to see: with only snes9x and Mesen2, both rows passed everywhere and there was nothing to
+investigate.
+
+## The row that is still weak regardless
+
+**`E3.06` also has no headroom of its own**, and that is worth fixing independently of ares. It compares timer 2's tick count against timer
 0's over one interval, and `TnOUT` is four bits. The band is `8..15`, so it ends one tick short of
 its own wrap — structurally, because timer 0 must tick at least once and one timer-0 period is eight
 timer-2 periods. The row now records both counts: RustySNES reads timer 2 = **10**, ares reads
