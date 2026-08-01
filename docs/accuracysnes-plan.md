@@ -626,6 +626,37 @@ threaded to it. Expect goldens to move, and note that a previous attempt at the 
 mapping change was reverted for exactly that reason — so the guard test named in the roadmap lands
 **first**, before `dot_length` is touched.
 
+#### Group E — the batch to author next, picked against what the oracle can adjudicate
+
+Chosen 2026-08-01, now that both halves of the Mesen2 oracle arbitrate. Two corrections to the
+`v1.29.0` scoping first, both material:
+
+1. **"34 rows need new SPC700 emitters" overstates it.** `gen/src/tests/apu.rs` already has
+   `dsp_write` (3309) and `dsp_read_to` (3315), and `apu_upload`/`release_to_ipl` are in place. Any
+   row whose observable is a **DSP register** therefore needs no new opcode encoding at all — the
+   emitter gap is real only for timer/GAIN/echo-coefficient *opcodes*, not for DSP access.
+2. **Pick DSP-observable rows first**, because they are the ones the working oracle can arbitrate:
+   a verdict byte is scored on-cart and now cross-checked by MesenCE and snes9x together.
+
+**The batch, in order:**
+
+| row | assertion | why first |
+|---|---|---|
+| `E8.01` | KON/KOFF polled every **second** sample (16 kHz) `[ERRATA]` | pure DSP-register observable; the errata flag means the reference is explicit, and a 1-sample granularity is measurable through ENDX/ENVX without new opcodes |
+| `E9.02` | noise output is **highpass-filtered** `[ERRATA]` | DSP-observable via OUTX on a NON voice; errata-flagged, so the expected behaviour is stated rather than inferred |
+| `E5.06` | BRR 15-bit wrap: clamp to 16 bits, then `+4000h..+7FFFh → -4000h..-1` | already has decoder scaffolding from the landed `E5` rows |
+
+**Explicitly NOT first: `E1.11`** ("TSET1/TCLR1 read the target twice"). Inspected and set aside as a
+likely **vacuous** row: the second read is a dummy, and on a `$FD`-`$FF` timer-output target the
+first read has already cleared the counter, so the second observes and changes nothing. The timer
+cannot increment between two reads six cycles apart. Unless a distinguishing observable is found
+first, this is the shape [[accuracysnes-vacuous-test-trap]] exists to prevent — design the observable
+before writing the row.
+
+**Before authoring any of them,** settle `A2.10` above. It is the only unexplained reference
+disagreement in the battery, and a row batch authored while one row is unexplained risks attributing
+a new failure to the wrong cause.
+
 #### First arbitrated finding: `A2.10` — Mesen2 is the outlier, 2-vs-1
 
 The moment the oracle started working it produced a result the project has never been able to see.
