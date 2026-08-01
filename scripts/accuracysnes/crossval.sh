@@ -179,28 +179,20 @@ SNES9X_KNOWN_FAILURES=14
 #                          | cannot pass here. Covered by the in-repo harness and snes9x, which do
 #                          | drive both ports. See that script's comment for the full account.
 #
-#   idx263  E8.01  code 4  | The half-sample KON phase shift moves the measured key-on delay on
-#                          | RustySNES, snes9x and MesenCE (8 vs 7) and does not move it on Mesen2.
-#                          | snes9x is independent of the Mesen lineage, so the majority is not
-#                          | self-referential -- but MesenCE is a maintained FORK of Mesen, so this
-#                          | is not four independent opinions either. Recorded as a divergence
-#                          | rather than declared settled: the discriminator is ares (bsnes's
-#                          | libretro core exposes no SYSTEM_RAM, so it cannot score the battery).
-#                          | If ares sides with the majority this stays; if it sides with Mesen2,
-#                          | E8.01's premise is wrong and the row comes out.
-#                          |
-#                          | UNEXPLAINED, and it is why E8.01 is not merged: on the PAL image the
-#                          | SAME Mesen2 build PASSES it (only F1.03 fails there, at frame 422).
-#                          | The DSP's 32 kHz sample rate is region-independent, so a true
-#                          | KON-poll-rate assertion should not care which image it runs on. A row
-#                          | that flips with the region is encoding a timing PHASE, not the poll
-#                          | rate -- the trap docs/accuracysnes-plan.md records. Resolve that before
-#                          | trusting either verdict.
-MESEN2_KNOWN_FAILURES=3
+#   E8.01 used to be a third entry here, and is not any more. Its two rejected drafts asserted
+#   something a phase the cart cannot control got to decide -- the delay from a KON write to the
+#   voice starting is a sawtooth in that phase -- so the row passed on the PAL image and failed on
+#   the NTSC one of the SAME build, which is the signature of a test measuring its own timing rather
+#   than the hardware's. The write-cancellation sweep that replaced it has an answer no phase can
+#   move, and Mesen2 now agrees with it. Kept as a note rather than deleted: "a reference disagrees"
+#   was the wrong conclusion, and the record of that is worth more than the line it saves.
+MESEN2_KNOWN_FAILURES=2
 
-# The PAL image's own count. Only idx279 F1.03 fails there -- the port-2 limitation again. Set
-# separately rather than reusing the NTSC constant precisely because the two differ, and that
-# difference is the E8.01 region asymmetry noted above.
+# The PAL image's own count: only F1.03 fails there, so F1.10 passes on PAL and fails on NTSC under
+# the same port-2 limitation. That asymmetry has NOT been explained and is recorded as an open
+# question rather than dressed up -- it is the same shape as the region flip that turned out to be
+# E8.01's whole problem, and it deserves the same suspicion. Set separately rather than reusing the
+# NTSC constant because the two genuinely differ, and a shared constant would hide it.
 MESEN2_PAL_KNOWN_FAILURES=1
 
 # --- snes9x, via the libretro host --------------------------------------------------------------

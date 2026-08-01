@@ -2417,6 +2417,15 @@ Provenance: **Documented** (fullsnes, S-DSP BRR filters; anomie's DSP doc). Kind
 |---|---|---|
 | 1 | `$02` | filter 1 did not settle well above its constant input — a single-digit reading is filter 0's answer, so the filter was not applied |
 
+### E5.06 — BRR wraps at 15 bits
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc: the decoded sample is clamped to 16 bits and then stored as 15, so +4000h..+7FFFh becomes -4000h..-1 and the sign is lost). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | not one of the sixty-four OUTX readings was non-zero, so the voice never sounded and the sign test below is about silence rather than about the decoder |
+| 2 | `$04` | sixty-four OUTX readings from a filter driven only by positive nibbles all carried the same sign, so the decoded sample settled instead of wrapping: the store is saturating where hardware drops the sign bit at fifteen bits |
+
 ### E5.13 — Released voices decode
 
 Provenance: **Documented** (fullsnes and anomie's DSP doc: the BRR decoder advances on the pitch clock regardless of the envelope; voices never actually stop decoding). Kind: scored.
@@ -2527,16 +2536,13 @@ Provenance: **Documented** (SNESdev Wiki, S-DSP envelopes; fullsnes; anomie's DS
 |---|---|---|
 | 1 | `$02` | the envelope was not zero well after key-off, so release did not run to silence |
 
-### E8.01 — KON poll rate is 16 kHz
+### E8.01 — KON examined at 16 kHz
 
 Provenance: **Documented** (fullsnes and anomie's DSP doc [ERRATA]: the key-on/key-off registers are examined once every two output samples, giving a 16 kHz effective poll rate). Kind: scored.
 
 | Code | Byte | Meaning |
 |---|---|---|
-| 1 | `$02` | a voice was still sounding when one of E8.01's key-ons was armed, so that phase measured an envelope that never reached silence and says nothing about the KON poll rate |
-| 2 | `$04` | E8.01 phase A's key-on delay is outside the measured band (it reads 8), so the instrument is not timing a key-on from silence and the phase comparison below means nothing |
-| 3 | `$06` | E8.01 phase B's key-on delay is outside the measured band (it reads 7), so the instrument is not timing a key-on from silence and the phase comparison below means nothing |
-| 4 | `$08` | shifting the key-on one output sample later did not change the measured delay, so KON is being polled every sample (32 kHz) rather than every second sample (16 kHz) |
+| 1 | `$02` | eight KON writes 24 SPC cycles apart started more than five voices, so more than four examinations fell inside the burst -- KON is being read every output sample rather than every second one. A count of zero or one instead means the sweep never ran |
 
 ### E8.02 — Key-on takes 5 samples
 
@@ -2645,6 +2651,17 @@ Provenance: **Documented** (fullsnes, SPC700 TEST register; ares and bsnes smp/t
 |---|---|---|
 | 1 | `$02` | timer 0 advanced while TEST bit 0 was set, so the halt bit is being modelled as ordinary storage rather than as a control |
 | 2 | `$04` | timer 0 did not advance with TEST back at its reset value, so the halted reading above says nothing about the halt bit |
+
+### E9.02 — Noise output is bipolar
+
+Provenance: **Documented** (fullsnes and anomie's DSP doc [ERRATA]: the noise output is highpass-filtered as a consequence of the 15-bit shift register being interpreted as the top bits of a signed 16-bit sample). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the frozen noise reading is not negative, so the LFSR was not at the $4000 seed and the step below has no known starting point -- E9.01 covers that reading itself |
+| 2 | `$04` | enabling the noise clock for 48 output samples did not change the output at all, so the LFSR never stepped and the sign test below would be comparing the seed with itself |
+| 3 | `$06` | one step of the noise register did not flip the output's sign, so the register's top bit is not the output's sign bit: the core is emitting the 15-bit value directly, which is the DC-heavy noise the errata's highpass remark exists to exclude |
+| 4 | `$08` | the noise output turned positive after one step but is not the seed shifted right once or twice, so the output is some other function of the register than its top fifteen bits |
 
 ## Group F
 
