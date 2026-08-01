@@ -238,8 +238,21 @@ MESEN2_PAL_KNOWN_FAILURES=1
 #                  | dissenters do not even agree with each other about how it is wrong.
 #   C7.10  code 1  | The Uniracers OAM-address takeover. snes9x fails it identically; Mesen2 models
 #                  | it and RustySNES does too. 2-vs-2.
-#   F1.10  code 2  | The auto-read start race. snes9x, Mesen2 AND ares all fail it — see the F1.10
-#                  | entry under MESEN2_KNOWN_FAILURES for why that leaves RustySNES passing alone.
+#   F1.10  code 2  | The auto-read start race — and it is EXCLUDED from the count below rather than
+#                  | carried in it, because on ares its verdict is not reproducible. MEASURED
+#                  | 2026-08-01, same binary and same image, eight runs at HEAD: `04` every time.
+#                  | Adding `E9.09` — an unrelated APU row — made it read `01` on two runs of five
+#                  | and `04` on the other three. The row samples `$4212` right at the vblank edge,
+#                  | so the cart's execution phase decides it and any change anywhere ahead of
+#                  | Group F moves that phase. Mesen2 showed the same thing from the other side
+#                  | (see MESEN2_KNOWN_FAILURES): its `F1.10` verdict flipped to PASSING when
+#                  | `E3.06` was rewritten. A count that includes this row is a gate that flakes on
+#                  | work that has nothing to do with it, so the count excludes it BY NAME, resolved
+#                  | through SOURCE_CATALOG.tsv at run time — the catalogue index is the unstable
+#                  | key and must never be baked in. Two of three references now demonstrate the
+#                  | row's cross-host verdict carries no information; RustySNES passes it because
+#                  | of a deliberate fix, and that stands, but pinning its sampling point is the
+#                  | only thing that would make the references' verdicts mean anything.
 #
 # The fifth is a bug in ares rather than a disagreement:
 #
@@ -264,7 +277,14 @@ MESEN2_PAL_KNOWN_FAILURES=1
 # absolute counts -- RustySNES and ares now report the identical 6 and 46. The row proves ares'
 # timer 2 does run at 64 kHz; the old instrument could not see it. A ceiling in the instrument reads
 # exactly like a defect in the thing measured.
-ARES_KNOWN_FAILURES=4
+#
+# Three, not four: `F1.10` is excluded by name — see its entry above.
+ARES_KNOWN_FAILURES=3
+
+# The row whose ares verdict is not reproducible, excluded from the count above. Named, never
+# indexed: the catalogue index moves whenever a test is added ahead of it, which is exactly the
+# circumstance that exposed the problem.
+ARES_UNSTABLE_ROW=F1.10
 
 # Where the built host lives. Not built by this script: it is a C++ link against ares' static libs
 # and takes minutes, so it is opt-in via `scripts/accuracysnes/ares_host/build.sh` and this block
@@ -324,8 +344,16 @@ if [[ -x $ARES_HOST ]]; then
     # so `("0x" $3) % 2` is 0 for every byte and counts all 337 non-skipped rows as failures. That is
     # a gate reporting catastrophe out of a parsing bug, which is worth the comment.
     # $FF is SKIP and $00 is NOT-RUN; both are excluded, matching how the other hosts count.
+    # ARES_UNSTABLE_ROW is excluded too, resolved from its ID here rather than written as an index.
+    skip=$(awk -F'\t' -v id="$ARES_UNSTABLE_ROW" '$2 == id { print $1; exit }' \
+        tests/roms/AccuracySNES/SOURCE_CATALOG.tsv)
+    if [[ -z $skip ]]; then
+        echo "ares: $ARES_UNSTABLE_ROW is not in SOURCE_CATALOG.tsv — the exclusion is stale" >&2
+        exit 1
+    fi
     n=$("$ARES_HOST" "$ROM" 900 2>/dev/null |
-        awk '$1 == "status" && $3 != "ff" && $3 != "00" && $3 ~ /[02468aceACE]$/ { c++ }
+        awk -v skip="$skip" '$1 == "status" && $2 != skip && $3 != "ff" && $3 != "00" &&
+                             $3 ~ /[02468aceACE]$/ { c++ }
              END { print c + 0 }')
     if [[ $n -eq $ARES_KNOWN_FAILURES ]]; then
         echo "ares: OK ($n known divergence(s) — see ARES_KNOWN_FAILURES above)"

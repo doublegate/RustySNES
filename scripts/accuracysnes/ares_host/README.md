@@ -95,6 +95,28 @@ timer-2 periods. The row now records both counts: RustySNES reads timer 2 = **10
 exactly correct 8:1 ratio, so the wrap reading is the likelier one. The row cannot distinguish the
 two, and now says so.
 
+## `F1.10`'s ares verdict is not reproducible, and is excluded from the gate
+
+**Measured 2026-08-01.** At the commit before `E9.09` landed, ares failed `F1.10` on eight runs out
+of eight, code `04`. Adding `E9.09` — an APU row with nothing to do with controller ports — made it
+read `01` on two runs of five and `04` on the other three, same binary, same image.
+
+The row samples `$4212` right at the vblank edge, so where the cart happens to be decides it, and
+anything added ahead of Group F moves that. Mesen2 showed the same thing from the other side: its
+`F1.10` verdict flipped to **passing** when `E3.06` was rewritten. Two of three references now
+demonstrate that this row's cross-host verdict carries no information.
+
+`crossval.sh` therefore excludes `F1.10` from `ARES_KNOWN_FAILURES` **by name**, resolved through
+`SOURCE_CATALOG.tsv` at run time — the catalogue index moves whenever a test is added ahead of it,
+which is exactly the circumstance that exposed the problem. The constant is 3, and the count is
+reproducible across runs again.
+
+RustySNES passes the row because of a deliberate fix, and that stands. But pinning its sampling
+point is the only thing that would make any reference's verdict on it mean anything.
+
+The paragraph below is the reading that this supersedes, kept because it is the claim that was
+published and it should be visible that it was withdrawn rather than quietly edited away.
+
 **`F1.10` is the interesting one, and it is now measured.** fullsnes says the automatic read begins
 ~dot 32.5–95.5 of the first vblank line rather than at the vblank edge. snes9x fails the row
 (documented instant-latch), ares fails it, and `mesen_failing_set_probe.lua` confirms **Mesen2 fails

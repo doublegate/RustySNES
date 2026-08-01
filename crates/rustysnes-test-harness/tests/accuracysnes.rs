@@ -596,7 +596,7 @@ const A5_08_SLOTS: [(u8, &str); 7] = [
 ];
 
 /// The measurement slots the `v1.29.0` Group E batch records.
-const GROUP_E_BATCH_SLOTS: [(u16, &str); 9] = [
+const GROUP_E_BATCH_SLOTS: [(u16, &str); 12] = [
     (256, "E8.01 KON sweep key-on mask   (bit 7 = voice 0)"),
     (
         257,
@@ -610,6 +610,12 @@ const GROUP_E_BATCH_SLOTS: [(u16, &str); 9] = [
     ),
     (261, "E5.06 non-zero OUTX readings   (of 64)"),
     (262, "E5.06 the last of the 64 readings"),
+    (263, "E9.09 echo byte 1 inside the buffer, $F901"),
+    (
+        264,
+        "E9.09 the same byte one wrap later, $0001 (equal, or the pointer did not wrap)",
+    ),
+    (265, "E9.09 its low byte at $0000 (E9.12 masks bit 0)"),
     (266, "E3.06 timer 0 ticks over the interval"),
     (
         267,

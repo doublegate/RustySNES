@@ -111,6 +111,7 @@ pub fn all() -> Vec<Test> {
         e9_12(),
         e9_15(),
         e9_05(),
+        e9_09(),
         e9_13(),
         e9_10(),
         e9_17(),
@@ -6737,6 +6738,212 @@ fn e9_05() -> Test {
         Kind::Scored,
         None,
     )
+}
+
+/// `E9.09` — the echo write pointer is a **16-bit address that wraps**, so a buffer placed at the
+/// top of APU RAM carries on into page zero `[ERRATA]`.
+///
+/// # The claim
+///
+/// `ESA` names a page and `EDL` a length, and the pointer is `(ESA << 8) + offset` computed in
+/// sixteen bits. Nothing clamps it at `$FFFF`. A driver that sets `ESA` too high therefore does not
+/// get a short buffer or a silently-dropped write — it gets the DSP writing four bytes per sample
+/// over the bottom of its own RAM, including the direct page and the `$FFC0+` region the IPL ROM
+/// shadows. It is an errata precisely because the failure is remote from its cause: the sound
+/// driver corrupts variables it never addressed.
+///
+/// # Making the wrap cover page zero and nothing else
+///
+/// The obvious arrangement — `ESA = $FF`, one 2 KiB buffer — wraps after 256 bytes and then writes
+/// **1,792 bytes** of low RAM: page zero, the sample directory, the stack, and the running program
+/// at `$0200`. The test would destroy itself, and the amount of damage would depend on how long it
+/// ran, which is a timing window this row has no reason to need.
+///
+/// `ESA = $F9` with the same 2 KiB length instead ends the buffer *exactly* at the 16-bit boundary:
+///
+/// | offset | address |
+/// |---:|---|
+/// | 0 | `$F900` |
+/// | 1788 | `$FFFC` — the last entry below the boundary |
+/// | 1792 | `$0000` — the wrap |
+/// | 2044 | `$00FC` — the last entry, and then the offset resets |
+///
+/// So the wrapped part is page zero and **precisely** page zero. The directory (`$0100`), the stack
+/// (`$01EF` down) and the program image (`$0200`) are all out of reach however long it runs, which
+/// is what lets the program simply wait for a whole buffer cycle rather than time a window.
+///
+/// # No phase to get wrong
+///
+/// The echo offset free-runs whether or not writes are enabled — `FLG` bit 5 gates the store, not
+/// the pointer — so the program cannot know where in the buffer it starts. It does not need to: one
+/// full cycle is 512 samples and the program waits **768**, so every entry including the wrapped
+/// ones is written whatever the starting phase. This is the [`e8_01`] lesson applied before the
+/// fact: prefer a construction whose answer is the same for every phase over one that measures the
+/// phase and hopes.
+///
+/// # What the two readings are
+///
+/// The voice is a constant sample at a fixed level with `EFB = 0`, so **every entry in the buffer
+/// holds the identical four bytes**. That is what makes the row a comparison rather than a guess:
+///
+/// | port | address | meaning |
+/// |---|---|---|
+/// | 1 | `$F901` | the buffer proper — the guard that echo wrote anything at all |
+/// | 2 | `$0001` | page zero, one wrap later — must be the same byte |
+/// | 3 | `$0000` | its low byte, recorded (`E9.12` owns the masked bit) |
+///
+/// Page zero is painted with `$A5` first, so "never written" is distinguishable from "written as
+/// zero" — the same reason [`e9_05`] marks its window.
+///
+/// # It puts page zero back
+///
+/// The program re-zeroes `$0000`-`$00EF` before releasing the APU, restoring what the IPL's
+/// power-on fill left there. Nothing in the battery is known to depend on it, but a test that
+/// leaves 240 bytes of another subsystem's scratch overwritten is one whose effects show up
+/// somewhere else, attributed to something else — and the fill costs eight bytes.
+fn e9_09() -> Test {
+    /// `ESA`, chosen so the buffer's last byte is `$FFFF` and the wrap covers page zero exactly.
+    const ECHO_PAGE: u8 = 0xF9;
+    /// Where that page starts. Derived, so the two cannot drift apart.
+    const ECHO_ADDR: u16 = (ECHO_PAGE as u16) << 8;
+    /// The paint. Any value the echo cannot write works; this one is neither `$00` nor `$FF`.
+    const MARKER: u8 = 0xA5;
+    /// Page zero above this is the register block, and painting *that* would write `$F1`/`$F2`.
+    const PAGE_ZERO_RAM: u8 = 0xF0;
+    /// Whole buffer cycles to wait, over the one the wrap needs. 512 samples each.
+    const CYCLES_WAITED: u8 = 16;
+    /// The sample directory, on the stack page well below the stack itself.
+    const DIR_ADDR: u16 = (DIR_PAGE as u16) << 8;
+
+    let mut prog = Spc::new();
+    let addr = prog.data_first(IMAGE_BASE, &constant_sample(0xC, 0x7));
+    prog.mov_x_imm(0xEF).mov_sp_x();
+    let [lo, hi] = addr.to_le_bytes();
+    prog.mov_a_imm(lo).mov_abs_a(DIR_ADDR);
+    prog.mov_a_imm(hi).mov_abs_a(DIR_ADDR + 1);
+
+    e9_09_configure(&mut prog, ECHO_PAGE);
+    e9_09_paint_page_zero(&mut prog, MARKER, PAGE_ZERO_RAM);
+
+    dsp_write(&mut prog, 0x6C, 0x00); // FLG: echo writes on
+    for _ in 0..CYCLES_WAITED {
+        prog.delay(0x00); // 1536 SPC cycles, 48 output samples
+    }
+    dsp_write(&mut prog, 0x6C, 0x20); // and off again, so both reads are of a settled buffer
+
+    prog.mov_a_abs(ECHO_ADDR + 1).mov_dp_a(PORT1);
+    prog.mov_a_abs(0x0001).mov_dp_a(PORT2);
+    prog.mov_a_abs(0x0000).mov_dp_a(PORT3);
+
+    e9_09_paint_page_zero(&mut prog, 0x00, PAGE_ZERO_RAM);
+    prog.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(263, "E9.09 echo byte 1 inside the buffer proper, at $F901");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(264, "E9.09 the same byte one wrap later, at $0001");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.record(265, "E9.09 its low byte at $0000, which E9.12 masks");
+
+    a.c("The guard: echo has to have written the buffer at all. Without this a page zero that");
+    a.c("never changed and an echo that never ran read exactly alike.");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x40,
+        0x7E,
+        "the echo buffer's own second byte is not the large positive value the constant sample \
+         puts there, so echo writes never happened and the page zero reading below is about \
+         nothing",
+    );
+    a.c("First the specific wrong model, which gets its own code: an address masked or clamped");
+    a.c("inside the ESA page leaves the paint untouched.");
+    a.l("sep #$20");
+    a.l("lda f:$7E0101");
+    a.l("cmp #$A5");
+    a.fail_if_eq(
+        "page zero still held the paint after a full buffer cycle, so the echo write pointer \
+         never left the ESA page — it is being masked or clamped at the 16-bit boundary instead \
+         of wrapping through it",
+    );
+    a.c("Then the row itself. Every entry is the same four bytes, so the wrapped one must equal");
+    a.c("the one inside the buffer -- 'something changed' is not the same claim.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.l("sec");
+    a.l("sbc f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16(
+        0x0000,
+        "page zero changed but does not hold the same echo entry the buffer does, so whatever \
+         reached it is not this buffer wrapping through the 16-bit boundary",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E9.09",
+        'E',
+        "Echo wraps into page 0",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc [ERRATA]: the echo buffer address is 16-bit and wraps, \
+             so a buffer that runs past $FFFF continues at $0000 over page zero and the IPL \
+             shadow",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Emit [`e9_09`]'s DSP configuration: one loud constant voice routed into a 2 KiB echo buffer.
+///
+/// `EFB` and both `EVOL`s are zero, so every entry the buffer receives is the voice mix and nothing
+/// else — which is what lets the row compare a wrapped entry against an unwrapped one byte for byte
+/// instead of merely observing that something changed.
+fn e9_09_configure(prog: &mut Spc, echo_page: u8) {
+    dsp_write(prog, 0x6C, 0x20); // FLG: echo writes off during setup
+    dsp_write(prog, 0x6D, echo_page); // ESA
+    dsp_write(prog, 0x7D, 0x01); // EDL = 1: 2048 bytes, ending at the 16-bit boundary
+    dsp_write(prog, 0x2C, 0x00); // EVOL L — the echo is read, never heard
+    dsp_write(prog, 0x3C, 0x00); // EVOL R
+    dsp_write(prog, 0x0D, 0x00); // EFB: no feedback, so every entry is the voice mix alone
+    dsp_write(prog, 0x5D, DIR_PAGE); // DIR
+    dsp_write(prog, 0x0C, 0x7F); // MVOLL
+    dsp_write(prog, 0x1C, 0x7F); // MVOLR
+    dsp_write(prog, 0x3D, 0x00); // NON
+    dsp_write(prog, 0x2D, 0x00); // PMON
+    dsp_write(prog, 0x00, 0x7F); // VOL L
+    dsp_write(prog, 0x01, 0x00); // VOL R — one channel is enough to read
+    dsp_write(prog, 0x02, 0x00); // PITCH low
+    dsp_write(prog, 0x03, 0x10); // PITCH high: one sample per output sample
+    dsp_write(prog, 0x04, 0x00); // SRCN
+    dsp_write(prog, 0x06, 0x00); // ADSR2
+    dsp_write(prog, 0x07, 0x7F); // GAIN: direct, full scale
+    dsp_write(prog, 0x05, 0x00); // ADSR1: GAIN is in charge
+    dsp_write(prog, 0x4D, 0x01); // EON: voice 0 feeds the echo
+    dsp_write(prog, 0x4C, 0x01); // KON
+    dsp_write(prog, 0x4C, 0x00); // and cleared, so the voice is not re-keyed forever
+}
+
+/// Emit: write `value` over `$0000`-`$00xx`, stopping below the register block at `$00F0`.
+///
+/// `MOV (X), A` addresses the direct page, so `CLRP` first — every program here runs with `P`
+/// clear, but this loop is the only place where a stale `P` would put 240 bytes somewhere else
+/// entirely instead of producing a wrong number.
+fn e9_09_paint_page_zero(prog: &mut Spc, value: u8, limit: u8) {
+    prog.clrp();
+    prog.mov_a_imm(value);
+    prog.mov_x_imm(0x00);
+    let loop_top = prog.here();
+    prog.mov_x_ind_a(); // MOV (X), A — $0000 + X, and it touches no flags
+    prog.inc_x();
+    prog.cmp_x_imm(limit);
+    prog.bne_back(loop_top);
 }
 
 /// Emit [`e9_13`]'s DSP configuration: a left-only voice, echo feedback on, and one FIR tap.
