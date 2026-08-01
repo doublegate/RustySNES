@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A headless ares host: builds and links, does not yet run — and that changes the status of the
+  project's most-cited blocker.** Several findings are stuck at 2-versus-1 with no tiebreaker,
+  because this project's provenance rule counts ares and bsnes as *one* reference: `A2.10`, and the
+  OBJ-interlace field parity where RustySNES's `row + field` and `$213F` bit 7 are both ares'. Both
+  name the same missing thing — ares actually running the cart — and the recorded reason it had not
+  happened was that ares would have to be built and had no headless mode.
+
+  The first half of that is now known to be cheap. `-DARES_CORES=sfc` configures and builds the SFC
+  core standalone in a couple of minutes; `ares::Platform` is a small interface whose methods all
+  have no-op defaults, so a headless host is ~120 lines; it links; and the cart's results block is
+  reachable by construction at `ares::SuperFamicom::cpu.wram[0xF000 + n]`. What remains is a crash
+  during setup — a bounded debugging job, not a feasibility question.
+
+  Committed under `scripts/accuracysnes/ares_host/` **labelled as incomplete**, with the build
+  recipe and the two traps that each cost a round: `hiro` is not optional for a headless host
+  (`mia/mia.hpp` includes it and its generated resource header does not exist until hiro is built
+  once), and `nall/main.hpp` must be included by the host translation unit or the link fails with a
+  bare `undefined reference to 'main'` out of `crt1.o`. The README names the three likely causes of
+  the crash in the order worth trying.
+
 - **The H-IRQ comparator moves into the clock domain (`T-06-A`), and nothing below the long dots
   moves with it.** `HIRQ_TRIGGER_DELAY = 4` was a *dot-domain rounding* of ares'
   `hcounter(10) == (HTIME+1)<<2` — exact only while every dot is four clocks, which stopped being
