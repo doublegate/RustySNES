@@ -37,6 +37,10 @@ fn next_prog_id() -> usize {
 }
 
 /// Every Group E test, in menu order.
+// One line per registered test, and the ORDER is load-bearing in three places (see the comments
+// inside): splitting it to satisfy the length lint would put those constraints on two sides of a
+// function boundary, which is exactly where an ordering rule stops being visible.
+#[allow(clippy::too_many_lines)]
 #[must_use]
 pub fn all() -> Vec<Test> {
     vec![
@@ -1659,8 +1663,9 @@ fn e9_02() -> Test {
 
     dsp_read_to(&mut p, 0x09, PORT1); // OUTX with the register still at its seed
 
-    // One step, or two. Rate 19 fires every 32 output samples; one delay block is 48 of them.
-    dsp_write(&mut p, 0x6C, 0x20 | 19);
+    // One step, or two. Rate 19 (`$13`) fires every 32 output samples; one delay block is 48 of
+    // them, and a half-open 48-sample window holds one or two multiples of 32 whatever the phase.
+    dsp_write(&mut p, 0x6C, 0x20 | 0x13);
     p.delay(0x00);
     dsp_write(&mut p, 0x6C, 0x20); // frozen again, so the read below is of a settled value
     dsp_read_to(&mut p, 0x09, PORT2);
