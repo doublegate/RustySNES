@@ -709,9 +709,19 @@ implementations and does not move it on Mesen2. That is Mesen2 alone differing, 
 
 **Do not treat that as proof the row is right.** Three-agree-one-differs is the *favourable* shape,
 but the standing caution applies: a harness bug upstream of an implementation produces it too, and
-did once here. The cheap discriminator is ares or bsnes as a fourth opinion. If they move with the
-majority, `E8.01` is correct and Mesen2 wants a `MESEN2_KNOWN_FAILURES` entry alongside `A2.10`; if
-they side with Mesen2, the offset is not doing what the row claims.
+did once here.
+
+**The fourth opinion was attempted and is blocked by a specific, checkable obstacle.**
+`ref-proj/bsnes/bsnes/out/bsnes_libretro.so` is built, and `libretro_crossval.c` takes any core as
+`argv[1]` — but the host exits 255 with *"core exposes no usable SYSTEM_RAM (0 bytes, need 131072)"*.
+bsnes's libretro core does not publish WRAM through `retro_get_memory_data`, so the battery's
+verdicts cannot be read out of it at all. ares is present as source only, not built.
+
+So a fourth opinion needs one of: building ares (source is in `ref-proj/ares`), driving bsnes
+standalone through its own debugger rather than libretro, or finding a bsnes libretro build that
+exposes `RETRO_MEMORY_SYSTEM_RAM`. Until one exists, `E8.01` stays on `wip/e8-01-broken-band` — it
+passes on three implementations and the fourth's disagreement is characterised, but the discriminator
+that would settle which side is right has not been run.
 
 **Read the status encoding before counting failures.** `mesen_crossval.lua` treats **odd** bytes as
 PASS (odd ≠ `$01` being *"PASS variant n"*, `n = b/2`), **even** as *"FAIL code b/2"*, `$00` as
