@@ -40,7 +40,7 @@ obvious from the tally and it changes what each row means:
 | `C7.10` | 1 | snes9x | **2-vs-2** — RustySNES + Mesen2 against snes9x + ares |
 | `F1.10` | 2 | snes9x | **2-vs-2** (but see the caveat below) |
 | `E8.02` | 3 | nobody | ares alone |
-| `E3.06` | 2 | nobody | ares alone |
+| `E3.06` | 2 | nobody | ares alone — **but see below: probably a wrap, not a rate** |
 
 So ares is *corroborating snes9x* on three rows rather than standing alone, and only `E8.02` and
 `E3.06` are genuinely ares-only. **Nothing here is adjudicated** — this is the shape of the
@@ -52,6 +52,14 @@ port 1 — and `F1.10` code 2 means "`$4212` read busy at the very start of the 
 does not involve controller state at all. The claim came from the Mesen2 known-failure grouping in
 `crossval.sh`, which attributes *its* `F1.10` failure to the port-2 limitation and is itself now
 flagged as doubtful there.
+
+**`E3.06` is probably the row's fault, not ares'.** It compares timer 2's tick count against timer
+0's over one interval, and `TnOUT` is four bits. The band is `8..15`, so it ends one tick short of
+its own wrap — structurally, because timer 0 must tick at least once and one timer-0 period is eight
+timer-2 periods. The row now records both counts: RustySNES reads timer 2 = **10**, ares reads
+**0**, and 0 is what 16 reads as. ares' `Timer<128>`/`Timer<128>`/`Timer<16>` declarations are an
+exactly correct 8:1 ratio, so the wrap reading is the likelier one. The row cannot distinguish the
+two, and now says so.
 
 **`F1.10` is the interesting one, and it is now measured.** fullsnes says the automatic read begins
 ~dot 32.5–95.5 of the first vblank line rather than at the vblank edge. snes9x fails the row

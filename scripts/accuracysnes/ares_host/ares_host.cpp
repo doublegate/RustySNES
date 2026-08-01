@@ -172,6 +172,14 @@ auto main(Arguments arguments) -> void {
   for(u32 i = 0; i < count && i < 512; i++) {
     printf("status %u %02x\n", i, wram[RESULTS + 0x20 + i]);
   }
+  // The measurement channel, which is where a row puts the numbers a one-byte verdict cannot carry.
+  // Emitted for every slot rather than a curated list: this host exists to arbitrate disagreements,
+  // and which slot matters is decided by whichever row turns out to disagree.
+  const u32 MEAS = 0xE200;
+  for(u32 i = 0; i < 512; i++) {
+    u32 v = wram[MEAS + i * 2] | (wram[MEAS + i * 2 + 1] << 8);
+    if(v) printf("meas %u %u\n", i, v);
+  }
   printf("ACCURACYSNES-END\n");
 }
 }

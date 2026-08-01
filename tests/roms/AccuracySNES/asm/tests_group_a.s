@@ -22973,10 +22973,23 @@ CATALOG_IMPL = 1
     ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
     lda #$A5
     sta APUIO0
-    ; Timer 0 first: one tick, maybe two. Zero would make the ratio below unmeasurable.
+    ; Record both counts before asserting on either. `TnOUT` is FOUR BITS, so timer 2's band
+    ; below ends one tick short of its wrap -- and a core whose SMP runs slightly fast crosses
+    ; it and reads a small number, which is indistinguishable from 'timer 2 is not running at
+    ; 64 kHz' unless the raw counts are kept. ares fails this row, and without these the failure
+    ; cannot be told from a real divergence.
     rep #$30
     .a16
     .i16
+    lda f:$7E0101
+    and #$00FF
+    ; record slot 266: E3.06 timer 0 ticks over the interval
+    sta f:$7EE414
+    lda f:$7E0102
+    and #$00FF
+    ; record slot 267: E3.06 timer 2 ticks over the SAME interval (TnOUT wraps at 16)
+    sta f:$7EE416
+    ; Timer 0 first: one tick, maybe two. Zero would make the ratio below unmeasurable.
     lda f:$7E0101
     and #$00FF
     cmp #$0001
@@ -22987,7 +23000,11 @@ CATALOG_IMPL = 1
     bcc :+
     jmp @fail1
   :
-    ; Timer 2 over the SAME interval: eight times the rate, so eight or more ticks.
+    ; Timer 2 over the SAME interval: eight times the rate, so eight or more ticks. The band is
+    ; 8..15 and `TnOUT` wraps at 16, which leaves NO headroom above -- and that is structural,
+    ; not a choice: timer 0 must tick at least once for the ratio to mean anything, and one
+    ; timer-0 period IS eight timer-2 periods, so timer 2 can never be below 8 and the wrap is
+    ; only a factor of two away. Measured: RustySNES 10, ares 0 -- and 0 is what 16 reads as.
     lda f:$7E0102
     and #$00FF
     cmp #$0008
@@ -23019,7 +23036,7 @@ CATALOG_IMPL = 1
     sta f:$7EE010
     jml test_restore
 @fail2:
-    ; timer 2 did not count roughly eight times what timer 0 did over the same interval, so it is not running from the 64 kHz stage — a core reading $01 here runs every timer at 8 kHz
+    ; timer 2 did not count roughly eight times what timer 0 did over the same interval, so it is not running from the 64 kHz stage — a core reading $01 here runs every timer at 8 kHz. NOTE: this row cannot distinguish that from timer 2 having WRAPPED past 16, so read slot 267 before concluding anything; ares fails here with a recorded 0
     sep #$20
     .a8
     lda #$04
