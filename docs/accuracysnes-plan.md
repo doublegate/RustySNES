@@ -626,6 +626,131 @@ threaded to it. Expect goldens to move, and note that a previous attempt at the 
 mapping change was reverted for exactly that reason — so the guard test named in the roadmap lands
 **first**, before `dot_length` is touched.
 
+#### Group E — the batch to author next, picked against what the oracle can adjudicate
+
+Chosen 2026-08-01, now that both halves of the Mesen2 oracle arbitrate. Two corrections to the
+`v1.29.0` scoping first, both material:
+
+1. **"34 rows need new SPC700 emitters" overstates it.** `gen/src/tests/apu.rs` already has
+   `dsp_write` (3309) and `dsp_read_to` (3315), and `apu_upload`/`release_to_ipl` are in place. Any
+   row whose observable is a **DSP register** therefore needs no new opcode encoding at all — the
+   emitter gap is real only for timer/GAIN/echo-coefficient *opcodes*, not for DSP access.
+2. **Pick DSP-observable rows first**, because they are the ones the working oracle can arbitrate:
+   a verdict byte is scored on-cart and now cross-checked by MesenCE and snes9x together.
+
+**The batch, in order:**
+
+| row | assertion | why first |
+|---|---|---|
+| `E8.01` | KON/KOFF polled every **second** sample (16 kHz) `[ERRATA]` | pure DSP-register observable; the errata flag means the reference is explicit, and a 1-sample granularity is measurable through ENDX/ENVX without new opcodes |
+| `E9.02` | noise output is **highpass-filtered** `[ERRATA]` | DSP-observable via OUTX on a NON voice; errata-flagged, so the expected behaviour is stated rather than inferred |
+| `E5.06` | BRR 15-bit wrap: clamp to 16 bits, then `+4000h..+7FFFh → -4000h..-1` | already has decoder scaffolding from the landed `E5` rows |
+
+**Explicitly NOT first: `E1.11`** ("TSET1/TCLR1 read the target twice"). Inspected and set aside as a
+likely **vacuous** row: the second read is a dummy, and on a `$FD`-`$FF` timer-output target the
+first read has already cleared the counter, so the second observes and changes nothing. The timer
+cannot increment between two reads six cycles apart. Unless a distinguishing observable is found
+first, this is the shape [[accuracysnes-vacuous-test-trap]] exists to prevent — design the observable
+before writing the row.
+
+**Before authoring any of them,** settle `A2.10` above. It is the only unexplained reference
+disagreement in the battery, and a row batch authored while one row is unexplained risks attributing
+a new failure to the wrong cause.
+
+#### First arbitrated finding: `A2.10` — Mesen2 is the outlier, 2-vs-1
+
+The moment the oracle started working it produced a result the project has never been able to see.
+`crossval.sh` reports `Mesen2: 1 failing test(s)`, catalogue index **11 = cart `A2.10`, "PEI does not
+page-wrap"** (scored; source: WDC datasheet + superfamicom.org addressing notes; verdict slot
+`$7EF02B`).
+
+RustySNES **passes** it and snes9x passes it too — `A2.10` is not among snes9x's 14 known
+divergences. So this is **2-vs-1 with Mesen2 as the outlier**, which inverts the usual shape: the
+standing heuristic warns that *RustySNES failing alone* means a real bug, and that is not what this
+is.
+
+**Do not yet record it as a known-good Mesen2 divergence.** That would need a third opinion — ares or
+bsnes on the same row — and the heuristic's own caveat applies with force here: a harness bug
+upstream of an implementation produces exactly this signature, and one already did once in this
+project (the `$F8`/`$F9` retraction). The cheap next step is to run the row against ares or bsnes. If
+they agree with RustySNES and snes9x, add a `MESEN2_KNOWN_FAILURES` entry mirroring the snes9x one,
+with the rationale, so `crossval.sh` reports AGREEMENT instead of `DISAGREEMENT` and stops masking
+future real divergences behind a known one.
+
+Until then `crossval.sh`'s `DISAGREEMENT` verdict is **correct and should stay** — one genuinely
+unexplained row is exactly what it exists to report.
+
+#### The Mesen oracle — the "14 of 335" reading does not reproduce
+
+Re-measured 2026-08-01 with a second, independent instrument
+(`scripts/accuracysnes/mesen_wram_probe.lua`), because every prior conclusion rested on
+`mesen_crossval.lua`'s own read with nothing checking that read.
+
+Established, and some of it overturns what was recorded here:
+
+- **MesenCE headless is not broken.** It renders the whole undisbeliever corpus
+  (`scripts/perdot_crossval.sh`, **0 skipped captures**) and runs the AccuracySNES cart to exit 0.
+  Notes treating "the Mesen oracle" as one broken thing were wrong: rendering works, and only the
+  battery read does not. Two problems, not one — which also means the scene work is **not** blocked
+  by whatever blocks the battery.
+- **MesenCE and RustySNES render the cart byte-identically** (same colour histogram) at 60, 300, 500,
+  800 and 900 frames, with and without the input contract held, and the picture is static throughout
+  in both. So **the render channel cannot observe the battery at all** — a hang and a clean run look
+  identical. Any diagnosis must go through WRAM.
+- **The battery writes no verdict at all — not 14.** At `RESULTS = $7E:F000` (snesWorkRam offset
+  `$F000`, the address `runtime.inc` defines and `mesen_crossval.lua` already uses), the magic reads
+  as bytes that **differ between runs** — uninitialised WRAM, never written — and `R_STATUS[0..39]`
+  are **all zero** at both 600 and 1500 frames. "Completes 14 of 335 and stops at `A3.03`" does not
+  reproduce, and the two `A3.03` hypotheses chased earlier were chasing a number that is not there.
+
+The question is therefore no longer "why does it stop at `A3.03`" but **"why does the battery never
+start under MesenCE"** — a different search, and one that explains why two cart-side fixes moved
+nothing.
+
+**The press-edge suspect is REFUTED.** `scripts/accuracysnes/mesen_edge_probe.lua` applies the
+contract from frame 0, 30 or 120 — the latter two manufacturing a rising edge — and all three give
+the same result at 1200 frames: the magic never reads `ACSN`, `R_DONE` never reads `$A5`, and
+`R_STATUS` holds exactly **24** non-zero bytes. The battery is not waiting for an edge. The probe is
+committed so the next attempt does not re-run a settled negative.
+
+**RETRACTED: the "24 non-zero bytes" was my own over-read.** They sit at indices **336-359**, past
+the end of a 335-entry array — I read 360 bytes and mistook what follows the array for a signal.
+
+**The real signal is the opposite one: `R_STATUS[0..334]` is ZERO while the surrounding WRAM is
+random.** MesenCE powers on with randomised WRAM (the header at `$F000` reads differently every
+run), so an all-zero status array is not the power-on state — **something zeroed it**. That
+something is `runtime.s`'s own clear loop, which means **the cart's init runs and reaches the
+pre-battery menu**. It is not dead at reset, and "the battery never starts" is more precisely "the
+cart never leaves its menu".
+
+The menu's exit condition is named in the source immediately below that loop: *"wait for Start to
+begin the battery"*. Two ways of supplying it are already ruled out — a rising edge
+(`mesen_edge_probe.lua`, frames 0/30/120 identical) and declaring `--snes.port1.type=SnesController`
+explicitly alongside port 2.
+
+**The auto-joypad suspect is also refuted, by reading the registers.** At frame 300 under
+`--testRunner`, `NMITIMEN ($4200) = $42` — **bit 0 clear**, auto-joypad *disabled* — and
+`$4218`-`$421F` all read `0000`, which is the correct value when it is off, not a fault. The cart
+says so itself: `runtime.s` line 9, *"Controller input is read MANUALLY through `$4016`, not via
+auto-joypad"*, and line 570 `stz NMITIMEN ; ... (we read $4016 by hand)`.
+
+**The software-edge theory is refuted too, at every timing tried.** The menu computes `V_PAD_NEW` as
+`HELD & ~LAST` and seeds both to the same value on entry, so a button already down yields NEW = 0
+forever — which looked like the answer. But pressing Start at frame 300 or 600 (well past any
+plausible menu entry, 2000-frame runs) changes nothing.
+
+**What remains, and it is a harness-side conclusion rather than a cart-side one:** `emu.setInput`
+from an `inputPolled` callback does not appear to reach the cart's **manual `$4016` strobe read**
+under `--testRunner`. Every host-side way of supplying the press has now been tried and the cart
+observes none of them, while the cart's own init demonstrably runs. The next step is therefore to
+verify the channel itself — drive a *minimal* ROM that does nothing but manually read `$4016` and
+write the result to WRAM, and see whether `emu.setInput` reaches it at all. If it does not, the fix
+belongs in how the runner supplies input, and no amount of cart-side change will help.
+
+Worth noting for whoever picks this up: **the in-repo harness and the snes9x libretro driver both
+work**, so this is specifically a MesenCE-runner input-plumbing problem, not a contract design
+problem.
+
 #### `A5.18` — why it is parked despite working
 
 `BRK` cannot be measured without `RTI`: a `BRK` that never returns cannot be repeated, so any

@@ -11,6 +11,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AccuracySNES: the Mesen2 oracle is FIXED — one `emu.setInput` call too many.** The battery has
+  never run under MesenCE; it now completes: `magic='ACSN'`, `R_DONE=$A5`, **335/335** status bytes
+  written, and `crossval.sh` reports `Mesen2: 1 failing test(s)` where it previously timed out.
+
+  **Root cause.** In this MesenCE build's `--testRunner`, `emu.setInput`'s port argument does **not**
+  select a controller — indices 0, 1 and 2 all land on **controller 1** (verified through the cart's
+  own `V_PAD_HELD`). `mesen_crossval.lua` called it twice, so the second call, intended for port 2,
+  **overwrote port 1**: the cart saw `PAD2_CONTRACT` (`$60A0`) on controller 1. `$60A0` contains no
+  Start, and the pre-battery menu waits for Start — so the cart booted, ran init, cleared `R_STATUS`,
+  reached the menu and sat there forever, behind a static picture that showed nothing.
+
+  Every recorded symptom follows from that one line, and several earlier conclusions were wrong
+  because of it: the "completes 14 of 335 and stops at `A3.03`" figure was an all-zero status array
+  misread, and two cart-side `A3.03` fixes were aimed at a layer that was never at fault.
+
+  **Stated, not hidden:** port 2 cannot be driven from Lua in this build, so rows depending on
+  `PAD2_CONTRACT` are not cross-validated by this runner. The in-repo harness and the snes9x libretro
+  driver drive both ports, so those rows remain covered elsewhere.
+
+  **The scene half is fixed too, and it was the same class of bug.** `mesen_scenes.lua` held **no
+  input contract at all** — no `setInput` anywhere — so the cart never left its pre-battery menu
+  there either, never ran the battery, and never reached the scene loop that follows it. The symptom
+  read as a scene-loop problem and was an input problem. With one port-1 call added:
+
+  ```
+  snes9x: 53 scene(s) match, 0 unblessed, 0 mismatched
+  Mesen2: 53 scene(s) match, 0 unblessed, 0 mismatched
+  ```
+
+  **Both halves of the oracle now arbitrate.** `docs/adr/0013` requires a golden be blessed only from
+  a render the references agree on, and for the first time both references produce one — which is the
+  gate the `v1.29.0` scene work has been waiting behind.
+
+  What remains is no longer an oracle failure but a **finding**: Mesen2 reports 1 failing test,
+  catalogue index 11 (`A2.10`), while snes9x reports only its 14 known divergences. RustySNES failing
+  alone is this project's signature for a real bug rather than a broken test — worth checking which
+  before investigating, per the standing heuristic.
+
+- **AccuracySNES oracle: the recorded diagnosis does not reproduce, and the blocker is a different
+  one.** Re-measured with a new, deliberately minimal second instrument
+  (`scripts/accuracysnes/mesen_wram_probe.lua`) — every prior conclusion rested on
+  `mesen_crossval.lua`'s own read, with nothing independent checking that read.
+
+  Three findings, two of which overturn what was written down:
+
+  - **MesenCE headless is not broken.** It renders the entire undisbeliever corpus with **0 skipped
+    captures** and runs the AccuracySNES cart to exit 0. Treating "the Mesen oracle" as a single
+    broken thing was wrong — rendering works; only the battery read does not. The scene work is
+    therefore **not** blocked by whatever blocks the battery.
+  - **The render channel cannot observe the battery.** MesenCE and RustySNES produce byte-identical
+    colour histograms for the cart at 60/300/500/800/900 frames, with and without the input contract
+    held, and the picture is static throughout in both. A hang and a clean run look the same, so any
+    diagnosis has to go through WRAM.
+  - **The battery writes no verdict at all — not 14 of 335.** At `RESULTS = $7E:F000` the magic reads
+    as bytes that *differ between runs* (uninitialised WRAM, never written) and `R_STATUS[0..39]` are
+    all zero at both 600 and 1500 frames. The "completes 14 then stops at `A3.03`" figure does not
+    reproduce — which explains why two cart-side `A3.03` fixes moved nothing: they were chasing a
+    number that was not there.
+
+  The open question is now **"why does the battery never start"**, not "why does it stop".
+
+  The first suspect — that the contract's constant hold from power-on denies a menu its press edge —
+  was tested and **refuted**: applying the contract from frame 0, 30 or 120 gives the same result at
+  1200 frames, as does declaring `--snes.port1.type=SnesController` explicitly.
+
+  A "24 non-zero bytes" lead recorded mid-investigation was **my own over-read** — those bytes sit at
+  indices 336-359, past the end of a 335-entry array — and is retracted. The real signal is the
+  reverse: `R_STATUS[0..334]` is **zero** while the surrounding WRAM is **random**, and since MesenCE
+  powers on with randomised WRAM, an all-zero array is not the power-on state. Something zeroed it —
+  `runtime.s`'s own clear loop — so **the cart's init runs and reaches the pre-battery menu**. The
+  precise statement is not "the battery never starts" but "the cart never leaves its menu", whose
+  exit condition the source names as *wait for Start*.
+
+  Two further suspects were raised and both refuted by measurement. **Auto-joypad:** at frame 300
+  `NMITIMEN` reads `$42` — bit 0 clear, auto-read *disabled* — so `$4218`-`$421F` reading `0000` is
+  correct, not a fault; the cart states at `runtime.s:9` that it reads `$4016` **manually**.
+  **Software edge:** the menu computes `V_PAD_NEW = HELD & ~LAST` and seeds both on entry, so a
+  held button yields NEW = 0 forever — but pressing Start at frame 300 or 600 of a 2000-frame run
+  changes nothing either.
+
+  What remains is a **harness-side** conclusion: `emu.setInput` from an `inputPolled` callback does
+  not appear to reach the cart's manual `$4016` strobe read under `--testRunner`. Every host-side way
+  of supplying the press has been tried and the cart observes none, while its init demonstrably runs.
+  The in-repo harness and the snes9x libretro driver both work, so this is MesenCE-runner input
+  plumbing, not contract design. Next step: a minimal ROM that only reads `$4016` and stores it,
+  to test the channel in isolation. Four probes are committed so none of this is re-run.
+
 - **PPU: the field flag's doc contradicted the code, and nothing pinned either.** `Ppu::field` is
   `$213F` bit 7 and toggles at the end of **every** frame; its doc comment said "toggles each frame
   when interlace is on", which describes neither the code nor the hardware. Only the flag's *use* is
