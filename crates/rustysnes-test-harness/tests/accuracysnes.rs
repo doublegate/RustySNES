@@ -596,7 +596,7 @@ const A5_08_SLOTS: [(u8, &str); 7] = [
 ];
 
 /// The measurement slots the `v1.29.0` Group E batch records.
-const GROUP_E_BATCH_SLOTS: [(u16, &str); 7] = [
+const GROUP_E_BATCH_SLOTS: [(u16, &str); 9] = [
     (256, "E8.01 KON sweep key-on mask   (bit 7 = voice 0)"),
     (
         257,
@@ -610,6 +610,11 @@ const GROUP_E_BATCH_SLOTS: [(u16, &str); 7] = [
     ),
     (261, "E5.06 non-zero OUTX readings   (of 64)"),
     (262, "E5.06 the last of the 64 readings"),
+    (266, "E3.06 timer 0 ticks over the interval"),
+    (
+        267,
+        "E3.06 timer 2 ticks over the SAME interval (TnOUT wraps at 16)",
+    ),
 ];
 
 /// Report what the Group E batch measured, for cross-emulator comparison.

@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`E3.06` now records the counts it compares, and that turned an ares disagreement into a
+  measurement.** The row asserts timer 2 ticks ~8x timer 0 over one interval, with a band of `8..15`
+  — and `TnOUT` is **four bits**, so the band ends one tick short of its own wrap. That tightness is
+  structural, not a choice: timer 0 must tick at least once for the ratio to mean anything, one
+  timer-0 period *is* eight timer-2 periods, so timer 2 can never read below 8 and the wrap is only a
+  factor of two above.
+
+  Measured now that the row records: RustySNES reads timer 2 = **10**, ares reads **0** — and 0 is
+  what 16 reads as. So ares' failure is consistent with timer 2 having *wrapped*, which is a
+  different claim from "timer 2 is not running at 64 kHz", and the row as written **cannot tell them
+  apart**. ares' own `Timer<128>`/`Timer<128>`/`Timer<16>` declarations are an exactly correct 8:1
+  ratio, which makes the wrap reading the likelier one.
+
+  Recorded rather than resolved: `E3.06` is a **weak row**, not a settled divergence, and the
+  assertion message now says so and points at the slot. The ares host also dumps the whole
+  measurement channel, because which slot matters is decided by whichever row turns out to disagree.
+
 - **A headless ares host — and `A2.10` is settled.** Several findings sat at 2-versus-1 with no
   tiebreaker, because this project's provenance rule counts ares and bsnes as *one* reference, so
   "RustySNES and snes9x against Mesen2" is only 2-vs-1 if ares is not already on RustySNES's side —

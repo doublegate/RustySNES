@@ -8087,8 +8087,23 @@ fn e3_06() -> Test {
 
     let mut a = Asm::new();
     upload_and_run(&mut a, &prog);
-    a.c("Timer 0 first: one tick, maybe two. Zero would make the ratio below unmeasurable.");
+    a.c("Record both counts before asserting on either. `TnOUT` is FOUR BITS, so timer 2's band");
+    a.c("below ends one tick short of its wrap -- and a core whose SMP runs slightly fast crosses");
+    a.c("it and reads a small number, which is indistinguishable from 'timer 2 is not running at");
+    a.c("64 kHz' unless the raw counts are kept. ares fails this row, and without these the failure");
+    a.c("cannot be told from a real divergence.");
     a.l("rep #$30");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(266, "E3.06 timer 0 ticks over the interval");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.record(
+        267,
+        "E3.06 timer 2 ticks over the SAME interval (TnOUT wraps at 16)",
+    );
+
+    a.c("Timer 0 first: one tick, maybe two. Zero would make the ratio below unmeasurable.");
     a.l("lda f:$7E0101");
     a.l("and #$00FF");
     a.assert_a16_range(
@@ -8097,14 +8112,22 @@ fn e3_06() -> Test {
         "timer 0 did not tick once over this interval, or ticked more than three times — either \
          way the interval is not the one this test needs and the ratio below means nothing",
     );
-    a.c("Timer 2 over the SAME interval: eight times the rate, so eight or more ticks.");
+    a.c(
+        "Timer 2 over the SAME interval: eight times the rate, so eight or more ticks. The band is",
+    );
+    a.c("8..15 and `TnOUT` wraps at 16, which leaves NO headroom above -- and that is structural,");
+    a.c("not a choice: timer 0 must tick at least once for the ratio to mean anything, and one");
+    a.c("timer-0 period IS eight timer-2 periods, so timer 2 can never be below 8 and the wrap is");
+    a.c("only a factor of two away. Measured: RustySNES 10, ares 0 -- and 0 is what 16 reads as.");
     a.l("lda f:$7E0102");
     a.l("and #$00FF");
     a.assert_a16_range(
         8,
         15,
         "timer 2 did not count roughly eight times what timer 0 did over the same interval, so it \
-         is not running from the 64 kHz stage — a core reading $01 here runs every timer at 8 kHz",
+         is not running from the 64 kHz stage — a core reading $01 here runs every timer at 8 kHz. \
+         NOTE: this row cannot distinguish that from timer 2 having WRAPPED past 16, so read slot \
+         267 before concluding anything; ares fails here with a recorded 0",
     );
     apu_timeout_arm(&mut a);
     a.finish(
