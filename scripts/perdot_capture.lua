@@ -72,7 +72,32 @@ local function onEndFrame()
   end
   -- Check the write AND the close: a flush failure (disk full, I/O error) surfaces at close, and a
   -- silently-truncated MCE_RESULT would then be diffed as a partial capture. Fail loudly instead.
-  local wok, werr = f:write(string.format("PERDOT distinct=%d colors=%s\n", #keys, table.concat(parts, ",")))
+  -- Optional per-ROW signature, mirroring `perdot_dump`'s `PERDOT_ROWS`. The histogram above is
+  -- position-blind by design, and therefore blind to a change that only moves a band -- which is the
+  -- entire content of a raster test. One token per row lets the two sides be aligned by band
+  -- boundary. A uniform row prints its colour; a mixed row prints `----`.
+  local rowsig = ""
+  if os.getenv("PERDOT_ROWS") ~= nil then
+    local width = 256
+    local rows = #buf // width
+    local toks = {}
+    for y = 0, rows - 1 do
+      local base = y * width
+      local function canon_at(i)
+        local c = buf[base + i]
+        return (((c >> 19) & 0x1f) << 10) | (((c >> 11) & 0x1f) << 5) | ((c >> 3) & 0x1f)
+      end
+      local first = canon_at(1)
+      local uniform = true
+      for i = 2, width do
+        if canon_at(i) ~= first then uniform = false break end
+      end
+      toks[#toks + 1] = uniform and string.format("%04x", first) or "----"
+    end
+    rowsig = string.format("PERDOTROWS rows=%d sig=%s\n", rows, table.concat(toks, ","))
+  end
+
+  local wok, werr = f:write(string.format("PERDOT distinct=%d colors=%s\n", #keys, table.concat(parts, ",")) .. rowsig)
   if not wok then
     io.stderr:write(string.format("perdot_capture: write to '%s' failed: %s\n", RES, werr or "?"))
     f:close()

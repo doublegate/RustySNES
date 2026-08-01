@@ -98,6 +98,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plumbing, not contract design. Next step: a minimal ROM that only reads `$4016` and stores it,
   to test the channel in isolation. Four probes are committed so none of this is re-run.
 
+- **Cross-check calibration: `PERDOT_ROWS=1` per-row signatures (the deferred `FIRST_ROW` work).**
+  `scripts/perdot_crossval.sh` compares **distinct-colour sets**, which are position-blind — so a
+  change that moves a band without introducing a colour reports `MATCH`. That is the entire content
+  of a raster test, and it meant `hdmaen_latch_test` has been passing its only cross-check while its
+  bands sit **23 rows** away from MesenCE's.
+
+  Both capture sides (`perdot_dump` and `perdot_capture.lua`) now optionally emit one token per row —
+  the row's colour if uniform, `----` if mixed. Sweeping for the offset that minimises row mismatches
+  recovers **+7** on the real corpus, which **confirms the documented ~7-row overscan offset by
+  measurement** instead of assumption, and leaves a calibrated per-row mismatch count as the
+  fine-grained signal the script's README had deferred.
+
+  What that immediately shows, for `hdmaen_latch_test` at offset +7: **23 of 232 rows mismatch on
+  `main` today**, before any change here. The existing framebuffer golden therefore encodes a render
+  the reference does **not** agree with — it is a self-consistency lock, not an accuracy oracle, and
+  `docs/adr/0013`'s "bless only from a render the references agree on" cannot be satisfied for this
+  ROM in either direction until that 23-row gap is explained.
+
 - **Dot model: the short scanline is now modelled (`B2.02`).** NTSC, progressive, field set,
   `V = 240` is 1360 master clocks rather than 1364 — under this project's measured convention that
   means the two 6-clock dots (323, 327) are **not** long on that line, leaving 340 dots of 4, which
