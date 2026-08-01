@@ -6810,8 +6810,13 @@ fn e9_09() -> Test {
     const MARKER: u8 = 0xA5;
     /// Page zero above this is the register block, and painting *that* would write `$F1`/`$F2`.
     const PAGE_ZERO_RAM: u8 = 0xF0;
-    /// Whole buffer cycles to wait, over the one the wrap needs. 512 samples each.
-    const CYCLES_WAITED: u8 = 16;
+    /// `delay` blocks to wait, and the number has to be checked against the buffer, not guessed.
+    ///
+    /// One block is 1,536 SPC cycles, which is **48 output samples**; the buffer is 2,048 bytes at
+    /// four bytes a sample, which is **512**. So 16 blocks is `16 * 48 = 768` samples — a full
+    /// cycle and half of another, which is what makes the coverage phase-free: wherever the
+    /// free-running offset happened to be when writes were enabled, every entry gets written.
+    const DELAY_BLOCKS: u8 = 16;
     /// The sample directory, on the stack page well below the stack itself.
     const DIR_ADDR: u16 = (DIR_PAGE as u16) << 8;
 
@@ -6826,7 +6831,7 @@ fn e9_09() -> Test {
     e9_09_paint_page_zero(&mut prog, MARKER, PAGE_ZERO_RAM);
 
     dsp_write(&mut prog, 0x6C, 0x00); // FLG: echo writes on
-    for _ in 0..CYCLES_WAITED {
+    for _ in 0..DELAY_BLOCKS {
         prog.delay(0x00); // 1536 SPC cycles, 48 output samples
     }
     dsp_write(&mut prog, 0x6C, 0x20); // and off again, so both reads are of a settled buffer

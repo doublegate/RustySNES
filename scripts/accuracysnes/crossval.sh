@@ -352,7 +352,7 @@ if [[ -x $ARES_HOST ]]; then
         exit 1
     fi
     n=$("$ARES_HOST" "$ROM" 900 2>/dev/null |
-        awk -v skip="$skip" '$1 == "status" && $2 != skip && $3 != "ff" && $3 != "00" &&
+        awk -v skip="$skip" '$1 == "status" && $2 + 0 != skip + 0 && $3 != "ff" && $3 != "00" &&
                              $3 ~ /[02468aceACE]$/ { c++ }
              END { print c + 0 }')
     if [[ $n -eq $ARES_KNOWN_FAILURES ]]; then
