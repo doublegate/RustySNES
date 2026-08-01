@@ -127,6 +127,7 @@ pub fn all() -> Vec<Test> {
         e7_03(),
         e7_12(),
         e7_08(),
+        e8_01(),
         e8_02(),
         e8_03(),
         e8_07(),
@@ -5295,6 +5296,141 @@ fn e5_10() -> Test {
 /// the delay rather than the last of it — three small biases in the same direction. So the band is
 /// wide enough to hold all of them and still exclude both zero delay and any delay long enough to
 /// wrap the counter, which is what the row is actually about.
+/// `E8.01` — `KON`/`KOFF` are polled every **second** output sample, i.e. at 16 kHz.
+///
+/// # Why this is a differential and not an absolute
+///
+/// The absolute key-on delay is `E8.02`'s subject and is ~5 samples. This row is about the
+/// *granularity* of the poll, which no single measurement can show: a delay of 7 ticks is equally
+/// consistent with a 16 kHz poll and a 32 kHz one. What separates them is how the delay responds to
+/// **shifting the whole measurement by one sample**:
+///
+/// | poll rate | delay at offset 0 | delay at offset 1 sample |
+/// |---|---|---|
+/// | every 2nd sample (hardware) | `D` | `D ± 1` — the write crosses a poll boundary |
+/// | every sample | `D` | `D` — nothing to cross |
+///
+/// So the assertion is *"the two differ"*, which is exactly the shape `assert_a16_range` expresses
+/// without hand-writing a verdict byte.
+///
+/// # Where the offset goes, and why it is not between the timer and the `KON`
+///
+/// The 16 `NOP`s (2 cycles each = 32 SPC cycles = **one output sample**) are emitted **before**
+/// `e8_02_time_to_envx`, not inside it. Putting them between the timer start and the `KON` write
+/// would add their cost to the measured interval directly, and the row would then report a
+/// difference of 1 on *any* core — passing while measuring the `NOP`s rather than the poll. Placed
+/// ahead of the timer, both the timer start and the `KON` shift together, so their spacing is
+/// unchanged and only their phase against the DSP's sample clock moves.
+///
+/// # Reused rather than re-derived
+///
+/// The voice setup, the tick instrument and the arming guard are `E8.02`'s
+/// ([`e8_02_sounding_voice`], [`e8_02_time_to_envx`]). Both traps that shape already cost a session
+/// are inherited with it: `T2DIV` stays **2** (at 1 the reading sits next to `TnOUT`'s 16-value
+/// wrap, which the NTSC/PAL drift gate caught on the PAL image alone), and the voice must be
+/// **fully silent** before the second key-on — a full-scale envelope is `$7F0` releasing at 8 per
+/// sample, so ~254 samples — which the `ENVX == 0` guard enforces rather than assumes.
+fn e8_01() -> Test {
+    let mut p = e8_02_sounding_voice();
+    p.mov_dp_imm(0xFC, 0x02); // T2DIV = 2: one tick per output sample
+
+    // Phase A: the key-on delay at the cart's natural phase.
+    e8_02_time_to_envx(&mut p, "a", Some(()), PORT1);
+
+    // Release fully, then confirm silence before re-arming -- E8.02's guard, same reasoning.
+    dsp_write(&mut p, 0x5C, 0x01);
+    for _ in 0..7 {
+        p.delay(0x00);
+    }
+    dsp_write(&mut p, 0x5C, 0x00);
+    dsp_read_to(&mut p, 0x08, PORT3);
+
+    // Phase B: the same measurement shifted one output sample later. 16 NOPs = 32 SPC cycles, and
+    // they land BEFORE the timer starts so the interval itself is unchanged.
+    for _ in 0..16 {
+        p.nop();
+    }
+    e8_02_time_to_envx(&mut p, "b", Some(()), PORT2);
+
+    dsp_write(&mut p, 0x4C, 0x00);
+    p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &p);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(256, "E8.01 key-on delay in timer-2 ticks at phase offset 0");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(257, "E8.01 the same, shifted one output sample later");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.record(258, "E8.01 ENVX before the second key-on (the arming guard)");
+
+    a.c("The guard first: the voice has to be silent before phase B keys it on, or phase B measures");
+    a.c("a climb that never stopped rather than a key-on. This is E8.02's guard and its reason.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0,
+        0,
+        "the voice was still sounding when E8.01's second key-on was armed, so the phase-B \
+         measurement is of an envelope that never reached silence and says nothing about the KON \
+         poll rate",
+    );
+
+    a.c("Both readings must be in E8.02's established band. A phase that measured nothing -- a");
+    a.c("wrapped counter, or a poll loop that exited at once -- would otherwise satisfy the");
+    a.c("difference test below by accident.");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        4,
+        13,
+        "E8.01 phase A's key-on delay is outside the plausible band, so the instrument is not \
+         measuring a key-on at all and the phase comparison below means nothing",
+    );
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        4,
+        13,
+        "E8.01 phase B's key-on delay is outside the plausible band, so the instrument is not \
+         measuring a key-on at all and the phase comparison below means nothing",
+    );
+
+    a.c("The row itself. Shifting the whole measurement one output sample later must move the");
+    a.c("measured delay, because a KON write that crossed a 16 kHz poll boundary waits for the");
+    a.c("next one. A DSP polling KON every sample has no boundary to cross and reports the same");
+    a.c("delay twice, which is the failure this scores. The magnitude is deliberately not pinned:");
+    a.c("which direction it moves depends on where the cart's own phase happened to start.");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.l("sec");
+    a.l("sbc f:$7E0100");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        1,
+        0xFF,
+        "shifting the key-on one output sample later did not change the measured delay, so KON is \
+         being polled every sample (32 kHz) rather than every second sample (16 kHz)",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E8.01",
+        'E',
+        "KON poll rate is 16 kHz",
+        Provenance::Documented(
+            "fullsnes and anomie's DSP doc [ERRATA]: the key-on/key-off registers are examined \
+             once every two output samples, giving a 16 kHz effective poll rate",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
 fn e8_02() -> Test {
     let mut p = e8_02_sounding_voice();
 

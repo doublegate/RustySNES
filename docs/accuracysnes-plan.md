@@ -655,6 +655,38 @@ Chosen 2026-08-01, now that both halves of the Mesen2 oracle arbitrate. Two corr
 | `E9.02` | noise output is **highpass-filtered** `[ERRATA]` | DSP-observable via OUTX on a NON voice; errata-flagged |
 | `E5.06` | BRR 15-bit wrap: clamp to 16 bits, then `+4000h..+7FFFh → -4000h..-1` | reuses the landed `E5` decoder scaffolding |
 
+**`E8.01` AUTHORED AND FAILING — a broken test, diagnosed. Branch `wip/e8-01-broken-band`, no PR.**
+
+Written, registered, and built clean through every generator gate (the menu-label cap, the dossier
+map, and the slot-collision gate each caught something and each was fixed). Then the cross-check
+rejected it immediately, on **all three** implementations:
+
+| | before | after |
+|---|---|---|
+| RustySNES (in-repo) | pass | **FAIL code 2** |
+| snes9x | 14 known failures | **15** |
+| Mesen2 | 1 | **2** |
+
+Three implementations failing identically is this project's **broken-test signature**, and it is
+right: **code 2 is phase A's band guard**, and the band was wrong. I set it to `4..13` by reusing
+`E8.02`'s numbers — but `E8.02`'s `4..11` is the **delta** between a sounding-voice baseline and a
+key-on, whereas `E8.01` phase A reads an **absolute** delay (key-on latency *plus* the poll-loop
+cost). A band for a difference cannot bound a raw reading.
+
+**Do not simply widen it.** Measure first: read slots **256/257** (`$7E0100`/`$7E0101`) out of a real
+run and set the band from what the instrument actually reports, then re-derive. Widening to make it
+pass is how a row ends up asserting nothing.
+
+**Then re-check the row's own premise before trusting a pass.** With phase A out of band, the
+difference assertion has never been meaningfully evaluated, so it is still unknown whether the
+16-`NOP` offset moves the reading at all. Two things to confirm once the band is right:
+- that 32 SPC cycles really is one output sample for this configuration, rather than an assumption
+  carried from the 1.024 MHz / 32 kHz round numbers;
+- that the two phases do not simply land on the same poll boundary, which would report "no
+  difference" on correct hardware and make the row assert the opposite of its intent.
+
+The design above still stands; only the band and the unverified premise need work.
+
 **`E8.01` design, worked out so the next session does not restart from the assertion text.** Follow
 `e8_02`'s shape (`apu.rs:5298`), which already solves the hard parts — `e8_02_sounding_voice` builds
 the voice, `e8_02_time_to_envx` counts timer-2 ticks to a non-zero `ENVX`, and `T2DIV = 2` gives
