@@ -46,10 +46,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   precise statement is not "the battery never starts" but "the cart never leaves its menu", whose
   exit condition the source names as *wait for Start*.
 
-  Next suspect, matching every observation: the menu reads the pad through the **automatic joypad
-  read** (`$4218`), and if `--testRunner` does not drive auto-read the way `emu.setInput` implies,
-  Start is held host-side and reads zero cart-side. All three probes are committed so the next
-  attempt starts from the measurements rather than repeating them.
+  Two further suspects were raised and both refuted by measurement. **Auto-joypad:** at frame 300
+  `NMITIMEN` reads `$42` — bit 0 clear, auto-read *disabled* — so `$4218`-`$421F` reading `0000` is
+  correct, not a fault; the cart states at `runtime.s:9` that it reads `$4016` **manually**.
+  **Software edge:** the menu computes `V_PAD_NEW = HELD & ~LAST` and seeds both on entry, so a
+  held button yields NEW = 0 forever — but pressing Start at frame 300 or 600 of a 2000-frame run
+  changes nothing either.
+
+  What remains is a **harness-side** conclusion: `emu.setInput` from an `inputPolled` callback does
+  not appear to reach the cart's manual `$4016` strobe read under `--testRunner`. Every host-side way
+  of supplying the press has been tried and the cart observes none, while its init demonstrably runs.
+  The in-repo harness and the snes9x libretro driver both work, so this is MesenCE-runner input
+  plumbing, not contract design. Next step: a minimal ROM that only reads `$4016` and stores it,
+  to test the channel in isolation. Four probes are committed so none of this is re-run.
 
 - **PPU: the field flag's doc contradicted the code, and nothing pinned either.** `Ppu::field` is
   `$213F` bit 7 and toggles at the end of **every** frame; its doc comment said "toggles each frame

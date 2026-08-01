@@ -674,12 +674,28 @@ begin the battery"*. Two ways of supplying it are already ruled out — a rising
 (`mesen_edge_probe.lua`, frames 0/30/120 identical) and declaring `--snes.port1.type=SnesController`
 explicitly alongside port 2.
 
-**Next suspect, and it fits the shape of everything above:** the menu reads the pad through the
-**automatic joypad read** (`$4218`), not the manual shift register. If MesenCE's `--testRunner` does
-not drive auto-read the way `emu.setInput` implies, Start would be held on the host side and still
-read as zero on the cart side — invisible in the framebuffer, and consistent with init running while
-the menu never exits. Check what `$4218` actually contains from Lua before changing anything on the
-cart.
+**The auto-joypad suspect is also refuted, by reading the registers.** At frame 300 under
+`--testRunner`, `NMITIMEN ($4200) = $42` — **bit 0 clear**, auto-joypad *disabled* — and
+`$4218`-`$421F` all read `0000`, which is the correct value when it is off, not a fault. The cart
+says so itself: `runtime.s` line 9, *"Controller input is read MANUALLY through `$4016`, not via
+auto-joypad"*, and line 570 `stz NMITIMEN ; ... (we read $4016 by hand)`.
+
+**The software-edge theory is refuted too, at every timing tried.** The menu computes `V_PAD_NEW` as
+`HELD & ~LAST` and seeds both to the same value on entry, so a button already down yields NEW = 0
+forever — which looked like the answer. But pressing Start at frame 300 or 600 (well past any
+plausible menu entry, 2000-frame runs) changes nothing.
+
+**What remains, and it is a harness-side conclusion rather than a cart-side one:** `emu.setInput`
+from an `inputPolled` callback does not appear to reach the cart's **manual `$4016` strobe read**
+under `--testRunner`. Every host-side way of supplying the press has now been tried and the cart
+observes none of them, while the cart's own init demonstrably runs. The next step is therefore to
+verify the channel itself — drive a *minimal* ROM that does nothing but manually read `$4016` and
+write the result to WRAM, and see whether `emu.setInput` reaches it at all. If it does not, the fix
+belongs in how the runner supplies input, and no amount of cart-side change will help.
+
+Worth noting for whoever picks this up: **the in-repo harness and the snes9x libretro driver both
+work**, so this is specifically a MesenCE-runner input-plumbing problem, not a contract design
+problem.
 
 #### `A5.18` — why it is parked despite working
 
