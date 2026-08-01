@@ -11,6 +11,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The H-IRQ comparator moves into the clock domain (`T-06-A`), and nothing below the long dots
+  moves with it.** `HIRQ_TRIGGER_DELAY = 4` was a *dot-domain rounding* of ares'
+  `hcounter(10) == (HTIME+1)<<2` — exact only while every dot is four clocks, which stopped being
+  true when dots 323 and 327 became six. The match is now computed where it actually happens:
+  clock `4·HTIME + 14` (`hirq_match_clock`), mapped to the first dot boundary at or after it
+  (`hirq_trigger_dot`).
+
+  **Below the long dots the two agree exactly**, because `4·HTIME + 14` is never a multiple of 4 and
+  the next boundary is `HTIME + 4`. They diverge only for `HTIME` **321..=337**, where the six-clock
+  dots have displaced every later boundary — the old constant fired up to a whole dot late, and at
+  `HTIME = 336` suppressed an IRQ that does fire. `HTIME = 337` lands on dot 340's boundary, which
+  exists only on the long line, so it is honoured there and suppressed elsewhere.
+
+  This is the change the plan recorded as *"attempted and reverted because it moves
+  `hdmaen_latch_test_2`'s golden"*. It does not, this time: **no framebuffer golden moved**, the
+  undisbeliever suite passes unchanged, and cross-validation is byte-identical
+  (`snes9x: OK (14 known)`, `Mesen2: OK (2 known)`).
+
+  **`B4.16` is a weaker guard than its own doc claimed, and that is worth knowing.** Measured either
+  side of the change, *both* of its readings are unchanged — including the `HTIME = 330` one, whose
+  trigger dot moved 334 → 333. The CPU takes an IRQ at an instruction boundary, so the handler-entry
+  dot quantises to the spin loop's instruction length and a one-dot shift is absorbed. `B4.16` can
+  say "nothing regressed"; it cannot say "the change took effect". A unit test does that, sweeping
+  every `HTIME` and asserting equality with the old constant below the long dots and strict
+  inequality above them.
+
+  `LONG_DOTS` and the per-dot clock count also move to `rustysnes-ppu`, which owns the dot model and
+  now needs the same layout twice. `rustysnes-core`'s scheduler delegates to it rather than keeping
+  a second copy.
+
 - **AccuracySNES: the scene protocol publishes on a known field, and the interlace three-way split
   is down to a two-way one.** `run_scenes` now sets the scene ID only on frames whose `$213F` bit 7
   is set, so every sighting the host counts is the same field. `SCENE_FRAMES` grew 8 → 12: at half

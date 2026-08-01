@@ -262,8 +262,15 @@ The crate is a working dual-chip model. Public API the scheduler/bus call:
   frame, as vblank begins, and **only while forced blank is off** (`end_of_scanline`). Sprite
   evaluation leaves the running counter wherever it finished, so without the reload an address a
   game programmed would not survive a frame. AccuracySNES **C1.06** covers it.
-- **HV-IRQ sampling:** the horizontal comparator fires `HIRQ_TRIGGER_DELAY` (4) dots after the
-  programmed `HTIME`. With H-IRQ **disabled** (V-only), the comparator is sampled at a single dot
+- **HV-IRQ sampling:** the horizontal comparator matches at **clock** `4·HTIME + 14` within the
+  line, and the IRQ is observed at the first dot boundary at or after it (`hirq_match_clock` /
+  `hirq_trigger_dot`). Below the two 6-clock dots that is `HTIME + 4` exactly, which is what the
+  retired `HIRQ_TRIGGER_DELAY` constant hardcoded; from `HTIME = 321` up the six-clock dots have
+  displaced the boundaries and the constant fired up to a whole dot late, and at `HTIME = 336`
+  suppressed an IRQ that does fire. `HTIME = 337` lands on dot 340's boundary, which exists only on
+  the long line — so it is honoured there and suppressed elsewhere, which is why the caller bounds
+  by `dots_this_line()` and not by a constant. With H-IRQ **disabled** (V-only), the comparator is
+  sampled at a single dot
   `VIRQ_TRIGGER_DOT` (2) rather than being treated as matching across the whole line — otherwise
   `V == VTIME` is a level that re-raises the IRQ every dot and `$4211` cannot acknowledge it. See
   `docs/scheduler.md` §H/V-IRQ; AccuracySNES **B4.08**/**B4.12**.
@@ -276,10 +283,11 @@ The crate is a working dual-chip model. Public API the scheduler/bus call:
 - **Timeline:** `tick_dot(&mut self, bus: &mut impl VideoBus)` advances H 0..=340 / V per region
   (262 NTSC / 312 PAL), sets VBlank at V=225 (V=240 overscan) and HBlank, fires
   `notify_scanline`/`notify_vblank`, raises NMI at VBlank start, and level-fires the HV-IRQ
-  comparator (`set_hv_irq(enable_h, enable_v, h, v)` programs it). The horizontal match is
-  asserted `HIRQ_TRIGGER_DELAY` (4) dots **after** the programmed `HTIME`, modelling the SNES
-  counter→CPU interrupt communication delay (ares `hcounter(10) == (HTIME+1)<<2`; see
-  `docs/scheduler.md` §H/V-IRQ). Without it an IRQ-gated register write lands a few dots early.
+  comparator (`set_hv_irq(enable_h, enable_v, h, v)` programs it). The horizontal match is derived
+  in the **clock** domain (ares `hcounter(10) == (HTIME+1)<<2`, i.e. clock `4·HTIME + 14`) and then
+  mapped to a dot, which is what makes it survive the two 6-clock dots; see the HV-IRQ bullet above
+  and `docs/scheduler.md` §H/V-IRQ. Without the delay an IRQ-gated register write lands a few dots
+  early.
 - **Polls (the scheduler reads these — no extra `VideoBus` methods were added):**
   `nmi_pending()`/`ack_nmi()`, `irq_pending()`/`ack_irq()`, `in_vblank()`/`in_hblank()`,
   `dot()`/`scanline()`, `frame_ready()`/`take_frame()`/`frame_count()`, `framebuffer() -> &[u16]`.

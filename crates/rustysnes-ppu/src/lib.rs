@@ -118,10 +118,82 @@ const ACTIVE_DOT_START: u16 = 22;
 /// test and `cgram_write_target`'s gate so the two cannot desync.
 const HBLANK_START_DOT: u16 = 274;
 
-/// Dots by which the HV-IRQ horizontal comparator lags the programmed `HTIME`, modelling the
-/// SNES hardware communication delay between the counter unit and the CPU's interrupt logic
-/// (ares `hcounter(10) == (HTIME+1)<<2` ⇒ fire at dot `HTIME + 3.5`; see `check_hv_irq`).
-const HIRQ_TRIGGER_DELAY: u16 = 4;
+/// Master clocks into a scanline at which the HV-IRQ horizontal comparator matches `HTIME`.
+///
+/// ares stores `io.htime = (HTIME + 1) << 2` and tests `hcounter(10) == io.htime`
+/// (`sfc/cpu/io.cpp:181-183`, `sfc/cpu/irq.cpp`), where `hcounter(n)` is the counter `n` clocks
+/// ago — so the match is at clock `4·HTIME + 4 + 10`. **That is a clock, not a dot.** The two
+/// 6-clock dots do not move it; they move which dot contains it, which is the whole reason this
+/// is computed rather than folded into a constant. See [`hirq_trigger_dot`].
+const fn hirq_match_clock(htime: u16) -> u32 {
+    4 * htime as u32 + 14
+}
+
+/// The dot on which an `HTIME` H-IRQ is observed: the first dot boundary at or after
+/// [`hirq_match_clock`].
+///
+/// # This replaces a constant that was only ever right by accident
+///
+/// It used to be `HTIME + 4`, a **dot-domain rounding** of the clock-domain compare above — exact
+/// while every dot is 4 clocks, and silently wrong once dots 323 and 327 became 6. Below the long
+/// dots the two agree *exactly*: `4·HTIME + 14` is never a multiple of 4, so the next boundary is
+/// `HTIME + 4` and not one framebuffer golden moves. They diverge only for `HTIME` in **321..=337**,
+/// where the six-clock dots have displaced every later dot boundary by 2 or 4 clocks and the old
+/// constant fired up to a whole dot late — and, at `HTIME = 336`, suppressed an IRQ that does fire.
+///
+/// # `B4.16` guards this, but less finely than its own doc claims
+///
+/// It records the raw latched dot from an IRQ handler at an `HTIME` below the long dots and one
+/// above, precisely so the before/after is a fact. Measured either side of this change, **both of
+/// its readings are unchanged** — including the `HTIME = 330` one, whose trigger dot moved from 334
+/// to 333. The reason is that the CPU takes an IRQ at an *instruction boundary*, so the
+/// handler-entry dot quantises to the spin loop's instruction length and a one-dot shift is
+/// absorbed. `B4.16` therefore says "nothing regressed", which is what a guard is for, but it
+/// cannot say "the change took effect" — `the_h_irq_dot_is_unchanged_below_the_long_dots_and_moves_
+/// above_them` is what does that, and this note exists so the next person does not read a static
+/// `B4.16` as evidence the model did not move.
+///
+/// Returns [`u16::MAX`] when the match clock falls past the end of the line — on hardware the
+/// counter never reaches it, so the IRQ simply never fires for that `HTIME`.
+const fn hirq_trigger_dot(htime: u16, short_line: bool) -> u16 {
+    let target = hirq_match_clock(htime);
+    let mut dot = 0u16;
+    let mut clock = 0u32;
+    // Walked rather than closed-form: the layout is two irregular dots in a 340-dot line, and a
+    // closed form would have to encode their positions a second time. `DOTS_PER_LINE + 1` covers
+    // the long line's extra dot; the loop is const-evaluable and runs at most 341 steps.
+    while dot <= DOTS_PER_LINE {
+        if clock >= target {
+            return dot;
+        }
+        clock += dot_clocks(dot, short_line);
+        dot += 1;
+    }
+    u16::MAX
+}
+
+/// Master clocks dot `dot` lasts for: 4, except the two that are 6.
+///
+/// The canonical statement of the long-dot layout lives here because the PPU owns the dot model;
+/// `rustysnes-core`'s scheduler consumes it to distribute clocks across a line. `short_line` is
+/// `B2.02`'s scanline, where the decomposition the references give is a flat `340 × 4 = 1360`.
+#[must_use]
+pub const fn dot_clocks(dot: u16, short_line: bool) -> u32 {
+    if !short_line && (dot == LONG_DOTS[0] || dot == LONG_DOTS[1]) {
+        6
+    } else {
+        4
+    }
+}
+
+/// The two dots that last six master clocks instead of four.
+///
+/// fullsnes' *PPU H-Counter-Latch Quantities* histogram settles this by measurement: sampling
+/// `$2137` once per master clock across a line reports dots 323 and 327 latching **six** times
+/// each and dot 340 never. bsnes, ares and Mesen2 all implement exactly this; snes9x uses 322/326
+/// and is the outlier. Both sit deep in hblank, past the visible window and past [`RENDER_DOT`],
+/// so dots `0..=322` keep their clock alignment exactly.
+pub const LONG_DOTS: [u16; 2] = [323, 327];
 
 /// The dot at which a V-only IRQ's comparator is sampled.
 ///
@@ -974,20 +1046,19 @@ impl Ppu {
 
     /// Level-evaluate the HV-IRQ comparator at the current (h, v).
     ///
-    /// The horizontal match is asserted [`HIRQ_TRIGGER_DELAY`] dots *after* the programmed
-    /// `HTIME`, modelling the SNES's hardware communication delay between the H/V counter unit
-    /// and the CPU's interrupt logic. ares encodes this as `hcounter(10) == io.htime` with
-    /// `io.htime` stored as `(HTIME + 1) << 2` clocks (`sfc/cpu/irq.cpp`, `sfc/cpu/io.cpp`), i.e.
-    /// the IRQ fires at hcounter `HTIME*4 + 14` = dot `HTIME + 3.5`. Without this delay an
-    /// IRQ-gated register write (e.g. the `hdmaen_latch_test` `STA $420C`) lands ~3–4 dots early,
-    /// which — combined with the dot-1104 HDMA latch — collapses the test's banded HDMAEN-vs-latch
-    /// crossing into a uniform per-line alternation.
+    /// The horizontal match is derived in the clock domain — [`hirq_match_clock`] gives the clock
+    /// the comparator matches at, [`hirq_trigger_dot`] the dot boundary it is observed on — which
+    /// models the SNES's hardware communication delay between the H/V counter unit and the CPU's
+    /// interrupt logic. Without that delay an IRQ-gated register write (e.g. the
+    /// `hdmaen_latch_test` `STA $420C`) lands ~3–4 dots early, which — combined with the dot-1104
+    /// HDMA latch — collapses the test's banded HDMAEN-vs-latch crossing into a uniform per-line
+    /// alternation.
     const fn check_hv_irq(&mut self) {
         // Adding the delay can push the target past the end of the line. On hardware the H counter
         // never reaches those values (ares' stored `(HTIME+1)<<2 + 10` clocks then exceeds the max
         // hcounter), so the IRQ simply never fires for such HTIME — suppress rather than wrap into
         // the next line, which would be a spurious match hardware/ares never produce.
-        let h_target = self.irq_h + HIRQ_TRIGGER_DELAY;
+        let h_target = hirq_trigger_dot(self.irq_h, self.is_short_scanline());
         let h_match = if self.irq_enable_h {
             // Bounded by THIS line's dot count, not the constant: the long line has a dot 340 that
             // a normal line does not, so an `HTIME` landing there is a real match on that line and
@@ -1629,13 +1700,60 @@ mod tests {
         }
         assert!(fired_at.is_some());
         let (h, v) = fired_at.unwrap();
-        // The H comparator lags HTIME by `HIRQ_TRIGGER_DELAY` dots (hardware counter→IRQ
-        // communication delay; see `check_hv_irq`), and it is evaluated at the start of tick
-        // before H increments, so the IRQ is observed at dot `HTIME + HIRQ_TRIGGER_DELAY` (or the
-        // dot after) on the programmed scanline.
+        // The comparator matches at CLOCK `4*HTIME + 14` (hardware counter→IRQ communication
+        // delay; see `hirq_match_clock`) and the IRQ is observed at the next dot boundary. It is
+        // evaluated at the start of tick before H increments, hence the "or the dot after".
         assert_eq!(v, 50);
-        let target = 100 + HIRQ_TRIGGER_DELAY;
+        let target = hirq_trigger_dot(100, false);
         assert!(h == target || h == target + 1);
+        // HTIME 100 is far below the long dots, so the clock-domain derivation must agree with the
+        // old `HTIME + 4` constant EXACTLY. This is the assertion that says the change moved
+        // nothing it was not supposed to move.
+        assert_eq!(target, 104);
+    }
+
+    /// The clock-domain H-IRQ mapping agrees with the old constant everywhere the old constant was
+    /// right, and only there.
+    ///
+    /// This is the whole safety argument for `T-06-A`'s comparator change written as an assertion.
+    /// `HIRQ_TRIGGER_DELAY = 4` was a dot-domain rounding of `hcounter(10) == (HTIME+1)<<2`, exact
+    /// while every dot is 4 clocks. Below dot 323 it still is — so every existing framebuffer
+    /// golden, every raster test and every H-IRQ a game arms in the visible window must be
+    /// untouched. Above it the six-clock dots have displaced the boundaries and the old constant
+    /// fired late.
+    #[test]
+    fn the_h_irq_dot_is_unchanged_below_the_long_dots_and_moves_above_them() {
+        // Everything that can land before dot 323 keeps the old answer exactly.
+        for htime in 0..=319u16 {
+            assert_eq!(
+                hirq_trigger_dot(htime, false),
+                htime + 4,
+                "HTIME {htime} moved, and nothing below the long dots is allowed to"
+            );
+        }
+        // 320 still coincides: its match clock is 1294, and the next boundary is dot 324's at 1298
+        // — which is also 320 + 4. The first genuinely displaced HTIME is 321.
+        assert_eq!(hirq_trigger_dot(320, false), 324);
+        for htime in 321..=336u16 {
+            assert!(
+                hirq_trigger_dot(htime, false) < htime + 4,
+                "HTIME {htime} is past the long dots and must now fire EARLIER than the old                  constant said, not at the same dot"
+            );
+        }
+        // The old constant suppressed HTIME 336 by pushing it to 340; the clock it matches at is
+        // 1358, which is inside the line, so it fires on the last dot.
+        assert_eq!(hirq_trigger_dot(336, false), 339);
+        // 337 lands on dot 340's boundary, which exists only on the LONG line — so the caller's
+        // `h_target < dots_this_line()` guard suppresses it on an ordinary line and honours it on a
+        // long one. That asymmetry is the point of bounding by the line rather than by a constant.
+        assert_eq!(hirq_trigger_dot(337, false), 340);
+        // Past the end of the line there is genuinely nothing to match, on any line.
+        assert_eq!(hirq_trigger_dot(338, false), u16::MAX);
+
+        // On the short line every dot is 4 clocks again, so the old constant is right throughout.
+        for htime in 0..=335u16 {
+            assert_eq!(hirq_trigger_dot(htime, true), htime + 4);
+        }
     }
 
     #[test]

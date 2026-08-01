@@ -1504,6 +1504,16 @@ that is where the line-length non-uniformity the row is trying to see enters the
 Note the shape: `B1.05` cannot be measured because the cart reads dots, and the same limit is why
 `A5.20` is marked `[NOT CART-MEASURABLE]`. These are one obstacle, not two.
 
+**Re-assessed 2026-08-01, after the H-IRQ comparator moved into the clock domain.** The `v1.29.0`
+plan flagged that change as *"the likeliest thing under `B1.05`'s residual"*. It is not, and the
+reason is the one above: the change corrects where the *comparator* fires, which the cart observes
+through an IRQ handler that latches `H` — **in dots**. `B4.16` demonstrates the limit directly:
+its `HTIME = 330` trigger dot moved 334 → 333 and its recorded reading did not move at all, because
+the CPU takes an IRQ at an instruction boundary and the handler-entry dot quantises to the spin
+loop's instruction length. A model change strictly finer than the instrument cannot show up in it.
+`B1.05` stays blocked on the same missing clock-domain instrument, and the H-IRQ item is now closed
+without having moved it.
+
 ### `A6.15` — "all 256 opcodes defined" is a table-extension job, not a test
 
 The 65816 has no illegal opcodes: all 256 encodings are defined, and only `STP` halts. What a core

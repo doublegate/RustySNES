@@ -389,10 +389,14 @@ H and/or V counter position (`$4207–$420A`), enabling mid-frame raster effects
 (`ref-docs/research-report.md` §2). The H/V counters are latched by reading SLHV `$2137` and
 read back from `$213C`/`$213D`. These fire off the master-clock phase, not the CPU cycle.
 
-The horizontal comparator asserts the IRQ **`HIRQ_TRIGGER_DELAY` (4) dots after** the programmed
-`HTIME`, modelling the hardware communication delay between the counter unit and the CPU's
-interrupt logic (ares `sfc/cpu/irq.cpp`: `hcounter(10) == io.htime` with `io.htime` stored as
-`(HTIME+1) << 2` clocks ⇒ the IRQ fires at hcounter `HTIME*4 + 14` = dot `HTIME + 3.5`). This
+The horizontal comparator matches at **clock `4·HTIME + 14`** within the line and the IRQ is
+observed at the first dot boundary at or after it, modelling the hardware communication delay
+between the counter unit and the CPU's interrupt logic (ares `sfc/cpu/irq.cpp`:
+`hcounter(10) == io.htime` with `io.htime` stored as `(HTIME+1) << 2` clocks). **The compare is in
+clocks, not dots** — the two 6-clock dots do not move it, they move which dot contains it, which is
+why this is derived (`hirq_trigger_dot`) rather than a constant. It used to be the constant
+`HIRQ_TRIGGER_DELAY = 4`; below the long dots the two agree exactly, and from `HTIME = 321` up the
+constant fired as much as a whole dot late. `B4.16` is the golden that guards the change. This
 delay lands an IRQ-gated register write (e.g. `hdmaen_latch_test`'s `STA $420C` after `WAI`) on
 the hardware-correct dot; without it the write drifts ~3–4 dots early and — against the fixed
 dot-1104 HDMA latch — collapses the test's banded crossing into a uniform per-line alternation.
