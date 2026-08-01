@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`A5.18` — `BRK` costs 8 cycles native and 7 in emulation.** The extra native cycle is the PBR
+  push: a native frame is PBR/PCH/PCL/P and an emulation frame is the same without PBR, so the
+  difference is one stack *write* (8 clocks) rather than an internal cycle.
+
+  **Nothing returns, and that is what isolates `BRK`.** The obvious chain is `BRK` into a handler
+  that `RTI`s back — but `RTI` *also* differs by one stack access between the modes (`A5.19`), so
+  the pair would come back at two accesses per iteration and this row would be reporting its
+  sibling's result added to its own. Instead `V_BRK_VEC` points at the instruction *after* the
+  `BRK`, which the runtime's `jmp (V_BRK_VEC)` trampoline reaches directly: no handler body exists,
+  so no handler body can differ between the modes. The frames are simply abandoned and `S` is
+  restored after each span. Both `BRK` vectors already share that one trampoline — `runtime.s`
+  documents the sharing as deliberate, since emulation conflates `$FFFE` between IRQ and BRK — and
+  the consequence here is exactly what the row needs.
+
+  **The repeat count was measured, not estimated, and the first draft got that wrong.** Four
+  iterations on an estimate of ~35 dots each wrapped the H counter: native came back `$FFF7`, a
+  wrapped negative, against emulation's 323 — a native span *shorter* than the emulation one, the
+  arithmetic opposite of the assertion. An iteration is really ~99 dots. Three of them measure
+  **297 native against 291 emulation** for a difference of exactly 6, both clear of the 341-dot
+  wrap. Injecting "never push PBR" into `op_brk` fires the row's assertion, with `A6.05` ("native
+  pushes 4 bytes") failing alongside it as corroboration. Coverage `354 → 355 of 443`.
+
 - **`E3.13` — a write to `$00F0-$00FF` lands in the RAM shadow as well as in the register.** The
   register block wins every SPC read of those addresses, so the assertion cannot be checked by
   writing and reading back; it needs a second reader of APU RAM that skips the register decode, and
