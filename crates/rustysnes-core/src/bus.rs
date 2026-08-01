@@ -68,20 +68,11 @@ const RDNMI_OPEN_BUS_MASK: u8 = 0x70;
 const TIMEUP_OPEN_BUS_MASK: u8 = 0x7F;
 const HVBJOY_OPEN_BUS_MASK: u8 = 0x3E;
 
-/// The two dots that take **6** master clocks instead of 4 (`T-06-A`).
-///
-/// Hardware's scanline is 340 dots and 1364 master clocks, which `338 × 4 + 2 × 6` satisfies and a
-/// uniform `341 × 4` also satisfies — which is why a model can be wrong here and keep perfect frame
-/// timing. fullsnes' *PPU H-Counter-Latch Quantities* histogram settles it by measurement rather
-/// than prose: sampling `$2137` once per master clock across a line reports dots 323 and 327
-/// latching **six** times each, dot 340 **never**, and everything else four. bsnes, ares and Mesen2
-/// all implement exactly this; snes9x uses 322/326 and is the outlier.
-///
-/// Both sit deep in hblank — past the visible window (dots 22-277), past hblank's start at 274, and
-/// past [`HDMA_RUN_DOT`] — so dots `0..=322` keep their previous clock alignment exactly and no
-/// rendered pixel or HDMA transfer moves. What does change is the `OPHCT`/`$213C` latch value for
-/// `H >= 323`, which was up to one whole dot early.
-const LONG_DOTS: [u16; 2] = [323, 327];
+// The two 6-clock dots (`T-06-A`) used to be declared here. They now live in the PPU
+// (`rustysnes_ppu::LONG_DOTS` / `dot_clocks`), which owns the dot model and needs the same layout
+// to place the H-IRQ comparator — and two copies of "which dots are six clocks" is exactly the kind
+// of fact that drifts apart. The measurement that settles it, and why hblank is where they sit, are
+// documented at the declaration.
 
 /// Master clocks the dot currently being completed lasts for.
 ///
@@ -92,11 +83,7 @@ const LONG_DOTS: [u16; 2] = [323, 327];
 /// ([`rustysnes_ppu::Ppu::is_short_scanline`]) because every input is its own; this function only
 /// turns that into clocks.
 const fn dot_length(dot: u16, short_line: bool) -> u32 {
-    if !short_line && (dot == LONG_DOTS[0] || dot == LONG_DOTS[1]) {
-        MASTER_PER_DOT + 2
-    } else {
-        MASTER_PER_DOT
-    }
+    rustysnes_ppu::dot_clocks(dot, short_line)
 }
 /// PPU dot at which each visible scanline's HDMA transfer fires — ares' `hdmaPosition` of hcounter
 /// 1104 (`sfc/cpu/timing.cpp`) divided by [`MASTER_PER_DOT`]. Running the table at this exact dot
