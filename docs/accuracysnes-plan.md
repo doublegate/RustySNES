@@ -293,6 +293,47 @@ decoder that saturates instead of wrapping settles, and a settled decoder's read
 sign; only a value that wraps swings both ways. So the row samples `OUTX` 64 times and asserts that
 both signs appear, which needs no phase-locking at all.
 
+### `E8.06` — authored, injected, and withdrawn: two voices cannot be compared at one sample
+
+**Attempted 2026-08-01 and withdrawn the same day.** The row reads: *"collapse case `KON=$01` /
+`KON=$02` → usually only voice 2, and if both, voice 1 is **2 samples ahead**, proving the 16 kHz
+rate."* It is `E8.01`'s mechanism asked the other way round, and the setup was already built, so it
+looked like the cheapest row left in Group E.
+
+**The design was sound.** Two `KON` writes exactly 32 SPC cycles apart, `GAIN = $DF` (mode 6, linear
+increase at rate 31) so `ENVX` climbs 2 per output sample, then read both voices and difference
+them: **4** for the two-sample lead hardware gives, **2** for the one-sample lead a per-sample poll
+would give. Both hardware outcomes — swallowed, or leading by two — are accepted, because which one
+occurs depends on the phase the cart does not control; what no phase can produce is a one-sample
+lead. RustySNES reports the collapse case, `ENVX` 0 against voice 7's `$26`.
+
+**What killed it is the read window.** Each voice's `ENVX` is latched at its own tick of the DSP's
+32-tick schedule, so the two registers do not update together and a reading taken between them is
+one whole sample wrong — *exactly the size of the signal*. The fix is to bracket the voice-6 read
+with two voice-7 reads and require them to agree, and the fix does not fit:
+
+| three-reading window | of a 32-cycle sample |
+|---|---|
+| `dsp_read_to` ×3 (the ordinary form) | **39 cycles** — a straddle is certain |
+| register-landed reads (`MOV Y,dp` / `MOV X,dp`, values parked in ports afterwards) | **21 cycles** — a straddle is likely |
+
+Injecting the named bug (`KON` examined every sample) trips the **guard**, not the row's own code,
+on both versions: the injected build's timing moves the update tick inside the window and voice 7
+reads `$24` then `$26`. Per the standing rule, a row whose named injection fires the guard rather
+than the assertion has not been demonstrated, and shipping it would mean shipping a scored row whose
+failure code cannot be produced on demand.
+
+**The finding, which is the reusable part:** *two voices' `ENVX` cannot be compared at
+single-sample resolution from the cart.* The minimum three-read window is two-thirds of a sample and
+the straddle error equals the signal. Any future row that needs to compare two voices' envelope
+positions needs a different observable, not a tighter loop — the loop is already as tight as the
+instruction set allows. `E8.06`'s swallow half is not separately assertable either: at any gap, both
+poll rates swallow or spare voice 6 depending on phase, so the lead is what carries the claim.
+
+Withdrawal verified byte-clean: removing it returned the ROM to checksum `$DA9E`, the value before
+it was added. The two `MOV Y,dp` / `MOV X,dp` emitters went with it — this file carries only
+opcodes a committed test exercises, and an unexercised encoding is an unverified one.
+
 ### An open question `B4.12` used to answer by accident
 
 Does the V-IRQ flag re-assert while `V == VTIME` still holds — is it a one-shot per frame, or a
