@@ -53,12 +53,16 @@ does not involve controller state at all. The claim came from the Mesen2 known-f
 `crossval.sh`, which attributes *its* `F1.10` failure to the port-2 limitation and is itself now
 flagged as doubtful there.
 
-**`F1.10` is the interesting one.** fullsnes says the automatic read begins ~dot 32.5–95.5 of the
-first vblank line rather than at the vblank edge. snes9x fails it (documented instant-latch), ares
-fails it, and if the Mesen2 attribution is right then Mesen2 fails it too — which would leave
-**RustySNES passing alone**, on a row it only passes because of a deliberate fix. This project's
-heuristic says RustySNES failing alone means a real bug; it should say the same about RustySNES
-*passing* alone. Worth a hard look before treating it as settled either way.
+**`F1.10` is the interesting one, and it is now measured.** fullsnes says the automatic read begins
+~dot 32.5–95.5 of the first vblank line rather than at the vblank edge. snes9x fails the row
+(documented instant-latch), ares fails it, and `mesen_failing_set_probe.lua` confirms **Mesen2 fails
+it too** — the failing set read at `R_DONE` is exactly `F1.03` and `F1.10`, identical across four
+runs. So **`F1.10` is 1-vs-3 with RustySNES passing alone**, on a row it passes only because of a
+deliberate fix.
+
+That is an acceptable place for a first-party accuracy cart to be — being right where the references
+are wrong is the point of having one — but it is stated rather than left to be mistaken for
+consensus. If the fullsnes citation ever turns out to be misread, this row is where it will show.
 
 ## Three setup steps that are not optional, each of which cost a debugging round
 

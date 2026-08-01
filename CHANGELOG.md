@@ -811,17 +811,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`crossval.sh`'s Mesen2 known-failure comment is keyed on rows, not catalogue indices, and one of
-  its attributions is flagged as doubtful.** The comment named `idx279 F1.03` and `idx286 F1.10`; in
+- **`crossval.sh`'s Mesen2 known-failure comment is keyed on rows, not catalogue indices, and its
+  `F1.10` attribution is corrected against a measurement.** The comment named `idx279 F1.03` and `idx286 F1.10`; in
   the current catalogue those indices are `F1.01` and `F1.08`, because an index moves whenever a test
   is added ahead of it. An index in a comment is a fact with a shelf life.
 
-  Separately, that comment attributes Mesen2's `F1.10` failure to the port-2 limitation, and
-  `f1_require_contract` reads `$4016` only — port 1 — while `F1.10` code 2 means "`$4212` read busy
-  at the very start of the vblank line", which does not involve controller state. The snes9x block a
-  few lines above independently says Mesen2 *passes* `F1.10`. Both cannot be true. Marked as doubted
-  rather than quietly rewritten: resolving it needs Mesen2's failing set read at `DONE` and mapped
-  through `SOURCE_CATALOG.tsv`, a measurement nobody has taken since the catalogue grew.
+  That comment also attributed Mesen2's `F1.10` failure to the port-2 limitation, while the snes9x
+  block a few lines above said Mesen2 *passes* `F1.10`. Both could not be true, and nobody had
+  measured it since the catalogue grew. `scripts/accuracysnes/mesen_failing_set_probe.lua` now does:
+  read at `R_DONE` (frame 482), the failing set is exactly **`F1.03` and `F1.10`**, identical across
+  four runs.
+
+  The two fail for **different** reasons, and lumping them under one rationale is what hid it.
+  `F1.03` genuinely clocks both ports out of one latch (`$4016` *and* `$4017`), so the port-2
+  limitation is real for it and only for it. `F1.10` reads `$4016` only; Mesen2 fails it for the same
+  reason snes9x and ares do — the automatic read modelled as starting at the vblank edge.
+
+  **So `F1.10` is 1-vs-3, with RustySNES passing alone**, and the snes9x block's "Mesen2 delays the
+  start and passes" is retracted. The row is Documented (fullsnes: the read starts ~dot 32.5–95.5 of
+  the first vblank line) and RustySNES passes it only because of a deliberate fix. A first-party
+  accuracy cart being right where three references are wrong is the point of having one — but 1-vs-3
+  on a scored row is stated rather than left to be mistaken for consensus.
+
+  One operational gotcha found on the way: **the Mesen2 runner can under-report under load.** One run
+  returned 1 where every other returned 2, with four other `dotnet` processes live. `--timeout=60` is
+  a wall-clock bound, so a loaded machine can cut the battery short and report a *smaller* failing
+  count — which reads as "things improved", the most dangerous direction for a gate to be wrong in.
 
 - **AccuracySNES: `E9.01` and `E9.02` stand down as SKIP on a menu restart.** `E9.02` steps the noise
   LFSR by design and nothing can put it back: `FLG` bit 7 is the DSP's *soft* reset and does not
