@@ -46,13 +46,38 @@ use dsp::{ARAM_SIZE, Dsp};
 use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
 use spc700::{Spc700, Spc700Bus};
 
-/// SMP base clocks one bus access consumes — ares `cycleWaitStates[0]` (the reset wait state).
+/// SMP base clocks one bus access consumes at the **reset** wait state — `SMP_CYCLE_WAIT[0]`.
 ///
 /// The SMP base clock is `apuFrequency / 12` (ares `SMP::create(apuFrequency()/12, …)`); a normal
-/// access is 2 of those base ticks, giving the ~1.024 MHz effective opcode-cycle rate. The
-/// per-region external/internal wait-state divider (the glitchy `{2,4,10,20}` table) collapses to
-/// this reset default — no committed program reprograms `$F0`'s wait selectors.
+/// access is 2 of those base ticks, giving the ~1.024 MHz effective opcode-cycle rate. Kept as a
+/// named constant because it is the value every unit test and every shipped program actually sees:
+/// `$F0`'s wait selectors reset to 0 and no commercial driver reprograms them.
 const SMP_WAIT: u32 = 2;
+
+/// SMP base clocks the **CPU** consumes per opcode cycle, indexed by a `$F0` wait selector.
+///
+/// The selector is nominally a clock divider of `{2, 4, 8, 16}`, but dividers of 8 and 16 are
+/// glitchy on real silicon and the CPU ends up consuming **10 and 20**. ares and bsnes document it
+/// identically (`sfc/smp/timing.cpp`): *"sometimes the SMP will run far slower than expected, other
+/// times … the SMP will deadlock until the system is reset. The timers are not affected by this and
+/// advance by their expected values."*
+///
+/// That last sentence is why there are two tables and not one — see [`SMP_TIMER_WAIT`]. The gap
+/// between them is directly measurable from a cart, and `E3.09` measures it.
+const SMP_CYCLE_WAIT: [u32; 4] = [2, 4, 10, 20];
+
+/// SMP base clocks the **timers** advance per opcode cycle, indexed by a `$F0` wait selector.
+///
+/// The un-glitched divider, ares `timerWaitStates`. At selectors 2 and 3 the timers advance 8 and
+/// 16 where the CPU pays 10 and 20, so over a fixed instruction sequence the timers accumulate
+/// `8/10` of the elapsed real time — which reads from a cart as the timers running **faster
+/// relative to the program** than at selector 0, by exactly `8/2 = 4`. See [`SMP_CYCLE_WAIT`].
+const SMP_TIMER_WAIT: [u32; 4] = [2, 4, 8, 16];
+
+/// The largest `base_clocks` a recorded micro-op can legitimately carry: the slowest wait selector,
+/// un-halved. A save-state claiming more never came from real execution, and a value `plan_sub`
+/// could never reach would wedge `advance_smp_cycle`.
+const MAX_PLAN_BASE_CLOCKS: u32 = SMP_CYCLE_WAIT[3];
 
 /// SMP base clocks per S-DSP **micro-tick**. The S-DSP runs its 32-step voice sequence one
 /// [`Dsp::tick`] at a time; 32 ticks = one 32 kHz stereo sample. `apuFrequency = 32040 × 768`, the
@@ -258,6 +283,35 @@ impl Default for Io {
 }
 
 impl Io {
+    /// Which `$F0` wait selector governs an access — ares `SMP::wait`'s address classification.
+    ///
+    /// Idle cycles (no address), the `$00F0-$00FF` register block, and the IPL ROM **while it is
+    /// mapped** are *internal*; everything else is *external*. The IPL clause reads oddly until you
+    /// note it is conditional on the mapping: once `$F1` bit 7 is clear those addresses are ordinary
+    /// ARAM and take the external selector like any other.
+    const fn wait_index(&self, address: Option<u16>) -> usize {
+        let internal = match address {
+            None => true,
+            Some(a) => a & 0xFFF0 == 0x00F0 || (a >= 0xFFC0 && self.iplrom_enable),
+        };
+        (if internal {
+            self.internal_wait
+        } else {
+            self.external_wait
+        }) as usize
+    }
+
+    /// The `(cpu, timer)` base-clock pair one access costs, halved for the split `$F4-$F7` reads.
+    ///
+    /// Returned as a pair rather than resolved separately at each call site because the whole point
+    /// of the glitch is that the two numbers differ; computing them apart invites one of them to be
+    /// derived from the wrong table.
+    const fn wait_clocks(&self, halve: bool, address: Option<u16>) -> (u32, u32) {
+        let idx = self.wait_index(address);
+        let shift = if halve { 1 } else { 0 };
+        (SMP_CYCLE_WAIT[idx] >> shift, SMP_TIMER_WAIT[idx] >> shift)
+    }
+
     fn save_state(&self, s: &mut SaveWriter) {
         s.write_bool(self.timers_disable);
         s.write_bool(self.ram_writable);
@@ -619,8 +673,8 @@ impl Apu {
     /// `MAX_SAVED_PLAN_LEN` (mirroring the GSU's `pending_clocks` validation in
     /// `rustysnes-cart` — an in-flight instruction has at most a handful of micro-ops, so a
     /// larger claimed length could never have come from real execution); a step's `base_clocks`
-    /// is neither `1` nor `2` (`record`/`record_next_instruction` only ever push `SMP_WAIT` or
-    /// `SMP_WAIT >> 1`; an out-of-range value risks `plan_sub` never reaching it, wedging
+    /// is zero or above `MAX_PLAN_BASE_CLOCKS` (`record` only ever pushes a `SMP_CYCLE_WAIT`
+    /// entry, optionally halved; an out-of-range value risks `plan_sub` never reaching it, wedging
     /// `advance_smp_cycle`, or an unbounded drain); `plan_pos` exceeds the restored plan's
     /// length; or `plan_sub` is inconsistent with `plan_pos` (nonzero while `plan_pos` is already
     /// past the end of the plan, or `>=` the step at `plan_pos`'s own `base_clocks` — either
@@ -646,9 +700,10 @@ impl Apu {
         self.plan.clear();
         for _ in 0..plan_len {
             let base_clocks = s.read_u32()?;
-            if base_clocks == 0 || base_clocks > SMP_WAIT {
+            if base_clocks == 0 || base_clocks > MAX_PLAN_BASE_CLOCKS {
                 return Err(SaveStateError::Invalid(alloc::format!(
-                    "APU instruction plan step base_clocks {base_clocks} is not 1 or {SMP_WAIT}"
+                    "APU instruction plan step base_clocks {base_clocks} exceeds the largest a \
+                     wait selector can produce ({MAX_PLAN_BASE_CLOCKS})"
                 )));
             }
             let port_write = if s.read_bool()? {
@@ -712,15 +767,19 @@ struct SmpBus<'a> {
 }
 
 impl SmpBus<'_> {
-    /// Advance the SMP base clock + the timers by `clocks` base ticks (ares `SMP::step` +
-    /// `stepTimers`). One normal bus access is [`SMP_WAIT`] (= ares `cycleWaitStates[0]`) ticks.
-    fn step(&mut self, clocks: u32) {
-        self.cycles += clocks;
+    /// Advance the SMP base clock + the timers for one access — ares `SMP::wait`.
+    ///
+    /// The CPU and the timers are advanced by **different** amounts whenever a `$F0` wait selector
+    /// is 2 or 3: the CPU pays the glitchy `{10, 20}` while the timers advance the expected
+    /// `{8, 16}`. At the reset selector both are [`SMP_WAIT`], which is why this reduces to the
+    /// previous single-number behaviour for every program that leaves `$F0` alone.
+    fn wait(&mut self, halve: bool, address: Option<u16>) {
+        let (cpu_clocks, timer_clocks) = self.io.wait_clocks(halve, address);
+        self.cycles += cpu_clocks;
         let te = self.io.timers_enable;
         let td = self.io.timers_disable;
-        // Timers advance on the same SMP base timebase as the CPU (ares `timerWaitStates[0]` = 2).
         for t in self.timers.iter_mut() {
-            t.step(clocks as u16, te, td);
+            t.step(timer_clocks as u16, te, td);
         }
     }
 
@@ -816,14 +875,14 @@ impl Spc700Bus for SmpBus<'_> {
         // steps around the data fetch (`wait(1)` twice). At the reset wait state the total is the
         // same SMP_WAIT base clocks as any other access, but the split is preserved for fidelity.
         if address & 0xFFFC == 0x00F4 {
-            self.step(SMP_WAIT >> 1);
+            self.wait(true, Some(address));
             let v = self
                 .read_io(address)
                 .unwrap_or_else(|| self.read_ram(address));
-            self.step(SMP_WAIT >> 1);
+            self.wait(true, Some(address));
             return v;
         }
-        self.step(SMP_WAIT);
+        self.wait(false, Some(address));
         if let Some(io) = self.read_io(address) {
             return io;
         }
@@ -831,7 +890,7 @@ impl Spc700Bus for SmpBus<'_> {
     }
 
     fn write(&mut self, address: u16, data: u8) {
-        self.step(SMP_WAIT);
+        self.wait(false, Some(address));
         // Writes to $FFC0-$FFFF always reach ARAM even with the IPL ROM mapped in.
         if self.io.ram_writable && !self.io.ram_disable {
             self.aram[address as usize] = data;
@@ -840,7 +899,9 @@ impl Spc700Bus for SmpBus<'_> {
     }
 
     fn idle(&mut self) {
-        self.step(SMP_WAIT);
+        // ares `SMP::idle` is `wait(0)`: NOT halved, and with no address, so an idle cycle takes
+        // the *internal* selector. At the reset selector that is [`SMP_WAIT`], unchanged.
+        self.wait(false, None);
     }
 }
 
@@ -874,11 +935,15 @@ impl RecordingSmpBus<'_> {
     /// register (`$F3`) mid-execution the **cycle-correct** value: the DSP has advanced exactly the
     /// ticks up to that base clock and no further. blargg's `spc_dsp6` / `spc_mem_access_times` use
     /// the DSP as a sub-cycle reference, so this granularity is required for them to resolve.
-    fn record(&mut self, clocks: u32) {
+    fn record(&mut self, halve: bool, address: Option<u16>) {
+        // The CPU's cost and the timers' are two different numbers whenever a `$F0` wait selector
+        // is 2 or 3 — see `SMP_CYCLE_WAIT`. The plan, the DSP catch-up and `consumed` all follow
+        // the CPU's, because those are real base clocks; only the timers take the other table.
+        let (clocks, timer_clocks) = self.io.wait_clocks(halve, address);
         let te = self.io.timers_enable;
         let td = self.io.timers_disable;
         for t in self.timers.iter_mut() {
-            t.step(clocks as u16, te, td);
+            t.step(timer_clocks as u16, te, td);
         }
         *self.consumed += clocks;
         *self.dsp_counter += clocks;
@@ -996,14 +1061,14 @@ impl Spc700Bus for RecordingSmpBus<'_> {
     fn read(&mut self, address: u16) -> u8 {
         if address & 0xFFFC == 0x00F4 {
             // $F4-$F7 read: ares splits the wait into two halved steps around the fetch.
-            self.record(SMP_WAIT >> 1);
+            self.record(true, Some(address));
             let v = self
                 .read_io(address)
                 .unwrap_or_else(|| self.read_ram(address));
-            self.record(SMP_WAIT >> 1);
+            self.record(true, Some(address));
             return v;
         }
-        self.record(SMP_WAIT);
+        self.record(false, Some(address));
         if let Some(io) = self.read_io(address) {
             return io;
         }
@@ -1018,7 +1083,10 @@ impl Spc700Bus for RecordingSmpBus<'_> {
         // already-happened — the one-access phase the blargg `spc_timer` / `spc_smp` /
         // `spc_mem_access_times` suites pin. (Matches [`SmpBus::write`], which already steps first;
         // the recording bus previously stored first, shifting the timer phase by one access.)
-        self.record(SMP_WAIT);
+        //
+        // Stepping first also means a write that CHANGES a wait selector pays the OLD one, which is
+        // ares' ordering too — `wait()` runs before `writeIO`.
+        self.record(false, Some(address));
         // Writes to $FFC0-$FFFF always reach ARAM even with the IPL ROM mapped in.
         if self.io.ram_writable && !self.io.ram_disable {
             self.aram[address as usize] = data;
@@ -1031,7 +1099,7 @@ impl Spc700Bus for RecordingSmpBus<'_> {
     }
 
     fn idle(&mut self) {
-        self.record(SMP_WAIT);
+        self.record(false, None); // ares `SMP::idle` = `wait(0)`: internal selector, not halved
     }
 }
 
@@ -1077,6 +1145,52 @@ mod tests {
         let mut apu = Apu::new();
         let mut bus = NullAudioBus;
         apu.tick(&mut bus);
+    }
+
+    /// The reset wait selector must reproduce the old single-number behaviour exactly, or every
+    /// timing golden in the tree moves for a feature no shipped program uses.
+    #[test]
+    fn the_reset_wait_selector_costs_what_it_always_did() {
+        let io = Io::default();
+        assert_eq!(io.wait_clocks(false, Some(0x0200)), (SMP_WAIT, SMP_WAIT));
+        assert_eq!(io.wait_clocks(false, None), (SMP_WAIT, SMP_WAIT));
+        assert_eq!(io.wait_clocks(true, Some(0x00F4)), (1, 1));
+    }
+
+    /// The whole point of `E3.09`: at selectors 2 and 3 the CPU pays 10/20 while the timers advance
+    /// 8/16. A core using one table for both is what this pins against.
+    #[test]
+    fn the_glitchy_wait_selectors_charge_the_cpu_more_than_the_timers() {
+        let mut io = Io::default();
+        for (selector, cpu, timer) in [(1u8, 4, 4), (2, 10, 8), (3, 20, 16)] {
+            io.external_wait = selector;
+            io.internal_wait = selector;
+            assert_eq!(
+                io.wait_clocks(false, Some(0x0200)),
+                (cpu, timer),
+                "selector {selector}"
+            );
+        }
+    }
+
+    /// The address classification, which decides *which* selector an access takes.
+    #[test]
+    fn the_register_block_and_a_mapped_ipl_take_the_internal_selector() {
+        let mut io = Io {
+            external_wait: 1, // 4 clocks
+            internal_wait: 3, // 20 / 16
+            ..Io::default()
+        };
+        assert_eq!(io.wait_clocks(false, Some(0x0200)), (4, 4), "plain ARAM");
+        assert_eq!(io.wait_clocks(false, Some(0x00F3)), (20, 16), "$F3 is IO");
+        assert_eq!(io.wait_clocks(false, None), (20, 16), "an idle cycle");
+        assert_eq!(io.wait_clocks(false, Some(0xFFC0)), (20, 16), "IPL mapped");
+        io.iplrom_enable = false;
+        assert_eq!(
+            io.wait_clocks(false, Some(0xFFC0)),
+            (4, 4),
+            "unmapped, $FFC0 is ordinary ARAM and takes the external selector"
+        );
     }
 
     #[test]

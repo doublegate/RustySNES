@@ -147,6 +147,7 @@ pub fn all() -> Vec<Test> {
         e6_02d(),
         e3_06(),
         e3_08(),
+        e3_09(),
         // LAST, and it has to be. Every other program leaves FLG's noise rate at zero, so the
         // noise LFSR never advances and `E9.01` reads the power-on seed. `E9.02` steps it and
         // nothing can put it back. Anything appended below this line runs after that has happened.
@@ -8444,4 +8445,157 @@ fn e3_08() -> Test {
         Kind::Scored,
         None,
     )
+}
+
+/// `E3.09` — the glitchy wait states cost the **CPU** 10 and 20 clocks per opcode cycle while the
+/// **timers** advance by 8 and 16.
+///
+/// # The claim, and why it needs two numbers
+///
+/// `$F0`'s two wait selectors (bits 4-5 external, 6-7 internal) are nominally a clock divider of
+/// `{2, 4, 8, 16}`. ares and bsnes carry the same comment (`sfc/smp/timing.cpp`): *"due to an
+/// unknown hardware issue, clock dividers of 8 and 16 are glitchy; the SMP ends up consuming 10 and
+/// 20 clocks per opcode cycle instead … **the timers are not affected by this** and advance by their
+/// expected values."* Hence `cycleWaitStates[4] = {2,4,10,20}` against
+/// `timerWaitStates[4] = {2,4,8,16}` — two tables, and the gap between them is the assertion.
+///
+/// # Reading the gap as a ratio, from the program's own point of view
+///
+/// A wait selector changes clocks-per-opcode-cycle, not the cycle count of an instruction, so the
+/// **same loop is the same number of opcode cycles in both phases**. What changes is how much timer
+/// each cycle buys. Timer 0 at `T0DIV = 1` ticks every 256 timer clocks, so over a fixed loop:
+///
+/// | selector | timer clocks per opcode cycle | ticks, relative |
+/// |---|---:|---:|
+/// | 0 | 2 | **1x** |
+/// | 2 | 8 | **4x** |
+///
+/// Three implementations give three different answers, and the middle one is the interesting one:
+///
+/// | model | phase B / phase A |
+/// |---|---:|
+/// | wait selectors unimplemented | **1x** |
+/// | one table for both (the *cycle* table used for the timers) | **5x** |
+/// | the two documented tables | **4x** |
+///
+/// So this row does not merely detect a missing feature; it separates the two ways of having it.
+/// RustySNES read 1x when the row was written — `$F0`'s selectors were parsed into fields that
+/// nothing downstream consulted — and the emulator half of this change is what makes it read 4x.
+///
+/// # The three bits that are not the subject and must not move
+///
+/// `$F0` also carries the timer halt (bit 0), the RAM write enable (bit 1) and the global timer
+/// enable (bit 3). The reset value is `$0A`, and phase B is `$AA` — the same three bits, plus
+/// selector 2 in both halves. Clearing bit 1 by writing a bare `$A0` would drop every `MOV dp,A`
+/// in the poll loop, so the accumulator would read zero and the row would look like a timing
+/// finding when it was a store that never happened. Both selectors are set together because the
+/// loop mixes external accesses (instruction fetches) with internal ones (`$FD`), and a row that
+/// only set one of them would be measuring the *mixture*, not the table.
+///
+/// `$F0` is restored to `$0A` before the results are parked, so `release_to_ipl` and every later
+/// upload run at normal speed.
+fn e3_09() -> Test {
+    /// Polls per phase. Enough that phase A is a double-figure count — a small A makes the 4x band
+    /// and the 5x one overlap.
+    const POLLS: u8 = 0x30;
+    /// `$F0` at reset: timers enabled, RAM writable, both selectors 0.
+    const TEST_NORMAL: u8 = 0x0A;
+    /// The same, with selector **2** in both halves: the CPU pays 10 where the timers advance 8.
+    const TEST_SLOW: u8 = 0xAA;
+
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_dp_imm(0xFA, 0x01) // T0DIV = 1, the fastest
+        .mov_dp_imm(0xF1, 0x81); // enable timer 0; bit 7 keeps the IPL mapped
+
+    e3_09_count_ticks(&mut prog, TEST_NORMAL, POLLS, PORT2);
+    e3_09_count_ticks(&mut prog, TEST_SLOW, POLLS, PORT3);
+
+    prog.mov_dp_imm(0xF0, TEST_NORMAL) // back to normal BEFORE anything has to wait on the cart
+        .mov_dp_imm(0xF1, 0x80)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(268, "E3.09 timer 0 ticks at wait selector 0");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.record(
+        269,
+        "E3.09 the same loop at selector 2 (expect 4x, not 1x or 5x)",
+    );
+
+    a.c("The guard fixes the baseline. A zero or tiny phase A makes every band below overlap, and");
+    a.c("that failure mode looks exactly like a ratio finding.");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.assert_a16_range(
+        0x08,
+        0x18,
+        "timer 0 did not tick a sane number of times over the loop at the reset wait selector, so \
+         the baseline the ratio below is measured against does not exist -- E3.06 owns the timer's \
+         rate itself",
+    );
+
+    a.c("The row: phase B minus four times phase A. 1x means the selectors are parsed and never");
+    a.c("used; 5x means one table is doing both jobs; 0 means the two documented tables.");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.l("sta $00");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.l("asl a");
+    a.l("asl a"); // four times phase A
+    a.l("sec");
+    a.l("sbc $00");
+    a.assert_abs_le(
+        0x06,
+        "the loop did not run four times as much timer at wait selector 2 as at selector 0. Equal \
+         counts mean the selector is stored and never consulted; five times means the CPU's \
+         glitchy 10-clock cost is being charged to the timers as well, where hardware advances \
+         them by the un-glitched 8",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E3.09",
+        'E',
+        "Waits: CPU 10, timer 8",
+        Provenance::Documented(
+            "ares and bsnes sfc/smp/timing.cpp, identically: cycleWaitStates {2,4,10,20} against \
+             timerWaitStates {2,4,8,16}, with the comment that the timers are not affected by the \
+             8/16 divider glitch",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Emit: set `$F0` to `test`, then accumulate timer-0 ticks over `polls` passes into `port`.
+///
+/// The counter is drained before the loop so each phase starts from zero, and read-and-cleared
+/// every pass so the four-bit `T0OUT` can never be the ceiling — the same instrument `E3.06` needed
+/// for timer 2, for the same reason.
+fn e3_09_count_ticks(prog: &mut Spc, test: u8, polls: u8, port: u8) {
+    prog.mov_dp_imm(0xF0, test)
+        .mov_dp_imm(0x10, 0x00) // accumulated ticks
+        .mov_dp_imm(0x11, 0x00) // poll counter
+        .mov_a_dp(0xFD); // drain, so this phase counts only its own loop
+    let poll = prog.here();
+    prog.mov_a_dp(0xFD)
+        .mov_dp_a(0x12)
+        .mov_a_dp(0x10)
+        .clrc()
+        .adc_a_dp(0x12)
+        .mov_dp_a(0x10)
+        .inc_dp(0x11)
+        .mov_a_dp(0x11)
+        .cmp_a_imm(polls);
+    prog.bne_back(poll);
+    prog.mov_a_dp(0x10).mov_dp_a(port);
 }

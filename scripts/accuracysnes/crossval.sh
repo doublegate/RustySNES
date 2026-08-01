@@ -92,6 +92,15 @@ ran=0
 #   followed by `synchronizeStage1()` on all three timers); fullsnes documents bits 0 and 3 as the
 #   timer controls. Two tests failing on one missing switch case is the expected shape of this —
 #   the register gates several unrelated behaviours, and each one is its own assertion.
+# snes9x, +1 test (E3.09 "Waits: CPU 10, timer 8"): the THIRD row off that same missing `case 0xf0`,
+#   and the one that shows why the shape is worth stating. `$F0` bits 4-5 and 6-7 select the SMP's
+#   wait state; with the register discarded, selector 2 runs at selector 0's speed and the row's
+#   ratio reads 1x where hardware gives 4x. **Mesen2 and ares both PASS it**, so this is 3-vs-1 with
+#   snes9x the documented outlier -- and RustySNES only joined the majority in the same change that
+#   added the row: its `$F0` selectors were parsed into fields nothing downstream ever read. ares
+#   and bsnes are the citation (`sfc/smp/timing.cpp`), carrying `cycleWaitStates {2,4,10,20}` against
+#   `timerWaitStates {2,4,8,16}` and the comment that the timers are not affected by the divider
+#   glitch.
 # snes9x, +1 test (B4.13 "Timer range is 9-bit"): an H-IRQ fires with HTIME = 400, a position no
 #   scanline reaches. The register itself is stored correctly to nine bits (`ppu.cpp`, the $4207 and
 #   $4208 cases each keep their half); the defect is downstream, in scheduling. snes9x converts the
@@ -166,7 +175,7 @@ ran=0
 #   overflow a line early because it evaluates and paints in the same pass. The 20-sprite/8x8 control
 #   passes there, so this is the position being wrong, not the budget. Documented by nocash fullsnes
 #   and the SNESdev Wiki (34-tile budget, raised by the fetch phase). Region-independent.
-SNES9X_KNOWN_FAILURES=14
+SNES9X_KNOWN_FAILURES=15
 
 # --- Mesen2's own known divergences -------------------------------------------------------------
 #

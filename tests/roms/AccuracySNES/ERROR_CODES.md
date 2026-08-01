@@ -2662,6 +2662,15 @@ Provenance: **Documented** (fullsnes, SPC700 TEST register; ares and bsnes smp/t
 | 1 | `$02` | timer 0 advanced while TEST bit 0 was set, so the halt bit is being modelled as ordinary storage rather than as a control |
 | 2 | `$04` | timer 0 did not advance with TEST back at its reset value, so the halted reading above says nothing about the halt bit |
 
+### E3.09 — Waits: CPU 10, timer 8
+
+Provenance: **Documented** (ares and bsnes sfc/smp/timing.cpp, identically: cycleWaitStates {2,4,10,20} against timerWaitStates {2,4,8,16}, with the comment that the timers are not affected by the 8/16 divider glitch). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | timer 0 did not tick a sane number of times over the loop at the reset wait selector, so the baseline the ratio below is measured against does not exist -- E3.06 owns the timer's rate itself |
+| 2 | `$04` | the loop did not run four times as much timer at wait selector 2 as at selector 0. Equal counts mean the selector is stored and never consulted; five times means the CPU's glitchy 10-clock cost is being charged to the timers as well, where hardware advances them by the un-glitched 8 |
+
 ### E9.02 — Noise output is bipolar
 
 Provenance: **Documented** (fullsnes and anomie's DSP doc [ERRATA]: the noise output is highpass-filtered as a consequence of the 15-bit shift register being interpreted as the top bits of a signed 16-bit sample). Kind: scored.
