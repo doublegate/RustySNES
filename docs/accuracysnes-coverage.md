@@ -12,7 +12,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `A2` | 10 | 10 | 0 | — |
 | `A3` | 10 | 10 | 0 | — |
 | `A4` | 10 | 10 | 0 | — |
-| `A5` | 15 | 13 | 0 | A5.18, A5.20 |
+| `A5` | 15 | 14 | 0 | A5.20 |
 | `A6` | 15 | 13 | 0 | A6.13, A6.15 |
 | `A7` | 5 | 5 | 0 | — |
 | `A8` | 6 | 6 | 0 | — |
@@ -52,7 +52,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `F1` | 22 | 13 | 0 | F1.13, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
 | `G1` | 18 | 15 | 0 | G1.06, G1.13, G1.18 |
 
-**300 of 443** enumerated assertion rows covered by an on-cart test, plus **54** covered only by a rendered scene (`docs/adr/0013`) — **354 of 443** in total.
+**301 of 443** enumerated assertion rows covered by an on-cart test, plus **54** covered only by a rendered scene (`docs/adr/0013`) — **355 of 443** in total.
 
 The two columns are kept apart on purpose. An on-cart result means the same thing on any emulator and on real hardware; a rendered scene needs a host holding the golden. Adding them into one figure would quietly change what the number claims.
 

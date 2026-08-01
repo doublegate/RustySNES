@@ -95,6 +95,7 @@ pub fn all() -> Vec<Test> {
         a3_06(),
         a5_09(),
         a5_10(),
+        a5_18(),
         a5_19(),
         a6_11(),
         a8_07(),
@@ -2760,6 +2761,150 @@ fn a5_19() -> Test {
         "A5.19",
         'A',
         "RTI 7 native, 6 emul",
+        Provenance::Documented(
+            "WDC datasheet instruction-operation table; docs/accuracysnes-timing-oracle.md",
+        ),
+        Kind::Scored,
+        None,
+    )
+}
+
+/// Dots elapsed per **3** extra stack accesses: 3 x 8 master clocks / 4 clocks-per-dot.
+///
+/// `A5.18` chains three `BRK`s rather than eight, and the reason is the scanline, not the signal:
+/// see that test's note on span length.
+const DOTS_PER_3_STACK_ACCESSES: u16 = 6;
+
+/// `BRK` costs 8 cycles in native mode and 7 in emulation (`A5.18`).
+///
+/// The extra native cycle is the **PBR push**: a native `BRK` frame is four bytes (PBR, PCH, PCL,
+/// P) and an emulation frame is three. So the difference is one stack *write* — an 8-clock WRAM
+/// access, not a 6-clock internal cycle — which is why this expects a stack-access constant, the
+/// same way its sibling [`a5_19`] does.
+///
+/// # Nothing returns, and that is what isolates `BRK`
+///
+/// The obvious chain is `BRK` into a handler that `RTI`s back. That measures `BRK + RTI`, and
+/// `RTI` **also** differs by one stack access between the modes (`A5.19`) — so the pair would come
+/// back at two accesses per iteration and this row would be reporting its sibling's result added to
+/// its own. Deriving one from the other is weaker than measuring it.
+///
+/// So nothing returns. `V_BRK_VEC` is pointed at the instruction *after* the `BRK`, which the
+/// runtime's `jmp (V_BRK_VEC)` trampoline reaches directly — there is no handler body at all, and
+/// therefore no handler body whose cost could differ between the modes. Each frame is simply
+/// abandoned on the stack; four of them is 16 bytes native and 12 emulation, and `S` is put back
+/// after each span rather than during it.
+///
+/// **Both `BRK` vectors already share one trampoline.** `$FFE6` (native) and `$FFFE` (emulation)
+/// both land on `brk_trampoline`, which `runtime.s` documents as deliberate — in emulation `$FFFE`
+/// is shared between IRQ and BRK, so a separate pointer behind it would invent a distinction the
+/// machine does not have. The consequence here is exactly what this row needs: the trampoline's
+/// cost is the *same code* in both spans and cancels.
+///
+/// # Three, and the count was MEASURED rather than estimated
+///
+/// `hv_begin`/`hv_end` difference the H counter, which wraps at `DOTS_PER_LINE` (341), so a span
+/// that outlives its scanline silently returns a small number rather than failing — the trap
+/// `A5.08` records and `A5.19` was bitten by.
+///
+/// The first draft used **four** iterations on an estimate of ~35 dots each. The estimate was
+/// wrong by a factor of three: an iteration is **~99 dots**, so four wrapped, and the readings said
+/// so unmistakably — native came back as `$FFF7` (a wrapped negative) against emulation's 323, a
+/// native span *shorter* than the emulation one, which is the arithmetic opposite of the assertion.
+/// Three iterations measure **297 native against 291 emulation**, both clear of the wrap, for a
+/// difference of exactly [`DOTS_PER_3_STACK_ACCESSES`].
+///
+/// The lesson is the one `A5.19` already recorded and this row had to relearn: **the span length is
+/// not something to estimate.** Record the two raw readings, look at them, and only then choose the
+/// repeat count — a wrapped span does not fail, it returns a plausible small number.
+///
+/// # `Y` counts, because `X` cannot be trusted across the mode boundary
+///
+/// The loop counter is `Y`. Emulation forces the index registers to 8 bits, so a 16-bit `X` set up
+/// in the native span would not survive into the emulation one — and anything that reads back
+/// differently between the two spans is a difference this row would report as `BRK`'s.
+fn a5_18() -> Test {
+    let mut a = Asm::new();
+    a.c("Three BRKs, and nothing returns from any of them. The vector points at the instruction");
+    a.c("after the BRK, so the span holds BRK + the runtime's trampoline + the loop, and only");
+    a.c("BRK's own frame size differs between the two arms.");
+    a.l("rep #$30");
+    a.l("lda #.LOWORD(@resume)");
+    a.l("sta a:V_BRK_VEC");
+
+    a.c("--- native: 4-byte frames ---");
+    a.c("Enter emulation once out here purely to force S into page 1, so both spans abandon their");
+    a.c("frames in the same place; SH stays $01 on the way back out.");
+    a.enter_emulation();
+    a.enter_native();
+    a.l("rep #$30");
+    a.l("tsc");
+    a.l("sta f:$7E00A0    ; S before the span, restored after it");
+    a.l("sep #$30");
+    a.measure_begin();
+    a.c("A no-op clc/xce, present only so this span matches the emulation one instruction for");
+    a.c("instruction. Removing it here would put the mode switch's own cost into the result.");
+    a.enter_native();
+    a.l("ldy #$03");
+    a.label("loop");
+    a.l("brk");
+    a.l(".byte $EA        ; BRK's signature byte, never executed -- nothing returns to it");
+    a.label("resume");
+    a.l("dey");
+    a.l("bne @loop");
+    a.enter_native();
+    a.measure_end();
+    a.measure_result();
+    a.l("sta f:$7E00A2    ; native baseline");
+    a.record(272, "3x BRK, native (8 cycles each)");
+    a.c("Put S back before the second span abandons four more frames onto it.");
+    a.l("rep #$30");
+    a.l("lda f:$7E00A0");
+    a.l("tcs");
+
+    a.c("--- emulation: 3-byte frames, the same loop ---");
+    a.c("Re-point the vector at THIS span's resume label. There is one trampoline pointer, so a");
+    a.c("second span needs a second write -- and it is out here, not inside the measurement.");
+    a.c("Leaving it aimed at the native span's label sends the emulation BRK back into the native");
+    a.c("loop with its own counter, which hangs the battery outright rather than reading wrong.");
+    a.l("rep #$30");
+    a.l("lda #.LOWORD(@eresume)");
+    a.l("sta a:V_BRK_VEC");
+    a.l("sep #$30");
+    a.measure_begin();
+    a.enter_emulation();
+    a.l("ldy #$03");
+    a.label("eloop");
+    a.l("brk");
+    a.l(".byte $EA");
+    a.label("eresume");
+    a.l("dey");
+    a.l("bne @eloop");
+    a.enter_native();
+    a.measure_end();
+    a.measure_result();
+    a.l("sta f:$7E00A4");
+    a.record(273, "3x BRK, emulation (7 cycles each)");
+    a.l("rep #$30");
+    a.l("lda f:$7E00A0");
+    a.l("tcs");
+
+    a.l("rep #$20");
+    a.l("lda f:$7E00A2");
+    a.l("sec");
+    a.l("sbc f:$7E00A4");
+    a.record(274, "3x (native - emulation), expect 6");
+    a.assert_a16_range(
+        DOTS_PER_3_STACK_ACCESSES - TOL,
+        DOTS_PER_3_STACK_ACCESSES + TOL,
+        "BRK did not push one extra byte in native mode (8 cycles vs 7): the native frame is PBR, \
+         PCH, PCL, P and the emulation frame is the same without PBR, so a core pushing the same \
+         three bytes in both reads zero here",
+    );
+    a.finish(
+        "A5.18",
+        'A',
+        "BRK 8 native, 7 emul",
         Provenance::Documented(
             "WDC datasheet instruction-operation table; docs/accuracysnes-timing-oracle.md",
         ),

@@ -596,6 +596,14 @@ Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables; docs/accu
 |---|---|---|
 | 1 | `$02` | LDX abs did not cost one extra 8-clock access with x=0 |
 
+### A5.18 — BRK 8 native, 7 emul
+
+Provenance: **Documented** (WDC datasheet instruction-operation table; docs/accuracysnes-timing-oracle.md). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | BRK did not push one extra byte in native mode (8 cycles vs 7): the native frame is PBR, PCH, PCL, P and the emulation frame is the same without PBR, so a core pushing the same three bytes in both reads zero here |
+
 ### A5.19 — RTI 7 native, 6 emul
 
 Provenance: **Documented** (WDC datasheet instruction-operation table; docs/accuracysnes-timing-oracle.md). Kind: scored.
