@@ -11,6 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dot model: the long scanline (`B2.03`).** PAL, interlace on, field set, `V = 311` is 1368 master
+  clocks and **341** dots. Its shape is the *opposite* of the short line's, which is why the two are
+  separate changes rather than one: `B2.02` substitutes dot lengths, while this appends a whole extra
+  4-clock dot and leaves the two 6-clock dots alone (`339 x 4 + 2 x 6 = 1368`). So it moves the H
+  wrap (`Ppu::dots_this_line`) rather than the Bus's clock table, and the H counter reaches dot 340
+  on that line and on no other.
+
+  The H-IRQ comparator's upper bound now follows the same per-line count instead of the constant, so
+  an `HTIME` landing on dot 340 is a genuine match on the long line and stays suppressed elsewhere —
+  previously it could never match anywhere.
+
+  PAL interlaced frames alternate **425,568 / 425,572** clocks. The test enables interlace through
+  `SETINI $2133` bit 0 rather than poking the field, so it drives the path a game would, and asserts
+  the *set* of frame lengths rather than their order — which phase carries the extra 4 clocks depends
+  on the field's power-on value, and pinning that would pin an initial condition the row does not
+  care about. Progressive PAL is asserted separately to be unaffected. Both fail under their own
+  injection.
+
+  Full workspace suite **872 passed, 0 failed**; no golden moved, the long line being in vblank.
+
+  **Separate and still unmodelled:** the interlaced frame's extra *scanline* (263/313 rather than
+  262/312). `Region::lines_per_frame` is the non-interlaced count by documentation, and `B2.03` is
+  reachable without it since `V = 311` is the last PAL line either way.
+
 - **Dot model: the short scanline is now modelled (`B2.02`).** NTSC, progressive, field set,
   `V = 240` is 1360 master clocks rather than 1364 — under this project's measured convention that
   means the two 6-clock dots (323, 327) are **not** long on that line, leaving 340 dots of 4, which

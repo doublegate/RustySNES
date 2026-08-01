@@ -1601,6 +1601,58 @@ impl core::fmt::Debug for Bus {
 mod tests {
     use super::*;
 
+    /// Dossier `B2.03`: PAL with interlace on has a 1368-clock, **341**-dot scanline at `V = 311`
+    /// on field-set frames, so the PAL frame alternates 425,568 / 425,572 master clocks.
+    ///
+    /// Interlace is enabled through `SETINI $2133` bit 0 rather than by poking the field directly,
+    /// so the test drives the same path a game would.
+    #[test]
+    fn the_pal_interlaced_frame_gains_the_long_scanline() {
+        let mut bus = Bus::new(Region::Pal);
+        bus.ppu.write_reg(0x2133, 0x01);
+        let mut frame = bus.ppu.frame_count();
+        let mut last = bus.clock.master;
+        let mut lens = std::vec::Vec::new();
+        while lens.len() < 4 {
+            bus.advance_master(MASTER_PER_DOT);
+            if bus.ppu.frame_count() != frame {
+                frame = bus.ppu.frame_count();
+                lens.push(bus.clock.master - last);
+                last = bus.clock.master;
+            }
+        }
+        // One of the two phases carries the extra 4 clocks; which one depends on the field's
+        // power-on value, so assert the SET rather than a fixed order -- pinning the order would
+        // be pinning an initial condition this row does not care about.
+        let mut kinds = lens.clone();
+        kinds.sort_unstable();
+        kinds.dedup();
+        assert_eq!(
+            kinds,
+            std::vec![425_568, 425_572],
+            "PAL interlaced frames must alternate by the 4 clocks the long scanline adds, got {lens:?}"
+        );
+    }
+
+    /// The long line is PAL+interlace only. Progressive PAL -- the default -- must not pick it up,
+    /// which is what separates it from `B2.02`'s NTSC case.
+    #[test]
+    fn progressive_pal_does_not_gain_the_long_scanline() {
+        let mut bus = Bus::new(Region::Pal);
+        let mut frame = bus.ppu.frame_count();
+        let mut last = bus.clock.master;
+        let mut lens = std::vec::Vec::new();
+        while lens.len() < 3 {
+            bus.advance_master(MASTER_PER_DOT);
+            if bus.ppu.frame_count() != frame {
+                frame = bus.ppu.frame_count();
+                lens.push(bus.clock.master - last);
+                last = bus.clock.master;
+            }
+        }
+        assert_eq!(lens, std::vec![425_568, 425_568, 425_568]);
+    }
+
     /// Dossier `B2.02`: the NTSC progressive frame alternates 357,368 / 357,364 master clocks,
     /// because scanline 240 of every other frame is 1360 clocks rather than 1364.
     ///
