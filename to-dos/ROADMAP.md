@@ -474,14 +474,26 @@ sit at `H ≥ 323`, past the visible window, past hblank's start and past `HDMA_
 that consumes dots `0..=322` moved: all 50 blessed scenes, both `hdmaen_latch_test` goldens, the
 whole battery and `B4.16`'s recorded H-IRQ positions were byte-identical before and after.
 
-**Still open, and now the only part left:** `B2.02` (short line, 1360 clocks, all 340 dots at 4) and
-`B2.03` (long line, 1368 clocks, 341 dots) are not modelled at all — neither before this change nor
-after. Both are line-length exceptions the scheduler does not currently express.
+**`B2.02`/`B2.03` — DONE 2026-08-01** (PRs #294, #297). The short line (1360 clocks, all 340 dots
+at 4) and the long line (1368 clocks, 341 dots) are both modelled; `Ppu::is_short_scanline` /
+`is_long_scanline` / `dots_this_line` express the exceptions and the scheduler consumes them.
 
-**Not done, deliberately:** the H-IRQ comparator still compares in the dot domain. Converting it to
-a line-clock comparison against ares' `4 × HTIME + 14` would shift IRQ timing by ~2 clocks and is
-the kind of change that re-blesses framebuffer goldens, so it wants its own ticket and its own
-adjudication rather than riding along with a change that provably moved nothing.
+**The H-IRQ comparator — DONE 2026-08-01** (PR #300), and the feared golden re-bless did not happen.
+The concern recorded here was that converting to a line-clock comparison against ares'
+`4 × HTIME + 14` "would shift IRQ timing by ~2 clocks". It shifts nothing below the long dots:
+`4·HTIME + 14` is never a multiple of 4, so the first dot boundary at or after it is `HTIME + 4` —
+exactly what the retired constant said. Only `HTIME` 321..=337 moves, which is where the six-clock
+dots displaced the boundaries and the constant was wrong. No framebuffer golden moved and
+cross-validation is byte-identical.
+
+**One thing that did come out of it, and is worth carrying forward:** `B4.16`, the golden written to
+guard exactly this change, **did not move either** — including at `HTIME = 330`, whose trigger dot
+went 334 → 333. The CPU takes an IRQ at an instruction boundary, so the handler-entry dot quantises
+to the spin loop's instruction length and a one-dot shift is absorbed. `B4.16` proves "nothing
+regressed"; it cannot prove "the change took effect". Do not read a static `B4.16` as evidence a
+model change was inert. It also settles the `v1.29.0` plan's guess that this change was "the
+likeliest thing under `B1.05`'s residual" — it is not, for the same reason: the instrument is
+coarser than the change.
 
 Two related defects in the same model:
 
