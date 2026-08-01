@@ -36,10 +36,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   The first suspect — that the contract's constant hold from power-on denies a menu its press edge —
   was tested and **refuted**: applying the contract from frame 0, 30 or 120 gives the same result at
-  1200 frames. The live lead is instead that `R_STATUS` holds exactly **24** non-zero bytes,
-  *constant across runs* while the magic bytes *vary* — so they are not uninitialised WRAM, and since
-  indices 0-39 read zero they sit at index >= 40. Both probes are committed so the next attempt
-  starts from the measurement rather than repeating it.
+  1200 frames, as does declaring `--snes.port1.type=SnesController` explicitly.
+
+  A "24 non-zero bytes" lead recorded mid-investigation was **my own over-read** — those bytes sit at
+  indices 336-359, past the end of a 335-entry array — and is retracted. The real signal is the
+  reverse: `R_STATUS[0..334]` is **zero** while the surrounding WRAM is **random**, and since MesenCE
+  powers on with randomised WRAM, an all-zero array is not the power-on state. Something zeroed it —
+  `runtime.s`'s own clear loop — so **the cart's init runs and reaches the pre-battery menu**. The
+  precise statement is not "the battery never starts" but "the cart never leaves its menu", whose
+  exit condition the source names as *wait for Start*.
+
+  Next suspect, matching every observation: the menu reads the pad through the **automatic joypad
+  read** (`$4218`), and if `--testRunner` does not drive auto-read the way `emu.setInput` implies,
+  Start is held host-side and reads zero cart-side. All three probes are committed so the next
+  attempt starts from the measurements rather than repeating them.
 
 - **PPU: the field flag's doc contradicted the code, and nothing pinned either.** `Ppu::field` is
   `$213F` bit 7 and toggles at the end of **every** frame; its doc comment said "toggles each frame

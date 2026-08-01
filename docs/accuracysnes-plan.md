@@ -659,11 +659,27 @@ the same result at 1200 frames: the magic never reads `ACSN`, `R_DONE` never rea
 `R_STATUS` holds exactly **24** non-zero bytes. The battery is not waiting for an edge. The probe is
 committed so the next attempt does not re-run a settled negative.
 
-**The live lead is that 24, not the zeros.** It is *constant across runs* while the magic bytes
-*vary*, so it is not uninitialised WRAM — that would vary too — and indices 0-39 read zero, so those
-bytes sit at index **>= 40**. Twenty-four deterministic bytes in an array that should be untouched is
-the next thing to explain: find *which* catalogue indices they are, and whether they correspond to
-real tests, before theorising further.
+**RETRACTED: the "24 non-zero bytes" was my own over-read.** They sit at indices **336-359**, past
+the end of a 335-entry array — I read 360 bytes and mistook what follows the array for a signal.
+
+**The real signal is the opposite one: `R_STATUS[0..334]` is ZERO while the surrounding WRAM is
+random.** MesenCE powers on with randomised WRAM (the header at `$F000` reads differently every
+run), so an all-zero status array is not the power-on state — **something zeroed it**. That
+something is `runtime.s`'s own clear loop, which means **the cart's init runs and reaches the
+pre-battery menu**. It is not dead at reset, and "the battery never starts" is more precisely "the
+cart never leaves its menu".
+
+The menu's exit condition is named in the source immediately below that loop: *"wait for Start to
+begin the battery"*. Two ways of supplying it are already ruled out — a rising edge
+(`mesen_edge_probe.lua`, frames 0/30/120 identical) and declaring `--snes.port1.type=SnesController`
+explicitly alongside port 2.
+
+**Next suspect, and it fits the shape of everything above:** the menu reads the pad through the
+**automatic joypad read** (`$4218`), not the manual shift register. If MesenCE's `--testRunner` does
+not drive auto-read the way `emu.setInput` implies, Start would be held on the host side and still
+read as zero on the cart side — invisible in the framebuffer, and consistent with init running while
+the menu never exits. Check what `$4218` actually contains from Lua before changing anything on the
+cart.
 
 #### `A5.18` — why it is parked despite working
 
