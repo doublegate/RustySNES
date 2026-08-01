@@ -124,6 +124,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   six 64-bit libraries so a packaging change that drops one fails rather than passing more quietly.
   `Cargo.lock` and `crates/rustysnes-monetization/**` are now in the path filters too.
 
+  **And the gate's own alignment test was wrong, which the APK run exposed.** It compared each
+  `PT_LOAD` Align to `0x4000` for *equality*, but the requirement is "aligned to at least 16 KB" —
+  a divisibility property. JNA's `libjnidispatch.so` ships at `0x10000` (64 KB), which is valid and
+  in fact stricter, and the equality test reported it as a violation. Measured before acting:
+  pulling the JNA AARs for 5.15.0/5.16.0/5.17.0/5.19.1 shows 5.15.0 at `0x10000` and the later ones
+  at `0x4000` — all fine — so bumping the dependency would have "fixed" nothing. The test is now
+  `align % 16384 == 0`, verified against real files to accept 64 KB and 16 KB and reject 4 KB.
+
+  The hardcoded "expect exactly 6 libraries" assertion was wrong too (the APK carries 10, including
+  two third-party ones) and is replaced by a by-name presence check for the three this project
+  builds — a count would need revising whenever a dependency adds a native library. Every library
+  in the APK is alignment-checked, not just ours: Play's requirement is a property of the package,
+  so a misaligned dependency fails the listing just as surely.
+
   Deliberately two actions only, both already pinned in this repo: the NDK comes from the runner
   image's own `sdkmanager` and the JDK is preinstalled, rather than adding three third-party actions
   to the supply-chain surface the `v1.26.0` pass tightened. `assembleDebug`, not release — signing

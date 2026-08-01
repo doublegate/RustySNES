@@ -134,22 +134,30 @@ jobs:
       - name: Assert 16 KB ELF page alignment on the 64-bit ABIs
         run: |
           set -euo pipefail
+          # The requirement is "aligned to AT LEAST 16 KB", so the test is divisibility, not
+          # equality. An exact `== 0x4000` match rejects a library that is MORE strictly aligned --
+          # JNA's `libjnidispatch.so` ships at `0x10000` (64 KB), which is perfectly valid, and the
+          # equality test flagged it as a violation on this workflow's first APK-level run. Bash
+          # parses the `0x` prefix inside `$(( ))`.
+          aligned16k() {
+            local a
+            for a in $(readelf -lW "$1" | awk '$1 == "LOAD" { print $NF }'); do
+              [ $(( a % 16384 )) -eq 0 ] || return 1
+            done
+            return 0
+          }
           fail=0
           checked=0
           for abi in arm64-v8a x86_64; do
             for so in android/app/src/main/jniLibs/"$abi"/*.so; do
               [ -e "$so" ] || { echo "::error::no .so produced for $abi"; exit 1; }
               checked=$((checked + 1))
-              # Every PT_LOAD's Align column, in hex. 16 KB = 0x4000.
-              bad=$(readelf -lW "$so" \
-                    | awk '$1 == "LOAD" { print $NF }' \
-                    | grep -vc '0x4000$' || true)
-              if [ "$bad" -ne 0 ]; then
-                echo "::error::$so has $bad LOAD segment(s) not aligned to 16 KB (0x4000)"
+              if aligned16k "$so"; then
+                echo "ok: $so"
+              else
+                echo "::error::$so has LOAD segment(s) not a multiple of 16 KB"
                 readelf -lW "$so" | awk '$1 == "LOAD"'
                 fail=1
-              else
-                echo "ok: $so — all LOAD segments 16 KB aligned"
               fi
             done
           done
@@ -209,32 +217,42 @@ jobs:
           set -euo pipefail
           apk=$(find android -name '*-debug.apk' | head -1)
           [ -n "$apk" ] || { echo "::error::no debug APK was produced"; exit 1; }
+          # Same divisibility test as the jniLibs gate above -- see its comment for why an exact
+          # `0x4000` match is wrong.
+          aligned16k() {
+            local a
+            for a in $(readelf -lW "$1" | awk '$1 == "LOAD" { print $NF }'); do
+              [ $(( a % 16384 )) -eq 0 ] || return 1
+            done
+            return 0
+          }
           work=$(mktemp -d)
           unzip -q "$apk" 'lib/*' -d "$work"
           fail=0
-          checked=0
+          # EVERY library in the APK is checked, not only ours: Play's requirement is a property of
+          # the shipped package, so a misaligned third-party dependency fails the listing just as
+          # surely as a misaligned one of ours.
           for abi in arm64-v8a x86_64; do
             for so in "$work/lib/$abi"/*.so; do
               [ -e "$so" ] || { echo "::error::the APK has no .so for $abi"; exit 1; }
-              checked=$((checked + 1))
-              bad=$(readelf -lW "$so" \
-                    | awk '$1 == "LOAD" { print $NF }' \
-                    | grep -vc '0x4000$' || true)
-              if [ "$bad" -ne 0 ]; then
-                echo "::error::$(basename "$so") ($abi) has $bad LOAD segment(s) not 16 KB aligned"
+              if aligned16k "$so"; then
+                echo "ok: $abi/$(basename "$so")"
+              else
+                echo "::error::$(basename "$so") ($abi) has LOAD segment(s) not a multiple of 16 KB"
                 readelf -lW "$so" | awk '$1 == "LOAD"'
                 fail=1
-              else
-                echo "ok: $abi/$(basename "$so")"
               fi
             done
+            # Presence, by name, for the three this project builds. A count would have to be
+            # revised every time a dependency adds or drops a native library -- and a wrong count
+            # is what this gate got wrong first time round, failing on a correct APK.
+            for want in librustysnes_android.so librustysnes_mobile.so librustysnes_monetization.so; do
+              [ -e "$work/lib/$abi/$want" ] || {
+                echo "::error::the APK is missing lib/$abi/$want -- jniLibs packaging regressed"
+                fail=1
+              }
+            done
           done
-          # Three libraries times two 64-bit ABIs. Pinned rather than left as "more than zero", so
-          # a packaging change that silently drops one is a failure and not a quieter pass.
-          if [ "$checked" -ne 6 ]; then
-            echo "::error::expected 6 64-bit libraries in the APK, checked $checked"
-            exit 1
-          fi
           exit "$fail"
 
       - name: Upload the APK
