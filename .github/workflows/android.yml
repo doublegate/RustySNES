@@ -1,0 +1,264 @@
+name: Android
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/rustysnes-android/**"
+      - "crates/rustysnes-mobile/**"
+      - "crates/rustysnes-monetization/**"
+      - "crates/rustysnes-gfx-shaders/**"
+      - "android/**"
+      - "Cargo.lock"
+      - ".github/workflows/android.yml"
+  pull_request:
+    paths:
+      - "crates/rustysnes-android/**"
+      - "crates/rustysnes-mobile/**"
+      - "crates/rustysnes-monetization/**"
+      - "crates/rustysnes-gfx-shaders/**"
+      - "android/**"
+      - "Cargo.lock"
+      - ".github/workflows/android.yml"
+  schedule:
+    # A ~60-day refresh, matching `ios.yml`'s cadence and for the same reason: the NDK and the
+    # Android Gradle Plugin move under us, and this workflow is the project's only exercise of
+    # either. Offset from `ios.yml` (1st) to the 15th so the two mobile jobs do not collide.
+    - cron: "0 8 15 */2 *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_NET_RETRY: "10"
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/rust-setup
+
+      # The four ABIs Play accepts for a 64-bit-required listing plus the two 32-bit ones the
+      # `minSdk = 21` floor still reaches. `cargo ndk` maps each to its NDK triple.
+      - name: Add the Android targets
+        run: |
+          rustup target add \
+            aarch64-linux-android \
+            armv7-linux-androideabi \
+            x86_64-linux-android \
+            i686-linux-android
+
+      - name: Confirm the Android targets actually installed
+        run: rustup target list --installed | grep -E 'android' | sort
+
+      # The NDK comes from the runner image's own Android SDK rather than a third-party action.
+      # `ubuntu-latest` ships `$ANDROID_HOME` with `sdkmanager`, so this adds no new supply-chain
+      # surface — the v1.26.0 hardening pass is the reason that matters here.
+      #
+      # r27 is the floor. Note that pinning the NDK is NOT by itself what produces 16 KB-aligned
+      # libraries — see the build step below, which passes the alignment explicitly because the
+      # first CI run proved the NDK version does not decide it.
+      - name: Install the NDK from the runner's Android SDK
+        run: |
+          set -euo pipefail
+          # `sdkmanager` is NOT on PATH on `ubuntu-latest` even though `$ANDROID_HOME` is set —
+          # it lives under the SDK's own cmdline-tools. Found by this workflow's first CI run.
+          : "${ANDROID_HOME:?the runner image is expected to provide an Android SDK}"
+          sdk="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$sdk" ]; then
+            echo "::error::no sdkmanager at $sdk"
+            ls -la "$ANDROID_HOME/cmdline-tools" || true
+            exit 1
+          fi
+          "$sdk" --install "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked --version ^3
+
+      # `--build-std` is deliberately NOT used: the shipped build must be reproducible from a
+      # stable toolchain, and `rust-toolchain.toml` pins 1.96 stable.
+      #
+      # `max-page-size=16384` is passed EXPLICITLY rather than relied upon as an NDK default. This
+      # workflow's first CI run failed the gate below with 4 KB-aligned LOAD segments, and the
+      # cause was measured, not guessed: with the same NDK r27c, `cargo-ndk` 3.5.4 emits 0x1000 and
+      # 4.1.2 emits 0x4000 — the linker invocation decides it, not the NDK. Passing the flag makes
+      # the result independent of which `cargo-ndk` resolves, which a version range cannot promise.
+      # Applied to the 64-bit ABIs only, matching what the gate checks and what Play requires; the
+      # 32-bit libraries stay 4 KB by design.
+      - name: Build the JNI libraries (64-bit ABIs, 16 KB-aligned)
+        env:
+          RUSTFLAGS: "-C link-arg=-Wl,-z,max-page-size=16384"
+        run: |
+          cargo ndk \
+            -t arm64-v8a -t x86_64 \
+            -o android/app/src/main/jniLibs \
+            build --release -p rustysnes-android -p rustysnes-mobile -p rustysnes-monetization
+
+      # Only the two 32-bit ABIs here. Re-listing the 64-bit ones would relink them without the
+      # flag above and overwrite the aligned output with 4 KB libraries — the gate would catch it,
+      # but silently undoing the previous step is worth not writing in the first place.
+      - name: Build the JNI libraries (32-bit ABIs)
+        run: |
+          cargo ndk \
+            -t armeabi-v7a -t x86 \
+            -o android/app/src/main/jniLibs \
+            build --release -p rustysnes-android -p rustysnes-mobile -p rustysnes-monetization
+
+      - name: Show what was produced
+        run: find android/app/src/main/jniLibs -name '*.so' -printf '%p  %s bytes\n' | sort
+
+      # ---------------------------------------------------------------------------------------
+      # The 16 KB page-alignment gate.
+      #
+      # Play requires every shipped `.so` to have 16 KB-aligned LOAD segments for devices with a
+      # 16 KB page size; a 4 KB-aligned library simply fails to load there.
+      #
+      # This gate earned its place on its first run: it failed, and the 4 KB libraries were real.
+      # It was written expecting to be a formality that confirmed an NDK default — the build step
+      # above records what the measurement actually showed. Treat a failure here as a genuine
+      # finding, not as a broken check.
+      #
+      # Checked on the 64-bit ABIs only: the requirement is a property of 64-bit page sizes, and
+      # the 32-bit libraries are 4 KB-aligned by design.
+      # ---------------------------------------------------------------------------------------
+      - name: Assert 16 KB ELF page alignment on the 64-bit ABIs
+        run: |
+          set -euo pipefail
+          # The requirement is "aligned to AT LEAST 16 KB", so the test is divisibility, not
+          # equality. An exact `== 0x4000` match rejects a library that is MORE strictly aligned --
+          # JNA's `libjnidispatch.so` ships at `0x10000` (64 KB), which is perfectly valid, and the
+          # equality test flagged it as a violation on this workflow's first APK-level run. Bash
+          # parses the `0x` prefix inside `$(( ))`.
+          aligned16k() {
+            local a
+            for a in $(readelf -lW "$1" | awk '$1 == "LOAD" { print $NF }'); do
+              [ $(( a % 16384 )) -eq 0 ] || return 1
+            done
+            return 0
+          }
+          fail=0
+          checked=0
+          for abi in arm64-v8a x86_64; do
+            for so in android/app/src/main/jniLibs/"$abi"/*.so; do
+              [ -e "$so" ] || { echo "::error::no .so produced for $abi"; exit 1; }
+              checked=$((checked + 1))
+              if aligned16k "$so"; then
+                echo "ok: $so"
+              else
+                echo "::error::$so has LOAD segment(s) not a multiple of 16 KB"
+                readelf -lW "$so" | awk '$1 == "LOAD"'
+                fail=1
+              fi
+            done
+          done
+          if [ "$checked" -eq 0 ]; then
+            echo "::error::the alignment gate checked nothing — the .so glob matched no files"
+            exit 1
+          fi
+          exit "$fail"
+
+      # The JDK is preinstalled on `ubuntu-latest`; Gradle comes from the committed wrapper rather
+      # than the runner's copy, so CI and a developer's machine build with the SAME Gradle. The
+      # runner image's preinstalled version moves under us, which is the drift a wrapper exists to
+      # remove — and until now this project had no wrapper at all, so every build depended on
+      # whatever Gradle happened to be installed.
+      - name: Show the Java, and the Gradle the wrapper pins
+        working-directory: android
+        run: |
+          java -version
+          ./gradlew --version
+
+      # `assembleDebug`, not `assembleRelease`: a release build needs signing material this
+      # workflow deliberately does not hold (see `docs/mobile-readiness.md`). What this proves is
+      # that the Kotlin sources, the manifest, and the freshly built `.so`s package together.
+      # `RUSTFLAGS` again, because Gradle's own `cargoNdkBuild` task re-runs `cargo ndk` for all
+      # three crates and does NOT inherit the flag from the steps above -- it inherits this process
+      # environment instead. Without it the APK ships 4 KB-aligned libraries even though the
+      # standalone build above produced 16 KB ones, which is exactly the false pass the APK-level
+      # gate below now catches.
+      - name: Assemble the debug APK
+        working-directory: android
+        env:
+          RUSTFLAGS: "-C link-arg=-Wl,-z,max-page-size=16384"
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Confirm the APK carries every ABI
+        run: |
+          set -euo pipefail
+          apk=$(find android -name '*-debug.apk' | head -1)
+          [ -n "$apk" ] || { echo "::error::no debug APK was produced"; exit 1; }
+          echo "APK: $apk"
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            if unzip -l "$apk" | grep -q "lib/$abi/"; then
+              echo "ok: $abi present"
+            else
+              echo "::error::the APK is missing lib/$abi/ — jniLibs packaging regressed"
+              exit 1
+            fi
+          done
+
+      # The authoritative alignment gate: the APK is what ships, and it carries THREE libraries per
+      # ABI (`librustysnes_android.so`, `librustysnes_mobile.so`, `librustysnes_monetization.so`),
+      # built by Gradle's own `cargoNdkBuild`. The earlier jniLibs gate checks a pre-Gradle build and
+      # would pass while the packaged libraries were misaligned -- a false pass CodeRabbit caught on
+      # this PR. Both are kept: the early one fails fast, this one is the truth.
+      - name: Assert 16 KB page alignment inside the APK
+        run: |
+          set -euo pipefail
+          apk=$(find android -name '*-debug.apk' | head -1)
+          [ -n "$apk" ] || { echo "::error::no debug APK was produced"; exit 1; }
+          # Same divisibility test as the jniLibs gate above -- see its comment for why an exact
+          # `0x4000` match is wrong.
+          aligned16k() {
+            local a
+            for a in $(readelf -lW "$1" | awk '$1 == "LOAD" { print $NF }'); do
+              [ $(( a % 16384 )) -eq 0 ] || return 1
+            done
+            return 0
+          }
+          work=$(mktemp -d)
+          unzip -q "$apk" 'lib/*' -d "$work"
+          fail=0
+          # EVERY library in the APK is checked, not only ours: Play's requirement is a property of
+          # the shipped package, so a misaligned third-party dependency fails the listing just as
+          # surely as a misaligned one of ours.
+          for abi in arm64-v8a x86_64; do
+            for so in "$work/lib/$abi"/*.so; do
+              [ -e "$so" ] || { echo "::error::the APK has no .so for $abi"; exit 1; }
+              if aligned16k "$so"; then
+                echo "ok: $abi/$(basename "$so")"
+              else
+                echo "::error::$(basename "$so") ($abi) has LOAD segment(s) not a multiple of 16 KB"
+                readelf -lW "$so" | awk '$1 == "LOAD"'
+                fail=1
+              fi
+            done
+            # Presence, by name, for the three this project builds. A count would have to be
+            # revised every time a dependency adds or drops a native library -- and a wrong count
+            # is what this gate got wrong first time round, failing on a correct APK.
+            for want in librustysnes_android.so librustysnes_mobile.so librustysnes_monetization.so; do
+              [ -e "$work/lib/$abi/$want" ] || {
+                echo "::error::the APK is missing lib/$abi/$want -- jniLibs packaging regressed"
+                fail=1
+              }
+            done
+          done
+          exit "$fail"
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: rustysnes-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14

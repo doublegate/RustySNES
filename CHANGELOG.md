@@ -86,6 +86,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generate. The on-screen controls that would drive it are still outstanding;
   `docs/mobile-readiness.md` now says which half is done.
 
+- **Android CI, with the 16 KB page-alignment gate (`v1.30.0`).** `android/` had Gradle sources and
+  a `cargo ndk` layout but **no workflow at all** — nothing built it, so nothing could regress
+  visibly. `.github/workflows/android.yml` cross-builds `rustysnes-android` for all four ABIs,
+  asserts every 64-bit `.so`'s `PT_LOAD` segments are 16 KB aligned, assembles a debug APK, and
+  checks the APK actually carries each ABI.
+
+  The alignment check is the store-facing one: Play requires 16 KB-aligned segments for 16 KB-page
+  devices and a 4 KB-aligned library simply fails to load there. It fails closed if the `.so` glob
+  matches nothing, so a build that produces no libraries cannot pass it silently.
+
+  **It was written as a formality and immediately found a real defect.** The first CI run produced
+  4 KB-aligned `arm64-v8a` and `x86_64` libraries — exactly what Play rejects. The gate's own
+  comment had asserted that 16 KB was the NDK default from r27 onward, so the obvious reading was
+  that the check was broken. It was not. Reproduced locally and bisected: with the **same** NDK
+  r27c, `cargo-ndk` 3.5.4 emits `0x1000` and 4.1.2 emits `0x4000`. The alignment is decided by the
+  linker invocation, not by the NDK version — and the workflow pinned `cargo-ndk` to `^3`, which
+  resolved to 3.5.4. Fixed by passing `-C link-arg=-Wl,-z,max-page-size=16384` explicitly for the
+  64-bit ABIs (verified to produce `0x4000` under the failing 3.5.4), so the result no longer
+  depends on a tool default that a version range cannot promise. The 32-bit ABIs build in a
+  separate step and stay 4 KB by design.
+
+  **The workflow also found that the Android app could not be built from a clean checkout at all.**
+  `android/gradle.properties` had never been committed, so `:app:checkDebugAarMetadata` fails with
+  "contains AndroidX dependencies, but the `android.useAndroidX` property is not enabled" — every
+  Android build this project has ever done ran on a machine that already had those settings in a
+  user-level `~/.gradle/gradle.properties`. Now committed, with `enableJetifier` explicitly off
+  (there are no legacy support-library artifacts to rewrite) and a raised Kotlin daemon heap.
+
+  **The alignment gate was itself checking the wrong artifacts, and CodeRabbit caught it.** The APK
+  carries **three** libraries per ABI (`librustysnes_android.so`, `librustysnes_mobile.so`,
+  `librustysnes_monetization.so`), all built by Gradle's own `cargoNdkBuild` — while the workflow's
+  standalone pre-build produced only `rustysnes-android`, and Gradle's task did not inherit the
+  alignment flag. So the gate could pass on libraries that never ship while the ones that do ship
+  were 4 KB aligned. Fixed on both sides: the pre-build now covers all three crates, the Gradle step
+  carries `RUSTFLAGS`, and a second gate runs over the **assembled APK's** `lib/` — pinned at exactly
+  six 64-bit libraries so a packaging change that drops one fails rather than passing more quietly.
+  `Cargo.lock` and `crates/rustysnes-monetization/**` are now in the path filters too.
+
+  **The gate's own alignment test was wrong too, and so was a shipped `libjnidispatch.so`.** The
+  test compared each `PT_LOAD` Align to `0x4000` for *equality*, but the requirement is "aligned to
+  at least 16 KB" — a divisibility property, and 64 KB satisfies it. Now `align % 16384 == 0`,
+  verified against real files to accept 64 KB and 16 KB and reject 4 KB.
+
+  Fixing that exposed a genuine one underneath, and finding it required measuring **per ABI** — the
+  first pass checked only `arm64-v8a` and generalised, which produced a confident wrong conclusion
+  that no dependency bump was needed. Reading the published JNA AARs:
+
+  | version | arm64-v8a | x86_64 | armeabi-v7a | x86 |
+  |---|---|---|---|---|
+  | 5.15.0 | `0x10000` | `0x1000` | `0x1000` | `0x1000` |
+  | 5.16.0+ | `0x4000` | `0x4000` | `0x4000` | `0x4000` |
+
+  So the pinned 5.15.0 satisfied the requirement on arm64 and **violated it on every other ABI**.
+  Bumped to 5.17.0 — 5.16.0 is the first release that fixes it, 5.17.0 the nearest settled patch
+  line after that change.
+
+  The hardcoded "expect exactly 6 libraries" assertion was wrong too (the APK carries 10, including
+  two third-party ones) and is replaced by a by-name presence check for the three this project
+  builds — a count would need revising whenever a dependency adds a native library. Every library
+  in the APK is alignment-checked, not just ours: Play's requirement is a property of the package,
+  so a misaligned dependency fails the listing just as surely.
+
+  Deliberately two actions only, both already pinned in this repo: the NDK comes from the runner
+  image's own `sdkmanager` and the JDK is preinstalled, rather than adding three third-party actions
+  to the supply-chain surface the `v1.26.0` pass tightened. `assembleDebug`, not release — signing
+  material is maintainer-only and stays out of CI.
+
+  The **Gradle wrapper is now committed** (`android/gradlew`, `gradlew.bat`, and
+  `gradle/wrapper/`, pinning Gradle 8.10). The project had none, so every build — CI or local —
+  used whatever Gradle happened to be installed, and this environment only ever had a cached
+  distribution. CI now runs `./gradlew`, so it and a developer's machine build with the same
+  Gradle.
+
 - **AccuracySNES: the Mesen2 oracle diagnosed, and a stale frame budget aligned.** Three `v1.28.0`
   items ended at "no oracle can arbitrate", so the headless runner was investigated rather than
   accepted as environmental. Established: the hang is genuinely pre-existing (the `v1.25.0`-era image
